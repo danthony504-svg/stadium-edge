@@ -8,7 +8,6 @@ import {
   type BuiltChatContext,
 } from "./api.ts";
 import { tryReachFullBoardScan, type FullBoardScanResult } from "./boardMarketScanner.ts";
-import { beginCoachScanPipeline } from "./coachScanPipeline.ts";
 import { boardScanMeetsLegTarget, boardScanReadyForDelivery } from "./coachScanPolicy.ts";
 import { buildGameTeamIdMap } from "./coachGameMonteCarlo.ts";
 import { enrichChatContextProps } from "./propSelection.ts";
@@ -251,7 +250,6 @@ async function runBoardScan(
   if (signal?.aborted) return null;
   const teamIdMap = buildGameTeamIdMap(espnGames);
   const requestId = `slate-pre-${Date.now()}`;
-  beginCoachScanPipeline(requestId);
   return tryReachFullBoardScan({
     target: SLATE_PRE_ANALYSIS_TARGET,
     oddsGames,

@@ -5556,9 +5556,13 @@ export default function CoachScreen() {
           terminalRef.current = true;
           scanInFlightRef.current = false;
         } else if (e instanceof CoachEvStageError) {
-          const failMsg = e.timedOut
-            ? `Line value / EV calculation timed out after ${Math.round(e.durationMs / 1000)}s (request ${e.requestId}). Tap below to try again.`
-            : `Line value / EV calculation failed: ${e.message}`;
+          if (e.timedOut) {
+            console.warn(
+              "[coach-scan] ev-timeout-nonfatal",
+              JSON.stringify({ requestId: e.requestId, durationMs: e.durationMs }),
+            );
+          } else {
+          const failMsg = `Line value / EV calculation failed: ${e.message}`;
           setCoachBuildProgress((prev) =>
             prev
               ? coachBuildProgressOnFailure(prev, failMsg, {
@@ -5581,6 +5585,7 @@ export default function CoachScreen() {
           });
           terminalRef.current = true;
           scanInFlightRef.current = false;
+          }
         } else if (e instanceof CoachCorrelationStageError) {
           const failMsg = e.timedOut
             ? `Correlation scoring timed out after ${Math.round(e.durationMs / 1000)}s (request ${e.requestId}). Tap below to try again.`

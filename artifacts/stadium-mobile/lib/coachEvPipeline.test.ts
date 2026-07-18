@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  CoachEvStageError,
   runCoachEvPropPrescore,
 } from "./coachEvPipeline.ts";
 import { beginCoachScanPipeline, clearCoachScanPipeline } from "./coachScanPipeline.ts";
@@ -68,11 +67,14 @@ test("runCoachEvPropPrescore times out on slow prop scoring", async () => {
   });
   const picks = Array.from({ length: 40 }, (_, i) => (i === 0 ? slow : propPick(`P${i}`)));
   const started = Date.now();
-  await assert.rejects(
-    () =>
-      runCoachEvPropPrescore(picks, { propPool: [] }, { requestId: "req-ev-4", timeoutMs: 30 }),
-    (err: unknown) => err instanceof CoachEvStageError && err.timedOut && err.requestId === "req-ev-4",
-  );
+  const result = await runCoachEvPropPrescore(picks, { propPool: [] }, {
+    requestId: "req-ev-4",
+    timeoutMs: 30,
+    target: 5,
+  });
+  assert.equal(result.timedOut, true);
+  assert.ok(result.outputCount > 0);
+  assert.equal(result.stats.processedCount < result.stats.inputCount, true);
   assert.ok(Date.now() - started < 2_000);
   clearCoachScanPipeline("req-ev-4");
 });

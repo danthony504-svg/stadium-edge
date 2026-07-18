@@ -72,8 +72,17 @@ export function resolveCoachScanRequestId(
   return id;
 }
 
+export const COACH_BACKGROUND_SCAN_PREFIX = "slate-pre-";
+
+export function isCoachBackgroundScanRequestId(requestId: string | undefined): boolean {
+  return !!requestId?.startsWith(COACH_BACKGROUND_SCAN_PREFIX);
+}
+
 export function beginCoachScanPipeline(requestId: string): void {
   assertCoachScanRequestId(requestId, "beginCoachScanPipeline");
+  if (isCoachBackgroundScanRequestId(requestId)) {
+    return;
+  }
   activeRequestId = requestId;
   for (const id of settledCorrelationRequestIds) {
     if (id !== requestId) settledCorrelationRequestIds.delete(id);

@@ -630,6 +630,8 @@ export function attachPickScores(
   opts: {
     realOdds?: RealOddsEntry[];
     propPool?: PropPoolEntry[];
+    /** Pre-built index for O(1) prop pool lookup during batched EV scoring. */
+    propPoolIndex?: Map<string, PropPoolEntry>;
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     fightAnalysis?: Record<string, FightAnalysis>;
@@ -653,6 +655,7 @@ export function attachPickScores(
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
   const propPool = opts.propPool ?? [];
+  const propPoolIndex = opts.propPoolIndex;
   const sims = opts.propSimulations;
   const gameSims = opts.gameSimulations;
   const propCtx = {
@@ -666,14 +669,19 @@ export function attachPickScores(
   return picks.map((p) => {
     const gameSim = gameSims?.get(p.game) ?? null;
     const propEntryEarly =
-      p.isProp && propPool.length
-        ? propPool.find(
+      p.isProp && (propPool.length || propPoolIndex)
+        ? propPoolIndex?.get(
+            `${p.game}|${p.player ?? ""}|${p.propSide ?? ""}|${p.propLine ?? ""}`,
+          ) ??
+          propPoolIndex?.get(`${p.game}|${p.player ?? ""}|${p.propSide ?? ""}|`) ??
+          propPool.find(
             (e) =>
               e.game === p.game &&
               e.player === p.player &&
               e.side === p.propSide &&
               (e.line === p.propLine || e.line == null),
-          ) ?? propPool.find((e) => e.game === p.game && e.player === p.player && e.side === p.propSide)
+          ) ??
+          propPool.find((e) => e.game === p.game && e.player === p.player && e.side === p.propSide)
         : undefined;
     let raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)

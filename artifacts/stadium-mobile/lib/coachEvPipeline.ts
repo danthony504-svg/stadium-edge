@@ -1,11 +1,12 @@
-/** Coach line-value / EV stage — bounded concurrency, timeouts, tracing. */
+/** Coach line-value / EV stage — bounded batches, soft timeout, structured tracing. */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { RealOddsEntry } from "./api.ts";
+import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
 import type { CoachBuildProgressCallback } from "./coachBuildProgress.ts";
 import { logCoachPipelineError, logCoachPipelineEvent } from "./coachPipelineTrace.ts";
 import {
   coachScanPipelineIsStale,
+  isCoachBackgroundScanRequestId,
   resolveCoachScanRequestId,
 } from "./coachScanPipeline.ts";
 import { attachPickScores } from "./pickScoreContext.ts";
@@ -13,11 +14,22 @@ import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 
 export const COACH_EV_TIMEOUT_MS = 15_000;
 export const COACH_EV_CONCURRENCY = 6;
+export const COACH_EV_BATCH_SIZE = 24;
+export const COACH_EV_PROGRESS_INTERVAL_MS = 500;
 
 export type CoachEvPropDuration = {
   index: number;
   durationMs: number;
   error?: string;
+};
+
+export type CoachEvStageStats = {
+  inputCount: number;
+  processedCount: number;
+  successfulCount: number;
+  rejectedCount: number;
+  batchNumber: number;
+  poolCap: number;
 };
 
 export class CoachEvStageError extends Error {
@@ -42,55 +54,126 @@ export class CoachEvStageError extends Error {
   }
 }
 
-export function logCoachScanEvStart(requestId: string, propCount: number): void {
-  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvStart");
-  if (coachScanPipelineIsStale(id)) return;
-  logCoachPipelineEvent("[coach-scan] ev-start", {
-    requestId: id,
+/** Cap EV candidates before expensive scoring — scales with leg target. */
+export function coachEvPoolCap(target: number, poolSize: number): number {
+  const scaled = Math.max(48, target * 16);
+  return Math.min(poolSize, Math.min(160, scaled));
+}
+
+/** Minimum scored props before EV can early-exit (enough for a diversified ticket). */
+export function coachEvQualifiedStopCount(target: number): number {
+  return Math.max(target * 4, target + 8);
+}
+
+function cheapPropRank(pick: ParsedPick): number {
+  const composite = pick.finalAiScore?.composite ?? pick.scores?.composite;
+  if (composite != null) return composite;
+  const odds = pick.odds ?? 0;
+  return 100 - Math.min(Math.abs(odds), 100);
+}
+
+export function capCoachEvCandidates(
+  picks: ParsedPick[],
+  target: number,
+): { capped: ParsedPick[]; poolCap: number } {
+  const poolCap = coachEvPoolCap(target, picks.length);
+  if (picks.length <= poolCap) return { capped: picks, poolCap };
+  const capped = [...picks].sort((a, b) => cheapPropRank(b) - cheapPropRank(a)).slice(0, poolCap);
+  return { capped, poolCap };
+}
+
+function propPoolLookupKey(
+  game: string,
+  player: string | undefined,
+  side: string | undefined,
+  line: number | null | undefined,
+): string {
+  return `${game}|${player ?? ""}|${side ?? ""}|${line ?? ""}`;
+}
+
+export function buildPropPoolIndex(propPool: PropPoolEntry[]): Map<string, PropPoolEntry> {
+  const index = new Map<string, PropPoolEntry>();
+  for (const entry of propPool) {
+    const key = propPoolLookupKey(entry.game, entry.player, entry.side, entry.line);
+    if (!index.has(key)) index.set(key, entry);
+    const looseKey = propPoolLookupKey(entry.game, entry.player, entry.side, null);
+    if (!index.has(looseKey)) index.set(looseKey, entry);
+  }
+  return index;
+}
+
+function countEvQualified(scored: ParsedPick[]): number {
+  let n = 0;
+  for (const pick of scored) {
+    const composite = pick.finalAiScore?.composite ?? pick.scores?.composite ?? 0;
+    if (pick.finalAiScore?.recommends || composite >= 52) n++;
+  }
+  return n;
+}
+
+function logEvEvent(
+  tag: string,
+  requestId: string,
+  stats: CoachEvStageStats,
+  elapsedMs: number,
+  extra?: Record<string, unknown>,
+): void {
+  if (coachScanPipelineIsStale(requestId) && !isCoachBackgroundScanRequestId(requestId)) return;
+  logCoachPipelineEvent(tag, {
+    requestId,
     phase: "EV_CALCULATION",
-    elapsedMs: 0,
-    candidateCount: propCount,
+    elapsedMs,
+    candidateCount: stats.inputCount,
+    processedCount: stats.processedCount,
+    successfulCount: stats.successfulCount,
+    rejectedCount: stats.rejectedCount,
+    batchNumber: stats.batchNumber,
+    poolCap: stats.poolCap,
+    ...extra,
   });
 }
 
-export function logCoachScanEvProgress(
+export function logCoachScanEvStart(
   requestId: string,
-  completed: number,
-  total: number,
-  lastDurationMs?: number,
+  propCount: number,
+  poolCap: number,
 ): void {
-  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvProgress");
-  if (coachScanPipelineIsStale(id)) return;
-  logCoachPipelineEvent("[coach-scan] ev-progress", {
-    requestId: id,
-    phase: "EV_CALCULATION",
-    elapsedMs: lastDurationMs ?? 0,
-    candidateCount: total,
-    completed,
-    total,
-  });
+  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvStart");
+  logEvEvent(
+    "[coach-scan] ev-start",
+    id,
+    {
+      inputCount: propCount,
+      processedCount: 0,
+      successfulCount: 0,
+      rejectedCount: 0,
+      batchNumber: 0,
+      poolCap,
+    },
+    0,
+  );
+}
+
+function logCoachScanEvProgress(
+  requestId: string,
+  stats: CoachEvStageStats,
+  elapsedMs: number,
+): void {
+  logEvEvent("[coach-scan] ev-progress", requestId, stats, elapsedMs);
 }
 
 export function logCoachScanEvComplete(
   requestId: string,
-  inputCount: number,
-  outputCount: number,
+  stats: CoachEvStageStats,
   durationMs: number,
-  propDurations: CoachEvPropDuration[],
+  timedOut: boolean,
   onProgress?: CoachBuildProgressCallback,
 ): void {
   const id = resolveCoachScanRequestId(requestId, "logCoachScanEvComplete");
-  if (coachScanPipelineIsStale(id)) return;
-  logCoachPipelineEvent("[coach-scan] ev-complete", {
-    requestId: id,
-    phase: "EV_CALCULATION",
-    elapsedMs: durationMs,
-    candidateCount: inputCount,
-    inputCount,
-    outputCount,
-    propDurations,
-  });
-  onProgress?.("line-value", id);
+  logEvEvent("[coach-scan] ev-complete", id, stats, durationMs, { timedOut });
+  if (!coachScanPipelineIsStale(id) || isCoachBackgroundScanRequestId(id)) {
+    onProgress?.("line-value", id);
+  }
 }
 
 export function logCoachScanEvError(
@@ -110,17 +193,34 @@ export function logCoachScanEvError(
   throw new CoachEvStageError(message, { requestId: id, durationMs });
 }
 
-export function logCoachScanEvTimeout(requestId: string, durationMs: number): never {
+/** Log EV deadline — does NOT throw; pipeline continues with partial results. */
+export function logCoachScanEvTimeout(
+  requestId: string,
+  stats: CoachEvStageStats,
+  durationMs: number,
+): void {
   const id = resolveCoachScanRequestId(requestId, "logCoachScanEvTimeout");
   logCoachPipelineError("[coach-scan] ev-timeout", {
     requestId: id,
     phase: "EV_CALCULATION",
     elapsedMs: durationMs,
+    candidateCount: stats.inputCount,
+    processedCount: stats.processedCount,
+    successfulCount: stats.successfulCount,
+    rejectedCount: stats.rejectedCount,
+    batchNumber: stats.batchNumber,
+    poolCap: stats.poolCap,
   });
-  throw new CoachEvStageError(`EV calculation timed out after ${durationMs}ms`, {
+  logCoachPipelineEvent("[coach-scan] ev-timeout-fallback", {
     requestId: id,
-    durationMs,
-    timedOut: true,
+    phase: "EV_CALCULATION",
+    elapsedMs: durationMs,
+    candidateCount: stats.successfulCount,
+    processedCount: stats.processedCount,
+    successfulCount: stats.successfulCount,
+    rejectedCount: stats.rejectedCount,
+    batchNumber: stats.batchNumber,
+    poolCap: stats.poolCap,
   });
 }
 
@@ -128,39 +228,30 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  deadlineAt: number,
-  fn: (item: T, index: number) => Promise<R>,
-  onEach?: (index: number, durationMs: number) => void,
-): Promise<R[]> {
-  if (!items.length) return [];
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  let completed = 0;
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (true) {
-      if (Date.now() >= deadlineAt) break;
-      const idx = next++;
-      if (idx >= items.length) break;
-      const itemStart = Date.now();
-      results[idx] = await fn(items[idx]!, idx);
-      const durationMs = Date.now() - itemStart;
-      completed += 1;
-      onEach?.(completed, durationMs);
-      if (completed % COACH_EV_CONCURRENCY === 0) {
-        await yieldToEventLoop();
+export type CoachEvPickScoreOpts = Parameters<typeof attachPickScores>[1] & {
+  propPoolIndex?: Map<string, PropPoolEntry>;
+};
+
+function scoreBatch(
+  batch: ParsedPick[],
+  scoreOpts: CoachEvPickScoreOpts,
+): ParsedPick[] {
+  try {
+    return attachPickScores(batch, scoreOpts);
+  } catch {
+    const out: ParsedPick[] = [];
+    for (const pick of batch) {
+      try {
+        out.push(...attachPickScores([pick], scoreOpts));
+      } catch {
+        /* skip bad row */
       }
     }
-  });
-  await Promise.all(workers);
-  return results;
+    return out;
+  }
 }
 
-export type CoachEvPickScoreOpts = Parameters<typeof attachPickScores>[1];
-
-/** Score props one-at-a-time with bounded concurrency — skips bad rows instead of aborting. */
+/** Score props in bounded batches — soft timeout, early exit, no throw on deadline. */
 export async function runCoachEvPropPrescore(
   picks: ParsedPick[],
   scoreOpts: CoachEvPickScoreOpts,
@@ -169,6 +260,7 @@ export async function runCoachEvPropPrescore(
     signal?: AbortSignal;
     onProgress?: CoachBuildProgressCallback;
     timeoutMs?: number;
+    target?: number;
   },
 ): Promise<{
   scored: ParsedPick[];
@@ -177,77 +269,98 @@ export async function runCoachEvPropPrescore(
   durationMs: number;
   propDurations: CoachEvPropDuration[];
   timedOut: boolean;
+  stats: CoachEvStageStats;
 }> {
   const start = Date.now();
   const requestId = resolveCoachScanRequestId(opts.requestId, "runCoachEvPropPrescore");
+  const target = opts.target ?? 5;
+  const { capped, poolCap } = capCoachEvCandidates(picks, target);
   const inputCount = picks.length;
   const deadlineAt = start + (opts.timeoutMs ?? COACH_EV_TIMEOUT_MS);
   const propDurations: CoachEvPropDuration[] = [];
   const scored: ParsedPick[] = [];
+  const qualifiedStop = coachEvQualifiedStopCount(target);
 
-  logCoachScanEvStart(requestId, inputCount);
+  const cachedScoreOpts: CoachEvPickScoreOpts = {
+    ...scoreOpts,
+    propPoolIndex: scoreOpts.propPoolIndex ?? buildPropPoolIndex(scoreOpts.propPool ?? []),
+  };
 
-  if (inputCount === 0) {
+  const stats: CoachEvStageStats = {
+    inputCount,
+    processedCount: 0,
+    successfulCount: 0,
+    rejectedCount: 0,
+    batchNumber: 0,
+    poolCap,
+  };
+
+  logCoachScanEvStart(requestId, inputCount, poolCap);
+
+  if (capped.length === 0) {
     const durationMs = Date.now() - start;
-    logCoachScanEvComplete(requestId, 0, 0, durationMs, propDurations, opts.onProgress);
-    return { scored, inputCount: 0, outputCount: 0, durationMs, propDurations, timedOut: false };
+    logCoachScanEvComplete(requestId, stats, durationMs, false, opts.onProgress);
+    return {
+      scored,
+      inputCount,
+      outputCount: 0,
+      durationMs,
+      propDurations,
+      timedOut: false,
+      stats,
+    };
   }
 
-  let completed = 0;
-  const results = await mapWithConcurrency(
-    picks,
-    COACH_EV_CONCURRENCY,
-    deadlineAt,
-    async (pick, index) => {
-      if (opts.signal?.aborted) return null;
-      const itemStart = Date.now();
-      try {
-        const [row] = attachPickScores([pick], scoreOpts);
-        const durationMs = Date.now() - itemStart;
-        propDurations.push({ index, durationMs });
-        return row ?? null;
-      } catch (err) {
-        const durationMs = Date.now() - itemStart;
-        const message = err instanceof Error ? err.message : String(err);
-        const stack = err instanceof Error ? err.stack : undefined;
-        propDurations.push({ index, durationMs, error: message });
-        logCoachPipelineError("[coach-scan] ev-error", {
-          requestId,
-          phase: "EV_CALCULATION",
-          elapsedMs: durationMs,
-          candidateCount: inputCount,
-          index,
-          message,
-        });
-        if (stack) console.error(stack);
-        return null;
-      }
-    },
-    (count, lastDurationMs) => {
-      completed = count;
-      logCoachScanEvProgress(requestId, completed, inputCount, lastDurationMs);
-    },
-  );
+  let lastProgressLog = start;
+  let timedOut = false;
 
-  for (const row of results) {
-    if (row) scored.push(row);
+  for (let offset = 0; offset < capped.length; ) {
+    if (opts.signal?.aborted) break;
+    if (Date.now() >= deadlineAt) {
+      timedOut = true;
+      break;
+    }
+    if (countEvQualified(scored) >= qualifiedStop) break;
+
+    stats.batchNumber += 1;
+    const batch = capped.slice(offset, offset + COACH_EV_BATCH_SIZE);
+    offset += batch.length;
+    const batchStart = Date.now();
+
+    const batchScored = scoreBatch(batch, cachedScoreOpts);
+    for (let i = 0; i < batch.length; i++) {
+      const row = batchScored[i];
+      stats.processedCount += 1;
+      if (row?.finalAiScore || row?.scores) {
+        stats.successfulCount += 1;
+        scored.push(row);
+      } else {
+        stats.rejectedCount += 1;
+      }
+      propDurations.push({ index: stats.processedCount - 1, durationMs: Date.now() - batchStart });
+    }
+
+    const now = Date.now();
+    if (now - lastProgressLog >= COACH_EV_PROGRESS_INTERVAL_MS) {
+      logCoachScanEvProgress(requestId, { ...stats }, now - start);
+      lastProgressLog = now;
+    }
+
+    await yieldToEventLoop();
+  }
+
+  if (stats.processedCount < capped.length && Date.now() >= deadlineAt) {
+    timedOut = true;
   }
 
   const durationMs = Date.now() - start;
-  const timedOut = Date.now() >= deadlineAt && completed < inputCount;
 
   if (timedOut) {
-    logCoachScanEvTimeout(requestId, durationMs);
+    logCoachScanEvTimeout(requestId, stats, durationMs);
   }
 
-  logCoachScanEvComplete(
-    requestId,
-    inputCount,
-    scored.length,
-    durationMs,
-    propDurations,
-    opts.onProgress,
-  );
+  logCoachScanEvProgress(requestId, { ...stats }, durationMs);
+  logCoachScanEvComplete(requestId, stats, durationMs, timedOut, opts.onProgress);
 
   return {
     scored,
@@ -255,11 +368,12 @@ export async function runCoachEvPropPrescore(
     outputCount: scored.length,
     durationMs,
     propDurations,
-    timedOut: false,
+    timedOut,
+    stats,
   };
 }
 
-/** Evaluate posted game-line rungs with per-game error tolerance and stage timeout. */
+/** Evaluate posted game-line rungs with per-game error tolerance and soft stage timeout. */
 export async function runCoachEvGameLines(
   games: { game: string; lines: RealOddsEntry[] }[],
   evaluate: (game: string, lines: RealOddsEntry[]) => EvaluatedGameLine[],
@@ -274,6 +388,7 @@ export async function runCoachEvGameLines(
   outputCount: number;
   durationMs: number;
   propDurations: CoachEvPropDuration[];
+  timedOut: boolean;
 }> {
   const start = Date.now();
   const requestId = resolveCoachScanRequestId(opts.requestId, "runCoachEvGameLines");
@@ -282,67 +397,72 @@ export async function runCoachEvGameLines(
   const propDurations: CoachEvPropDuration[] = [];
   const evaluated: EvaluatedGameLine[] = [];
 
-  logCoachScanEvStart(requestId, inputCount);
+  logCoachScanEvStart(requestId, inputCount, inputCount);
 
   if (!games.length) {
     const durationMs = Date.now() - start;
-    logCoachScanEvComplete(requestId, 0, 0, durationMs, propDurations, opts.onProgress);
-    return { evaluated, inputCount: 0, outputCount: 0, durationMs, propDurations };
+    const stats: CoachEvStageStats = {
+      inputCount: 0,
+      processedCount: 0,
+      successfulCount: 0,
+      rejectedCount: 0,
+      batchNumber: 0,
+      poolCap: 0,
+    };
+    logCoachScanEvComplete(requestId, stats, durationMs, false, opts.onProgress);
+    return { evaluated, inputCount: 0, outputCount: 0, durationMs, propDurations, timedOut: false };
   }
 
   let completedGames = 0;
-  await mapWithConcurrency(
-    games,
-    Math.min(4, COACH_EV_CONCURRENCY),
-    deadlineAt,
-    async (entry, index) => {
-      if (opts.signal?.aborted) return null;
-      const itemStart = Date.now();
-      try {
-        const rows = evaluate(entry.game, entry.lines);
-        const durationMs = Date.now() - itemStart;
-        propDurations.push({ index, durationMs });
-        return rows;
-      } catch (err) {
-        const durationMs = Date.now() - itemStart;
-        const message = err instanceof Error ? err.message : String(err);
-        propDurations.push({ index, durationMs, error: message });
-        logCoachPipelineError("[coach-scan] ev-error", {
-          requestId,
-          phase: "EV_CALCULATION",
-          elapsedMs: durationMs,
-          candidateCount: inputCount,
-          game: entry.game,
-          message,
-        });
-        return null;
-      }
-    },
-    (count, lastDurationMs) => {
-      completedGames = count;
-      logCoachScanEvProgress(requestId, completedGames, games.length, lastDurationMs);
-    },
-  ).then((rows) => {
-    for (const batch of rows) {
-      if (batch?.length) evaluated.push(...batch);
+  let batchNumber = 0;
+  let timedOut = false;
+
+  for (const entry of games) {
+    if (opts.signal?.aborted) break;
+    if (Date.now() >= deadlineAt) {
+      timedOut = true;
+      break;
     }
-  });
-
-  const durationMs = Date.now() - start;
-  const timedOut = Date.now() >= deadlineAt && completedGames < games.length;
-
-  if (timedOut) {
-    logCoachScanEvTimeout(requestId, durationMs);
+    batchNumber += 1;
+    const itemStart = Date.now();
+    try {
+      const rows = evaluate(entry.game, entry.lines);
+      const durationMs = Date.now() - itemStart;
+      propDurations.push({ index: completedGames, durationMs });
+      if (rows.length) evaluated.push(...rows);
+      completedGames += 1;
+    } catch (err) {
+      const durationMs = Date.now() - itemStart;
+      const message = err instanceof Error ? err.message : String(err);
+      propDurations.push({ index: completedGames, durationMs, error: message });
+      logCoachPipelineError("[coach-scan] ev-error", {
+        requestId,
+        phase: "EV_CALCULATION",
+        elapsedMs: durationMs,
+        candidateCount: inputCount,
+        game: entry.game,
+        message,
+      });
+    }
+    await yieldToEventLoop();
   }
 
-  logCoachScanEvComplete(
-    requestId,
+  const durationMs = Date.now() - start;
+  const stats: CoachEvStageStats = {
     inputCount,
-    evaluated.length,
-    durationMs,
-    propDurations,
-    opts.onProgress,
-  );
+    processedCount: completedGames,
+    successfulCount: evaluated.length,
+    rejectedCount: Math.max(0, completedGames - evaluated.length),
+    batchNumber,
+    poolCap: inputCount,
+  };
+
+  if (timedOut || (Date.now() >= deadlineAt && completedGames < games.length)) {
+    timedOut = true;
+    logCoachScanEvTimeout(requestId, stats, durationMs);
+  }
+
+  logCoachScanEvComplete(requestId, stats, durationMs, timedOut, opts.onProgress);
 
   return {
     evaluated,
@@ -350,5 +470,6 @@ export async function runCoachEvGameLines(
     outputCount: evaluated.length,
     durationMs,
     propDurations,
+    timedOut,
   };
 }

@@ -8,6 +8,7 @@ import {
   clearCoachScanPipeline,
   coachPipelineIsDev,
   coachScanPipelineIsStale,
+  isCoachBackgroundScanRequestId,
   resolveCoachScanRequestId,
   shouldSkipCorrelationScoring,
 } from "./coachScanPipeline.ts";
@@ -95,4 +96,12 @@ test("activeCoachScanRequestId tracks beginCoachScanPipeline", () => {
   assert.equal(activeCoachScanRequestId(), "req-track");
   clearCoachScanPipeline("req-track");
   assert.equal(activeCoachScanRequestId(), null);
+});
+
+test("background slate-pre scan does not register user pipeline", () => {
+  beginCoachScanPipeline("req-live");
+  beginCoachScanPipeline("slate-pre-123");
+  assert.equal(activeCoachScanRequestId(), "req-live");
+  assert.equal(isCoachBackgroundScanRequestId("slate-pre-123"), true);
+  clearCoachScanPipeline("req-live");
 });

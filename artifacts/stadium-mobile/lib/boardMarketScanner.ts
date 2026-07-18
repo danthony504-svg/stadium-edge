@@ -53,10 +53,15 @@ export { buildStagedTicketFromScan, buildStagedTicketFromScanAsync, selectTopBoa
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
-import { CoachEvStageError, runCoachEvPropPrescore } from "./coachEvPipeline.ts";
+import {
+  CoachEvStageError,
+  capCoachEvCandidates,
+  runCoachEvPropPrescore,
+} from "./coachEvPipeline.ts";
 import {
   CoachCorrelationStageError,
   beginCoachScanPipeline,
+  isCoachBackgroundScanRequestId,
   resolveCoachScanRequestId,
 } from "./coachScanPipeline.ts";
 import { logPipelineCorrelationStart } from "./coachPipelineTrace.ts";
@@ -375,13 +380,15 @@ async function simPropPoolUntilQualified(
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
+  const requestId = resolveCoachScanRequestId(opts.requestId, "simPropPoolUntilQualified");
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
 
   const poolPicks = pool.map(parsedPickFromPoolEntry);
-  const { scored: prescorePool } = await runCoachEvPropPrescore(
-    poolPicks,
+  const { capped: evCandidates, poolCap } = capCoachEvCandidates(poolPicks, opts.target);
+  const { scored: prescorePool, timedOut: evTimedOut } = await runCoachEvPropPrescore(
+    evCandidates,
     {
       realOdds: mergedOdds,
       propPool: pool,
@@ -393,12 +400,25 @@ async function simPropPoolUntilQualified(
       perfByFamily: opts.perfByFamily,
     },
     {
-      requestId: opts.requestId,
+      requestId,
       signal,
+      target: opts.target,
       onProgress: opts.onBuildProgress,
     },
   );
-  opts.onBuildProgress?.("simulations", opts.requestId);
+  if (evTimedOut) {
+    console.log(
+      "[coach-scan] ev-timeout-continue",
+      JSON.stringify({
+        requestId,
+        poolCap,
+        prescoreCount: prescorePool.length,
+        target: opts.target,
+      }),
+    );
+  }
+  opts.onBuildProgress?.("line-value", requestId);
+  opts.onBuildProgress?.("simulations", requestId);
 
   const rankedProps = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
@@ -452,6 +472,8 @@ async function simPropPoolUntilQualified(
 
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
+
+    if (countQualifiedBoardLegs(combinedScored(), opts.target) >= opts.target) break;
 
     if (simIndex >= rankedProps.length) break;
 
@@ -609,7 +631,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
 }): Promise<FullBoardScanResult> {
   const requestId = resolveCoachScanRequestId(opts.requestId, "buildTopLegsFromFullBoardScan");
-  beginCoachScanPipeline(requestId);
+  if (!isCoachBackgroundScanRequestId(requestId)) {
+    beginCoachScanPipeline(requestId);
+  }
 
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
