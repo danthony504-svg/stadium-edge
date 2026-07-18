@@ -167,7 +167,7 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
-import { prefetchAndMaybeApplyOta } from "@/lib/otaUpdater";
+import { prefetchOtaInBackground } from "@/lib/otaUpdater";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
@@ -5562,8 +5562,14 @@ export default function CoachScreen() {
           await hydrateCoachSlateFromServer();
           startSlatePreAnalysis("coach-focus");
         })();
-        if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
-          void prefetchAndMaybeApplyOta(true);
+        if (!__DEV__ && !streamingRef.current && !buildFinishingRef.current && !waiting) {
+          void (async () => {
+            try {
+              await prefetchOtaInBackground();
+            } catch (err) {
+              console.warn("[coach-ota] prefetch failed", err);
+            }
+          })();
         }
       }
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
