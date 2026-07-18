@@ -26,7 +26,7 @@ export function getBundleIdentity(): BundleIdentity {
     commit: BUNDLE_GIT_COMMIT,
     projectPath: BUNDLE_PROJECT_PATH,
     bundleTimestamp: BUNDLE_TIMESTAMP,
-    dev: __DEV__,
+    dev: typeof __DEV__ !== "undefined" ? __DEV__ : process.env.NODE_ENV !== "production",
     metroMode: BUNDLE_METRO_MODE,
   };
 }

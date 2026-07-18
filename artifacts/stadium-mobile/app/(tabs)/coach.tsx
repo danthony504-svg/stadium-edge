@@ -180,7 +180,6 @@ import {
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
-import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
   unsupportedSoccerDisciplineReply,
@@ -5702,26 +5701,22 @@ export default function CoachScreen() {
     void restoreBackgroundBuild(bid);
   }, [params.buildId, restoreBackgroundBuild]);
 
-  // Auto-send when navigated with send=1 (e.g. Home "Build best parlay" / quick
-  // chips). Gated by the per-navigation `ts` token (not the prompt text) so that
-  // tapping different actions that happen to share a prompt still fires each
-  // time, and so the same tab staying mounted doesn't suppress later taps. We
-  // mark sent only once we actually invoke send, and skip while streaming — the
-  // effect re-runs when `streaming` flips false, so the send isn't lost.
+  // Auto-send when navigated with send=1 (e.g. SlipBar "Analyze my ticket").
+  // Gated by the per-navigation `ts` token so repeated taps with the same prompt
+  // still fire, and the same tab staying mounted doesn't suppress later taps.
   useEffect(() => {
     const sendFlag = Array.isArray(params.send) ? params.send[0] : params.send;
     const autoMsgRaw = params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
     const autoMsg = Array.isArray(autoMsgRaw) ? autoMsgRaw[0] : autoMsgRaw;
     if (sendFlag !== "1" || !autoMsg) return;
-    const launch = takeCoachLaunch();
     const token = String(params.ts ?? autoMsg);
     if (autoSentRef.current === token) return;
-    if (streaming && !launch?.freshThread && !isParlayBuildAsk(String(autoMsg))) return;
-    if (buildFinishing && !launch?.freshThread && !isParlayBuildAsk(String(autoMsg))) return;
+    if (streaming && !isParlayBuildAsk(String(autoMsg))) return;
+    if (buildFinishing && !isParlayBuildAsk(String(autoMsg))) return;
     autoSentRef.current = token;
     send(String(autoMsg), {
-      hideUserBubble: launch?.hideBubble ?? !!params.autoMsg,
-      freshThread: launch?.freshThread ?? false,
+      hideUserBubble: !!params.autoMsg,
+      freshThread: false,
     });
   }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, buildFinishing, send]);
 
