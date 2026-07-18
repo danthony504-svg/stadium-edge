@@ -197,6 +197,18 @@ import {
   coachPhaseToProgressBuildPhase,
   nextCoachPhase,
 } from "@/lib/coachStateMachine";
+import {
+  assistantPicksEqual,
+  buildDeliveryLegNote,
+  mergeResolvedWithExistingPicks,
+  pickHasRenderableDeliveryData,
+  rankScanCandidatesForDelivery,
+} from "@/lib/coachDeliveryResolve";
+import {
+  isCoachRequestCompleted,
+  markCoachRequestCompleted,
+  shouldSkipPostCompletionCoachWork,
+} from "@/lib/coachRequestCompletion";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -595,15 +607,25 @@ function scrubDeadBuildProseFromMessages(msgs: UIMessage[]): UIMessage[] {
 
 /** Drop assistant rows that only carried the legacy watchdog line. */
 function pruneDeadParlayPlaceholders(msgs: UIMessage[]): UIMessage[] {
-  return msgs.filter((m) => {
-    if (isWelcomeMessage(m)) return true;
-    if (m.role !== "assistant") return true;
-    if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard) {
-      return true;
-    }
-    if (m.retry || m.parlayBuild) return true;
-    return !DEAD_BUILD_PROSE_RE.test(m.content) && !!m.content.trim();
+  let changed = false;
+  const next = msgs.filter((m) => {
+    const keep =
+      isWelcomeMessage(m) ||
+      m.role !== "assistant" ||
+      !!(
+        m.picks?.length ||
+        m.analyzeSlip?.length ||
+        m.statCard ||
+        m.periodGameLog ||
+        m.teamCard
+      ) ||
+      !!m.retry ||
+      !!m.parlayBuild ||
+      (!DEAD_BUILD_PROSE_RE.test(m.content) && !!m.content.trim());
+    if (!keep) changed = true;
+    return keep;
   });
+  return changed ? next : msgs;
 }
 
 function assistantHasVisibleContent(m: UIMessage): boolean {
@@ -1329,6 +1351,7 @@ export default function CoachScreen() {
   const finalizedRequestIdRef = useRef<string | null>(null);
   const correlationRequestIdRef = useRef<string | null>(null);
   const correlatedPicksRef = useRef<ParsedPick[] | null>(null);
+  const manifestUnlockDoneRef = useRef<string | null>(null);
   const messagesRef = useRef(messages);
   useEffect(() => {
     messagesRef.current = messages;
@@ -1342,6 +1365,8 @@ export default function CoachScreen() {
     const requestId = activeRequestIdRef.current;
     if (newRequest) {
       lastPhaseByRequestRef.current = null;
+    } else if (shouldSkipPostCompletionCoachWork(requestId)) {
+      return;
     }
 
     const current = coachBuildPhaseRef.current;
@@ -1475,16 +1500,27 @@ export default function CoachScreen() {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
           if (copy[i].role === "assistant") {
-            copy[i] = {
-              ...copy[i],
-              role: "assistant",
-              content: picks.length > 0 ? "" : copy[i].content,
+            const prevMsg = copy[i];
+            const nextMsg = {
+              ...prevMsg,
+              role: "assistant" as const,
+              content: picks.length > 0 ? "" : prevMsg.content,
               picks,
               ...(legNote?.trim() ? { legNote: legNote.trim() } : {}),
               ...(coachDetailNote?.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
               ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
             };
-            committed = true;
+            if (
+              assistantPicksEqual(prevMsg.picks, picks) &&
+              prevMsg.content === nextMsg.content &&
+              (prevMsg.legNote ?? "") === (nextMsg.legNote ?? "") &&
+              (prevMsg.coachDetailNote ?? "") === (nextMsg.coachDetailNote ?? "") &&
+              prevMsg.ticketLegTarget === nextMsg.ticketLegTarget
+            ) {
+              committed = picks.length > 0;
+              return prev;
+            }
+            copy[i] = nextMsg;
             logCoachHandoff("commit-cards-applied", {
               requestId,
               legTarget,
@@ -1497,6 +1533,7 @@ export default function CoachScreen() {
               pickCount: picks.length,
               selectedCount: picks.length,
             });
+            committed = true;
             return copy;
           }
         }
@@ -1537,6 +1574,7 @@ export default function CoachScreen() {
       clearBuildStallWatchdog();
       if (picks.length > 0) {
         setAiPicks(picks);
+        markCoachRequestCompleted(requestId);
         markFinalTicketMessageAdded(requestId, picks.length);
         markFinalTicketProgress100(requestId);
         markFinalTicketCardsRendered(requestId, picks.length);
@@ -1586,14 +1624,40 @@ export default function CoachScreen() {
       legNote?: string;
       coachDetailNote?: string;
     }) => {
+      const lastAssistant = [...messagesRef.current]
+        .reverse()
+        .find((m) => m.role === "assistant");
+      const existingValid = (lastAssistant?.picks ?? []).filter(pickHasRenderableDeliveryData);
+      if (existingValid.length) {
+        markCoachRequestCompleted(opts.requestId);
+        finalizedRequestIdRef.current = opts.requestId;
+        boardTicketSnapshotRef.current = existingValid;
+        setBoardScanPartialLegs(existingValid.length);
+        setAiPicks(existingValid);
+        setStreaming(false);
+        setWaiting(false);
+        setBuildFinishing(false);
+        setBuildProgressExpired(false);
+        setParlayBuildPhase("idle");
+        setCoachBuildBusy(false);
+        if (buildProgressTimerRef.current) {
+          clearTimeout(buildProgressTimerRef.current);
+          buildProgressTimerRef.current = null;
+        }
+        clearBuildStallWatchdog();
+        markFinalTicketProgress100(opts.requestId);
+        return;
+      }
+
       const message = coachFinalEmptyReply(true);
       setMessages((prev) => {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
           if (copy[i].role === "assistant") {
-            copy[i] = {
-              ...copy[i],
-              picks: [],
+            const prevMsg = copy[i];
+            const nextMsg = {
+              ...prevMsg,
+              picks: [] as ParsedPick[],
               content: message,
               ...(opts.legNote?.trim() ? { legNote: opts.legNote.trim() } : {}),
               ...(opts.coachDetailNote?.trim()
@@ -1601,6 +1665,15 @@ export default function CoachScreen() {
                 : {}),
               ...(opts.legTarget > 0 ? { ticketLegTarget: opts.legTarget } : {}),
             };
+            if (
+              !prevMsg.picks?.length &&
+              prevMsg.content === nextMsg.content &&
+              (prevMsg.legNote ?? "") === (nextMsg.legNote ?? "") &&
+              (prevMsg.coachDetailNote ?? "") === (nextMsg.coachDetailNote ?? "")
+            ) {
+              return prev;
+            }
+            copy[i] = nextMsg;
             return copy;
           }
         }
@@ -1717,6 +1790,10 @@ export default function CoachScreen() {
           pickCount: partial.picks?.length ?? 0,
           finalizedRequestId: requestId,
         });
+        return false;
+      }
+      if (shouldSkipPostCompletionCoachWork(requestId)) {
+        logCoachHandoff("skip-request-completed", { phase, requestId });
         return false;
       }
 
@@ -1836,7 +1913,7 @@ export default function CoachScreen() {
           if (result.selectedCount > 0) {
             let legNote = partial.note;
             if (legTarget > result.selectedCount) {
-              legNote = ensureFixedLegShortfallLegNote(partial.note, legTarget, result.selectedCount);
+              legNote = buildDeliveryLegNote(partial.note, legTarget, result.selectedCount);
             }
             logCoachHandoff("commit-start", {
               requestId,
@@ -1871,6 +1948,36 @@ export default function CoachScreen() {
                 pickCount: result.picks.length,
                 selectedCount: result.selectedCount,
               });
+            }
+            return;
+          }
+
+          const rankedFromScan = rankScanCandidatesForDelivery(
+            partial.picks,
+            enrich,
+            legTarget,
+          );
+          const existingValid = (messagesRef.current
+            .slice()
+            .reverse()
+            .find((m) => m.role === "assistant")?.picks ?? []
+          ).filter(pickHasRenderableDeliveryData);
+          const salvagePicks = mergeResolvedWithExistingPicks(
+            existingValid,
+            rankedFromScan,
+            legTarget,
+          );
+          if (salvagePicks.length) {
+            let legNote = buildDeliveryLegNote(partial.note, legTarget, salvagePicks.length);
+            const committed = commitCoachFinalTicket(salvagePicks, {
+              requestId,
+              legTarget,
+              legNote,
+              coachDetailNote: result.coachDetailNote,
+            });
+            if (committed) {
+              finalizedRequestIdRef.current = requestId;
+              advanceCoachPhase("completed");
             }
             return;
           }
@@ -2089,6 +2196,11 @@ export default function CoachScreen() {
       enrichOverride?: CoachFlashEnrich,
       opts?: { legNote?: string; ticketLegTarget?: number; pinScroll?: boolean },
     ) => {
+      const ctx = coachRequestContextRef.current;
+      const requestId = ctx?.requestId ?? partial.requestId ?? null;
+      if (shouldSkipPostCompletionCoachWork(requestId)) {
+        return true;
+      }
       if (boardScanIsComplete(partial)) {
         latestBoardScanRef.current = partial;
         return runFinalizeCoachTicket(partial, "patch-instant");
@@ -2103,7 +2215,10 @@ export default function CoachScreen() {
         opts?.ticketLegTarget ??
         (requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
-      const ctx = coachRequestContextRef.current;
+      const existingAssistant = [...messagesRef.current]
+        .reverse()
+        .find((m) => m.role === "assistant");
+      const existingValid = (existingAssistant?.picks ?? []).filter(pickHasRenderableDeliveryData);
       const scanComplete = boardScanIsComplete(partial);
       const source = coachHandoffSource(partial);
       logCoachDeliveryAttempt({
@@ -2129,7 +2244,7 @@ export default function CoachScreen() {
         coachDetailNote = delivered.coachDetailNote;
         if (legTarget > 0 && ticket.length < legTarget) {
           legNote = ticket.length
-            ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
+            ? buildDeliveryLegNote(legNote, legTarget, ticket.length)
             : buildFixedLegCountShortfallLead(legTarget, 0);
         } else if (!ticket.length) {
           legNote = legNote.trim() || partial.note;
@@ -2144,15 +2259,21 @@ export default function CoachScreen() {
       if (!ticket.length) {
         if (!scanComplete) return false;
         if (partial.picks.length) {
-          ticket = coerceCoachDisplayPicks(partial.picks, enrichWithScan).slice(
-            0,
-            legTarget > 0 ? legTarget : partial.picks.length,
-          );
+          ticket = rankScanCandidatesForDelivery(partial.picks, enrichWithScan, legTarget);
+          if (!ticket.length) {
+            ticket = coerceCoachDisplayPicks(partial.picks, enrichWithScan).slice(
+              0,
+              legTarget > 0 ? legTarget : partial.picks.length,
+            );
+          }
         }
+        ticket = mergeResolvedWithExistingPicks(existingValid, ticket, legTarget);
         if (!ticket.length) {
         latestBoardScanRef.current = partial;
-        boardTicketSnapshotRef.current = [];
-        setBoardScanPartialLegs(0);
+        if (!existingValid.length) {
+          boardTicketSnapshotRef.current = [];
+          setBoardScanPartialLegs(0);
+        }
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -2164,30 +2285,41 @@ export default function CoachScreen() {
         }
         clearBuildStallWatchdog();
         setCoachBuildBusy(false);
+        if (!existingValid.length) {
         setMessages((prev) => {
           const copy = [...prev];
           for (let i = copy.length - 1; i >= 0; i--) {
             if (copy[i].role === "assistant") {
-              copy[i] = {
-                ...copy[i],
-                picks: [],
+              const prevMsg = copy[i];
+              const nextMsg = {
+                ...prevMsg,
+                picks: [] as ParsedPick[],
                 content: coachFinalEmptyReply(true),
                 legNote: legNote.trim() || undefined,
                 coachDetailNote: coachDetailNote.trim() || undefined,
                 ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
               };
+              if (
+                !prevMsg.picks?.length &&
+                prevMsg.content === nextMsg.content &&
+                (prevMsg.legNote ?? "") === (nextMsg.legNote ?? "")
+              ) {
+                return prev;
+              }
+              copy[i] = nextMsg;
               return copy;
             }
           }
           return prev;
         });
         setAiPicks([]);
+        }
         logCoachFinalHandoff(
           buildCoachFinalHandoffSnapshot({
             requestId: ctx?.requestId ?? partial.requestId ?? null,
             scan: partial,
-            pickCount: 0,
-            rendered: !!coachDetailNote.trim(),
+            pickCount: existingValid.length,
+            rendered: !!coachDetailNote.trim() || existingValid.length > 0,
             legTarget,
             finalizeRejected,
           }),
@@ -2196,6 +2328,8 @@ export default function CoachScreen() {
         return true;
         }
       }
+
+      ticket = mergeResolvedWithExistingPicks(existingValid, ticket, legTarget);
 
       const isFinal = scanComplete;
       if (legTarget >= 3) {
@@ -2212,10 +2346,13 @@ export default function CoachScreen() {
           const salvaged = ticket.slice(0, legTarget > 0 ? legTarget : ticket.length);
           ticket = salvaged.length
             ? salvaged
-            : coerceCoachDisplayPicks(partial.picks, enrichWithScan).slice(
-                0,
-                legTarget > 0 ? legTarget : partial.picks.length,
-              );
+            : rankScanCandidatesForDelivery(partial.picks, enrichWithScan, legTarget);
+          if (!ticket.length) {
+            ticket = coerceCoachDisplayPicks(partial.picks, enrichWithScan).slice(
+              0,
+              legTarget > 0 ? legTarget : partial.picks.length,
+            );
+          }
         } else {
           ticket = finalized.picks;
         }
@@ -2227,9 +2364,13 @@ export default function CoachScreen() {
 
       if (!ticket.length) {
         if (!isFinal) return false;
+        ticket = mergeResolvedWithExistingPicks(existingValid, [], legTarget);
+        if (!ticket.length) {
         latestBoardScanRef.current = partial;
-        boardTicketSnapshotRef.current = [];
-        setBoardScanPartialLegs(0);
+        if (!existingValid.length) {
+          boardTicketSnapshotRef.current = [];
+          setBoardScanPartialLegs(0);
+        }
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -2241,36 +2382,52 @@ export default function CoachScreen() {
         }
         clearBuildStallWatchdog();
         setCoachBuildBusy(false);
+        if (!existingValid.length) {
         setMessages((prev) => {
           const copy = [...prev];
           for (let i = copy.length - 1; i >= 0; i--) {
             if (copy[i].role === "assistant") {
-              copy[i] = {
-                ...copy[i],
-                picks: [],
+              const prevMsg = copy[i];
+              const nextMsg = {
+                ...prevMsg,
+                picks: [] as ParsedPick[],
                 content: coachFinalEmptyReply(true),
                 legNote: legNote.trim() || undefined,
                 coachDetailNote: coachDetailNote.trim() || undefined,
                 ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
               };
+              if (
+                !prevMsg.picks?.length &&
+                prevMsg.content === nextMsg.content &&
+                (prevMsg.legNote ?? "") === (nextMsg.legNote ?? "")
+              ) {
+                return prev;
+              }
+              copy[i] = nextMsg;
               return copy;
             }
           }
           return prev;
         });
         setAiPicks([]);
+        }
         logCoachFinalHandoff(
           buildCoachFinalHandoffSnapshot({
             requestId: ctx?.requestId ?? partial.requestId ?? null,
             scan: partial,
-            pickCount: 0,
-            rendered: !!coachDetailNote.trim(),
+            pickCount: existingValid.length,
+            rendered: !!coachDetailNote.trim() || existingValid.length > 0,
             legTarget,
             finalizeRejected,
           }),
         );
         if (opts?.pinScroll !== false) scrollToEnd(false);
         return true;
+        }
+      }
+
+      if (legTarget > 0 && ticket.length < legTarget) {
+        legNote = buildDeliveryLegNote(legNote, legTarget, ticket.length);
       }
 
       latestBoardScanRef.current = partial;
@@ -2293,20 +2450,34 @@ export default function CoachScreen() {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
           if (copy[i].role === "assistant") {
-            copy[i] = {
-              ...copy[i],
+            const prevMsg = copy[i];
+            const nextMsg = {
+              ...prevMsg,
               picks: ticket,
               content: "",
               ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
               ...(coachDetailNote.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
               ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
             };
+            if (
+              assistantPicksEqual(prevMsg.picks, ticket) &&
+              prevMsg.content === nextMsg.content &&
+              (prevMsg.legNote ?? "") === (nextMsg.legNote ?? "") &&
+              (prevMsg.coachDetailNote ?? "") === (nextMsg.coachDetailNote ?? "") &&
+              prevMsg.ticketLegTarget === nextMsg.ticketLegTarget
+            ) {
+              return prev;
+            }
+            copy[i] = nextMsg;
             return copy;
           }
         }
         return prev;
       });
       setAiPicks(ticket);
+      if (isFinal && requestId) {
+        markCoachRequestCompleted(requestId);
+      }
       setTimeout(() => captureFromCoach(ticket), 0);
       logCoachRenderPicks({
         requestId: ctx?.requestId ?? partial.requestId ?? null,
@@ -2548,9 +2719,12 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
+      const requestId = ctx?.requestId ?? partial.requestId ?? null;
+      if (shouldSkipPostCompletionCoachWork(requestId)) {
+        return;
+      }
       if (boardScanIsComplete(partial)) {
         latestBoardScanRef.current = partial;
-        const requestId = ctx?.requestId ?? partial.requestId ?? null;
         const genOk =
           (ctx?.sendGeneration ?? sendGenerationRef.current) === sendGenerationRef.current;
         const activeOk =
@@ -5895,7 +6069,8 @@ export default function CoachScreen() {
             : "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
         } else if (
           picks.length === 0 &&
-          (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild)
+          (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild) &&
+          !(boardTicketSnapshotRef.current ?? []).some(pickHasRenderableDeliveryData)
         ) {
           const partitioned = partitionCoachNotes(legNote, coachDetailNote);
           const hasManifestReply = coachReplyHasScanManifest(
@@ -5919,7 +6094,12 @@ export default function CoachScreen() {
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
         // 200 with no visible content never lands as a silent dead end.
         if (picks.length === 0 && assistantBubbleText(finalContent, false).trim() === "") {
-          finalContent = coachReplyHasScanManifest(boardScanManifestDetail, coachDetailNote)
+          const snapshotValid = (boardTicketSnapshotRef.current ?? []).some(
+            pickHasRenderableDeliveryData,
+          );
+          finalContent = snapshotValid
+            ? ""
+            : coachReplyHasScanManifest(boardScanManifestDetail, coachDetailNote)
             ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
             : "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
@@ -5975,9 +6155,20 @@ export default function CoachScreen() {
             ticketEnrich,
           );
         };
-        const gateResolvedPicks = (resolved: ParsedPick[]): ParsedPick[] => {
-          if (!resolved.length || legTarget < 3) return resolved;
-          const finalized = finalizeCoachTicketForRequest(resolved, {
+        const gateResolvedPicks = (
+          resolved: ParsedPick[],
+          existing?: ParsedPick[],
+        ): ParsedPick[] => {
+          let merged = mergeResolvedWithExistingPicks(existing ?? [], resolved, legTarget);
+          if (!merged.length) {
+            const scanCandidates =
+              fullBoardScanMeta?.picks ?? latestBoardScanRef.current?.picks;
+            if (scanCandidates?.length) {
+              merged = rankScanCandidatesForDelivery(scanCandidates, ticketEnrich, legTarget);
+            }
+          }
+          if (!merged.length || legTarget < 3) return merged;
+          const finalized = finalizeCoachTicketForRequest(merged, {
             requestedLegs: legTarget,
             requestId: coachRequestContextRef.current?.requestId,
             previousRequestId: coachRequestContextRef.current?.previousRequestId,
@@ -5986,48 +6177,73 @@ export default function CoachScreen() {
             recordDelivered: true,
           });
           if (finalized.ok) return finalized.picks;
-          const salvaged = resolved.slice(0, legTarget > 0 ? legTarget : resolved.length);
+          const salvaged = merged.slice(0, legTarget > 0 ? legTarget : merged.length);
           if (salvaged.length) return salvaged;
           const scanCandidates = fullBoardScanMeta?.picks ?? latestBoardScanRef.current?.picks;
           if (scanCandidates?.length) {
-            return salvageHighestRanked(scanCandidates, ticketEnrich, legTarget);
+            return rankScanCandidatesForDelivery(scanCandidates, ticketEnrich, legTarget);
           }
-          return [];
+          return mergeResolvedWithExistingPicks(existing ?? [], [], legTarget);
         };
         let outPicks: ParsedPick[] = [];
         let outCoachDetailNote = "";
         const requestId = coachRequestContextRef.current?.requestId ?? null;
         const alreadyFinalized =
-          !!requestId && finalizedRequestIdRef.current === requestId;
+          !!requestId &&
+          (finalizedRequestIdRef.current === requestId ||
+            isCoachRequestCompleted(requestId));
         const boardScanDone =
           freshBoardScanComplete &&
           !!fullBoardScanMeta &&
           boardScanIsComplete(fullBoardScanMeta);
         if (boardScanDone && isParlayBuild && legTarget >= 3 && fullBoardScanMeta) {
-          runFinalizeCoachTicket(fullBoardScanMeta, "stream-resolve");
+          if (!shouldSkipPostCompletionCoachWork(requestId)) {
+            runFinalizeCoachTicket(fullBoardScanMeta, "stream-resolve");
+          }
         }
-        if (!alreadyFinalized && !(boardScanDone && isParlayBuild && legTarget >= 3)) {
+        if (
+          !alreadyFinalized &&
+          !shouldSkipPostCompletionCoachWork(requestId) &&
+          !(boardScanDone && isParlayBuild && legTarget >= 3)
+        ) {
         setMessages((prev) => {
           const copy = [...prev];
-          const { legNote: _dropLegNote, ...prevAssistant } = copy[copy.length - 1];
-          outPicks = gateResolvedPicks(resolveOutPicks(prevAssistant.picks));
+          const prevMsg = copy[copy.length - 1];
+          const prevLegNote = prevMsg.legNote;
+          const { legNote: _dropLegNote, ...prevAssistant } = prevMsg;
+          const resolved = resolveOutPicks(prevAssistant.picks);
+          outPicks = gateResolvedPicks(resolved, prevAssistant.picks);
+          if (legTarget > 0 && outPicks.length > 0 && outPicks.length < legTarget) {
+            legNote = buildDeliveryLegNote(legNote, legTarget, outPicks.length);
+          }
           outCoachDetailNote = dedupeLegNoteParagraphs(
             [coachDetailNote, prevAssistant.coachDetailNote ?? ""].filter(Boolean).join("\n\n"),
           );
-          const manifestReply = coachReplyHasScanManifest(
-            boardScanManifestDetail,
-            outCoachDetailNote,
-          );
-          copy[copy.length - 1] = {
+          const manifestReply =
+            outPicks.length === 0 &&
+            coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote) &&
+            !(prevAssistant.picks ?? []).some(pickHasRenderableDeliveryData);
+          const nextContent =
+            outPicks.length > 0 ? "" : manifestReply ? "" : finalContent;
+          const nextMsg = {
             ...prevAssistant,
-            role: "assistant",
-            content: outPicks.length > 0 ? "" : manifestReply ? "" : finalContent,
+            role: "assistant" as const,
+            content: nextContent,
             picks: outPicks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
             ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
             ...(outCoachDetailNote.trim() ? { coachDetailNote: outCoachDetailNote.trim() } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
           };
+          if (
+            assistantPicksEqual(prevAssistant.picks, outPicks) &&
+            prevAssistant.content === nextMsg.content &&
+            (prevLegNote ?? "") === (nextMsg.legNote ?? "") &&
+            (prevAssistant.coachDetailNote ?? "") === (nextMsg.coachDetailNote ?? "")
+          ) {
+            return prev;
+          }
+          copy[copy.length - 1] = nextMsg;
           return copy;
         });
         }
@@ -6039,6 +6255,7 @@ export default function CoachScreen() {
           setBuildProgressExpired(false);
           setParlayBuildPhase("idle");
           setAiPicks(outPicks);
+          if (requestId) markCoachRequestCompleted(requestId);
           captureFromCoach(outPicks);
           logCoachRenderPicks({
             requestId: coachRequestContextRef.current?.requestId,
@@ -6553,6 +6770,7 @@ export default function CoachScreen() {
   useEffect(() => {
     const requestId = activeRequestIdRef.current;
     if (!requestId) return;
+    if (shouldSkipPostCompletionCoachWork(requestId)) return;
     if (
       orphanRecoveryDoneRef.current &&
       orphanRecoveryRequestIdRef.current === requestId
@@ -6691,7 +6909,10 @@ export default function CoachScreen() {
     if (streaming || buildFinishing || waiting) return;
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant" || !DEAD_BUILD_PROSE_RE.test(last.content ?? "")) return;
-    setMessages((prev) => pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev)));
+    setMessages((prev) => {
+      const next = pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev));
+      return next === prev ? prev : next;
+    });
   }, [messages, streaming, buildFinishing, waiting]);
 
   const footerParlayProgress = useMemo(() => {
@@ -6757,6 +6978,9 @@ export default function CoachScreen() {
     if (!coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
     const scan = latestBoardScanRef.current;
     if (!scan || !boardScanIsComplete(scan)) return;
+    const unlockKey = `${activeRequestIdRef.current ?? ""}:${scan.requestId ?? ""}`;
+    if (manifestUnlockDoneRef.current === unlockKey) return;
+    manifestUnlockDoneRef.current = unlockKey;
     setStreaming(false);
     setBuildFinishing(false);
     setWaiting(false);

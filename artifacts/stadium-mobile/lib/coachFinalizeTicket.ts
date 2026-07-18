@@ -3,6 +3,7 @@
 import type { ParsedPick } from "../components/PickCard.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { COACH_EMPTY_BOARD_SCAN_LEAD, deliverCoachBoardScanTicket } from "./coachBoardScanDelivery.ts";
+import { rankScanCandidatesForDelivery } from "./coachDeliveryResolve.ts";
 import { formatCoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 import { boardScanIsComplete } from "./coachScanPolicy.ts";
 import { coerceCoachDisplayPicks } from "./coachTicketKernel.ts";
@@ -57,6 +58,10 @@ function selectFromScan(
   const delivered = deliverCoachBoardScanTicket(scan, enrich, legTarget);
   if (delivered.picks.length) {
     return { picks: delivered.picks, coachDetailNote: delivered.coachDetailNote };
+  }
+  const ranked = rankScanCandidatesForDelivery(scan.picks, enrich, legTarget);
+  if (ranked.length) {
+    return { picks: ranked, coachDetailNote: delivered.coachDetailNote };
   }
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);

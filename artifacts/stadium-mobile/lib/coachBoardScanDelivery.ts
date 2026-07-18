@@ -14,6 +14,7 @@ import {
   executeFinalTicketHandoff,
   salvageHighestRanked,
 } from "./coachFinalTicketAssembly.ts";
+import { rankScanCandidatesForDelivery } from "./coachDeliveryResolve.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
@@ -93,6 +94,9 @@ export function deliverCoachBoardScanTicket(
     const tagged = tagTicketRoles([...scan.picks]);
     const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
     picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+    if (!picks.length) {
+      picks = rankScanCandidatesForDelivery(scan.picks, enrich, legTarget);
+    }
     if (!picks.length) {
       picks = salvageHighestRanked(scan.picks, enrich, legTarget);
     }
