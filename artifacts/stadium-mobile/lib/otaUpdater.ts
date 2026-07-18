@@ -32,6 +32,23 @@ export async function prefetchOtaInBackground(): Promise<OtaPrefetchOutcome> {
   }
 }
 
+/** Background fetch only — never reloads. Coach focus hook uses this. */
+export async function prefetchAndMaybeApplyOta(force = false): Promise<OtaPrefetchOutcome> {
+  if (__DEV__ || !Updates.isEnabled || isOtaReloadBlocked()) return "none";
+  if (!force) {
+    return prefetchOtaInBackground();
+  }
+  try {
+    const result = await Updates.checkForUpdateAsync();
+    if (result.isAvailable) {
+      await Updates.fetchUpdateAsync();
+    }
+    return !!latestContext?.isUpdatePending ? "pending" : "none";
+  } catch {
+    return "none";
+  }
+}
+
 /** @deprecated Not mounted from _layout. Foreground fetch-only if used elsewhere. */
 export function useOtaUpdater(enabled: boolean) {
   const inFlight = useRef(false);

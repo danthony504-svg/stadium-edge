@@ -3170,8 +3170,6 @@ export default function CoachScreen() {
                 matchupHistory: context.matchupHistory,
                 matchupInjuries: context.matchupInjuries,
                 playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
                 mlbPlatoon: context.mlbPlatoon,
                 mlbGameEnv: context.mlbGameEnv,
                 perfByFamily: marketPerf,
@@ -4261,8 +4259,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             };
             const scoredMainProps = attachPickScores(
@@ -4427,8 +4423,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             });
             picks = scrubExcludedSportsFromPicks(
@@ -4508,8 +4502,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             };
             const scoredMainProps = attachPickScores(
@@ -4640,8 +4632,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             });
             backupPicks = filterQualifyingAltLegs(backupPicks);
@@ -6322,7 +6312,6 @@ export default function CoachScreen() {
                         m.retry ||
                           activeParlayAskRef.current ||
                           priorUserText ||
-                          trimmed ||
                           "Build me a 15-leg longshot parlay",
                         { freshThread: true },
                       );
