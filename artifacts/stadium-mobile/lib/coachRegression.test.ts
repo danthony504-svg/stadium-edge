@@ -4,6 +4,12 @@ import test from "node:test";
 
 import type { ParsedPick } from "../components/PickCard.ts";
 import { finalizeCoachTicket } from "./coachFinalizeTicket.ts";
+import {
+  registerCoachPipelineTraceSink,
+  resetCoachPipelineTraceForTests,
+  tracePipelineBlocked,
+  tracePipelineEnter,
+} from "./coachPipelineTrace.ts";
 import { canAdvanceCoachPhase } from "./coachStateMachine.ts";
 import { PROP_MARKET_LABEL_MAP } from "./propMarketLabel.ts";
 
@@ -117,6 +123,35 @@ test("coach.tsx: single finalization entry (runFinalizeCoachTicket)", () => {
   assert.match(coachSrc, /finalizedRequestIdRef/);
   assert.equal(/5s finalization deadline/.test(coachSrc), false);
   assert.equal(/dead-end-handoff/.test(coachSrc), false);
+});
+
+test("coach pipeline trace logs enter/exit snapshot fields", () => {
+  resetCoachPipelineTraceForTests();
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
+  };
+  try {
+    registerCoachPipelineTraceSink(() => ({
+      activeRequestId: "req-6",
+      sendGeneration: 4,
+      scanComplete: false,
+      pickCount: 0,
+      selectedCount: 0,
+      correlationRequestId: null,
+      finalizedRequestId: null,
+    }));
+    tracePipelineEnter("runFinalizeCoachTicket");
+    tracePipelineBlocked("runCorrelation", "scan-incomplete");
+    assert.match(lines[0]!, /runFinalizeCoachTicket-enter/);
+    assert.match(lines[0]!, /"sendGeneration":4/);
+    assert.match(lines[1]!, /runCorrelation-blocked/);
+    assert.match(lines[1]!, /"condition":"scan-incomplete"/);
+  } finally {
+    console.log = orig;
+    resetCoachPipelineTraceForTests();
+  }
 });
 
 test("coach.tsx: closing and reopening guarded by finalizedRequestIdRef", () => {

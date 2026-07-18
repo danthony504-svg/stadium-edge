@@ -187,6 +187,12 @@ import {
 } from "@/lib/coachExecutionTrace";
 import { awaitBoardScanWithinBudget } from "@/lib/coachBoardScanRace";
 import {
+  registerCoachPipelineTraceSink,
+  tracePipelineBlocked,
+  tracePipelineEnter,
+  tracePipelineExit,
+} from "@/lib/coachPipelineTrace";
+import {
   type CoachBuildPhase,
   coachPhaseToProgressBuildPhase,
   nextCoachPhase,
@@ -1348,6 +1354,30 @@ export default function CoachScreen() {
 
   useEffect(() => registerCoachExecTraceSink(readCoachExecTraceSnapshot), [readCoachExecTraceSnapshot]);
 
+  const readCoachPipelineTraceSnapshot = useCallback(
+    () => ({
+      activeRequestId: activeRequestIdRef.current,
+      sendGeneration: sendGenerationRef.current,
+      scanComplete: boardScanIsComplete(latestBoardScanRef.current),
+      pickCount:
+        latestBoardScanRef.current?.picks?.length ?? boardTicketSnapshotRef.current?.length ?? 0,
+      selectedCount: boardTicketSnapshotRef.current?.length ?? 0,
+      correlationRequestId: correlationRequestIdRef.current,
+      finalizedRequestId: finalizedRequestIdRef.current,
+    }),
+    [],
+  );
+
+  useEffect(
+    () => registerCoachPipelineTraceSink(readCoachPipelineTraceSnapshot),
+    [readCoachPipelineTraceSnapshot],
+  );
+
+  const beginCoachBoardScanWork = useCallback(() => {
+    setParlayBuildPhase("board-scan");
+    advanceCoachPhase("simulating");
+  }, [advanceCoachPhase]);
+
   const runBoundedBoardScan = useCallback(
     (
       opts: Parameters<typeof tryReachFullBoardScan>[0],
@@ -1386,6 +1416,14 @@ export default function CoachScreen() {
     ): boolean => {
       const { requestId, legTarget, legNote, coachDetailNote } = opts;
       const partial = latestBoardScanRef.current;
+      tracePipelineEnter("commitCards", {
+        activeRequestId: requestId,
+        scanComplete: boardScanIsComplete(partial),
+        pickCount: picks.length,
+        selectedCount: picks.length,
+        finalizedRequestId: finalizedRequestIdRef.current,
+        correlationRequestId: correlationRequestIdRef.current,
+      });
       logCoachExecStep("commit-start", {
         activeRequestId: requestId,
         scanComplete: boardScanIsComplete(partial),
@@ -1490,6 +1528,14 @@ export default function CoachScreen() {
         selectedCount: picks.length,
         finalizedRequestId: requestId,
       });
+      tracePipelineExit("commitCards", {
+        activeRequestId: requestId,
+        scanComplete: boardScanIsComplete(partial),
+        pickCount: picks.length,
+        selectedCount: picks.length,
+        finalizedRequestId: requestId,
+        correlationRequestId: correlationRequestIdRef.current,
+      });
       scrollToEnd(false);
       return committed;
     },
@@ -1553,6 +1599,17 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
 
+      tracePipelineEnter("runFinalizeCoachTicket", {
+        activeRequestId: requestId,
+        sendGeneration: sendGenerationRef.current,
+        scanComplete: boardScanIsComplete(partial),
+        pickCount: partial.picks?.length ?? 0,
+        selectedCount: 0,
+        correlationRequestId: correlationRequestIdRef.current,
+        finalizedRequestId: finalizedRequestIdRef.current,
+        phase,
+      });
+
       logCoachHandoff("enter", {
         phase,
         requestId,
@@ -1567,6 +1624,18 @@ export default function CoachScreen() {
 
       if (!boardScanIsComplete(partial)) {
         logCoachHandoff("skip-scan-incomplete", { phase, requestId });
+        tracePipelineBlocked("runFinalizeCoachTicket", "scan-incomplete", {
+          activeRequestId: requestId,
+          sendGeneration: sendGenerationRef.current,
+          scanComplete: false,
+          pickCount: partial.picks?.length ?? 0,
+        });
+        tracePipelineBlocked("runCorrelation", "runFinalizeCoachTicket-never-entered-scan-incomplete", {
+          activeRequestId: requestId,
+          sendGeneration: sendGenerationRef.current,
+          scanComplete: false,
+          pickCount: partial.picks?.length ?? 0,
+        });
         logCoachExecSkip("correlation-start", "scan-incomplete", {
           activeRequestId: requestId,
           scanComplete: false,
@@ -1576,6 +1645,16 @@ export default function CoachScreen() {
       }
       if (!requestId) {
         logCoachHandoff("skip-no-request-id", { phase, candidateCount: partial.picks?.length ?? 0 });
+        tracePipelineBlocked("runFinalizeCoachTicket", "missing-request-id", {
+          sendGeneration: sendGenerationRef.current,
+          scanComplete: true,
+          pickCount: partial.picks?.length ?? 0,
+        });
+        tracePipelineBlocked("runCorrelation", "runFinalizeCoachTicket-never-entered-missing-request-id", {
+          sendGeneration: sendGenerationRef.current,
+          scanComplete: true,
+          pickCount: partial.picks?.length ?? 0,
+        });
         logCoachExecSkip("correlation-start", "missing-request-id", {
           scanComplete: true,
           pickCount: partial.picks?.length ?? 0,
@@ -1587,6 +1666,13 @@ export default function CoachScreen() {
           phase,
           requestId,
           snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+        });
+        tracePipelineBlocked("runFinalizeCoachTicket", "already-finalized", {
+          activeRequestId: requestId,
+          sendGeneration: sendGenerationRef.current,
+          scanComplete: true,
+          pickCount: partial.picks?.length ?? 0,
+          finalizedRequestId: requestId,
         });
         logCoachExecSkip("correlation-start", "already-finalized", {
           activeRequestId: requestId,
@@ -1742,6 +1828,12 @@ export default function CoachScreen() {
                 snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
               });
               advanceCoachPhase("completed");
+            } else {
+              tracePipelineBlocked("commitCards", "setMessages-did-not-apply-picks", {
+                activeRequestId: requestId,
+                pickCount: result.picks.length,
+                selectedCount: result.selectedCount,
+              });
             }
             return;
           }
@@ -1750,6 +1842,11 @@ export default function CoachScreen() {
             requestId,
             phase,
             candidateCount: result.candidateCount,
+          });
+          tracePipelineBlocked("commitCards", "finalize-selected-zero-picks", {
+            activeRequestId: requestId,
+            pickCount: partial.picks.length,
+            selectedCount: 0,
           });
           commitCoachFinalTicketEmpty({
             requestId,
@@ -1787,6 +1884,16 @@ export default function CoachScreen() {
             finalizedRequestIdRef.current = requestId;
             advanceCoachPhase("failed");
           }
+        } finally {
+          tracePipelineExit("runFinalizeCoachTicket", {
+            activeRequestId: requestId,
+            sendGeneration: sendGenerationRef.current,
+            scanComplete: true,
+            pickCount: partial.picks?.length ?? 0,
+            selectedCount: boardTicketSnapshotRef.current?.length ?? 0,
+            correlationRequestId: correlationRequestIdRef.current,
+            finalizedRequestId: finalizedRequestIdRef.current,
+          });
         }
       })();
 
@@ -2433,6 +2540,18 @@ export default function CoachScreen() {
           logCoachHandoff("board-scan-complete-skipped-stale-gen", {
             requestId: ctx?.requestId ?? partial.requestId ?? null,
           });
+          tracePipelineBlocked("runFinalizeCoachTicket", "stale-send-generation-or-inactive-request", {
+            activeRequestId: requestId,
+            sendGeneration: sendGenerationRef.current,
+            scanComplete: true,
+            pickCount: partial.picks?.length ?? 0,
+          });
+          tracePipelineBlocked("runCorrelation", "runFinalizeCoachTicket-never-entered-stale-request", {
+            activeRequestId: requestId,
+            sendGeneration: sendGenerationRef.current,
+            scanComplete: true,
+            pickCount: partial.picks?.length ?? 0,
+          });
           logCoachExecSkip("correlation-start", "stale-send-generation-or-inactive-request", {
             activeRequestId: requestId,
             scanComplete: true,
@@ -2500,7 +2619,7 @@ export default function CoachScreen() {
       );
       return (async (): Promise<FullBoardScanResult | null> => {
         try {
-          setParlayBuildPhase("board-scan");
+          beginCoachBoardScanWork();
           const [espnGames, oddsGames, liveFeed] = await Promise.all([
             Promise.all(scanSports.map((s) => getGames(s, signal).catch(() => []))).then((rows) =>
               rows.flat(),
@@ -2552,7 +2671,7 @@ export default function CoachScreen() {
         }
       })();
     },
-    [marketPerf, modelCalibration, onBoardScanPartial, runBoundedBoardScan],
+    [marketPerf, modelCalibration, onBoardScanPartial, runBoundedBoardScan, beginCoachBoardScanWork],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -3277,7 +3396,7 @@ export default function CoachScreen() {
           const reachFullPreScanEligible =
             boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS && !slipImageVerdictOnly;
           if (reachFullPreScanEligible || (boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS)) {
-            setParlayBuildPhase("board-scan");
+            beginCoachBoardScanWork();
           }
           type ScanFeeds = {
             espnGames: import("@/lib/api").EspnGame[];
@@ -3286,7 +3405,7 @@ export default function CoachScreen() {
           };
           let scanFeedsPromise: Promise<ScanFeeds> | null = null;
           if (reachFullPreScanEligible) {
-            setParlayBuildPhase("board-scan");
+            beginCoachBoardScanWork();
             const scanSports = coachLiveScanSports(excludedSports);
             scanFeedsPromise = Promise.all([
               Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
@@ -3671,7 +3790,7 @@ export default function CoachScreen() {
             } else if (useParlayKernel) {
               full = "";
               setWaiting(false);
-              setParlayBuildPhase("board-scan");
+              beginCoachBoardScanWork();
               let scanForDelivery: FullBoardScanResult | null = null;
               if (earlyReachBoardScanRef.current) {
                 try {
@@ -4333,7 +4452,7 @@ export default function CoachScreen() {
             }
           }
         } else if (!fullBoardScanned && useFullBoardScan) {
-          setParlayBuildPhase("board-scan");
+          beginCoachBoardScanWork();
           const scanSports = coachLiveScanSports(excludedSports);
           const [espnGames, oddsGames, liveFeed] = await Promise.all([
             Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
@@ -6240,6 +6359,7 @@ export default function CoachScreen() {
       kickoffEarlyReachBoardScan,
       runBoundedBoardScan,
       runFinalizeCoachTicket,
+      beginCoachBoardScanWork,
       attachedImages,
       isSignedIn,
       modelStrengths,

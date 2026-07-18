@@ -77,6 +77,7 @@ export async function enrichCoachPropSimHits(
 ): Promise<EnrichCoachPropSimResult> {
   const out = new Map(hits);
   const playerHistory: Record<string, PlayerHistorySlice> = {};
+  if (signal?.aborted) return { hits: out, playerHistory };
   const pending: ParsedPick[] = [];
 
   for (const pick of batch) {

@@ -1,6 +1,7 @@
 // Coach parlay correlation — bounded greedy selection with hard timeout and fallback.
 
 import type { ParsedPick } from "../components/PickCard.ts";
+import { tracePipelineEnter, tracePipelineExit } from "./coachPipelineTrace.ts";
 import { parlayCorrelationPenalty } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 
@@ -263,8 +264,21 @@ export function runCoachCorrelationSync(input: CoachCorrelationInput): CoachCorr
  */
 export function runCoachCorrelation(input: CoachCorrelationInput): Promise<CoachCorrelationResult> {
   const { requestId } = input;
+  tracePipelineEnter("runCorrelation", {
+    activeRequestId: requestId,
+    pickCount: input.candidates.length,
+    selectedCount: 0,
+    correlationRequestId: requestId,
+  });
   if (completedRequestIds.has(requestId)) {
-    return Promise.resolve(runCorrelationBody(input));
+    const result = runCorrelationBody(input);
+    tracePipelineExit("runCorrelation", {
+      activeRequestId: requestId,
+      pickCount: input.candidates.length,
+      selectedCount: result.outputCount,
+      correlationRequestId: requestId,
+    });
+    return Promise.resolve(result);
   }
   const pending = inFlight.get(requestId);
   if (pending) return pending;
@@ -280,6 +294,12 @@ export function runCoachCorrelation(input: CoachCorrelationInput): Promise<Coach
       settled = true;
       completedRequestIds.add(requestId);
       inFlight.delete(requestId);
+      tracePipelineExit("runCorrelation", {
+        activeRequestId: requestId,
+        pickCount: result.inputCount,
+        selectedCount: result.outputCount,
+        correlationRequestId: requestId,
+      });
       resolve(result);
     };
 
