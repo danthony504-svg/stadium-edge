@@ -151,10 +151,19 @@ import {
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   beginCoachRun,
+  activeCoachRequestId,
   isActiveCoachRun,
   logCoachRun,
   setCoachRunTerminal,
 } from "@/lib/coachRunTrace";
+import {
+  formatBundleIdentityLine,
+  getBundleIdentity,
+} from "@/lib/bundleIdentity";
+import {
+  logFinalTicketCardsRendered,
+  logFinalTicketMessageCreated,
+} from "@/lib/coachFinalTicketAssembly";
 import {
   finalizeCoachPipelineTickets,
   resolveCoachDeliveryPicks,
@@ -1333,6 +1342,8 @@ export default function CoachScreen() {
       setBoardScanPartialLegs(toDeliver.length);
       captureFromCoach(toDeliver);
       liveScanDeliveredRef.current = true;
+      logFinalTicketMessageCreated(ctx?.requestId, toDeliver.length);
+      logFinalTicketCardsRendered(ctx?.requestId, toDeliver.length);
       logCoachRun("render-complete", {
         requestId: ctx?.requestId,
         cardCount: toDeliver.length,
@@ -3204,6 +3215,11 @@ export default function CoachScreen() {
           });
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
+          logCoachRun("correlation-complete", {
+            requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+            input: fullBoardScanMeta?.picks?.length ?? 0,
+            output: fullBoardScanMeta?.picks?.length ?? 0,
+          });
           setParlayBuildPhase("score");
         }
         let boardBuilt = fullBoardScanned;
@@ -5726,6 +5742,23 @@ export default function CoachScreen() {
     return slateOddsLabel(day ?? "tonight");
   }, [headerUserTexts]);
 
+  const [bundleRequestId, setBundleRequestId] = useState("");
+  useEffect(() => {
+    const syncRequestId = () => {
+      setBundleRequestId(
+        activeCoachRequestId() || coachRequestContextRef.current?.requestId || "",
+      );
+    };
+    syncRequestId();
+    const timer = setInterval(syncRequestId, 400);
+    return () => clearInterval(timer);
+  }, [streaming, buildFinishing, waiting, boardScanPartialLegs]);
+
+  const bundleIdentityLine = useMemo(
+    () => formatBundleIdentityLine(bundleRequestId || undefined),
+    [bundleRequestId],
+  );
+
   // Older OTAs injected dead watchdog prose into assistant bubbles — scrub on load.
   useEffect(() => {
     setMessages((prev) => pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev)));
@@ -5984,6 +6017,18 @@ export default function CoachScreen() {
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
           Picks grounded in {headerSlateLabel} real odds — never invented
+        </Text>
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.body,
+            fontSize: 10,
+            marginTop: 6,
+            lineHeight: 14,
+          }}
+          selectable
+        >
+          {bundleIdentityLine}
         </Text>
       </View>
 

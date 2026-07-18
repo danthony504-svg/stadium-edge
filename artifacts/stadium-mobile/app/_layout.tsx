@@ -29,6 +29,7 @@ import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
+import { logBundleIdentity } from "@/lib/bundleIdentity";
 import { setAuthTokenGetter } from "@/lib/authToken";
 import { prefetchOtaInBackground } from "@/lib/otaUpdater";
 import {
@@ -145,6 +146,10 @@ function OtaStartupCheck() {
 
 /** No startup OTA UI auto-reload — user applies via OtaUpdateBanner or Menu → OTA Diagnostics. */
 function AppShell() {
+  useEffect(() => {
+    logBundleIdentity();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <OtaStartupCheck />

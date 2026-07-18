@@ -11,6 +11,11 @@ import {
 } from "./coachBoardScanManifest.ts";
 import { finalizeCoachPipelineTickets } from "./coachPipelineFinalize.ts";
 import { logCoachRun } from "./coachRunTrace.ts";
+import {
+  logFinalTicketCardsRendered,
+  logFinalTicketMessageCreated,
+  runFinalTicketAssembly,
+} from "./coachFinalTicketAssembly.ts";
 
 export type CoachBoardScanDelivery = {
   picks: ParsedPick[];
@@ -65,16 +70,16 @@ export function deliverCoachBoardScanTicket(
   }
 
   const requestId = scan.requestId ?? "";
-  const pipeline = finalizeCoachPipelineTickets({
+  const assembly = runFinalTicketAssembly({
     requestId,
     candidates: scan.picks,
     enrich,
     requestedLegs: legTarget,
     relaxCorrelation: legTarget > 0 && scan.picks.length >= legTarget,
   });
-  let picks = pipeline.picks;
+  let picks = assembly.picks;
   if (!picks.length && scan.picks.length) {
-    const salvage = finalizeCoachPipelineTickets({
+    const salvage = runFinalTicketAssembly({
       requestId,
       candidates: scan.picks,
       enrich,
@@ -83,6 +88,16 @@ export function deliverCoachBoardScanTicket(
     });
     picks = salvage.picks;
   }
+  if (assembly.failureReason && picks.length) {
+    logCoachRun("final-selection", {
+      requestId,
+      requested: legTarget,
+      selected: picks.length,
+      failureReason: assembly.failureReason,
+    });
+  }
+  logFinalTicketMessageCreated(requestId, picks.length);
+  logFinalTicketCardsRendered(requestId, picks.length);
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,

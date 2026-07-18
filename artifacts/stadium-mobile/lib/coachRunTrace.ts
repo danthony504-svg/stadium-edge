@@ -70,3 +70,7 @@ export function resetCoachRunTraceForTests(): void {
   activeRequestId = "";
   activeTerminal = "building";
 }
+
+export function activeCoachRequestId(): string {
+  return activeRequestId;
+}
