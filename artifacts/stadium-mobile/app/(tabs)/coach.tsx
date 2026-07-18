@@ -132,6 +132,7 @@ import {
 } from "@/lib/coachTicketRescore";
 import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket } from "@/lib/coachTicketKernel";
 import { filterValidCoachPicks } from "@/lib/coachTicketValidation";
+import { coachBuildProgressFromPhase } from "@/lib/coachBuildProgress";
 import {
   beginCoachScanPipeline,
   clearCoachScanPipeline,

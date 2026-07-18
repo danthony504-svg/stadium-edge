@@ -10,11 +10,41 @@ export type CoachBuildChecklistStage =
   | "final-ticket";
 
 export type CoachBuildProgressSnapshot = {
+  phase: ParlayBuildPhase | undefined;
   stageIndex: number;
   percent: number;
   checklistStage: CoachBuildChecklistStage;
   slowStageLabel: string;
+  matchupComplete: boolean;
+  injuryComplete: boolean;
+  lineValueComplete: boolean;
+  correlationComplete: boolean;
+  ticketComplete: boolean;
 };
+
+const CHECKLIST_DONE_AT = {
+  matchup: 3,
+  injury: 4,
+  lineValue: 6,
+  correlation: 7,
+  ticket: 9,
+} as const;
+
+function coachBuildChecklistFlags(
+  stageIndex: number,
+  legCount: number,
+): Pick<
+  CoachBuildProgressSnapshot,
+  "matchupComplete" | "injuryComplete" | "lineValueComplete" | "correlationComplete" | "ticketComplete"
+> {
+  return {
+    matchupComplete: stageIndex >= CHECKLIST_DONE_AT.matchup,
+    injuryComplete: stageIndex >= CHECKLIST_DONE_AT.injury,
+    lineValueComplete: stageIndex >= CHECKLIST_DONE_AT.lineValue,
+    correlationComplete: stageIndex >= CHECKLIST_DONE_AT.correlation,
+    ticketComplete: legCount > 0 || stageIndex >= CHECKLIST_DONE_AT.ticket,
+  };
+}
 
 const SLOW_STAGE_LABEL: Record<CoachBuildChecklistStage, string> = {
   matchups: "matchups",
@@ -30,49 +60,72 @@ export function coachBuildProgressFromPhase(
   legCount: number,
 ): CoachBuildProgressSnapshot {
   if (legCount > 0) {
+    const stageIndex = 9;
     return {
-      stageIndex: 9,
+      phase: buildPhase,
+      stageIndex,
       percent: 100,
       checklistStage: "final-ticket",
       slowStageLabel: SLOW_STAGE_LABEL["final-ticket"],
+      ...coachBuildChecklistFlags(stageIndex, legCount),
     };
   }
   switch (buildPhase) {
-    case "score":
+    case "score": {
+      const stageIndex = 8;
       return {
-        stageIndex: 8,
+        phase: buildPhase,
+        stageIndex,
         percent: 93,
         checklistStage: "correlation",
         slowStageLabel: SLOW_STAGE_LABEL.correlation,
+        ...coachBuildChecklistFlags(stageIndex, legCount),
       };
-    case "stream":
+    }
+    case "stream": {
+      const stageIndex = 7;
       return {
-        stageIndex: 7,
+        phase: buildPhase,
+        stageIndex,
         percent: 74,
         checklistStage: "correlation",
         slowStageLabel: SLOW_STAGE_LABEL.correlation,
+        ...coachBuildChecklistFlags(stageIndex, legCount),
       };
-    case "board-scan":
+    }
+    case "board-scan": {
+      const stageIndex = 5;
       return {
-        stageIndex: 5,
+        phase: buildPhase,
+        stageIndex,
         percent: 64,
         checklistStage: "line-value",
         slowStageLabel: SLOW_STAGE_LABEL["line-value"],
+        ...coachBuildChecklistFlags(stageIndex, legCount),
       };
-    case "context":
+    }
+    case "context": {
+      const stageIndex = 3;
       return {
-        stageIndex: 3,
+        phase: buildPhase,
+        stageIndex,
         percent: 40,
         checklistStage: "injury",
         slowStageLabel: SLOW_STAGE_LABEL.injury,
+        ...coachBuildChecklistFlags(stageIndex, legCount),
       };
-    default:
+    }
+    default: {
+      const stageIndex = 1;
       return {
-        stageIndex: 1,
+        phase: buildPhase,
+        stageIndex,
         percent: 16,
         checklistStage: "matchups",
         slowStageLabel: SLOW_STAGE_LABEL.matchups,
+        ...coachBuildChecklistFlags(stageIndex, legCount),
       };
+    }
   }
 }
 
