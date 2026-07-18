@@ -10,7 +10,7 @@ import {
   tracePipelineBlocked,
   tracePipelineEnter,
 } from "./coachPipelineTrace.ts";
-import { canAdvanceCoachPhase } from "./coachStateMachine.ts";
+import { canAdvanceCoachPhase, nextCoachPhase } from "./coachStateMachine.ts";
 import { PROP_MARKET_LABEL_MAP } from "./propMarketLabel.ts";
 
 const enrich = { realOdds: [], propPool: [], gameMeta: [] };
@@ -59,6 +59,12 @@ test("coach phase machine only moves forward", () => {
   assert.equal(canAdvanceCoachPhase("finalizing", "correlating", false), false);
   assert.equal(canAdvanceCoachPhase("completed", "analyzing", false), false);
   assert.equal(canAdvanceCoachPhase("idle", "loading-markets", true), true);
+});
+
+test("nextCoachPhase returns current when target equals current", () => {
+  const current: import("./coachStateMachine.ts").CoachBuildPhase = "simulating";
+  assert.equal(nextCoachPhase(current, "simulating", false), current);
+  assert.equal(nextCoachPhase("correlating", "correlating", false), "correlating");
 });
 
 test("finalizeCoachTicket: 5 valid candidates → 5 picks", () => {

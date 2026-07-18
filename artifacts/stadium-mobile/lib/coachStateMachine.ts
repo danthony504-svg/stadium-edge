@@ -44,6 +44,7 @@ export function nextCoachPhase(
   target: CoachBuildPhase,
   newRequest: boolean,
 ): CoachBuildPhase {
+  if (current === target) return current;
   if (!canAdvanceCoachPhase(current, target, newRequest)) return current;
   return target;
 }
