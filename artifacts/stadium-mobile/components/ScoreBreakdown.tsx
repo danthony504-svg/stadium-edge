@@ -7,7 +7,7 @@ import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
-import { propHolisticTopDrivers, buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
+import { propHolisticTopDrivers, buildCoachCardHolistic, propHolisticMissingSignalSummary } from "@/lib/propHolisticRecommendation";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED, NOT_AI_RECOMMENDED_COMPACT } from "@/lib/pickRecommendation";
 
@@ -116,7 +116,7 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9.5 }}>
         {holistic.coveragePct}% context grounded
         {holistic.missingCount > 0
-          ? ` · ${holistic.missingCount} signal${holistic.missingCount === 1 ? "" : "s"} missing`
+          ? ` · missing: ${propHolisticMissingSignalSummary(holistic)}`
           : ""}
       </Text>
     </View>

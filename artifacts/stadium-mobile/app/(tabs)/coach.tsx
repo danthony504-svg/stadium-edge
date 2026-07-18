@@ -124,6 +124,7 @@ import {
   type CoachCanonicalProgress,
   type CoachProgressPatch,
 } from "@/lib/coachProgressState";
+import { isInjuryIntelAsk } from "@/lib/injuryFeed";
 import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
@@ -3114,6 +3115,8 @@ export default function CoachScreen() {
             !confidenceThreshold &&
             !includePeriods &&
             !altSign;
+          const injuryIntelAsk = isInjuryIntelAsk(trimmed);
+          const preferInjuryRichContext = injuryIntelAsk && !slipImageVerdictOnly;
           const streamWarmBuild =
             isParlayBuild ||
             useMlbSlatePath ||
@@ -3221,6 +3224,18 @@ export default function CoachScreen() {
                 gameMeta: [] as GameMeta[],
                 todayOnly: false,
               }
+            : preferInjuryRichContext
+              ? await buildChatContext(
+                  buildSports,
+                  slipForContext,
+                  controller.signal,
+                  oddsThreshold,
+                  includePeriods,
+                  focalForPools,
+                  altSign,
+                  0,
+                  wantsAnalyzeSlip(trimmed),
+                )
             : useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal, { excludeSports: excludeSportsList })
             : usePropsOnlyParlayPath

@@ -64,7 +64,7 @@ router.get("/sports/injuries", async (req, res): Promise<void> => {
     res.json(GetInjuriesResponse.parse(out));
   } catch (err) {
     req.log.error({ err }, "Failed to fetch injuries");
-    res.json([]);
+    res.status(503).json({ error: "Injury feed unavailable" });
   }
 });
 

@@ -18,7 +18,12 @@ import {
   prioritizePlayerHistoryTargets,
   propGamesCapForLegs,
 } from "./chatContextPriority";
-import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
+import { buildGameInjuryReport, isMatchupInjuryConfirmedClear, type GameInjuryReport } from "./injuries";
+import {
+  buildInjuryContextPack,
+  fetchInjuriesBySport,
+  type InjuryFeedMeta,
+} from "./injuryFeed";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
 import {
@@ -2405,6 +2410,10 @@ export type ChatContext = {
   // a transparent guide from real severity × position — NOT a fabricated player
   // rating. Omitted when no pickable game had a betting-relevant injury.
   matchupInjuries?: Record<string, GameInjuryReport>;
+  // Games where ESPN confirmed both teams with zero injury entries.
+  injuryClearedGames?: string[];
+  // Whether the live ESPN injury feed connected for the sports we checked.
+  injuryFeed?: InjuryFeedMeta;
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -3644,6 +3653,26 @@ async function buildLightParlayContext(
     }
   }
 
+  const injuryGames = allOdds.slice(0, opts.maxOddsGames).flatMap((g) => {
+    if (!g.awayTeam || !g.homeTeam) return [];
+    return [
+      {
+        sport: g.sport,
+        game: `${g.awayTeam} @ ${g.homeTeam}`,
+        away: g.awayTeam,
+        home: g.homeTeam,
+      },
+    ];
+  });
+  const injuryPack =
+    injuryGames.length && activeSports.length
+      ? buildInjuryContextPack(
+          activeSports,
+          await fetchInjuriesBySport(activeSports, getInjuries, signal),
+          injuryGames,
+        )
+      : null;
+
   return {
     context: {
       selectedSports: activeSports,
@@ -3651,6 +3680,11 @@ async function buildLightParlayContext(
       realGames: realGames.slice(0, 20),
       realOdds: realOdds.slice(0, opts.oddsSliceCap),
       realProps: balancePropsByGame(realProps, opts.propsBalanceCap, opts.focalText ?? null),
+      ...(injuryPack && Object.keys(injuryPack.matchupInjuries).length
+        ? { matchupInjuries: injuryPack.matchupInjuries }
+        : {}),
+      ...(injuryPack?.injuryClearedGames.length ? { injuryClearedGames: injuryPack.injuryClearedGames } : {}),
+      ...(injuryPack?.injuryFeed.sportsChecked.length ? { injuryFeed: injuryPack.injuryFeed } : {}),
     },
     propPool,
     gameMeta,
@@ -3880,14 +3914,18 @@ export async function buildChatContext(
   };
   const anyNonEmpty = (lists: { length: number }[]): boolean => lists.some((l) => l.length > 0);
 
-  let [[oddsAll, gamesAll], injuriesAll] = await Promise.all([
+  let [[oddsAll, gamesAll], injuriesMap] = await Promise.all([
     (requestedLegs > 0 && requestedLegs <= 10
       ? fetchCoreSequential(signal)
       : fetchCoreParallel(signal)),
-    lightParlay
-      ? Promise.resolve(sports.map(() => [] as InjuryTeam[]))
-      : Promise.all(sports.map((s) => getInjuries(s, signal).catch(() => [] as InjuryTeam[]))),
+    fetchInjuriesBySport(sports, getInjuries, signal),
   ]);
+  const injuriesAll = sports.map((s) => injuriesMap.get(s) ?? []);
+  const injuryFeed: InjuryFeedMeta = {
+    connected: sports.length > 0 && sports.every((s) => injuriesMap.get(s) !== null),
+    sportsChecked: [...sports],
+    sportsUnavailable: sports.filter((s) => injuriesMap.get(s) === null),
+  };
 
   // BOTH core pools coming back completely empty is the signature of a transient
   // fetch failure on a weak link (per-request timeout under burst saturation, or
@@ -3908,6 +3946,7 @@ export async function buildChatContext(
   // games with a betting-relevant injury get an entry (buildGameInjuryReport
   // returns null otherwise), so this stays compact and noise-free.
   const matchupInjuries: Record<string, GameInjuryReport> = {};
+  const injuryClearedGames: string[] = [];
 
   // Render-only team metadata: teamId -> {abbr, logo} (for resolving a prop
   // player's team via playerTeamId) and a per-game logo/abbr table (for
@@ -4013,8 +4052,14 @@ export async function buildChatContext(
       // Real injury read for this matchup (key players out + deterministic edge),
       // joined from the per-sport ESPN report. Null when neither side has a
       // betting-relevant injury, so it never adds noise to the context.
-      const injReport = buildGameInjuryReport(sport, injuriesAll[i], away, home);
-      if (injReport) matchupInjuries[gameLabel] = injReport;
+      const injTeams = injuriesMap.get(sport);
+      if (injTeams !== null) {
+        const injReport = buildGameInjuryReport(sport, injTeams, away, home);
+        if (injReport) matchupInjuries[gameLabel] = injReport;
+        else if (isMatchupInjuryConfirmedClear(sport, injTeams, away, home)) {
+          injuryClearedGames.push(gameLabel);
+        }
+      }
       if (g.homeTeamId && g.awayTeamId && perSport < 12) {
         historyTargets.push({ sport, gameLabel, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId, startsAt: g.startsAt });
         perSport++;
@@ -4576,6 +4621,8 @@ export async function buildChatContext(
       ...(Object.keys(mlbPlatoon).length ? { mlbPlatoon } : {}),
       ...(Object.keys(mlbGameEnv).length ? { mlbGameEnv } : {}),
       ...(Object.keys(matchupInjuries).length ? { matchupInjuries } : {}),
+      ...(injuryClearedGames.length ? { injuryClearedGames } : {}),
+      ...(injuryFeed.sportsChecked.length ? { injuryFeed } : {}),
     },
     propPool,
     gameMeta,

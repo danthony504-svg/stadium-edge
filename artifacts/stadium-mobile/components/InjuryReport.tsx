@@ -6,11 +6,13 @@ import { Pressable, Text, View } from "react-native";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getInjuries } from "@/lib/api";
+import { COACH_INJURY_FEED_UNAVAILABLE_MESSAGE } from "@/lib/injuryFeed";
 import {
   friendlyInjury,
   injuriesForMatchup,
   injuryEdge,
   injuryImpact,
+  isMatchupInjuryConfirmedClear,
   summarizeTeamInjuries,
   type InjuryImpactTier,
 } from "@/lib/injuries";
@@ -73,6 +75,14 @@ export function InjuryReport({
     [matchupInjuries, sport],
   );
   const edge = useMemo(() => injuryEdge(summaries), [summaries]);
+  const feedConfirmedClear = useMemo(() => {
+    if (!injuriesQ.isSuccess || wantedTeams.length < 1) return false;
+    if (wantedTeams.length === 1) {
+      const team = injuriesForMatchup(injuriesQ.data, wantedTeams);
+      return team.length === 1 && team[0]!.entries.length === 0;
+    }
+    return isMatchupInjuryConfirmedClear(sport, injuriesQ.data, wantedTeams[0]!, wantedTeams[1]!);
+  }, [injuriesQ.isSuccess, injuriesQ.data, wantedTeams, sport]);
 
   return (
     <View
@@ -110,10 +120,12 @@ export function InjuryReport({
       ) : matchupInjuries.length === 0 ? (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
           {injuriesQ.isError
-            ? "Couldn't reach the ESPN injury report."
-            : framing === "facing"
-              ? "No injuries reported for the opponent."
-              : "No injuries reported for either side."}
+            ? COACH_INJURY_FEED_UNAVAILABLE_MESSAGE
+            : feedConfirmedClear
+              ? framing === "facing"
+                ? "No injuries reported for the opponent."
+                : "No injuries reported for either side."
+              : "Couldn't match these teams on today's ESPN injury report."}
         </Text>
       ) : (
         <View style={{ gap: 14 }}>

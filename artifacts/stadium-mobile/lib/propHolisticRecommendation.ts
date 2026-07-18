@@ -45,6 +45,7 @@ export type PropHolisticScore = {
   confidencePct: number | null;
   coveragePct: number;
   missingCount: number;
+  missingSignals: string[];
   applicableCount: number;
   factors: PropHolisticFactor[];
   recommends: boolean;
@@ -459,6 +460,7 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
   const presentCount = applicable.filter((f) => f.present).length;
   const applicableCount = applicable.length;
   const missingCount = applicableCount - presentCount;
+  const missingSignals = applicable.filter((f) => !f.present).map((f) => f.label);
   const coveragePct =
     applicableCount > 0 ? Math.round((presentCount / applicableCount) * 100) : 0;
 
@@ -472,6 +474,7 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
     confidencePct,
     coveragePct,
     missingCount,
+    missingSignals,
     applicableCount,
     factors,
     recommends: false,
@@ -570,12 +573,14 @@ function mergePropHolisticScores(a: PropHolisticScore, b: PropHolisticScore): Pr
   const applicable = mergedFactors.filter((f) => f.applicable);
   const presentCount = applicable.filter((f) => f.present).length;
   const applicableCount = applicable.length;
+  const missingSignals = applicable.filter((f) => !f.present).map((f) => f.label);
   return {
     composite,
     grade,
     confidencePct,
     coveragePct: applicableCount > 0 ? Math.round((presentCount / applicableCount) * 100) : 0,
     missingCount: applicableCount - presentCount,
+    missingSignals,
     applicableCount,
     factors: mergedFactors,
     recommends: a.recommends || b.recommends,
@@ -712,7 +717,30 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
     },
   ];
 
-  return { ...base, factors: coachFactors };
+  return { ...base, factors: coachFactors, missingSignals: coachMissingSignals(coachFactors) };
+}
+
+const COACH_STRIP_LABELS: Record<string, string> = {
+  sportsbookValue: "EV",
+  simulation: "Sim",
+  matchup: "Matchup",
+  recentForm: "Form",
+  injury: "Injuries",
+  lineMovement: "Market",
+};
+
+function coachMissingSignals(factors: PropHolisticFactor[]): string[] {
+  return factors
+    .filter((f) => f.applicable && !f.present)
+    .map((f) => COACH_STRIP_LABELS[f.key] ?? f.label);
+}
+
+export function propHolisticMissingSignalSummary(holistic: PropHolisticScore): string {
+  if (holistic.missingCount <= 0) return "";
+  const labels = holistic.missingSignals.length
+    ? holistic.missingSignals
+    : ["context"];
+  return labels.join(", ");
 }
 
 export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): string {

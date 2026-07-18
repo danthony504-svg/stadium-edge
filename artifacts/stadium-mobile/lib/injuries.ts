@@ -300,3 +300,15 @@ export function buildGameInjuryReport(
       : `Edge: ${edge.team} (${edge.opp} carries more injury impact)`;
   return { edge: edgeStr, sides };
 }
+
+/** Both teams resolved in ESPN's feed with zero injury entries — confirmed clean. */
+export function isMatchupInjuryConfirmedClear(
+  sport: string,
+  teams: InjuryTeam[] | undefined,
+  away: string,
+  home: string,
+): boolean {
+  const injTeams = injuriesForMatchup(teams, [away, home]);
+  if (injTeams.length !== 2) return false;
+  return injTeams.every((t) => t.entries.length === 0);
+}
