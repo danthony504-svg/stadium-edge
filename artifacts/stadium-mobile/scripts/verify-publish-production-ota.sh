@@ -50,12 +50,12 @@ pnpm exec eas update:list --branch production --limit 8 --non-interactive 2>&1 |
 
 section "4. Latest iOS builds (channel + runtime)"
 pnpm exec eas build:list --platform ios --limit 20 --non-interactive 2>/dev/null \
-  | rg 'build#|Profile|Channel|Runtime|production|FINISHED' || true
+  | grep -E 'Build number|Profile|Channel|Runtime|production|finished|FINISHED' || true
 
 section "4b. Complete any in-progress rollout (blocks new publishes)"
 UPDATE_LIST_TEXT="$(pnpm exec eas update:list --branch production --limit 1 --non-interactive 2>/dev/null || true)"
-ROLLOUT_PCT="$(echo "${UPDATE_LIST_TEXT}" | rg 'Rollout Percentage' | head -1 | rg -o '[0-9]+' | head -1 || true)"
-ROLLING_GROUP="$(echo "${UPDATE_LIST_TEXT}" | rg 'Group ID' | head -1 | awk '{print $NF}' || true)"
+ROLLOUT_PCT="$(echo "${UPDATE_LIST_TEXT}" | grep 'Rollout Percentage' | head -1 | grep -oE '[0-9]+' | head -1 || true)"
+ROLLING_GROUP="$(echo "${UPDATE_LIST_TEXT}" | grep 'Group ID' | head -1 | awk '{print $NF}' || true)"
 echo "Latest production group: ${ROLLING_GROUP:-unknown}"
 echo "Latest rollout percentage: ${ROLLOUT_PCT:-N/A}"
 if [[ -n "${ROLLING_GROUP}" && -n "${ROLLOUT_PCT}" && "${ROLLOUT_PCT}" -lt 100 ]]; then
@@ -78,14 +78,11 @@ echo "Linking ${CHANNEL} channel → ${BRANCH} branch…"
 pnpm exec eas channel:edit "${CHANNEL}" --branch "${BRANCH}" --non-interactive
 
 pnpm exec eas update \
-  --branch "${BRANCH}" \
+  --channel "${CHANNEL}" \
   --platform ios \
   --environment production \
   --message "${MESSAGE}" \
   --non-interactive
-
-echo "Re-linking ${CHANNEL} channel → ${BRANCH} branch after publish…"
-pnpm exec eas channel:edit "${CHANNEL}" --branch "${BRANCH}" --non-interactive
 
 section "6. Post-publish: eas update:list (production branch)"
 pnpm exec eas update:list --branch production --limit 3 --non-interactive 2>&1 || true
