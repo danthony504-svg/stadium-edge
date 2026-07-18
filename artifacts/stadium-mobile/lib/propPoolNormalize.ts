@@ -1,4 +1,4 @@
-import { propMarketLabel } from "./propMarketLabel.ts";
+import { propMarketLabel } from "./propMarketLabel";
 
 /** Canonical prop-side shape at the API boundary (raw feed → pool rows). */
 export type NormalizedPropSide = {
