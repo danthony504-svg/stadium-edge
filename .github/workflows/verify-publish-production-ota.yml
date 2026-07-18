@@ -1,0 +1,52 @@
+name: Verify and publish production OTA
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: OTA update message
+        required: false
+        default: "Fix AI Coach scan final handoff"
+      confirm_publish:
+        description: Type PUBLISH to confirm
+        required: true
+  push:
+    branches:
+      - cursor/ota-redesign-e67e
+    paths:
+      - .ota-verify-publish-production
+
+jobs:
+  verify-publish:
+    if: ${{ github.event_name == 'push' || github.event.inputs.confirm_publish == 'PUBLISH' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Verify channel/runtime and publish production OTA
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          OTA_MESSAGE: ${{ github.event.inputs.message || 'Fix AI Coach scan final handoff' }}
+        run: bash scripts/verify-publish-production-ota.sh | tee /tmp/ota-verify-publish.log
+
+      - name: Upload verification log
+        uses: actions/upload-artifact@v4
+        with:
+          name: ota-verify-publish-log
+          path: /tmp/ota-verify-publish.log

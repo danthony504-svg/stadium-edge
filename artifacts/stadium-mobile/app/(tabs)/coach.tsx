@@ -1278,7 +1278,13 @@ export default function CoachScreen() {
   useEffect(() => {
     flashEnrichRef.current = { ...flashEnrichRef.current, perfByFamily: marketPerf };
   }, [marketPerf]);
-  const otaCommitLabel = coachOtaCommitLabel();
+  const [otaVerifyTick, setOtaVerifyTick] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      setOtaVerifyTick((n) => n + 1);
+    }, []),
+  );
+  const otaCommitLabel = useMemo(() => coachOtaCommitLabel(), [otaVerifyTick]);
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -6650,7 +6656,7 @@ export default function CoachScreen() {
           }}
           selectable
         >
-          OTA {otaCommitLabel}
+          {otaCommitLabel}
         </Text>
       </View>
 
