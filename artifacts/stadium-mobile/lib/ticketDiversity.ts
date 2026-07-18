@@ -98,8 +98,9 @@ export function finalizeCoachDeliveryPicks(
     matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
   } = {},
 ): ParsedPick[] {
-  if (!picks.some((p) => isGameLinePick(p) && !p.isProp)) return picks;
-  return dedupeCoachGameLinePicks(picks, opts).picks;
+  const deduped = dedupeTicketByNormalizedKey(picks);
+  if (!deduped.some((p) => isGameLinePick(p) && !p.isProp)) return deduped;
+  return dedupeCoachGameLinePicks(deduped, opts).picks;
 }
 
 /** Team-bucket + exact-leg + one-side-per-game dedupe — run before rendering Coach cards. */
@@ -199,6 +200,7 @@ export function rebalanceDeepParlayTicket(
   return { picks: out, note: notes.join("\n\n") };
 }
 
+import { dedupeTicketByNormalizedKey } from "./coachPickDiversity.ts";
 import { shuffleWithSeed } from "./varietySeed.ts";
 
 /** Stable shuffle so backfill doesn't always walk the same first games. */
