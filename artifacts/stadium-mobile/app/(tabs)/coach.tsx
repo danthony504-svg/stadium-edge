@@ -1218,6 +1218,10 @@ export default function CoachScreen() {
   useEffect(() => {
     buildFinishingRef.current = buildFinishing;
   }, [buildFinishing]);
+  const waitingRef = useRef(false);
+  useEffect(() => {
+    waitingRef.current = waiting;
+  }, [waiting]);
   const sendGenerationRef = useRef(0);
   const flashEnrichRef = useRef<CoachFlashEnrich>({
     realOdds: [],
@@ -1352,6 +1356,7 @@ export default function CoachScreen() {
   const correlationRequestIdRef = useRef<string | null>(null);
   const correlatedPicksRef = useRef<ParsedPick[] | null>(null);
   const manifestUnlockDoneRef = useRef<string | null>(null);
+  const finalizeInFlightRef = useRef<string | null>(null);
   const messagesRef = useRef(messages);
   useEffect(() => {
     messagesRef.current = messages;
@@ -1494,7 +1499,11 @@ export default function CoachScreen() {
       });
       boardTicketSnapshotRef.current = picks;
       liveScanDeliveredRef.current = picks.length > 0;
-      setBoardScanPartialLegs(picks.length);
+      setBoardScanPartialLegs((prev) => (prev === picks.length ? prev : picks.length));
+      if (picks.length > 0) {
+        finalizedRequestIdRef.current = requestId;
+        markCoachRequestCompleted(requestId);
+      }
       let committed = false;
       setMessages((prev) => {
         const copy = [...prev];
@@ -1796,6 +1805,11 @@ export default function CoachScreen() {
         logCoachHandoff("skip-request-completed", { phase, requestId });
         return false;
       }
+      if (finalizeInFlightRef.current === requestId) {
+        logCoachHandoff("skip-finalize-in-flight", { phase, requestId });
+        return false;
+      }
+      finalizeInFlightRef.current = requestId;
 
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
       const enrich: CoachFlashEnrich = {
@@ -2029,6 +2043,9 @@ export default function CoachScreen() {
             advanceCoachPhase("failed");
           }
         } finally {
+          if (finalizeInFlightRef.current === requestId) {
+            finalizeInFlightRef.current = null;
+          }
           tracePipelineExit("runFinalizeCoachTicket", {
             activeRequestId: requestId,
             sendGeneration: sendGenerationRef.current,
@@ -2575,6 +2592,14 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
+      const requestId = ctx?.requestId ?? partial.requestId ?? null;
+      if (
+        shouldSkipPostCompletionCoachWork(requestId) ||
+        finalizedRequestIdRef.current === requestId ||
+        (boardTicketSnapshotRef.current?.length ?? 0) > 0
+      ) {
+        return false;
+      }
       const scanComplete = boardScanIsComplete(partial);
       if (scanComplete) {
         return runFinalizeCoachTicket(partial, "deliver-board-scan");
@@ -6810,22 +6835,23 @@ export default function CoachScreen() {
           startSlatePreAnalysis("coach-focus");
         })();
       }
-      if (streamingRef.current || buildFinishingRef.current || waiting) return;
+      if (streamingRef.current || buildFinishingRef.current || waitingRef.current) return;
       const partial = latestBoardScanRef.current;
-      if (partial && boardScanIsComplete(partial)) {
-        if (partial.picks?.length) {
-          deliverBoardScanTicket(partial);
-        } else {
-          patchInstantBoardScanTicket(partial);
-        }
+      if (!partial || !boardScanIsComplete(partial)) return;
+      const requestId = partial.requestId ?? activeRequestIdRef.current;
+      if (
+        shouldSkipPostCompletionCoachWork(requestId) ||
+        finalizedRequestIdRef.current === requestId ||
+        (boardTicketSnapshotRef.current?.length ?? 0) > 0
+      ) {
         return;
       }
-    }, [
-      resumePendingBackgroundBuild,
-      deliverBoardScanTicket,
-      patchInstantBoardScanTicket,
-      waiting,
-    ]),
+      if (partial.picks?.length) {
+        deliverBoardScanTicket(partial);
+      } else {
+        patchInstantBoardScanTicket(partial);
+      }
+    }, [resumePendingBackgroundBuild, deliverBoardScanTicket, patchInstantBoardScanTicket]),
   );
 
   // While a build is handed off, poll the server stash on a timer so the result
