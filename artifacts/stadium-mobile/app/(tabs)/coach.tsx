@@ -5911,8 +5911,7 @@ export default function CoachScreen() {
     void restoreBackgroundBuild(bid);
   }, [params.buildId, restoreBackgroundBuild]);
 
-  // Auto-send when navigated with send=1 (e.g. Home "Build best parlay" / quick
-  // chips). Gated by the per-navigation `ts` token (not the prompt text) so that
+  // Auto-send when navigated with send=1 (e.g. SlipBar "Analyze my ticket").
   // tapping different actions that happen to share a prompt still fires each
   // time, and so the same tab staying mounted doesn't suppress later taps. We
   // mark sent only once we actually invoke send, and skip while streaming — the

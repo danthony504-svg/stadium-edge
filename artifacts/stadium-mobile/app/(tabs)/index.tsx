@@ -23,7 +23,6 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -932,19 +931,7 @@ function HomeSportFeed({
     stealsQ.isFetching ||
     (sport !== "tennis" && upsetsQ.isFetching);
 
-  const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
-    router.push({
-      pathname: "/coach",
-      params: {
-        autoMsg: msg,
-        send: "1",
-        ts: String(Date.now()),
-      },
-    });
-  };
-
-  // Open Coach without auto-sending — user can edit the prompt and tap send.
+  // Open Coach without auto-sending — user picks a size or submits a prompt.
   const goCoach = (prefill?: string) =>
     router.push({
       pathname: "/coach",
@@ -966,14 +953,14 @@ function HomeSportFeed({
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => goCoach("Build me the best parlay"),
     },
     {
       label: "Easy Money",
       subtitle: "High win rate tonight",
       icon: "currency-usd",
       color: "#34d399",
-      onPress: () => askCoach("Build me a safe parlay"),
+      onPress: () => goCoach("Build me a safe parlay"),
     },
     {
       label: "Best Value",
@@ -1015,8 +1002,8 @@ function HomeSportFeed({
         }
       >
 
-        {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
+        {/* Static hero — opens Coach idle; user chooses size or sends a prompt. */}
+        <BuildBestParlayHero onPress={() => goCoach()} />
 
         {/* Quick actions — four shortcut cards in a single row. */}
         <View
@@ -1867,7 +1854,7 @@ function HomeSportFeed({
                   <Pressable
                     key={`${u.game}-${idx}`}
                     onPress={() =>
-                      askCoach(
+                      goCoach(
                         `Tell me about the upset spot in ${u.game} — why do you like the underdog?`,
                       )
                     }
@@ -2076,14 +2063,9 @@ export default function HomeScreen() {
             slipClearance={slipClearance}
             bottomInset={insets.bottom}
             onBuildParlay={() => {
-              markCoachHomeLaunch();
               router.push({
                 pathname: "/coach",
-                params: {
-                  autoMsg: "Build me the best parlay",
-                  send: "1",
-                  ts: String(Date.now()),
-                },
+                params: { ts: String(Date.now()) },
               });
             }}
           />
