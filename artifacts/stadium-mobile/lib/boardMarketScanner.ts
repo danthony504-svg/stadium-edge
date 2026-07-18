@@ -455,7 +455,6 @@ function buildScanResult(
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
     onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
-    preview?: boolean;
   },
 ): FullBoardScanResult {
   const staged = buildStagedTicketFromScan(
