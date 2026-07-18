@@ -1325,12 +1325,13 @@ export default function CoachScreen() {
         legNote?: string;
         coachDetailNote?: string;
       },
-    ) => {
+    ): boolean => {
       const { requestId, legTarget, legNote, coachDetailNote } = opts;
       const partial = latestBoardScanRef.current;
       boardTicketSnapshotRef.current = picks;
       liveScanDeliveredRef.current = picks.length > 0;
       setBoardScanPartialLegs(picks.length);
+      let committed = false;
       setMessages((prev) => {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
@@ -1344,6 +1345,7 @@ export default function CoachScreen() {
               ...(coachDetailNote?.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
               ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
             };
+            committed = true;
             logCoachHandoff("commit-cards-applied", {
               requestId,
               legTarget,
@@ -1354,14 +1356,24 @@ export default function CoachScreen() {
             return copy;
           }
         }
-        logCoachHandoff("commit-no-assistant-bubble", {
+        copy.push({
+          role: "assistant",
+          content: "",
+          picks,
+          ...(legNote?.trim() ? { legNote: legNote.trim() } : {}),
+          ...(coachDetailNote?.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
+          ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+        });
+        committed = true;
+        logCoachHandoff("commit-cards-applied", {
           requestId,
           legTarget,
           pickCount: picks.length,
+          messageIndex: copy.length - 1,
           messageCount: prev.length,
-          lastRole: prev[prev.length - 1]?.role ?? null,
+          recoveredMissingBubble: true,
         });
-        return prev;
+        return copy;
       });
       setStreaming(false);
       setWaiting(false);
@@ -1398,6 +1410,7 @@ export default function CoachScreen() {
         setTimeout(() => captureFromCoach(picks), 0);
       }
       scrollToEnd(false);
+      return committed;
     },
     [captureFromCoach, clearBuildStallWatchdog, scrollToEnd],
   );
@@ -1499,7 +1512,11 @@ export default function CoachScreen() {
         try {
           let correlatedPicks = correlatedPicksRef.current;
 
-          if (correlationRequestIdRef.current !== requestId) {
+          const needsCorrelation =
+            correlationRequestIdRef.current !== requestId ||
+            !correlatedPicks?.length;
+
+          if (needsCorrelation) {
             correlationRequestIdRef.current = requestId;
             advanceCoachPhase("correlating");
             logCoachHandoff("correlation-start", {
@@ -1540,7 +1557,13 @@ export default function CoachScreen() {
             return;
           }
 
-          finalizedRequestIdRef.current = requestId;
+          const rankedFallback =
+            correlatedPicks?.length
+              ? correlatedPicks
+              : partial.picks.length
+                ? partial.picks
+                : [];
+
           advanceCoachPhase("finalizing");
           logCoachHandoff("finalize-start", {
             requestId,
@@ -1556,7 +1579,7 @@ export default function CoachScreen() {
             requestedLegs: legTarget,
             enrich,
             scan: partial,
-            correlatedPicks: correlatedPicks ?? partial.picks,
+            correlatedPicks: rankedFallback,
           });
 
           logCoachHandoff("finalize-done", {
@@ -1590,19 +1613,22 @@ export default function CoachScreen() {
               pickCount: result.picks.length,
               legTarget,
             });
-            commitCoachFinalTicket(result.picks, {
+            const committed = commitCoachFinalTicket(result.picks, {
               requestId,
               legTarget,
               legNote,
               coachDetailNote: result.coachDetailNote,
             });
-            logCoachHandoff("commit-done", {
-              requestId,
-              phase,
-              pickCount: result.picks.length,
-              snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
-            });
-            advanceCoachPhase("completed");
+            if (committed) {
+              finalizedRequestIdRef.current = requestId;
+              logCoachHandoff("commit-done", {
+                requestId,
+                phase,
+                pickCount: result.picks.length,
+                snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+              });
+              advanceCoachPhase("completed");
+            }
             return;
           }
 
@@ -1617,6 +1643,7 @@ export default function CoachScreen() {
             legNote: partial.note,
             coachDetailNote: result.coachDetailNote,
           });
+          finalizedRequestIdRef.current = requestId;
           advanceCoachPhase("failed");
         } catch (err) {
           logCoachHandoff("handoff-error", {
@@ -1625,6 +1652,27 @@ export default function CoachScreen() {
             message: err instanceof Error ? err.message : String(err),
             stack: err instanceof Error ? err.stack : undefined,
           });
+          if (finalizedRequestIdRef.current === requestId) return;
+          const salvage = partial.picks.slice(0, legTarget > 0 ? legTarget : partial.picks.length);
+          if (salvage.length) {
+            const committed = commitCoachFinalTicket(salvage, {
+              requestId,
+              legTarget,
+              legNote: partial.note,
+            });
+            if (committed) {
+              finalizedRequestIdRef.current = requestId;
+              advanceCoachPhase("completed");
+            }
+          } else {
+            commitCoachFinalTicketEmpty({
+              requestId,
+              legTarget,
+              legNote: partial.note,
+            });
+            finalizedRequestIdRef.current = requestId;
+            advanceCoachPhase("failed");
+          }
         }
       })();
 
@@ -2244,17 +2292,23 @@ export default function CoachScreen() {
       const ctx = coachRequestContextRef.current;
       if (boardScanIsComplete(partial)) {
         latestBoardScanRef.current = partial;
+        const requestId = ctx?.requestId ?? partial.requestId ?? null;
         const genOk =
           (ctx?.sendGeneration ?? sendGenerationRef.current) === sendGenerationRef.current;
+        const activeOk =
+          !!requestId &&
+          activeRequestIdRef.current === requestId &&
+          finalizedRequestIdRef.current !== requestId;
         logCoachHandoff("board-scan-complete", {
-          requestId: ctx?.requestId ?? partial.requestId ?? null,
+          requestId,
           candidateCount: partial.picks?.length ?? 0,
           requestedLegs: legTarget,
           genOk,
+          activeOk,
           sendGeneration: sendGenerationRef.current,
           contextSendGeneration: ctx?.sendGeneration ?? null,
         });
-        if (genOk) {
+        if (genOk || activeOk) {
           runFinalizeCoachTicket(partial, "board-scan-complete");
         } else {
           logCoachHandoff("board-scan-complete-skipped-stale-gen", {
@@ -5992,7 +6046,16 @@ export default function CoachScreen() {
         if (sendGenerationRef.current !== sendGen) return;
         if (isParlayBuildAsk(trimmed)) {
           const partial = latestBoardScanRef.current;
-          if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
+          const requestId = activeRequestIdRef.current;
+          if (
+            partial &&
+            boardScanIsComplete(partial) &&
+            requestId &&
+            !boardTicketSnapshotRef.current?.length &&
+            finalizedRequestIdRef.current !== requestId
+          ) {
+            runFinalizeCoachTicket(partial, "send-finally");
+          } else if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
             if (boardScanIsComplete(partial)) {
               deliverBoardScanTicket(partial);
             } else {

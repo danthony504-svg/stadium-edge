@@ -299,37 +299,41 @@ export function runCoachCorrelation(input: CoachCorrelationInput): Promise<Coach
       });
     }, COACH_CORRELATION_TIMEOUT_MS);
 
-    try {
-      const picks = greedyCorrelatedPicks(input.candidates, input.requestedLegs);
-      clearTimeout(timer);
-      const durationMs = Date.now() - start;
-      const result: CoachCorrelationResult = {
-        requestId,
-        requestedLegs: input.requestedLegs,
-        inputCount: input.candidates.length,
-        outputCount: picks.length,
-        durationMs,
-        outcome: picks.length ? "completed" : "empty",
-        picks,
-      };
-      logComplete(result);
-      finish(result);
-    } catch (err) {
-      clearTimeout(timer);
-      const durationMs = Date.now() - start;
-      logError(requestId, err);
-      logFallbackUsed();
-      const picks = fallbackRanking(input.candidates, input.requestedLegs);
-      finish({
-        requestId,
-        requestedLegs: input.requestedLegs,
-        inputCount: input.candidates.length,
-        outputCount: picks.length,
-        durationMs,
-        outcome: picks.length ? "error-fallback" : "empty",
-        picks,
-      });
-    }
+    const runBody = () => {
+      try {
+        const picks = greedyCorrelatedPicks(input.candidates, input.requestedLegs);
+        clearTimeout(timer);
+        const durationMs = Date.now() - start;
+        const result: CoachCorrelationResult = {
+          requestId,
+          requestedLegs: input.requestedLegs,
+          inputCount: input.candidates.length,
+          outputCount: picks.length,
+          durationMs,
+          outcome: picks.length ? "completed" : "empty",
+          picks,
+        };
+        logComplete(result);
+        finish(result);
+      } catch (err) {
+        clearTimeout(timer);
+        const durationMs = Date.now() - start;
+        logError(requestId, err);
+        logFallbackUsed();
+        const picks = fallbackRanking(input.candidates, input.requestedLegs);
+        finish({
+          requestId,
+          requestedLegs: input.requestedLegs,
+          inputCount: input.candidates.length,
+          outputCount: picks.length,
+          durationMs,
+          outcome: picks.length ? "error-fallback" : "empty",
+          picks,
+        });
+      }
+    };
+
+    setTimeout(runBody, 0);
   });
 
   inFlight.set(requestId, promise);
