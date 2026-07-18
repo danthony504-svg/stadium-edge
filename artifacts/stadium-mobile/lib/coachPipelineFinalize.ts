@@ -1,11 +1,11 @@
 // Coach pipeline finalization — resilient leg selection with staged logging.
 // Hard rule: candidates.length > 0 ⇒ at least one pick card.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "../components/PickCard.ts";
 import { applyCoachTicketInvariants, coerceCoachDisplayPicks } from "./coachTicketKernel.ts";
 import { isFillerBackfillPick } from "./coachScanPolicy.ts";
+import { runCoachCorrelationSync } from "./coachCorrelation.ts";
 import { logCoachRun } from "./coachRunTrace.ts";
-import { logCorrelationDone } from "./coachFinalTicketAssembly.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import {
@@ -188,27 +188,29 @@ export function finalizeCoachPipelineTickets(
   const alts = filtered.filter((p) => p.ticketRole === "alt");
   const replacementPool = [...rankCandidates(mains), ...rankCandidates(alts)];
 
-  if (input.relaxCorrelation) {
+  let correlatedPool = replacementPool;
+  if (!input.relaxCorrelation) {
+    const correlation = runCoachCorrelationSync({
+      requestId,
+      candidates: replacementPool,
+      requestedLegs: requestedLegs > 0 ? requestedLegs : replacementPool.length,
+    });
+    correlatedPool = correlation.picks.length ? correlation.picks : replacementPool;
+    logCoachRun(correlation.outcome === "completed" ? "correlation-complete" : "correlation-skipped", {
+      requestId,
+      input: replacementPool.length,
+      output: correlatedPool.length,
+      outcome: correlation.outcome,
+    });
+  } else {
     logCoachRun("correlation-skipped", {
       requestId,
       input: replacementPool.length,
       output: replacementPool.length,
     });
-  } else {
-    logCoachRun("correlation-complete", {
-      requestId,
-      input: replacementPool.length,
-      output: replacementPool.length,
-    });
   }
-  logCorrelationDone({
-    requestId,
-    candidateCount,
-    selectedCount: replacementPool.length,
-    requestedLegs,
-  });
 
-  let picks = assembleSlip(replacementPool, enrich, requestedLegs);
+  let picks = assembleSlip(correlatedPool, enrich, requestedLegs);
   let salvageUsed = false;
 
   if (!picks.length) {

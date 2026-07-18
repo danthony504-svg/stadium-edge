@@ -14,10 +14,10 @@ import {
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
+import { greedyCorrelatedPicks } from "./coachCorrelation.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
-  buildIndependentCoachTicket,
   tieredBackfillStagedTicket,
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
@@ -373,11 +373,26 @@ export function buildStagedTicketFromScan(
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
   if (target >= 3 && varietySeed) {
-    return buildIndependentCoachTicket(scored, target, {
-      varietySeed,
-      ticketStyle,
-      ...varietyContext,
-    } satisfies CoachTicketBuildOpts);
+    const qualifying = scored.filter(
+      (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null,
+    );
+    const candidates = qualifying
+      .map((leg) => leg.pick)
+      .sort((a, b) => pickRank(b) - pickRank(a));
+    const picks = greedyCorrelatedPicks(candidates, target);
+    return {
+      picks,
+      breakdown: {
+        mainQualified: qualifying.filter(
+          (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main",
+        ).length,
+        altQualified: qualifying.filter(
+          (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt",
+        ).length,
+        mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
+        altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+      },
+    };
   }
   if (target >= 3) {
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);

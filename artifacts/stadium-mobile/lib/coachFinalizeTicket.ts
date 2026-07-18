@@ -3,6 +3,7 @@
 import type { ParsedPick } from "../components/PickCard.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { COACH_EMPTY_BOARD_SCAN_LEAD, deliverCoachBoardScanTicket } from "./coachBoardScanDelivery.ts";
+import { formatCoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 import { boardScanIsComplete } from "./coachScanPolicy.ts";
 import { coerceCoachDisplayPicks } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
@@ -17,6 +18,8 @@ export type FinalizeCoachTicketInput = {
   requestedLegs: number;
   enrich: CoachFlashEnrich;
   scan?: FullBoardScanResult | null;
+  /** Pre-correlated picks from runCoachCorrelation — skips scan re-assembly. */
+  correlatedPicks?: readonly ParsedPick[];
 };
 
 export type FinalizeCoachTicketResult = {
@@ -81,11 +84,11 @@ export function logCoachFinalizeTicket(payload: {
  * UI layers must call this once per requestId, then apply picks to messages/slip.
  */
 export function finalizeCoachTicket(input: FinalizeCoachTicketInput): FinalizeCoachTicketResult {
-  const { requestId, candidates, requestedLegs, enrich, scan } = input;
+  const { requestId, candidates, requestedLegs, enrich, scan, correlatedPicks } = input;
   const candidateCount = candidates.length;
   const legTarget = requestedLegs > 0 ? requestedLegs : candidateCount;
 
-  if (!candidateCount) {
+  if (!candidateCount && !(correlatedPicks?.length)) {
     return {
       requestId,
       requestedLegs: legTarget,
@@ -102,7 +105,19 @@ export function finalizeCoachTicket(input: FinalizeCoachTicketInput): FinalizeCo
   let coachDetailNote = "";
   let fallbackUsed = false;
 
-  if (scan && boardScanIsComplete(scan)) {
+  if (correlatedPicks?.length) {
+    picks =
+      legTarget > 0 ? correlatedPicks.slice(0, legTarget) : [...correlatedPicks];
+    if (scan && boardScanIsComplete(scan) && scan.manifest) {
+      coachDetailNote = formatCoachBoardScanManifest({
+        ...scan.manifest,
+        scanComplete: true,
+        boardExhausted: true,
+        requestedLegs: legTarget,
+        deliveredLegs: picks.length,
+      });
+    }
+  } else if (scan && boardScanIsComplete(scan)) {
     const fromScan = selectFromScan(scan, enrich, legTarget);
     picks = fromScan.picks;
     coachDetailNote = fromScan.coachDetailNote;

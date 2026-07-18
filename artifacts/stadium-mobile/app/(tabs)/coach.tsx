@@ -178,6 +178,7 @@ import {
   finalizeCoachTicket,
   logCoachFinalizeTicket,
 } from "@/lib/coachFinalizeTicket";
+import { runCoachCorrelation } from "@/lib/coachCorrelation";
 import {
   type CoachBuildPhase,
   coachPhaseToProgressBuildPhase,
@@ -1299,6 +1300,8 @@ export default function CoachScreen() {
   const activeRequestIdRef = useRef<string | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const finalizedRequestIdRef = useRef<string | null>(null);
+  const correlationRequestIdRef = useRef<string | null>(null);
+  const correlatedPicksRef = useRef<ParsedPick[] | null>(null);
   const messagesRef = useRef(messages);
   useEffect(() => {
     messagesRef.current = messages;
@@ -1441,9 +1444,6 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
 
-      finalizedRequestIdRef.current = requestId;
-      advanceCoachPhase("finalizing");
-
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
       const enrich: CoachFlashEnrich = {
         ...flashEnrichRef.current,
@@ -1451,47 +1451,70 @@ export default function CoachScreen() {
         perfByFamily: flashEnrichRef.current.perfByFamily ?? marketPerf,
       };
 
-      const result = finalizeCoachTicket({
-        requestId,
-        candidates: partial.picks,
-        requestedLegs: legTarget,
-        enrich,
-        scan: partial,
-      });
+      void (async () => {
+        let correlatedPicks = correlatedPicksRef.current;
 
-      logCoachFinalizeTicket({
-        requestId,
-        requestedLegs: legTarget,
-        candidateCount: result.candidateCount,
-        selectedCount: result.selectedCount,
-        messageCount: messagesRef.current.length,
-        phase,
-      });
-
-      latestBoardScanRef.current = partial;
-
-      if (result.selectedCount > 0) {
-        let legNote = partial.note;
-        if (legTarget > result.selectedCount) {
-          legNote = ensureFixedLegShortfallLegNote(partial.note, legTarget, result.selectedCount);
+        if (correlationRequestIdRef.current !== requestId) {
+          correlationRequestIdRef.current = requestId;
+          advanceCoachPhase("correlating");
+          const correlation = await runCoachCorrelation({
+            requestId,
+            candidates: partial.picks,
+            requestedLegs: legTarget,
+          });
+          correlatedPicksRef.current = correlation.picks;
+          correlatedPicks = correlation.picks;
         }
-        commitCoachFinalTicket(result.picks, {
+
+        if (finalizedRequestIdRef.current === requestId) return;
+
+        finalizedRequestIdRef.current = requestId;
+        advanceCoachPhase("finalizing");
+
+        const result = finalizeCoachTicket({
+          requestId,
+          candidates: partial.picks,
+          requestedLegs: legTarget,
+          enrich,
+          scan: partial,
+          correlatedPicks: correlatedPicks ?? partial.picks,
+        });
+
+        logCoachFinalizeTicket({
+          requestId,
+          requestedLegs: legTarget,
+          candidateCount: result.candidateCount,
+          selectedCount: result.selectedCount,
+          messageCount: messagesRef.current.length,
+          phase,
+        });
+
+        latestBoardScanRef.current = partial;
+
+        if (result.selectedCount > 0) {
+          let legNote = partial.note;
+          if (legTarget > result.selectedCount) {
+            legNote = ensureFixedLegShortfallLegNote(partial.note, legTarget, result.selectedCount);
+          }
+          commitCoachFinalTicket(result.picks, {
+            requestId,
+            legTarget,
+            legNote,
+            coachDetailNote: result.coachDetailNote,
+          });
+          advanceCoachPhase("completed");
+          return;
+        }
+
+        commitCoachFinalTicketEmpty({
           requestId,
           legTarget,
-          legNote,
+          legNote: partial.note,
           coachDetailNote: result.coachDetailNote,
         });
-        advanceCoachPhase("completed");
-        return true;
-      }
+        advanceCoachPhase("failed");
+      })();
 
-      commitCoachFinalTicketEmpty({
-        requestId,
-        legTarget,
-        legNote: partial.note,
-        coachDetailNote: result.coachDetailNote,
-      });
-      advanceCoachPhase("failed");
       return true;
     },
     [advanceCoachPhase, commitCoachFinalTicket, commitCoachFinalTicketEmpty, marketPerf],
@@ -2519,6 +2542,8 @@ export default function CoachScreen() {
         activeRequestIdRef.current = varietySeed;
         setActiveRequestId(varietySeed);
         finalizedRequestIdRef.current = null;
+        correlationRequestIdRef.current = null;
+        correlatedPicksRef.current = null;
         advanceCoachPhase("loading-markets", true);
       }
 
@@ -2719,6 +2744,8 @@ export default function CoachScreen() {
           activeRequestIdRef.current = requestId;
           setActiveRequestId(requestId);
           finalizedRequestIdRef.current = null;
+          correlationRequestIdRef.current = null;
+          correlatedPicksRef.current = null;
           advanceCoachPhase("loading-markets", true);
         }
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
