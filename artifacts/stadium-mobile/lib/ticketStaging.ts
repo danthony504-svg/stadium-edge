@@ -24,6 +24,17 @@ import {
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
+  correlationTimedOut,
+  logCoachScanCorrelationComplete,
+  logCoachScanCorrelationError,
+  logCoachScanCorrelationStart,
+  logCoachScanCorrelationTimeout,
+  logCoachScanLineValueComplete,
+  logCoachScanLineValueStart,
+  shouldSkipCorrelationScoring,
+  correlationDeadline,
+} from "./coachScanPipeline.ts";
+import {
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
   qualifiesAltPick,
@@ -148,14 +159,18 @@ export function selectTopBoardLegs(
   ranked: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  deadlineAt?: number,
 ): ParsedPick[] {
   if (target < 3) return selectGreedyBoardLegs(ranked, target, varietySeed);
 
   const out: ParsedPick[] = [];
   const usedFp = new Set<string>();
   const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  let stallRounds = 0;
 
   while (out.length < target) {
+    if (deadlineAt != null && correlationTimedOut(deadlineAt)) break;
+
     const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
     if (!remaining.length) break;
 
@@ -167,8 +182,11 @@ export function selectTopBoardLegs(
     const deduped = dedupeSameTeamGameLegsLite([...out, pick]);
     if (deduped.length <= out.length) {
       usedFp.add(fp);
+      stallRounds += 1;
+      if (stallRounds >= remaining.length) break;
       continue;
     }
+    stallRounds = 0;
     usedFp.add(fp);
     out.length = 0;
     out.push(...deduped);
@@ -262,12 +280,13 @@ function appendPicksFromPool(
   want: number,
   target: number,
   varietySeed?: string,
+  deadlineAt?: number,
 ): number {
   if (want <= 0) return 0;
   const remaining = pool.filter((row) => !used.has(pickLegFingerprint(row.pick)));
   const picks =
     target >= 3
-      ? selectTopBoardLegs(remaining, want, varietySeed)
+      ? selectTopBoardLegs(remaining, want, varietySeed, deadlineAt)
       : selectGreedyBoardLegs(remaining, want, varietySeed);
   let added = 0;
   for (const p of picks) {
@@ -326,6 +345,7 @@ export function buildBalancedStagedTicketFromScan(
   target: number,
   varietySeed?: string,
   ticketStyle: CoachTicketStyle = "balanced",
+  deadlineAt?: number,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const pools = partitionScoredLegsByCategory(qualifying);
@@ -333,10 +353,10 @@ export function buildBalancedStagedTicketFromScan(
   const used = new Set<string>();
   const out: ParsedPick[] = [];
 
-  appendPicksFromPool(out, used, pools.props, slots.props, target, varietySeed);
-  appendPicksFromPool(out, used, pools.gameLines, slots.gameLines, target, varietySeed);
-  appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target, varietySeed);
-  appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target, varietySeed);
+  appendPicksFromPool(out, used, pools.props, slots.props, target, varietySeed, deadlineAt);
+  appendPicksFromPool(out, used, pools.gameLines, slots.gameLines, target, varietySeed, deadlineAt);
+  appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target, varietySeed, deadlineAt);
+  appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target, varietySeed, deadlineAt);
 
   const finalPicks = applyBalancedCapAndBackfill(
     out,
@@ -362,6 +382,9 @@ export function buildBalancedStagedTicketFromScan(
 
 export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
+  requestId?: string;
+  onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+  correlationDeadlineAt?: number;
 };
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
@@ -369,20 +392,93 @@ export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
-  varietyContext?: CoachTicketStagingContext,
+  varietyContext?: CoachTicketStagingContext & { preview?: boolean },
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
-  if (target >= 3 && varietySeed) {
-    return buildIndependentCoachTicket(scored, target, {
-      varietySeed,
-      ticketStyle,
-      ...varietyContext,
-    } satisfies CoachTicketBuildOpts);
-  }
-  if (target >= 3) {
+  const requestId = varietyContext?.requestId ?? varietySeed ?? "unknown";
+
+  if (varietyContext?.preview) {
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
   }
 
+  const onBuildPhase = varietyContext?.onBuildPhase;
+  const deadlineAt = varietyContext?.correlationDeadlineAt ?? correlationDeadline();
+
+  const lineStart = Date.now();
+  logCoachScanLineValueStart(requestId);
+  const qualifying = qualifyingScoredLegs(scored);
+  logCoachScanLineValueComplete(
+    requestId,
+    scored.length,
+    qualifying.length,
+    Date.now() - lineStart,
+  );
+
+  const corrStart = Date.now();
+  const skipCorrelation = shouldSkipCorrelationScoring(qualifying.length, target);
+  logCoachScanCorrelationStart(
+    requestId,
+    qualifying.length,
+    skipCorrelation ? undefined : onBuildPhase,
+  );
+
+  try {
+    if (deadlineAt != null && correlationTimedOut(deadlineAt)) {
+      logCoachScanCorrelationTimeout(requestId, Date.now() - corrStart);
+    }
+
+    let result: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown };
+
+    if (target >= 3 && varietySeed && !skipCorrelation) {
+      result = buildIndependentCoachTicket(scored, target, {
+        varietySeed,
+        ticketStyle,
+        ...varietyContext,
+        correlationDeadlineAt: deadlineAt,
+      });
+    } else if (target >= 3) {
+      result = buildBalancedStagedTicketFromScan(
+        scored,
+        target,
+        varietySeed,
+        ticketStyle,
+        skipCorrelation ? undefined : deadlineAt,
+      );
+    } else {
+      result = buildStagedTicketFromScanSmallTarget(
+        scored,
+        target,
+        varietySeed,
+        skipCorrelation ? undefined : deadlineAt,
+      );
+    }
+
+    if (!skipCorrelation && deadlineAt != null && correlationTimedOut(deadlineAt)) {
+      logCoachScanCorrelationTimeout(requestId, Date.now() - corrStart);
+    }
+
+    logCoachScanCorrelationComplete(
+      requestId,
+      qualifying.length,
+      result.picks.length,
+      Date.now() - corrStart,
+      onBuildPhase,
+    );
+    return result;
+  } catch (err) {
+    if (deadlineAt != null && correlationTimedOut(deadlineAt)) {
+      logCoachScanCorrelationTimeout(requestId, Date.now() - corrStart);
+    }
+    logCoachScanCorrelationError(requestId, err, Date.now() - corrStart);
+  }
+}
+
+function buildStagedTicketFromScanSmallTarget(
+  scored: BoardScoredLeg[],
+  target: number,
+  varietySeed?: string,
+  deadlineAt?: number,
+): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const mains: BoardScoredLeg[] = [];
   const alts: BoardScoredLeg[] = [];
 
@@ -395,7 +491,7 @@ export function buildStagedTicketFromScan(
   mains.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
   alts.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
 
-  const mainPicks = selectTopBoardLegs(mains, target, varietySeed).map((p) => ({
+  const mainPicks = selectTopBoardLegs(mains, target, varietySeed, deadlineAt).map((p) => ({
     ...p,
     ticketRole: "main" as const,
   }));
@@ -407,7 +503,7 @@ export function buildStagedTicketFromScan(
   if (gap > 0 && altPool.length > 0) {
     const altPicks = (
       target >= 3
-        ? selectTopBoardLegs(altPool, gap, varietySeed)
+        ? selectTopBoardLegs(altPool, gap, varietySeed, deadlineAt)
         : selectGreedyBoardLegs(altPool, gap, varietySeed)
     ).map((p) => ({
       ...p,
@@ -423,7 +519,7 @@ export function buildStagedTicketFromScan(
     const remainingMains = mains.filter((l) => !usedFp.has(pickLegFingerprint(l.pick)));
     const extraMains = (
       target >= 3
-        ? selectTopBoardLegs(remainingMains, mainGap, varietySeed)
+        ? selectTopBoardLegs(remainingMains, mainGap, varietySeed, deadlineAt)
         : selectGreedyBoardLegs(remainingMains, mainGap, varietySeed)
     ).map((p) => ({ ...p, ticketRole: "main" as const, highRiskValuePlay: false }));
     allPicks = [...allPicks, ...extraMains];
@@ -434,7 +530,7 @@ export function buildStagedTicketFromScan(
     ...alts,
   ]);
   if (finalPicks.length < target) {
-    finalPicks = tieredBackfillStagedTicket(finalPicks, target, scored, ticketStyle, varietySeed);
+    finalPicks = tieredBackfillStagedTicket(finalPicks, target, scored, "balanced", varietySeed);
   }
   return {
     picks: finalPicks,

@@ -52,6 +52,7 @@ export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type Boa
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
+import { CoachCorrelationStageError } from "./coachScanPipeline.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -453,6 +454,8 @@ function buildScanResult(
     varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
+    onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+    preview?: boolean;
   },
 ): FullBoardScanResult {
   const staged = buildStagedTicketFromScan(
@@ -462,6 +465,9 @@ function buildScanResult(
     {
       ...opts.varietyContext,
       ticketStyle: opts.ticketStyle,
+      requestId: opts.requestId,
+      onBuildPhase: opts.preview ? undefined : opts.onBuildPhase,
+      preview: opts.preview,
     },
   );
   const picks = staged.picks;
@@ -524,6 +530,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
+  onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -732,13 +739,14 @@ export function reachBoardScanEligible(opts: {
   return true;
 }
 
-/** Full-board scan wrapper — never throws through to the coach render path. */
+/** Full-board scan wrapper — propagates correlation stage errors to Coach UI. */
 export async function tryReachFullBoardScan(
   opts: Parameters<typeof buildTopLegsFromFullBoardScan>[0],
 ): Promise<FullBoardScanResult | null> {
   try {
     return await buildTopLegsFromFullBoardScan(opts);
-  } catch {
+  } catch (err) {
+    if (err instanceof CoachCorrelationStageError) throw err;
     return null;
   }
 }

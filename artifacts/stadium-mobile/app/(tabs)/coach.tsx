@@ -132,7 +132,13 @@ import {
 } from "@/lib/coachTicketRescore";
 import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket } from "@/lib/coachTicketKernel";
 import { filterValidCoachPicks } from "@/lib/coachTicketValidation";
-import { coachBuildProgressFromPhase } from "@/lib/coachBuildProgress";
+import {
+  beginCoachScanPipeline,
+  clearCoachScanPipeline,
+  CoachCorrelationStageError,
+  coachScanPipelineIsStale,
+  type CoachScanPhaseCallback,
+} from "@/lib/coachScanPipeline";
 import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
@@ -2119,6 +2125,11 @@ export default function CoachScreen() {
       const varietySeed = makeBuildId();
       varietySeedRef.current = varietySeed;
       const coachTicketStyle = detectCoachTicketStyle(trimmed);
+      const coachScanOnBuildPhase: CoachScanPhaseCallback = (phase, reqId) => {
+        if (coachScanPipelineIsStale(reqId)) return;
+        if (sendGenerationRef.current !== sendGen) return;
+        setParlayBuildPhase(phase);
+      };
       terminalRef.current = false;
       lastProgressSignatureRef.current = "";
       boardScanReplaySigRef.current = "";
@@ -2135,6 +2146,9 @@ export default function CoachScreen() {
           sport: slateSport,
           varietySeed,
         });
+        beginCoachScanPipeline(varietySeed);
+      } else if (openingParlayBuild) {
+        beginCoachScanPipeline(varietySeed);
       }
 
       const controller = new AbortController();
@@ -2675,11 +2689,13 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
+          const scanRequestId = coachRequestContextRef.current?.requestId ?? varietySeed;
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
-            requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+            requestId: scanRequestId,
             ticketStyle: coachTicketStyle,
+            onBuildPhase: coachScanOnBuildPhase,
           };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -2777,7 +2793,10 @@ export default function CoachScreen() {
                   });
                 }
               }
-            } catch {
+            } catch (err) {
+              if (err instanceof CoachCorrelationStageError) {
+                throw err;
+              }
               preBoardScan = preferFinalBoardScanForDelivery(
                 reachTargetPreScan,
                 latestBoardScanRef.current,
@@ -3635,6 +3654,7 @@ export default function CoachScreen() {
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+              onBuildPhase: coachScanOnBuildPhase,
             }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
           ]);
@@ -5348,7 +5368,25 @@ export default function CoachScreen() {
           );
         }
       } catch (e: any) {
-        if (handedOffRef.current) {
+        if (e instanceof CoachCorrelationStageError) {
+          const failMsg = e.timedOut
+            ? `Correlation scoring timed out after ${Math.round(e.durationMs / 1000)}s (request ${e.requestId}). Tap below to try again.`
+            : `Correlation scoring failed: ${e.message}`;
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") {
+              copy[copy.length - 1] = {
+                ...last,
+                content: failMsg,
+                retry: trimmed,
+              };
+            }
+            return copy;
+          });
+          terminalRef.current = true;
+          scanInFlightRef.current = false;
+        } else if (handedOffRef.current) {
           // We deliberately aborted the in-app stream to hand the build off to
           // the server when the app was backgrounded. It keeps generating and
           // will push when ready — replace the empty placeholder with a status
@@ -5419,6 +5457,7 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
+        clearCoachScanPipeline(varietySeed);
         releaseOtaBlock();
         setWaiting(false);
         setStreaming(false);

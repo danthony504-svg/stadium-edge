@@ -23,6 +23,7 @@ import {
   type CoachParlayVarietyContext,
 } from "./parlayVarietyMemory.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
+import { correlationTimedOut } from "./coachScanPipeline.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
   type CoachTicketStyle,
@@ -51,6 +52,7 @@ export type CoachTicketBuildOpts = {
   varietySeed: string;
   /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
   ticketStyle?: CoachTicketStyle;
+  correlationDeadlineAt?: number;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -690,7 +692,9 @@ function generateTicketCandidates(
   const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
   const recentFlat = new Set((opts.recentTickets ?? []).flatMap((r) => [...r]));
   const candidateCount = profile.candidateCount;
+  const deadlineAt = opts.correlationDeadlineAt;
   for (let i = 0; i < candidateCount; i++) {
+    if (deadlineAt != null && correlationTimedOut(deadlineAt)) break;
     const orderIdx = (i + profile.orderShift) % ASSEMBLY_CATEGORY_ORDERS.length;
     const config: AssemblyConfig = {
       seed: `${sizeSeed}|ticket-${i}`,
