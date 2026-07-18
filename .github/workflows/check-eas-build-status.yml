@@ -1,0 +1,43 @@
+name: Check EAS build status
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: EAS build UUID
+        required: false
+        default: "12e43edb-848e-42a1-a773-bda6475d7ae1"
+  push:
+    branches:
+      - cursor/ota-redesign-e67e
+    paths:
+      - .github/eas-build-status-check
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+      - name: EAS build status
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          BUILD_ID: ${{ github.event.inputs.build_id || '12e43edb-848e-42a1-a773-bda6475d7ae1' }}
+        run: |
+          set -euo pipefail
+          echo "══ Build $BUILD_ID ══"
+          pnpm exec eas build:view "$BUILD_ID" --non-interactive 2>&1 || true
+          echo ""
+          echo "══ Latest production iOS builds ══"
+          pnpm exec eas build:list --platform ios --limit 5 --non-interactive 2>&1 | head -80 || true
