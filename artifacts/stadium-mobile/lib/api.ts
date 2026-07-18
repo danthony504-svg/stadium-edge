@@ -17,6 +17,10 @@ import {
   propGamesCapForLegs,
 } from "./chatContextPriority";
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
+import {
+  runCoachMatchupAnalysis,
+  type CoachMatchupTarget,
+} from "./coachMatchupPipeline.ts";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
 import {
@@ -3167,76 +3171,25 @@ const detectUpset = (lean: any, pricesByNick?: Record<string, number>) => {
 // from pickable games (with team ids) and the real ML price map. Caps at 16
 // matchup-history fetches; failures are honest skips (never fabricated).
 async function buildMatchupHistoryAndUpsets(
-  targets: { sport: string; gameLabel: string; homeTeamId: string; awayTeamId: string; startsAt?: string }[],
+  targets: CoachMatchupTarget[],
   mlPriceByLabel: Record<string, Record<string, number>>,
   signal?: AbortSignal,
   focalText?: string | null,
   matchupCap = 16,
 ): Promise<{ matchupHistory: Record<string, MatchupHistoryEntry>; upsetSpots: UpsetSpot[] }> {
-  const matchupHistory: Record<string, MatchupHistoryEntry> = {};
-  const upsetSpots: UpsetSpot[] = [];
-  // The matchup-history fetch is globally capped (one ESPN round-trip per game) to
-  // bound cost. When the user named a sport/game, give that focal slate the first
-  // slots so a lone focal game (e.g. one NBA game on an MLB-heavy night) is never
-  // sliced off — otherwise the coach sees "no matchupHistory" and gives a thinner
-  // read. Mirrors the focal-priority pass for realProps.
-  let ordered = targets;
-  if (focalText) {
-    const focalSports = focalSportsFromText(focalText);
-    const isFocal = (t: { sport: string; gameLabel: string }) =>
-      gameMatchesFocalText(t.gameLabel, focalText) || focalSports.has(t.sport);
-    const focal = targets.filter(isFocal);
-    if (focal.length > 0 && focal.length < targets.length) {
-      ordered = [...focal, ...targets.filter((t) => !isFocal(t))];
-    }
-  }
-  await Promise.all(
-    ordered.slice(0, matchupCap).map(async (t) => {
-      try {
-        const data = await getMatchupHistory(t.sport, t.homeTeamId, t.awayTeamId, signal);
-        const home10 = data?.home?.last10;
-        const away10 = data?.away?.last10;
-        const h2h = data?.h2h;
-        if (!home10 && !away10 && !(h2h?.meetings?.length)) return;
-        const gameStart = t.startsAt ? new Date(t.startsAt).getTime() : null;
-        const computeRest = (lastDate: string | null) => {
-          if (!lastDate || gameStart == null) return null;
-          const diffMs = gameStart - new Date(lastDate).getTime();
-          if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-          const restDays = Math.floor(diffMs / 86400000);
-          return { restDays, backToBack: restDays <= 1 };
-        };
-        const splitOf = (s: any) => (s && s.games > 0
-          ? { record: `${s.wins}-${s.losses}`, avgMargin: s.avgMargin, ptsFor: s.ptsFor, ptsAgainst: s.ptsAgainst, games: s.games } : null);
-        const seasonOf = (s: any) => (s && s.games > 0 ? { record: `${s.wins}-${s.losses}`, winPct: s.winPct } : null);
-        const lean = computeMlLean(t.gameLabel, data);
-        if (lean) detectUpset(lean, mlPriceByLabel[t.gameLabel]);
-        matchupHistory[t.gameLabel] = {
-          home: home10 ? { record: `${home10.wins}-${home10.losses}`, ptsFor: home10.ptsFor, ptsAgainst: home10.ptsAgainst, avgMargin: home10.avgMargin } : null,
-          away: away10 ? { record: `${away10.wins}-${away10.losses}`, ptsFor: away10.ptsFor, ptsAgainst: away10.ptsAgainst, avgMargin: away10.avgMargin } : null,
-          homePace: typeof data?.home?.pace === "number" ? data.home.pace : null,
-          awayPace: typeof data?.away?.pace === "number" ? data.away.pace : null,
-          homeVenueForm: splitOf(data?.home?.homeSplit),
-          awayVenueForm: splitOf(data?.away?.awaySplit),
-          homeStreak: data?.home?.streak || null,
-          awayStreak: data?.away?.streak || null,
-          homeSeason: seasonOf(data?.home?.season),
-          awaySeason: seasonOf(data?.away?.season),
-          homeRest: computeRest(data?.home?.lastGameDate ?? null),
-          awayRest: computeRest(data?.away?.lastGameDate ?? null),
-          h2h: h2h?.meetings?.length
-            ? { homeWins: h2h.homeWins, awayWins: h2h.awayWins, meetings: h2h.meetings.slice(0, 3).map((m: any) => ({ date: m.date, homeScore: m.homeTeamScore, awayScore: m.awayTeamScore, homeMargin: m.homeTeamWonByMargin })) }
-            : null,
-          lastMeeting: data?.lastMeeting ?? null,
-          mlLean: lean,
-        };
-        if (lean?.upset) {
-          upsetSpots.push({ game: t.gameLabel, sport: t.sport, side: lean.side, dogOdds: lean.upset.dogOdds, edge: lean.edge, reasons: lean.reasons || [], startsAt: t.startsAt });
-        }
-      } catch { /* honest no-history skip */ }
-    }),
+  const { matchupHistory, upsetSpots } = await runCoachMatchupAnalysis(
+    targets,
+    mlPriceByLabel,
+    getMatchupHistory,
+    { computeMlLean, detectUpset },
+    {
+      requestId: "context-build",
+      signal,
+      focalText,
+      cap: matchupCap,
+      requireUsable: false,
+    },
   );
-  upsetSpots.sort((a, b) => b.edge - a.edge);
   return { matchupHistory, upsetSpots };
 }
 
@@ -3392,6 +3345,12 @@ function extractNamedCandidates(text: string): string[] {
 
 const TINY_PARLAY_SPORTS = ["mlb", "wnba", "nba", "nhl"] as const;
 
+export type CoachMatchupBuildOpts = {
+  requestId: string;
+  onMatchupsComplete?: (requestId: string) => void;
+  onInjuriesComplete?: (requestId: string) => void;
+};
+
 type LightParlayOpts = {
   sports?: readonly string[];
   /** Leagues the user excluded ("no MLB") — never fetched in light parlay builds. */
@@ -3411,7 +3370,31 @@ type LightParlayOpts = {
   tonightOnly?: boolean;
   /** Soccer scorer/GK "today" asks — keep only today's upcoming kickoffs. */
   todayOnly?: boolean;
+  /** Coach board-scan builds: run real matchup + injury analysis before props. */
+  coachMatchup?: CoachMatchupBuildOpts;
 };
+
+function historyTargetsFromLightParlay(
+  oddsGames: OddsGame[],
+  gamesBySport: Map<string, EspnGame[]>,
+  cap: number,
+): CoachMatchupTarget[] {
+  const out: CoachMatchupTarget[] = [];
+  for (const g of oddsGames.slice(0, cap)) {
+    if (!g.homeTeam || !g.awayTeam) continue;
+    const idMap = buildPropIdMap(gamesBySport.get(g.sport) ?? []);
+    const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
+    if (!ids?.homeTeamId || !ids?.awayTeamId) continue;
+    out.push({
+      sport: g.sport,
+      gameLabel: `${g.awayTeam} @ ${g.homeTeam}`,
+      homeTeamId: ids.homeTeamId,
+      awayTeamId: ids.awayTeamId,
+      startsAt: g.commenceTime,
+    });
+  }
+  return out;
+}
 
 async function buildLightParlayContext(
   signal: AbortSignal | undefined,
@@ -3524,6 +3507,44 @@ async function buildLightParlayContext(
       startsAt: g.commenceTime,
       venue: null,
     });
+  }
+
+  let matchupHistory: Record<string, MatchupHistoryEntry> = {};
+  let matchupInjuries: Record<string, GameInjuryReport> = {};
+  let upsetSpots: UpsetSpot[] = [];
+
+  if (opts.coachMatchup) {
+    const historyTargets = historyTargetsFromLightParlay(allOdds, gamesBySport, opts.maxOddsGames);
+    const matchupResult = await runCoachMatchupAnalysis(
+      historyTargets,
+      buildMlPriceByLabel(realOdds),
+      getMatchupHistory,
+      { computeMlLean, detectUpset },
+      {
+        requestId: opts.coachMatchup.requestId,
+        signal,
+        focalText: opts.focalText,
+        cap: Math.min(12, opts.maxOddsGames),
+        requireUsable: historyTargets.length > 0,
+      },
+    );
+    matchupHistory = matchupResult.matchupHistory;
+    upsetSpots = matchupResult.upsetSpots;
+    opts.coachMatchup.onMatchupsComplete?.(opts.coachMatchup.requestId);
+
+    const injuriesBySport = await Promise.all(
+      activeSports.map((s) => getInjuries(s, signal).catch(() => [] as InjuryTeam[])),
+    );
+    for (let i = 0; i < activeSports.length; i++) {
+      const sport = activeSports[i]!;
+      const injuries = injuriesBySport[i] ?? [];
+      for (const g of allOdds.slice(0, opts.maxOddsGames)) {
+        if (g.sport !== sport || !g.awayTeam || !g.homeTeam) continue;
+        const injReport = buildGameInjuryReport(sport, injuries, g.awayTeam, g.homeTeam);
+        if (injReport) matchupInjuries[`${g.awayTeam} @ ${g.homeTeam}`] = injReport;
+      }
+    }
+    opts.coachMatchup.onInjuriesComplete?.(opts.coachMatchup.requestId);
   }
 
   const realProps: RealPropEntry[] = [];
@@ -3654,10 +3675,12 @@ async function buildLightParlayContext(
       realGames: realGames.slice(0, 20),
       realOdds: realOdds.slice(0, opts.oddsSliceCap),
       realProps: balancePropsByGame(realProps, opts.propsBalanceCap, opts.focalText ?? null),
+      ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
+      ...(Object.keys(matchupInjuries).length ? { matchupInjuries } : {}),
     },
     propPool,
     gameMeta,
-    upsetSpots: [],
+    upsetSpots,
     todayOnly: false,
     tomorrowOnly: false,
   };
@@ -3686,7 +3709,7 @@ export async function buildTinyParlayContext(
 export async function buildCompactParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
-  opts?: { excludeSports?: readonly string[] },
+  opts?: { excludeSports?: readonly string[]; coachMatchup?: CoachMatchupBuildOpts },
 ): Promise<BuiltChatContext> {
   const n = Math.max(4, Math.min(15, requestedLegs));
   return buildLightParlayContext(signal, {
@@ -3696,6 +3719,7 @@ export async function buildCompactParlayContext(
     maxOddsGames: Math.min(24, n + 8),
     propsBalanceCap: Math.min(96, n * 8),
     oddsSliceCap: Math.min(80, n * 8),
+    coachMatchup: opts?.coachMatchup,
   });
 }
 

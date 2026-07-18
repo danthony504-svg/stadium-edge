@@ -152,6 +152,7 @@ import {
   coachScanPipelineIsStale,
   type CoachScanPhaseCallback,
 } from "@/lib/coachScanPipeline";
+import { CoachMatchupStageError } from "@/lib/coachMatchupPipeline";
 import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
@@ -2706,6 +2707,21 @@ export default function CoachScreen() {
             : useCompactParlayPath
               ? await buildCompactParlayContext(buildLegs, controller.signal, {
                   excludeSports: excludeSportsList,
+                  coachMatchup: isParlayBuild
+                    ? {
+                        requestId: varietySeed,
+                        onMatchupsComplete: (reqId) => {
+                          if (coachScanPipelineIsStale(reqId)) return;
+                          if (sendGenerationRef.current !== sendGen) return;
+                          bumpCoachBuildProgress("matchups", reqId, sendGen);
+                        },
+                        onInjuriesComplete: (reqId) => {
+                          if (coachScanPipelineIsStale(reqId)) return;
+                          if (sendGenerationRef.current !== sendGen) return;
+                          bumpCoachBuildProgress("injuries", reqId, sendGen);
+                        },
+                      }
+                    : undefined,
                 })
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
@@ -5435,7 +5451,36 @@ export default function CoachScreen() {
           );
         }
       } catch (e: any) {
-        if (e instanceof CoachCorrelationStageError) {
+        if (e instanceof CoachMatchupStageError) {
+          const failMsg = e.timedOut
+            ? `Matchup analysis timed out after ${Math.round(e.durationMs / 1000)}s (request ${e.requestId}). Tap below to try again.`
+            : e.empty
+              ? `Matchup analysis found no usable games: ${e.message}`
+              : `Matchup analysis failed: ${e.message}`;
+          setCoachBuildProgress((prev) =>
+            prev
+              ? coachBuildProgressOnFailure(prev, failMsg, {
+                  requestId: e.requestId,
+                  sendGeneration: sendGen,
+                  empty: e.empty,
+                })
+              : prev,
+          );
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") {
+              copy[copy.length - 1] = {
+                ...last,
+                content: failMsg,
+                retry: trimmed,
+              };
+            }
+            return copy;
+          });
+          terminalRef.current = true;
+          scanInFlightRef.current = false;
+        } else if (e instanceof CoachCorrelationStageError) {
           const failMsg = e.timedOut
             ? `Correlation scoring timed out after ${Math.round(e.durationMs / 1000)}s (request ${e.requestId}). Tap below to try again.`
             : `Correlation scoring failed: ${e.message}`;
