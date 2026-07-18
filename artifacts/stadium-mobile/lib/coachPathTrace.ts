@@ -24,6 +24,22 @@ export function coachOtaCommitLabel(): string {
   return formatCoachOtaVerificationLine();
 }
 
+/** Dev-only Metro bundle verification (Coach screen in __DEV__). */
+export function formatCoachDevCommitLine(): string {
+  const commit = process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked";
+  const commitShort =
+    commit === "not-baked" || commit === "unknown"
+      ? commit
+      : commit.length > 10
+        ? `${commit.slice(0, 10)}…`
+        : commit;
+  return `dev Metro · commit ${commitShort}`;
+}
+
+export function coachDevCommitLabel(): string {
+  return formatCoachDevCommitLine();
+}
+
 export function coachOtaCommitFull(): string {
   return process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked";
 }

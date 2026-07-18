@@ -162,7 +162,7 @@ import {
   stashBoardScanFinal,
   type BoardScanFinalRegistry,
 } from "@/lib/coachBoardScanLifecycle";
-import { coachOtaCommitLabel, traceCoachPath } from "@/lib/coachPathTrace";
+import { coachDevCommitLabel, coachOtaCommitLabel, traceCoachPath } from "@/lib/coachPathTrace";
 import { awaitBoardScanUntilComplete } from "@/lib/coachBoardScanAwait";
 import {
   deriveBoardScanLiveProgress,
@@ -1284,7 +1284,10 @@ export default function CoachScreen() {
       setOtaVerifyTick((n) => n + 1);
     }, []),
   );
-  const otaCommitLabel = useMemo(() => coachOtaCommitLabel(), [otaVerifyTick]);
+  const bundleCommitLabel = useMemo(
+    () => (__DEV__ ? coachDevCommitLabel() : coachOtaCommitLabel()),
+    [otaVerifyTick],
+  );
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -6648,15 +6651,15 @@ export default function CoachScreen() {
         </Text>
         <Text
           style={{
-            color: colors.mutedForeground,
+            color: __DEV__ ? colors.primary : colors.mutedForeground,
             fontFamily: FONT.body,
-            fontSize: 10,
+            fontSize: __DEV__ ? 11 : 10,
             marginTop: 4,
-            opacity: 0.85,
+            opacity: __DEV__ ? 1 : 0.85,
           }}
           selectable
         >
-          {otaCommitLabel}
+          {bundleCommitLabel}
         </Text>
       </View>
 
@@ -7348,19 +7351,21 @@ export default function CoachScreen() {
           )}
         </Pressable>
       </View>
-      <Text
-        style={{
-          paddingHorizontal: 16,
-          paddingBottom: 2,
-          color: colors.mutedForeground,
-          fontFamily: FONT.body,
-          fontSize: 10,
-          textAlign: "center",
-        }}
-        selectable
-      >
-        {otaCommitLabel}
-      </Text>
+      {__DEV__ ? (
+        <Text
+          style={{
+            paddingHorizontal: 16,
+            paddingBottom: 2,
+            color: colors.primary,
+            fontFamily: FONT.body,
+            fontSize: 11,
+            textAlign: "center",
+          }}
+          selectable
+        >
+          {bundleCommitLabel}
+        </Text>
+      ) : null}
       </View>
       </KeyboardStickyView>
       </View>
