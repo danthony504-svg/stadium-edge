@@ -74,7 +74,7 @@ jobs:
           EXPO_PUBLIC_OTA_CHANNEL: ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: COACH-DIAG ${{ github.sha }}-${{ github.run_id }}
-          ROLLOUT_PERCENTAGE: ${{ github.event.inputs.rollout_percentage || '100' }}
+          ROLLOUT_PERCENTAGE: ${{ github.event.inputs.rollout_percentage || '99' }}
         run: |
           CHANNEL="${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}"
           MSG="${{ github.event.inputs.message }}"
@@ -84,7 +84,7 @@ jobs:
           echo "Linking ${CHANNEL} channel → ${CHANNEL} branch…"
           pnpm exec eas channel:edit "$CHANNEL" --branch "$CHANNEL" --non-interactive
           ROLLOUT_ARGS=()
-          if [ "$CHANNEL" = "production" ]; then
+          if [ "$CHANNEL" = "production" ] && [ -n "${ROLLOUT_PERCENTAGE:-}" ] && [ "${ROLLOUT_PERCENTAGE}" -lt 100 ]; then
             ROLLOUT_ARGS=(--rollout-percentage "${ROLLOUT_PERCENTAGE}")
           fi
           pnpm exec eas update \
