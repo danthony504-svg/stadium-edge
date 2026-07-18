@@ -187,7 +187,7 @@ import {
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
-import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import { takeCoachLaunch, clearCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
   unsupportedSoccerDisciplineReply,
@@ -1033,9 +1033,11 @@ export default function CoachScreen() {
     send?: string;
     silent?: string;
     ts?: string;
+    nav?: string;
     buildId?: string;
   }>() ?? {};
   const autoSentRef = useRef<string | null>(null);
+  const idleNavHandledRef = useRef<string | null>(null);
   // Signed-in state gates the background-finish path (the server stashes the
   // result + pushes under the user's account; anonymous users can't be reached).
   const { isSignedIn } = useAuth();
@@ -1178,6 +1180,10 @@ export default function CoachScreen() {
   useEffect(() => {
     buildFinishingRef.current = buildFinishing;
   }, [buildFinishing]);
+  const waitingRef = useRef(false);
+  useEffect(() => {
+    waitingRef.current = waiting;
+  }, [waiting]);
   const sendGenerationRef = useRef(0);
   const flashEnrichRef = useRef<CoachFlashEnrich>({
     realOdds: [],
@@ -6255,8 +6261,13 @@ export default function CoachScreen() {
 
   // After a force-quit, hydrate the pending build from disk and resume polling.
   useEffect(() => {
+    const nav = Array.isArray(params.nav) ? params.nav[0] : params.nav;
+    if (nav === "idle") {
+      clearCoachHomeLaunch();
+      return;
+    }
     void resumePendingBackgroundBuild();
-  }, [resumePendingBackgroundBuild]);
+  }, [resumePendingBackgroundBuild, params.nav]);
 
   useEffect(() => {
     const requestId = activeRequestIdRef.current;
@@ -6292,7 +6303,15 @@ export default function CoachScreen() {
   // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
   useFocusEffect(
     useCallback(() => {
-      void resumePendingBackgroundBuild();
+      const nav = Array.isArray(params.nav) ? params.nav[0] : params.nav;
+      const ts = String(params.ts ?? "");
+      const idleOpen = nav === "idle" && idleNavHandledRef.current !== ts;
+      if (idleOpen) {
+        idleNavHandledRef.current = ts;
+        clearCoachHomeLaunch();
+      } else if (nav !== "idle") {
+        void resumePendingBackgroundBuild();
+      }
       if (!OTA_BOOTSTRAP) {
         void (async () => {
           await hydrateSlatePreAnalysisCache();
@@ -6300,21 +6319,27 @@ export default function CoachScreen() {
           startSlatePreAnalysis("coach-focus");
         })();
       }
-      if (streamingRef.current || buildFinishingRef.current || waiting) return;
-      const partial = latestBoardScanRef.current;
-      if (partial && boardScanIsComplete(partial)) {
-        if (partial.picks?.length) {
-          deliverBoardScanTicket(partial);
-        } else {
-          patchInstantBoardScanTicket(partial);
+      if (
+        !idleOpen &&
+        !streamingRef.current &&
+        !buildFinishingRef.current &&
+        !waitingRef.current
+      ) {
+        const partial = latestBoardScanRef.current;
+        if (partial && boardScanIsComplete(partial)) {
+          if (partial.picks?.length) {
+            deliverBoardScanTicket(partial);
+          } else {
+            patchInstantBoardScanTicket(partial);
+          }
         }
-        return;
       }
     }, [
       resumePendingBackgroundBuild,
       deliverBoardScanTicket,
       patchInstantBoardScanTicket,
-      waiting,
+      params.nav,
+      params.ts,
     ]),
   );
 
@@ -6349,13 +6374,14 @@ export default function CoachScreen() {
     void restoreBackgroundBuild(bid);
   }, [params.buildId, restoreBackgroundBuild]);
 
-  // Auto-send when navigated with send=1 (e.g. Home "Build best parlay" / quick
-  // chips). Gated by the per-navigation `ts` token (not the prompt text) so that
-  // tapping different actions that happen to share a prompt still fires each
-  // time, and so the same tab staying mounted doesn't suppress later taps. We
-  // mark sent only once we actually invoke send, and skip while streaming — the
-  // effect re-runs when `streaming` flips false, so the send isn't lost.
+  // Auto-send when navigated with send=1 (e.g. Home quick chips). Idle Home
+  // "Build best parlay" uses nav=idle and must never auto-send.
   useEffect(() => {
+    const nav = Array.isArray(params.nav) ? params.nav[0] : params.nav;
+    if (nav === "idle") {
+      clearCoachHomeLaunch();
+      return;
+    }
     const sendFlag = Array.isArray(params.send) ? params.send[0] : params.send;
     const autoMsgRaw = params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
     const autoMsg = Array.isArray(autoMsgRaw) ? autoMsgRaw[0] : autoMsgRaw;
@@ -6370,7 +6396,7 @@ export default function CoachScreen() {
       hideUserBubble: launch?.hideBubble ?? !!params.autoMsg,
       freshThread: launch?.freshThread ?? false,
     });
-  }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, buildFinishing, send]);
+  }, [params.nav, params.send, params.ts, params.autoMsg, params.prefill, streaming, buildFinishing, send]);
 
   useEffect(() => {
     return () => {
