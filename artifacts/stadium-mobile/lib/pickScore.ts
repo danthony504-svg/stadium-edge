@@ -192,7 +192,7 @@ export function teamTrendMomentum(
 // over a 24.5 line for an Over pick -> 0.8 hit rate -> +0.6 momentum. Returns
 // null when there is no usable sample or no line.
 export function playerTrendMomentum(
-  recentValues: Array<number | null | undefined>,
+  recentValues: (number | null | undefined)[],
   line: number | null | undefined,
   side: "Over" | "Under" | string | null | undefined,
 ): number | null {
@@ -243,7 +243,7 @@ export function injuryFavorProp(
 // the BEST price for the picked side is vs the median across all books offering
 // it. Needs at least 2 books to mean anything. Returns null otherwise.
 export function lineShoppingAdvantage(
-  pricesForSide: Array<number | null | undefined>,
+  pricesForSide: (number | null | undefined)[],
 ): number | null {
   const implied = pricesForSide
     .map((p) => americanToImplied(p))
@@ -291,7 +291,7 @@ const CONFIDENCE_PER_FACTOR = 10; // max points one strong factor can add or rem
 export function confidenceFromSignals(scores: PickSubScores): number | null {
   let present = 0;
   let pts = CONFIDENCE_BASELINE;
-  (Object.keys(WEIGHTS) as Array<keyof PickSubScores>).forEach((k) => {
+  (Object.keys(WEIGHTS) as (keyof PickSubScores)[]).forEach((k) => {
     const s = scores[k];
     if (s != null && Number.isFinite(s)) {
       present += 1;
@@ -338,7 +338,7 @@ export function combinePickScore(
   void fairProb;
   let wSum = 0;
   let acc = 0;
-  (Object.keys(WEIGHTS) as Array<keyof PickSubScores>).forEach((k) => {
+  (Object.keys(WEIGHTS) as (keyof PickSubScores)[]).forEach((k) => {
     const s = scores[k];
     if (s != null && Number.isFinite(s)) {
       wSum += WEIGHTS[k];

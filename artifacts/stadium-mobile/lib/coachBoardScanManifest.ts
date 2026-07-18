@@ -9,6 +9,7 @@ import {
   pickLabelForManifest,
 } from "./boardLegQualification.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
+import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isAltPropPick } from "./altLinePool.ts";
 
@@ -58,7 +59,7 @@ export type CoachBoardScanManifest = {
   qualifiedByCategory: Record<BoardMarketCategory, number>;
 
   gateFailureCounts: Partial<Record<BoardLegGateCode, number>>;
-  rejectedSamples: Array<{
+  rejectedSamples: {
     game: string;
     market: string;
     pick: string;
@@ -66,7 +67,7 @@ export type CoachBoardScanManifest = {
     family: ManifestMarketFamily;
     gate: BoardLegGateCode;
     reason: string;
-  }>;
+  }[];
 };
 
 export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanManifest {
@@ -355,7 +356,7 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
 
   lines.push("");
   lines.push("**Market families discovered**");
-  const families: Array<[ManifestMarketFamily, string]> = [
+  const families: [ManifestMarketFamily, string][] = [
     ["playerProps", "Player props"],
     ["altPlayerProps", "Alternate player props"],
     ["comboProps", "Combo props"],

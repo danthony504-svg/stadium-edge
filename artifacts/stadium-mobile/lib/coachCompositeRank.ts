@@ -49,7 +49,7 @@ function holisticFactor(
 }
 
 function rubricScore(pick: ParsedPick, key: "matchup" | "trend" | "injury" | "lineShopping" | "lineValue") {
-  return pick.finalAiScore?.rubric?.scores?.[key] ?? pick.scores?.[key] ?? null;
+  return pick.finalAiScore?.rubric?.scores?.[key] ?? pick.scores?.scores?.[key] ?? null;
 }
 
 export function matchupQualityRankScore(pick: ParsedPick): number | null {

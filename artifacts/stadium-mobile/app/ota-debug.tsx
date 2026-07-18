@@ -172,7 +172,7 @@ function OtaDebugScreenInner() {
       return;
     }
     const next = await refresh();
-    setDiag(next);
+    if (next) setDiag(next);
     setStatus(
       [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
         "Probe finished — see reloadAsync row",
