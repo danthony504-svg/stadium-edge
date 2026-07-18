@@ -27,7 +27,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
-import { clerkPublishableKey } from "@/lib/publicEnv";
+import { clerkAuthEnvLoaded, clerkPublishableKey, metroCommitShort } from "@/lib/publicEnv";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -169,10 +169,26 @@ export default function RootLayout() {
   }, [fontsLoaded, fontError]);
 
   if (!publishableKey) {
+    const authEnvLoaded = clerkAuthEnvLoaded();
+    const metroCommit = metroCommitShort();
     return (
       <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
         <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
           App configuration error (missing auth key). Reinstall from the App Store or contact support.
+        </Text>
+        <Text
+          style={{
+            color: "#94a3b8",
+            fontSize: 12,
+            textAlign: "center",
+            marginTop: 16,
+            lineHeight: 18,
+          }}
+          selectable
+        >
+          Metro commit: {metroCommit}
+          {"\n"}
+          Auth env loaded: {authEnvLoaded ? "yes" : "no"}
         </Text>
       </View>
     );
