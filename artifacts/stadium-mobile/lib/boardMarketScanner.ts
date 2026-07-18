@@ -248,6 +248,22 @@ async function simPropBatch(
 }> {
   const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
   if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
+  if (signal?.aborted) return { hits: out, timedOut: true, playerHistory: {} };
+
+  const abortPromise =
+    signal &&
+    new Promise<never>((_, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason ?? new Error("aborted"));
+        return;
+      }
+      signal.addEventListener(
+        "abort",
+        () => reject(signal.reason ?? new Error("aborted")),
+        { once: true },
+      );
+    });
+
   let timedOut = false;
   try {
     const rows = await Promise.race([
@@ -260,6 +276,7 @@ async function simPropBatch(
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
       ),
+      ...(abortPromise ? [abortPromise] : []),
     ]);
     for (const [k, v] of rows) {
       out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
@@ -267,6 +284,7 @@ async function simPropBatch(
   } catch {
     timedOut = true;
   }
+  if (signal?.aborted) return { hits: out, timedOut: true, playerHistory: {} };
   const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
   return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory };
 }
