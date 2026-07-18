@@ -65,7 +65,25 @@ else
   echo "No partial rollout blocking publish."
 fi
 
-section "5. Publish OTA → channel ${CHANNEL}"
+section "5. Publish OTA → channel ${CHANNEL} (App Store runtime)"
+APP_STORE_RUNTIME="$(pnpm exec eas build:list --platform ios --limit 30 --non-interactive 2>/dev/null \
+  | awk 'f&&/Runtime Version/{print $3; exit} /Profile[[:space:]]+production/{f=1}' || true)"
+APP_STORE_RUNTIME="${APP_STORE_RUNTIME:-1.0.0}"
+PUBLISH_RUNTIME="${PUBLISH_RUNTIME:-${APP_STORE_RUNTIME}}"
+echo "App Store production build runtime: ${APP_STORE_RUNTIME}"
+echo "Repo app.json version:              ${APP_VERSION}"
+if [[ "${PUBLISH_RUNTIME}" != "${APP_VERSION}" ]]; then
+  echo "Patching app.json ${APP_VERSION} → ${PUBLISH_RUNTIME} so OTA matches embedded App Store binary…"
+  node -e "
+    const fs=require('fs');
+    const p='app.json';
+    const j=JSON.parse(fs.readFileSync(p));
+    j.expo.version='${PUBLISH_RUNTIME}';
+    fs.writeFileSync(p, JSON.stringify(j,null,2)+'\n');
+  "
+  RUNTIME_VERSION="${PUBLISH_RUNTIME}"
+fi
+
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
