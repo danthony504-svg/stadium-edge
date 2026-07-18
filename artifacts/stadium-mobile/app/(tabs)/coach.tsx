@@ -1140,6 +1140,11 @@ export default function CoachScreen() {
   const [buildFinishing, setBuildFinishing] = useState(false);
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
   const [coachBuildPhase, setCoachBuildPhase] = useState<CoachBuildPhase>("idle");
+  const coachBuildPhaseRef = useRef<CoachBuildPhase>("idle");
+  const lastPhaseByRequestRef = useRef<{
+    requestId: string;
+    phase: CoachBuildPhase;
+  } | null>(null);
   const [boardScanPartialLegs, setBoardScanPartialLegs] = useState(0);
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1329,8 +1334,44 @@ export default function CoachScreen() {
     messagesRef.current = messages;
   }, [messages]);
 
-  const advanceCoachPhase = useCallback((target: CoachBuildPhase, newRequest = false) => {
-    setCoachBuildPhase((current) => nextCoachPhase(current, target, newRequest));
+  useEffect(() => {
+    coachBuildPhaseRef.current = coachBuildPhase;
+  }, [coachBuildPhase]);
+
+  const advanceCoachPhase = useCallback((targetPhase: CoachBuildPhase, newRequest = false) => {
+    const requestId = activeRequestIdRef.current;
+    if (newRequest) {
+      lastPhaseByRequestRef.current = null;
+    }
+
+    const current = coachBuildPhaseRef.current;
+    const next = nextCoachPhase(current, targetPhase, newRequest);
+    if (next === current) {
+      return;
+    }
+
+    if (
+      !newRequest &&
+      requestId &&
+      lastPhaseByRequestRef.current?.requestId === requestId &&
+      lastPhaseByRequestRef.current.phase === next
+    ) {
+      return;
+    }
+
+    console.log("[coach-phase]", {
+      current,
+      targetPhase,
+      next,
+      requestId,
+      newRequest,
+    });
+
+    coachBuildPhaseRef.current = next;
+    if (requestId) {
+      lastPhaseByRequestRef.current = { requestId, phase: next };
+    }
+    setCoachBuildPhase(next);
   }, []);
 
   const readCoachExecTraceSnapshot = useCallback((): CoachExecSnapshot => {
@@ -1368,8 +1409,10 @@ export default function CoachScreen() {
   );
 
   const beginCoachBoardScanWork = useCallback(() => {
-    setParlayBuildPhase("board-scan");
-    advanceCoachPhase("simulating");
+    setParlayBuildPhase((prev) => (prev === "board-scan" ? prev : "board-scan"));
+    if (coachBuildPhaseRef.current !== "simulating") {
+      advanceCoachPhase("simulating");
+    }
   }, [advanceCoachPhase]);
 
   const runBoundedBoardScan = useCallback(
@@ -2581,8 +2624,10 @@ export default function CoachScreen() {
       latestBoardScanRef.current = partial;
       if (partial.picks.length) {
         setBoardScanPartialLegs(partial.picks.length);
-        setParlayBuildPhase("stream");
-        advanceCoachPhase("simulating");
+        setParlayBuildPhase((prev) => (prev === "stream" ? prev : "stream"));
+        if (coachBuildPhaseRef.current !== "simulating") {
+          advanceCoachPhase("simulating");
+        }
       }
       patchInstantBoardScanTicket(partial, undefined, {
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
@@ -2754,6 +2799,7 @@ export default function CoachScreen() {
       earlyReachBoardScanRef.current = null;
       boardScanInFlightRef.current = null;
       coachRequestContextRef.current = null;
+      lastPhaseByRequestRef.current = null;
       activeRequestLegTargetRef.current = 0;
       liveScanDeliveredRef.current = false;
       setBoardScanPartialLegs(0);
@@ -2766,6 +2812,7 @@ export default function CoachScreen() {
         latestBoardScanRef.current = null;
         earlyReachBoardScanRef.current = null;
         boardScanInFlightRef.current = null;
+        lastPhaseByRequestRef.current = null;
         coachRequestContextRef.current = null;
         activeRequestLegTargetRef.current = 0;
         liveScanDeliveredRef.current = false;
@@ -3399,7 +3446,6 @@ export default function CoachScreen() {
           };
           let scanFeedsPromise: Promise<ScanFeeds> | null = null;
           if (reachFullPreScanEligible) {
-            beginCoachBoardScanWork();
             const scanSports = coachLiveScanSports(excludedSports);
             scanFeedsPromise = Promise.all([
               Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
