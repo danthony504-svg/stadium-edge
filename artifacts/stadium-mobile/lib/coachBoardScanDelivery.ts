@@ -1,17 +1,23 @@
-// Single Coach board-scan delivery pipeline — no preview/filler fallbacks on final tickets.
+// Single Coach board-scan delivery pipeline — final handoff after correlation.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
-import { boardScanIsComplete, boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
+import { boardScanIsComplete } from "./coachScanPolicy.ts";
+import { traceCoachTicket } from "./coachTicketTrace.ts";
+import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import {
   type CoachBoardScanManifest,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
-import { traceCoachTicket } from "./coachTicketTrace.ts";
-import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
-import type { CoachFlashEnrich } from "./pickScoreContext.ts";
-import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
+import { logCoachRun } from "./coachRunTrace.ts";
+import {
+  executeFinalTicketHandoff,
+  logFinalTicketCardsRendered,
+  markFinalTicketMessageAdded,
+} from "./coachFinalTicketAssembly.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
+import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
+import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 
 export type CoachBoardScanDelivery = {
   picks: ParsedPick[];
@@ -20,41 +26,50 @@ export type CoachBoardScanDelivery = {
   coachDetailNote: string;
 };
 
-/** Final ticket delivery — only when scanComplete; one gate stack, no salvage tiers. */
+function defaultManifest(
+  scan: FullBoardScanResult,
+  legTarget: number,
+): CoachBoardScanManifest {
+  return (
+    scan.manifest ?? {
+      scanComplete: !!scan.scanComplete,
+      boardExhausted: !!scan.scanComplete,
+      requestedLegs: legTarget,
+      deliveredLegs: 0,
+      gameSimDraws: 10_000,
+      propSimDraws: 10_000,
+      propSimTier: "deep" as const,
+      marketsFound: scan.totalScanned,
+      marketsFoundByFamily: {} as never,
+      propsFound: 0,
+      propsEligibleForSim: 0,
+      propsSkippedUnsupported: 0,
+      alternateGameLinesFound: 0,
+      alternatePropsFound: 0,
+      marketsSimulated: scan.totalScanned,
+      gameLinesSimulated: 0,
+      propsSimulated: 0,
+      propsSimBatches: 0,
+      propsSimTimeouts: 0,
+      preScoreEvaluated: 0,
+      totalEvaluated: scan.totalQualified,
+      totalQualified: scan.totalQualified,
+      qualifiedMain: scan.staging.mainQualified,
+      qualifiedAlt: scan.staging.altQualified,
+      qualifiedByCategory: { props: 0, gameLines: 0, teamTotals: 0, alternateLines: 0 },
+      gateFailureCounts: {},
+      rejectedSamples: [],
+    }
+  );
+}
+
+/** Final ticket delivery — correlation complete → assembly once → pick cards. */
 export function deliverCoachBoardScanTicket(
   scan: FullBoardScanResult,
   enrich: CoachFlashEnrich,
   legTarget: number,
 ): CoachBoardScanDelivery {
-  const manifest = scan.manifest ?? {
-    scanComplete: !!scan.scanComplete,
-    boardExhausted: !!scan.scanComplete,
-    requestedLegs: legTarget,
-    deliveredLegs: 0,
-    gameSimDraws: 10_000,
-    propSimDraws: 10_000,
-    propSimTier: "deep" as const,
-    marketsFound: scan.totalScanned,
-    marketsFoundByFamily: {} as never,
-    propsFound: 0,
-    propsEligibleForSim: 0,
-    propsSkippedUnsupported: 0,
-    alternateGameLinesFound: 0,
-    alternatePropsFound: 0,
-    marketsSimulated: scan.totalScanned,
-    gameLinesSimulated: 0,
-    propsSimulated: 0,
-    propsSimBatches: 0,
-    propsSimTimeouts: 0,
-    preScoreEvaluated: 0,
-    totalEvaluated: scan.totalQualified,
-    totalQualified: scan.totalQualified,
-    qualifiedMain: scan.staging.mainQualified,
-    qualifiedAlt: scan.staging.altQualified,
-    qualifiedByCategory: { props: 0, gameLines: 0, teamTotals: 0, alternateLines: 0 },
-    gateFailureCounts: {},
-    rejectedSamples: [],
-  };
+  const manifest = defaultManifest(scan, legTarget);
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {
     return {
@@ -65,26 +80,36 @@ export function deliverCoachBoardScanTicket(
     };
   }
 
-  if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
-    return {
-      picks: [],
-      manifest: {
-        ...manifest,
-        requestedLegs: legTarget,
-        deliveredLegs: 0,
-      },
-      scanComplete: false,
-      coachDetailNote: formatCoachBoardScanManifest({
-        ...manifest,
-        scanComplete: false,
-        requestedLegs: legTarget,
-      }),
-    };
+  const requestId = scan.requestId ?? "";
+  const assembly = executeFinalTicketHandoff({
+    requestId,
+    candidates: scan.picks,
+    enrich,
+    requestedLegs: legTarget,
+    relaxCorrelation: true,
+  });
+  let picks = assembly.picks;
+
+  if (!picks.length && scan.picks.length) {
+    const tagged = tagTicketRoles([...scan.picks]);
+    const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
+    picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+    if (!picks.length) {
+      picks = assembly.picks.length ? assembly.picks : tagged.slice(0, legTarget > 0 ? legTarget : tagged.length);
+    }
   }
 
-  const tagged = tagTicketRoles([...scan.picks]);
-  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  if (assembly.failureReason && picks.length) {
+    logCoachRun("final-selection", {
+      requestId,
+      requested: legTarget,
+      selected: picks.length,
+      failureReason: assembly.failureReason,
+    });
+  }
+
+  markFinalTicketMessageAdded(requestId, picks.length);
+  logFinalTicketCardsRendered(requestId, picks.length);
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
@@ -99,6 +124,11 @@ export function deliverCoachBoardScanTicket(
     scanRequestedLegs: scan.requestedLegs,
     pickIds: picks,
     source: "deliverCoachBoardScanTicket",
+  });
+  logCoachRun("simulations-complete", {
+    requestId,
+    count: scan.picks.length,
+    delivered: picks.length,
   });
 
   return {
@@ -142,7 +172,7 @@ export function coachReplyHasScanManifest(
   );
 }
 
-/** User-facing lead when a fixed-leg parlay exhausts the board with zero deliveries. */
+/** User-facing lead when a complete scan staged zero deliverable legs. */
 export const COACH_EMPTY_BOARD_SCAN_LEAD =
   "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._";
 
@@ -158,6 +188,9 @@ export function deliverCoachBoardScanProgress(
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
   let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  if (!picks.length && tagged.length) {
+    picks = tagged.slice(0, legTarget > 0 ? legTarget : tagged.length);
+  }
   if (legTarget > 0 && picks.length > legTarget) {
     picks = picks.slice(0, legTarget);
   }

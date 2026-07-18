@@ -168,6 +168,11 @@ import {
   logCoachRenderPicks,
   resetCoachHandoffDeliveryAttempt,
 } from "@/lib/coachFinalHandoff";
+import {
+  markFinalTicketCardsRendered,
+  markFinalTicketMessageAdded,
+  markFinalTicketProgress100,
+} from "@/lib/coachFinalTicketAssembly";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1282,31 +1287,33 @@ export default function CoachScreen() {
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
       const enrich = flashEnrichRef.current;
-      const cleaned = prepareCoachDeliveredTicket(ticket, enrich);
+      let cleaned = prepareCoachDeliveredTicket(ticket, enrich);
       const ctx = coachRequestContextRef.current;
       const partial = latestBoardScanRef.current;
+      const legTarget =
+        opts?.legTarget ??
+        (activeRequestLegTargetRef.current ||
+          requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current));
       logCoachDeliveryAttempt({
         requestId: ctx?.requestId ?? null,
         scanComplete: boardScanIsComplete(partial),
         source: coachHandoffSource(partial),
         candidateCount: partial?.picks?.length ?? ticket.length,
         pickCount: cleaned.length,
-        legTarget:
-          opts?.legTarget ??
-          (activeRequestLegTargetRef.current ||
-            requestedLegCount(activeParlayAskRef.current) ||
-            effectiveBuildLegCount(activeParlayAskRef.current)),
+        legTarget,
         stage: opts?.source ?? "deliverCoachTicket",
         propLabelIssues: partial?.picks?.length
           ? auditPropLabelNormalization(partial.picks)
           : auditPropLabelNormalization(ticket),
       });
+      if (!cleaned.length && ticket.length) {
+        cleaned = coerceCoachDisplayPicks(ticket, enrich).slice(
+          0,
+          legTarget > 0 ? legTarget : ticket.length,
+        );
+      }
       if (!cleaned.length) return false;
-      const legTarget =
-        opts?.legTarget ??
-        (activeRequestLegTargetRef.current ||
-          requestedLegCount(activeParlayAskRef.current) ||
-          effectiveBuildLegCount(activeParlayAskRef.current));
       if (legTarget >= 3) {
         const finalized = finalizeCoachTicketForRequest(cleaned, {
           requestedLegs: legTarget,
@@ -1316,13 +1323,22 @@ export default function CoachScreen() {
           source: opts?.source ?? "deliverCoachTicket",
           recordDelivered: true,
         });
-        if (!finalized.ok) return false;
-        boardTicketSnapshotRef.current = finalized.picks;
-        patchLastAssistantPicks(setMessages, finalized.picks, legNote);
+        let toDeliver = finalized.ok
+          ? finalized.picks
+          : cleaned.slice(0, legTarget > 0 ? legTarget : cleaned.length);
+        if (!toDeliver.length && partial?.picks?.length) {
+          toDeliver = coerceCoachDisplayPicks(partial.picks, enrich).slice(
+            0,
+            legTarget > 0 ? legTarget : partial.picks.length,
+          );
+        }
+        if (!toDeliver.length) return false;
+        boardTicketSnapshotRef.current = toDeliver;
+        patchLastAssistantPicks(setMessages, toDeliver, legNote);
         logCoachRenderPicks({
           requestId: ctx?.requestId,
           scan: partial,
-          pickCount: finalized.picks.length,
+          pickCount: toDeliver.length,
           source: "final",
           stage: opts?.source ?? "deliverCoachTicket",
         });
@@ -1330,11 +1346,14 @@ export default function CoachScreen() {
           buildCoachFinalHandoffSnapshot({
             requestId: ctx?.requestId,
             scan: partial,
-            pickCount: finalized.picks.length,
+            pickCount: toDeliver.length,
             rendered: true,
             legTarget,
           }),
         );
+        markFinalTicketMessageAdded(ctx?.requestId, toDeliver.length);
+        markFinalTicketProgress100(ctx?.requestId);
+        markFinalTicketCardsRendered(ctx?.requestId, toDeliver.length);
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -1345,8 +1364,9 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
-        setAiPicks(finalized.picks);
-        captureFromCoach(finalized.picks);
+        setBoardScanPartialLegs(toDeliver.length);
+        setAiPicks(toDeliver);
+        setTimeout(() => captureFromCoach(toDeliver), 0);
         liveScanDeliveredRef.current = true;
         scrollToEnd(false);
         return true;
@@ -1466,6 +1486,13 @@ export default function CoachScreen() {
 
       if (!ticket.length) {
         if (!scanComplete) return false;
+        if (partial.picks.length) {
+          ticket = coerceCoachDisplayPicks(partial.picks, enrichWithScan).slice(
+            0,
+            legTarget > 0 ? legTarget : partial.picks.length,
+          );
+        }
+        if (!ticket.length) {
         latestBoardScanRef.current = partial;
         boardTicketSnapshotRef.current = [];
         setBoardScanPartialLegs(0);
@@ -1510,6 +1537,7 @@ export default function CoachScreen() {
         );
         if (opts?.pinScroll !== false) scrollToEnd(false);
         return true;
+        }
       }
 
       const isFinal = scanComplete;
@@ -1524,11 +1552,13 @@ export default function CoachScreen() {
         });
         if (!finalized.ok) {
           finalizeRejected = finalized.reason;
-          if (isFinal) {
-            ticket = [];
-          } else {
-            return false;
-          }
+          const salvaged = ticket.slice(0, legTarget > 0 ? legTarget : ticket.length);
+          ticket = salvaged.length
+            ? salvaged
+            : coerceCoachDisplayPicks(partial.picks, enrichWithScan).slice(
+                0,
+                legTarget > 0 ? legTarget : partial.picks.length,
+              );
         } else {
           ticket = finalized.picks;
         }
@@ -1620,7 +1650,12 @@ export default function CoachScreen() {
         return prev;
       });
       setAiPicks(ticket);
-      captureFromCoach(ticket);
+      setTimeout(() => captureFromCoach(ticket), 0);
+      if (isFinal) {
+        markFinalTicketMessageAdded(ctx?.requestId ?? partial.requestId, ticket.length);
+        markFinalTicketProgress100(ctx?.requestId ?? partial.requestId);
+        markFinalTicketCardsRendered(ctx?.requestId ?? partial.requestId, ticket.length);
+      }
       logCoachRenderPicks({
         requestId: ctx?.requestId ?? partial.requestId ?? null,
         scan: partial,
@@ -6077,7 +6112,7 @@ export default function CoachScreen() {
 
     if (tryStashedDelivery()) return;
 
-    if (partial && boardScanIsComplete(partial)) {
+    if (partial?.picks?.length && boardScanIsComplete(partial)) {
       const rendered = patchInstantBoardScanTicket(partial, undefined, {
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
       });
@@ -6090,6 +6125,10 @@ export default function CoachScreen() {
           legTarget,
         }),
       );
+      if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
+    }
+
+    if (partial && boardScanIsComplete(partial) && partial.picks.length > 0) {
       return;
     }
 
