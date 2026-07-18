@@ -7,7 +7,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { UpcomingGamesFeed } from "@/components/UpcomingGamesFeed";
 import { useSlipClearance } from "@/components/SlipBar";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { OddsGame } from "@/lib/api";
 import { SPORTS } from "@/lib/sports";
@@ -16,7 +16,7 @@ function UpcomingModalErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const colors = useColors();
   return (
     <View style={{ flex: 1, padding: 24, justifyContent: "center", gap: 12 }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
+      <Text style={{ color: colors.foreground, ...TYPE.button, textAlign: "center" }}>
         Couldn't load upcoming games
       </Text>
       {error.message ? (

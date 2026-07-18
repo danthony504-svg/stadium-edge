@@ -9,7 +9,7 @@ import {
   STAT_SUMMARY,
   STAT_TABLE_COLS,
 } from "@/lib/statLookup";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 
 // Data assembled in coach.tsx: the player-search hit (name/team/sport/headshot)
 // merged with the real ESPN player-history payload, plus what the user asked
@@ -194,7 +194,7 @@ export function PlayerStatCard({ data }: { data: PlayerStatCardData }) {
             borderColor: colors.primary,
           }}
         >
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.display, fontSize: 14 }}>
+          <Text style={{ color: colors.mutedForeground, ...TYPE.secondary, fontFamily: FONT.bold }}>
             {initials}
           </Text>
           {showHeadshot && (
@@ -207,7 +207,7 @@ export function PlayerStatCard({ data }: { data: PlayerStatCardData }) {
           )}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text numberOfLines={1} style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17 }}>
+          <Text numberOfLines={1} style={{ color: colors.foreground, ...TYPE.button }}>
             {name}
           </Text>
           <Text numberOfLines={1} style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 1 }}>
@@ -292,7 +292,7 @@ export function PlayerStatCard({ data }: { data: PlayerStatCardData }) {
                 borderLeftColor: colors.border,
               }}
             >
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, fontVariant: ["tabular-nums"] }}>
+              <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, fontVariant: ["tabular-nums"] }}>
                 {fmtNum((mode === "total" ? summary.totals : summary.averages)[k], mode)}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, marginTop: 2 }}>

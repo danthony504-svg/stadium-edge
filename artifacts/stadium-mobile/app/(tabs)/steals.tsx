@@ -15,7 +15,7 @@ import Svg, { Circle } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getLiveSteals, fetchLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
 import type { StealFeedClientLog } from "@/lib/stealFeedClient";
@@ -88,7 +88,7 @@ function SeasonRecordCard({
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Feather name="award" size={15} color={STEAL_ACCENT} />
-        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+        <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
           {hasSettled ? "Season Record" : "Steal track record"}
         </Text>
       </View>
@@ -195,10 +195,10 @@ function OddsFeedUnavailable({
       }}
     >
       <Feather name="wifi-off" size={32} color={STEAL_ACCENT} />
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, textAlign: "center" }}>
+      <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, textAlign: "center" }}>
         Odds feed unavailable
       </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+      <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, lineHeight: 19, textAlign: "center" }}>
         We couldn&apos;t reach the live odds scan. No market counts are shown until a fresh scan succeeds.
       </Text>
       <View style={{ gap: 6, alignSelf: "stretch" }}>
@@ -317,10 +317,10 @@ function StealsFoundToday({ meta }: { meta?: StealScanMeta }) {
         gap: 10,
       }}
     >
-      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>Steals Found Today</Text>
+      <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>Steals Found Today</Text>
       {entries.map(([sport, count]) => (
         <View key={sport} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
             {sportLabel(sport)}:
           </Text>
           <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{count}</Text>
@@ -495,12 +495,12 @@ function RadarScan({ children, hideFooter }: { children?: React.ReactNode; hideF
           }}
         />
       </View>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>
+      <Text style={{ color: colors.foreground, ...TYPE.playerName }}>
         Hunting for steals...
       </Text>
       {children}
       {hideFooter ? null : (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+        <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, lineHeight: 19, textAlign: "center" }}>
           Scanning 20+ sportsbooks for longshots with real edge.{"\n"}
           This may take a few seconds.
         </Text>
@@ -608,13 +608,13 @@ function StealCard({ steal }: { steal: LiveSteal }) {
         {steal.ev != null ? (
           <View>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>+EV</Text>
-            <Text style={{ color: "#22c55e", fontFamily: FONT.bold, fontSize: 15 }}>{formatPct(steal.ev)}</Text>
+            <Text style={{ color: "#22c55e", fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>{formatPct(steal.ev)}</Text>
           </View>
         ) : null}
         {steal.edge != null ? (
           <View>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>EDGE</Text>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+            <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
               {formatPct(steal.edge)}
             </Text>
           </View>
@@ -622,12 +622,12 @@ function StealCard({ steal }: { steal: LiveSteal }) {
         {fairPct != null ? (
           <View>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>FAIR</Text>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>{fairPct}%</Text>
+            <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>{fairPct}%</Text>
           </View>
         ) : null}
         <View style={{ flex: 1, alignItems: "flex-end" }}>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>$100 WINS</Text>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>${toWin}</Text>
+          <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>${toWin}</Text>
         </View>
       </View>
 
@@ -753,13 +753,13 @@ export default function StealsScreen() {
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.display, fontSize: 14 }}>+500</Text>
+            <Text style={{ color: STEAL_ACCENT, ...TYPE.secondary, fontFamily: FONT.bold }}>+500</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
+            <Text style={{ color: colors.foreground, fontFamily: TYPE.sectionHeader.fontFamily, fontSize: TYPE.sectionHeader.fontSize, lineHeight: TYPE.sectionHeader.lineHeight }}>
               +500 Steals
             </Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4, lineHeight: 18 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, marginTop: 4, lineHeight: 18 }}>
               Longshots (+500 and up) that carry a real cross-book edge — high risk, high upside.
             </Text>
           </View>
@@ -897,10 +897,10 @@ export default function StealsScreen() {
               }}
             >
               <Feather name="search" size={28} color={STEAL_ACCENT} />
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18, textAlign: "center" }}>
+              <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight, textAlign: "center" }}>
                 No steals right now
               </Text>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+              <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, lineHeight: 19, textAlign: "center" }}>
                 The board was scanned and no +500 longshots cleared our value bar. We&apos;ll keep checking in the background.
               </Text>
             </View>
@@ -920,7 +920,7 @@ export default function StealsScreen() {
             ))}
             {almostQualified.length > 0 ? (
               <View style={{ gap: 10 }}>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>Almost Qualified</Text>
+                <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>Almost Qualified</Text>
                 {almostQualified.map((near) => (
                   <AlmostQualifiedCard key={near.id} near={near} />
                 ))}
@@ -941,7 +941,7 @@ export default function StealsScreen() {
           }}
         >
           <Feather name="zap" size={22} color={STEAL_ACCENT} />
-          <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 18 }}>
+          <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, lineHeight: 18 }}>
             We&apos;re scanning thousands of markets in real time to surface the best longshot opportunities.
           </Text>
         </View>

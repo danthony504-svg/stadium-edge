@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text } from "react-native";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 
 // Lightweight markdown renderer for AI Coach replies. The model returns plain
 // text with light markdown — **bold**, "* " / "- " bullets, "#"/"##"/"###"
@@ -105,7 +105,7 @@ export function ChatMarkdown({ text, color, mutedColor }: Props) {
     if (b) {
       blocks.push(
         <View key={`b${key++}`} style={{ flexDirection: "row", paddingLeft: 2, marginVertical: 1 }}>
-          <Text style={{ color: mutedColor, fontFamily: FONT.body, fontSize: 14, lineHeight: 21, marginRight: 7 }}>
+          <Text style={{ color: mutedColor, fontFamily: TYPE.secondary.fontFamily, fontSize: TYPE.secondary.fontSize, lineHeight: TYPE.secondary.lineHeight, lineHeight: 21, marginRight: 7 }}>
             {"\u2022"}
           </Text>
           <Text selectable style={{ flex: 1, fontSize: 14, lineHeight: 21 }}>

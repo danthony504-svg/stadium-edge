@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getTennisPlayer, type TennisPlayerProfile } from "@/lib/api";
 
@@ -101,7 +101,7 @@ export function TennisPlayerSheet({
           >
             <View style={{ flex: 1, gap: 3 }}>
               <Text
-                style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}
+                style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}
                 numberOfLines={1}
               >
                 {title}
@@ -154,7 +154,7 @@ export function TennisPlayerSheet({
               {/* Bio */}
               {bioChips.length ? (
                 <View style={{ gap: 8 }}>
-                  <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.5 }}>
+                  <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
                     PLAYER
                   </Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -186,7 +186,7 @@ export function TennisPlayerSheet({
               {/* Career */}
               {careerStats.length ? (
                 <View style={{ gap: 8 }}>
-                  <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.5 }}>
+                  <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
                     CAREER (SINGLES)
                   </Text>
                   <View
@@ -215,7 +215,7 @@ export function TennisPlayerSheet({
                         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.3 }}>
                           {s.label.toUpperCase()}
                         </Text>
-                        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+                        <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>
                           {s.value}
                         </Text>
                       </View>
@@ -227,7 +227,7 @@ export function TennisPlayerSheet({
               {/* Recent form */}
               {form.length ? (
                 <View style={{ gap: 8 }}>
-                  <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.5 }}>
+                  <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
                     RECENT FORM{" "}
                     <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
                       ({wins}-{losses} this season)

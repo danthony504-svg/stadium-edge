@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   clearBiometricLogin,
@@ -133,7 +133,7 @@ export default function AccountScreen() {
           justifyContent: "space-between",
         }}
       >
-        <Text style={{ fontFamily: FONT.display, fontSize: 24, color: colors.foreground }}>
+        <Text style={{ fontFamily: TYPE.sectionHeader.fontFamily, fontSize: TYPE.sectionHeader.fontSize, lineHeight: TYPE.sectionHeader.lineHeight, color: colors.foreground }}>
           Account
         </Text>
         <Pressable
@@ -232,7 +232,7 @@ export default function AccountScreen() {
               }}
             >
               <Text
-                style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground }}
+                style={{ fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, color: colors.foreground }}
                 numberOfLines={1}
               >
                 {referralLink}
@@ -356,7 +356,7 @@ export default function AccountScreen() {
           })}
         >
           <Feather name="log-out" size={18} color={colors.destructive} />
-          <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.destructive }}>
+          <Text style={{ fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight, color: colors.destructive }}>
             Sign out
           </Text>
         </Pressable>
@@ -437,7 +437,7 @@ export default function AccountScreen() {
               </View>
               <Text
                 style={{
-                  fontFamily: FONT.display,
+                  ...TYPE.button, fontFamily: FONT.bold,
                   fontSize: 20,
                   color: colors.foreground,
                   flex: 1,
@@ -503,7 +503,7 @@ export default function AccountScreen() {
                   <Feather name="trash-2" size={17} color="#ffffff" />
                 )}
                 <Text
-                  style={{ fontFamily: FONT.bold, fontSize: 15, color: "#ffffff" }}
+                  style={{ fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight, color: "#ffffff" }}
                 >
                   {deleting ? "Deleting…" : "Permanently delete"}
                 </Text>

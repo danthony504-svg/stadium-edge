@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 
 /**
@@ -56,7 +56,7 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
         <Text
           style={{
             color: "#f8fafc",
-            fontFamily: FONT.display,
+            ...TYPE.button, fontFamily: FONT.bold,
             fontSize: 22,
             textAlign: "center",
             marginTop: 20,

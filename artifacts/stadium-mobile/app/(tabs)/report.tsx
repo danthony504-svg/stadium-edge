@@ -3,7 +3,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
-import { EmptyState, FONT } from "@/components/ui";
+import { EmptyState, FONT, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -53,7 +53,7 @@ function StatTile({
       <Text
         style={{
           color: colors.foreground,
-          fontFamily: FONT.display,
+          ...TYPE.button, fontFamily: FONT.bold,
           fontSize: 28,
           marginTop: 6,
         }}
@@ -88,8 +88,8 @@ function BreakdownSection({
       <Text
         style={{
           color: colors.primary,
-          fontFamily: FONT.display,
-          fontSize: 13,
+          ...TYPE.caption,
+                  fontFamily: FONT.bold,
           letterSpacing: 0.5,
           marginBottom: 10,
         }}
@@ -233,8 +233,8 @@ export default function ReportScreen() {
                 <Text
                   style={{
                     color: colors.primary,
-                    fontFamily: FONT.display,
-                    fontSize: 13,
+                    ...TYPE.caption,
+                  fontFamily: FONT.bold,
                     letterSpacing: 0.5,
                     marginBottom: 10,
                   }}

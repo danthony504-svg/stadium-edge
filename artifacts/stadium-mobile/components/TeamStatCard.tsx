@@ -3,7 +3,7 @@ import { Image, Text, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import type { TeamHistory, TeamSearchResult } from "@/lib/api";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 
 // Data assembled in coach.tsx: the team-search hit (name/logo/sport) merged
 // with the real ESPN team-history payload. Every number shown is derived from
@@ -149,7 +149,7 @@ export function TeamStatCard({ data }: { data: TeamStatCardData }) {
             borderColor: colors.primary,
           }}
         >
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.display, fontSize: 14 }}>
+          <Text style={{ color: colors.mutedForeground, ...TYPE.secondary, fontFamily: FONT.bold }}>
             {initials}
           </Text>
           {showLogo && (
@@ -162,7 +162,7 @@ export function TeamStatCard({ data }: { data: TeamStatCardData }) {
           )}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text numberOfLines={1} style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17 }}>
+          <Text numberOfLines={1} style={{ color: colors.foreground, ...TYPE.button }}>
             {history.teamName || name}
           </Text>
           <Text numberOfLines={1} style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 1 }}>
@@ -206,7 +206,7 @@ export function TeamStatCard({ data }: { data: TeamStatCardData }) {
               borderLeftColor: colors.border,
             }}
           >
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18, fontVariant: ["tabular-nums"] }}>
+            <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight, fontVariant: ["tabular-nums"] }}>
               {t.value}
             </Text>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, marginTop: 2 }}>

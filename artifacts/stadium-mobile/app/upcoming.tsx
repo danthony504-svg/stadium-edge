@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { GameCard, type GameMeta } from "@/components/GameCard";
-import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   getGames,
@@ -68,7 +68,7 @@ function UpcomingFeedErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const colors = useColors();
   return (
     <View style={{ flex: 1, padding: 24, justifyContent: "center", gap: 12 }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
+      <Text style={{ color: colors.foreground, ...TYPE.button, textAlign: "center" }}>
         Couldn't load upcoming games
       </Text>
       <Text

@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { TIER_META, type PropFactor } from "@/lib/propFactors";
 

@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { Text, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
 // Premium, presentational-only visuals for the Player Props surfaces. Every

@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type ParsedPick } from "@/components/PickCard";
 import { ConfidenceRing, ProjectedRangeBar, TrendBarChart } from "@/components/PropVisuals";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
-import { ErrorState, FONT, Loading } from "@/components/ui";
+import { ErrorState, FONT, Loading, TABULAR, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -758,7 +758,7 @@ export default function PropDetailScreen() {
               />
             ) : null}
             <View style={{ flex: 1, gap: 3 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22, lineHeight: 26 }}>
+              <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, lineHeight: 26 }}>
                 {player}
               </Text>
               <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>
@@ -819,7 +819,7 @@ export default function PropDetailScreen() {
                   AI Breakdown
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
-                  <Text style={{ color: gradeColor, fontFamily: FONT.display, fontSize: 38, lineHeight: 40 }}>
+                  <Text style={{ color: gradeColor, ...TYPE.displayTitle, fontSize: 38, lineHeight: 40, ...TABULAR }}>
                     {propScore.grade ?? "—"}
                   </Text>
                   <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginBottom: 6 }}>
@@ -1214,7 +1214,7 @@ function MetricTile({
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 9, letterSpacing: 0.5 }}>
         {label}
       </Text>
-      <Text style={{ color: tint, fontFamily: FONT.display, fontSize: 22 }}>{value}</Text>
+      <Text style={{ color: tint, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>{value}</Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }} numberOfLines={1}>
         {caption}
       </Text>
@@ -1287,7 +1287,7 @@ function HrTargetScoreCard({ data }: { data: HrScore }) {
           <Text style={{ color: tone, fontFamily: FONT.bold, fontSize: 13 }}>{band.label}</Text>
         </View>
         <View style={{ alignItems: "flex-end" }}>
-          <Text style={{ color: tone, fontFamily: FONT.display, fontSize: 30, lineHeight: 32 }}>{score}</Text>
+          <Text style={{ color: tone, ...TYPE.screenTitle, fontSize: 30, lineHeight: 32, ...TABULAR }}>{score}</Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>out of 100</Text>
         </View>
       </View>
@@ -1429,7 +1429,7 @@ function BreakdownRow({
         <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{label}</Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{sub}</Text>
       </View>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>{value}</Text>
+      <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>{value}</Text>
     </View>
   );
 }
