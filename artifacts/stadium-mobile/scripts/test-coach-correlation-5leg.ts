@@ -1,12 +1,12 @@
 /**
- * 5-leg Coach correlation smoke test — includes a large scored pool.
+ * 5-leg Coach correlation smoke test.
  * Run: node --import ./test/register-hooks.mjs scripts/test-coach-correlation-5leg.ts
  */
 import {
   COACH_CORRELATION_MAX_CANDIDATES,
-  COACH_CORRELATION_MAX_POOL_LEGS,
   runCoachCorrelationStage,
 } from "../lib/coachCorrelationPipeline.ts";
+import { FAST_CORRELATION_HARD_MS } from "../lib/coachFastCorrelation.ts";
 import { beginCoachScanPipeline, clearCoachScanPipeline } from "../lib/coachScanPipeline.ts";
 import type { BoardScoredLeg } from "../lib/ticketStaging.ts";
 
@@ -63,10 +63,9 @@ console.log(
       requestId,
       legTarget: 5,
       scoredPoolSize: scored.length,
-      poolCap: COACH_CORRELATION_MAX_POOL_LEGS,
       candidateCount: result.candidateTicketCount,
       maxCandidates: COACH_CORRELATION_MAX_CANDIDATES,
-      correlationsScored: result.correlationsScored,
+      ticketsScored: result.correlationsScored,
       correlationDurationMs: result.durationMs,
       usedFallback: result.usedFallback,
       timedOut: result.timedOut,
@@ -81,8 +80,8 @@ console.log(
 
 clearCoachScanPipeline(requestId);
 
-if (result.durationMs > 15_000 && !result.timedOut) {
-  console.error("FAIL: correlation exceeded 15s without timing out");
+if (result.durationMs > FAST_CORRELATION_HARD_MS && !result.timedOut) {
+  console.error(`FAIL: correlation exceeded ${FAST_CORRELATION_HARD_MS}ms without timing out`);
   process.exit(1);
 }
 

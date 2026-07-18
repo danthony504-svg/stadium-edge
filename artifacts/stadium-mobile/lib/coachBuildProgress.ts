@@ -29,7 +29,7 @@ export const COACH_BUILD_STAGES: readonly CoachBuildStageDef[] = [
   { id: "injuries", percent: 40, label: "Checking injuries and lineups", timeoutMs: 45_000 },
   { id: "line-value", percent: 55, label: "Calculating line value and EV", timeoutMs: 90_000 },
   { id: "simulations", percent: 70, label: "Running simulations", timeoutMs: 120_000 },
-  { id: "correlation", percent: 85, label: "Scoring correlation", timeoutMs: 15_000 },
+  { id: "correlation", percent: 85, label: "Scoring correlation", timeoutMs: 3_000 },
   { id: "building-ticket", percent: 90, label: "Building final ticket", timeoutMs: 60_000 },
   { id: "final-ticket", percent: 100, label: "Final ticket ready", timeoutMs: 30_000 },
 ] as const;

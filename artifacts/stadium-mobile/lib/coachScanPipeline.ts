@@ -6,7 +6,7 @@ import type {
   ParlayBuildPhase,
 } from "./coachBuildProgress.ts";
 
-export const COACH_CORRELATION_TIMEOUT_MS = 15_000;
+export const COACH_CORRELATION_TIMEOUT_MS = 3_000;
 
 export type CoachScanPhaseCallback = (
   phase: ParlayBuildPhase,

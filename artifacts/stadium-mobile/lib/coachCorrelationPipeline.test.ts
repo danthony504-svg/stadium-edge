@@ -59,7 +59,7 @@ test("runCoachCorrelationStage completes within candidate cap", async () => {
   });
   assert.ok(result.outputTicketCount > 0);
   assert.ok(result.candidateTicketCount <= COACH_CORRELATION_MAX_CANDIDATES);
-  assert.ok(result.durationMs < COACH_CORRELATION_TIMEOUT_MS + 5_000);
+  assert.ok(result.durationMs < COACH_CORRELATION_TIMEOUT_MS + 500);
   clearCoachScanPipeline("req-corr-1");
 });
 
