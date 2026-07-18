@@ -120,6 +120,9 @@ export type TicketStagingBreakdown = {
   altQualified: number;
   mainOnTicket: number;
   altOnTicket: number;
+  primaryMarketQualified?: number;
+  alternateMarketQualified?: number;
+  alternateMarketOnTicket?: number;
 };
 
 export type CoachGameSimEntry = {

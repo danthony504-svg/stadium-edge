@@ -479,7 +479,7 @@ function buildScanResult(
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
       : picks.length > 0 && opts.preview
         ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
-        : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+        : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown, opts.target);
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.target,
     pickIds: picks,
