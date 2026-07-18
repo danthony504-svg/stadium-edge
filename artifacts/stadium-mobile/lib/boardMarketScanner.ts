@@ -52,6 +52,7 @@ export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type Boa
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
+import { CoachEvStageError, runCoachEvPropPrescore } from "./coachEvPipeline.ts";
 import { CoachCorrelationStageError } from "./coachScanPipeline.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
@@ -362,6 +363,8 @@ async function simPropPoolUntilQualified(
     onPropBatch?: (size: number, timedOut: boolean) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
+    requestId?: string;
+    onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
@@ -369,16 +372,27 @@ async function simPropPoolUntilQualified(
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
 
-  const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
-    realOdds: mergedOdds,
-    propPool: pool,
-    matchupHistory: opts.matchupHistory,
-    matchupInjuries: opts.matchupInjuries,
-    playerHistory: opts.playerHistory,
-    mlbPlatoon: opts.mlbPlatoon,
-    mlbGameEnv: opts.mlbGameEnv,
-    perfByFamily: opts.perfByFamily,
-  });
+  const poolPicks = pool.map(parsedPickFromPoolEntry);
+  const { scored: prescorePool } = await runCoachEvPropPrescore(
+    poolPicks,
+    {
+      realOdds: mergedOdds,
+      propPool: pool,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+      playerHistory: opts.playerHistory,
+      mlbPlatoon: opts.mlbPlatoon,
+      mlbGameEnv: opts.mlbGameEnv,
+      perfByFamily: opts.perfByFamily,
+    },
+    {
+      requestId: opts.requestId ?? "unknown",
+      signal,
+      onProgress: opts.onBuildProgress,
+    },
+  );
+  opts.onBuildProgress?.("simulations", opts.requestId ?? "unknown");
+
   const rankedProps = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
     .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
@@ -609,13 +623,23 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       const lines = evalLinesByGame.get(game);
       if (!lines?.length) continue;
       const sim = gameSimulations.get(game);
-      const evaluated = evaluateGameLines({
-        lines,
-        gameSim: sim,
-        realOdds: mergedOdds,
-        matchupHistory: opts.matchupHistory,
-        matchupInjuries: opts.matchupInjuries,
-      });
+      let evaluated: ReturnType<typeof evaluateGameLines>;
+      try {
+        evaluated = evaluateGameLines({
+          lines,
+          gameSim: sim,
+          realOdds: mergedOdds,
+          matchupHistory: opts.matchupHistory,
+          matchupInjuries: opts.matchupInjuries,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          "[coach-scan] ev-error",
+          JSON.stringify({ requestId: opts.requestId ?? "unknown", game, message }),
+        );
+        continue;
+      }
       totalScanned += evaluated.length;
       for (const row of evaluated) {
         manifestRecorder.recordMarketFound(row.pick);
@@ -674,6 +698,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       target: opts.target,
       ...propScoreOpts,
       teamIdsByGame: opts.teamIdMap,
+      requestId: opts.requestId,
+      onBuildProgress: opts.onBuildProgress,
       onWave: () => {
         emitBoardScanPartial();
       },
@@ -752,6 +778,7 @@ export async function tryReachFullBoardScan(
     return await buildTopLegsFromFullBoardScan(opts);
   } catch (err) {
     if (err instanceof CoachCorrelationStageError) throw err;
+    if (err instanceof CoachEvStageError) throw err;
     return null;
   }
 }

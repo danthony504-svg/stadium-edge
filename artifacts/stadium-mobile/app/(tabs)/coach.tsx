@@ -153,6 +153,7 @@ import {
   type CoachScanPhaseCallback,
 } from "@/lib/coachScanPipeline";
 import { CoachMatchupStageError } from "@/lib/coachMatchupPipeline";
+import { CoachEvStageError } from "@/lib/coachEvPipeline";
 import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
@@ -2880,6 +2881,9 @@ export default function CoachScreen() {
               if (err instanceof CoachCorrelationStageError) {
                 throw err;
               }
+              if (err instanceof CoachEvStageError) {
+                throw err;
+              }
               preBoardScan = preferFinalBoardScanForDelivery(
                 reachTargetPreScan,
                 latestBoardScanRef.current,
@@ -5463,6 +5467,32 @@ export default function CoachScreen() {
                   requestId: e.requestId,
                   sendGeneration: sendGen,
                   empty: e.empty,
+                })
+              : prev,
+          );
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") {
+              copy[copy.length - 1] = {
+                ...last,
+                content: failMsg,
+                retry: trimmed,
+              };
+            }
+            return copy;
+          });
+          terminalRef.current = true;
+          scanInFlightRef.current = false;
+        } else if (e instanceof CoachEvStageError) {
+          const failMsg = e.timedOut
+            ? `Line value / EV calculation timed out after ${Math.round(e.durationMs / 1000)}s (request ${e.requestId}). Tap below to try again.`
+            : `Line value / EV calculation failed: ${e.message}`;
+          setCoachBuildProgress((prev) =>
+            prev
+              ? coachBuildProgressOnFailure(prev, failMsg, {
+                  requestId: e.requestId,
+                  sendGeneration: sendGen,
                 })
               : prev,
           );
