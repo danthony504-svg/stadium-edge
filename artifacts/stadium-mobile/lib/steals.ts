@@ -1,3 +1,5 @@
+import type { StealScanStatsSnapshot } from "./stealScanLifecycle.ts";
+
 // Pure, dependency-free helpers for the "+500 Steals" screen. The server
 // (api-server lib/liveSteals.ts) does ALL the finding/grading honestly — every
 // surfaced steal carries a REAL cross-book no-vig edge and the W/L record is
@@ -194,3 +196,29 @@ export function gamesScannedFromFeedProbes(
   if (!probes?.length) return 0;
   return probes.reduce((sum, p) => sum + (p.games ?? 0), 0);
 }
+
+/** Real scan counts for the live scan card — null when the API omitted them. */
+export function stealScanLiveStats(
+  meta: StealScanMeta | null | undefined,
+  gamesFallback: number,
+  lastScanAt: string | number | null | undefined,
+): StealScanStatsSnapshot {
+  const consistent = stealScanStatsAreConsistent(meta);
+  const sportsbookCount = consistent && meta ? meta.booksScanned : null;
+  const gameCount =
+    consistent && meta
+      ? meta.gamesScanned ?? (gamesFallback > 0 ? gamesFallback : null)
+      : null;
+  const marketCount = consistent && meta ? meta.marketsChecked : null;
+  const available =
+    sportsbookCount != null && sportsbookCount > 0 && marketCount != null && marketCount > 0;
+  return {
+    sportsbookCount,
+    gameCount,
+    marketCount,
+    lastScanAt: lastScanAt ?? meta?.scannedAt ?? null,
+    available,
+  };
+}
+
+export type { StealScanStatsSnapshot } from "./stealScanLifecycle.ts";

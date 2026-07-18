@@ -11,6 +11,7 @@ import {
   recordLabel,
   recordWinPct,
   stealScanIsComplete,
+  stealScanLiveStats,
   stealScanStatsAreConsistent,
   STEAL_MAX_ODDS,
   STEAL_MIN_ODDS,
@@ -123,6 +124,48 @@ test("trackRecordStatsFromHistory computes units and highest win", () => {
   assert.equal(stats.highestWinPick?.label, "Star Player");
   assert.equal(stats.highestWinPick?.price, 900);
   assert.equal(stats.avgOdds, 750);
+});
+
+test("stealScanLiveStats exposes backend counts and availability", () => {
+  const stats = stealScanLiveStats(
+    {
+      booksScanned: 18,
+      gamesScanned: 42,
+      marketsChecked: 2100,
+      longshotsAnalyzed: 90,
+      stealsFound: 0,
+      sportCounts: {},
+      totalOpportunities: 0,
+      scanComplete: true,
+      scannedAt: "2026-06-28T12:00:00.000Z",
+    },
+    0,
+    "2026-06-28T12:00:00.000Z",
+  );
+  assert.equal(stats.sportsbookCount, 18);
+  assert.equal(stats.gameCount, 42);
+  assert.equal(stats.marketCount, 2100);
+  assert.equal(stats.available, true);
+  assert.equal(stats.lastScanAt, "2026-06-28T12:00:00.000Z");
+});
+
+test("stealScanLiveStats marks unavailable when counts disagree", () => {
+  const stats = stealScanLiveStats(
+    {
+      booksScanned: 0,
+      marketsChecked: 2184,
+      longshotsAnalyzed: 117,
+      stealsFound: 0,
+      sportCounts: {},
+      totalOpportunities: 0,
+      scanComplete: true,
+    },
+    0,
+    null,
+  );
+  assert.equal(stats.available, false);
+  assert.equal(stats.sportsbookCount, null);
+  assert.equal(stats.marketCount, null);
 });
 
 test("formatLastScanTime and countdown helpers", () => {

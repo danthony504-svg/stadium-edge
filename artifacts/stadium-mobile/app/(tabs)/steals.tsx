@@ -28,15 +28,15 @@ import {
   type StealSeasonStats,
 } from "@/lib/api";
 import type { StealFeedClientLog } from "@/lib/stealFeedClient";
-import { logStealScanLifecycle } from "@/lib/stealScanLifecycle";
+import { logStealsScan, logStealScanLifecycle } from "@/lib/stealScanLifecycle";
 import {
   initialStealProgress,
   mergeStealProgress,
   stealProgressChecklist,
-  stealProgressFromElapsedMs,
   stealProgressFromLiveScan,
   STEAL_SCAN_TIMEOUT_MS,
   type StealCanonicalProgress,
+  type StealProgressPatch,
 } from "@/lib/stealProgressState";
 import { SPORTS, sportLabel } from "@/lib/sports";
 import {
@@ -50,7 +50,7 @@ import {
   nearMissNeededLabel,
   recordLabel,
   stealScanIsComplete,
-  stealScanStatsAreConsistent,
+  stealScanLiveStats,
   trackRecordStatsFromHistory,
   normalizeStealScanMeta,
 } from "@/lib/steals";
@@ -229,17 +229,29 @@ function ScanStatsRow({
   games,
   markets,
   lastScanAt,
+  countsUnavailable,
 }: {
   books: number | null;
   games: number | null;
   markets: number | null;
   lastScanAt: string | number | null | undefined;
+  countsUnavailable?: boolean;
 }) {
   const colors = useColors();
+  const unavailableLabel = "Scan data unavailable";
   const items = [
-    { label: "Sportsbooks scanned", value: books != null ? formatScanCount(books) : "—" },
-    { label: "Games scanned", value: games != null ? formatScanCount(games) : "—" },
-    { label: "Markets scanned", value: markets != null ? formatScanCount(markets) : "—" },
+    {
+      label: "Sportsbooks scanned",
+      value: countsUnavailable ? unavailableLabel : books != null ? formatScanCount(books) : "—",
+    },
+    {
+      label: "Games scanned",
+      value: countsUnavailable ? unavailableLabel : games != null ? formatScanCount(games) : "—",
+    },
+    {
+      label: "Markets scanned",
+      value: countsUnavailable ? unavailableLabel : markets != null ? formatScanCount(markets) : "—",
+    },
     { label: "Last scan", value: formatLastScanTime(lastScanAt) },
   ];
   return (
@@ -281,10 +293,9 @@ function StealScanProgressCard({
 }) {
   const colors = useColors();
   const checklist = stealProgressChecklist(progress);
-  const consistent = stealScanStatsAreConsistent(meta);
-  const books = consistent ? meta!.booksScanned : progress.booksConnected || null;
-  const games = consistent ? meta?.gamesScanned ?? gamesFallback : progress.gamesLoaded || null;
-  const markets = consistent ? meta!.marketsChecked : null;
+  const stats = stealScanLiveStats(meta, gamesFallback, lastScanAt);
+  const atFinalStep = progress.stepIndex >= progress.totalSteps || progress.terminal;
+  const countsUnavailable = atFinalStep && !stats.available;
 
   return (
     <View
@@ -352,7 +363,13 @@ function StealScanProgressCard({
         ))}
       </View>
 
-      <ScanStatsRow books={books} games={games} markets={markets} lastScanAt={lastScanAt} />
+      <ScanStatsRow
+        books={stats.sportsbookCount}
+        games={stats.gameCount}
+        markets={stats.marketCount}
+        lastScanAt={stats.lastScanAt}
+        countsUnavailable={countsUnavailable}
+      />
     </View>
   );
 }
@@ -816,6 +833,64 @@ export default function StealsScreen() {
   const [scanProgress, setScanProgress] = useState<StealCanonicalProgress | null>(null);
   const scanIdRef = useRef(`scan-${Date.now()}`);
   const scanInFlightRef = useRef(false);
+  const scanStartedRef = useRef(false);
+  const terminalRef = useRef(false);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearScanTimers = useCallback(() => {
+    if (countdownIntervalRef.current != null) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    if (timeoutTimerRef.current != null) {
+      clearTimeout(timeoutTimerRef.current);
+      timeoutTimerRef.current = null;
+    }
+  }, []);
+
+  const applyProgressPatch = useCallback((patch: StealProgressPatch, source: "stage" | "stats") => {
+    if (terminalRef.current || patch.terminal) return;
+    setScanProgress((prev) => {
+      const merged = mergeStealProgress(prev ?? initialStealProgress(scanIdRef.current), patch);
+      if (!merged) {
+        logStealsScan("duplicate-update-blocked", {
+          scanId: scanIdRef.current,
+          stage: patch.stage ?? prev?.stage,
+        });
+        return prev;
+      }
+      logStealsScan(source === "stats" ? "stats-update" : "stage-update", {
+        scanId: scanIdRef.current,
+        stage: merged.stage,
+        step: merged.stepIndex,
+        percent: merged.percent,
+      });
+      return merged;
+    });
+  }, []);
+
+  const markTerminal = useCallback(
+    (reason: string, patch?: StealProgressPatch) => {
+      if (terminalRef.current) return;
+      terminalRef.current = true;
+      clearScanTimers();
+      setScanProgress((prev) => {
+        const merged = mergeStealProgress(prev ?? initialStealProgress(scanIdRef.current), {
+          scanId: scanIdRef.current,
+          stage: "ranking",
+          percent: 100,
+          terminal: true,
+          booksConnected: patch?.booksConnected ?? prev?.booksConnected ?? 0,
+          gamesLoaded: patch?.gamesLoaded ?? prev?.gamesLoaded ?? 0,
+          propsLoaded: patch?.propsLoaded ?? prev?.propsLoaded ?? 0,
+        });
+        return merged ?? prev;
+      });
+      logStealsScan("terminal", { scanId: scanIdRef.current, reason });
+    },
+    [clearScanTimers],
+  );
 
   const query = useQuery({
     queryKey: ["live-steals"],
@@ -882,11 +957,14 @@ export default function StealsScreen() {
     activeData?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
 
   const beginScan = useCallback(() => {
+    if (scanInFlightRef.current) return;
+    clearScanTimers();
+    terminalRef.current = false;
     scanIdRef.current = `scan-${Date.now()}`;
     setScanProgress(initialStealProgress(scanIdRef.current));
     setScanStartedAt(Date.now());
     setScanTimedOut(false);
-  }, []);
+  }, [clearScanTimers]);
 
   const handleRefresh = useCallback(() => {
     if (query.isFetching || scanInFlightRef.current) return;
@@ -900,98 +978,114 @@ export default function StealsScreen() {
     void query.refetch();
   }, [beginScan, query]);
 
+  useEffect(() => {
+    if (scanStartedRef.current) return;
+    scanStartedRef.current = true;
+    scanIdRef.current = `scan-${Date.now()}`;
+    setScanProgress(initialStealProgress(scanIdRef.current));
+    setScanStartedAt(Date.now());
+    setScanTimedOut(false);
+    logStealsScan("start", { scanId: scanIdRef.current });
+
+    return () => {
+      clearScanTimers();
+      logStealsScan("cleanup", { scanId: scanIdRef.current });
+      scanStartedRef.current = false;
+      terminalRef.current = false;
+      scanInFlightRef.current = false;
+    };
+  }, [clearScanTimers]);
+
   useFocusEffect(
     useCallback(() => {
-      if (query.isFetching || scanInFlightRef.current) return;
-      beginScan();
+      if (terminalRef.current || query.isFetching || scanInFlightRef.current) return;
       void query.refetch();
-    }, [beginScan, query.isFetching, query.refetch]),
+    }, [query.isFetching, query.refetch]),
   );
 
   useEffect(() => {
-    if (query.isFetching && !hasPicks && !scanComplete && scanStartedAt == null) {
-      beginScan();
-    }
-  }, [beginScan, hasPicks, query.isFetching, scanComplete, scanStartedAt]);
-
-  useEffect(() => {
-    if (!scanStartedAt || hasPicks || scanComplete) {
-      if (hasPicks || scanComplete) {
-        setScanTimedOut(false);
-        setScanStartedAt(null);
-      }
+    if (terminalRef.current) return;
+    if (feedUnavailable) {
+      markTerminal("error");
       return;
     }
+    if (hasPicks || scanComplete) {
+      markTerminal(hasPicks ? "picks" : "complete", {
+        scanId: scanIdRef.current,
+        booksConnected: meta?.booksScanned ?? 0,
+        gamesLoaded: meta?.gamesScanned ?? gamesFallback,
+        propsLoaded: meta?.longshotsAnalyzed ?? 0,
+      });
+      return;
+    }
+    if (!meta) return;
+
+    const livePatch = stealProgressFromLiveScan(scanIdRef.current, {
+      booksScanned: meta.booksScanned,
+      gamesScanned: meta.gamesScanned ?? gamesFallback,
+      marketsChecked: meta.marketsChecked,
+      longshotsAnalyzed: meta.longshotsAnalyzed,
+      scanComplete: meta.scanComplete,
+      stealsFound: meta.stealsFound,
+    });
+
+    const stats = stealScanLiveStats(meta, gamesFallback, lastScanAt);
+    logStealsScan("stats-update", {
+      scanId: scanIdRef.current,
+      sportsbookCount: stats.sportsbookCount,
+      gameCount: stats.gameCount,
+      marketCount: stats.marketCount,
+      available: stats.available,
+    });
+
+    if (livePatch.terminal || meta.scanComplete) {
+      markTerminal("scanComplete", livePatch);
+      return;
+    }
+    applyProgressPatch(livePatch, "stats");
+  }, [
+    applyProgressPatch,
+    feedUnavailable,
+    gamesFallback,
+    hasPicks,
+    lastScanAt,
+    markTerminal,
+    meta?.booksScanned,
+    meta?.gamesScanned,
+    meta?.longshotsAnalyzed,
+    meta?.marketsChecked,
+    meta?.scanComplete,
+    meta?.stealsFound,
+    scanComplete,
+  ]);
+
+  useEffect(() => {
+    if (terminalRef.current || hasPicks || scanComplete || feedUnavailable) return;
+    if (!scanStartedAt) return;
+
     const elapsed = Date.now() - scanStartedAt;
     if (elapsed >= STEAL_SCAN_TIMEOUT_MS) {
       setScanTimedOut(true);
       return;
     }
-    const timer = setTimeout(() => setScanTimedOut(true), STEAL_SCAN_TIMEOUT_MS - elapsed);
-    return () => clearTimeout(timer);
-  }, [hasPicks, scanComplete, scanStartedAt]);
-
-  useEffect(() => {
-    if (hasPicks || scanComplete || feedUnavailable) {
-      if (hasPicks || scanComplete) {
-        setScanProgress((prev) => {
-          const merged = mergeStealProgress(prev ?? initialStealProgress(scanIdRef.current), {
-            scanId: scanIdRef.current,
-            stage: "ranking",
-            percent: 100,
-            terminal: true,
-            booksConnected: meta?.booksScanned ?? 0,
-            gamesLoaded: meta?.gamesScanned ?? gamesFallback,
-            propsLoaded: meta?.longshotsAnalyzed ?? 0,
-          });
-          return merged ?? prev;
-        });
+    timeoutTimerRef.current = setTimeout(() => setScanTimedOut(true), STEAL_SCAN_TIMEOUT_MS - elapsed);
+    return () => {
+      if (timeoutTimerRef.current != null) {
+        clearTimeout(timeoutTimerRef.current);
+        timeoutTimerRef.current = null;
       }
-      return;
-    }
-    if (!showBlockingScan && !showTimeout) return;
-
-    const tick = () => {
-      setNowTick(Date.now());
-      const elapsed = scanStartedAt ? Date.now() - scanStartedAt : 0;
-      setScanProgress((prev) => {
-        let next = prev ?? initialStealProgress(scanIdRef.current);
-        const elapsedPatch = stealProgressFromElapsedMs(scanIdRef.current, elapsed);
-        const elapsedMerged = mergeStealProgress(next, elapsedPatch);
-        if (elapsedMerged) next = elapsedMerged;
-        if (meta) {
-          const livePatch = stealProgressFromLiveScan(scanIdRef.current, {
-            booksScanned: meta.booksScanned,
-            gamesScanned: meta.gamesScanned ?? gamesFallback,
-            marketsChecked: meta.marketsChecked,
-            longshotsAnalyzed: meta.longshotsAnalyzed,
-            scanComplete: meta.scanComplete,
-            stealsFound: meta.stealsFound,
-          });
-          const liveMerged = mergeStealProgress(next, livePatch);
-          if (liveMerged) next = liveMerged;
-        }
-        return next;
-      });
     };
-
-    tick();
-    const interval = setInterval(tick, 300);
-    return () => clearInterval(interval);
-  }, [
-    feedUnavailable,
-    gamesFallback,
-    hasPicks,
-    meta,
-    scanComplete,
-    scanStartedAt,
-    showBlockingScan,
-    showTimeout,
-  ]);
+  }, [feedUnavailable, hasPicks, scanComplete, scanStartedAt]);
 
   useEffect(() => {
-    const interval = setInterval(() => setNowTick(Date.now()), 1_000);
-    return () => clearInterval(interval);
+    if (terminalRef.current) return;
+    countdownIntervalRef.current = setInterval(() => setNowTick(Date.now()), 1_000);
+    return () => {
+      if (countdownIntervalRef.current != null) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
