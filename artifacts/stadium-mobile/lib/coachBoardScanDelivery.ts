@@ -10,8 +10,9 @@ import {
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
-import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
+import { finalizeBoardBuiltCoachTicket, coachBoardScanTicketPicks } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
+import { logBoardScanPipeline } from "./coachBoardScanPipelineTrace.ts";
 
 export type CoachBoardScanDelivery = {
   picks: ParsedPick[];
@@ -84,7 +85,31 @@ export function deliverCoachBoardScanTicket(
 
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+
+  if (!picks.length && scan.picks.length) {
+    const salvage = coachBoardScanTicketPicks(tagged, enrich);
+    picks = prepareCoachDeliveredTicket(salvage, enrich);
+    logBoardScanPipeline("9-coach-delivered", picks.length, {
+      requestId: scan.requestId,
+      targetLegs: legTarget,
+      picksStaged: scan.picks.length,
+      picksDelivered: picks.length,
+      stopReason:
+        picks.length === 0
+          ? "Staged picks failed strict delivery gates and salvage path"
+          : undefined,
+      extra: { salvage: true, strictFiltered: finalized.picks.length },
+    });
+  } else {
+    logBoardScanPipeline("9-coach-delivered", picks.length, {
+      requestId: scan.requestId,
+      targetLegs: legTarget,
+      picksStaged: scan.picks.length,
+      picksDelivered: picks.length,
+      scanComplete: true,
+    });
+  }
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,

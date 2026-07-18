@@ -124,6 +124,7 @@ import {
   deliverCoachBoardScanTicket,
   coachBoardScanManifestForMessage,
   coachReplyHasScanManifest,
+  COACH_EMPTY_BOARD_SCAN_LEAD,
 } from "@/lib/coachBoardScanDelivery";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
@@ -151,6 +152,8 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
+import { logBoardScanPipeline } from "@/lib/coachBoardScanPipelineTrace";
+import { startBoardScanRace } from "@/lib/coachBoardScanRace";
 import {
   boardScanAppliesToRequest,
   finalizeCoachTicketForRequest,
@@ -1132,6 +1135,8 @@ export default function CoachScreen() {
   const messagesRef = useRef<UIMessage[]>([]);
   const scanStartedRef = useRef(false);
   const scanInFlightRef = useRef(false);
+  const boardScanPromiseRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
+  const boardScanBackgroundPendingRef = useRef(false);
   const terminalRef = useRef(false);
   const lastProgressSignatureRef = useRef("");
   const boardScanReplaySigRef = useRef("");
@@ -1769,6 +1774,50 @@ export default function CoachScreen() {
       }
     },
     [patchInstantBoardScanTicket, armBuildStallWatchdog],
+  );
+
+  const onBoardScanBackgroundSettled = useCallback(
+    (result: FullBoardScanResult | null) => {
+      boardScanBackgroundPendingRef.current = false;
+      boardScanPromiseRef.current = null;
+      scanInFlightRef.current = false;
+      if (!result) return;
+      const legTarget =
+        activeRequestLegTargetRef.current ||
+        requestedLegCount(activeParlayAskRef.current) ||
+        effectiveBuildLegCount(activeParlayAskRef.current);
+      const ctx = coachRequestContextRef.current;
+      if (
+        !boardScanAppliesToRequest(
+          result,
+          legTarget,
+          ctx?.sendGeneration ?? sendGenerationRef.current,
+          sendGenerationRef.current,
+          ctx?.requestId,
+        )
+      ) {
+        return;
+      }
+      latestBoardScanRef.current = result;
+      logBoardScanPipeline("9-coach-delivered", result.picks.length, {
+        requestId: result.requestId,
+        targetLegs: legTarget,
+        picksStaged: result.picks.length,
+        scanComplete: !!result.scanComplete,
+        extra: { source: "background-settled" },
+      });
+      if (boardTicketSnapshotRef.current?.length) return;
+      if (boardScanIsComplete(result)) {
+        deliverBoardScanTicket(result);
+        return;
+      }
+      if (result.picks.length) {
+        patchInstantBoardScanTicket(result, undefined, {
+          ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+        });
+      }
+    },
+    [deliverBoardScanTicket, patchInstantBoardScanTicket],
   );
 
   const kickoffEarlyReachBoardScan = useCallback(
@@ -2726,7 +2775,7 @@ export default function CoachScreen() {
                   })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
-              preBoardScan = await Promise.race([
+              const scanRace = startBoardScanRace(
                 tryReachFullBoardScan({
                   target: reachTargetPreScan,
                   oddsGames,
@@ -2740,16 +2789,23 @@ export default function CoachScreen() {
                   matchupHistory: context.matchupHistory,
                   matchupInjuries: context.matchupInjuries,
                   playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
+                  mlbPlatoon: context.mlbPlatoon,
+                  mlbGameEnv: context.mlbGameEnv,
                   perfByFamily: marketPerf,
                   calibration: modelCalibration,
                   onPartial: onBoardScanPartial,
                   signal: abortRef.current?.signal,
                   ...boardScanVariety,
                 }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
-              ]);
+                boardScanMs,
+                onBoardScanBackgroundSettled,
+              );
+              boardScanPromiseRef.current = scanRace.promise;
+              boardScanBackgroundPendingRef.current = true;
+              preBoardScan = await scanRace.awaitBudget();
+              if (preBoardScan) {
+                boardScanBackgroundPendingRef.current = false;
+              }
               freshBoardScanComplete = !!(
                 preBoardScan?.picks?.length &&
                 boardScanIsComplete(preBoardScan) &&
@@ -3611,7 +3667,7 @@ export default function CoachScreen() {
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
           const inlineBoardScanMs = boardScanBudgetMs(reachTarget);
-          const inlineScan = await Promise.race([
+          const inlineScanRace = startBoardScanRace(
             tryReachFullBoardScan({
               target: reachTarget,
               oddsGames,
@@ -3625,8 +3681,8 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
               perfByFamily: marketPerf,
               calibration: modelCalibration,
               signal: abortRef.current?.signal,
@@ -3636,8 +3692,15 @@ export default function CoachScreen() {
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
             }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
-          ]);
+            inlineBoardScanMs,
+            onBoardScanBackgroundSettled,
+          );
+          boardScanPromiseRef.current = inlineScanRace.promise;
+          boardScanBackgroundPendingRef.current = true;
+          const inlineScan = await inlineScanRace.awaitBudget();
+          if (inlineScan) {
+            boardScanBackgroundPendingRef.current = false;
+          }
           if (inlineScan) {
             fullBoardScanMeta = inlineScan;
             if (
@@ -5397,6 +5460,23 @@ export default function CoachScreen() {
         }
       } finally {
         if (sendGenerationRef.current !== sendGen) return;
+        if (boardScanPromiseRef.current && boardScanBackgroundPendingRef.current) {
+          try {
+            const lateScan = await Promise.race([
+              boardScanPromiseRef.current,
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+            ]);
+            if (
+              lateScan?.picks?.length &&
+              !boardTicketSnapshotRef.current?.length &&
+              boardScanIsComplete(lateScan)
+            ) {
+              deliverBoardScanTicket(lateScan);
+            }
+          } catch {
+            /* background scan may still deliver via onBoardScanBackgroundSettled */
+          }
+        }
         if (isParlayBuildAsk(trimmed)) {
           const partial = latestBoardScanRef.current;
           if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
@@ -5449,6 +5529,7 @@ export default function CoachScreen() {
       armBuildStallWatchdog,
       clearBuildStallWatchdog,
       onBoardScanPartial,
+      onBoardScanBackgroundSettled,
       kickoffEarlyReachBoardScan,
       attachedImages,
       isSignedIn,
@@ -5840,9 +5921,12 @@ export default function CoachScreen() {
   useEffect(() => {
     if (terminalRef.current) return;
     if (streaming || buildFinishing || waiting) return;
+    if (scanInFlightRef.current || boardScanBackgroundPendingRef.current) return;
     const last = messagesRef.current[messagesRef.current.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     if (coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
+    const partial = latestBoardScanRef.current;
+    if (partial && !boardScanIsComplete(partial)) return;
     const priorUser = [...messagesRef.current].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent) return;
@@ -5901,6 +5985,10 @@ export default function CoachScreen() {
 
     const retryText = priorUser?.content?.trim();
     if (retryText) {
+      const scanDone = partial && boardScanIsComplete(partial);
+      const emptyLead = scanDone
+        ? COACH_EMPTY_BOARD_SCAN_LEAD
+        : "This build finished without pick cards — the board scan may still be scoring. Tap below to try again.";
       setBuildProgressExpired(false);
       setMessages((prev) => {
         const copy = [...prev];
@@ -5908,8 +5996,7 @@ export default function CoachScreen() {
         if (copy[idx]?.role !== "assistant") return prev;
         copy[idx] = {
           ...copy[idx],
-          content:
-            "This build finished without pick cards — the board scan may still be scoring. Tap below to try again.",
+          content: emptyLead,
           retry: retryText,
         };
         return copy;
@@ -5919,7 +6006,7 @@ export default function CoachScreen() {
     let attempts = 0;
     const interval = setInterval(() => {
       attempts += 1;
-      if (attempts > 20) {
+      if (attempts > 90) {
         clearInterval(interval);
         return;
       }
@@ -5927,6 +6014,7 @@ export default function CoachScreen() {
         clearInterval(interval);
         return;
       }
+      if (scanInFlightRef.current || boardScanBackgroundPendingRef.current) return;
       if (tryStashedDelivery()) clearInterval(interval);
     }, 2000);
     return () => clearInterval(interval);
