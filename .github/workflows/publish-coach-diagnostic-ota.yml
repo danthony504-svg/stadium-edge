@@ -24,10 +24,15 @@ on:
       confirm_publish:
         description: Type PUBLISH to confirm
         required: true
+  push:
+    branches:
+      - cursor/ota-redesign-e67e
+    paths:
+      - .ota-coach-diagnostic-publish
 
 jobs:
   publish:
-    if: ${{ github.event.inputs.confirm_publish == 'PUBLISH' }}
+    if: ${{ github.event_name == 'push' || github.event.inputs.confirm_publish == 'PUBLISH' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,7 +76,7 @@ jobs:
           EXPO_PUBLIC_DEPLOY_MESSAGE: COACH-DIAG ${{ github.sha }}-${{ github.run_id }}
           ROLLOUT_PERCENTAGE: ${{ github.event.inputs.rollout_percentage || '100' }}
         run: |
-          CHANNEL="${{ github.event.inputs.channel }}"
+          CHANNEL="${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}"
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then
             MSG="Coach diagnostic OTA $(git rev-parse --short HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
