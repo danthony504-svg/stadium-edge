@@ -384,6 +384,7 @@ export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
   requestId?: string;
   onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+  onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
   correlationDeadlineAt?: number;
 };
 
@@ -402,6 +403,7 @@ export function buildStagedTicketFromScan(
   }
 
   const onBuildPhase = varietyContext?.onBuildPhase;
+  const onBuildProgress = varietyContext?.onBuildProgress;
   const deadlineAt = varietyContext?.correlationDeadlineAt ?? correlationDeadline();
 
   const lineStart = Date.now();
@@ -412,6 +414,7 @@ export function buildStagedTicketFromScan(
     scored.length,
     qualifying.length,
     Date.now() - lineStart,
+    onBuildProgress,
   );
 
   const corrStart = Date.now();
@@ -420,6 +423,7 @@ export function buildStagedTicketFromScan(
     requestId,
     qualifying.length,
     skipCorrelation ? undefined : onBuildPhase,
+    onBuildProgress,
   );
 
   try {
@@ -463,6 +467,7 @@ export function buildStagedTicketFromScan(
       result.picks.length,
       Date.now() - corrStart,
       onBuildPhase,
+      onBuildProgress,
     );
     return result;
   } catch (err) {

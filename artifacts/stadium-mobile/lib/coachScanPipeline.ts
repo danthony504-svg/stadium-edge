@@ -1,6 +1,10 @@
 /** Stage tracing for Coach board-scan ticket staging (line-value → correlation). */
 
-import type { ParlayBuildPhase } from "./coachBuildProgress.ts";
+import type {
+  CoachBuildProgressCallback,
+  CoachBuildStageId,
+  ParlayBuildPhase,
+} from "./coachBuildProgress.ts";
 
 export const COACH_CORRELATION_TIMEOUT_MS = 15_000;
 
@@ -57,6 +61,7 @@ export function logCoachScanLineValueComplete(
   inputCount: number,
   outputCount: number,
   durationMs: number,
+  onProgress?: CoachBuildProgressCallback,
 ): void {
   if (coachScanPipelineIsStale(requestId)) return;
   logJson("[coach-scan] line-value-complete", {
@@ -65,16 +70,20 @@ export function logCoachScanLineValueComplete(
     outputCount,
     durationMs,
   });
+  onProgress?.("line-value", requestId);
 }
 
 export function logCoachScanCorrelationStart(
   requestId: string,
   candidateCount: number,
   onPhase?: CoachScanPhaseCallback,
+  onProgress?: CoachBuildProgressCallback,
 ): void {
   if (coachScanPipelineIsStale(requestId)) return;
   logJson("[coach-scan] correlation-start", { requestId, candidateCount });
+  onProgress?.("simulations", requestId);
   onPhase?.("stream", requestId);
+  onProgress?.("correlation", requestId);
 }
 
 export function logCoachScanCorrelationComplete(
@@ -83,6 +92,7 @@ export function logCoachScanCorrelationComplete(
   outputCount: number,
   durationMs: number,
   onPhase?: CoachScanPhaseCallback,
+  onProgress?: CoachBuildProgressCallback,
 ): void {
   if (coachScanPipelineIsStale(requestId)) return;
   logJson("[coach-scan] correlation-complete", {
@@ -91,6 +101,7 @@ export function logCoachScanCorrelationComplete(
     outputCount,
     durationMs,
   });
+  onProgress?.("building-ticket", requestId);
   onPhase?.("score", requestId);
 }
 

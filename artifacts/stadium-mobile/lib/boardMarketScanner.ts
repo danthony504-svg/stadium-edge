@@ -455,6 +455,7 @@ function buildScanResult(
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
     onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+    onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
   },
 ): FullBoardScanResult {
   const staged = buildStagedTicketFromScan(
@@ -466,6 +467,7 @@ function buildScanResult(
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
       onBuildPhase: opts.preview ? undefined : opts.onBuildPhase,
+      onBuildProgress: opts.preview ? undefined : opts.onBuildProgress,
       preview: opts.preview,
     },
   );
@@ -530,6 +532,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
   onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+  onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -596,6 +599,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       varietyContext: opts.varietyContext,
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
+      onBuildProgress: opts.onBuildProgress,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
@@ -698,6 +702,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
+    onBuildPhase: opts.onBuildPhase,
+    onBuildProgress: opts.onBuildProgress,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;

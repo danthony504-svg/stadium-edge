@@ -1,37 +1,14 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { coachBuildProgressFromPhase, type ParlayBuildPhase } from "@/lib/coachBuildProgress";
+import type { CoachBuildProgressView } from "@/lib/coachBuildProgress";
 
 const CYAN = "#22d3ee";
 const BLUE = "#3b82f6";
-
-const STAGES = [
-  "Reading your ticket…",
-  "Scanning available props…",
-  "Checking player matchups…",
-  "Reviewing injuries and lineups…",
-  "Comparing odds across sportsbooks…",
-  "Calculating edge and confidence…",
-  "Checking parlay correlation…",
-  "Finding weak legs…",
-  "Building final AI grade…",
-  "Finalizing your ticket…",
-] as const;
-
-const TARGETS = [6, 16, 28, 40, 52, 64, 74, 84, 93, 100] as const;
-
-const CHECKLIST: { label: string; doneAt: number }[] = [
-  { label: "Matchups analyzed", doneAt: 3 },
-  { label: "Injury report checked", doneAt: 4 },
-  { label: "Line value calculated", doneAt: 6 },
-  { label: "Correlation scored", doneAt: 7 },
-  { label: "Final ticket ready", doneAt: 9 },
-];
 
 const ASK_STAGES = [
   "Reading your question…",
@@ -59,49 +36,40 @@ export type { ParlayBuildPhase } from "@/lib/coachBuildProgress";
 
 export function AnalysisProgress({
   mode = "build",
+  progress,
   legCount = 0,
-  buildPhase,
-  timedOut = false,
-  slowStageLabel,
 }: {
   mode?: "build" | "analyze" | "ask";
+  progress?: CoachBuildProgressView | null;
   legCount?: number;
-  buildPhase?: ParlayBuildPhase;
-  timedOut?: boolean;
-  slowStageLabel?: string;
 }) {
   const colors = useColors();
   const isAsk = mode === "ask";
-  const stageList = isAsk ? ASK_STAGES : STAGES;
-  const targetList = isAsk ? ASK_TARGETS : TARGETS;
-  const checklist = isAsk ? ASK_CHECKLIST : CHECKLIST;
+  const isAnalyze = mode === "analyze";
 
-  const progress = useMemo(() => {
-    if (mode === "build") {
-      return coachBuildProgressFromPhase(buildPhase, legCount);
-    }
-    if (legCount > 0) {
-      return { stageIndex: stageList.length - 1, percent: 100 };
-    }
-    return {
-      stageIndex: Math.min(4, stageList.length - 2),
-      percent: targetList[Math.min(4, stageList.length - 2)],
-    };
-  }, [buildPhase, legCount, mode, stageList.length, targetList]);
+  const askStageIndex =
+    legCount > 0 ? ASK_STAGES.length - 1 : Math.min(4, ASK_STAGES.length - 2);
+  const askPercent =
+    legCount > 0 ? 100 : ASK_TARGETS[Math.min(4, ASK_STAGES.length - 2)];
 
-  const effectiveIndex = Math.min(progress.stageIndex, stageList.length - 1);
-  const displayPct = progress.percent;
-  const phaseStage =
-    mode === "build" && buildPhase === "board-scan"
-      ? "Scanning every posted market on the live board…"
-      : mode === "build" && buildPhase === "context"
-        ? "Pulling live odds and props…"
-        : mode === "build" && buildPhase === "score" && legCount > 0
-          ? "Finalizing your ticket…"
-          : timedOut && slowStageLabel
-            ? `Still working on ${slowStageLabel}…`
-            : null;
-  const displayStage = phaseStage ?? stageList[effectiveIndex];
+  const displayPct = isAsk ? askPercent : isAnalyze ? 48 : (progress?.percent ?? 0);
+  const displayStage = isAsk
+    ? ASK_STAGES[askStageIndex]
+    : isAnalyze
+      ? "Analyzing your ticket…"
+      : progress?.headline ?? "Starting analysis";
+  const checklist = isAsk
+    ? ASK_CHECKLIST.map((item, idx) => ({
+        id: `ask-${idx}`,
+        label: item.label,
+        done: legCount > 0 ? true : askStageIndex >= item.doneAt,
+        active: legCount <= 0 && askStageIndex < item.doneAt && idx === ASK_CHECKLIST.findIndex((c) => askStageIndex < c.doneAt),
+      }))
+    : (progress?.checklist ?? []);
+
+  const spinning = isAsk || isAnalyze ? legCount <= 0 : (progress?.spinning ?? false);
+  const timedOut = progress?.timedOut ?? false;
+  const failed = progress?.failed ?? false;
 
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -126,11 +94,6 @@ export function AnalysisProgress({
   }, [pulse]);
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
 
-  const activeChecklist = checklist.findIndex((c) => {
-    if (c.label === "Final ticket ready") return legCount <= 0 && effectiveIndex < c.doneAt;
-    return effectiveIndex < c.doneAt;
-  });
-
   return (
     <View
       style={{
@@ -138,12 +101,12 @@ export function AnalysisProgress({
         marginTop: 10,
         backgroundColor: colors.card,
         borderWidth: 1,
-        borderColor: "rgba(34,211,238,0.35)",
+        borderColor: timedOut || failed ? "rgba(248,113,113,0.45)" : "rgba(34,211,238,0.35)",
         borderRadius: 16,
         paddingHorizontal: 14,
         paddingVertical: 14,
         gap: 14,
-        shadowColor: CYAN,
+        shadowColor: timedOut || failed ? "#f87171" : CYAN,
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.3,
         shadowRadius: 16,
@@ -156,9 +119,9 @@ export function AnalysisProgress({
             width: 10,
             height: 10,
             borderRadius: 999,
-            backgroundColor: CYAN,
+            backgroundColor: timedOut || failed ? "#f87171" : CYAN,
             opacity: pulseOpacity,
-            shadowColor: CYAN,
+            shadowColor: timedOut || failed ? "#f87171" : CYAN,
             shadowOffset: { width: 0, height: 0 },
             shadowOpacity: 0.9,
             shadowRadius: 6,
@@ -178,7 +141,7 @@ export function AnalysisProgress({
         </Text>
         <Text
           style={{
-            color: CYAN,
+            color: timedOut || failed ? "#f87171" : CYAN,
             fontFamily: FONT.bold,
             fontSize: 15,
             fontVariant: ["tabular-nums"],
@@ -187,6 +150,12 @@ export function AnalysisProgress({
           {Math.round(displayPct)}%
         </Text>
       </View>
+
+      {failed && progress?.failureMessage ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+          {progress.failureMessage}
+        </Text>
+      ) : null}
 
       <Animated.View style={{ opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }}>
         <View
@@ -198,7 +167,7 @@ export function AnalysisProgress({
           }}
         >
           <LinearGradient
-            colors={[BLUE, CYAN]}
+            colors={timedOut || failed ? ["#ef4444", "#f87171"] : [BLUE, CYAN]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{
@@ -221,65 +190,60 @@ export function AnalysisProgress({
           gap: 9,
         }}
       >
-        {checklist.map((item, idx) => {
-          const done =
-            item.label === "Final ticket ready" ? legCount > 0 : effectiveIndex >= item.doneAt;
-          const active = idx === activeChecklist;
-          return (
-            <View key={item.label} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              {done ? (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    backgroundColor: CYAN,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    shadowColor: CYAN,
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.8,
-                    shadowRadius: 5,
-                    elevation: 3,
-                  }}
-                >
-                  <Feather name="check" size={13} color={colors.card} />
-                </View>
-              ) : active ? (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <ActivityIndicator size="small" color={CYAN} />
-                </View>
-              ) : (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: colors.border,
-                  }}
-                />
-              )}
-              <Text
+        {checklist.map((item) => (
+          <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            {item.done ? (
+              <View
                 style={{
-                  flex: 1,
-                  color: done ? colors.foreground : active ? colors.foreground : colors.mutedForeground,
-                  fontFamily: done || active ? FONT.semibold : FONT.medium,
-                  fontSize: 13,
+                  width: 20,
+                  height: 20,
+                  borderRadius: 999,
+                  backgroundColor: CYAN,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  shadowColor: CYAN,
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.8,
+                  shadowRadius: 5,
+                  elevation: 3,
                 }}
               >
-                {item.label}
-              </Text>
-            </View>
-          );
-        })}
+                <Feather name="check" size={13} color={colors.card} />
+              </View>
+            ) : item.active && spinning ? (
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <ActivityIndicator size="small" color={CYAN} />
+              </View>
+            ) : (
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 999,
+                  borderWidth: 2,
+                  borderColor: colors.border,
+                }}
+              />
+            )}
+            <Text
+              style={{
+                flex: 1,
+                color: item.done ? colors.foreground : item.active ? colors.foreground : colors.mutedForeground,
+                fontFamily: item.done || item.active ? FONT.semibold : FONT.medium,
+                fontSize: 13,
+              }}
+            >
+              {item.label}
+            </Text>
+          </View>
+        ))}
       </View>
     </View>
   );

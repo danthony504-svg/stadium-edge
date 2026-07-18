@@ -111,7 +111,7 @@ import {
 } from "@/lib/confidence";
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
-import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
+import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
@@ -132,7 +132,19 @@ import {
 } from "@/lib/coachTicketRescore";
 import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket } from "@/lib/coachTicketKernel";
 import { filterValidCoachPicks } from "@/lib/coachTicketValidation";
-import { coachBuildProgressFromPhase } from "@/lib/coachBuildProgress";
+import {
+  advanceCoachBuildStage,
+  coachBuildProgressFromPhase,
+  coachBuildProgressOnFailure,
+  coachBuildProgressOnPicksRendered,
+  coachBuildProgressTick,
+  coachBuildProgressViewFromSnapshot,
+  createCoachBuildProgress,
+  type CoachBuildProgressCallback,
+  type CoachBuildProgressState,
+  type CoachBuildStageId,
+  type ParlayBuildPhase,
+} from "@/lib/coachBuildProgress";
 import {
   beginCoachScanPipeline,
   clearCoachScanPipeline,
@@ -1132,6 +1144,8 @@ export default function CoachScreen() {
   const [waiting, setWaiting] = useState(false);
   const [buildFinishing, setBuildFinishing] = useState(false);
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
+  const [coachBuildProgress, setCoachBuildProgress] = useState<CoachBuildProgressState | null>(null);
+  const coachBuildProgressRef = useRef<CoachBuildProgressState | null>(null);
   const [boardScanPartialLegs, setBoardScanPartialLegs] = useState(0);
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1676,6 +1690,39 @@ export default function CoachScreen() {
     [deliverCoachTicket],
   );
 
+  const applyCoachBuildProgress = useCallback((next: CoachBuildProgressState | null) => {
+    coachBuildProgressRef.current = next;
+    setCoachBuildProgress(next);
+  }, []);
+
+  const bumpCoachBuildProgress = useCallback(
+    (stageId: CoachBuildStageId, requestId: string, sendGen: number) => {
+      setCoachBuildProgress((prev) => {
+        if (!prev) return prev;
+        const next = advanceCoachBuildStage(prev, stageId, {
+          requestId,
+          sendGeneration: sendGen,
+        });
+        coachBuildProgressRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!coachBuildProgress || coachBuildProgress.status !== "active") return;
+    const id = setInterval(() => {
+      setCoachBuildProgress((prev) => {
+        if (!prev || prev.status !== "active") return prev;
+        const next = coachBuildProgressTick(prev);
+        coachBuildProgressRef.current = next;
+        return next;
+      });
+    }, 100);
+    return () => clearInterval(id);
+  }, [coachBuildProgress?.requestId, coachBuildProgress?.status]);
+
   const armBuildProgressWatchdog = useCallback((legTarget = 0) => {
     if (buildProgressTimerRef.current) clearTimeout(buildProgressTimerRef.current);
     setBuildProgressExpired(false);
@@ -2126,6 +2173,24 @@ export default function CoachScreen() {
       const varietySeed = makeBuildId();
       varietySeedRef.current = varietySeed;
       const coachTicketStyle = detectCoachTicketStyle(trimmed);
+      if (openingParlayBuild) {
+        const initial = advanceCoachBuildStage(
+          createCoachBuildProgress({
+            requestId: varietySeed,
+            sendGeneration: sendGen,
+            legTarget: earlyLegTarget,
+          }),
+          "starting",
+          { requestId: varietySeed, sendGeneration: sendGen },
+        );
+        applyCoachBuildProgress(initial);
+        bumpCoachBuildProgress("loading-games", varietySeed, sendGen);
+      }
+      const coachScanOnBuildProgress: CoachBuildProgressCallback = (stageId, reqId) => {
+        if (coachScanPipelineIsStale(reqId)) return;
+        if (sendGenerationRef.current !== sendGen) return;
+        bumpCoachBuildProgress(stageId, reqId, sendGen);
+      };
       const coachScanOnBuildPhase: CoachScanPhaseCallback = (phase, reqId) => {
         if (coachScanPipelineIsStale(reqId)) return;
         if (sendGenerationRef.current !== sendGen) return;
@@ -2697,6 +2762,7 @@ export default function CoachScreen() {
             requestId: scanRequestId,
             ticketStyle: coachTicketStyle,
             onBuildPhase: coachScanOnBuildPhase,
+            onBuildProgress: coachScanOnBuildProgress,
           };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -5976,7 +6042,17 @@ export default function CoachScreen() {
   const buildProgressSnapshot = coachBuildProgressFromPhase(
     parlayBuildPhase === "idle" ? undefined : parlayBuildPhase,
     footerProgressLegCount,
+    coachBuildProgress,
   );
+  const buildProgressUi = coachBuildProgressViewFromSnapshot(buildProgressSnapshot, {
+    timedOut: buildProgressExpired || coachBuildProgress?.status === "timed-out",
+    timedOutLabel: coachBuildProgress?.timedOutStageId
+      ? buildProgressSnapshot.label
+      : buildProgressSnapshot.label,
+    failed: coachBuildProgress?.status === "failed" || coachBuildProgress?.status === "empty",
+    failureMessage: coachBuildProgress?.failureMessage,
+    spinning: buildProgressSnapshot.percent < 100 && !buildProgressExpired,
+  });
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -6255,9 +6331,7 @@ export default function CoachScreen() {
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
-                    buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
-                    timedOut={parlayBuildHung}
-                    slowStageLabel={buildProgressSnapshot.slowStageLabel}
+                    progress={buildProgressUi}
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
@@ -6409,9 +6483,7 @@ export default function CoachScreen() {
             <AnalysisProgress
               mode="build"
               legCount={footerProgressLegCount}
-              buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
-              timedOut={buildProgressExpired}
-              slowStageLabel={buildProgressSnapshot.slowStageLabel}
+              progress={buildProgressUi}
             />
           ) : null}
 
