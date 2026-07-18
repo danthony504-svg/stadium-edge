@@ -59,7 +59,7 @@ jobs:
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_OTA_ENABLED: "true"
-          EXPO_PUBLIC_OTA_CHANNEL: ${{ github.event.inputs.channel }}
+          EXPO_PUBLIC_OTA_CHANNEL: ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: COACH-DIAG ${{ github.sha }}-${{ github.run_id }}
         run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
@@ -71,7 +71,7 @@ jobs:
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_OTA_ENABLED: "true"
-          EXPO_PUBLIC_OTA_CHANNEL: ${{ github.event.inputs.channel }}
+          EXPO_PUBLIC_OTA_CHANNEL: ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: COACH-DIAG ${{ github.sha }}-${{ github.run_id }}
           ROLLOUT_PERCENTAGE: ${{ github.event.inputs.rollout_percentage || '100' }}
