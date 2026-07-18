@@ -606,6 +606,11 @@ function assistantHasVisibleContent(m: UIMessage): boolean {
   return true;
 }
 
+/** Trace correlation → final-ticket handoff only (grep: coach-handoff). */
+function logCoachHandoff(step: string, payload: Record<string, unknown>): void {
+  console.log(`[coach-handoff] ${step}`, JSON.stringify(payload));
+}
+
 /** User sent (or build failed) but nothing visible is on screen — quick prompts hidden. */
 function isOrphanCoachThread(
   msgs: UIMessage[],
@@ -1339,9 +1344,23 @@ export default function CoachScreen() {
               ...(coachDetailNote?.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
               ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
             };
+            logCoachHandoff("commit-cards-applied", {
+              requestId,
+              legTarget,
+              pickCount: picks.length,
+              messageIndex: i,
+              messageCount: prev.length,
+            });
             return copy;
           }
         }
+        logCoachHandoff("commit-no-assistant-bubble", {
+          requestId,
+          legTarget,
+          pickCount: picks.length,
+          messageCount: prev.length,
+          lastRole: prev[prev.length - 1]?.role ?? null,
+        });
         return prev;
       });
       setStreaming(false);
@@ -1432,17 +1451,42 @@ export default function CoachScreen() {
 
   const runFinalizeCoachTicket = useCallback(
     (partial: FullBoardScanResult, phase = "correlating"): boolean => {
-      if (!boardScanIsComplete(partial)) return false;
       const ctx = coachRequestContextRef.current;
       const requestId = ctx?.requestId ?? partial.requestId ?? null;
-      if (!requestId) return false;
-      if (finalizedRequestIdRef.current === requestId) return false;
-
       const legTarget =
         activeRequestLegTargetRef.current ||
         partial.requestedLegs ||
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
+
+      logCoachHandoff("enter", {
+        phase,
+        requestId,
+        scanComplete: boardScanIsComplete(partial),
+        candidateCount: partial.picks?.length ?? 0,
+        requestedLegs: legTarget,
+        alreadyFinalized: finalizedRequestIdRef.current === requestId,
+        correlationDone: correlationRequestIdRef.current === requestId,
+        sendGeneration: sendGenerationRef.current,
+        contextSendGeneration: ctx?.sendGeneration ?? null,
+      });
+
+      if (!boardScanIsComplete(partial)) {
+        logCoachHandoff("skip-scan-incomplete", { phase, requestId });
+        return false;
+      }
+      if (!requestId) {
+        logCoachHandoff("skip-no-request-id", { phase, candidateCount: partial.picks?.length ?? 0 });
+        return false;
+      }
+      if (finalizedRequestIdRef.current === requestId) {
+        logCoachHandoff("skip-already-finalized", {
+          phase,
+          requestId,
+          snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+        });
+        return false;
+      }
 
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
       const enrich: CoachFlashEnrich = {
@@ -1452,69 +1496,139 @@ export default function CoachScreen() {
       };
 
       void (async () => {
-        let correlatedPicks = correlatedPicksRef.current;
+        try {
+          let correlatedPicks = correlatedPicksRef.current;
 
-        if (correlationRequestIdRef.current !== requestId) {
-          correlationRequestIdRef.current = requestId;
-          advanceCoachPhase("correlating");
-          const correlation = await runCoachCorrelation({
+          if (correlationRequestIdRef.current !== requestId) {
+            correlationRequestIdRef.current = requestId;
+            advanceCoachPhase("correlating");
+            logCoachHandoff("correlation-start", {
+              requestId,
+              phase,
+              candidateCount: partial.picks.length,
+              requestedLegs: legTarget,
+            });
+            const correlation = await runCoachCorrelation({
+              requestId,
+              candidates: partial.picks,
+              requestedLegs: legTarget,
+            });
+            correlatedPicksRef.current = correlation.picks;
+            correlatedPicks = correlation.picks;
+            logCoachHandoff("correlation-done", {
+              requestId,
+              phase,
+              outcome: correlation.outcome,
+              inputCount: correlation.inputCount,
+              outputCount: correlation.outputCount,
+              durationMs: correlation.durationMs,
+            });
+          } else {
+            logCoachHandoff("correlation-skipped-already-ran", {
+              requestId,
+              phase,
+              cachedPickCount: correlatedPicksRef.current?.length ?? 0,
+            });
+          }
+
+          if (finalizedRequestIdRef.current === requestId) {
+            logCoachHandoff("abort-already-finalized-after-correlation", {
+              requestId,
+              phase,
+              snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+            });
+            return;
+          }
+
+          finalizedRequestIdRef.current = requestId;
+          advanceCoachPhase("finalizing");
+          logCoachHandoff("finalize-start", {
+            requestId,
+            phase,
+            correlatedPickCount: correlatedPicks?.length ?? 0,
+            candidateCount: partial.picks.length,
+            requestedLegs: legTarget,
+          });
+
+          const result = finalizeCoachTicket({
             requestId,
             candidates: partial.picks,
             requestedLegs: legTarget,
+            enrich,
+            scan: partial,
+            correlatedPicks: correlatedPicks ?? partial.picks,
           });
-          correlatedPicksRef.current = correlation.picks;
-          correlatedPicks = correlation.picks;
-        }
 
-        if (finalizedRequestIdRef.current === requestId) return;
+          logCoachHandoff("finalize-done", {
+            requestId,
+            phase,
+            outcome: result.outcome,
+            selectedCount: result.selectedCount,
+            candidateCount: result.candidateCount,
+            fallbackUsed: result.fallbackUsed,
+          });
 
-        finalizedRequestIdRef.current = requestId;
-        advanceCoachPhase("finalizing");
+          logCoachFinalizeTicket({
+            requestId,
+            requestedLegs: legTarget,
+            candidateCount: result.candidateCount,
+            selectedCount: result.selectedCount,
+            messageCount: messagesRef.current.length,
+            phase,
+          });
 
-        const result = finalizeCoachTicket({
-          requestId,
-          candidates: partial.picks,
-          requestedLegs: legTarget,
-          enrich,
-          scan: partial,
-          correlatedPicks: correlatedPicks ?? partial.picks,
-        });
+          latestBoardScanRef.current = partial;
 
-        logCoachFinalizeTicket({
-          requestId,
-          requestedLegs: legTarget,
-          candidateCount: result.candidateCount,
-          selectedCount: result.selectedCount,
-          messageCount: messagesRef.current.length,
-          phase,
-        });
-
-        latestBoardScanRef.current = partial;
-
-        if (result.selectedCount > 0) {
-          let legNote = partial.note;
-          if (legTarget > result.selectedCount) {
-            legNote = ensureFixedLegShortfallLegNote(partial.note, legTarget, result.selectedCount);
+          if (result.selectedCount > 0) {
+            let legNote = partial.note;
+            if (legTarget > result.selectedCount) {
+              legNote = ensureFixedLegShortfallLegNote(partial.note, legTarget, result.selectedCount);
+            }
+            logCoachHandoff("commit-start", {
+              requestId,
+              phase,
+              pickCount: result.picks.length,
+              legTarget,
+            });
+            commitCoachFinalTicket(result.picks, {
+              requestId,
+              legTarget,
+              legNote,
+              coachDetailNote: result.coachDetailNote,
+            });
+            logCoachHandoff("commit-done", {
+              requestId,
+              phase,
+              pickCount: result.picks.length,
+              snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+            });
+            advanceCoachPhase("completed");
+            return;
           }
-          commitCoachFinalTicket(result.picks, {
+
+          logCoachHandoff("commit-empty", {
+            requestId,
+            phase,
+            candidateCount: result.candidateCount,
+          });
+          commitCoachFinalTicketEmpty({
             requestId,
             legTarget,
-            legNote,
+            legNote: partial.note,
             coachDetailNote: result.coachDetailNote,
           });
-          advanceCoachPhase("completed");
-          return;
+          advanceCoachPhase("failed");
+        } catch (err) {
+          logCoachHandoff("handoff-error", {
+            requestId,
+            phase,
+            message: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+          });
         }
-
-        commitCoachFinalTicketEmpty({
-          requestId,
-          legTarget,
-          legNote: partial.note,
-          coachDetailNote: result.coachDetailNote,
-        });
-        advanceCoachPhase("failed");
       })();
 
+      logCoachHandoff("async-started", { requestId, phase });
       return true;
     },
     [advanceCoachPhase, commitCoachFinalTicket, commitCoachFinalTicketEmpty, marketPerf],
@@ -2132,9 +2246,20 @@ export default function CoachScreen() {
         latestBoardScanRef.current = partial;
         const genOk =
           (ctx?.sendGeneration ?? sendGenerationRef.current) === sendGenerationRef.current;
+        logCoachHandoff("board-scan-complete", {
+          requestId: ctx?.requestId ?? partial.requestId ?? null,
+          candidateCount: partial.picks?.length ?? 0,
+          requestedLegs: legTarget,
+          genOk,
+          sendGeneration: sendGenerationRef.current,
+          contextSendGeneration: ctx?.sendGeneration ?? null,
+        });
         if (genOk) {
-          advanceCoachPhase("correlating");
           runFinalizeCoachTicket(partial, "board-scan-complete");
+        } else {
+          logCoachHandoff("board-scan-complete-skipped-stale-gen", {
+            requestId: ctx?.requestId ?? partial.requestId ?? null,
+          });
         }
         return;
       }

@@ -79,6 +79,10 @@ export function logCoachFinalizeTicket(payload: {
   console.log("[coach-final]", JSON.stringify(payload));
 }
 
+function logCoachHandoffFinalize(step: string, payload: Record<string, unknown>): void {
+  console.log(`[coach-handoff] ${step}`, JSON.stringify(payload));
+}
+
 /**
  * Choose final picks from correlated candidates and mark the request ready to render.
  * UI layers must call this once per requestId, then apply picks to messages/slip.
@@ -88,7 +92,17 @@ export function finalizeCoachTicket(input: FinalizeCoachTicketInput): FinalizeCo
   const candidateCount = candidates.length;
   const legTarget = requestedLegs > 0 ? requestedLegs : candidateCount;
 
+  logCoachHandoffFinalize("finalize-ticket-enter", {
+    requestId,
+    candidateCount,
+    correlatedPickCount: correlatedPicks?.length ?? 0,
+    requestedLegs: legTarget,
+    hasScan: !!scan,
+    scanComplete: scan ? boardScanIsComplete(scan) : false,
+  });
+
   if (!candidateCount && !(correlatedPicks?.length)) {
+    logCoachHandoffFinalize("finalize-ticket-empty-input", { requestId, requestedLegs: legTarget });
     return {
       requestId,
       requestedLegs: legTarget,
@@ -140,6 +154,13 @@ export function finalizeCoachTicket(input: FinalizeCoachTicketInput): FinalizeCo
   }
 
   const selectedCount = picks.length;
+  logCoachHandoffFinalize("finalize-ticket-exit", {
+    requestId,
+    selectedCount,
+    outcome: selectedCount > 0 ? "completed" : "no-valid-picks",
+    fallbackUsed,
+    coachDetailNoteLength: coachDetailNote.length,
+  });
   return {
     requestId,
     requestedLegs: legTarget,
