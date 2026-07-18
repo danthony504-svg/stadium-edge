@@ -363,6 +363,7 @@ export function buildBalancedStagedTicketFromScan(
 
 export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
+  combinatorSource?: "preview" | "final" | "unknown";
 };
 
 export type StagedTicketFromScanResult = {

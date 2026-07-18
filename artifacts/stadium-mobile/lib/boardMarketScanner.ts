@@ -54,6 +54,12 @@ import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { logCoachPickDiag, logCoachTieredFillDiag } from "./coachPickDiagnostics.ts";
+import {
+  countBoardScanStageFunnel,
+  logBoardScanFunnel,
+  logBoardScanPipelineStage,
+  summarizeBoardScanEmptyReason,
+} from "./boardScanStageDiagnostics.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -384,6 +390,12 @@ async function simPropPoolUntilQualified(
     .filter(isRealisticBoardPropCandidate)
     .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
 
+  logBoardScanPipelineStage("props-realistic", rankedProps.length, {
+    poolRows: pool.length,
+    prescoreRows: prescorePool.length,
+    target: opts.target,
+  });
+
   const scoreOpts = {
     pool,
     mergedOdds,
@@ -431,6 +443,12 @@ async function simPropPoolUntilQualified(
     }
 
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
+    logBoardScanPipelineStage("post-prop-scoring", combinedScored().length, {
+      propScored: propScored.length,
+      gameScored: gameScored.length,
+      simEvaluated: simIndex,
+      target: opts.target,
+    });
     opts.onWave?.(combinedScored());
 
     if (simIndex >= rankedProps.length) break;
@@ -457,6 +475,16 @@ function buildScanResult(
     requestId?: string;
   },
 ): FullBoardScanResult {
+  const ticketStyle = opts.ticketStyle ?? "balanced";
+  const funnel = countBoardScanStageFunnel(scored, opts.target, ticketStyle);
+  const combinatorSource = opts.preview ? "preview" : "final";
+  logBoardScanFunnel(funnel, {
+    target: opts.target,
+    combinatorSource,
+    preview: !!opts.preview,
+    scanComplete: !opts.preview && opts.boardExhausted === true,
+  });
+
   const staged = buildStagedTicketFromScan(
     scored,
     opts.target,
@@ -464,6 +492,7 @@ function buildScanResult(
     {
       ...opts.varietyContext,
       ticketStyle: opts.ticketStyle,
+      combinatorSource,
     },
   );
   const picks = staged.picks;
@@ -488,6 +517,21 @@ function buildScanResult(
   const note = tierNote ? `${baseNote}\n\n${tierNote}` : baseNote;
   if (scanComplete && staged.tieredFill) {
     logCoachTieredFillDiag(opts.target, picks.length, staged.tieredFill);
+  }
+  if (scanComplete && picks.length === 0) {
+    const emptyReason = summarizeBoardScanEmptyReason(manifest, funnel, {
+      preview: false,
+      combinatorChosen: picks.length,
+    });
+    logCoachPickDiag("board-scan-complete", {
+      target: opts.target,
+      pickCount: 0,
+      scanComplete: true,
+      combinatorSource,
+      funnel,
+      emptyReason,
+      gateFailures: manifest.gateFailureCounts,
+    });
   }
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.target,
@@ -541,6 +585,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ? opts.oddsGames.filter((g) => !opts.excludedSports!.has(g.sport))
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
+  logBoardScanPipelineStage("slate-filtered", poolBase.length, {
+    oddsGames: oddsGames.length,
+    propPoolRows: poolBase.length,
+    target: opts.target,
+  });
 
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
@@ -640,6 +689,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         }
       }
     }
+    logBoardScanPipelineStage("post-game-scoring", scored.length, {
+      gamesBatch: games.length,
+      totalScanned,
+      target: opts.target,
+    });
     emitBoardScanPartial();
   };
 
@@ -694,9 +748,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
 
   scored.push(...propScored);
+  logBoardScanPipelineStage("post-injury-scoring", scored.length, {
+    propScored: propScored.length,
+    totalScanned,
+    target: opts.target,
+  });
 
   totalScanned += pool.length;
   const collapsed = collapseScoredLegsByMarketLadder(scored);
+  logBoardScanPipelineStage("post-ladder-collapse", collapsed.length, {
+    beforeCollapse: scored.length,
+    target: opts.target,
+  });
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   const result = buildScanResult(collapsed, {

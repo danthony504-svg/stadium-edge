@@ -117,8 +117,14 @@ export function AnalysisProgress({
     mode === "build" &&
     !!boardScanProgress?.scanComplete &&
     (boardScanProgress.picksReady > 0 || legCount > 0);
+  const scanExhaustedEmpty =
+    mode === "build" && !!boardScanProgress?.exhaustedEmpty;
   const boardScanWaiting =
-    mode === "build" && buildPhase === "board-scan" && legCount === 0 && !scanReady;
+    mode === "build" &&
+    buildPhase === "board-scan" &&
+    legCount === 0 &&
+    !scanReady &&
+    !scanExhaustedEmpty;
   const maxAuto =
     mode === "build"
       ? legCount > 0 || scanReady
@@ -208,6 +214,44 @@ export function AnalysisProgress({
 
   if (mode === "build" && boardScanProgress) {
     const p = boardScanProgress;
+    if (p.exhaustedEmpty) {
+      return (
+        <View
+          style={{
+            alignSelf: "stretch",
+            marginTop: 10,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 16,
+            paddingHorizontal: 14,
+            paddingVertical: 14,
+            gap: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: colors.foreground,
+              fontFamily: FONT.semibold,
+              fontSize: 14,
+            }}
+          >
+            Board scan complete — no legs cleared
+          </Text>
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.body,
+              fontSize: 13,
+              lineHeight: 19,
+            }}
+          >
+            {p.emptyReason ??
+              "Full board scan finished, but no legs passed sim, edge, and confidence gates. Open View scan manifest for rejection detail."}
+          </Text>
+        </View>
+      );
+    }
     const renderingTicket = p.scanComplete && p.picksReady > 0 && legCount === 0;
     const gamesDone = p.gamesLoaded > 0;
     const propsDone = p.propsAnalyzed > 0;

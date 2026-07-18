@@ -150,6 +150,7 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { logCoachPickDiag } from "@/lib/coachPickDiagnostics";
+import { summarizeBoardScanEmptyFromResult } from "@/lib/boardScanStageDiagnostics";
 import { awaitBoardScanUntilComplete } from "@/lib/coachBoardScanAwait";
 import {
   deriveBoardScanLiveProgress,
@@ -1550,6 +1551,10 @@ export default function CoachScreen() {
 
       if (!ticket.length) {
         if (!boardScanIsComplete(partial)) return false;
+        const emptyReason = summarizeBoardScanEmptyFromResult(partial);
+        const manifestNote =
+          coachDetailNote.trim() ||
+          coachBoardScanManifestForMessage(partial, enrichWithScan, legTarget);
         latestBoardScanRef.current = partial;
         boardTicketSnapshotRef.current = [];
         setBoardScanPartialLegs(0);
@@ -1559,14 +1564,23 @@ export default function CoachScreen() {
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
         setBoardScanAwaiting(false);
-        setBoardScanLiveProgress(null);
+        setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial, emptyReason));
         kernelParlayActiveRef.current = false;
+        boardScanInFlightRef.current = false;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
         setCoachBuildBusy(false);
+        logCoachPickDiag("board-scan-complete", {
+          stage: "exhausted-empty",
+          pickCount: 0,
+          emptyReason,
+          combinatorSource: "final",
+          totalQualified: partial.totalQualified,
+          totalScanned: partial.totalScanned,
+        });
         setMessages((prev) => {
           const copy = [...prev];
           for (let i = copy.length - 1; i >= 0; i--) {
@@ -1574,9 +1588,11 @@ export default function CoachScreen() {
               copy[i] = {
                 ...copy[i],
                 picks: [],
-                content: "",
-                legNote: legNote.trim() || undefined,
-                coachDetailNote: coachDetailNote.trim() || undefined,
+                content: COACH_EMPTY_BOARD_SCAN_LEAD,
+                legNote: emptyReason,
+                coachDetailNote: manifestNote || undefined,
+                retry: undefined,
+                parlayBuild: true,
                 ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
               };
               return copy;
@@ -2052,7 +2068,10 @@ export default function CoachScreen() {
         (!ctx?.requestId || !partial.requestId || partial.requestId === ctx.requestId);
       if (progressApplies) {
         latestBoardScanRef.current = partial;
-        setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial));
+        const emptyReason = boardScanIsComplete(partial) && !partial.picks.length
+          ? summarizeBoardScanEmptyFromResult(partial)
+          : undefined;
+        setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial, emptyReason));
         setBoardScanAwaiting(!boardScanIsComplete(partial));
         if (partial.picks.length) {
           setBoardScanPartialLegs(partial.picks.length);
@@ -6334,6 +6353,9 @@ export default function CoachScreen() {
     if (!parlayIntent) return;
 
     const partial = latestBoardScanRef.current;
+    const exhaustedEmpty = !!partial?.scanComplete && !(partial.picks?.length);
+    if (exhaustedEmpty) return;
+
     const undeliveredScanLegs =
       boardScanPartialLegs > 0 || (partial?.picks?.length ?? 0) > 0;
     const buildActive = streaming || buildFinishing || waiting || boardScanAwaiting;
@@ -6423,31 +6445,60 @@ export default function CoachScreen() {
       if (stillScanning) return;
       const exhaustedEmpty = !!partial?.scanComplete && !(partial.picks?.length);
       if (!exhaustedEmpty && !partial?.scanComplete) return;
+      if (exhaustedEmpty) {
+        const legTarget =
+          requestedLegCount(retryText) || effectiveBuildLegCount(retryText);
+        const emptyReason = summarizeBoardScanEmptyFromResult(partial!);
+        setBuildProgressExpired(false);
+        setBoardScanAwaiting(false);
+        setParlayBuildPhase("idle");
+        setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial!, emptyReason));
+        logCoachPickDiag("dead-end", {
+          legTarget,
+          stillScanning,
+          exhaustedEmpty: true,
+          partialPicks: 0,
+          totalScanned: partial?.totalScanned ?? 0,
+          totalQualified: partial?.totalQualified ?? 0,
+          emptyReason,
+        });
+        setMessages((prev) => {
+          const copy = [...prev];
+          const idx = copy.length - 1;
+          if (copy[idx]?.role !== "assistant") return prev;
+          if (copy[idx]?.picks?.length) return prev;
+          copy[idx] = {
+            ...copy[idx],
+            content: COACH_EMPTY_BOARD_SCAN_LEAD,
+            legNote: emptyReason,
+            coachDetailNote:
+              copy[idx].coachDetailNote ||
+              coachBoardScanManifestForMessage(partial!, flashEnrichRef.current, legTarget),
+            retry: undefined,
+          };
+          return copy;
+        });
+        return;
+      }
+
       logCoachPickDiag("dead-end", {
         legTarget: requestedLegCount(retryText) || effectiveBuildLegCount(retryText),
         stillScanning,
-        exhaustedEmpty,
+        exhaustedEmpty: false,
         partialPicks: partial?.picks.length ?? 0,
         totalScanned: partial?.totalScanned ?? 0,
         totalQualified: partial?.totalQualified ?? 0,
       });
-      if (!exhaustedEmpty) return;
-      setBuildProgressExpired(false);
-      setMessages((prev) => {
-        const copy = [...prev];
-        const idx = copy.length - 1;
-        if (copy[idx]?.role !== "assistant") return prev;
-        copy[idx] = {
-          ...copy[idx],
-          content:
-            "Full board scan finished, but no legs cleared the AI quality bar. Open **View scan manifest** below for rejection detail.",
-        };
-        return copy;
-      });
+      return;
     }
 
     let attempts = 0;
     const interval = setInterval(() => {
+      const livePartial = latestBoardScanRef.current;
+      if (livePartial?.scanComplete && !livePartial.picks?.length) {
+        clearInterval(interval);
+        return;
+      }
       attempts += 1;
       if (attempts > 20) {
         clearInterval(interval);
@@ -6608,6 +6659,11 @@ export default function CoachScreen() {
               !boardScanAwaiting &&
               parlayBuildPhase !== "board-scan" &&
               (parlayBuildIntent || !assistantHasVisibleContent(m));
+            const boardScanExhaustedEmpty =
+              i === messages.length - 1 &&
+              (boardScanLiveProgress?.exhaustedEmpty ||
+                (!!latestBoardScanRef.current?.scanComplete &&
+                  !(latestBoardScanRef.current?.picks?.length ?? 0)));
             const parlayShowRetryButton =
               i === messages.length - 1 &&
               !hasPicks &&
@@ -6616,6 +6672,7 @@ export default function CoachScreen() {
               !isBuildingParlay &&
               !boardScanAwaiting &&
               !parlayAwaitingDelivery &&
+              !boardScanExhaustedEmpty &&
               parlayBuildPhase !== "board-scan" &&
               (parlayStuckDeadProse || retryAffordance) &&
               !(staleDeadEndProse && scanLegProgress > 0);

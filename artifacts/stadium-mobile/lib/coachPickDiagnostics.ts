@@ -11,6 +11,7 @@ export type CoachPickDiagStage =
   | "board-scan-start"
   | "board-scan-partial"
   | "board-scan-complete"
+  | "board-scan-stage"
   | "board-scan-timeout"
   | "board-scan-error"
   | "delivery-attempt"

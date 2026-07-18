@@ -25,6 +25,10 @@ import {
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
+  countBoardScanStageFunnel,
+  logBoardScanPipelineStage,
+} from "./boardScanStageDiagnostics.ts";
+import {
   type CoachTicketStyle,
   type QualityTierGrade,
   poolRoleAtMinGrade,
@@ -56,6 +60,8 @@ export type CoachTicketBuildOpts = {
   varietySeed: string;
   /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
   ticketStyle?: CoachTicketStyle;
+  /** Whether combinator is running on a preview or final scored snapshot. */
+  combinatorSource?: "preview" | "final" | "unknown";
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -864,6 +870,15 @@ export function buildIndependentCoachTicket(
   opts: CoachTicketBuildOpts,
 ): CoachTicketBuildResult {
   const ticketStyle = opts.ticketStyle ?? "balanced";
+  const funnel = countBoardScanStageFunnel(scored, target, ticketStyle);
+  logBoardScanPipelineStage("combinator-input", scored.length, {
+    target,
+    strictQualified: funnel.strictQualified,
+    qualifyingPool: funnel.qualifyingPool,
+    selectedPool: funnel.selectedPool,
+    combinatorSource: opts.combinatorSource ?? "unknown",
+  });
+
   const { pool: qualifying, summary: poolSummary } = resolveQualifyingPoolForTarget(
     scored,
     target,
@@ -871,6 +886,14 @@ export function buildIndependentCoachTicket(
   );
   const strictQualifying = qualifyingScoredLegs(scored);
   const candidates = generateTicketCandidates(scored, target, opts);
+  logBoardScanPipelineStage("combinator-candidates", candidates.length, {
+    target,
+    scoredInput: scored.length,
+    qualifyingPool: qualifying.length,
+    strictQualified: strictQualifying.length,
+    tierPool: poolSummary.selectedPool,
+    combinatorSource: opts.combinatorSource ?? "unknown",
+  });
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
     candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),
@@ -878,6 +901,12 @@ export function buildIndependentCoachTicket(
   });
   const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
   let picks = chosen?.picks ?? [];
+  logBoardScanPipelineStage("combinator-chosen", picks.length, {
+    target,
+    candidateCount: candidates.length,
+    chosenScore: chosen ? candidateTotalScore(chosen).toFixed(1) : "none",
+    combinatorSource: opts.combinatorSource ?? "unknown",
+  });
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
     candidateId: chosen
