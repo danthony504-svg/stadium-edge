@@ -111,6 +111,7 @@ export {
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
 import { API_BASE } from "./apiBase";
+import { propMarketLabel } from "./propMarketLabel";
 export { API_BASE };
 
 // ---------- Types (mirror lib/api-spec/openapi.yaml) ----------
@@ -1385,19 +1386,12 @@ export function getStatmuseGamelog(
 }
 
 export { propMarketLabel } from "./propMarketLabel";
-
-// Reverse of propMarketLabel for the base (non-period) labels: resolve a human
-// market label ("Strikeouts") back to its raw Odds API key ("pitcher_strikeouts")
-// so a stored bet-slip leg — which keeps only the label — can open the right
-// market on the prop stats page. Returns null for labels we don't recognize
-// (e.g. period-suffixed ones), so callers fail closed instead of guessing.
-const PROP_LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(PROP_MARKET_LABEL_MAP).map(([k, v]) => [v.toLowerCase(), k]),
-);
-
-export function propMarketKeyForLabel(label: string): string | null {
-  return PROP_LABEL_TO_KEY[label.trim().toLowerCase()] ?? null;
-}
+export {
+  PROP_MARKET_LABEL_MAP,
+  PROP_LABEL_TO_KEY,
+  propMarketKeyForLabel,
+  normalizePropLabel,
+} from "./propMarketConstants";
 
 // ---------- Pickability window ----------
 // These pure slate/pickability helpers live in ./slate (dependency-free so they
