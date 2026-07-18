@@ -11,6 +11,8 @@ unset EXPO_NO_DOTENV 2>/dev/null || true
 # shellcheck source=scripts/export-dev-public-env.sh
 source "$(dirname "$0")/export-dev-public-env.sh"
 
+node "$(dirname "$0")/ensure-dev-env-local.mjs" >/dev/null 2>&1 || true
+
 echo "══ Stadium Edge — development client (Metro) ══"
 echo "EXPO_PUBLIC_DOMAIN=${EXPO_PUBLIC_DOMAIN}"
 echo "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:0:12}…"
