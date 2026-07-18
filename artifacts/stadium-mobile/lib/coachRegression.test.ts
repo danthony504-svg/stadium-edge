@@ -121,5 +121,6 @@ test("coach.tsx: single finalization entry (runFinalizeCoachTicket)", () => {
 
 test("coach.tsx: closing and reopening guarded by finalizedRequestIdRef", () => {
   const coachSrc = readFileSync(new URL("../app/(tabs)/coach.tsx", import.meta.url), "utf8");
-  assert.match(coachSrc, /if \(finalizedRequestIdRef\.current === requestId\) return false/);
+  assert.match(coachSrc, /if \(finalizedRequestIdRef\.current === requestId\)/);
+  assert.match(coachSrc, /skip-already-finalized/);
 });

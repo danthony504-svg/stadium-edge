@@ -7,6 +7,7 @@ import { formatCoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 import { boardScanIsComplete } from "./coachScanPolicy.ts";
 import { coerceCoachDisplayPicks } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
+import { logCoachExecStep } from "./coachExecutionTrace.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
 
@@ -100,6 +101,12 @@ export function finalizeCoachTicket(input: FinalizeCoachTicketInput): FinalizeCo
     hasScan: !!scan,
     scanComplete: scan ? boardScanIsComplete(scan) : false,
   });
+  logCoachExecStep("finalizeCoachTicket-entry", {
+    activeRequestId: requestId,
+    scanComplete: scan ? boardScanIsComplete(scan) : false,
+    pickCount: candidateCount,
+    selectedCount: 0,
+  });
 
   if (!candidateCount && !(correlatedPicks?.length)) {
     logCoachHandoffFinalize("finalize-ticket-empty-input", { requestId, requestedLegs: legTarget });
@@ -160,6 +167,12 @@ export function finalizeCoachTicket(input: FinalizeCoachTicketInput): FinalizeCo
     outcome: selectedCount > 0 ? "completed" : "no-valid-picks",
     fallbackUsed,
     coachDetailNoteLength: coachDetailNote.length,
+  });
+  logCoachExecStep("finalizeCoachTicket-exit", {
+    activeRequestId: requestId,
+    scanComplete: scan ? boardScanIsComplete(scan) : false,
+    pickCount: candidateCount,
+    selectedCount,
   });
   return {
     requestId,
