@@ -1318,12 +1318,21 @@ export default function CoachScreen() {
   );
   const finalizeCoachProgress = useCallback(
     (requestId?: string | null, opts?: { delivered?: boolean }) => {
-      if (!requestId) return;
-      setMessages((prev) =>
-        opts?.delivered === false
-          ? lockCoachProgressDeadEnd(prev, requestId)
-          : lockCoachProgressTerminal(prev, requestId),
-      );
+      setMessages((prev) => {
+        let rid = requestId ?? null;
+        if (!rid) {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const msg = prev[i];
+            if (msg.role !== "assistant") continue;
+            rid = msg.requestId ?? msg.coachProgress?.requestId ?? null;
+            if (rid) break;
+          }
+        }
+        if (!rid) return prev;
+        return opts?.delivered === false
+          ? lockCoachProgressDeadEnd(prev, rid)
+          : lockCoachProgressTerminal(prev, rid);
+      });
     },
     [],
   );
@@ -2733,6 +2742,13 @@ export default function CoachScreen() {
           sport: slateSport,
           varietySeed,
         });
+      } else if (openingParlayBuild) {
+        coachRequestContextRef.current = {
+          requestId: varietySeed,
+          sendGeneration: sendGen,
+          requestedLegs: earlyLegTarget,
+          varietySeed,
+        };
       }
 
       const controller = new AbortController();
@@ -6147,7 +6163,7 @@ export default function CoachScreen() {
             };
             return copy;
           });
-          finalizeCoachProgress(coachRequestContextRef.current?.requestId, { delivered: false });
+          finalizeCoachProgress(undefined, { delivered: false });
         }
       } finally {
         if (sendGenerationRef.current !== sendGen) return;
@@ -6543,7 +6559,7 @@ export default function CoachScreen() {
       last.requestId ?? last.coachProgress.requestId ?? coachRequestContextRef.current?.requestId,
       { delivered: false },
     );
-  }, [streaming, buildFinishing, waiting, boardScanAwaiting, finalizeCoachProgress, messages]);
+  }, [streaming, buildFinishing, waiting, boardScanAwaiting, finalizeCoachProgress]);
 
   const showQuickPrompts =
     !messages.some((m) => m.role === "user") ||
@@ -6950,6 +6966,11 @@ export default function CoachScreen() {
               i === messages.length - 1 &&
               m.coachProgress?.terminal === true &&
               !m.coachProgress.ticketComplete;
+            const parlayGroundFailVisible =
+              m.role === "assistant" &&
+              !hasPicks &&
+              (PARLAY_GROUND_FAIL_RE.test(m.content ?? "") ||
+                coachReplyHasScanManifest(undefined, m.coachDetailNote));
             const emptyScanTerminalMessage =
               m.role === "assistant" &&
               /Full board scan finished — no legs cleared delivery gates/i.test(m.content ?? "");
@@ -7104,7 +7125,10 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {m.coachProgress && !m.coachProgress.terminal && !hasPicks ? (
+                {m.coachProgress &&
+                !m.coachProgress.terminal &&
+                !hasPicks &&
+                !parlayGroundFailVisible ? (
                   <AnalysisProgress progress={m.coachProgress} />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
