@@ -1729,6 +1729,12 @@ export default function CoachScreen() {
         setParlayBuildPhase("stream");
       }
       if (opts?.pinScroll !== false) scrollToEnd(false);
+      traceCoachPath("UI_RENDER_PICKS", {
+        source: isFinal ? "patch-final" : "patch-preview",
+        pickCount: ticket.length,
+        requestId: ctx?.requestId,
+        scanComplete: partial.scanComplete ?? false,
+      });
       return true;
     },
     [clearBuildStallWatchdog, fireEmptyScanTerminal, scrollToEnd],
@@ -6634,6 +6640,18 @@ export default function CoachScreen() {
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
           Picks grounded in {headerSlateLabel} real odds — never invented
         </Text>
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.body,
+            fontSize: 10,
+            marginTop: 4,
+            opacity: 0.85,
+          }}
+          selectable
+        >
+          OTA {otaCommitLabel}
+        </Text>
       </View>
 
       <KeyboardAwareScrollViewCompat
@@ -7223,15 +7241,20 @@ export default function CoachScreen() {
       ) : null}
       <View
         style={{
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          backgroundColor: colors.background,
+          paddingBottom: insets.bottom + 6,
+        }}
+      >
+      <View
+        style={{
           flexDirection: "row",
           alignItems: "flex-end",
           gap: 8,
           paddingHorizontal: 16,
           paddingTop: 10,
-          paddingBottom: insets.bottom + 10,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
-          backgroundColor: colors.background,
+          paddingBottom: 4,
         }}
       >
         <Pressable
@@ -7322,16 +7345,17 @@ export default function CoachScreen() {
       <Text
         style={{
           paddingHorizontal: 16,
-          paddingTop: 4,
-          paddingBottom: 6,
+          paddingBottom: 2,
           color: colors.mutedForeground,
           fontFamily: FONT.body,
           fontSize: 10,
           textAlign: "center",
         }}
+        selectable
       >
         OTA {otaCommitLabel}
       </Text>
+      </View>
       </KeyboardStickyView>
       </View>
     </View>

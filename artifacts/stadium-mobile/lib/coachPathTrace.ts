@@ -22,8 +22,19 @@ export function traceCoachPath(
 /** Short hash for on-screen OTA verification. */
 export function coachOtaCommitLabel(): string {
   const full = process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked";
-  if (full === "not-baked" || full === "unknown") return full;
-  return full.length > 12 ? `${full.slice(0, 12)}…` : full;
+  if (full !== "not-baked" && full !== "unknown") {
+    return full.length > 12 ? `${full.slice(0, 12)}…` : full;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Updates = require("expo-updates") as typeof import("expo-updates");
+    const id = Updates.updateId;
+    if (id) return `upd ${id.slice(0, 8)}…`;
+    if (Updates.isEmbeddedLaunch) return "embedded";
+  } catch {
+    // expo-updates unavailable (Expo Go / dev)
+  }
+  return full;
 }
 
 export function coachOtaCommitFull(): string {
