@@ -77,13 +77,11 @@ export function logCoachScanCorrelationStart(
   requestId: string,
   candidateCount: number,
   onPhase?: CoachScanPhaseCallback,
-  onProgress?: CoachBuildProgressCallback,
+  _onProgress?: CoachBuildProgressCallback,
 ): void {
   if (coachScanPipelineIsStale(requestId)) return;
   logJson("[coach-scan] correlation-start", { requestId, candidateCount });
-  onProgress?.("simulations", requestId);
   onPhase?.("stream", requestId);
-  onProgress?.("correlation", requestId);
 }
 
 export function logCoachScanCorrelationComplete(
@@ -113,7 +111,6 @@ export function logCoachScanCorrelationComplete(
     usedFallback: extra?.usedFallback,
     timedOut: extra?.timedOut,
   });
-  onProgress?.("building-ticket", requestId);
   onPhase?.("score", requestId);
 }
 

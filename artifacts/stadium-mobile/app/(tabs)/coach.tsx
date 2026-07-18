@@ -1648,6 +1648,18 @@ export default function CoachScreen() {
           : `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
       }
       if (boardScanIsComplete(partial)) {
+        setCoachBuildProgress((prev) => {
+          if (!prev) return prev;
+          const ctx = coachRequestContextRef.current;
+          const reqId = partial.requestId ?? ctx?.requestId ?? prev.requestId;
+          if (reqId !== prev.requestId) return prev;
+          const next = coachBuildProgressOnPicksRendered(prev, ticket.length, {
+            requestId: reqId,
+            sendGeneration: ctx?.sendGeneration ?? prev.sendGeneration,
+          });
+          coachBuildProgressRef.current = next;
+          return next;
+        });
         deliverCoachTicket(ticket, legNote);
       } else {
         patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
@@ -1701,6 +1713,7 @@ export default function CoachScreen() {
     (stageId: CoachBuildStageId, requestId: string, sendGen: number) => {
       setCoachBuildProgress((prev) => {
         if (!prev) return prev;
+        if (prev.requestId !== requestId || prev.sendGeneration !== sendGen) return prev;
         const next = advanceCoachBuildStage(prev, stageId, {
           requestId,
           sendGeneration: sendGen,

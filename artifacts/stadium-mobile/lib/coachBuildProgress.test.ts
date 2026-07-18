@@ -6,6 +6,7 @@ import {
   coachBuildProgressFromPhase,
   coachBuildProgressSignature,
   coachBuildProgressViewFromSnapshot,
+  coachBuildProgressTick,
   coachBuildStageFromParlayPhase,
   createCoachBuildProgress,
   advanceCoachBuildStage,
@@ -30,7 +31,7 @@ test("coachBuildProgressFromPhase maps phases to 0–100 ladder", () => {
     { phase: "context", percent: 25 },
     { phase: "board-scan", percent: 70 },
     { phase: "stream", percent: 85 },
-    { phase: "score", percent: 95 },
+    { phase: "score", percent: 90 },
   ];
   for (const { phase, percent } of phases) {
     const snap = coachBuildProgressFromPhase(phase, 0);
@@ -78,6 +79,24 @@ test("coachBuildProgressSignature dedupes identical updates", () => {
   assert.equal(a, b);
 });
 
+test("coachBuildProgressTick never decreases displayPercent", () => {
+  let state = createCoachBuildProgress({ requestId: "r-mono", sendGeneration: 1, legTarget: 5 });
+  for (const stageId of ["starting", "loading-games", "matchups", "injuries", "line-value", "simulations", "correlation"] as const) {
+    state = advanceCoachBuildStage(state, stageId, { requestId: "r-mono", sendGeneration: 1 });
+  }
+  state = { ...state, displayPercent: 89 };
+  const ticked = coachBuildProgressTick(state);
+  assert.ok(ticked.displayPercent >= 89);
+});
+
+test("advanceCoachBuildStage ignores stale requestId", () => {
+  let state = createCoachBuildProgress({ requestId: "r-live", sendGeneration: 1, legTarget: 5 });
+  state = advanceCoachBuildStage(state, "correlation", {
+    requestId: "r-stale",
+    sendGeneration: 1,
+  });
+  assert.equal(state.completedThroughIndex, -1);
+});
 test("coachBuildProgressFromPhase walks 3/5/9/15-leg lifecycle to 100%", () => {
   for (const legs of [3, 5, 9, 15]) {
     let state = createCoachBuildProgress({ requestId: `r-${legs}`, sendGeneration: 1, legTarget: legs });

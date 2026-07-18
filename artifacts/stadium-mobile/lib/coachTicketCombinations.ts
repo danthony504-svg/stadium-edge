@@ -53,6 +53,8 @@ export type CoachTicketBuildOpts = {
   /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
   ticketStyle?: CoachTicketStyle;
   correlationDeadlineAt?: number;
+  /** Skip expensive reference-ticket prefix checks during correlation scoring. */
+  correlationFastMode?: boolean;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -754,6 +756,7 @@ export async function buildIndependentCoachTicketAsync(
   runtime: {
     batchSize: number;
     deadlineAt: number;
+    maxCandidates?: number;
     onProgress?: (correlationsScored: number, candidateTicketCount: number) => void;
     onTicketError?: (index: number, err: unknown) => void;
   },
@@ -767,11 +770,13 @@ export async function buildIndependentCoachTicketAsync(
 }> {
   const qualifying = qualifyingScoredLegs(scored);
   const profile = ticketSizeProfile(target);
-  const candidateTicketCount = profile.candidateCount;
+  const candidateTicketCount = Math.min(
+    profile.candidateCount,
+    runtime.maxCandidates ?? profile.candidateCount,
+  );
   const candidates: TicketCandidate[] = [];
   const exceptions: string[] = [];
   let timedOut = false;
-  let processed = 0;
 
   for (let batchStart = 0; batchStart < candidateTicketCount; batchStart += runtime.batchSize) {
     if (correlationTimedOut(runtime.deadlineAt)) {
@@ -788,7 +793,6 @@ export async function buildIndependentCoachTicketAsync(
         exceptions.push(`ticket-${i}: ${message}`);
         runtime.onTicketError?.(i, err);
       }
-      processed = i + 1;
     }
     runtime.onProgress?.(candidates.length, candidateTicketCount);
     await yieldToEventLoop();
@@ -801,7 +805,7 @@ export async function buildIndependentCoachTicketAsync(
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
     candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),
-    extra: { candidateCount: candidates.length, processed, timedOut },
+    extra: { candidateCount: candidates.length, candidateTicketCount, timedOut },
   });
 
   const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
@@ -872,10 +876,12 @@ function pickBestDistinctCandidate(
 ): TicketCandidate | null {
   if (!candidates.length) return null;
   const recentTickets = opts.recentTickets ?? [];
-  const largerTickets = [
-    ...largerTicketsForTarget(target, opts.recentTicketsByLegCount),
-    ...sameBoardLargerReferenceTickets(qualifying, target, opts.varietySeed),
-  ];
+  const largerTickets = opts.correlationFastMode
+    ? largerTicketsForTarget(target, opts.recentTicketsByLegCount)
+    : [
+        ...largerTicketsForTarget(target, opts.recentTicketsByLegCount),
+        ...sameBoardLargerReferenceTickets(qualifying, target, opts.varietySeed),
+      ];
 
   // Hard reject: never return a ticket that exactly matches the first N legs of a larger ticket.
   const nonPrefix = candidates.filter(

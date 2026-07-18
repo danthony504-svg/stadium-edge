@@ -164,8 +164,11 @@ export function selectTopBoardLegs(
   const usedFp = new Set<string>();
   const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
   let stallRounds = 0;
+  const maxRounds = Math.max(target * 4, sorted.length * 2);
+  let rounds = 0;
 
-  while (out.length < target) {
+  while (out.length < target && rounds < maxRounds) {
+    rounds += 1;
     if (deadlineAt != null && correlationTimedOut(deadlineAt)) break;
 
     const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
@@ -443,7 +446,7 @@ export function buildStagedTicketFromScan(
   return result;
 }
 
-/** Async board-scan staging — bounded correlation batches, fallback, never freezes at 89%. */
+/** Async board-scan staging — correlation only (no preview, no duplicate line-value). */
 export async function buildStagedTicketFromScanAsync(
   scored: BoardScoredLeg[],
   target: number,
@@ -457,18 +460,6 @@ export async function buildStagedTicketFromScanAsync(
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
   }
 
-  const onBuildProgress = varietyContext?.onBuildProgress;
-  const lineStart = Date.now();
-  logCoachScanLineValueStart(requestId);
-  const qualifying = qualifyingScoredLegs(scored);
-  logCoachScanLineValueComplete(
-    requestId,
-    scored.length,
-    qualifying.length,
-    Date.now() - lineStart,
-    onBuildProgress,
-  );
-
   const correlation = await runCoachCorrelationStage(scored, target, {
     requestId,
     varietySeed,
@@ -476,7 +467,6 @@ export async function buildStagedTicketFromScanAsync(
     varietyContext,
     onBuildProgress: varietyContext?.onBuildProgress,
     onBuildPhase: varietyContext?.onBuildPhase,
-    deadlineAt: varietyContext?.correlationDeadlineAt,
   });
 
   return { picks: correlation.picks, breakdown: correlation.breakdown };

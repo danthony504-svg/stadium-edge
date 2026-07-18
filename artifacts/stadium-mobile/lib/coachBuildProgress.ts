@@ -30,7 +30,7 @@ export const COACH_BUILD_STAGES: readonly CoachBuildStageDef[] = [
   { id: "line-value", percent: 55, label: "Calculating line value and EV", timeoutMs: 90_000 },
   { id: "simulations", percent: 70, label: "Running simulations", timeoutMs: 120_000 },
   { id: "correlation", percent: 85, label: "Scoring correlation", timeoutMs: 20_000 },
-  { id: "building-ticket", percent: 95, label: "Building final ticket", timeoutMs: 60_000 },
+  { id: "building-ticket", percent: 90, label: "Building final ticket", timeoutMs: 60_000 },
   { id: "final-ticket", percent: 100, label: "Final ticket ready", timeoutMs: 30_000 },
 ] as const;
 
@@ -114,7 +114,7 @@ export function createCoachBuildProgress(opts: {
   };
 }
 
-/** Mark the next sequential stage complete for the active request. */
+/** Mark a stage complete — monotonic: never lowers completedThroughIndex or displayPercent. */
 export function advanceCoachBuildStage(
   state: CoachBuildProgressState,
   stageId: CoachBuildStageId,
@@ -123,10 +123,17 @@ export function advanceCoachBuildStage(
   if (!matchesRequest(state, opts) || state.status !== "active") return state;
   const targetIdx = coachBuildStageIndex(stageId);
   if (targetIdx < 0) return state;
-  const expectedIdx = state.completedThroughIndex + 1;
-  if (targetIdx !== expectedIdx) return state;
-  const now = opts.now ?? Date.now();
   const floorPercent = COACH_BUILD_STAGES[targetIdx]!.percent;
+  const now = opts.now ?? Date.now();
+
+  if (targetIdx <= state.completedThroughIndex) {
+    if (state.displayPercent >= floorPercent) return state;
+    return {
+      ...state,
+      displayPercent: Math.max(state.displayPercent, floorPercent),
+    };
+  }
+
   return {
     ...state,
     completedThroughIndex: targetIdx,
@@ -189,7 +196,8 @@ export function coachBuildProgressTick(
       ? COACH_BUILD_STAGES[activeIdx + 1]!.percent - 1
       : 100;
   const step = Math.max(0.35, (ceiling - floor) / 120);
-  const nextDisplay = Math.min(ceiling, Math.max(state.displayPercent + step, floor));
+  const raw = Math.min(ceiling, Math.max(state.displayPercent + step, floor));
+  const nextDisplay = Math.max(state.displayPercent, raw);
 
   let next = state;
   if (nextDisplay !== state.displayPercent) {
@@ -296,7 +304,8 @@ function coachBuildSnapshotFromLifecycle(
   lifecycle: CoachBuildProgressState,
   legCount: number,
 ): CoachBuildProgressSnapshot {
-  if (lifecycle.status === "complete" || legCount > 0) {
+  const buildingIdx = coachBuildStageIndex("building-ticket");
+  if (lifecycle.status === "complete") {
     return {
       percent: 100,
       label: COACH_BUILD_STAGES[FINAL_TICKET_IDX]!.label,
@@ -310,13 +319,29 @@ function coachBuildSnapshotFromLifecycle(
   }
   const activeIdx = Math.min(lifecycle.completedThroughIndex + 1, COACH_BUILD_STAGES.length - 1);
   const stage = COACH_BUILD_STAGES[activeIdx]!;
+  const floorPercent = COACH_BUILD_STAGES[Math.max(0, lifecycle.completedThroughIndex)]?.percent ?? 0;
+  const percent = Math.round(Math.max(lifecycle.displayPercent, floorPercent));
+  const ticketReady =
+    legCount > 0 && lifecycle.completedThroughIndex >= buildingIdx;
+  if (ticketReady) {
+    return {
+      percent: 100,
+      label: COACH_BUILD_STAGES[FINAL_TICKET_IDX]!.label,
+      matchupComplete: true,
+      injuryComplete: true,
+      lineValueComplete: true,
+      simulationComplete: true,
+      correlationComplete: true,
+      ticketComplete: true,
+    };
+  }
   return {
     percent:
       lifecycle.status === "timed-out" || lifecycle.status === "failed" || lifecycle.status === "empty"
-        ? Math.round(lifecycle.displayPercent)
-        : Math.round(lifecycle.displayPercent),
+        ? percent
+        : percent,
     label: lifecycle.failureMessage ?? stage.label,
-    ...coachBuildChecklistFromIndex(lifecycle.completedThroughIndex, legCount),
+    ...coachBuildChecklistFromIndex(lifecycle.completedThroughIndex, 0),
   };
 }
 
@@ -403,7 +428,7 @@ export function coachBuildProgressViewFromSnapshot(
     snapshot.lineValueComplete,
     snapshot.simulationComplete,
     snapshot.correlationComplete,
-    snapshot.percent >= 95,
+    snapshot.percent >= 90,
     snapshot.ticketComplete,
   ];
   let activeIdx = checklistStageIds.findIndex((_, idx) => !flags[idx]);

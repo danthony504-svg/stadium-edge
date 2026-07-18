@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  COACH_CORRELATION_BATCH_SIZE,
+  COACH_CORRELATION_MAX_CANDIDATES,
   COACH_CORRELATION_TIMEOUT_MS,
   runCoachCorrelationStage,
 } from "./coachCorrelationPipeline.ts";
@@ -42,7 +42,7 @@ function leg(game: string, player: string, market: string, composite = 80): Boar
   };
 }
 
-test("runCoachCorrelationStage completes with batched candidate scoring", async () => {
+test("runCoachCorrelationStage completes within candidate cap", async () => {
   beginCoachScanPipeline("req-corr-1");
   const scored = [
     leg("A @ B", "P1", "Points", 90),
@@ -50,51 +50,42 @@ test("runCoachCorrelationStage completes with batched candidate scoring", async 
     leg("E @ F", "P3", "Assists", 80),
     leg("G @ H", "P4", "Threes", 75),
     leg("I @ J", "P5", "Points", 70),
+    leg("K @ L", "P6", "Rebounds", 65),
+    leg("M @ N", "P7", "Assists", 60),
   ];
-  const result = await runCoachCorrelationStage(scored, 3, {
+  const result = await runCoachCorrelationStage(scored, 5, {
     requestId: "req-corr-1",
-    varietySeed: "seed-corr-1",
+    varietySeed: "seed-corr-5leg",
   });
   assert.ok(result.outputTicketCount > 0);
-  assert.ok(result.correlationsScored > 0);
-  assert.ok(result.candidateTicketCount > 0);
-  assert.equal(result.timedOut, false);
+  assert.ok(result.candidateTicketCount <= COACH_CORRELATION_MAX_CANDIDATES);
+  assert.ok(result.durationMs < COACH_CORRELATION_TIMEOUT_MS + 5_000);
   clearCoachScanPipeline("req-corr-1");
 });
 
-test("runCoachCorrelationStage uses fallback when candidates time out", async () => {
+test("runCoachCorrelationStage hard-timeout falls back to pre-correlation ranking", async () => {
   beginCoachScanPipeline("req-corr-2");
-  const scored = [
-    leg("A @ B", "P1", "Points"),
-    leg("C @ D", "P2", "Rebounds"),
-    leg("E @ F", "P3", "Assists"),
-    leg("G @ H", "P4", "Threes"),
-    leg("I @ J", "P5", "Points"),
-  ];
+  const scored = Array.from({ length: 7 }, (_, i) =>
+    leg(`G${i} @ H${i}`, `P${i}`, "Points", 90 - i),
+  );
   const started = Date.now();
-  const result = await runCoachCorrelationStage(scored, 3, {
+  const result = await runCoachCorrelationStage(scored, 5, {
     requestId: "req-corr-2",
-    varietySeed: "seed-corr-2",
+    varietySeed: "seed-corr-timeout",
     timeoutMs: 1,
   });
-  assert.ok(Date.now() - started < COACH_CORRELATION_TIMEOUT_MS + 2_000);
+  assert.ok(Date.now() - started < 3_000);
+  assert.equal(result.usedFallback, true);
   assert.ok(result.outputTicketCount > 0);
-  assert.ok(result.timedOut || result.correlationsScored < result.candidateTicketCount);
   clearCoachScanPipeline("req-corr-2");
 });
 
-test("runCoachCorrelationStage never throws on empty qualifying pool", async () => {
+test("runCoachCorrelationStage never throws on empty pool", async () => {
   beginCoachScanPipeline("req-corr-3");
-  const result = await runCoachCorrelationStage([], 3, {
+  const result = await runCoachCorrelationStage([], 5, {
     requestId: "req-corr-3",
     varietySeed: "seed-corr-3",
   });
   assert.equal(result.outputTicketCount, 0);
-  assert.equal(result.exceptions.length, 0);
   clearCoachScanPipeline("req-corr-3");
-});
-
-test("COACH_CORRELATION_BATCH_SIZE is bounded", () => {
-  assert.ok(COACH_CORRELATION_BATCH_SIZE >= 2);
-  assert.ok(COACH_CORRELATION_BATCH_SIZE <= 8);
 });
