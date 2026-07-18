@@ -600,7 +600,7 @@ function assistantHasVisibleContent(m: UIMessage): boolean {
 /** User sent (or build failed) but nothing visible is on screen — quick prompts hidden. */
 function isOrphanCoachThread(
   msgs: UIMessage[],
-  opts: { streaming: boolean; buildFinishing: boolean },
+  opts: { streaming: boolean; buildFinishing?: boolean; requestId?: string },
 ): boolean {
   if (opts.streaming || opts.buildFinishing || msgs.length === 0) return false;
   const last = msgs[msgs.length - 1];
@@ -616,19 +616,22 @@ function recoverOrphanCoachThread(msgs: UIMessage[]): UIMessage[] {
   }
   const priorUser = [...msgs].reverse().find((m) => m.role === "user");
   if (priorUser) {
+    const lastIdx = msgs.length - 1;
+    const last = msgs[lastIdx];
+    if (last?.role !== "assistant") return msgs;
+    const parlay = last.parlayBuild ?? isParlayBuildAsk(priorUser.content);
+    const retry = last.retry ?? (parlay ? priorUser.content : undefined);
+    if (last.parlayBuild === parlay && last.retry === retry) return msgs;
     const copy = [...msgs];
-    const lastIdx = copy.length - 1;
-    if (copy[lastIdx]?.role === "assistant") {
-      const parlay = copy[lastIdx].parlayBuild ?? isParlayBuildAsk(priorUser.content);
-      copy[lastIdx] = {
-        ...copy[lastIdx],
-        parlayBuild: parlay,
-        retry:
-          copy[lastIdx].retry ??
-          (parlay ? priorUser.content : undefined),
-      };
-    }
+    copy[lastIdx] = {
+      ...last,
+      parlayBuild: parlay,
+      retry,
+    };
     return copy;
+  }
+  if (msgs.length === 1 && msgs[0]?.role === "assistant" && isWelcomeMessage(msgs[0])) {
+    return msgs;
   }
   return [{ role: "assistant", content: WELCOME_RETURNING }];
 }
@@ -1218,9 +1221,6 @@ export default function CoachScreen() {
         if (prev.length === 0) {
           return [{ role: "assistant", content: returning ? WELCOME_RETURNING : WELCOME_FIRST_TIME }];
         }
-        if (isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) {
-          return recoverOrphanCoachThread(prev);
-        }
         return prev;
       });
     })();
@@ -1285,6 +1285,10 @@ export default function CoachScreen() {
   const coachRequestContextRef = useRef<CoachTicketRequestContext | null>(null);
   const activeRequestLegTargetRef = useRef(0);
   const liveScanDeliveredRef = useRef(false);
+  const orphanRecoveryDoneRef = useRef(false);
+  const orphanRecoveryRequestIdRef = useRef<string | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
@@ -2296,6 +2300,10 @@ export default function CoachScreen() {
           varietySeed,
         });
         resetCoachHandoffDeliveryAttempt(varietySeed);
+        orphanRecoveryDoneRef.current = false;
+        orphanRecoveryRequestIdRef.current = varietySeed;
+        activeRequestIdRef.current = varietySeed;
+        setActiveRequestId(varietySeed);
       }
 
       const controller = new AbortController();
@@ -2490,6 +2498,10 @@ export default function CoachScreen() {
             varietySeed: varietySeedRef.current,
           });
           resetCoachHandoffDeliveryAttempt(requestId);
+          orphanRecoveryDoneRef.current = false;
+          orphanRecoveryRequestIdRef.current = requestId;
+          activeRequestIdRef.current = requestId;
+          setActiveRequestId(requestId);
         }
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
@@ -5797,6 +5809,49 @@ export default function CoachScreen() {
     void resumePendingBackgroundBuild();
   }, [resumePendingBackgroundBuild]);
 
+  useEffect(() => {
+    const requestId = activeRequestIdRef.current;
+
+    if (!requestId) return;
+
+    if (
+      orphanRecoveryDoneRef.current &&
+      orphanRecoveryRequestIdRef.current === requestId
+    ) {
+      return;
+    }
+
+    console.log("[orphan-recovery]", {
+      requestId,
+      alreadyRecovered: orphanRecoveryDoneRef.current,
+    });
+
+    orphanRecoveryDoneRef.current = true;
+    orphanRecoveryRequestIdRef.current = requestId;
+
+    setMessages((prev) => {
+      if (
+        !isOrphanCoachThread(prev, {
+          streaming: streamingRef.current,
+          requestId,
+        })
+      ) {
+        return prev;
+      }
+
+      const next = recoverOrphanCoachThread(prev);
+
+      if (
+        next === prev ||
+        (next.length === prev.length && next.every((item, index) => item === prev[index]))
+      ) {
+        return prev;
+      }
+
+      return next;
+    });
+  }, [activeRequestId]);
+
   // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
   useFocusEffect(
     useCallback(() => {
@@ -5818,10 +5873,6 @@ export default function CoachScreen() {
         }
         return;
       }
-      setMessages((prev) => {
-        if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
-        return recoverOrphanCoachThread(prev);
-      });
     }, [
       resumePendingBackgroundBuild,
       deliverBoardScanTicket,
