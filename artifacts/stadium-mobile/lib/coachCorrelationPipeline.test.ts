@@ -133,6 +133,26 @@ test("coachBuildProgressTick does not terminal-fail during correlation stage", (
   assert.notEqual(ticked.status, "timed-out");
 });
 
+test("runCoachCorrelationStage timeout emits full pipeline trace and resolves", async () => {
+  beginCoachScanPipeline("req-trace");
+  const scored = Array.from({ length: 7 }, (_, i) =>
+    leg(`G${i} @ H${i}`, `P${i}`, "Points", 90 - i),
+  );
+  const stages: string[] = [];
+  const result = await runCoachCorrelationStage(scored, 5, {
+    requestId: "req-trace",
+    varietySeed: "seed-trace",
+    timeoutMs: 1,
+    onBuildProgress: (stageId) => stages.push(stageId),
+  });
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(result.outputTicketCount, 5);
+  assert.ok(stages.includes("correlation"));
+  assert.ok(stages.includes("correlation-fallback"));
+  assert.ok(stages.includes("building-ticket"));
+  clearCoachScanPipeline("req-trace");
+});
+
 test("correlation fallback advances to building-ticket at 95%", () => {
   let state = createCoachBuildProgress({ requestId: "r-fb", sendGeneration: 1, legTarget: 5 });
   for (const stageId of COACH_BUILD_STAGES.map((s) => s.id)) {

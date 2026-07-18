@@ -153,7 +153,10 @@ import {
   coachScanPipelineIsStale,
   type CoachScanPhaseCallback,
 } from "@/lib/coachScanPipeline";
-import { logCoachTicketRenderComplete } from "@/lib/coachCorrelationPipeline";
+import {
+  logCoachTicketRenderComplete,
+  logPipelineProgressBumpRejected,
+} from "@/lib/coachPipelineTrace";
 import { CoachMatchupStageError } from "@/lib/coachMatchupPipeline";
 import { CoachEvStageError } from "@/lib/coachEvPipeline";
 import {
@@ -1738,7 +1741,16 @@ export default function CoachScreen() {
     (stageId: CoachBuildStageId, requestId: string, sendGen: number) => {
       setCoachBuildProgress((prev) => {
         if (!prev) return prev;
-        if (prev.requestId !== requestId || prev.sendGeneration !== sendGen) return prev;
+        if (prev.requestId !== requestId || prev.sendGeneration !== sendGen) {
+          logPipelineProgressBumpRejected(
+            stageId,
+            requestId,
+            prev.requestId,
+            sendGen,
+            prev.sendGeneration,
+          );
+          return prev;
+        }
         const next = advanceCoachBuildStage(prev, stageId, {
           requestId,
           sendGeneration: sendGen,
@@ -2235,9 +2247,10 @@ export default function CoachScreen() {
         bumpCoachBuildProgress("loading-games", varietySeed, sendGen);
       }
       const coachScanOnBuildProgress: CoachBuildProgressCallback = (stageId, reqId) => {
-        if (coachScanPipelineIsStale(reqId)) return;
         if (sendGenerationRef.current !== sendGen) return;
-        bumpCoachBuildProgress(stageId, reqId, sendGen);
+        const progressReq = coachBuildProgressRef.current?.requestId;
+        if (coachScanPipelineIsStale(reqId) && progressReq && progressReq !== reqId) return;
+        bumpCoachBuildProgress(stageId, progressReq ?? reqId, sendGen);
       };
       const coachScanOnBuildPhase: CoachScanPhaseCallback = (phase, reqId) => {
         if (coachScanPipelineIsStale(reqId)) return;
@@ -2819,6 +2832,7 @@ export default function CoachScreen() {
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const scanRequestId = coachRequestContextRef.current?.requestId ?? varietySeed;
+          beginCoachScanPipeline(scanRequestId);
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),

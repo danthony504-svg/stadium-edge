@@ -1,4 +1,4 @@
-/** Coach correlation stage — bounded fast search, timeout fallback, always completes. */
+/** Coach correlation stage — bounded fast search, hard timeout race, always resolves. */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { CoachBuildProgressCallback } from "./coachBuildProgress.ts";
@@ -8,6 +8,15 @@ import {
   FAST_CORRELATION_MAX_CANDIDATES,
   runFastCoachCorrelation,
 } from "./coachFastCorrelation.ts";
+import {
+  logPipelineComplete,
+  logPipelineCorrelationStart,
+  logPipelineCorrelationTimeoutFired,
+  logPipelineFallbackBuilderComplete,
+  logPipelineFallbackBuilderStart,
+  logPipelineFinalTicketBuildComplete,
+  logPipelineFinalTicketBuildStart,
+} from "./coachPipelineTrace.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   claimCoachCorrelationCompletion,
@@ -30,6 +39,7 @@ export {
 } from "./coachFastCorrelation.ts";
 
 export { COACH_CORRELATION_TIMEOUT_MS };
+export { logCoachTicketRenderComplete } from "./coachPipelineTrace.ts";
 
 export type CoachCorrelationFallbackReason =
   | "correlation-timeout"
@@ -104,43 +114,12 @@ export function logCoachCorrelationComplete(
   logJson("[coach-correlation] complete", { requestId, ...payload });
 }
 
-export function logCoachCorrelationTimeoutFallbackStart(
-  requestId: string,
-  durationMs: number,
-  candidateTicketCount: number,
-): void {
-  console.log(
-    "[coach-correlation] timeout-fallback-start",
-    JSON.stringify({ requestId, durationMs, candidateTicketCount }),
-  );
-}
-
-export function logCoachCorrelationTimeoutFallbackSelected(
-  requestId: string,
-  pickCount: number,
-  requestedLegCount: number,
-  durationMs: number,
-): void {
-  console.log(
-    "[coach-correlation] timeout-fallback-selected",
-    JSON.stringify({ requestId, pickCount, requestedLegCount, durationMs }),
-  );
-}
-
 export function logCoachTicketBuildStart(
   requestId: string,
   pickCount: number,
   requestedLegCount: number,
 ): void {
   logJson("[coach-ticket] build-start", { requestId, pickCount, requestedLegCount });
-}
-
-export function logCoachTicketRenderComplete(
-  requestId: string,
-  pickCount: number,
-  requestedLegCount: number,
-): void {
-  logJson("[coach-ticket] render-complete", { requestId, pickCount, requestedLegCount });
 }
 
 function filterQualifying(scored: BoardScoredLeg[]): BoardScoredLeg[] {
@@ -211,11 +190,22 @@ function buildStageResult(
   };
 }
 
+function emitProgress(
+  opts: {
+    onBuildProgress?: CoachBuildProgressCallback;
+    onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+  },
+  stageId: Parameters<CoachBuildProgressCallback>[0],
+  requestId: string,
+): void {
+  opts.onBuildProgress?.(stageId, requestId);
+}
+
 /**
- * Run bounded fast correlation. Never throws — always returns a usable ticket when
- * valid legs exist. Timeout uses pre-correlation ranking and advances to build.
+ * Run bounded fast correlation. Always resolves within hardMs — never hangs.
+ * Timeout uses pre-correlation ranking and advances through fallback → build.
  */
-export async function runCoachCorrelationStage(
+export function runCoachCorrelationStage(
   scored: BoardScoredLeg[],
   target: number,
   opts: {
@@ -233,16 +223,18 @@ export async function runCoachCorrelationStage(
   const hardMs = Math.min(opts.timeoutMs ?? COACH_CORRELATION_TIMEOUT_MS, FAST_CORRELATION_HARD_MS);
   const qualifying = filterQualifying(scored);
   const skipCorrelation = shouldSkipCorrelationScoring(qualifying.length, target);
-  const preRanked = preCorrelationRanking(scored, target, opts.varietySeed);
   const exceptions: string[] = [];
   let candidateTicketCount = FAST_CORRELATION_MAX_CANDIDATES;
   let correlationsScored = 0;
-  let correlationSettled = false;
+  let settled = false;
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const isAborted = () =>
-    correlationSettled ||
-    coachCorrelationAlreadySettled(requestId) ||
-    coachScanPipelineIsStale(requestId);
+  const buildPreRanked = (): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } => {
+    logPipelineFallbackBuilderStart(requestId, { target, poolSize: scored.length });
+    const ranked = preCorrelationRanking(scored, target, opts.varietySeed);
+    logPipelineFallbackBuilderComplete(requestId, ranked.picks.length, target);
+    return ranked;
+  };
 
   const finish = (
     result: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown },
@@ -254,23 +246,23 @@ export async function runCoachCorrelationStage(
       advanceFallbackStage?: boolean;
     },
   ): CoachCorrelationStageResult => {
+    const durationMs = Date.now() - start;
+
     if (!claimCoachCorrelationCompletion(requestId)) {
-      return buildStageResult(preRanked, {
+      return buildStageResult(result, {
         requestId,
         target,
         candidateTicketCount,
         correlationsScored,
-        durationMs: Date.now() - start,
-        usedFallback: true,
-        fallbackUsed: true,
-        fallbackReason: "correlation-timeout",
-        timedOut: true,
+        durationMs,
+        usedFallback: meta.usedFallback,
+        fallbackUsed: meta.fallbackUsed,
+        fallbackReason: meta.fallbackReason,
+        timedOut: meta.timedOut,
         exceptions,
       });
     }
-    correlationSettled = true;
 
-    const durationMs = Date.now() - start;
     logCoachCorrelationComplete(requestId, {
       candidateTicketCount,
       correlationsScored,
@@ -283,11 +275,13 @@ export async function runCoachCorrelationStage(
     });
 
     if (meta.advanceFallbackStage) {
-      opts.onBuildProgress?.("correlation-fallback", requestId);
+      emitProgress(opts, "correlation-fallback", requestId);
     }
+    logPipelineFinalTicketBuildStart(requestId, result.picks.length, target);
     logCoachTicketBuildStart(requestId, result.picks.length, target);
-    opts.onBuildProgress?.("building-ticket", requestId);
+    emitProgress(opts, "building-ticket", requestId);
     opts.onBuildPhase?.("score", requestId);
+    logPipelineFinalTicketBuildComplete(requestId, result.picks.length, target);
 
     return buildStageResult(result, {
       requestId,
@@ -303,120 +297,136 @@ export async function runCoachCorrelationStage(
     });
   };
 
+  const resolveOnce = (
+    result: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown },
+    meta: {
+      usedFallback: boolean;
+      fallbackUsed: boolean;
+      fallbackReason?: CoachCorrelationFallbackReason;
+      timedOut: boolean;
+      advanceFallbackStage?: boolean;
+    },
+  ): CoachCorrelationStageResult => {
+    if (settled) {
+      return buildStageResult(result, {
+        requestId,
+        target,
+        candidateTicketCount,
+        correlationsScored,
+        durationMs: Date.now() - start,
+        usedFallback: meta.usedFallback,
+        fallbackUsed: meta.fallbackUsed,
+        fallbackReason: meta.fallbackReason,
+        timedOut: meta.timedOut,
+        exceptions,
+      });
+    }
+    settled = true;
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+    const stageResult = finish(result, meta);
+    logPipelineComplete(requestId, {
+      pickCount: stageResult.outputTicketCount,
+      fallbackUsed: stageResult.fallbackUsed,
+      fallbackReason: stageResult.fallbackReason,
+      timedOut: stageResult.timedOut,
+      durationMs: stageResult.durationMs,
+    });
+    return stageResult;
+  };
+
+  // Progress FIRST — before any heavy synchronous work.
+  logPipelineCorrelationStart(requestId, { target, poolSize: scored.length });
   logCoachCorrelationStart(requestId, qualifying.length);
-  opts.onBuildProgress?.("correlation", requestId);
+  emitProgress(opts, "correlation", requestId);
   opts.onBuildPhase?.("stream", requestId);
 
   if (skipCorrelation || target < 3 || !opts.varietySeed) {
     const result =
       target >= 3
         ? buildBalancedStagedTicketFromScan(scored, target, opts.varietySeed, opts.ticketStyle)
-        : preRanked;
+        : buildPreRanked();
     candidateTicketCount = 1;
     correlationsScored = 1;
-    return finish(result, {
-      usedFallback: skipCorrelation,
-      fallbackUsed: skipCorrelation,
-      timedOut: false,
-    });
+    return Promise.resolve(
+      resolveOnce(result, {
+        usedFallback: skipCorrelation,
+        fallbackUsed: skipCorrelation,
+        timedOut: false,
+      }),
+    );
   }
 
   logCoachCorrelationCandidateCount(requestId, FAST_CORRELATION_MAX_CANDIDATES);
 
-  try {
-    const hardDeadline = start + hardMs;
-    const outcome = await runFastCoachCorrelation(scored, target, {
-      varietySeed: opts.varietySeed,
-      hardMs,
-      isAborted: () => isAborted() || Date.now() >= hardDeadline,
-      onProgress: (scoredCount, cap) => {
-        if (isAborted()) return;
-        correlationsScored = scoredCount;
-        candidateTicketCount = cap;
-        logCoachCorrelationProgress(requestId, scoredCount, cap, Date.now() - start);
-      },
-    });
-
-    if (isAborted()) {
-      return finish(preRanked, {
-        usedFallback: true,
-        fallbackUsed: true,
-        fallbackReason: "correlation-timeout",
-        timedOut: true,
-        advanceFallbackStage: true,
-      });
-    }
-
-    correlationsScored = outcome.ticketsScored;
-    candidateTicketCount = outcome.candidateCount;
-
-    if (outcome.timedOut) {
-      logCoachCorrelationTimeoutFallbackStart(
-        requestId,
-        Date.now() - start,
-        candidateTicketCount,
+  return new Promise<CoachCorrelationStageResult>((resolve) => {
+    const runTimeoutFallback = (reason: CoachCorrelationFallbackReason) => {
+      if (settled) return;
+      logPipelineCorrelationTimeoutFired(requestId, Date.now() - start, { reason });
+      const ranked = buildPreRanked();
+      resolve(
+        resolveOnce(ranked, {
+          usedFallback: true,
+          fallbackUsed: true,
+          fallbackReason: reason,
+          timedOut: true,
+          advanceFallbackStage: true,
+        }),
       );
-      logCoachCorrelationTimeoutFallbackSelected(
-        requestId,
-        preRanked.picks.length,
-        target,
-        Date.now() - start,
-      );
-      return finish(preRanked, {
-        usedFallback: true,
-        fallbackUsed: true,
-        fallbackReason: "correlation-timeout",
-        timedOut: true,
-        advanceFallbackStage: true,
-      });
-    }
+    };
 
-    if (outcome.picks.length > 0) {
-      const qualifyingPool = filterQualifying(scored);
-      return finish(
-        {
-          picks: outcome.picks,
-          breakdown: fallbackStagingBreakdown(outcome.picks, qualifyingPool),
-        },
-        { usedFallback: false, fallbackUsed: false, timedOut: false },
-      );
-    }
+    timeoutTimer = setTimeout(() => {
+      runTimeoutFallback("correlation-timeout");
+    }, hardMs);
 
-    logCoachCorrelationErrorFallback(
-      requestId,
-      "No scored tickets — using pre-correlation ranking",
-      Date.now() - start,
-      exceptions,
-    );
-    return finish(preRanked, {
-      usedFallback: true,
-      fallbackUsed: true,
-      fallbackReason: "no-candidates",
-      timedOut: false,
-      advanceFallbackStage: true,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    exceptions.push(message);
-    logCoachCorrelationErrorFallback(requestId, message, Date.now() - start, exceptions);
-    return finish(preRanked, {
-      usedFallback: true,
-      fallbackUsed: true,
-      fallbackReason: "error",
-      timedOut: false,
-      advanceFallbackStage: true,
-    });
-  }
-}
+    void (async () => {
+      try {
+        const hardDeadline = start + hardMs;
+        const outcome = await runFastCoachCorrelation(scored, target, {
+          varietySeed: opts.varietySeed,
+          hardMs,
+          isAborted: () =>
+            settled ||
+            coachCorrelationAlreadySettled(requestId) ||
+            coachScanPipelineIsStale(requestId) ||
+            Date.now() >= hardDeadline,
+          onProgress: (scoredCount, cap) => {
+            if (settled) return;
+            correlationsScored = scoredCount;
+            candidateTicketCount = cap;
+            logCoachCorrelationProgress(requestId, scoredCount, cap, Date.now() - start);
+          },
+        });
 
-function logCoachCorrelationErrorFallback(
-  requestId: string,
-  message: string,
-  durationMs: number,
-  exceptions: string[],
-): void {
-  console.error(
-    "[coach-correlation] error-fallback",
-    JSON.stringify({ requestId, message, durationMs, exceptions }),
-  );
+        if (settled) return;
+
+        correlationsScored = outcome.ticketsScored;
+        candidateTicketCount = outcome.candidateCount;
+
+        if (outcome.timedOut || outcome.picks.length === 0) {
+          runTimeoutFallback(outcome.timedOut ? "correlation-timeout" : "no-candidates");
+          return;
+        }
+
+        const qualifyingPool = filterQualifying(scored);
+        resolve(
+          resolveOnce(
+            {
+              picks: outcome.picks,
+              breakdown: fallbackStagingBreakdown(outcome.picks, qualifyingPool),
+            },
+            { usedFallback: false, fallbackUsed: false, timedOut: false },
+          ),
+        );
+      } catch (err) {
+        if (settled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        exceptions.push(message);
+        console.error(
+          "[coach-correlation] error-fallback",
+          JSON.stringify({ requestId, message, exceptions }),
+        );
+        runTimeoutFallback("error");
+      }
+    })();
+  });
 }

@@ -30,6 +30,7 @@ import {
   shouldSkipCorrelationScoring,
   correlationDeadline,
 } from "./coachScanPipeline.ts";
+import { logPipelineCorrelationStart } from "./coachPipelineTrace.ts";
 import { runCoachCorrelationStage } from "./coachCorrelationPipeline.ts";
 import {
   pickIsAiRecommended,
@@ -459,6 +460,12 @@ export async function buildStagedTicketFromScanAsync(
   if (varietyContext?.preview) {
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
   }
+
+  logPipelineCorrelationStart(requestId, {
+    target,
+    poolSize: scored.length,
+    phase: "staging-handoff",
+  });
 
   const correlation = await runCoachCorrelationStage(scored, target, {
     requestId,

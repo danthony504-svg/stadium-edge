@@ -55,6 +55,7 @@ import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { CoachEvStageError, runCoachEvPropPrescore } from "./coachEvPipeline.ts";
 import { CoachCorrelationStageError } from "./coachScanPipeline.ts";
+import { logPipelineCorrelationStart } from "./coachPipelineTrace.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -545,6 +546,15 @@ async function buildScanResultFinal(
     onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
   },
 ): Promise<FullBoardScanResult> {
+  const requestId = opts.requestId ?? "unknown";
+  logPipelineCorrelationStart(requestId, {
+    target: opts.target,
+    poolSize: scored.length,
+    phase: "scan-final-handoff",
+  });
+  opts.onBuildProgress?.("correlation", requestId);
+  opts.onBuildPhase?.("stream", requestId);
+
   const staged = await buildStagedTicketFromScanAsync(scored, opts.target, opts.varietySeed, {
     ...opts.varietyContext,
     ticketStyle: opts.ticketStyle,
