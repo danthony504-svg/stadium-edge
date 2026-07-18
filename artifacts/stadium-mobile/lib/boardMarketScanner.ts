@@ -67,6 +67,7 @@ import {
   logScanStart,
   logScanTerminalTimeout,
 } from "./coachBoardScanLifecycle.ts";
+import { traceCoachPath } from "./coachPathTrace.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -695,6 +696,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     });
     if (!finalPublished) {
       logScanFinalPublished(result, startedAt);
+      traceCoachPath("SCAN_FINAL_PUBLISHED", {
+        requestId,
+        pickCount: result.picks.length,
+        scanComplete: result.scanComplete ?? false,
+        combinatorSource: result.combinatorMeta?.source,
+      });
       opts.onPartial?.(result);
       finalPublished = true;
     }
@@ -749,6 +756,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         skipCombinator,
       });
       opts.onPartial(partial);
+      traceCoachPath("SCAN_PARTIAL", {
+        requestId,
+        pickCount: partial.picks.length,
+        scanComplete: partial.scanComplete ?? false,
+        skipCombinator,
+      });
     }
   };
 

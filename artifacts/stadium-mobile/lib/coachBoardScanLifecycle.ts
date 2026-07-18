@@ -3,6 +3,7 @@
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { boardScanIsComplete } from "./coachScanPolicy.ts";
 import { logCoachPickDiag } from "./coachPickDiagnostics.ts";
+import { traceCoachPath } from "./coachPathTrace.ts";
 import { emptyReasonForScan } from "./coachEmptyScanTerminal.ts";
 
 /** Hard wall-clock cap — scan must publish scanComplete=true before this. */
@@ -15,6 +16,7 @@ export function boardScanHardTimeoutMs(requestedLegs: number): number {
 export function logScanStart(requestId: string, requestedLegs: number): number {
   const startedAt = Date.now();
   logCoachPickDiag("scan-start", { requestId, requestedLegs });
+  traceCoachPath("SCAN_STARTED", { requestId, requestedLegs });
   return startedAt;
 }
 
@@ -39,6 +41,7 @@ export function logScanTerminalTimeout(requestId: string, startedAt: number): vo
     requestId,
     durationMs: Date.now() - startedAt,
   });
+  traceCoachPath("SCAN_TIMEOUT", { requestId, durationMs: Date.now() - startedAt });
 }
 
 export function logDeliveryPoll(

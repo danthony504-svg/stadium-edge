@@ -162,6 +162,7 @@ import {
   stashBoardScanFinal,
   type BoardScanFinalRegistry,
 } from "@/lib/coachBoardScanLifecycle";
+import { coachOtaCommitLabel, traceCoachPath } from "@/lib/coachPathTrace";
 import { awaitBoardScanUntilComplete } from "@/lib/coachBoardScanAwait";
 import {
   deriveBoardScanLiveProgress,
@@ -1277,14 +1278,7 @@ export default function CoachScreen() {
   useEffect(() => {
     flashEnrichRef.current = { ...flashEnrichRef.current, perfByFamily: marketPerf };
   }, [marketPerf]);
-  useEffect(() => {
-    const commit = process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked";
-    logCoachPickDiag("board-scan-start", {
-      stage: "coach-screen-mounted",
-      gitCommit: commit,
-      requiredCommit: "856e73855",
-    });
-  }, []);
+  const otaCommitLabel = coachOtaCommitLabel();
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -1483,6 +1477,11 @@ export default function CoachScreen() {
         captureFromCoach(finalized.picks);
         liveScanDeliveredRef.current = true;
         scrollToEnd(false);
+        traceCoachPath("UI_RENDER_PICKS", {
+          source: opts?.source ?? "deliverCoachTicket",
+          pickCount: finalized.picks.length,
+          requestId: ctx?.requestId,
+        });
         return true;
       }
       boardTicketSnapshotRef.current = cleaned;
@@ -1500,6 +1499,11 @@ export default function CoachScreen() {
       setAiPicks(cleaned);
       captureFromCoach(cleaned);
       scrollToEnd(false);
+      traceCoachPath("UI_RENDER_PICKS", {
+        source: opts?.source ?? "deliverCoachTicket",
+        pickCount: cleaned.length,
+        requestId: ctx?.requestId,
+      });
       return true;
     },
     [clearBuildStallWatchdog, scrollToEnd],
@@ -7315,6 +7319,19 @@ export default function CoachScreen() {
           )}
         </Pressable>
       </View>
+      <Text
+        style={{
+          paddingHorizontal: 16,
+          paddingTop: 4,
+          paddingBottom: 6,
+          color: colors.mutedForeground,
+          fontFamily: FONT.body,
+          fontSize: 10,
+          textAlign: "center",
+        }}
+      >
+        OTA {otaCommitLabel}
+      </Text>
       </KeyboardStickyView>
       </View>
     </View>

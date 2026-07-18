@@ -3,6 +3,7 @@
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { boardScanIsComplete } from "./coachScanPolicy.ts";
 import { logCoachPickDiag } from "./coachPickDiagnostics.ts";
+import { traceCoachPath } from "./coachPathTrace.ts";
 import { summarizeBoardScanEmptyFromResult } from "./boardScanStageDiagnostics.ts";
 
 export type BoardScanCombinatorMeta = {
@@ -35,6 +36,11 @@ export function logEmptyScanTerminalFired(
     scanComplete: scan.scanComplete === true,
     combinatorSource: meta?.source ?? "unknown",
     candidateCount: meta?.candidateCount ?? 0,
+    pickCount: meta?.pickCount ?? scan.picks?.length ?? 0,
+    emptyReason,
+  });
+  traceCoachPath("EMPTY_SCAN_TERMINAL", {
+    requestId: scan.requestId,
     pickCount: meta?.pickCount ?? scan.picks?.length ?? 0,
     emptyReason,
   });
