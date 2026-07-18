@@ -33,6 +33,8 @@ const EMPTY_SCAN_META = {
   sportCounts: {} as Record<string, number>,
   totalOpportunities: 0,
   scanComplete: false,
+  gamesScanned: 0,
+  scannedAt: "",
 };
 
 const EMPTY_RECORD: StealRecord = {

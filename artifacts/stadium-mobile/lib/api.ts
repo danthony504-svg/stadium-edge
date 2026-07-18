@@ -719,6 +719,8 @@ export type StealScanMeta = {
   totalOpportunities: number;
   /** True when a full scan finished — even if zero steals qualified. */
   scanComplete?: boolean;
+  gamesScanned?: number;
+  scannedAt?: string;
 };
 
 export type NearMissSteal = LiveSteal & {
@@ -779,6 +781,8 @@ const EMPTY_STEAL_SCAN_META: StealScanMeta = {
   sportCounts: {},
   totalOpportunities: 0,
   scanComplete: false,
+  gamesScanned: 0,
+  scannedAt: "",
 };
 
 export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsFetchResult> {
@@ -787,7 +791,7 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
   const started = Date.now();
   logStealScanLifecycle({ stage: "request_start", endpoint: path });
   try {
-    const res = await withTimeout(expoFetch(fullUrl, { signal }), 45_000, path);
+    const res = await withTimeout(expoFetch(fullUrl, { signal }), 15_000, path);
     const responseTimeMs = Date.now() - started;
     const bodyText = await res.text();
     logStealScanLifecycle({
