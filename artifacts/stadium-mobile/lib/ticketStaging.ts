@@ -25,15 +25,12 @@ import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   correlationTimedOut,
-  logCoachScanCorrelationComplete,
-  logCoachScanCorrelationError,
-  logCoachScanCorrelationStart,
-  logCoachScanCorrelationTimeout,
   logCoachScanLineValueComplete,
   logCoachScanLineValueStart,
   shouldSkipCorrelationScoring,
   correlationDeadline,
 } from "./coachScanPipeline.ts";
+import { runCoachCorrelationStage } from "./coachCorrelationPipeline.ts";
 import {
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
@@ -402,7 +399,6 @@ export function buildStagedTicketFromScan(
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
   }
 
-  const onBuildPhase = varietyContext?.onBuildPhase;
   const onBuildProgress = varietyContext?.onBuildProgress;
   const deadlineAt = varietyContext?.correlationDeadlineAt ?? correlationDeadline();
 
@@ -417,65 +413,73 @@ export function buildStagedTicketFromScan(
     onBuildProgress,
   );
 
-  const corrStart = Date.now();
   const skipCorrelation = shouldSkipCorrelationScoring(qualifying.length, target);
-  logCoachScanCorrelationStart(
+  let result: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown };
+
+  if (target >= 3 && varietySeed && !skipCorrelation) {
+    result = buildIndependentCoachTicket(scored, target, {
+      varietySeed,
+      ticketStyle,
+      ...varietyContext,
+      correlationDeadlineAt: deadlineAt,
+    });
+  } else if (target >= 3) {
+    result = buildBalancedStagedTicketFromScan(
+      scored,
+      target,
+      varietySeed,
+      ticketStyle,
+      skipCorrelation ? undefined : deadlineAt,
+    );
+  } else {
+    result = buildStagedTicketFromScanSmallTarget(
+      scored,
+      target,
+      varietySeed,
+      skipCorrelation ? undefined : deadlineAt,
+    );
+  }
+
+  return result;
+}
+
+/** Async board-scan staging — bounded correlation batches, fallback, never freezes at 89%. */
+export async function buildStagedTicketFromScanAsync(
+  scored: BoardScoredLeg[],
+  target: number,
+  varietySeed?: string,
+  varietyContext?: CoachTicketStagingContext & { preview?: boolean },
+): Promise<{ picks: ParsedPick[]; breakdown: TicketStagingBreakdown }> {
+  const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
+  const requestId = varietyContext?.requestId ?? varietySeed ?? "unknown";
+
+  if (varietyContext?.preview) {
+    return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
+  }
+
+  const onBuildProgress = varietyContext?.onBuildProgress;
+  const lineStart = Date.now();
+  logCoachScanLineValueStart(requestId);
+  const qualifying = qualifyingScoredLegs(scored);
+  logCoachScanLineValueComplete(
     requestId,
+    scored.length,
     qualifying.length,
-    skipCorrelation ? undefined : onBuildPhase,
+    Date.now() - lineStart,
     onBuildProgress,
   );
 
-  try {
-    if (deadlineAt != null && correlationTimedOut(deadlineAt)) {
-      logCoachScanCorrelationTimeout(requestId, Date.now() - corrStart);
-    }
+  const correlation = await runCoachCorrelationStage(scored, target, {
+    requestId,
+    varietySeed,
+    ticketStyle,
+    varietyContext,
+    onBuildProgress: varietyContext?.onBuildProgress,
+    onBuildPhase: varietyContext?.onBuildPhase,
+    deadlineAt: varietyContext?.correlationDeadlineAt,
+  });
 
-    let result: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown };
-
-    if (target >= 3 && varietySeed && !skipCorrelation) {
-      result = buildIndependentCoachTicket(scored, target, {
-        varietySeed,
-        ticketStyle,
-        ...varietyContext,
-        correlationDeadlineAt: deadlineAt,
-      });
-    } else if (target >= 3) {
-      result = buildBalancedStagedTicketFromScan(
-        scored,
-        target,
-        varietySeed,
-        ticketStyle,
-        skipCorrelation ? undefined : deadlineAt,
-      );
-    } else {
-      result = buildStagedTicketFromScanSmallTarget(
-        scored,
-        target,
-        varietySeed,
-        skipCorrelation ? undefined : deadlineAt,
-      );
-    }
-
-    if (!skipCorrelation && deadlineAt != null && correlationTimedOut(deadlineAt)) {
-      logCoachScanCorrelationTimeout(requestId, Date.now() - corrStart);
-    }
-
-    logCoachScanCorrelationComplete(
-      requestId,
-      qualifying.length,
-      result.picks.length,
-      Date.now() - corrStart,
-      onBuildPhase,
-      onBuildProgress,
-    );
-    return result;
-  } catch (err) {
-    if (deadlineAt != null && correlationTimedOut(deadlineAt)) {
-      logCoachScanCorrelationTimeout(requestId, Date.now() - corrStart);
-    }
-    logCoachScanCorrelationError(requestId, err, Date.now() - corrStart);
-  }
+  return { picks: correlation.picks, breakdown: correlation.breakdown };
 }
 
 function buildStagedTicketFromScanSmallTarget(

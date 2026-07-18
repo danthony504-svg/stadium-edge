@@ -46,9 +46,10 @@ import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
+  buildStagedTicketFromScanAsync,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
-export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
+export { buildStagedTicketFromScan, buildStagedTicketFromScanAsync, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
@@ -454,7 +455,8 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
-function buildScanResult(
+function finalizeScanResult(
+  staged: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown },
   scored: BoardScoredLeg[],
   opts: {
     target: number;
@@ -464,30 +466,11 @@ function buildScanResult(
     preview?: boolean;
     boardExhausted?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
-    varietySeed?: string;
-    varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
-    ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
-    onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
-    onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
   },
 ): FullBoardScanResult {
-  const staged = buildStagedTicketFromScan(
-    scored,
-    opts.target,
-    opts.varietySeed,
-    {
-      ...opts.varietyContext,
-      ticketStyle: opts.ticketStyle,
-      requestId: opts.requestId,
-      onBuildPhase: opts.preview ? undefined : opts.onBuildPhase,
-      onBuildProgress: opts.preview ? undefined : opts.onBuildProgress,
-      preview: opts.preview,
-    },
-  );
   const picks = staged.picks;
   const breakdown = staged.breakdown;
-
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const scanComplete = !opts.preview && opts.boardExhausted === true;
   const manifest = opts.manifestRecorder.finalize({
@@ -520,6 +503,56 @@ function buildScanResult(
     requestId: opts.requestId,
     manifest,
   };
+}
+
+function buildScanResultPreview(
+  scored: BoardScoredLeg[],
+  opts: {
+    target: number;
+    evalLinesByGame: Map<string, RealOddsEntry[]>;
+    gameSimulations: Map<string, CoachGameSimEntry>;
+    totalScanned: number;
+    manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    varietySeed?: string;
+    varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+    ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
+    requestId?: string;
+  },
+): FullBoardScanResult {
+  const staged = buildStagedTicketFromScan(scored, opts.target, opts.varietySeed, {
+    ...opts.varietyContext,
+    ticketStyle: opts.ticketStyle,
+    requestId: opts.requestId,
+    preview: true,
+  });
+  return finalizeScanResult(staged, scored, { ...opts, preview: true });
+}
+
+async function buildScanResultFinal(
+  scored: BoardScoredLeg[],
+  opts: {
+    target: number;
+    evalLinesByGame: Map<string, RealOddsEntry[]>;
+    gameSimulations: Map<string, CoachGameSimEntry>;
+    totalScanned: number;
+    boardExhausted?: boolean;
+    manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    varietySeed?: string;
+    varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+    ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
+    requestId?: string;
+    onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+    onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
+  },
+): Promise<FullBoardScanResult> {
+  const staged = await buildStagedTicketFromScanAsync(scored, opts.target, opts.varietySeed, {
+    ...opts.varietyContext,
+    ticketStyle: opts.ticketStyle,
+    requestId: opts.requestId,
+    onBuildPhase: opts.onBuildPhase,
+    onBuildProgress: opts.onBuildProgress,
+  });
+  return finalizeScanResult(staged, scored, { ...opts, preview: false });
 }
 
 export async function buildTopLegsFromFullBoardScan(opts: {
@@ -602,18 +635,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const emitBoardScanPartial = () => {
     if (!opts.onPartial) return;
     manifestRecorder.recomputeQualificationFromScored(scored);
-    const partial = buildScanResult(scored, {
+    const partial = buildScanResultPreview(scored, {
       target: opts.target,
       evalLinesByGame,
       gameSimulations,
       totalScanned,
-      preview: true,
       manifestRecorder,
       varietySeed: opts.varietySeed,
       varietyContext: opts.varietyContext,
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
-      onBuildProgress: opts.onBuildProgress,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
@@ -717,7 +748,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
-  const result = buildScanResult(collapsed, {
+  const result = await buildScanResultFinal(collapsed, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,

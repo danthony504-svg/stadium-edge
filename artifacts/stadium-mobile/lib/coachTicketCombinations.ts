@@ -680,55 +680,146 @@ function prefixPenaltyForTarget(
   return penalty;
 }
 
+function buildSingleTicketCandidate(
+  scored: BoardScoredLeg[],
+  target: number,
+  opts: CoachTicketBuildOpts,
+  index: number,
+): TicketCandidate | null {
+  const qualifying = qualifyingScoredLegs(scored);
+  const ticketStyle = opts.ticketStyle ?? "balanced";
+  const profile = ticketSizeProfile(target);
+  const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
+  const recentFlat = new Set((opts.recentTickets ?? []).flatMap((r) => [...r]));
+  const orderIdx = (index + profile.orderShift) % ASSEMBLY_CATEGORY_ORDERS.length;
+  const config: AssemblyConfig = {
+    seed: `${sizeSeed}|ticket-${index}`,
+    diversityWeight: profile.diversityBase + (index % 6) * 0.08,
+    bandOffset: index + target * 5,
+    categoryOrder: ASSEMBLY_CATEGORY_ORDERS[orderIdx]!,
+    poolRotate: profile.poolRotate + index,
+    recentLegKeys: recentFlat.size ? recentFlat : undefined,
+    recentLeadPlayers: opts.recentLeadPlayers,
+    recentPlayerCounts: opts.recentPlayerCounts,
+    lineShoppingBias: profile.lineShoppingBias + (index % 4) * 0.12,
+  };
+  const picks = assembleBalancedDiverseTicket(
+    qualifying,
+    scored,
+    target,
+    config,
+    ticketStyle,
+  );
+  if (!picks.length) return null;
+  const legKeys = picks.map((p) => parlayLegKey(p));
+  const candidate: TicketCandidate = {
+    picks,
+    legKeys,
+    qualityScore: ticketQualityScore(picks, qualifying),
+    diversityScore: ticketDiversityScore(picks),
+    varietyPenalty: 0,
+  };
+  candidate.varietyPenalty =
+    candidateVarietyPenalty(candidate, qualifying, opts) +
+    prefixPenaltyForTarget(candidate, target, opts);
+  return candidate;
+}
+
 function generateTicketCandidates(
   scored: BoardScoredLeg[],
   target: number,
   opts: CoachTicketBuildOpts,
 ): TicketCandidate[] {
-  const qualifying = qualifyingScoredLegs(scored);
-  const ticketStyle = opts.ticketStyle ?? "balanced";
-  const out: TicketCandidate[] = [];
   const profile = ticketSizeProfile(target);
-  const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
-  const recentFlat = new Set((opts.recentTickets ?? []).flatMap((r) => [...r]));
   const candidateCount = profile.candidateCount;
   const deadlineAt = opts.correlationDeadlineAt;
+  const out: TicketCandidate[] = [];
   for (let i = 0; i < candidateCount; i++) {
     if (deadlineAt != null && correlationTimedOut(deadlineAt)) break;
-    const orderIdx = (i + profile.orderShift) % ASSEMBLY_CATEGORY_ORDERS.length;
-    const config: AssemblyConfig = {
-      seed: `${sizeSeed}|ticket-${i}`,
-      diversityWeight: profile.diversityBase + (i % 6) * 0.08,
-      bandOffset: i + target * 5,
-      categoryOrder: ASSEMBLY_CATEGORY_ORDERS[orderIdx]!,
-      poolRotate: profile.poolRotate + i,
-      recentLegKeys: recentFlat.size ? recentFlat : undefined,
-      recentLeadPlayers: opts.recentLeadPlayers,
-      recentPlayerCounts: opts.recentPlayerCounts,
-      lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
-    };
-    const picks = assembleBalancedDiverseTicket(
-      qualifying,
-      scored,
-      target,
-      config,
-      ticketStyle,
-    );
-    if (!picks.length) continue;
-    const legKeys = picks.map((p) => parlayLegKey(p));
-    const candidate: TicketCandidate = {
-      picks,
-      legKeys,
-      qualityScore: ticketQualityScore(picks, qualifying),
-      diversityScore: ticketDiversityScore(picks),
-      varietyPenalty: 0,
-    };
-    candidate.varietyPenalty =
-      candidateVarietyPenalty(candidate, qualifying, opts) +
-      prefixPenaltyForTarget(candidate, target, opts);
-    out.push(candidate);
+    const candidate = buildSingleTicketCandidate(scored, target, opts, i);
+    if (candidate) out.push(candidate);
   }
   return out;
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Batched async candidate generation — yields between batches for UI responsiveness. */
+export async function buildIndependentCoachTicketAsync(
+  scored: BoardScoredLeg[],
+  target: number,
+  opts: CoachTicketBuildOpts,
+  runtime: {
+    batchSize: number;
+    deadlineAt: number;
+    onProgress?: (correlationsScored: number, candidateTicketCount: number) => void;
+    onTicketError?: (index: number, err: unknown) => void;
+  },
+): Promise<{
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  candidateTicketCount: number;
+  correlationsScored: number;
+  timedOut: boolean;
+  exceptions: string[];
+}> {
+  const qualifying = qualifyingScoredLegs(scored);
+  const profile = ticketSizeProfile(target);
+  const candidateTicketCount = profile.candidateCount;
+  const candidates: TicketCandidate[] = [];
+  const exceptions: string[] = [];
+  let timedOut = false;
+  let processed = 0;
+
+  for (let batchStart = 0; batchStart < candidateTicketCount; batchStart += runtime.batchSize) {
+    if (correlationTimedOut(runtime.deadlineAt)) {
+      timedOut = true;
+      break;
+    }
+    const batchEnd = Math.min(batchStart + runtime.batchSize, candidateTicketCount);
+    for (let i = batchStart; i < batchEnd; i++) {
+      try {
+        const candidate = buildSingleTicketCandidate(scored, target, opts, i);
+        if (candidate) candidates.push(candidate);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        exceptions.push(`ticket-${i}: ${message}`);
+        runtime.onTicketError?.(i, err);
+      }
+      processed = i + 1;
+    }
+    runtime.onProgress?.(candidates.length, candidateTicketCount);
+    await yieldToEventLoop();
+    if (correlationTimedOut(runtime.deadlineAt)) {
+      timedOut = true;
+      break;
+    }
+  }
+
+  traceCoachTicket("combinator-candidates", {
+    requestedLegs: target,
+    candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),
+    extra: { candidateCount: candidates.length, processed, timedOut },
+  });
+
+  const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
+  const picks = chosen?.picks ?? [];
+  traceCoachTicket("combinator-selected", {
+    requestedLegs: target,
+    candidateId: chosen ? `score:${candidateTotalScore(chosen).toFixed(1)}` : "none",
+    pickIds: picks,
+  });
+
+  return {
+    picks,
+    breakdown: stagingBreakdown(picks, qualifying),
+    candidateTicketCount,
+    correlationsScored: candidates.length,
+    timedOut,
+    exceptions,
+  };
 }
 
 function candidateTotalScore(candidate: TicketCandidate): number {
