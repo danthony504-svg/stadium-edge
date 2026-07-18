@@ -17,5 +17,3 @@ export function propMarketLabel(key: string | null | undefined): string {
     k.replace(/^(player_|batter_|pitcher_)/, "").replace(/_/g, " ");
   return base + suffix;
 }
-
-export { PROP_MARKET_LABEL_MAP } from "./propMarketConstants";

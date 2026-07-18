@@ -1386,12 +1386,6 @@ export function getStatmuseGamelog(
 }
 
 export { propMarketLabel } from "./propMarketLabel";
-export {
-  PROP_MARKET_LABEL_MAP,
-  PROP_LABEL_TO_KEY,
-  propMarketKeyForLabel,
-  normalizePropLabel,
-} from "./propMarketConstants";
 
 // ---------- Pickability window ----------
 // These pure slate/pickability helpers live in ./slate (dependency-free so they

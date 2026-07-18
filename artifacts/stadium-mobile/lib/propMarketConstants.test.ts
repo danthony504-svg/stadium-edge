@@ -7,6 +7,12 @@ import {
   propMarketKeyForLabel,
 } from "./propMarketConstants.ts";
 
+/** Startup guard — constants module must load before api.ts importers. */
+test("startup: prop market constants are defined at module load", () => {
+  assert.ok(Object.keys(PROP_MARKET_LABEL_MAP).length > 0);
+  assert.equal(typeof propMarketKeyForLabel, "function");
+});
+
 test("PROP_MARKET_LABEL_MAP is defined at module load", () => {
   assert.ok(PROP_MARKET_LABEL_MAP);
   assert.equal(typeof PROP_MARKET_LABEL_MAP, "object");
