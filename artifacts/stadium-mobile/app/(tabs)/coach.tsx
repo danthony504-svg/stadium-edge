@@ -5737,22 +5737,7 @@ export default function CoachScreen() {
     return slateOddsLabel(day ?? "tonight");
   }, [headerUserTexts]);
 
-  const [bundleRequestId, setBundleRequestId] = useState("");
-  useEffect(() => {
-    const syncRequestId = () => {
-      setBundleRequestId(
-        activeCoachRequestId() || coachRequestContextRef.current?.requestId || "",
-      );
-    };
-    syncRequestId();
-    const timer = setInterval(syncRequestId, 400);
-    return () => clearInterval(timer);
-  }, [streaming, buildFinishing, waiting, boardScanPartialLegs]);
-
-  const bundleIdentityLine = useMemo(
-    () => formatBundleIdentityLine(bundleRequestId || undefined),
-    [bundleRequestId],
-  );
+  const bundleIdentityLine = useMemo(() => formatBundleIdentityLine(), []);
 
   // Older OTAs injected dead watchdog prose into assistant bubbles — scrub on load.
   useEffect(() => {
@@ -6008,7 +5993,7 @@ export default function CoachScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
         <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
-          AI Coach
+          Stadium Edge AI Coach
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
           Picks grounded in {headerSlateLabel} real odds — never invented

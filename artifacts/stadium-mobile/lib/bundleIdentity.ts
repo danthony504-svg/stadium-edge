@@ -31,17 +31,10 @@ export function getBundleIdentity(): BundleIdentity {
   };
 }
 
-export function formatBundleIdentityLine(requestId?: string | null): string {
+export function formatBundleIdentityLine(_requestId?: string | null): string {
   const id = getBundleIdentity();
-  const modeLabel = id.dev ? "dev" : "production";
-  const timeLabel = new Date(id.bundleTimestamp).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  const reqLabel = requestId?.trim()
-    ? ` • req ${requestId.trim().slice(0, 12)}`
-    : "";
-  return `${modeLabel} ${id.metroMode} • commit ${id.commit} • ${id.projectPath} • ${timeLabel}${reqLabel}`;
+  const modeLabel = id.dev ? "dev-client" : "production";
+  return `${modeLabel} • ${id.metroMode} • commit ${id.commit}`;
 }
 
 let logged = false;

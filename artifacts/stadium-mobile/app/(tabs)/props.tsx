@@ -1098,7 +1098,7 @@ export default function PropsScreen() {
           />
         }
       >
-        {/* Pinned header — new Player Props browse landing, Coach-style brand row. */}
+        {/* Pinned header — Player Props browse landing, Stadium Edge brand row. */}
         <AppHeader bottomGap={0} style={{ paddingBottom: 14 }}>
           <PageTitleRow
             icon="user"

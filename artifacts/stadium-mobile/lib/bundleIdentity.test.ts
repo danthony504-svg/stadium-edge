@@ -16,11 +16,12 @@ test("bundle identity exposes commit path and dev flag", () => {
   assert.ok(id.metroMode);
 });
 
-test("formatBundleIdentityLine includes commit and requestId", () => {
+test("formatBundleIdentityLine shows dev-client mode and commit only", () => {
   const line = formatBundleIdentityLine("req-abc-12345");
   assert.match(line, /commit/);
-  assert.match(line, /stadium-mobile/);
-  assert.match(line, /req req-abc-123/);
+  assert.match(line, /dev-client|production/);
+  assert.doesNotMatch(line, /stadium-mobile/);
+  assert.doesNotMatch(line, /req /);
 });
 
 test("logBundleIdentity is idempotent", () => {
