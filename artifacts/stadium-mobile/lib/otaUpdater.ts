@@ -32,6 +32,20 @@ export async function prefetchOtaInBackground(): Promise<OtaPrefetchOutcome> {
   }
 }
 
+/**
+ * Coach / foreground hook: prefetch a production OTA without auto-reload.
+ * Reload remains user-driven via OtaUpdateBanner or OTA Diagnostics.
+ */
+export async function prefetchAndMaybeApplyOta(_force = false): Promise<void> {
+  if (__DEV__ || !Updates.isEnabled || isOtaReloadBlocked()) return;
+
+  try {
+    await prefetchOtaInBackground();
+  } catch (err) {
+    console.warn("[ota] prefetch failed", err);
+  }
+}
+
 /** @deprecated Not mounted from _layout. Foreground fetch-only if used elsewhere. */
 export function useOtaUpdater(enabled: boolean) {
   const inFlight = useRef(false);
