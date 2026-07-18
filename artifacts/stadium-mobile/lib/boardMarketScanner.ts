@@ -49,6 +49,7 @@ import {
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
+import { logCoachExecStep } from "./coachExecutionTrace.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -427,7 +428,10 @@ async function simPropPoolUntilQualified(
     }
 
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
-    opts.onWave?.(combinedScored());
+    const combined = combinedScored();
+    opts.onWave?.(combined);
+
+    if (countQualifiedBoardLegs(combined, opts.target) >= opts.target) break;
 
     if (simIndex >= rankedProps.length) break;
 
@@ -484,6 +488,14 @@ function buildScanResult(
     source: opts.preview ? "buildScanResult-preview" : "buildScanResult-final",
     extra: { scanComplete: !opts.preview && opts.boardExhausted === true },
   });
+  if (scanComplete) {
+    logCoachExecStep("board-scan-complete", {
+      activeRequestId: opts.requestId ?? null,
+      scanComplete: true,
+      pickCount: picks.length,
+      selectedCount: 0,
+    });
+  }
   return {
     picks,
     evalLinesByGame: opts.evalLinesByGame,

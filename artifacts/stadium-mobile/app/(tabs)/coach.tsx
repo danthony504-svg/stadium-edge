@@ -180,6 +180,13 @@ import {
 } from "@/lib/coachFinalizeTicket";
 import { runCoachCorrelation } from "@/lib/coachCorrelation";
 import {
+  logCoachExecSkip,
+  logCoachExecStep,
+  registerCoachExecTraceSink,
+  type CoachExecSnapshot,
+} from "@/lib/coachExecutionTrace";
+import { awaitBoardScanWithinBudget } from "@/lib/coachBoardScanRace";
+import {
   type CoachBuildPhase,
   coachPhaseToProgressBuildPhase,
   nextCoachPhase,
@@ -1301,6 +1308,10 @@ export default function CoachScreen() {
   const boardTicketSnapshotRef = useRef<ParsedPick[] | null>(null);
   const latestBoardScanRef = useRef<FullBoardScanResult | null>(null);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
+  const boardScanInFlightRef = useRef<{
+    key: string;
+    promise: Promise<FullBoardScanResult | null>;
+  } | null>(null);
   const activeParlayAskRef = useRef("");
   const varietySeedRef = useRef("");
   const coachRequestContextRef = useRef<CoachTicketRequestContext | null>(null);
@@ -1322,6 +1333,47 @@ export default function CoachScreen() {
     setCoachBuildPhase((current) => nextCoachPhase(current, target, newRequest));
   }, []);
 
+  const readCoachExecTraceSnapshot = useCallback((): CoachExecSnapshot => {
+    const partial = latestBoardScanRef.current;
+    return {
+      activeRequestId: activeRequestIdRef.current,
+      scanComplete: boardScanIsComplete(partial),
+      pickCount: partial?.picks?.length ?? boardTicketSnapshotRef.current?.length ?? 0,
+      selectedCount: boardTicketSnapshotRef.current?.length ?? 0,
+      finalizedRequestId: finalizedRequestIdRef.current,
+      correlationRequestId: correlationRequestIdRef.current,
+      sendGeneration: sendGenerationRef.current,
+    };
+  }, []);
+
+  useEffect(() => registerCoachExecTraceSink(readCoachExecTraceSnapshot), [readCoachExecTraceSnapshot]);
+
+  const runBoundedBoardScan = useCallback(
+    (
+      opts: Parameters<typeof tryReachFullBoardScan>[0],
+      budgetMs: number,
+    ): Promise<FullBoardScanResult | null> => {
+      const requestId =
+        opts.requestId ?? coachRequestContextRef.current?.requestId ?? varietySeedRef.current;
+      const key = `${requestId}:${opts.target}`;
+      const inFlight = boardScanInFlightRef.current;
+      if (inFlight?.key === key) return inFlight.promise;
+
+      const scanPromise = tryReachFullBoardScan({ ...opts, requestId });
+      const bounded = awaitBoardScanWithinBudget(scanPromise, budgetMs, () => {
+        abortRef.current?.abort();
+      });
+      boardScanInFlightRef.current = { key, promise: bounded };
+      bounded.finally(() => {
+        if (boardScanInFlightRef.current?.key === key) {
+          boardScanInFlightRef.current = null;
+        }
+      });
+      return bounded;
+    },
+    [],
+  );
+
   const commitCoachFinalTicket = useCallback(
     (
       picks: ParsedPick[],
@@ -1334,6 +1386,12 @@ export default function CoachScreen() {
     ): boolean => {
       const { requestId, legTarget, legNote, coachDetailNote } = opts;
       const partial = latestBoardScanRef.current;
+      logCoachExecStep("commit-start", {
+        activeRequestId: requestId,
+        scanComplete: boardScanIsComplete(partial),
+        pickCount: picks.length,
+        selectedCount: picks.length,
+      });
       boardTicketSnapshotRef.current = picks;
       liveScanDeliveredRef.current = picks.length > 0;
       setBoardScanPartialLegs(picks.length);
@@ -1359,6 +1417,11 @@ export default function CoachScreen() {
               messageIndex: i,
               messageCount: prev.length,
             });
+            logCoachExecStep("commit-cards-applied", {
+              activeRequestId: requestId,
+              pickCount: picks.length,
+              selectedCount: picks.length,
+            });
             return copy;
           }
         }
@@ -1378,6 +1441,11 @@ export default function CoachScreen() {
           messageIndex: copy.length - 1,
           messageCount: prev.length,
           recoveredMissingBubble: true,
+        });
+        logCoachExecStep("commit-cards-applied", {
+          activeRequestId: requestId,
+          pickCount: picks.length,
+          selectedCount: picks.length,
         });
         return copy;
       });
@@ -1415,6 +1483,13 @@ export default function CoachScreen() {
         );
         setTimeout(() => captureFromCoach(picks), 0);
       }
+      logCoachExecStep("commit-complete", {
+        activeRequestId: requestId,
+        scanComplete: boardScanIsComplete(partial),
+        pickCount: picks.length,
+        selectedCount: picks.length,
+        finalizedRequestId: requestId,
+      });
       scrollToEnd(false);
       return committed;
     },
@@ -1492,10 +1567,19 @@ export default function CoachScreen() {
 
       if (!boardScanIsComplete(partial)) {
         logCoachHandoff("skip-scan-incomplete", { phase, requestId });
+        logCoachExecSkip("correlation-start", "scan-incomplete", {
+          activeRequestId: requestId,
+          scanComplete: false,
+          pickCount: partial.picks?.length ?? 0,
+        });
         return false;
       }
       if (!requestId) {
         logCoachHandoff("skip-no-request-id", { phase, candidateCount: partial.picks?.length ?? 0 });
+        logCoachExecSkip("correlation-start", "missing-request-id", {
+          scanComplete: true,
+          pickCount: partial.picks?.length ?? 0,
+        });
         return false;
       }
       if (finalizedRequestIdRef.current === requestId) {
@@ -1503,6 +1587,12 @@ export default function CoachScreen() {
           phase,
           requestId,
           snapshotPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+        });
+        logCoachExecSkip("correlation-start", "already-finalized", {
+          activeRequestId: requestId,
+          scanComplete: true,
+          pickCount: partial.picks?.length ?? 0,
+          finalizedRequestId: requestId,
         });
         return false;
       }
@@ -1531,6 +1621,11 @@ export default function CoachScreen() {
               candidateCount: partial.picks.length,
               requestedLegs: legTarget,
             });
+            logCoachExecStep("correlation-start", {
+              activeRequestId: requestId,
+              scanComplete: true,
+              pickCount: partial.picks.length,
+            });
             const correlation = await runCoachCorrelation({
               requestId,
               candidates: partial.picks,
@@ -1545,6 +1640,13 @@ export default function CoachScreen() {
               inputCount: correlation.inputCount,
               outputCount: correlation.outputCount,
               durationMs: correlation.durationMs,
+            });
+            logCoachExecStep("correlation-complete", {
+              activeRequestId: requestId,
+              scanComplete: true,
+              pickCount: partial.picks.length,
+              selectedCount: correlation.outputCount,
+              correlationRequestId: requestId,
             });
           } else {
             logCoachHandoff("correlation-skipped-already-ran", {
@@ -1618,6 +1720,12 @@ export default function CoachScreen() {
               phase,
               pickCount: result.picks.length,
               legTarget,
+            });
+            logCoachExecStep("commit-start", {
+              activeRequestId: requestId,
+              scanComplete: true,
+              pickCount: result.picks.length,
+              selectedCount: result.selectedCount,
             });
             const committed = commitCoachFinalTicket(result.picks, {
               requestId,
@@ -2314,11 +2422,22 @@ export default function CoachScreen() {
           sendGeneration: sendGenerationRef.current,
           contextSendGeneration: ctx?.sendGeneration ?? null,
         });
+        logCoachExecStep("board-scan-complete", {
+          activeRequestId: requestId,
+          scanComplete: true,
+          pickCount: partial.picks?.length ?? 0,
+        });
         if (genOk || activeOk) {
           runFinalizeCoachTicket(partial, "board-scan-complete");
         } else {
           logCoachHandoff("board-scan-complete-skipped-stale-gen", {
             requestId: ctx?.requestId ?? partial.requestId ?? null,
+          });
+          logCoachExecSkip("correlation-start", "stale-send-generation-or-inactive-request", {
+            activeRequestId: requestId,
+            scanComplete: true,
+            pickCount: partial.picks?.length ?? 0,
+            sendGeneration: sendGenerationRef.current,
           });
         }
         return;
@@ -2402,8 +2521,8 @@ export default function CoachScreen() {
             );
           }
           const reachTarget = Math.min(target, MAX_LEGS);
-          return await Promise.race([
-            tryReachFullBoardScan({
+          return runBoundedBoardScan(
+            {
               target: reachTarget,
               oddsGames,
               propPool: seedBuilt?.propPool ?? [],
@@ -2425,17 +2544,15 @@ export default function CoachScreen() {
               onPartial: onBoardScanPartial,
               signal,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeedRef.current,
-            }),
-            new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), boardScanBudgetMs(reachTarget)),
-            ),
-          ]);
+            },
+            boardScanBudgetMs(reachTarget),
+          );
         } catch {
           return null;
         }
       })();
     },
-    [marketPerf, modelCalibration, onBoardScanPartial],
+    [marketPerf, modelCalibration, onBoardScanPartial, runBoundedBoardScan],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -2522,6 +2639,7 @@ export default function CoachScreen() {
       boardTicketSnapshotRef.current = null;
       latestBoardScanRef.current = null;
       earlyReachBoardScanRef.current = null;
+      boardScanInFlightRef.current = null;
       coachRequestContextRef.current = null;
       activeRequestLegTargetRef.current = 0;
       liveScanDeliveredRef.current = false;
@@ -2534,6 +2652,7 @@ export default function CoachScreen() {
         boardTicketSnapshotRef.current = null;
         latestBoardScanRef.current = null;
         earlyReachBoardScanRef.current = null;
+        boardScanInFlightRef.current = null;
         coachRequestContextRef.current = null;
         activeRequestLegTargetRef.current = 0;
         liveScanDeliveredRef.current = false;
@@ -3334,8 +3453,8 @@ export default function CoachScreen() {
                   })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
-              preBoardScan = await Promise.race([
-                tryReachFullBoardScan({
+              preBoardScan = await runBoundedBoardScan(
+                {
                   target: reachTargetPreScan,
                   oddsGames,
                   propPool,
@@ -3348,16 +3467,16 @@ export default function CoachScreen() {
                   matchupHistory: context.matchupHistory,
                   matchupInjuries: context.matchupInjuries,
                   playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
+                  mlbPlatoon: context.mlbPlatoon,
+                  mlbGameEnv: context.mlbGameEnv,
                   perfByFamily: marketPerf,
                   calibration: modelCalibration,
                   onPartial: onBoardScanPartial,
                   signal: abortRef.current?.signal,
                   ...boardScanVariety,
-                }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
-              ]);
+                },
+                boardScanMs,
+              );
               freshBoardScanComplete = !!(
                 preBoardScan?.picks?.length &&
                 boardScanIsComplete(preBoardScan) &&
@@ -3752,7 +3871,12 @@ export default function CoachScreen() {
           );
           if (cachedBoardScan && !didReachFullPreScan) {
             reachBoardScan = cachedBoardScan;
-          } else if (!didReachFullPreScan || !freshBoardScanComplete) {
+          } else if (
+            !didReachFullPreScan ||
+            (!freshBoardScanComplete &&
+              !boardScanIsComplete(preBoardScan) &&
+              !boardScanIsComplete(latestBoardScanRef.current))
+          ) {
             const scanSports = coachLiveScanSports(excludedSports);
             const [espnGames, oddsGames, liveFeed] = await Promise.all([
               Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
@@ -3767,8 +3891,8 @@ export default function CoachScreen() {
               })),
             ]);
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
-            reachBoardScan = await Promise.race([
-              tryReachFullBoardScan({
+            reachBoardScan = await runBoundedBoardScan(
+              {
                 target: Math.min(legTarget, MAX_LEGS),
                 oddsGames,
                 propPool: mergedPropPool,
@@ -3790,9 +3914,9 @@ export default function CoachScreen() {
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
-              }),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
-            ]);
+              },
+              reachBoardScanMs,
+            );
             if (!reachBoardScan && boardScanIsComplete(latestBoardScanRef.current)) {
               const ref = latestBoardScanRef.current;
               if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
@@ -4222,8 +4346,8 @@ export default function CoachScreen() {
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
           const inlineBoardScanMs = boardScanBudgetMs(reachTarget);
-          const inlineScan = await Promise.race([
-            tryReachFullBoardScan({
+          const inlineScan = await runBoundedBoardScan(
+            {
               target: reachTarget,
               oddsGames,
               propPool: mergedPropPool,
@@ -4236,8 +4360,8 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
               perfByFamily: marketPerf,
               calibration: modelCalibration,
               signal: abortRef.current?.signal,
@@ -4246,9 +4370,9 @@ export default function CoachScreen() {
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
-            }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
-          ]);
+            },
+            inlineBoardScanMs,
+          );
           if (inlineScan) {
             fullBoardScanMeta = inlineScan;
             if (
@@ -6114,6 +6238,8 @@ export default function CoachScreen() {
       clearBuildStallWatchdog,
       onBoardScanPartial,
       kickoffEarlyReachBoardScan,
+      runBoundedBoardScan,
+      runFinalizeCoachTicket,
       attachedImages,
       isSignedIn,
       modelStrengths,
