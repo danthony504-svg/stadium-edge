@@ -7359,7 +7359,7 @@ export default function CoachScreen() {
         }}
         selectable
       >
-        OTA {otaCommitLabel}
+        {otaCommitLabel}
       </Text>
       </View>
       </KeyboardStickyView>

@@ -53,7 +53,9 @@ pnpm exec eas build:list --platform ios --limit 10 --non-interactive --json 2>/d
   | node -e "
 const chunks=[]; process.stdin.on('data',d=>chunks.push(d)); process.stdin.on('end',()=>{
   try {
-    const rows=JSON.parse(Buffer.concat(chunks).toString());
+    const raw = Buffer.concat(chunks).toString().trim();
+    const start = raw.indexOf('[');
+    const rows = JSON.parse(start >= 0 ? raw.slice(start) : raw);
     const prod = rows.filter(b => (b.channel || b.releaseChannel || '') === 'production' || b.buildProfile === 'production');
     const show = (prod.length ? prod : rows).slice(0, 6);
     for (const b of show) {
@@ -68,7 +70,29 @@ const chunks=[]; process.stdin.on('data',d=>chunks.push(d)); process.stdin.on('e
     }
   } catch (e) { console.log('(parse error)', e.message); }
 });
-" || pnpm exec eas build:list --platform ios --limit 6 --non-interactive
+" || pnpm exec eas build:list --platform ios --limit 6 --non-interactive 2>/dev/null || true
+
+section "4b. Complete any in-progress rollout (blocks new publishes)"
+ROLLING_GROUP="$(pnpm exec eas update:list --branch production --limit 1 --json --non-interactive 2>/dev/null \
+  | node -e "
+const chunks=[]; process.stdin.on('data',d=>chunks.push(d)); process.stdin.on('end',()=>{
+  try {
+    const raw = Buffer.concat(chunks).toString().trim();
+    const start = raw.indexOf('[');
+    const rows = JSON.parse(start >= 0 ? raw.slice(start) : raw);
+    const g = rows[0];
+    if (!g) return;
+    const pct = g.rolloutPercentage ?? g.rollout?.percentage;
+    if (pct != null && pct < 100) console.log(g.group ?? g.id ?? '');
+  } catch {}
+});
+" || true)"
+if [[ -n "${ROLLING_GROUP}" ]]; then
+  echo "Completing rollout for group ${ROLLING_GROUP} → 100%…"
+  pnpm exec eas update:edit "${ROLLING_GROUP}" --rollout-percentage 100 --non-interactive 2>&1 || true
+else
+  echo "No partial rollout on production branch."
+fi
 
 section "5. Publish OTA → channel ${CHANNEL}"
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
@@ -83,11 +107,14 @@ echo "Linking ${CHANNEL} channel → ${BRANCH} branch…"
 pnpm exec eas channel:edit "${CHANNEL}" --branch "${BRANCH}" --non-interactive
 
 pnpm exec eas update \
-  --channel "${CHANNEL}" \
+  --branch "${BRANCH}" \
   --platform ios \
   --environment production \
   --message "${MESSAGE}" \
   --non-interactive
+
+echo "Re-linking ${CHANNEL} channel → ${BRANCH} branch after publish…"
+pnpm exec eas channel:edit "${CHANNEL}" --branch "${BRANCH}" --non-interactive
 
 section "6. Post-publish: eas update:list (production branch)"
 pnpm exec eas update:list --branch production --limit 3 --non-interactive 2>&1 || true

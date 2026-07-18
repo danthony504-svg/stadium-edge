@@ -43,7 +43,9 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           OTA_MESSAGE: ${{ github.event.inputs.message || 'Fix AI Coach scan final handoff' }}
-        run: bash scripts/verify-publish-production-ota.sh | tee /tmp/ota-verify-publish.log
+        run: |
+          set -o pipefail
+          bash scripts/verify-publish-production-ota.sh | tee /tmp/ota-verify-publish.log
 
       - name: Upload verification log
         uses: actions/upload-artifact@v4
