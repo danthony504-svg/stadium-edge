@@ -157,6 +157,7 @@ import {
   logCoachTicketRenderComplete,
   logPipelineProgressBumpRejected,
 } from "@/lib/coachPipelineTrace";
+import { settleCoachPipeline } from "@/lib/coachPipelineStateMachine";
 import { CoachMatchupStageError } from "@/lib/coachMatchupPipeline";
 import { CoachEvStageError } from "@/lib/coachEvPipeline";
 import {
@@ -1668,6 +1669,7 @@ export default function CoachScreen() {
         const reqId =
           partial.requestId ?? coachRequestContextRef.current?.requestId ?? "unknown";
         logCoachTicketRenderComplete(reqId, ticket.length, legTarget);
+        settleCoachPipeline(reqId, "ticket-delivered");
         deliverCoachTicket(ticket, legNote);
       } else {
         patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
@@ -2246,15 +2248,16 @@ export default function CoachScreen() {
         applyCoachBuildProgress(initial);
         bumpCoachBuildProgress("loading-games", varietySeed, sendGen);
       }
-      const coachScanOnBuildProgress: CoachBuildProgressCallback = (stageId, reqId) => {
+      const coachScanOnBuildProgress: CoachBuildProgressCallback = (stageId, _reqId) => {
         if (sendGenerationRef.current !== sendGen) return;
         const progressReq = coachBuildProgressRef.current?.requestId;
-        if (coachScanPipelineIsStale(reqId) && progressReq && progressReq !== reqId) return;
-        bumpCoachBuildProgress(stageId, progressReq ?? reqId, sendGen);
+        if (!progressReq || coachScanPipelineIsStale(progressReq)) return;
+        bumpCoachBuildProgress(stageId, progressReq, sendGen);
       };
-      const coachScanOnBuildPhase: CoachScanPhaseCallback = (phase, reqId) => {
-        if (coachScanPipelineIsStale(reqId)) return;
+      const coachScanOnBuildPhase: CoachScanPhaseCallback = (phase, _reqId) => {
         if (sendGenerationRef.current !== sendGen) return;
+        const progressReq = coachBuildProgressRef.current?.requestId;
+        if (!progressReq || coachScanPipelineIsStale(progressReq)) return;
         setParlayBuildPhaseMonotonic(phase);
       };
       terminalRef.current = false;

@@ -1,5 +1,6 @@
 /** Stage tracing for Coach board-scan ticket staging (line-value → correlation). */
 
+import { clearCoachPipelineState } from "./coachPipelineStateMachine.ts";
 import type {
   CoachBuildProgressCallback,
   CoachBuildStageId,
@@ -44,7 +45,10 @@ export function clearCoachScanPipeline(requestId?: string): void {
   if (!requestId || activeRequestId === requestId) {
     activeRequestId = null;
   }
-  if (requestId) settledCorrelationRequestIds.delete(requestId);
+  if (requestId) {
+    settledCorrelationRequestIds.delete(requestId);
+    clearCoachPipelineState(requestId);
+  }
 }
 
 /** Claim correlation completion for a request — rejects stale/duplicate late results. */

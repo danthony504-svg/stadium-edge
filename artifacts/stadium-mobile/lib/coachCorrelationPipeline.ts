@@ -17,6 +17,14 @@ import {
   logPipelineFinalTicketBuildComplete,
   logPipelineFinalTicketBuildStart,
 } from "./coachPipelineTrace.ts";
+import {
+  beginCoachPipelineCorrelation,
+  coachPipelineCorrelationTimedOut,
+  coachPipelineCurrentPhase,
+  markCoachPipelineCorrelationTimedOut,
+  settleCoachPipeline,
+  transitionCoachPipeline,
+} from "./coachPipelineStateMachine.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   claimCoachCorrelationCompletion,
@@ -145,12 +153,19 @@ function fallbackStagingBreakdown(
 }
 
 /** Best pre-correlation greedy ranking — used when correlation times out. */
+const FALLBACK_RANKING_POOL_CAP = 80;
+
 export function preCorrelationRanking(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
-  const qualifying = filterQualifying(scored);
+  let qualifying = filterQualifying(scored);
+  if (qualifying.length > FALLBACK_RANKING_POOL_CAP) {
+    qualifying = [...qualifying]
+      .sort((a, b) => b.rankScore - a.rankScore)
+      .slice(0, FALLBACK_RANKING_POOL_CAP);
+  }
   const picks = tagTicketRoles(selectGreedyBoardLegs(qualifying, target, varietySeed));
   return { picks, breakdown: fallbackStagingBreakdown(picks, qualifying) };
 }
@@ -228,6 +243,7 @@ export function runCoachCorrelationStage(
   let correlationsScored = 0;
   let settled = false;
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let outerResolve: ((value: CoachCorrelationStageResult) => void) | null = null;
 
   const buildPreRanked = (): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } => {
     logPipelineFallbackBuilderStart(requestId, { target, poolSize: scored.length });
@@ -248,7 +264,16 @@ export function runCoachCorrelationStage(
   ): CoachCorrelationStageResult => {
     const durationMs = Date.now() - start;
 
-    if (!claimCoachCorrelationCompletion(requestId)) {
+    if (meta.advanceFallbackStage) {
+      transitionCoachPipeline(
+        requestId,
+        "CORRELATION_TIMEOUT_FALLBACK",
+        meta.fallbackReason ?? "correlation-timeout",
+      );
+    }
+
+    const claimed = claimCoachCorrelationCompletion(requestId);
+    if (!claimed) {
       return buildStageResult(result, {
         requestId,
         target,
@@ -277,11 +302,14 @@ export function runCoachCorrelationStage(
     if (meta.advanceFallbackStage) {
       emitProgress(opts, "correlation-fallback", requestId);
     }
+
+    transitionCoachPipeline(requestId, "BUILDING_FINAL_TICKET", "final-ticket-build");
     logPipelineFinalTicketBuildStart(requestId, result.picks.length, target);
     logCoachTicketBuildStart(requestId, result.picks.length, target);
     emitProgress(opts, "building-ticket", requestId);
     opts.onBuildPhase?.("score", requestId);
     logPipelineFinalTicketBuildComplete(requestId, result.picks.length, target);
+    transitionCoachPipeline(requestId, "FINAL_TICKET_READY", "ticket-built");
 
     return buildStageResult(result, {
       requestId,
@@ -323,7 +351,28 @@ export function runCoachCorrelationStage(
     }
     settled = true;
     if (timeoutTimer) clearTimeout(timeoutTimer);
-    const stageResult = finish(result, meta);
+
+    let stageResult: CoachCorrelationStageResult;
+    try {
+      stageResult = finish(result, meta);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      exceptions.push(message);
+      stageResult = buildStageResult(result, {
+        requestId,
+        target,
+        candidateTicketCount,
+        correlationsScored,
+        durationMs: Date.now() - start,
+        usedFallback: true,
+        fallbackUsed: true,
+        fallbackReason: "error",
+        timedOut: meta.timedOut,
+        exceptions,
+      });
+    }
+
+    settleCoachPipeline(requestId, meta.timedOut ? "correlation-timeout" : "correlation-complete");
     logPipelineComplete(requestId, {
       pickCount: stageResult.outputTicketCount,
       fallbackUsed: stageResult.fallbackUsed,
@@ -331,10 +380,42 @@ export function runCoachCorrelationStage(
       timedOut: stageResult.timedOut,
       durationMs: stageResult.durationMs,
     });
+    outerResolve?.(stageResult);
     return stageResult;
   };
 
-  // Progress FIRST — before any heavy synchronous work.
+  const runTimeoutFallback = (reason: CoachCorrelationFallbackReason): void => {
+    if (settled) return;
+    markCoachPipelineCorrelationTimedOut(requestId);
+    logPipelineCorrelationTimeoutFired(requestId, Date.now() - start, { reason });
+    try {
+      const ranked = buildPreRanked();
+      resolveOnce(ranked, {
+        usedFallback: true,
+        fallbackUsed: true,
+        fallbackReason: reason,
+        timedOut: true,
+        advanceFallbackStage: true,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      exceptions.push(message);
+      resolveOnce(
+        { picks: [], breakdown: fallbackStagingBreakdown([], filterQualifying(scored)) },
+        {
+          usedFallback: true,
+          fallbackUsed: true,
+          fallbackReason: "error",
+          timedOut: true,
+          advanceFallbackStage: true,
+        },
+      );
+    }
+  };
+
+  if (coachPipelineCurrentPhase(requestId) !== "SCORING_CORRELATION") {
+    beginCoachPipelineCorrelation(requestId, "runCoachCorrelationStage");
+  }
   logPipelineCorrelationStart(requestId, { target, poolSize: scored.length });
   logCoachCorrelationStart(requestId, qualifying.length);
   emitProgress(opts, "correlation", requestId);
@@ -359,20 +440,7 @@ export function runCoachCorrelationStage(
   logCoachCorrelationCandidateCount(requestId, FAST_CORRELATION_MAX_CANDIDATES);
 
   return new Promise<CoachCorrelationStageResult>((resolve) => {
-    const runTimeoutFallback = (reason: CoachCorrelationFallbackReason) => {
-      if (settled) return;
-      logPipelineCorrelationTimeoutFired(requestId, Date.now() - start, { reason });
-      const ranked = buildPreRanked();
-      resolve(
-        resolveOnce(ranked, {
-          usedFallback: true,
-          fallbackUsed: true,
-          fallbackReason: reason,
-          timedOut: true,
-          advanceFallbackStage: true,
-        }),
-      );
-    };
+    outerResolve = resolve;
 
     timeoutTimer = setTimeout(() => {
       runTimeoutFallback("correlation-timeout");
@@ -386,18 +454,19 @@ export function runCoachCorrelationStage(
           hardMs,
           isAborted: () =>
             settled ||
+            coachPipelineCorrelationTimedOut(requestId) ||
             coachCorrelationAlreadySettled(requestId) ||
             coachScanPipelineIsStale(requestId) ||
             Date.now() >= hardDeadline,
           onProgress: (scoredCount, cap) => {
-            if (settled) return;
+            if (settled || coachPipelineCorrelationTimedOut(requestId)) return;
             correlationsScored = scoredCount;
             candidateTicketCount = cap;
             logCoachCorrelationProgress(requestId, scoredCount, cap, Date.now() - start);
           },
         });
 
-        if (settled) return;
+        if (settled || coachPipelineCorrelationTimedOut(requestId)) return;
 
         correlationsScored = outcome.ticketsScored;
         candidateTicketCount = outcome.candidateCount;
@@ -408,17 +477,15 @@ export function runCoachCorrelationStage(
         }
 
         const qualifyingPool = filterQualifying(scored);
-        resolve(
-          resolveOnce(
-            {
-              picks: outcome.picks,
-              breakdown: fallbackStagingBreakdown(outcome.picks, qualifyingPool),
-            },
-            { usedFallback: false, fallbackUsed: false, timedOut: false },
-          ),
+        resolveOnce(
+          {
+            picks: outcome.picks,
+            breakdown: fallbackStagingBreakdown(outcome.picks, qualifyingPool),
+          },
+          { usedFallback: false, fallbackUsed: false, timedOut: false },
         );
       } catch (err) {
-        if (settled) return;
+        if (settled || coachPipelineCorrelationTimedOut(requestId)) return;
         const message = err instanceof Error ? err.message : String(err);
         exceptions.push(message);
         console.error(

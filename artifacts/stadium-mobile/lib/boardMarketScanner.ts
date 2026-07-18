@@ -56,6 +56,7 @@ import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { CoachEvStageError, runCoachEvPropPrescore } from "./coachEvPipeline.ts";
 import { CoachCorrelationStageError } from "./coachScanPipeline.ts";
 import { logPipelineCorrelationStart } from "./coachPipelineTrace.ts";
+import { beginCoachPipelineCorrelation } from "./coachPipelineStateMachine.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -456,6 +457,18 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
+/** Yield before/after collapse+sort so correlation handoff can run on the event loop. */
+async function collapseAndSortScoredLegs(
+  scored: BoardScoredLeg[],
+  varietySeed?: string,
+): Promise<BoardScoredLeg[]> {
+  await Promise.resolve();
+  const collapsed = collapseScoredLegsByMarketLadder(scored);
+  await Promise.resolve();
+  collapsed.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  return collapsed;
+}
+
 function finalizeScanResult(
   staged: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown },
   scored: BoardScoredLeg[],
@@ -755,8 +768,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
-  const collapsed = collapseScoredLegsByMarketLadder(scored);
-  collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+
+  const correlationRequestId = opts.requestId ?? "unknown";
+  beginCoachPipelineCorrelation(correlationRequestId, "post-simulations-handoff");
+  logPipelineCorrelationStart(correlationRequestId, {
+    target: opts.target,
+    poolSize: scored.length,
+    phase: "pre-collapse-handoff",
+  });
+  opts.onBuildProgress?.("correlation", correlationRequestId);
+  opts.onBuildPhase?.("stream", correlationRequestId);
+
+  const collapsed = await collapseAndSortScoredLegs(scored, opts.varietySeed);
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   const result = await buildScanResultFinal(collapsed, {
     target: opts.target,
