@@ -148,6 +148,8 @@ export type FullBoardScanResult = {
   requestId?: string;
   /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
   scanComplete?: boolean;
+  /** Last combinator pass metadata — used to fire empty-scan terminal on final zero-output. */
+  combinatorMeta?: import("./coachEmptyScanTerminal.ts").BoardScanCombinatorMeta;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
 };
@@ -551,6 +553,13 @@ function buildScanResult(
     requestedLegs: opts.target,
     requestId: opts.requestId,
     manifest,
+    combinatorMeta: staged.combinatorMeta
+      ? { ...staged.combinatorMeta, source: combinatorSource }
+      : {
+          source: combinatorSource,
+          candidateCount: 0,
+          pickCount: picks.length,
+        },
   };
 }
 

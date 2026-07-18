@@ -861,6 +861,11 @@ export type CoachTicketBuildResult = {
   picks: ParsedPick[];
   breakdown: TicketStagingBreakdown;
   tieredFill?: TieredFillSummary;
+  combinatorMeta?: {
+    source: "preview" | "final" | "unknown";
+    candidateCount: number;
+    pickCount: number;
+  };
 };
 
 /** Build an independent ticket for the requested leg count — not a slice of another size. */
@@ -949,6 +954,11 @@ export function buildIndependentCoachTicket(
     picks,
     breakdown: stagingBreakdown(picks, strictQualifying),
     tieredFill,
+    combinatorMeta: {
+      source: opts.combinatorSource ?? "unknown",
+      candidateCount: candidates.length,
+      pickCount: picks.length,
+    },
   };
 }
 

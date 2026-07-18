@@ -370,6 +370,11 @@ export type StagedTicketFromScanResult = {
   picks: ParsedPick[];
   breakdown: TicketStagingBreakdown;
   tieredFill?: TieredFillSummary;
+  combinatorMeta?: {
+    source: "preview" | "final" | "unknown";
+    candidateCount: number;
+    pickCount: number;
+  };
 };
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */

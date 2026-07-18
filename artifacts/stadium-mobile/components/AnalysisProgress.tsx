@@ -118,7 +118,9 @@ export function AnalysisProgress({
     !!boardScanProgress?.scanComplete &&
     (boardScanProgress.picksReady > 0 || legCount > 0);
   const scanExhaustedEmpty =
-    mode === "build" && !!boardScanProgress?.exhaustedEmpty;
+    mode === "build" &&
+    !!boardScanProgress?.scanComplete &&
+    boardScanProgress.picksReady === 0;
   const boardScanWaiting =
     mode === "build" &&
     buildPhase === "board-scan" &&
@@ -127,7 +129,7 @@ export function AnalysisProgress({
     !scanExhaustedEmpty;
   const maxAuto =
     mode === "build"
-      ? legCount > 0 || scanReady
+      ? legCount > 0 || scanReady || scanExhaustedEmpty
         ? stageList.length - 1
         : boardScanWaiting
           ? 8
@@ -136,14 +138,19 @@ export function AnalysisProgress({
             : 6
       : stageList.length - 1;
   const effectiveIndex =
-    mode === "build" && (legCount > 0 || scanReady)
+    mode === "build" && (legCount > 0 || scanReady || scanExhaustedEmpty)
       ? stageList.length - 1
       : mode === "build"
         ? Math.min(autoIndex, maxAuto)
         : autoIndex;
-  const target = (legCount > 0 || scanReady) && mode === "build" ? 100 : targetList[effectiveIndex];
+  const target =
+    (legCount > 0 || scanReady || scanExhaustedEmpty) && mode === "build"
+      ? 100
+      : targetList[effectiveIndex];
   const phaseStage =
-    mode === "build" && buildPhase === "board-scan"
+    mode === "build" && scanExhaustedEmpty
+      ? "Board scan complete — no legs cleared"
+      : mode === "build" && buildPhase === "board-scan"
       ? scanReady
         ? "Rendering your pick cards…"
         : "Scanning every posted market on the live board…"
@@ -214,7 +221,7 @@ export function AnalysisProgress({
 
   if (mode === "build" && boardScanProgress) {
     const p = boardScanProgress;
-    if (p.exhaustedEmpty) {
+    if (p.exhaustedEmpty || (p.scanComplete && p.picksReady === 0)) {
       return (
         <View
           style={{
@@ -236,7 +243,7 @@ export function AnalysisProgress({
               fontSize: 14,
             }}
           >
-            Board scan complete — no legs cleared
+            Board scan complete — 100%
           </Text>
           <Text
             style={{
