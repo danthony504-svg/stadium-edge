@@ -134,23 +134,98 @@ export async function loadPropSimulationsProgressive(
   }
 }
 
+/** Stable signature for assistant pick patches — skips no-op setMessages updates. */
+export function coachPicksPatchSignature(
+  picks: ParsedPick[],
+  legNote?: string,
+  extras?: { coachDetailNote?: string; ticketLegTarget?: number },
+): string {
+  const pickSig = picks
+    .map((p) =>
+      [
+        p.id ?? p.pick,
+        p.odds,
+        p.ticketRole ?? "",
+        p.simulationPending ? 1 : 0,
+        p.scores?.scores?.simulation ?? "",
+        p.scores?.scores?.grade ?? "",
+      ].join(":"),
+    )
+    .join("|");
+  return [
+    pickSig,
+    (legNote ?? "").trim(),
+    (extras?.coachDetailNote ?? "").trim(),
+    extras?.ticketLegTarget ?? 0,
+  ].join("§");
+}
+
+export function isSameAssistantPickPatch<
+  T extends {
+    picks?: ParsedPick[];
+    legNote?: string;
+    coachDetailNote?: string;
+    ticketLegTarget?: number;
+  },
+>(
+  current: T,
+  picks: ParsedPick[],
+  legNote?: string,
+  extras?: { coachDetailNote?: string; ticketLegTarget?: number },
+): boolean {
+  const nextLegNote = legNote !== undefined ? legNote.trim() || undefined : current.legNote;
+  const nextDetail =
+    extras?.coachDetailNote !== undefined
+      ? extras.coachDetailNote.trim() || undefined
+      : current.coachDetailNote;
+  const nextTarget =
+    extras?.ticketLegTarget !== undefined ? extras.ticketLegTarget : current.ticketLegTarget;
+  return (
+    coachPicksPatchSignature(current.picks ?? [], current.legNote, {
+      coachDetailNote: current.coachDetailNote,
+      ticketLegTarget: current.ticketLegTarget,
+    }) ===
+    coachPicksPatchSignature(picks, nextLegNote, {
+      coachDetailNote: nextDetail,
+      ticketLegTarget: nextTarget,
+    })
+  );
+}
+
 /** Flash or refresh picks on the latest assistant reply (seeds cards during long builds). */
 export function patchLastAssistantPicks<
-  T extends { role: string; picks?: ParsedPick[]; content?: string; legNote?: string },
+  T extends {
+    role: string;
+    picks?: ParsedPick[];
+    content?: string;
+    legNote?: string;
+    coachDetailNote?: string;
+    ticketLegTarget?: number;
+  },
 >(
   setMessages: (fn: (prev: T[]) => T[]) => void,
   picks: ParsedPick[],
   legNote?: string,
+  extras?: { coachDetailNote?: string; ticketLegTarget?: number },
 ): void {
   setMessages((prev) => {
     const copy = [...prev];
     for (let i = copy.length - 1; i >= 0; i--) {
       if (copy[i].role === "assistant") {
+        if (isSameAssistantPickPatch(copy[i], picks, legNote, extras)) {
+          return prev;
+        }
         copy[i] = {
           ...copy[i],
           picks,
           content: picks.length > 0 ? "" : copy[i].content,
           ...(legNote !== undefined ? { legNote: legNote.trim() || undefined } : {}),
+          ...(extras?.coachDetailNote !== undefined
+            ? { coachDetailNote: extras.coachDetailNote.trim() || undefined }
+            : {}),
+          ...(extras?.ticketLegTarget !== undefined
+            ? { ticketLegTarget: extras.ticketLegTarget }
+            : {}),
         };
         return copy;
       }

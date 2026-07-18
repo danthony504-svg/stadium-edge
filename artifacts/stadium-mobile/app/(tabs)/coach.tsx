@@ -54,6 +54,7 @@ import {
   type PlayerHistorySlice,
 } from "@/lib/pickScoreContext";
 import {
+  coachPicksPatchSignature,
   loadPropSimulationsProgressive,
   patchLastAssistantPicks,
   picksWithSimPending,
@@ -648,7 +649,7 @@ function scrubDeadBuildProseFromMessages(msgs: UIMessage[]): UIMessage[] {
 
 /** Drop assistant rows that only carried the legacy watchdog line. */
 function pruneDeadParlayPlaceholders(msgs: UIMessage[]): UIMessage[] {
-  return msgs.filter((m) => {
+  const next = msgs.filter((m) => {
     if (isWelcomeMessage(m)) return true;
     if (m.role !== "assistant") return true;
     if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard) {
@@ -657,6 +658,7 @@ function pruneDeadParlayPlaceholders(msgs: UIMessage[]): UIMessage[] {
     if (m.retry || m.parlayBuild) return true;
     return !DEAD_BUILD_PROSE_RE.test(m.content) && !!m.content.trim();
   });
+  return next.length === msgs.length ? msgs : next;
 }
 
 function assistantHasVisibleContent(m: UIMessage): boolean {
@@ -1267,6 +1269,9 @@ export default function CoachScreen() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+  const lastProgressSignatureRef = useRef<string | null>(null);
+  const lastSimPatchSignatureRef = useRef<string | null>(null);
+  const deliveredRequestIdsRef = useRef<Set<string>>(new Set());
   const sendGenerationRef = useRef(0);
   const emptyScanTerminalFiredRef = useRef(false);
   const boardScanFinalByRequestRef = useRef<BoardScanFinalRegistry>(new Map());
@@ -1700,7 +1705,7 @@ export default function CoachScreen() {
         legTarget,
         scanComplete: partial.scanComplete ?? false,
       });
-      if (boardScanIsComplete(partial)) {
+      if (isFinal) {
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -1715,17 +1720,48 @@ export default function CoachScreen() {
         }
         clearBuildStallWatchdog();
       }
+      const requestId = ctx?.requestId ?? partial.requestId ?? "";
+      const patchSignature = coachPicksPatchSignature(ticket, legNote.trim() || undefined, {
+        coachDetailNote: coachDetailNote.trim() || undefined,
+        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+      });
+      const progressSignature = `${requestId}:${isFinal ? "final" : "preview"}:${patchSignature}`;
+      if (lastProgressSignatureRef.current === progressSignature) {
+        if (opts?.pinScroll !== false) scrollToEnd(false);
+        return true;
+      }
+      if (isFinal && requestId && deliveredRequestIdsRef.current.has(requestId)) {
+        if (opts?.pinScroll !== false) scrollToEnd(false);
+        return true;
+      }
+      lastProgressSignatureRef.current = progressSignature;
+      if (isFinal && requestId) {
+        deliveredRequestIdsRef.current.add(requestId);
+      }
       setMessages((prev) => {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
           if (copy[i].role === "assistant") {
+            const cur = copy[i];
+            const nextLegNote = legNote.trim() || undefined;
+            const nextDetail = coachDetailNote.trim() || undefined;
+            const nextTarget = legTarget > 0 ? legTarget : undefined;
+            if (
+              cur.picks?.length === ticket.length &&
+              coachPicksPatchSignature(cur.picks ?? [], cur.legNote, {
+                coachDetailNote: cur.coachDetailNote,
+                ticketLegTarget: cur.ticketLegTarget,
+              }) === patchSignature
+            ) {
+              return prev;
+            }
             copy[i] = {
-              ...copy[i],
+              ...cur,
               picks: ticket,
               content: "",
-              ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
-              ...(coachDetailNote.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
-              ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+              ...(nextLegNote ? { legNote: nextLegNote } : {}),
+              ...(nextDetail ? { coachDetailNote: nextDetail } : {}),
+              ...(nextTarget ? { ticketLegTarget: nextTarget } : {}),
             };
             return copy;
           }
@@ -1780,10 +1816,18 @@ export default function CoachScreen() {
     );
     if (!rescored.length) return false;
     boardTicketSnapshotRef.current = rescored;
+    const rescoredSignature = coachPicksPatchSignature(rescored);
+    if (lastSimPatchSignatureRef.current === rescoredSignature) return true;
+    lastSimPatchSignatureRef.current = rescoredSignature;
     setMessages((prev) => {
       const copy = [...prev];
       for (let i = copy.length - 1; i >= 0; i--) {
         if (copy[i].role === "assistant" && copy[i].picks?.length) {
+          if (
+            coachPicksPatchSignature(copy[i].picks ?? []) === rescoredSignature
+          ) {
+            return prev;
+          }
           copy[i] = { ...copy[i], picks: rescored };
           return copy;
         }
@@ -2176,7 +2220,14 @@ export default function CoachScreen() {
         const emptyReason = boardScanIsComplete(partial) && !partial.picks.length
           ? emptyReasonForScan(partial)
           : undefined;
-        setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial, emptyReason));
+        const requestId = partial.requestId ?? ctx?.requestId ?? "";
+        const scanComplete = partial.scanComplete ?? false;
+        const pickCount = partial.picks.length;
+        const liveProgressSignature = `live:${requestId}:scan:${pickCount}:${pickCount}:${scanComplete}`;
+        if (lastProgressSignatureRef.current !== liveProgressSignature) {
+          lastProgressSignatureRef.current = liveProgressSignature;
+          setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial, emptyReason));
+        }
         setBoardScanAwaiting(!boardScanIsComplete(partial));
         if (partial.picks.length) {
           setBoardScanPartialLegs(partial.picks.length);
@@ -2219,15 +2270,15 @@ export default function CoachScreen() {
         setParlayBuildPhase("board-scan");
         setBuildFinishing(true);
         setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role !== "assistant") return prev;
+          if (!(last.retry || last.content?.trim())) return prev;
           const copy = [...prev];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant" && (last.retry || last.content?.trim())) {
-            copy[copy.length - 1] = {
-              ...last,
-              content: "",
-              retry: undefined,
-            };
-          }
+          copy[copy.length - 1] = {
+            ...last,
+            content: "",
+            retry: undefined,
+          };
           return copy;
         });
       }
@@ -2428,6 +2479,9 @@ export default function CoachScreen() {
 
       const sendGen = ++sendGenerationRef.current;
       emptyScanTerminalFiredRef.current = false;
+      lastProgressSignatureRef.current = null;
+      lastSimPatchSignatureRef.current = null;
+      deliveredRequestIdsRef.current.clear();
       boardScanFinalByRequestRef.current.clear();
       autoScrollRef.current = true;
       boardTicketSnapshotRef.current = null;
@@ -5938,6 +5992,16 @@ export default function CoachScreen() {
                     );
               simLegNote = simLegNote ? `${simLegNote}\n\n${shortfall}` : shortfall;
             }
+            const requestId = coachRequestContextRef.current?.requestId ?? "";
+            const simPatchSignature = `${requestId}:${tier}:${coachPicksPatchSignature(next, simLegNote)}`;
+            if (lastSimPatchSignatureRef.current === simPatchSignature) return;
+            if (tier === "deep" && requestId && deliveredRequestIdsRef.current.has(requestId)) {
+              return;
+            }
+            lastSimPatchSignatureRef.current = simPatchSignature;
+            if (tier === "deep" && requestId) {
+              deliveredRequestIdsRef.current.add(requestId);
+            }
             patchLastAssistantPicks(setMessages, next, simLegNote);
             boardTicketSnapshotRef.current = next;
             setStreaming(false);
@@ -6373,43 +6437,13 @@ export default function CoachScreen() {
   // Legacy OTA watchdog prose can survive in React state — scrub once build is idle.
   useEffect(() => {
     if (streaming || buildFinishing || waiting) return;
-    const last = messages[messages.length - 1];
+    const last = messagesRef.current[messagesRef.current.length - 1];
     if (last?.role !== "assistant" || !DEAD_BUILD_PROSE_RE.test(last.content ?? "")) return;
-    setMessages((prev) => pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev)));
-  }, [messages, streaming, buildFinishing, waiting]);
-
-  const footerParlayProgress = useMemo(() => {
-    const last = messages[messages.length - 1];
-    if (last?.picks?.length) return false;
-    const buildIdle = !buildFinishing && !streaming && !waiting;
-    if (buildIdle) return false;
-    if (!(buildFinishing || streaming || buildProgressExpired)) return false;
-    let parlayUserText = "";
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role !== "user") continue;
-      const text = m.apiContent ?? m.content;
-      if (isParlayBuildAsk(text)) {
-        parlayUserText = text;
-        break;
-      }
-    }
-    if (!parlayUserText) return false;
-    const target =
-      last?.ticketLegTarget ?? requestedLegCount(parlayUserText);
-    if (last?.picks?.length && target > 0 && last.picks.length < target) {
-      return !buildIdle;
-    }
-    // When the newest message is the user's parlay ask, show progress even if the
-    // assistant placeholder was lost to a superseded-send race.
-    return last?.role === "user";
-  }, [messages, buildFinishing, streaming, buildProgressExpired]);
-
-  const footerProgressLegCount = Math.max(
-    boardScanPartialLegs,
-    boardTicketSnapshotRef.current?.length ?? 0,
-    latestBoardScanRef.current?.picks?.length ?? 0,
-  );
+    setMessages((prev) => {
+      const scrubbed = pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev));
+      return scrubbed === prev ? prev : scrubbed;
+    });
+  }, [streaming, buildFinishing, waiting]);
 
   const showQuickPrompts =
     !messages.some((m) => m.role === "user") ||
@@ -6460,18 +6494,23 @@ export default function CoachScreen() {
 
   // Keep trying board-scan delivery while the build is in flight or picks are stashed.
   useEffect(() => {
-    const last = messages[messages.length - 1];
+    const last = messagesRef.current[messagesRef.current.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     const staleDeadEnd = STALE_PARLAY_DEAD_END_RE.test(last.content ?? "");
     if (staleDeadEnd) {
-      setMessages((prev) => scrubDeadBuildProseFromMessages(prev));
+      setMessages((prev) => {
+        const scrubbed = scrubDeadBuildProseFromMessages(prev);
+        return scrubbed === prev ? prev : scrubbed;
+      });
     }
-    const priorUser = [...messages].reverse().find((m) => m.role === "user");
+    const priorUser = [...messagesRef.current].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent) return;
 
     const partial = latestBoardScanRef.current;
     if (emptyScanTerminalFiredRef.current) return;
+    const requestId = partial?.requestId ?? coachRequestContextRef.current?.requestId ?? "";
+    if (requestId && deliveredRequestIdsRef.current.has(requestId)) return;
     const exhaustedEmpty = !!partial?.scanComplete && !(partial.picks?.length);
     if (exhaustedEmpty) return;
 
@@ -6483,6 +6522,7 @@ export default function CoachScreen() {
     const tryDeliver = (): boolean => {
       const cur = messagesRef.current[messagesRef.current.length - 1];
       if (cur?.picks?.length) return true;
+      if (requestId && deliveredRequestIdsRef.current.has(requestId)) return true;
       return deliverPendingBoardScanIfReady();
     };
 
@@ -6491,6 +6531,10 @@ export default function CoachScreen() {
     let attempts = 0;
     const interval = setInterval(() => {
       if (emptyScanTerminalFiredRef.current) {
+        clearInterval(interval);
+        return;
+      }
+      if (requestId && deliveredRequestIdsRef.current.has(requestId)) {
         clearInterval(interval);
         return;
       }
@@ -6507,7 +6551,6 @@ export default function CoachScreen() {
     }, 500);
     return () => clearInterval(interval);
   }, [
-    messages,
     streaming,
     buildFinishing,
     waiting,
@@ -6957,7 +7000,12 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {((isBuildingParlay || parlayStillFilling || parlayStillBuilding || boardScanAwaiting || parlayAwaitingDelivery) &&
+                {i === messages.length - 1 &&
+                ((isBuildingParlay ||
+                  parlayStillFilling ||
+                  parlayStillBuilding ||
+                  boardScanAwaiting ||
+                  parlayAwaitingDelivery) &&
                   !showTicketPicks &&
                   !hasPicks &&
                   !emptyScanTerminalMessage) ? (
@@ -7113,14 +7161,6 @@ export default function CoachScreen() {
               </View>
             );
           })}
-
-          {footerParlayProgress ? (
-            <AnalysisProgress
-              mode="build"
-              legCount={footerProgressLegCount}
-              buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
-            />
-          ) : null}
 
           {showQuickPrompts ? (
             <View style={{ gap: 8, marginTop: 4 }}>
