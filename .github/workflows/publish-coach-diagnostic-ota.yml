@@ -1,0 +1,92 @@
+name: Publish coach diagnostic OTA
+
+# One-off diagnostic publish for coach path-trace + 93% fixes (PR #244).
+# Bypasses production freeze — run only with explicit approval.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: EAS channel (production or preview)
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - preview
+      rollout_percentage:
+        description: Staged rollout percentage for production (1-100)
+        required: false
+        default: "100"
+      message:
+        description: OTA update message
+        required: false
+        default: "Coach diagnostic OTA — path trace + OTA label"
+      confirm_publish:
+        description: Type PUBLISH to confirm
+        required: true
+
+jobs:
+  publish:
+    if: ${{ github.event.inputs.confirm_publish == 'PUBLISH' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Verify mobile bundle compiles
+        env:
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_ENABLED: "true"
+          EXPO_PUBLIC_OTA_CHANNEL: ${{ github.event.inputs.channel }}
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
+          EXPO_PUBLIC_DEPLOY_MESSAGE: COACH-DIAG ${{ github.sha }}-${{ github.run_id }}
+        run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
+
+      - name: Publish OTA
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_ENABLED: "true"
+          EXPO_PUBLIC_OTA_CHANNEL: ${{ github.event.inputs.channel }}
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
+          EXPO_PUBLIC_DEPLOY_MESSAGE: COACH-DIAG ${{ github.sha }}-${{ github.run_id }}
+          ROLLOUT_PERCENTAGE: ${{ github.event.inputs.rollout_percentage || '100' }}
+        run: |
+          CHANNEL="${{ github.event.inputs.channel }}"
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="Coach diagnostic OTA $(git rev-parse --short HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
+          fi
+          echo "Linking ${CHANNEL} channel → ${CHANNEL} branch…"
+          pnpm exec eas channel:edit "$CHANNEL" --branch "$CHANNEL" --non-interactive
+          ROLLOUT_ARGS=()
+          if [ "$CHANNEL" = "production" ]; then
+            ROLLOUT_ARGS=(--rollout-percentage "${ROLLOUT_PERCENTAGE}")
+          fi
+          pnpm exec eas update \
+            --channel "$CHANNEL" \
+            --platform ios \
+            --environment "$CHANNEL" \
+            "${ROLLOUT_ARGS[@]}" \
+            --message "$MSG" \
+            --non-interactive
+          echo "Published to ${CHANNEL} @ commit ${EXPO_PUBLIC_GIT_COMMIT}"
