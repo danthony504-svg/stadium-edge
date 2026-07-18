@@ -171,6 +171,33 @@ export function advanceCoachBuildStage(
   };
 }
 
+export function coachBuildCompletionKey(
+  requestId: string,
+  phase: string,
+  scanComplete: boolean,
+  pickCount: number,
+): string {
+  return `${requestId}:${phase}:${scanComplete ? 1 : 0}:${pickCount}`;
+}
+
+export function coachBuildProgressStatesEqual(
+  a: CoachBuildProgressState,
+  b: CoachBuildProgressState,
+): boolean {
+  return (
+    a.requestId === b.requestId &&
+    a.sendGeneration === b.sendGeneration &&
+    a.legTarget === b.legTarget &&
+    a.completedThroughIndex === b.completedThroughIndex &&
+    a.displayPercent === b.displayPercent &&
+    a.peakDisplayPercent === b.peakDisplayPercent &&
+    a.status === b.status &&
+    a.activeStageStartedAt === b.activeStageStartedAt &&
+    a.timedOutStageId === b.timedOutStageId &&
+    a.failureMessage === b.failureMessage
+  );
+}
+
 export function coachBuildProgressOnPicksRendered(
   state: CoachBuildProgressState,
   pickCount: number,
@@ -180,13 +207,23 @@ export function coachBuildProgressOnPicksRendered(
   if (pickCount <= 0) return state;
   const buildingIdx = coachBuildStageIndex("building-ticket");
   if (state.completedThroughIndex < buildingIdx) return state;
+  const finalIdx = coachBuildStageIndex("final-ticket");
+  if (
+    state.status === "complete" &&
+    state.completedThroughIndex >= finalIdx &&
+    state.displayPercent >= 100 &&
+    state.peakDisplayPercent >= 100
+  ) {
+    return state;
+  }
   const advanced = advanceCoachBuildStage(state, "final-ticket", opts);
   const pct = withMonotonicPercent(advanced, 100);
-  return {
+  const next: CoachBuildProgressState = {
     ...advanced,
     ...pct,
     status: "complete",
   };
+  return coachBuildProgressStatesEqual(state, next) ? state : next;
 }
 
 export function coachBuildProgressOnFailure(

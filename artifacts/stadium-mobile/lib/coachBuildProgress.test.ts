@@ -98,6 +98,22 @@ test("advanceCoachBuildStage ignores stale requestId", () => {
   });
   assert.equal(state.completedThroughIndex, -1);
 });
+test("coachBuildProgressOnPicksRendered is idempotent when already complete", () => {
+  let state = createCoachBuildProgress({ requestId: "r-done", sendGeneration: 1, legTarget: 5 });
+  for (const stageId of COACH_BUILD_STAGES.map((s) => s.id)) {
+    state = advanceCoachBuildStage(state, stageId, {
+      requestId: "r-done",
+      sendGeneration: 1,
+    });
+  }
+  state = { ...state, status: "complete", displayPercent: 100, peakDisplayPercent: 100 };
+  const after = coachBuildProgressOnPicksRendered(state, 5, {
+    requestId: "r-done",
+    sendGeneration: 1,
+  });
+  assert.equal(after, state);
+});
+
 test("coachBuildProgressOnPicksRendered ignores preview picks before building-ticket", () => {
   let state = createCoachBuildProgress({ requestId: "r-preview", sendGeneration: 1, legTarget: 5 });
   state = advanceCoachBuildStage(state, "correlation", {

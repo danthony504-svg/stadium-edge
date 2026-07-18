@@ -137,6 +137,8 @@ import {
   coachBuildProgressFromPhase,
   coachBuildProgressOnFailure,
   coachBuildProgressOnPicksRendered,
+  coachBuildProgressStatesEqual,
+  coachBuildCompletionKey,
   coachBuildProgressTick,
   coachBuildProgressViewFromSnapshot,
   coachBuildStageIndex,
@@ -1164,6 +1166,7 @@ export default function CoachScreen() {
   const scanInFlightRef = useRef(false);
   const terminalRef = useRef(false);
   const lastProgressSignatureRef = useRef("");
+  const lastCoachBuildCompletionKeyRef = useRef<string | null>(null);
   const boardScanReplaySigRef = useRef("");
   const deadProseScrubbedRef = useRef(false);
   const deadEndRecoverySigRef = useRef("");
@@ -1214,6 +1217,10 @@ export default function CoachScreen() {
   useEffect(() => {
     buildFinishingRef.current = buildFinishing;
   }, [buildFinishing]);
+  const parlayBuildPhaseRef = useRef<ParlayBuildPhase | "idle">("idle");
+  useEffect(() => {
+    parlayBuildPhaseRef.current = parlayBuildPhase;
+  }, [parlayBuildPhase]);
   const sendGenerationRef = useRef(0);
   const flashEnrichRef = useRef<CoachFlashEnrich>({
     realOdds: [],
@@ -1655,18 +1662,10 @@ export default function CoachScreen() {
           : `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
       }
       if (boardScanIsComplete(partial)) {
-        setCoachBuildProgress((prev) => {
-          if (!prev) return prev;
-          const ctx = coachRequestContextRef.current;
-          const reqId = partial.requestId ?? ctx?.requestId ?? prev.requestId;
-          if (reqId !== prev.requestId) return prev;
-          const next = coachBuildProgressOnPicksRendered(prev, ticket.length, {
-            requestId: reqId,
-            sendGeneration: ctx?.sendGeneration ?? prev.sendGeneration,
-          });
-          coachBuildProgressRef.current = next;
-          return next;
-        });
+        const completionResult = applyCoachBuildCompletionOnce(partial, ticket.length);
+        if (completionResult === "duplicate") {
+          return;
+        }
         const reqId = resolveCoachScanRequestId(
           partial.requestId ?? coachRequestContextRef.current?.requestId ?? coachBuildProgressRef.current?.requestId,
           "deliverBoardScanTicket",
@@ -1678,8 +1677,12 @@ export default function CoachScreen() {
         patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
       }
     },
-    [boardScanPartialToTicket, deliverCoachTicket, patchInstantBoardScanTicket],
+    [applyCoachBuildCompletionOnce, boardScanPartialToTicket, deliverCoachTicket, patchInstantBoardScanTicket],
   );
+  const deliverBoardScanTicketRef = useRef(deliverBoardScanTicket);
+  deliverBoardScanTicketRef.current = deliverBoardScanTicket;
+  const patchInstantBoardScanTicketRef = useRef(patchInstantBoardScanTicket);
+  patchInstantBoardScanTicketRef.current = patchInstantBoardScanTicket;
 
   const deliverKernelBoardScan = useCallback(
     (
@@ -1722,6 +1725,46 @@ export default function CoachScreen() {
     setCoachBuildProgress(next);
   }, []);
 
+  /** Request-scoped guard: one completion progress bump per scan completion key. */
+  const applyCoachBuildCompletionOnce = useCallback(
+    (partial: FullBoardScanResult, pickCount: number): "applied" | "duplicate" | "skipped" => {
+      if (!boardScanIsComplete(partial)) return "skipped";
+      const ctx = coachRequestContextRef.current;
+      const reqId =
+        partial.requestId ?? ctx?.requestId ?? coachBuildProgressRef.current?.requestId ?? "";
+      if (!reqId) return "skipped";
+      const completionKey = coachBuildCompletionKey(
+        reqId,
+        parlayBuildPhaseRef.current,
+        partial.scanComplete === true,
+        partial.picks?.length ?? 0,
+      );
+      if (lastCoachBuildCompletionKeyRef.current === completionKey) {
+        if (__DEV__) {
+          console.log(
+            "[coach-progress] skipped-duplicate-completion",
+            JSON.stringify({ requestId: reqId, completionKey }),
+          );
+        }
+        return "duplicate";
+      }
+      lastCoachBuildCompletionKeyRef.current = completionKey;
+      setCoachBuildProgress((prev) => {
+        if (!prev) return prev;
+        if (reqId !== prev.requestId) return prev;
+        const next = coachBuildProgressOnPicksRendered(prev, pickCount, {
+          requestId: reqId,
+          sendGeneration: ctx?.sendGeneration ?? prev.sendGeneration,
+        });
+        if (coachBuildProgressStatesEqual(prev, next)) return prev;
+        coachBuildProgressRef.current = next;
+        return next;
+      });
+      return "applied";
+    },
+    [],
+  );
+
   const setParlayBuildPhaseMonotonic = useCallback((phase: ParlayBuildPhase) => {
     const progress = coachBuildProgressRef.current;
     if (!progress) {
@@ -1760,6 +1803,7 @@ export default function CoachScreen() {
           requestId,
           sendGeneration: sendGen,
         });
+        if (coachBuildProgressStatesEqual(prev, next)) return prev;
         coachBuildProgressRef.current = next;
         return next;
       });
@@ -1773,6 +1817,7 @@ export default function CoachScreen() {
       setCoachBuildProgress((prev) => {
         if (!prev || prev.status !== "active") return prev;
         const next = coachBuildProgressTick(prev);
+        if (coachBuildProgressStatesEqual(prev, next)) return prev;
         coachBuildProgressRef.current = next;
         return next;
       });
@@ -2270,6 +2315,7 @@ export default function CoachScreen() {
       };
       terminalRef.current = false;
       lastProgressSignatureRef.current = "";
+      lastCoachBuildCompletionKeyRef.current = null;
       boardScanReplaySigRef.current = "";
       scanStartedRef.current = true;
       scanInFlightRef.current = true;
@@ -5875,9 +5921,9 @@ export default function CoachScreen() {
       const partial = latestBoardScanRef.current;
       if (partial && boardScanIsComplete(partial)) {
         if (partial.picks?.length) {
-          deliverBoardScanTicket(partial);
+          deliverBoardScanTicketRef.current(partial);
         } else {
-          patchInstantBoardScanTicket(partial);
+          patchInstantBoardScanTicketRef.current(partial);
         }
         return;
       }
@@ -5885,12 +5931,7 @@ export default function CoachScreen() {
         if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
         return recoverOrphanCoachThread(prev);
       });
-    }, [
-      resumePendingBackgroundBuild,
-      deliverBoardScanTicket,
-      patchInstantBoardScanTicket,
-      waiting,
-    ]),
+    }, [resumePendingBackgroundBuild, waiting]),
   );
 
   // While a build is handed off, poll the server stash on a timer so the result
