@@ -24,7 +24,19 @@ export { COACH_CORRELATION_TIMEOUT_MS };
 
 /** Score at most this many candidate tickets during correlation (20–40 band). */
 export const COACH_CORRELATION_MAX_CANDIDATES = 32;
-export const COACH_CORRELATION_BATCH_SIZE = 4;
+export const COACH_CORRELATION_BATCH_SIZE = 1;
+/** Cap scored pool size for correlation assembly — avoids blocking the event loop. */
+export const COACH_CORRELATION_MAX_POOL_LEGS = 64;
+
+export function sliceScoredPoolForCorrelation(
+  scored: BoardScoredLeg[],
+  target: number,
+): BoardScoredLeg[] {
+  const cap = Math.max(COACH_CORRELATION_MAX_POOL_LEGS, target * 12);
+  if (scored.length <= cap) return scored;
+  const sorted = [...scored].sort((a, b) => b.rankScore - a.rankScore);
+  return sorted.slice(0, cap);
+}
 
 export type CoachCorrelationStageResult = {
   picks: ParsedPick[];
@@ -160,6 +172,7 @@ async function runCorrelationWork(
     ticketStyle?: CoachTicketBuildOpts["ticketStyle"];
     varietyContext?: Partial<CoachTicketBuildOpts>;
     deadlineAt: number;
+    isAborted?: () => boolean;
     onProgress?: (correlationsScored: number, candidateTicketCount: number) => void;
     onTicketError?: (index: number, err: unknown) => void;
   },
@@ -179,10 +192,12 @@ async function runCorrelationWork(
     correlationFastMode: true,
   };
 
-  return buildIndependentCoachTicketAsync(scored, target, buildOpts, {
+  const pool = sliceScoredPoolForCorrelation(scored, target);
+  return buildIndependentCoachTicketAsync(pool, target, buildOpts, {
     batchSize: COACH_CORRELATION_BATCH_SIZE,
     deadlineAt: opts.deadlineAt,
     maxCandidates: COACH_CORRELATION_MAX_CANDIDATES,
+    isAborted: opts.isAborted,
     onProgress: opts.onProgress,
     onTicketError: opts.onTicketError,
   });
@@ -270,12 +285,17 @@ export async function runCoachCorrelationStage(
   logCoachCorrelationCandidateCount(requestId, COACH_CORRELATION_MAX_CANDIDATES);
 
   try {
+    let correlationAborted = false;
+    const isAborted = () =>
+      correlationAborted || correlationTimedOut(deadlineAt) || coachScanPipelineIsStale(requestId);
+
     const work = runCorrelationWork(scored, target, {
       requestId,
       varietySeed: opts.varietySeed,
       ticketStyle: opts.ticketStyle,
       varietyContext: opts.varietyContext,
       deadlineAt,
+      isAborted,
       onProgress: (scoredCount, total) => {
         correlationsScored = scoredCount;
         candidateTicketCount = total;
@@ -289,7 +309,10 @@ export async function runCoachCorrelationStage(
 
     const timeout = new Promise<"timeout">((resolve) => {
       const wait = Math.max(0, deadlineAt - Date.now());
-      setTimeout(() => resolve("timeout"), wait);
+      setTimeout(() => {
+        correlationAborted = true;
+        resolve("timeout");
+      }, wait);
     });
 
     const outcome = await Promise.race([work, timeout]);

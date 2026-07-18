@@ -21,7 +21,7 @@ export function isRealisticBoardPropCandidate(pick: ParsedPick): boolean {
  */
 export function countQualifiedBoardLegs(scored: BoardScoredLeg[], target: number): number {
   const collapsed = collapseScoredLegsByMarketLadder(scored);
-  const { picks } = buildStagedTicketFromScan(collapsed, target);
+  const { picks } = buildStagedTicketFromScan(collapsed, target, undefined, { preview: true });
   return picks.length;
 }
 

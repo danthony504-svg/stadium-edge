@@ -139,6 +139,7 @@ import {
   coachBuildProgressOnPicksRendered,
   coachBuildProgressTick,
   coachBuildProgressViewFromSnapshot,
+  coachBuildStageIndex,
   createCoachBuildProgress,
   type CoachBuildProgressCallback,
   type CoachBuildProgressState,
@@ -1709,6 +1710,26 @@ export default function CoachScreen() {
     setCoachBuildProgress(next);
   }, []);
 
+  const setParlayBuildPhaseMonotonic = useCallback((phase: ParlayBuildPhase) => {
+    const progress = coachBuildProgressRef.current;
+    if (!progress) {
+      setParlayBuildPhase(phase);
+      return;
+    }
+    const targetIdx = coachBuildStageIndex(
+      phase === "context"
+        ? "matchups"
+        : phase === "board-scan"
+          ? "simulations"
+          : phase === "stream"
+            ? "correlation"
+            : "building-ticket",
+    );
+    if (targetIdx >= progress.completedThroughIndex) {
+      setParlayBuildPhase(phase);
+    }
+  }, []);
+
   const bumpCoachBuildProgress = useCallback(
     (stageId: CoachBuildStageId, requestId: string, sendGen: number) => {
       setCoachBuildProgress((prev) => {
@@ -1827,7 +1848,11 @@ export default function CoachScreen() {
       latestBoardScanRef.current = partial;
       if (partial.picks.length) {
         setBoardScanPartialLegs(partial.picks.length);
-        setParlayBuildPhase("stream");
+        const progress = coachBuildProgressRef.current;
+        const correlationIdx = coachBuildStageIndex("correlation");
+        if (!progress || progress.completedThroughIndex < correlationIdx) {
+          setParlayBuildPhaseMonotonic("stream");
+        }
       }
       patchInstantBoardScanTicket(partial, undefined, {
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
@@ -1858,7 +1883,11 @@ export default function CoachScreen() {
       );
       return (async (): Promise<FullBoardScanResult | null> => {
         try {
-          setParlayBuildPhase("board-scan");
+          const progress = coachBuildProgressRef.current;
+          const correlationIdx = coachBuildStageIndex("correlation");
+          if (!progress || progress.completedThroughIndex < correlationIdx) {
+            setParlayBuildPhaseMonotonic("board-scan");
+          }
           const [espnGames, oddsGames, liveFeed] = await Promise.all([
             Promise.all(scanSports.map((s) => getGames(s, signal).catch(() => []))).then((rows) =>
               rows.flat(),
@@ -2209,7 +2238,7 @@ export default function CoachScreen() {
       const coachScanOnBuildPhase: CoachScanPhaseCallback = (phase, reqId) => {
         if (coachScanPipelineIsStale(reqId)) return;
         if (sendGenerationRef.current !== sendGen) return;
-        setParlayBuildPhase(phase);
+        setParlayBuildPhaseMonotonic(phase);
       };
       terminalRef.current = false;
       lastProgressSignatureRef.current = "";
@@ -2648,7 +2677,7 @@ export default function CoachScreen() {
           const reachFullPreScanEligible =
             boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS && !slipImageVerdictOnly;
           if (reachFullPreScanEligible || (boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS)) {
-            setParlayBuildPhase("board-scan");
+            setParlayBuildPhaseMonotonic("board-scan");
           }
           type ScanFeeds = {
             espnGames: import("@/lib/api").EspnGame[];
@@ -2657,7 +2686,7 @@ export default function CoachScreen() {
           };
           let scanFeedsPromise: Promise<ScanFeeds> | null = null;
           if (reachFullPreScanEligible) {
-            setParlayBuildPhase("board-scan");
+            setParlayBuildPhaseMonotonic("board-scan");
             const scanSports = coachLiveScanSports(excludedSports);
             scanFeedsPromise = Promise.all([
               Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
@@ -3063,7 +3092,7 @@ export default function CoachScreen() {
             } else if (useParlayKernel) {
               full = "";
               setWaiting(false);
-              setParlayBuildPhase("board-scan");
+              setParlayBuildPhaseMonotonic("board-scan");
               let scanForDelivery: FullBoardScanResult | null = null;
               if (earlyReachBoardScanRef.current) {
                 try {
@@ -3097,7 +3126,7 @@ export default function CoachScreen() {
                 }
               }
             } else {
-              setParlayBuildPhase("stream");
+              setParlayBuildPhaseMonotonic("stream");
               full = await runStream();
             }
             if (!wantsAnalyzeSlip(trimmed)) {
@@ -3717,7 +3746,7 @@ export default function CoachScreen() {
             }
           }
         } else if (!fullBoardScanned && useFullBoardScan) {
-          setParlayBuildPhase("board-scan");
+          setParlayBuildPhaseMonotonic("board-scan");
           const scanSports = coachLiveScanSports(excludedSports);
           const [espnGames, oddsGames, liveFeed] = await Promise.all([
             Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>

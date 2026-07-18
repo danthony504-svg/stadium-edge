@@ -29,7 +29,7 @@ export const COACH_BUILD_STAGES: readonly CoachBuildStageDef[] = [
   { id: "injuries", percent: 40, label: "Checking injuries and lineups", timeoutMs: 45_000 },
   { id: "line-value", percent: 55, label: "Calculating line value and EV", timeoutMs: 90_000 },
   { id: "simulations", percent: 70, label: "Running simulations", timeoutMs: 120_000 },
-  { id: "correlation", percent: 85, label: "Scoring correlation", timeoutMs: 20_000 },
+  { id: "correlation", percent: 85, label: "Scoring correlation", timeoutMs: 15_000 },
   { id: "building-ticket", percent: 90, label: "Building final ticket", timeoutMs: 60_000 },
   { id: "final-ticket", percent: 100, label: "Final ticket ready", timeoutMs: 30_000 },
 ] as const;
@@ -43,6 +43,8 @@ export type CoachBuildProgressState = {
   /** Highest fully completed stage index (-1 = none). */
   completedThroughIndex: number;
   displayPercent: number;
+  /** Monotonic ceiling — never decreases across the request. */
+  peakDisplayPercent: number;
   status: CoachBuildProgressStatus;
   activeStageStartedAt: number;
   timedOutStageId?: CoachBuildStageId;
@@ -89,6 +91,18 @@ function activeStageIndex(state: CoachBuildProgressState): number {
   return Math.min(state.completedThroughIndex + 1, COACH_BUILD_STAGES.length - 1);
 }
 
+function monotonicPercent(current: number, incoming: number): number {
+  return Math.max(current, incoming);
+}
+
+function withMonotonicPercent(
+  state: CoachBuildProgressState,
+  displayPercent: number,
+): Pick<CoachBuildProgressState, "displayPercent" | "peakDisplayPercent"> {
+  const next = monotonicPercent(state.peakDisplayPercent, monotonicPercent(state.displayPercent, displayPercent));
+  return { displayPercent: next, peakDisplayPercent: next };
+}
+
 function matchesRequest(
   state: CoachBuildProgressState,
   opts: { requestId: string; sendGeneration: number },
@@ -109,6 +123,7 @@ export function createCoachBuildProgress(opts: {
     legTarget: opts.legTarget ?? 0,
     completedThroughIndex: -1,
     displayPercent: 0,
+    peakDisplayPercent: 0,
     status: "active",
     activeStageStartedAt: now,
   };
@@ -127,17 +142,18 @@ export function advanceCoachBuildStage(
   const now = opts.now ?? Date.now();
 
   if (targetIdx <= state.completedThroughIndex) {
-    if (state.displayPercent >= floorPercent) return state;
-    return {
-      ...state,
-      displayPercent: Math.max(state.displayPercent, floorPercent),
-    };
+    const pct = withMonotonicPercent(state, floorPercent);
+    if (pct.displayPercent === state.displayPercent && pct.peakDisplayPercent === state.peakDisplayPercent) {
+      return state;
+    }
+    return { ...state, ...pct };
   }
 
+  const pct = withMonotonicPercent(state, floorPercent);
   return {
     ...state,
     completedThroughIndex: targetIdx,
-    displayPercent: Math.max(state.displayPercent, floorPercent),
+    ...pct,
     activeStageStartedAt: now,
   };
 }
@@ -149,10 +165,13 @@ export function coachBuildProgressOnPicksRendered(
 ): CoachBuildProgressState {
   if (!matchesRequest(state, opts)) return state;
   if (pickCount <= 0) return state;
+  const buildingIdx = coachBuildStageIndex("building-ticket");
+  if (state.completedThroughIndex < buildingIdx) return state;
   const advanced = advanceCoachBuildStage(state, "final-ticket", opts);
+  const pct = withMonotonicPercent(advanced, 100);
   return {
     ...advanced,
-    displayPercent: 100,
+    ...pct,
     status: "complete",
   };
 }
@@ -172,8 +191,8 @@ export function coachBuildProgressOnFailure(
     ...state,
     status: opts.empty ? "empty" : "failed",
     failureMessage: message,
-    displayPercent: Math.max(
-      state.displayPercent,
+    ...withMonotonicPercent(
+      state,
       COACH_BUILD_STAGES[Math.max(0, state.completedThroughIndex)]?.percent ?? 0,
     ),
   };
@@ -197,11 +216,11 @@ export function coachBuildProgressTick(
       : 100;
   const step = Math.max(0.35, (ceiling - floor) / 120);
   const raw = Math.min(ceiling, Math.max(state.displayPercent + step, floor));
-  const nextDisplay = Math.max(state.displayPercent, raw);
+  const pct = withMonotonicPercent(state, raw);
 
   let next = state;
-  if (nextDisplay !== state.displayPercent) {
-    next = { ...state, displayPercent: nextDisplay };
+  if (pct.displayPercent !== state.displayPercent || pct.peakDisplayPercent !== state.peakDisplayPercent) {
+    next = { ...state, ...pct };
   }
 
   const timeoutMs = coachBuildStageTimeoutMs(activeStage.id, state.legTarget);
@@ -211,7 +230,7 @@ export function coachBuildProgressTick(
       status: "timed-out",
       timedOutStageId: activeStage.id,
       failureMessage: `${activeStage.label} timed out`,
-      displayPercent: Math.max(next.displayPercent, activeStage.percent),
+      ...withMonotonicPercent(next, activeStage.percent),
     };
   }
 
@@ -320,7 +339,9 @@ function coachBuildSnapshotFromLifecycle(
   const activeIdx = Math.min(lifecycle.completedThroughIndex + 1, COACH_BUILD_STAGES.length - 1);
   const stage = COACH_BUILD_STAGES[activeIdx]!;
   const floorPercent = COACH_BUILD_STAGES[Math.max(0, lifecycle.completedThroughIndex)]?.percent ?? 0;
-  const percent = Math.round(Math.max(lifecycle.displayPercent, floorPercent));
+  const percent = Math.round(
+    Math.max(lifecycle.peakDisplayPercent ?? 0, lifecycle.displayPercent, floorPercent),
+  );
   const ticketReady =
     legCount > 0 && lifecycle.completedThroughIndex >= buildingIdx;
   if (ticketReady) {
@@ -373,29 +394,50 @@ export function coachBuildProgressFromPhase(
   legCount: number,
   lifecycle?: CoachBuildProgressState | null,
 ): CoachBuildProgressSnapshot {
+  const peak =
+    lifecycle?.peakDisplayPercent ?? lifecycle?.displayPercent ?? 0;
   if (lifecycle && lifecycle.status !== "failed" && lifecycle.status !== "empty") {
-    return coachBuildSnapshotFromLifecycle(lifecycle, legCount);
+    const snap = coachBuildSnapshotFromLifecycle(lifecycle, legCount);
+    return { ...snap, percent: Math.max(snap.percent, Math.round(peak)) };
   }
   if (legCount > 0) {
-    return {
-      percent: 100,
-      label: COACH_BUILD_STAGES[FINAL_TICKET_IDX]!.label,
-      matchupComplete: true,
-      injuryComplete: true,
-      lineValueComplete: true,
-      simulationComplete: true,
-      correlationComplete: true,
-      ticketComplete: true,
-    };
+    const buildingIdx = coachBuildStageIndex("building-ticket");
+    const previewOnly =
+      lifecycle != null &&
+      lifecycle.status === "active" &&
+      lifecycle.completedThroughIndex < buildingIdx;
+    if (!previewOnly) {
+      return {
+        percent: 100,
+        label: COACH_BUILD_STAGES[FINAL_TICKET_IDX]!.label,
+        matchupComplete: true,
+        injuryComplete: true,
+        lineValueComplete: true,
+        simulationComplete: true,
+        correlationComplete: true,
+        ticketComplete: true,
+      };
+    }
   }
   const stageId = buildPhase ? coachBuildStageFromParlayPhase(buildPhase) : "starting";
   const stageIdx = coachBuildStageIndex(stageId);
   const stage = COACH_BUILD_STAGES[stageIdx] ?? COACH_BUILD_STAGES[0]!;
   return {
-    percent: stage.percent,
+    percent: Math.max(stage.percent, Math.round(peak)),
     label: stage.label,
-    ...coachBuildChecklistFromIndex(stageIdx, legCount),
+    ...coachBuildChecklistFromIndex(stageIdx, pastBuildingLegCount(lifecycle, legCount)),
   };
+}
+
+function pastBuildingLegCount(
+  lifecycle: CoachBuildProgressState | null | undefined,
+  legCount: number,
+): number {
+  const buildingIdx = coachBuildStageIndex("building-ticket");
+  if (legCount > 0 && lifecycle && lifecycle.completedThroughIndex >= buildingIdx) {
+    return legCount;
+  }
+  return 0;
 }
 
 /** Bridge canonical snapshot → AnalysisProgress view model. */

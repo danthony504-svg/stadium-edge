@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   COACH_BUILD_STAGES,
   coachBuildProgressFromPhase,
+  coachBuildProgressOnPicksRendered,
   coachBuildProgressSignature,
   coachBuildProgressViewFromSnapshot,
   coachBuildProgressTick,
@@ -97,6 +98,34 @@ test("advanceCoachBuildStage ignores stale requestId", () => {
   });
   assert.equal(state.completedThroughIndex, -1);
 });
+test("coachBuildProgressOnPicksRendered ignores preview picks before building-ticket", () => {
+  let state = createCoachBuildProgress({ requestId: "r-preview", sendGeneration: 1, legTarget: 5 });
+  state = advanceCoachBuildStage(state, "correlation", {
+    requestId: "r-preview",
+    sendGeneration: 1,
+  });
+  state = { ...state, displayPercent: 89, peakDisplayPercent: 89 };
+  const after = coachBuildProgressOnPicksRendered(state, 5, {
+    requestId: "r-preview",
+    sendGeneration: 1,
+  });
+  assert.equal(after.status, "active");
+  assert.equal(after.displayPercent, 89);
+});
+
+test("coachBuildProgressFromPhase never regresses below peakDisplayPercent", () => {
+  let state = createCoachBuildProgress({ requestId: "r-peak", sendGeneration: 1, legTarget: 5 });
+  for (const stageId of ["starting", "loading-games", "matchups", "injuries", "line-value", "simulations", "correlation"] as const) {
+    state = advanceCoachBuildStage(state, stageId, {
+      requestId: "r-peak",
+      sendGeneration: 1,
+    });
+  }
+  state = { ...state, displayPercent: 89, peakDisplayPercent: 89 };
+  const snap = coachBuildProgressFromPhase("board-scan", 5, state);
+  assert.ok(snap.percent >= 89, `expected >= 89 got ${snap.percent}`);
+});
+
 test("coachBuildProgressFromPhase walks 3/5/9/15-leg lifecycle to 100%", () => {
   for (const legs of [3, 5, 9, 15]) {
     let state = createCoachBuildProgress({ requestId: `r-${legs}`, sendGeneration: 1, legTarget: legs });

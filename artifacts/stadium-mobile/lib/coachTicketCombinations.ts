@@ -748,7 +748,7 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** Batched async candidate generation — yields between batches for UI responsiveness. */
+/** Batched async candidate generation — yields between candidates for deadline checks. */
 export async function buildIndependentCoachTicketAsync(
   scored: BoardScoredLeg[],
   target: number,
@@ -757,6 +757,7 @@ export async function buildIndependentCoachTicketAsync(
     batchSize: number;
     deadlineAt: number;
     maxCandidates?: number;
+    isAborted?: () => boolean;
     onProgress?: (correlationsScored: number, candidateTicketCount: number) => void;
     onTicketError?: (index: number, err: unknown) => void;
   },
@@ -778,27 +779,29 @@ export async function buildIndependentCoachTicketAsync(
   const exceptions: string[] = [];
   let timedOut = false;
 
-  for (let batchStart = 0; batchStart < candidateTicketCount; batchStart += runtime.batchSize) {
-    if (correlationTimedOut(runtime.deadlineAt)) {
+  const shouldStop = (): boolean =>
+    correlationTimedOut(runtime.deadlineAt) || runtime.isAborted?.() === true;
+
+  for (let i = 0; i < candidateTicketCount; i++) {
+    if (shouldStop()) {
       timedOut = true;
       break;
     }
-    const batchEnd = Math.min(batchStart + runtime.batchSize, candidateTicketCount);
-    for (let i = batchStart; i < batchEnd; i++) {
-      try {
-        const candidate = buildSingleTicketCandidate(scored, target, opts, i);
-        if (candidate) candidates.push(candidate);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        exceptions.push(`ticket-${i}: ${message}`);
-        runtime.onTicketError?.(i, err);
-      }
-    }
-    runtime.onProgress?.(candidates.length, candidateTicketCount);
     await yieldToEventLoop();
-    if (correlationTimedOut(runtime.deadlineAt)) {
+    if (shouldStop()) {
       timedOut = true;
       break;
+    }
+    try {
+      const candidate = buildSingleTicketCandidate(scored, target, opts, i);
+      if (candidate) candidates.push(candidate);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      exceptions.push(`ticket-${i}: ${message}`);
+      runtime.onTicketError?.(i, err);
+    }
+    if ((i + 1) % Math.max(1, runtime.batchSize) === 0 || i === candidateTicketCount - 1) {
+      runtime.onProgress?.(candidates.length, candidateTicketCount);
     }
   }
 
@@ -808,7 +811,15 @@ export async function buildIndependentCoachTicketAsync(
     extra: { candidateCount: candidates.length, candidateTicketCount, timedOut },
   });
 
-  const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
+  let chosen: TicketCandidate | null = null;
+  if (candidates.length) {
+    if (!timedOut && !shouldStop()) {
+      chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
+    }
+    if (!chosen) {
+      chosen = [...candidates].sort((a, b) => candidateTotalScore(b) - candidateTotalScore(a))[0]!;
+    }
+  }
   const picks = chosen?.picks ?? [];
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
