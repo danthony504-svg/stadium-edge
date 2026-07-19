@@ -1642,6 +1642,7 @@ export default function CoachScreen() {
       setBuildProgressExpired(false);
       setParlayBuildPhase("idle");
       setCoachBuildBusy(false);
+      abortRef.current?.abort();
       abortRef.current = null;
     },
     [bumpCoachAskStage],
