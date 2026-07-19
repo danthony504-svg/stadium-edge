@@ -5657,7 +5657,14 @@ export default function CoachScreen() {
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
-            content: outPicks.length > 0 ? "" : manifestReply ? "" : finalContent,
+            content:
+              outPicks.length > 0
+                ? ""
+                : manifestReply
+                  ? ""
+                  : plainAskFlow && prevAssistant.content?.trim()
+                    ? prevAssistant.content
+                    : finalContent,
             picks: outPicks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
             ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
@@ -5677,6 +5684,15 @@ export default function CoachScreen() {
             setBuildProgressExpired(false);
             setParlayBuildPhase("idle");
           }
+        } else if (
+          plainAskFlow &&
+          activeAskRequestIdRef.current &&
+          sendGenerationRef.current === sendGen &&
+          assistantBubbleText(finalContent, false).trim()
+        ) {
+          bumpCoachAskStage(activeAskRequestIdRef.current, sendGen, "assistant-message-committed", {
+            answerVisible: true,
+          });
         } else if (
           isParlayBuild &&
           coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote) &&
