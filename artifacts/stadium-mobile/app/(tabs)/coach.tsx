@@ -1201,6 +1201,8 @@ export default function CoachScreen() {
   const [coachFinalizeWorkflowIndex, setCoachFinalizeWorkflowIndex] = useState<number | undefined>(
     undefined,
   );
+  const [buildProgressHold, setBuildProgressHold] = useState<{ requestId: string } | null>(null);
+  const buildProgressHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [coachAskWorkflowIndex, setCoachAskWorkflowIndex] = useState<number | undefined>(undefined);
   const [coachAskAnswerCommitted, setCoachAskAnswerCommitted] = useState(false);
   const activeAskRequestIdRef = useRef("");
@@ -1553,6 +1555,11 @@ export default function CoachScreen() {
     void clearPersistedCoachInjury();
     void clearPersistedCoachCorrelation();
     setCoachFinalizeWorkflowIndex(undefined);
+    setBuildProgressHold(null);
+    if (buildProgressHoldTimerRef.current) {
+      clearTimeout(buildProgressHoldTimerRef.current);
+      buildProgressHoldTimerRef.current = null;
+    }
     setCoachAskWorkflowIndex(undefined);
     setCoachAskAnswerCommitted(false);
     activeAskRequestIdRef.current = "";
@@ -1680,12 +1687,24 @@ export default function CoachScreen() {
     [bumpCoachAskStage],
   );
 
-  const finishCoachBuildUi = useCallback(() => {
+  const finishCoachBuildUi = useCallback((requestId?: string) => {
     setCoachFinalizeWorkflowIndex(9);
+    const rid = requestId ?? coachRequestContextRef.current?.requestId ?? varietySeedRef.current;
+    if (!rid) return;
+    if (buildProgressHoldTimerRef.current) {
+      clearTimeout(buildProgressHoldTimerRef.current);
+    }
+    setBuildProgressHold({ requestId: rid });
+    buildProgressHoldTimerRef.current = setTimeout(() => {
+      setBuildProgressHold((hold) => (hold?.requestId === rid ? null : hold));
+      buildProgressHoldTimerRef.current = null;
+    }, 1800);
   }, []);
 
   const syncCoachBuildWorkflowIndex = useCallback(
     (requestId: string, opts?: { scanComplete?: boolean; hasCards?: boolean }) => {
+      const activeId = coachRequestContextRef.current?.requestId ?? varietySeedRef.current;
+      if (activeId && activeId !== requestId) return;
       setCoachFinalizeWorkflowIndex(
         coachBuildWorkflowIndex(getCoachFinalizeRecord(requestId), getCoachInjuryRecord(requestId), {
           ...opts,
@@ -1706,7 +1725,7 @@ export default function CoachScreen() {
   );
 
   const onCoachPipelineStage = useCallback(
-    (requestId: string, _stage: string) => {
+    (requestId: string, stage: string) => {
       syncCoachBuildWorkflowIndex(requestId);
     },
     [syncCoachBuildWorkflowIndex],
@@ -1727,6 +1746,12 @@ export default function CoachScreen() {
       markCoachFinalizeInterrupted(requestId, `Build exceeded ${COACH_REQUEST_DEADLINE_MS / 1000}s deadline`);
       void persistCoachFinalize(getCoachFinalizeRecord(requestId)!);
       logCoachPipelineOperationSummary(requestId);
+      setCoachFinalizeWorkflowIndex(9);
+      setBuildProgressHold(null);
+      if (buildProgressHoldTimerRef.current) {
+        clearTimeout(buildProgressHoldTimerRef.current);
+        buildProgressHoldTimerRef.current = null;
+      }
       setMessages((prev) => {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
@@ -1831,7 +1856,7 @@ export default function CoachScreen() {
             void persistCoachFinalize(getCoachFinalizeRecord(requestId)!);
             coachLifecycleDeliveryComplete(requestId);
             coachLifecycleCardsCommitted(requestId);
-            finishCoachBuildUi();
+            finishCoachBuildUi(requestId);
             return true;
           }
           markCoachFinalizeError(requestId, "Failed to save pick cards");
@@ -1866,7 +1891,7 @@ export default function CoachScreen() {
         void persistCoachFinalize(getCoachFinalizeRecord(requestId)!);
         coachLifecycleDeliveryComplete(requestId);
         coachLifecycleCardsCommitted(requestId);
-        finishCoachBuildUi();
+        finishCoachBuildUi(requestId);
         scrollToEnd(false);
         return true;
       } catch (err) {
@@ -2650,6 +2675,11 @@ export default function CoachScreen() {
         });
         beginCoachFinalizeRequest(varietySeed, earlyLegTarget);
         coachFinalizeRetryRef.current = false;
+        setBuildProgressHold(null);
+        if (buildProgressHoldTimerRef.current) {
+          clearTimeout(buildProgressHoldTimerRef.current);
+          buildProgressHoldTimerRef.current = null;
+        }
         setCoachFinalizeWorkflowIndex(3);
       }
 
@@ -6490,7 +6520,7 @@ export default function CoachScreen() {
           });
           if (record.cardsSaved && record.selectedCount > 0) return;
           if (record.phase === "empty" || record.phase === "interrupted") {
-            finishCoachBuildUi();
+            finishCoachBuildUi(record.requestId);
           }
         });
       }
@@ -7008,13 +7038,19 @@ export default function CoachScreen() {
               !waiting &&
               !streaming &&
               !buildFinishing;
-            // Progress finalizes once pick cards are on the message — or when a
-            // board-scan partial has scored legs waiting for delivery gates.
-            const progressLegCount = showTicketPicks
-              ? visiblePicks.length
-              : buildIdle
-                ? 0
-                : stagedDuringScan;
+            // Progress finalizes only when pick cards are on-screen for this request.
+            const activeBuildRequestId =
+              coachRequestContextRef.current?.requestId ?? varietySeedRef.current;
+            const progressHoldActive =
+              i === messages.length - 1 &&
+              buildProgressHold?.requestId === activeBuildRequestId;
+            const progressLegCount = showTicketPicks ? visiblePicks.length : 0;
+            const showBuildProgressCard =
+              progressHoldActive ||
+              ((isBuildingParlay ||
+                parlayStillFilling ||
+                (parlayStillBuilding && !parlayBuildHung)) &&
+                !showTicketPicks);
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
@@ -7150,13 +7186,13 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung)) &&
-                  !showTicketPicks) ? (
+                {showBuildProgressCard ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
                     workflowIndex={coachFinalizeWorkflowIndex}
+                    buildComplete={progressHoldActive}
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
@@ -7333,6 +7369,7 @@ export default function CoachScreen() {
               mode="build"
               legCount={footerProgressLegCount}
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+              workflowIndex={coachFinalizeWorkflowIndex}
             />
           ) : null}
 

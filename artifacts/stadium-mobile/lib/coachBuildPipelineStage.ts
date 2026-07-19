@@ -60,7 +60,7 @@ export function coachBuildStageWorkflowIndex(
   ) {
     return 6;
   }
-  if (finalizeRecord?.lineValueReadyAt) return 5;
+  if (finalizeRecord?.lineValueReadyAt) return 6;
   if (stages.confidenceScored || stages.simulated || stages.evScored || stages.pricingStarted) {
     return 5;
   }

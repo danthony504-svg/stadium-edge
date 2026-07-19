@@ -230,7 +230,7 @@ export function coachBuildWorkflowIndex(
   ) {
     return 6;
   }
-  if (finalizeRecord?.lineValueReadyAt) return 5;
+  if (finalizeRecord?.lineValueReadyAt) return 6;
   const pipelineStages = getCoachBuildPipelineStages(finalizeRecord?.requestId);
   if (
     pipelineStages.confidenceScored ||

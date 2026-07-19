@@ -90,6 +90,7 @@ export function AnalysisProgress({
   legCount = 0,
   buildPhase,
   workflowIndex,
+  buildComplete = false,
   answerCommitted = false,
 }: {
   mode?: "build" | "analyze" | "ask";
@@ -97,6 +98,8 @@ export function AnalysisProgress({
   buildPhase?: ParlayBuildPhase;
   /** When set, drives checklist + % from real job status instead of the auto-timer. */
   workflowIndex?: number;
+  /** Build finished — lock 100%, check all stages, stop spinners (brief hold before dismiss). */
+  buildComplete?: boolean;
   /** Ask mode: checklist "Answer ready" only when the reply is on-screen. */
   answerCommitted?: boolean;
 }) {
@@ -135,14 +138,16 @@ export function AnalysisProgress({
       : mode === "build"
         ? Math.min(autoIndex, maxAuto)
         : autoIndex;
-  const effectiveIndex =
-    workflowIndex != null ? Math.min(workflowIndex, stageList.length - 1) : timerIndex;
-  const target =
-    legCount > 0 && mode === "build"
-      ? 100
-      : workflowIndex != null
-        ? targetList[effectiveIndex]
-        : targetList[effectiveIndex];
+  const effectiveIndex = buildComplete
+    ? stageList.length - 1
+    : workflowIndex != null
+      ? Math.min(workflowIndex, stageList.length - 1)
+      : timerIndex;
+  const target = buildComplete
+    ? 100
+    : workflowIndex != null
+      ? targetList[effectiveIndex]
+      : targetList[effectiveIndex];
   const phaseStage =
     mode === "build" && buildPhase === "board-scan"
       ? "Scanning every posted market on the live board…"
@@ -175,6 +180,10 @@ export function AnalysisProgress({
   }, [workflowIndex, mode, legCount, autoIndex, maxAuto, targetList]);
 
   useEffect(() => {
+    if (buildComplete) {
+      setPct(100);
+      return;
+    }
     if (workflowIndex != null) {
       setPct(targetList[Math.min(workflowIndex, targetList.length - 1)]);
       return;
@@ -187,7 +196,7 @@ export function AnalysisProgress({
       });
     }, 70);
     return () => clearInterval(id);
-  }, [target, workflowIndex, targetList]);
+  }, [target, workflowIndex, targetList, buildComplete]);
 
   // Soft pulse for the header glow dot + the progress bar so the surface always
   // reads as "actively working".
@@ -214,12 +223,16 @@ export function AnalysisProgress({
   }, [pulse]);
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
 
-  const displayPct = Math.round(pct);
+  const displayPct = buildComplete ? 100 : Math.round(pct);
   // The first not-yet-done checklist item is the one currently in progress.
-  const activeChecklist = checklist.findIndex((c) => {
-    if (boardScanWaiting && c.label === "Final ticket ready" && workflowIndex == null) return false;
-    return effectiveIndex < c.doneAt;
-  });
+  const activeChecklist = buildComplete
+    ? -1
+    : checklist.findIndex((c) => {
+        if (boardScanWaiting && c.label === "Final ticket ready" && workflowIndex == null) {
+          return false;
+        }
+        return effectiveIndex < c.doneAt;
+      });
 
   return (
     <View
@@ -316,13 +329,11 @@ export function AnalysisProgress({
         }}
       >
         {checklist.map((item, idx) => {
-          const done =
-            item.label === "Final ticket ready"
-              ? legCount > 0 ||
-                (workflowIndex != null && workflowIndex >= item.doneAt && effectiveIndex >= 9)
-              : item.label === "Answer ready" && isAsk
-                ? answerCommitted && effectiveIndex >= item.doneAt
-                : effectiveIndex >= item.doneAt;
+          const done = buildComplete
+            ? true
+            : item.label === "Answer ready" && isAsk
+              ? answerCommitted && effectiveIndex >= item.doneAt
+              : effectiveIndex >= item.doneAt;
           const active = idx === activeChecklist;
           return (
             <View

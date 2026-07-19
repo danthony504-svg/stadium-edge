@@ -823,6 +823,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   markCoachLineValueReady(traceId);
   opts.onLineValueReady?.(traceId);
   opts.onPipelineStage?.(traceId, "line-value-complete");
+  opts.onPipelineStage?.(traceId, "correlation-started");
   const { fetchCoachCorrelationForBuild } = await import("./coachCorrelation.ts");
   const correlationResult = await traceCoachPipelineOperation({
     requestId: traceId,
