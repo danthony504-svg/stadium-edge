@@ -232,6 +232,7 @@ import {
   getCoachCorrelationRecord,
   loadPersistedCoachCorrelation,
 } from "@/lib/coachCorrelation";
+import { coachCorrelationTimeoutMayFinalize } from "@/lib/coachCorrelationTimeout";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -6203,7 +6204,9 @@ export default function CoachScreen() {
     return () => sub.remove();
   }, [restoreBackgroundBuild, resumePendingBackgroundBuild]);
 
-  // Correlation must not block the build — force finalize after 9s at 74%.
+  // Correlation must not block the build — retry finalize after 9s, but only once the
+  // live board scan has actually finished (props loaded + simmed). Never force-complete
+  // a partial preview or empty scan while fetchFullBoardPropPool is still in flight.
   useEffect(() => {
     const ctx = coachRequestContextRef.current;
     if (!ctx || (!streaming && !buildFinishing)) return;
@@ -6213,58 +6216,57 @@ export default function CoachScreen() {
 
     const started = record.correlationStartedAt ?? record.lineValueReadyAt;
     const delay = Math.max(0, COACH_CORRELATION_TIMEOUT_MS - (Date.now() - started));
-    const t = setTimeout(() => {
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryTimeoutFinalize = async () => {
+      if (cancelled) return;
       const latest = getCoachFinalizeRecord(ctx.requestId);
       if (!latest || latest.correlationCompleteAt || coachFinalizeIsTerminal(latest)) return;
       if (coachFinalizeRetryRef.current) return;
 
-      const legTarget =
-        activeRequestLegTargetRef.current ||
-        requestedLegCount(activeParlayAskRef.current) ||
-        effectiveBuildLegCount(activeParlayAskRef.current);
+      await awaitPendingBoardScans();
 
       const partial = latestBoardScanRef.current;
-      if (partial) {
-        coachFinalizeRetryRef.current = true;
-        const forcedScan: FullBoardScanResult = {
-          ...partial,
-          scanComplete: true,
-          correlationStatus: "unavailable",
-          requestedLegs: partial.requestedLegs ?? legTarget,
-          requestId: partial.requestId ?? ctx.requestId,
-        };
-        commitCoachFinalizeAfterScan(forcedScan, flashEnrichRef.current, {
-          legTarget,
-          userText: activeParlayAskRef.current,
-        });
+      const mayFinalize = coachCorrelationTimeoutMayFinalize({
+        scan: partial,
+        boardScanInFlight: boardScanInFlightRef.current,
+        pendingScanCompletions: pendingBoardScanCompletionsRef.current.length,
+      });
+      if (!mayFinalize) {
+        if (!cancelled && (streaming || buildFinishing)) {
+          pollTimer = setTimeout(() => {
+            void tryTimeoutFinalize();
+          }, 2_000);
+        }
         return;
       }
 
       coachFinalizeRetryRef.current = true;
-      const emptyScan: FullBoardScanResult = {
-        picks: [],
-        evalLinesByGame: new Map(),
-        gameSimulations: new Map(),
-        totalScanned: 0,
-        totalQualified: 0,
-        staging: { mainQualified: 0, altQualified: 0, mainOnTicket: 0, altOnTicket: 0 },
-        note: COACH_NO_QUALIFYING_PICKS_LEAD,
-        scanComplete: true,
-        correlationStatus: "unavailable",
-        requestedLegs: legTarget,
-        requestId: ctx.requestId,
-      };
-      commitCoachFinalizeAfterScan(emptyScan, flashEnrichRef.current, {
+      const legTarget =
+        activeRequestLegTargetRef.current ||
+        requestedLegCount(activeParlayAskRef.current) ||
+        effectiveBuildLegCount(activeParlayAskRef.current);
+      commitCoachFinalizeAfterScan(partial!, flashEnrichRef.current, {
         legTarget,
         userText: activeParlayAskRef.current,
       });
+    };
+
+    const t = setTimeout(() => {
+      void tryTimeoutFinalize();
     }, delay);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, [
     streaming,
     buildFinishing,
     coachFinalizeWorkflowIndex,
     commitCoachFinalizeAfterScan,
+    awaitPendingBoardScans,
   ]);
 
   // Hard recovery: if finalizing stalls >15s after correlation, retry finalize once.
