@@ -164,6 +164,36 @@ export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanMa
   };
 }
 
+/** Backward-compatible defaults for manifests saved before pipeline fields existed. */
+export function normalizeCoachBoardScanManifest(
+  manifest: Partial<CoachBoardScanManifest> & { requestedLegs?: number },
+): CoachBoardScanManifest {
+  const base = emptyCoachBoardScanManifest(manifest.requestedLegs ?? 0);
+  return {
+    ...base,
+    ...manifest,
+    marketsFoundByFamily: {
+      ...base.marketsFoundByFamily,
+      ...(manifest.marketsFoundByFamily ?? {}),
+    },
+    qualifiedByCategory: {
+      ...base.qualifiedByCategory,
+      ...(manifest.qualifiedByCategory ?? {}),
+    },
+    tierFillCounts: {
+      ...base.tierFillCounts,
+      ...(manifest.tierFillCounts ?? {}),
+    },
+    coverageBySport: { ...base.coverageBySport, ...(manifest.coverageBySport ?? {}) },
+    coverageByMarket: { ...base.coverageByMarket, ...(manifest.coverageByMarket ?? {}) },
+    gateFailureCounts: { ...base.gateFailureCounts, ...(manifest.gateFailureCounts ?? {}) },
+    rejectedSamples: manifest.rejectedSamples ?? base.rejectedSamples,
+    pipelineStages: { ...base.pipelineStages, ...(manifest.pipelineStages ?? {}) },
+    pipelineRejections: manifest.pipelineRejections ?? base.pipelineRejections,
+    relaxationsApplied: manifest.relaxationsApplied ?? base.relaxationsApplied,
+  };
+}
+
 export function classifyManifestMarketFamily(pick: ParsedPick): ManifestMarketFamily {
   const market = String(pick.market ?? "").trim();
   const lower = market.toLowerCase();
@@ -339,10 +369,10 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     recordPipelineSnapshot(snapshot) {
       manifest.pipelineStages = { ...manifest.pipelineStages, ...snapshot.stages };
       manifest.relaxationsApplied = [
-        ...new Set([...manifest.relaxationsApplied, ...snapshot.relaxationsApplied]),
+        ...new Set([...(manifest.relaxationsApplied ?? []), ...(snapshot.relaxationsApplied ?? [])]),
       ];
-      for (const r of snapshot.rejections) {
-        if (manifest.pipelineRejections.length >= MAX_REJECTED_SAMPLES) break;
+      for (const r of snapshot.rejections ?? []) {
+        if ((manifest.pipelineRejections ?? []).length >= MAX_REJECTED_SAMPLES) break;
         manifest.pipelineRejections.push(r);
       }
     },
@@ -485,7 +515,10 @@ function gateLabel(gate: BoardLegGateCode): string {
 }
 
 /** User-facing scan manifest block (markdown). */
-export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): string {
+export function formatCoachBoardScanManifest(
+  manifestInput: CoachBoardScanManifest | (Partial<CoachBoardScanManifest> & { requestedLegs?: number }),
+): string {
+  const manifest = normalizeCoachBoardScanManifest(manifestInput);
   const lines: string[] = [];
   lines.push("### Scan manifest");
   lines.push(

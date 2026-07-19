@@ -1,7 +1,7 @@
 // Coach ticket kernel v2 — invariants only (horizon + dedupe). No re-gating staged legs.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { stripFillerBackfillPicks } from "./coachScanPolicy.ts";
+import { stripFillerBackfillPicks, isFillerBackfillPick } from "./coachScanPolicy.ts";
 import {
   enrichPicksWithStartsAt,
   filterCoachHorizonPicksAfterEnrich,
@@ -90,6 +90,40 @@ export function coerceCoachDisplayPicks(
   const base = enrich ?? { realOdds: [], propPool: [], gameMeta: [] };
   const cleaned = applyCoachTicketInvariants(picks, base);
   return cleaned.length ? cleaned : picks;
+}
+
+/** Picks that should never paint on a Coach card. */
+export function pickIsExplicitlyInvalid(pick: ParsedPick): boolean {
+  if (isFillerBackfillPick(pick)) return true;
+  if (!String(pick.game ?? "").trim()) return true;
+  if (!String(pick.market ?? "").trim()) return true;
+  if (!String(pick.pick ?? "").trim()) return true;
+  return false;
+}
+
+/**
+ * Resolve picks for Coach UI rendering.
+ * Delivery gates run at write time — paint must not re-filter delivered legs to zero.
+ */
+export function resolveCoachPaintPicks(
+  raw: ParsedPick[],
+  enrich: CoachFlashEnrich,
+): ParsedPick[] {
+  if (!raw?.length) return [];
+
+  const coerced = coerceCoachDisplayPicks(raw, enrich);
+  const strict = filterCoachDeliveredPicks(coerced, enrich);
+  if (strict.length) {
+    return ensureCoachDeliveredPickAnalyses(strict);
+  }
+
+  const invariant = coerced.filter((p) => !pickIsExplicitlyInvalid(p));
+  if (invariant.length) {
+    return ensureCoachDeliveredPickAnalyses(invariant);
+  }
+
+  const salvage = raw.filter((p) => !pickIsExplicitlyInvalid(p));
+  return ensureCoachDeliveredPickAnalyses(salvage);
 }
 
 /** Board scan → ticket: trust staged scan picks, apply invariants, fail-soft. */

@@ -8,6 +8,7 @@ import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
 import { propHolisticTopDrivers, buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
+import { coachPickIsDelivered } from "@/lib/coachDeliveredPickAnalysis";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED, NOT_AI_RECOMMENDED_COMPACT } from "@/lib/pickRecommendation";
 
@@ -29,11 +30,11 @@ function useScoreColor() {
 
 const COACH_CARD_STRIP: Array<{ key: string; label: string; altKeys?: string[] }> = [
   { key: "sportsbookValue", label: "EV" },
-  { key: "simulation", label: "Sim" },
-  { key: "matchup", label: "Match", altKeys: ["opponentTendency"] },
+  { key: "simulation", label: "Simulation" },
+  { key: "matchup", label: "Matchup", altKeys: ["opponentTendency"] },
   { key: "recentForm", label: "Form", altKeys: ["playingTime"] },
-  { key: "injury", label: "Inj" },
-  { key: "lineMovement", label: "Mkt" },
+  { key: "injury", label: "Injuries" },
+  { key: "lineMovement", label: "Market" },
 ];
 
 function stripSlotFactor(
@@ -104,7 +105,7 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
                 style={{
                   color: present ? (isTop ? colors.foreground : colors.mutedForeground) : colors.mutedForeground,
                   fontFamily: isTop ? FONT.bold : FONT.medium,
-                  fontSize: unavailable ? 6.5 : 8,
+                  fontSize: unavailable ? 7 : 7.5,
                   opacity: present ? 1 : 0.55,
                 }}
               >
@@ -359,23 +360,25 @@ export function ScoreBreakdown({
   const scoreColor = useScoreColor();
   const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
   const isPropCard = !!(pick?.isProp || pick?.player);
+  const coachDelivered = pick ? coachPickIsDelivered(pick) : false;
   const holisticDisplay =
     pick
       ? buildCoachCardHolistic(pick) ?? propHolistic ?? null
       : propHolistic ?? null;
 
   // Compact (cards): show nothing when the pick can't be graded at all, so a
-  // card never carries an empty rubric.
+  // card never carries an empty rubric — except delivered Coach legs, which
+  // always paint the full EV / sim / matchup strip and grade tiles.
   if (variant === "compact") {
-    if (data.composite == null && !holisticDisplay && !isPropCard) return null;
-    if (data.composite == null && isPropCard && !holisticDisplay) return null;
+    if (!coachDelivered && data.composite == null && !holisticDisplay && !isPropCard) return null;
+    if (!coachDelivered && data.composite == null && isPropCard && !holisticDisplay) return null;
     return (
       <View style={{ gap: 8 }}>
         <HeaderTiles
           data={data}
           gradeLabel={gradeLabel}
           gradeCaption={gradeCaption}
-          simGradePending={simGradePending}
+          simGradePending={coachDelivered ? false : simGradePending}
         />
         {simulationPending && !simGradePending ? (
           <Text
@@ -389,7 +392,27 @@ export function ScoreBreakdown({
             Simulation updating…
           </Text>
         ) : null}
-        {holisticDisplay ? <HolisticFactorStrip holistic={holisticDisplay} /> : null}
+        {holisticDisplay ? (
+          <HolisticFactorStrip holistic={holisticDisplay} />
+        ) : coachDelivered ? (
+          <HolisticFactorStrip
+            holistic={{
+              composite: data.composite,
+              grade: data.grade,
+              confidencePct: data.confidencePct,
+              coveragePct: 0,
+              missingCount: 6,
+              recommends: true,
+              factors: COACH_CARD_STRIP.map((slot) => ({
+                key: slot.key as PropHolisticScore["factors"][number]["key"],
+                label: slot.label,
+                score: null,
+                applicable: true,
+                present: false,
+              })),
+            }}
+          />
+        ) : null}
       </View>
     );
   }

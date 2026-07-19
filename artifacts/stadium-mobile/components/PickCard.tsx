@@ -26,6 +26,10 @@ import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
 import {
+  coachPickDisplayGrade,
+  coachPickIsDelivered,
+} from "@/lib/coachDeliveredPickAnalysis";
+import {
   NOT_AI_RECOMMENDED,
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
@@ -724,6 +728,7 @@ export function PickCard({
   };
   const isAltLeg = pickShowsAltBadge(pick);
   const cardBadge = isAltLeg ? altPickBadge : badge;
+  const coachDelivered = coachPickIsDelivered(pick);
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
   // FULL team name (multi-word national teams) on a 3-way line, so "Canada -0.5"
@@ -908,7 +913,8 @@ export function PickCard({
 
       <LineLadder pick={pick} />
 
-      {hideReadout ? null : pick.scores ||
+      {hideReadout ? null : coachDelivered ||
+      pick.scores ||
       pick.finalAiScore?.rubric ||
       pick.finalAiScore?.simHit != null ||
       ((pick.isProp || pick.player) &&
@@ -939,19 +945,28 @@ export function PickCard({
           propHolistic={buildCoachCardHolistic(pick) ?? pick.finalAiScore?.propHolistic ?? undefined}
           simulationPending={pick.simulationPending}
           simGradePending={
-            marketSupportsSimulation(pick.market ?? "", pick) &&
-            !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+            coachDelivered
+              ? false
+              : marketSupportsSimulation(pick.market ?? "", pick) &&
+                !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
           }
           gradeLabel={
-            marketSupportsSimulation(pick.market ?? "", pick)
+            coachDelivered
+              ? coachPickDisplayGrade(pick, pick.finalAiScore) ??
+                pick.finalAiScore?.grade ??
+                pick.scores?.grade ??
+                undefined
+              : marketSupportsSimulation(pick.market ?? "", pick)
               ? pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
                 ? (pickGradeDisplayLabel(pick, pick.finalAiScore) ?? NOT_AI_RECOMMENDED)
                 : undefined
               : undefined
           }
           gradeCaption={
-            marketSupportsSimulation(pick.market ?? "", pick) &&
-            !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+            coachDelivered
+              ? pickGradeDisplayCaption(pick, pick.finalAiScore)
+              : marketSupportsSimulation(pick.market ?? "", pick) &&
+                !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
               ? undefined
               : pickGradeDisplayCaption(pick, pick.finalAiScore)
           }

@@ -53,7 +53,7 @@ test("resolveCoachRenderBranch: busy parlay assistant maps to progress branch", 
   assert.equal(r.branch, "ProgressCard.message");
 });
 
-test("coachScrollBodyWouldBeBlank: raw picks filtered to zero at paint", () => {
+test("coachScrollBodyWouldBeBlank: raw picks with display picks is not blank", () => {
   const r = coachScrollBodyWouldBeBlank({
     messages: [
       { role: "user", content: "Build me a 5-leg parlay", picksCount: 0, hideBubble: true },
@@ -61,22 +61,18 @@ test("coachScrollBodyWouldBeBlank: raw picks filtered to zero at paint", () => {
     ],
     showQuickPrompts: false,
     footerParlayProgress: false,
-    lastDisplayPicksCount: 0,
+    lastDisplayPicksCount: 3,
     lastHasScanManifest: false,
     isWelcome,
   });
-  assert.equal(r.blank, true);
-  assert.match(r.reason ?? "", /raw pick\(s\) but filterCoachDeliveredPicks/);
+  assert.equal(r.blank, false);
 });
 
-test("legacy manifest missing pipeline arrays throws on format", () => {
+test("legacy manifest missing pipeline arrays formats safely", () => {
   const m = { ...emptyCoachBoardScanManifest(5) } as Record<string, unknown>;
   delete m.pipelineRejections;
   delete m.relaxationsApplied;
-  assert.throws(
-    () => formatCoachBoardScanManifest(m as never),
-    /Cannot read properties of undefined \(reading 'length'\)/,
-  );
+  assert.doesNotThrow(() => formatCoachBoardScanManifest(m as never));
 });
 
 test("legacy manifest spread on pipelineRejections throws", () => {

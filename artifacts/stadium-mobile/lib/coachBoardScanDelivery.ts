@@ -7,6 +7,7 @@ import {
   type CoachBoardScanManifest,
   emptyCoachBoardScanManifest,
   formatCoachBoardScanManifest,
+  normalizeCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
 import {
   salvageCoachDelivery,
@@ -73,17 +74,19 @@ export function deliverCoachBoardScanTicket(
   legTarget: number,
 ): CoachBoardScanDelivery {
   const pipeline = emptyCoachPipelineSnapshot();
-  const manifest: CoachBoardScanManifest = scan.manifest ?? {
-    ...emptyCoachBoardScanManifest(legTarget),
-    scanComplete: !!scan.scanComplete,
-    boardExhausted: !!scan.scanComplete,
-    marketsFound: scan.totalScanned,
-    marketsSimulated: scan.totalScanned,
-    totalEvaluated: scan.totalScanned,
-    totalQualified: scan.totalQualified,
-    qualifiedMain: scan.staging.mainQualified,
-    qualifiedAlt: scan.staging.altQualified,
-  };
+  const manifest: CoachBoardScanManifest = scan.manifest
+    ? normalizeCoachBoardScanManifest(scan.manifest)
+    : {
+        ...emptyCoachBoardScanManifest(legTarget),
+        scanComplete: !!scan.scanComplete,
+        boardExhausted: !!scan.scanComplete,
+        marketsFound: scan.totalScanned,
+        marketsSimulated: scan.totalScanned,
+        totalEvaluated: scan.totalScanned,
+        totalQualified: scan.totalQualified,
+        qualifiedMain: scan.staging.mainQualified,
+        qualifiedAlt: scan.staging.altQualified,
+      };
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {
     return {
@@ -217,12 +220,14 @@ export function coachBoardScanManifestForMessage(
     return deliverCoachBoardScanTicket(scan, enrich, legTarget).coachDetailNote;
   }
   if (scan.manifest) {
-    return formatCoachBoardScanManifest({
-      ...scan.manifest,
-      scanComplete: !!scan.scanComplete,
-      boardExhausted: !!scan.scanComplete,
-      requestedLegs: legTarget,
-    });
+    return formatCoachBoardScanManifest(
+      normalizeCoachBoardScanManifest({
+        ...scan.manifest,
+        scanComplete: !!scan.scanComplete,
+        boardExhausted: !!scan.scanComplete,
+        requestedLegs: legTarget,
+      }),
+    );
   }
   return "";
 }

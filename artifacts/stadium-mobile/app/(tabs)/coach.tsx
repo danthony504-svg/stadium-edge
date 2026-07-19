@@ -126,18 +126,12 @@ import {
   coachBoardScanManifestForMessage,
   coachReplyHasScanManifest,
 } from "@/lib/coachBoardScanDelivery";
-import {
-  coachScrollBodyWouldBeBlank,
-  logCoachMounted,
-  logCoachRenderSnapshot,
-  resolveCoachRenderBranch,
-} from "@/lib/coachRenderTrace";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
   rescoreCoachTicketPreservingLegs,
   topUpCoachTicketToTarget,
 } from "@/lib/coachTicketRescore";
-import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket } from "@/lib/coachTicketKernel";
+import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket, resolveCoachPaintPicks } from "@/lib/coachTicketKernel";
 import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
@@ -6191,10 +6185,7 @@ export default function CoachScreen() {
     const lastMsg = messages[messages.length - 1];
     const lastDisplayPicksCount =
       lastMsg?.role === "assistant" && lastMsg.picks?.length
-        ? filterCoachDeliveredPicks(
-            coerceCoachDisplayPicks(lastMsg.picks, flashEnrichRef.current),
-            flashEnrichRef.current,
-          ).length
+        ? resolveCoachPaintPicks(lastMsg.picks, flashEnrichRef.current).length
         : 0;
     const lastHasScanManifest = /### Scan manifest/i.test(lastMsg?.coachDetailNote ?? "");
     const bodyBlank = coachScrollBodyWouldBeBlank({
@@ -6464,14 +6455,10 @@ export default function CoachScreen() {
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const displayPicks = hasPicks
-              ? filterCoachDeliveredPicks(
-                  coerceCoachDisplayPicks(m.picks!, flashEnrichRef.current),
-                  flashEnrichRef.current,
-                )
+              ? resolveCoachPaintPicks(m.picks!, flashEnrichRef.current)
               : [];
             const showTicketPicks = displayPicks.length > 0;
             const hasScanManifest = /### Scan manifest/i.test(m.coachDetailNote ?? "");
-            const showTicketHeader = showTicketPicks || hasScanManifest;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -6494,6 +6481,17 @@ export default function CoachScreen() {
             const picksShortOfTarget =
               showTicketPicks && ticketLegTarget > 0 && displayPicks.length < ticketLegTarget;
             const buildIdle = !buildFinishing && !streaming && !waiting;
+            const showCoachEmptyState =
+              m.role === "assistant" &&
+              parlayBuildIntent &&
+              buildIdle &&
+              !showTicketPicks &&
+              (hasScanManifest ||
+                !!m.coachDetailNote?.trim() ||
+                !!m.legNote?.trim() ||
+                hasPicks ||
+                coachReplyHasScanManifest(undefined, m.coachDetailNote));
+            const showTicketHeader = showTicketPicks || hasScanManifest || showCoachEmptyState;
             const parlayScanInProgress =
               i === messages.length - 1 &&
               parlayBuildIntent &&
@@ -6506,13 +6504,13 @@ export default function CoachScreen() {
               streaming &&
               !buildProgressExpired &&
               i === messages.length - 1 &&
-              !hasPicks &&
+              !showTicketPicks &&
               (parlayBuildIntent ||
                 m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim())));
             const parlayStillBuilding =
               m.role === "assistant" &&
               i === messages.length - 1 &&
-              !hasPicks &&
+              !showTicketPicks &&
               (buildFinishing ||
                 streaming ||
                 (buildProgressExpired &&
@@ -6704,8 +6702,7 @@ export default function CoachScreen() {
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
                 {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung)) &&
-                  !showTicketPicks &&
-                  !hasPicks) ? (
+                  !showTicketPicks) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
@@ -6720,15 +6717,13 @@ export default function CoachScreen() {
 
                 {showTicketHeader ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {showTicketPicks || hasScanManifest ? (
-                      <CoachTicketHeader
-                        picks={displayPicks}
-                        legNote={m.legNote}
-                        coachDetailNote={m.coachDetailNote}
-                        requestedLegs={ticketLegTarget > 0 ? ticketLegTarget : undefined}
-                        scanInProgress={parlayScanInProgress}
-                      />
-                    ) : null}
+                    <CoachTicketHeader
+                      picks={displayPicks}
+                      legNote={m.legNote}
+                      coachDetailNote={m.coachDetailNote}
+                      requestedLegs={ticketLegTarget > 0 ? ticketLegTarget : undefined}
+                      scanInProgress={parlayScanInProgress}
+                    />
                     {displayPicks.length > 1 ? (
                       <AddAllButton
                         picks={displayPicks}
@@ -6906,6 +6901,15 @@ export default function CoachScreen() {
                 </Pressable>
               ))}
             </View>
+          ) : null}
+
+          {coachRenderDiag.blankReason && !showQuickPrompts && !footerParlayProgress ? (
+            <AnalysisProgress
+              mode={coachBuildInFlight ? "build" : "ask"}
+              legCount={footerProgressLegCount}
+              buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+              workflowIndex={coachFinalizeWorkflowIndex}
+            />
           ) : null}
           </View>
       </KeyboardAwareScrollViewCompat>
