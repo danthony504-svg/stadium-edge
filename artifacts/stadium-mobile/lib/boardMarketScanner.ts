@@ -422,7 +422,19 @@ async function simPropPoolUntilQualified(
   const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
     .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
-  const rankedProps = rankedAll.slice(0, boardScanMaxPropsToSim(opts.target, rankedAll.length));
+  const simCap = boardScanMaxPropsToSim(opts.target, rankedAll.length);
+  const rankedProps = rankedAll.slice(0, simCap);
+
+  const unsupportedProps = prescorePool.filter((p) => !isRealisticBoardPropCandidate(p));
+  if (unsupportedProps.length) {
+    opts.manifestRecorder?.audit.recordBulkDiscardedBeforeScoring(unsupportedProps, "unsupported_market");
+  }
+  if (rankedAll.length > simCap) {
+    opts.manifestRecorder?.audit.recordBulkDiscardedBeforeScoring(
+      rankedAll.slice(simCap),
+      "prop_sim_cap",
+    );
+  }
 
   const scoreOpts = {
     pool,
@@ -482,6 +494,13 @@ async function simPropPoolUntilQualified(
 
     batchSize = boardPropSimExpansionBatchSize(opts.target);
     await yieldToEventLoop();
+  }
+
+  if (simIndex < rankedProps.length) {
+    opts.manifestRecorder?.audit.recordBulkDiscardedBeforeScoring(
+      rankedProps.slice(simIndex),
+      "not_simmed",
+    );
   }
 
   return { propScored, propHits, simEvaluated: simIndex };
@@ -648,8 +667,32 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 4;
-  const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+  const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target, traceId);
   manifestRecorder.recordGamesLoaded(oddsGames.length);
+
+  if (opts.espnGames?.length && cappedOddsGames.length < oddsGames.length) {
+    const cappedLabels = new Set(
+      cappedOddsGames.map((g) => `${g.awayTeam} @ ${g.homeTeam}`),
+    );
+    for (const og of oddsGames) {
+      const label = `${og.awayTeam} @ ${og.homeTeam}`;
+      if (cappedLabels.has(label)) continue;
+      const ladder = buildEvalLinesForAllGames([og]).get(label) ?? [];
+      for (const entry of ladder) {
+        manifestRecorder.audit.recordDiscardedBeforeScoring(
+          {
+            ...entry.pick,
+            game: label,
+            sport: og.sport,
+            market: entry.market,
+            odds: entry.odds,
+            isProp: false,
+          },
+          "game_scope_cap",
+        );
+      }
+    }
+  }
 
   for (const [, lines] of gameEntries) {
     for (const entry of lines ?? []) {
@@ -706,6 +749,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
             ...row.finalAiScore,
             simHit: simHit ?? row.finalAiScore.simHit ?? null,
           });
+        } else {
+          manifestRecorder.audit.recordDiscardedBeforeScoring(
+            row.pick,
+            simHit == null ? "not_simmed" : "no_sim_grade",
+          );
         }
       }
     }

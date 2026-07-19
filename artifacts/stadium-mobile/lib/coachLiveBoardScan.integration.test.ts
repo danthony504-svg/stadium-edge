@@ -30,6 +30,7 @@ import {
   logCoachPipelineOperationSummary,
   resetCoachPipelineOperationTraceForTests,
 } from "./coachPipelineOperationTrace.ts";
+import { logCoachBoardScanAudit } from "./coachBoardScanManifest.ts";
 import { boardScanDeadlineMs } from "./boardScanScope.ts";
 import { buildGameTeamIdMap } from "./coachGameMonteCarlo.ts";
 import { coachLiveScanSports } from "./coachSlateFreshness.ts";
@@ -141,6 +142,9 @@ async function runSingleBuild(target: number, runIndex: number): Promise<BuildRu
     const positive = scan?.scoredPool ? positiveEdgeScoredLegs(scan.scoredPool) : [];
 
     logCoachPipelineOperationSummary(requestId);
+    if (scan?.manifest?.scanAudit) {
+      logCoachBoardScanAudit(scan.manifest.scanAudit, requestId);
+    }
     const ops = getCoachPipelineOperationRecords(requestId);
     for (const op of ops) {
       console.log(

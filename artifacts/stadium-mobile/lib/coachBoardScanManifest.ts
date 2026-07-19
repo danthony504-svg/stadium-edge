@@ -23,6 +23,22 @@ import {
   formatPipelineRejectionLine,
   rejectionFromQualification,
 } from "./coachPipelineTrace.ts";
+import {
+  type CoachBoardScanAudit,
+  type CoachBoardScanAuditRecorder,
+  type ScanAuditDiscardReason,
+  createCoachBoardScanAuditRecorder,
+  formatCoachBoardScanAudit,
+  logCoachBoardScanAudit,
+} from "./coachBoardScanAudit.ts";
+
+export {
+  formatCoachBoardScanAudit,
+  logCoachBoardScanAudit,
+  classifyScanAuditMarketBucket,
+  type CoachBoardScanAudit,
+  type ScanAuditMarketBucket,
+} from "./coachBoardScanAudit.ts";
 
 export type ManifestMarketFamily =
   | "playerProps"
@@ -100,6 +116,8 @@ export type CoachBoardScanManifest = {
   pipelineRejections: CoachPipelineRejectedMarket[];
   /** Delivery salvage relaxations applied (confidence → correlation → alts → medium). */
   relaxationsApplied: string[];
+  /** Full funnel audit — where markets enter/exit the scan pipeline. */
+  scanAudit?: CoachBoardScanAudit;
 };
 
 export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanManifest {
@@ -191,6 +209,7 @@ export function normalizeCoachBoardScanManifest(
     pipelineStages: { ...base.pipelineStages, ...(manifest.pipelineStages ?? {}) },
     pipelineRejections: manifest.pipelineRejections ?? base.pipelineRejections,
     relaxationsApplied: manifest.relaxationsApplied ?? base.relaxationsApplied,
+    scanAudit: manifest.scanAudit ?? base.scanAudit,
   };
 }
 
@@ -221,6 +240,7 @@ export function classifyManifestMarketFamily(pick: ParsedPick): ManifestMarketFa
 }
 
 export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
+  audit: CoachBoardScanAuditRecorder;
   recordGamesLoaded(count: number): void;
   recordCandidatesBeforeGrading(count: number): void;
   recordCorrelationRejections(count: number): void;
@@ -307,8 +327,12 @@ function mergeGateFailureCounts(
   return out;
 }
 
-export function createCoachBoardScanManifestRecorder(requestedLegs: number): CoachBoardScanManifestRecorder {
+export function createCoachBoardScanManifestRecorder(
+  requestedLegs: number,
+  requestId?: string,
+): CoachBoardScanManifestRecorder {
   const manifest = emptyCoachBoardScanManifest(requestedLegs);
+  const audit = createCoachBoardScanAuditRecorder(requestId);
   const seenRejectFp = new Set<string>();
   const seenPreScoreFp = new Set<string>();
   let preScoreGateFailures: Partial<Record<BoardLegGateCode, number>> = {};
@@ -378,6 +402,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     },
     recordMarketFound(pick) {
       manifest.marketsFound += 1;
+      audit.recordPulledFromApi(pick);
       const family = classifyManifestMarketFamily(pick);
       manifest.marketsFoundByFamily[family] += 1;
       if (!pick.isProp) {
@@ -411,6 +436,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       seenPreScoreFp.add(fp);
       manifest.preScoreEvaluated += 1;
       const q = explainBoardLegQualification(pick, (score as FinalAiScore | null | undefined) ?? null);
+      audit.recordGateRejection(pick, q.gate);
       bumpGate(q.gate, preScoreGateFailures);
       mergeManifestRejections(manifest, gateToManifestRejections(q.gate, q.reason));
       pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp);
@@ -422,12 +448,14 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       const q = explainBoardLegQualification(pick, score);
       if (q.qualifies) {
         manifest.totalQualified += 1;
+        audit.recordFinalCandidate(pick);
         if (q.role === "main") manifest.qualifiedMain += 1;
         if (q.role === "alt") manifest.qualifiedAlt += 1;
         const cat = boardMarketCategory(pick);
         manifest.qualifiedByCategory[cat] += 1;
         return;
       }
+      audit.recordGateRejection(pick, q.gate);
       bumpGate(q.gate, manifest.gateFailureCounts);
       mergeManifestRejections(manifest, gateToManifestRejections(q.gate, q.reason));
       pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp);
@@ -451,10 +479,12 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       seenRejectFp.clear();
 
       for (const leg of scored) {
+        audit.recordScored(leg);
         recorder.recordEvaluatedPick(leg.pick, leg.pick.finalAiScore);
       }
 
       manifest.totalEvaluated = manifest.preScoreEvaluated + scored.length;
+      audit.recordPositiveEdgePool(scored);
     },
     finalize(opts) {
       manifest.scanComplete = opts.scanComplete;
@@ -477,8 +507,11 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         ...buildPipelineStagesFromManifest(manifest),
         ...manifest.pipelineStages,
       };
+      const scanAudit = audit.snapshot();
+      if (scanAudit.requestId) logCoachBoardScanAudit(scanAudit);
       return {
         ...manifest,
+        scanAudit,
         gateFailureCounts: mergeGateFailureCounts(preScoreGateFailures, manifest.gateFailureCounts),
         rejectedSamples: [...preScoreRejectedSamples, ...manifest.rejectedSamples].slice(
           0,
@@ -486,6 +519,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         ),
       };
     },
+    audit,
   });
 
   return recorder;
@@ -724,6 +758,11 @@ export function formatCoachBoardScanManifest(
     `_Simulation: ${manifest.gameSimDraws.toLocaleString()} draws per game line; prop tier **${manifest.propSimTier}** (${manifest.propSimDraws.toLocaleString()} draws per prop)._`,
   );
   lines.push("_Pipeline: **board scan → staging gates → single delivery** (no preview/filler fallback)._");
+
+  if (manifest.scanAudit) {
+    lines.push("");
+    lines.push(formatCoachBoardScanAudit(manifest.scanAudit));
+  }
 
   return lines.join("\n");
 }

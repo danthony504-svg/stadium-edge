@@ -18,6 +18,7 @@ import {
   positiveEdgeScoredLegs,
   salvageCoachDelivery,
 } from "./coachDeliverySalvage.ts";
+import { applyScanAuditGroundingRejections } from "./coachBoardScanAudit.ts";
 import {
   emptyCoachPipelineSnapshot,
   explainDeliveryFilterRejection,
@@ -180,6 +181,14 @@ export function deliverCoachBoardScanTicket(
     recordCoachLiveBoardExitReason("delivery_guard");
   }
 
+  if (scan.manifest?.scanAudit && tieredPicks.length > picks.length) {
+    const kept = new Set(picks.map((p) => `${p.game}|${p.market}|${p.pick}|${p.odds}`));
+    const grounded = tieredPicks.filter(
+      (p) => !kept.has(`${p.game}|${p.market}|${p.pick}|${p.odds}`),
+    );
+    applyScanAuditGroundingRejections(scan.manifest.scanAudit, grounded);
+  }
+
   if (legTarget > 0 && picks.length < legTarget && scoredPool.length) {
     const salvage = salvageCoachDelivery({
       scored: scoredPool,
@@ -260,6 +269,12 @@ export function deliverCoachBoardScanTicket(
     requestedLegs: legTarget,
     deliveredLegs: picks.length,
     finalSelectedCount: picks.length,
+    scanAudit: manifest.scanAudit
+      ? {
+          ...manifest.scanAudit,
+          positiveEdgeCount: positiveEdgePool,
+        }
+      : undefined,
     coverageBySport,
     coverageByMarket,
     tierFillCounts,
