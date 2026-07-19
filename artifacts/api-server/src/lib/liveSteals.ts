@@ -24,11 +24,14 @@ import {
   buildScanMeta,
   finalizeStealScanStats,
   seasonStatsFromGraded,
+  STEAL_STAGE_BUDGET_MS,
   type FeedProp,
   type OddsRow,
   type PropGame,
   type Steal,
   type StealScanMeta,
+  type StealScanStageName,
+  type StealScanStageTiming,
   type NearMissSteal,
 } from "./liveStealsCore";
 
@@ -100,6 +103,66 @@ async function fetchJson<T>(path: string): Promise<T | null> {
   return probe.ok ? probe.data : null;
 }
 
+function logStealScanStage(entry: StealScanStageTiming): void {
+  console.info("[steals-scan-stage]", JSON.stringify(entry));
+}
+
+async function runStealScanStage<T>(
+  stage: StealScanStageName,
+  fn: () => Promise<T>,
+  fallback: T,
+  timings: StealScanStageTiming[],
+): Promise<{ value: T; skipped: boolean }> {
+  const started = Date.now();
+  let skipped = false;
+  let value = fallback;
+  let detail: string | undefined;
+  try {
+    const raced = await Promise.race([
+      fn().then((v) => ({ kind: "ok" as const, value: v })),
+      new Promise<{ kind: "timeout" }>((resolve) =>
+        setTimeout(() => resolve({ kind: "timeout" }), STEAL_STAGE_BUDGET_MS),
+      ),
+    ]);
+    if (raced.kind === "timeout") {
+      skipped = true;
+      detail = "stage_budget_exceeded";
+    } else {
+      value = raced.value;
+    }
+  } catch (err) {
+    skipped = true;
+    detail = err instanceof Error ? err.message : String(err);
+  }
+  const entry: StealScanStageTiming = {
+    stage,
+    durationMs: Date.now() - started,
+    completed: !skipped,
+    skipped: skipped || undefined,
+    detail,
+  };
+  timings.push(entry);
+  logStealScanStage(entry);
+  return { value, skipped };
+}
+
+function runStealScanStageSync<T>(
+  stage: StealScanStageName,
+  fn: () => T,
+  timings: StealScanStageTiming[],
+): T {
+  const started = Date.now();
+  const value = fn();
+  const entry: StealScanStageTiming = {
+    stage,
+    durationMs: Date.now() - started,
+    completed: true,
+  };
+  timings.push(entry);
+  logStealScanStage(entry);
+  return value;
+}
+
 // Scan the slate for steals (cached FRESH_TTL_MS). Game-line steals are cheap
 // (one cached odds call per sport); prop steals fan out per-event and are
 // bounded to the soonest MAX_PROP_GAMES games across all prop sports.
@@ -130,27 +193,38 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
   const scanStarted = Date.now();
   const now = Date.now();
   const sportProbes: StealOddsSportProbe[] = [];
+  const stageTimings: StealScanStageTiming[] = [];
+  let stalledStage: StealScanStageName | undefined;
 
   const oddsBySport = new Map<string, OddsRow[]>();
-  await Promise.all(
-    STEAL_SPORTS.map(async (sport) => {
-      const endpoint = `/sports/odds?sport=${sport}`;
-      const probe = await probeJson<OddsRow[]>(endpoint);
-      const rows = Array.isArray(probe.data) ? probe.data : [];
-      sportProbes.push({
-        sport,
-        endpoint,
-        ok: probe.ok && Array.isArray(probe.data),
-        httpStatus: probe.httpStatus,
-        responseTimeMs: probe.responseTimeMs,
-        games: rows.length,
-        error: probe.error,
-      });
-      if (probe.ok && Array.isArray(probe.data)) {
-        oddsBySport.set(sport, rows.filter((g) => nearTerm(g.commenceTime, now)));
-      }
-    }),
+  const gamesStage = await runStealScanStage(
+    "games",
+    async () => {
+      await Promise.all(
+        STEAL_SPORTS.map(async (sport) => {
+          const endpoint = `/sports/odds?sport=${sport}`;
+          const probe = await probeJson<OddsRow[]>(endpoint);
+          const rows = Array.isArray(probe.data) ? probe.data : [];
+          sportProbes.push({
+            sport,
+            endpoint,
+            ok: probe.ok && Array.isArray(probe.data),
+            httpStatus: probe.httpStatus,
+            responseTimeMs: probe.responseTimeMs,
+            games: rows.length,
+            error: probe.error,
+          });
+          if (probe.ok && Array.isArray(probe.data)) {
+            oddsBySport.set(sport, rows.filter((g) => nearTerm(g.commenceTime, now)));
+          }
+        }),
+      );
+      return oddsBySport;
+    },
+    oddsBySport,
+    stageTimings,
   );
+  if (gamesStage.skipped) stalledStage = "games";
 
   const sportsOk = sportProbes.filter((p) => p.ok).length;
   const sportsFailed = sportProbes.length - sportsOk;
@@ -181,12 +255,19 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     gameTallies.push(tallyGameScan(rows));
   }
 
-  const gameSteals: Steal[] = [];
-  const nearGame: NearMissSteal[] = [];
-  for (const rows of oddsBySport.values()) {
-    gameSteals.push(...findGameSteals(rows));
-    nearGame.push(...findNearMissGameSteals(rows));
-  }
+  const { gameSteals, nearGame } = runStealScanStageSync(
+    "comparing-odds",
+    () => {
+      const gameSteals: Steal[] = [];
+      const nearGame: NearMissSteal[] = [];
+      for (const rows of oddsBySport.values()) {
+        gameSteals.push(...findGameSteals(rows));
+        nearGame.push(...findNearMissGameSteals(rows));
+      }
+      return { gameSteals, nearGame };
+    },
+    stageTimings,
+  );
 
   type Cand = { sport: string; g: OddsRow };
   const cands: Cand[] = [];
@@ -194,43 +275,85 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     for (const g of oddsBySport.get(sport) ?? []) cands.push({ sport, g });
   }
   cands.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
-  const propGames = await Promise.all(
-    cands.slice(0, MAX_PROP_GAMES).map(async ({ sport, g }): Promise<PropGame> => {
-      const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
-      const r = await fetchJson<{ props?: FeedProp[] }>(`/sports/props?${q.toString()}`);
-      return { eventId: g.id, game: `${g.awayTeam} @ ${g.homeTeam}`, sport, startsAt: g.commenceTime, props: r?.props ?? [] };
-    }),
+
+  const propsStage = await runStealScanStage(
+    "props",
+    async () =>
+      Promise.all(
+        cands.slice(0, MAX_PROP_GAMES).map(async ({ sport, g }): Promise<PropGame> => {
+          const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
+          const r = await fetchJson<{ props?: FeedProp[] }>(`/sports/props?${q.toString()}`);
+          return {
+            eventId: g.id,
+            game: `${g.awayTeam} @ ${g.homeTeam}`,
+            sport,
+            startsAt: g.commenceTime,
+            props: r?.props ?? [],
+          };
+        }),
+      ),
+    [] as PropGame[],
+    stageTimings,
   );
+  const propGames = propsStage.value;
+  if (propsStage.skipped && propGames.length === 0 && !stalledStage) stalledStage = "props";
+
   const propTally = tallyPropScan(propGames);
   const scanStats = finalizeStealScanStats(gameTallies, propTally);
 
-  const propSteals = findPropSteals(propGames);
-  const nearProp = findNearMissPropSteals(propGames);
+  const { propSteals, nearProp } = runStealScanStageSync(
+    "running-ev",
+    () => ({
+      propSteals: findPropSteals(propGames),
+      nearProp: findNearMissPropSteals(propGames),
+    }),
+    stageTimings,
+  );
 
-  const byId = new Map<string, Steal>();
-  for (const s of [...gameSteals, ...propSteals]) {
-    const prev = byId.get(s.id);
-    if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) byId.set(s.id, s);
-  }
-  const steals = Array.from(byId.values())
-    .sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0))
-    .slice(0, MAX_STEALS);
+  const almostQualified = runStealScanStageSync(
+    "running-simulations",
+    () => {
+      const nearById = new Map<string, NearMissSteal>();
+      const byIdPreview = new Map<string, Steal>();
+      for (const s of [...gameSteals, ...propSteals]) byIdPreview.set(s.id, s);
+      for (const s of [...nearGame, ...nearProp]) {
+        if (byIdPreview.has(s.id)) continue;
+        const prev = nearById.get(s.id);
+        if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) nearById.set(s.id, s);
+      }
+      return Array.from(nearById.values())
+        .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
+        .slice(0, 12);
+    },
+    stageTimings,
+  );
 
-  const nearById = new Map<string, NearMissSteal>();
-  for (const s of [...nearGame, ...nearProp]) {
-    if (byId.has(s.id)) continue;
-    const prev = nearById.get(s.id);
-    if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) nearById.set(s.id, s);
-  }
-  const almostQualified = Array.from(nearById.values())
-    .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
-    .slice(0, 12);
+  const steals = runStealScanStageSync(
+    "ranking",
+    () => {
+      const byId = new Map<string, Steal>();
+      for (const s of [...gameSteals, ...propSteals]) {
+        const prev = byId.get(s.id);
+        if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) byId.set(s.id, s);
+      }
+      return Array.from(byId.values())
+        .sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0))
+        .slice(0, MAX_STEALS);
+    },
+    stageTimings,
+  );
 
-  const meta = buildScanMeta(steals, almostQualified, scanStats);
+  const scanComplete = scanStats.scanComplete;
+  const meta = buildScanMeta(steals, almostQualified, {
+    ...scanStats,
+    scanComplete,
+    stageTimings,
+    stalledStage: scanComplete ? undefined : stalledStage,
+  });
   const feed: StealFeedDiagnostics = {
     ...baseFeed,
     responseTimeMs: Date.now() - scanStarted,
-    errorReason: null,
+    errorReason: stalledStage && !scanComplete ? `stage_timeout:${stalledStage}` : null,
   };
 
   freshCache = { at: Date.now(), steals, meta, almostQualified, feed };

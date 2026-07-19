@@ -724,6 +724,14 @@ export type StealScanMeta = {
   scanComplete?: boolean;
   gamesScanned?: number;
   scannedAt?: string;
+  stageTimings?: Array<{
+    stage: string;
+    durationMs: number;
+    completed: boolean;
+    skipped?: boolean;
+    detail?: string;
+  }>;
+  stalledStage?: string;
 };
 
 export type NearMissSteal = LiveSteal & {
@@ -794,7 +802,7 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
   const started = Date.now();
   logStealScanLifecycle({ stage: "request_start", endpoint: path });
   try {
-    const res = await withTimeout(expoFetch(fullUrl, { signal }), 15_000, path);
+    const res = await withTimeout(expoFetch(fullUrl, { signal }), 70_000, path);
     const responseTimeMs = Date.now() - started;
     const bodyText = await res.text();
     logStealScanLifecycle({
@@ -865,6 +873,7 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
       longshotsAnalyzed: parsed.meta?.longshotsAnalyzed,
       stealsFound: parsed.meta?.stealsFound,
       feedDegraded: parsed.feedDegraded,
+      detail: parsed.meta?.stalledStage ? `stalled_stage=${parsed.meta.stalledStage}` : undefined,
     });
 
     const feedOk =

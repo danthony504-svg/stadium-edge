@@ -37,7 +37,13 @@ import {
   stealProgressFromLiveScan,
   STEAL_SCAN_TIMEOUT_MS,
   type StealCanonicalProgress,
+  type StealServerStageName,
 } from "@/lib/stealProgressState";
+import {
+  logStealServerStageTimings,
+  stealClientStageTimeoutPatch,
+  stealServerStageLabel,
+} from "@/lib/stealStageTiming";
 import { SPORTS, sportLabel } from "@/lib/sports";
 import {
   americanToDecimal,
@@ -357,8 +363,19 @@ function StealScanProgressCard({
   );
 }
 
-function StealScanTimeoutCard({ onRetry, isRetrying }: { onRetry: () => void; isRetrying: boolean }) {
+function StealScanTimeoutCard({
+  onRetry,
+  isRetrying,
+  stalledStage,
+}: {
+  onRetry: () => void;
+  isRetrying: boolean;
+  stalledStage?: StealServerStageName;
+}) {
   const colors = useColors();
+  const stageHint = stalledStage
+    ? `Timed out during ${stealServerStageLabel(stalledStage)} (10s limit). Showing partial results or retry.`
+    : "Still scanning sportsbooks… this is taking longer than expected.";
   return (
     <View
       style={{
@@ -373,7 +390,7 @@ function StealScanTimeoutCard({ onRetry, isRetrying }: { onRetry: () => void; is
     >
       <Feather name="clock" size={28} color={STEAL_ACCENT} />
       <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
-        Still scanning sportsbooks… this is taking longer than expected.
+        {stageHint}
       </Text>
       <Pressable
         onPress={onRetry}
@@ -816,6 +833,8 @@ export default function StealsScreen() {
   const [scanProgress, setScanProgress] = useState<StealCanonicalProgress | null>(null);
   const scanIdRef = useRef(`scan-${Date.now()}`);
   const scanInFlightRef = useRef(false);
+  const stageEnteredAtRef = useRef(Date.now());
+  const lastLoggedStageTimingsRef = useRef<string | null>(null);
 
   const query = useQuery({
     queryKey: ["live-steals"],
@@ -883,6 +902,8 @@ export default function StealsScreen() {
 
   const beginScan = useCallback(() => {
     scanIdRef.current = `scan-${Date.now()}`;
+    stageEnteredAtRef.current = Date.now();
+    lastLoggedStageTimingsRef.current = null;
     setScanProgress(initialStealProgress(scanIdRef.current));
     setScanStartedAt(Date.now());
     setScanTimedOut(false);
@@ -932,6 +953,20 @@ export default function StealsScreen() {
   }, [hasPicks, scanComplete, scanStartedAt]);
 
   useEffect(() => {
+    if (meta?.stageTimings?.length) {
+      const key = JSON.stringify(meta.stageTimings);
+      if (lastLoggedStageTimingsRef.current !== key) {
+        lastLoggedStageTimingsRef.current = key;
+        logStealServerStageTimings(
+          scanIdRef.current,
+          meta.stageTimings as import("@/lib/stealStageTiming").StealServerStageTiming[],
+          meta.stalledStage as StealServerStageName | undefined,
+        );
+      }
+    }
+  }, [meta?.stageTimings, meta?.stalledStage]);
+
+  useEffect(() => {
     if (hasPicks || scanComplete || feedUnavailable) {
       if (hasPicks || scanComplete) {
         setScanProgress((prev) => {
@@ -952,13 +987,33 @@ export default function StealsScreen() {
     if (!showBlockingScan && !showTimeout) return;
 
     const tick = () => {
-      setNowTick(Date.now());
-      const elapsed = scanStartedAt ? Date.now() - scanStartedAt : 0;
+      const nowMs = Date.now();
+      setNowTick(nowMs);
+      const elapsed = scanStartedAt ? nowMs - scanStartedAt : 0;
       setScanProgress((prev) => {
         let next = prev ?? initialStealProgress(scanIdRef.current);
-        const elapsedPatch = stealProgressFromElapsedMs(scanIdRef.current, elapsed);
+        const timeoutPatch = stealClientStageTimeoutPatch(
+          scanIdRef.current,
+          next.stage,
+          stageEnteredAtRef.current,
+          nowMs,
+        );
+        if (timeoutPatch) {
+          setScanTimedOut(true);
+          const merged = mergeStealProgress(next, {
+            ...timeoutPatch,
+            stalledStage: timeoutPatch.stalledStage,
+          });
+          return merged ?? next;
+        }
+        const elapsedPatch = stealProgressFromElapsedMs(scanIdRef.current, elapsed, next.stage);
         const elapsedMerged = mergeStealProgress(next, elapsedPatch);
-        if (elapsedMerged) next = elapsedMerged;
+        if (elapsedMerged) {
+          if (elapsedMerged.stage !== next.stage) {
+            stageEnteredAtRef.current = nowMs;
+          }
+          next = elapsedMerged;
+        }
         if (meta) {
           const livePatch = stealProgressFromLiveScan(scanIdRef.current, {
             booksScanned: meta.booksScanned,
@@ -969,7 +1024,12 @@ export default function StealsScreen() {
             stealsFound: meta.stealsFound,
           });
           const liveMerged = mergeStealProgress(next, livePatch);
-          if (liveMerged) next = liveMerged;
+          if (liveMerged) {
+            if (liveMerged.stage !== next.stage) {
+              stageEnteredAtRef.current = nowMs;
+            }
+            next = liveMerged;
+          }
         }
         return next;
       });
@@ -1109,7 +1169,11 @@ export default function StealsScreen() {
               lastScanAt={lastScanAt}
               gamesFallback={gamesFallback}
             />
-            <StealScanTimeoutCard onRetry={handleRetry} isRetrying={query.isFetching} />
+            <StealScanTimeoutCard
+              onRetry={handleRetry}
+              isRetrying={query.isFetching}
+              stalledStage={progress.stalledStage ?? (meta?.stalledStage as StealServerStageName | undefined)}
+            />
           </>
         ) : null}
 

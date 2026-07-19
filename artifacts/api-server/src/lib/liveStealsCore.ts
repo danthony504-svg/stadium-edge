@@ -152,7 +152,30 @@ export type StealScanMeta = {
   totalOpportunities: number;
   /** True when a full odds/props pass finished (even if zero steals qualified). */
   scanComplete: boolean;
+  /** Per-stage timing from the server scan pipeline. */
+  stageTimings?: StealScanStageTiming[];
+  /** Stage that exceeded budget or blocked completion (when scan incomplete). */
+  stalledStage?: StealScanStageName;
 };
+
+export type StealScanStageName =
+  | "games"
+  | "props"
+  | "comparing-odds"
+  | "running-ev"
+  | "running-simulations"
+  | "ranking";
+
+export type StealScanStageTiming = {
+  stage: StealScanStageName;
+  durationMs: number;
+  completed: boolean;
+  skipped?: boolean;
+  detail?: string;
+};
+
+/** Server-side per-stage budget — skip or partial-complete instead of hanging. */
+export const STEAL_STAGE_BUDGET_MS = 10_000;
 
 /** Conservative book-count estimate when outcome-level book lists are absent. */
 export const STEAL_BOOKS_FALLBACK = STEAL_SPORTS.length * 3;
@@ -241,6 +264,8 @@ export function buildScanMeta(
     longshotsAnalyzed: number;
     booksScanned: number;
     scanComplete?: boolean;
+    stageTimings?: StealScanStageTiming[];
+    stalledStage?: StealScanStageName;
   },
 ): StealScanMeta {
   return {
@@ -251,6 +276,8 @@ export function buildScanMeta(
     sportCounts: sportCountsForSteals(steals),
     totalOpportunities: steals.length + almostQualified.length,
     scanComplete: stats.scanComplete === true,
+    ...(stats.stageTimings?.length ? { stageTimings: stats.stageTimings } : {}),
+    ...(stats.stalledStage ? { stalledStage: stats.stalledStage } : {}),
   };
 }
 

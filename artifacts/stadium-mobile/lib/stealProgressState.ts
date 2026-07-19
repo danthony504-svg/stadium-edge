@@ -9,6 +9,20 @@ export type StealProgressStage =
   | "running-simulations"
   | "ranking";
 
+export type StealServerStageName =
+  | "games"
+  | "props"
+  | "comparing-odds"
+  | "running-ev"
+  | "running-simulations"
+  | "ranking";
+
+/** Per UI stage budget while awaiting the live-steals HTTP response. */
+export const STEAL_STAGE_TIMEOUT_MS = 10_000;
+
+/** Overall request ceiling (7 stages × 10s). */
+export const STEAL_SCAN_TIMEOUT_MS = 70_000;
+
 export type StealCanonicalProgress = {
   scanId: string;
   stage: StealProgressStage;
@@ -20,6 +34,7 @@ export type StealCanonicalProgress = {
   propsLoaded: number;
   terminal: boolean;
   timedOut: boolean;
+  stalledStage?: StealServerStageName;
 };
 
 export const STEAL_PROGRESS_STAGE_ORDER: StealProgressStage[] = [
@@ -118,6 +133,7 @@ export type StealProgressPatch = {
   propsLoaded?: number;
   terminal?: boolean;
   timedOut?: boolean;
+  stalledStage?: StealServerStageName;
 };
 
 export function mergeStealProgress(
@@ -146,6 +162,7 @@ export function mergeStealProgress(
     propsLoaded: Math.max(base.propsLoaded, patch.propsLoaded ?? 0),
     terminal: base.terminal || patch.terminal === true,
     timedOut: base.timedOut || patch.timedOut === true,
+    stalledStage: patch.stalledStage ?? base.stalledStage,
   };
 
   if (merged.terminal) {
@@ -161,7 +178,8 @@ export function mergeStealProgress(
     base.gamesLoaded === merged.gamesLoaded &&
     base.propsLoaded === merged.propsLoaded &&
     base.terminal === merged.terminal &&
-    base.timedOut === merged.timedOut
+    base.timedOut === merged.timedOut &&
+    base.stalledStage === merged.stalledStage
   ) {
     return null;
   }
@@ -237,15 +255,14 @@ export function stealProgressFromLiveScan(
   return { scanId, stage: "connected", booksConnected: books };
 }
 
-/** Time-based fallback when the server has not returned meta yet. */
-export function stealProgressFromElapsedMs(scanId: string, elapsedMs: number): StealProgressPatch {
-  if (elapsedMs < 800) return { scanId, stage: "connected" };
-  if (elapsedMs < 2_000) return { scanId, stage: "games-loaded" };
-  if (elapsedMs < 3_500) return { scanId, stage: "props-loaded" };
-  if (elapsedMs < 5_500) return { scanId, stage: "comparing-odds" };
-  if (elapsedMs < 8_000) return { scanId, stage: "running-ev" };
-  if (elapsedMs < 11_000) return { scanId, stage: "running-simulations" };
-  return { scanId, stage: "ranking" };
+/** Hint only before server meta arrives — never leap ahead of the active stage. */
+export function stealProgressFromElapsedMs(
+  scanId: string,
+  elapsedMs: number,
+  currentStage: StealProgressStage,
+): StealProgressPatch {
+  if (currentStage === "connected" && elapsedMs >= 1_500) {
+    return { scanId, stage: "games-loaded" };
+  }
+  return { scanId, stage: currentStage };
 }
-
-export const STEAL_SCAN_TIMEOUT_MS = 15_000;

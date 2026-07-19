@@ -44,6 +44,14 @@ export type StealScanMeta = {
   scanComplete?: boolean;
   gamesScanned?: number;
   scannedAt?: string;
+  stageTimings?: Array<{
+    stage: string;
+    durationMs: number;
+    completed: boolean;
+    skipped?: boolean;
+    detail?: string;
+  }>;
+  stalledStage?: string;
 };
 
 export type GradedStealPick = {
