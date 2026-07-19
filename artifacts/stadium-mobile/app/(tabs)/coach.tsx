@@ -2622,6 +2622,7 @@ export default function CoachScreen() {
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
             requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
             ticketStyle: coachTicketStyle,
+            longshotAsk: coachTicketStyle === "longshot" || legTarget >= 15,
           };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -3122,6 +3123,7 @@ export default function CoachScreen() {
                 varietySeed,
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
+                longshotAsk: coachTicketStyle === "longshot" || legTarget >= 15,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
               }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
@@ -3578,6 +3580,7 @@ export default function CoachScreen() {
               varietySeed,
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
+              longshotAsk,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
             }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
