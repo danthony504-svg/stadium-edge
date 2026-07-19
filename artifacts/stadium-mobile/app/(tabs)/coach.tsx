@@ -5566,7 +5566,9 @@ export default function CoachScreen() {
           startSlatePreAnalysis("coach-focus");
         })();
         if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
-          void prefetchAndMaybeApplyOta(true);
+          if (typeof prefetchAndMaybeApplyOta === "function") {
+            void prefetchAndMaybeApplyOta(true).catch(() => {});
+          }
         }
       }
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
