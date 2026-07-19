@@ -1597,44 +1597,32 @@ function HomeSportFeed({
           style={{
             flexDirection: "row",
             alignItems: "center",
+            justifyContent: "space-between",
             paddingHorizontal: 16,
             marginBottom: 12,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text
-              style={{
-                color: colors.foreground,
-                fontFamily: FONT.display,
-                fontSize: 18,
-              }}
+          <Text
+            style={{
+              color: colors.foreground,
+              fontFamily: FONT.display,
+              fontSize: 18,
+            }}
+          >
+            Upcoming Games
+            {displayUpcoming.length > 0 ? ` (${displayUpcoming.length})` : ""}
+          </Text>
+          {displayUpcoming.length > 0 ? (
+            <Pressable
+              hitSlop={8}
+              onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
             >
-              Upcoming Games
-            </Text>
-            {displayUpcoming.length > 0 ? (
-              <View
-                style={{
-                  minWidth: 24,
-                  height: 24,
-                  paddingHorizontal: 8,
-                  borderRadius: 12,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: colors.primary,
-                }}
-              >
-                <Text
-                  style={{
-                    color: colors.primaryForeground,
-                    fontFamily: FONT.display,
-                    fontSize: 13,
-                  }}
-                >
-                  {displayUpcoming.length}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+                View All
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
         {sportFeedLoading && displayUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
@@ -1792,13 +1780,6 @@ function HomeSportFeed({
                 </Pressable>
               );
             })}
-            {displayUpcoming.length > 0 ? (
-              <SectionViewAllButton
-                title="View All Games →"
-                subtitle={`See all ${displayUpcoming.length} ${displayUpcoming.length === 1 ? "matchup" : "matchups"}`}
-                onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
-              />
-            ) : null}
           </View>
         )}
 
