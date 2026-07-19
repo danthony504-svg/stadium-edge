@@ -126,6 +126,12 @@ import {
   coachBoardScanManifestForMessage,
   coachReplyHasScanManifest,
 } from "@/lib/coachBoardScanDelivery";
+import {
+  coachScrollBodyWouldBeBlank,
+  logCoachMounted,
+  logCoachRenderSnapshot,
+  resolveCoachRenderBranch,
+} from "@/lib/coachRenderTrace";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
   rescoreCoachTicketPreservingLegs,
