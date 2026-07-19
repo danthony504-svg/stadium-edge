@@ -172,6 +172,7 @@ import {
 } from "@/lib/coachParlayLifecycle";
 import {
   beginCoachLiveBoardTrace,
+  emitCoachLiveBoardSummary,
   resetCoachLiveBoardTrace,
 } from "@/lib/coachLiveBoardTrace";
 import { fetchCoachLiveBoardFeeds } from "@/lib/coachLiveBoardFeeds";
@@ -1419,6 +1420,13 @@ export default function CoachScreen() {
       parlayBuildCompletingRef.current = true;
 
       await awaitPendingBoardScans();
+
+      const scanWaitStart = Date.now();
+      while (boardScanInFlightRef.current && Date.now() - scanWaitStart < 300_000) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      await awaitPendingBoardScans();
+      emitCoachLiveBoardSummary("build-complete");
 
       if (buildProgressTimerRef.current) {
         clearTimeout(buildProgressTimerRef.current);
@@ -5351,7 +5359,11 @@ export default function CoachScreen() {
             : "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
         } else if (
           picks.length === 0 &&
-          (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild)
+          (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild) &&
+          (!reachBoardEligible ||
+            boardScanIsComplete(fullBoardScanMeta) ||
+            boardScanIsComplete(preBoardScan) ||
+            boardScanIsComplete(latestBoardScanRef.current))
         ) {
           const partitioned = partitionCoachNotes(legNote, coachDetailNote);
           const hasManifestReply = coachReplyHasScanManifest(
@@ -5375,9 +5387,16 @@ export default function CoachScreen() {
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
         // 200 with no visible content never lands as a silent dead end.
         if (picks.length === 0 && assistantBubbleText(finalContent, false).trim() === "") {
-          finalContent = coachReplyHasScanManifest(boardScanManifestDetail, coachDetailNote)
-            ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
-            : "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
+          const boardScanSettled =
+            !reachBoardEligible ||
+            boardScanIsComplete(fullBoardScanMeta) ||
+            boardScanIsComplete(preBoardScan) ||
+            boardScanIsComplete(latestBoardScanRef.current);
+          finalContent = boardScanSettled
+            ? coachReplyHasScanManifest(boardScanManifestDetail, coachDetailNote)
+              ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
+              : "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market."
+            : finalContent;
         }
         if (isParlayBuild && legTarget >= 3) {
           picks = stripFillerBackfillPicks(picks);

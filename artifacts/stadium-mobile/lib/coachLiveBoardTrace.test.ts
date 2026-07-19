@@ -7,6 +7,7 @@ import {
   emitCoachLiveBoardSummary,
   firstCoachLiveBoardZeroStage,
   logCoachLiveBoardEmptyTicketFallback,
+  markCoachLiveBoardScanEnded,
   recordCoachLiveBoardApiResult,
   recordCoachLiveBoardConfidencePassed,
   recordCoachLiveBoardDelivered,
@@ -117,6 +118,7 @@ test("coach live board logs started, stages, and completed", () => {
     recordCoachLiveBoardConfidencePassed(12);
     recordCoachLiveBoardGrounded(5);
     recordCoachLiveBoardDelivered(0);
+    markCoachLiveBoardScanEnded(true);
     const snap = emitCoachLiveBoardSummary("test");
     assert.ok(snap);
     assert.equal(snap?.games, 8);

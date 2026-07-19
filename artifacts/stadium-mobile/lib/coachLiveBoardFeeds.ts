@@ -98,7 +98,6 @@ export async function fetchCoachLiveBoardFeeds(
   const oddsGames = filterBettableOddsGames(oddsResults.flat());
   recordCoachLiveBoardFeedCounts({
     games: Math.max(oddsGames.length, espnGames.length),
-    props: liveFeed.odds?.length ?? 0,
   });
 
   return { espnGames, oddsGames, liveFeed };

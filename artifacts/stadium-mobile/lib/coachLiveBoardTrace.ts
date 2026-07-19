@@ -264,12 +264,14 @@ export function recordCoachLiveBoardApiResult(opts: {
   }
 }
 
-export function recordCoachLiveBoardFeedCounts(opts: { games: number; props: number }): void {
+export function recordCoachLiveBoardFeedCounts(opts: { games: number; props?: number }): void {
   if (!active) return;
   active.games = Math.max(active.games, opts.games);
-  active.props = Math.max(active.props, opts.props);
   logStageCount("games", active.games);
-  logStageCount("props", active.props);
+  if (opts.props != null) {
+    active.props = Math.max(active.props, opts.props);
+    logStageCount("props", active.props);
+  }
 }
 
 export function recordCoachLiveBoardValidated(count: number): void {
@@ -444,12 +446,19 @@ export function formatCoachLiveBoardSummary(snapshot: CoachLiveBoardTraceSnapsho
 }
 
 export function emitCoachLiveBoardSummary(reason?: string): CoachLiveBoardTraceSnapshot | null {
-  if (!active || active.summaryEmitted) {
-    return buildSnapshot();
-  }
-  active.summaryEmitted = true;
+  if (!active) return null;
   const snap = buildSnapshot();
   if (!snap) return null;
+
+  // Never terminal-summarize while the board scan is still loading props.
+  if (!snap.scanComplete) {
+    return snap;
+  }
+
+  if (active.summaryEmitted) {
+    return snap;
+  }
+  active.summaryEmitted = true;
   if (reason) {
     active.error = active.error || reason;
     snap.error = snap.error || reason;

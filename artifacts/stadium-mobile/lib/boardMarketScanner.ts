@@ -549,7 +549,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
-}): Promise<FullBoardScanResult> {
+}): Promise<FullBoardScanResult | null> {
   markCoachLiveBoardScanStarted();
   try {
   const poolBase = filterBettablePropPool(
@@ -763,14 +763,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   });
   recordCoachLiveBoardDelivered(result.picks.length);
   if (opts.onPartial) opts.onPartial(result);
-  markCoachLiveBoardScanEnded(result.scanComplete);
+  markCoachLiveBoardScanEnded(!!result.scanComplete);
   if (result.scanComplete) {
     emitCoachLiveBoardSummary();
   }
   return result;
   } catch (e) {
     markCoachLiveBoardScanEnded(false);
-    throw e;
+    recordCoachLiveBoardError(e instanceof Error ? e.message : String(e));
+    recordCoachLiveBoardExitReason("scan_exception");
+    return null;
   }
 }
 
@@ -823,7 +825,6 @@ export async function tryReachFullBoardScan(
   } catch (e) {
     recordCoachLiveBoardError(e instanceof Error ? e.message : String(e));
     recordCoachLiveBoardExitReason("scan_exception");
-    emitCoachLiveBoardSummary("scan-exception");
     return null;
   }
 }

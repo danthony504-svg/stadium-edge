@@ -106,14 +106,6 @@ export function deliverCoachBoardScanTicket(
       };
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {
-    recordCoachLiveBoardExitReason("timeout");
-    logCoachLiveBoardEmptyTicketFallback({
-      delivered: 0,
-      scanComplete: false,
-      hasManifestReply: !!scan.manifest,
-      legTarget,
-    });
-    emitCoachLiveBoardSummary("scan-incomplete");
     return {
       picks: [],
       manifest,
