@@ -315,6 +315,9 @@ export function stagedLegPassesDeliveryGate(
   if (pick.coachFillTier) {
     return gradeRank(score.grade) >= gradeRank(pick.coachFillTier);
   }
+  if (pick.coachDeliveryTier === 4) {
+    return (score.edgePct ?? 0) > 0 && pickHasSimGrade(pick, score.simHit);
+  }
   if (coachPickIsDelivered(pick)) return true;
   return pickQualifiesForBoardDelivery(pick, score) || propSimEdgeStagingQualifies(pick, score);
 }
@@ -346,6 +349,10 @@ export function boardScanStagedLegQualifies(
   if (pick.coachFillTier) {
     return gradeRank(score.grade) >= gradeRank(pick.coachFillTier);
   }
+  if ((pick as { coachDeliveryTier?: number }).coachDeliveryTier === 4) {
+    return (score.edgePct ?? 0) > 0 && pickHasSimGrade(pick, score.simHit);
+  }
+  if (coachPickIsDelivered(pick as import("../components/PickCard.tsx").ParsedPick)) return true;
   return pickQualifiesForBoardDelivery(pick, score);
 }
 

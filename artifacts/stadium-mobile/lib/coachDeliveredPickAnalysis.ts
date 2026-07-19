@@ -10,7 +10,7 @@ import {
 } from "./propHolisticRecommendation.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 
-export type CoachDeliveryTier = 1 | 2 | 3;
+export type CoachDeliveryTier = 1 | 2 | 3 | 4;
 
 function gradeRank(g: string | null | undefined): number {
   const GRADE_RANK: Record<string, number> = {
@@ -199,6 +199,13 @@ export function tagCoachDeliveryTier(
       coachDeliveryTier: 2,
       coachAlternateLineLabel: "Alternate line",
       ticketRole: "alt",
+    };
+  }
+  if (tier === 4) {
+    return {
+      ...pick,
+      coachDelivered: true,
+      coachDeliveryTier: 4,
     };
   }
   return { ...pick, coachDelivered: true, coachDeliveryTier: 1 };

@@ -50,7 +50,7 @@ export function isTier2SupportedAltMarket(market: string | null | undefined): bo
   return TIER2_ALT_MARKET_PATTERNS.some((re) => re.test(m));
 }
 
-export type CoachFallbackTier = 1 | 2 | 3;
+export type CoachFallbackTier = 1 | 2 | 3 | 4;
 
 export type CoachTicketFallbackResult = {
   picks: ParsedPick[];
@@ -110,11 +110,25 @@ export function legQualifiesTier3(pick: ParsedPick, score: FinalAiScore | null |
   return belowFullConfidence || belowBTier;
 }
 
+/** Tier 4 — best remaining positive-edge posted markets (relaxed grade/confidence). */
+export function legQualifiesTier4(pick: ParsedPick, score: FinalAiScore | null | undefined): boolean {
+  if (!score || score.highRiskValuePlay) return false;
+  if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (!hasVerifiedOdds(pick) || !hasPostedLine(pick)) return false;
+  if (!positiveEdgeEv(pick, score)) return false;
+  if (legQualifiesTier1(pick, score) || legQualifiesTier2(pick, score) || legQualifiesTier3(pick, score)) {
+    return false;
+  }
+  if (score.simHit != null && pick.odds != null && score.simHit <= impliedProb(pick.odds)) return false;
+  return true;
+}
+
 function stagedLegDeliverable(pick: ParsedPick, tier: CoachFallbackTier): boolean {
   const score = pick.finalAiScore;
   if (!score || score.highRiskValuePlay) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
+  if (tier === 4) return pick.coachDeliveryTier === 4 || pick.coachDelivered === true;
   if (tier === 3) return pick.coachConfidenceLabel === "Medium confidence";
   if (tier === 2) return pick.ticketRole === "alt";
   return pickQualifiesForBoardDelivery(pick, score) || propSimEdgeStagingQualifies(pick, score);
@@ -160,6 +174,7 @@ function buildShortfallReasons(
   const tier1Pool = scored.filter((l) => legQualifiesTier1(l.pick, l.pick.finalAiScore)).length;
   const tier2Pool = scored.filter((l) => legQualifiesTier2(l.pick, l.pick.finalAiScore)).length;
   const tier3Pool = scored.filter((l) => legQualifiesTier3(l.pick, l.pick.finalAiScore)).length;
+  const tier4Pool = scored.filter((l) => legQualifiesTier4(l.pick, l.pick.finalAiScore)).length;
 
   if (tier1Pool < target) {
     reasons.push(
@@ -176,7 +191,12 @@ function buildShortfallReasons(
       `**${tier3Pool}** medium-confidence posted lines available — **${tierCounts[3]}** used.`,
     );
   }
-  if (!tier1Pool && !tier2Pool && !tier3Pool) {
+  if (tier4Pool > 0 && tierCounts[4] < gap - tierCounts[2] - tierCounts[3]) {
+    reasons.push(
+      `**${tier4Pool}** positive-EV posted lines available — **${tierCounts[4]}** used.`,
+    );
+  }
+  if (!tier1Pool && !tier2Pool && !tier3Pool && !tier4Pool) {
     reasons.push("No posted markets on this slate produced a gradable sim with positive edge.");
   }
   return reasons;
@@ -192,7 +212,7 @@ export function applyCoachTicketFallbackLadder(
 ): CoachTicketFallbackResult {
   const used = new Set(current.map(pickLegFingerprint));
   const picks: ParsedPick[] = [...current];
-  const tierCounts: Record<CoachFallbackTier, number> = { 1: 0, 2: 0, 3: 0 };
+  const tierCounts: Record<CoachFallbackTier, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
   const tiers: Array<{ tier: CoachFallbackTier; qualify: typeof legQualifiesTier1 }> = [
     { tier: 1, qualify: legQualifiesTier1 },
@@ -200,6 +220,7 @@ export function applyCoachTicketFallbackLadder(
   if (ticketStyle !== "safe") {
     tiers.push({ tier: 2, qualify: legQualifiesTier2 });
     tiers.push({ tier: 3, qualify: legQualifiesTier3 });
+    tiers.push({ tier: 4, qualify: legQualifiesTier4 });
   }
 
   for (const { tier, qualify } of tiers) {

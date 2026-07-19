@@ -78,3 +78,21 @@ test("salvageCoachDelivery fills target from medium-confidence pool", () => {
   assert.ok(result.picks.length > 0, "salvage must return picks when positive-edge pool exists");
   assert.ok(result.relaxationsApplied.length > 0);
 });
+
+test("salvageCoachDelivery does not stop at one staged pick when target is 15", () => {
+  const scored = Array.from({ length: 20 }, (_, i) =>
+    leg({ game: `G${i} @ H${i}`, market: "Spread", pick: `G${i} -1.5`, odds: -110 }, bTierScore, 100 - i),
+  );
+  const oneStaged = [scored[0]!.pick];
+  const result = salvageCoachDelivery({
+    scored,
+    target: 15,
+    stagedPicks: oneStaged,
+    varietySeed: "staged-one-of-fifteen",
+  });
+  assert.ok(
+    result.picks.length > 1,
+    `expected >1 picks when pool has ${scored.length} candidates, got ${result.picks.length}`,
+  );
+  assert.ok(result.picks.length >= 10, `expected near-full 15-leg fill, got ${result.picks.length}`);
+});

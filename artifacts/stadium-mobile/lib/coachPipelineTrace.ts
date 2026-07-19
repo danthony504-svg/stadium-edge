@@ -19,7 +19,8 @@ export type CoachPipelineStageKey =
   | "afterConfidence"
   | "afterCorrelation"
   | "afterDuplicates"
-  | "beforeFinalSelection";
+  | "beforeFinalSelection"
+  | "finalDelivery";
 
 export const COACH_PIPELINE_STAGE_LABELS: Record<CoachPipelineStageKey, string> = {
   downloaded: "Markets downloaded",
@@ -31,6 +32,7 @@ export const COACH_PIPELINE_STAGE_LABELS: Record<CoachPipelineStageKey, string> 
   afterCorrelation: "Markets after correlation filter",
   afterDuplicates: "Markets after duplicate removal",
   beforeFinalSelection: "Markets remaining before final selection",
+  finalDelivery: "Picks delivered to ticket",
 };
 
 export type CoachPipelineRejectedMarket = {
@@ -211,6 +213,64 @@ export function logCoachPipelineSnapshot(snapshot: CoachPipelineSnapshot): void 
 function fmt(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return String(v);
+}
+
+export function logDeliveryFilterStages(
+  stages: Partial<Record<CoachPipelineStageKey, number>>,
+  removed: Partial<Record<CoachPipelineStageKey, number>>,
+): void {
+  console.log(`${COACH_PIPELINE_LOG_PREFIX} ── delivery filter stages ──`);
+  for (const key of Object.keys(COACH_PIPELINE_STAGE_LABELS) as CoachPipelineStageKey[]) {
+    const remaining = stages[key];
+    const dropped = removed[key];
+    if (remaining == null && dropped == null) continue;
+    const dropNote = dropped != null && dropped > 0 ? ` (removed ${dropped})` : "";
+    console.log(
+      `${COACH_PIPELINE_LOG_PREFIX} ${COACH_PIPELINE_STAGE_LABELS[key]}: ${remaining ?? "—"}${dropNote}`,
+    );
+  }
+}
+
+export function traceScoredPoolPipeline(
+  scored: BoardScoredLeg[],
+  snapshot: CoachPipelineSnapshot,
+): void {
+  const total = scored.length;
+  setPipelineStage(snapshot, "downloaded", total);
+
+  const afterValidation = scored.filter((leg) => {
+    const p = leg.pick;
+    return (
+      p.odds != null &&
+      Number.isFinite(p.odds) &&
+      p.odds !== 0 &&
+      String(p.game ?? "").trim() &&
+      String(p.market ?? "").trim() &&
+      String(p.pick ?? "").trim()
+    );
+  });
+  setPipelineStage(snapshot, "afterValidation", afterValidation.length);
+
+  const afterEv = afterValidation.filter((leg) => (leg.pick.finalAiScore?.edgePct ?? leg.edgePct ?? 0) > 0);
+  setPipelineStage(snapshot, "afterEv", afterEv.length);
+
+  const afterSim = afterEv.filter((leg) => pickHasSimGrade(leg.pick, leg.pick.finalAiScore?.simHit ?? leg.simHit));
+  setPipelineStage(snapshot, "afterSimulation", afterSim.length);
+
+  const afterConf = afterSim.filter((leg) => (leg.pick.finalAiScore?.confidencePct ?? leg.confidencePct ?? 0) > 0);
+  setPipelineStage(snapshot, "afterConfidence", afterConf.length);
+
+  setPipelineStage(snapshot, "afterCorrelation", afterConf.length);
+  setPipelineStage(snapshot, "afterDuplicates", afterConf.length);
+  setPipelineStage(snapshot, "beforeFinalSelection", afterConf.length);
+
+  const removed = {
+    afterValidation: total - afterValidation.length,
+    afterEv: afterValidation.length - afterEv.length,
+    afterSimulation: afterEv.length - afterSim.length,
+    afterConfidence: afterSim.length - afterConf.length,
+  };
+  logDeliveryFilterStages(snapshot.stages, removed);
 }
 
 export function buildPipelineStagesFromManifest(manifest: {

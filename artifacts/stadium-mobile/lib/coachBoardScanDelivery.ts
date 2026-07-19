@@ -11,15 +11,16 @@ import {
 } from "./coachBoardScanManifest.ts";
 import {
   salvageCoachDelivery,
-  shouldSalvageCoachDelivery,
 } from "./coachDeliverySalvage.ts";
 import {
   emptyCoachPipelineSnapshot,
   explainDeliveryFilterRejection,
   logCoachPipelineSnapshot,
+  logDeliveryFilterStages,
   pushPipelineRejection,
   rejectionFromDelivery,
   setPipelineStage,
+  traceScoredPoolPipeline,
 } from "./coachPipelineTrace.ts";
 import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
@@ -128,22 +129,46 @@ export function deliverCoachBoardScanTicket(
 
   let picks = deliverTaggedPicks(stagedPicks, enrich, pipeline);
 
-  if (shouldSalvageCoachDelivery(picks.length, legTarget, scan.scoredPool)) {
+  if (scan.scoredPool?.length) {
+    traceScoredPoolPipeline(scan.scoredPool, pipeline);
+  }
+
+  if (legTarget > 0 && picks.length < legTarget && scan.scoredPool?.length) {
     const salvage = salvageCoachDelivery({
       scored: scan.scoredPool ?? [],
       target: legTarget,
       enrich,
       varietySeed: scan.requestId,
-      stagedPicks,
+      stagedPicks: stagedPicks,
     });
     pipeline.relaxationsApplied = salvage.relaxationsApplied;
     if (salvage.picks.length > picks.length) {
       picks = deliverTaggedPicks(salvage.picks, enrich, pipeline);
     }
-    if (picks.length === 0 && salvage.picks.length > 0) {
-      picks = salvage.picks.slice(0, legTarget);
+    if (picks.length < salvage.picks.length && salvage.picks.length > picks.length) {
+      const relaxed = salvage.picks
+        .map((p) => ({ ...p, coachDelivered: true }))
+        .slice(0, legTarget);
+      if (relaxed.length > picks.length) {
+        picks = relaxed;
+      }
     }
   }
+
+  picks.sort(
+    (a, b) =>
+      (b.finalAiScore?.composite ?? b.scores?.composite ?? 0) -
+      (a.finalAiScore?.composite ?? a.scores?.composite ?? 0),
+  );
+
+  const beforeFinalDelivery =
+    pipeline.stages.beforeFinalSelection ??
+    scan.scoredPool?.length ??
+    stagedPicks.length;
+  setPipelineStage(pipeline, "finalDelivery", picks.length);
+  logDeliveryFilterStages(pipeline.stages, {
+    finalDelivery: Math.max(0, beforeFinalDelivery - picks.length),
+  });
 
   logCoachPipelineSnapshot({
     ...pipeline,
@@ -165,10 +190,11 @@ export function deliverCoachBoardScanTicket(
   }
 
   const tierFillCounts = {
-    1: picks.filter((p) => !p.coachFillTier && !p.coachConfidenceLabel).length,
-    2: picks.filter((p) => p.ticketRole === "alt" && !p.coachConfidenceLabel).length,
-    3: picks.filter((p) => p.coachConfidenceLabel === "Medium confidence").length,
-  } as Record<1 | 2 | 3, number>;
+    1: picks.filter((p) => p.coachDeliveryTier === 1 || (!p.coachDeliveryTier && !p.coachConfidenceLabel)).length,
+    2: picks.filter((p) => p.coachDeliveryTier === 2 || (p.ticketRole === "alt" && !p.coachConfidenceLabel)).length,
+    3: picks.filter((p) => p.coachConfidenceLabel === "Medium confidence" || p.coachDeliveryTier === 3).length,
+    4: picks.filter((p) => p.coachDeliveryTier === 4).length,
+  } as Record<1 | 2 | 3 | 4, number>;
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,

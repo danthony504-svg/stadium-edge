@@ -81,7 +81,7 @@ export type CoachBoardScanManifest = {
   finalSelectedCount: number;
   coverageBySport: Record<string, number>;
   coverageByMarket: Record<string, number>;
-  tierFillCounts: Record<1 | 2 | 3, number>;
+  tierFillCounts: Record<1 | 2 | 3 | 4, number>;
 
   gateFailureCounts: Partial<Record<BoardLegGateCode, number>>;
   rejectedSamples: Array<{
@@ -155,7 +155,7 @@ export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanMa
     finalSelectedCount: 0,
     coverageBySport: {},
     coverageByMarket: {},
-    tierFillCounts: { 1: 0, 2: 0, 3: 0 },
+    tierFillCounts: { 1: 0, 2: 0, 3: 0, 4: 0 },
     gateFailureCounts: {},
     rejectedSamples: [],
     pipelineStages: {},
@@ -661,12 +661,17 @@ export function formatCoachBoardScanManifest(
     }
   }
 
-  if (manifest.tierFillCounts[2] > 0 || manifest.tierFillCounts[3] > 0) {
+  if (
+    manifest.tierFillCounts[2] > 0 ||
+    manifest.tierFillCounts[3] > 0 ||
+    manifest.tierFillCounts[4] > 0
+  ) {
     lines.push("");
     lines.push("**Fallback tiers used**");
     if (manifest.tierFillCounts[1] > 0) lines.push(`- Tier 1 (strict): **${manifest.tierFillCounts[1]}**`);
     if (manifest.tierFillCounts[2] > 0) lines.push(`- Tier 2 (alt lines): **${manifest.tierFillCounts[2]}**`);
     if (manifest.tierFillCounts[3] > 0) lines.push(`- Tier 3 (medium confidence): **${manifest.tierFillCounts[3]}**`);
+    if (manifest.tierFillCounts[4] > 0) lines.push(`- Tier 4 (positive EV): **${manifest.tierFillCounts[4]}**`);
   }
 
   const sportEntries = Object.entries(manifest.coverageBySport);
