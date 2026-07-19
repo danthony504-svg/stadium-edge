@@ -161,7 +161,7 @@ import {
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
-import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import { consumeCoachIdleReset, isCoachIdleResetPending, takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
   unsupportedSoccerDisciplineReply,
@@ -1268,6 +1268,67 @@ export default function CoachScreen() {
   const coachRequestContextRef = useRef<CoachTicketRequestContext | null>(null);
   const activeRequestLegTargetRef = useRef(0);
   const liveScanDeliveredRef = useRef(false);
+  const kernelParlayActiveRef = useRef(false);
+  const boardScanInFlightRef = useRef(false);
+
+  const clearParlayBuildUiFlags = useCallback(() => {
+    setWaiting(false);
+    setStreaming(false);
+    setBuildFinishing(false);
+    setBuildProgressExpired(false);
+    setParlayBuildPhase("idle");
+    setBoardScanPartialLegs(0);
+    setBoardScanAwaiting(false);
+
+    boardScanInFlightRef.current = false;
+    kernelParlayActiveRef.current = false;
+    setCoachBuildBusy(false);
+  }, []);
+
+  /** Home "Build best parlay" — abort in-flight work and show idle welcome. */
+  const applyCoachIdleResetIfNeeded = useCallback((): boolean => {
+    if (!consumeCoachIdleReset()) return false;
+
+    abortRef.current?.abort();
+    simAbortRef.current?.abort();
+    abortRef.current = null;
+    simAbortRef.current = null;
+
+    if (buildProgressTimerRef.current) {
+      clearTimeout(buildProgressTimerRef.current);
+      buildProgressTimerRef.current = null;
+    }
+    clearBuildStallWatchdog();
+
+    sendGenerationRef.current += 1;
+    autoSentRef.current = null;
+
+    boardTicketSnapshotRef.current = null;
+    latestBoardScanRef.current = null;
+    earlyReachBoardScanRef.current = null;
+    coachRequestContextRef.current = null;
+    activeRequestLegTargetRef.current = 0;
+    liveScanDeliveredRef.current = false;
+    activeParlayAskRef.current = "";
+    varietySeedRef.current = "";
+
+    pendingBgRef.current = null;
+    restoredBuildRef.current = null;
+    handedOffRef.current = false;
+    restoringRef.current = false;
+
+    clearParlayBuildUiFlags();
+    setBgWatchId(null);
+    setAiPicks([]);
+    setInput("");
+    setAttachedImages([]);
+    setMessages([{ role: "assistant", content: WELCOME_RETURNING }]);
+
+    stopSlatePreAnalysis();
+    void clearPendingBuild();
+
+    return true;
+  }, [clearBuildStallWatchdog, clearParlayBuildUiFlags, setAiPicks]);
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
@@ -5510,8 +5571,10 @@ export default function CoachScreen() {
   // check so a finished ticket replays without waiting for a push tap.
   const resumePendingBackgroundBuild = useCallback(async () => {
     if (streamingRef.current) return;
+    if (isCoachIdleResetPending()) return;
     const pending = await loadPendingBuild();
     if (!pending) return;
+    if (isCoachIdleResetPending()) return;
     if (restoredBuildRef.current === pending.buildId) return;
     pendingBgRef.current = { buildId: pending.buildId };
     setBgWatchId(pending.buildId);
@@ -5549,13 +5612,17 @@ export default function CoachScreen() {
 
   // After a force-quit, hydrate the pending build from disk and resume polling.
   useEffect(() => {
+    if (isCoachIdleResetPending()) return;
     void resumePendingBackgroundBuild();
   }, [resumePendingBackgroundBuild]);
 
   // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
   useFocusEffect(
     useCallback(() => {
-      void resumePendingBackgroundBuild();
+      const idleReset = applyCoachIdleResetIfNeeded();
+      if (!idleReset) {
+        void resumePendingBackgroundBuild();
+      }
       if (!OTA_BOOTSTRAP) {
         void (async () => {
           await hydrateSlatePreAnalysisCache();
@@ -5566,6 +5633,7 @@ export default function CoachScreen() {
           void prefetchAndMaybeApplyOta(true);
         }
       }
+      if (idleReset) return;
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
       const partial = latestBoardScanRef.current;
       if (partial && boardScanIsComplete(partial)) {
@@ -5581,6 +5649,7 @@ export default function CoachScreen() {
         return recoverOrphanCoachThread(prev);
       });
     }, [
+      applyCoachIdleResetIfNeeded,
       resumePendingBackgroundBuild,
       deliverBoardScanTicket,
       patchInstantBoardScanTicket,
