@@ -1316,6 +1316,10 @@ export default function CoachScreen() {
     restoredBuildRef.current = null;
     handedOffRef.current = false;
     restoringRef.current = false;
+<<<<<<< HEAD
+=======
+    lastProgressSignatureRef.current = "";
+>>>>>>> f69de7900 (fix(coach): remove stale scanStartedRef from idle reset)
 
     clearParlayBuildUiFlags();
     setBgWatchId(null);
