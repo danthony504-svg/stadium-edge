@@ -2215,6 +2215,17 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
     if (m.role === "user") lastUserIdx = i;
   });
 
+  const scoutingReportIntent = /SCOUTING REPORT \(verified data only/i.test(latestUser);
+  const scoutingReportSystemAddendum = !scoutingReportIntent
+    ? ""
+    : `\n\n*** SCOUTING REPORT ANALYSIS FOR THIS TURN ***
+The user message includes a SCOUTING REPORT block built from live verified feeds (ESPN game logs, injuries, props, odds, MLB probables/park/weather when present). This turn is a COMPLETE scouting breakdown — NOT a generic overview:
+- Use ONLY the numbers in the SCOUTING REPORT block. Every stat, split, probability, edge, grade, and price verdict must come from that block or from context fields that duplicate it — NEVER invent a figure, injury, matchup, or line.
+- Structure your reply as a full scouting report: season/recent form, relevant splits, matchup/injury context, park/weather when listed, advanced metrics when listed, betting snapshot (best prop, odds, implied vs model, edge %, grade, risk), and a clear explanation of why the model likes or dislikes the subject.
+- ALWAYS include: what the market expects, what the AI model expects, whether the sportsbook line is overpriced/underpriced/fair (per the price verdict), sources used, and the as-of timestamp from the block.
+- Label any field marked "Not available" honestly — do not fill gaps with guesses. Missing wOBA/xwOBA, day/night splits, lineup slot, or playing-time projections stay unavailable unless real data appears in context.
+- Do NOT emit PICK: lines unless the user explicitly asked for a bet to add. Prose analysis only.`;
+
   const baseSystemPrompt = coachSystemPromptForProvider(
     aiConfig.provider,
     SYSTEM_PROMPT,
@@ -2222,7 +2233,7 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + scoutingReportSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
