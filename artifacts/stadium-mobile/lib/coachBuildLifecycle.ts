@@ -1,5 +1,10 @@
 // Coach build / board-scan lifecycle — ordering guarantees + timing instrumentation.
 
+import {
+  coachLifecycleBoardScanEnd,
+  coachLifecycleBoardScanStart,
+} from "./coachParlayLifecycle.ts";
+
 export const COACH_BUILD_TIMING_LOG = "[coach-build-timing]";
 
 let boardScanStartedAt: number | null = null;
@@ -66,6 +71,7 @@ export async function raceBoardScanWithBudget<T>(
   },
 ): Promise<BoardScanRaceResult<T | null>> {
   logBoardScanStarted(opts?.requestId);
+  coachLifecycleBoardScanStart(opts?.requestId);
   opts?.onInFlightChange?.(true);
 
   const completion = scanPromise
@@ -82,7 +88,14 @@ export async function raceBoardScanWithBudget<T>(
 
   return {
     timedResult: timedResult as T | null,
-    awaitCompletion: () => completion,
+    awaitCompletion: async () => {
+      const full = await completion;
+      coachLifecycleBoardScanEnd(
+        full as { scanComplete?: boolean } | null,
+        opts?.requestId,
+      );
+      return full;
+    },
   };
 }
 
@@ -95,11 +108,16 @@ export function trackBoardScanPromise<T>(
   },
 ): Promise<T | null> {
   logBoardScanStarted(opts?.requestId);
+  coachLifecycleBoardScanStart(opts?.requestId);
   opts?.onInFlightChange?.(true);
   return scanPromise
     .catch(() => null as T | null)
     .finally(() => {
       logBoardScanFinished(opts?.requestId);
       opts?.onInFlightChange?.(false);
+    })
+    .then((result) => {
+      coachLifecycleBoardScanEnd(result as { scanComplete?: boolean } | null, opts?.requestId);
+      return result;
     });
 }
