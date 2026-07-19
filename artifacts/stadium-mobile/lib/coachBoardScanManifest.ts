@@ -11,6 +11,7 @@ import {
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isAltPropPick } from "./altLinePool.ts";
+import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 export type ManifestMarketFamily =
   | "playerProps"

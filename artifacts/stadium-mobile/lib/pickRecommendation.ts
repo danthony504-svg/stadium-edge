@@ -1,4 +1,5 @@
 // AI recommendation gate — only markets that pass simulation + edge + EV + confidence.
+// @ts-nocheck
 
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {

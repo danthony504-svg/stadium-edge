@@ -235,7 +235,7 @@ function sleepBackoff(attempt: number): Promise<void> {
 // each wait the full per-request timeout, so we cap THOSE at a single retry to
 // avoid stacking long stalls onto the chat-context fan-outs that share this
 // fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+export async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
@@ -273,7 +273,7 @@ export { setAuthTokenGetter };
 
 async function authedFetch(
   path: string,
-  init?: { method?: string; body?: string; headers?: Record<string, string> },
+  init?: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init?.headers ?? {}) };
   let token: string | null = null;
@@ -288,6 +288,7 @@ async function authedFetch(
     method: init?.method ?? "GET",
     headers,
     body: init?.body,
+    signal: init?.signal,
   }) as unknown as Promise<Response>;
 }
 
@@ -1384,20 +1385,8 @@ export function getStatmuseGamelog(
   return getJson<StatMuseGameLog>(`/sports/statmuse-gamelog?${params.toString()}`, signal);
 }
 
-export { propMarketLabel } from "./propMarketLabel";
-
-// Reverse of propMarketLabel for the base (non-period) labels: resolve a human
-// market label ("Strikeouts") back to its raw Odds API key ("pitcher_strikeouts")
-// so a stored bet-slip leg — which keeps only the label — can open the right
-// market on the prop stats page. Returns null for labels we don't recognize
-// (e.g. period-suffixed ones), so callers fail closed instead of guessing.
-const PROP_LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(PROP_MARKET_LABEL_MAP).map(([k, v]) => [v.toLowerCase(), k]),
-);
-
-export function propMarketKeyForLabel(label: string): string | null {
-  return PROP_LABEL_TO_KEY[label.trim().toLowerCase()] ?? null;
-}
+export { propMarketLabel, propMarketKeyForLabel } from "./propMarketLabel";
+import { propMarketLabel } from "./propMarketLabel";
 
 // ---------- Pickability window ----------
 // These pure slate/pickability helpers live in ./slate (dependency-free so they
@@ -2416,6 +2405,8 @@ export type ChatContext = {
   // a transparent guide from real severity × position — NOT a fabricated player
   // rating. Omitted when no pickable game had a betting-relevant injury.
   matchupInjuries?: Record<string, GameInjuryReport>;
+  /** Raw league injury teams when per-game matchupInjuries is absent. */
+  injuryTeams?: InjuryTeam[];
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -4762,7 +4753,7 @@ export async function fetchFullBoardPropPool(
 export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    authToken = getAuthTokenGetter() ? await getAuthTokenGetter()!() : null;
   } catch {
     authToken = null;
   }
@@ -4947,7 +4938,7 @@ export async function streamChat({
   // under the account); harmless for normal chats. Resolved once up front.
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    authToken = getAuthTokenGetter() ? await getAuthTokenGetter()!() : null;
   } catch {
     authToken = null;
   }

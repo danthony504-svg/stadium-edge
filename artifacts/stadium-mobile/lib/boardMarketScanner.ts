@@ -104,7 +104,7 @@ function aliasPropSimHitsForBatch(
     const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
     const altKey =
       altMarket && altMarket !== market
-        ? propSimKey(pick.player, altMarket, pick.propLine, pick.propSide ?? "")
+        ? propSimKey(pick.player ?? "", altMarket, pick.propLine, pick.propSide ?? "")
         : null;
     if (altKey && out.has(altKey)) {
       out.set(clientKey, out.get(altKey)!);
@@ -149,7 +149,7 @@ function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
 }
 
 function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {
-  const rubric = pick.finalAiScore?.rubricScores?.lineShopping ?? pick.scores?.lineShopping ?? null;
+  const rubric = pick.finalAiScore?.rubric?.scores?.lineShopping ?? pick.scores?.scores?.lineShopping ?? null;
   if (rubric != null) return rubric;
   if (entry?.bookSpread != null) return scoreLineShopping(entry.bookSpread);
   return null;
@@ -328,7 +328,7 @@ function prescorePropRank(pick: ParsedPick): number {
     impliedProbPct: null,
     lineShoppingScore:
       pick.finalAiScore?.rubric?.scores?.lineShopping ??
-      pick.scores?.lineShopping ??
+      pick.scores?.scores?.lineShopping ??
       null,
     grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
     simHit: pick.finalAiScore?.simHit ?? null,
@@ -545,7 +545,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ]);
   const mergedOdds = mergeOddsEntries(
     opts.realOdds,
-    ...(opts.liveOdds ?? []),
+    opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
 
