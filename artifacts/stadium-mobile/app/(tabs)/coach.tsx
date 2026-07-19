@@ -1836,6 +1836,8 @@ export default function CoachScreen() {
     },
     [clearBuildStallWatchdog, scrollToEnd, shouldDeferParlayBuildFinish],
   );
+
+  const rehydrateVisibleBoardTicket = useCallback(() => {
     const enrich = flashEnrichRef.current;
     if (
       !enrich.playerHistory &&
