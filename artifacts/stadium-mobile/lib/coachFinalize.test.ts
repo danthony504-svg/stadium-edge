@@ -73,8 +73,14 @@ describe("coachFinalize", () => {
       4,
     );
     markCoachLineValueReady("req-flow");
+    assert.equal(coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), null), 5);
     beginCoachCorrelationPhase("req-flow");
-    assert.equal(coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), null), 6);
+    assert.equal(
+      coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), null, {
+        correlationRecord: { step: "loading" },
+      }),
+      6,
+    );
     markCoachCorrelationComplete("req-flow", "available");
     assert.equal(
       coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), null, {

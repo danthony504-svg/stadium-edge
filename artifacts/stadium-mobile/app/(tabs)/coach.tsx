@@ -186,7 +186,6 @@ import {
 } from "@/lib/coachRequestLifecycle";
 import {
   beginCoachFinalizeRequest,
-  beginCoachCorrelationPhase,
   clearPersistedCoachFinalize,
   coachBuildWorkflowIndex,
   COACH_BUILD_INTERRUPTED_LEAD,
@@ -2183,6 +2182,11 @@ export default function CoachScreen() {
         return;
       }
       latestBoardScanRef.current = partial;
+      if (ctx?.requestId) {
+        syncCoachBuildWorkflowIndex(ctx.requestId, {
+          scanComplete: boardScanIsComplete(partial),
+        });
+      }
       if (partial.picks.length) {
         setBoardScanPartialLegs(partial.picks.length);
         setParlayBuildPhase("stream");
@@ -2195,7 +2199,7 @@ export default function CoachScreen() {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog, syncCoachBuildWorkflowIndex],
   );
 
   const kickoffEarlyReachBoardScan = useCallback(
@@ -3173,7 +3177,6 @@ export default function CoachScreen() {
           );
           if (isParlayBuild && coachInjuryRequestId) {
             markCoachLineValueReady(coachInjuryRequestId);
-            beginCoachCorrelationPhase(coachInjuryRequestId);
             syncCoachBuildWorkflowIndex(coachInjuryRequestId);
             const finalizeRecord = getCoachFinalizeRecord(coachInjuryRequestId);
             if (finalizeRecord) void persistCoachFinalize(finalizeRecord);

@@ -8,6 +8,7 @@ import {
   setCoachCorrelationRunnerForTests,
   setCoachCorrelationTimeoutForTests,
 } from "./coachCorrelation.ts";
+import { resetCoachCorrelationTraceForTests } from "./coachCorrelationTrace.ts";
 import {
   beginCoachCorrelationPhase,
   beginCoachFinalizeRequest,
@@ -72,6 +73,7 @@ function fiveLegPool(): BoardScoredLeg[] {
 describe("coachCorrelation", () => {
   test("normal 5-leg correlation advances workflow past 74%", async () => {
     resetCoachCorrelationForTests();
+    resetCoachCorrelationTraceForTests();
     setCoachCorrelationRunnerForTests((input) => ({
       picks: input.scored.slice(0, input.target).map((row) => row.pick),
       breakdown: {
@@ -106,6 +108,7 @@ describe("coachCorrelation", () => {
 
   test("forced correlation timeout continues with ranked picks", async () => {
     resetCoachCorrelationForTests();
+    resetCoachCorrelationTraceForTests();
     setCoachCorrelationTimeoutForTests(50);
     setCoachCorrelationRunnerForTests(
       () =>

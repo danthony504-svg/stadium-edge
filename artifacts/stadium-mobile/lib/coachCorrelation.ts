@@ -9,8 +9,13 @@ import {
   type CoachTicketStagingContext,
 } from "./ticketStaging.ts";
 import { applyCoachTicketFallbackLadder } from "./coachTicketFallbackLadder.ts";
+import { beginCoachCorrelationPhase } from "./coachFinalize.ts";
+import {
+  buildCoachCorrelationTrace,
+  logCoachCorrelationTrace,
+} from "./coachCorrelationTrace.ts";
 
-export const COACH_CORRELATION_TIMEOUT_MS = 9_000;
+export const COACH_CORRELATION_TIMEOUT_MS = 10_000;
 const STORAGE_KEY = "coach_correlation_v1";
 
 export type CoachCorrelationDataStatus = "available" | "unavailable";
@@ -130,7 +135,38 @@ function rankedFallback(
   };
 }
 
-function cacheResult(result: CoachCorrelationResult): CoachCorrelationResult {
+function emitCorrelationTrace(
+  requestId: string,
+  scored: BoardScoredLeg[],
+  picks: ParsedPick[],
+  startedAt: number,
+  correlationTimeout: boolean,
+  exception?: string | null,
+): void {
+  const trace = buildCoachCorrelationTrace({
+    requestId,
+    candidates: scored,
+    selected: picks,
+    executionMs: Date.now() - startedAt,
+    correlationTimeout,
+    exception,
+  });
+  logCoachCorrelationTrace(trace);
+}
+
+function cacheResult(
+  result: CoachCorrelationResult,
+  scored: BoardScoredLeg[],
+  opts?: { correlationTimeout?: boolean; exception?: string | null },
+): CoachCorrelationResult {
+  emitCorrelationTrace(
+    result.record.requestId,
+    scored,
+    result.picks,
+    result.record.startedAt,
+    opts?.correlationTimeout ?? false,
+    opts?.exception ?? result.record.error ?? null,
+  );
   records.set(result.record.requestId, result.record);
   resultCache.set(result.record.requestId, result);
   return result;
@@ -162,6 +198,7 @@ function finalizeUnavailable(
   varietySeed: string | undefined,
   reason: string,
   candidateCount = 0,
+  correlationTimeout = false,
 ): CoachCorrelationResult {
   const fallback = rankedFallback(scored, target, varietySeed);
   const record: CoachCorrelationRecord = {
@@ -185,7 +222,7 @@ function finalizeUnavailable(
     picks: fallback.picks,
     breakdown: fallback.breakdown,
     correlationStatus: "unavailable",
-  });
+  }, scored, { correlationTimeout, exception: reason });
 }
 
 function runCoachCorrelationCore(input: CoachCorrelationInput): Promise<CoachCorrelationResult> {
@@ -212,7 +249,7 @@ function runCoachCorrelationCore(input: CoachCorrelationInput): Promise<CoachCor
         picks: [],
         breakdown: emptyBreakdown(),
         correlationStatus: "unavailable",
-      }),
+      }, scored, { exception: "empty-pool" }),
     );
   }
 
@@ -245,7 +282,7 @@ function runCoachCorrelationCore(input: CoachCorrelationInput): Promise<CoachCor
           picks: fallback.picks,
           breakdown: fallback.breakdown,
           correlationStatus: "unavailable",
-        });
+        }, scored);
       }
 
       const record: CoachCorrelationRecord = {
@@ -265,7 +302,7 @@ function runCoachCorrelationCore(input: CoachCorrelationInput): Promise<CoachCor
         picks: response.picks,
         breakdown: response.breakdown,
         correlationStatus: "available",
-      });
+      }, scored);
     })
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -283,6 +320,7 @@ async function runCoachCorrelationFetch(input: CoachCorrelationInput): Promise<C
   }
 
   const startedAt = Date.now();
+  beginCoachCorrelationPhase(requestId);
   const loading: CoachCorrelationRecord = {
     requestId,
     step: "loading",
@@ -306,17 +344,22 @@ async function runCoachCorrelationFetch(input: CoachCorrelationInput): Promise<C
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes("coach-correlation-timeout")) {
       log("timeout", requestId, { elapsedMs: Date.now() - startedAt, requestedLegs: input.target });
+      console.warn(
+        `[coach-correlation] WARNING correlation exceeded ${correlationTimeoutMs}ms — continuing with uncorrelated ranked picks requestId=${requestId}`,
+      );
     } else {
       log("error", requestId, { error: message });
     }
+    const timedOut = message.includes("coach-correlation-timeout");
     const result = finalizeUnavailable(
       requestId,
       input.target,
       startedAt,
       input.scored,
       input.varietySeed,
-      message.includes("coach-correlation-timeout") ? "timeout" : message,
+      timedOut ? "timeout" : message,
       input.scored.length,
+      timedOut,
     );
     void persistCoachCorrelation(result.record);
     return result;

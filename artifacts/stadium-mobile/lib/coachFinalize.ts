@@ -219,7 +219,13 @@ export function coachBuildWorkflowIndex(
   ) {
     return 7;
   }
-  if (finalizeRecord?.correlationStartedAt || finalizeRecord?.lineValueReadyAt) return 6;
+  if (
+    finalizeRecord?.correlationStartedAt &&
+    !correlationWorkflowComplete(finalizeRecord, opts?.correlationRecord ?? null)
+  ) {
+    return 6;
+  }
+  if (finalizeRecord?.lineValueReadyAt) return 5;
   if (injuryWorkflowComplete(injuryRecord)) return 4;
   return 3;
 }
