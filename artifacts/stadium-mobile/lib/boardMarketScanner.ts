@@ -140,6 +140,8 @@ export type FullBoardScanResult = {
   requestId?: string;
   /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
   scanComplete?: boolean;
+  /** Correlation combinator status — unavailable when timed out or errored. */
+  correlationStatus?: "available" | "unavailable";
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
 };
@@ -453,17 +455,20 @@ function buildScanResult(
     varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
+    correlationResult?: import("./coachCorrelation.ts").CoachCorrelationResult;
   },
 ): FullBoardScanResult {
-  const staged = buildStagedTicketFromScan(
-    scored,
-    opts.target,
-    opts.varietySeed,
-    {
-      ...opts.varietyContext,
-      ticketStyle: opts.ticketStyle,
-    },
-  );
+  const staged = opts.correlationResult
+    ? { picks: opts.correlationResult.picks, breakdown: opts.correlationResult.breakdown }
+    : buildStagedTicketFromScan(
+        scored,
+        opts.target,
+        opts.varietySeed,
+        {
+          ...opts.varietyContext,
+          ticketStyle: opts.ticketStyle,
+        },
+      );
   const picks = staged.picks;
   const breakdown = staged.breakdown;
 
@@ -497,6 +502,7 @@ function buildScanResult(
     scanComplete,
     requestedLegs: opts.target,
     requestId: opts.requestId,
+    correlationStatus: opts.correlationResult?.correlationStatus,
     manifest,
   };
 }
@@ -681,6 +687,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+  const { fetchCoachCorrelationForBuild } = await import("./coachCorrelation.ts");
+  const correlationResult = await fetchCoachCorrelationForBuild({
+    requestId: opts.requestId ?? `scan-${opts.target}`,
+    target: opts.target,
+    scored: collapsed,
+    varietySeed: opts.varietySeed,
+    varietyContext: {
+      ...opts.varietyContext,
+      ticketStyle: opts.ticketStyle,
+    },
+    preview: false,
+  });
   const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
@@ -692,6 +710,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
+    correlationResult,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;

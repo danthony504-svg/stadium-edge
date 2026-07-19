@@ -15,6 +15,8 @@ export type CoachFinalizeRecord = {
   selectedCount: number;
   cardsSaved: boolean;
   correlationCompleteAt?: number;
+  correlationStartedAt?: number;
+  correlationStatus?: "available" | "unavailable";
   lineValueReadyAt?: number;
   finalizedAt?: number;
   error?: string;
@@ -59,8 +61,23 @@ export function getActiveCoachFinalizeRecord(): CoachFinalizeRecord | null {
   return activeRequestId ? records.get(activeRequestId) ?? null : null;
 }
 
+/** Correlation scoring started — board scan entering combinator phase. */
+export function beginCoachCorrelationPhase(requestId: string): CoachFinalizeRecord | null {
+  const record = records.get(requestId);
+  if (!record) return null;
+  if (!record.correlationStartedAt) {
+    record.correlationStartedAt = Date.now();
+    records.set(requestId, record);
+    log("correlation-start", requestId, { requestedLegs: record.requestedLegs });
+  }
+  return record;
+}
+
 /** Board scan correlation finished — may trigger finalization once. */
-export function markCoachCorrelationComplete(requestId: string): CoachFinalizeRecord | null {
+export function markCoachCorrelationComplete(
+  requestId: string,
+  correlationStatus: "available" | "unavailable" = "available",
+): CoachFinalizeRecord | null {
   const record = records.get(requestId);
   if (!record) return null;
   if (record.phase === "complete" || record.phase === "empty" || record.phase === "interrupted") {
@@ -68,8 +85,13 @@ export function markCoachCorrelationComplete(requestId: string): CoachFinalizeRe
   }
   record.phase = "correlating";
   record.correlationCompleteAt = Date.now();
+  record.correlationStatus = correlationStatus;
+  if (!record.correlationStartedAt) record.correlationStartedAt = record.correlationCompleteAt;
   records.set(requestId, record);
-  log("correlation-complete", requestId, { requestedLegs: record.requestedLegs });
+  log("correlation-complete", requestId, {
+    requestedLegs: record.requestedLegs,
+    correlationStatus,
+  });
   return record;
 }
 
@@ -163,25 +185,41 @@ export function markCoachLineValueReady(requestId: string): CoachFinalizeRecord 
 }
 
 type InjuryStepLike = { step?: string } | null | undefined;
+type CorrelationStepLike = { step?: string } | null | undefined;
 
 function injuryWorkflowComplete(injuryRecord: InjuryStepLike): boolean {
   if (!injuryRecord?.step) return false;
   return injuryRecord.step !== "pending" && injuryRecord.step !== "loading";
 }
 
-/** Progress checklist index (0–9) from injury + finalize state — not a cosmetic timer. */
+function correlationWorkflowComplete(
+  finalizeRecord: CoachFinalizeRecord | null,
+  correlationRecord: CorrelationStepLike,
+): boolean {
+  if (finalizeRecord?.correlationCompleteAt) return true;
+  if (!correlationRecord?.step) return false;
+  return correlationRecord.step !== "pending" && correlationRecord.step !== "loading";
+}
+
+/** Progress checklist index (0–9) from injury + correlation + finalize state. */
 export function coachBuildWorkflowIndex(
   finalizeRecord: CoachFinalizeRecord | null,
   injuryRecord: InjuryStepLike,
-  opts?: { scanComplete?: boolean; hasCards?: boolean },
+  opts?: { scanComplete?: boolean; hasCards?: boolean; correlationRecord?: CorrelationStepLike },
 ): number {
   if (finalizeRecord?.phase === "complete" || (finalizeRecord?.phase === "empty" && finalizeRecord.cardsSaved)) {
     return 9;
   }
   if (finalizeRecord?.phase === "interrupted") return 9;
   if (finalizeRecord?.phase === "finalizing") return 8;
-  if (finalizeRecord?.correlationCompleteAt || opts?.scanComplete) return 7;
-  if (finalizeRecord?.lineValueReadyAt) return 6;
+  if (
+    finalizeRecord?.correlationCompleteAt ||
+    opts?.scanComplete ||
+    correlationWorkflowComplete(finalizeRecord, opts?.correlationRecord ?? null)
+  ) {
+    return 7;
+  }
+  if (finalizeRecord?.correlationStartedAt || finalizeRecord?.lineValueReadyAt) return 6;
   if (injuryWorkflowComplete(injuryRecord)) return 4;
   return 3;
 }
@@ -189,7 +227,7 @@ export function coachBuildWorkflowIndex(
 /** @deprecated Use coachBuildWorkflowIndex with injury record. */
 export function coachFinalizeWorkflowIndex(
   record: CoachFinalizeRecord | null,
-  opts?: { scanComplete?: boolean; hasCards?: boolean },
+  opts?: { scanComplete?: boolean; hasCards?: boolean; correlationRecord?: CorrelationStepLike },
 ): number {
   return coachBuildWorkflowIndex(record, null, opts);
 }

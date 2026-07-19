@@ -161,10 +161,12 @@ import {
 } from "@/lib/coachRequestLifecycle";
 import {
   beginCoachFinalizeRequest,
+  beginCoachCorrelationPhase,
   clearPersistedCoachFinalize,
   coachBuildWorkflowIndex,
   COACH_BUILD_INTERRUPTED_LEAD,
   COACH_NO_QUALIFYING_PICKS_LEAD,
+  coachFinalizeIsTerminal,
   getCoachFinalizeRecord,
   loadPersistedCoachFinalize,
   markCoachCorrelationComplete,
@@ -187,6 +189,13 @@ import {
   persistCoachInjury,
   type CoachInjuryResult,
 } from "@/lib/coachInjury";
+import {
+  clearPersistedCoachCorrelation,
+  COACH_CORRELATION_TIMEOUT_MS,
+  fetchCoachCorrelationForBuild,
+  getCoachCorrelationRecord,
+  loadPersistedCoachCorrelation,
+} from "@/lib/coachCorrelation";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1360,6 +1369,7 @@ export default function CoachScreen() {
     void clearPendingBuild();
     void clearPersistedCoachFinalize();
     void clearPersistedCoachInjury();
+    void clearPersistedCoachCorrelation();
     setCoachFinalizeWorkflowIndex(undefined);
     coachFinalizeRetryRef.current = false;
 
@@ -1440,6 +1450,18 @@ export default function CoachScreen() {
     setCoachFinalizeWorkflowIndex(9);
   }, [clearBuildStallWatchdog]);
 
+  const syncCoachBuildWorkflowIndex = useCallback(
+    (requestId: string, opts?: { scanComplete?: boolean; hasCards?: boolean }) => {
+      setCoachFinalizeWorkflowIndex(
+        coachBuildWorkflowIndex(getCoachFinalizeRecord(requestId), getCoachInjuryRecord(requestId), {
+          ...opts,
+          correlationRecord: getCoachCorrelationRecord(requestId),
+        }),
+      );
+    },
+    [],
+  );
+
   /** Correlation complete → finalize exactly once per requestId; commit cards or empty state. */
   const commitCoachFinalizeAfterScan = useCallback(
     (
@@ -1458,11 +1480,14 @@ export default function CoachScreen() {
           effectiveBuildLegCount(activeParlayAskRef.current));
       if (legTarget >= 3 && !ctx) return false;
 
-      markCoachCorrelationComplete(requestId);
-      const record = getCoachFinalizeRecord(requestId);
-      setCoachFinalizeWorkflowIndex(
-        coachBuildWorkflowIndex(record, getCoachInjuryRecord(requestId), { scanComplete: true }),
+      markCoachCorrelationComplete(
+        requestId,
+        scan.correlationStatus ??
+          getCoachCorrelationRecord(requestId)?.correlationStatus ??
+          "available",
       );
+      const record = getCoachFinalizeRecord(requestId);
+      syncCoachBuildWorkflowIndex(requestId, { scanComplete: true });
 
       if (!tryAcquireCoachFinalizeLock(requestId)) {
         return !!record?.cardsSaved;
@@ -1542,6 +1567,7 @@ export default function CoachScreen() {
       marketPerf,
       patchInstantBoardScanTicket,
       scrollToEnd,
+      syncCoachBuildWorkflowIndex,
     ],
   );
 
@@ -2637,9 +2663,7 @@ export default function CoachScreen() {
               sports: buildSports,
               signal: controller.signal,
               onUpdate: (injuryRecord) => {
-                setCoachFinalizeWorkflowIndex(
-                  coachBuildWorkflowIndex(getCoachFinalizeRecord(coachInjuryRequestId), injuryRecord),
-                );
+                syncCoachBuildWorkflowIndex(coachInjuryRequestId);
                 void persistCoachInjury(injuryRecord);
               },
             });
@@ -2847,12 +2871,7 @@ export default function CoachScreen() {
               ...enriched.built,
               context: applyCoachInjuryToContext(enriched.built.context, coachInjuryResult),
             };
-            setCoachFinalizeWorkflowIndex(
-              coachBuildWorkflowIndex(
-                getCoachFinalizeRecord(coachInjuryRequestId),
-                coachInjuryResult.record,
-              ),
-            );
+            syncCoachBuildWorkflowIndex(coachInjuryRequestId);
           }
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
@@ -2872,10 +2891,9 @@ export default function CoachScreen() {
           );
           if (isParlayBuild && coachInjuryRequestId) {
             markCoachLineValueReady(coachInjuryRequestId);
+            beginCoachCorrelationPhase(coachInjuryRequestId);
+            syncCoachBuildWorkflowIndex(coachInjuryRequestId);
             const finalizeRecord = getCoachFinalizeRecord(coachInjuryRequestId);
-            setCoachFinalizeWorkflowIndex(
-              coachBuildWorkflowIndex(finalizeRecord, getCoachInjuryRecord(coachInjuryRequestId)),
-            );
             if (finalizeRecord) void persistCoachFinalize(finalizeRecord);
           }
           rehydrateVisibleBoardTicket();
@@ -5831,7 +5849,71 @@ export default function CoachScreen() {
     return () => sub.remove();
   }, [restoreBackgroundBuild, resumePendingBackgroundBuild]);
 
-  // Hard recovery: if correlating/finalizing stalls >15s, retry finalize once or surface interrupted.
+  // Correlation must not block the build — force finalize after 9s at 74%.
+  useEffect(() => {
+    const ctx = coachRequestContextRef.current;
+    if (!ctx || (!streaming && !buildFinishing)) return;
+    const record = getCoachFinalizeRecord(ctx.requestId);
+    if (!record?.lineValueReadyAt || record.correlationCompleteAt) return;
+    if (coachFinalizeIsTerminal(record)) return;
+
+    const started = record.correlationStartedAt ?? record.lineValueReadyAt;
+    const delay = Math.max(0, COACH_CORRELATION_TIMEOUT_MS - (Date.now() - started));
+    const t = setTimeout(() => {
+      const latest = getCoachFinalizeRecord(ctx.requestId);
+      if (!latest || latest.correlationCompleteAt || coachFinalizeIsTerminal(latest)) return;
+      if (coachFinalizeRetryRef.current) return;
+
+      const legTarget =
+        activeRequestLegTargetRef.current ||
+        requestedLegCount(activeParlayAskRef.current) ||
+        effectiveBuildLegCount(activeParlayAskRef.current);
+
+      const partial = latestBoardScanRef.current;
+      if (partial) {
+        coachFinalizeRetryRef.current = true;
+        const forcedScan: FullBoardScanResult = {
+          ...partial,
+          scanComplete: true,
+          correlationStatus: "unavailable",
+          requestedLegs: partial.requestedLegs ?? legTarget,
+          requestId: partial.requestId ?? ctx.requestId,
+        };
+        commitCoachFinalizeAfterScan(forcedScan, flashEnrichRef.current, {
+          legTarget,
+          userText: activeParlayAskRef.current,
+        });
+        return;
+      }
+
+      coachFinalizeRetryRef.current = true;
+      const emptyScan: FullBoardScanResult = {
+        picks: [],
+        evalLinesByGame: new Map(),
+        gameSimulations: new Map(),
+        totalScanned: 0,
+        totalQualified: 0,
+        staging: { mainQualified: 0, altQualified: 0, mainOnTicket: 0, altOnTicket: 0 },
+        note: COACH_NO_QUALIFYING_PICKS_LEAD,
+        scanComplete: true,
+        correlationStatus: "unavailable",
+        requestedLegs: legTarget,
+        requestId: ctx.requestId,
+      };
+      commitCoachFinalizeAfterScan(emptyScan, flashEnrichRef.current, {
+        legTarget,
+        userText: activeParlayAskRef.current,
+      });
+    }, delay);
+    return () => clearTimeout(t);
+  }, [
+    streaming,
+    buildFinishing,
+    coachFinalizeWorkflowIndex,
+    commitCoachFinalizeAfterScan,
+  ]);
+
+  // Hard recovery: if finalizing stalls >15s after correlation, retry finalize once.
   useEffect(() => {
     const ctx = coachRequestContextRef.current;
     if (!ctx || (!streaming && !buildFinishing)) return;
@@ -5905,10 +5987,8 @@ export default function CoachScreen() {
         void resumePendingBackgroundBuild();
         void loadPersistedCoachFinalize().then((record) => {
           if (!record) return;
-          void loadPersistedCoachInjury().then((injuryRecord) => {
-            setCoachFinalizeWorkflowIndex(
-              coachBuildWorkflowIndex(record, injuryRecord, { hasCards: record.selectedCount > 0 }),
-            );
+          void Promise.all([loadPersistedCoachInjury(), loadPersistedCoachCorrelation()]).then(() => {
+            syncCoachBuildWorkflowIndex(record.requestId, { hasCards: record.selectedCount > 0 });
           });
           if (record.cardsSaved && record.selectedCount > 0) return;
           if (record.phase === "empty" || record.phase === "interrupted") {
@@ -5947,6 +6027,7 @@ export default function CoachScreen() {
       resumePendingBackgroundBuild,
       deliverBoardScanTicket,
       patchInstantBoardScanTicket,
+      syncCoachBuildWorkflowIndex,
       waiting,
     ]),
   );
