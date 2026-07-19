@@ -205,6 +205,16 @@ import {
   tryAcquireCoachFinalizeLock,
 } from "@/lib/coachFinalize";
 import {
+  advanceCoachAskStage,
+  beginCoachAskRequest,
+  clearCoachAskRequest,
+  coachAskAnswerCommitted,
+  coachAskAnswerReady,
+  coachAskRequestMatches,
+  CoachAskValueCalcError,
+  withCoachAskValueCalcTimeout,
+} from "@/lib/coachAskWorkflow";
+import {
   applyCoachInjuryToContext,
   clearPersistedCoachInjury,
   fetchCoachInjuriesForBuild,
@@ -692,6 +702,22 @@ function prunePriorEmptyParlayReplies(msgs: UIMessage[]): UIMessage[] {
   return msgs.filter((m) => !isEmptyParlayScanReply(m));
 }
 
+/** Failed plain Q&A with a retry affordance — drop when a new ask starts. */
+function isStaleAskFailureReply(m: UIMessage): boolean {
+  if (m.role !== "assistant") return false;
+  if (m.picks?.length || m.parlayBuild || m.analyzeSlip?.length) return false;
+  if (m.statCard || m.periodGameLog || m.teamCard) return false;
+  return !!m.retry && !m.parlayBuild;
+}
+
+function prunePriorFailedAskReplies(msgs: UIMessage[]): UIMessage[] {
+  return msgs.filter((m) => !isStaleAskFailureReply(m));
+}
+
+function prunePriorCoachFailureReplies(msgs: UIMessage[]): UIMessage[] {
+  return prunePriorFailedAskReplies(prunePriorEmptyParlayReplies(msgs));
+}
+
 // Does the preceding user message ask us to BUILD a parlay (vs. a plain Q&A that
 // merely mentions the word "parlay")? When it does, we suppress the streamed
 // lead-in prose ("Here's a balanced 5-leg ticket…") for the whole build and show
@@ -1161,6 +1187,9 @@ export default function CoachScreen() {
   const [coachFinalizeWorkflowIndex, setCoachFinalizeWorkflowIndex] = useState<number | undefined>(
     undefined,
   );
+  const [coachAskWorkflowIndex, setCoachAskWorkflowIndex] = useState<number | undefined>(undefined);
+  const [coachAskAnswerCommitted, setCoachAskAnswerCommitted] = useState(false);
+  const activeAskRequestIdRef = useRef("");
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1492,6 +1521,10 @@ export default function CoachScreen() {
     void clearPersistedCoachInjury();
     void clearPersistedCoachCorrelation();
     setCoachFinalizeWorkflowIndex(undefined);
+    setCoachAskWorkflowIndex(undefined);
+    setCoachAskAnswerCommitted(false);
+    activeAskRequestIdRef.current = "";
+    clearCoachAskRequest();
     coachFinalizeRetryRef.current = false;
 
     return true;
@@ -1558,6 +1591,24 @@ export default function CoachScreen() {
       return true;
     },
     [clearBuildStallWatchdog, scrollToEnd, shouldDeferParlayBuildFinish],
+  );
+
+  const bumpCoachAskStage = useCallback(
+    (
+      requestId: string,
+      sendGen: number,
+      stage: Parameters<typeof advanceCoachAskStage>[2],
+    ): boolean => {
+      if (sendGenerationRef.current !== sendGen) return false;
+      if (!coachAskRequestMatches(requestId, sendGen)) return false;
+      const idx = advanceCoachAskStage(requestId, sendGen, stage);
+      if (idx == null) return false;
+      setCoachAskWorkflowIndex(idx);
+      if (stage === "answer-committed") setCoachAskAnswerCommitted(true);
+      if (stage === "answer-ready") setCoachAskAnswerCommitted(true);
+      return true;
+    },
+    [],
   );
 
   const finishCoachBuildUi = useCallback(() => {
@@ -2270,6 +2321,10 @@ export default function CoachScreen() {
       setBoardScanPartialLegs(0);
       setBoardScanInFlightState(false);
       setAiPicks([]);
+      setCoachAskWorkflowIndex(undefined);
+      setCoachAskAnswerCommitted(false);
+      activeAskRequestIdRef.current = "";
+      clearCoachAskRequest();
 
       const resetInFlightBuild = () => {
         abortRef.current?.abort();
@@ -2335,7 +2390,7 @@ export default function CoachScreen() {
         priorThread.some(isEmptyParlayScanReply);
       const thread = pruneDeadParlayPlaceholders(
         scrubDeadBuildProseFromMessages(
-          restartParlayThread ? [] : prunePriorEmptyParlayReplies(priorThread),
+          restartParlayThread ? [] : prunePriorCoachFailureReplies(priorThread),
         ),
       );
       const history: UIMessage[] = [
@@ -2356,8 +2411,17 @@ export default function CoachScreen() {
           ? legs.map((l) => ({ pick: l.pick, odds: l.odds, edge: l.edge }))
           : undefined;
       const openingParlayBuild = isParlayBuildAsk(trimmed) && !analyzeSlipSnapshot;
+      const plainAskFlow = !openingParlayBuild && !analyzeSlipSnapshot && !replay;
       const varietySeed = makeBuildId();
       varietySeedRef.current = varietySeed;
+      if (plainAskFlow) {
+        activeAskRequestIdRef.current = varietySeed;
+        beginCoachAskRequest(varietySeed, sendGen);
+        bumpCoachAskStage(varietySeed, sendGen, "question-understood");
+        setCoachFinalizeWorkflowIndex(undefined);
+      } else if (!openingParlayBuild) {
+        setCoachFinalizeWorkflowIndex(undefined);
+      }
       const earlyLegTarget = openingParlayBuild
         ? requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed)
         : 0;
@@ -2992,6 +3056,60 @@ export default function CoachScreen() {
                 buildLegs,
                 wantsAnalyzeSlip(trimmed),
               );
+          if (
+            plainAskFlow &&
+            activeAskRequestIdRef.current &&
+            sendGenerationRef.current === sendGen
+          ) {
+            bumpCoachAskStage(activeAskRequestIdRef.current, sendGen, "live-data-pulled");
+          }
+          const askRequestId = activeAskRequestIdRef.current;
+          const runPlainAskPropEnrich = async () => {
+            if (
+              !isParlayBuild &&
+              rawBuilt.propPool.length > 0 &&
+              rawBuilt.context.realProps?.length
+            ) {
+              if (plainAskFlow && askRequestId && sendGenerationRef.current === sendGen) {
+                bumpCoachAskStage(askRequestId, sendGen, "key-factors-identified");
+                bumpCoachAskStage(askRequestId, sendGen, "value-calc-started");
+                try {
+                  const out = await withCoachAskValueCalcTimeout(
+                    enrichChatContextProps(rawBuilt, controller.signal),
+                  );
+                  if (sendGenerationRef.current === sendGen) {
+                    bumpCoachAskStage(askRequestId, sendGen, "value-calc-completed");
+                  }
+                  return out;
+                } catch (e) {
+                  if (e instanceof CoachAskValueCalcError && sendGenerationRef.current === sendGen) {
+                    setMessages((prev) => {
+                      const copy = [...prev];
+                      copy[copy.length - 1] = {
+                        role: "assistant",
+                        content: e.message,
+                        retry: trimmed,
+                      };
+                      return copy;
+                    });
+                    setWaiting(false);
+                    setStreaming(false);
+                    setCoachAskWorkflowIndex(undefined);
+                    clearCoachAskRequest();
+                  }
+                  throw e;
+                }
+              }
+              return enrichChatContextProps(rawBuilt, controller.signal);
+            }
+            if (plainAskFlow && askRequestId && sendGenerationRef.current === sendGen) {
+              bumpCoachAskStage(askRequestId, sendGen, "key-factors-identified");
+            }
+            return {
+              built: rawBuilt,
+              propSimulations: new Map<string, { hitProbability: number | null }>(),
+            };
+          };
           const enriched =
             slipImageVerdictOnly || usePropPickPath
               ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
@@ -3005,8 +3123,13 @@ export default function CoachScreen() {
               : !isParlayBuild &&
                   rawBuilt.propPool.length > 0 &&
                   rawBuilt.context.realProps?.length
-                ? await enrichChatContextProps(rawBuilt, controller.signal)
-                : { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() };
+                ? await runPlainAskPropEnrich()
+                : plainAskFlow
+                  ? await runPlainAskPropEnrich()
+                  : {
+                      built: rawBuilt,
+                      propSimulations: new Map<string, { hitProbability: number | null }>(),
+                    };
           if (coachInjuryPromise && coachInjuryRequestId) {
             let coachInjuryResult = await coachInjuryPromise;
             const injuryGames =
@@ -3232,7 +3355,15 @@ export default function CoachScreen() {
                 if (first) {
                   first = false;
                   setWaiting(false);
+                  if (
+                    plainAskFlow &&
+                    askRequestId &&
+                    sendGenerationRef.current === sendGen
+                  ) {
+                    bumpCoachAskStage(askRequestId, sendGen, "answer-committed");
+                  }
                 }
+                if (sendGenerationRef.current !== sendGen) return;
                 setMessages((prev) => {
                   const copy = [...prev];
                   copy[copy.length - 1] = { ...copy[copy.length - 1], role: "assistant", content: sofar };
@@ -5753,6 +5884,8 @@ export default function CoachScreen() {
               );
             }
           }
+        } else if (e instanceof CoachAskValueCalcError) {
+          /* value-calc timeout — message + retry already committed */
         } else {
           const failMsg =
             hasOutgoingImages && !(e instanceof ChatStreamError)
@@ -5763,7 +5896,7 @@ export default function CoachScreen() {
             copy[copy.length - 1] = {
               role: "assistant",
               content: failMsg,
-              ...(isParlayBuildAsk(trimmed) ? { retry: trimmed } : {}),
+              ...(isParlayBuildAsk(trimmed) || plainAskFlow ? { retry: trimmed } : {}),
             };
             return copy;
           });
@@ -5811,6 +5944,15 @@ export default function CoachScreen() {
           }
           clearBuildStallWatchdog();
           releaseOtaBlock();
+          if (plainAskFlow && activeAskRequestIdRef.current) {
+            if (coachAskAnswerCommitted(activeAskRequestIdRef.current, sendGen)) {
+              bumpCoachAskStage(activeAskRequestIdRef.current, sendGen, "answer-ready");
+            }
+            clearCoachAskRequest();
+            activeAskRequestIdRef.current = "";
+          }
+          setCoachAskWorkflowIndex(undefined);
+          setCoachAskAnswerCommitted(false);
           setWaiting(false);
           setStreaming(false);
           setBuildFinishing(false);
@@ -5846,7 +5988,8 @@ export default function CoachScreen() {
       completeCoachBuild,
       startParlayBuildLifecycle,
       commitCoachFinalizeAfterScan,
-      shouldDeferParlayBuildFinish,
+      bumpCoachAskStage,
+      coachAskAnswerCommitted,
       attachedImages,
       isSignedIn,
       modelStrengths,
@@ -6289,6 +6432,23 @@ export default function CoachScreen() {
     return last?.role === "user";
   }, [messages, buildFinishing, streaming, buildProgressExpired, boardScanInFlight, waiting, parlayBuildActive]);
 
+  const askProgressInMessageLoop = useMemo(() => {
+    if (!waiting) return false;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || last.content !== "") return false;
+    const priorUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!priorUser) return false;
+    const text = priorUser.apiContent ?? priorUser.content;
+    return (
+      !isParlayBuildAsk(text) &&
+      !last.analyzeSlip?.length &&
+      !last.parlayBuild &&
+      !last.statCard &&
+      !last.periodGameLog &&
+      !last.teamCard
+    );
+  }, [messages, waiting]);
+
   const footerProgressLegCount = Math.max(
     boardScanPartialLegs,
     boardTicketSnapshotRef.current?.length ?? 0,
@@ -6635,6 +6795,16 @@ export default function CoachScreen() {
                 parlayStuckDeadProse ||
                 parlayBuildHung ||
                 retryAffordance);
+            const askShowRetryButton =
+              i === messages.length - 1 &&
+              !hasPicks &&
+              !parlayBuildIntent &&
+              !analyzeWaiting &&
+              !!m.retry &&
+              !coachBuildInFlight &&
+              !waiting &&
+              !streaming &&
+              !buildFinishing;
             // Progress finalizes once pick cards are on the message — or when a
             // board-scan partial has scored legs waiting for delivery gates.
             const progressLegCount = showTicketPicks
@@ -6784,7 +6954,11 @@ export default function CoachScreen() {
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
                 ) : askWaiting ? (
-                  <AnalysisProgress mode="ask" />
+                  <AnalysisProgress
+                    mode="ask"
+                    workflowIndex={coachAskWorkflowIndex}
+                    answerCommitted={coachAskAnswerCommitted}
+                  />
                 ) : null}
 
                 {showTicketHeader ? (
@@ -6870,7 +7044,7 @@ export default function CoachScreen() {
                   </View>
                 ) : null}
 
-                {parlayShowRetryButton ? (
+                {parlayShowRetryButton || askShowRetryButton ? (
                   <Pressable
                     onPress={() => {
                       abortRef.current?.abort();
@@ -6880,12 +7054,15 @@ export default function CoachScreen() {
                       setWaiting(false);
                       setBuildProgressExpired(false);
                       setParlayBuildPhase("idle");
+                      setCoachAskWorkflowIndex(undefined);
+                      setCoachAskAnswerCommitted(false);
+                      clearCoachAskRequest();
                       send(
                         m.retry ||
                           activeParlayAskRef.current ||
                           priorUserText ||
                           "Build me a 15-leg longshot parlay",
-                        { freshThread: true },
+                        { freshThread: askShowRetryButton ? false : true },
                       );
                     }}
                     disabled={false}
@@ -6975,12 +7152,15 @@ export default function CoachScreen() {
             </View>
           ) : null}
 
-          {coachRenderDiag.blankReason && !showQuickPrompts && !footerParlayProgress ? (
+          {coachRenderDiag.blankReason && !showQuickPrompts && !footerParlayProgress && !askProgressInMessageLoop ? (
             <AnalysisProgress
-              mode={coachBuildInFlight ? "build" : "ask"}
+              mode={coachBuildInFlight && !askProgressInMessageLoop ? "build" : "ask"}
               legCount={footerProgressLegCount}
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
-              workflowIndex={coachFinalizeWorkflowIndex}
+              workflowIndex={
+                askProgressInMessageLoop ? coachAskWorkflowIndex : coachFinalizeWorkflowIndex
+              }
+              answerCommitted={coachAskAnswerCommitted}
             />
           ) : null}
           </View>

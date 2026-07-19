@@ -90,12 +90,15 @@ export function AnalysisProgress({
   legCount = 0,
   buildPhase,
   workflowIndex,
+  answerCommitted = false,
 }: {
   mode?: "build" | "analyze" | "ask";
   legCount?: number;
   buildPhase?: ParlayBuildPhase;
   /** When set, drives checklist + % from real job status instead of the auto-timer. */
   workflowIndex?: number;
+  /** Ask mode: checklist "Answer ready" only when the reply is on-screen. */
+  answerCommitted?: boolean;
 }) {
   const colors = useColors();
   const [autoIndex, setAutoIndex] = useState(0);
@@ -123,7 +126,9 @@ export function AnalysisProgress({
           : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
             ? 8
             : 6
-      : stageList.length - 1;
+      : isAsk
+        ? 5
+        : stageList.length - 1;
   const timerIndex =
     mode === "build" && legCount > 0
       ? stageList.length - 1
@@ -315,7 +320,9 @@ export function AnalysisProgress({
             item.label === "Final ticket ready"
               ? legCount > 0 ||
                 (workflowIndex != null && workflowIndex >= item.doneAt && effectiveIndex >= 9)
-              : effectiveIndex >= item.doneAt;
+              : item.label === "Answer ready" && isAsk
+                ? answerCommitted && effectiveIndex >= item.doneAt
+                : effectiveIndex >= item.doneAt;
           const active = idx === activeChecklist;
           return (
             <View
