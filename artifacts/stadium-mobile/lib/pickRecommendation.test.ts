@@ -536,6 +536,43 @@ test("pickGradeDisplayLabel shows letter grade for alt-qualified plus-money ML",
   );
 });
 
+test("pickGradeDisplayCaption uses preliminary wording when holistic context is thin", () => {
+  const score = {
+    composite: 7.5,
+    grade: "B+",
+    confidencePct: 58,
+    edgePct: 14,
+    simHit: 0.55,
+    simAligned: true,
+    highRiskValuePlay: false,
+    recommends: false,
+    propHolistic: {
+      composite: 7.5,
+      grade: "B+",
+      confidencePct: 58,
+      coveragePct: 50,
+      missingCount: 4,
+      applicableCount: 8,
+      factors: [],
+      recommends: false,
+    },
+    factors: [],
+    rubric: { composite: 7.5, grade: "B+", confidencePct: 58, edgePct: 14, scores: {} as never },
+  };
+  const pick = {
+    market: "Points",
+    sport: "nba",
+    odds: -110,
+    isProp: true,
+    player: "Test Player",
+    ticketRole: "main" as const,
+  };
+  assert.match(
+    pickGradeDisplayCaption(pick, score),
+    /Preliminary B\+ based on simulation, market value, and available data/i,
+  );
+});
+
 test("coachFlashBoardScanPreviewPicks shows odds-backed legs before startsAt resolves", () => {
   const picks = [
     {
