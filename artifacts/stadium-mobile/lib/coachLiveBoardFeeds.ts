@@ -6,6 +6,7 @@ import {
   recordCoachLiveBoardFeedCounts,
 } from "./coachLiveBoardTrace.ts";
 import { filterBettableOddsGames } from "./slate.ts";
+import { mapWithConcurrency } from "./boundedConcurrency.ts";
 
 export type CoachLiveBoardFeeds = {
   espnGames: EspnGame[];
@@ -49,8 +50,10 @@ export async function fetchCoachLiveBoardFeeds(
     return { espnGames: [], oddsGames: [], liveFeed: { games: [], odds: [] } };
   }
 
-  const espnResults = await Promise.all(
-    scanSports.map(async (sport) => {
+  const espnResults = await mapWithConcurrency(
+    scanSports,
+    3,
+    async (sport) => {
       const path = `/sports/games?sport=${encodeURIComponent(sport)}`;
       const res = await tracedJson<EspnGame[]>(path, signal);
       recordCoachLiveBoardApiResult({
@@ -61,11 +64,14 @@ export async function fetchCoachLiveBoardFeeds(
         error: res.error,
       });
       return Array.isArray(res.data) ? res.data : [];
-    }),
+    },
+    { signal },
   );
 
-  const oddsResults = await Promise.all(
-    scanSports.map(async (sport) => {
+  const oddsResults = await mapWithConcurrency(
+    scanSports,
+    3,
+    async (sport) => {
       const path = `/sports/odds?sport=${encodeURIComponent(sport)}`;
       const res = await tracedJson<OddsGame[]>(path, signal);
       recordCoachLiveBoardApiResult({
@@ -76,11 +82,12 @@ export async function fetchCoachLiveBoardFeeds(
         error: res.error,
       });
       return Array.isArray(res.data) ? res.data : [];
-    }),
+    },
+    { signal },
   );
 
   const livePath = `/sports/live-odds?sport=${encodeURIComponent(scanSports.join(","))}`;
-  const liveRes = await tracedJson<LiveOddsFeed>(livePath, signal, 20_000);
+  const liveRes = await tracedJson<LiveOddsFeed>(livePath, signal, 10_000);
   const liveFeed: LiveOddsFeed = liveRes.ok
     ? liveRes.data
     : { games: [], odds: [] };

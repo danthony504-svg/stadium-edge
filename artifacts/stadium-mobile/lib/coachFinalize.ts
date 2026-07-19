@@ -1,5 +1,10 @@
 // Coach board-scan → ticket finalization lifecycle (requestId-scoped, idempotent).
 
+import {
+  coachBuildStageWorkflowIndex,
+  getCoachBuildPipelineStages,
+} from "./coachBuildPipelineStage.ts";
+
 export type CoachFinalizePhase =
   | "idle"
   | "correlating"
@@ -226,8 +231,30 @@ export function coachBuildWorkflowIndex(
     return 6;
   }
   if (finalizeRecord?.lineValueReadyAt) return 5;
+  const pipelineStages = getCoachBuildPipelineStages(finalizeRecord?.requestId);
+  if (
+    pipelineStages.confidenceScored ||
+    pipelineStages.simulated ||
+    pipelineStages.evScored ||
+    pipelineStages.pricingStarted
+  ) {
+    return 5;
+  }
   if (injuryWorkflowComplete(injuryRecord)) return 4;
   return 3;
+}
+
+/** Workflow index using explicit pipeline stage timestamps (tests). */
+export function coachBuildWorkflowIndexFromStages(
+  finalizeRecord: CoachFinalizeRecord | null,
+  injuryRecord: InjuryStepLike,
+  stages: import("./coachBuildPipelineStage.ts").CoachBuildPipelineStageTimestamps,
+): number {
+  return coachBuildStageWorkflowIndex(
+    finalizeRecord,
+    stages,
+    injuryWorkflowComplete(injuryRecord),
+  );
 }
 
 /** @deprecated Use coachBuildWorkflowIndex with injury record. */

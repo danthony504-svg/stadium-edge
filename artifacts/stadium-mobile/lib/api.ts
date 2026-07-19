@@ -4652,6 +4652,7 @@ export async function fetchFullBoardPropPool(
   espnGames: EspnGame[],
   basePool: PropPoolEntry[],
   signal?: AbortSignal,
+  opts?: { maxGames?: number; concurrency?: number },
 ): Promise<PropPoolEntry[]> {
   const poolKey = (e: PropPoolEntry) =>
     `${e.game}|${e.player}|${e.line}|${e.side}|${e.marketLabel}`.toLowerCase();
@@ -4668,12 +4669,19 @@ export async function fetchFullBoardPropPool(
   const candidates = oddsGames.filter(
     (g) => PROPS_SPORTS.includes(g.sport) && g.homeTeam && g.awayTeam,
   );
+  const limited = opts?.maxGames ? candidates.slice(0, opts.maxGames) : candidates;
+  const concurrency = opts?.concurrency ?? 3;
 
-  for (let i = 0; i < candidates.length; i += FULL_BOARD_PROP_BATCH) {
+  const { mapWithConcurrency } = await import("./boundedConcurrency.ts");
+
+  const batchSize = 3;
+  for (let i = 0; i < limited.length; i += batchSize) {
     if (signal?.aborted) break;
-    const batch = candidates.slice(i, i + FULL_BOARD_PROP_BATCH);
-    const responses = await Promise.all(
-      batch.map(async (g) => {
+    const batch = limited.slice(i, i + batchSize);
+    const responses = await mapWithConcurrency(
+      batch,
+      concurrency,
+      async (g) => {
         const idMap = buildPropIdMap(gamesBySport.get(g.sport) ?? []);
         const ids =
           idMap.get(`${nickname(g.awayTeam!)}|${nickname(g.homeTeam!)}`.toLowerCase()) ?? null;
@@ -4687,13 +4695,18 @@ export async function fetchFullBoardPropPool(
           startsAt: g.commenceTime,
         };
         try {
-          return g.sport === "soccer"
-            ? await getPropsWithPrizePicksFallback(args, signal)
-            : await getProps(args, signal);
+          const result = await Promise.race([
+            g.sport === "soccer"
+              ? getPropsWithPrizePicksFallback(args, signal)
+              : getProps(args, signal),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+          ]);
+          return result;
         } catch {
           return null;
         }
-      }),
+      },
+      { signal },
     );
 
     for (let j = 0; j < batch.length; j++) {

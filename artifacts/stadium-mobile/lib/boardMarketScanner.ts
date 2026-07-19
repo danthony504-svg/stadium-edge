@@ -22,8 +22,16 @@ import {
   recordCoachLiveBoardExitReason,
 } from "./coachLiveBoardTrace.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
-import { COACH_NETWORK_AWAIT_TIMEOUT_MS, traceCoachAwait } from "./coachAwaitTrace.ts";
 import { markCoachLineValueReady } from "./coachFinalize.ts";
+import { markCoachBuildPipelineStage } from "./coachBuildPipelineStage.ts";
+import { traceCoachPipelineOperation } from "./coachPipelineOperationTrace.ts";
+import {
+  boardScanMaxPropGames,
+  boardScanMaxPropsToSim,
+  boardScanPropSimBatchTimeoutMs,
+} from "./boardScanScope.ts";
+import { coachRequestDeadlineRemainingMs } from "./coachRequestDeadline.ts";
+import { yieldToEventLoop } from "./boundedConcurrency.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
   createCoachBoardScanManifestRecorder,
@@ -85,7 +93,7 @@ export {
   isRealisticBoardPropCandidate,
 } from "./boardPropSimExpansion.ts";
 
-const PROP_SIM_BATCH_TIMEOUT_MS = 10_000;
+const PROP_SIM_BATCH_TIMEOUT_MS = boardScanPropSimBatchTimeoutMs();
 
 function propSimKeyForPick(pick: ParsedPick, poolRow?: { marketKey?: string | null }): string | null {
   return propSimLookupKey(pick, poolRow);
@@ -277,7 +285,7 @@ async function simPropBatch(
       fetchPropSimulations(
         batch,
         pool,
-        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined },
+        { tier: "quick", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined },
         signal,
       ),
       new Promise<never>((_, reject) =>
@@ -393,6 +401,7 @@ async function simPropPoolUntilQualified(
     onPropBatch?: (size: number, timedOut: boolean) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
+    requestId?: string;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
@@ -410,9 +419,10 @@ async function simPropPoolUntilQualified(
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
   });
-  const rankedProps = [...prescorePool]
+  const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
     .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
+  const rankedProps = rankedAll.slice(0, boardScanMaxPropsToSim(opts.target, rankedAll.length));
 
   const scoreOpts = {
     pool,
@@ -438,6 +448,10 @@ async function simPropPoolUntilQualified(
 
   while (simIndex < rankedProps.length) {
     if (signal?.aborted) break;
+    if (opts.requestId) {
+      const remaining = coachRequestDeadlineRemainingMs(opts.requestId);
+      if (remaining > 0 && remaining < 4_000) break;
+    }
 
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
@@ -460,12 +474,14 @@ async function simPropPoolUntilQualified(
       }
     }
 
-    appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
+    appendPropScoredLegs(batch, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
 
+    if (countQualifiedBoardLegs(combinedScored(), opts.target) >= opts.target) break;
     if (simIndex >= rankedProps.length) break;
 
     batchSize = boardPropSimExpansionBatchSize(opts.target);
+    await yieldToEventLoop();
   }
 
   return { propScored, propHits, simEvaluated: simIndex };
@@ -486,6 +502,7 @@ function buildScanResult(
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
     correlationResult?: import("./coachCorrelation.ts").CoachCorrelationResult;
+    scoredPool?: BoardScoredLeg[];
   },
 ): FullBoardScanResult {
   const staged = opts.correlationResult
@@ -534,7 +551,7 @@ function buildScanResult(
     requestId: opts.requestId,
     correlationStatus: opts.correlationResult?.correlationStatus,
     manifest,
-    scoredPool: scored,
+    scoredPool: opts.scoredPool ?? scored,
   };
 }
 
@@ -562,14 +579,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
   onLineValueReady?: (requestId: string) => void;
+  onPipelineStage?: (requestId: string, stage: string) => void;
 }): Promise<FullBoardScanResult | null> {
   markCoachLiveBoardScanStarted();
   const traceId = opts.requestId ?? `scan-${opts.target}`;
-  const traceSite = (fn: string, line: number) => ({
-    fn,
-    file: "boardMarketScanner.ts",
-    line,
-  });
   try {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -600,31 +613,41 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...evalLinesByGame.values(),
   );
 
+  markCoachBuildPipelineStage(traceId, "pricingStarted");
+  opts.onPipelineStage?.(traceId, "pricing-started");
+
   // Always expand to the full posted prop board when ESPN games are available.
   let pool = filterBettablePropPool(poolBase);
+  const cappedOddsGames = opts.espnGames?.length
+    ? oddsGames.slice(0, boardScanMaxPropGames(opts.target, oddsGames.length))
+    : oddsGames;
   const poolExpandP = opts.espnGames?.length
-    ? traceCoachAwait(
-        traceId,
-        traceSite("buildTopLegsFromFullBoardScan", 590),
-        "fetchFullBoardPropPool",
-        () =>
-          fetchFullBoardPropPool(oddsGames, opts.espnGames!, poolBase, opts.signal)
+    ? traceCoachPipelineOperation({
+        requestId: traceId,
+        stage: "pricing-started",
+        fn: "buildTopLegsFromFullBoardScan",
+        file: "boardMarketScanner.ts",
+        line: 612,
+        candidatesIn: cappedOddsGames.length,
+        run: () =>
+          fetchFullBoardPropPool(cappedOddsGames, opts.espnGames!, poolBase, opts.signal, {
+            maxGames: boardScanMaxPropGames(opts.target, cappedOddsGames.length),
+            concurrency: 3,
+          })
             .then((rows) => filterBettablePropPool(rows))
             .catch(() => null),
-        {
-          dependency: "odds-api-props",
-          signal: opts.signal,
-          timeoutMs: COACH_NETWORK_AWAIT_TIMEOUT_MS,
-          onTimeout: () => null,
-        },
-      )
+        candidatesOut: (rows) => rows?.length ?? 0,
+        timeoutMs: 10_000,
+        signal: opts.signal,
+        onTimeout: () => null,
+      })
     : null;
 
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
-  const SLATE_SIM_BATCH = 2;
+  const SLATE_SIM_BATCH = 4;
   const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
   manifestRecorder.recordGamesLoaded(oddsGames.length);
 
@@ -692,20 +715,24 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
     if (opts.signal?.aborted) break;
     const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
-    const batchSims = await traceCoachAwait(
-      traceId,
-      traceSite("buildTopLegsFromFullBoardScan", 668),
-      "fetchSlateGameSimulations",
-      () => fetchSlateGameSimulations(new Map(batch), opts.teamIdMap, opts.signal),
-      {
-        dependency: "game-sim-api",
-        signal: opts.signal,
-        timeoutMs: COACH_NETWORK_AWAIT_TIMEOUT_MS,
-        onTimeout: () => new Map<string, CoachGameSimEntry>(),
-      },
-    );
+    const batchSims = await traceCoachPipelineOperation({
+      requestId: traceId,
+      stage: "simulations",
+      fn: "buildTopLegsFromFullBoardScan",
+      file: "boardMarketScanner.ts",
+      line: 701,
+      candidatesIn: batch.length,
+      run: () => fetchSlateGameSimulations(new Map(batch), opts.teamIdMap, opts.signal),
+      candidatesOut: (m) => m.size,
+      timeoutMs: 10_000,
+      signal: opts.signal,
+      onTimeout: () => new Map<string, CoachGameSimEntry>(),
+    });
     for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
     scoreGamesAndMaybePartial(batch.map(([game]) => game));
+    markCoachBuildPipelineStage(traceId, "simulated");
+    opts.onPipelineStage?.(traceId, "simulations");
+    await yieldToEventLoop();
   }
 
   const expandedPool = poolExpandP ? await poolExpandP : null;
@@ -723,6 +750,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   manifestRecorder.recordCandidatesBeforeGrading(gameLineCount + pool.length);
   recordCoachLiveBoardValidated(gameLineCount + pool.length);
 
+  markCoachBuildPipelineStage(traceId, "evScored");
+  opts.onPipelineStage?.(traceId, "ev-calculation");
+
   const propScoreOpts = {
     pool,
     mergedOdds,
@@ -735,11 +765,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     calibration: opts.calibration,
   };
 
-  const { propScored } = await traceCoachAwait(
-    traceId,
-    traceSite("buildTopLegsFromFullBoardScan", 706),
-    "simPropPoolUntilQualified",
-    () =>
+  const { propScored } = await traceCoachPipelineOperation({
+    requestId: traceId,
+    stage: "confidence-scoring",
+    fn: "buildTopLegsFromFullBoardScan",
+    file: "boardMarketScanner.ts",
+    line: 744,
+    candidatesIn: pool.length + scored.length,
+    run: () =>
       simPropPoolUntilQualified(
         pool,
         mergedOdds,
@@ -748,6 +781,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
           target: opts.target,
           ...propScoreOpts,
           teamIdsByGame: opts.teamIdMap,
+          requestId: traceId,
           onWave: () => {
             emitBoardScanPartial();
           },
@@ -764,41 +798,44 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         },
         opts.signal,
       ),
-    {
-      dependency: "ev-sim-confidence-scoring",
-      signal: opts.signal,
-      timeoutMs: COACH_NETWORK_AWAIT_TIMEOUT_MS * 6,
-      onTimeout: () => ({ propScored: [], propHits: new Map(), simEvaluated: 0 }),
-    },
-  );
+    candidatesOut: (r) => r.propScored.length + scored.length,
+    timeoutMs: Math.max(8_000, coachRequestDeadlineRemainingMs(traceId) - 2_000),
+    signal: opts.signal,
+  });
 
   scored.push(...propScored);
 
   totalScanned += pool.length;
   recordCoachLiveBoardPriced(scored.length);
   recordCoachLiveBoardEvScored(scored);
+  const scoredPool = scored;
   const collapsed = collapseScoredLegsByMarketLadder(scored);
-  collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
-  recordCoachLiveBoardDeduped(collapsed.length);
-  manifestRecorder.recomputeQualificationFromScored(collapsed);
+  const stagingPool = collapsed.length > 0 ? collapsed : scoredPool;
+  stagingPool.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+  recordCoachLiveBoardDeduped(stagingPool.length);
+  manifestRecorder.recomputeQualificationFromScored(stagingPool);
   recordCoachLiveBoardSimulated(
     manifestRecorder.propsSimulated + manifestRecorder.gameLinesSimulated,
   );
+  markCoachBuildPipelineStage(traceId, "confidenceScored");
+  opts.onPipelineStage?.(traceId, "confidence-scoring");
   recordCoachLiveBoardConfidencePassed(manifestRecorder.totalQualified);
-  if (traceId) {
-    markCoachLineValueReady(traceId);
-    opts.onLineValueReady?.(traceId);
-  }
+  markCoachLineValueReady(traceId);
+  opts.onLineValueReady?.(traceId);
+  opts.onPipelineStage?.(traceId, "line-value-complete");
   const { fetchCoachCorrelationForBuild } = await import("./coachCorrelation.ts");
-  const correlationResult = await traceCoachAwait(
-    traceId,
-    traceSite("buildTopLegsFromFullBoardScan", 745),
-    "fetchCoachCorrelationForBuild",
-    () =>
+  const correlationResult = await traceCoachPipelineOperation({
+    requestId: traceId,
+    stage: "correlation",
+    fn: "buildTopLegsFromFullBoardScan",
+    file: "boardMarketScanner.ts",
+    line: 814,
+    candidatesIn: stagingPool.length,
+    run: () =>
       fetchCoachCorrelationForBuild({
         requestId: traceId,
         target: opts.target,
-        scored: collapsed,
+        scored: stagingPool,
         varietySeed: opts.varietySeed,
         varietyContext: {
           ...opts.varietyContext,
@@ -806,14 +843,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         },
         preview: false,
       }),
-    {
-      dependency: "correlation-stage",
-      signal: opts.signal,
-      timeoutMs: COACH_NETWORK_AWAIT_TIMEOUT_MS,
-    },
-  );
+    candidatesOut: (r) => r.picks.length,
+    timeoutMs: 10_000,
+    signal: opts.signal,
+  });
   recordCoachLiveBoardCorrelationPassed(correlationResult.picks.length);
-  const result = buildScanResult(collapsed, {
+  const result = buildScanResult(stagingPool, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,
@@ -825,6 +860,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
     correlationResult,
+    scoredPool,
   });
   recordCoachLiveBoardDelivered(result.picks.length);
   if (opts.onPartial) opts.onPartial(result);
@@ -885,6 +921,7 @@ export async function tryReachFullBoardScan(
     if (!result) {
       recordCoachLiveBoardError("null-scan-result");
       emitCoachLiveBoardSummary("null-scan-result");
+      return null;
     }
     return result;
   } catch (e) {

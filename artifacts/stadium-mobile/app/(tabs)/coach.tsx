@@ -193,6 +193,15 @@ import {
 } from "@/lib/coachPipelineRunTrace";
 import { COACH_NETWORK_AWAIT_TIMEOUT_MS, traceCoachAwait } from "@/lib/coachAwaitTrace";
 import {
+  beginCoachRequestScope,
+  cancelCoachRequestScope,
+  clearCoachRequestScope,
+  COACH_REQUEST_DEADLINE_MS,
+} from "@/lib/coachRequestDeadline";
+import { boardScanDeadlineMs } from "@/lib/boardScanScope";
+import { clearCoachBuildPipelineStages } from "@/lib/coachBuildPipelineStage";
+import { logCoachPipelineOperationSummary } from "@/lib/coachPipelineOperationTrace";
+import {
   beginCoachFinalizeRequest,
   clearPersistedCoachFinalize,
   coachBuildWorkflowIndex,
@@ -402,11 +411,9 @@ const PENDING_BUILD_MAX_WAIT_MS = 120_000;
 const PENDING_POLL_MS = 5_000;
 const INSTANT_SLATE_SEED_MIN_LEGS = 3;
 
-/** Board-scan wall clock — props + game sims for deep fixed-leg asks. */
+/** Board-scan wall clock — must fit inside the 30s request deadline. */
 function boardScanBudgetMs(targetLegs: number): number {
-  if (targetLegs >= 15) return 180_000;
-  if (targetLegs >= 9) return 150_000;
-  return 120_000;
+  return boardScanDeadlineMs(targetLegs);
 }
 
 /** Stall copy only when nothing has appeared — must exceed context fetch + board scan. */
@@ -1489,10 +1496,13 @@ export default function CoachScreen() {
         stagedLegs: latestBoardScanRef.current?.picks?.length ?? 0,
       });
       if (requestId) {
+        logCoachPipelineOperationSummary(requestId);
         logCoachPipelineRunSummary(requestId);
         finishCoachPipelineRun(requestId, {
           success: boardScanIsComplete(latestBoardScanRef.current),
         });
+        clearCoachRequestScope(requestId);
+        clearCoachBuildPipelineStages(requestId);
       }
     },
     [awaitPendingBoardScans, clearBuildStallWatchdog, clearParlayBuildUiFlags],
@@ -1693,6 +1703,54 @@ export default function CoachScreen() {
       if (record) void persistCoachFinalize(record);
     },
     [syncCoachBuildWorkflowIndex],
+  );
+
+  const onCoachPipelineStage = useCallback(
+    (requestId: string, _stage: string) => {
+      syncCoachBuildWorkflowIndex(requestId);
+    },
+    [syncCoachBuildWorkflowIndex],
+  );
+
+  const failCoachBuildDeadline = useCallback(
+    async (requestId: string, sendGen: number, userText: string) => {
+      if (sendGenerationRef.current !== sendGen) return;
+      if (!coachRequestIsActive(
+        requestId,
+        sendGen,
+        coachRequestContextRef.current?.requestId,
+        sendGenerationRef.current,
+      )) {
+        return;
+      }
+      abortRef.current?.abort();
+      markCoachFinalizeInterrupted(requestId, `Build exceeded ${COACH_REQUEST_DEADLINE_MS / 1000}s deadline`);
+      void persistCoachFinalize(getCoachFinalizeRecord(requestId)!);
+      logCoachPipelineOperationSummary(requestId);
+      setMessages((prev) => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === "assistant") {
+            copy[i] = {
+              ...copy[i],
+              picks: [],
+              content: "",
+              legNote: COACH_BUILD_INTERRUPTED_LEAD,
+              retry: userText || copy[i].retry,
+              parlayBuild: true,
+            };
+            return copy;
+          }
+        }
+        return prev;
+      });
+      await awaitPendingBoardScans();
+      await completeCoachBuild(undefined, true);
+      clearCoachRequestScope(requestId);
+      clearCoachBuildPipelineStages(requestId);
+      scrollToEnd(false);
+    },
+    [awaitPendingBoardScans, completeCoachBuild, scrollToEnd],
   );
 
   const coachAwaitSite = (fn: string, line: number) => ({
@@ -2147,48 +2205,21 @@ export default function CoachScreen() {
   const armBuildProgressWatchdog = useCallback((legTarget = 0) => {
     if (buildProgressTimerRef.current) clearTimeout(buildProgressTimerRef.current);
     setBuildProgressExpired(false);
-    const progressMs =
-      legTarget >= 15 ? 180_000 : legTarget >= 9 ? 150_000 : legTarget >= 6 ? 120_000 : 25_000;
-    buildProgressTimerRef.current = setTimeout(() => {
-      setBuildProgressExpired(true);
-      setMessages((prev) => scrubDeadBuildProseFromMessages(prev));
-      scrollToEnd(false);
-    }, progressMs);
-  }, [scrollToEnd]);
+    // Progress is driven by pipeline stage completion (syncCoachBuildWorkflowIndex), not timers.
+    void legTarget;
+  }, []);
 
-  /** Board scans for reach-N parlays can run 90s+ — never abort mid-scan. */
+  /** Hard 30s build deadline — show handled error, never spin forever. */
   const armBuildStallWatchdog = useCallback(
     (sendGen: number, userText: string) => {
       clearBuildStallWatchdog();
-      const legs = requestedLegCount(userText);
-      const stallMs = buildStallBudgetMs(legs);
       buildStallTimerRef.current = setTimeout(() => {
-        if (sendGenerationRef.current !== sendGen) return;
-        setMessages((prev) => {
-          const copy = [...prev];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant" && !(last.picks?.length)) {
-            const stallNote =
-              "Still scanning every posted market — pick cards appear as each leg clears the quality bar.";
-            copy[copy.length - 1] = {
-              ...last,
-              content: "",
-              retry: userText,
-              parlayBuild: true,
-              legNote: last.legNote?.includes(stallNote) ? last.legNote : stallNote,
-            };
-          }
-          return copy;
-        });
-        setBuildProgressExpired(true);
-        if (buildProgressTimerRef.current) {
-          clearTimeout(buildProgressTimerRef.current);
-          buildProgressTimerRef.current = null;
-        }
-        scrollToEnd(false);
-      }, stallMs);
+        const ctx = coachRequestContextRef.current;
+        if (!ctx || sendGenerationRef.current !== sendGen) return;
+        void failCoachBuildDeadline(ctx.requestId, sendGen, userText);
+      }, COACH_REQUEST_DEADLINE_MS);
     },
-    [clearBuildStallWatchdog, scrollToEnd],
+    [clearBuildStallWatchdog, failCoachBuildDeadline],
   );
 
   const flashBoardScanResult = useCallback(
@@ -2311,6 +2342,7 @@ export default function CoachScreen() {
               signal,
               requestId: coachRequestContextRef.current?.requestId,
               onLineValueReady: onCoachLineValueReady,
+              onPipelineStage: onCoachPipelineStage,
             }),
             boardScanBudgetMs(reachTarget),
           );
@@ -2404,6 +2436,7 @@ export default function CoachScreen() {
       if (priorPending.length) {
         await Promise.allSettled(priorPending.map((fn) => fn()));
       }
+      cancelCoachRequestScope(coachRequestContextRef.current?.requestId ?? varietySeedRef.current, "superseded");
 
       boardTicketSnapshotRef.current = null;
       latestBoardScanRef.current = null;
@@ -2622,6 +2655,12 @@ export default function CoachScreen() {
 
       const controller = new AbortController();
       abortRef.current = controller;
+      if (openingParlayBuild && earlyLegTarget >= 3) {
+        beginCoachRequestScope(varietySeed, sendGen, (requestId) => {
+          abortRef.current?.abort();
+          void failCoachBuildDeadline(requestId, sendGen, trimmed);
+        });
+      }
 
       if (openingParlayBuild) {
         // Cached slate may flash as a preview only — final picks come from a fresh scan.
@@ -3307,6 +3346,7 @@ export default function CoachScreen() {
                   onPartial: onBoardScanPartial,
                   signal: abortRef.current?.signal,
                   onLineValueReady: onCoachLineValueReady,
+                  onPipelineStage: onCoachPipelineStage,
                   ...boardScanVariety,
                 }),
                 boardScanMs,
@@ -3764,6 +3804,7 @@ export default function CoachScreen() {
                 ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
                 onLineValueReady: onCoachLineValueReady,
+                onPipelineStage: onCoachPipelineStage,
               }),
               reachBoardScanMs,
             );
@@ -4242,6 +4283,7 @@ export default function CoachScreen() {
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
               onLineValueReady: onCoachLineValueReady,
+              onPipelineStage: onCoachPipelineStage,
             }),
             inlineBoardScanMs,
           );

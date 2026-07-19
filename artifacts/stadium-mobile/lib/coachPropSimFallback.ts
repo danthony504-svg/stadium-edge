@@ -8,7 +8,7 @@ import { getPlayerHistory, searchPlayer } from "./api.ts";
 import { pickPlayerSearchResult } from "./playerSearchPick.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
 import { propSimLookupKey } from "./propSelection.ts";
-import { localPropSimulation, type LocalHistorySlice } from "./simulatorLocalSim.ts";
+import { mapWithConcurrency } from "./boundedConcurrency.ts";
 
 export type PropSimHit = { hitProbability: number | null; nullReason?: string | null };
 
@@ -106,8 +106,10 @@ export async function enrichCoachPropSimHits(
     return resolved;
   }
 
-  await Promise.all(
-    pending.map(async (pick) => {
+  await mapWithConcurrency(
+    pending,
+    2,
+    async (pick) => {
       const athleteId = await athleteIdForPick(pick);
       if (!athleteId || !pick.player) return;
       const poolRow = poolRowForPick(pick, pool);
@@ -115,7 +117,12 @@ export async function enrichCoachPropSimHits(
       const cacheKey = `${sport}:${athleteId}`;
       if (historyCache.has(cacheKey)) return;
       try {
-        const h = await getPlayerHistory({ sport, athleteId }, signal);
+        const h = await Promise.race([
+          getPlayerHistory({ sport, athleteId }, signal),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("player-history-timeout")), 10_000),
+          ),
+        ]);
         if (!h.recent?.length) return;
         historyCache.set(cacheKey, {
           labels: h.labels,
@@ -125,7 +132,8 @@ export async function enrichCoachPropSimHits(
       } catch {
         /* honest skip */
       }
-    }),
+    },
+    { signal },
   );
 
   for (const pick of pending) {
