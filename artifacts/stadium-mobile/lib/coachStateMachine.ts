@@ -49,6 +49,31 @@ export function nextCoachPhase(
   return target;
 }
 
+/** Map strict machine phase to AnalysisProgress stage index (TARGETS array). */
+export function coachPhaseToProgressStageIndex(phase: CoachBuildPhase): number {
+  switch (phase) {
+    case "idle":
+      return 0;
+    case "loading-markets":
+      return 1;
+    case "analyzing":
+      return 2;
+    case "calculating-value":
+      return 4;
+    case "simulating":
+      return 5;
+    case "correlating":
+      return 6;
+    case "finalizing":
+      return 8;
+    case "completed":
+    case "failed":
+      return 9;
+    default:
+      return 0;
+  }
+}
+
 /** Map strict machine phase to legacy AnalysisProgress buildPhase prop. */
 export function coachPhaseToProgressBuildPhase(
   phase: CoachBuildPhase,

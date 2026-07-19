@@ -580,6 +580,9 @@ function isWelcomeMessage(m: { role: string; content: string }): boolean {
 // colon so normal Q&A is never truncated.
 const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 
+/** Whole-request watchdog — finalize or surface no-picks instead of spinning forever. */
+const COACH_REQUEST_WATCHDOG_MS = 10_000;
+
 /** Legacy 25s watchdog copy from older OTAs — never show as a chat bubble. */
 const DEAD_BUILD_PROSE_RE = /still scoring every market/i;
 
@@ -1151,6 +1154,7 @@ export default function CoachScreen() {
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1316,6 +1320,13 @@ export default function CoachScreen() {
     }
   }, []);
 
+  const clearCoachRequestWatchdog = useCallback(() => {
+    if (requestWatchdogTimerRef.current) {
+      clearTimeout(requestWatchdogTimerRef.current);
+      requestWatchdogTimerRef.current = null;
+    }
+  }, []);
+
   const boardTicketSnapshotRef = useRef<ParsedPick[] | null>(null);
   const latestBoardScanRef = useRef<FullBoardScanResult | null>(null);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
@@ -1335,6 +1346,7 @@ export default function CoachScreen() {
   const finalizedRequestIdRef = useRef<string | null>(null);
   const correlationRequestIdRef = useRef<string | null>(null);
   const correlatedPicksRef = useRef<ParsedPick[] | null>(null);
+  const finalizeInFlightRef = useRef<string | null>(null);
   const messagesRef = useRef(messages);
   useEffect(() => {
     messagesRef.current = messages;
@@ -1475,7 +1487,10 @@ export default function CoachScreen() {
       });
       boardTicketSnapshotRef.current = picks;
       liveScanDeliveredRef.current = picks.length > 0;
-      setBoardScanPartialLegs(picks.length);
+      setBoardScanPartialLegs((prev) => (prev === picks.length ? prev : picks.length));
+      if (picks.length > 0) {
+        finalizedRequestIdRef.current = requestId;
+      }
       let committed = false;
       setMessages((prev) => {
         const copy = [...prev];
@@ -1541,6 +1556,7 @@ export default function CoachScreen() {
         buildProgressTimerRef.current = null;
       }
       clearBuildStallWatchdog();
+      clearCoachRequestWatchdog();
       if (picks.length > 0) {
         setAiPicks(picks);
         markFinalTicketMessageAdded(requestId, picks.length);
@@ -1582,7 +1598,7 @@ export default function CoachScreen() {
       scrollToEnd(false);
       return committed;
     },
-    [captureFromCoach, clearBuildStallWatchdog, scrollToEnd],
+    [captureFromCoach, clearBuildStallWatchdog, clearCoachRequestWatchdog, scrollToEnd],
   );
 
   const commitCoachFinalTicketEmpty = useCallback(
@@ -1626,10 +1642,11 @@ export default function CoachScreen() {
         buildProgressTimerRef.current = null;
       }
       clearBuildStallWatchdog();
+      clearCoachRequestWatchdog();
       markFinalTicketProgress100(opts.requestId);
       scrollToEnd(false);
     },
-    [clearBuildStallWatchdog, scrollToEnd],
+    [clearBuildStallWatchdog, clearCoachRequestWatchdog, scrollToEnd],
   );
 
   const runFinalizeCoachTicket = useCallback(
@@ -1665,7 +1682,7 @@ export default function CoachScreen() {
         contextSendGeneration: ctx?.sendGeneration ?? null,
       });
 
-      if (!boardScanIsComplete(partial)) {
+      if (!boardScanIsComplete(partial) && phase !== "request-watchdog") {
         logCoachHandoff("skip-scan-incomplete", { phase, requestId });
         tracePipelineBlocked("runFinalizeCoachTicket", "scan-incomplete", {
           activeRequestId: requestId,
@@ -1725,6 +1742,11 @@ export default function CoachScreen() {
         });
         return false;
       }
+      if (finalizeInFlightRef.current === requestId) {
+        logCoachHandoff("skip-finalize-in-flight", { phase, requestId });
+        return false;
+      }
+      finalizeInFlightRef.current = requestId;
 
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
       const enrich: CoachFlashEnrich = {
@@ -1928,6 +1950,9 @@ export default function CoachScreen() {
             advanceCoachPhase("failed");
           }
         } finally {
+          if (finalizeInFlightRef.current === requestId) {
+            finalizeInFlightRef.current = null;
+          }
           tracePipelineExit("runFinalizeCoachTicket", {
             activeRequestId: requestId,
             sendGeneration: sendGenerationRef.current,
@@ -1944,6 +1969,61 @@ export default function CoachScreen() {
       return true;
     },
     [advanceCoachPhase, commitCoachFinalTicket, commitCoachFinalTicketEmpty, marketPerf],
+  );
+
+  const armCoachRequestWatchdog = useCallback(
+    (sendGen: number, requestId: string) => {
+      clearCoachRequestWatchdog();
+      requestWatchdogTimerRef.current = setTimeout(() => {
+        if (sendGenerationRef.current !== sendGen) return;
+        if (finalizedRequestIdRef.current === requestId) return;
+        if (finalizeInFlightRef.current === requestId) return;
+
+        const partial = latestBoardScanRef.current;
+        const candidates = partial?.picks ?? [];
+        const legTarget =
+          activeRequestLegTargetRef.current ||
+          partial?.requestedLegs ||
+          requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current);
+
+        console.log(
+          "[coach-watchdog] request-timeout",
+          JSON.stringify({
+            requestId,
+            sendGen,
+            candidateCount: candidates.length,
+            scanComplete: partial ? boardScanIsComplete(partial) : false,
+            reason: candidates.length
+              ? "finalize-highest-ranked-fallback"
+              : "no-candidates",
+          }),
+        );
+
+        if (candidates.length && partial) {
+          const scanForFinalize = boardScanIsComplete(partial)
+            ? partial
+            : { ...partial, scanComplete: true, requestId, requestedLegs: legTarget };
+          latestBoardScanRef.current = scanForFinalize;
+          runFinalizeCoachTicket(scanForFinalize, "request-watchdog");
+          return;
+        }
+
+        commitCoachFinalTicketEmpty({
+          requestId,
+          legTarget,
+          legNote: partial?.note,
+        });
+        finalizedRequestIdRef.current = requestId;
+        advanceCoachPhase("failed");
+      }, COACH_REQUEST_WATCHDOG_MS);
+    },
+    [
+      advanceCoachPhase,
+      clearCoachRequestWatchdog,
+      commitCoachFinalTicketEmpty,
+      runFinalizeCoachTicket,
+    ],
   );
 
   const deliverCoachTicket = useCallback(
@@ -2410,6 +2490,13 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
+      const requestId = ctx?.requestId ?? partial.requestId ?? null;
+      if (
+        finalizedRequestIdRef.current === requestId ||
+        (boardTicketSnapshotRef.current?.length ?? 0) > 0
+      ) {
+        return false;
+      }
       const scanComplete = boardScanIsComplete(partial);
       if (scanComplete) {
         return runFinalizeCoachTicket(partial, "deliver-board-scan");
@@ -2827,6 +2914,7 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
+        clearCoachRequestWatchdog();
         setBuildFinishing(false);
         setStreaming(false);
         setWaiting(false);
@@ -3015,6 +3103,7 @@ export default function CoachScreen() {
         correlationRequestIdRef.current = null;
         correlatedPicksRef.current = null;
         advanceCoachPhase("loading-markets", true);
+        armCoachRequestWatchdog(sendGen, varietySeed);
       }
 
       const controller = new AbortController();
@@ -6400,6 +6489,7 @@ export default function CoachScreen() {
       boardScanPartialToTicket,
       armBuildProgressWatchdog,
       armBuildStallWatchdog,
+      armCoachRequestWatchdog,
       clearBuildStallWatchdog,
       onBoardScanPartial,
       kickoffEarlyReachBoardScan,
@@ -6619,6 +6709,13 @@ export default function CoachScreen() {
       ) {
         const partial = latestBoardScanRef.current;
         if (partial && boardScanIsComplete(partial)) {
+          const requestId = partial.requestId ?? activeRequestIdRef.current;
+          if (
+            finalizedRequestIdRef.current === requestId ||
+            (boardTicketSnapshotRef.current?.length ?? 0) > 0
+          ) {
+            return;
+          }
           if (partial.picks?.length) {
             deliverBoardScanTicket(partial);
           } else {
@@ -7083,6 +7180,7 @@ export default function CoachScreen() {
                     mode="build"
                     legCount={progressLegCount}
                     buildPhase={progressBuildPhase}
+                    coachPhase={coachBuildPhase}
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
@@ -7235,6 +7333,7 @@ export default function CoachScreen() {
               mode="build"
               legCount={footerProgressLegCount}
               buildPhase={progressBuildPhase}
+              coachPhase={coachBuildPhase}
             />
           ) : null}
 

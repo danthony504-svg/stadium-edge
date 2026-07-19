@@ -10,7 +10,7 @@ import {
   tracePipelineBlocked,
   tracePipelineEnter,
 } from "./coachPipelineTrace.ts";
-import { canAdvanceCoachPhase, nextCoachPhase } from "./coachStateMachine.ts";
+import { canAdvanceCoachPhase, nextCoachPhase, coachPhaseToProgressStageIndex } from "./coachStateMachine.ts";
 import { PROP_MARKET_LABEL_MAP } from "./propMarketLabel.ts";
 
 const enrich = { realOdds: [], propPool: [], gameMeta: [] };
@@ -158,6 +158,28 @@ test("coach pipeline trace logs enter/exit snapshot fields", () => {
     console.log = orig;
     resetCoachPipelineTraceForTests();
   }
+});
+
+test("coachPhaseToProgressStageIndex: correlating is stage 6 (74%)", () => {
+  assert.equal(coachPhaseToProgressStageIndex("simulating"), 5);
+  assert.equal(coachPhaseToProgressStageIndex("correlating"), 6);
+  assert.equal(coachPhaseToProgressStageIndex("finalizing"), 8);
+});
+
+test("coach.tsx: 10s request watchdog arms on parlay send", () => {
+  const coachSrc = readFileSync(new URL("../app/(tabs)/coach.tsx", import.meta.url), "utf8");
+  assert.match(coachSrc, /COACH_REQUEST_WATCHDOG_MS = 10_000/);
+  assert.match(coachSrc, /armCoachRequestWatchdog/);
+  assert.match(coachSrc, /request-watchdog/);
+  assert.equal(/shouldSkipPostCompletionCoachWork/.test(coachSrc), false);
+  assert.equal(/markCoachRequestCompleted/.test(coachSrc), false);
+});
+
+test("AnalysisProgress: pipeline-driven via coachPhase prop", () => {
+  const src = readFileSync(new URL("../components/AnalysisProgress.tsx", import.meta.url), "utf8");
+  assert.match(src, /coachPhase/);
+  assert.match(src, /coachPhaseToProgressStageIndex/);
+  assert.match(src, /pipelineDriven/);
 });
 
 test("coach.tsx: closing and reopening guarded by finalizedRequestIdRef", () => {

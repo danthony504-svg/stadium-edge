@@ -5,6 +5,10 @@ import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import {
+  coachPhaseToProgressStageIndex,
+  type CoachBuildPhase,
+} from "@/lib/coachStateMachine";
 
 // Cyan glow accent that pairs with the brand blue (#3b82f6). Kept local so the
 // loading screen reads as "AI analysis in progress" without changing the global
@@ -89,14 +93,22 @@ export function AnalysisProgress({
   mode = "build",
   legCount = 0,
   buildPhase,
+  coachPhase,
 }: {
   mode?: "build" | "analyze" | "ask";
   legCount?: number;
   buildPhase?: ParlayBuildPhase;
+  /** When set in build mode, stage index follows the real pipeline (no cosmetic timer). */
+  coachPhase?: CoachBuildPhase;
 }) {
   const colors = useColors();
   const [autoIndex, setAutoIndex] = useState(0);
   const [pct, setPct] = useState(0);
+  const pipelineDriven =
+    mode === "build" && coachPhase != null && coachPhase !== "idle" && legCount === 0;
+  const pipelineStageIndex = pipelineDriven
+    ? coachPhaseToProgressStageIndex(coachPhase)
+    : null;
 
   // "ask" (plain question) has its own generic, honest stage set; build + analyze
   // share the ticket-oriented one.
@@ -124,9 +136,11 @@ export function AnalysisProgress({
   const effectiveIndex =
     mode === "build" && legCount > 0
       ? stageList.length - 1
-      : mode === "build"
-        ? Math.min(autoIndex, maxAuto)
-        : autoIndex;
+      : pipelineStageIndex != null
+        ? pipelineStageIndex
+        : mode === "build"
+          ? Math.min(autoIndex, maxAuto)
+          : autoIndex;
   const target = legCount > 0 && mode === "build" ? 100 : targetList[effectiveIndex];
   const phaseStage =
     mode === "build" && buildPhase === "board-scan"
@@ -138,13 +152,14 @@ export function AnalysisProgress({
           : null;
   const displayStage = phaseStage ?? stageList[effectiveIndex];
 
-  // Advance the stage on a steady cadence (capped at maxAuto).
+  // Advance the stage on a steady cadence (capped at maxAuto) — skipped when pipeline-driven.
   useEffect(() => {
+    if (pipelineDriven) return;
     const id = setInterval(() => {
       setAutoIndex((i) => (i < maxAuto ? i + 1 : i));
     }, 1500);
     return () => clearInterval(id);
-  }, [maxAuto]);
+  }, [maxAuto, pipelineDriven]);
 
   // Full-board scans can take a minute with no streamed PICK lines — hold on the
   // penultimate stage until real pick cards land so we never show a false 100%.
@@ -154,9 +169,16 @@ export function AnalysisProgress({
   // glides instead of jumping, and never looks frozen or goes backwards.
   useEffect(() => {
     if (mode === "build" && legCount === 0) {
-      setPct((p) => Math.min(p, targetList[Math.min(autoIndex, maxAuto)]));
+      const cap =
+        pipelineStageIndex != null
+          ? targetList[pipelineStageIndex]
+          : targetList[Math.min(autoIndex, maxAuto)];
+      setPct((p) => Math.min(p, cap));
+      if (pipelineStageIndex != null) {
+        setAutoIndex(pipelineStageIndex);
+      }
     }
-  }, [mode, legCount, autoIndex, maxAuto, targetList]);
+  }, [mode, legCount, autoIndex, maxAuto, targetList, pipelineStageIndex]);
 
   useEffect(() => {
     const id = setInterval(() => {
