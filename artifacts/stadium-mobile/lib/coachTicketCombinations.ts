@@ -35,6 +35,7 @@ import {
   capThinStatMarketsOnTicket,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
+import { applyCoachTicketFallbackLadder } from "./coachTicketFallbackLadder.ts";
 
 /** Build 25–50 independent candidate tickets per request (user: more variety). */
 export const TICKET_CANDIDATE_COUNT = 40;
@@ -787,13 +788,16 @@ function pickBestDistinctCandidate(
     (c) => !isExactPrefixOfLargerTicket(c.legKeys, largerTickets),
   );
   if (!nonPrefix.length) {
+    const fallbackSorted = [...candidates].sort(
+      (a, b) => candidateTotalScore(b) - candidateTotalScore(a),
+    );
     traceCoachTicket("combinator-selected", {
       requestedLegs: target,
-      candidateId: "none",
-      pickIds: [],
-      extra: { rejectedAllPrefix: true, largerTicketCount: largerTickets.length },
+      candidateId: "prefix-fallback",
+      pickIds: fallbackSorted[0]?.picks ?? [],
+      extra: { rejectedAllPrefix: true, largerTicketCount: largerTickets.length, usedPrefixFallback: true },
     });
-    return null;
+    return fallbackSorted[0] ?? null;
   }
   let pool = nonPrefix;
 
@@ -860,7 +864,17 @@ export function buildIndependentCoachTicket(
     extra: { candidateCount: candidates.length },
   });
   const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
-  const picks = chosen?.picks ?? [];
+  let picks = chosen?.picks ?? [];
+  if (picks.length < target) {
+    const fallback = applyCoachTicketFallbackLadder(
+      scored,
+      picks,
+      target,
+      opts.varietySeed,
+      opts.ticketStyle ?? "balanced",
+    );
+    picks = fallback.picks;
+  }
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
     candidateId: chosen

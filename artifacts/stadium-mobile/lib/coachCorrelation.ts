@@ -8,6 +8,7 @@ import {
   type BoardScoredLeg,
   type CoachTicketStagingContext,
 } from "./ticketStaging.ts";
+import { applyCoachTicketFallbackLadder } from "./coachTicketFallbackLadder.ts";
 
 export const COACH_CORRELATION_TIMEOUT_MS = 9_000;
 const STORAGE_KEY = "coach_correlation_v1";
@@ -107,10 +108,16 @@ function rankedFallback(
   target: number,
   varietySeed?: string,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
-  const picks = selectGreedyBoardLegs(scored, target, varietySeed).map((pick) => ({
+  const greedy = selectGreedyBoardLegs(
+    scored.filter((leg) => leg.pick.finalAiScore && (leg.edgePct ?? 0) > 0),
+    target,
+    varietySeed,
+  ).map((pick) => ({
     ...pick,
     ticketRole: pick.ticketRole ?? ("main" as const),
   }));
+  const fallback = applyCoachTicketFallbackLadder(scored, greedy, target, varietySeed);
+  const picks = fallback.picks;
   const mains = picks.filter((p) => p.ticketRole !== "alt").length;
   return {
     picks,

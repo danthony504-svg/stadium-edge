@@ -121,6 +121,8 @@ export type ParsedPick = {
   ticketRole?: "main" | "alt";
   /** Quality tier used when this leg filled a fixed-leg ticket below strict AI gates. */
   coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
+  /** Tier 3 medium-confidence fill — real posted line with positive edge. */
+  coachConfidenceLabel?: "Medium confidence";
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
 };

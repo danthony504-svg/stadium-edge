@@ -5,6 +5,7 @@ import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { boardScanIsComplete, boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import {
   type CoachBoardScanManifest,
+  emptyCoachBoardScanManifest,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
@@ -26,34 +27,16 @@ export function deliverCoachBoardScanTicket(
   enrich: CoachFlashEnrich,
   legTarget: number,
 ): CoachBoardScanDelivery {
-  const manifest = scan.manifest ?? {
+  const manifest: CoachBoardScanManifest = scan.manifest ?? {
+    ...emptyCoachBoardScanManifest(legTarget),
     scanComplete: !!scan.scanComplete,
     boardExhausted: !!scan.scanComplete,
-    requestedLegs: legTarget,
-    deliveredLegs: 0,
-    gameSimDraws: 10_000,
-    propSimDraws: 10_000,
-    propSimTier: "deep" as const,
     marketsFound: scan.totalScanned,
-    marketsFoundByFamily: {} as never,
-    propsFound: 0,
-    propsEligibleForSim: 0,
-    propsSkippedUnsupported: 0,
-    alternateGameLinesFound: 0,
-    alternatePropsFound: 0,
     marketsSimulated: scan.totalScanned,
-    gameLinesSimulated: 0,
-    propsSimulated: 0,
-    propsSimBatches: 0,
-    propsSimTimeouts: 0,
-    preScoreEvaluated: 0,
     totalEvaluated: scan.totalQualified,
     totalQualified: scan.totalQualified,
     qualifiedMain: scan.staging.mainQualified,
     qualifiedAlt: scan.staging.altQualified,
-    qualifiedByCategory: { props: 0, gameLines: 0, teamTotals: 0, alternateLines: 0 },
-    gateFailureCounts: {},
-    rejectedSamples: [],
   };
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {
@@ -86,12 +69,31 @@ export function deliverCoachBoardScanTicket(
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
   const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
 
+  const coverageBySport: Record<string, number> = {};
+  const coverageByMarket: Record<string, number> = {};
+  for (const p of picks) {
+    const sport = String(p.sport ?? "unknown").toLowerCase();
+    coverageBySport[sport] = (coverageBySport[sport] ?? 0) + 1;
+    const market = String(p.market ?? "unknown");
+    coverageByMarket[market] = (coverageByMarket[market] ?? 0) + 1;
+  }
+
+  const tierFillCounts = {
+    1: picks.filter((p) => !p.coachFillTier && !p.coachConfidenceLabel).length,
+    2: picks.filter((p) => p.ticketRole === "alt" && !p.coachConfidenceLabel).length,
+    3: picks.filter((p) => p.coachConfidenceLabel === "Medium confidence").length,
+  } as Record<1 | 2 | 3, number>;
+
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
     scanComplete: true,
     boardExhausted: true,
     requestedLegs: legTarget,
     deliveredLegs: picks.length,
+    finalSelectedCount: picks.length,
+    coverageBySport,
+    coverageByMarket,
+    tierFillCounts,
   };
 
   traceCoachTicket("board-scan-staged", {
@@ -130,17 +132,7 @@ export function coachBoardScanManifestForMessage(
   return "";
 }
 
-const SCAN_MANIFEST_HEADING_RE = /### Scan manifest/i;
-
-export function coachReplyHasScanManifest(
-  boardScanManifestDetail?: string,
-  coachDetailNote?: string,
-): boolean {
-  return (
-    SCAN_MANIFEST_HEADING_RE.test(boardScanManifestDetail ?? "") ||
-    SCAN_MANIFEST_HEADING_RE.test(coachDetailNote ?? "")
-  );
-}
+export { coachReplyHasScanManifest } from "./coachBoardScanManifest.ts";
 
 /** User-facing lead when a fixed-leg parlay exhausts the board with zero deliveries. */
 export const COACH_EMPTY_BOARD_SCAN_LEAD =

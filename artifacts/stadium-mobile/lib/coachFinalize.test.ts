@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   beginCoachFinalizeRequest,
+  beginCoachCorrelationPhase,
   coachBuildWorkflowIndex,
   coachFinalizeProgressPercent,
   coachFinalizeShouldTimeout,
@@ -72,9 +73,14 @@ describe("coachFinalize", () => {
       4,
     );
     markCoachLineValueReady("req-flow");
+    beginCoachCorrelationPhase("req-flow");
+    assert.equal(coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), null), 6);
+    markCoachCorrelationComplete("req-flow", "available");
     assert.equal(
-      coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), { step: "complete" }),
-      6,
+      coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), null, {
+        correlationRecord: { step: "complete" },
+      }),
+      7,
     );
   });
 });

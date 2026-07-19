@@ -6647,7 +6647,13 @@ export default function CoachScreen() {
                         pick={p}
                         onPress={statsHandlerFor(p)}
                         badge={
-                          pickShowsAltBadge(p)
+                          p.coachConfidenceLabel === "Medium confidence"
+                            ? {
+                                text: "Medium confidence",
+                                caption: "Real posted line with positive edge — optional signals thin",
+                                tone: "value" as const,
+                              }
+                            : pickShowsAltBadge(p)
                             ? {
                                 text: "ALT PICK",
                                 caption: "Alternate rung — positive EV, edge, and sim grade",

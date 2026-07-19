@@ -19,6 +19,9 @@ import {
   propQualifiesForTicketFill,
 } from "./propHolisticRecommendation.ts";
 
+export const COACH_MEDIUM_MIN_CONFIDENCE = 45;
+export const COACH_MEDIUM_MIN_GRADE = "C";
+
 export type CoachPickEnrichSources = Parameters<typeof enrichPicksWithStartsAt>[1] & {
   propPool?: Array<{ game: string; player?: string; sport?: string; startsAt?: string | null }>;
   gameMeta?: Array<{ game: string; sport: string; startsAt?: string | null }>;
@@ -273,6 +276,42 @@ export function pickQualifiesForBoardDelivery(
   return false;
 }
 
+/** Delivery gate helper — honors tier-relaxed and medium-confidence staged legs. */
+export function stagedLegPassesDeliveryGate(
+  pick: RecommendablePick & {
+    coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
+    coachConfidenceLabel?: "Medium confidence";
+    ticketRole?: "main" | "alt";
+    odds?: number | null;
+    propIsAlt?: boolean;
+    isProp?: boolean;
+    propLine?: number | null;
+    propSide?: string;
+    market?: string;
+    propIsAlt?: boolean;
+  },
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (!score || score.highRiskValuePlay) return false;
+  if (!pickHasSimGrade(pick, score.simHit)) return false;
+  const edge = score.edgePct;
+  if (edge == null || edge <= 0) return false;
+  if (score.simHit != null && pick.odds != null) {
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+  if (pick.coachConfidenceLabel === "Medium confidence") {
+    return (
+      gradeRank(score.grade) >= gradeRank(COACH_MEDIUM_MIN_GRADE) &&
+      (score.confidencePct ?? 0) >= COACH_MEDIUM_MIN_CONFIDENCE
+    );
+  }
+  if (pick.coachFillTier) {
+    return gradeRank(score.grade) >= gradeRank(pick.coachFillTier);
+  }
+  return pickQualifiesForBoardDelivery(pick, score) || propSimEdgeStagingQualifies(pick, score);
+}
+
 /** Board-built legs that cleared staging — same bar as ticket delivery. */
 export function boardScanStagedLegQualifies(
   pick: RecommendablePick & {
@@ -280,6 +319,7 @@ export function boardScanStagedLegQualifies(
     odds?: number | null;
     propIsAlt?: boolean;
     coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
+    coachConfidenceLabel?: "Medium confidence";
   },
   score: FinalAiScore | null | undefined,
 ): boolean {
@@ -289,6 +329,12 @@ export function boardScanStagedLegQualifies(
   if (score.simHit != null && pick.odds != null) {
     const ev = simEvPct(score.simHit, pick.odds);
     if (ev != null && ev <= 0) return false;
+  }
+  if (pick.coachConfidenceLabel === "Medium confidence") {
+    return (
+      gradeRank(score.grade) >= gradeRank(COACH_MEDIUM_MIN_GRADE) &&
+      (score.confidencePct ?? 0) >= COACH_MEDIUM_MIN_CONFIDENCE
+    );
   }
   if (pick.coachFillTier) {
     return gradeRank(score.grade) >= gradeRank(pick.coachFillTier);
@@ -493,7 +539,7 @@ export function filterCoachDeliveredPicks<
       const ev = simEvPct(score.simHit, p.odds);
       if (ev != null && ev <= 0) return false;
     }
-    return pickQualifiesForBoardDelivery(p, score);
+    return stagedLegPassesDeliveryGate(p, score);
   });
 }
 
@@ -664,8 +710,11 @@ export function coachBoardScanTicketPicks<
   const enriched = enrichCoachPicksForGate(normalized, enrich).map(stripHrvpFromPick);
   const qualified = enriched.filter((p) => {
     const score = p.finalAiScore;
-    if (score?.highRiskValuePlay) return false;
-    if (!score?.simAligned) return false;
+    if (!score || score.highRiskValuePlay) return false;
+    if (p.coachFillTier || p.coachConfidenceLabel === "Medium confidence") {
+      return stagedLegPassesDeliveryGate(p, score);
+    }
+    if (!score.simAligned) return false;
     const edge = score.edgePct;
     if (edge == null || edge <= 0) return false;
     if (!pickHasSimGrade(p, score.simHit)) return false;

@@ -569,6 +569,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 2;
   const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+  manifestRecorder.recordGamesLoaded(oddsGames.length);
 
   for (const [, lines] of gameEntries) {
     for (const entry of lines ?? []) {
@@ -649,6 +650,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   for (const entry of pool) {
     manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
   }
+  let gameLineCount = 0;
+  for (const [, lines] of gameEntries) gameLineCount += lines?.length ?? 0;
+  manifestRecorder.recordCandidatesBeforeGrading(gameLineCount + pool.length);
 
   const propScoreOpts = {
     pool,
