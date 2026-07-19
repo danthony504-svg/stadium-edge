@@ -179,6 +179,51 @@ export function PrimaryButton({
   );
 }
 
+export function SectionViewAllButton({
+  title,
+  subtitle,
+  onPress,
+  style,
+}: {
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  style?: ViewStyle;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          backgroundColor: colors.primary,
+          borderRadius: colors.radius,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          marginTop: 12,
+          marginBottom: 4,
+          opacity: pressed ? 0.9 : 1,
+        },
+        style,
+      ]}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
+          {title}
+        </Text>
+        <Text style={{ color: "rgba(255,255,255,0.82)", fontFamily: FONT.medium, fontSize: 12 }}>
+          {subtitle}
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={20} color={colors.primaryForeground} />
+    </Pressable>
+  );
+}
+
 export function SectionHeader({ title, action }: { title: string; action?: ReactNode }) {
   const colors = useColors();
   return (
