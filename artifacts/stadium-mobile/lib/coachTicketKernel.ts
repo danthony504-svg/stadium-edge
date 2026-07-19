@@ -62,8 +62,22 @@ export function prepareCoachDeliveredTicket(
 ): ParsedPick[] {
   if (!picks.length) return [];
   const tagged = tagTicketRoles(picks);
+  const invariant = applyCoachTicketInvariants(tagged, enrich);
+  const filtered = filterCoachDeliveredPicks(invariant, enrich);
+  if (filtered.length > 0) {
+    return ensureCoachDeliveredPickAnalyses(filtered);
+  }
+  const salvagePool = invariant.length > 0 ? invariant : tagged;
+  const salvage = salvagePool.filter(
+    (p) =>
+      p.coachDelivered ||
+      p.coachFillTier ||
+      p.coachConfidenceLabel ||
+      ((p.finalAiScore?.edgePct ?? 0) > 0 && p.finalAiScore?.simHit != null),
+  );
+  if (!salvage.length) return [];
   return ensureCoachDeliveredPickAnalyses(
-    filterCoachDeliveredPicks(applyCoachTicketInvariants(tagged, enrich), enrich),
+    salvage.map((p) => ({ ...p, coachDelivered: true })),
   );
 }
 

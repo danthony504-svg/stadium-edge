@@ -1,4 +1,4 @@
-// Single Coach board-scan delivery pipeline — no preview/filler fallbacks on final tickets.
+// Single Coach board-scan delivery pipeline — no silent zero when scored candidates exist.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
@@ -8,6 +8,19 @@ import {
   emptyCoachBoardScanManifest,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
+import {
+  salvageCoachDelivery,
+  shouldSalvageCoachDelivery,
+} from "./coachDeliverySalvage.ts";
+import {
+  emptyCoachPipelineSnapshot,
+  explainDeliveryFilterRejection,
+  logCoachPipelineSnapshot,
+  pushPipelineRejection,
+  rejectionFromDelivery,
+  setPipelineStage,
+} from "./coachPipelineTrace.ts";
+import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
@@ -21,19 +34,52 @@ export type CoachBoardScanDelivery = {
   coachDetailNote: string;
 };
 
-/** Final ticket delivery — only when scanComplete; one gate stack, no salvage tiers. */
+function traceDeliveryRejections(
+  before: ParsedPick[],
+  after: ParsedPick[],
+  snapshot: ReturnType<typeof emptyCoachPipelineSnapshot>,
+): void {
+  const kept = new Set(after.map((p) => `${p.game}|${p.market}|${p.pick}|${p.odds}`));
+  for (const pick of before) {
+    const key = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}`;
+    if (kept.has(key)) continue;
+    const reason =
+      explainDeliveryFilterRejection(pick, pick.finalAiScore) ??
+      "Rejected during final delivery filter";
+    pushPipelineRejection(
+      snapshot,
+      rejectionFromDelivery(pick, pick.finalAiScore, reason),
+    );
+  }
+}
+
+function deliverTaggedPicks(
+  picks: ParsedPick[],
+  enrich: CoachFlashEnrich,
+  snapshot: ReturnType<typeof emptyCoachPipelineSnapshot>,
+): ParsedPick[] {
+  setPipelineStage(snapshot, "beforeFinalSelection", picks.length);
+  const tagged = tagTicketRoles([...picks]);
+  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
+  const prepared = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  traceDeliveryRejections(tagged, prepared, snapshot);
+  return prepared;
+}
+
+/** Final ticket delivery — salvage when strict gates zero a non-empty scored pool. */
 export function deliverCoachBoardScanTicket(
   scan: FullBoardScanResult,
   enrich: CoachFlashEnrich,
   legTarget: number,
 ): CoachBoardScanDelivery {
+  const pipeline = emptyCoachPipelineSnapshot();
   const manifest: CoachBoardScanManifest = scan.manifest ?? {
     ...emptyCoachBoardScanManifest(legTarget),
     scanComplete: !!scan.scanComplete,
     boardExhausted: !!scan.scanComplete,
     marketsFound: scan.totalScanned,
     marketsSimulated: scan.totalScanned,
-    totalEvaluated: scan.totalQualified,
+    totalEvaluated: scan.totalScanned,
     totalQualified: scan.totalQualified,
     qualifiedMain: scan.staging.mainQualified,
     qualifiedAlt: scan.staging.altQualified,
@@ -48,7 +94,19 @@ export function deliverCoachBoardScanTicket(
     };
   }
 
-  if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
+  let stagedPicks = [...scan.picks];
+
+  // Re-stage when leg target differs but scored pool is available.
+  if (
+    legTarget > 0 &&
+    !boardScanMatchesLegTarget(scan, legTarget) &&
+    scan.scoredPool?.length
+  ) {
+    const restaged = buildIndependentCoachTicket(scan.scoredPool, legTarget, {
+      varietySeed: scan.requestId ?? `restage-${legTarget}`,
+    });
+    stagedPicks = restaged.picks;
+  } else if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
     return {
       picks: [],
       manifest: {
@@ -65,9 +123,34 @@ export function deliverCoachBoardScanTicket(
     };
   }
 
-  const tagged = tagTicketRoles([...scan.picks]);
-  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  let picks = deliverTaggedPicks(stagedPicks, enrich, pipeline);
+
+  if (shouldSalvageCoachDelivery(picks.length, legTarget, scan.scoredPool)) {
+    const salvage = salvageCoachDelivery({
+      scored: scan.scoredPool ?? [],
+      target: legTarget,
+      enrich,
+      varietySeed: scan.requestId,
+      stagedPicks,
+    });
+    pipeline.relaxationsApplied = salvage.relaxationsApplied;
+    if (salvage.picks.length > picks.length) {
+      picks = deliverTaggedPicks(salvage.picks, enrich, pipeline);
+    }
+    if (picks.length === 0 && salvage.picks.length > 0) {
+      picks = salvage.picks.slice(0, legTarget);
+    }
+  }
+
+  logCoachPipelineSnapshot({
+    ...pipeline,
+    stages: {
+      ...manifest.pipelineStages,
+      ...pipeline.stages,
+      beforeFinalSelection: scan.scoredPool?.length ?? stagedPicks.length,
+      afterCorrelation: stagedPicks.length,
+    },
+  });
 
   const coverageBySport: Record<string, number> = {};
   const coverageByMarket: Record<string, number> = {};
@@ -94,6 +177,14 @@ export function deliverCoachBoardScanTicket(
     coverageBySport,
     coverageByMarket,
     tierFillCounts,
+    pipelineStages: {
+      ...manifest.pipelineStages,
+      ...pipeline.stages,
+    },
+    pipelineRejections: [...manifest.pipelineRejections, ...pipeline.rejections],
+    relaxationsApplied: [
+      ...new Set([...manifest.relaxationsApplied, ...pipeline.relaxationsApplied]),
+    ],
   };
 
   traceCoachTicket("board-scan-staged", {
@@ -101,6 +192,10 @@ export function deliverCoachBoardScanTicket(
     scanRequestedLegs: scan.requestedLegs,
     pickIds: picks,
     source: "deliverCoachBoardScanTicket",
+    extra: {
+      salvage: pipeline.relaxationsApplied,
+      scoredPool: scan.scoredPool?.length ?? 0,
+    },
   });
 
   return {

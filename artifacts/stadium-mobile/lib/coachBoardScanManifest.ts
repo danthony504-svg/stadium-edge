@@ -12,6 +12,17 @@ import type { FinalAiScore } from "./finalAiScore.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isAltPropPick } from "./altLinePool.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
+import type {
+  CoachPipelineRejectedMarket,
+  CoachPipelineSnapshot,
+  CoachPipelineStageKey,
+} from "./coachPipelineTrace.ts";
+import {
+  buildPipelineStagesFromManifest,
+  COACH_PIPELINE_STAGE_LABELS,
+  formatPipelineRejectionLine,
+  rejectionFromQualification,
+} from "./coachPipelineTrace.ts";
 
 export type ManifestMarketFamily =
   | "playerProps"
@@ -82,6 +93,13 @@ export type CoachBoardScanManifest = {
     gate: BoardLegGateCode;
     reason: string;
   }>;
+
+  /** Post-score filter pipeline stage counts (1–9). */
+  pipelineStages: Partial<Record<CoachPipelineStageKey, number>>;
+  /** Detailed per-market rejections with edge/confidence/EV/sim. */
+  pipelineRejections: CoachPipelineRejectedMarket[];
+  /** Delivery salvage relaxations applied (confidence → correlation → alts → medium). */
+  relaxationsApplied: string[];
 };
 
 export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanManifest {
@@ -140,6 +158,9 @@ export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanMa
     tierFillCounts: { 1: 0, 2: 0, 3: 0 },
     gateFailureCounts: {},
     rejectedSamples: [],
+    pipelineStages: {},
+    pipelineRejections: [],
+    relaxationsApplied: [],
   };
 }
 
@@ -176,6 +197,7 @@ export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
   recordDuplicateRejections(count: number): void;
   recordTierFillCounts(counts: Record<1 | 2 | 3, number>): void;
   recordDeliveryCoverage(picks: ParsedPick[]): void;
+  recordPipelineSnapshot(snapshot: CoachPipelineSnapshot): void;
   recordMarketFound(pick: ParsedPick): void;
   recordPropPoolRow(pick: ParsedPick): void;
   recordGameLineSimulated(): void;
@@ -314,6 +336,16 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         manifest.coverageByMarket[market] = (manifest.coverageByMarket[market] ?? 0) + 1;
       }
     },
+    recordPipelineSnapshot(snapshot) {
+      manifest.pipelineStages = { ...manifest.pipelineStages, ...snapshot.stages };
+      manifest.relaxationsApplied = [
+        ...new Set([...manifest.relaxationsApplied, ...snapshot.relaxationsApplied]),
+      ];
+      for (const r of snapshot.rejections) {
+        if (manifest.pipelineRejections.length >= MAX_REJECTED_SAMPLES) break;
+        manifest.pipelineRejections.push(r);
+      }
+    },
     recordMarketFound(pick) {
       manifest.marketsFound += 1;
       const family = classifyManifestMarketFamily(pick);
@@ -369,6 +401,10 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       bumpGate(q.gate, manifest.gateFailureCounts);
       mergeManifestRejections(manifest, gateToManifestRejections(q.gate, q.reason));
       pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp);
+      const rejection = rejectionFromQualification(pick, score, "afterConfidence");
+      if (rejection && manifest.pipelineRejections.length < MAX_REJECTED_SAMPLES) {
+        manifest.pipelineRejections.push(rejection);
+      }
     },
     recomputeQualificationFromScored(scored) {
       manifest.totalQualified = 0;
@@ -407,6 +443,10 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         manifest.preScoreEvaluated += gap;
         manifest.totalEvaluated = manifest.marketsSimulated;
       }
+      manifest.pipelineStages = {
+        ...buildPipelineStagesFromManifest(manifest),
+        ...manifest.pipelineStages,
+      };
       return {
         ...manifest,
         gateFailureCounts: mergeGateFailureCounts(preScoreGateFailures, manifest.gateFailureCounts),
@@ -527,6 +567,21 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
   }
   lines.push(`- Final selected: **${manifest.finalSelectedCount || manifest.deliveredLegs}**`);
 
+  const pipelineKeys = Object.keys(COACH_PIPELINE_STAGE_LABELS) as CoachPipelineStageKey[];
+  const hasPipeline = pipelineKeys.some((k) => manifest.pipelineStages[k] != null);
+  if (hasPipeline) {
+    lines.push("");
+    lines.push("**Filter pipeline**");
+    for (const key of pipelineKeys) {
+      const count = manifest.pipelineStages[key];
+      if (count == null) continue;
+      lines.push(`- ${COACH_PIPELINE_STAGE_LABELS[key]}: **${count.toLocaleString()}**`);
+    }
+  }
+  if (manifest.relaxationsApplied.length > 0) {
+    lines.push(`- Threshold relaxations applied: **${manifest.relaxationsApplied.join(" → ")}**`);
+  }
+
   lines.push("");
   lines.push("**Qualification**");
   if (manifest.preScoreEvaluated > 0) {
@@ -559,6 +614,17 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
     }
     if (manifest.rejectedSamples.length > 25) {
       lines.push(`- _…and ${manifest.rejectedSamples.length - 25} more logged rejections_`);
+    }
+  }
+
+  if (manifest.pipelineRejections.length > 0) {
+    lines.push("");
+    lines.push(`**Detailed rejections** (edge / confidence / EV / sim)`);
+    for (const r of manifest.pipelineRejections.slice(0, 30)) {
+      lines.push(`- ${formatPipelineRejectionLine(r)}`);
+    }
+    if (manifest.pipelineRejections.length > 30) {
+      lines.push(`- _…and ${manifest.pipelineRejections.length - 30} more detailed rejections_`);
     }
   }
 

@@ -144,6 +144,8 @@ export type FullBoardScanResult = {
   correlationStatus?: "available" | "unavailable";
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
+  /** Full scored candidate pool after ladder collapse — used for delivery salvage. */
+  scoredPool?: BoardScoredLeg[];
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -504,6 +506,7 @@ function buildScanResult(
     requestId: opts.requestId,
     correlationStatus: opts.correlationResult?.correlationStatus,
     manifest,
+    scoredPool: scored,
   };
 }
 
