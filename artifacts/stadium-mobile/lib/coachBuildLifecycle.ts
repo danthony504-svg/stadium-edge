@@ -123,7 +123,7 @@ export async function raceBoardScanWithBudget<T>(
         "await-pending-scans",
         null,
         completion,
-        { blockingAwait: "board-scan-completion" },
+        { blockingAwait: "board-scan-completion", timeoutMs: 0 },
       );
       coachLifecycleBoardScanEnd(
         full as { scanComplete?: boolean } | null,

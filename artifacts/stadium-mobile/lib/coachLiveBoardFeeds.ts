@@ -16,7 +16,7 @@ export type CoachLiveBoardFeeds = {
 async function tracedJson<T>(
   path: string,
   signal?: AbortSignal,
-  timeoutMs = 20_000,
+  timeoutMs = 10_000,
 ): Promise<{ data: T; status: number; ok: boolean; error?: string }> {
   const endpoint = `${API_BASE}${path}`;
   try {

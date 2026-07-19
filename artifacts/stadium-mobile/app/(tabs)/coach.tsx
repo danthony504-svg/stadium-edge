@@ -191,6 +191,7 @@ import {
   logCoachPipelineRunSummary,
   supersedeCoachPipelineRun,
 } from "@/lib/coachPipelineRunTrace";
+import { COACH_NETWORK_AWAIT_TIMEOUT_MS, traceCoachAwait } from "@/lib/coachAwaitTrace";
 import {
   beginCoachFinalizeRequest,
   clearPersistedCoachFinalize,
@@ -206,7 +207,6 @@ import {
   markCoachFinalizeError,
   markCoachFinalizeInterrupted,
   markCoachFinalizeSelected,
-  markCoachLineValueReady,
   persistCoachFinalize,
   tryAcquireCoachFinalizeLock,
 } from "@/lib/coachFinalize";
@@ -1686,6 +1686,21 @@ export default function CoachScreen() {
     [],
   );
 
+  const onCoachLineValueReady = useCallback(
+    (requestId: string) => {
+      syncCoachBuildWorkflowIndex(requestId);
+      const record = getCoachFinalizeRecord(requestId);
+      if (record) void persistCoachFinalize(record);
+    },
+    [syncCoachBuildWorkflowIndex],
+  );
+
+  const coachAwaitSite = (fn: string, line: number) => ({
+    fn,
+    file: "coach.tsx",
+    line,
+  });
+
   /** Correlation complete → finalize exactly once per requestId; commit cards or empty state. */
   const commitCoachFinalizeAfterScan = useCallback(
     (
@@ -2294,6 +2309,8 @@ export default function CoachScreen() {
               calibration: modelCalibration,
               onPartial: onBoardScanPartial,
               signal,
+              requestId: coachRequestContextRef.current?.requestId,
+              onLineValueReady: onCoachLineValueReady,
             }),
             boardScanBudgetMs(reachTarget),
           );
@@ -2302,7 +2319,7 @@ export default function CoachScreen() {
         }
       })();
     },
-    [marketPerf, modelCalibration, onBoardScanPartial, bindBoardScanRace],
+    [marketPerf, modelCalibration, onBoardScanPartial, bindBoardScanRace, onCoachLineValueReady],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -3191,7 +3208,17 @@ export default function CoachScreen() {
                       propSimulations: new Map<string, { hitProbability: number | null }>(),
                     };
           if (coachInjuryPromise && coachInjuryRequestId) {
-            let coachInjuryResult = await coachInjuryPromise;
+            let coachInjuryResult = await traceCoachAwait(
+              coachInjuryRequestId,
+              coachAwaitSite("send", 3194),
+              "fetchCoachInjuriesForBuild",
+              () => coachInjuryPromise,
+              {
+                dependency: "injury-api",
+                signal: controller.signal,
+                timeoutMs: COACH_NETWORK_AWAIT_TIMEOUT_MS,
+              },
+            );
             const injuryGames =
               enriched.built.context.realGames?.map((g) => ({ sport: g.sport, game: g.game })) ?? [];
             coachInjuryResult = mergeCoachInjuryGames(coachInjuryResult, injuryGames);
@@ -3217,12 +3244,6 @@ export default function CoachScreen() {
             { context, propPool, gameMeta },
             { propSimulations, perfByFamily: marketPerf },
           );
-          if (isParlayBuild && coachInjuryRequestId) {
-            markCoachLineValueReady(coachInjuryRequestId);
-            syncCoachBuildWorkflowIndex(coachInjuryRequestId);
-            const finalizeRecord = getCoachFinalizeRecord(coachInjuryRequestId);
-            if (finalizeRecord) void persistCoachFinalize(finalizeRecord);
-          }
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const coachTicketStyle = detectCoachTicketStyle(trimmed);
@@ -3285,6 +3306,7 @@ export default function CoachScreen() {
                   calibration: modelCalibration,
                   onPartial: onBoardScanPartial,
                   signal: abortRef.current?.signal,
+                  onLineValueReady: onCoachLineValueReady,
                   ...boardScanVariety,
                 }),
                 boardScanMs,
@@ -3741,6 +3763,7 @@ export default function CoachScreen() {
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+                onLineValueReady: onCoachLineValueReady,
               }),
               reachBoardScanMs,
             );
@@ -4218,6 +4241,7 @@ export default function CoachScreen() {
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+              onLineValueReady: onCoachLineValueReady,
             }),
             inlineBoardScanMs,
           );
@@ -6248,6 +6272,26 @@ export default function CoachScreen() {
     });
     return () => sub.remove();
   }, [restoreBackgroundBuild, resumePendingBackgroundBuild]);
+
+  // Line value → correlation: if edge/confidence scoring finishes but correlation
+  // never starts within 10s, log the stall and re-sync workflow (board scanner
+  // should have called onLineValueReady + correlation immediately before this fires).
+  useEffect(() => {
+    const ctx = coachRequestContextRef.current;
+    if (!ctx || (!streaming && !buildFinishing)) return;
+    const record = getCoachFinalizeRecord(ctx.requestId);
+    if (!record?.lineValueReadyAt || record.correlationStartedAt) return;
+    const delay = Math.max(0, COACH_NETWORK_AWAIT_TIMEOUT_MS - (Date.now() - record.lineValueReadyAt));
+    const t = setTimeout(() => {
+      const latest = getCoachFinalizeRecord(ctx.requestId);
+      if (!latest?.lineValueReadyAt || latest.correlationStartedAt) return;
+      console.warn(
+        `[coach-line-value-stall] requestId=${ctx.requestId} lineValueReadyAt=${latest.lineValueReadyAt} correlation never started — re-syncing workflow`,
+      );
+      syncCoachBuildWorkflowIndex(ctx.requestId);
+    }, delay);
+    return () => clearTimeout(t);
+  }, [streaming, buildFinishing, coachFinalizeWorkflowIndex, syncCoachBuildWorkflowIndex]);
 
   // Correlation must not block the build — retry finalize after 9s, but only once the
   // live board scan has actually finished (props loaded + simmed). Never force-complete

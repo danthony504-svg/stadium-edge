@@ -287,6 +287,7 @@ export async function withCoachPipelineStage<T>(
 ): Promise<T> {
   const handle = beginCoachPipelineStage(requestId, sendGeneration, stage, candidatesIn);
   const timeoutMs = opts?.timeoutMs ?? COACH_PIPELINE_STAGE_TIMEOUT_MS;
+  const useTimeout = timeoutMs > 0;
   const blockingAwait = opts?.blockingAwait ?? stage;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let timedOut = false;
@@ -295,14 +296,18 @@ export async function withCoachPipelineStage<T>(
   try {
     const result = await Promise.race([
       fn(),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          timedOut = true;
-          reject(
-            new CoachPipelineStageTimeoutError(requestId, stage, blockingStack),
-          );
-        }, timeoutMs);
-      }),
+      ...(useTimeout
+        ? [
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                timedOut = true;
+                reject(
+                  new CoachPipelineStageTimeoutError(requestId, stage, blockingStack),
+                );
+              }, timeoutMs);
+            }),
+          ]
+        : []),
     ]);
     if (timeoutId) clearTimeout(timeoutId);
     endCoachPipelineStage(handle, {
@@ -327,7 +332,7 @@ export async function withCoachPipelineStage<T>(
   }
 }
 
-/** Wrap an existing promise with stage tracing (no extra timeout — caller may use withCoachPipelineStage). */
+/** Wrap an existing promise with stage tracing. Pass timeoutMs: 0 to disable timeout. */
 export async function traceCoachPipelineAwait<T>(
   requestId: string,
   sendGeneration: number,
@@ -337,6 +342,7 @@ export async function traceCoachPipelineAwait<T>(
   opts?: {
     candidatesOut?: (result: T) => number | null | undefined;
     blockingAwait?: string;
+    timeoutMs?: number;
   },
 ): Promise<T> {
   return withCoachPipelineStage(
@@ -345,7 +351,11 @@ export async function traceCoachPipelineAwait<T>(
     stage,
     candidatesIn,
     () => promise,
-    opts,
+    {
+      blockingAwait: opts?.blockingAwait,
+      candidatesOut: opts?.candidatesOut,
+      timeoutMs: opts?.timeoutMs ?? COACH_PIPELINE_STAGE_TIMEOUT_MS,
+    },
   );
 }
 
