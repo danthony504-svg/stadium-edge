@@ -115,6 +115,8 @@ export type ParsedPick = {
   finalAiScore?: import("@/lib/finalAiScore").FinalAiScore | null;
   /** Sim disagrees but edge ≥ HIGH_RISK_EDGE_MIN — shown with warning badge. */
   highRiskValuePlay?: boolean;
+  /** Coach build could not load ESPN injury data — show honest unavailable copy. */
+  injuryDataUnavailable?: boolean;
   /** Main-board leg vs alt rung promoted to fill a reach-N ticket. */
   ticketRole?: "main" | "alt";
   /** Quality tier used when this leg filled a fixed-leg ticket below strict AI gates. */

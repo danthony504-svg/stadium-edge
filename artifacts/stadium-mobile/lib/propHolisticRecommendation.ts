@@ -665,6 +665,13 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
   const formPresent = form?.present || minutes?.present;
   const formDisplay = form?.display ?? minutes?.display;
 
+  const injuryFactor = factor("injury");
+  const injuryDisplay =
+    injuryFactor?.display ??
+    (pick.injuryDataUnavailable && (injuryFactor?.score ?? null) == null
+      ? "Injury data unavailable"
+      : undefined);
+
   const coachFactors: PropHolisticFactor[] = [
     factor("sportsbookValue") ?? {
       key: "sportsbookValue",
@@ -696,10 +703,16 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
       applicable: true,
       present: Boolean(formPresent && formScore != null),
     },
-    factor("injury") ?? {
+    injuryFactor
+      ? {
+          ...injuryFactor,
+          display: injuryDisplay,
+        }
+      : {
       key: "injury",
       label: "Injuries",
       score: null,
+      display: pick.injuryDataUnavailable ? "Injury data unavailable" : undefined,
       applicable: true,
       present: false,
     },

@@ -15,6 +15,7 @@ export type CoachFinalizeRecord = {
   selectedCount: number;
   cardsSaved: boolean;
   correlationCompleteAt?: number;
+  lineValueReadyAt?: number;
   finalizedAt?: number;
   error?: string;
 };
@@ -152,18 +153,45 @@ export function markCoachFinalizeError(requestId: string, error: string): void {
   markCoachFinalizeInterrupted(requestId, error);
 }
 
-/** Progress checklist index (0–9) derived from finalize phase — not a cosmetic timer. */
+export function markCoachLineValueReady(requestId: string): CoachFinalizeRecord | null {
+  const record = records.get(requestId);
+  if (!record) return null;
+  record.lineValueReadyAt = Date.now();
+  records.set(requestId, record);
+  log("line-value-ready", requestId);
+  return record;
+}
+
+type InjuryStepLike = { step?: string } | null | undefined;
+
+function injuryWorkflowComplete(injuryRecord: InjuryStepLike): boolean {
+  if (!injuryRecord?.step) return false;
+  return injuryRecord.step !== "pending" && injuryRecord.step !== "loading";
+}
+
+/** Progress checklist index (0–9) from injury + finalize state — not a cosmetic timer. */
+export function coachBuildWorkflowIndex(
+  finalizeRecord: CoachFinalizeRecord | null,
+  injuryRecord: InjuryStepLike,
+  opts?: { scanComplete?: boolean; hasCards?: boolean },
+): number {
+  if (finalizeRecord?.phase === "complete" || (finalizeRecord?.phase === "empty" && finalizeRecord.cardsSaved)) {
+    return 9;
+  }
+  if (finalizeRecord?.phase === "interrupted") return 9;
+  if (finalizeRecord?.phase === "finalizing") return 8;
+  if (finalizeRecord?.correlationCompleteAt || opts?.scanComplete) return 7;
+  if (finalizeRecord?.lineValueReadyAt) return 6;
+  if (injuryWorkflowComplete(injuryRecord)) return 4;
+  return 3;
+}
+
+/** @deprecated Use coachBuildWorkflowIndex with injury record. */
 export function coachFinalizeWorkflowIndex(
   record: CoachFinalizeRecord | null,
   opts?: { scanComplete?: boolean; hasCards?: boolean },
 ): number {
-  if (!record) return opts?.scanComplete ? 7 : 3;
-  if (record.phase === "complete" || (record.phase === "empty" && record.cardsSaved)) return 9;
-  if (record.phase === "interrupted") return 9;
-  if (record.phase === "finalizing") return 8;
-  if (record.correlationCompleteAt || opts?.scanComplete) return 7;
-  if (record.phase === "correlating") return 6;
-  return 3;
+  return coachBuildWorkflowIndex(record, null, opts);
 }
 
 /** Percent complete from workflow index (matches AnalysisProgress TARGETS). */

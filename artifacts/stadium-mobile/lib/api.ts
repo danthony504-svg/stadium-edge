@@ -2407,6 +2407,8 @@ export type ChatContext = {
   matchupInjuries?: Record<string, GameInjuryReport>;
   /** Raw league injury teams when per-game matchupInjuries is absent. */
   injuryTeams?: InjuryTeam[];
+  /** Coach build injury feed status — unavailable when fetch timed out or errored. */
+  injuryStatus?: "available" | "unavailable";
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean

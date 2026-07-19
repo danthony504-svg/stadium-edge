@@ -162,7 +162,7 @@ import {
 import {
   beginCoachFinalizeRequest,
   clearPersistedCoachFinalize,
-  coachFinalizeWorkflowIndex as resolveCoachFinalizeWorkflowIndex,
+  coachBuildWorkflowIndex,
   COACH_BUILD_INTERRUPTED_LEAD,
   COACH_NO_QUALIFYING_PICKS_LEAD,
   getCoachFinalizeRecord,
@@ -173,9 +173,20 @@ import {
   markCoachFinalizeError,
   markCoachFinalizeInterrupted,
   markCoachFinalizeSelected,
+  markCoachLineValueReady,
   persistCoachFinalize,
   tryAcquireCoachFinalizeLock,
 } from "@/lib/coachFinalize";
+import {
+  applyCoachInjuryToContext,
+  clearPersistedCoachInjury,
+  fetchCoachInjuriesForBuild,
+  getCoachInjuryRecord,
+  loadPersistedCoachInjury,
+  mergeCoachInjuryGames,
+  persistCoachInjury,
+  type CoachInjuryResult,
+} from "@/lib/coachInjury";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1348,6 +1359,7 @@ export default function CoachScreen() {
     stopSlatePreAnalysis();
     void clearPendingBuild();
     void clearPersistedCoachFinalize();
+    void clearPersistedCoachInjury();
     setCoachFinalizeWorkflowIndex(undefined);
     coachFinalizeRetryRef.current = false;
 
@@ -1449,7 +1461,7 @@ export default function CoachScreen() {
       markCoachCorrelationComplete(requestId);
       const record = getCoachFinalizeRecord(requestId);
       setCoachFinalizeWorkflowIndex(
-        resolveCoachFinalizeWorkflowIndex(record, { scanComplete: true }),
+        coachBuildWorkflowIndex(record, getCoachInjuryRecord(requestId), { scanComplete: true }),
       );
 
       if (!tryAcquireCoachFinalizeLock(requestId)) {
@@ -2617,6 +2629,21 @@ export default function CoachScreen() {
           }
         } else {
           const buildSports = coachBuildSports(sportScopeText, buildLegs, DEFAULT_SPORTS);
+          const coachInjuryRequestId = coachRequestContextRef.current?.requestId ?? varietySeedRef.current;
+          let coachInjuryPromise: Promise<CoachInjuryResult> | null = null;
+          if (isParlayBuild && legTarget >= 3 && coachInjuryRequestId) {
+            coachInjuryPromise = fetchCoachInjuriesForBuild({
+              requestId: coachInjuryRequestId,
+              sports: buildSports,
+              signal: controller.signal,
+              onUpdate: (injuryRecord) => {
+                setCoachFinalizeWorkflowIndex(
+                  coachBuildWorkflowIndex(getCoachFinalizeRecord(coachInjuryRequestId), injuryRecord),
+                );
+                void persistCoachInjury(injuryRecord);
+              },
+            });
+          }
           const focalSports = focalSportsFromText(sportScopeText);
           // Slip-photo verdict ("read this ticket") goes straight to the vision
           // model — skip the 30s+ odds/props/matchup fan-out that was connect-
@@ -2811,6 +2838,22 @@ export default function CoachScreen() {
                   rawBuilt.context.realProps?.length
                 ? await enrichChatContextProps(rawBuilt, controller.signal)
                 : { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() };
+          if (coachInjuryPromise && coachInjuryRequestId) {
+            let coachInjuryResult = await coachInjuryPromise;
+            const injuryGames =
+              enriched.built.context.realGames?.map((g) => ({ sport: g.sport, game: g.game })) ?? [];
+            coachInjuryResult = mergeCoachInjuryGames(coachInjuryResult, injuryGames);
+            enriched.built = {
+              ...enriched.built,
+              context: applyCoachInjuryToContext(enriched.built.context, coachInjuryResult),
+            };
+            setCoachFinalizeWorkflowIndex(
+              coachBuildWorkflowIndex(
+                getCoachFinalizeRecord(coachInjuryRequestId),
+                coachInjuryResult.record,
+              ),
+            );
+          }
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
           if (excludedSports.size > 0) {
@@ -2827,6 +2870,14 @@ export default function CoachScreen() {
             { context, propPool, gameMeta },
             { propSimulations, perfByFamily: marketPerf },
           );
+          if (isParlayBuild && coachInjuryRequestId) {
+            markCoachLineValueReady(coachInjuryRequestId);
+            const finalizeRecord = getCoachFinalizeRecord(coachInjuryRequestId);
+            setCoachFinalizeWorkflowIndex(
+              coachBuildWorkflowIndex(finalizeRecord, getCoachInjuryRecord(coachInjuryRequestId)),
+            );
+            if (finalizeRecord) void persistCoachFinalize(finalizeRecord);
+          }
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const coachTicketStyle = detectCoachTicketStyle(trimmed);
@@ -5854,9 +5905,11 @@ export default function CoachScreen() {
         void resumePendingBackgroundBuild();
         void loadPersistedCoachFinalize().then((record) => {
           if (!record) return;
-          setCoachFinalizeWorkflowIndex(
-            resolveCoachFinalizeWorkflowIndex(record, { hasCards: record.selectedCount > 0 }),
-          );
+          void loadPersistedCoachInjury().then((injuryRecord) => {
+            setCoachFinalizeWorkflowIndex(
+              coachBuildWorkflowIndex(record, injuryRecord, { hasCards: record.selectedCount > 0 }),
+            );
+          });
           if (record.cardsSaved && record.selectedCount > 0) return;
           if (record.phase === "empty" || record.phase === "interrupted") {
             finishCoachBuildUi();

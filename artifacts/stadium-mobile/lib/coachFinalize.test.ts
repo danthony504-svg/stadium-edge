@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   beginCoachFinalizeRequest,
+  coachBuildWorkflowIndex,
   coachFinalizeProgressPercent,
   coachFinalizeShouldTimeout,
   coachFinalizeWorkflowIndex,
@@ -13,6 +14,7 @@ import {
   markCoachFinalizeEmpty,
   markCoachFinalizeInterrupted,
   markCoachFinalizeSelected,
+  markCoachLineValueReady,
   resetCoachFinalizeForTests,
   tryAcquireCoachFinalizeLock,
 } from "./coachFinalize.ts";
@@ -59,5 +61,20 @@ describe("coachFinalize", () => {
     markCoachFinalizeInterrupted("req-int", "Build interrupted");
     assert.equal(getCoachFinalizeRecord("req-int")?.phase, "interrupted");
     assert.equal(coachFinalizeWorkflowIndex(getCoachFinalizeRecord("req-int")), 9);
+  });
+
+  test("injury complete then line value advances workflow past 40%", () => {
+    resetCoachFinalizeForTests();
+    beginCoachFinalizeRequest("req-flow", 5);
+    assert.equal(coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), { step: "loading" }), 3);
+    assert.equal(
+      coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), { step: "complete" }),
+      4,
+    );
+    markCoachLineValueReady("req-flow");
+    assert.equal(
+      coachBuildWorkflowIndex(getCoachFinalizeRecord("req-flow"), { step: "complete" }),
+      6,
+    );
   });
 });
