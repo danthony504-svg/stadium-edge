@@ -21,7 +21,7 @@ import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
-import { EmptyState, ErrorState, FONT, Loading, Pill, SectionViewAllButton } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, Pill, ViewAllGamesButton } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -1761,9 +1761,8 @@ function HomeSportFeed({
               );
             })}
             {canExpandUpcoming ? (
-              <SectionViewAllButton
-                title="View All Games"
-                subtitle={`See all ${displayUpcoming.length} ${displayUpcoming.length === 1 ? "matchup" : "matchups"}`}
+              <ViewAllGamesButton
+                matchupCount={displayUpcoming.length}
                 onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
               />
             ) : null}
