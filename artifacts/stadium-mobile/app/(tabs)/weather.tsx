@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { getGames, getParkWeather, type ParkWeatherReport } from "@/lib/api";
+import { getGames, getParkWeather, type EspnGame, type ParkWeatherReport } from "@/lib/api";
 import {
   conditionIconName,
   gameWeatherEffects,
@@ -110,14 +110,30 @@ export default function WeatherScreen() {
 
   const reports = q.data ?? [];
 
+  const games = useMemo((): EspnGame[] => {
+    const raw = gamesQ.data as EspnGame[] | { games?: EspnGame[] } | null | undefined;
+    return Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.games)
+        ? raw.games
+        : [];
+  }, [gamesQ.data]);
+
   const logoByAbbr = useMemo(() => {
     const map = new Map<string, string | null>();
-    for (const g of gamesQ.data ?? []) {
-      if (g.awayAbbr) map.set(g.awayAbbr.toUpperCase(), g.awayLogo ?? null);
-      if (g.homeAbbr) map.set(g.homeAbbr.toUpperCase(), g.homeLogo ?? null);
+
+    for (const g of games) {
+      if (g?.awayAbbr) {
+        map.set(g.awayAbbr.toUpperCase(), g.awayLogo ?? null);
+      }
+
+      if (g?.homeAbbr) {
+        map.set(g.homeAbbr.toUpperCase(), g.homeLogo ?? null);
+      }
     }
+
     return map;
-  }, [gamesQ.data]);
+  }, [games]);
 
   const selected = useMemo<ParkWeatherReport | undefined>(
     () => reports.find((r) => r.gameId === selectedId) ?? reports[0],
