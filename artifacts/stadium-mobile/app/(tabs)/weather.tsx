@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useQuery } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -15,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { getParkWeather, type ParkWeatherReport } from "@/lib/api";
+import { getGames, getParkWeather, type ParkWeatherReport } from "@/lib/api";
 import {
   conditionIconName,
   gameWeatherEffects,
@@ -23,7 +24,6 @@ import {
   impactLevelLabel,
   impactLevelTone,
   precipDisplay,
-  shortImpactBadge,
   windCarryLabel,
   windDisplay,
   type GameEffectCard,
@@ -102,11 +102,33 @@ export default function WeatherScreen() {
     staleTime: REFETCH_MS,
   });
 
+  const gamesQ = useQuery({
+    queryKey: ["games", "mlb"],
+    queryFn: ({ signal }) => getGames("mlb", signal),
+    staleTime: REFETCH_MS,
+  });
+
   const reports = q.data ?? [];
+
+  const logoByAbbr = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const g of gamesQ.data ?? []) {
+      if (g.awayAbbr) map.set(g.awayAbbr.toUpperCase(), g.awayLogo ?? null);
+      if (g.homeAbbr) map.set(g.homeAbbr.toUpperCase(), g.homeLogo ?? null);
+    }
+    return map;
+  }, [gamesQ.data]);
+
   const selected = useMemo<ParkWeatherReport | undefined>(
     () => reports.find((r) => r.gameId === selectedId) ?? reports[0],
     [reports, selectedId],
   );
+
+  useEffect(() => {
+    if (reports.length > 0 && selectedId && !reports.some((r) => r.gameId === selectedId)) {
+      setSelectedId(reports[0]!.gameId);
+    }
+  }, [reports, selectedId]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -150,6 +172,16 @@ export default function WeatherScreen() {
           <>
             <TabRow tab={tab} onTab={setTab} />
 
+            <MatchupSelector
+              reports={reports}
+              selectedId={selected?.gameId ?? null}
+              logoByAbbr={logoByAbbr}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setVenueOpen(false);
+              }}
+            />
+
             {selected && (
               <>
                 <VenueSelector
@@ -180,20 +212,6 @@ export default function WeatherScreen() {
                 {tab === "outlook" && <OutlookPanel report={selected} />}
               </>
             )}
-
-            <SectionTitle style={{ marginTop: 22 }}>Today&apos;s Games</SectionTitle>
-            {reports.map((r) => (
-              <GameListRow
-                key={r.gameId}
-                report={r}
-                active={selected?.gameId === r.gameId}
-                onPress={() => {
-                  setSelectedId(r.gameId);
-                  setTab("today");
-                  setVenueOpen(false);
-                }}
-              />
-            ))}
 
             <View style={{ marginTop: 18, alignItems: "center", gap: 4 }}>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
@@ -269,6 +287,106 @@ function TabPill({ label, active, onPress }: { label: string; active: boolean; o
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+function MatchupLogo({ uri, abbr }: { uri?: string | null; abbr: string }) {
+  const colors = useColors();
+  if (uri) {
+    return (
+      <Image
+        source={{ uri }}
+        style={{ width: 22, height: 22 }}
+        contentFit="contain"
+        transition={150}
+      />
+    );
+  }
+  return (
+    <View
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 8 }}>{abbr}</Text>
+    </View>
+  );
+}
+
+function MatchupSelector({
+  reports,
+  selectedId,
+  logoByAbbr,
+  onSelect,
+}: {
+  reports: ParkWeatherReport[];
+  selectedId: string | null;
+  logoByAbbr: Map<string, string | null>;
+  onSelect: (gameId: string) => void;
+}) {
+  const colors = useColors();
+  if (reports.length === 0) return null;
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 8, paddingBottom: 14 }}
+      style={{ marginBottom: 2 }}
+    >
+      {reports.map((r) => {
+        const active = r.gameId === selectedId;
+        const awayLogo = logoByAbbr.get(r.awayAbbr.toUpperCase()) ?? null;
+        const homeLogo = logoByAbbr.get(r.homeAbbr.toUpperCase()) ?? null;
+        return (
+          <Pressable
+            key={r.gameId}
+            onPress={() => onSelect(r.gameId)}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              borderWidth: 1.5,
+              borderColor: active ? colors.primary : colors.border,
+              backgroundColor: active ? "rgba(59,130,246,0.14)" : colors.card,
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <MatchupLogo uri={awayLogo} abbr={r.awayAbbr} />
+            <Text
+              style={{
+                color: active ? colors.primary : colors.mutedForeground,
+                fontFamily: FONT.bold,
+                fontSize: 11,
+              }}
+            >
+              @
+            </Text>
+            <MatchupLogo uri={homeLogo} abbr={r.homeAbbr} />
+            <Text
+              style={{
+                color: active ? colors.foreground : colors.mutedForeground,
+                fontFamily: active ? FONT.bold : FONT.semibold,
+                fontSize: 13,
+                marginLeft: 2,
+              }}
+            >
+              {r.awayAbbr} @ {r.homeAbbr}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -548,62 +666,6 @@ function GameEffectTile({ effect }: { effect: GameEffectCard }) {
         {effect.detail}
       </Text>
     </View>
-  );
-}
-
-function GameListRow({
-  report,
-  active,
-  onPress,
-}: {
-  report: ParkWeatherReport;
-  active: boolean;
-  onPress: () => void;
-}) {
-  const colors = useColors();
-  const c = report.current;
-  const badge = shortImpactBadge(report.impact.rating);
-  const badgeTone = impactLevelTone(report.impact.rating);
-  const badgeColor = impactColors(badgeTone, colors).text;
-  const icon = conditionIconName(c.condition);
-  const subtitle = [
-    fmtFirstPitch(report.commenceTime),
-    c.tempF != null ? `${Math.round(c.tempF)}°F` : null,
-    c.condition,
-    c.windMph != null ? `${Math.round(c.windMph)} mph wind` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, marginBottom: 8 })}>
-      <Card
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          borderColor: active ? colors.primary : colors.border,
-        }}
-      >
-        <Feather name={icon} size={16} color={colors.mutedForeground} style={{ marginRight: 10 }} />
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-            {report.awayAbbr} @ {report.homeAbbr}
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-            {subtitle}
-          </Text>
-        </View>
-        <View
-          style={{
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-            borderRadius: 8,
-            backgroundColor: badgeColor + "22",
-          }}
-        >
-          <Text style={{ color: badgeColor, fontFamily: FONT.bold, fontSize: 10 }}>{badge}</Text>
-        </View>
-      </Card>
-    </Pressable>
   );
 }
 
