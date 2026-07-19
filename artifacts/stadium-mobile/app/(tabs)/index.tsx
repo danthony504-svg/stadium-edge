@@ -1016,7 +1016,7 @@ function HomeSportFeed({
       >
 
         {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
+        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay")} />
 
         {/* Quick actions — four shortcut cards in a single row. */}
         <View
@@ -2076,12 +2076,10 @@ export default function HomeScreen() {
             slipClearance={slipClearance}
             bottomInset={insets.bottom}
             onBuildParlay={() => {
-              markCoachHomeLaunch();
               router.push({
                 pathname: "/coach",
                 params: {
-                  autoMsg: "Build me the best parlay",
-                  send: "1",
+                  prefill: "Build me the best parlay",
                   ts: String(Date.now()),
                 },
               });
