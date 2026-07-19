@@ -126,6 +126,11 @@ import {
   coachBoardScanManifestForMessage,
   coachReplyHasScanManifest,
 } from "@/lib/coachBoardScanDelivery";
+import {
+  logCoachMounted,
+  logCoachRenderSnapshot,
+  resolveCoachRenderBranch,
+} from "@/lib/coachRenderTrace";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
   rescoreCoachTicketPreservingLegs,
@@ -6156,6 +6161,70 @@ export default function CoachScreen() {
   const hasUserTurn = messages.some((m) => m.role === "user");
   /** Busy spinners only when a build is actually in flight — not on the welcome screen. */
   const coachBuildInFlight = hasUserTurn && (streaming || buildFinishing || waiting);
+
+  const isOrphanThread = isOrphanCoachThread(messages, { streaming, buildFinishing });
+
+  const coachRenderDiag = useMemo(() => {
+    const slice = messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      picksCount: m.picks?.length ?? 0,
+      parlayBuild: m.parlayBuild,
+      hasCoachDetailNote: !!m.coachDetailNote?.trim(),
+      hasLegNote: !!m.legNote?.trim(),
+    }));
+    const { branch, blankReason } = resolveCoachRenderBranch({
+      messages: slice,
+      streaming,
+      buildFinishing,
+      waiting,
+      buildProgressExpired,
+      parlayBuildPhase,
+      showQuickPrompts,
+      footerParlayProgress,
+      isOrphanThread,
+      isWelcome: isWelcomeMessage,
+      isParlayAsk: isParlayBuildAsk,
+    });
+    return {
+      messageCount: messages.length,
+      lastRole: slice[slice.length - 1]?.role,
+      lastContentLen: slice[slice.length - 1]?.content?.length ?? 0,
+      lastPicksCount: slice[slice.length - 1]?.picksCount ?? 0,
+      streaming,
+      buildFinishing,
+      waiting,
+      buildProgressExpired,
+      parlayBuildPhase,
+      boardScanPartialLegs,
+      showQuickPrompts,
+      footerParlayProgress,
+      hasUserTurn,
+      isOrphanThread,
+      renderBranch: branch,
+      blankReason,
+    };
+  }, [
+    messages,
+    streaming,
+    buildFinishing,
+    waiting,
+    buildProgressExpired,
+    parlayBuildPhase,
+    boardScanPartialLegs,
+    showQuickPrompts,
+    footerParlayProgress,
+    hasUserTurn,
+    isOrphanThread,
+  ]);
+
+  useEffect(() => {
+    logCoachMounted();
+  }, []);
+
+  useEffect(() => {
+    logCoachRenderSnapshot(coachRenderDiag);
+  }, [coachRenderDiag]);
 
   // Recover stale busy flags left after a superseded send or OTA reload — welcome
   // with spinners on every quick prompt means streaming stuck true with no thread.
