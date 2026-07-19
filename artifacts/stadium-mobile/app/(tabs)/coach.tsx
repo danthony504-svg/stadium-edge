@@ -127,6 +127,7 @@ import {
   coachReplyHasScanManifest,
 } from "@/lib/coachBoardScanDelivery";
 import {
+  coachScrollBodyWouldBeBlank,
   logCoachMounted,
   logCoachRenderSnapshot,
   resolveCoachRenderBranch,
@@ -6172,8 +6173,9 @@ export default function CoachScreen() {
       parlayBuild: m.parlayBuild,
       hasCoachDetailNote: !!m.coachDetailNote?.trim(),
       hasLegNote: !!m.legNote?.trim(),
+      hideBubble: m.hideBubble,
     }));
-    const { branch, blankReason } = resolveCoachRenderBranch({
+    const { branch, blankReason: branchBlankReason } = resolveCoachRenderBranch({
       messages: slice,
       streaming,
       buildFinishing,
@@ -6186,11 +6188,37 @@ export default function CoachScreen() {
       isWelcome: isWelcomeMessage,
       isParlayAsk: isParlayBuildAsk,
     });
+    const lastMsg = messages[messages.length - 1];
+    const lastDisplayPicksCount =
+      lastMsg?.role === "assistant" && lastMsg.picks?.length
+        ? filterCoachDeliveredPicks(
+            coerceCoachDisplayPicks(lastMsg.picks, flashEnrichRef.current),
+            flashEnrichRef.current,
+          ).length
+        : 0;
+    const lastHasScanManifest = /### Scan manifest/i.test(lastMsg?.coachDetailNote ?? "");
+    const bodyBlank = coachScrollBodyWouldBeBlank({
+      messages: slice,
+      showQuickPrompts,
+      footerParlayProgress,
+      lastDisplayPicksCount,
+      lastHasScanManifest,
+      isWelcome: isWelcomeMessage,
+    });
+    const renderBranch =
+      bodyBlank.blank && branch.startsWith("Results")
+        ? "Blank.filteredPicks"
+        : bodyBlank.blank
+          ? "Blank"
+          : branch;
+    const blankReason = bodyBlank.reason ?? branchBlankReason;
     return {
       messageCount: messages.length,
       lastRole: slice[slice.length - 1]?.role,
       lastContentLen: slice[slice.length - 1]?.content?.length ?? 0,
       lastPicksCount: slice[slice.length - 1]?.picksCount ?? 0,
+      lastDisplayPicksCount,
+      lastHasScanManifest,
       streaming,
       buildFinishing,
       waiting,
@@ -6201,7 +6229,7 @@ export default function CoachScreen() {
       footerParlayProgress,
       hasUserTurn,
       isOrphanThread,
-      renderBranch: branch,
+      renderBranch,
       blankReason,
     };
   }, [

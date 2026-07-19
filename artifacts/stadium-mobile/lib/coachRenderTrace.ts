@@ -11,6 +11,7 @@ export type CoachRenderMessageSlice = {
   parlayBuild?: boolean;
   hasCoachDetailNote?: boolean;
   hasLegNote?: boolean;
+  hideBubble?: boolean;
 };
 
 export type CoachRenderSnapshot = {
@@ -18,6 +19,9 @@ export type CoachRenderSnapshot = {
   lastRole?: string;
   lastContentLen: number;
   lastPicksCount: number;
+  /** Picks that survive coerce + filterCoachDeliveredPicks at paint time. */
+  lastDisplayPicksCount: number;
+  lastHasScanManifest: boolean;
   streaming: boolean;
   buildFinishing: boolean;
   waiting: boolean;
@@ -48,10 +52,73 @@ export function logCoachRenderSnapshot(snapshot: CoachRenderSnapshot): void {
   console.log(
     `${COACH_RENDER_LOG} flags=quickPrompts:${snapshot.showQuickPrompts} orphan:${snapshot.isOrphanThread} hasUser:${snapshot.hasUserTurn}`,
   );
+  console.log(
+    `${COACH_RENDER_LOG} picks=raw:${snapshot.lastPicksCount} display:${snapshot.lastDisplayPicksCount} manifest:${snapshot.lastHasScanManifest}`,
+  );
   console.log(`${COACH_RENDER_LOG} render=${snapshot.renderBranch}`);
   if (snapshot.blankReason) {
     console.log(`${COACH_RENDER_LOG} blankBecause=${snapshot.blankReason}`);
   }
+}
+
+/** True when the scroll body would paint zero visible nodes (header/input excluded). */
+export function coachScrollBodyWouldBeBlank(input: {
+  messages: CoachRenderMessageSlice[];
+  showQuickPrompts: boolean;
+  footerParlayProgress: boolean;
+  lastDisplayPicksCount: number;
+  lastHasScanManifest: boolean;
+  isWelcome: (m: CoachRenderMessageSlice) => boolean;
+}): { blank: boolean; reason?: string } {
+  const {
+    messages,
+    showQuickPrompts,
+    footerParlayProgress,
+    lastDisplayPicksCount,
+    lastHasScanManifest,
+    isWelcome,
+  } = input;
+
+  if (showQuickPrompts || footerParlayProgress) {
+    return { blank: false };
+  }
+
+  const visible = messages.filter(
+    (m) => !(isWelcome(m) && messages.some((x) => x.role === "user")),
+  );
+  if (!visible.length) {
+    return {
+      blank: true,
+      reason: "no visible messages after welcome filter and quick prompts suppressed",
+    };
+  }
+
+  const anyBubble = visible.some((m) => {
+    if (m.hideBubble) return false;
+    if (m.role === "user") return (m.content?.trim().length ?? 0) > 0;
+    return (
+      (m.content?.trim().length ?? 0) > 0 || m.hasLegNote || m.hasCoachDetailNote
+    );
+  });
+  if (anyBubble) return { blank: false };
+
+  if (lastDisplayPicksCount > 0 || lastHasScanManifest) {
+    return { blank: false };
+  }
+
+  const last = visible[visible.length - 1]!;
+  const rawPicks = last.picksCount ?? 0;
+  if (rawPicks > 0 && lastDisplayPicksCount === 0) {
+    return {
+      blank: true,
+      reason: `assistant has ${rawPicks} raw pick(s) but filterCoachDeliveredPicks/coerceCoachDisplayPicks rendered 0 — showTicketHeader=false, progress blocked by hasPicks guard`,
+    };
+  }
+
+  return {
+    blank: true,
+    reason: "quick prompts suppressed and no message bubble, progress, picks, or manifest paints",
+  };
 }
 
 /** Derive which UI branch should paint the scroll body. */
@@ -130,7 +197,9 @@ export function resolveCoachRenderBranch(input: {
   const hasText = (last.content?.trim().length ?? 0) > 0;
   const parlayIntent = !!last.parlayBuild;
 
-  if (hasPicks) return { branch: "Results" };
+  if (hasPicks) {
+    return { branch: "Results.rawPicksOnMessage" };
+  }
   if (hasManifest) return { branch: "Results.manifestOnly" };
 
   const progressLikely =
