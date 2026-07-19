@@ -7,6 +7,7 @@ import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealO
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import {
   emitCoachLiveBoardSummary,
+  recordCoachLiveBoardDeduped,
   recordCoachLiveBoardConfidencePassed,
   recordCoachLiveBoardCorrelationPassed,
   recordCoachLiveBoardDelivered,
@@ -16,6 +17,7 @@ import {
   recordCoachLiveBoardPriced,
   recordCoachLiveBoardSimulated,
   recordCoachLiveBoardValidated,
+  recordCoachLiveBoardExitReason,
 } from "./coachLiveBoardTrace.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
@@ -704,6 +706,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       },
       onPropBatch: (size, timedOut) => {
         manifestRecorder.recordPropSimBatch(size, timedOut);
+        if (timedOut) {
+          recordCoachLiveBoardSimulated(
+            manifestRecorder.propsSimulated + manifestRecorder.gameLinesSimulated,
+            { timeouts: 1 },
+          );
+        }
       },
       manifestRecorder,
     },
@@ -717,6 +725,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   recordCoachLiveBoardEvScored(scored);
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+  recordCoachLiveBoardDeduped(collapsed.length);
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   recordCoachLiveBoardSimulated(
     manifestRecorder.propsSimulated + manifestRecorder.gameLinesSimulated,
@@ -804,6 +813,7 @@ export async function tryReachFullBoardScan(
     return result;
   } catch (e) {
     recordCoachLiveBoardError(e instanceof Error ? e.message : String(e));
+    recordCoachLiveBoardExitReason("scan_exception");
     emitCoachLiveBoardSummary("scan-exception");
     return null;
   }

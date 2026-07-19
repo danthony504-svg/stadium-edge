@@ -91,6 +91,7 @@ export async function fetchCoachLiveBoardFeeds(
     games: liveFeed.games?.length ?? 0,
     props: liveFeed.odds?.length ?? 0,
     error: liveRes.error,
+    optional: true,
   });
 
   const espnGames = espnResults.flat();

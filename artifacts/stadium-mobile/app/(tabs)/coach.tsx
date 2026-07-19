@@ -172,7 +172,6 @@ import {
 } from "@/lib/coachParlayLifecycle";
 import {
   beginCoachLiveBoardTrace,
-  emitCoachLiveBoardSummary,
   resetCoachLiveBoardTrace,
 } from "@/lib/coachLiveBoardTrace";
 import { fetchCoachLiveBoardFeeds } from "@/lib/coachLiveBoardFeeds";
@@ -5370,15 +5369,6 @@ export default function CoachScreen() {
             (emittedPickLines > 0
               ? "_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._"
               : "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._");
-          if (
-            picks.length === 0 &&
-            (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild) &&
-            !hasManifestReply
-          ) {
-            emitCoachLiveBoardSummary(
-              emittedPickLines > 0 ? "ungrounded-model-picks" : "live-board-empty-ticket",
-            );
-          }
           finalContent = note.trim();
         }
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a

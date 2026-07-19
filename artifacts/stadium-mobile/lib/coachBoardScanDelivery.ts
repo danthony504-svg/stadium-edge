@@ -38,6 +38,7 @@ import { tagTicketRoles } from "./ticketStaging.ts";
 import {
   emitCoachLiveBoardSummary,
   recordCoachLiveBoardDelivered,
+  recordCoachLiveBoardExitReason,
 } from "./coachLiveBoardTrace.ts";
 
 export type CoachBoardScanDelivery = {
@@ -103,6 +104,8 @@ export function deliverCoachBoardScanTicket(
       };
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {
+    recordCoachLiveBoardExitReason("timeout");
+    emitCoachLiveBoardSummary("scan-incomplete");
     return {
       picks: [],
       manifest,
@@ -127,6 +130,8 @@ export function deliverCoachBoardScanTicket(
     });
     stagedPicks = restaged.picks;
   } else if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
+    recordCoachLiveBoardExitReason("delivery_guard");
+    emitCoachLiveBoardSummary("scan-leg-target-mismatch");
     return {
       picks: [],
       manifest: {
@@ -168,7 +173,11 @@ export function deliverCoachBoardScanTicket(
     traceScoredPoolPipeline(scoredPool, pipeline);
   }
 
+  const stagedBeforeDelivery = tieredPicks.length;
   let picks = deliverTaggedPicks(tieredPicks, enrich, pipeline);
+  if (stagedBeforeDelivery > 0 && picks.length === 0) {
+    recordCoachLiveBoardExitReason("delivery_guard");
+  }
 
   if (legTarget > 0 && picks.length < legTarget && scoredPool.length) {
     const salvage = salvageCoachDelivery({
@@ -282,6 +291,11 @@ export function deliverCoachBoardScanTicket(
 
   recordCoachLiveBoardDelivered(picks.length);
   if (picks.length === 0) {
+    if (positiveEdgePool === 0 && scoredPool.length > 0) {
+      recordCoachLiveBoardExitReason("ev_filter");
+    } else if ((manifest.totalQualified ?? 0) === 0 && scoredPool.length > 0) {
+      recordCoachLiveBoardExitReason("confidence_filter");
+    }
     emitCoachLiveBoardSummary("delivery-zero-picks");
   }
 
