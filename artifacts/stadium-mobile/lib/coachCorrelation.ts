@@ -14,6 +14,9 @@ import {
   buildCoachCorrelationTrace,
   logCoachCorrelationTrace,
 } from "./coachCorrelationTrace.ts";
+import {
+  withCoachPipelineStage,
+} from "./coachPipelineRunTrace.ts";
 
 export const COACH_CORRELATION_TIMEOUT_MS = 10_000;
 const STORAGE_KEY = "coach_correlation_v1";
@@ -332,12 +335,24 @@ async function runCoachCorrelationFetch(input: CoachCorrelationInput): Promise<C
   void persistCoachCorrelation(loading);
 
   try {
-    const result = await Promise.race([
-      runCoachCorrelationCore(input),
-      new Promise<CoachCorrelationResult>((_, reject) => {
-        setTimeout(() => reject(new Error("coach-correlation-timeout")), correlationTimeoutMs);
-      }),
-    ]);
+    const result = await withCoachPipelineStage(
+      requestId,
+      0,
+      "correlation",
+      input.scored.length,
+      () =>
+        Promise.race([
+          runCoachCorrelationCore(input),
+          new Promise<CoachCorrelationResult>((_, reject) => {
+            setTimeout(() => reject(new Error("coach-correlation-timeout")), correlationTimeoutMs);
+          }),
+        ]),
+      {
+        timeoutMs: correlationTimeoutMs,
+        candidatesOut: (r) => r.picks.length,
+        blockingAwait: "fetchCoachCorrelationForBuild",
+      },
+    );
     void persistCoachCorrelation(result.record);
     return result;
   } catch (err: unknown) {

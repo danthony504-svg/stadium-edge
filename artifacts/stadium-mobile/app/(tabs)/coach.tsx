@@ -177,6 +177,8 @@ import {
 } from "@/lib/coachLiveBoardTrace";
 import { fetchCoachLiveBoardFeeds } from "@/lib/coachLiveBoardFeeds";
 import {
+  boardScanAppliesToRequest,
+  coachRequestIsActive,
   finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
   rejectPrefixOfLastDelivered,
@@ -184,6 +186,11 @@ import {
   varietyContextWithLastDelivered,
   type CoachTicketRequestContext,
 } from "@/lib/coachRequestLifecycle";
+import {
+  finishCoachPipelineRun,
+  logCoachPipelineRunSummary,
+  supersedeCoachPipelineRun,
+} from "@/lib/coachPipelineRunTrace";
 import {
   beginCoachFinalizeRequest,
   clearPersistedCoachFinalize,
@@ -1382,24 +1389,32 @@ export default function CoachScreen() {
     return parlayBuildActiveRef.current;
   }, []);
 
-  const startParlayBuildLifecycle = useCallback((requestId: string) => {
+  const startParlayBuildLifecycle = useCallback((requestId: string, sendGeneration: number) => {
     parlayBuildActiveRef.current = true;
     setParlayBuildActive(true);
     parlayBuildCompletingRef.current = false;
     resetCoachLiveBoardTrace();
     beginCoachLiveBoardTrace(requestId);
+    supersedeCoachPipelineRun(requestId, sendGeneration);
     coachLifecycleRequestStart(requestId);
     logBuildStarted(requestId);
   }, []);
 
   const bindBoardScanRace = useCallback(
     async <T,>(scanPromise: Promise<T | null>, budgetMs: number): Promise<T | null> => {
+      const bindGen = sendGenerationRef.current;
+      const bindRequestId = coachRequestContextRef.current?.requestId ?? "—";
       const { timedResult, awaitCompletion } = await raceBoardScanWithBudget(scanPromise, budgetMs, {
-        requestId: coachRequestContextRef.current?.requestId,
+        requestId: bindRequestId,
+        sendGeneration: bindGen,
         onInFlightChange: setBoardScanInFlightState,
       });
-      pendingBoardScanCompletionsRef.current.push(() => awaitCompletion());
+      pendingBoardScanCompletionsRef.current.push(async () => {
+        if (sendGenerationRef.current !== bindGen) return null;
+        return awaitCompletion();
+      });
       if (timedResult != null) return timedResult;
+      if (sendGenerationRef.current !== bindGen) return null;
       return awaitCompletion();
     },
     [setBoardScanInFlightState],
@@ -1468,10 +1483,17 @@ export default function CoachScreen() {
       }
       clearParlayBuildUiFlags();
       abortRef.current = null;
-      logBuildFinished(coachRequestContextRef.current?.requestId, {
+      const requestId = coachRequestContextRef.current?.requestId;
+      logBuildFinished(requestId, {
         scanComplete: boardScanIsComplete(latestBoardScanRef.current),
         stagedLegs: latestBoardScanRef.current?.picks?.length ?? 0,
       });
+      if (requestId) {
+        logCoachPipelineRunSummary(requestId);
+        finishCoachPipelineRun(requestId, {
+          success: boardScanIsComplete(latestBoardScanRef.current),
+        });
+      }
     },
     [awaitPendingBoardScans, clearBuildStallWatchdog, clearParlayBuildUiFlags],
   );
@@ -1675,6 +1697,18 @@ export default function CoachScreen() {
       const ctx = coachRequestContextRef.current;
       const requestId = ctx?.requestId ?? scan.requestId ?? varietySeedRef.current;
       if (!requestId) return false;
+      if (
+        ctx &&
+        !coachRequestIsActive(
+          requestId,
+          ctx.sendGeneration,
+          ctx.requestId,
+          sendGenerationRef.current,
+        )
+      ) {
+        return false;
+      }
+      if (scan.requestId && ctx?.requestId && scan.requestId !== ctx.requestId) return false;
       const legTarget =
         opts?.legTarget ??
         (activeRequestLegTargetRef.current ||
@@ -2159,12 +2193,13 @@ export default function CoachScreen() {
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
       if (
+        !ctx ||
         !boardScanAppliesToRequest(
           partial,
           legTarget,
-          ctx?.sendGeneration ?? sendGenerationRef.current,
+          ctx.sendGeneration,
           sendGenerationRef.current,
-          ctx?.requestId,
+          ctx.requestId,
         )
       ) {
         traceCoachTicket("board-scan-staged", {
@@ -2174,6 +2209,7 @@ export default function CoachScreen() {
           source: "partial-rejected-stale",
           extra: {
             requestId: ctx?.requestId,
+            scanRequestId: partial.requestId,
             previousRequestId: ctx?.previousRequestId,
             sendGen: sendGenerationRef.current,
             expectedSendGen: ctx?.sendGeneration,
@@ -2346,6 +2382,12 @@ export default function CoachScreen() {
 
       const sendGen = ++sendGenerationRef.current;
       autoScrollRef.current = true;
+
+      const priorPending = pendingBoardScanCompletionsRef.current.splice(0);
+      if (priorPending.length) {
+        await Promise.allSettled(priorPending.map((fn) => fn()));
+      }
+
       boardTicketSnapshotRef.current = null;
       latestBoardScanRef.current = null;
       earlyReachBoardScanRef.current = null;
@@ -2519,7 +2561,7 @@ export default function CoachScreen() {
         activeParlayAskRef.current = trimmed;
         setCoachBuildBusy(true);
         setBuildFinishing(true);
-        startParlayBuildLifecycle(varietySeed);
+        startParlayBuildLifecycle(varietySeed, sendGen);
         setParlayBuildPhase(openingPicks?.length ? "stream" : "context");
         armBuildProgressWatchdog(earlyLegTarget);
         armBuildStallWatchdog(sendGen, trimmed);
@@ -6224,6 +6266,16 @@ export default function CoachScreen() {
 
     const tryTimeoutFinalize = async () => {
       if (cancelled) return;
+      if (
+        !coachRequestIsActive(
+          ctx.requestId,
+          ctx.sendGeneration,
+          coachRequestContextRef.current?.requestId,
+          sendGenerationRef.current,
+        )
+      ) {
+        return;
+      }
       const latest = getCoachFinalizeRecord(ctx.requestId);
       if (!latest || latest.correlationCompleteAt || coachFinalizeIsTerminal(latest)) return;
       if (coachFinalizeRetryRef.current) return;
@@ -6645,11 +6697,13 @@ export default function CoachScreen() {
       effectiveBuildLegCount(activeParlayAskRef.current);
     const ctx = coachRequestContextRef.current;
     if (
+      !ctx ||
       !boardScanAppliesToRequest(
         partial,
         legTarget,
-        ctx?.sendGeneration ?? sendGenerationRef.current,
+        ctx.sendGeneration,
         sendGenerationRef.current,
+        ctx.requestId,
       )
     ) {
       return;
@@ -6671,11 +6725,13 @@ export default function CoachScreen() {
       const partialRetry = latestBoardScanRef.current;
       if (!partialRetry?.picks?.length) return;
       if (
+        !ctx ||
         !boardScanAppliesToRequest(
           partialRetry,
           legTarget,
-          ctx?.sendGeneration ?? sendGenerationRef.current,
+          ctx.sendGeneration,
           sendGenerationRef.current,
+          ctx.requestId,
         )
       ) {
         return;

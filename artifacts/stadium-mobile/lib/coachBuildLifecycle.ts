@@ -5,6 +5,11 @@ import {
   coachLifecycleBoardScanStart,
 } from "./coachParlayLifecycle.ts";
 import { recordCoachLiveBoardScanBudgetExpired } from "./coachLiveBoardTrace.ts";
+import {
+  beginCoachPipelineStage,
+  endCoachPipelineStage,
+  traceCoachPipelineAwait,
+} from "./coachPipelineRunTrace.ts";
 
 export const COACH_BUILD_TIMING_LOG = "[coach-build-timing]";
 
@@ -68,17 +73,35 @@ export async function raceBoardScanWithBudget<T>(
   budgetMs: number,
   opts?: {
     requestId?: string;
+    sendGeneration?: number;
     onInFlightChange?: (inFlight: boolean) => void;
   },
 ): Promise<BoardScanRaceResult<T | null>> {
-  logBoardScanStarted(opts?.requestId);
-  coachLifecycleBoardScanStart(opts?.requestId);
+  const requestId = opts?.requestId ?? "—";
+  const sendGeneration = opts?.sendGeneration ?? 0;
+  logBoardScanStarted(requestId);
+  coachLifecycleBoardScanStart(requestId);
   opts?.onInFlightChange?.(true);
+
+  const stageHandle = beginCoachPipelineStage(
+    requestId,
+    sendGeneration,
+    "board-scan-sim",
+    null,
+  );
 
   const completion = scanPromise
     .catch(() => null as T | null)
+    .then((result) => {
+      const picks = (result as { picks?: { length: number } } | null)?.picks?.length;
+      endCoachPipelineStage(stageHandle, {
+        success: result != null,
+        candidatesOut: picks ?? null,
+      });
+      return result;
+    })
     .finally(() => {
-      logBoardScanFinished(opts?.requestId);
+      logBoardScanFinished(requestId);
       opts?.onInFlightChange?.(false);
     });
 
@@ -94,10 +117,17 @@ export async function raceBoardScanWithBudget<T>(
   return {
     timedResult: timedResult as T | null,
     awaitCompletion: async () => {
-      const full = await completion;
+      const full = await traceCoachPipelineAwait(
+        requestId,
+        sendGeneration,
+        "await-pending-scans",
+        null,
+        completion,
+        { blockingAwait: "board-scan-completion" },
+      );
       coachLifecycleBoardScanEnd(
         full as { scanComplete?: boolean } | null,
-        opts?.requestId,
+        requestId,
       );
       return full;
     },

@@ -114,6 +114,24 @@ test("boardScanAppliesToRequest rejects stale requestId", () => {
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-15"), true);
 });
 
+test("boardScanAppliesToRequest rejects when active context is missing", () => {
+  const scan = {
+    picks: { length: 4 },
+    requestedLegs: 4,
+    requestId: "req-4",
+  };
+  assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, null), false);
+  assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, undefined), false);
+});
+
+test("boardScanAppliesToRequest rejects scan without requestId", () => {
+  const scan = {
+    picks: { length: 4 },
+    requestedLegs: 4,
+  };
+  assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-4"), false);
+});
+
 test("finalizeCoachTicketForRequest rejects prefix then accepts independent ticket", () => {
   clearParlayVarietyMemory();
   const scored = wnbaBoard();

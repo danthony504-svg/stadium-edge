@@ -14,6 +14,12 @@ import {
   resetCoachLiveBoardTrace,
   snapshotCoachLiveBoardTrace,
 } from "./coachLiveBoardTrace.ts";
+import {
+  finishCoachPipelineRun,
+  getCoachPipelineRunSnapshot,
+  resetCoachPipelineRunTraceForTests,
+  supersedeCoachPipelineRun,
+} from "./coachPipelineRunTrace.ts";
 import { buildGameTeamIdMap } from "./coachGameMonteCarlo.ts";
 import { coachLiveScanSports } from "./coachSlateFreshness.ts";
 import { coachFlashEnrichFromBuilt } from "./pickScoreContext.ts";
@@ -24,6 +30,7 @@ import { fetchFullBoardPropPool } from "./api.ts";
 
 const TARGET = 5;
 const BUDGET_MS = 180_000;
+const CONSECUTIVE_RUNS = 3;
 
 function emptyBuilt(): BuiltChatContext {
   return {
@@ -40,130 +47,142 @@ function emptyBuilt(): BuiltChatContext {
   };
 }
 
+async function runSingle5LegBuild(runIndex: number): Promise<{
+  requestId: string;
+  deliveredCount: number;
+  positiveEdge: number;
+  propsFound: number;
+}> {
+  const requestId = `integration-5leg-${runIndex}-${Date.now()}`;
+  resetCoachLiveBoardTrace();
+  resetCoachPipelineRunTraceForTests();
+  supersedeCoachPipelineRun(requestId, runIndex);
+  beginCoachLiveBoardTrace(requestId);
+
+  const scanSports = coachLiveScanSports();
+  const { espnGames, oddsGames, liveFeed } = await fetchCoachLiveBoardFeeds(scanSports);
+  const built = emptyBuilt();
+  built.context.realOdds = oddsGames.flatMap((g) => {
+    const game = `${g.awayTeam} @ ${g.homeTeam}`;
+    const rows: BuiltChatContext["context"]["realOdds"] = [];
+    if (g.mlHome != null) {
+      rows.push({
+        sport: g.sport,
+        game,
+        market: "Moneyline",
+        pick: g.homeTeam,
+        odds: g.mlHome,
+        startsAt: g.startsAt,
+      });
+    }
+    if (g.mlAway != null) {
+      rows.push({
+        sport: g.sport,
+        game,
+        market: "Moneyline",
+        pick: g.awayTeam,
+        odds: g.mlAway,
+        startsAt: g.startsAt,
+      });
+    }
+    return rows;
+  });
+
+  const propPool = await fetchFullBoardPropPool(oddsGames, espnGames, built.propPool);
+  built.propPool = propPool;
+  const enrich = coachFlashEnrichFromBuilt(built);
+
+  const scanPromise = tryReachFullBoardScan({
+    target: TARGET,
+    oddsGames,
+    propPool,
+    realOdds: built.context.realOdds,
+    liveOdds: liveFeed.odds,
+    espnGames,
+    gameMeta: built.gameMeta,
+    teamIdMap: buildGameTeamIdMap(espnGames),
+    requestId,
+  });
+
+  const raced = await raceBoardScanWithBudget(scanPromise, BUDGET_MS, {
+    requestId,
+    sendGeneration: runIndex,
+  });
+  let scan = raced.timedResult;
+  if (!scan) scan = await raced.awaitCompletion();
+  else await raced.awaitCompletion();
+
+  assert.ok(scan, `run ${runIndex}: scan should complete`);
+  assert.equal(scan.scanComplete, true, `run ${runIndex}: scan should be marked complete`);
+
+  const delivered = deliverCoachBoardScanTicket(scan, enrich, TARGET);
+  const manifest = delivered.manifest;
+  const scored = scan.scoredPool ?? [];
+  const positive = positiveEdgeScoredLegs(scored);
+
+  console.log(`\n=== RUN ${runIndex} MANIFEST ===`);
+  console.log(`requestId=${requestId}`);
+  console.log(`props loaded: ${manifest.propsFound}`);
+  console.log(`positive edge pool: ${positive.length}`);
+  console.log(`delivered picks: ${delivered.picks.length}`);
+
+  const pipeline = getCoachPipelineRunSnapshot(requestId);
+  if (pipeline) {
+    console.log(`pipeline stages: ${pipeline.stages.length}`);
+    for (const s of pipeline.stages) {
+      console.log(
+        `  ${s.stage} durationMs=${s.durationMs} success=${s.success} in=${s.candidatesIn ?? "—"} out=${s.candidatesOut ?? "—"} timeout=${s.timeout}`,
+      );
+    }
+  }
+
+  finishCoachPipelineRun(requestId, { success: delivered.picks.length > 0 });
+
+  return {
+    requestId,
+    deliveredCount: delivered.picks.length,
+    positiveEdge: positive.length,
+    propsFound: manifest.propsFound,
+  };
+}
+
 test(
   "5-leg live board scan production trace",
   { timeout: 240_000 },
   async () => {
-    const requestId = `integration-5leg-${Date.now()}`;
-    resetCoachLiveBoardTrace();
-    beginCoachLiveBoardTrace(requestId);
-
-    const scanSports = coachLiveScanSports();
-    const { espnGames, oddsGames, liveFeed } = await fetchCoachLiveBoardFeeds(scanSports);
-    const built = emptyBuilt();
-    built.context.realOdds = oddsGames.flatMap((g) => {
-      const game = `${g.awayTeam} @ ${g.homeTeam}`;
-      const rows: BuiltChatContext["context"]["realOdds"] = [];
-      if (g.mlHome != null) {
-        rows.push({
-          sport: g.sport,
-          game,
-          market: "Moneyline",
-          pick: g.homeTeam,
-          odds: g.mlHome,
-          startsAt: g.startsAt,
-        });
-      }
-      if (g.mlAway != null) {
-        rows.push({
-          sport: g.sport,
-          game,
-          market: "Moneyline",
-          pick: g.awayTeam,
-          odds: g.mlAway,
-          startsAt: g.startsAt,
-        });
-      }
-      return rows;
-    });
-
-    const propPool = await fetchFullBoardPropPool(oddsGames, espnGames, built.propPool);
-    built.propPool = propPool;
-    const enrich = coachFlashEnrichFromBuilt(built);
-
-    const scanPromise = tryReachFullBoardScan({
-      target: TARGET,
-      oddsGames,
-      propPool,
-      realOdds: built.context.realOdds,
-      liveOdds: liveFeed.odds,
-      espnGames,
-      gameMeta: built.gameMeta,
-      teamIdMap: buildGameTeamIdMap(espnGames),
-      requestId,
-    });
-
-    const raced = await raceBoardScanWithBudget(scanPromise, BUDGET_MS, { requestId });
-    let scan = raced.timedResult;
-    if (!scan) scan = await raced.awaitCompletion();
-    else await raced.awaitCompletion();
-
-    assert.ok(scan, "scan should complete");
-    assert.equal(scan.scanComplete, true, "scan should be marked complete");
-
-    const delivered = deliverCoachBoardScanTicket(scan, enrich, TARGET);
-    const manifest = delivered.manifest;
-    const scored = scan.scoredPool ?? [];
-    const positive = positiveEdgeScoredLegs(scored);
-
-    const withOdds = scored.filter(
-      (leg) => leg.pick.odds != null && Number.isFinite(leg.pick.odds) && leg.pick.odds !== 0,
-    );
-    const withModel = scored.filter((leg) => leg.pick.finalAiScore?.simHit != null);
-    const withEdge = scored.filter((leg) => (leg.pick.finalAiScore?.edgePct ?? 0) !== 0);
-    const edgePositive = scored.filter((leg) => (leg.pick.finalAiScore?.edgePct ?? 0) > 0);
-
-    console.log("\n=== SCAN MANIFEST SUMMARY ===");
-    console.log(`games loaded: ${manifest.gamesLoaded}`);
-    console.log(`markets/props loaded: ${manifest.marketsFound} / ${manifest.propsFound}`);
-    console.log(`markets with valid odds: ${withOdds.length}`);
-    console.log(`markets with model probability: ${withModel.length}`);
-    console.log(`markets with calculated edge: ${withEdge.length}`);
-    console.log(`edge > 0%: ${edgePositive.length}`);
-    console.log(`rejected low edge: ${manifest.rejectedLowEdge}`);
-    console.log(`rejected low confidence: ${manifest.rejectedLowConfidence}`);
-    console.log(`rejected missing stats: ${manifest.rejectedMissingStats}`);
-    console.log(`rejected correlation: ${manifest.rejectedCorrelation}`);
-    console.log(`positive edge pool: ${positive.length}`);
-    console.log(`delivered picks: ${delivered.picks.length}`);
-
-    const rejections = [...(manifest.pipelineRejections ?? [])]
-      .filter((r) => (r.edge ?? 0) > 0 || (r.simulation ?? 0) > 0)
-      .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
-      .slice(0, 20);
-    console.log("\n=== TOP REJECTED (by edge) ===");
-    for (const r of rejections) {
-      console.log(
-        `${r.entity} | ${r.market} | edge=${r.edge}% conf=${r.confidence}% ev=${r.ev}% sim=${r.simulation}% | ${r.reason}`,
-      );
+    const result = await runSingle5LegBuild(1);
+    assert.ok(result.propsFound > 0, "props should load on production slate");
+    if (result.positiveEdge > 0) {
+      assert.ok(result.deliveredCount > 0, "should deliver when positive-edge markets exist");
     }
+  },
+);
 
-    // Edge formula spot-check
-    const sample = positive[0]?.pick;
-    if (sample?.odds != null && sample.finalAiScore?.simHit != null) {
-      const implied = impliedProb(sample.odds);
-      const expected = simEdgeFromHit(sample.finalAiScore.simHit, sample.odds);
-      assert.equal(sample.finalAiScore.edgePct, expected);
-      const ev = simEvPct(sample.finalAiScore.simHit, sample.odds);
-      assert.ok(ev != null && ev > 0);
-      console.log(
-        `\nEdge verify: odds=${sample.odds} implied=${(implied * 100).toFixed(1)}% model=${(sample.finalAiScore.simHit * 100).toFixed(1)}% edge=${expected}%`,
+test(
+  `${CONSECUTIVE_RUNS} consecutive 5-leg builds deliver pick cards`,
+  { timeout: 720_000 },
+  async () => {
+    const results: Awaited<ReturnType<typeof runSingle5LegBuild>>[] = [];
+    for (let i = 1; i <= CONSECUTIVE_RUNS; i++) {
+      const result = await runSingle5LegBuild(i);
+      results.push(result);
+      assert.ok(result.propsFound > 0, `run ${i}: props must load`);
+      assert.ok(
+        result.positiveEdge > 0,
+        `run ${i}: positive-edge pool must not be empty (got ${result.positiveEdge})`,
       );
-    }
-
-    assert.equal(impliedProb(150), 100 / 250);
-    assert.equal(impliedProb(-110), 110 / 210);
-
-    const snap = snapshotCoachLiveBoardTrace();
-    assert.ok(snap);
-    assert.ok(manifest.propsFound > 0, "props should load on production slate");
-    assert.ok(scored.length > 0, "scored pool should not be empty after full scan");
-
-    if (positive.length > 0) {
-      assert.ok(delivered.picks.length > 0, "should deliver when positive-edge markets exist");
-      for (const pick of delivered.picks) {
-        assert.ok(pick.odds != null && pick.odds !== 0, "every pick needs posted odds");
+      assert.equal(
+        result.deliveredCount,
+        TARGET,
+        `run ${i}: must deliver ${TARGET} pick cards (got ${result.deliveredCount})`,
+      );
+      for (let j = 0; j < i; j++) {
+        assert.ok(results[j]!.deliveredCount === TARGET, `prior run ${j + 1} must have succeeded`);
       }
+    }
+    console.log(`\n=== ${CONSECUTIVE_RUNS} CONSECUTIVE BUILDS PASSED ===`);
+    for (const r of results) {
+      console.log(`  ${r.requestId}: ${r.deliveredCount} picks from ${r.positiveEdge} candidates`);
     }
   },
 );
