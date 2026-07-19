@@ -1,6 +1,6 @@
 // Coach ticket kernel v2 — invariants only (horizon + dedupe). No re-gating staged legs.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { stripFillerBackfillPicks, isFillerBackfillPick } from "./coachScanPolicy.ts";
 import { coachPickIsDelivered } from "./coachDeliveredPickAnalysis.ts";
 import {

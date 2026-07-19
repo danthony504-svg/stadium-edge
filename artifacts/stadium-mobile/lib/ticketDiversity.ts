@@ -1,7 +1,7 @@
 // Keep multi-leg Coach tickets from repeating the same chalk game lines when
 // thousands of props and alt rungs are on the board.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import {
   backfillPicks,
   backfillProps,

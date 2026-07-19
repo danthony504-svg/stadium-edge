@@ -1,6 +1,6 @@
 // Tiered fallback ladder for fixed-leg Coach tickets — Tier 1 strict, Tier 2 alts, Tier 3 medium.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { isAltBoardPick, isAltPropPick } from "./altLinePool.ts";
 import { impliedProb } from "./format.ts";

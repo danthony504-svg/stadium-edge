@@ -1,6 +1,6 @@
 // Shared Game Simulator quality gates — Best Lines, recommendation tiers, Coach filter.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { RealOddsEntry } from "./api.ts";
 import { americanToDecimal, decimalToAmerican, impliedProb } from "./format.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";

@@ -2,7 +2,7 @@
 // Each factor is scored 0–10; weights renormalize over present signals only, and the
 // final rank penalizes missing context (partial weight sum).
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { PropHolisticScore } from "./propHolisticRecommendation.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 

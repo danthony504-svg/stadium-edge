@@ -9,7 +9,7 @@ import { applyCoachTicketFallbackLadder } from "./coachTicketFallbackLadder.ts";
 import { finalizeBoardBuiltCoachTicket, pickGradeDisplayLabel, NOT_AI_RECOMMENDED } from "./pickRecommendation.ts";
 import { buildCoachCardHolistic } from "./propHolisticRecommendation.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 
 const bTierScore = {
   composite: 6,

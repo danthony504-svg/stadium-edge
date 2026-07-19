@@ -1,6 +1,6 @@
 // Independent high-quality parlay tickets — many candidates, diversity-aware selection.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import {
   BALANCED_BACKFILL_ORDER,
   balancedMixSlots,

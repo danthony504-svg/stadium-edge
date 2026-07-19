@@ -1,6 +1,6 @@
 // Coach post-score pipeline tracing — stage counts + per-market rejection reasons.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { BoardLegGateCode } from "./boardLegQualification.ts";
 import { explainBoardLegQualification, pickLabelForManifest } from "./boardLegQualification.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";

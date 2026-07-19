@@ -1,6 +1,6 @@
 // Coach delivery salvage — fill to target from scored pool; never stop after first tier.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { tagCoachDeliveryTier } from "./coachDeliveredPickAnalysis.ts";
 import {
   applyCoachTicketFallbackLadder,

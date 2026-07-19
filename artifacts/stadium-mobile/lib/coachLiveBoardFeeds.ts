@@ -1,4 +1,4 @@
-import { fetch as expoFetch } from "expo/fetch";
+import { fetch as expoFetch } from "expo/fetch.js";
 import { API_BASE } from "./apiBase.ts";
 import type { EspnGame, LiveOddsFeed, OddsGame } from "./api.ts";
 import {

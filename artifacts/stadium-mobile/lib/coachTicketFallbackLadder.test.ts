@@ -8,7 +8,7 @@ import {
 } from "./coachTicketFallbackLadder.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 
 const mainScore = {
   composite: 8,

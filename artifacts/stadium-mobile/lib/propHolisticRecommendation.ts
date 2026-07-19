@@ -4,7 +4,7 @@
 // Carlo simulation. Missing contextual data reduces confidence instead of being
 // silently renormalized away.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { PickSubScores } from "./pickScore.ts";
 import {
   scoreInjury,

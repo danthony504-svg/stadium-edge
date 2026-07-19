@@ -1,6 +1,6 @@
 // Progressive board prop sim — prescore entire pool, run MC on every candidate.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";

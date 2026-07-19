@@ -2,7 +2,7 @@
 // score (EV/sim/matchup/form/injury/line-move/market-efficiency), top N.
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import {

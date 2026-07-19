@@ -2,7 +2,7 @@
 // resolution, etc.), grade props from the same ESPN game logs the stats UI uses.
 // Mirrors simulatorLocalSim — real history only, never fabricated.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { PropPoolEntry } from "./api.ts";
 import { getPlayerHistory, searchPlayer } from "./api.ts";
 import { pickPlayerSearchResult } from "./playerSearchPick.ts";

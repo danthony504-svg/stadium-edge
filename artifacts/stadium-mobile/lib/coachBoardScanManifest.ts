@@ -1,6 +1,6 @@
 // Full-board scan manifest — proves every market family was discovered, simulated, and gated.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { BoardMarketCategory } from "./balancedTicketMix.ts";
 import { boardMarketCategory } from "./boardMarketPools.ts";
 import {

@@ -3,9 +3,9 @@ import {
   stealFeedFullUrl,
   stealFeedPath,
   type StealFeedClientLog,
-} from "./stealFeedClient";
-import { logStealScanLifecycle } from "./stealScanLifecycle";
-import { fetch as expoFetch } from "expo/fetch";
+} from "./stealFeedClient.ts";
+import { logStealScanLifecycle } from "./stealScanLifecycle.ts";
+import { fetch as expoFetch } from "expo/fetch.js";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
 import {

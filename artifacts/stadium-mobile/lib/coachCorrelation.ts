@@ -1,6 +1,6 @@
 // Coach parlay correlation lifecycle — requestId-scoped, non-blocking, 8–10s hard timeout.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   buildStagedTicketFromScan,

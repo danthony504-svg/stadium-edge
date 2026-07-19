@@ -1,7 +1,7 @@
 // Temporary ticket-path tracing — remove after prefix/slice bug is verified fixed in prod.
 
 import { parlayLegKey } from "./parlayVarietyMemory.ts";
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 
 export const COACH_TICKET_TRACE = true;

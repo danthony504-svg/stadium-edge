@@ -1,6 +1,6 @@
 // Board leg qualification diagnostics — mirrors staging gates with explicit failure reasons.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   COACH_SIM_MIN_CONFIDENCE,

@@ -1369,7 +1369,8 @@ export default function CoachScreen() {
         onInFlightChange: setBoardScanInFlightState,
       });
       pendingBoardScanCompletionsRef.current.push(() => awaitCompletion());
-      return timedResult;
+      if (timedResult != null) return timedResult;
+      return awaitCompletion();
     },
     [setBoardScanInFlightState],
   );

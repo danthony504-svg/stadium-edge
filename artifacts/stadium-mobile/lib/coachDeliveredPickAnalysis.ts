@@ -1,7 +1,7 @@
 // Coach delivered-pick analysis — preserve full scored objects for card rendering.
 // Fallback selection relaxes eligibility; display must keep the complete analysis model.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   buildCoachCardHolistic,

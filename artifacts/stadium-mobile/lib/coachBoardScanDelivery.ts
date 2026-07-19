@@ -1,6 +1,6 @@
 // Single Coach board-scan delivery pipeline — tier fill to target from scored pool.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import {
   boardScanIsComplete,

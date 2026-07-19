@@ -1,6 +1,6 @@
 // Step 2: fill with highest-rated mains. Step 3: qualifying alts to reach N.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { isAltBoardPick, isAltPropPick, isMainBoardPick, ticketRoleForPick } from "./altLinePool.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
