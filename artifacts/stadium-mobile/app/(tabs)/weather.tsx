@@ -17,6 +17,7 @@ import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getGames, getParkWeather, type EspnGame, type ParkWeatherReport } from "@/lib/api";
+import { mlbTeamLogoUrl } from "@/lib/mlbTeamLogo";
 import {
   conditionIconName,
   gameWeatherEffects,
@@ -306,33 +307,41 @@ function TabPill({ label, active, onPress }: { label: string; active: boolean; o
   );
 }
 
-function MatchupLogo({ uri, abbr }: { uri?: string | null; abbr: string }) {
+const LOGO_SIZE = 26;
+const LOGO_TEXT_GAP = 9;
+
+function MatchupLogo({ uri, abbr }: { uri: string; abbr: string }) {
   const colors = useColors();
-  if (uri) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+
+  if (!uri || failed) {
     return (
-      <Image
-        source={{ uri }}
-        style={{ width: 22, height: 22 }}
-        contentFit="contain"
-        transition={150}
-      />
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.bold,
+          fontSize: 11,
+          minWidth: LOGO_SIZE,
+          textAlign: "center",
+        }}
+      >
+        {abbr}
+      </Text>
     );
   }
+
   return (
-    <View
-      style={{
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 8 }}>{abbr}</Text>
-    </View>
+    <Image
+      source={{ uri }}
+      style={{ width: LOGO_SIZE, height: LOGO_SIZE }}
+      contentFit="contain"
+      transition={150}
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -359,8 +368,10 @@ function MatchupSelector({
     >
       {reports.map((r) => {
         const active = r.gameId === selectedId;
-        const awayLogo = logoByAbbr.get(r.awayAbbr.toUpperCase()) ?? null;
-        const homeLogo = logoByAbbr.get(r.homeAbbr.toUpperCase()) ?? null;
+        const awayLogo =
+          logoByAbbr.get(r.awayAbbr.toUpperCase()) ?? mlbTeamLogoUrl(r.awayAbbr);
+        const homeLogo =
+          logoByAbbr.get(r.homeAbbr.toUpperCase()) ?? mlbTeamLogoUrl(r.homeAbbr);
         return (
           <Pressable
             key={r.gameId}
@@ -368,7 +379,6 @@ function MatchupSelector({
             style={({ pressed }) => ({
               flexDirection: "row",
               alignItems: "center",
-              gap: 6,
               paddingVertical: 10,
               paddingHorizontal: 12,
               borderRadius: 999,
@@ -378,23 +388,25 @@ function MatchupSelector({
               opacity: pressed ? 0.85 : 1,
             })}
           >
-            <MatchupLogo uri={awayLogo} abbr={r.awayAbbr} />
-            <Text
-              style={{
-                color: active ? colors.primary : colors.mutedForeground,
-                fontFamily: FONT.bold,
-                fontSize: 11,
-              }}
-            >
-              @
-            </Text>
-            <MatchupLogo uri={homeLogo} abbr={r.homeAbbr} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <MatchupLogo uri={awayLogo} abbr={r.awayAbbr} />
+              <Text
+                style={{
+                  color: active ? colors.primary : colors.mutedForeground,
+                  fontFamily: FONT.bold,
+                  fontSize: 11,
+                }}
+              >
+                @
+              </Text>
+              <MatchupLogo uri={homeLogo} abbr={r.homeAbbr} />
+            </View>
             <Text
               style={{
                 color: active ? colors.foreground : colors.mutedForeground,
                 fontFamily: active ? FONT.bold : FONT.semibold,
                 fontSize: 13,
-                marginLeft: 2,
+                marginLeft: LOGO_TEXT_GAP,
               }}
             >
               {r.awayAbbr} @ {r.homeAbbr}
