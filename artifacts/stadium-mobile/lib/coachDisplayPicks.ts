@@ -1,5 +1,7 @@
 // Coach UI paint planning — pure render regression helpers (no RN imports).
 
+import { gatedCoachDisplayPickCount } from "./coachTicketPaintPolicy.ts";
+
 export type CoachMessagePaintInput = {
   role: string;
   rawPicksCount: number;
@@ -21,6 +23,9 @@ export type CoachMessagePaintInput = {
   analyzeWaiting?: boolean;
   askWaiting?: boolean;
   showBubble?: boolean;
+  ticketLegTarget?: number;
+  scanComplete?: boolean;
+  stagedPickCount?: number;
 };
 
 export type CoachMessagePaintPlan = {
@@ -34,7 +39,16 @@ export type CoachMessagePaintPlan = {
 /** Pure paint planner — mirrors Coach message JSX (for regression tests). */
 export function planCoachMessagePaint(input: CoachMessagePaintInput): CoachMessagePaintPlan {
   const buildIdle = !input.buildFinishing && !input.streaming && !input.waiting;
-  const showTicketPicks = input.displayPicksCount > 0;
+  const ticketLegTarget = input.ticketLegTarget ?? 0;
+  const gatedDisplayCount = gatedCoachDisplayPickCount({
+    parlayBuildIntent: input.parlayBuildIntent,
+    ticketLegTarget,
+    displayPicksCount: input.displayPicksCount,
+    rawPicksCount: input.rawPicksCount,
+    scanComplete: input.scanComplete ?? buildIdle,
+    stagedPickCount: input.stagedPickCount ?? input.rawPicksCount,
+  });
+  const showTicketPicks = gatedDisplayCount > 0;
   const showCoachEmpty =
     input.role === "assistant" &&
     input.parlayBuildIntent &&

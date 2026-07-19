@@ -156,8 +156,8 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
+import { shouldPaintCoachBoardTicket } from "@/lib/coachTicketPaintPolicy";
 import {
-  boardScanAppliesToRequest,
   finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
   rejectPrefixOfLastDelivered,
@@ -1621,14 +1621,21 @@ export default function CoachScreen() {
       let legNote = opts?.legNote ?? partial.note;
       let coachDetailNote = "";
 
+      let paintTicket = true;
+
       if (boardScanIsComplete(partial)) {
         const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
         ticket = delivered.picks;
         coachDetailNote = delivered.coachDetailNote;
         if (legTarget > 0 && ticket.length < legTarget) {
           legNote = ticket.length
-            ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
-            : buildFixedLegCountShortfallLead(legTarget, 0);
+            ? ensureFixedLegShortfallLegNote(
+                legNote,
+                legTarget,
+                ticket.length,
+                delivered.positiveEdgePool,
+              )
+            : buildFixedLegCountShortfallLead(legTarget, 0, delivered.positiveEdgePool);
         } else if (!ticket.length) {
           legNote = legNote.trim() || partial.note;
         }
@@ -1636,6 +1643,20 @@ export default function CoachScreen() {
         const progress = deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
         ticket = progress.picks;
         if (!ticket.length) return false;
+        paintTicket = shouldPaintCoachBoardTicket({
+          parlayBuildIntent: legTarget >= 3,
+          ticketLegTarget: legTarget,
+          stagedPickCount: ticket.length,
+          scanComplete: false,
+        });
+        if (!paintTicket) {
+          latestBoardScanRef.current = partial;
+          boardTicketSnapshotRef.current = ticket;
+          setBoardScanPartialLegs(ticket.length);
+          if (buildFinishingRef.current) setParlayBuildPhase("stream");
+          else setParlayBuildPhase("board-scan");
+          return true;
+        }
         legNote = progress.progressNote || legNote;
       }
 
@@ -6459,19 +6480,6 @@ export default function CoachScreen() {
                 !(isWelcomeMessage(m) && messages.some((x) => x.role === "user")),
             )
             .map(({ m, i }) => {
-            const hasPicks = !!(m.picks && m.picks.length > 0);
-            const displayPicks = hasPicks
-              ? resolveCoachPaintPicks(m.picks!, flashEnrichRef.current)
-              : [];
-            const showTicketPicks = displayPicks.length > 0;
-            const hasScanManifest = /### Scan manifest/i.test(m.coachDetailNote ?? "");
-            const isWaiting = m.role === "assistant" && m.content === "" && waiting;
-            // A parlay still mid-stream: PICK lines have arrived in the raw text
-            // but haven't been parsed into cards yet. Show a "Building…" hint
-            // instead of leaving the user staring at stripped/empty text.
-            // A parlay BUILD is in flight when either the user explicitly asked to
-            // build one (catches the early stream BEFORE any PICK line, so the
-            // lead-in prose never flashes) or PICK lines have started arriving.
             const priorUserText =
               messages
                 .slice(0, i)
@@ -6482,11 +6490,40 @@ export default function CoachScreen() {
               "";
             const parlayBuildIntent =
               m.role === "assistant" && !!(m.parlayBuild || isParlayBuildAsk(priorUserText));
+            const buildIdle = !buildFinishing && !streaming && !waiting;
+            const hasPicks = !!(m.picks && m.picks.length > 0);
+            const displayPicks = hasPicks
+              ? resolveCoachPaintPicks(m.picks!, flashEnrichRef.current)
+              : [];
             const ticketLegTarget =
               m.ticketLegTarget ?? (parlayBuildIntent ? requestedLegCount(priorUserText) : 0);
+            const scanCompleteForPaint =
+              i !== messages.length - 1 ||
+              buildIdle ||
+              boardScanIsComplete(latestBoardScanRef.current);
+            const stagedDuringScan = Math.max(
+              boardScanPartialLegs,
+              boardTicketSnapshotRef.current?.length ?? 0,
+              latestBoardScanRef.current?.picks?.length ?? 0,
+              m.picks?.length ?? 0,
+            );
+            const allowTicketPaint =
+              !parlayBuildIntent ||
+              ticketLegTarget <= 0 ||
+              scanCompleteForPaint ||
+              stagedDuringScan >= ticketLegTarget;
+            const visiblePicks = allowTicketPaint ? displayPicks : [];
+            const showTicketPicks = visiblePicks.length > 0;
+            const hasScanManifest = /### Scan manifest/i.test(m.coachDetailNote ?? "");
+            const isWaiting = m.role === "assistant" && m.content === "" && waiting;
+            // A parlay still mid-stream: PICK lines have arrived in the raw text
+            // but haven't been parsed into cards yet. Show a "Building…" hint
+            // instead of leaving the user staring at stripped/empty text.
+            // A parlay BUILD is in flight when either the user explicitly asked to
+            // build one (catches the early stream BEFORE any PICK line, so the
+            // lead-in prose never flashes) or PICK lines have started arriving.
             const picksShortOfTarget =
-              showTicketPicks && ticketLegTarget > 0 && displayPicks.length < ticketLegTarget;
-            const buildIdle = !buildFinishing && !streaming && !waiting;
+              showTicketPicks && ticketLegTarget > 0 && visiblePicks.length < ticketLegTarget;
             const showCoachEmptyState =
               m.role === "assistant" &&
               parlayBuildIntent &&
@@ -6568,14 +6605,10 @@ export default function CoachScreen() {
             // Progress finalizes once pick cards are on the message — or when a
             // board-scan partial has scored legs waiting for delivery gates.
             const progressLegCount = showTicketPicks
-              ? displayPicks.length
+              ? visiblePicks.length
               : buildIdle
                 ? 0
-                : Math.max(
-                    boardScanPartialLegs,
-                    boardTicketSnapshotRef.current?.length ?? 0,
-                    latestBoardScanRef.current?.picks?.length ?? 0,
-                  );
+                : stagedDuringScan;
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
@@ -6724,22 +6757,22 @@ export default function CoachScreen() {
                 {showTicketHeader ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
                     <CoachTicketHeader
-                      picks={displayPicks}
+                      picks={visiblePicks}
                       legNote={m.legNote}
                       coachDetailNote={m.coachDetailNote}
                       requestedLegs={ticketLegTarget > 0 ? ticketLegTarget : undefined}
                       scanInProgress={parlayScanInProgress}
                     />
-                    {displayPicks.length > 1 ? (
+                    {visiblePicks.length > 1 ? (
                       <AddAllButton
-                        picks={displayPicks}
+                        picks={visiblePicks}
                         slipCount={legs.length}
                         addLeg={addLeg}
                         removeLeg={removeLeg}
                         hasLeg={hasLeg}
                       />
                     ) : null}
-                    {displayPicks.map((p, j) => (
+                    {visiblePicks.map((p, j) => (
                       <PickCard
                         key={`${i}-${j}`}
                         pick={p}
@@ -6751,7 +6784,7 @@ export default function CoachScreen() {
                                 caption: "Real posted line with positive edge — optional signals thin",
                                 tone: "value" as const,
                               }
-                            : p.coachAlternateLineLabel === "Alternate line" || p.coachDeliveryTier === 2
+                            : p.coachAlternateLineLabel === "Alternate line" || p.coachDeliveryTier === 3
                             ? {
                                 text: "Alternate line",
                                 caption: "Posted alt rung — full EV, sim, and market analysis",

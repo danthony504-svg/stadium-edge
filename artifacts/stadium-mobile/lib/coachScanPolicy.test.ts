@@ -147,11 +147,9 @@ test("boardScanIsComplete distinguishes partial previews from settled scans", ()
 });
 
 test("ensureFixedLegShortfallLegNote prepends positive-edge shortfall when missing", () => {
-  const out = ensureFixedLegShortfallLegNote("", 9, 7, 7);
-  assert.match(out, /asked for \*\*9\*\* legs/i);
-  assert.match(out, /positive-edge market/i);
-  assert.match(out, /only \*\*7\*\*/i);
-  const kept = ensureFixedLegShortfallLegNote(out, 9, 7, 7);
+  const out = ensureFixedLegShortfallLegNote("", 15, 4, 4);
+  assert.match(out, /Only \*\*4\*\* positive-edge markets were available tonight/i);
+  const kept = ensureFixedLegShortfallLegNote(out, 15, 4, 4);
   assert.equal(kept, out);
 });
 

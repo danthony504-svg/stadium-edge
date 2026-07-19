@@ -25,14 +25,9 @@ export function buildFixedLegCountShortfallLead(
   positiveEdgeAvailable?: number,
 ): string {
   if (actual >= requested) return "";
-  const pool = positiveEdgeAvailable ?? actual;
-  if (pool <= actual) {
-    return `You asked for **${requested}** legs — only **${actual}** positive-edge market${actual === 1 ? "" : "s"} existed tonight.`;
-  }
-  if (pool < requested) {
-    return `You asked for **${requested}** legs — only **${pool}** positive-edge market${pool === 1 ? "" : "s"} existed tonight.`;
-  }
-  return `You asked for **${requested}** legs — **${pool}** positive-edge markets existed tonight; **${actual}** fit your ticket after correlation and diversity rules.`;
+  const available = positiveEdgeAvailable ?? actual;
+  const verb = available === 1 ? "was" : "were";
+  return `Only **${available}** positive-edge market${available === 1 ? "" : "s"} ${verb} available tonight.`;
 }
 
 /** Guarantee the shortfall lead is present when a fixed-leg ticket is short. */
@@ -44,7 +39,7 @@ export function ensureFixedLegShortfallLegNote(
 ): string {
   const lead = buildFixedLegCountShortfallLead(requested, actual, positiveEdgeAvailable);
   if (!lead) return legNote.trim();
-  if (legNote.includes(lead) || /asked for (\*\*)?\d+(\*\*)? legs/i.test(legNote)) {
+  if (legNote.includes(lead) || /positive-edge market/i.test(legNote)) {
     return legNote.trim();
   }
   return legNote.trim() ? `${lead}\n\n${legNote.trim()}` : lead;

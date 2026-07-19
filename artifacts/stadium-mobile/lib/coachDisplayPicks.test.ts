@@ -83,6 +83,35 @@ test("planCoachMessagePaint: zero picks after build shows empty/manifest", () =>
   assert.equal(plan.bodyWouldBeBlank, false);
 });
 
+test("planCoachMessagePaint: gated partial scan shows progress not cards", () => {
+  const plan = planCoachMessagePaint({
+    role: "assistant",
+    rawPicksCount: 5,
+    displayPicksCount: 5,
+    hasScanManifest: false,
+    hasLegNote: false,
+    hasCoachDetailNote: false,
+    parlayBuildIntent: true,
+    streaming: true,
+    buildFinishing: true,
+    waiting: false,
+    isLastMessage: true,
+    contentLen: 0,
+    isBuildingParlay: false,
+    parlayStillBuilding: true,
+    parlayStillFilling: true,
+    parlayBuildHung: false,
+    analyzeWaiting: false,
+    askWaiting: false,
+    showBubble: false,
+    ticketLegTarget: 15,
+    scanComplete: false,
+    stagedPickCount: 5,
+  });
+  assert.equal(plan.showPickCards, false);
+  assert.equal(plan.showProgress, true);
+});
+
 test("planCoachMessagePaint: raw picks with display picks never blank while building", () => {
   const plan = planCoachMessagePaint({
     role: "assistant",

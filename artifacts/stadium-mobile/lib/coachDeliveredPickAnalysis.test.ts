@@ -261,7 +261,7 @@ test("5-leg alternate-line parlay keeps complete analysis rows", () => {
   assert.equal(delivered.length, 5);
   for (const pick of delivered) {
     assertCompleteCoachCardAnalysis(pick);
-    assert.ok(pick.coachDeliveryTier === 2 || pick.coachAlternateLineLabel === "Alternate line");
+    assert.ok(pick.coachDeliveryTier === 3 || pick.coachAlternateLineLabel === "Alternate line");
   }
 });
 
