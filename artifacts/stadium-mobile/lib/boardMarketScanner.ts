@@ -5,6 +5,18 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
+import {
+  emitCoachLiveBoardSummary,
+  recordCoachLiveBoardConfidencePassed,
+  recordCoachLiveBoardCorrelationPassed,
+  recordCoachLiveBoardDelivered,
+  recordCoachLiveBoardError,
+  recordCoachLiveBoardEvScored,
+  recordCoachLiveBoardFeedCounts,
+  recordCoachLiveBoardPriced,
+  recordCoachLiveBoardSimulated,
+  recordCoachLiveBoardValidated,
+} from "./coachLiveBoardTrace.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
@@ -542,6 +554,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
 
+  recordCoachLiveBoardFeedCounts({
+    games: oddsGames.length,
+    props: poolBase.length,
+  });
+
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
     const label = `${og.awayTeam} @ ${og.homeTeam}`;
@@ -649,6 +666,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
+  recordCoachLiveBoardFeedCounts({
+    games: oddsGames.length,
+    props: pool.length,
+  });
 
   for (const entry of pool) {
     manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
@@ -656,6 +677,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let gameLineCount = 0;
   for (const [, lines] of gameEntries) gameLineCount += lines?.length ?? 0;
   manifestRecorder.recordCandidatesBeforeGrading(gameLineCount + pool.length);
+  recordCoachLiveBoardValidated(gameLineCount + pool.length);
 
   const propScoreOpts = {
     pool,
@@ -691,9 +713,15 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
+  recordCoachLiveBoardPriced(scored.length);
+  recordCoachLiveBoardEvScored(scored);
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+  recordCoachLiveBoardSimulated(
+    manifestRecorder.propsSimulated + manifestRecorder.gameLinesSimulated,
+  );
+  recordCoachLiveBoardConfidencePassed(manifestRecorder.totalQualified);
   const { fetchCoachCorrelationForBuild } = await import("./coachCorrelation.ts");
   const correlationResult = await fetchCoachCorrelationForBuild({
     requestId: opts.requestId ?? `scan-${opts.target}`,
@@ -706,6 +734,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     },
     preview: false,
   });
+  recordCoachLiveBoardCorrelationPassed(correlationResult.picks.length);
   const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
@@ -719,7 +748,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     requestId: opts.requestId,
     correlationResult,
   });
+  recordCoachLiveBoardDelivered(result.picks.length);
   if (opts.onPartial) opts.onPartial(result);
+  if (result.scanComplete) {
+    emitCoachLiveBoardSummary();
+  }
   return result;
 }
 
@@ -763,8 +796,15 @@ export async function tryReachFullBoardScan(
   opts: Parameters<typeof buildTopLegsFromFullBoardScan>[0],
 ): Promise<FullBoardScanResult | null> {
   try {
-    return await buildTopLegsFromFullBoardScan(opts);
-  } catch {
+    const result = await buildTopLegsFromFullBoardScan(opts);
+    if (!result) {
+      recordCoachLiveBoardError("null-scan-result");
+      emitCoachLiveBoardSummary("null-scan-result");
+    }
+    return result;
+  } catch (e) {
+    recordCoachLiveBoardError(e instanceof Error ? e.message : String(e));
+    emitCoachLiveBoardSummary("scan-exception");
     return null;
   }
 }

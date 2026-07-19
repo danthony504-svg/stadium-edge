@@ -171,6 +171,12 @@ import {
   coachLifecycleRequestStart,
 } from "@/lib/coachParlayLifecycle";
 import {
+  beginCoachLiveBoardTrace,
+  emitCoachLiveBoardSummary,
+  resetCoachLiveBoardTrace,
+} from "@/lib/coachLiveBoardTrace";
+import { fetchCoachLiveBoardFeeds } from "@/lib/coachLiveBoardFeeds";
+import {
   finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
   rejectPrefixOfLastDelivered,
@@ -1351,6 +1357,8 @@ export default function CoachScreen() {
     parlayBuildActiveRef.current = true;
     setParlayBuildActive(true);
     parlayBuildCompletingRef.current = false;
+    resetCoachLiveBoardTrace();
+    beginCoachLiveBoardTrace(requestId);
     coachLifecycleRequestStart(requestId);
     logBuildStarted(requestId);
   }, []);
@@ -2112,15 +2120,10 @@ export default function CoachScreen() {
       return (async (): Promise<FullBoardScanResult | null> => {
         try {
           setParlayBuildPhase("board-scan");
-          const [espnGames, oddsGames, liveFeed] = await Promise.all([
-            Promise.all(scanSports.map((s) => getGames(s, signal).catch(() => []))).then((rows) =>
-              rows.flat(),
-            ),
-            Promise.all(scanSports.map((s) => getOdds(s, signal).catch(() => []))).then((rows) =>
-              filterBettableOddsGames(rows.flat()),
-            ),
-            getLiveOdds(scanSports, signal).catch(() => ({ games: [], odds: [] })),
-          ]);
+          const { espnGames, oddsGames, liveFeed } = await fetchCoachLiveBoardFeeds(
+            scanSports,
+            signal,
+          );
           if (seedBuilt) {
             flashEnrichRef.current = coachFlashEnrichFromBuilt(
               {
@@ -2907,18 +2910,14 @@ export default function CoachScreen() {
           if (reachFullPreScanEligible) {
             setParlayBuildPhase("board-scan");
             const scanSports = coachLiveScanSports(excludedSports);
-            scanFeedsPromise = Promise.all([
-              Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
-                rows.flat(),
-              ),
-              Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                filterBettableOddsGames(rows.flat()),
-              ),
-              getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
-                games: [],
-                odds: [],
-              })),
-            ]).then(([espnGames, oddsGames, liveFeed]) => ({ espnGames, oddsGames, liveFeed }));
+            scanFeedsPromise = fetchCoachLiveBoardFeeds(
+              scanSports,
+              abortRef.current?.signal,
+            ).then(({ espnGames, oddsGames, liveFeed }) => ({
+              espnGames,
+              oddsGames,
+              liveFeed,
+            }));
           }
           const streamSlateSport = focalSports.size === 1 ? [...focalSports][0]! : null;
           const preAnalysisSeed =
@@ -3070,22 +3069,10 @@ export default function CoachScreen() {
               }
               const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
                 ? await scanFeedsPromise
-                : await (async () => {
-                    const scanSports = coachLiveScanSports(excludedSports);
-                    const [eg, og, lf] = await Promise.all([
-                      Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
-                        rows.flat(),
-                      ),
-                      Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                        filterBettableOddsGames(rows.flat()),
-                      ),
-                      getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
-                        games: [],
-                        odds: [],
-                      })),
-                    ]);
-                    return { espnGames: eg, oddsGames: og, liveFeed: lf };
-                  })();
+                : await fetchCoachLiveBoardFeeds(
+                    coachLiveScanSports(excludedSports),
+                    abortRef.current?.signal,
+                  );
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
               preBoardScan = await bindBoardScanRace(
@@ -3493,18 +3480,10 @@ export default function CoachScreen() {
             reachBoardScan = cachedBoardScan;
           } else if (!didReachFullPreScan || !freshBoardScanComplete) {
             const scanSports = coachLiveScanSports(excludedSports);
-            const [espnGames, oddsGames, liveFeed] = await Promise.all([
-              Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
-                rows.flat(),
-              ),
-              Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                filterBettableOddsGames(rows.flat()),
-              ),
-              getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
-                games: [],
-                odds: [],
-              })),
-            ]);
+            const { espnGames, oddsGames, liveFeed } = await fetchCoachLiveBoardFeeds(
+              scanSports,
+              abortRef.current?.signal,
+            );
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
             reachBoardScan = await bindBoardScanRace(
               tryReachFullBoardScan({
@@ -3976,15 +3955,10 @@ export default function CoachScreen() {
         } else if (!fullBoardScanned && useFullBoardScan) {
           setParlayBuildPhase("board-scan");
           const scanSports = coachLiveScanSports(excludedSports);
-          const [espnGames, oddsGames, liveFeed] = await Promise.all([
-            Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
-              rows.flat(),
-            ),
-            Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-              filterBettableOddsGames(rows.flat()),
-            ),
-            getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
-          ]);
+          const { espnGames, oddsGames, liveFeed } = await fetchCoachLiveBoardFeeds(
+            scanSports,
+            abortRef.current?.signal,
+          );
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
           const inlineBoardScanMs = boardScanBudgetMs(reachTarget);
           const inlineScan = await bindBoardScanRace(
@@ -5396,6 +5370,15 @@ export default function CoachScreen() {
             (emittedPickLines > 0
               ? "_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._"
               : "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._");
+          if (
+            picks.length === 0 &&
+            (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild) &&
+            !hasManifestReply
+          ) {
+            emitCoachLiveBoardSummary(
+              emittedPickLines > 0 ? "ungrounded-model-picks" : "live-board-empty-ticket",
+            );
+          }
           finalContent = note.trim();
         }
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a

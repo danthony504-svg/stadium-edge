@@ -35,6 +35,10 @@ import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
+import {
+  emitCoachLiveBoardSummary,
+  recordCoachLiveBoardDelivered,
+} from "./coachLiveBoardTrace.ts";
 
 export type CoachBoardScanDelivery = {
   picks: ParsedPick[];
@@ -274,6 +278,11 @@ export function deliverCoachBoardScanTicket(
   let coachDetailNote = formatCoachBoardScanManifest(finalManifest);
   if (shortfallNote) {
     coachDetailNote = `${shortfallNote}\n\n${coachDetailNote}`;
+  }
+
+  recordCoachLiveBoardDelivered(picks.length);
+  if (picks.length === 0) {
+    emitCoachLiveBoardSummary("delivery-zero-picks");
   }
 
   return {
