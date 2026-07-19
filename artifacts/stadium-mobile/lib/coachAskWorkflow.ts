@@ -1,52 +1,55 @@
-/** Request-scoped workflow for plain Coach Q&A (non-parlay, non-analyze). */
+/** Request-scoped lifecycle for Coach plain Q&A (non-parlay ticket builds). */
 
-export type CoachAskStage =
-  | "question-understood"
-  | "live-data-pulled"
-  | "key-factors-identified"
-  | "value-calc-started"
-  | "value-calc-completed"
-  | "answer-committed"
-  | "answer-ready";
+export type CoachAskLifecyclePhase =
+  | "idle"
+  | "context-loaded"
+  | "value-calculation-start"
+  | "value-calculation-success"
+  | "value-calculation-error"
+  | "response-received"
+  | "assistant-message-committed"
+  | "progress-complete";
 
-/** Maps to AnalysisProgress ASK_STAGES / ASK_TARGETS indices. */
-export const COACH_ASK_WORKFLOW_INDEX: Record<CoachAskStage, number> = {
-  "question-understood": 1,
-  "live-data-pulled": 4,
-  "key-factors-identified": 5,
-  "value-calc-started": 6,
-  "value-calc-completed": 7,
-  "answer-committed": 8,
-  "answer-ready": 8,
+/** Maps lifecycle phases to AnalysisProgress ask indices (index 6 = 80%). */
+export const COACH_ASK_PHASE_INDEX: Record<CoachAskLifecyclePhase, number> = {
+  idle: 1,
+  "context-loaded": 5,
+  "value-calculation-start": 6,
+  "value-calculation-success": 7,
+  "value-calculation-error": 6,
+  "response-received": 7,
+  "assistant-message-committed": 8,
+  "progress-complete": 8,
 };
 
-/** Wall clock for prop scoring / sim selection during ask. */
-export const COACH_ASK_VALUE_CALC_TIMEOUT_MS = 45_000;
+export const COACH_ASK_VALUE_CALC_TIMEOUT_MS = 20_000;
 
 export type CoachAskRequestState = {
   requestId: string;
   sendGeneration: number;
+  phase: CoachAskLifecyclePhase;
   workflowIndex: number;
-  valueCalcStarted: boolean;
-  answerCommitted: boolean;
-  answerReady: boolean;
+  answerVisible: boolean;
+  valueCalcWatchdog: ReturnType<typeof setTimeout> | null;
 };
 
 let activeAsk: CoachAskRequestState | null = null;
 
 export function beginCoachAskRequest(requestId: string, sendGeneration: number): CoachAskRequestState {
+  cancelCoachAskRequest();
   activeAsk = {
     requestId,
     sendGeneration,
-    workflowIndex: 0,
-    valueCalcStarted: false,
-    answerCommitted: false,
-    answerReady: false,
+    phase: "idle",
+    workflowIndex: 1,
+    answerVisible: false,
+    valueCalcWatchdog: null,
   };
   return activeAsk;
 }
 
-export function clearCoachAskRequest(): void {
+export function cancelCoachAskRequest(): void {
+  if (activeAsk?.valueCalcWatchdog) clearTimeout(activeAsk.valueCalcWatchdog);
   activeAsk = null;
 }
 
@@ -62,31 +65,57 @@ export function coachAskRequestMatches(requestId: string, sendGeneration: number
   );
 }
 
-export function advanceCoachAskStage(
+function clearValueCalcWatchdog(): void {
+  if (activeAsk?.valueCalcWatchdog) {
+    clearTimeout(activeAsk.valueCalcWatchdog);
+    activeAsk.valueCalcWatchdog = null;
+  }
+}
+
+export function armCoachAskValueCalcWatchdog(
   requestId: string,
   sendGeneration: number,
-  stage: CoachAskStage,
+  onTimeout: () => void,
+  timeoutMs = COACH_ASK_VALUE_CALC_TIMEOUT_MS,
+): boolean {
+  if (!coachAskRequestMatches(requestId, sendGeneration) || !activeAsk) return false;
+  clearValueCalcWatchdog();
+  activeAsk.valueCalcWatchdog = setTimeout(() => {
+    if (!coachAskRequestMatches(requestId, sendGeneration)) return;
+    onTimeout();
+  }, timeoutMs);
+  return true;
+}
+
+export function setCoachAskLifecyclePhase(
+  requestId: string,
+  sendGeneration: number,
+  phase: CoachAskLifecyclePhase,
+  opts?: { answerVisible?: boolean },
 ): number | null {
   if (!coachAskRequestMatches(requestId, sendGeneration) || !activeAsk) return null;
-  const idx = COACH_ASK_WORKFLOW_INDEX[stage];
-  if (stage === "value-calc-started") activeAsk.valueCalcStarted = true;
-  if (stage === "answer-committed") activeAsk.answerCommitted = true;
-  if (stage === "answer-ready") {
-    if (!activeAsk.answerCommitted) return activeAsk.workflowIndex;
-    activeAsk.answerReady = true;
+
+  if (phase === "value-calculation-success" || phase === "value-calculation-error") {
+    clearValueCalcWatchdog();
   }
-  if (idx > activeAsk.workflowIndex) activeAsk.workflowIndex = idx;
+
+  if (phase === "progress-complete" && !activeAsk.answerVisible) {
+    return activeAsk.workflowIndex;
+  }
+
+  if (opts?.answerVisible) activeAsk.answerVisible = true;
+
+  activeAsk.phase = phase;
+  const idx = COACH_ASK_PHASE_INDEX[phase];
+  if (idx > activeAsk.workflowIndex || phase === "value-calculation-error") {
+    activeAsk.workflowIndex = idx;
+  }
   return activeAsk.workflowIndex;
 }
 
-export function coachAskAnswerCommitted(requestId: string, sendGeneration: number): boolean {
+export function coachAskAnswerVisible(requestId: string, sendGeneration: number): boolean {
   if (!coachAskRequestMatches(requestId, sendGeneration) || !activeAsk) return false;
-  return activeAsk.answerCommitted;
-}
-
-export function coachAskAnswerReady(requestId: string, sendGeneration: number): boolean {
-  if (!coachAskRequestMatches(requestId, sendGeneration) || !activeAsk) return false;
-  return activeAsk.answerReady;
+  return activeAsk.answerVisible;
 }
 
 export function coachAskWorkflowIndex(
@@ -119,7 +148,7 @@ export async function withCoachAskValueCalcTimeout<T>(
           () =>
             reject(
               new CoachAskValueCalcError(
-                "Value calculation timed out — live prop scoring took too long.",
+                "Value calculation timed out — live prop scoring took too long. Tap Try again.",
                 true,
               ),
             ),
@@ -130,4 +159,23 @@ export async function withCoachAskValueCalcTimeout<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/** Drop assistant rows from superseded failed or in-flight Q&A requests. */
+export function isSupersededCoachQaAssistant(m: {
+  role: string;
+  content?: string;
+  retry?: string;
+  parlayBuild?: boolean;
+  picks?: unknown[];
+  analyzeSlip?: unknown[];
+  statCard?: unknown;
+  periodGameLog?: unknown;
+  teamCard?: unknown;
+}): boolean {
+  if (m.role !== "assistant") return false;
+  if (m.parlayBuild || m.picks?.length || m.analyzeSlip?.length) return false;
+  if (m.statCard || m.periodGameLog || m.teamCard) return false;
+  if (m.retry) return true;
+  return !`${m.content ?? ""}`.trim();
 }

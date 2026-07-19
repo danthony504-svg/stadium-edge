@@ -205,13 +205,14 @@ import {
   tryAcquireCoachFinalizeLock,
 } from "@/lib/coachFinalize";
 import {
-  advanceCoachAskStage,
+  armCoachAskValueCalcWatchdog,
   beginCoachAskRequest,
-  clearCoachAskRequest,
-  coachAskAnswerCommitted,
-  coachAskAnswerReady,
+  cancelCoachAskRequest,
+  coachAskAnswerVisible,
   coachAskRequestMatches,
   CoachAskValueCalcError,
+  isSupersededCoachQaAssistant,
+  setCoachAskLifecyclePhase,
   withCoachAskValueCalcTimeout,
 } from "@/lib/coachAskWorkflow";
 import {
@@ -702,20 +703,19 @@ function prunePriorEmptyParlayReplies(msgs: UIMessage[]): UIMessage[] {
   return msgs.filter((m) => !isEmptyParlayScanReply(m));
 }
 
-/** Failed plain Q&A with a retry affordance — drop when a new ask starts. */
-function isStaleAskFailureReply(m: UIMessage): boolean {
-  if (m.role !== "assistant") return false;
-  if (m.picks?.length || m.parlayBuild || m.analyzeSlip?.length) return false;
-  if (m.statCard || m.periodGameLog || m.teamCard) return false;
-  return !!m.retry && !m.parlayBuild;
-}
-
-function prunePriorFailedAskReplies(msgs: UIMessage[]): UIMessage[] {
-  return msgs.filter((m) => !isStaleAskFailureReply(m));
+/** Failed or empty Q&A assistant rows superseded by a newer request. */
+function pruneSupersededCoachQaReplies(msgs: UIMessage[]): UIMessage[] {
+  return msgs.filter((m) => !isSupersededCoachQaAssistant(m));
 }
 
 function prunePriorCoachFailureReplies(msgs: UIMessage[]): UIMessage[] {
-  return prunePriorFailedAskReplies(prunePriorEmptyParlayReplies(msgs));
+  return pruneSupersededCoachQaReplies(prunePriorEmptyParlayReplies(msgs));
+}
+
+function prepareCoachThreadForNewRequest(msgs: UIMessage[]): UIMessage[] {
+  return pruneDeadParlayPlaceholders(
+    scrubDeadBuildProseFromMessages(prunePriorCoachFailureReplies(msgs)),
+  );
 }
 
 // Does the preceding user message ask us to BUILD a parlay (vs. a plain Q&A that
@@ -1524,7 +1524,7 @@ export default function CoachScreen() {
     setCoachAskWorkflowIndex(undefined);
     setCoachAskAnswerCommitted(false);
     activeAskRequestIdRef.current = "";
-    clearCoachAskRequest();
+    cancelCoachAskRequest();
     coachFinalizeRetryRef.current = false;
 
     return true;
@@ -1597,18 +1597,54 @@ export default function CoachScreen() {
     (
       requestId: string,
       sendGen: number,
-      stage: Parameters<typeof advanceCoachAskStage>[2],
+      phase: Parameters<typeof setCoachAskLifecyclePhase>[2],
+      opts?: { answerVisible?: boolean },
     ): boolean => {
       if (sendGenerationRef.current !== sendGen) return false;
       if (!coachAskRequestMatches(requestId, sendGen)) return false;
-      const idx = advanceCoachAskStage(requestId, sendGen, stage);
+      const idx = setCoachAskLifecyclePhase(requestId, sendGen, phase, opts);
       if (idx == null) return false;
       setCoachAskWorkflowIndex(idx);
-      if (stage === "answer-committed") setCoachAskAnswerCommitted(true);
-      if (stage === "answer-ready") setCoachAskAnswerCommitted(true);
+      if (opts?.answerVisible || phase === "assistant-message-committed") {
+        setCoachAskAnswerCommitted(true);
+      }
       return true;
     },
     [],
+  );
+
+  const failCoachAskRequest = useCallback(
+    (
+      requestId: string,
+      sendGen: number,
+      message: string,
+      retryText: string,
+    ) => {
+      if (sendGenerationRef.current !== sendGen) return;
+      if (!coachAskRequestMatches(requestId, sendGen)) return;
+      bumpCoachAskStage(requestId, sendGen, "value-calculation-error");
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: message,
+          retry: retryText,
+        };
+        return copy;
+      });
+      cancelCoachAskRequest();
+      activeAskRequestIdRef.current = "";
+      setCoachAskWorkflowIndex(undefined);
+      setCoachAskAnswerCommitted(false);
+      setWaiting(false);
+      setStreaming(false);
+      setBuildFinishing(false);
+      setBuildProgressExpired(false);
+      setParlayBuildPhase("idle");
+      setCoachBuildBusy(false);
+      abortRef.current = null;
+    },
+    [bumpCoachAskStage],
   );
 
   const finishCoachBuildUi = useCallback(() => {
@@ -2298,11 +2334,7 @@ export default function CoachScreen() {
       const trimmed = text.trim();
       const images = replay ? [] : attachedImages;
       const parlayPreempt = isParlayBuildAsk(trimmed);
-      const mayInterrupt = !!opts?.freshThread || parlayPreempt;
-      if (
-        (!trimmed && !images.length) ||
-        ((streamingRef.current || buildFinishingRef.current) && !mayInterrupt)
-      ) {
+      if (!trimmed && !images.length) {
         return;
       }
 
@@ -2324,35 +2356,22 @@ export default function CoachScreen() {
       setCoachAskWorkflowIndex(undefined);
       setCoachAskAnswerCommitted(false);
       activeAskRequestIdRef.current = "";
-      clearCoachAskRequest();
+      cancelCoachAskRequest();
+      setCoachFinalizeWorkflowIndex(undefined);
 
-      const resetInFlightBuild = () => {
-        abortRef.current?.abort();
-        simAbortRef.current?.abort();
-        boardTicketSnapshotRef.current = null;
-        latestBoardScanRef.current = null;
-        earlyReachBoardScanRef.current = null;
-        pendingBoardScanCompletionsRef.current = [];
-        coachRequestContextRef.current = null;
-        activeRequestLegTargetRef.current = 0;
-        liveScanDeliveredRef.current = false;
-        parlayBuildActiveRef.current = false;
-        parlayBuildCompletingRef.current = false;
-        setParlayBuildActive(false);
-        setBoardScanInFlightState(false);
-        if (buildProgressTimerRef.current) {
-          clearTimeout(buildProgressTimerRef.current);
-          buildProgressTimerRef.current = null;
-        }
-        clearBuildStallWatchdog();
-        setBuildFinishing(false);
-        setStreaming(false);
-        setWaiting(false);
-        setBuildProgressExpired(false);
-        setParlayBuildPhase("idle");
-      };
-      if (mayInterrupt) {
-        resetInFlightBuild();
+      abortRef.current?.abort();
+      simAbortRef.current?.abort();
+      if (buildProgressTimerRef.current) {
+        clearTimeout(buildProgressTimerRef.current);
+        buildProgressTimerRef.current = null;
+      }
+      clearBuildStallWatchdog();
+      setBuildFinishing(false);
+      setStreaming(false);
+      setWaiting(false);
+      setBuildProgressExpired(false);
+      setParlayBuildPhase("idle");
+      if (opts?.freshThread || parlayPreempt) {
         stopSlatePreAnalysis();
       }
 
@@ -2388,11 +2407,9 @@ export default function CoachScreen() {
         isParlayBuildAsk(trimmed) &&
         !opts?.freshThread &&
         priorThread.some(isEmptyParlayScanReply);
-      const thread = pruneDeadParlayPlaceholders(
-        scrubDeadBuildProseFromMessages(
-          restartParlayThread ? [] : prunePriorCoachFailureReplies(priorThread),
-        ),
-      );
+      const thread = opts?.freshThread
+        ? []
+        : prepareCoachThreadForNewRequest(restartParlayThread ? [] : priorThread);
       const history: UIMessage[] = [
         ...thread,
         {
@@ -2417,7 +2434,7 @@ export default function CoachScreen() {
       if (plainAskFlow) {
         activeAskRequestIdRef.current = varietySeed;
         beginCoachAskRequest(varietySeed, sendGen);
-        bumpCoachAskStage(varietySeed, sendGen, "question-understood");
+        setCoachAskWorkflowIndex(1);
         setCoachFinalizeWorkflowIndex(undefined);
       } else if (!openingParlayBuild) {
         setCoachFinalizeWorkflowIndex(undefined);
@@ -3061,7 +3078,7 @@ export default function CoachScreen() {
             activeAskRequestIdRef.current &&
             sendGenerationRef.current === sendGen
           ) {
-            bumpCoachAskStage(activeAskRequestIdRef.current, sendGen, "live-data-pulled");
+            bumpCoachAskStage(activeAskRequestIdRef.current, sendGen, "context-loaded");
           }
           const askRequestId = activeAskRequestIdRef.current;
           const runPlainAskPropEnrich = async () => {
@@ -3071,31 +3088,26 @@ export default function CoachScreen() {
               rawBuilt.context.realProps?.length
             ) {
               if (plainAskFlow && askRequestId && sendGenerationRef.current === sendGen) {
-                bumpCoachAskStage(askRequestId, sendGen, "key-factors-identified");
-                bumpCoachAskStage(askRequestId, sendGen, "value-calc-started");
+                bumpCoachAskStage(askRequestId, sendGen, "value-calculation-start");
+                armCoachAskValueCalcWatchdog(askRequestId, sendGen, () => {
+                  failCoachAskRequest(
+                    askRequestId,
+                    sendGen,
+                    "Value calculation timed out — live prop scoring took too long. Tap Try again.",
+                    trimmed,
+                  );
+                });
                 try {
                   const out = await withCoachAskValueCalcTimeout(
                     enrichChatContextProps(rawBuilt, controller.signal),
                   );
                   if (sendGenerationRef.current === sendGen) {
-                    bumpCoachAskStage(askRequestId, sendGen, "value-calc-completed");
+                    bumpCoachAskStage(askRequestId, sendGen, "value-calculation-success");
                   }
                   return out;
                 } catch (e) {
                   if (e instanceof CoachAskValueCalcError && sendGenerationRef.current === sendGen) {
-                    setMessages((prev) => {
-                      const copy = [...prev];
-                      copy[copy.length - 1] = {
-                        role: "assistant",
-                        content: e.message,
-                        retry: trimmed,
-                      };
-                      return copy;
-                    });
-                    setWaiting(false);
-                    setStreaming(false);
-                    setCoachAskWorkflowIndex(undefined);
-                    clearCoachAskRequest();
+                    failCoachAskRequest(askRequestId, sendGen, e.message, trimmed);
                   }
                   throw e;
                 }
@@ -3103,7 +3115,7 @@ export default function CoachScreen() {
               return enrichChatContextProps(rawBuilt, controller.signal);
             }
             if (plainAskFlow && askRequestId && sendGenerationRef.current === sendGen) {
-              bumpCoachAskStage(askRequestId, sendGen, "key-factors-identified");
+              bumpCoachAskStage(askRequestId, sendGen, "context-loaded");
             }
             return {
               built: rawBuilt,
@@ -3352,23 +3364,22 @@ export default function CoachScreen() {
                 serverPropPool.push(...propPoolFromRealProps(rows));
               },
               onToken: (sofar) => {
-                if (first) {
-                  first = false;
-                  setWaiting(false);
-                  if (
-                    plainAskFlow &&
-                    askRequestId &&
-                    sendGenerationRef.current === sendGen
-                  ) {
-                    bumpCoachAskStage(askRequestId, sendGen, "answer-committed");
-                  }
-                }
                 if (sendGenerationRef.current !== sendGen) return;
                 setMessages((prev) => {
                   const copy = [...prev];
                   copy[copy.length - 1] = { ...copy[copy.length - 1], role: "assistant", content: sofar };
                   return copy;
                 });
+                if (first) {
+                  first = false;
+                  setWaiting(false);
+                  if (plainAskFlow && askRequestId) {
+                    bumpCoachAskStage(askRequestId, sendGen, "response-received");
+                    bumpCoachAskStage(askRequestId, sendGen, "assistant-message-committed", {
+                      answerVisible: true,
+                    });
+                  }
+                }
                 scrollToEnd(false);
               },
             });
@@ -3469,7 +3480,7 @@ export default function CoachScreen() {
               setParlayBuildPhase("stream");
               full = await runStream();
             }
-            if (!wantsAnalyzeSlip(trimmed)) {
+            if (!wantsAnalyzeSlip(trimmed) && isParlayBuild) {
               setMessages((prev) => {
                 const copy = [...prev];
                 const last = copy[copy.length - 1];
@@ -3478,6 +3489,24 @@ export default function CoachScreen() {
                   copy[copy.length - 1] = { ...rest, content: "" };
                 }
                 return copy;
+              });
+            } else if (
+              plainAskFlow &&
+              askRequestId &&
+              sendGenerationRef.current === sendGen &&
+              full?.trim()
+            ) {
+              setMessages((prev) => {
+                const copy = [...prev];
+                const last = copy[copy.length - 1];
+                if (last?.role === "assistant" && !last.content?.trim()) {
+                  copy[copy.length - 1] = { ...last, role: "assistant", content: full };
+                }
+                return copy;
+              });
+              bumpCoachAskStage(askRequestId, sendGen, "response-received");
+              bumpCoachAskStage(askRequestId, sendGen, "assistant-message-committed", {
+                answerVisible: true,
               });
             }
           } catch (streamErr: any) {
@@ -3512,7 +3541,7 @@ export default function CoachScreen() {
               uploadContext = microSlimChatContextForUpload(context);
             }
             full = await runStream(uploadContext);
-            if (!wantsAnalyzeSlip(trimmed)) {
+            if (!wantsAnalyzeSlip(trimmed) && isParlayBuild) {
               setMessages((prev) => {
                 const copy = [...prev];
                 const last = copy[copy.length - 1];
@@ -3521,6 +3550,24 @@ export default function CoachScreen() {
                   copy[copy.length - 1] = { ...rest, content: "" };
                 }
                 return copy;
+              });
+            } else if (
+              plainAskFlow &&
+              askRequestId &&
+              sendGenerationRef.current === sendGen &&
+              full?.trim()
+            ) {
+              setMessages((prev) => {
+                const copy = [...prev];
+                const last = copy[copy.length - 1];
+                if (last?.role === "assistant" && !last.content?.trim()) {
+                  copy[copy.length - 1] = { ...last, role: "assistant", content: full };
+                }
+                return copy;
+              });
+              bumpCoachAskStage(askRequestId, sendGen, "response-received");
+              bumpCoachAskStage(askRequestId, sendGen, "assistant-message-committed", {
+                answerVisible: true,
               });
             }
           }
@@ -5945,10 +5992,11 @@ export default function CoachScreen() {
           clearBuildStallWatchdog();
           releaseOtaBlock();
           if (plainAskFlow && activeAskRequestIdRef.current) {
-            if (coachAskAnswerCommitted(activeAskRequestIdRef.current, sendGen)) {
-              bumpCoachAskStage(activeAskRequestIdRef.current, sendGen, "answer-ready");
+            const rid = activeAskRequestIdRef.current;
+            if (coachAskAnswerVisible(rid, sendGen)) {
+              bumpCoachAskStage(rid, sendGen, "progress-complete");
             }
-            clearCoachAskRequest();
+            cancelCoachAskRequest();
             activeAskRequestIdRef.current = "";
           }
           setCoachAskWorkflowIndex(undefined);
@@ -5989,7 +6037,8 @@ export default function CoachScreen() {
       startParlayBuildLifecycle,
       commitCoachFinalizeAfterScan,
       bumpCoachAskStage,
-      coachAskAnswerCommitted,
+      failCoachAskRequest,
+      coachAskAnswerVisible,
       attachedImages,
       isSignedIn,
       modelStrengths,
@@ -6436,17 +6485,7 @@ export default function CoachScreen() {
     if (!waiting) return false;
     const last = messages[messages.length - 1];
     if (!last || last.role !== "assistant" || last.content !== "") return false;
-    const priorUser = [...messages].reverse().find((m) => m.role === "user");
-    if (!priorUser) return false;
-    const text = priorUser.apiContent ?? priorUser.content;
-    return (
-      !isParlayBuildAsk(text) &&
-      !last.analyzeSlip?.length &&
-      !last.parlayBuild &&
-      !last.statCard &&
-      !last.periodGameLog &&
-      !last.teamCard
-    );
+    return !last.parlayBuild && !last.analyzeSlip?.length;
   }, [messages, waiting]);
 
   const footerProgressLegCount = Math.max(
@@ -6734,7 +6773,7 @@ export default function CoachScreen() {
               !buildProgressExpired &&
               i === messages.length - 1 &&
               !showTicketPicks &&
-              (parlayBuildIntent ||
+              (m.parlayBuild ||
                 m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim())));
             const parlayStillBuilding =
               m.role === "assistant" &&
@@ -6749,7 +6788,7 @@ export default function CoachScreen() {
                   parlayBuildPhase !== "board-scan" &&
                   parlayBuildPhase !== "stream") ||
                 deadBuildProse) &&
-              (parlayBuildIntent || deadBuildProse);
+              (m.parlayBuild || deadBuildProse);
             const parlayStillFilling =
               m.role === "assistant" &&
               i === messages.length - 1 &&
@@ -6821,7 +6860,11 @@ export default function CoachScreen() {
             // waiting phase. Show the same rich step-by-step AnalysisProgress card
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
-            const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting && !parlayBuildIntent;
+            const askWaiting =
+              isWaiting &&
+              !m.parlayBuild &&
+              !isBuildingParlay &&
+              !analyzeWaiting;
             const ticketActive = showTicketHeader;
             const bubbleText =
               m.role === "assistant"
@@ -7056,14 +7099,21 @@ export default function CoachScreen() {
                       setParlayBuildPhase("idle");
                       setCoachAskWorkflowIndex(undefined);
                       setCoachAskAnswerCommitted(false);
-                      clearCoachAskRequest();
-                      send(
+                      cancelCoachAskRequest();
+                      activeAskRequestIdRef.current = "";
+                      const retryText =
                         m.retry ||
-                          activeParlayAskRef.current ||
-                          priorUserText ||
-                          "Build me a 15-leg longshot parlay",
-                        { freshThread: askShowRetryButton ? false : true },
-                      );
+                        activeParlayAskRef.current ||
+                        priorUserText ||
+                        "Build me a 15-leg longshot parlay";
+                      if (askShowRetryButton) {
+                        setMessages((prev) => {
+                          const copy = [...prev];
+                          if (copy[copy.length - 1]?.role === "assistant") copy.pop();
+                          return copy;
+                        });
+                      }
+                      send(retryText, { freshThread: askShowRetryButton ? false : true });
                     }}
                     disabled={false}
                     style={({ pressed }) => ({
@@ -7154,13 +7204,10 @@ export default function CoachScreen() {
 
           {coachRenderDiag.blankReason && !showQuickPrompts && !footerParlayProgress && !askProgressInMessageLoop ? (
             <AnalysisProgress
-              mode={coachBuildInFlight && !askProgressInMessageLoop ? "build" : "ask"}
+              mode="build"
               legCount={footerProgressLegCount}
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
-              workflowIndex={
-                askProgressInMessageLoop ? coachAskWorkflowIndex : coachFinalizeWorkflowIndex
-              }
-              answerCommitted={coachAskAnswerCommitted}
+              workflowIndex={coachFinalizeWorkflowIndex}
             />
           ) : null}
           </View>
