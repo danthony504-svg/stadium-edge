@@ -4,6 +4,7 @@ import {
   coachLifecycleBoardScanEnd,
   coachLifecycleBoardScanStart,
 } from "./coachParlayLifecycle.ts";
+import { recordCoachLiveBoardScanBudgetExpired } from "./coachLiveBoardTrace.ts";
 
 export const COACH_BUILD_TIMING_LOG = "[coach-build-timing]";
 
@@ -85,6 +86,10 @@ export async function raceBoardScanWithBudget<T>(
     completion,
     new Promise<null>((resolve) => setTimeout(() => resolve(null), budgetMs)),
   ]);
+
+  if (timedResult === null) {
+    recordCoachLiveBoardScanBudgetExpired();
+  }
 
   return {
     timedResult: timedResult as T | null,

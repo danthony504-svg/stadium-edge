@@ -3,11 +3,19 @@ import test from "node:test";
 import {
   beginCoachLiveBoardTrace,
   classifyCoachLiveBoardExit,
+  coachLiveBoardStageLabel,
   emitCoachLiveBoardSummary,
   firstCoachLiveBoardZeroStage,
+  logCoachLiveBoardEmptyTicketFallback,
   recordCoachLiveBoardApiResult,
-  recordCoachLiveBoardDeduped,
+  recordCoachLiveBoardConfidencePassed,
+  recordCoachLiveBoardDelivered,
+  recordCoachLiveBoardEvScored,
   recordCoachLiveBoardFeedCounts,
+  recordCoachLiveBoardGrounded,
+  recordCoachLiveBoardPriced,
+  recordCoachLiveBoardSimulated,
+  recordCoachLiveBoardValidated,
   resetCoachLiveBoardTrace,
   snapshotCoachLiveBoardTrace,
 } from "./coachLiveBoardTrace.ts";
@@ -15,9 +23,8 @@ import {
 test("firstCoachLiveBoardZeroStage finds earliest zero count", () => {
   const emptyTail = {
     simulated: 0,
-    deduped: 0,
     confidencePassed: 0,
-    correlationPassed: 0,
+    grounded: 0,
     delivered: 0,
   };
   assert.equal(
@@ -36,28 +43,13 @@ test("firstCoachLiveBoardZeroStage finds earliest zero count", () => {
       priced: 80,
       evScored: 0,
       simulated: 80,
-      deduped: 80,
       confidencePassed: 0,
-      correlationPassed: 0,
+      grounded: 0,
       delivered: 0,
     }),
     "evScored",
   );
-  assert.equal(
-    firstCoachLiveBoardZeroStage({
-      games: 12,
-      props: 400,
-      validated: 350,
-      priced: 80,
-      evScored: 40,
-      simulated: 80,
-      deduped: 0,
-      confidencePassed: 0,
-      correlationPassed: 0,
-      delivered: 0,
-    }),
-    "deduped",
-  );
+  assert.equal(coachLiveBoardStageLabel("evScored"), "Candidates after EV");
 });
 
 test("classifyCoachLiveBoardExit maps first zero stage to exit reason", () => {
@@ -69,9 +61,8 @@ test("classifyCoachLiveBoardExit maps first zero stage to exit reason", () => {
       priced: 0,
       evScored: 0,
       simulated: 0,
-      deduped: 0,
       confidencePassed: 0,
-      correlationPassed: 0,
+      grounded: 0,
       delivered: 0,
       httpStatus: "ok",
       error: "",
@@ -87,9 +78,8 @@ test("classifyCoachLiveBoardExit maps first zero stage to exit reason", () => {
       priced: 50,
       evScored: 0,
       simulated: 50,
-      deduped: 50,
       confidencePassed: 0,
-      correlationPassed: 0,
+      grounded: 0,
       delivered: 0,
       httpStatus: "ok",
       error: "",
@@ -97,27 +87,9 @@ test("classifyCoachLiveBoardExit maps first zero stage to exit reason", () => {
     }),
     "ev_filter",
   );
-  assert.equal(
-    classifyCoachLiveBoardExit({
-      games: 20,
-      props: 100,
-      validated: 100,
-      priced: 50,
-      evScored: 10,
-      simulated: 50,
-      deduped: 10,
-      confidencePassed: 0,
-      correlationPassed: 0,
-      delivered: 0,
-      httpStatus: "ok",
-      error: "",
-      exitReason: "none",
-    }),
-    "confidence_filter",
-  );
 });
 
-test("coach live board summary logs pipeline counts", () => {
+test("coach live board logs started, stages, and completed", () => {
   const lines: string[] = [];
   const orig = console.log;
   console.log = (msg?: unknown) => {
@@ -125,22 +97,60 @@ test("coach live board summary logs pipeline counts", () => {
   };
   try {
     beginCoachLiveBoardTrace("trace-1");
-    recordCoachLiveBoardApiResult({
-      endpoint: "/sports/odds?sport=nba",
-      status: 200,
-      ok: true,
-      games: 8,
-    });
     recordCoachLiveBoardFeedCounts({ games: 8, props: 120 });
+    recordCoachLiveBoardValidated(200);
+    recordCoachLiveBoardPriced(80);
+    recordCoachLiveBoardEvScored([
+      {
+        pick: {
+          game: "Lakers @ Celtics",
+          market: "Moneyline",
+          pick: "Lakers",
+          odds: -110,
+          sport: "nba",
+          isProp: false,
+          finalAiScore: { edgePct: 5, simHit: 0.58, grade: "B", highRiskValuePlay: false },
+        },
+      } as never,
+    ]);
+    recordCoachLiveBoardSimulated(80);
+    recordCoachLiveBoardConfidencePassed(12);
+    recordCoachLiveBoardGrounded(5);
+    recordCoachLiveBoardDelivered(0);
     const snap = emitCoachLiveBoardSummary("test");
     assert.ok(snap);
     assert.equal(snap?.games, 8);
-    assert.equal(snap?.props, 120);
-    assert.match(lines[0] ?? "", /status=ok/);
-    assert.match(lines[0] ?? "", /games=8/);
-    assert.match(lines[0] ?? "", /props=120/);
-    assert.match(lines[0] ?? "", /firstZero=validated/);
-    assert.match(lines[0] ?? "", /deduped=0/);
+    assert.equal(snap?.firstZeroStage, "delivered");
+    assert.equal(snap?.firstZeroStageLabel, "Final delivered picks");
+    assert.ok(lines.some((l) => l.includes("Live board request started")));
+    assert.ok(lines.some((l) => l.includes("Games loaded: 8")));
+    assert.ok(lines.some((l) => l.includes("Candidates after EV: 1")));
+    assert.ok(lines.some((l) => l.includes("Live board request completed")));
+    assert.ok(lines.some((l) => l.includes("empty-ticket-fallback")));
+  } finally {
+    console.log = orig;
+    resetCoachLiveBoardTrace();
+  }
+});
+
+test("empty ticket fallback detects scan not finished", () => {
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (msg?: unknown) => {
+    if (typeof msg === "string" && msg.includes("[coach-live-board]")) lines.push(msg);
+  };
+  try {
+    beginCoachLiveBoardTrace("trace-early");
+    recordCoachLiveBoardFeedCounts({ games: 20, props: 100 });
+    logCoachLiveBoardEmptyTicketFallback({
+      delivered: 0,
+      scanComplete: false,
+      hasManifestReply: false,
+      legTarget: 3,
+    });
+    const line = lines.find((l) => l.includes("empty-ticket-fallback")) ?? "";
+    assert.match(line, /fallbackBeforeScanFinished=true/);
+    assert.match(line, /stageReturnedZero=/);
   } finally {
     console.log = orig;
     resetCoachLiveBoardTrace();

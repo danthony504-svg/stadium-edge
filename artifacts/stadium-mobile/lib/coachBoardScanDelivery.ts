@@ -37,8 +37,10 @@ import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
 import {
   emitCoachLiveBoardSummary,
+  logCoachLiveBoardEmptyTicketFallback,
   recordCoachLiveBoardDelivered,
   recordCoachLiveBoardExitReason,
+  recordCoachLiveBoardGrounded,
 } from "./coachLiveBoardTrace.ts";
 
 export type CoachBoardScanDelivery = {
@@ -105,6 +107,12 @@ export function deliverCoachBoardScanTicket(
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {
     recordCoachLiveBoardExitReason("timeout");
+    logCoachLiveBoardEmptyTicketFallback({
+      delivered: 0,
+      scanComplete: false,
+      hasManifestReply: !!scan.manifest,
+      legTarget,
+    });
     emitCoachLiveBoardSummary("scan-incomplete");
     return {
       picks: [],
@@ -175,6 +183,7 @@ export function deliverCoachBoardScanTicket(
 
   const stagedBeforeDelivery = tieredPicks.length;
   let picks = deliverTaggedPicks(tieredPicks, enrich, pipeline);
+  recordCoachLiveBoardGrounded(picks.length);
   if (stagedBeforeDelivery > 0 && picks.length === 0) {
     recordCoachLiveBoardExitReason("delivery_guard");
   }
@@ -296,6 +305,12 @@ export function deliverCoachBoardScanTicket(
     } else if ((manifest.totalQualified ?? 0) === 0 && scoredPool.length > 0) {
       recordCoachLiveBoardExitReason("confidence_filter");
     }
+    logCoachLiveBoardEmptyTicketFallback({
+      delivered: 0,
+      scanComplete: true,
+      hasManifestReply: true,
+      legTarget,
+    });
     emitCoachLiveBoardSummary("delivery-zero-picks");
   }
 

@@ -7,6 +7,8 @@ import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealO
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import {
   emitCoachLiveBoardSummary,
+  markCoachLiveBoardScanEnded,
+  markCoachLiveBoardScanStarted,
   recordCoachLiveBoardDeduped,
   recordCoachLiveBoardConfidencePassed,
   recordCoachLiveBoardCorrelationPassed,
@@ -548,6 +550,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
 }): Promise<FullBoardScanResult> {
+  markCoachLiveBoardScanStarted();
+  try {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -759,10 +763,15 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   });
   recordCoachLiveBoardDelivered(result.picks.length);
   if (opts.onPartial) opts.onPartial(result);
+  markCoachLiveBoardScanEnded(result.scanComplete);
   if (result.scanComplete) {
     emitCoachLiveBoardSummary();
   }
   return result;
+  } catch (e) {
+    markCoachLiveBoardScanEnded(false);
+    throw e;
+  }
 }
 
 export function shouldUseFullBoardScan(

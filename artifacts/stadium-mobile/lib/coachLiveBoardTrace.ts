@@ -13,9 +13,8 @@ export type CoachLiveBoardStage =
   | "priced"
   | "evScored"
   | "simulated"
-  | "deduped"
   | "confidencePassed"
-  | "correlationPassed"
+  | "grounded"
   | "delivered";
 
 export type CoachLiveBoardExitReason =
@@ -40,11 +39,22 @@ const STAGE_ORDER: CoachLiveBoardStage[] = [
   "priced",
   "evScored",
   "simulated",
-  "deduped",
   "confidencePassed",
-  "correlationPassed",
+  "grounded",
   "delivered",
 ];
+
+export const COACH_LIVE_BOARD_STAGE_LABELS: Record<CoachLiveBoardStage, string> = {
+  games: "Games loaded",
+  props: "Props loaded",
+  validated: "Candidates created",
+  priced: "Candidates after pricing",
+  evScored: "Candidates after EV",
+  simulated: "Candidates after simulation",
+  confidencePassed: "Candidates after confidence",
+  grounded: "Candidates after grounding",
+  delivered: "Final delivered picks",
+};
 
 export type CoachLiveBoardTraceSnapshot = {
   requestId: string;
@@ -60,11 +70,16 @@ export type CoachLiveBoardTraceSnapshot = {
   simulated: number;
   deduped: number;
   confidencePassed: number;
-  correlationPassed: number;
+  grounded: number;
   delivered: number;
   error: string;
   exitReason: CoachLiveBoardExitReason;
-  firstZeroStage: string;
+  firstZeroStage: CoachLiveBoardStage | "none";
+  firstZeroStageLabel: string;
+  scanStarted: boolean;
+  scanComplete: boolean;
+  boardScanInFlight: boolean;
+  scanBudgetExpired: boolean;
 };
 
 type TraceState = {
@@ -81,19 +96,39 @@ type TraceState = {
   simulated: number;
   deduped: number;
   confidencePassed: number;
-  correlationPassed: number;
+  grounded: number;
   delivered: number;
   error: string;
   exitReason: CoachLiveBoardExitReason;
   propSimTimeouts: number;
   summaryEmitted: boolean;
+  scanStarted: boolean;
+  scanComplete: boolean;
+  boardScanInFlight: number;
+  scanBudgetExpired: boolean;
+  loggedStages: Set<CoachLiveBoardStage>;
 };
 
 let active: TraceState | null = null;
 
+function logLine(message: string): void {
+  console.log(`${COACH_LIVE_BOARD_LOG} ${message}`);
+}
+
+function logStageCount(stage: CoachLiveBoardStage, count: number): void {
+  if (!active) return;
+  active.loggedStages.add(stage);
+  logLine(`${COACH_LIVE_BOARD_STAGE_LABELS[stage]}: ${count}`);
+}
+
+export function coachLiveBoardStageLabel(stage: CoachLiveBoardStage | "none"): string {
+  if (stage === "none") return "none";
+  return COACH_LIVE_BOARD_STAGE_LABELS[stage];
+}
+
 export function firstCoachLiveBoardZeroStage(
   snapshot: Pick<CoachLiveBoardTraceSnapshot, CoachLiveBoardStage>,
-): string {
+): CoachLiveBoardStage | "none" {
   for (const stage of STAGE_ORDER) {
     if (snapshot[stage] === 0) return stage;
   }
@@ -133,12 +168,10 @@ export function classifyCoachLiveBoardExit(
       return "ev_filter";
     case "simulated":
       return "timeout";
-    case "deduped":
-      return "dedupe_filter";
     case "confidencePassed":
       return "confidence_filter";
-    case "correlationPassed":
-      return "correlation_filter";
+    case "grounded":
+      return "grounding_filter";
     case "delivered":
       return "delivery_guard";
     default:
@@ -161,17 +194,47 @@ export function beginCoachLiveBoardTrace(requestId: string): void {
     simulated: 0,
     deduped: 0,
     confidencePassed: 0,
-    correlationPassed: 0,
+    grounded: 0,
     delivered: 0,
     error: "",
     exitReason: "none",
     propSimTimeouts: 0,
     summaryEmitted: false,
+    scanStarted: false,
+    scanComplete: false,
+    boardScanInFlight: 0,
+    scanBudgetExpired: false,
+    loggedStages: new Set(),
   };
+  logLine(`Live board request started requestId=${requestId}`);
 }
 
 export function coachLiveBoardTraceActive(): boolean {
   return active != null;
+}
+
+export function markCoachLiveBoardScanStarted(): void {
+  if (!active) return;
+  active.scanStarted = true;
+  active.boardScanInFlight += 1;
+  logLine(`board-scan-started requestId=${active.requestId}`);
+}
+
+export function markCoachLiveBoardScanEnded(scanComplete: boolean): void {
+  if (!active) return;
+  active.boardScanInFlight = Math.max(0, active.boardScanInFlight - 1);
+  if (scanComplete) active.scanComplete = true;
+  logLine(
+    `board-scan-ended scanComplete=${scanComplete} boardScanInFlight=${active.boardScanInFlight} requestId=${active.requestId}`,
+  );
+}
+
+export function recordCoachLiveBoardScanBudgetExpired(): void {
+  if (!active) return;
+  active.scanBudgetExpired = true;
+  logLine(
+    `board-scan-budget-expired scanStillInFlight=${active.boardScanInFlight > 0} requestId=${active.requestId}`,
+  );
 }
 
 export function recordCoachLiveBoardApiResult(opts: {
@@ -181,7 +244,6 @@ export function recordCoachLiveBoardApiResult(opts: {
   games?: number;
   props?: number;
   error?: string;
-  /** Supplemental feeds (e.g. live-odds) must not poison primary httpStatus / exit. */
   optional?: boolean;
 }): void {
   if (!active) return;
@@ -206,21 +268,26 @@ export function recordCoachLiveBoardFeedCounts(opts: { games: number; props: num
   if (!active) return;
   active.games = Math.max(active.games, opts.games);
   active.props = Math.max(active.props, opts.props);
+  logStageCount("games", active.games);
+  logStageCount("props", active.props);
 }
 
 export function recordCoachLiveBoardValidated(count: number): void {
   if (!active) return;
   active.validated = count;
+  logStageCount("validated", count);
 }
 
 export function recordCoachLiveBoardPriced(count: number): void {
   if (!active) return;
   active.priced = count;
+  logStageCount("priced", count);
 }
 
 export function recordCoachLiveBoardEvScored(scored: BoardScoredLeg[]): void {
   if (!active) return;
   active.evScored = positiveEdgeScoredLegs(scored).length;
+  logStageCount("evScored", active.evScored);
 }
 
 export function recordCoachLiveBoardSimulated(count: number, opts?: { timeouts?: number }): void {
@@ -232,6 +299,7 @@ export function recordCoachLiveBoardSimulated(count: number, opts?: { timeouts?:
       active.exitReason = "timeout";
     }
   }
+  logStageCount("simulated", count);
 }
 
 export function recordCoachLiveBoardDeduped(count: number): void {
@@ -242,21 +310,29 @@ export function recordCoachLiveBoardDeduped(count: number): void {
 export function recordCoachLiveBoardConfidencePassed(count: number): void {
   if (!active) return;
   active.confidencePassed = count;
+  logStageCount("confidencePassed", count);
 }
 
+/** Correlation / staging count before odds grounding. */
 export function recordCoachLiveBoardCorrelationPassed(count: number): void {
+  recordCoachLiveBoardGrounded(count);
+}
+
+export function recordCoachLiveBoardGrounded(count: number): void {
   if (!active) return;
-  active.correlationPassed = count;
+  active.grounded = count;
+  logStageCount("grounded", count);
 }
 
 export function recordCoachLiveBoardDelivered(count: number): void {
   if (!active) return;
   active.delivered = count;
+  logStageCount("delivered", count);
 }
 
 export function recordCoachLiveBoardError(message: string): void {
   if (!active) return;
-  active.error = message;
+  active.error = active.error || message;
 }
 
 export function recordCoachLiveBoardExitReason(reason: CoachLiveBoardExitReason): void {
@@ -264,7 +340,7 @@ export function recordCoachLiveBoardExitReason(reason: CoachLiveBoardExitReason)
   active.exitReason = reason;
 }
 
-export function snapshotCoachLiveBoardTrace(): CoachLiveBoardTraceSnapshot | null {
+function buildSnapshot(): CoachLiveBoardTraceSnapshot | null {
   if (!active) return null;
   const primaryStatuses = active.httpStatuses.filter((_, i) => !active!.optionalEndpoints[i]);
   const status =
@@ -289,45 +365,90 @@ export function snapshotCoachLiveBoardTrace(): CoachLiveBoardTraceSnapshot | nul
     simulated: active.simulated,
     deduped: active.deduped,
     confidencePassed: active.confidencePassed,
-    correlationPassed: active.correlationPassed,
+    grounded: active.grounded,
     delivered: active.delivered,
     error: active.error,
     exitReason: active.exitReason,
-    firstZeroStage: "",
+    firstZeroStage: "none",
+    firstZeroStageLabel: "none",
+    scanStarted: active.scanStarted,
+    scanComplete: active.scanComplete,
+    boardScanInFlight: active.boardScanInFlight > 0,
+    scanBudgetExpired: active.scanBudgetExpired,
   };
   snap.firstZeroStage = firstCoachLiveBoardZeroStage(snap);
+  snap.firstZeroStageLabel = coachLiveBoardStageLabel(snap.firstZeroStage);
   snap.exitReason = classifyCoachLiveBoardExit(snap);
   return snap;
 }
 
+export function snapshotCoachLiveBoardTrace(): CoachLiveBoardTraceSnapshot | null {
+  return buildSnapshot();
+}
+
+function logCompletionStageRollup(snap: CoachLiveBoardTraceSnapshot): void {
+  for (const stage of STAGE_ORDER) {
+    logLine(`${COACH_LIVE_BOARD_STAGE_LABELS[stage]}: ${snap[stage]}`);
+  }
+}
+
+/**
+ * Log when an empty ticket would surface the generic "couldn't ground a real ticket" fallback.
+ * Backend-only — does not touch UI.
+ */
+export function logCoachLiveBoardEmptyTicketFallback(opts: {
+  delivered: number;
+  scanComplete: boolean;
+  hasManifestReply?: boolean;
+  legTarget?: number;
+}): void {
+  if (!active || opts.delivered > 0) return;
+  const snap = buildSnapshot();
+  if (!snap) return;
+  const wouldShowGenericFallback =
+    !opts.hasManifestReply && (opts.legTarget ?? 0) > 0;
+  const fallbackBeforeScanFinished =
+    wouldShowGenericFallback && (!opts.scanComplete || snap.boardScanInFlight);
+  logLine(
+    `empty-ticket-fallback ` +
+      `stageReturnedZero="${snap.firstZeroStageLabel}" ` +
+      `firstZero=${snap.firstZeroStage} ` +
+      `scanComplete=${opts.scanComplete} ` +
+      `boardScanInFlight=${snap.boardScanInFlight} ` +
+      `scanBudgetExpired=${snap.scanBudgetExpired} ` +
+      `fallbackBeforeScanFinished=${fallbackBeforeScanFinished} ` +
+      `requestId=${snap.requestId}`,
+  );
+}
+
 export function formatCoachLiveBoardSummary(snapshot: CoachLiveBoardTraceSnapshot): string {
   return (
-    `${COACH_LIVE_BOARD_LOG} ` +
+    `${COACH_LIVE_BOARD_LOG} pipeline-summary ` +
     `status=${snapshot.httpStatus} ` +
     `games=${snapshot.games} ` +
     `props=${snapshot.props} ` +
-    `validated=${snapshot.validated} ` +
+    `candidates=${snapshot.validated} ` +
     `priced=${snapshot.priced} ` +
-    `evScored=${snapshot.evScored} ` +
+    `ev=${snapshot.evScored} ` +
     `simulated=${snapshot.simulated} ` +
-    `deduped=${snapshot.deduped} ` +
-    `confidencePassed=${snapshot.confidencePassed} ` +
-    `correlationPassed=${snapshot.correlationPassed} ` +
+    `confidence=${snapshot.confidencePassed} ` +
+    `grounded=${snapshot.grounded} ` +
     `delivered=${snapshot.delivered} ` +
-    `error=${snapshot.error || "none"} ` +
-    `exit=${snapshot.exitReason} ` +
     `firstZero=${snapshot.firstZeroStage} ` +
-    `apiBase=${snapshot.apiBase} ` +
+    `firstZeroLabel="${snapshot.firstZeroStageLabel}" ` +
+    `exit=${snapshot.exitReason} ` +
+    `scanComplete=${snapshot.scanComplete} ` +
+    `boardScanInFlight=${snapshot.boardScanInFlight} ` +
     `requestId=${snapshot.requestId}`
   );
 }
 
 export function emitCoachLiveBoardSummary(reason?: string): CoachLiveBoardTraceSnapshot | null {
   if (!active || active.summaryEmitted) {
-    return snapshotCoachLiveBoardTrace();
+    return buildSnapshot();
   }
   active.summaryEmitted = true;
-  const snap = snapshotCoachLiveBoardTrace();
+  const snap = buildSnapshot();
   if (!snap) return null;
   if (reason) {
     active.error = active.error || reason;
@@ -336,11 +457,18 @@ export function emitCoachLiveBoardSummary(reason?: string): CoachLiveBoardTraceS
       snap.exitReason = "delivery_guard";
     }
   }
+  logLine(`Live board request completed requestId=${snap.requestId}`);
+  logCompletionStageRollup(snap);
   console.log(formatCoachLiveBoardSummary(snap));
+  if (snap.delivered === 0) {
+    logCoachLiveBoardEmptyTicketFallback({
+      delivered: 0,
+      scanComplete: snap.scanComplete,
+      legTarget: 1,
+    });
+  }
   if (snap.endpoints.length) {
-    console.log(
-      `${COACH_LIVE_BOARD_LOG} endpoints=${snap.endpoints.join(",")} apiRequestSent=${snap.apiRequestSent}`,
-    );
+    logLine(`endpoints=${snap.endpoints.join(",")} apiRequestSent=${snap.apiRequestSent}`);
   }
   return snap;
 }
