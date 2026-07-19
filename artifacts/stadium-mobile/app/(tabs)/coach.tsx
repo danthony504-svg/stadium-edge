@@ -1500,13 +1500,7 @@ export default function CoachScreen() {
     restoredBuildRef.current = null;
     handedOffRef.current = false;
     restoringRef.current = false;
-    scanStartedRef.current = false;
-    scanInFlightRef.current = false;
-    terminalRef.current = false;
     lastProgressSignatureRef.current = "";
-    boardScanReplaySigRef.current = "";
-    deadProseScrubbedRef.current = false;
-    deadEndRecoverySigRef.current = "";
 
     clearParlayBuildUiFlags();
     setBgWatchId(null);
