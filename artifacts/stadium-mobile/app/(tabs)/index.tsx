@@ -77,7 +77,7 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 const HOME_MIN_VALUE_EV = 1.5;
 const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl"];
 const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
-const UPCOMING_PREVIEW_COUNT = 8;
+const UPCOMING_PREVIEW_COUNT = 5;
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
   const map = new Map<string, GameMeta>();
@@ -583,11 +583,8 @@ function HomeSportFeed({
   }, [games, sport]);
   const displayUpcoming = useMemo(() => games, [games]);
   const visibleUpcoming = useMemo(
-    () =>
-      upcomingExpanded
-        ? displayUpcoming
-        : displayUpcoming.slice(0, UPCOMING_PREVIEW_COUNT),
-    [displayUpcoming, upcomingExpanded],
+    () => displayUpcoming.slice(0, UPCOMING_PREVIEW_COUNT),
+    [displayUpcoming],
   );
   const canExpandUpcoming = displayUpcoming.length > UPCOMING_PREVIEW_COUNT;
 
@@ -1180,12 +1177,6 @@ function HomeSportFeed({
                 No settled picks yet
               </Text>
             ) : null}
-            <SectionViewAllButton
-              title="View All Performance →"
-              subtitle="See full pick history"
-              onPress={() => router.push("/pick-performance")}
-              style={{ marginTop: hasPerfData ? 12 : 0 }}
-            />
           </View>
         </View>
 
@@ -1320,15 +1311,6 @@ function HomeSportFeed({
                 })}
               </ScrollView>
             )}
-            {topHot.length > 0 ? (
-              <View style={{ paddingHorizontal: 16 }}>
-                <SectionViewAllButton
-                  title="View All Hot Picks →"
-                  subtitle={`See all ${topHot.length} graded props`}
-                  onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
-                />
-              </View>
-            ) : null}
           </View>
         ) : null}
 
@@ -1440,11 +1422,6 @@ function HomeSportFeed({
                   </View>
                 </Pressable>
               ))}
-              <SectionViewAllButton
-                title="View All Best Value →"
-                subtitle={`See all ${valueProps.length} value props`}
-                onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
-              />
             </View>
           </View>
         ) : null}
@@ -1580,15 +1557,6 @@ function HomeSportFeed({
                 </View>
               ))}
             </ScrollView>
-            <View style={{ paddingHorizontal: 16 }}>
-              <SectionViewAllButton
-                title="View All Live Games →"
-                subtitle={`See all ${displayLiveGames.length} live ${displayLiveGames.length === 1 ? "game" : "games"}`}
-                onPress={() =>
-                  router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} })
-                }
-              />
-            </View>
           </View>
         ) : null}
 
@@ -1597,32 +1565,44 @@ function HomeSportFeed({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            justifyContent: "space-between",
             paddingHorizontal: 16,
             marginBottom: 12,
           }}
         >
-          <Text
-            style={{
-              color: colors.foreground,
-              fontFamily: FONT.display,
-              fontSize: 18,
-            }}
-          >
-            Upcoming Games
-            {displayUpcoming.length > 0 ? ` (${displayUpcoming.length})` : ""}
-          </Text>
-          {displayUpcoming.length > 0 ? (
-            <Pressable
-              hitSlop={8}
-              onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text
+              style={{
+                color: colors.foreground,
+                fontFamily: FONT.display,
+                fontSize: 18,
+              }}
             >
-              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                View All
-              </Text>
-            </Pressable>
-          ) : null}
+              Upcoming Games
+            </Text>
+            {displayUpcoming.length > 0 ? (
+              <View
+                style={{
+                  minWidth: 24,
+                  height: 24,
+                  paddingHorizontal: 8,
+                  borderRadius: 12,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.primary,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.primaryForeground,
+                    fontFamily: FONT.display,
+                    fontSize: 13,
+                  }}
+                >
+                  {displayUpcoming.length}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
         {sportFeedLoading && displayUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
@@ -1780,6 +1760,13 @@ function HomeSportFeed({
                 </Pressable>
               );
             })}
+            {canExpandUpcoming ? (
+              <SectionViewAllButton
+                title="View All Games"
+                subtitle={`See all ${displayUpcoming.length} ${displayUpcoming.length === 1 ? "matchup" : "matchups"}`}
+                onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
+              />
+            ) : null}
           </View>
         )}
 
@@ -1895,17 +1882,6 @@ function HomeSportFeed({
                 ))}
               </ScrollView>
             )}
-            {upsets.length > 0 ? (
-              <View style={{ paddingHorizontal: 16 }}>
-                <SectionViewAllButton
-                  title="View All Upset Spots →"
-                  subtitle={`See all ${upsets.length} ${upsets.length === 1 ? "spot" : "spots"}`}
-                  onPress={() =>
-                    askCoach("Show me all the upset spots on today's board and which underdogs you like best")
-                  }
-                />
-              </View>
-            ) : null}
           </View>
         ) : null}
 
@@ -1931,11 +1907,6 @@ function HomeSportFeed({
               Safer legs with higher win probability — built for steadier returns.
             </Text>
           </View>
-          <SectionViewAllButton
-            title="View All Easy Money →"
-            subtitle="Build a safe parlay with Coach"
-            onPress={() => askCoach("Build me a safe parlay")}
-          />
         </View>
 
         {/* Longshots / +500 Steals — cross-book longshot value feed. */}
@@ -2006,13 +1977,6 @@ function HomeSportFeed({
                 </Pressable>
               ))}
             </ScrollView>
-            <View style={{ paddingHorizontal: 16 }}>
-              <SectionViewAllButton
-                title="View All Steals →"
-                subtitle={`See all ${homeSteals.length} longshot ${homeSteals.length === 1 ? "play" : "plays"}`}
-                onPress={() => router.push("/steals")}
-              />
-            </View>
           </View>
         ) : (
           <View style={{ paddingHorizontal: 16, marginBottom: 22 }}>
@@ -2036,11 +2000,6 @@ function HomeSportFeed({
                 High-upside plays at +500 and up with real cross-book edge.
               </Text>
             </View>
-            <SectionViewAllButton
-              title="View All Longshots →"
-              subtitle="Open the +500 Steals scanner"
-              onPress={() => router.push("/steals")}
-            />
           </View>
         )}
       </ScrollView>
