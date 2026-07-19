@@ -22,6 +22,8 @@ type Props = {
   requestedLegs?: number;
   /** True while the board scan is still running — shows in-progress copy, not final shortfall. */
   scanInProgress?: boolean;
+  /** Ticket graded before all matchup/form/injury signals finished loading. */
+  preliminary?: boolean;
 };
 
 function SummaryStat({
@@ -182,6 +184,7 @@ export function CoachTicketHeader({
   coachDetailNote,
   requestedLegs,
   scanInProgress,
+  preliminary,
 }: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
@@ -230,7 +233,7 @@ export function CoachTicketHeader({
             letterSpacing: 0.4,
           }}
         >
-          AI SUMMARY
+          {preliminary ? "AI SUMMARY · PRELIMINARY" : "AI SUMMARY"}
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
           <SummaryStat label="Picks" value={`${summary.pickCount}`} />

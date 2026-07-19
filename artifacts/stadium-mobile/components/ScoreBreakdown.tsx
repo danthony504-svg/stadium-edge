@@ -8,6 +8,7 @@ import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
 import { propHolisticTopDrivers, buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
+import { preliminaryHolisticCoverageCaption } from "@/lib/coachResultState";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED, NOT_AI_RECOMMENDED_COMPACT } from "@/lib/pickRecommendation";
 
@@ -60,6 +61,10 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
   const factors = holistic.factors;
+  const preliminary = holistic.missingCount >= 4;
+  const missingLabels = factors
+    .filter((f) => f.applicable && !f.present)
+    .map((f) => f.label);
   const topKeys = new Set(
     COACH_CARD_STRIP.map((slot) => {
       const { score, present } = stripSlotFactor(factors, slot);
@@ -114,10 +119,13 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
         })}
       </View>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9.5 }}>
-        {holistic.coveragePct}% context grounded
-        {holistic.missingCount > 0
-          ? ` · ${holistic.missingCount} signal${holistic.missingCount === 1 ? "" : "s"} missing`
-          : ""}
+        {preliminary
+          ? preliminaryHolisticCoverageCaption(holistic, missingLabels)
+          : `${holistic.coveragePct}% context grounded${
+              holistic.missingCount > 0
+                ? ` · ${holistic.missingCount} signal${holistic.missingCount === 1 ? "" : "s"} missing`
+                : ""
+            }`}
       </Text>
     </View>
   );

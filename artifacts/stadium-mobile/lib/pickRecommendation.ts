@@ -14,6 +14,7 @@ import { isAltBoardPick, isAltPropPick, isMainBoardPick } from "./altLinePool.ts
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { isFillerBackfillPick } from "./coachScanPolicy.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { preliminaryGradeCaption } from "./coachResultState.ts";
 import {
   PROP_HOLISTIC_MIN_GRADE,
   propQualifiesForTicketFill,
@@ -399,6 +400,10 @@ export function pickGradeDisplayCaption(
     return "Alternate pick — positive EV, edge, and sim grade";
   }
   if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
+    const holistic = score?.propHolistic;
+    if (!holistic || holistic.missingCount >= 4) {
+      return preliminaryGradeCaption(score?.grade);
+    }
     return pick.isProp
       ? "Sim + edge cleared — matchup and form still loading"
       : "Sim-aligned with positive edge";
