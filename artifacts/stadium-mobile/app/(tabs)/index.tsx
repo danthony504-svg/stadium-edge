@@ -21,7 +21,7 @@ import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
-import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, Pill, SectionViewAllButton } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -766,6 +766,7 @@ function HomeSportFeed({
     staleTime: 5 * 60_000,
   });
   const gradedHistory = stealsQ.data?.history ?? [];
+  const homeSteals = stealsQ.data?.steals ?? [];
   const perfSummary = summarizeRecentPerformance(gradedHistory);
   const perfSeries = buildRollingWinRateSeries(gradedHistory);
   const hasPerfData = perfSummary.wins + perfSummary.losses > 0;
@@ -1087,17 +1088,15 @@ function HomeSportFeed({
 
         {/* Today's Performance — real graded steal picks; honest empty state when none settled. */}
         <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
-          <Pressable
-            onPress={() => router.push("/pick-performance")}
-            style={({ pressed }) => ({
+          <View
+            style={{
               backgroundColor: colors.card,
               borderWidth: 1,
               borderColor: colors.border,
               borderRadius: colors.radius,
               padding: 16,
               gap: 14,
-              opacity: pressed ? 0.9 : 1,
-            })}
+            }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Feather name="bar-chart-2" size={16} color={colors.primary} />
@@ -1110,9 +1109,6 @@ function HomeSportFeed({
                 }}
               >
                 Today&apos;s Performance
-              </Text>
-              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                View all
               </Text>
             </View>
             <View
@@ -1184,18 +1180,24 @@ function HomeSportFeed({
                 No settled picks yet
               </Text>
             ) : null}
-          </Pressable>
+            <SectionViewAllButton
+              title="View All Performance →"
+              subtitle="See full pick history"
+              onPress={() => router.push("/pick-performance")}
+              style={{ marginTop: hasPerfData ? 12 : 0 }}
+            />
+          </View>
         </View>
 
-        {/* Hot Picks Today — disabled for now; graded prop rail preserved below. */}
-        {false && featuredEnabled && (hotLoading || topHot.length > 0) ? (
+        {/* Hot Picks — graded props ranked by real recent hit-rate. */}
+        {featuredEnabled && (hotLoading || topHot.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
                 paddingHorizontal: 16,
-                marginBottom: 4,
+                marginBottom: 12,
               }}
             >
               <Feather name="trending-up" size={16} color="#fb923c" />
@@ -1208,17 +1210,8 @@ function HomeSportFeed({
                   flex: 1,
                 }}
               >
-                Hot Picks Today
+                Hot Picks
               </Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-              >
-                <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                  View all
-                </Text>
-              </Pressable>
             </View>
             {topHot.length === 0 ? (
               <View style={{ paddingHorizontal: 16 }}>
@@ -1327,18 +1320,27 @@ function HomeSportFeed({
                 })}
               </ScrollView>
             )}
+            {topHot.length > 0 ? (
+              <View style={{ paddingHorizontal: 16 }}>
+                <SectionViewAllButton
+                  title="View All Hot Picks →"
+                  subtitle={`See all ${topHot.length} graded props`}
+                  onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
+                />
+              </View>
+            ) : null}
           </View>
         ) : null}
 
-        {/* Value Props — disabled; ranked +EV list preserved for future reuse. */}
-        {false && featuredEnabled && valueProps.length > 0 ? (
+        {/* Best Value — server +EV props above the honesty floor. */}
+        {featuredEnabled && valueProps.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
                 paddingHorizontal: 16,
-                marginBottom: 4,
+                marginBottom: 12,
               }}
             >
               <Feather name="award" size={16} color={colors.primary} />
@@ -1351,17 +1353,8 @@ function HomeSportFeed({
                   flex: 1,
                 }}
               >
-                Value Props
+                Best Value
               </Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-              >
-                <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                  View all
-                </Text>
-              </Pressable>
             </View>
             <Text
               style={{
@@ -1447,6 +1440,11 @@ function HomeSportFeed({
                   </View>
                 </Pressable>
               ))}
+              <SectionViewAllButton
+                title="View All Best Value →"
+                subtitle={`See all ${valueProps.length} value props`}
+                onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
+              />
             </View>
           </View>
         ) : null}
@@ -1582,6 +1580,15 @@ function HomeSportFeed({
                 </View>
               ))}
             </ScrollView>
+            <View style={{ paddingHorizontal: 16 }}>
+              <SectionViewAllButton
+                title="View All Live Games →"
+                subtitle={`See all ${displayLiveGames.length} live ${displayLiveGames.length === 1 ? "game" : "games"}`}
+                onPress={() =>
+                  router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} })
+                }
+              />
+            </View>
           </View>
         ) : null}
 
@@ -1590,7 +1597,6 @@ function HomeSportFeed({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            justifyContent: "space-between",
             paddingHorizontal: 16,
             marginBottom: 12,
           }}
@@ -1629,25 +1635,6 @@ function HomeSportFeed({
               </View>
             ) : null}
           </View>
-          {displayUpcoming.length > 0 ? (
-            <Pressable
-              hitSlop={8}
-              onPress={() =>
-                router.push({ pathname: "/upcoming", params: { sport } })
-              }
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-            >
-              <Text
-                style={{
-                  color: colors.primary,
-                  fontFamily: FONT.display,
-                  fontSize: 14,
-                }}
-              >
-                View all
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
         {sportFeedLoading && displayUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
@@ -1805,6 +1792,13 @@ function HomeSportFeed({
                 </Pressable>
               );
             })}
+            {displayUpcoming.length > 0 ? (
+              <SectionViewAllButton
+                title="View All Games →"
+                subtitle={`See all ${displayUpcoming.length} ${displayUpcoming.length === 1 ? "matchup" : "matchups"}`}
+                onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
+              />
+            ) : null}
           </View>
         )}
 
@@ -1920,8 +1914,154 @@ function HomeSportFeed({
                 ))}
               </ScrollView>
             )}
+            {upsets.length > 0 ? (
+              <View style={{ paddingHorizontal: 16 }}>
+                <SectionViewAllButton
+                  title="View All Upset Spots →"
+                  subtitle={`See all ${upsets.length} ${upsets.length === 1 ? "spot" : "spots"}`}
+                  onPress={() =>
+                    askCoach("Show me all the upset spots on today's board and which underdogs you like best")
+                  }
+                />
+              </View>
+            ) : null}
           </View>
         ) : null}
+
+        {/* Easy Money — safe parlay handoff. */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 22 }}>
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              padding: 14,
+              gap: 6,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <MaterialCommunityIcons name="currency-usd" size={18} color="#34d399" />
+              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+                Easy Money
+              </Text>
+            </View>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 18 }}>
+              Safer legs with higher win probability — built for steadier returns.
+            </Text>
+          </View>
+          <SectionViewAllButton
+            title="View All Easy Money →"
+            subtitle="Build a safe parlay with Coach"
+            onPress={() => askCoach("Build me a safe parlay")}
+          />
+        </View>
+
+        {/* Longshots / +500 Steals — cross-book longshot value feed. */}
+        {homeSteals.length > 0 ? (
+          <View style={{ marginBottom: 22 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: 16,
+                marginBottom: 12,
+              }}
+            >
+              <MaterialCommunityIcons name="target" size={18} color={colors.primary} />
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: FONT.display,
+                  fontSize: 18,
+                  marginLeft: 8,
+                }}
+              >
+                +500 Steals
+              </Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+            >
+              {homeSteals.slice(0, 6).map((s) => (
+                <Pressable
+                  key={s.id}
+                  onPress={() => router.push("/steals")}
+                  style={({ pressed }) => ({
+                    width: 250,
+                    backgroundColor: colors.card,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: colors.radius,
+                    padding: 14,
+                    gap: 6,
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <Text
+                    style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
+                    numberOfLines={2}
+                  >
+                    {s.pick}
+                  </Text>
+                  <Text
+                    style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
+                    numberOfLines={1}
+                  >
+                    {s.game}
+                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 16 }}>
+                      {formatAmerican(s.price)}
+                    </Text>
+                    {s.ev != null ? (
+                      <Text style={{ color: "#34d399", fontFamily: FONT.bold, fontSize: 12 }}>
+                        +{s.ev.toFixed(1)}% EV
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <View style={{ paddingHorizontal: 16 }}>
+              <SectionViewAllButton
+                title="View All Steals →"
+                subtitle={`See all ${homeSteals.length} longshot ${homeSteals.length === 1 ? "play" : "plays"}`}
+                onPress={() => router.push("/steals")}
+              />
+            </View>
+          </View>
+        ) : (
+          <View style={{ paddingHorizontal: 16, marginBottom: 22 }}>
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: colors.radius,
+                padding: 14,
+                gap: 6,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <MaterialCommunityIcons name="rocket-launch" size={18} color="#a78bfa" />
+                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+                  Longshots
+                </Text>
+              </View>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 18 }}>
+                High-upside plays at +500 and up with real cross-book edge.
+              </Text>
+            </View>
+            <SectionViewAllButton
+              title="View All Longshots →"
+              subtitle="Open the +500 Steals scanner"
+              onPress={() => router.push("/steals")}
+            />
+          </View>
+        )}
       </ScrollView>
     </ErrorBoundary>
   );
