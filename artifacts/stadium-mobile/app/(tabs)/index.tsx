@@ -763,7 +763,6 @@ function HomeSportFeed({
     staleTime: 5 * 60_000,
   });
   const gradedHistory = stealsQ.data?.history ?? [];
-  const homeSteals = stealsQ.data?.steals ?? [];
   const perfSummary = summarizeRecentPerformance(gradedHistory);
   const perfSeries = buildRollingWinRateSeries(gradedHistory);
   const hasPerfData = perfSummary.wins + perfSummary.losses > 0;
@@ -1883,124 +1882,6 @@ function HomeSportFeed({
             )}
           </View>
         ) : null}
-
-        {/* Easy Money — safe parlay handoff. */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 22 }}>
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: colors.radius,
-              padding: 14,
-              gap: 6,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <MaterialCommunityIcons name="currency-usd" size={18} color="#34d399" />
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
-                Easy Money
-              </Text>
-            </View>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 18 }}>
-              Safer legs with higher win probability — built for steadier returns.
-            </Text>
-          </View>
-        </View>
-
-        {/* Longshots / +500 Steals — cross-book longshot value feed. */}
-        {homeSteals.length > 0 ? (
-          <View style={{ marginBottom: 22 }}>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                paddingHorizontal: 16,
-                marginBottom: 12,
-              }}
-            >
-              <MaterialCommunityIcons name="target" size={18} color={colors.primary} />
-              <Text
-                style={{
-                  color: colors.foreground,
-                  fontFamily: FONT.display,
-                  fontSize: 18,
-                  marginLeft: 8,
-                }}
-              >
-                +500 Steals
-              </Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-            >
-              {homeSteals.slice(0, 6).map((s) => (
-                <Pressable
-                  key={s.id}
-                  onPress={() => router.push("/steals")}
-                  style={({ pressed }) => ({
-                    width: 250,
-                    backgroundColor: colors.card,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: colors.radius,
-                    padding: 14,
-                    gap: 6,
-                    opacity: pressed ? 0.85 : 1,
-                  })}
-                >
-                  <Text
-                    style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
-                    numberOfLines={2}
-                  >
-                    {s.pick}
-                  </Text>
-                  <Text
-                    style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
-                    numberOfLines={1}
-                  >
-                    {s.game}
-                  </Text>
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                    <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 16 }}>
-                      {formatAmerican(s.price)}
-                    </Text>
-                    {s.ev != null ? (
-                      <Text style={{ color: "#34d399", fontFamily: FONT.bold, fontSize: 12 }}>
-                        +{s.ev.toFixed(1)}% EV
-                      </Text>
-                    ) : null}
-                  </View>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        ) : (
-          <View style={{ paddingHorizontal: 16, marginBottom: 22 }}>
-            <View
-              style={{
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: colors.radius,
-                padding: 14,
-                gap: 6,
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <MaterialCommunityIcons name="rocket-launch" size={18} color="#a78bfa" />
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
-                  Longshots
-                </Text>
-              </View>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 18 }}>
-                High-upside plays at +500 and up with real cross-book edge.
-              </Text>
-            </View>
-          </View>
-        )}
       </ScrollView>
     </ErrorBoundary>
   );
