@@ -119,9 +119,9 @@ test("fallback ladder fills 5/10/15 leg targets from qualifying pool", () => {
   }
 });
 
-test("tier 3 medium confidence requires posted odds and positive edge", () => {
+test("tier 2 medium confidence and tier 3 alt lines require posted odds and positive edge", () => {
   const mediumLeg = leg({ game: "A @ B", market: "Total", pick: "Over 7.5", odds: -110 }, 50, mediumScore);
-  assert.ok(legQualifiesTier3(mediumLeg.pick, mediumLeg.pick.finalAiScore));
+  assert.ok(legQualifiesTier2(mediumLeg.pick, mediumLeg.pick.finalAiScore));
   const altLeg = leg(
     {
       game: "C @ D",
@@ -137,5 +137,5 @@ test("tier 3 medium confidence requires posted odds and positive edge", () => {
     45,
     mediumScore,
   );
-  assert.ok(legQualifiesTier2(altLeg.pick, altLeg.pick.finalAiScore));
+  assert.ok(legQualifiesTier3(altLeg.pick, altLeg.pick.finalAiScore));
 });

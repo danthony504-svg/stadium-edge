@@ -17,7 +17,7 @@ _After the 10k sim, 3 game lines on this ticket use the highest Final AI Score a
 });
 
 test("partitionCoachNotes keeps full-board shortfall visible", () => {
-  const leg = `You asked for **8** legs — only **7** cleared the AI quality bar after every posted market was scanned. No ungraded filler was added.
+  const leg = `You asked for **8** legs — only **7** positive-edge markets existed tonight.
 
 I scanned **840** posted lines across every market on today's real odds — moneylines, spreads, alt spreads, totals, alt totals, player props, periods, halves, quarters, innings, and team totals — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.
 

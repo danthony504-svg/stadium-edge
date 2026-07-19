@@ -12,16 +12,27 @@ export const COACH_NO_FILLER_SHORTFALL =
   "Every posted market was scanned — these are every AI Recommended and qualifying alt pick on the board. No filler was added to reach your requested leg count.";
 
 export const COACH_FIXED_LEG_SHORTFALL_LEAD =
-  "Every qualifying market was evaluated across the live board — only this many AI-backed picks met the quality bar.";
+  "Every qualifying market was evaluated across the live board — only this many positive-edge markets were available.";
 
 /** Exhaustive alt-ladder policy — every posted rung scored; mains then alts per market. */
 export const COACH_EXHAUSTIVE_MARKET_LADDER_POLICY =
   "For every game, evaluate every posted alternate spread, alternate total, alternate team total, alternate player prop, combo prop, and ladder prop. Score every line independently in the background before the app opens and while the app is open. If the primary line fails, automatically continue evaluating alternate versions until a qualifying line is found or every posted line in that ladder has been exhausted.";
 
 /** Visible one-liner when a fixed-leg ask returns fewer than requested. */
-export function buildFixedLegCountShortfallLead(requested: number, actual: number): string {
+export function buildFixedLegCountShortfallLead(
+  requested: number,
+  actual: number,
+  positiveEdgeAvailable?: number,
+): string {
   if (actual >= requested) return "";
-  return `You asked for **${requested}** legs — only **${actual}** cleared the AI quality bar after every posted market was scanned. No ungraded filler was added.`;
+  const pool = positiveEdgeAvailable ?? actual;
+  if (pool <= actual) {
+    return `You asked for **${requested}** legs — only **${actual}** positive-edge market${actual === 1 ? "" : "s"} existed tonight.`;
+  }
+  if (pool < requested) {
+    return `You asked for **${requested}** legs — only **${pool}** positive-edge market${pool === 1 ? "" : "s"} existed tonight.`;
+  }
+  return `You asked for **${requested}** legs — **${pool}** positive-edge markets existed tonight; **${actual}** fit your ticket after correlation and diversity rules.`;
 }
 
 /** Guarantee the shortfall lead is present when a fixed-leg ticket is short. */
@@ -29,8 +40,9 @@ export function ensureFixedLegShortfallLegNote(
   legNote: string,
   requested: number,
   actual: number,
+  positiveEdgeAvailable?: number,
 ): string {
-  const lead = buildFixedLegCountShortfallLead(requested, actual);
+  const lead = buildFixedLegCountShortfallLead(requested, actual, positiveEdgeAvailable);
   if (!lead) return legNote.trim();
   if (legNote.includes(lead) || /asked for (\*\*)?\d+(\*\*)? legs/i.test(legNote)) {
     return legNote.trim();

@@ -283,7 +283,8 @@ export function preferBettableQualifiedPicks<T extends { sport?: string; startsA
   const inWindow = timestamped.filter((p) =>
     isPregameBettableForSport(p.startsAt, p.sport ?? ""),
   );
-  return inWindow;
+  const untimestamped = picks.filter((p) => !p.startsAt);
+  return [...inWindow, ...untimestamped];
 }
 
 /** Attach game kickoff times from odds/props/meta when board-built picks omit startsAt. */

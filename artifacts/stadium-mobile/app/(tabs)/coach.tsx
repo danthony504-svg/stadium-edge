@@ -666,7 +666,7 @@ function isEmptyParlayScanReply(m: UIMessage): boolean {
   if (coachReplyHasScanManifest(undefined, m.coachDetailNote)) return true;
   if (m.parlayBuild || m.retry) return true;
   const note = `${m.legNote ?? ""}\n${m.content ?? ""}`;
-  return /cleared the AI quality bar|no legs cleared delivery gates/i.test(note);
+  return /positive-edge market|cleared the AI quality bar|no legs cleared delivery gates/i.test(note);
 }
 
 function prunePriorEmptyParlayReplies(msgs: UIMessage[]): UIMessage[] {

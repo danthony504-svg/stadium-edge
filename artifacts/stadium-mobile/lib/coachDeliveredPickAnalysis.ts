@@ -167,7 +167,7 @@ export function coachPickDisplayCaption(
     if (inj) parts.push("injury data unavailable");
     return parts.join(" · ");
   }
-  if (pick.coachAlternateLineLabel === "Alternate line" || pick.coachDeliveryTier === 2) {
+  if (pick.coachAlternateLineLabel === "Alternate line" || pick.coachDeliveryTier === 3) {
     return "Alternate line — full sim and edge scoring on a posted alt rung";
   }
   if (pick.coachFillTier) {
@@ -184,19 +184,19 @@ export function tagCoachDeliveryTier(
   pick: ParsedPick,
   tier: CoachDeliveryTier,
 ): ParsedPick {
-  if (tier === 3) {
-    return {
-      ...pick,
-      coachDelivered: true,
-      coachDeliveryTier: 3,
-      coachConfidenceLabel: "Medium confidence",
-    };
-  }
   if (tier === 2) {
     return {
       ...pick,
       coachDelivered: true,
       coachDeliveryTier: 2,
+      coachConfidenceLabel: "Medium confidence",
+    };
+  }
+  if (tier === 3) {
+    return {
+      ...pick,
+      coachDelivered: true,
+      coachDeliveryTier: 3,
       coachAlternateLineLabel: "Alternate line",
       ticketRole: "alt",
     };

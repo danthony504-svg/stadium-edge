@@ -1,4 +1,4 @@
-// Coach delivery salvage — never return a short ticket when scored candidates exist.
+// Coach delivery salvage — fill to target from scored pool; never stop after first tier.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { tagCoachDeliveryTier } from "./coachDeliveredPickAnalysis.ts";
@@ -6,9 +6,7 @@ import {
   applyCoachTicketFallbackLadder,
   COACH_MEDIUM_MIN_CONFIDENCE,
   COACH_MEDIUM_MIN_GRADE,
-  legQualifiesTier2,
-  legQualifiesTier3,
-  legQualifiesTier4,
+  type CoachTicketFallbackResult,
 } from "./coachTicketFallbackLadder.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { impliedProb } from "./format.ts";
@@ -62,69 +60,123 @@ export function confidenceRelaxedScoredLegs(scored: BoardScoredLeg[]): BoardScor
   });
 }
 
-function stagedFromLeg(leg: BoardScoredLeg, tag?: "medium" | "tier4"): ParsedPick {
+function stagedFromLeg(leg: BoardScoredLeg, tier?: 2 | 3 | 4): ParsedPick {
   const base = {
     ...leg.pick,
     coachDelivered: true,
     highRiskValuePlay: false,
   };
-  if (tag === "medium") {
-    return tagCoachDeliveryTier(base, 3);
-  }
-  if (tag === "tier4") {
-    return tagCoachDeliveryTier(base, 4);
-  }
-  return { ...base, coachDelivered: true };
+  if (tier) return tagCoachDeliveryTier(base, tier);
+  return tagCoachDeliveryTier(base, 1);
 }
 
-function greedyRelaxedTicket(
-  pool: BoardScoredLeg[],
+function mergeUniquePicks(
+  current: ParsedPick[],
+  additions: ParsedPick[],
   target: number,
-  varietySeed?: string,
-  tag?: "medium" | "tier4",
 ): ParsedPick[] {
-  const greedy = selectGreedyBoardLegs(pool, target, varietySeed);
-  if (greedy.length >= target) {
-    return greedy.map((pick) => stagedFromLeg({ pick } as BoardScoredLeg, tag));
-  }
-  const used = new Set(greedy.map((p) => pickLegFingerprint(p)));
-  const out: ParsedPick[] = greedy.map((pick) => stagedFromLeg({ pick } as BoardScoredLeg, tag));
-  const sorted = [...pool].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
-  for (const leg of sorted) {
+  const used = new Set(current.map((p) => pickLegFingerprint(p)));
+  const out = [...current];
+  for (const pick of additions) {
     if (out.length >= target) break;
-    const fp = pickLegFingerprint(leg.pick);
+    const fp = pickLegFingerprint(pick);
     if (used.has(fp)) continue;
-    out.push(stagedFromLeg(leg, tag));
+    out.push(pick);
     used.add(fp);
   }
   return out.slice(0, target);
 }
 
-/** Deliver coach-tagged picks — positive edge only; honor tier relaxations. */
+function greedyPositiveEdgeTicket(
+  pool: BoardScoredLeg[],
+  target: number,
+  varietySeed?: string,
+  tier: 2 | 3 | 4 = 4,
+): ParsedPick[] {
+  const greedy = selectGreedyBoardLegs(pool, target, varietySeed);
+  const staged = greedy.map((pick) => stagedFromLeg({ pick } as BoardScoredLeg, tier));
+  if (staged.length >= target) return staged;
+  const used = new Set(staged.map((p) => pickLegFingerprint(p)));
+  const out = [...staged];
+  const sorted = [...pool].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  for (const leg of sorted) {
+    if (out.length >= target) break;
+    const fp = pickLegFingerprint(leg.pick);
+    if (used.has(fp)) continue;
+    out.push(stagedFromLeg(leg, tier));
+    used.add(fp);
+  }
+  return out.slice(0, target);
+}
+
+/** Walk Tier 1 → 4 on the full scored pool until target or pool exhausted. */
+export function buildTieredCoachTicketFromPool(
+  scored: BoardScoredLeg[],
+  target: number,
+  varietySeed?: string,
+  seedPicks: ParsedPick[] = [],
+): CoachTicketFallbackResult {
+  const ladder = applyCoachTicketFallbackLadder(scored, seedPicks, target, varietySeed, "balanced");
+  if (ladder.picks.length >= target) return ladder;
+
+  const positive = positiveEdgeScoredLegs(scored);
+  const greedy = greedyPositiveEdgeTicket(positive, target, varietySeed, 4);
+  return {
+    ...ladder,
+    picks: mergeUniquePicks(ladder.picks, greedy, target),
+    tierCounts: {
+      ...ladder.tierCounts,
+      4: ladder.tierCounts[4] + Math.max(0, mergeUniquePicks(ladder.picks, greedy, target).length - ladder.picks.length),
+    },
+    shortfallReasons: ladder.shortfallReasons,
+  };
+}
+
+/** Deliver coach-tagged picks — backfill from scored pool when input is short. */
 function deliverRelaxedPicks(
   picks: ParsedPick[],
+  scored: BoardScoredLeg[],
   enrich: CoachPickEnrichSources | undefined,
   target: number,
+  varietySeed?: string,
 ): ParsedPick[] {
-  const tagged = picks.map((p) => ({ ...p, coachDelivered: true }));
-  const analyzed = ensureCoachDeliveredPickAnalyses(tagged);
-  const strict = filterCoachDeliveredPicks(analyzed, enrich);
-  if (strict.length >= Math.min(target, analyzed.length)) {
-    return strict.slice(0, target);
+  let candidate = picks.map((p) => ({ ...p, coachDelivered: true }));
+
+  if (candidate.length < target && scored.length) {
+    const tiered = buildTieredCoachTicketFromPool(scored, target, varietySeed, candidate);
+    if (tiered.picks.length > candidate.length) {
+      candidate = tiered.picks;
+    }
   }
+
+  if (candidate.length < target) {
+    const positive = positiveEdgeScoredLegs(scored);
+    const greedy = greedyPositiveEdgeTicket(positive, target, varietySeed, 4);
+    candidate = mergeUniquePicks(candidate, greedy, target);
+  }
+
+  const analyzed = ensureCoachDeliveredPickAnalyses(candidate);
+  const strict = filterCoachDeliveredPicks(analyzed, enrich);
+  if (strict.length >= target) return strict.slice(0, target);
+
   const positiveEdge = analyzed.filter((p) => {
     const score = p.finalAiScore;
     if (!score || score.highRiskValuePlay) return false;
     if (!pickHasSimGrade(p, score.simHit)) return false;
     return hasPositiveEdgeEv(p, score);
   });
-  return positiveEdge.slice(0, target);
+  if (positiveEdge.length >= target) return positiveEdge.slice(0, target);
+
+  if (strict.length > 0) return strict;
+  return positiveEdge;
 }
 
 export type CoachDeliverySalvageResult = {
   picks: ParsedPick[];
   relaxationsApplied: string[];
   source: "strict" | "confidence" | "correlation" | "alternate" | "medium" | "positive-ev";
+  tierResult?: CoachTicketFallbackResult;
+  positiveEdgePool: number;
 };
 
 export type CoachDeliverySalvageOpts = {
@@ -136,9 +188,8 @@ export type CoachDeliverySalvageOpts = {
 };
 
 /**
- * Build a deliverable ticket using progressive relaxation:
- * 1. Strict → 2. Confidence → 3. Correlation → 4. Alternate lines →
- * 5. Medium confidence → 6. Best positive-EV markets (Tier 4)
+ * Build a deliverable ticket using progressive tier fill on the full scored pool.
+ * Tier 1 (strict) → Tier 2 (lower confidence +EV) → Tier 3 (alts) → Tier 4 (remaining +EV).
  */
 export function salvageCoachDelivery(opts: CoachDeliverySalvageOpts): CoachDeliverySalvageResult {
   const { scored, target, enrich, varietySeed, stagedPicks = [] } = opts;
@@ -146,161 +197,34 @@ export function salvageCoachDelivery(opts: CoachDeliverySalvageOpts): CoachDeliv
   const positive = positiveEdgeScoredLegs(scored);
 
   if (!positive.length && !stagedPicks.length) {
-    return { picks: [], relaxationsApplied: relaxations, source: "strict" };
-  }
-
-  let best: ParsedPick[] = [];
-
-  if (stagedPicks.length) {
-    const delivered = deliverRelaxedPicks(stagedPicks, enrich, target);
-    if (delivered.length > best.length) {
-      best = delivered;
-    }
-    if (best.length >= target) {
-      return { picks: best, relaxationsApplied: relaxations, source: "strict" };
-    }
-  }
-
-  const ladder = applyCoachTicketFallbackLadder(
-    scored,
-    best,
-    target,
-    varietySeed,
-    "balanced",
-  );
-  const ladderDelivered = deliverRelaxedPicks(ladder.picks, enrich, target);
-  if (ladderDelivered.length > best.length) {
-    best = ladderDelivered;
-    if (ladder.tierCounts[2] > 0) relaxations.push("alternate lines");
-    if (ladder.tierCounts[3] > 0) relaxations.push("medium-confidence");
-    if (ladder.tierCounts[4] > 0) relaxations.push("positive-ev");
-  }
-  if (best.length >= target) {
-    return { picks: best, relaxationsApplied: relaxations, source: "alternate" };
-  }
-
-  // 1. Confidence relaxation
-  const confPool = confidenceRelaxedScoredLegs(scored);
-  if (confPool.length) {
-    relaxations.push("confidence");
-    let picks = greedyRelaxedTicket(confPool, target, varietySeed);
-    let delivered = deliverRelaxedPicks(picks, enrich, target);
-    if (delivered.length > best.length) best = delivered;
-    if (best.length >= target) {
-      return { picks: best, relaxationsApplied: relaxations, source: "confidence" };
-    }
-
-    // 2. Correlation relaxation — greedy without correlation penalty skips
-    relaxations.push("correlation");
-    picks = greedyRelaxedTicket(confPool, target, `${varietySeed ?? "salvage"}-nocorr`);
-    delivered = deliverRelaxedPicks(picks, enrich, target);
-    if (delivered.length > best.length) best = delivered;
-    if (best.length >= target) {
-      return { picks: best, relaxationsApplied: relaxations, source: "correlation" };
-    }
-
-    // 3. Alternate + medium ladder (again from expanded seed)
-    const altFallback = applyCoachTicketFallbackLadder(
-      scored,
-      best,
-      target,
-      varietySeed,
-      "balanced",
-    );
-    delivered = deliverRelaxedPicks(altFallback.picks, enrich, target);
-    if (delivered.length > best.length) {
-      best = delivered;
-      relaxations.push("alternate lines");
-    }
-    if (best.length >= target) {
-      return { picks: best, relaxationsApplied: relaxations, source: "alternate" };
-    }
-
-    // 4. Medium-confidence picks
-    relaxations.push("medium-confidence");
-    const mediumPool = positive.filter((leg) => legQualifiesTier3(leg.pick, leg.pick.finalAiScore));
-    const mediumPicks = greedyRelaxedTicket(
-      mediumPool.length ? mediumPool : confPool,
-      target,
-      varietySeed,
-      "medium",
-    );
-    const tier3Fallback = applyCoachTicketFallbackLadder(
-      scored,
-      mediumPicks,
-      target,
-      varietySeed,
-      "balanced",
-    );
-    delivered = deliverRelaxedPicks(tier3Fallback.picks, enrich, target);
-    if (delivered.length > best.length) best = delivered;
-    if (best.length >= target) {
-      return { picks: best, relaxationsApplied: relaxations, source: "medium" };
-    }
-
-    // 5. Tier 4 — best remaining positive-EV markets
-    relaxations.push("positive-ev");
-    const tier4Pool = positive.filter((leg) => legQualifiesTier4(leg.pick, leg.pick.finalAiScore));
-    const tier4Picks = greedyRelaxedTicket(
-      tier4Pool.length ? tier4Pool : positive,
-      target,
-      varietySeed,
-      "tier4",
-    );
-    const tier4Fallback = applyCoachTicketFallbackLadder(
-      scored,
-      tier4Picks,
-      target,
-      varietySeed,
-      "balanced",
-    );
-    delivered = deliverRelaxedPicks(tier4Fallback.picks, enrich, target);
-    if (delivered.length > best.length) best = delivered;
-
-    if (best.length > 0) {
-      return {
-        picks: best,
-        relaxationsApplied: relaxations,
-        source: "positive-ev",
-      };
-    }
-
-    // Last resort — any positive-edge sim-graded legs, sorted strongest first
-    const lastResort = greedyRelaxedTicket(positive, target, varietySeed, "tier4");
-    delivered = deliverRelaxedPicks(lastResort, enrich, target);
     return {
-      picks: delivered.length > best.length ? delivered : best,
-      relaxationsApplied: [...relaxations, "last-resort-positive-edge"],
-      source: "positive-ev",
+      picks: [],
+      relaxationsApplied: relaxations,
+      source: "strict",
+      positiveEdgePool: 0,
     };
   }
 
-  // No confidence-relaxed pool — still try ladder + medium + tier4 from positive edge pool
-  relaxations.push("alternate lines");
-  const altOnly = applyCoachTicketFallbackLadder(scored, best, target, varietySeed, "balanced");
-  let delivered = deliverRelaxedPicks(altOnly.picks, enrich, target);
-  if (delivered.length > best.length) best = delivered;
-  if (best.length >= target) {
-    return { picks: best, relaxationsApplied: relaxations, source: "alternate" };
+  const tierResult = buildTieredCoachTicketFromPool(scored, target, varietySeed, stagedPicks);
+  if (tierResult.tierCounts[1] > 0) relaxations.push("tier-1-strict");
+  if (tierResult.tierCounts[2] > 0) relaxations.push("tier-2-medium-confidence");
+  if (tierResult.tierCounts[3] > 0) relaxations.push("tier-3-alternate-lines");
+  if (tierResult.tierCounts[4] > 0) relaxations.push("tier-4-positive-ev");
+
+  let picks = deliverRelaxedPicks(tierResult.picks, scored, enrich, target, varietySeed);
+
+  if (picks.length < target && positive.length > picks.length) {
+    relaxations.push("greedy-positive-edge-backfill");
+    const greedy = greedyPositiveEdgeTicket(positive, target, varietySeed, 4);
+    picks = deliverRelaxedPicks(mergeUniquePicks(picks, greedy, target), scored, enrich, target, varietySeed);
   }
 
-  relaxations.push("medium-confidence");
-  const mediumOnly = positive
-    .filter((leg) => legQualifiesTier2(leg.pick, leg.pick.finalAiScore) || legQualifiesTier3(leg.pick, leg.pick.finalAiScore))
-    .map((leg) => tagCoachDeliveryTier(stagedFromLeg(leg, "medium"), 3));
-  delivered = deliverRelaxedPicks(mediumOnly.slice(0, target), enrich, target);
-  if (delivered.length > best.length) best = delivered;
-  if (best.length >= target) {
-    return { picks: best, relaxationsApplied: relaxations, source: "medium" };
-  }
-
-  relaxations.push("positive-ev");
-  const lastResort = greedyRelaxedTicket(positive, target, varietySeed, "tier4");
-  delivered = deliverRelaxedPicks(lastResort, enrich, target);
   return {
-    picks: delivered.length > best.length ? delivered : best,
-    relaxationsApplied: [...relaxations, "last-resort-positive-edge"],
-    source: "positive-ev",
+    picks,
+    relaxationsApplied: relaxations,
+    source: picks.length >= target ? "strict" : "positive-ev",
+    tierResult,
+    positiveEdgePool: positive.length,
   };
 }
 

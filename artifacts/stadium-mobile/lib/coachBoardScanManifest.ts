@@ -668,10 +668,10 @@ export function formatCoachBoardScanManifest(
   ) {
     lines.push("");
     lines.push("**Fallback tiers used**");
-    if (manifest.tierFillCounts[1] > 0) lines.push(`- Tier 1 (strict): **${manifest.tierFillCounts[1]}**`);
-    if (manifest.tierFillCounts[2] > 0) lines.push(`- Tier 2 (alt lines): **${manifest.tierFillCounts[2]}**`);
-    if (manifest.tierFillCounts[3] > 0) lines.push(`- Tier 3 (medium confidence): **${manifest.tierFillCounts[3]}**`);
-    if (manifest.tierFillCounts[4] > 0) lines.push(`- Tier 4 (positive EV): **${manifest.tierFillCounts[4]}**`);
+    if (manifest.tierFillCounts[1] > 0) lines.push(`- Tier 1 (highest confidence / EV / sim): **${manifest.tierFillCounts[1]}**`);
+    if (manifest.tierFillCounts[2] > 0) lines.push(`- Tier 2 (medium confidence, positive EV): **${manifest.tierFillCounts[2]}**`);
+    if (manifest.tierFillCounts[3] > 0) lines.push(`- Tier 3 (alt lines): **${manifest.tierFillCounts[3]}**`);
+    if (manifest.tierFillCounts[4] > 0) lines.push(`- Tier 4 (remaining positive EV): **${manifest.tierFillCounts[4]}**`);
   }
 
   const sportEntries = Object.entries(manifest.coverageBySport);

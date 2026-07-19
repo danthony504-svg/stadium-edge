@@ -4,7 +4,7 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { isAltBoardPick, isAltPropPick } from "./altLinePool.ts";
 import { impliedProb } from "./format.ts";
-import { COACH_SIM_MIN_CONFIDENCE, simEvPct } from "./gameSimQualityGates.ts";
+import { simEvPct } from "./gameSimQualityGates.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { parlayCorrelationPenalty } from "./parlayCorrelationScore.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
@@ -83,31 +83,31 @@ export function legQualifiesTier1(pick: ParsedPick, score: FinalAiScore | null |
   return boardLegPoolRole(pick, score) != null;
 }
 
-/** Tier 2 — posted alternate lines on supported markets. */
+/** Tier 2 — slightly lower confidence posted lines with positive EV (not Tier 1). */
 export function legQualifiesTier2(pick: ParsedPick, score: FinalAiScore | null | undefined): boolean {
   if (!score || score.highRiskValuePlay) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if (!hasVerifiedOdds(pick) || !hasPostedLine(pick)) return false;
   if (!positiveEdgeEv(pick, score)) return false;
+  if (legQualifiesTier1(pick, score)) return false;
+  if (gradeRank(score.grade) < gradeRank(COACH_MEDIUM_MIN_GRADE)) return false;
+  if ((score.confidencePct ?? 0) < COACH_MEDIUM_MIN_CONFIDENCE) return false;
+  if (score.simHit != null && pick.odds != null && score.simHit <= impliedProb(pick.odds)) return false;
   const isAlt = isAltBoardPick(pick) || isAltPropPick(pick) || !!pick.propIsAlt;
-  if (!isAlt) return false;
-  return isTier2SupportedAltMarket(pick.market);
+  if (isAlt) return false;
+  return true;
 }
 
-/** Tier 3 — medium-confidence real posted lines with positive edge, no major conflict. */
+/** Tier 3 — posted alternate lines on supported markets with positive edge. */
 export function legQualifiesTier3(pick: ParsedPick, score: FinalAiScore | null | undefined): boolean {
   if (!score || score.highRiskValuePlay) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if (!hasVerifiedOdds(pick) || !hasPostedLine(pick)) return false;
   if (!positiveEdgeEv(pick, score)) return false;
-  if (gradeRank(score.grade) < gradeRank(COACH_MEDIUM_MIN_GRADE)) return false;
-  if ((score.confidencePct ?? 0) < COACH_MEDIUM_MIN_CONFIDENCE) return false;
-  if (score.simHit != null && pick.odds != null && score.simHit <= impliedProb(pick.odds)) return false;
-  if (pickQualifiesForBoardDelivery(pick, score)) return false;
   if (legQualifiesTier1(pick, score) || legQualifiesTier2(pick, score)) return false;
-  const belowFullConfidence = (score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE;
-  const belowBTier = gradeRank(score.grade) < gradeRank("B");
-  return belowFullConfidence || belowBTier;
+  const isAlt = isAltBoardPick(pick) || isAltPropPick(pick) || !!pick.propIsAlt;
+  if (!isAlt) return false;
+  return isTier2SupportedAltMarket(pick.market);
 }
 
 /** Tier 4 — best remaining positive-edge posted markets (relaxed grade/confidence). */
@@ -128,9 +128,18 @@ function stagedLegDeliverable(pick: ParsedPick, tier: CoachFallbackTier): boolea
   if (!score || score.highRiskValuePlay) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
-  if (tier === 4) return pick.coachDeliveryTier === 4 || pick.coachDelivered === true;
-  if (tier === 3) return pick.coachConfidenceLabel === "Medium confidence";
-  if (tier === 2) return pick.ticketRole === "alt";
+  if (score.simHit != null && pick.odds != null) {
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+  if (pick.coachDelivered || pick.coachDeliveryTier != null) return true;
+  if (tier === 4) return true;
+  if (tier === 3) {
+    return pick.ticketRole === "alt" || !!pick.coachAlternateLineLabel || pick.coachDeliveryTier === 3;
+  }
+  if (tier === 2) {
+    return pick.coachConfidenceLabel === "Medium confidence" || pick.coachDeliveryTier === 2;
+  }
   return pickQualifiesForBoardDelivery(pick, score) || propSimEdgeStagingQualifies(pick, score);
 }
 
@@ -183,12 +192,12 @@ function buildShortfallReasons(
   }
   if (tier2Pool > 0 && tierCounts[2] < gap) {
     reasons.push(
-      `Alternate-line search found **${tier2Pool}** qualifying alt rungs — **${tierCounts[2]}** used.`,
+      `**${tier2Pool}** medium-confidence positive-EV lines available — **${tierCounts[2]}** used.`,
     );
   }
   if (tier3Pool > 0 && tierCounts[3] < gap - tierCounts[2]) {
     reasons.push(
-      `**${tier3Pool}** medium-confidence posted lines available — **${tierCounts[3]}** used.`,
+      `Alternate-line search found **${tier3Pool}** qualifying alt rungs — **${tierCounts[3]}** used.`,
     );
   }
   if (tier4Pool > 0 && tierCounts[4] < gap - tierCounts[2] - tierCounts[3]) {
@@ -237,9 +246,11 @@ export function applyCoachTicketFallbackLadder(
       if (picks.length >= target) break;
       const fp = pickLegFingerprint(leg.pick);
       if (used.has(fp)) continue;
-      const trial = [...picks, leg.pick];
       const corr = parlayCorrelationPenalty(leg.pick, picks);
-      if (corr > 85 && picks.length >= Math.max(1, target - 2)) continue;
+      if (picks.length >= target) break;
+      if (corr > 85 && picks.length >= target - 2 && picks.length >= Math.ceil(target * 0.85)) {
+        continue;
+      }
       const staged = stagedPickFromLeg(leg, tier);
       if (!stagedLegDeliverable(staged, tier)) continue;
       picks.push(staged);

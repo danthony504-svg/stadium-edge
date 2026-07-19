@@ -813,8 +813,13 @@ export function finalizeBoardBuiltCoachTicket<
   const enriched = enrichCoachPicksForGate(noFiller, enrich).map(stripHrvpFromPick);
   const kept = enriched.filter((p) => boardScanStagedLegQualifies(p, p.finalAiScore));
   if (kept.length > 0) {
+    const bettable = preferBettableQualifiedPicks(kept);
+    const toDeliver =
+      bettable.length >= kept.filter((p) => coachPickIsDelivered(p as import("../components/PickCard.tsx").ParsedPick)).length
+        ? bettable
+        : kept;
     const delivered = ensureCoachDeliveredPickAnalyses(
-      filterCoachDeliveredPicks(preferBettableQualifiedPicks(kept), enrich) as T[],
+      filterCoachDeliveredPicks(toDeliver, enrich) as T[],
     );
     return {
       picks: delivered,

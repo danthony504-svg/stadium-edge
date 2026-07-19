@@ -6,6 +6,8 @@ import { explainBoardLegQualification, pickLabelForManifest } from "./boardLegQu
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
+import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { positiveEdgeScoredLegs } from "./coachDeliverySalvage.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 export const COACH_PIPELINE_LOG_PREFIX = "[coach-pipeline]";
@@ -323,4 +325,42 @@ export function formatPipelineRejectionLine(r: CoachPipelineRejectedMarket): str
 
 export function pickSummaryForLog(pick: ParsedPick): string {
   return `${pickLabelForManifest(pick)} (${pick.market})`;
+}
+
+function explainUnselectedPoolReason(
+  pick: ParsedPick,
+  score: FinalAiScore | null | undefined,
+): string {
+  const delivery = explainDeliveryFilterRejection(pick, score);
+  if (delivery) return delivery;
+  const q = explainBoardLegQualification(pick, score);
+  if (!q.qualifies) return gateToRejectionReason(q.gate, q.reason);
+  return "Not selected — lower rank than delivered legs on this ticket";
+}
+
+/** Log why each positive-edge market in the scored pool was not delivered. */
+export function logUnselectedScoredPoolMarkets(
+  scored: BoardScoredLeg[],
+  selected: ParsedPick[],
+  snapshot: CoachPipelineSnapshot,
+  max = 200,
+): void {
+  const kept = new Set(selected.map((p) => pickLegFingerprint(p)));
+  const positive = positiveEdgeScoredLegs(scored);
+  for (const leg of positive) {
+    const fp = pickLegFingerprint(leg.pick);
+    if (kept.has(fp)) continue;
+    const reason = explainUnselectedPoolReason(leg.pick, leg.pick.finalAiScore);
+    pushPipelineRejection(
+      snapshot,
+      rejectionFromScoredLeg(leg, "beforeFinalSelection", reason),
+      max,
+    );
+  }
+  const dropped = positive.length - selected.length;
+  if (dropped > 0) {
+    console.log(
+      `${COACH_PIPELINE_LOG_PREFIX} Unselected positive-edge markets: ${dropped} (see manifest rejections)`,
+    );
+  }
 }

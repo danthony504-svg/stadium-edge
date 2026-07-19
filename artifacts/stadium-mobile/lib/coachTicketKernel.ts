@@ -2,11 +2,13 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { stripFillerBackfillPicks, isFillerBackfillPick } from "./coachScanPolicy.ts";
+import { coachPickIsDelivered } from "./coachDeliveredPickAnalysis.ts";
 import {
   enrichPicksWithStartsAt,
   filterCoachHorizonPicksAfterEnrich,
   preferBettableQualifiedPicks,
 } from "./slate.ts";
+import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
 import { enforceConsistentPropSides } from "./propSideConsistency.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
@@ -41,6 +43,12 @@ export function applyCoachTicketInvariants(
   let out = stripFillerBackfillPicks(picks);
   const enriched = enrichPicksWithStartsAt(out, enrich);
   out = filterCoachHorizonPicksAfterEnrich(enriched, enrich);
+  const deliveredMissingHorizon = enriched.filter(
+    (p) => coachPickIsDelivered(p) && !out.some((k) => pickLegFingerprint(k) === pickLegFingerprint(p)),
+  );
+  if (deliveredMissingHorizon.length) {
+    out = [...out, ...deliveredMissingHorizon];
+  }
   if (!out.length && enriched.length) {
     out = preferBettableQualifiedPicks(enriched);
   }

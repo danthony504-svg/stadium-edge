@@ -79,20 +79,16 @@ test("salvageCoachDelivery fills target from medium-confidence pool", () => {
   assert.ok(result.relaxationsApplied.length > 0);
 });
 
-test("salvageCoachDelivery does not stop at one staged pick when target is 15", () => {
-  const scored = Array.from({ length: 20 }, (_, i) =>
-    leg({ game: `G${i} @ H${i}`, market: "Spread", pick: `G${i} -1.5`, odds: -110 }, bTierScore, 100 - i),
+test("salvageCoachDelivery fills 15 from large positive-edge pool", () => {
+  const scored = Array.from({ length: 25 }, (_, i) =>
+    leg({ game: `M${i} @ N${i}`, market: "Spread", pick: `M${i} -1.5`, odds: -110 }, bTierScore, 100 - i),
   );
-  const oneStaged = [scored[0]!.pick];
   const result = salvageCoachDelivery({
     scored,
     target: 15,
-    stagedPicks: oneStaged,
-    varietySeed: "staged-one-of-fifteen",
+    stagedPicks: [scored[0]!.pick],
+    varietySeed: "fill-fifteen",
   });
-  assert.ok(
-    result.picks.length > 1,
-    `expected >1 picks when pool has ${scored.length} candidates, got ${result.picks.length}`,
-  );
-  assert.ok(result.picks.length >= 10, `expected near-full 15-leg fill, got ${result.picks.length}`);
+  assert.equal(result.picks.length, 15, `expected 15 picks, got ${result.picks.length}`);
+  assert.equal(result.positiveEdgePool, 25);
 });
