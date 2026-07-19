@@ -23,7 +23,6 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { BundleIdentityBanner } from "@/components/BundleIdentityBanner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
@@ -144,7 +143,6 @@ function AppShell() {
             <KeyboardProvider>
               <StatusBar style="light" />
               <RootLayoutNav />
-              <BundleIdentityBanner />
               <OtaUpdateBanner />
               <OtaDiagnosticsBanner />
             </KeyboardProvider>

@@ -159,6 +159,23 @@ import {
   varietyContextWithLastDelivered,
   type CoachTicketRequestContext,
 } from "@/lib/coachRequestLifecycle";
+import {
+  beginCoachFinalizeRequest,
+  clearPersistedCoachFinalize,
+  coachFinalizeWorkflowIndex as resolveCoachFinalizeWorkflowIndex,
+  COACH_BUILD_INTERRUPTED_LEAD,
+  COACH_NO_QUALIFYING_PICKS_LEAD,
+  getCoachFinalizeRecord,
+  loadPersistedCoachFinalize,
+  markCoachCorrelationComplete,
+  markCoachFinalizeCardsSaved,
+  markCoachFinalizeEmpty,
+  markCoachFinalizeError,
+  markCoachFinalizeInterrupted,
+  markCoachFinalizeSelected,
+  persistCoachFinalize,
+  tryAcquireCoachFinalizeLock,
+} from "@/lib/coachFinalize";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1094,9 +1111,13 @@ export default function CoachScreen() {
   const [buildFinishing, setBuildFinishing] = useState(false);
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
   const [boardScanPartialLegs, setBoardScanPartialLegs] = useState(0);
+  const [coachFinalizeWorkflowIndex, setCoachFinalizeWorkflowIndex] = useState<number | undefined>(
+    undefined,
+  );
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coachFinalizeRetryRef = useRef(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1326,6 +1347,9 @@ export default function CoachScreen() {
 
     stopSlatePreAnalysis();
     void clearPendingBuild();
+    void clearPersistedCoachFinalize();
+    setCoachFinalizeWorkflowIndex(undefined);
+    coachFinalizeRetryRef.current = false;
 
     return true;
   }, [clearBuildStallWatchdog, clearParlayBuildUiFlags, setAiPicks]);
@@ -1387,6 +1411,126 @@ export default function CoachScreen() {
       return true;
     },
     [clearBuildStallWatchdog, scrollToEnd],
+  );
+
+  const finishCoachBuildUi = useCallback(() => {
+    if (buildProgressTimerRef.current) {
+      clearTimeout(buildProgressTimerRef.current);
+      buildProgressTimerRef.current = null;
+    }
+    clearBuildStallWatchdog();
+    setCoachBuildBusy(false);
+    setWaiting(false);
+    setStreaming(false);
+    setBuildFinishing(false);
+    setBuildProgressExpired(false);
+    setParlayBuildPhase("idle");
+    setCoachFinalizeWorkflowIndex(9);
+  }, [clearBuildStallWatchdog]);
+
+  /** Correlation complete → finalize exactly once per requestId; commit cards or empty state. */
+  const commitCoachFinalizeAfterScan = useCallback(
+    (
+      scan: FullBoardScanResult,
+      enrichOverride?: CoachFlashEnrich,
+      opts?: { legTarget?: number; userText?: string },
+    ): boolean => {
+      if (!boardScanIsComplete(scan)) return false;
+      const ctx = coachRequestContextRef.current;
+      const requestId = ctx?.requestId ?? scan.requestId ?? varietySeedRef.current;
+      if (!requestId) return false;
+      const legTarget =
+        opts?.legTarget ??
+        (activeRequestLegTargetRef.current ||
+          requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current));
+      if (legTarget >= 3 && !ctx) return false;
+
+      markCoachCorrelationComplete(requestId);
+      const record = getCoachFinalizeRecord(requestId);
+      setCoachFinalizeWorkflowIndex(
+        resolveCoachFinalizeWorkflowIndex(record, { scanComplete: true }),
+      );
+
+      if (!tryAcquireCoachFinalizeLock(requestId)) {
+        return !!record?.cardsSaved;
+      }
+
+      try {
+        const enrich = enrichOverride ?? flashEnrichRef.current;
+        const scanOdds = [...scan.evalLinesByGame.values()].flat();
+        const enrichWithScan: CoachFlashEnrich = {
+          ...enrich,
+          realOdds: [...enrich.realOdds, ...scanOdds],
+          perfByFamily: enrich.perfByFamily ?? marketPerf,
+        };
+
+        const delivered = deliverCoachBoardScanTicket(scan, enrichWithScan, legTarget);
+        const picks = delivered.picks;
+        markCoachFinalizeSelected(requestId, picks.length);
+
+        if (picks.length > 0) {
+          let legNote = scan.note;
+          if (legTarget > picks.length) {
+            legNote = ensureFixedLegShortfallLegNote(legNote, legTarget, picks.length);
+          }
+          const saved =
+            deliverCoachTicket(picks, legNote, { legTarget, source: "coach-finalize" }) ||
+            patchInstantBoardScanTicket(scan, enrichWithScan, {
+              legNote,
+              ticketLegTarget: legTarget,
+            });
+          if (saved) {
+            markCoachFinalizeCardsSaved(requestId, picks.length);
+            void persistCoachFinalize(getCoachFinalizeRecord(requestId)!);
+            finishCoachBuildUi();
+            return true;
+          }
+          markCoachFinalizeError(requestId, "Failed to save pick cards");
+          return false;
+        }
+
+        const emptyNote = COACH_NO_QUALIFYING_PICKS_LEAD;
+        patchInstantBoardScanTicket(scan, enrichWithScan, {
+          legNote: emptyNote,
+          ticketLegTarget: legTarget,
+        });
+        setMessages((prev) => {
+          const copy = [...prev];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i].role === "assistant") {
+              copy[i] = {
+                ...copy[i],
+                picks: [],
+                content: "",
+                legNote: emptyNote,
+                retry: opts?.userText ?? activeParlayAskRef.current ?? copy[i].retry,
+                parlayBuild: true,
+                ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+                coachDetailNote: delivered.coachDetailNote,
+              };
+              return copy;
+            }
+          }
+          return prev;
+        });
+        markCoachFinalizeEmpty(requestId);
+        void persistCoachFinalize(getCoachFinalizeRecord(requestId)!);
+        finishCoachBuildUi();
+        scrollToEnd(false);
+        return true;
+      } catch (err) {
+        markCoachFinalizeError(requestId, err instanceof Error ? err.message : "Finalize failed");
+        return false;
+      }
+    },
+    [
+      deliverCoachTicket,
+      finishCoachBuildUi,
+      marketPerf,
+      patchInstantBoardScanTicket,
+      scrollToEnd,
+    ],
   );
 
   const boardScanPartialToTicket = useCallback(
@@ -1621,6 +1765,11 @@ export default function CoachScreen() {
       const legTarget =
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
+      if (boardScanIsComplete(partial)) {
+        if (commitCoachFinalizeAfterScan(partial, enrichOverride, { legTarget })) {
+          return;
+        }
+      }
       const ticket = boardScanPartialToTicket(partial, enrichOverride);
       if (!ticket.length) {
         if (boardScanIsComplete(partial)) {
@@ -1640,7 +1789,7 @@ export default function CoachScreen() {
         patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
       }
     },
-    [boardScanPartialToTicket, deliverCoachTicket, patchInstantBoardScanTicket],
+    [boardScanPartialToTicket, commitCoachFinalizeAfterScan, deliverCoachTicket, patchInstantBoardScanTicket],
   );
 
   const deliverKernelBoardScan = useCallback(
@@ -1657,7 +1806,7 @@ export default function CoachScreen() {
       });
       if (ticket.length && deliverCoachTicket(ticket, legNote)) return true;
       if (boardScanIsComplete(scan)) {
-        return patchInstantBoardScanTicket(scan, enrich, { ticketLegTarget: legTarget });
+        return commitCoachFinalizeAfterScan(scan, enrich, { legTarget });
       }
       if (scan.picks?.length) {
         deliverBoardScanTicket(scan, enrich);
@@ -1665,7 +1814,7 @@ export default function CoachScreen() {
       }
       return false;
     },
-    [deliverBoardScanTicket, deliverCoachTicket, patchInstantBoardScanTicket],
+    [commitCoachFinalizeAfterScan, deliverBoardScanTicket, deliverCoachTicket, patchInstantBoardScanTicket],
   );
 
   const flashCoachTicketPicks = useCallback(
@@ -2137,6 +2286,9 @@ export default function CoachScreen() {
           sport: slateSport,
           varietySeed,
         });
+        beginCoachFinalizeRequest(varietySeed, earlyLegTarget);
+        coachFinalizeRetryRef.current = false;
+        setCoachFinalizeWorkflowIndex(3);
       }
 
       const controller = new AbortController();
@@ -3225,6 +3377,32 @@ export default function CoachScreen() {
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
           setParlayBuildPhase("score");
+        }
+        if (
+          isParlayBuild &&
+          fullBoardScanned &&
+          fullBoardScanMeta &&
+          boardScanIsComplete(fullBoardScanMeta)
+        ) {
+          const scanOdds = fullBoardScanMeta.evalLinesByGame
+            ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+            : [];
+          const scanEnrich = {
+            ...flashEnrichRef.current,
+            propPool: mergedPropPool,
+            realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+          };
+          if (
+            commitCoachFinalizeAfterScan(fullBoardScanMeta, scanEnrich, {
+              legTarget: Math.min(legTarget, MAX_LEGS),
+              userText: trimmed,
+            })
+          ) {
+            releaseOtaBlock();
+            abortRef.current = null;
+            scrollToEnd();
+            return;
+          }
         }
         let boardBuilt = fullBoardScanned;
         let diversityNote = fullBoardScanMeta?.note ?? "";
@@ -5602,6 +5780,66 @@ export default function CoachScreen() {
     return () => sub.remove();
   }, [restoreBackgroundBuild, resumePendingBackgroundBuild]);
 
+  // Hard recovery: if correlating/finalizing stalls >15s, retry finalize once or surface interrupted.
+  useEffect(() => {
+    const ctx = coachRequestContextRef.current;
+    if (!ctx || (!streaming && !buildFinishing)) return;
+    const record = getCoachFinalizeRecord(ctx.requestId);
+    if (!record?.correlationCompleteAt) return;
+    if (record.phase === "complete" || record.phase === "empty" || record.phase === "interrupted") {
+      return;
+    }
+    const started = record.correlationCompleteAt;
+    const delay = Math.max(0, 15_000 - (Date.now() - started));
+    const t = setTimeout(() => {
+      const latest = getCoachFinalizeRecord(ctx.requestId);
+      if (!latest || latest.phase === "complete" || latest.phase === "empty") return;
+      const scan = latestBoardScanRef.current;
+      if (scan && boardScanIsComplete(scan) && !coachFinalizeRetryRef.current) {
+        coachFinalizeRetryRef.current = true;
+        const scanOdds = [...scan.evalLinesByGame.values()].flat();
+        commitCoachFinalizeAfterScan(
+          scan,
+          {
+            ...flashEnrichRef.current,
+            realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+          },
+          { userText: activeParlayAskRef.current },
+        );
+        return;
+      }
+      markCoachFinalizeInterrupted(ctx.requestId, "Build interrupted");
+      void persistCoachFinalize(getCoachFinalizeRecord(ctx.requestId)!);
+      finishCoachBuildUi();
+      setMessages((prev) => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === "assistant") {
+            copy[i] = {
+              ...copy[i],
+              picks: [],
+              content: "",
+              legNote: COACH_BUILD_INTERRUPTED_LEAD,
+              retry: activeParlayAskRef.current ?? copy[i].retry,
+              parlayBuild: true,
+            };
+            return copy;
+          }
+        }
+        return prev;
+      });
+      scrollToEnd(false);
+    }, delay);
+    return () => clearTimeout(t);
+  }, [
+    streaming,
+    buildFinishing,
+    coachFinalizeWorkflowIndex,
+    commitCoachFinalizeAfterScan,
+    finishCoachBuildUi,
+    scrollToEnd,
+  ]);
+
   // After a force-quit, hydrate the pending build from disk and resume polling.
   useEffect(() => {
     if (isCoachIdleResetPending()) return;
@@ -5614,6 +5852,16 @@ export default function CoachScreen() {
       const idleReset = applyCoachIdleResetIfNeeded();
       if (!idleReset) {
         void resumePendingBackgroundBuild();
+        void loadPersistedCoachFinalize().then((record) => {
+          if (!record) return;
+          setCoachFinalizeWorkflowIndex(
+            resolveCoachFinalizeWorkflowIndex(record, { hasCards: record.selectedCount > 0 }),
+          );
+          if (record.cardsSaved && record.selectedCount > 0) return;
+          if (record.phase === "empty" || record.phase === "interrupted") {
+            finishCoachBuildUi();
+          }
+        });
       }
       if (!OTA_BOOTSTRAP) {
         void (async () => {
@@ -5642,6 +5890,7 @@ export default function CoachScreen() {
       });
     }, [
       applyCoachIdleResetIfNeeded,
+      finishCoachBuildUi,
       resumePendingBackgroundBuild,
       deliverBoardScanTicket,
       patchInstantBoardScanTicket,
@@ -6230,6 +6479,7 @@ export default function CoachScreen() {
                     mode="build"
                     legCount={progressLegCount}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+                    workflowIndex={coachFinalizeWorkflowIndex}
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
