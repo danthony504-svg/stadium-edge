@@ -9,6 +9,7 @@ import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { parlayCorrelationPenalty } from "./parlayCorrelationScore.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 import { pickQualifiesForBoardDelivery, propSimEdgeStagingQualifies } from "./pickRecommendation.ts";
+import { tagCoachDeliveryTier } from "./coachDeliveredPickAnalysis.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import { boardLegPoolRole, type BoardScoredLeg } from "./ticketStaging.ts";
@@ -122,7 +123,6 @@ function stagedLegDeliverable(pick: ParsedPick, tier: CoachFallbackTier): boolea
 function stagedPickFromLeg(
   leg: BoardScoredLeg,
   tier: CoachFallbackTier,
-  varietySeed?: string,
 ): ParsedPick {
   const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);
   const base: ParsedPick = {
@@ -130,13 +130,7 @@ function stagedPickFromLeg(
     ticketRole: role ?? (isAltBoardPick(leg.pick) || isAltPropPick(leg.pick) ? "alt" : "main"),
     highRiskValuePlay: false,
   };
-  if (tier === 3) {
-    return { ...base, coachConfidenceLabel: "Medium confidence" as const };
-  }
-  if (tier === 2) {
-    return { ...base, ticketRole: "alt" as const };
-  }
-  return base;
+  return tagCoachDeliveryTier(base, tier);
 }
 
 function coverageMaps(picks: ParsedPick[]): {
@@ -225,7 +219,7 @@ export function applyCoachTicketFallbackLadder(
       const trial = [...picks, leg.pick];
       const corr = parlayCorrelationPenalty(leg.pick, picks);
       if (corr > 85 && picks.length >= Math.max(1, target - 2)) continue;
-      const staged = stagedPickFromLeg(leg, tier, varietySeed);
+      const staged = stagedPickFromLeg(leg, tier);
       if (!stagedLegDeliverable(staged, tier)) continue;
       picks.push(staged);
       used.add(fp);

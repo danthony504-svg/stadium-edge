@@ -13,6 +13,7 @@ import { tagTicketRoles } from "./ticketStaging.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { filterCoachDeliveredPicks } from "./pickRecommendation.ts";
+import { ensureCoachDeliveredPickAnalyses } from "./coachDeliveredPickAnalysis.ts";
 
 export type CoachTicketKernelOpts = {
   enrich: CoachFlashEnrich;
@@ -61,7 +62,9 @@ export function prepareCoachDeliveredTicket(
 ): ParsedPick[] {
   if (!picks.length) return [];
   const tagged = tagTicketRoles(picks);
-  return filterCoachDeliveredPicks(applyCoachTicketInvariants(tagged, enrich), enrich);
+  return ensureCoachDeliveredPickAnalyses(
+    filterCoachDeliveredPicks(applyCoachTicketInvariants(tagged, enrich), enrich),
+  );
 }
 
 /** Display guard — lightweight dedupe only; never rescore or re-gate. */

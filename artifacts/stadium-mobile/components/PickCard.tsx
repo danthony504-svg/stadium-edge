@@ -123,6 +123,10 @@ export type ParsedPick = {
   coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
   /** Tier 3 medium-confidence fill — real posted line with positive edge. */
   coachConfidenceLabel?: "Medium confidence";
+  /** Delivered on a Coach ticket — preserve full analysis for card rendering. */
+  coachDelivered?: boolean;
+  coachDeliveryTier?: 1 | 2 | 3;
+  coachAlternateLineLabel?: "Alternate line";
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
 };
@@ -906,6 +910,7 @@ export function PickCard({
 
       {hideReadout ? null : pick.scores ||
       pick.finalAiScore?.rubric ||
+      pick.finalAiScore?.simHit != null ||
       ((pick.isProp || pick.player) &&
         (pick.finalAiScore?.simHit != null || pick.finalAiScore?.propHolistic)) ? (
         <ScoreBreakdown
@@ -931,9 +936,7 @@ export function PickCard({
           }}
           variant="compact"
           pick={pick}
-          propHolistic={
-            pick.isProp || pick.player ? buildCoachCardHolistic(pick) : undefined
-          }
+          propHolistic={buildCoachCardHolistic(pick) ?? pick.finalAiScore?.propHolistic ?? undefined}
           simulationPending={pick.simulationPending}
           simGradePending={
             marketSupportsSimulation(pick.market ?? "", pick) &&

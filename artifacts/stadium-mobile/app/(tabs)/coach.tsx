@@ -6653,6 +6653,12 @@ export default function CoachScreen() {
                                 caption: "Real posted line with positive edge — optional signals thin",
                                 tone: "value" as const,
                               }
+                            : p.coachAlternateLineLabel === "Alternate line" || p.coachDeliveryTier === 2
+                            ? {
+                                text: "Alternate line",
+                                caption: "Posted alt rung — full EV, sim, and market analysis",
+                                tone: "grade" as const,
+                              }
                             : pickShowsAltBadge(p)
                             ? {
                                 text: "ALT PICK",

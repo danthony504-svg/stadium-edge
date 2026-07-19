@@ -83,6 +83,7 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
             return <View key={slot.key} style={{ flex: 1 }} />;
           }
           const present = slotScore.present && slotScore.score != null;
+          const unavailable = slotScore.applicable && !present;
           const s = slotScore.score;
           const isTop = present && topKeys.has(slot.key);
           return (
@@ -93,7 +94,7 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
                   height: isTop ? 6 : 4,
                   borderRadius: 999,
                   backgroundColor: present ? scoreColor(s) : colors.border,
-                  opacity: present ? 1 : 0.35,
+                  opacity: present ? 1 : unavailable ? 0.25 : 0.35,
                 }}
               />
               <Text
@@ -103,11 +104,11 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
                 style={{
                   color: present ? (isTop ? colors.foreground : colors.mutedForeground) : colors.mutedForeground,
                   fontFamily: isTop ? FONT.bold : FONT.medium,
-                  fontSize: 8,
+                  fontSize: unavailable ? 6.5 : 8,
                   opacity: present ? 1 : 0.55,
                 }}
               >
-                {slot.label}
+                {unavailable ? "Unavail." : slot.label}
               </Text>
             </View>
           );
@@ -359,14 +360,14 @@ export function ScoreBreakdown({
   const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
   const isPropCard = !!(pick?.isProp || pick?.player);
   const holisticDisplay =
-    isPropCard && pick
+    pick
       ? buildCoachCardHolistic(pick) ?? propHolistic ?? null
       : propHolistic ?? null;
 
   // Compact (cards): show nothing when the pick can't be graded at all, so a
   // card never carries an empty rubric.
   if (variant === "compact") {
-    if (data.composite == null && !isPropCard) return null;
+    if (data.composite == null && !holisticDisplay && !isPropCard) return null;
     if (data.composite == null && isPropCard && !holisticDisplay) return null;
     return (
       <View style={{ gap: 8 }}>

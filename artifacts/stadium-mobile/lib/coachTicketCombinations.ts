@@ -363,6 +363,7 @@ function stagedPickFromRow(
     ...row.pick,
     ticketRole: role,
     highRiskValuePlay: false,
+    coachDelivered: true,
     ...(strictRole || !fillTier ? {} : { coachFillTier: fillTier }),
   };
 }
