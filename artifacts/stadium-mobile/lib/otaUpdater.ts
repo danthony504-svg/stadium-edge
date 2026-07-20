@@ -49,23 +49,10 @@ export async function prefetchAndMaybeApplyOta(
 }
 
 /**
-<<<<<<< HEAD
  * Prefetch OTA updates after launch and on foreground resume (debounced).
  * On cold launch, applies immediately when downloaded so the new bundle is active
  * before the user opens Coach.
  */
-=======
- * @deprecated Renamed to prefetchOtaInBackground — auto-reload removed.
- * Kept for Coach focus prefetch; never reloads, only downloads when available.
- */
-export async function prefetchAndMaybeApplyOta(
-  _applyWhenReady = false,
-): Promise<OtaPrefetchOutcome> {
-  return prefetchOtaInBackground();
-}
-
-/** @deprecated Not mounted from _layout. Foreground fetch-only if used elsewhere. */
->>>>>>> 6d755db3c (fix(ota): restore prefetchAndMaybeApplyOta export; guard Coach focus)
 export function useOtaUpdater(enabled: boolean) {
   const inFlight = useRef(false);
   const lastCheckAt = useRef(0);
