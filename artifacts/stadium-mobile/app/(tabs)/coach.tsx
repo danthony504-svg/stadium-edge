@@ -55,9 +55,11 @@ import {
 } from "@/lib/pickScoreContext";
 import {
   assistantMessagePatchSignature,
-  loadPropSimulationsProgressive,
   patchAssistantMessageIfChanged,
   patchLastAssistantPicks,
+} from "@/lib/assistantMessagePatch";
+import {
+  loadPropSimulationsProgressive,
   picksWithSimPending,
 } from "@/lib/propSimProgressive";
 import { enrichChatContextProps, type PropSelectionOpts } from "@/lib/propSelection";

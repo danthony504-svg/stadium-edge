@@ -13,19 +13,6 @@ import { filterPicksForExcludedSports } from "@/lib/chatContextPriority";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
-import {
-  assistantMessagePatchSignature,
-  patchAssistantMessageIfChanged,
-  patchLastAssistantPicks,
-  type AssistantMessagePatchFields,
-} from "@/lib/assistantMessagePatch";
-
-export {
-  assistantMessagePatchSignature,
-  patchAssistantMessageIfChanged,
-  patchLastAssistantPicks,
-  type AssistantMessagePatchFields,
-};
 
 export type PropSimAttachOpts = {
   propPool: PropPoolEntry[];
@@ -146,6 +133,3 @@ export async function loadPropSimulationsProgressive(
     }
   }
 }
-
-/** Flash or refresh picks on the latest assistant reply (seeds cards during long builds). */
-export { patchLastAssistantPicks } from "@/lib/assistantMessagePatch";
