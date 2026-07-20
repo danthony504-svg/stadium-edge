@@ -1,9 +1,23 @@
 // Coach parlay build — idempotent terminal finalization after board scan / correlation.
 
+import type { ParsedPick } from "../components/PickCard.tsx";
+
 /** Max wait after correlation before forcing terminal state from the latest scan. */
 export const COACH_BUILD_FINALIZE_WATCHDOG_MS = 3_000;
 
+export type CoachFinalizeBuildResult = {
+  requestId: string;
+  sendGeneration: number;
+  picks: ParsedPick[];
+  legNote?: string;
+  coachDetailNote?: string;
+  legTarget?: number;
+  correlationComplete?: boolean;
+  fallbackUsed?: boolean;
+};
+
 let finalizedRequestIds = new Set<string>();
+const latestResultsByRequestId = new Map<string, CoachFinalizeBuildResult>();
 let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 let watchdogKey: string | null = null;
 
@@ -23,8 +37,13 @@ export function markCoachBuildFinalized(sendGeneration: number, requestId: strin
   finalizedRequestIds.add(coachBuildFinalizeKey(sendGeneration, requestId));
 }
 
+export function getLatestCoachFinalizeResult(requestId: string): CoachFinalizeBuildResult | null {
+  return latestResultsByRequestId.get(requestId) ?? null;
+}
+
 export function resetCoachBuildFinalization(): void {
   finalizedRequestIds.clear();
+  latestResultsByRequestId.clear();
   disarmCoachBuildFinalizeWatchdog();
 }
 
@@ -64,4 +83,43 @@ export function shouldTerminateCoachBuildOnDeliveryGateFailure(
   gateOk: boolean,
 ): boolean {
   return isFinalScan && !gateOk;
+}
+
+function logFinalize(meta: CoachFinalizeBuildResult, terminalStateCommitted: boolean): void {
+  console.log("[coach-finalize] requestId", meta.requestId);
+  if (meta.correlationComplete) console.log("[coach-finalize] correlationComplete");
+  console.log("[coach-finalize] selectedPickCount", meta.picks.length);
+  if (meta.fallbackUsed) console.log("[coach-finalize] fallbackUsed");
+  console.log("[coach-finalize] terminalStateCommitted", terminalStateCommitted);
+}
+
+/**
+ * Idempotent terminal commit — runs `commit` at most once per requestId + sendGeneration.
+ * Stores the latest completed result for fallback finalization.
+ */
+export function finalizeCoachBuild(
+  result: CoachFinalizeBuildResult,
+  commit: () => void,
+): boolean {
+  if (result.requestId) {
+    latestResultsByRequestId.set(result.requestId, result);
+  }
+
+  const key = result.requestId
+    ? coachBuildFinalizeKey(result.sendGeneration, result.requestId)
+    : "";
+  if (key && finalizedRequestIds.has(key)) {
+    logFinalize(result, true);
+    return true;
+  }
+
+  commit();
+
+  if (key) {
+    finalizedRequestIds.add(key);
+    disarmCoachBuildFinalizeWatchdog();
+  }
+
+  logFinalize(result, true);
+  return true;
 }
