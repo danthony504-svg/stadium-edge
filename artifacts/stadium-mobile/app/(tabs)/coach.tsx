@@ -165,11 +165,17 @@ import {
 import {
   armCoachBuildFinalizeWatchdog,
   coachBuildWasFinalized,
-  disarmCoachBuildFinalizeWatchdog,
   finalizeCoachBuild,
   resetCoachBuildFinalization,
   type CoachFinalizeBuildResult,
 } from "@/lib/coachBuildFinalization";
+import {
+  resetCoachFinalStageTrace,
+  traceFinalStageAfter,
+  traceFinalStageBefore,
+  traceFinalStageBlocked,
+  traceFinalStageError,
+} from "@/lib/coachFinalStageTrace";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1407,17 +1413,36 @@ export default function CoachScreen() {
         fallbackUsed: opts.fallbackUsed,
       };
       return finalizeCoachBuild(result, () => {
+        traceFinalStageBefore(6, "coach.tsx:finalizeCoachTerminalBuild.commit");
         if (opts.partial) latestBoardScanRef.current = opts.partial;
         boardTicketSnapshotRef.current = picks;
         if (opts.partial && boardScanIsComplete(opts.partial)) {
           liveScanDeliveredRef.current = true;
         }
         setBoardScanPartialLegs(picks.length);
+        traceFinalStageAfter(8, "coach.tsx:finalizeCoachTerminalBuild.setBoardScanPartialLegs", {
+          finalTicketReady: picks.length > 0,
+          legCount: picks.length,
+          requestId,
+        });
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        traceFinalStageAfter(9, "coach.tsx:finalizeCoachTerminalBuild.clearScanFlags", {
+          isScanning: false,
+          streaming: false,
+          buildFinishing: false,
+          waiting: false,
+          parlayBuildPhase: "idle",
+          requestId,
+        });
+        traceFinalStageAfter(7, "coach.tsx:finalizeCoachTerminalBuild.progress", {
+          progress: 100,
+          legCount: picks.length,
+          requestId,
+        });
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1435,7 +1460,13 @@ export default function CoachScreen() {
           setAiPicks(picks);
           if (picks.length) captureCoachPicksOnce(picks);
         }
+        traceFinalStageAfter(10, "coach.tsx:finalizeCoachTerminalBuild.patchMessage", {
+          patched,
+          pickCount: picks.length,
+          requestId,
+        });
         if (opts.pinScroll !== false) scrollToEnd(false);
+        traceFinalStageAfter(6, "coach.tsx:finalizeCoachTerminalBuild.commit");
       });
     },
     [clearBuildStallWatchdog, scrollToEnd, captureCoachPicksOnce],
@@ -1455,65 +1486,119 @@ export default function CoachScreen() {
     ) => {
       const ctx = coachRequestContextRef.current;
       const sendGen = sendGenerationRef.current;
-      if (ctx?.requestId && coachBuildWasFinalized(sendGen, ctx.requestId)) {
-        return true;
-      }
-      if (!boardScanIsComplete(partial)) return false;
+      const requestId = ctx?.requestId ?? "";
+      try {
+        if (ctx?.requestId && coachBuildWasFinalized(sendGen, ctx.requestId)) {
+          traceFinalStageBlocked(
+            2,
+            "coach.tsx:tryFinalizeCoachBuildFromScan",
+            "request already finalized — skipping",
+            { requestId, sendGen },
+          );
+          return true;
+        }
+        if (!boardScanIsComplete(partial)) {
+          traceFinalStageBlocked(
+            2,
+            "coach.tsx:tryFinalizeCoachBuildFromScan",
+            "board scan not complete",
+            { requestId, scanComplete: partial.scanComplete, pickCount: partial.picks?.length ?? 0 },
+          );
+          return false;
+        }
 
-      const enrich = opts?.enrichOverride ?? flashEnrichRef.current;
-      const scanOdds = [...partial.evalLinesByGame.values()].flat();
-      const enrichWithScan = {
-        ...enrich,
-        realOdds: [...enrich.realOdds, ...scanOdds],
-      };
-      const legTarget =
-        opts?.legTarget ??
-        (activeRequestLegTargetRef.current ||
-          requestedLegCount(activeParlayAskRef.current) ||
-          effectiveBuildLegCount(activeParlayAskRef.current));
-      const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
-      let ticket = delivered.picks;
-      let legNote = opts?.legNote ?? partial.note;
-      const coachDetailNote = delivered.coachDetailNote;
-      if (legTarget > 0 && ticket.length < legTarget) {
-        legNote = ticket.length
-          ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
-          : buildFixedLegCountShortfallLead(legTarget, 0);
-      } else if (!ticket.length) {
-        legNote = legNote.trim() || partial.note;
-      }
+        const enrich = opts?.enrichOverride ?? flashEnrichRef.current;
+        const scanOdds = [...partial.evalLinesByGame.values()].flat();
+        const enrichWithScan = {
+          ...enrich,
+          realOdds: [...enrich.realOdds, ...scanOdds],
+        };
+        const legTarget =
+          opts?.legTarget ??
+          (activeRequestLegTargetRef.current ||
+            requestedLegCount(activeParlayAskRef.current) ||
+            effectiveBuildLegCount(activeParlayAskRef.current));
 
-      if (legTarget >= 3) {
-        const finalized = finalizeCoachTicketForRequest(ticket, {
-          requestedLegs: legTarget,
-          requestId: ctx?.requestId,
-          previousRequestId: ctx?.previousRequestId,
-          cacheKey: ctx?.cacheKey,
-          source: "final",
-          recordDelivered: true,
+        traceFinalStageBefore(2, "coach.tsx:tryFinalizeCoachBuildFromScan.deliver", {
+          requestId,
+          legTarget,
+          scanPickCount: partial.picks?.length ?? 0,
         });
-        if (!finalized.ok) {
-          ticket = [];
-        } else {
-          ticket = finalized.picks;
+        const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
+        traceFinalStageAfter(3, "coach.tsx:tryFinalizeCoachBuildFromScan.deliver", {
+          requestId,
+          deliveredPickCount: delivered.picks.length,
+          scanComplete: delivered.scanComplete,
+        });
+
+        let ticket = delivered.picks;
+        let legNote = opts?.legNote ?? partial.note;
+        const coachDetailNote = delivered.coachDetailNote;
+        if (legTarget > 0 && ticket.length < legTarget) {
+          legNote = ticket.length
+            ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
+            : buildFixedLegCountShortfallLead(legTarget, 0);
+        } else if (!ticket.length) {
+          legNote = legNote.trim() || partial.note;
+        }
+
+        traceFinalStageBefore(4, "coach.tsx:tryFinalizeCoachBuildFromScan.finalizeTicket", {
+          requestId,
+          legTarget,
+          ticketPickCount: ticket.length,
+        });
+        if (legTarget >= 3) {
+          const finalized = finalizeCoachTicketForRequest(ticket, {
+            requestedLegs: legTarget,
+            requestId: ctx?.requestId,
+            previousRequestId: ctx?.previousRequestId,
+            cacheKey: ctx?.cacheKey,
+            source: "final",
+            recordDelivered: true,
+          });
+          if (!finalized.ok) {
+            ticket = [];
+          } else {
+            ticket = finalized.picks;
+            rememberParlayBuild(ticket);
+            if (ctx) recordCoachTicketDelivered(ticket, ctx);
+          }
+          traceFinalStageAfter(5, "coach.tsx:tryFinalizeCoachBuildFromScan.finalizeTicket", {
+            requestId,
+            gateOk: finalized.ok,
+            ticketPickCount: ticket.length,
+          });
+        } else if (legTarget > 0 && ticket.length) {
           rememberParlayBuild(ticket);
           if (ctx) recordCoachTicketDelivered(ticket, ctx);
+          traceFinalStageAfter(5, "coach.tsx:tryFinalizeCoachBuildFromScan.finalizeTicket", {
+            requestId,
+            gateOk: true,
+            ticketPickCount: ticket.length,
+            skippedGate: true,
+          });
+        } else {
+          traceFinalStageAfter(5, "coach.tsx:tryFinalizeCoachBuildFromScan.finalizeTicket", {
+            requestId,
+            skippedGate: true,
+            ticketPickCount: ticket.length,
+          });
         }
-      } else if (legTarget > 0 && ticket.length) {
-        rememberParlayBuild(ticket);
-        if (ctx) recordCoachTicketDelivered(ticket, ctx);
-      }
 
-      return finalizeCoachTerminalBuild({
-        partial,
-        picks: ticket,
-        legNote,
-        coachDetailNote,
-        legTarget,
-        pinScroll: opts?.pinScroll,
-        correlationComplete: opts?.correlationComplete ?? true,
-        fallbackUsed: opts?.fallbackUsed,
-      });
+        return finalizeCoachTerminalBuild({
+          partial,
+          picks: ticket,
+          legNote,
+          coachDetailNote,
+          legTarget,
+          pinScroll: opts?.pinScroll,
+          correlationComplete: opts?.correlationComplete ?? true,
+          fallbackUsed: opts?.fallbackUsed,
+        });
+      } catch (err) {
+        traceFinalStageError(6, "coach.tsx:tryFinalizeCoachBuildFromScan", err, { requestId });
+        throw err;
+      }
     },
     [finalizeCoachTerminalBuild],
   );
@@ -1780,6 +1865,10 @@ export default function CoachScreen() {
       const ctx = coachRequestContextRef.current;
       latestBoardScanRef.current = partial;
       if (boardScanIsComplete(partial)) {
+        traceFinalStageBefore(1, "coach.tsx:onBoardScanPartial.complete", {
+          requestId: ctx?.requestId,
+          pickCount: partial.picks.length,
+        });
         if (partial.picks.length) {
           setBoardScanPartialLegs(partial.picks.length);
           setParlayBuildPhase("stream");
@@ -1787,6 +1876,9 @@ export default function CoachScreen() {
         tryFinalizeCoachBuildFromScan(partial, {
           legTarget: legTarget > 0 ? legTarget : undefined,
           correlationComplete: true,
+        });
+        traceFinalStageAfter(1, "coach.tsx:onBoardScanPartial.complete", {
+          requestId: ctx?.requestId,
         });
         scheduleCoachBuildFinalizeWatchdog();
         return;
@@ -2186,6 +2278,7 @@ export default function CoachScreen() {
           sport: slateSport,
           varietySeed,
         });
+        resetCoachFinalStageTrace(varietySeed);
       }
 
       const controller = new AbortController();
@@ -3141,11 +3234,18 @@ export default function CoachScreen() {
             const ctx = coachRequestContextRef.current;
             if (ctx?.requestId && !coachBuildWasFinalized(sendGenerationRef.current, ctx.requestId)) {
               if (scanSettled) {
+                traceFinalStageBefore(1, "coach.tsx:send.kernelEarlyExit", {
+                  requestId: ctx.requestId,
+                  kernelLegTarget,
+                });
                 tryFinalizeCoachBuildFromScan(finalScan!, {
                   enrichOverride: flashEnrichRef.current,
                   legTarget: kernelLegTarget,
                   correlationComplete: true,
                   pinScroll: false,
+                });
+                traceFinalStageAfter(1, "coach.tsx:send.kernelEarlyExit", {
+                  requestId: ctx.requestId,
                 });
               }
             }
@@ -3279,12 +3379,33 @@ export default function CoachScreen() {
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
           scheduleCoachBuildFinalizeWatchdog();
+          traceFinalStageBefore(1, "coach.tsx:send.correlation", {
+            requestId: coachRequestContextRef.current?.requestId,
+            fullBoardScanMeta: !!fullBoardScanMeta,
+            scanComplete: fullBoardScanMeta?.scanComplete ?? false,
+            scanPickCount: fullBoardScanMeta?.picks?.length ?? 0,
+          });
           setParlayBuildPhase("score");
+          traceFinalStageAfter(1, "coach.tsx:send.correlation", {
+            requestId: coachRequestContextRef.current?.requestId,
+            buildPhase: "score",
+          });
           if (fullBoardScanMeta && boardScanIsComplete(fullBoardScanMeta)) {
             tryFinalizeCoachBuildFromScan(fullBoardScanMeta, {
               legTarget: Math.min(legTarget, MAX_LEGS),
               correlationComplete: true,
             });
+          } else {
+            traceFinalStageBlocked(
+              2,
+              "coach.tsx:send.correlation",
+              "scan not complete at correlation — tryFinalizeCoachBuildFromScan skipped",
+              {
+                requestId: coachRequestContextRef.current?.requestId,
+                hasMeta: !!fullBoardScanMeta,
+                scanComplete: fullBoardScanMeta?.scanComplete ?? false,
+              },
+            );
           }
         }
         let boardBuilt = fullBoardScanned;
@@ -4797,8 +4918,18 @@ export default function CoachScreen() {
           !boardScanIsComplete(fullBoardScanMeta) &&
           !boardScanIsComplete(latestBoardScanRef.current)
         ) {
+          traceFinalStageBefore(2, "coach.tsx:send.earlyReachBoardScanRef.await", {
+            requestId: coachRequestContextRef.current?.requestId,
+            pendingPromise: "earlyReachBoardScanRef.current",
+          });
           try {
             const settled = await earlyReachBoardScanRef.current;
+            traceFinalStageAfter(2, "coach.tsx:send.earlyReachBoardScanRef.await", {
+              requestId: coachRequestContextRef.current?.requestId,
+              settled: !!settled,
+              scanComplete: settled?.scanComplete ?? false,
+              pickCount: settled?.picks?.length ?? 0,
+            });
             if (settled) {
               latestBoardScanRef.current = settled;
               if (!fullBoardScanMeta || !boardScanIsComplete(fullBoardScanMeta)) {
@@ -4811,8 +4942,27 @@ export default function CoachScreen() {
               }
               if (boardScanIsComplete(settled)) fullBoardScanned = true;
             }
-          } catch {
-            /* ignore */
+            const ctx = coachRequestContextRef.current;
+            if (
+              settled &&
+              boardScanIsComplete(settled) &&
+              ctx?.requestId &&
+              !coachBuildWasFinalized(sendGenerationRef.current, ctx.requestId)
+            ) {
+              traceFinalStageBlocked(
+                6,
+                "coach.tsx:send.postEarlyReachAwait",
+                "scan complete after correlation await but terminal state not yet committed",
+                { requestId: ctx.requestId, pickCount: settled.picks?.length ?? 0 },
+              );
+            }
+          } catch (settleErr) {
+            traceFinalStageError(
+              2,
+              "coach.tsx:send.earlyReachBoardScanRef.await",
+              settleErr,
+              { requestId: coachRequestContextRef.current?.requestId },
+            );
           }
         }
         let boardScanManifestDetail = "";
@@ -5406,6 +5556,15 @@ export default function CoachScreen() {
             setAiPicks(next);
             captureCoachPicksOnce(next);
           };
+          traceFinalStageBlocked(
+            10,
+            "coach.tsx:send.loadPropSimulationsProgressive",
+            "prop sim progressive started — onQuick/onDeep will apply picks asynchronously",
+            {
+              requestId: coachRequestContextRef.current?.requestId,
+              snapshotPickCount: snapshot.length,
+            },
+          );
           void loadPropSimulationsProgressive(
             snapshot,
             simOpts,
@@ -5423,6 +5582,9 @@ export default function CoachScreen() {
           );
         }
       } catch (e: any) {
+        traceFinalStageError(6, "coach.tsx:send", e, {
+          requestId: coachRequestContextRef.current?.requestId,
+        });
         if (handedOffRef.current) {
           // We deliberately aborted the in-app stream to hand the build off to
           // the server when the app was backgrounded. It keeps generating and
@@ -5471,7 +5633,20 @@ export default function CoachScreen() {
           });
         }
       } finally {
-        if (sendGenerationRef.current !== sendGen) return;
+        traceFinalStageBefore(6, "coach.tsx:send.finally", {
+          requestId: coachRequestContextRef.current?.requestId,
+          sendGen,
+          currentSendGen: sendGenerationRef.current,
+        });
+        if (sendGenerationRef.current !== sendGen) {
+          traceFinalStageBlocked(
+            9,
+            "coach.tsx:send.finally",
+            "send generation superseded — finally flag clear skipped",
+            { requestId: coachRequestContextRef.current?.requestId, sendGen, currentSendGen: sendGenerationRef.current },
+          );
+          return;
+        }
         if (isParlayBuildAsk(trimmed)) {
           const partial = latestBoardScanRef.current;
           if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
@@ -5504,6 +5679,13 @@ export default function CoachScreen() {
         setCoachBuildBusy(false);
         abortRef.current = null;
         scrollToEnd();
+        traceFinalStageAfter(9, "coach.tsx:send.finally", {
+          requestId: coachRequestContextRef.current?.requestId,
+          isScanning: false,
+          streaming: false,
+          buildFinishing: false,
+          waiting: false,
+        });
       }
     },
     [
@@ -5851,6 +6033,22 @@ export default function CoachScreen() {
     setParlayBuildPhase("idle");
     clearBuildStallWatchdog();
   }, [hasUserTurn, streaming, buildFinishing, waiting, clearBuildStallWatchdog]);
+
+  // Confirm step 10 once the UI can render results (picks or scan manifest) with scan idle.
+  useEffect(() => {
+    if (streaming || buildFinishing || waiting) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant") return;
+    const hasPicks = (last.picks?.length ?? 0) > 0;
+    const hasManifest = coachReplyHasScanManifest(undefined, last.coachDetailNote);
+    if (!hasPicks && !hasManifest) return;
+    traceFinalStageAfter(10, "coach.tsx:renderEffect", {
+      requestId: coachRequestContextRef.current?.requestId,
+      pickCount: last.picks?.length ?? 0,
+      hasManifest,
+      buildIdle: true,
+    });
+  }, [messages, streaming, buildFinishing, waiting]);
 
   // Finished empty-scan tickets can leave build flags set while the manifest is
   // already on screen — unlock the composer so the user can type a new ask.

@@ -109,6 +109,7 @@ export function finalizeCoachBuild(
     ? coachBuildFinalizeKey(result.sendGeneration, result.requestId)
     : "";
   if (key && finalizedRequestIds.has(key)) {
+    console.log("[coach-finalize] skippedCommit alreadyFinalized", { requestId: result.requestId });
     logFinalize(result, true);
     return true;
   }
