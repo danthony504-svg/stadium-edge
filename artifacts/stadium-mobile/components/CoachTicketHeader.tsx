@@ -196,6 +196,7 @@ export function CoachTicketHeader({
       if (scanInProgress) {
         return `You asked for **${requestedLegs}** legs — showing **${summary.pickCount}** while the full-board scan continues.`;
       }
+      if (notes.shortfall?.trim()) return notes.shortfall.trim();
       return buildFixedLegCountShortfallLead(requestedLegs, summary.pickCount);
     }
     return notes.shortfall?.trim() ?? "";

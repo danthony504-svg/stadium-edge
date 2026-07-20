@@ -5,6 +5,8 @@ import {
   boardScanMatchesLegTarget,
   boardScanMeetsLegTarget,
   boardScanReadyForDelivery,
+  buildDetailedLegShortfallLead,
+  buildFixedLegCountShortfallLead,
   ensureFixedLegShortfallLegNote,
   preferBoardScanForDelivery,
   preferFinalBoardScanForDelivery,
@@ -20,6 +22,7 @@ import {
   shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "./coachScanPolicy.ts";
+import { emptyCoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 
 test("shouldAllowReachCountBackfill blocks 3+ leg board-scan parlays", () => {
   assert.equal(
@@ -152,6 +155,33 @@ test("ensureFixedLegShortfallLegNote prepends lead when missing", () => {
   assert.match(out, /only \*\*7\*\*/i);
   const kept = ensureFixedLegShortfallLegNote(out, 9, 7);
   assert.equal(kept, out);
+});
+
+test("buildDetailedLegShortfallLead shows pipeline breakdown for multi-leg asks", () => {
+  const manifest = {
+    ...emptyCoachBoardScanManifest(15),
+    marketsFound: 1200,
+    marketsSimulated: 1000,
+    totalQualified: 42,
+    deliveredLegs: 1,
+    gateFailureCounts: {
+      not_ai_recommended: 18,
+      not_staged: 6,
+    },
+  };
+  const lead = buildDetailedLegShortfallLead(manifest, 15, 1);
+  assert.match(lead, /Markets loaded: \*\*1,200\*\*/);
+  assert.match(lead, /Markets simulated: \*\*1,000\*\*/);
+  assert.match(lead, /Positive-edge candidates: \*\*42\*\*/);
+  assert.match(lead, /Rejected by confidence: \*\*18\*\*/);
+  assert.match(lead, /Final picks delivered: \*\*1\*\* of \*\*15\*\*/);
+  assert.doesNotMatch(lead, /cleared the AI quality bar/i);
+});
+
+test("buildFixedLegCountShortfallLead keeps legacy copy for 5-leg asks", () => {
+  const manifest = emptyCoachBoardScanManifest(5);
+  const lead = buildFixedLegCountShortfallLead(5, 2, manifest);
+  assert.match(lead, /cleared the AI quality bar/i);
 });
 
 test("shouldBlockUngradedParlayTopUp blocks fixed-leg and board-scan parlays", () => {

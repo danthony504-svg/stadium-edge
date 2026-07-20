@@ -14,8 +14,9 @@ export function boardScanMaxPropsToSim(
   opts: BoardScanScopeOpts = {},
 ): number {
   const longshot = opts.longshotAsk || targetLegs >= 15;
-  const floor = longshot ? 700 : BOARD_PROP_SIM_CAP_MIN;
-  const scaled = Math.max(targetLegs * (longshot ? 45 : 35), floor);
+  const floor =
+    targetLegs >= 15 ? BOARD_PROP_SIM_CAP_MAX : longshot ? 700 : BOARD_PROP_SIM_CAP_MIN;
+  const scaled = Math.max(targetLegs * (longshot ? 50 : 35), floor);
   const cap = Math.min(scaled, BOARD_PROP_SIM_CAP_MAX);
   return Math.min(poolSize, cap);
 }

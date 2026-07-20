@@ -393,8 +393,9 @@ function tryAppendBackfillLeg(
     [...current, stagedPickFromRow(row, role, fillTier)],
     target,
   );
-  if (trial.length > current.length && row.rankScore - corr * 0.4 - repeat - recent > 0) {
-    return trial;
+  if (trial.length > current.length) {
+    if (fillTier) return trial;
+    if (row.rankScore - corr * 0.4 - repeat - recent > 0) return trial;
   }
   return null;
 }

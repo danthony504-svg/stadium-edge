@@ -18,7 +18,7 @@ import { isAltBoardPick, isAltPropPick } from "./altLinePool.ts";
 export type CoachTicketStyle = "safe" | "balanced" | "value" | "longshot";
 
 /** Ordered fallback grades — try strict tiers first, then relax toward the style floor. */
-export const QUALITY_TIER_GRADES = ["A+", "A", "A-", "B+", "B"] as const;
+export const QUALITY_TIER_GRADES = ["A+", "A", "A-", "B+", "B", "B-"] as const;
 export type QualityTierGrade = (typeof QUALITY_TIER_GRADES)[number];
 
 const GRADE_RANK: Record<string, number> = {
@@ -63,6 +63,12 @@ export function detectCoachTicketStyle(text: string): CoachTicketStyle {
   if (/\b(?:long\s?shots?|longshots?|lottery|boom)\b/.test(t)) return "longshot";
   if (/\b(?:value|plus[\s-]?money|underdogs?|upside)\b/.test(t)) return "value";
   return "balanced";
+}
+
+/** Ticket style for staging/delivery — 15+ leg builds use longshot tiered fill, not balanced gates. */
+export function resolveCoachTicketStyle(text: string, legTarget?: number): CoachTicketStyle {
+  if ((legTarget ?? 0) >= 15) return "longshot";
+  return detectCoachTicketStyle(text);
 }
 
 export function qualityTiersForStyle(style: CoachTicketStyle): readonly QualityTierGrade[] {

@@ -162,7 +162,7 @@ import {
   varietyContextWithLastDelivered,
   type CoachTicketRequestContext,
 } from "@/lib/coachRequestLifecycle";
-import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
+import { detectCoachTicketStyle, resolveCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -1396,8 +1396,8 @@ export default function CoachScreen() {
         coachDetailNote = delivered.coachDetailNote;
         if (legTarget > 0 && ticket.length < legTarget) {
           legNote = ticket.length
-            ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
-            : buildFixedLegCountShortfallLead(legTarget, 0);
+            ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length, partial.manifest)
+            : buildFixedLegCountShortfallLead(legTarget, 0, partial.manifest);
         } else if (!ticket.length) {
           legNote = legNote.trim() || partial.note;
         }
@@ -1562,7 +1562,7 @@ export default function CoachScreen() {
       let legNote = partial.note;
       if (legTarget > ticket.length) {
         legNote = boardScanIsComplete(partial)
-          ? ensureFixedLegShortfallLegNote(partial.note, legTarget, ticket.length)
+          ? ensureFixedLegShortfallLegNote(partial.note, legTarget, ticket.length, partial.manifest)
           : `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
       }
       if (boardScanIsComplete(partial)) {
@@ -2608,7 +2608,7 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
-          const coachTicketStyle = detectCoachTicketStyle(trimmed);
+          const coachTicketStyle = resolveCoachTicketStyle(trimmed, legTarget);
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
@@ -4909,6 +4909,7 @@ export default function CoachScreen() {
             legNote,
             ticketTarget,
             0,
+            fullBoardScanMeta?.manifest,
           );
         }
         if (picks.length > 0 && ticketTarget > picks.length) {
@@ -4917,7 +4918,12 @@ export default function CoachScreen() {
             !fullBoardScanMeta ||
             boardScanIsComplete(fullBoardScanMeta);
           if (scanSettled) {
-            legNote = ensureFixedLegShortfallLegNote(legNote, ticketTarget, picks.length);
+            legNote = ensureFixedLegShortfallLegNote(
+              legNote,
+              ticketTarget,
+              picks.length,
+              fullBoardScanMeta?.manifest,
+            );
           } else {
             const progressLead = `Full-board scan still running — **${picks.length}** leg${picks.length === 1 ? "" : "s"} scored so far.`;
             legNote = legNote.includes(progressLead) ? legNote : `${progressLead}\n\n${legNote}`;

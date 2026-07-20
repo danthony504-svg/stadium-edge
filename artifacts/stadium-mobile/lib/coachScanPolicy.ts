@@ -1,6 +1,9 @@
 // Coach full-board parlay scan policy — enforced in boardMarketScanner, ticket
 // staging, and delivery gates. Never pad tickets with ungraded posted lines.
 
+import type { CoachBoardScanManifest } from "./coachBoardScanManifest.ts";
+import type { BoardLegGateCode } from "./boardLegQualification.ts";
+
 export const COACH_FULL_BOARD_SCAN_POLICY =
   "Scan every available market and every player prop — not just the top few. Score each market the same way (EV, edge, confidence, AI grade, and 10,000 simulations). Keep separate ranked pools for player props, game lines, team totals, and alternate lines. Build a balanced ticket (~50% player props, ~20–30% game lines, ~10–20% team totals, ~10–20% alternate lines). Only add more game lines when there truly are not enough qualified player props. Never lower AI standards to hit the leg count — every pick must have positive EV, positive edge, pass simulation, and meet the confidence threshold. Return fewer legs instead of weak filler.";
 
@@ -19,9 +22,63 @@ export const COACH_EXHAUSTIVE_MARKET_LADDER_POLICY =
   "For every game, evaluate every posted alternate spread, alternate total, alternate team total, alternate player prop, combo prop, and ladder prop. Score every line independently in the background before the app opens and while the app is open. If the primary line fails, automatically continue evaluating alternate versions until a qualifying line is found or every posted line in that ladder has been exhausted.";
 
 /** Visible one-liner when a fixed-leg ask returns fewer than requested. */
-export function buildFixedLegCountShortfallLead(requested: number, actual: number): string {
+export function buildFixedLegCountShortfallLead(
+  requested: number,
+  actual: number,
+  manifest?: CoachBoardScanManifest | null,
+): string {
   if (actual >= requested) return "";
+  if (requested >= 9 && manifest) {
+    return buildDetailedLegShortfallLead(manifest, requested, actual);
+  }
   return `You asked for **${requested}** legs — only **${actual}** cleared the AI quality bar after every posted market was scanned. No ungraded filler was added.`;
+}
+
+function confidenceGateRejections(gates: Partial<Record<BoardLegGateCode, number>>): number {
+  const keys: BoardLegGateCode[] = [
+    "grade_below_minimum",
+    "confidence_below_minimum",
+    "not_ai_recommended",
+    "not_sim_aligned",
+    "holistic_not_recommended",
+  ];
+  return keys.reduce((sum, k) => sum + (gates[k] ?? 0), 0);
+}
+
+function correlationGateRejections(gates: Partial<Record<BoardLegGateCode, number>>): number {
+  const keys: BoardLegGateCode[] = ["not_staged"];
+  return keys.reduce((sum, k) => sum + (gates[k] ?? 0), 0);
+}
+
+/** Multi-leg shortfall — pipeline counts for every rejection stage (9+ leg asks). */
+export function buildDetailedLegShortfallLead(
+  manifest: CoachBoardScanManifest,
+  requested: number,
+  actual: number,
+): string {
+  const gates = manifest.gateFailureCounts ?? {};
+  const positiveEdge = manifest.totalQualified;
+  const rejectedConfidence = confidenceGateRejections(gates);
+  const rejectedCorrelation = correlationGateRejections(gates);
+  const stagedButUndelivered = Math.max(
+    0,
+    positiveEdge - actual - rejectedConfidence - rejectedCorrelation,
+  );
+
+  const lines = [
+    `You asked for **${requested}** legs — **${actual}** delivered after the full-board scan.`,
+    "",
+    "**Pipeline breakdown**",
+    `- Markets loaded: **${manifest.marketsFound.toLocaleString()}**`,
+    `- Markets simulated: **${manifest.marketsSimulated.toLocaleString()}**`,
+    `- Positive-edge candidates: **${positiveEdge.toLocaleString()}**`,
+    `- Rejected by confidence: **${rejectedConfidence.toLocaleString()}**`,
+    `- Rejected by correlation: **${(rejectedCorrelation + stagedButUndelivered).toLocaleString()}**`,
+    `- Final picks delivered: **${actual}** of **${requested}**`,
+    "",
+    "No ungraded filler or unposted odds were added.",
+  ];
+  return lines.join("\n");
 }
 
 /** Guarantee the shortfall lead is present when a fixed-leg ticket is short. */
@@ -29,8 +86,9 @@ export function ensureFixedLegShortfallLegNote(
   legNote: string,
   requested: number,
   actual: number,
+  manifest?: CoachBoardScanManifest | null,
 ): string {
-  const lead = buildFixedLegCountShortfallLead(requested, actual);
+  const lead = buildFixedLegCountShortfallLead(requested, actual, manifest);
   if (!lead) return legNote.trim();
   if (legNote.includes(lead) || /asked for (\*\*)?\d+(\*\*)? legs/i.test(legNote)) {
     return legNote.trim();

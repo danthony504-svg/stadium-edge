@@ -8,7 +8,7 @@ import {
 
 test("boardScanMaxPropsToSim uses dynamic 500-1000 cap instead of 70/120", () => {
   assert.equal(boardScanMaxPropsToSim(5, 10_000), BOARD_PROP_SIM_CAP_MIN);
-  assert.equal(boardScanMaxPropsToSim(15, 10_000), 700);
+  assert.equal(boardScanMaxPropsToSim(15, 10_000), BOARD_PROP_SIM_CAP_MAX);
   assert.ok(boardScanMaxPropsToSim(5, 10_000) >= 500);
   assert.ok(boardScanMaxPropsToSim(15, 10_000, { longshotAsk: true }) >= 700);
   assert.equal(boardScanMaxPropsToSim(25, 10_000), BOARD_PROP_SIM_CAP_MAX);
