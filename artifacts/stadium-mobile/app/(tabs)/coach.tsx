@@ -152,6 +152,7 @@ import {
   shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
+import { resolveCoachBoardScanTimeout } from "@/lib/coachBoardScanTimeout";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
@@ -2824,6 +2825,34 @@ export default function CoachScreen() {
               // to run. Complete this request explicitly; a later stale scan
               // result is rejected by completeCoachRequest's request key.
               if (!preBoardScan) {
+                const stagedScan = latestBoardScanRef.current;
+                // A timed-out scan may already have verified usable legs through
+                // onPartial. Preserve that request-matched work instead of
+                // throwing it away solely because the full-board promise missed
+                // its deadline.
+                const timeoutResolution = resolveCoachBoardScanTimeout(
+                  preBoardScan,
+                  stagedScan,
+                  reachTargetPreScan,
+                );
+                if (timeoutResolution.terminal === "completed") {
+                  const stagedScan = timeoutResolution.scan;
+                  const stagedPicks = boardScanPartialToTicket(
+                    stagedScan,
+                    flashEnrichRef.current,
+                    reachTargetPreScan,
+                  );
+                  if (stagedPicks.length) {
+                    commitCoachRequestTerminal({
+                      partial: stagedScan,
+                      picks: stagedPicks,
+                      legTarget: reachTargetPreScan,
+                      terminal: "completed",
+                      legNote: stagedScan.note,
+                    });
+                    return;
+                  }
+                }
                 commitCoachRequestTerminal({
                   picks: [],
                   legTarget: reachTargetPreScan,
