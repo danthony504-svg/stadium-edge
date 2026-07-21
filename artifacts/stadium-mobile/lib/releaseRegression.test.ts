@@ -35,6 +35,18 @@ test("pick cards preserve metric fields on ParsedPick type usage", () => {
   }
 });
 
+test("fresh deep slate pre-analysis remains terminal instead of forced preview", () => {
+  const preAnalysisSrc = readFileSync(join(root, "lib/slatePreAnalysis.ts"), "utf8");
+  const coachSrc = readFileSync(join(root, "app/(tabs)/coach.tsx"), "utf8");
+  assert.match(preAnalysisSrc, /clean\.deepSimComplete/);
+  assert.match(preAnalysisSrc, /boardScanReadyForDelivery\(boardRaw, requested\)/);
+  assert.match(preAnalysisSrc, /scanComplete: terminalSeed/);
+  assert.match(
+    coachSrc,
+    /preBoardScan = boardScanIsComplete\(preAnalysisSeed\.boardScan\)\s*\?\s*preAnalysisSeed\.boardScan/,
+  );
+});
+
 test("no unresolved merge conflict markers in stadium-mobile", () => {
   const targets = ["lib/api.ts", "lib/otaUpdater.ts", "app/(tabs)/coach.tsx", "app/(tabs)/index.tsx"];
   for (const rel of targets) {

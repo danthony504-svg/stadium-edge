@@ -2646,7 +2646,13 @@ export default function CoachScreen() {
               ? readSlatePreAnalysisSeed({ legs: legTarget, sport: streamSlateSport })
               : null;
           if (preAnalysisSeed?.boardScan?.picks?.length) {
-            preBoardScan = markBoardScanAsPreview(preAnalysisSeed.boardScan);
+            // Preserve a fresh, server-precomputed terminal scan. Turning it
+            // into a preview forces every 15-leg request to re-run the entire
+            // full-board scan and leaves the build at 93% while that duplicate
+            // work runs. Nonterminal seeds stay preview-only as before.
+            preBoardScan = boardScanIsComplete(preAnalysisSeed.boardScan)
+              ? preAnalysisSeed.boardScan
+              : markBoardScanAsPreview(preAnalysisSeed.boardScan);
             flashEnrichRef.current = coachFlashEnrichFromBuilt(preAnalysisSeed.built, {
               propSimulations: preAnalysisSeed.propSimulations,
               perfByFamily: marketPerf,
