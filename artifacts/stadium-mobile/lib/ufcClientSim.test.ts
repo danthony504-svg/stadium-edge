@@ -98,6 +98,7 @@ test("enrichFightAnalysisWithClientSim fills missing simulation block", () => {
     prePickAnalysis: {
       resolvedFighters: 2,
       dataCoveragePct: 50,
+      unavailableFactors: [],
       advantages: {
         styleMatchup: { value: null, available: false },
         reachAdvantage: { value: null, available: false },
