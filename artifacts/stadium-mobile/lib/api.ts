@@ -2427,6 +2427,7 @@ export type ChatContext = {
   // a transparent guide from real severity × position — NOT a fabricated player
   // rating. Omitted when no pickable game had a betting-relevant injury.
   matchupInjuries?: Record<string, GameInjuryReport>;
+  injuryTeams?: InjuryTeam[];
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
