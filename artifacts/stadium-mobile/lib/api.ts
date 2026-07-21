@@ -5,6 +5,7 @@ import {
   type StealFeedClientLog,
 } from "./stealFeedClient.ts";
 import { logStealScanLifecycle } from "./stealScanLifecycle.ts";
+import { isCoachDiagnosticContent } from "./coachMessageContent.ts";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
@@ -4908,7 +4909,11 @@ export function chatStreamFailureMessage(err: unknown): string {
   if (isAbortLikeError(err)) {
     return "This build was interrupted before pick cards could render. Tap below to try again.";
   }
-  if (err instanceof ChatStreamError) return err.message;
+  if (err instanceof ChatStreamError) {
+    return isCoachDiagnosticContent(err.message)
+      ? "Sorry — I couldn't reach Coach just now. Please try again."
+      : err.message;
+  }
   if (err instanceof Error) {
     const m = err.message;
     if (
@@ -5140,10 +5145,12 @@ export async function streamChat({
           if (!chunk.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(chunk.slice(6));
-            if (data.content) {
+            if (typeof data.content === "string" && !isCoachDiagnosticContent(data.content)) {
               fullText += data.content;
               sawContent = true;
               onToken(fullText);
+            } else if (data.content != null) {
+              console.log("[coach-stream] ignored diagnostic content", { content: data.content });
             } else if (Array.isArray(data.props) && onProps) {
               // The server's resolved prop pool (post-filter / post-backfill).
               // Arrives BEFORE the first content token so the caller can merge it
