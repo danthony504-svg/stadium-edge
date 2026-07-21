@@ -3,7 +3,7 @@
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
+import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
@@ -100,6 +100,7 @@ function aliasPropSimHitsForBatch(
   for (const pick of batch) {
     const clientKey = propSimKeyForPick(pick);
     if (!clientKey || out.has(clientKey)) continue;
+    if (!pick.player) continue;
     const market = pick.propMarketKey ?? pick.market ?? "";
     const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
     const altKey =
@@ -145,11 +146,14 @@ export type FullBoardScanResult = {
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
-  return coachCompositeRankScore(leg as BoardScoredLeg);
+  return coachCompositeRankScore(leg);
 }
 
 function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {
-  const rubric = pick.finalAiScore?.rubricScores?.lineShopping ?? pick.scores?.lineShopping ?? null;
+  const rubric =
+    pick.finalAiScore?.rubric.scores.lineShopping ??
+    pick.scores?.scores.lineShopping ??
+    null;
   if (rubric != null) return rubric;
   if (entry?.bookSpread != null) return scoreLineShopping(entry.bookSpread);
   return null;
@@ -255,7 +259,7 @@ async function simPropBatch(
       fetchPropSimulations(
         batch,
         pool,
-        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined },
+        { tier: "deep", teamIdsByGame },
         signal,
       ),
       new Promise<never>((_, reject) =>
@@ -328,7 +332,7 @@ function prescorePropRank(pick: ParsedPick): number {
     impliedProbPct: null,
     lineShoppingScore:
       pick.finalAiScore?.rubric?.scores?.lineShopping ??
-      pick.scores?.lineShopping ??
+      pick.scores?.scores.lineShopping ??
       null,
     grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
     simHit: pick.finalAiScore?.simHit ?? null,
@@ -545,7 +549,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ]);
   const mergedOdds = mergeOddsEntries(
     opts.realOdds,
-    ...(opts.liveOdds ?? []),
+    opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
 
@@ -571,8 +575,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         market: entry.market,
         pick: entry.pick,
         odds: entry.odds,
+        sport: entry.sport,
+        startsAt: entry.startsAt,
         isProp: false,
-      } as ParsedPick);
+      });
     }
   }
 

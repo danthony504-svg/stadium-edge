@@ -3,6 +3,7 @@
 // final rank penalizes missing context (partial weight sum).
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import type { PickSubScores } from "./pickScore.ts";
 import type { PropHolisticScore } from "./propHolisticRecommendation.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -18,6 +19,16 @@ export const COACH_COMPOSITE_RANK_WEIGHTS = {
 } as const;
 
 export type CoachRankFactorKey = keyof typeof COACH_COMPOSITE_RANK_WEIGHTS;
+
+const COACH_RANK_FACTOR_KEYS: readonly CoachRankFactorKey[] = [
+  "ev",
+  "simulation",
+  "matchup",
+  "recentForm",
+  "injury",
+  "lineMovement",
+  "marketEfficiency",
+];
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -48,8 +59,8 @@ function holisticFactor(
   return f.score;
 }
 
-function rubricScore(pick: ParsedPick, key: "matchup" | "trend" | "injury" | "lineShopping" | "lineValue") {
-  return pick.finalAiScore?.rubric?.scores?.[key] ?? pick.scores?.[key] ?? null;
+function rubricScore(pick: ParsedPick, key: keyof PickSubScores): number | null {
+  return pick.finalAiScore?.rubric.scores[key] ?? pick.scores?.scores[key] ?? null;
 }
 
 export function matchupQualityRankScore(pick: ParsedPick): number | null {
@@ -91,7 +102,9 @@ export function marketEfficiencyRankScore(
   return null;
 }
 
-export function coachRankFactorScores(leg: BoardScoredLeg): Record<CoachRankFactorKey, number | null> {
+export function coachRankFactorScores(
+  leg: Omit<BoardScoredLeg, "rankScore">,
+): Record<CoachRankFactorKey, number | null> {
   const pick = leg.pick;
   return {
     ev: evPctToRankScore(leg.evPct),
@@ -110,7 +123,7 @@ export function combineCoachRankFactors(
 ): number | null {
   let acc = 0;
   let wSum = 0;
-  for (const key of Object.keys(COACH_COMPOSITE_RANK_WEIGHTS) as CoachRankFactorKey[]) {
+  for (const key of COACH_RANK_FACTOR_KEYS) {
     const score = factors[key];
     if (score == null || !Number.isFinite(score)) continue;
     const w = COACH_COMPOSITE_RANK_WEIGHTS[key];
@@ -122,11 +135,11 @@ export function combineCoachRankFactors(
 }
 
 /** Sort key for board-scan staging — scales composite for stable greedy selection. */
-export function coachCompositeRankScore(leg: BoardScoredLeg): number {
+export function coachCompositeRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
   const factors = coachRankFactorScores(leg);
   let acc = 0;
   let wSum = 0;
-  for (const key of Object.keys(COACH_COMPOSITE_RANK_WEIGHTS) as CoachRankFactorKey[]) {
+  for (const key of COACH_RANK_FACTOR_KEYS) {
     const score = factors[key];
     if (score == null || !Number.isFinite(score)) continue;
     const w = COACH_COMPOSITE_RANK_WEIGHTS[key];
