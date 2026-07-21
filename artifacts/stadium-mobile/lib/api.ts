@@ -4887,6 +4887,30 @@ export class ChatStreamError extends Error {
   }
 }
 
+function coachRequestHeadersForLog(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      key.toLowerCase() === "authorization" ? "Bearer [REDACTED]" : value,
+    ]),
+  );
+}
+
+function coachRequestTrace(stage: string, details: Record<string, unknown>): void {
+  if (!__DEV__) return;
+  console.log("[coach-request]", stage, details);
+}
+
+function coachRequestFailureKind(error: unknown): string {
+  if (isAbortLikeError(error)) return "aborted request";
+  if (error instanceof ChatStreamError) {
+    const status = error.message.match(/^HTTP\s+(\d{3})/i)?.[1];
+    if (status) return `HTTP ${status}`;
+  }
+  if (error instanceof Error && /timeout|stalled/i.test(error.message)) return "timeout";
+  return "fetch exception";
+}
+
 async function readChatHttpError(res: Response): Promise<ChatStreamError> {
   let message = `HTTP ${res.status}`;
   try {
@@ -4910,11 +4934,13 @@ export function chatStreamFailureMessage(err: unknown): string {
     return "This build was interrupted before pick cards could render. Tap below to try again.";
   }
   if (err instanceof ChatStreamError) {
+    if (__DEV__) return `Coach request failed: ${err.message}`;
     return isCoachDiagnosticContent(err.message)
       ? "Sorry — I couldn't reach Coach just now. Please try again."
       : err.message;
   }
   if (err instanceof Error) {
+    if (__DEV__) return `Coach request failed: ${err.message}`;
     const m = err.message;
     if (
       m &&
@@ -5019,6 +5045,20 @@ export async function streamChat({
     notifyOnBackground,
     buildId,
   });
+  const requestUrl = `${API_BASE}/chat`;
+  const requestHeaders = {
+    "Content-Type": "application/json",
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+  };
+  const requestStartedAt = Date.now();
+  const requestStartedIso = new Date(requestStartedAt).toISOString();
+  coachRequestTrace("start", {
+    url: requestUrl,
+    method: "POST",
+    headers: coachRequestHeadersForLog(requestHeaders),
+    body: bodyStr,
+    startedAt: requestStartedIso,
+  });
   const bodyKB = bodyStr.length / 1024;
   const FIRST_TOKEN_MS =
     firstTokenMsOverride ??
@@ -5063,6 +5103,7 @@ export async function streamChat({
 
     let fullText = "";
     let sawContent = false;
+    let rawResponseBody = "";
 
     // Shared "deadline reached" sentinel for both the connect race (waiting for
     // response headers) and the per-chunk read race below.
@@ -5081,12 +5122,9 @@ export async function streamChat({
       let res: Response | typeof STALL;
       try {
         res = await Promise.race([
-          expoFetch(`${API_BASE}/chat`, {
+          expoFetch(requestUrl, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-            },
+            headers: requestHeaders,
             body: bodyStr,
             signal: attemptCtrl.signal,
           }) as unknown as Promise<Response>,
@@ -5099,7 +5137,23 @@ export async function streamChat({
         attemptCtrl.abort(); // free the socket; do NOT await the orphaned fetch
         throw new Error("connect stalled");
       }
-      if (!res.ok) throw await readChatHttpError(res);
+      const responseHeaders = Object.fromEntries(res.headers.entries());
+      coachRequestTrace("response", {
+        url: requestUrl,
+        status: res.status,
+        headers: responseHeaders,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
+      if (!res.ok) {
+        const responseBody = await res.clone().text().catch(() => "");
+        coachRequestTrace("response-body", {
+          url: requestUrl,
+          status: res.status,
+          body: responseBody,
+          elapsedMs: Date.now() - requestStartedAt,
+        });
+        throw await readChatHttpError(res);
+      }
       if (!res.body) throw new ChatStreamError(`HTTP ${res.status}`, false);
 
       const reader = res.body.getReader();
@@ -5138,7 +5192,9 @@ export async function streamChat({
         }
         const { done, value } = result;
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        const decoded = decoder.decode(value, { stream: true });
+        rawResponseBody += decoded;
+        buffer += decoded;
         const chunks = buffer.split("\n\n");
         buffer = chunks.pop() || "";
         for (const chunk of chunks) {
@@ -5162,10 +5218,26 @@ export async function streamChat({
           }
         }
       }
+      coachRequestTrace("response-body", {
+        url: requestUrl,
+        status: res.status,
+        body: rawResponseBody,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
       cleanup();
       return fullText;
     } catch (err) {
       cleanup();
+      console.error("[coach-request] failure", {
+        url: requestUrl,
+        method: "POST",
+        kind: coachRequestFailureKind(err),
+        exception: err,
+        name: err instanceof Error ? err.name : typeof err,
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
       // A real caller abort (unmount / user cancel) wins — never retry.
       if (signal?.aborted) throw abortError();
       // Tokens already streamed → retrying would duplicate the reply. Propagate.
