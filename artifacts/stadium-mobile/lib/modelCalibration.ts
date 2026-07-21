@@ -5,6 +5,7 @@ import type { MarketPerf } from "./marketWeighting.ts";
 import { familyKeyForPick, MIN_PERF_SAMPLE, PERF_COLD_PCT, PERF_HOT_PCT, PERF_MAGNITUDE } from "./marketWeighting.ts";
 import type { TrackedPick } from "./pickTracker.ts";
 import { isDecidedStatus } from "./pickTracker.ts";
+import type { BetResult } from "../context/BetSlipContext.tsx";
 
 export type CalibrationBucket = {
   sport: string;
@@ -17,6 +18,40 @@ export type CalibrationBucket = {
 
 export const CALIBRATION_MIN_SAMPLE = 15;
 const MAX_CALIBRATION_DELTA = 12;
+
+/**
+ * Results are persisted as slips; calibration operates on individual tracked
+ * picks. This boundary adapter preserves the settled leg's real identity and
+ * outcome while making the intentionally unavailable recommendation-time
+ * metrics explicit as null.
+ */
+export function trackedPicksFromBetResults(results: readonly BetResult[]): TrackedPick[] {
+  return results.flatMap((result) =>
+    result.legs.map((leg) => ({
+      id: `${result.id}:${leg.id}`,
+      capturedAt: result.createdAt,
+      date: new Date(result.createdAt).toISOString().slice(0, 10),
+      sport: leg.sport ?? "unknown",
+      game: leg.game,
+      player: null,
+      market: leg.market,
+      line: null,
+      pick: leg.pick,
+      odds: leg.odds,
+      aiGrade: null,
+      confidence: null,
+      edge: null,
+      ev: null,
+      simHitPct: null,
+      isProp: false,
+      status: leg.result,
+      family: leg.family,
+      side: leg.side,
+      settledAt: result.settledAt,
+      source: "coach" as const,
+    })),
+  );
+}
 
 function deltaFromHitRate(hitRatePct: number | null, sample: number): number {
   if (hitRatePct == null || sample < CALIBRATION_MIN_SAMPLE) return 0;

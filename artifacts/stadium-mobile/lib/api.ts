@@ -235,7 +235,7 @@ function sleepBackoff(attempt: number): Promise<void> {
 // each wait the full per-request timeout, so we cap THOSE at a single retry to
 // avoid stacking long stalls onto the chat-context fan-outs that share this
 // fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+export async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
@@ -273,7 +273,7 @@ export { setAuthTokenGetter };
 
 async function authedFetch(
   path: string,
-  init?: { method?: string; body?: string; headers?: Record<string, string> },
+  init?: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init?.headers ?? {}) };
   let token: string | null = null;
@@ -288,6 +288,7 @@ async function authedFetch(
     method: init?.method ?? "GET",
     headers,
     body: init?.body,
+    signal: init?.signal,
   }) as unknown as Promise<Response>;
 }
 
@@ -1384,7 +1385,8 @@ export function getStatmuseGamelog(
   return getJson<StatMuseGameLog>(`/sports/statmuse-gamelog?${params.toString()}`, signal);
 }
 
-export { propMarketLabel } from "./propMarketLabel";
+import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
+export { propMarketLabel, PROP_MARKET_LABEL_MAP };
 
 // Reverse of propMarketLabel for the base (non-period) labels: resolve a human
 // market label ("Strikeouts") back to its raw Odds API key ("pitcher_strikeouts")
