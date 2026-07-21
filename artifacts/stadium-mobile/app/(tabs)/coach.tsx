@@ -2818,6 +2818,21 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
+              // A race timeout used to return null and let the request continue
+              // without a terminal transition. That leaves the progress UI at
+              // correlation (93%) forever because no later callback is required
+              // to run. Complete this request explicitly; a later stale scan
+              // result is rejected by completeCoachRequest's request key.
+              if (!preBoardScan) {
+                commitCoachRequestTerminal({
+                  picks: [],
+                  legTarget: reachTargetPreScan,
+                  terminal: "failed",
+                  legNote:
+                    "I couldn't finish verifying enough live markets for this ticket. Please try again shortly.",
+                });
+                return;
+              }
               freshBoardScanComplete = !!(
                 preBoardScan?.picks?.length &&
                 boardScanIsComplete(preBoardScan) &&
