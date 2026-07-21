@@ -122,7 +122,7 @@ import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
-import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
+import { calibrationFromTrackedPicks, trackedPicksFromBetResults } from "@/lib/modelCalibration";
 import {
   deliverCoachBoardScanProgress,
   deliverCoachBoardScanTicket,
@@ -1000,7 +1000,10 @@ export default function CoachScreen() {
     () => perfMapFromByFamily(computeAnalytics(results).byFamily),
     [results],
   );
-  const modelCalibration = useMemo(() => calibrationFromTrackedPicks(results), [results]);
+  const modelCalibration = useMemo(
+    () => calibrationFromTrackedPicks(trackedPicksFromBetResults(results)),
+    [results],
+  );
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{

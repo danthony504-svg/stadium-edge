@@ -1,16 +1,8 @@
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import type { ParsedPick } from "../components/PickCard.tsx";
 
-export type AssistantMessagePick = {
-  game: string;
-  market: string;
-  pick: string;
-  odds: number;
-  player?: string;
-  propLine?: string;
-  simulationPending?: boolean;
-  finalAiScore?: { grade?: string; simHit?: number | string | null } | null;
-  scores?: { grade?: string } | null;
-};
+/** Canonical Coach card payload — preserve every pick metric through message patches. */
+export type AssistantMessagePick = ParsedPick;
 
 export type AssistantMessagePatchFields = {
   picks: AssistantMessagePick[];
