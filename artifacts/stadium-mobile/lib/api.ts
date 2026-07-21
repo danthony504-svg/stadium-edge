@@ -4920,7 +4920,7 @@ function coachRequestFailureKind(error: unknown): string {
   return "fetch exception";
 }
 
-async function readChatHttpError(res: Response): Promise<ChatStreamError> {
+export async function readChatHttpError(res: Response): Promise<ChatStreamError> {
   let message = `HTTP ${res.status}`;
   try {
     const body = await res.text();
