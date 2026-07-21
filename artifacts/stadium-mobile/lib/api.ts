@@ -235,7 +235,7 @@ function sleepBackoff(attempt: number): Promise<void> {
 // each wait the full per-request timeout, so we cap THOSE at a single retry to
 // avoid stacking long stalls onto the chat-context fan-outs that share this
 // fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+export async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
@@ -283,7 +283,7 @@ export function setAuthTokenGetter(getter: TokenGetter | null): void {
 
 async function authedFetch(
   path: string,
-  init?: { method?: string; body?: string; headers?: Record<string, string> },
+  init?: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init?.headers ?? {}) };
   let token: string | null = null;
@@ -297,6 +297,7 @@ async function authedFetch(
     method: init?.method ?? "GET",
     headers,
     body: init?.body,
+    signal: init?.signal,
   }) as unknown as Promise<Response>;
 }
 
