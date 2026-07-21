@@ -478,8 +478,8 @@ function ImpactBanner({ report }: { report: ParkWeatherReport }) {
 function DetailGrid({ report }: { report: ParkWeatherReport }) {
   const colors = useColors();
   const c = report.current;
-  const tiles = [
-    { label: "Temp", value: fmtVal(c.tempF, (n) => `${Math.round(n)}°F`), icon: "thermometer" as FeatherName },
+  const tiles: { label: string; value: string; icon: FeatherName }[] = [
+    { label: "Temp", value: fmtVal(c.tempF, (n) => `${Math.round(n)}°F`), icon: "thermometer" },
     { label: "Feels Like", value: fmtVal(c.feelsLikeF, (n) => `${Math.round(n)}°F`), icon: "thermometer" },
     { label: "Wind", value: windDisplay(c, report.homeAbbr), icon: "wind" },
     { label: "Gusts", value: fmtVal(c.gustMph, (n) => `${Math.round(n)} mph`), icon: "wind" },
