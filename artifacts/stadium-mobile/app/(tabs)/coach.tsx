@@ -153,6 +153,7 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { resolveCoachBoardScanTimeout } from "@/lib/coachBoardScanTimeout";
+import { isCoachDiagnosticContent, visibleCoachMessageContent } from "@/lib/coachMessageContent";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
@@ -2063,14 +2064,15 @@ export default function CoachScreen() {
           restartParlayThread ? [] : prunePriorEmptyParlayReplies(priorThread),
         ),
       );
+      const userBubble = opts?.userBubble ?? trimmed;
       const history: UIMessage[] = [
         ...thread,
         {
           role: "user",
-          content: opts?.userBubble ?? trimmed,
+          content: visibleCoachMessageContent(userBubble),
           apiContent: opts?.userBubble && opts.userBubble !== trimmed ? trimmed : undefined,
           imageUris: images.length ? images.map((im) => im.uri) : undefined,
-          hideBubble: opts?.hideUserBubble,
+          hideBubble: opts?.hideUserBubble || isCoachDiagnosticContent(userBubble),
         },
       ];
       // A "scan/analyze my ticket" ask shows a Ticket Scan summary card above the
