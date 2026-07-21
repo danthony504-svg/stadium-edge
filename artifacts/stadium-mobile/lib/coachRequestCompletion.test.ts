@@ -6,6 +6,7 @@ import {
   coachRequestWasCompleted,
   completeCoachRequest,
   getCoachRequestPhase,
+  getLatestCoachCompleteResult,
   isStaleCoachRequest,
   registerActiveCoachRequest,
   resetCoachRequestCompletion,
@@ -150,4 +151,31 @@ test("second request does not reuse first request completion key", () => {
   assert.equal(commits, 1);
   assert.equal(coachRequestWasCompleted(10, "five-leg-a"), true);
   assert.equal(coachRequestWasCompleted(11, "five-leg-b"), true);
+});
+
+test("a zero-pick request cannot inherit cards from the preceding request", () => {
+  resetCoachRequestCompletion();
+  registerActiveCoachRequest("request-with-picks", 20);
+  completeCoachRequest(
+    { requestId: "request-with-picks", sendGeneration: 20, terminal: "completed", picks: [stubPick] },
+    () => {},
+  );
+
+  registerActiveCoachRequest("request-with-zero-picks", 21);
+  let committed: ParsedPick[] = [stubPick];
+  completeCoachRequest(
+    {
+      requestId: "request-with-zero-picks",
+      sendGeneration: 21,
+      terminal: "empty",
+      picks: [],
+    },
+    () => {
+      committed = [];
+    },
+  );
+
+  assert.deepEqual(committed, []);
+  assert.deepEqual(getLatestCoachCompleteResult("request-with-zero-picks")?.picks, []);
+  assert.equal(getCoachRequestPhase(), "empty");
 });
