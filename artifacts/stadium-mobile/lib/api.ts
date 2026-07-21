@@ -4887,6 +4887,15 @@ export class ChatStreamError extends Error {
   }
 }
 
+export function classifyCoachHttpResponse(opts: {
+  ok: boolean;
+  status: number;
+  hasBody: boolean;
+}): "failure" | "stream" | "empty-success" {
+  if (!opts.ok) return "failure";
+  return opts.hasBody ? "stream" : "empty-success";
+}
+
 function coachRequestHeadersForLog(headers: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [
@@ -5144,7 +5153,12 @@ export async function streamChat({
         headers: responseHeaders,
         elapsedMs: Date.now() - requestStartedAt,
       });
-      if (!res.ok) {
+      const responseDisposition = classifyCoachHttpResponse({
+        ok: res.ok,
+        status: res.status,
+        hasBody: !!res.body,
+      });
+      if (responseDisposition === "failure") {
         const responseBody = await res.clone().text().catch(() => "");
         coachRequestTrace("response-body", {
           url: requestUrl,
@@ -5154,9 +5168,18 @@ export async function streamChat({
         });
         throw await readChatHttpError(res);
       }
-      if (!res.body) throw new ChatStreamError(`HTTP ${res.status}`, false);
+      if (responseDisposition === "empty-success") {
+        coachRequestTrace("response-body", {
+          url: requestUrl,
+          status: res.status,
+          body: "",
+          elapsedMs: Date.now() - requestStartedAt,
+        });
+        cleanup();
+        return "";
+      }
 
-      const reader = res.body.getReader();
+      const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
 
