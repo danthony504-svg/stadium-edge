@@ -162,6 +162,12 @@ import {
   varietyContextWithLastDelivered,
   type CoachTicketRequestContext,
 } from "@/lib/coachRequestLifecycle";
+import {
+  coachRequestWasCompleted,
+  completeCoachRequest,
+  registerActiveCoachRequest,
+  setCoachRequestPhase,
+} from "@/lib/coachRequestCompletion";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1368,7 +1374,142 @@ export default function CoachScreen() {
     [marketPerf],
   );
 
-  /** Flash board-scan legs onto the bubble without ending the in-flight build. */
+  const commitCoachRequestTerminal = useCallback(
+    (opts: {
+      picks: ParsedPick[];
+      legNote?: string;
+      coachDetailNote?: string;
+      legTarget?: number;
+      partial?: FullBoardScanResult | null;
+      terminal?: "completed" | "empty" | "failed";
+      pinScroll?: boolean;
+    }) => {
+      const ctx = coachRequestContextRef.current;
+      const sendGen = sendGenerationRef.current;
+      const requestId = ctx?.requestId ?? "";
+      const picks = opts.picks;
+      const legTarget =
+        opts.legTarget ??
+        (activeRequestLegTargetRef.current ||
+          requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current));
+      const terminal = opts.terminal ?? (picks.length > 0 ? "completed" : "empty");
+      return completeCoachRequest(
+        {
+          requestId,
+          sendGeneration: sendGen,
+          terminal,
+          picks,
+          legNote: opts.legNote,
+          coachDetailNote: opts.coachDetailNote,
+          legTarget,
+        },
+        () => {
+          if (opts.partial) latestBoardScanRef.current = opts.partial;
+          boardTicketSnapshotRef.current = picks;
+          if (opts.partial && boardScanIsComplete(opts.partial)) {
+            liveScanDeliveredRef.current = true;
+          }
+          setBoardScanPartialLegs(picks.length);
+          setStreaming(false);
+          setWaiting(false);
+          setBuildFinishing(false);
+          setBuildProgressExpired(false);
+          setParlayBuildPhase("idle");
+          if (buildProgressTimerRef.current) {
+            clearTimeout(buildProgressTimerRef.current);
+            buildProgressTimerRef.current = null;
+          }
+          clearBuildStallWatchdog();
+          setCoachBuildBusy(false);
+          const patched = patchAssistantMessageIfChanged(setMessages, {
+            picks,
+            content: "",
+            legNote: opts.legNote?.trim() || undefined,
+            coachDetailNote: opts.coachDetailNote?.trim() || undefined,
+            ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+          });
+          if (patched) {
+            setAiPicks(picks);
+            if (picks.length) captureCoachPicksOnce(picks);
+          }
+          if (opts.pinScroll !== false) scrollToEnd(false);
+        },
+      );
+    },
+    [clearBuildStallWatchdog, scrollToEnd, captureCoachPicksOnce],
+  );
+
+  const tryCommitCoachScanResult = useCallback(
+    (
+      partial: FullBoardScanResult,
+      opts?: {
+        enrichOverride?: CoachFlashEnrich;
+        legTarget?: number;
+        legNote?: string;
+        pinScroll?: boolean;
+      },
+    ) => {
+      const ctx = coachRequestContextRef.current;
+      const sendGen = sendGenerationRef.current;
+      if (ctx?.requestId && coachRequestWasCompleted(sendGen, ctx.requestId)) {
+        return true;
+      }
+      if (!boardScanIsComplete(partial)) return false;
+
+      const enrich = opts?.enrichOverride ?? flashEnrichRef.current;
+      const scanOdds = [...partial.evalLinesByGame.values()].flat();
+      const enrichWithScan = {
+        ...enrich,
+        realOdds: [...enrich.realOdds, ...scanOdds],
+      };
+      const legTarget =
+        opts?.legTarget ??
+        (activeRequestLegTargetRef.current ||
+          requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current));
+      const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
+      let ticket = delivered.picks;
+      let legNote = opts?.legNote ?? partial.note;
+      const coachDetailNote = delivered.coachDetailNote;
+      if (legTarget > 0 && ticket.length < legTarget) {
+        legNote = ticket.length
+          ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
+          : buildFixedLegCountShortfallLead(legTarget, 0);
+      } else if (!ticket.length) {
+        legNote = legNote.trim() || partial.note;
+      }
+
+      if (legTarget >= 3) {
+        const finalized = finalizeCoachTicketForRequest(ticket, {
+          requestedLegs: legTarget,
+          requestId: ctx?.requestId,
+          previousRequestId: ctx?.previousRequestId,
+          cacheKey: ctx?.cacheKey,
+          source: "final",
+          recordDelivered: true,
+        });
+        if (!finalized.ok) ticket = [];
+        else ticket = finalized.picks;
+      } else if (legTarget > 0 && ticket.length) {
+        rememberParlayBuild(ticket);
+        if (ctx) recordCoachTicketDelivered(ticket, ctx);
+      }
+
+      setCoachRequestPhase("finalizing", ctx?.requestId);
+      return commitCoachRequestTerminal({
+        partial,
+        picks: ticket,
+        legNote,
+        coachDetailNote,
+        legTarget,
+        pinScroll: opts?.pinScroll,
+        terminal: ticket.length > 0 ? "completed" : "empty",
+      });
+    },
+    [commitCoachRequestTerminal],
+  );
+
   const patchInstantBoardScanTicket = useCallback(
     (
       partial: FullBoardScanResult,
@@ -1386,22 +1527,20 @@ export default function CoachScreen() {
         (requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
 
+      if (boardScanIsComplete(partial)) {
+        return tryCommitCoachScanResult(partial, {
+          enrichOverride: enrichOverride ?? enrich,
+          legTarget: opts?.ticketLegTarget,
+          legNote: opts?.legNote,
+          pinScroll: opts?.pinScroll,
+        });
+      }
+
       let ticket: ParsedPick[] = [];
       let legNote = opts?.legNote ?? partial.note;
       let coachDetailNote = "";
 
-      if (boardScanIsComplete(partial)) {
-        const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
-        ticket = delivered.picks;
-        coachDetailNote = delivered.coachDetailNote;
-        if (legTarget > 0 && ticket.length < legTarget) {
-          legNote = ticket.length
-            ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
-            : buildFixedLegCountShortfallLead(legTarget, 0);
-        } else if (!ticket.length) {
-          legNote = legNote.trim() || partial.note;
-        }
-      } else {
+      {
         const progress = deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
         ticket = progress.picks;
         if (!ticket.length) return false;
@@ -1409,31 +1548,7 @@ export default function CoachScreen() {
       }
 
       if (!ticket.length) {
-        if (!boardScanIsComplete(partial)) return false;
-        latestBoardScanRef.current = partial;
-        boardTicketSnapshotRef.current = [];
-        setBoardScanPartialLegs(0);
-        setStreaming(false);
-        setWaiting(false);
-        setBuildFinishing(false);
-        setBuildProgressExpired(false);
-        setParlayBuildPhase("idle");
-        if (buildProgressTimerRef.current) {
-          clearTimeout(buildProgressTimerRef.current);
-          buildProgressTimerRef.current = null;
-        }
-        clearBuildStallWatchdog();
-        setCoachBuildBusy(false);
-        patchAssistantMessageIfChanged(setMessages, {
-          picks: [],
-          content: "",
-          legNote: legNote.trim() || undefined,
-          coachDetailNote: coachDetailNote.trim() || undefined,
-          ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-        });
-        setAiPicks([]);
-        if (opts?.pinScroll !== false) scrollToEnd(false);
-        return true;
+        return false;
       }
 
       const ctx = coachRequestContextRef.current;
@@ -1447,7 +1562,20 @@ export default function CoachScreen() {
           source: isFinal ? "final" : "preview",
           recordDelivered: isFinal,
         });
-        if (!finalized.ok) return false;
+        if (!finalized.ok) {
+          if (isFinal) {
+            return commitCoachRequestTerminal({
+              partial,
+              picks: [],
+              legNote,
+              coachDetailNote,
+              legTarget,
+              pinScroll: opts?.pinScroll,
+              terminal: "empty",
+            });
+          }
+          return false;
+        }
         ticket = finalized.picks;
       } else if (isFinal && legTarget > 0) {
         rememberParlayBuild(ticket);
@@ -1459,18 +1587,6 @@ export default function CoachScreen() {
       boardTicketSnapshotRef.current = ticket;
       if (isFinal) liveScanDeliveredRef.current = true;
       setBoardScanPartialLegs(ticket.length);
-      if (boardScanIsComplete(partial)) {
-        setStreaming(false);
-        setWaiting(false);
-        setBuildFinishing(false);
-        setBuildProgressExpired(false);
-        setParlayBuildPhase("idle");
-        if (buildProgressTimerRef.current) {
-          clearTimeout(buildProgressTimerRef.current);
-          buildProgressTimerRef.current = null;
-        }
-        clearBuildStallWatchdog();
-      }
       const patched = patchAssistantMessageIfChanged(setMessages, {
         picks: ticket,
         content: "",
@@ -1488,7 +1604,7 @@ export default function CoachScreen() {
       if (opts?.pinScroll !== false) scrollToEnd(false);
       return true;
     },
-    [clearBuildStallWatchdog, scrollToEnd, captureCoachPicksOnce],
+    [clearBuildStallWatchdog, scrollToEnd, captureCoachPicksOnce, commitCoachRequestTerminal, tryCommitCoachScanResult],
   );
 
   const rehydrateVisibleBoardTicket = useCallback(() => {
@@ -1697,19 +1813,23 @@ export default function CoachScreen() {
         return;
       }
       latestBoardScanRef.current = partial;
-      if (partial.picks.length) {
-        setBoardScanPartialLegs(partial.picks.length);
-        setParlayBuildPhase("stream");
+      if (boardScanIsComplete(partial)) {
+        setCoachRequestPhase("correlation", ctx?.requestId);
+        if (partial.picks.length) {
+          setBoardScanPartialLegs(partial.picks.length);
+          setParlayBuildPhase("stream");
+        }
+        tryCommitCoachScanResult(partial, {
+          legTarget: legTarget > 0 ? legTarget : undefined,
+        });
+        return;
       }
-      patchInstantBoardScanTicket(partial, undefined, {
-        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-      });
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog, tryCommitCoachScanResult],
   );
 
   const kickoffEarlyReachBoardScan = useCallback(
@@ -2068,6 +2188,7 @@ export default function CoachScreen() {
           sport: slateSport,
           varietySeed,
         });
+        registerActiveCoachRequest(varietySeed, sendGen);
       }
 
       const controller = new AbortController();
@@ -2260,6 +2381,10 @@ export default function CoachScreen() {
             sport: slateSport,
             varietySeed: varietySeedRef.current,
           });
+          registerActiveCoachRequest(
+            coachRequestContextRef.current.requestId,
+            sendGen,
+          );
         }
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
@@ -3155,7 +3280,13 @@ export default function CoachScreen() {
           });
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
+          setCoachRequestPhase("correlation", coachRequestContextRef.current?.requestId);
           setParlayBuildPhase("score");
+          if (fullBoardScanMeta && boardScanIsComplete(fullBoardScanMeta)) {
+            tryCommitCoachScanResult(fullBoardScanMeta, {
+              legTarget: Math.min(legTarget, MAX_LEGS),
+            });
+          }
         }
         let boardBuilt = fullBoardScanned;
         let diversityNote = fullBoardScanMeta?.note ?? "";
@@ -5556,7 +5687,9 @@ export default function CoachScreen() {
           startSlatePreAnalysis("coach-focus");
         })();
         if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
-          void prefetchAndMaybeApplyOta(true);
+          if (typeof prefetchAndMaybeApplyOta === "function") {
+            void prefetchAndMaybeApplyOta(true).catch(() => {});
+          }
         }
       }
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
