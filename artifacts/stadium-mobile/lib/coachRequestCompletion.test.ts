@@ -81,6 +81,53 @@ test("zero picks commits empty terminal state", () => {
   assert.equal(getCoachRequestPhase(), "empty");
 });
 
+test("timeout with zero usable picks commits a failed terminal state", () => {
+  resetCoachRequestCompletion();
+  registerActiveCoachRequest("req-timeout", 4);
+  let commits = 0;
+  assert.equal(
+    completeCoachRequest(
+      {
+        requestId: "req-timeout",
+        sendGeneration: 4,
+        terminal: "failed",
+        picks: [],
+        legNote: "Please try again shortly.",
+      },
+      () => {
+        commits += 1;
+      },
+    ),
+    true,
+  );
+  assert.equal(commits, 1);
+  assert.equal(getCoachRequestPhase(), "failed");
+});
+
+test("five-leg and fifteen-leg requests both reach completed terminal state", () => {
+  for (const legCount of [5, 15]) {
+    resetCoachRequestCompletion();
+    const requestId = `req-${legCount}`;
+    registerActiveCoachRequest(requestId, legCount);
+    const picks = Array.from({ length: legCount }, () => stubPick);
+    assert.equal(
+      completeCoachRequest(
+        {
+          requestId,
+          sendGeneration: legCount,
+          terminal: "completed",
+          picks,
+          legTarget: legCount,
+        },
+        () => {},
+      ),
+      true,
+    );
+    assert.equal(getCoachRequestPhase(), "completed");
+    assert.equal(coachRequestWasCompleted(legCount, requestId), true);
+  }
+});
+
 test("second request does not reuse first request completion key", () => {
   resetCoachRequestCompletion();
   registerActiveCoachRequest("five-leg-a", 10);
