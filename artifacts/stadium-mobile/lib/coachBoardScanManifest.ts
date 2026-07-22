@@ -215,6 +215,11 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
   const seenPreScoreFp = new Set<string>();
   let preScoreGateFailures: Partial<Record<BoardLegGateCode, number>> = {};
   let preScoreRejectedSamples: CoachBoardScanManifest["rejectedSamples"] = [];
+  let recorder: CoachBoardScanManifestRecorder;
+
+  const syncRecorder = () => {
+    Object.assign(recorder, manifest);
+  };
 
   const bumpGate = (gate: BoardLegGateCode, target: Partial<Record<BoardLegGateCode, number>>) => {
     target[gate] = (target[gate] ?? 0) + 1;
@@ -241,7 +246,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     });
   };
 
-  const recorder: CoachBoardScanManifestRecorder = {
+  recorder = {
     ...manifest,
     recordMarketFound(pick) {
       manifest.marketsFound += 1;
@@ -251,6 +256,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         const cat = boardMarketCategory(pick);
         if (cat === "alternateLines") manifest.alternateGameLinesFound += 1;
       }
+      syncRecorder();
     },
     recordPropPoolRow(pick) {
       manifest.propsFound += 1;
@@ -261,28 +267,38 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       } else {
         manifest.propsSkippedUnsupported += 1;
       }
+      syncRecorder();
     },
     recordGameLineSimulated() {
       manifest.gameLinesSimulated += 1;
       manifest.marketsSimulated += 1;
+      syncRecorder();
     },
     recordPropSimBatch(size, timedOut) {
       manifest.propsSimBatches += 1;
       manifest.propsSimulated += size;
       manifest.marketsSimulated += size;
       if (timedOut) manifest.propsSimTimeouts += 1;
+      syncRecorder();
     },
     recordPreScoreGateFailure(pick, score) {
       const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|pre_score`;
       if (seenPreScoreFp.has(fp)) return;
       seenPreScoreFp.add(fp);
       manifest.preScoreEvaluated += 1;
-      const q = explainBoardLegQualification(
-        pick,
-        isCompleteFinalAiScore(score) ? score : null,
-      );
+      const q =
+        score?.simHit == null
+          ? {
+              gate: "no_sim_grade" as const,
+              reason: "No simulation result (10k MC not complete)",
+            }
+          : explainBoardLegQualification(
+              pick,
+              isCompleteFinalAiScore(score) ? score : null,
+            );
       bumpGate(q.gate, preScoreGateFailures);
       pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp);
+      syncRecorder();
     },
     recordEvaluatedLeg(leg) {
       recorder.recordEvaluatedPick(leg.pick, leg.pick.finalAiScore);
@@ -295,10 +311,12 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         if (q.role === "alt") manifest.qualifiedAlt += 1;
         const cat = boardMarketCategory(pick);
         manifest.qualifiedByCategory[cat] += 1;
+        syncRecorder();
         return;
       }
       bumpGate(q.gate, manifest.gateFailureCounts);
       pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp);
+      syncRecorder();
     },
     recomputeQualificationFromScored(scored) {
       manifest.totalQualified = 0;
@@ -314,6 +332,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       }
 
       manifest.totalEvaluated = manifest.preScoreEvaluated + scored.length;
+      syncRecorder();
     },
     finalize(opts) {
       manifest.scanComplete = opts.scanComplete;
@@ -331,6 +350,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         manifest.preScoreEvaluated += gap;
         manifest.totalEvaluated = manifest.marketsSimulated;
       }
+      syncRecorder();
       return {
         ...manifest,
         gateFailureCounts: mergeGateFailureCounts(preScoreGateFailures, manifest.gateFailureCounts),
