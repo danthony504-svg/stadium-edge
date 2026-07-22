@@ -36,8 +36,8 @@ test("isAltPropPick and isMainBoardPick classify prop pool rungs", () => {
   assert.ok(
     isAltPropPick({ market: "Points", isProp: true, propIsAlt: true }),
   );
-  assert.ok(!isMainBoardPick({ market: "Points", isProp: true, propIsAlt: true }));
-  assert.ok(isMainBoardPick({ market: "Points", isProp: true }));
+  assert.ok(!isMainBoardPick({ market: "Points", pick: "Player Over 20.5", isProp: true, propIsAlt: true }));
+  assert.ok(isMainBoardPick({ market: "Points", pick: "Player Over 20.5", isProp: true }));
 });
 
 test("poolMatchesPickFamily groups spread, alt spread, and period run lines", () => {

@@ -8,12 +8,21 @@ import {
   slateFingerprintFromBuilt,
 } from "./coachSlateFreshness.ts";
 import type { BuiltChatContext } from "./api.ts";
+import type { GameInjuryReport } from "./injuries.ts";
 
-function minimalBuilt(overrides?: Partial<BuiltChatContext>): BuiltChatContext {
+function minimalBuilt(
+  overrides?: Omit<Partial<BuiltChatContext>, "context"> & {
+    context?: Partial<BuiltChatContext["context"]>;
+  },
+): BuiltChatContext {
+  const { context: contextOverrides, ...builtOverrides } = overrides ?? {};
   return {
     context: {
+      selectedSports: ["nba"],
+      currentSlip: [],
       realOdds: [
         {
+          sport: "nba",
           game: "Away @ Home",
           market: "Spread",
           pick: "Away +3.5",
@@ -24,7 +33,7 @@ function minimalBuilt(overrides?: Partial<BuiltChatContext>): BuiltChatContext {
       realProps: [],
       realGames: [],
       matchupInjuries: {},
-      ...overrides?.context,
+      ...contextOverrides,
     },
     propPool: [
       {
@@ -39,9 +48,11 @@ function minimalBuilt(overrides?: Partial<BuiltChatContext>): BuiltChatContext {
       },
     ],
     gameMeta: [],
+    upsetSpots: [],
     todayOnly: false,
-    ...overrides,
-  } as BuiltChatContext;
+    tomorrowOnly: false,
+    ...builtOverrides,
+  };
 }
 
 test("slateFingerprintFromBuilt changes when odds move", () => {
@@ -51,6 +62,7 @@ test("slateFingerprintFromBuilt changes when odds move", () => {
       context: {
         realOdds: [
           {
+            sport: "nba",
             game: "Away @ Home",
             market: "Spread",
             pick: "Away +3.5",
@@ -61,7 +73,7 @@ test("slateFingerprintFromBuilt changes when odds move", () => {
         realProps: [],
         realGames: [],
       },
-    } as Partial<BuiltChatContext>),
+    }),
   );
   assert.notEqual(a, b);
 });
@@ -76,24 +88,25 @@ test("cachedSeedMatchesBuilt is false after meaningful injury change", () => {
     fingerprint: fp,
   };
   assert.equal(cachedSeedMatchesBuilt(seed, built), true);
+  const matchupInjuries = {
+    "Away @ Home": {
+      edge: "home healthier",
+      sides: [
+        {
+          team: "Home",
+          keyPlayers: [{ player: "Star", position: null, status: "Out", impact: "high" as const }],
+          groups: [],
+        },
+        { team: "Away", keyPlayers: [], groups: [] },
+      ],
+    },
+  } satisfies Record<string, GameInjuryReport>;
   const injured = minimalBuilt({
     context: {
       ...built.context,
-      matchupInjuries: {
-        "Away @ Home": {
-          game: "Away @ Home",
-          edge: "home healthier",
-          sides: [
-            {
-              team: "Home",
-              keyPlayers: [{ name: "Star", impact: "high" as const }],
-            },
-            { team: "Away", keyPlayers: [] },
-          ],
-        },
-      },
+      matchupInjuries,
     },
-  } as Partial<BuiltChatContext>);
+  });
   assert.equal(cachedSeedMatchesBuilt(seed, injured), false);
 });
 
@@ -105,10 +118,12 @@ test("markBoardScanAsPreview never finalizes cached scans", () => {
 test("computeInjuryDigest is stable for same input", () => {
   const injuries = {
     "A @ B": {
-      game: "A @ B",
       edge: "neutral",
-      sides: [{ team: "A", keyPlayers: [] }, { team: "B", keyPlayers: [] }],
+      sides: [
+        { team: "A", keyPlayers: [], groups: [] },
+        { team: "B", keyPlayers: [], groups: [] },
+      ],
     },
-  };
+  } satisfies Record<string, GameInjuryReport>;
   assert.equal(computeInjuryDigest(injuries), computeInjuryDigest(injuries));
 });

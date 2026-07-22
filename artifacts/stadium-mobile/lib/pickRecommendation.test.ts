@@ -166,6 +166,8 @@ test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows
     pick: "F +3.5",
     odds: -105,
     isProp: false,
+    sport: undefined as string | undefined,
+    startsAt: undefined as string | undefined,
     ticketRole: "alt" as const,
     finalAiScore: {
       composite: 6,
@@ -181,7 +183,7 @@ test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows
     },
   };
   const out = coachFlashTicketPicks([alt], {
-    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, startsAt: kickoff, sport: "mlb" }],
+    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", startsAt: kickoff }],
     gameMeta: [{ game: "E @ F", sport: "mlb", startsAt: kickoff, homeTeam: "F", awayTeam: "E", homeAbbr: "F", awayAbbr: "E", homeLogo: null, awayLogo: null }],
     propPool: [],
   });
@@ -313,7 +315,7 @@ test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs"
     },
   };
   const out = sanitizeCoachTicketPicks([alt], {
-    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, startsAt: alt.startsAt }],
+    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", startsAt: alt.startsAt }],
     gameMeta: [{ game: "E @ F", sport: "mlb", startsAt: alt.startsAt, homeTeam: "F", awayTeam: "E", homeAbbr: "F", awayAbbr: "E", homeLogo: null, awayLogo: null }],
   });
   assert.equal(out.length, 1);

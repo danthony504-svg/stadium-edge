@@ -1,5 +1,6 @@
 // AI recommendation gate — only markets that pass simulation + edge + EV + confidence.
 
+import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   COACH_SIM_MIN_CONFIDENCE,
@@ -39,7 +40,7 @@ function normalizeBoardScanPickScore<
   T extends RecommendablePick & {
     odds?: number | null;
     finalAiScore?: FinalAiScore | null;
-    edge?: string;
+    edge?: string | null;
   },
 >(pick: T): T {
   const score = pick.finalAiScore;
@@ -134,11 +135,11 @@ function enrichCoachPicksForGate<
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
   if (!enrich) return picks;
   const withSport = enrichPicksWithSport(
-    picks,
-    enrich.propPool ?? [],
+    picks as ParsedPick[],
+    (enrich.propPool ?? []) as Parameters<typeof enrichPicksWithSport>[1],
     enrich.realOdds ?? [],
     enrich.gameMeta,
-  );
+  ) as T[];
   return enrichPicksWithStartsAt(withSport, enrich);
 }
 
@@ -151,9 +152,12 @@ export const NOT_AI_RECOMMENDED_COMPACT = "Not Rec.";
 
 export type RecommendablePick = {
   market?: string;
+  game?: string;
+  pick?: string;
   isProp?: boolean;
   sport?: string;
   odds?: number | null;
+  edge?: string | null;
   ticketRole?: "main" | "alt";
 };
 
@@ -247,11 +251,13 @@ export function pickQualifiesForBoardDelivery(
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!score) return false;
-  if (isMainBoardPick(pick as { market?: string; pick?: string; isProp?: boolean; propIsAlt?: boolean })) {
+  if (!pick.market || !pick.pick) return false;
+  const boardPick = { ...pick, market: pick.market, pick: pick.pick };
+  if (isMainBoardPick(boardPick)) {
     if (pickIsAiRecommended(pick, score)) return true;
     return !!(pick.isProp && propSimEdgeStagingQualifies(pick, score));
   }
-  if (isAltBoardPick(pick as { market?: string; pick?: string; isProp?: boolean })) {
+  if (isAltBoardPick(boardPick)) {
     return qualifiesAltPick(pick, score);
   }
   if (pickIsAiRecommended(pick, score)) return true;
@@ -259,7 +265,7 @@ export function pickQualifiesForBoardDelivery(
   if (
     pick.isProp &&
     score.propHolistic &&
-    propQualifiesForTicketFill(pick, score.propHolistic, {
+    propQualifiesForTicketFill(pick as ParsedPick, score.propHolistic, {
       edgePct: score.edgePct,
       simHit: score.simHit,
       odds: pick.odds,
@@ -748,11 +754,11 @@ export function topUpBoardBuiltTicket<
 >(current: T[], target: number, pool: T[], enrich?: CoachPickEnrichSources): T[] {
   if (current.length >= target || !pool.length) return current.slice(0, target);
   const enriched = enrichCoachPicksForGate(pool, enrich).map(stripHrvpFromPick);
-  const seen = new Set(current.map((p) => pickLegFingerprint(p)));
+  const seen = new Set(current.map((p) => pickLegFingerprint(p as ParsedPick)));
   const out: T[] = [...current];
   for (const leg of enriched) {
     if (out.length >= target) break;
-    const fp = pickLegFingerprint(leg);
+    const fp = pickLegFingerprint(leg as ParsedPick);
     if (seen.has(fp)) continue;
     if (!boardScanStagedLegQualifies(leg, leg.finalAiScore)) continue;
     out.push(leg);

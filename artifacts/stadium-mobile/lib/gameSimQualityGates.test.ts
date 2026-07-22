@@ -14,6 +14,15 @@ import {
 } from "./gameSimQualityGates.ts";
 import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 
+const rubricScores = {
+  matchup: null,
+  trend: null,
+  lineValue: null,
+  injury: null,
+  lineShopping: null,
+  simulation: null,
+};
+
 function mockRow(
   overrides: Partial<EvaluatedGameLine> & { edge?: number; hit?: number; grade?: string; conf?: number },
 ): EvaluatedGameLine {
@@ -39,7 +48,7 @@ function mockRow(
       highRiskValuePlay: false,
       recommends: true,
       factors: [],
-      rubric: { scores: {}, composite: 7, grade: "B", confidencePct: 60, edgePct: edge },
+      rubric: { scores: rubricScores, composite: 7, grade: "B", confidencePct: 60, edgePct: edge },
     },
     winProb: hit,
     edgePct: edge,
@@ -108,7 +117,6 @@ test("classifyGameSimRecommendation passes coin-flip games", () => {
     {
       overall: mockRow({ edge: 0.2, hit: 0.5, grade: "C" }),
       byTeam: { away: mockRow({ edge: 0.2, hit: 0.5, grade: "C" }), home: null },
-      ranked: [],
     },
     tightSim,
   );

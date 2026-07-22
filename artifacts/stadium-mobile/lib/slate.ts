@@ -271,7 +271,8 @@ export function filterCoachHorizonPicksAfterEnrich<
 }
 
 /**
- * Drop legs with kickoff outside 48h. If every leg has a timestamp and none qualify,
+ * Drop legs with known kickoff times outside 48h, while preserving legs whose
+ * kickoff has not resolved yet. If every leg has a timestamp and none qualify,
  * return [] — never pass through an all-far-future ticket.
  */
 export function preferBettableQualifiedPicks<T extends { sport?: string; startsAt?: string | null }>(
@@ -283,7 +284,9 @@ export function preferBettableQualifiedPicks<T extends { sport?: string; startsA
   const inWindow = timestamped.filter((p) =>
     isPregameBettableForSport(p.startsAt, p.sport ?? ""),
   );
-  return inWindow;
+  return picks.filter(
+    (p) => !p.startsAt || inWindow.includes(p),
+  );
 }
 
 /** Attach game kickoff times from odds/props/meta when board-built picks omit startsAt. */

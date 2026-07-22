@@ -4,6 +4,8 @@
 // graded against real results only. These helpers are display-side formatting +
 // the small derived stats the header card shows; they never invent a steal.
 
+import type { StealScanMeta } from "./api.ts";
+
 // The longshot price band, in American odds. Mirrors the server constants so the
 // client can label the section and (defensively) reject anything out of band.
 export const STEAL_MIN_ODDS = 500;

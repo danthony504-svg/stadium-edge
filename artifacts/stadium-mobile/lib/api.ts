@@ -5,6 +5,7 @@ import {
   type StealFeedClientLog,
 } from "./stealFeedClient.ts";
 import { logStealScanLifecycle } from "./stealScanLifecycle.ts";
+import { isCoachDiagnosticContent } from "./coachMessageContent.ts";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
@@ -2427,6 +2428,7 @@ export type ChatContext = {
   // a transparent guide from real severity × position — NOT a fabricated player
   // rating. Omitted when no pickable game had a betting-relevant injury.
   matchupInjuries?: Record<string, GameInjuryReport>;
+  injuryTeams?: InjuryTeam[];
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -4885,7 +4887,40 @@ export class ChatStreamError extends Error {
   }
 }
 
-async function readChatHttpError(res: Response): Promise<ChatStreamError> {
+export function classifyCoachHttpResponse(opts: {
+  ok: boolean;
+  status: number;
+  hasBody: boolean;
+}): "failure" | "stream" | "empty-success" {
+  if (!opts.ok) return "failure";
+  return opts.hasBody ? "stream" : "empty-success";
+}
+
+function coachRequestHeadersForLog(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      key.toLowerCase() === "authorization" ? "Bearer [REDACTED]" : value,
+    ]),
+  );
+}
+
+function coachRequestTrace(stage: string, details: Record<string, unknown>): void {
+  if (!__DEV__) return;
+  console.log("[coach-request]", stage, details);
+}
+
+function coachRequestFailureKind(error: unknown): string {
+  if (isAbortLikeError(error)) return "aborted request";
+  if (error instanceof ChatStreamError) {
+    const status = error.message.match(/^HTTP\s+(\d{3})/i)?.[1];
+    if (status) return `HTTP ${status}`;
+  }
+  if (error instanceof Error && /timeout|stalled/i.test(error.message)) return "timeout";
+  return "fetch exception";
+}
+
+export async function readChatHttpError(res: Response): Promise<ChatStreamError> {
   let message = `HTTP ${res.status}`;
   try {
     const body = await res.text();
@@ -4907,8 +4942,14 @@ export function chatStreamFailureMessage(err: unknown): string {
   if (isAbortLikeError(err)) {
     return "This build was interrupted before pick cards could render. Tap below to try again.";
   }
-  if (err instanceof ChatStreamError) return err.message;
+  if (err instanceof ChatStreamError) {
+    if (__DEV__) return `Coach request failed: ${err.message}`;
+    return isCoachDiagnosticContent(err.message)
+      ? "Sorry — I couldn't reach Coach just now. Please try again."
+      : err.message;
+  }
   if (err instanceof Error) {
+    if (__DEV__) return `Coach request failed: ${err.message}`;
     const m = err.message;
     if (
       m &&
@@ -5013,6 +5054,20 @@ export async function streamChat({
     notifyOnBackground,
     buildId,
   });
+  const requestUrl = `${API_BASE}/chat`;
+  const requestHeaders = {
+    "Content-Type": "application/json",
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+  };
+  const requestStartedAt = Date.now();
+  const requestStartedIso = new Date(requestStartedAt).toISOString();
+  coachRequestTrace("start", {
+    url: requestUrl,
+    method: "POST",
+    headers: coachRequestHeadersForLog(requestHeaders),
+    body: bodyStr,
+    startedAt: requestStartedIso,
+  });
   const bodyKB = bodyStr.length / 1024;
   const FIRST_TOKEN_MS =
     firstTokenMsOverride ??
@@ -5057,6 +5112,7 @@ export async function streamChat({
 
     let fullText = "";
     let sawContent = false;
+    let rawResponseBody = "";
 
     // Shared "deadline reached" sentinel for both the connect race (waiting for
     // response headers) and the per-chunk read race below.
@@ -5075,12 +5131,9 @@ export async function streamChat({
       let res: Response | typeof STALL;
       try {
         res = await Promise.race([
-          expoFetch(`${API_BASE}/chat`, {
+          expoFetch(requestUrl, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-            },
+            headers: requestHeaders,
             body: bodyStr,
             signal: attemptCtrl.signal,
           }) as unknown as Promise<Response>,
@@ -5093,10 +5146,40 @@ export async function streamChat({
         attemptCtrl.abort(); // free the socket; do NOT await the orphaned fetch
         throw new Error("connect stalled");
       }
-      if (!res.ok) throw await readChatHttpError(res);
-      if (!res.body) throw new ChatStreamError(`HTTP ${res.status}`, false);
+      const responseHeaders = Object.fromEntries(res.headers.entries());
+      coachRequestTrace("response", {
+        url: requestUrl,
+        status: res.status,
+        headers: responseHeaders,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
+      const responseDisposition = classifyCoachHttpResponse({
+        ok: res.ok,
+        status: res.status,
+        hasBody: !!res.body,
+      });
+      if (responseDisposition === "failure") {
+        const responseBody = await res.clone().text().catch(() => "");
+        coachRequestTrace("response-body", {
+          url: requestUrl,
+          status: res.status,
+          body: responseBody,
+          elapsedMs: Date.now() - requestStartedAt,
+        });
+        throw await readChatHttpError(res);
+      }
+      if (responseDisposition === "empty-success") {
+        coachRequestTrace("response-body", {
+          url: requestUrl,
+          status: res.status,
+          body: "",
+          elapsedMs: Date.now() - requestStartedAt,
+        });
+        cleanup();
+        return "";
+      }
 
-      const reader = res.body.getReader();
+      const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -5132,17 +5215,21 @@ export async function streamChat({
         }
         const { done, value } = result;
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        const decoded = decoder.decode(value, { stream: true });
+        rawResponseBody += decoded;
+        buffer += decoded;
         const chunks = buffer.split("\n\n");
         buffer = chunks.pop() || "";
         for (const chunk of chunks) {
           if (!chunk.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(chunk.slice(6));
-            if (data.content) {
+            if (typeof data.content === "string" && !isCoachDiagnosticContent(data.content)) {
               fullText += data.content;
               sawContent = true;
               onToken(fullText);
+            } else if (data.content != null) {
+              console.log("[coach-stream] ignored diagnostic content", { content: data.content });
             } else if (Array.isArray(data.props) && onProps) {
               // The server's resolved prop pool (post-filter / post-backfill).
               // Arrives BEFORE the first content token so the caller can merge it
@@ -5154,10 +5241,26 @@ export async function streamChat({
           }
         }
       }
+      coachRequestTrace("response-body", {
+        url: requestUrl,
+        status: res.status,
+        body: rawResponseBody,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
       cleanup();
       return fullText;
     } catch (err) {
       cleanup();
+      console.error("[coach-request] failure", {
+        url: requestUrl,
+        method: "POST",
+        kind: coachRequestFailureKind(err),
+        exception: err,
+        name: err instanceof Error ? err.name : typeof err,
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
       // A real caller abort (unmount / user cancel) wins — never retry.
       if (signal?.aborted) throw abortError();
       // Tokens already streamed → retrying would duplicate the reply. Propagate.

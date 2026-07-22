@@ -275,7 +275,12 @@ function asPropList(data: unknown): PlayerProp[] {
     : [];
 }
 
-function asParkList(data: unknown): Array<{ homeTeam: string; current: { tempF: number; condition: string }; impact?: { rating?: string } }> {
+function asParkList(data: unknown): Array<{
+  homeTeam: string;
+  current: { tempF: number; condition: string };
+  climateControlled?: boolean;
+  impact?: { rating?: string };
+}> {
   return Array.isArray(data) ? data : [];
 }
 
@@ -848,6 +853,9 @@ export default function SimulatorScreen() {
             sport === "ufc" || sport === "mma"
               ? fetchUfcSimulatorGameOutcome
               : fetchSimulatorGameOutcome;
+          // GameCoverQuery also supports client-only race-to markets; preserve the
+          // full query list for the simulator endpoint's existing runtime handling.
+          const simulatorCoverQueries = coverQueries as Parameters<typeof fetchSimulatorGameOutcome>[0]["coverQueries"];
           const gr = await fetchOutcome({
             sport,
             homeTeamId: game.homeTeamId ?? "",
@@ -856,7 +864,7 @@ export default function SimulatorScreen() {
             awayTeam: game.awayTeam,
             simulations: SIM_COUNT,
             weatherImpact: wx,
-            coverQueries,
+            coverQueries: simulatorCoverQueries,
             retainOutcomes: true,
           });
           if (gr) {

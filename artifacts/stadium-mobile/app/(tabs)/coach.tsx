@@ -153,6 +153,7 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { resolveCoachBoardScanTimeout } from "@/lib/coachBoardScanTimeout";
+import { isCoachDiagnosticContent, visibleCoachMessageContent } from "@/lib/coachMessageContent";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
@@ -1398,6 +1399,15 @@ export default function CoachScreen() {
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
       const terminal = opts.terminal ?? (picks.length > 0 ? "completed" : "empty");
+      console.log("[coach-request-commit] terminal candidate", {
+        currentRequestId: requestId,
+        completedRequestId: opts.partial?.requestId ?? requestId,
+        previousRequestId: ctx?.previousRequestId ?? "",
+        returnedPickCount: opts.partial?.picks?.length ?? 0,
+        committedPickCount: picks.length,
+        renderedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+        terminal,
+      });
       return completeCoachRequest(
         {
           requestId,
@@ -1653,6 +1663,7 @@ export default function CoachScreen() {
     (legTarget: number, sport?: string | null) => {
       if (legTarget < 3) return false;
       const seed = readSlatePreAnalysisSeed({ legs: legTarget, sport });
+      if (!seed) return false;
       const scan = seed?.boardScan;
       if (!scan?.picks?.length) return false;
       if (!boardScanMatchesLegTarget(scan, legTarget)) return false;
@@ -2062,14 +2073,15 @@ export default function CoachScreen() {
           restartParlayThread ? [] : prunePriorEmptyParlayReplies(priorThread),
         ),
       );
+      const userBubble = opts?.userBubble ?? trimmed;
       const history: UIMessage[] = [
         ...thread,
         {
           role: "user",
-          content: opts?.userBubble ?? trimmed,
+          content: visibleCoachMessageContent(userBubble),
           apiContent: opts?.userBubble && opts.userBubble !== trimmed ? trimmed : undefined,
           imageUris: images.length ? images.map((im) => im.uri) : undefined,
-          hideBubble: opts?.hideUserBubble,
+          hideBubble: opts?.hideUserBubble || isCoachDiagnosticContent(userBubble),
         },
       ];
       // A "scan/analyze my ticket" ask shows a Ticket Scan summary card above the
@@ -2333,7 +2345,7 @@ export default function CoachScreen() {
         if (e?.name === "AbortError" || isAbortLikeError(e)) {
           if (sendGenerationRef.current !== sendGen) return;
           if (openingParlayBuild) {
-            const partial = latestBoardScanRef.current;
+            const partial = latestBoardScanRef.current as FullBoardScanResult | null;
             if (partial?.picks?.length) {
               deliverBoardScanTicket(partial);
             } else {
@@ -2478,6 +2490,7 @@ export default function CoachScreen() {
           confidenceThreshold: !!confidenceThreshold,
         });
         let kernelParlayDelivered = false;
+        const coachTicketStyle = detectCoachTicketStyle(trimmed);
 
         // These are the same four pieces buildChatContext returns; in replay mode
         // we read them from the locally-saved PendingBuild instead of fetching.
@@ -2666,7 +2679,8 @@ export default function CoachScreen() {
               ticketLegTarget: legTarget,
             });
           }
-          const earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
+          const earlyReachBoardScanPromise =
+            earlyReachBoardScanRef.current as Promise<FullBoardScanResult | null> | null;
           const rawBuilt = slipImageVerdictOnly
             ? {
                 context: {
@@ -2678,7 +2692,9 @@ export default function CoachScreen() {
                 } satisfies ChatContext,
                 propPool: [] as PropPoolEntry[],
                 gameMeta: [] as GameMeta[],
+                upsetSpots: [],
                 todayOnly: false,
+                tomorrowOnly: false,
               }
             : useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal, { excludeSports: excludeSportsList })
@@ -2743,7 +2759,6 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
-          const coachTicketStyle = detectCoachTicketStyle(trimmed);
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
@@ -2819,18 +2834,16 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
-              // A race timeout used to return null and let the request continue
-              // without a terminal transition. That leaves the progress UI at
-              // correlation (93%) forever because no later callback is required
-              // to run. Complete this request explicitly; a later stale scan
-              // result is rejected by completeCoachRequest's request key.
+              // The race can settle before the request-scoped scanner's final
+              // callback. Never terminally fail here: that callback owns the
+              // authoritative result and may still carry qualified picks.
               if (!preBoardScan) {
                 const stagedScan = latestBoardScanRef.current;
                 // A timed-out scan may already have verified usable legs through
                 // onPartial. Preserve that request-matched work instead of
                 // throwing it away solely because the full-board promise missed
                 // its deadline.
-                const timeoutResolution = resolveCoachBoardScanTimeout(
+                const timeoutResolution = resolveCoachBoardScanTimeout<FullBoardScanResult>(
                   preBoardScan,
                   stagedScan,
                   reachTargetPreScan,
@@ -2853,21 +2866,18 @@ export default function CoachScreen() {
                     return;
                   }
                 }
-                commitCoachRequestTerminal({
-                  picks: [],
-                  legTarget: reachTargetPreScan,
-                  terminal: "failed",
-                  legNote:
-                    "I couldn't finish verifying enough live markets for this ticket. Please try again shortly.",
+                console.log("[coach-request-commit] awaiting scanner terminal result", {
+                  currentRequestId: coachRequestContextRef.current?.requestId ?? "",
+                  previousRequestId: coachRequestContextRef.current?.previousRequestId ?? "",
+                  requestedLegs: reachTargetPreScan,
                 });
-                return;
               }
               freshBoardScanComplete = !!(
                 preBoardScan?.picks?.length &&
                 boardScanIsComplete(preBoardScan) &&
                 boardScanReadyForDelivery(preBoardScan, reachTargetPreScan)
               );
-              const scanForDelivery = preferFinalBoardScanForDelivery(
+              const scanForDelivery = preferFinalBoardScanForDelivery<FullBoardScanResult>(
                 reachTargetPreScan,
                 preBoardScan,
                 latestBoardScanRef.current,
@@ -2890,18 +2900,19 @@ export default function CoachScreen() {
                 }
               }
             } catch {
-              preBoardScan = preferFinalBoardScanForDelivery(
+              preBoardScan = preferFinalBoardScanForDelivery<FullBoardScanResult>(
                 reachTargetPreScan,
                 latestBoardScanRef.current,
                 preBoardScan,
               );
             }
           }
+          const latestBoardScan = latestBoardScanRef.current as FullBoardScanResult | null;
           const kernelScanReady = !!(
             boardScanIsComplete(preBoardScan) ||
-            boardScanIsComplete(latestBoardScanRef.current) ||
+            boardScanIsComplete(latestBoardScan) ||
             preBoardScan?.picks?.length ||
-            latestBoardScanRef.current?.picks?.length
+            latestBoardScan?.picks?.length
           );
           const skipModelStreamForBoardScan = useParlayKernel
             ? freshBoardScanComplete && kernelScanReady
@@ -3002,7 +3013,7 @@ export default function CoachScreen() {
             if (skipModelStreamForBoardScan || useParlayKernel) {
               full = "";
               setWaiting(false);
-              let scanForDelivery = preferFinalBoardScanForDelivery(
+              let scanForDelivery = preferFinalBoardScanForDelivery<FullBoardScanResult>(
                 Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
                 preBoardScan,
                 latestBoardScanRef.current,
@@ -3014,13 +3025,13 @@ export default function CoachScreen() {
               ) {
                 try {
                   const earlyScan = await earlyReachBoardScanRef.current;
-                  scanForDelivery = preferFinalBoardScanForDelivery(
+                  scanForDelivery = preferFinalBoardScanForDelivery<FullBoardScanResult>(
                     Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
                     earlyScan,
                     scanForDelivery,
                   );
                 } catch {
-                  scanForDelivery = preferFinalBoardScanForDelivery(
+                  scanForDelivery = preferFinalBoardScanForDelivery<FullBoardScanResult>(
                     Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
                     latestBoardScanRef.current,
                     scanForDelivery,
@@ -3065,7 +3076,7 @@ export default function CoachScreen() {
                   scanForDelivery = latestBoardScanRef.current;
                 }
               }
-              scanForDelivery = preferFinalBoardScanForDelivery(
+              scanForDelivery = preferFinalBoardScanForDelivery<FullBoardScanResult>(
                 Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
                 scanForDelivery,
                 latestBoardScanRef.current,
@@ -3164,7 +3175,7 @@ export default function CoachScreen() {
             !kernelParlayDelivered &&
             !boardTicketSnapshotRef.current?.length
           ) {
-            const scan = preferFinalBoardScanForDelivery(
+            const scan = preferFinalBoardScanForDelivery<FullBoardScanResult>(
               kernelLegTarget,
               latestBoardScanRef.current,
               preBoardScan,
@@ -3177,7 +3188,7 @@ export default function CoachScreen() {
               );
             }
           }
-          const finalScan = preferFinalBoardScanForDelivery(
+          const finalScan = preferFinalBoardScanForDelivery<FullBoardScanResult>(
             kernelLegTarget,
             latestBoardScanRef.current,
             preBoardScan,
@@ -3246,7 +3257,7 @@ export default function CoachScreen() {
           confidenceThreshold,
         });
         if (reachBoardEligible) {
-          const cachedBoardScan = preferFinalBoardScanForDelivery(
+          const cachedBoardScan = preferFinalBoardScanForDelivery<FullBoardScanResult>(
             Math.min(legTarget, MAX_LEGS),
             preBoardScan,
             latestBoardScanRef.current,
@@ -3301,7 +3312,7 @@ export default function CoachScreen() {
               }
             } else if (
               !reachBoardScan?.picks?.length &&
-              latestBoardScanRef.current?.picks?.length
+              (latestBoardScanRef.current as FullBoardScanResult | null)?.picks?.length
             ) {
               const ref = latestBoardScanRef.current;
               if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
@@ -3314,7 +3325,7 @@ export default function CoachScreen() {
           boardScanIsComplete(reachBoardScan) ||
           boardScanIsComplete(preBoardScan) ||
           boardScanIsComplete(latestBoardScanRef.current);
-        let fullBoardScanMeta: FullBoardScanResult | null = preferFinalBoardScanForDelivery(
+        let fullBoardScanMeta: FullBoardScanResult | null = preferFinalBoardScanForDelivery<FullBoardScanResult>(
           Math.min(legTarget, MAX_LEGS),
           reachBoardScan,
           preBoardScan,
@@ -3692,7 +3703,7 @@ export default function CoachScreen() {
             reachFull,
           });
         if (!fullBoardScanned && (preBoardScan || reachBoardScan)) {
-          const boardScanResult = preferFinalBoardScanForDelivery(
+          const boardScanResult = preferFinalBoardScanForDelivery<FullBoardScanResult>(
             ticketTarget,
             reachBoardScan,
             preBoardScan,
@@ -3956,6 +3967,7 @@ export default function CoachScreen() {
             }
           }
         }
+        let mergedGameOdds = context.realOdds;
         {
           const dedupedAfterBackfill = dedupeSameTeamGameLegs(picks);
           picks = dedupedAfterBackfill.picks;
@@ -4020,7 +4032,6 @@ export default function CoachScreen() {
         let gameSimNote = "";
         let gameSimSupplementNote = "";
         let gameSimulations = new Map<string, CoachGameSimEntry>();
-        let mergedGameOdds = context.realOdds;
         let coachEvalLinesByGame: Map<string, import("@/lib/api").RealOddsEntry[]> | null = null;
         let teamIdMap: Map<string, import("@/lib/coachGameMonteCarlo").GameTeamIds> | null = null;
         if (fullBoardScanned && fullBoardScanMeta) {
@@ -4037,9 +4048,9 @@ export default function CoachScreen() {
               picks
                 .filter(isGameLinePick)
                 .map((p) => p.sport)
-                .filter(Boolean),
+                .filter((s): s is string => !!s),
             ),
-          ].filter((s) => !excludedSports.has(s)) as string[];
+          ].filter((s) => !excludedSports.has(s));
           const espnGames = (
             await Promise.all(
               gameSports.map((s) => getGames(s).catch(() => [])),
@@ -4341,10 +4352,10 @@ export default function CoachScreen() {
             const reachSports = [
               ...new Set(
                 [...mergedPropPool.map((e) => e.sport), ...context.realOdds.map((e) => e.sport)].filter(
-                  Boolean,
+                  (s): s is string => !!s,
                 ),
               ),
-            ].filter((s) => !excludedSports.has(s)) as string[];
+            ].filter((s) => !excludedSports.has(s));
             const [reachOdds, reachEspn] = await Promise.all([
               Promise.all(reachSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
                 rows.flat(),
@@ -4432,10 +4443,10 @@ export default function CoachScreen() {
             const reachSports = [
               ...new Set(
                 [...mergedPropPool.map((e) => e.sport), ...context.realOdds.map((e) => e.sport)].filter(
-                  Boolean,
+                  (s): s is string => !!s,
                 ),
               ),
-            ].filter((s) => !excludedSports.has(s)) as string[];
+            ].filter((s) => !excludedSports.has(s));
             const reachOdds = (
               await Promise.all(reachSports.map((s) => getOdds(s).catch(() => [])))
             ).flat();
@@ -4846,7 +4857,7 @@ export default function CoachScreen() {
             if (settled) {
               latestBoardScanRef.current = settled;
               if (!fullBoardScanMeta || !boardScanIsComplete(fullBoardScanMeta)) {
-                fullBoardScanMeta = preferFinalBoardScanForDelivery(
+                fullBoardScanMeta = preferFinalBoardScanForDelivery<FullBoardScanResult>(
                   reachTarget,
                   settled,
                   fullBoardScanMeta,
@@ -5038,7 +5049,7 @@ export default function CoachScreen() {
           );
         }
         if (!boardScanManifestDetail.trim()) {
-          const scanForManifest = preferFinalBoardScanForDelivery(
+          const scanForManifest = preferFinalBoardScanForDelivery<FullBoardScanResult>(
             ticketTarget,
             fullBoardScanMeta,
             latestBoardScanRef.current,
@@ -5163,7 +5174,7 @@ export default function CoachScreen() {
             return existingPicks?.length ? existingPicks : [];
           }
           if (didReachFullPreScan) {
-            const liveFinal = preferFinalBoardScanForDelivery(
+            const liveFinal = preferFinalBoardScanForDelivery<FullBoardScanResult>(
               legTarget,
               fullBoardScanMeta,
               preBoardScan,
@@ -5997,6 +6008,17 @@ export default function CoachScreen() {
     const priorUser = [...messages].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent) return;
+    const activeRequest = coachRequestContextRef.current;
+    if (
+      activeRequest?.requestId &&
+      !coachRequestWasCompleted(sendGenerationRef.current, activeRequest.requestId)
+    ) {
+      console.log("[coach-request-commit] suppressing empty state before terminal scan result", {
+        currentRequestId: activeRequest.requestId,
+        previousRequestId: activeRequest.previousRequestId ?? "",
+      });
+      return;
+    }
     const content = (last.content ?? "").trim();
     const genericFailure =
       /couldn't ground a real ticket/i.test(content) ||
@@ -6448,7 +6470,7 @@ export default function CoachScreen() {
                         m.retry ||
                           activeParlayAskRef.current ||
                           priorUserText ||
-                          trimmed ||
+                          input.trim() ||
                           "Build me a 15-leg longshot parlay",
                         { freshThread: true },
                       );

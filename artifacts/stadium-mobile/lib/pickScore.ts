@@ -143,7 +143,9 @@ export function scoreInjury(favor: number | null | undefined): SubScore {
 // simulation ran or sample was too thin — never invented.
 export function scoreSimulation(hitProbability: number | null | undefined): SubScore {
   if (hitProbability == null || !Number.isFinite(hitProbability)) return null;
-  return round1(clamp(5.5 + (clamp(hitProbability, 0, 1) - 0.5) * 9, 1, 10));
+  const delta = (clamp(hitProbability, 0, 1) - 0.5) * 9;
+  const roundedDelta = Math.sign(delta) * round1(Math.abs(delta));
+  return clamp(5.5 + roundedDelta, 1, 10);
 }
 
 // ---------- Builders: real feed shapes -> normalized inputs ----------

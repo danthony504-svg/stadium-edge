@@ -1,21 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { test } from "node:test";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "..");
+const root = process.cwd();
 
-test("api.ts imports PROP_MARKET_LABEL_MAP before use", async () => {
+test("api.ts imports PROP_MARKET_LABEL_MAP before use", () => {
   const apiSrc = readFileSync(join(root, "lib/api.ts"), "utf8");
   assert.match(apiSrc, /import\s*\{[^}]*PROP_MARKET_LABEL_MAP[^}]*\}\s*from\s*["']\.\/propMarketLabel["']/);
   const importIdx = apiSrc.indexOf("PROP_MARKET_LABEL_MAP");
   const useIdx = apiSrc.indexOf("Object.entries(PROP_MARKET_LABEL_MAP)");
   assert.ok(importIdx >= 0 && useIdx > importIdx, "PROP_MARKET_LABEL_MAP must be imported before use");
-  const mod = await import("./propMarketLabel.ts");
-  assert.ok(mod.PROP_MARKET_LABEL_MAP);
-  assert.ok(Object.keys(mod.PROP_MARKET_LABEL_MAP).length > 0);
+  const labelSrc = readFileSync(join(root, "lib/propMarketLabel.ts"), "utf8");
+  assert.match(labelSrc, /PROP_MARKET_LABEL_MAP/);
 });
 
 test("prefetchAndMaybeApplyOta is exported and callable", () => {

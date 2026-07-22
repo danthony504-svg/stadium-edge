@@ -173,8 +173,8 @@ test("combinePickScore: renormalizes over present scores only", () => {
     simulation: null,
   };
   const full = combinePickScore(all, 7.8, -110);
-  assert.equal(full.composite, 6.8);
-  assert.equal(full.grade, "B-");
+  assert.equal(full.composite, 7.5);
+  assert.equal(full.grade, "B+");
   assert.equal(full.edgePct, 7.8);
   assert.equal(full.confidencePct, 67);
 

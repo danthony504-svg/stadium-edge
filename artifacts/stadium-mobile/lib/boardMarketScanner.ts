@@ -626,7 +626,6 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       });
       totalScanned += evaluated.length;
       for (const row of evaluated) {
-        manifestRecorder.recordMarketFound(row.pick);
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);

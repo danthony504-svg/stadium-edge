@@ -8,6 +8,15 @@ import {
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
 
+const rubricScores = {
+  matchup: null,
+  trend: null,
+  lineValue: null,
+  injury: null,
+  lineShopping: null,
+  simulation: null,
+};
+
 function mockEval(composite: number, edge: number, winProb: number): EvaluatedGameLine {
   return {
     entry: {
@@ -29,7 +38,7 @@ function mockEval(composite: number, edge: number, winProb: number): EvaluatedGa
       highRiskValuePlay: false,
       recommends: true,
       factors: [],
-      rubric: { scores: {}, composite, grade: "B+", confidencePct: 60, edgePct: edge },
+      rubric: { scores: rubricScores, composite, grade: "B+", confidencePct: 60, edgePct: edge },
     },
     winProb,
     edgePct: edge,
@@ -46,7 +55,7 @@ test("bestGameLine picks highest Final AI composite", () => {
 });
 
 test("bestGameLine tie-breaks on edge then win prob", () => {
-  const best = bestGameLine([mockEval(8.0, 1.0, 0.54), mockEval(8.0, 2.5, 0.51)]);
+  const best = bestGameLine([mockEval(8.0, 1.0, 0.54), mockEval(8.0, 2.5, 0.55)]);
   assert.equal(best?.edgePct, 2.5);
 });
 
@@ -91,7 +100,7 @@ test("buildGameLineOptimizerNote lists only final ticket legs with scores", () =
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
+        rubric: { scores: rubricScores, composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
       },
     },
   ];
@@ -105,7 +114,7 @@ test("buildGameLineOptimizerNote lists only final ticket legs with scores", () =
   assert.doesNotMatch(note, /\[box/i);
 });
 
-test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", () => {
+test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and sim-derived edge", () => {
   const GAME = "Minnesota Twins @ New York Yankees";
   const picks = [
     {
@@ -156,7 +165,7 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
     realOdds: [],
   });
   assert.match(note, /sim 54%/);
-  assert.match(note, /edge \+1\.8%/);
+  assert.match(note, /edge \+1\.6%/);
   assert.doesNotMatch(note, /sim —/);
   assert.doesNotMatch(note, /edge —/);
 });
@@ -181,7 +190,7 @@ test("buildGameLineOptimizerNote resolves Cubs nickname spread from alt ladder",
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+        rubric: { scores: rubricScores, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
       },
     },
   ];
@@ -248,7 +257,7 @@ test("buildGameLineOptimizerNote uses attachPickScores simHit on final ticket pi
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+        rubric: { scores: rubricScores, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
       },
     },
   ];

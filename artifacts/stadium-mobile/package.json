@@ -12,7 +12,8 @@
     "release:ios": "eas build --platform ios --profile production --auto-submit",
     "update:ios": "bash scripts/publish-production-ota.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test 'lib/**/*.test.ts'"
+    "test": "jest --runInBand --forceExit --testPathIgnorePatterns=test/pr238PipelineProof.test.ts",
+    "test:integration": "EXPO_PUBLIC_DOMAIN=stadium-edge.onrender.com jest --runInBand --forceExit test/pr238PipelineProof.test.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -50,6 +51,8 @@
     "expo-symbols": "~1.0.8",
     "expo-system-ui": "~6.0.9",
     "expo-web-browser": "~15.0.10",
+    "jest": "29.7.0",
+    "jest-expo": "54.0.17",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-native": "0.81.5",
