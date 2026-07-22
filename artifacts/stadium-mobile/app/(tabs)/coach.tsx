@@ -1399,6 +1399,15 @@ export default function CoachScreen() {
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
       const terminal = opts.terminal ?? (picks.length > 0 ? "completed" : "empty");
+      console.log("[coach-request-commit] terminal candidate", {
+        currentRequestId: requestId,
+        completedRequestId: opts.partial?.requestId ?? requestId,
+        previousRequestId: ctx?.previousRequestId ?? "",
+        returnedPickCount: opts.partial?.picks?.length ?? 0,
+        committedPickCount: picks.length,
+        renderedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+        terminal,
+      });
       return completeCoachRequest(
         {
           requestId,
@@ -2825,11 +2834,9 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
-              // A race timeout used to return null and let the request continue
-              // without a terminal transition. That leaves the progress UI at
-              // correlation (93%) forever because no later callback is required
-              // to run. Complete this request explicitly; a later stale scan
-              // result is rejected by completeCoachRequest's request key.
+              // The race can settle before the request-scoped scanner's final
+              // callback. Never terminally fail here: that callback owns the
+              // authoritative result and may still carry qualified picks.
               if (!preBoardScan) {
                 const stagedScan = latestBoardScanRef.current;
                 // A timed-out scan may already have verified usable legs through
@@ -2859,14 +2866,11 @@ export default function CoachScreen() {
                     return;
                   }
                 }
-                commitCoachRequestTerminal({
-                  picks: [],
-                  legTarget: reachTargetPreScan,
-                  terminal: "failed",
-                  legNote:
-                    "I couldn't finish verifying enough live markets for this ticket. Please try again shortly.",
+                console.log("[coach-request-commit] awaiting scanner terminal result", {
+                  currentRequestId: coachRequestContextRef.current?.requestId ?? "",
+                  previousRequestId: coachRequestContextRef.current?.previousRequestId ?? "",
+                  requestedLegs: reachTargetPreScan,
                 });
-                return;
               }
               freshBoardScanComplete = !!(
                 preBoardScan?.picks?.length &&
@@ -6004,6 +6008,17 @@ export default function CoachScreen() {
     const priorUser = [...messages].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent) return;
+    const activeRequest = coachRequestContextRef.current;
+    if (
+      activeRequest?.requestId &&
+      !coachRequestWasCompleted(sendGenerationRef.current, activeRequest.requestId)
+    ) {
+      console.log("[coach-request-commit] suppressing empty state before terminal scan result", {
+        currentRequestId: activeRequest.requestId,
+        previousRequestId: activeRequest.previousRequestId ?? "",
+      });
+      return;
+    }
     const content = (last.content ?? "").trim();
     const genericFailure =
       /couldn't ground a real ticket/i.test(content) ||

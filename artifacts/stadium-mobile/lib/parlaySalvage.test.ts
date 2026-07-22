@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test, { mock } from "node:test";
+import test from "node:test";
 import { filterSalvageOddsPool } from "./slate.ts";
 
 const WC_ODDS = [
@@ -22,14 +22,23 @@ const WC_ODDS = [
 ];
 
 test("filterSalvageOddsPool focuses World Cup asks on soccer", () => {
-  mock.timers.enable({ apis: ["Date"], now: new Date("2026-07-07T12:00:00Z") });
+  const NativeDate = Date;
+  class FixedDate extends NativeDate {
+    constructor(value?: string | number | Date) {
+      super(value == null ? "2026-07-07T12:00:00Z" : value instanceof NativeDate ? value.valueOf() : value);
+    }
+    static now() {
+      return new NativeDate("2026-07-07T12:00:00Z").valueOf();
+    }
+  }
+  globalThis.Date = FixedDate as DateConstructor;
   try {
     const ask = "Build me a 2 leg World Cup parlay for today's matches";
     const pool = filterSalvageOddsPool(WC_ODDS, ask, "tonight");
     assert.equal(pool.length, 2);
     assert.ok(pool.every((e) => e.sport === "soccer"));
   } finally {
-    mock.timers.reset();
+    globalThis.Date = NativeDate;
   }
 });
 

@@ -117,6 +117,17 @@ export function coachBoardScanManifestForMessage(
 ): string {
   if (!scan) return "";
   if (boardScanIsComplete(scan) && scan.scanComplete) {
+    // A completed zero-leg scan has no ticket to finalize. Format its audit
+    // directly so legacy scans without requestedLegs do not look in progress.
+    if (!scan.picks.length && scan.manifest) {
+      return formatCoachBoardScanManifest({
+        ...scan.manifest,
+        scanComplete: true,
+        boardExhausted: true,
+        requestedLegs: legTarget,
+        deliveredLegs: 0,
+      });
+    }
     return deliverCoachBoardScanTicket(scan, enrich, legTarget).coachDetailNote;
   }
   if (scan.manifest) {

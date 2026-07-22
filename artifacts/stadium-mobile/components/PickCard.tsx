@@ -2158,13 +2158,16 @@ export function backfillProps(
     gameCounts.set(gk, (gameCounts.get(gk) ?? 0) + 1);
     if (p.sport) sportCounts.set(p.sport, (sportCounts.get(p.sport) ?? 0) + 1);
   }
-  const tryAdd = (e: PropPoolEntry): boolean => {
+  const tryAdd = (
+    e: PropPoolEntry,
+    caps = { maxPerMarket, maxPerGame, maxPerSport },
+  ): boolean => {
     if (out.length >= target) return false;
     const mk = norm(e.marketLabel);
-    if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) return false;
+    if ((marketCounts.get(mk) ?? 0) >= caps.maxPerMarket) return false;
     const gk = norm(e.game);
-    if ((gameCounts.get(gk) ?? 0) >= maxPerGame) return false;
-    if (e.sport && (sportCounts.get(e.sport) ?? 0) >= maxPerSport) return false;
+    if ((gameCounts.get(gk) ?? 0) >= caps.maxPerGame) return false;
+    if (e.sport && (sportCounts.get(e.sport) ?? 0) >= caps.maxPerSport) return false;
     const legFp = parlayLegKeyFromPool(e);
     if (avoidLegKeys?.has(legFp) && out.length + 3 < target) return false;
     const canon = canonicalGameKey(e.game);
@@ -2281,7 +2284,7 @@ export function backfillProps(
         }
         if (pickIdx < 0) continue;
         const e = bucket.splice(pickIdx, 1)[0]!;
-        if (tryAdd(e)) progressed = true;
+        if (tryAdd(e, caps)) progressed = true;
       }
     }
   };

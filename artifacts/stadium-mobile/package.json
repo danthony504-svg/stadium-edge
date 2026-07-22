@@ -12,7 +12,8 @@
     "release:ios": "eas build --platform ios --profile production --auto-submit",
     "update:ios": "bash scripts/publish-production-ota.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "jest --runInBand --forceExit"
+    "test": "jest --runInBand --forceExit --testPathIgnorePatterns=test/pr238PipelineProof.test.ts",
+    "test:integration": "EXPO_PUBLIC_DOMAIN=stadium-edge.onrender.com jest --runInBand --forceExit test/pr238PipelineProof.test.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

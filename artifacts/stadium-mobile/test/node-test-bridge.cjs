@@ -1,6 +1,6 @@
 const test = (name, options, fn) => {
-  if (typeof options === "function") fn = options;
-  return global.test(name, fn);
+  if (typeof options === "function") return global.test(name, options);
+  return global.test(name, fn, options?.timeout);
 };
 
 module.exports = test;
