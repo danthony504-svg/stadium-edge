@@ -3,6 +3,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Image,
   Pressable,
   RefreshControl,
@@ -55,6 +56,40 @@ import {
 import { oddsGameFromEspnShell } from "@/lib/gameResolve";
 import { isRenderableOddsGame, safeMarkets } from "@/lib/sportFeed";
 import { buildUfcFeedPhotoMap, withUfcFightPhotos } from "@/lib/ufcFighterPhotos";
+
+function AnimatedPerformanceValue({
+  value,
+  color,
+}: {
+  value: string;
+  color: string;
+}) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    opacity.setValue(0.55);
+    scale.setValue(0.94);
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, friction: 7, useNativeDriver: true }),
+    ]).start();
+  }, [opacity, scale, value]);
+
+  return (
+    <Animated.Text
+      style={{
+        color,
+        fontFamily: FONT.display,
+        fontSize: 22,
+        opacity,
+        transform: [{ scale }],
+      }}
+    >
+      {value}
+    </Animated.Text>
+  );
+}
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -768,11 +803,22 @@ function HomeSportFeed({
   const gradedHistory = stealsQ.data?.history ?? [];
   const perfSummary = summarizeRecentPerformance(gradedHistory);
   const perfSeries = buildRollingWinRateSeries(gradedHistory);
-  const hasPerfData = perfSummary.wins + perfSummary.losses > 0;
-  const perfWinPct = perfSummary.winPct;
-  const perfRecord = hasPerfData
-    ? `${perfSummary.wins}-${perfSummary.losses}${perfSummary.pushes > 0 ? `-${perfSummary.pushes}` : ""}`
-    : null;
+  const gradedPickCount = perfSummary.wins + perfSummary.losses + perfSummary.pushes;
+  const hasPerfData = gradedPickCount > 0;
+  const perfWinPct = gradedPickCount > 0 ? Math.round((perfSummary.wins / gradedPickCount) * 100) : 0;
+  const perfRecord = `${perfSummary.wins}-${perfSummary.losses}`;
+  const todayPickCount =
+    (stealsQ.data?.record.wins ?? 0) +
+    (stealsQ.data?.record.losses ?? 0) +
+    (stealsQ.data?.record.pushes ?? 0) +
+    (stealsQ.data?.record.pending ?? 0) +
+    (stealsQ.data?.record.ungraded ?? 0);
+  const performanceMessage =
+    todayPickCount === 0
+      ? "No picks placed today yet."
+      : hasPerfData
+        ? "Performance updates automatically as games finish."
+        : "No picks have settled yet. Performance updates automatically as games finish.";
 
   const hotGradesQ = useQuery({
     queryKey: ["home-hot-grades", sport, hotKey],
@@ -1125,17 +1171,17 @@ function HomeSportFeed({
               <View style={{ flexDirection: "row", flex: 1, alignSelf: "stretch" }}>
                 {[
                   {
-                    val: hasPerfData && perfWinPct != null ? `${perfWinPct}%` : "—",
+                    val: `${perfWinPct}%`,
                     label: "Win Rate",
                     tint: hasPerfData ? "#34d399" : colors.mutedForeground,
                   },
                   {
-                    val: perfRecord ?? "—",
+                    val: perfRecord,
                     label: "Record",
                     tint: hasPerfData ? colors.foreground : colors.mutedForeground,
                   },
                   {
-                    val: hasPerfData ? String(perfSummary.wins + perfSummary.losses + perfSummary.pushes) : "—",
+                    val: `${gradedPickCount} Picks`,
                     label: "Graded",
                     tint: hasPerfData ? colors.foreground : colors.mutedForeground,
                   },
@@ -1150,7 +1196,7 @@ function HomeSportFeed({
                       borderLeftColor: colors.border,
                     }}
                   >
-                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
+                    <AnimatedPerformanceValue value={m.val} color={m.tint} />
                     <Text
                       style={{
                         color: colors.mutedForeground,
@@ -1172,18 +1218,18 @@ function HomeSportFeed({
                 />
               ) : null}
             </View>
-            {!hasPerfData ? (
-              <Text
-                style={{
-                  color: colors.mutedForeground,
-                  fontFamily: FONT.medium,
-                  fontSize: 12,
-                  textAlign: "center",
-                }}
-              >
-                No settled picks yet
-              </Text>
-            ) : null}
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.medium,
+                fontSize: 12,
+                lineHeight: 17,
+                minHeight: 34,
+                textAlign: "center",
+              }}
+            >
+              {performanceMessage}
+            </Text>
           </Pressable>
         </View>
 
