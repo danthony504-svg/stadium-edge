@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { test } from "node:test";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "..");
+const root = process.cwd();
 
 test("api.ts imports PROP_MARKET_LABEL_MAP before use", async () => {
   const apiSrc = readFileSync(join(root, "lib/api.ts"), "utf8");
