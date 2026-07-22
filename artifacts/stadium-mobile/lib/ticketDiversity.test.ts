@@ -105,8 +105,8 @@ test("prepareDeepParlaySeed clears chalk game scaffold", () => {
     isProp: false,
   }));
   const { picks: out, stripped } = prepareDeepParlaySeed(picks, 15);
-  assert.ok(stripped >= 13);
-  assert.ok(out.length <= 3);
+  assert.equal(stripped, 12);
+  assert.equal(out.length, 3);
 });
 
 test("prepareDeepParlaySeed strips 12-leg ML+spread scaffold", () => {
@@ -199,7 +199,7 @@ test("assembleDeepParlayFromBoard props-first then capped game lines", () => {
   assert.ok(picks.filter((p) => !p.isProp).length <= 3);
 });
 
-test("topUpDeepParlayToTarget caps game legs on longshot top-up", () => {
+test("topUpDeepParlayToTarget preserves seeded game-leg cap on longshot top-up", () => {
   const kick = "2026-07-05T23:00:00.000Z";
   const existing = Array.from({ length: 6 }, (_, i) => ({
     game: `Away${i} @ Home${i}`,
@@ -208,15 +208,16 @@ test("topUpDeepParlayToTarget caps game legs on longshot top-up", () => {
     odds: -110,
     isProp: false,
   }));
+  const seeded = prepareDeepParlaySeed(existing, 15, { longshotAsk: true }).picks;
   const propPool = Array.from({ length: 20 }, (_, i) => ({
     game: `Away${i % 5} @ Home${i % 5}`,
     player: `Player${i}`,
-    marketLabel: "Strikeouts",
-    marketKey: "k",
+    marketLabel: ["Hits", "Total Bases", "Home Runs", "Strikeouts"][i % 4]!,
+    marketKey: `market-${i % 4}`,
     line: 5.5,
     side: "Over" as const,
     odds: 110,
-    sport: "mlb",
+    sport: i % 5 < 3 ? "mlb" : "nba",
     startsAt: kick,
   }));
   const realOdds = Array.from({ length: 10 }, (_, i) => ({
@@ -224,10 +225,10 @@ test("topUpDeepParlayToTarget caps game legs on longshot top-up", () => {
     market: "Moneyline",
     pick: `Home${i} ML`,
     odds: -110,
-    sport: "mlb",
+    sport: i % 5 < 3 ? "mlb" : "nba",
     startsAt: kick,
   }));
-  const out = topUpDeepParlayToTarget(existing, 15, propPool, realOdds, [], { longshotAsk: true });
+  const out = topUpDeepParlayToTarget(seeded, 15, propPool, realOdds, [], { longshotAsk: true });
   assert.ok(out.filter((p) => p.isProp).length >= 8);
   assert.ok(out.filter((p) => !p.isProp).length <= 2);
 });
@@ -244,12 +245,12 @@ test("finalizeDeepParlayTicket strips model moneylines and rebuilds", () => {
   const propPool = Array.from({ length: 20 }, (_, i) => ({
     game: `Away${i % 5} @ Home${i % 5}`,
     player: `Player${i}`,
-    marketLabel: "Strikeouts",
-    marketKey: "k",
+    marketLabel: ["Hits", "Total Bases", "Home Runs", "Strikeouts"][i % 4]!,
+    marketKey: `market-${i % 4}`,
     line: 5.5,
     side: "Over" as const,
     odds: 110,
-    sport: "mlb",
+    sport: i % 5 < 3 ? "mlb" : "nba",
     startsAt: kick,
   }));
   const realOdds = Array.from({ length: 10 }, (_, i) => ({
@@ -257,7 +258,7 @@ test("finalizeDeepParlayTicket strips model moneylines and rebuilds", () => {
     market: "Moneyline",
     pick: `Home${i} ML`,
     odds: -110,
-    sport: "mlb",
+    sport: i % 5 < 3 ? "mlb" : "nba",
     startsAt: kick,
   }));
   const out = finalizeDeepParlayTicket(chalkMl, 15, propPool, realOdds, [], { longshotAsk: true });

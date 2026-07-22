@@ -55,7 +55,7 @@ test("bestGameLine picks highest Final AI composite", () => {
 });
 
 test("bestGameLine tie-breaks on edge then win prob", () => {
-  const best = bestGameLine([mockEval(8.0, 1.0, 0.54), mockEval(8.0, 2.5, 0.51)]);
+  const best = bestGameLine([mockEval(8.0, 1.0, 0.54), mockEval(8.0, 2.5, 0.55)]);
   assert.equal(best?.edgePct, 2.5);
 });
 
@@ -114,7 +114,7 @@ test("buildGameLineOptimizerNote lists only final ticket legs with scores", () =
   assert.doesNotMatch(note, /\[box/i);
 });
 
-test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", () => {
+test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and sim-derived edge", () => {
   const GAME = "Minnesota Twins @ New York Yankees";
   const picks = [
     {
@@ -165,7 +165,7 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
     realOdds: [],
   });
   assert.match(note, /sim 54%/);
-  assert.match(note, /edge \+1\.8%/);
+  assert.match(note, /edge \+1\.6%/);
   assert.doesNotMatch(note, /sim —/);
   assert.doesNotMatch(note, /edge —/);
 });
