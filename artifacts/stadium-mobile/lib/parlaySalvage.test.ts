@@ -24,8 +24,8 @@ const WC_ODDS = [
 test("filterSalvageOddsPool focuses World Cup asks on soccer", () => {
   const NativeDate = Date;
   class FixedDate extends NativeDate {
-    constructor(...args: ConstructorParameters<typeof Date>) {
-      super(...(args.length ? args : ["2026-07-07T12:00:00Z"]));
+    constructor(value?: string | number | Date) {
+      super(value == null ? "2026-07-07T12:00:00Z" : value instanceof NativeDate ? value.valueOf() : value);
     }
     static now() {
       return new NativeDate("2026-07-07T12:00:00Z").valueOf();
