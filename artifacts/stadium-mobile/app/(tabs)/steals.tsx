@@ -74,6 +74,7 @@ function SeasonRecordCard({
   const colors = useColors();
   const pct = recordWinPct(record);
   const hasSettled = record.graded > 0;
+  const roi = seasonStats?.roiPct ?? 0;
 
   return (
     <View
@@ -93,63 +94,24 @@ function SeasonRecordCard({
         </Text>
       </View>
 
-      {hasSettled ? (
-        <>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
-            <View>
-              <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 34, lineHeight: 38 }}>
-                {recordLabel(record)}
-              </Text>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 }}>
-                W–L{record.pushes > 0 ? "–Push" : ""}
-              </Text>
-            </View>
-            {pct != null ? (
-              <View>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 22 }}>
-                  {pct}%
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                  hit rate
-                </Text>
-              </View>
-            ) : null}
-            {seasonStats?.roiPct != null ? (
-              <View>
-                <Text style={{ color: "#22c55e", fontFamily: FONT.bold, fontSize: 22 }}>
-                  {seasonStats.roiPct > 0 ? "+" : ""}
-                  {seasonStats.roiPct}%
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                  ROI
-                </Text>
-              </View>
-            ) : null}
-            {seasonStats?.avgOdds != null ? (
-              <View>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 22 }}>
-                  {formatOdds(seasonStats.avgOdds)}
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                  avg odds
-                </Text>
-              </View>
-            ) : null}
+      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        {[
+          { value: `${pct ?? 0}%`, label: "Win Rate", color: STEAL_ACCENT },
+          { value: recordLabel(record), label: "Record", color: colors.foreground },
+          { value: `${record.graded} Picks`, label: "Graded Picks", color: colors.foreground },
+          { value: `${roi > 0 ? "+" : ""}${roi}%`, label: "ROI", color: roi >= 0 ? "#22c55e" : "#f87171" },
+        ].map((stat) => (
+          <View key={stat.label} style={{ alignItems: "center", flex: 1 }}>
+            <Text style={{ color: stat.color, fontFamily: FONT.bold, fontSize: 16 }}>{stat.value}</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, marginTop: 3 }}>{stat.label}</Text>
           </View>
-          {record.pending > 0 || record.ungraded > 0 ? (
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-              {record.pending > 0 ? `${record.pending} awaiting result` : ""}
-              {record.pending > 0 && record.ungraded > 0 ? " · " : ""}
-              {record.ungraded > 0 ? `${record.ungraded} couldn't be graded` : ""}
-            </Text>
-          ) : null}
-        </>
-      ) : (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, lineHeight: 18 }}>
-          No steals have settled yet. Every pick below is logged and auto-graded against the
-          real result — the record fills in as games finish.
-        </Text>
-      )}
+        ))}
+      </View>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, lineHeight: 18 }}>
+        {hasSettled
+          ? "Performance updates automatically as games finish."
+          : "No steals have settled yet. Every pick below is logged and auto-graded against the real result."}
+      </Text>
 
       <View style={{ height: 1, backgroundColor: colors.border }} />
       <View style={{ flexDirection: "row", gap: 10 }}>
@@ -782,7 +744,15 @@ export default function StealsScreen() {
       >
         <SeasonRecordCard record={record} seasonStats={seasonStats} />
 
-      {!feedUnavailable && meta ? <ScanProgressPanel meta={meta} phase={scanPhase} /> : null}
+      {!feedUnavailable && meta ? (
+        <View style={{ gap: 6 }}>
+          <ScanProgressPanel meta={meta} phase={scanPhase} />
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, textAlign: "center" }}>
+            Last updated {query.dataUpdatedAt ? new Date(query.dataUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"} · Next automatic scan in 3 seconds
+            {steals.length && steals[0]?.edge != null ? ` · Best edge +${steals[0].edge.toFixed(1)}%` : ""}
+          </Text>
+        </View>
+      ) : null}
         {!feedUnavailable && meta ? <StealsFoundToday meta={meta} /> : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
@@ -875,20 +845,16 @@ export default function StealsScreen() {
             onRetry={() => query.refetch()}
           />
         ) : isScanning ? (
-          <>
-            <ScanProgressPanel meta={meta} phase="loading" />
-            <RadarScan hideFooter>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
-                {awaitingFirstResponse
-                  ? "Connecting to live odds scan…"
-                  : "Rescanning live odds…"}
-              </Text>
-            </RadarScan>
-          </>
+          <View style={{ gap: 10 }}>
+            {[0, 1, 2].map((row) => (
+              <View
+                key={row}
+                style={{ height: 64, borderRadius: 12, backgroundColor: `${STEAL_ACCENT}14`, borderWidth: 1, borderColor: `${STEAL_ACCENT}33` }}
+              />
+            ))}
+          </View>
         ) : scanPhase === "empty" ? (
-          <>
-            <ScanProgressPanel meta={meta} phase="empty" />
-            <View
+          <View
               style={{
                 alignItems: "center",
                 gap: 12,
@@ -901,10 +867,9 @@ export default function StealsScreen() {
                 No steals right now
               </Text>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
-                The board was scanned and no +500 longshots cleared our value bar. We&apos;ll keep checking in the background.
+                No +500 opportunities meet Stadium Edge&apos;s quality threshold right now. We&apos;ll continue scanning automatically.
               </Text>
             </View>
-          </>
         ) : (
           <>
             {filteredSteals.length > 0 ? (
