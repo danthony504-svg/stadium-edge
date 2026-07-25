@@ -4,8 +4,6 @@
 
 import type { OddsGame, OddsOutcome, RealOddsEntry } from "./api.ts";
 
-const EVAL_ALT_MAX_JUICE = -1000;
-
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
 const PERIOD_SUFFIX: Record<string, string> = {
@@ -30,7 +28,10 @@ type Decoded = {
 };
 
 function evalPriceOk(price: number | null | undefined): boolean {
-  return price != null && price > EVAL_ALT_MAX_JUICE;
+  // Every posted alternate run line must reach the simulator. Extremely
+  // juiced rungs can lose later on EV/edge/confidence, but excluding them at
+  // discovery makes it impossible to prove they were evaluated.
+  return price != null && Number.isFinite(price) && price !== 0;
 }
 
 function decodeMarketKey(key: string): Decoded | null {
