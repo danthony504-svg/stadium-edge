@@ -88,7 +88,7 @@ test("marketLadderKey groups alt spreads with main spread on the same side", () 
   assert.equal(main, alt);
 });
 
-test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
+test("collapseScoredLegsByMarketLadder keeps the stronger standard run line", () => {
   const scored = [
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, mainScore),
     leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 90, altScore),
@@ -96,6 +96,26 @@ test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
   const out = collapseScoredLegsByMarketLadder(scored);
   assert.equal(out.length, 1);
   assert.equal(out[0]!.pick.market, "Spread");
+});
+
+test("collapseScoredLegsByMarketLadder promotes positive-EV alternate run line over weaker standard", () => {
+  const scored = [
+    leg({ game: "A @ B", market: "Run Line", pick: "A +1.5", odds: -110 }, 90, mainScore),
+    leg({ game: "A @ B", market: "Alt Spread", pick: "A +2.5", odds: 120 }, 100, altScore),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick.market, "Alt Spread");
+});
+
+test("collapseScoredLegsByMarketLadder uses the standard line for equal value", () => {
+  const scored = [
+    leg({ game: "A @ B", market: "Run Line", pick: "A +1.5", odds: -110 }, 100, mainScore),
+    leg({ game: "A @ B", market: "Alt Spread", pick: "A +2.5", odds: 120 }, 100, altScore),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick.market, "Run Line");
 });
 
 test("collapseScoredLegsByMarketLadder promotes alt when main fails quality bar", () => {
