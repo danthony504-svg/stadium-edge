@@ -1,5 +1,5 @@
-// Per-market ladder exhaustion — try the main posted line first, then every alt
-// rung in rank order until one qualifies or the ladder is exhausted.
+// Per-market ladder selection — every posted standard and alternate rung competes
+// on the same simulated score. A standard line only wins a score tie.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { isAltPropPick, isMainBoardPick, isMainLineGameLeg, marketFamily } from "./altLinePool.ts";
@@ -45,8 +45,10 @@ function ladderSortRank(leg: BoardScoredLeg): number {
 }
 
 /**
- * Within each market ladder: mains first, then alts by rank.
- * Return the first rung that qualifies as main or alt; skip the ladder if none qualify.
+ * Within each market ladder, qualify every rung independently and select the
+ * objectively highest-ranked candidate. Main lines win only exact score ties so
+ * alternates are never a default/filler choice, but can beat the standard line
+ * when their own sim, EV, edge, historical context, and pricing score is higher.
  */
 export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): BoardScoredLeg[] {
   const byLadder = new Map<string, BoardScoredLeg[]>();
@@ -60,10 +62,11 @@ export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): Boar
   const out: BoardScoredLeg[] = [];
   for (const ladder of byLadder.values()) {
     ladder.sort((a, b) => {
+      if (a.rankScore !== b.rankScore) return b.rankScore - a.rankScore;
       const tierA = ladderSortRank(a);
       const tierB = ladderSortRank(b);
       if (tierA !== tierB) return tierA - tierB;
-      return b.rankScore - a.rankScore;
+      return 0;
     });
     for (const leg of ladder) {
       const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);
