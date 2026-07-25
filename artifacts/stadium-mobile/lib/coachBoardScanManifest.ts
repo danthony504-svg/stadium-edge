@@ -225,6 +225,51 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     target[gate] = (target[gate] ?? 0) + 1;
   };
 
+  const logCandidateDiagnostic = (
+    pick: ParsedPick,
+    score: Partial<FinalAiScore> | null | undefined,
+    gate: BoardLegGateCode,
+    reason: string,
+    stage: "pre-score" | "qualification",
+  ) => {
+    // Keep the complete per-candidate audit trail in device logs. The manifest
+    // retains a bounded, user-readable sample, while this log deliberately
+    // records every scanned candidate so a zero-pick board is explainable.
+    const raw = pick as ParsedPick & Record<string, unknown>;
+    const simHit = score?.simHit ?? null;
+    const odds = pick.odds ?? null;
+    const implied =
+      odds != null && Number.isFinite(odds) && odds !== 0
+        ? Math.round(
+            (odds > 0 ? 100 / (odds + 100) : -odds / (-odds + 100)) * 10_000,
+          ) / 100
+        : null;
+    const ev =
+      simHit != null && odds != null && Number.isFinite(odds)
+        ? Math.round(((simHit * (odds > 0 ? odds / 100 : 100 / -odds)) - (1 - simHit)) * 10000) / 100
+        : null;
+    console.info("[Coach candidate audit]", {
+      stage,
+      game: pick.game,
+      market: pick.market ?? null,
+      pick: pickLabelForManifest(pick),
+      line: pick.propLine ?? null,
+      odds,
+      rawProjection: raw.projection ?? raw.projectedValue ?? raw.modelProjection ?? null,
+      simulatedProbabilityPct: simHit == null ? null : Math.round(simHit * 10_000) / 100,
+      impliedProbabilityPct: implied,
+      edgePct: score?.edgePct ?? null,
+      confidencePct: score?.confidencePct ?? null,
+      grade: score?.grade ?? null,
+      evPct: ev,
+      simAligned: score?.simAligned ?? false,
+      recommends: score?.recommends ?? false,
+      correlationPenalty: raw.correlationPenalty ?? null,
+      gate,
+      rejectionReason: gate.startsWith("qualified_") ? null : reason,
+    });
+  };
+
   const pushRejectedSample = (
     pick: ParsedPick,
     gate: BoardLegGateCode,
@@ -298,6 +343,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
             );
       bumpGate(q.gate, preScoreGateFailures);
       pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp);
+      logCandidateDiagnostic(pick, score, q.gate, q.reason, "pre-score");
       syncRecorder();
     },
     recordEvaluatedLeg(leg) {
@@ -306,6 +352,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     recordEvaluatedPick(pick, score) {
       const q = explainBoardLegQualification(pick, score);
       if (q.qualifies) {
+        logCandidateDiagnostic(pick, score, q.gate, q.reason, "qualification");
         manifest.totalQualified += 1;
         if (q.role === "main") manifest.qualifiedMain += 1;
         if (q.role === "alt") manifest.qualifiedAlt += 1;
@@ -316,6 +363,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       }
       bumpGate(q.gate, manifest.gateFailureCounts);
       pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp);
+      logCandidateDiagnostic(pick, score, q.gate, q.reason, "qualification");
       syncRecorder();
     },
     recomputeQualificationFromScored(scored) {
@@ -351,7 +399,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         manifest.totalEvaluated = manifest.marketsSimulated;
       }
       syncRecorder();
-      return {
+      const finalized = {
         ...manifest,
         gateFailureCounts: mergeGateFailureCounts(preScoreGateFailures, manifest.gateFailureCounts),
         rejectedSamples: [...preScoreRejectedSamples, ...manifest.rejectedSamples].slice(
@@ -359,6 +407,23 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
           MAX_REJECTED_SAMPLES,
         ),
       };
+      if (finalized.scanComplete && finalized.deliveredLegs === 0) {
+        console.warn("[Coach zero-pick audit]", {
+          requestedLegs: finalized.requestedLegs,
+          marketsFound: finalized.marketsFound,
+          marketsSimulated: finalized.marketsSimulated,
+          propsFound: finalized.propsFound,
+          propsEligibleForSim: finalized.propsEligibleForSim,
+          propsSimulated: finalized.propsSimulated,
+          propsSkippedUnsupported: finalized.propsSkippedUnsupported,
+          preScoreEvaluated: finalized.preScoreEvaluated,
+          totalEvaluated: finalized.totalEvaluated,
+          totalQualified: finalized.totalQualified,
+          gateFailureCounts: finalized.gateFailureCounts,
+          delivery: "No candidates survived qualification; see per-candidate audit logs.",
+        });
+      }
+      return finalized;
     },
   };
 
