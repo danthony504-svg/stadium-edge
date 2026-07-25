@@ -1,5 +1,5 @@
 // Per-market ladder selection — every posted standard and alternate rung competes
-// using its own simulation, price, EV, edge, confidence, and AI score.
+// on its own simulation, price, EV, edge, confidence, and AI score.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { isAltPropPick, isMainBoardPick, isMainLineGameLeg, marketFamily } from "./altLinePool.ts";
@@ -45,9 +45,9 @@ function ladderSortRank(leg: BoardScoredLeg): number {
 }
 
 /**
- * Qualify every rung in a market ladder, then select the highest ranked
- * positive-EV candidate. A main line only wins an exact score tie, preventing
- * an alternate run line with better value from being hidden behind the standard.
+ * Qualify every rung in a market ladder, then select the highest-ranked
+ * candidate. A main line only wins an exact score tie, preventing an
+ * alternate with better independent value from being hidden by the standard.
  */
 export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): BoardScoredLeg[] {
   const byLadder = new Map<string, BoardScoredLeg[]>();
