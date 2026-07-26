@@ -338,7 +338,7 @@ export function buildBalancedStagedTicketFromScan(
   appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target, varietySeed);
   appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target, varietySeed);
 
-  const finalPicks = applyBalancedCapAndBackfill(
+  const stagedPicks = applyBalancedCapAndBackfill(
     out,
     target,
     pools,
@@ -346,6 +346,28 @@ export function buildBalancedStagedTicketFromScan(
     scored,
     ticketStyle,
   ).slice(0, target);
+  // A balance/cap policy may reshape a ticket, but it may never erase every
+  // already-qualified candidate. Preserve the highest-ranked qualified legs as
+  // a strict-gate fallback; this does not add filler or relax any AI threshold.
+  const finalPicks =
+    stagedPicks.length > 0 || qualifying.length === 0
+      ? stagedPicks
+      : [...qualifying]
+          .sort((a, b) => compareBoardLegsForRank(a, b, varietySeed))
+          .slice(0, target)
+          .map((leg) => ({
+            ...leg.pick,
+            ticketRole: boardLegPoolRole(leg.pick, leg.pick.finalAiScore)!,
+            highRiskValuePlay: false,
+          }));
+  if (stagedPicks.length === 0 && finalPicks.length > 0) {
+    console.warn("[Coach delivery invariant]", {
+      qualified: qualifying.length,
+      delivered: finalPicks.length,
+      reason: "Balanced staging removed every qualified leg; strict qualified fallback applied",
+      picks: finalPicks.map((pick) => `${pick.game} · ${pick.pick}`),
+    });
+  }
   const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
   const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
 
