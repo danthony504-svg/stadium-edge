@@ -5006,6 +5006,29 @@ export default function CoachScreen() {
           excludedSports.size > 0
             ? `_Leagues excluded on this ticket: **${[...excludedSports].map((s) => s.toUpperCase()).join(", ")}** — say an league name to include it again (e.g. "15 leg MLB parlay")._`
             : "";
+        // Terminal delivery guard: a direct run-line/spread request is never a
+        // mixed-market request. This runs after every model, cache, salvage,
+        // backfill, and rescore path so player props cannot re-enter a ticket.
+        const runLineOnlyTicket = isRunLineMarketRequest(trimmed);
+        const isRunLinePick = (pick: ParsedPick) =>
+          !pick.isProp && /\b(?:alt(?:ernate)?\s+)?(?:run line|spread)\b/i.test(pick.market);
+        let runLineOnlyNote = "";
+        if (runLineOnlyTicket) {
+          const before = picks.length;
+          picks = picks.filter(isRunLinePick);
+          const removed = before - picks.length;
+          if (removed > 0 || picks.length < ticketTarget) {
+            runLineOnlyNote =
+              `Only **${picks.length}** run line${picks.length === 1 ? "" : "s"} met the AI quality bar.` +
+              (removed > 0 ? ` Removed **${removed}** non-run-line candidate${removed === 1 ? "" : "s"}.` : "");
+          }
+          console.info("[Coach run-line delivery]", {
+            requestedMarketType: "team-run-line",
+            marketsScanned: fullBoardScanMeta?.manifest?.marketsFound ?? null,
+            marketsFiltered: removed,
+            finalDeliveredMarketTypes: picks.map((pick) => pick.market),
+          });
+        }
         if (
           picks.length === 0 &&
           fullBoardScanned &&
@@ -5022,7 +5045,10 @@ export default function CoachScreen() {
             ],
           };
           const delivered = deliverCoachBoardScanTicket(fullBoardScanMeta, scanEnrich, ticketTarget);
-          picks = delivered.picks;
+          picks = runLineOnlyTicket ? delivered.picks.filter(isRunLinePick) : delivered.picks;
+          if (runLineOnlyTicket && picks.length < ticketTarget) {
+            runLineOnlyNote = `Only **${picks.length}** run line${picks.length === 1 ? "" : "s"} met the AI quality bar.`;
+          }
           boardScanManifestDetail = delivered.coachDetailNote;
         } else if (
           picks.length === 0 &&
@@ -5070,7 +5096,7 @@ export default function CoachScreen() {
           }
         }
         const coachDetailNote = dedupeLegNoteParagraphs(
-          [boardScanManifestDetail, exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote, aiFilterNote]
+          [boardScanManifestDetail, exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, runLineOnlyNote, tonightNote, aiFilterNote]
             .filter(Boolean)
             .join("\n\n"),
         );
