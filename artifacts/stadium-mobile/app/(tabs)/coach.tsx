@@ -105,6 +105,7 @@ import {
   shouldUseFullBoardScan,
   tryReachFullBoardScan,
   reachBoardScanEligible,
+  isRunLineMarketRequest,
   type FullBoardScanResult,
 } from "@/lib/boardMarketScanner";
 import {
@@ -1860,6 +1861,7 @@ export default function CoachScreen() {
       signal?: AbortSignal;
     }) => {
       const { target, sportScopeText, excludedSports, seedBuilt, signal } = opts;
+      const marketScope = isRunLineMarketRequest(sportScopeText) ? "run-line" : undefined;
       const scanSports = coachBuildSports(sportScopeText, target, DEFAULT_SPORTS).filter(
         (s) => !excludedSports.has(s),
       );
@@ -1889,6 +1891,7 @@ export default function CoachScreen() {
           return await Promise.race([
             tryReachFullBoardScan({
               target: reachTarget,
+              marketScope,
               oddsGames,
               propPool: seedBuilt?.propPool ?? [],
               realOdds: seedBuilt?.context.realOdds ?? [],
@@ -2813,6 +2816,7 @@ export default function CoachScreen() {
               preBoardScan = await Promise.race([
                 tryReachFullBoardScan({
                   target: reachTargetPreScan,
+                  marketScope: isRunLineMarketRequest(trimmed) ? "run-line" : undefined,
                   oddsGames,
                   propPool,
                   realOdds: context.realOdds,
@@ -3282,6 +3286,7 @@ export default function CoachScreen() {
             reachBoardScan = await Promise.race([
               tryReachFullBoardScan({
                 target: Math.min(legTarget, MAX_LEGS),
+                marketScope: isRunLineMarketRequest(trimmed) ? "run-line" : undefined,
                 oddsGames,
                 propPool: mergedPropPool,
                 realOdds: context.realOdds,
@@ -3743,6 +3748,7 @@ export default function CoachScreen() {
           const inlineScan = await Promise.race([
             tryReachFullBoardScan({
               target: reachTarget,
+              marketScope: isRunLineMarketRequest(trimmed) ? "run-line" : undefined,
               oddsGames,
               propPool: mergedPropPool,
               realOdds: context.realOdds,
