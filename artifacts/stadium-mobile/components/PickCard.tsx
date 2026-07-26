@@ -927,6 +927,9 @@ export function PickCard({
           }}
           variant="compact"
           pick={pick}
+          teamCoach={
+            pick.finalAiScore?.factors.find((factor) => factor.key === "teamCoach")?.display ?? null
+          }
           propHolistic={
             pick.isProp || pick.player ? buildCoachCardHolistic(pick) : undefined
           }
