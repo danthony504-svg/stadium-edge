@@ -144,6 +144,15 @@ export type FullBoardScanResult = {
   scanComplete?: boolean;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
+  /** Request-scoped audit for direct team run-line/spread searches. */
+  runLineAudit?: {
+    marketsReceived: number;
+    marketsParsed: number;
+    marketsEvaluated: number;
+    marketsRejected: number;
+    rejectionCounts: Partial<Record<string, number>>;
+    playerPropsSearched: false;
+  };
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -554,6 +563,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   const isRunLineEntry = (entry: RealOddsEntry) =>
     /\b(?:alt(?:ernate)?\s+)?(?:run line|spread)\b/i.test(entry.market);
+  const isRunLineProviderMarket = (key: string) =>
+    /^(?:alternate_)?spreads(?:_|$)/i.test(key);
+  const runLineMarketsReceived =
+    opts.marketScope === "run-line"
+      ? oddsGames.reduce(
+          (count, game) =>
+            count +
+            (game.markets ?? [])
+              .filter((market) => isRunLineProviderMarket(market.key))
+              .reduce((marketCount, market) => marketCount + (market.outcomes?.length ?? 0), 0),
+          0,
+        )
+      : 0;
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
     const label = `${og.awayTeam} @ ${og.homeTeam}`;
@@ -749,10 +771,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       (total, count) => total + (count ?? 0),
       0,
     );
-    console.info("[Coach run-line audit]", {
-      marketsLoaded: [...evalLinesByGame.values()].flat().length,
+    const audit = {
+      marketsReceived: runLineMarketsReceived,
+      marketsParsed: [...evalLinesByGame.values()].flat().length,
       marketsEvaluated: manifest.totalEvaluated,
       marketsRejected: rejected,
+      rejectionCounts: manifest.gateFailureCounts,
+      playerPropsSearched: false as const,
+    };
+    result.runLineAudit = audit;
+    console.info("[Coach run-line audit]", {
+      ...audit,
       deliveredLegs: result.picks.length,
       rejectedMarkets: manifest.rejectedSamples.map((sample) => ({
         market: sample.market,
@@ -761,6 +790,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       })),
       playerPropsSearched: false,
     });
+    if (result.picks.length === 0) {
+      const rejectionSummary = Object.entries(audit.rejectionCounts)
+        .sort(([, a], [, b]) => (b ?? 0) - (a ?? 0))
+        .map(([reason, count]) => `${reason}: ${count}`)
+        .join("; ");
+      result.note =
+        `Run-line diagnostic — received **${audit.marketsReceived}** sportsbook outcomes; ` +
+        `parsed **${audit.marketsParsed}** team run-line/alternate run-line candidates; ` +
+        `evaluated **${audit.marketsEvaluated}**; rejected **${audit.marketsRejected}**. ` +
+        `Player props searched: **no**. ` +
+        `Rejections: ${rejectionSummary || "no evaluated candidate produced a terminal gate result"}. ` +
+        `Team run lines use the game Monte Carlo model, then the same sim/EV/edge/confidence/grade delivery gates as player props.`;
+    }
   }
   return result;
 }
