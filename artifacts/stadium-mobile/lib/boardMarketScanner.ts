@@ -19,7 +19,7 @@ import {
   mergeOddsEntries,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
-import { gameSimHitForPick } from "./gameSimScoring.ts";
+import { gameSimHasValidRun, gameSimHitForPick } from "./gameSimScoring.ts";
 import {
   deriveGameSimLineMetrics,
   simEvPct,
@@ -632,10 +632,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         if (leg) {
           scored.push(leg);
         } else if (sim) {
+          const reason = !gameSimHasValidRun(sim)
+            ? "Simulation failed: no completed Monte Carlo game result"
+            : simHit == null
+              ? sim.outcomes
+                ? "Null Monte Carlo hit: cover query returned no rate after outcome derivation"
+                : "Missing model inputs: simulation omitted cover outcomes/rates"
+              : "Missing completed AI score after simulation";
           manifestRecorder.recordPreScoreGateFailure(row.pick, {
             ...row.finalAiScore,
             simHit: simHit ?? row.finalAiScore.simHit ?? null,
-          });
+          }, reason);
         }
       }
     }
