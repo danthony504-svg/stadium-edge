@@ -46,6 +46,7 @@ import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
+  ticketDiversificationScore,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
@@ -490,12 +491,16 @@ function buildScanResult(
     boardExhausted: opts.boardExhausted === true,
     deliveredLegs: scanComplete ? picks.length : 0,
   });
-  const note =
+  const baseNote =
     picks.length >= opts.target
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
       : picks.length > 0 && opts.preview
         ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
         : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+  const note =
+    picks.length > 0
+      ? `${baseNote}\n\n_Diversification Score: **${ticketDiversificationScore(picks)}/100** — player duplication and same-game exposure are penalized._`
+      : baseNote;
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.target,
     pickIds: picks,

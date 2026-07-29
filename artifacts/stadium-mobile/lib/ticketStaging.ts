@@ -34,6 +34,38 @@ function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
 }
 
+const playerKey = (pick: ParsedPick) =>
+  pick.isProp && pick.player
+    ? pick.player.toLowerCase().replace(/[^a-z0-9]/g, "")
+    : null;
+
+/** Independence score shown with Coach ticket output (100 = no duplicate player/game exposure). */
+export function ticketDiversificationScore(picks: ParsedPick[]): number {
+  if (picks.length <= 1) return 100;
+  const propPlayers = picks.map(playerKey).filter((key): key is string => !!key);
+  const games = new Set(picks.map((pick) => pick.game)).size;
+  const uniquePlayers = new Set(propPlayers).size;
+  const playerScore = propPlayers.length ? uniquePlayers / propPlayers.length : 1;
+  const gameScore = games / picks.length;
+  return Math.round((playerScore * 0.65 + gameScore * 0.35) * 100);
+}
+
+function diversifiedRemaining(
+  rows: BoardScoredLeg[],
+  selected: ParsedPick[],
+): BoardScoredLeg[] {
+  const usedPlayers = new Set(selected.map(playerKey).filter((key): key is string => !!key));
+  const usedGames = new Set(selected.map((pick) => pick.game));
+  // One player prop per player is a strict default. Prefer a new game while
+  // there is one, then allow another game leg only when necessary.
+  const playerUnique = rows.filter((row) => {
+    const key = playerKey(row.pick);
+    return !key || !usedPlayers.has(key);
+  });
+  const newGame = playerUnique.filter((row) => !usedGames.has(row.pick.game));
+  return newGame.length ? newGame : playerUnique;
+}
+
 /** Lightweight same-team game-line dedupe without React/PickCard runtime imports. */
 function dedupeSameTeamGameLegsLite(picks: ParsedPick[]): ParsedPick[] {
   const bucketIndex = new Map<string, number>();
@@ -119,6 +151,7 @@ export function selectGreedyBoardLegs(
   for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
     if (seen.has(fp)) continue;
+    if (!diversifiedRemaining([row], out).length) continue;
     seen.add(fp);
     out.push(row.pick);
     if (out.length >= target) break;
@@ -156,7 +189,10 @@ export function selectTopBoardLegs(
   const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
 
   while (out.length < target) {
-    const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
+    const remaining = diversifiedRemaining(
+      sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick))),
+      out,
+    );
     if (!remaining.length) break;
 
     const next = selectCorrelationAwareBoardLegs(remaining, 1);
