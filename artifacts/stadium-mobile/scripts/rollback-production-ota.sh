@@ -4,8 +4,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [[ -z "${EXPO_TOKEN:-}" ]]; then
-  echo "EXPO_TOKEN is required. Create one at https://expo.dev/settings/access-tokens"
+if [[ "${EXPO_TOKEN:-}" == "<token>" || "${EXPO_TOKEN:-}" == "<expo-token>" ]]; then
+  unset EXPO_TOKEN
+fi
+if ! pnpm exec eas whoami --non-interactive >/dev/null 2>&1; then
+  echo "Expo authentication is required. Run 'pnpm exec eas login' or set EXPO_TOKEN to a real Expo access token; do not use the literal <token> placeholder."
   exit 1
 fi
 
