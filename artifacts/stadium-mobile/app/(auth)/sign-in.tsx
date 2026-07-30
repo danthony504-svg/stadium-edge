@@ -5,9 +5,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
 import {
-  AppleAuthButton,
   AUTH_ACCENT,
-  AuthDivider,
   AuthField,
   AuthShell,
   PrimaryButton,
@@ -295,7 +293,9 @@ export default function SignInScreen() {
     if (signIn.status === "complete") {
       await signIn.finalize({ navigate: goHome });
     } else {
-      setFormError("Couldn't finish resetting your password. Please try again.");
+      setFormError(
+        "Couldn't finish resetting your password. Please try again.",
+      );
     }
   };
 
@@ -323,15 +323,23 @@ export default function SignInScreen() {
       style={{ alignSelf: align === "right" ? "flex-end" : "center" }}
       hitSlop={8}
     >
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}>
+      <Text
+        style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}
+      >
         {label}
       </Text>
     </Pressable>
   );
 
-  if (signIn.status === "needs_second_factor" || signIn.status === "needs_client_trust") {
+  if (
+    signIn.status === "needs_second_factor" ||
+    signIn.status === "needs_client_trust"
+  ) {
     return (
-      <AuthShell title="Verify it's you" subtitle="Enter the code we emailed you">
+      <AuthShell
+        title="Verify it's you"
+        subtitle="Enter the code we emailed you"
+      >
         <AuthField
           label="Verification code"
           leftIcon="hash"
@@ -458,26 +466,35 @@ export default function SignInScreen() {
               <ActivityIndicator color={AUTH_ACCENT} />
             ) : (
               <MaterialCommunityIcons
-                name={bioLabel === "Face ID" ? "face-recognition" : "fingerprint"}
+                name={
+                  bioLabel === "Face ID" ? "face-recognition" : "fingerprint"
+                }
                 size={24}
                 color={AUTH_ACCENT}
               />
             )}
             <View>
               <Text
-                style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}
+                style={{
+                  fontFamily: FONT.bold,
+                  fontSize: 15,
+                  color: colors.foreground,
+                }}
               >
                 Sign in with {bioLabel}
               </Text>
               <Text
-                style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground }}
+                style={{
+                  fontFamily: FONT.body,
+                  fontSize: 12,
+                  color: colors.mutedForeground,
+                }}
                 numberOfLines={1}
               >
                 {savedEmail}
               </Text>
             </View>
           </Pressable>
-          <AuthDivider />
         </>
       ) : null}
 
@@ -529,9 +546,6 @@ export default function SignInScreen() {
         loading={fetchStatus === "fetching"}
       />
 
-      <AuthDivider />
-      <AppleAuthButton />
-
       <View
         style={{
           flexDirection: "row",
@@ -539,11 +553,23 @@ export default function SignInScreen() {
           marginTop: 22,
         }}
       >
-        <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}>
+        <Text
+          style={{
+            fontFamily: FONT.body,
+            fontSize: 14,
+            color: colors.mutedForeground,
+          }}
+        >
           New here?{" "}
         </Text>
         <Link href="/sign-up" replace>
-          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}>
+          <Text
+            style={{
+              fontFamily: FONT.semibold,
+              fontSize: 14,
+              color: AUTH_ACCENT,
+            }}
+          >
             Create an account
           </Text>
         </Link>

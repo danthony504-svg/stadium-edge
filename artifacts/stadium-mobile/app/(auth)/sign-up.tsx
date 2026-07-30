@@ -3,13 +3,7 @@ import { type Href, Link, useRouter } from "expo-router";
 import React from "react";
 import { Text, View } from "react-native";
 
-import {
-  AppleAuthButton,
-  AuthDivider,
-  AuthField,
-  AuthShell,
-  PrimaryButton,
-} from "@/components/auth";
+import { AuthField, AuthShell, PrimaryButton } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
@@ -53,7 +47,10 @@ export default function SignUpScreen() {
 
   if (needsCode) {
     return (
-      <AuthShell title="Verify your email" subtitle="Enter the code we just sent you">
+      <AuthShell
+        title="Verify your email"
+        subtitle="Enter the code we just sent you"
+      >
         <AuthField
           label="Verification code"
           value={code}
@@ -70,7 +67,11 @@ export default function SignUpScreen() {
         <View style={{ alignItems: "center", marginTop: 16 }}>
           <Text
             onPress={() => signUp.verifications.sendEmailCode()}
-            style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.primary }}
+            style={{
+              fontFamily: FONT.semibold,
+              fontSize: 14,
+              color: colors.primary,
+            }}
           >
             Resend code
           </Text>
@@ -81,7 +82,10 @@ export default function SignUpScreen() {
   }
 
   return (
-    <AuthShell title="Create your account" subtitle="Save your slips and sync them everywhere">
+    <AuthShell
+      title="Create your account"
+      subtitle="Save your slips and sync them everywhere"
+    >
       <AuthField
         label="Email"
         value={emailAddress}
@@ -107,9 +111,6 @@ export default function SignUpScreen() {
         loading={fetchStatus === "fetching"}
       />
 
-      <AuthDivider />
-      <AppleAuthButton />
-
       <View
         style={{
           flexDirection: "row",
@@ -117,11 +118,23 @@ export default function SignUpScreen() {
           marginTop: 22,
         }}
       >
-        <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}>
+        <Text
+          style={{
+            fontFamily: FONT.body,
+            fontSize: 14,
+            color: colors.mutedForeground,
+          }}
+        >
           Already have an account?{" "}
         </Text>
         <Link href="/sign-in" replace>
-          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.primary }}>
+          <Text
+            style={{
+              fontFamily: FONT.semibold,
+              fontSize: 14,
+              color: colors.primary,
+            }}
+          >
             Sign in
           </Text>
         </Link>

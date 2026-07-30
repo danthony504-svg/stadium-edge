@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
+import { REQUIRE_AUTH_FOR_APP } from "@/lib/authFlags";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
 
@@ -184,7 +185,9 @@ export function NavMenu() {
               );
             })}
 
-            {/* Account / sign-in — auth is optional, shown at the bottom */}
+            {REQUIRE_AUTH_FOR_APP ? (
+              <>
+            {/* Account / sign-in — restored when auth is re-enabled. */}
             <View
               style={{
                 height: 1,
@@ -282,6 +285,8 @@ export function NavMenu() {
                 {accountLabel}
               </Text>
             </Pressable>
+              </>
+            ) : null}
           </View>
         </Pressable>
       </Modal>
