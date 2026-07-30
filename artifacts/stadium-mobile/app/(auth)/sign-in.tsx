@@ -1,6 +1,6 @@
 import { useSignIn } from "@clerk/expo";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { type Href, Link, useRouter } from "expo-router";
+import { type Href, Link, Redirect, useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
@@ -12,6 +12,7 @@ import {
 } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { REQUIRE_AUTH_FOR_APP } from "@/lib/authFlags";
 import {
   clearBiometricLogin,
   getBiometricCapability,
@@ -116,6 +117,14 @@ function FeatureRow() {
 }
 
 export default function SignInScreen() {
+  if (!REQUIRE_AUTH_FOR_APP) {
+    return <Redirect href="/" />;
+  }
+
+  return <SignInForm />;
+}
+
+function SignInForm() {
   const colors = useColors();
   const router = useRouter();
   const { signIn, errors, fetchStatus } = useSignIn();
