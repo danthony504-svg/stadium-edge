@@ -32,6 +32,7 @@ import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/api";
+import { REQUIRE_AUTH_FOR_APP } from "@/lib/authFlags";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
@@ -281,7 +282,7 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  if (!publishableKey) {
+  if (!publishableKey && REQUIRE_AUTH_FOR_APP) {
     return (
       <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
         <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
