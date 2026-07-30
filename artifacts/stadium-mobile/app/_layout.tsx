@@ -32,7 +32,7 @@ import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/api";
-import { REQUIRE_AUTH_FOR_APP } from "@/lib/authFlags";
+import { REQUIRE_AUTH_FOR_APP, SHOW_OTA_UI_FOR_APP_REVIEW } from "@/lib/authFlags";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
@@ -230,7 +230,7 @@ function AppShell() {
                 <KeyboardProvider>
                   <StatusBar style="light" />
                   <RootLayoutNav />
-                  <OtaDiagnosticsBanner />
+                  {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaDiagnosticsBanner /> : null}
                 </KeyboardProvider>
               </GestureHandlerRootView>
             </PickTrackerProvider>
@@ -242,7 +242,7 @@ function AppShell() {
 
   return (
     <OtaStartupGate>
-      <OtaBridge />
+      {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaBridge /> : null}
       <QueryClientProvider client={queryClient}>
         <AuthTokenBridge />
         <PushNotificationsBridge />
@@ -254,8 +254,8 @@ function AppShell() {
                 <OtaRequiredGate>
                   <RootLayoutNav />
                 </OtaRequiredGate>
-                <OtaUpdateBanner />
-                <OtaDiagnosticsBanner />
+                {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaUpdateBanner /> : null}
+                {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaDiagnosticsBanner /> : null}
               </KeyboardProvider>
             </GestureHandlerRootView>
           </PickTrackerProvider>
