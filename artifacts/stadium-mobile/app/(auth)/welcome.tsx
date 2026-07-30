@@ -47,7 +47,11 @@ const FEATURES: {
 
 const TRUST: { icon: FeatherName; title: string; desc: string }[] = [
   { icon: "shield", title: "Free to join", desc: "No credit card required" },
-  { icon: "lock", title: "Secure & private", desc: "Your data is always protected" },
+  {
+    icon: "lock",
+    title: "Secure & private",
+    desc: "Your data is always protected",
+  },
   { icon: "users", title: "Join 50,000+", desc: "bettors gaining the edge" },
 ];
 
@@ -67,9 +71,17 @@ function FeatureCard({ item }: { item: (typeof FEATURES)[number] }) {
       }}
     >
       {item.family === "mc" ? (
-        <MaterialCommunityIcons name={item.icon as MCName} size={22} color={AUTH_ACCENT} />
+        <MaterialCommunityIcons
+          name={item.icon as MCName}
+          size={22}
+          color={AUTH_ACCENT}
+        />
       ) : (
-        <Feather name={item.icon as FeatherName} size={22} color={AUTH_ACCENT} />
+        <Feather
+          name={item.icon as FeatherName}
+          size={22}
+          color={AUTH_ACCENT}
+        />
       )}
       <Text
         style={{
@@ -123,7 +135,9 @@ export default function WelcomeScreen() {
           />
 
           <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/sign-in"))}
+            onPress={() =>
+              router.canGoBack() ? router.back() : router.replace("/sign-in")
+            }
             hitSlop={12}
             accessibilityLabel="Close"
             style={{
@@ -154,15 +168,30 @@ export default function WelcomeScreen() {
           >
             <Image
               source={require("@/assets/images/logo-wordmark.png")}
-              style={{ width: "78%", maxWidth: 280, height: 52, marginBottom: 24 }}
+              style={{
+                width: "78%",
+                maxWidth: 280,
+                height: 52,
+                marginBottom: 24,
+              }}
               contentFit="contain"
             />
             <Text
-              style={{ fontFamily: FONT.display, fontSize: 40, color: colors.foreground }}
+              style={{
+                fontFamily: FONT.display,
+                fontSize: 40,
+                color: colors.foreground,
+              }}
             >
               Bet Smarter.
             </Text>
-            <Text style={{ fontFamily: FONT.display, fontSize: 40, color: AUTH_ACCENT }}>
+            <Text
+              style={{
+                fontFamily: FONT.display,
+                fontSize: 40,
+                color: AUTH_ACCENT,
+              }}
+            >
               Win More.
             </Text>
             <Text
@@ -175,7 +204,8 @@ export default function WelcomeScreen() {
                 maxWidth: 320,
               }}
             >
-              AI-powered insights, real-time data, and winning picks—all in one edge.
+              AI-powered insights, real-time data, and winning picks—all in one
+              edge.
             </Text>
           </View>
         </View>
@@ -204,9 +234,17 @@ export default function WelcomeScreen() {
               end={{ x: 1, y: 1 }}
               style={{ paddingVertical: 16, alignItems: "center" }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              >
                 <Feather name="gift" size={20} color="#0a1020" />
-                <Text style={{ fontFamily: FONT.bold, fontSize: 17, color: "#0a1020" }}>
+                <Text
+                  style={{
+                    fontFamily: FONT.bold,
+                    fontSize: 17,
+                    color: "#0a1020",
+                  }}
+                >
                   Create Free Account
                 </Text>
               </View>
@@ -246,10 +284,19 @@ export default function WelcomeScreen() {
                   borderLeftColor: colors.border,
                 }}
               >
-                <Feather name={t.icon} size={18} color={AUTH_ACCENT} style={{ marginTop: 1 }} />
+                <Feather
+                  name={t.icon}
+                  size={18}
+                  color={AUTH_ACCENT}
+                  style={{ marginTop: 1 }}
+                />
                 <View style={{ flex: 1 }}>
                   <Text
-                    style={{ fontFamily: FONT.bold, fontSize: 11, color: colors.foreground }}
+                    style={{
+                      fontFamily: FONT.bold,
+                      fontSize: 11,
+                      color: colors.foreground,
+                    }}
                   >
                     {t.title}
                   </Text>
@@ -278,12 +325,22 @@ export default function WelcomeScreen() {
             }}
           >
             <Text
-              style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}
+              style={{
+                fontFamily: FONT.body,
+                fontSize: 14,
+                color: colors.mutedForeground,
+              }}
             >
               Already have an account?{" "}
             </Text>
             <Link href="/sign-in" replace>
-              <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}>
+              <Text
+                style={{
+                  fontFamily: FONT.semibold,
+                  fontSize: 14,
+                  color: AUTH_ACCENT,
+                }}
+              >
                 Sign in
               </Text>
             </Link>

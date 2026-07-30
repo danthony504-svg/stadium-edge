@@ -50,7 +50,9 @@ export function AuthShell({
         keyboardShouldPersistTaps="handled"
       >
         <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/")
+          }
           hitSlop={12}
           accessibilityLabel="Close"
           style={{
@@ -173,7 +175,11 @@ export function AuthField({
             hitSlop={8}
             accessibilityLabel={hidden ? "Show password" : "Hide password"}
           >
-            <Feather name={hidden ? "eye" : "eye-off"} size={18} color={AUTH_ACCENT} />
+            <Feather
+              name={hidden ? "eye" : "eye-off"}
+              size={18}
+              color={AUTH_ACCENT}
+            />
           </Pressable>
         ) : null}
       </View>
@@ -228,7 +234,9 @@ export function PrimaryButton({
         {loading ? (
           <ActivityIndicator color="#0a1020" />
         ) : (
-          <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: "#0a1020" }}>
+          <Text
+            style={{ fontFamily: FONT.bold, fontSize: 16, color: "#0a1020" }}
+          >
             {label}
           </Text>
         )}
@@ -236,4 +244,3 @@ export function PrimaryButton({
     </Pressable>
   );
 }
-
