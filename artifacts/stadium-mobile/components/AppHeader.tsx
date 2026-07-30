@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { REQUIRE_AUTH_FOR_APP } from "@/lib/authFlags";
 
 const WORDMARK = require("@/assets/images/logo-wordmark.png");
 
@@ -14,6 +15,8 @@ export function HeaderBell({ style }: { style?: ViewStyle }) {
   const colors = useColors();
   const router = useRouter();
   const { isSignedIn } = useAuth();
+
+  if (!REQUIRE_AUTH_FOR_APP && !isSignedIn) return null;
 
   return (
     <Pressable
@@ -50,12 +53,22 @@ type AppHeaderProps = {
 };
 
 /** Shared wordmark header — matches Home / Props / Steals restored layout. */
-export function AppHeader({ children, style, bottomGap = 14, showBell = true }: AppHeaderProps) {
+export function AppHeader({
+  children,
+  style,
+  bottomGap = 14,
+  showBell = true,
+}: AppHeaderProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[{ paddingTop: insets.top + 6, backgroundColor: colors.background }, style]}>
+    <View
+      style={[
+        { paddingTop: insets.top + 6, backgroundColor: colors.background },
+        style,
+      ]}
+    >
       <View
         style={{
           paddingLeft: 78,
@@ -113,8 +126,23 @@ export function PageTitleRow({
           <Feather name={icon} size={19} color={colors.primary} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{title}</Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+          <Text
+            style={{
+              color: colors.foreground,
+              fontFamily: FONT.display,
+              fontSize: 20,
+            }}
+          >
+            {title}
+          </Text>
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.body,
+              fontSize: 12,
+              marginTop: 2,
+            }}
+          >
             {subtitle}
           </Text>
         </View>
@@ -133,7 +161,15 @@ export function PageTitleRow({
               opacity: pressed ? 0.75 : 1,
             })}
           >
-            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>How it works</Text>
+            <Text
+              style={{
+                color: colors.primary,
+                fontFamily: FONT.medium,
+                fontSize: 12,
+              }}
+            >
+              How it works
+            </Text>
             <Feather name="info" size={13} color={colors.primary} />
           </Pressable>
         ) : null}
