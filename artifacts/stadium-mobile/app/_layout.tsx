@@ -26,15 +26,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
-import { OtaRequiredGate } from "@/components/OtaRequiredGate";
-import { OtaStartupGate } from "@/components/OtaStartupGate";
-import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/api";
-import { REQUIRE_AUTH_FOR_APP, SHOW_OTA_UI_FOR_APP_REVIEW } from "@/lib/authFlags";
-import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
-import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
+import {
+  REQUIRE_AUTH_FOR_APP,
+  SHOW_OTA_UI_FOR_APP_REVIEW,
+} from "@/lib/authFlags";
+import { applyOtaUpdateIfAvailable } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -65,11 +64,11 @@ function PushNotificationsBridge() {
 
   useEffect(() => {
     let sub: { remove: () => void } | null = null;
-    void addNotificationResponseListener((path) => router.navigate(path as never)).then(
-      (listener) => {
-        sub = listener;
-      },
-    );
+    void addNotificationResponseListener((path) =>
+      router.navigate(path as never),
+    ).then((listener) => {
+      sub = listener;
+    });
     return () => sub?.remove();
   }, [router]);
 
@@ -110,14 +109,11 @@ function BootScreen() {
               marginTop: 22,
             }}
           >
-            Having trouble connecting. Check your internet connection and try again.
+            Having trouble connecting. Check your internet connection and try
+            again.
           </Text>
           <Pressable
             onPress={() => {
-              if (OTA_BOOTSTRAP) {
-                Updates.reloadAsync().catch(() => {});
-                return;
-              }
               void applyOtaUpdateIfAvailable().finally(() => {
                 Updates.reloadAsync().catch(() => {});
               });
@@ -140,7 +136,11 @@ function BootScreen() {
   );
 }
 
-/** Build #58 pattern: background fetch only — never reloadAsync on cold start. */
+/**
+ * Fetches a compatible OTA after launch without replacing the running bundle.
+ * expo-updates selects the downloaded bundle only after the next reload, while
+ * the embedded bundle remains the fallback if the update cannot launch.
+ */
 function BootstrapOtaBackgroundFetch() {
   useEffect(() => {
     if (__DEV__) return;
@@ -158,41 +158,6 @@ function BootstrapOtaBackgroundFetch() {
     return () => clearTimeout(timer);
   }, []);
   return null;
-}
-
-function OtaBridge() {
-  const otaUpdating = useOtaUpdater(true);
-  if (!otaUpdating) return null;
-  return (
-    <View
-      pointerEvents="none"
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0,
-        zIndex: 9999,
-        backgroundColor: "rgba(15,23,42,0.92)",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 32,
-      }}
-    >
-      <ActivityIndicator size="large" color="#38bdf8" />
-      <Text
-        style={{
-          color: "#e2e8f0",
-          fontSize: 15,
-          lineHeight: 21,
-          textAlign: "center",
-          marginTop: 18,
-        }}
-      >
-        Updating Stadium Edge…
-      </Text>
-    </View>
-  );
 }
 
 function RootLayoutNav() {
@@ -217,51 +182,27 @@ function RootLayoutNav() {
 }
 
 function AppShell() {
-  if (OTA_BOOTSTRAP) {
-    return (
-      <>
-        <BootstrapOtaBackgroundFetch />
-        <QueryClientProvider client={queryClient}>
-          <AuthTokenBridge />
-          <PushNotificationsBridge />
-          <BetSlipProvider>
-            <PickTrackerProvider>
-              <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-                <KeyboardProvider>
-                  <StatusBar style="light" />
-                  <RootLayoutNav />
-                  {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaDiagnosticsBanner /> : null}
-                </KeyboardProvider>
-              </GestureHandlerRootView>
-            </PickTrackerProvider>
-          </BetSlipProvider>
-        </QueryClientProvider>
-      </>
-    );
-  }
-
   return (
-    <OtaStartupGate>
-      {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaBridge /> : null}
+    <>
+      <BootstrapOtaBackgroundFetch />
       <QueryClientProvider client={queryClient}>
         <AuthTokenBridge />
         <PushNotificationsBridge />
         <BetSlipProvider>
           <PickTrackerProvider>
-            <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+            <GestureHandlerRootView
+              style={{ flex: 1, backgroundColor: DARK_BG }}
+            >
               <KeyboardProvider>
                 <StatusBar style="light" />
-                <OtaRequiredGate>
-                  <RootLayoutNav />
-                </OtaRequiredGate>
-                {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaUpdateBanner /> : null}
+                <RootLayoutNav />
                 {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaDiagnosticsBanner /> : null}
               </KeyboardProvider>
             </GestureHandlerRootView>
           </PickTrackerProvider>
         </BetSlipProvider>
       </QueryClientProvider>
-    </OtaStartupGate>
+    </>
   );
 }
 
@@ -284,9 +225,24 @@ export default function RootLayout() {
 
   if (!publishableKey && REQUIRE_AUTH_FOR_APP) {
     return (
-      <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
-        <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
-          App configuration error (missing auth key). Reinstall from the App Store or contact support.
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: DARK_BG,
+          padding: 32,
+          justifyContent: "center",
+        }}
+      >
+        <Text
+          style={{
+            color: "#e2e8f0",
+            fontSize: 15,
+            textAlign: "center",
+            lineHeight: 22,
+          }}
+        >
+          App configuration error (missing auth key). Reinstall from the App
+          Store or contact support.
         </Text>
       </View>
     );
@@ -303,7 +259,11 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
+        <ClerkProvider
+          publishableKey={publishableKey}
+          tokenCache={tokenCache}
+          proxyUrl={proxyUrl}
+        >
           <ClerkLoading>
             <BootScreen />
           </ClerkLoading>

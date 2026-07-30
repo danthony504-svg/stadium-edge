@@ -1,25 +1,19 @@
 name: Publish production OTA
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/**"
-      - ".github/workflows/publish-production-ota.yml"
   workflow_dispatch:
     inputs:
       message:
         description: OTA update message
         required: false
-        default: "Restore Home and login after App Review"
-      rollback_embedded:
-        description: Roll back to embedded bundle before publishing (clears corrupt OTA)
-        required: false
-        default: "0"
+        default: "Production JavaScript OTA"
+      embedded_build_id:
+        description: EAS build ID of the compatible embedded App Review binary
+        required: true
 
 jobs:
   publish:
-    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') && !contains(github.event.head_commit.message, '[force-only]') && !contains(github.event.head_commit.message, '[ota-test-only]') && !contains(github.event.head_commit.message, 'ota-test') && !contains(github.event.head_commit.message, 'bootstrap-ota') && !contains(github.event.head_commit.message, 'BOOTSTRAP OTA') }}
+    if: ${{ github.ref == 'refs/heads/release/stadium-edge-stabilization' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -40,14 +34,17 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
-      - name: Verify mobile bundle compiles
+      - name: Run deterministic release gate
         env:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
-        run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
+        run: |
+          pnpm typecheck
+          pnpm test
+          pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
 
       - name: Publish OTA to production
         env:
@@ -57,7 +54,7 @@ jobs:
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
-          ROLLBACK_EMBEDDED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_embedded || '0' }}
+          EMBEDDED_BUILD_ID: ${{ github.event.inputs.embedded_build_id }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "Add EXPO_TOKEN to repo secrets: https://github.com/${{ github.repository }}/settings/secrets/actions"

@@ -9,7 +9,18 @@ if [[ -z "${EXPO_TOKEN:-}" ]]; then
   exit 1
 fi
 
-RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
+RELEASE_BRANCH="release/stadium-edge-stabilization"
+CURRENT_BRANCH="$(git branch --show-current)"
+if [[ "$CURRENT_BRANCH" != "$RELEASE_BRANCH" ]]; then
+  echo "Refusing rollback from '$CURRENT_BRANCH'; run it from '$RELEASE_BRANCH'."
+  exit 1
+fi
+
+RUNTIME_VERSION="${RUNTIME_VERSION:-}"
+if [[ -z "$RUNTIME_VERSION" ]]; then
+  echo "RUNTIME_VERSION is required. Copy it from the EAS production build or OTA publish record."
+  exit 1
+fi
 MESSAGE="${1:-Rollback to embedded bundle — fix corrupt OTA}"
 
 export EAS_NO_VCS=1

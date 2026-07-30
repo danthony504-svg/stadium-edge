@@ -8,12 +8,12 @@ on:
         required: false
         default: "Emergency rollback to embedded bundle"
       runtime_version:
-        description: Runtime version (must match installed app)
-        required: false
-        default: "1.0.0"
+        description: Runtime fingerprint from the compatible installed production build
+        required: true
 
 jobs:
   rollback:
+    if: ${{ github.ref == 'refs/heads/release/stadium-edge-stabilization' }}
     runs-on: ubuntu-latest
     defaults:
       run:

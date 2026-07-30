@@ -6,6 +6,7 @@ on:
     paths:
       - "artifacts/stadium-mobile/**"
       - ".github/workflows/stadium-mobile-release-gate.yml"
+      - ".github/workflows/publish-production-ota.yml"
   pull_request:
     paths:
       - "artifacts/stadium-mobile/**"
@@ -20,25 +21,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: artifacts/stadium-mobile/package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: npm install
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
 
       - name: Reject merge conflict markers
         run: |
           ! rg -n '^(<<<<<<<|=======|>>>>>>>)' app lib components
 
       - name: TypeScript
-        run: npm run typecheck
-        continue-on-error: false
+        run: pnpm typecheck
 
-      - name: Unit tests
-        run: node --test lib/coachRequestCompletion.test.ts lib/releaseRegression.test.ts lib/propSimProgressive.test.ts lib/coachRequestLifecycle.test.ts lib/coachScanPolicy.test.ts
+      - name: Deterministic tests
+        run: pnpm test
 
       - name: iOS Metro bundle
-        run: npx expo export --platform ios --output-dir /tmp/stadium-mobile-bundle
+        run: pnpm exec expo export --platform ios --output-dir /tmp/stadium-mobile-bundle
