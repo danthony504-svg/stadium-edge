@@ -5,9 +5,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
 import {
-  AppleAuthButton,
   AUTH_ACCENT,
-  AuthDivider,
   AuthField,
   AuthShell,
   PrimaryButton,
@@ -477,7 +475,6 @@ export default function SignInScreen() {
               </Text>
             </View>
           </Pressable>
-          <AuthDivider />
         </>
       ) : null}
 
@@ -528,9 +525,6 @@ export default function SignInScreen() {
         disabled={!emailAddress || !password}
         loading={fetchStatus === "fetching"}
       />
-
-      <AuthDivider />
-      <AppleAuthButton />
 
       <View
         style={{
