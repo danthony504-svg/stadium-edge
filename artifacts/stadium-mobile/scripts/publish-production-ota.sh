@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish a JS-only OTA to the production channel. Requires EXPO_TOKEN.
-# This is intentionally limited to the release branch and fingerprint-compatible
-# bundles; native/configuration changes require a new App Review binary instead.
+# This is intentionally limited to the release branch and app-version-compatible
+# bundles; native/configuration changes require a version bump and new binary.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -38,8 +38,8 @@ export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0
 export EXPO_PUBLIC_DEPLOY_MESSAGE="${EXPO_PUBLIC_DEPLOY_MESSAGE:-DEPLOY-VERIFY $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null)-$(date -u +%Y%m%d-%H%M%S)}"
 
 RUNTIME_POLICY="$(node -p "require('./app.json').expo.runtimeVersion?.policy ?? ''")"
-if [[ "$RUNTIME_POLICY" != "fingerprint" ]]; then
-  echo "Refusing OTA publish: expected runtimeVersion.policy=fingerprint, got '$RUNTIME_POLICY'."
+if [[ "$RUNTIME_POLICY" != "appVersion" ]]; then
+  echo "Refusing OTA publish: expected runtimeVersion.policy=appVersion, got '$RUNTIME_POLICY'."
   exit 1
 fi
 
