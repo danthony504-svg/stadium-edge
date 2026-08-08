@@ -107,6 +107,13 @@ const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
   nhl: ["player_points_alternate", "player_assists_alternate", "player_shots_on_goal_alternate"],
 };
 
+// Optional markets are probed separately so an unavailable book market can
+// never invalidate the verified base-market batch. A returned line is still a
+// real sportsbook line; an unavailable key simply contributes no props.
+const OPTIONAL_MARKETS_BY_SPORT: Record<string, string[]> = {
+  mlb: ["pitcher_walks"],
+};
+
 type RawEventOdds = {
   home_team?: string;
   away_team?: string;
@@ -420,7 +427,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
 
     const qhMarkets = QH_MARKETS_BY_SPORT[sport] ?? [];
     const altMarkets = ALT_MARKETS_BY_SPORT[sport] ?? [];
-    const [data, qhData, altData] = await Promise.all([
+    const optionalMarkets = OPTIONAL_MARKETS_BY_SPORT[sport] ?? [];
+    const [data, qhData, altData, optionalData] = await Promise.all([
       loadBaseOdds(),
       qhMarkets.length
         ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
@@ -436,6 +444,11 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
             // window) returns null and the base + QH props stand on their own.
             try { return await fetchOdds(altMarkets); } catch { return null; }
+          })
+        : Promise.resolve(null),
+      optionalMarkets.length
+        ? cachedJson<RawEventOdds | null>(`props-optional:${oddsKey}:${effectiveEventId}:v1`, 5 * 60 * 1000, async () => {
+            try { return await fetchOdds(optionalMarkets); } catch { return null; }
           })
         : Promise.resolve(null),
     ]);
@@ -537,6 +550,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     ingest(data, false);
     ingest(qhData, false);
     ingest(altData, true);
+    ingest(optionalData, false);
 
     // Trim alternate rungs: the raw ladder can run 3.5 → 49.5 with deep-ITM and
     // longshot rungs that would bloat the chat context + UI list (capped

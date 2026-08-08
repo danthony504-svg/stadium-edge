@@ -29,6 +29,7 @@ const PROP_MARKET_LABELS: Record<string, string> = {
   batter_stolen_bases: "Stolen Bases",
   player_sacks: "Sacks",
   pitcher_strikeouts: "Strikeouts",
+  pitcher_walks: "Walks Allowed",
 };
 
 export function propMarketLabel(key: string | null | undefined): string {

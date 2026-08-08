@@ -129,6 +129,10 @@ export type PitcherTendency = {
   whip: number | null;
   ip: number | null;
   kPer9: number | null;
+  bbPer9: number | null;
+  kPct: number | null;
+  bbPct: number | null;
+  kMinusBbPct: number | null;
   hrAllowed: number | null;
   hrPer9: number | null;
   flyBallPct: number | null; // FB / (GB + FB), 0..1
@@ -160,6 +164,23 @@ async function fetchPitcherTendency(athleteId: string): Promise<PitcherTendency 
   const whip = val("pitching", "WHIP");
   const ip = val("pitching", "IP");
   const kPer9 = val("expanded-pitching", "K/9");
+  const strikeouts = val("pitching", "SO") ?? val("pitching", "K");
+  const walks = val("pitching", "BB");
+  const battersFaced = val("pitching", "BF") ?? val("expanded-pitching", "BF");
+  const rawKPct = val("expanded-pitching", "K%");
+  const rawBBPct = val("expanded-pitching", "BB%");
+  const asPct = (value: number | null) => value != null && value <= 1 ? value * 100 : value;
+  const kPct =
+    asPct(rawKPct) ??
+    (strikeouts != null && battersFaced != null && battersFaced > 0
+      ? (strikeouts / battersFaced) * 100
+      : null);
+  const bbPct =
+    asPct(rawBBPct) ??
+    (walks != null && battersFaced != null && battersFaced > 0 ? (walks / battersFaced) * 100 : null);
+  const bbPer9 =
+    val("expanded-pitching", "BB/9") ??
+    (walks != null && ip != null && ip > 0 ? (walks * 9) / ip : null);
   const hrAllowed = val("opponent-batting", "HR");
   const gb = val("expanded-pitching", "GB");
   const fb = val("expanded-pitching", "FB");
@@ -168,9 +189,30 @@ async function fetchPitcherTendency(athleteId: string): Promise<PitcherTendency 
   const hrPer9 = hrAllowed != null && ip != null && ip > 0 ? Math.round((hrAllowed * 9 / ip) * 100) / 100 : null;
   const flyBallPct = gb != null && fb != null && gb + fb > 0 ? Math.round((fb / (gb + fb)) * 100) / 100 : null;
   // No usable signal at all -> honest null entry rather than an all-null object.
-  if (era == null && kPer9 == null && hrAllowed == null && oppOPS == null && flyBallPct == null) return null;
+  if (
+    era == null &&
+    kPer9 == null &&
+    bbPer9 == null &&
+    kPct == null &&
+    bbPct == null &&
+    hrAllowed == null &&
+    oppOPS == null &&
+    flyBallPct == null
+  ) return null;
   return {
-    era, whip, ip, kPer9, hrAllowed, hrPer9, flyBallPct, groundFlyRatio, oppOPS,
+    era,
+    whip,
+    ip,
+    kPer9,
+    bbPer9,
+    kPct: kPct != null ? Math.round(kPct * 10) / 10 : null,
+    bbPct: bbPct != null ? Math.round(bbPct * 10) / 10 : null,
+    kMinusBbPct: kPct != null && bbPct != null ? Math.round((kPct - bbPct) * 10) / 10 : null,
+    hrAllowed,
+    hrPer9,
+    flyBallPct,
+    groundFlyRatio,
+    oppOPS,
     barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null,
   };
 }
@@ -286,7 +328,8 @@ router.get("/sports/mlb-probables", async (req, res): Promise<void> => {
           // minimal tendency so the real barrel/hard-hit numbers aren't dropped.
           if (!tend) {
             tend = {
-              era: null, whip: null, ip: null, kPer9: null, hrAllowed: null,
+              era: null, whip: null, ip: null, kPer9: null, bbPer9: null,
+              kPct: null, bbPct: null, kMinusBbPct: null, hrAllowed: null,
               hrPer9: null, flyBallPct: null, groundFlyRatio: null, oppOPS: null,
               barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null,
             };

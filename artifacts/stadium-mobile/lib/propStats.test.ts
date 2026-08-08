@@ -42,3 +42,8 @@ test("plain single-column markets are unaffected", () => {
   assert.equal(gameValueForMarket("player_points", { PTS: "21" }, NONE), 21);
   assert.equal(gameValueForMarket("player_points", {}, NONE), null);
 });
+
+test("pitcher walks uses only a posted market's real BB game-log column", () => {
+  assert.equal(gameValueForMarket("pitcher_walks", { BB: "2" }, NONE), 2);
+  assert.equal(gameValueForMarket("pitcher_walks", {}, NONE), null);
+});

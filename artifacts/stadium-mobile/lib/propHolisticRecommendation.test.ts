@@ -60,6 +60,59 @@ test("missing contextual factors reduce confidence", () => {
   );
 });
 
+test("MLB pitcher K%, BB%, and K-BB% quantitatively improve strikeout scoring", () => {
+  const base = {
+    sport: "mlb",
+    marketKey: "pitcher_strikeouts",
+    propSide: "Over",
+    rubricScores: {
+      trend: 7,
+      matchup: 7,
+      lineValue: 7,
+      injury: 7,
+      lineShopping: 7,
+      simulation: 7,
+    },
+    edgePct: 3,
+    simHit: 0.56,
+  } as const;
+  const dominant = buildPropHolisticScore({
+    ...base,
+    pitcherCommand: {
+      season: { kPct: 31, bbPct: 5, kMinusBbPct: 26, kPer9: 10.8, bbPer9: 2 },
+      last30Days: { kPct: 30, bbPct: 6, kMinusBbPct: 24 },
+      last5Starts: { kPct: 32, bbPct: 4, kMinusBbPct: 28 },
+      opponentVsHand: { kPct: 26, bbPct: 7 },
+    },
+  });
+  const weakCommand = buildPropHolisticScore({
+    ...base,
+    pitcherCommand: {
+      season: { kPct: 17, bbPct: 11, kMinusBbPct: 6, kPer9: 6.8, bbPer9: 4.2 },
+      last30Days: { kPct: 18, bbPct: 10, kMinusBbPct: 8 },
+      last5Starts: { kPct: 16, bbPct: 12, kMinusBbPct: 4 },
+      opponentVsHand: { kPct: 18, bbPct: 10 },
+    },
+  });
+
+  assert.ok((dominant.composite ?? 0) > (weakCommand.composite ?? 0));
+  assert.ok((dominant.confidencePct ?? 0) > (weakCommand.confidencePct ?? 0));
+});
+
+test("missing MLB pitcher command rates reduce confidence without rejecting the prop", () => {
+  const score = buildPropHolisticScore({
+    sport: "mlb",
+    marketKey: "pitcher_strikeouts",
+    propSide: "Over",
+    rubricScores: { trend: 7, matchup: 7, lineValue: 7, injury: 7, lineShopping: 7, simulation: 7 },
+    edgePct: 3,
+    simHit: 0.56,
+    pitcherCommand: null,
+  });
+  assert.notEqual(score.composite, null);
+  assert.notEqual(score.confidencePct, null);
+});
+
 test("prop holistic recommends strongest opportunities not sim-only edges", () => {
   const holistic = buildPropHolisticScore({
     sport: "mlb",

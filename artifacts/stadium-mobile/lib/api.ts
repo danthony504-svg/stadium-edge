@@ -1257,6 +1257,10 @@ export type MlbPitcherTendency = {
   whip: number | null;
   ip: number | null;
   kPer9: number | null;
+  bbPer9: number | null;
+  kPct: number | null;
+  bbPct: number | null;
+  kMinusBbPct: number | null;
   hrAllowed: number | null;
   hrPer9: number | null;
   flyBallPct: number | null;
@@ -4372,7 +4376,7 @@ export async function buildChatContext(
       vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
       homeSplit?: { games?: number } | null;
       awaySplit?: { games?: number } | null;
-      windows?: { last5?: HistWindow; last10?: HistWindow; last20?: HistWindow } | null;
+      windows?: { last5?: HistWindow; last10?: HistWindow; last20?: HistWindow; last30Days?: HistWindow } | null;
       minutesTrend?: { l5: number | null; l10: number | null; season: number | null; direction: string } | null;
     };
     await Promise.all(
@@ -4392,7 +4396,7 @@ export async function buildChatContext(
           // (recent already carries the last 5) so the model can read a current
           // form trend vs the season line. Only keep buckets that have games.
           const win: Record<string, { games: number; averages: Record<string, number> }> = {};
-          for (const w of ["last10", "last20"] as const) {
+          for (const w of ["last10", "last20", "last30Days"] as const) {
             const b = data?.windows?.[w];
             if (b && (b.games ?? 0) > 0 && b.averages && Object.keys(b.averages).length) {
               win[w] = { games: b.games as number, averages: b.averages };
@@ -4513,7 +4517,7 @@ export async function buildChatContext(
   const mlbGameEnv: Record<string, unknown> = {};
   const mlbTargets = phTargets.filter((t) => t.sport === "mlb");
   if (mlbTargets.length > 0) {
-    type Probable = { name?: string; throws?: string | null; tendency?: unknown };
+    type Probable = { name?: string; athleteId?: string; throws?: string | null; tendency?: unknown };
     type ProbGame = {
       venue?: string | null;
       park?: { hrIndex?: number; altitudeFt?: number; dome?: boolean } | null;
@@ -4562,6 +4566,42 @@ export async function buildChatContext(
         }
       }),
     );
+    // Opponent K% / BB% versus each probable starter's handedness. Aggregate
+    // only real batter split rows already fetched for tonight's opposing lineup;
+    // missing splits stay null and are handled as a confidence reduction.
+    const asPct = (value: unknown): number | null => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return null;
+      return n <= 1 ? n * 100 : n;
+    };
+    for (const pitcher of mlbTargets) {
+      const probable = Object.values(probables).find(
+        (candidate) => candidate.athleteId === pitcher.athleteId,
+      );
+      if (!probable?.throws || pitcher.isHome == null) continue;
+      const kRates: number[] = [];
+      const bbRates: number[] = [];
+      for (const hitter of mlbTargets) {
+        if (hitter.game !== pitcher.game || hitter.isHome === pitcher.isHome) continue;
+        const split = mlbPlatoon[`${hitter.player}#${hitter.athleteId}`] as
+          | { vsThatHand?: Record<string, unknown> | null }
+          | undefined;
+        const kPct = asPct(split?.vsThatHand?.["K%"]);
+        const bbPct = asPct(split?.vsThatHand?.["BB%"]);
+        if (kPct != null) kRates.push(kPct);
+        if (bbPct != null) bbRates.push(bbPct);
+      }
+      if (!kRates.length && !bbRates.length) continue;
+      const average = (values: number[]) =>
+        values.length ? Math.round((values.reduce((total, value) => total + value, 0) / values.length) * 10) / 10 : null;
+      const key = `${pitcher.player}#${pitcher.athleteId}`;
+      const current = (mlbPlatoon[key] as Record<string, unknown> | undefined) ?? {};
+      mlbPlatoon[key] = {
+        ...current,
+        opponentKPercentVsHand: average(kRates),
+        opponentBBPercentVsHand: average(bbRates),
+      };
+    }
     // Per-game ballpark environment for every MLB game in the pool. Built from
     // the ESPN games list (which carries the team ids realGames omits), keyed by
     // the same "Away @ Home" label as realProps so the model can join them.

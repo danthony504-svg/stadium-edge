@@ -24,6 +24,7 @@ const MARKET_SINGLE: Record<string, string[]> = {
   batter_total_bases: ["TB"],
   player_sacks: ["SACK", "SACKS"],
   pitcher_strikeouts: ["K", "SO"],
+  pitcher_walks: ["BB"],
   player_goals: ["G"],
   player_shots_on_goal: ["S", "SOG", "SHOTS"],
   player_goal_scorer_anytime: ["G"],

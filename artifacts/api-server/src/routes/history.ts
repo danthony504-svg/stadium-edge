@@ -812,10 +812,16 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
     // player's CURRENT form trend vs his season line instead of one 5-game
     // slice. Honest empty buckets ({ games: 0, averages: {} }) when a window has
     // no games.
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const last30Days = flat.filter((game) => {
+      const date = game.date ? Date.parse(game.date) : NaN;
+      return Number.isFinite(date) && date >= thirtyDaysAgo;
+    });
     const windows = {
       last5: splitAverages(flat.slice(0, 5)),
       last10: splitAverages(flat.slice(0, 10)),
       last20: splitAverages(flat.slice(0, 20)),
+      last30Days: splitAverages(last30Days),
     };
     // Minutes trend (NBA / WNBA only): average minutes over the last 5 / 10 vs
     // the season, plus a direction read. Rising minutes support OVERs on
