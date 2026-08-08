@@ -5,6 +5,7 @@
 import { americanToDecimal } from "./format.ts";
 import { familyKeyForPick } from "./marketWeighting.ts";
 import { parsePropLeg } from "./propLegParse.ts";
+import { inferPropPosition, resolvePositionMarketModel } from "./positionMarketModels.ts";
 
 export type GradeOutcome = "win" | "loss" | "push" | "ungraded";
 
@@ -68,6 +69,10 @@ export type TrackedPick = {
   finalResult?: string;
   family?: string;
   side?: string;
+  /** Position-market model metadata retained for settled-model analysis. */
+  position?: string;
+  modelKey?: string;
+  featureSet?: string[];
   settledAt?: number;
   source: "coach";
 };
@@ -174,12 +179,16 @@ export function trackedPickFromParsedPick(
 
   const scores = scoresFromPick(p);
   const gameDay = startsAt ? startsAt.slice(0, 10) : new Date(now).toISOString().slice(0, 10);
+  const sport = (p.sport ?? "unknown").toLowerCase();
+  const marketKey = p.propMarketKey ?? p.market;
+  const position = p.isProp ? inferPropPosition(sport, marketKey) : undefined;
+  const model = p.isProp ? resolvePositionMarketModel(sport, position, marketKey) : null;
 
   return {
     id: pickKey({ sport: p.sport, game: p.game, market: p.market, pick: p.pick, startsAt }),
     capturedAt: now,
     date: gameDay,
-    sport: (p.sport ?? "unknown").toLowerCase(),
+    sport,
     game: p.game,
     player: playerFromPick(p),
     market: p.market,
@@ -193,6 +202,9 @@ export function trackedPickFromParsedPick(
     simHitPct: scores.simHitPct,
     isProp: !!p.isProp,
     propMarketKey: p.propMarketKey,
+    position,
+    modelKey: model ? `${model.sport}:${model.position}:${model.market}` : undefined,
+    featureSet: model?.features.map((feature) => `${feature.tier}:${feature.key}`),
     startsAt,
     status: "pending",
     source: "coach",

@@ -18,6 +18,7 @@ import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityG
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
+import type { PositionMarketEvaluation } from "./positionMarketModels.ts";
 
 export type PropHolisticFactorKey =
   | "recentForm"
@@ -28,7 +29,8 @@ export type PropHolisticFactorKey =
   | "weather"
   | "lineMovement"
   | "sportsbookValue"
-  | "simulation";
+  | "simulation"
+  | "positionMarket";
 
 export type PropHolisticFactor = {
   key: PropHolisticFactorKey;
@@ -52,15 +54,16 @@ export type PropHolisticScore = {
 
 /** Base weights — renormalized over present factors for composite; missing ones penalize confidence. */
 export const PROP_HOLISTIC_WEIGHTS: Record<PropHolisticFactorKey, number> = {
-  simulation: 0.2,
-  recentForm: 0.14,
-  matchup: 0.12,
-  opponentTendency: 0.12,
-  injury: 0.08,
-  playingTime: 0.1,
-  weather: 0.05,
-  lineMovement: 0.05,
-  sportsbookValue: 0.14,
+  simulation: 0.18,
+  recentForm: 0.12,
+  matchup: 0.1,
+  opponentTendency: 0.1,
+  injury: 0.07,
+  playingTime: 0.08,
+  weather: 0.04,
+  lineMovement: 0.04,
+  sportsbookValue: 0.12,
+  positionMarket: 0.15,
 };
 
 export const PROP_HOLISTIC_MIN_GRADE = "B+";
@@ -137,6 +140,7 @@ export type PropHolisticContext = {
   vsOpponentGames?: number;
   mlbPlatoon?: MlbPlatoonSlice | null;
   mlbGameEnv?: MlbGameEnvSlice | null;
+  positionMarketModel?: PositionMarketEvaluation | null;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -444,6 +448,16 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
       score: sportsbook,
       applicable: true,
       present: sportsbook != null,
+    },
+    {
+      key: "positionMarket",
+      label: "Position Market Model",
+      score: ctx.positionMarketModel?.gradeScore ?? null,
+      display: ctx.positionMarketModel
+        ? `${ctx.positionMarketModel.position} · ${ctx.positionMarketModel.dataCompletenessPct}% data`
+        : undefined,
+      applicable: ctx.positionMarketModel != null,
+      present: ctx.positionMarketModel?.gradeScore != null,
     },
     {
       key: "simulation",

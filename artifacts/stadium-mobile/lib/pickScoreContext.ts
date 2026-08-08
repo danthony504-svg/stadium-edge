@@ -48,6 +48,7 @@ import {
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
 import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
+import { evaluatePositionMarketModel, inferPropPosition } from "@/lib/positionMarketModels";
 import {
   type MlbGameEnvSlice,
   type MlbPlatoonSlice,
@@ -739,6 +740,22 @@ export function attachPickScores(
                 }
               : null,
             mlbGameEnv,
+            positionMarketModel: evaluatePositionMarketModel({
+              sport: p.sport ?? propEntry?.sport,
+              position: inferPropPosition(p.sport ?? propEntry?.sport, p.propMarketKey ?? p.market),
+              market: p.propMarketKey ?? p.market,
+              side: p.propSide,
+              line: p.propLine,
+              odds: p.odds,
+              simHit: propSimHit,
+              featureScores: {
+                recent_form: scores.scores.trend,
+                opponent: scores.scores.matchup,
+                injury: scores.scores.injury,
+                market_movement: scores.scores.lineShopping,
+                minutes: propPh?.minutesTrend?.l5 ?? null,
+              },
+            }),
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,
