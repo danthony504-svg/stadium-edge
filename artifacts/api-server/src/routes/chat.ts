@@ -716,6 +716,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     return;
   }
   const MARKET_KEYWORDS: Array<{ re: RegExp; markets: string[]; label: string }> = [
+    { re: /\b(walks allowed|pitcher walks?|bb allowed)\b/i, markets: ["pitcher_walks"], label: "pitcher walks allowed" },
     { re: /\b(strikeouts?|k'?s)\b/i, markets: ["pitcher_strikeouts"], label: "pitcher strikeouts" },
     { re: /\b(home runs?|hr\b)\b/i, markets: ["batter_home_runs"], label: "home runs" },
     { re: /\b(anytime td|anytime touchdown|touchdowns?)\b/i, markets: ["player_anytime_td"], label: "anytime TD" },

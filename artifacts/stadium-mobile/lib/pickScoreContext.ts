@@ -51,6 +51,7 @@ import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
 import {
   type MlbGameEnvSlice,
   type MlbPlatoonSlice,
+  type PitcherCommandSlice,
   resolveMlbPitcherTendency,
 } from "@/lib/propHolisticRecommendation";
 
@@ -60,6 +61,7 @@ export type PlayerHistorySlice = {
   labels?: string[];
   recent?: { date?: string; opp?: string; stats?: Record<string, unknown> }[];
   vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
+  windows?: Record<string, { games: number; averages: Record<string, number> }>;
   minutesTrend?: {
     l5?: number | null;
     l10?: number | null;
@@ -466,6 +468,86 @@ function mlbGameEnvFor(game: string, map?: Record<string, unknown>): MlbGameEnvS
   return (map[game] as MlbGameEnvSlice) ?? null;
 }
 
+function statNumber(stats: Record<string, unknown> | undefined, labels: string[]): number | null {
+  if (!stats) return null;
+  for (const label of labels) {
+    const value = Number(stats[label]);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function commandRates(
+  samples: Array<Record<string, unknown>>,
+): { kPct: number | null; bbPct: number | null; kMinusBbPct: number | null } | null {
+  let strikeouts = 0;
+  let walks = 0;
+  let battersFaced = 0;
+  let rows = 0;
+  for (const stats of samples) {
+    const k = statNumber(stats, ["K", "SO"]);
+    const bb = statNumber(stats, ["BB"]);
+    const bf = statNumber(stats, ["BF", "TBF", "BFP"]);
+    if (k == null || bb == null || bf == null || bf <= 0) continue;
+    strikeouts += k;
+    walks += bb;
+    battersFaced += bf;
+    rows += 1;
+  }
+  if (!rows || battersFaced <= 0) return null;
+  const kPct = (strikeouts / battersFaced) * 100;
+  const bbPct = (walks / battersFaced) * 100;
+  return {
+    kPct: Math.round(kPct * 10) / 10,
+    bbPct: Math.round(bbPct * 10) / 10,
+    kMinusBbPct: Math.round((kPct - bbPct) * 10) / 10,
+  };
+}
+
+function pitcherCommandFor(
+  player: string | undefined,
+  gameEnv: MlbGameEnvSlice | null,
+  history: PlayerHistorySlice | undefined,
+  platoon: MlbPlatoonSlice | null,
+): PitcherCommandSlice | null {
+  if (!player || !gameEnv) return null;
+  const playerKey = tokens(player).join(" ");
+  const starters = [gameEnv.homePitcher, gameEnv.awayPitcher];
+  const starter = starters.find((candidate) => tokens(candidate?.name).join(" ") === playerKey) ?? null;
+  const tendency = starter?.tendency ?? null;
+  const season =
+    tendency && (
+      tendency.kPct != null ||
+      tendency.bbPct != null ||
+      tendency.kMinusBbPct != null ||
+      tendency.kPer9 != null ||
+      tendency.bbPer9 != null
+    )
+      ? {
+          kPct: tendency.kPct ?? null,
+          bbPct: tendency.bbPct ?? null,
+          kMinusBbPct: tendency.kMinusBbPct ?? null,
+          kPer9: tendency.kPer9 ?? null,
+          bbPer9: tendency.bbPer9 ?? null,
+        }
+      : null;
+  const last5Starts = commandRates((history?.recent ?? []).map((game) => game.stats ?? {}));
+  const last30Averages = history?.windows?.last30Days?.averages;
+  const last30Days = last30Averages
+    ? commandRates([last30Averages])
+    : null;
+  if (!season && !last5Starts && !last30Days) return null;
+  return {
+    season,
+    last30Days,
+    last5Starts,
+    opponentVsHand: {
+      kPct: platoon?.opponentKPercentVsHand ?? null,
+      bbPct: platoon?.opponentBBPercentVsHand ?? null,
+    },
+  };
+}
+
 function playerTeamIsHome(game: string, playerTeam: string | null): boolean | null {
   if (!playerTeam) return null;
   const { away, home } = splitLabel(game);
@@ -739,6 +821,7 @@ export function attachPickScores(
                 }
               : null,
             mlbGameEnv,
+            pitcherCommand: pitcherCommandFor(p.player, mlbGameEnv, propPh, mlbPlatoon),
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,

@@ -99,6 +99,10 @@ export function gradeFromComposite(composite: number | null): string | null {
 export type PitcherTendencySlice = {
   hrPer9?: number | null;
   kPer9?: number | null;
+  bbPer9?: number | null;
+  kPct?: number | null;
+  bbPct?: number | null;
+  kMinusBbPct?: number | null;
   flyBallPct?: number | null;
   groundFlyRatio?: number | null;
   oppOPS?: number | null;
@@ -111,6 +115,8 @@ export type MlbPlatoonSlice = {
   platoon?: string | null;
   opposingPitcherTendency?: PitcherTendencySlice | null;
   vsThatHand?: { slg?: number | null; hr?: number | null; ops?: number | null } | null;
+  opponentKPercentVsHand?: number | null;
+  opponentBBPercentVsHand?: number | null;
 };
 
 export type MlbGameEnvSlice = {
@@ -119,6 +125,13 @@ export type MlbGameEnvSlice = {
   climateControlled?: boolean;
   homePitcher?: { name?: string | null; throws?: string | null; tendency?: PitcherTendencySlice | null } | null;
   awayPitcher?: { name?: string | null; throws?: string | null; tendency?: PitcherTendencySlice | null } | null;
+};
+
+export type PitcherCommandSlice = {
+  season?: { kPct?: number | null; bbPct?: number | null; kMinusBbPct?: number | null; kPer9?: number | null; bbPer9?: number | null } | null;
+  last30Days?: { kPct?: number | null; bbPct?: number | null; kMinusBbPct?: number | null } | null;
+  last5Starts?: { kPct?: number | null; bbPct?: number | null; kMinusBbPct?: number | null } | null;
+  opponentVsHand?: { kPct?: number | null; bbPct?: number | null } | null;
 };
 
 export type PropHolisticContext = {
@@ -137,6 +150,7 @@ export type PropHolisticContext = {
   vsOpponentGames?: number;
   mlbPlatoon?: MlbPlatoonSlice | null;
   mlbGameEnv?: MlbGameEnvSlice | null;
+  pitcherCommand?: PitcherCommandSlice | null;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -252,6 +266,61 @@ function scoreLineMovement(movementPct: number | null | undefined): number | nul
   return scoreLineValue(movementPct);
 }
 
+function scorePitcherCommand(
+  command: PitcherCommandSlice,
+  marketKey: string,
+  side: string | null | undefined,
+): { score: number | null; display?: string } {
+  const over = isOverSide(side);
+  const under = isUnderSide(side);
+  const isKOrOuts = /strikeout|\bk\b|pitcher_out|outs recorded/.test(marketKey);
+  const isWalks = /walk/.test(marketKey);
+  const isRunsOrHits = /earned run|hits allowed/.test(marketKey);
+  if (!isKOrOuts && !isWalks && !isRunsOrHits) return { score: null };
+
+  const windows = [command.season, command.last30Days, command.last5Starts].filter(
+    (window): window is NonNullable<typeof window> => !!window,
+  );
+  const kPcts = windows.map((window) => window.kPct).filter((value): value is number => value != null && Number.isFinite(value));
+  const bbPcts = windows.map((window) => window.bbPct).filter((value): value is number => value != null && Number.isFinite(value));
+  const commandPcts = windows
+    .map((window) => window.kMinusBbPct)
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  const average = (values: number[]) =>
+    values.length ? values.reduce((total, value) => total + value, 0) / values.length : null;
+  const kPct = average(kPcts);
+  const bbPct = average(bbPcts);
+  const kMinusBbPct = average(commandPcts);
+  const opponentK = command.opponentVsHand?.kPct ?? null;
+  const opponentBb = command.opponentVsHand?.bbPct ?? null;
+  const bits: string[] = [];
+  let favor = 0;
+
+  if (isKOrOuts) {
+    if (kPct != null) favor += favorFrom01(lin01(kPct, 16, 31), over) * 0.28;
+    if (kMinusBbPct != null) favor += favorFrom01(lin01(kMinusBbPct, 8, 24), over) * 0.3;
+    if (command.season?.kPer9 != null) favor += favorFrom01(lin01(command.season.kPer9, 7, 10.5), over) * 0.22;
+    if (command.season?.bbPer9 != null) favor += favorFrom01(lin01(command.season.bbPer9, 4, 1.8), over) * 0.2;
+    if (opponentK != null) favor += favorFrom01(lin01(opponentK, 17, 27), over) * 0.2;
+    if (opponentBb != null) favor += favorFrom01(lin01(opponentBb, 10, 7), over) * 0.12;
+  } else {
+    if (bbPct != null) favor += favorFrom01(lin01(bbPct, 5, 12), over) * (isWalks ? 0.45 : 0.18);
+    if (kPct != null) favor += favorFrom01(lin01(kPct, 30, 16), over) * 0.18;
+    if (kMinusBbPct != null) favor += favorFrom01(lin01(kMinusBbPct, 24, 8), over) * 0.24;
+    if (command.season?.bbPer9 != null) favor += favorFrom01(lin01(command.season.bbPer9, 1.8, 4), over) * 0.2;
+    if (opponentBb != null) favor += favorFrom01(lin01(opponentBb, 7, 10), over) * 0.12;
+  }
+
+  if (kPct != null) bits.push(`${kPct.toFixed(1)} K%`);
+  if (bbPct != null) bits.push(`${bbPct.toFixed(1)} BB%`);
+  if (kMinusBbPct != null) bits.push(`${kMinusBbPct.toFixed(1)} K-BB%`);
+  if (command.season?.kPer9 != null) bits.push(`${command.season.kPer9.toFixed(1)} K/9`);
+  if (command.season?.bbPer9 != null) bits.push(`${command.season.bbPer9.toFixed(1)} BB/9`);
+  if (!bits.length) return { score: null };
+  if (under) favor = -favor;
+  return { score: scoreTrend(clamp(favor, -1, 1)), display: bits.join(", ") };
+}
+
 function scoreOpponentTendency(
   ctx: PropHolisticContext,
 ): { score: number | null; display?: string } {
@@ -264,12 +333,15 @@ function scoreOpponentTendency(
   if (sport === "mlb") {
     const tend = ctx.mlbPlatoon?.opposingPitcherTendency ?? null;
     const platoon = ctx.mlbPlatoon?.platoon;
-    if (!tend && !platoon) return { score: null };
 
     const isPitcher = /pitcher|strikeout|\bouts\b|earned run|hits allowed|walks allowed/.test(key);
     const isHr = /home ?run|\bhr\b|to hit a hr/.test(key);
     const isContact = /\bhit|total bas|\btb\b|\brbi|single|double|triple/.test(key);
     const isK = /strikeout|\bk\b/.test(key);
+    if (isPitcher && ctx.pitcherCommand) {
+      return scorePitcherCommand(ctx.pitcherCommand, key, side);
+    }
+    if (!tend && !platoon) return { score: null };
 
     let favor = 0;
     const bits: string[] = [];

@@ -32,6 +32,7 @@ const MARKET_SINGLE: Record<string, string[]> = {
   batter_stolen_bases: ["SB"],
   player_sacks: ["SACK", "SACKS"],
   pitcher_strikeouts: ["K", "SO"],
+  pitcher_walks: ["BB"],
   player_goals: ["G"],
   player_shots_on_goal: ["S", "SOG", "SHOTS"],
   // Soccer (StatMuse fc grid columns).
