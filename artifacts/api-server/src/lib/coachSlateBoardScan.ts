@@ -324,7 +324,16 @@ function collapseServerRankedByLadder(
         out.push(row);
         for (const rejected of ladder) {
           if (rejected === row) continue;
-          onRejected?.(rejected.pick, "ladder_deduped");
+          const rejectedQualification = explainServerBoardLegQualification(
+            rejected.pick,
+            rejected.pick.finalAiScore,
+          );
+          onRejected?.(
+            rejected.pick,
+            rejectedQualification.qualifies
+              ? "ladder_deduped"
+              : (rejectedQualification.reason ?? "qualification_rejected"),
+          );
         }
         break;
       }
