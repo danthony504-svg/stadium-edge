@@ -35,7 +35,18 @@ export type ParsedPick = {
   ticketRole?: "main" | "alt";
   highRiskValuePlay?: boolean;
   scores?: { composite?: number | null };
-  finalAiScore?: { composite?: number | null; grade?: string | null; simHit?: number | null };
+  finalAiScore?: {
+    composite?: number | null;
+    grade?: string | null;
+    simHit?: number | null;
+    confidencePct?: number | null;
+    edgePct?: number | null;
+    simAligned?: boolean;
+    highRiskValuePlay?: boolean;
+    recommends?: boolean;
+    factors?: unknown[];
+    rubric?: unknown;
+  };
 };
 
 export type RealOddsEntry = {

@@ -5,7 +5,9 @@ import {
   simHitForGameLine,
 } from "./coachSlateGameSims.js";
 import { stageServerTicketBalanced } from "./coachSlateBalancedStaging.js";
-import { serverBoardLegQualifies } from "./coachSlateLegQualification.js";
+import {
+  explainServerBoardLegQualification,
+} from "./coachSlateLegQualification.js";
 import { buildSlateTicketsIndex, primaryBoardScanFromRanked } from "./coachSlateTickets.js";
 import type {
   BuiltChatContext,
@@ -29,6 +31,29 @@ export type ServerBoardScanBundle = {
   scan: FullBoardScanResult;
   tickets: SlateTicketsIndex;
 };
+
+type ServerScanFunnel = {
+  gamesLoaded: number;
+  postedMarketsLoaded: number;
+  rawCandidateProps: number;
+  afterOddsPrice: number;
+  afterDataQuality: number;
+  afterEvEdge: number;
+  afterConfidenceGrade: number;
+  afterCorrelation: number;
+  passedToFinalSelection: number;
+  returnedByLegCount: Partial<Record<3 | 5 | 10, number>>;
+  rejected: Record<string, number>;
+};
+
+function logCandidateRejection(
+  funnel: ServerScanFunnel,
+  candidate: { game: string; sport?: string; market: string; pick: string; isProp: boolean },
+  reason: string,
+): void {
+  funnel.rejected[reason] = (funnel.rejected[reason] ?? 0) + 1;
+  console.info("[coach-candidate-reject]", JSON.stringify({ ...candidate, reason }));
+}
 
 function propSimKey(player: string, market: string, line: number, side: string): string {
   return `${player}|${market}|${line}|${side}`;
@@ -100,7 +125,8 @@ function serverPickFinalAiScore(
   if (simHit == null || !Number.isFinite(simHit)) return undefined;
   const implied = americanImplied(odds);
   const simAligned = simHit > implied;
-  const edgePct = edge ?? Math.round((simHit - implied) * 1000) / 10;
+  const derivedEdgePct = Math.round((simHit - implied) * 1000) / 10;
+  const edgePct = edge != null && Number.isFinite(edge) && edge !== 0 ? edge : derivedEdgePct;
   const grade = simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+";
   const confidencePct = Math.round(simHit * 100);
   const recommends = simAligned && edgePct > 0 && simHit >= 0.52;
@@ -140,14 +166,17 @@ async function fetchPropSimulationsDeep(
   tier: "quick" | "deep" = "deep",
 ): Promise<Map<string, number | null>> {
   const out = new Map<string, number | null>();
-  const bySport = new Map<string, PropPoolEntry[]>();
+  const byGame = new Map<string, PropPoolEntry[]>();
   for (const e of entries) {
     if (e.line == null) continue;
-    const rows = bySport.get(e.sport) ?? [];
+    const key = `${e.sport}\u0000${e.game}`;
+    const rows = byGame.get(key) ?? [];
     rows.push(e);
-    bySport.set(e.sport, rows);
+    byGame.set(key, rows);
   }
-  for (const [sport, sportEntries] of bySport) {
+  for (const sportEntries of byGame.values()) {
+    const sport = sportEntries[0]?.sport;
+    if (!sport) continue;
     const props = sportEntries.map((e) => ({
       player: e.player,
       market: e.marketKey ?? e.marketLabel,
@@ -221,7 +250,8 @@ async function fetchQuickPropSims(
     const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side);
     if (seen.has(k)) continue;
     seen.add(k);
-    const rows = batches.get(e.sport) ?? [];
+    const key = `${e.sport}\u0000${e.game}`;
+    const rows = batches.get(key) ?? [];
     rows.push({
       player: e.player,
       market: e.marketKey ?? e.marketLabel,
@@ -230,11 +260,13 @@ async function fetchQuickPropSims(
       athleteId: e.athleteId,
       game: e.game,
     });
-    batches.set(e.sport, rows);
+    batches.set(key, rows);
     if (seen.size >= limit) break;
   }
 
-  await pooled([...batches.entries()], 2, async ([sport, entries]) => {
+  await pooled([...batches.entries()], 2, async ([key, entries]) => {
+    const sport = key.split("\u0000")[0];
+    if (!sport) return;
     const props = entries.slice(0, 20).map((e) => ({
       player: e.player,
       market: e.market,
@@ -271,6 +303,7 @@ function gameLadderKeyFromPick(p: ParsedPick): string {
 
 function collapseServerRankedByLadder(
   rows: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }>,
+  onRejected?: (pick: ParsedPick, reason: string) => void,
 ): Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> {
   const byLadder = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -286,10 +319,16 @@ function collapseServerRankedByLadder(
       return b.rankScore - a.rankScore;
     });
     for (const row of ladder) {
-      if (serverBoardLegQualifies(row.pick, row.pick.finalAiScore)) {
+      const qualification = explainServerBoardLegQualification(row.pick, row.pick.finalAiScore);
+      if (qualification.qualifies) {
         out.push(row);
+        for (const rejected of ladder) {
+          if (rejected === row) continue;
+          onRejected?.(rejected.pick, "ladder_deduped");
+        }
         break;
       }
+      onRejected?.(row.pick, qualification.reason ?? "qualification_rejected");
     }
   }
   return out;
@@ -325,6 +364,30 @@ export async function runServerBoardScan(
   const ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> = [];
   let totalScanned = 0;
   let lastPartialAt = 0;
+  const funnel: ServerScanFunnel = {
+    gamesLoaded: new Set(
+      [...context.realGames.map((game) => game.game), ...realOdds.map((odds) => odds.game)],
+    ).size,
+    postedMarketsLoaded: realOdds.length + propPool.length,
+    rawCandidateProps: propPool.length,
+    afterOddsPrice: 0,
+    afterDataQuality: 0,
+    afterEvEdge: 0,
+    afterConfidenceGrade: 0,
+    afterCorrelation: 0,
+    passedToFinalSelection: 0,
+    returnedByLegCount: {},
+    rejected: {},
+  };
+
+  const reject = (pick: ParsedPick, reason: string) =>
+    logCandidateRejection(funnel, {
+      game: pick.game,
+      sport: pick.sport,
+      market: pick.market,
+      pick: pick.pick,
+      isProp: !!pick.isProp,
+    }, reason);
 
   const scanCtx = () => ({
     evalLinesByGame,
@@ -346,44 +409,79 @@ export async function runServerBoardScan(
   };
 
   for (const o of realOdds) {
-    if (!isCoachBettableStartsAt(o.startsAt)) continue;
+    const pick = pickFromOdds(o);
+    if (!isCoachBettableStartsAt(o.startsAt)) {
+      reject(pick, "outside_48h_pregame_horizon");
+      continue;
+    }
     totalScanned++;
+    if (!Number.isFinite(o.odds) || o.odds === 0) {
+      reject(pick, "invalid_odds");
+      continue;
+    }
+    funnel.afterOddsPrice++;
     const isAlt = /^alt /i.test(o.market) || /alt/i.test(o.market);
     const simHit = simHitForGameLine(o, gameSimulations.get(o.game));
-    if (!qualifiesServerAiLine(o, simHit)) continue;
-    const pick = pickFromOdds(o);
-    if (o.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = o.edge;
-    if (simHit != null) {
-      pick.finalAiScore = serverPickFinalAiScore(simHit, o.odds, o.edge);
+    if (simHit == null || !Number.isFinite(simHit)) {
+      reject(pick, "simulation_missing_or_timed_out");
+      continue;
     }
+    funnel.afterDataQuality++;
+    if (!qualifiesServerAiLine(o, simHit)) {
+      reject(pick, "simulation_or_implied_price_gate");
+      continue;
+    }
+    funnel.afterEvEdge++;
+    (pick as ParsedPick & { edgeNum?: number }).edgeNum = o.edge ?? undefined;
+    pick.finalAiScore = serverPickFinalAiScore(simHit, o.odds, o.edge);
     const score = rankScoreForPick(pick, propSims, simHit);
     ranked.push({ pick, rankScore: score, isAlt });
     if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
   for (const e of propPool) {
-    if (!isCoachBettableStartsAt(e.startsAt)) continue;
-    totalScanned++;
     const pick = pickFromPoolEntry(e);
+    if (!isCoachBettableStartsAt(e.startsAt)) {
+      reject(pick, "outside_48h_pregame_horizon");
+      continue;
+    }
+    totalScanned++;
+    if (!Number.isFinite(e.odds) || e.odds === 0 || e.line == null) {
+      reject(pick, "invalid_odds_or_line");
+      continue;
+    }
+    funnel.afterOddsPrice++;
     const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);
     const minHit = propSims.get(k) ?? null;
-    const edge = e.edge ?? 0;
-    if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
-    if (minHit != null && minHit < 0.52 && edge <= 0) continue;
-    if (e.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = e.edge;
-    if (minHit != null) {
-      pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
+    if (minHit == null || !Number.isFinite(minHit)) {
+      reject(pick, "simulation_missing_or_timed_out");
+      continue;
     }
+    funnel.afterDataQuality++;
+    if (minHit < 0.52) {
+      reject(pick, "simulation_probability_below_52pct");
+      continue;
+    }
+    funnel.afterEvEdge++;
+    (pick as ParsedPick & { edgeNum?: number }).edgeNum = e.edge ?? undefined;
+    pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
     const score = rankScoreForPick(pick, propSims, minHit ?? null);
     ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
     if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
   ranked.sort((a, b) => b.rankScore - a.rankScore);
-  const collapsed = collapseServerRankedByLadder(ranked);
+  const collapsed = collapseServerRankedByLadder(ranked, reject);
+  funnel.afterConfidenceGrade = collapsed.length;
   collapsed.sort((a, b) => b.rankScore - a.rankScore);
+  funnel.afterCorrelation = collapsed.length;
+  funnel.passedToFinalSelection = collapsed.length;
   const ctx = scanCtx();
   const tickets = buildSlateTicketsIndex(collapsed, ctx, stageServerTicketBalanced);
+  for (const legs of [3, 5, 10] as const) {
+    funnel.returnedByLegCount[legs] = tickets.global[legs]?.picks.length ?? 0;
+  }
+  console.info("[coach-candidate-funnel]", JSON.stringify(funnel));
   const scan = primaryBoardScanFromRanked(collapsed, ctx, stageServerTicketBalanced);
 
   return { scan, tickets };

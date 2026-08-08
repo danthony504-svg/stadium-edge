@@ -158,9 +158,8 @@ export function simHitForGameLine(
 }
 
 export function qualifiesServerAiLine(o: RealOddsEntry, simHit: number | null): boolean {
-  const edge = o.edge ?? 0;
-  if (edge <= 0) return false;
-  if (simHit == null || !Number.isFinite(simHit)) return edge >= 2;
+  if (!Number.isFinite(o.odds) || o.odds === 0) return false;
+  if (simHit == null || !Number.isFinite(simHit)) return false;
   const implied = americanImplied(o.odds);
   return simHit > implied && simHit >= 0.52;
 }
