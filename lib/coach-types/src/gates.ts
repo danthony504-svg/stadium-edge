@@ -58,7 +58,7 @@ export function evaluateSimulationGate(
   evidence: CoachSimEvidence | null | undefined,
 ): CoachGateResult {
   const failure = coachSimDisqualifier(evidence);
-  if (!failure) {
+  if (!failure && evidence) {
     return {
       gateId: "simulation",
       pass: true,
