@@ -6,6 +6,7 @@
 import { impliedProb } from "./format.ts";
 
 export type ModelFeatureTier = "core" | "supporting" | "bonus";
+export type CoachDataTier = "full" | "partial" | "market_only";
 export type PositionMarketFeature = { key: string; tier: ModelFeatureTier; weight: number };
 export type PositionMarketModel = {
   sport: string;
@@ -27,6 +28,7 @@ export type PositionMarketEvaluation = {
   confidencePct: number | null;
   gradeScore: number | null;
   dataCompletenessPct: number;
+  dataTier: CoachDataTier;
   missingCore: string[];
   missingSupporting: string[];
   missingBonus: string[];
@@ -93,12 +95,21 @@ export const POSITION_MARKET_MODELS: PositionMarketModel[] = [
   { sport: "mlb", position: "P", market: "pitcher_strikeouts", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("k_pct", "bb_pct", "k_minus_bb_pct", "k_per_9", "bb_per_9", "opponent_k_pct_vs_hand", "opponent_bb_pct_vs_hand", "pitcher_workload", "injury", "weather"), ...bonus("park", "market_movement")] },
   { sport: "mlb", position: "P", market: "pitcher_walks", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("bb_pct", "k_minus_bb_pct", "bb_per_9", "opponent_bb_pct_vs_hand", "pitcher_workload", "injury"), ...bonus("umpire", "market_movement")] },
   { sport: "mlb", position: "BAT", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("recent_form", "platoon", "opposing_pitcher", "lineup_position", "injury"), ...bonus("park", "weather", "market_movement")] },
-  { sport: "nba", position: "*", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "recent_form", "usage", "pace", "opponent", "injury"), ...bonus("home_away", "rest", "market_movement")] },
-  { sport: "wnba", position: "*", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "recent_form", "usage", "pace", "opponent", "injury"), ...bonus("home_away", "rest", "market_movement")] },
-  { sport: "nhl", position: "SKATER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("recent_form", "ice_time", "power_play_usage", "opponent_goalie", "injury"), ...bonus("home_away", "rest")] },
-  { sport: "soccer", position: "OUTFIELD", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "recent_form", "opponent", "injury"), ...bonus("home_away", "rest", "weather")] },
-  { sport: "tennis", position: "PLAYER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("recent_form", "surface", "opponent", "injury"), ...bonus("head_to_head", "travel")] },
-  { sport: "ufc", position: "FIGHTER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("recent_form", "striking", "grappling", "reach", "injury"), ...bonus("camp_change", "weight_cut")] },
+  { sport: "nba", position: "GUARD", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "usage", "touches", "potential_assists", "drives", "shot_profile", "pace", "opponent", "injury", "rotation"), ...bonus("foul_risk", "rest", "market_movement")] },
+  { sport: "nba", position: "WING", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "usage", "touches", "rebound_chances", "drives", "shot_profile", "pace", "opponent", "injury", "rotation"), ...bonus("foul_risk", "rest", "market_movement")] },
+  { sport: "nba", position: "BIG", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "usage", "rebound_chances", "paint_touches", "shot_profile", "pace", "opponent", "injury", "rotation"), ...bonus("foul_risk", "rest", "market_movement")] },
+  { sport: "wnba", position: "GUARD", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "usage", "touches", "potential_assists", "drives", "shot_profile", "pace", "opponent", "injury", "rotation"), ...bonus("foul_risk", "rest", "market_movement")] },
+  { sport: "wnba", position: "WING", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "usage", "touches", "rebound_chances", "drives", "shot_profile", "pace", "opponent", "injury", "rotation"), ...bonus("foul_risk", "rest", "market_movement")] },
+  { sport: "wnba", position: "BIG", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("minutes", "usage", "rebound_chances", "paint_touches", "shot_profile", "pace", "opponent", "injury", "rotation"), ...bonus("foul_risk", "rest", "market_movement")] },
+  { sport: "nhl", position: "GOALIE", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("expected_goals", "goalie_performance", "confirmed_starter", "opponent_shot_rate", "injury"), ...bonus("rest", "home_away")] },
+  { sport: "nhl", position: "FORWARD", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("expected_goals", "individual_shot_rate", "power_play_usage", "line_assignment", "ice_time", "opponent_shot_suppression", "opponent_goalie", "injury"), ...bonus("rest", "home_away")] },
+  { sport: "nhl", position: "DEFENSE", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("expected_goals", "individual_shot_rate", "power_play_usage", "line_assignment", "ice_time", "opponent_shot_suppression", "injury"), ...bonus("rest", "home_away")] },
+  { sport: "soccer", position: "GOALKEEPER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("goalkeeper_metrics", "expected_minutes", "opponent_xg", "tactical_matchup", "set_pieces"), ...bonus("rest", "home_away", "weather")] },
+  { sport: "soccer", position: "ATTACKER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("xg", "xa", "shots", "shots_on_target", "touches_in_box", "set_pieces", "expected_minutes", "opponent_xga", "tactical_matchup"), ...bonus("possession", "rest", "weather")] },
+  { sport: "soccer", position: "MIDFIELDER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("xg", "xa", "shots", "touches_in_box", "set_pieces", "expected_minutes", "opponent_xga", "tactical_matchup"), ...bonus("possession", "rest")] },
+  { sport: "soccer", position: "DEFENDER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("expected_minutes", "tackles", "interceptions", "clearances", "opponent_attack_volume", "tactical_matchup"), ...bonus("possession", "rest")] },
+  { sport: "tennis", position: "PLAYER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("hold_pct", "break_pct", "serve_points_won", "return_points_won", "surface_elo", "recent_form", "fatigue", "injury"), ...bonus("head_to_head", "travel")] },
+  { sport: "ufc", position: "FIGHTER", market: "*", features: [...core("posted_line", "posted_odds", "simulation"), ...supporting("significant_strikes", "strike_differential", "strike_accuracy", "strike_defense", "knockdowns", "takedowns", "takedown_defense", "control_time", "submissions", "fight_duration", "style_matchup", "injury"), ...bonus("camp_change", "weight_cut")] },
 ];
 
 export function inferPropPosition(sport: string | null | undefined, market: string | null | undefined): string {
@@ -110,11 +121,20 @@ export function inferPropPosition(sport: string | null | undefined, market: stri
     return "SKILL";
   }
   if (sport === "mlb") return /pitcher/.test(key) ? "P" : "BAT";
-  if (sport === "nhl") return "SKATER";
-  if (sport === "soccer") return "OUTFIELD";
+  if (sport === "nba" || sport === "wnba") return "GUARD";
+  if (sport === "nhl") return "FORWARD";
+  if (sport === "soccer") return "ATTACKER";
   if (sport === "tennis") return "PLAYER";
   if (sport === "ufc" || sport === "mma") return "FIGHTER";
   return "*";
+}
+
+export function classifyCoachDataTier(input: Pick<PositionMarketEvaluation, "missingCore" | "dataCompletenessPct">): CoachDataTier {
+  if (input.missingCore.length === 0 && input.dataCompletenessPct >= 70) return "full";
+  if (input.missingCore.length === 0 && input.dataCompletenessPct >= 40) return "partial";
+  // Market-only retains real price + a completed sim; it is intentionally
+  // confidence capped below rather than rejected for unavailable advanced data.
+  return "market_only";
 }
 
 export function resolvePositionMarketModel(sport: string | null | undefined, position: string | null | undefined, market: string | null | undefined): PositionMarketModel | null {
@@ -160,8 +180,7 @@ export function evaluatePositionMarketModel(input: {
     ? Math.round((probability * (input.odds > 0 ? input.odds / 100 : 100 / -input.odds) - (1 - probability)) * 1000) / 10
     : null;
   const completeness = totalWeight ? Math.round((presentWeight / totalWeight) * 100) : 0;
-  const confidence = modelScore == null ? null : Math.max(5, Math.min(95, Math.round(50 + (modelScore - 5.5) * 8 - missingSupporting.length * 2 - missingBonus.length)));
-  return {
+  const preliminary: Omit<PositionMarketEvaluation, "dataTier"> = {
     modelKey: `${profile.sport}:${position}:${profile.market}`,
     position,
     projectedStat: null,
@@ -171,11 +190,23 @@ export function evaluatePositionMarketModel(input: {
     estimatedFairOdds: fairOdds,
     evPct,
     edgePct: probability != null && implied != null ? Math.round((probability - implied) * 1000) / 10 : null,
-    confidencePct: confidence,
+    confidencePct: null,
     gradeScore: modelScore,
     dataCompletenessPct: completeness,
     missingCore,
     missingSupporting,
     missingBonus,
+  };
+  const dataTier = classifyCoachDataTier(preliminary);
+  const rawConfidence = modelScore == null
+    ? null
+    : Math.max(5, Math.min(95, Math.round(50 + (modelScore - 5.5) * 8 - missingSupporting.length * 2 - missingBonus.length)));
+  const confidence = rawConfidence == null
+    ? null
+    : dataTier === "market_only" ? Math.min(rawConfidence, 55) : rawConfidence;
+  return {
+    ...preliminary,
+    confidencePct: confidence,
+    dataTier,
   };
 }

@@ -1,4 +1,8 @@
 import type { CoachSportIdOrCustom } from "./sports";
+import {
+  coachSimDisqualifier,
+  type CoachSimEvidence,
+} from "./sim";
 
 /** Ordered gate identifiers — evaluation stops at first failure. */
 export const COACH_GATE_IDS = [
@@ -48,3 +52,25 @@ export type CoachGateEvaluation = {
   allPassed: boolean;
   failedGateId: CoachGateId | null;
 };
+
+/** Canonical G1 evaluation shared by all sport-position-market adapters. */
+export function evaluateSimulationGate(
+  evidence: CoachSimEvidence | null | undefined,
+): CoachGateResult {
+  const failure = coachSimDisqualifier(evidence);
+  if (!failure) {
+    return {
+      gateId: "simulation",
+      pass: true,
+      reasonCode: "passed",
+      message: `Completed ${evidence.iterations.toLocaleString()}-draw ${evidence.engineId} simulation`,
+    };
+  }
+  return {
+    gateId: "simulation",
+    pass: false,
+    reasonCode: failure === "iterations_insufficient" ? "sim_iterations_insufficient" : "sim_incomplete",
+    message: `Simulation rejected: ${failure}`,
+    metadata: { simulationFailure: failure },
+  };
+}
