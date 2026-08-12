@@ -139,7 +139,14 @@ export function classifyCoachDataTier(input: Pick<PositionMarketEvaluation, "mis
 
 export function resolvePositionMarketModel(sport: string | null | undefined, position: string | null | undefined, market: string | null | undefined): PositionMarketModel | null {
   const normalizedSport = String(sport ?? "").toLowerCase();
-  const normalizedPosition = String(position ?? inferPropPosition(normalizedSport, market)).toUpperCase();
+  const rawPosition = String(position ?? inferPropPosition(normalizedSport, market)).toUpperCase();
+  const normalizedPosition =
+    ["PG", "SG", "G"].includes(rawPosition) ? "GUARD" :
+    ["SF", "PF", "F"].includes(rawPosition) ? "WING" :
+    ["C", "CENTER"].includes(rawPosition) ? "BIG" :
+    rawPosition === "SKATER" ? "FORWARD" :
+    rawPosition === "OUTFIELD" ? "ATTACKER" :
+    rawPosition;
   const normalizedMarket = String(market ?? "").toLowerCase();
   return POSITION_MARKET_MODELS.find((profile) =>
     profile.sport === normalizedSport &&
