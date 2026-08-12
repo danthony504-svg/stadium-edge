@@ -323,6 +323,7 @@ export function buildTennisRecommendations(
   const books = allBookLines(awayName, homeName, h2hOutcomes, spreadOutcomes, totalOutcomes);
   const metrics = sim ? tennisSimMetrics(sim) : null;
   const coverageOk = passesTennisDataGate(prePick);
+  const marketOnly = prePick.dataTier === "market_only";
   const lean = analysis.lean;
 
   // --- Moneyline ---
@@ -341,11 +342,12 @@ export function buildTennisRecommendations(
       skipped = true;
       reasons.push("insufficient grounded player data for pre-pick analysis");
     }
-    if (prePick.resolvedPlayers < 2 && (edge ?? 0) < 3.5) {
+    if (!marketOnly && prePick.resolvedPlayers < 2 && (edge ?? 0) < 3.5) {
       skipped = true;
       reasons.push("opponent profile unresolved — need stronger edge");
     }
-    if (edge == null || edge < MIN_EDGE_PCT) {
+    const marketOnlyMinEdge = 2.5;
+    if (edge == null || edge < (marketOnly ? marketOnlyMinEdge : MIN_EDGE_PCT)) {
       skipped = true;
       reasons.push("insufficient line value");
     }
@@ -353,7 +355,7 @@ export function buildTennisRecommendations(
       skipped = true;
       reasons.push("grade below threshold");
     }
-    if (sim && fair != null) {
+    if (!marketOnly && sim && fair != null) {
       const hit = isAway ? sim.awayWinProbability : sim.homeWinProbability;
       if (hit - fair < MIN_SIM_GAP && (edge ?? 0) < 3) {
         skipped = true;
@@ -378,12 +380,16 @@ export function buildTennisRecommendations(
       odds: price,
       book,
       grade: composite != null ? gradeFromComposite(composite) : null,
-      confidencePct: confidence,
+      confidencePct: marketOnly && confidence != null ? Math.min(confidence, 55) : confidence,
       edgePct: edge,
       simHitPct: simHit,
       evPct: edge,
       skipped,
-      reason: skipped ? `Skipped: ${reasons.join(", ")}` : posReason,
+      reason: skipped
+        ? `Skipped (${prePick.dataTier}): ${reasons.join(", ")}`
+        : marketOnly
+          ? `Market-only price evaluation · limited data · confidence capped`
+          : posReason,
       quality: pickQuality(isAway, metrics, prePick.dataCoveragePct),
     });
   }
@@ -435,11 +441,11 @@ export function buildTennisRecommendations(
       skipped = true;
       reasons.push("insufficient pre-pick data");
     }
-    if (simHit == null || simHit / 100 < MIN_SPREAD_TOTAL_SIM) {
+    if (!marketOnly && (simHit == null || simHit / 100 < MIN_SPREAD_TOTAL_SIM)) {
       skipped = true;
       reasons.push("sim hit rate below threshold");
     }
-    if (edge == null || edge < MIN_EDGE_PCT) {
+    if (edge == null || edge < (marketOnly ? 2.5 : MIN_EDGE_PCT)) {
       skipped = true;
       reasons.push("insufficient line value");
     }
@@ -460,14 +466,16 @@ export function buildTennisRecommendations(
       line: o.point,
       book: o.book ?? null,
       grade: composite != null ? gradeFromComposite(composite) : null,
-      confidencePct: confidence,
+      confidencePct: marketOnly && confidence != null ? Math.min(confidence, 55) : confidence,
       edgePct: edge,
       simHitPct: simHit,
       evPct: edge,
       skipped,
       reason: skipped
         ? `Skipped: ${reasons.join(", ")}`
-        : `Sim covers ${simHit}% · +${edge}% edge vs posted line`,
+        : marketOnly
+          ? "Market-only price evaluation · limited data · confidence capped"
+          : `Sim covers ${simHit}% · +${edge}% edge vs posted line`,
       quality: {
         winProbability: side === "away" ? metrics?.winProbability.away ?? null : metrics?.winProbability.home ?? null,
         projectedTotalGames: metrics?.projectedTotalGames ?? null,
@@ -521,11 +529,11 @@ export function buildTennisRecommendations(
       skipped = true;
       reasons.push("insufficient pre-pick data");
     }
-    if (simHit == null || simHit / 100 < MIN_SPREAD_TOTAL_SIM) {
+    if (!marketOnly && (simHit == null || simHit / 100 < MIN_SPREAD_TOTAL_SIM)) {
       skipped = true;
       reasons.push("sim hit rate below threshold");
     }
-    if (edge == null || edge < MIN_EDGE_PCT) {
+    if (edge == null || edge < (marketOnly ? 2.5 : MIN_EDGE_PCT)) {
       skipped = true;
       reasons.push("insufficient line value");
     }
@@ -542,14 +550,16 @@ export function buildTennisRecommendations(
       line: o.point,
       book: o.book ?? null,
       grade: composite != null ? gradeFromComposite(composite) : null,
-      confidencePct: confidence,
+      confidencePct: marketOnly && confidence != null ? Math.min(confidence, 55) : confidence,
       edgePct: edge,
       simHitPct: simHit,
       evPct: edge,
       skipped,
       reason: skipped
         ? `Skipped: ${reasons.join(", ")}`
-        : `Sim hits ${simHit}% · +${edge}% edge vs posted total`,
+        : marketOnly
+          ? "Market-only price evaluation · limited data · confidence capped"
+          : `Sim hits ${simHit}% · +${edge}% edge vs posted total`,
       quality: {
         winProbability: null,
         projectedTotalGames: metrics?.projectedTotalGames ?? null,
