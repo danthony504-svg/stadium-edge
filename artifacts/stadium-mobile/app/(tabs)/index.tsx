@@ -1649,7 +1649,11 @@ function HomeSportFeed({
                 fontSize: 18,
               }}
             >
-              Upcoming Games
+              {sport === "ufc" || sport === "mma"
+                ? "Upcoming Fights"
+                : sport === "tennis"
+                  ? "Upcoming Matches"
+                  : "Upcoming Games"}
             </Text>
             {displayUpcoming.length > 0 ? (
               <View

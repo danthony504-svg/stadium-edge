@@ -986,6 +986,9 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
   const hasData = (p?: TennisPlayer | null) =>
     !!p && (p.rank != null || p.country != null || p.recentForm.length > 0);
   if (!data || (!hasData(data.away) && !hasData(data.home))) {
+    const markets = safeMarkets(game);
+    const moneyline = markets.find((market) => market.key === "h2h");
+    const prices = moneyline?.outcomes?.filter((outcome) => typeof outcome.price === "number") ?? [];
     return (
       <View
         style={{
@@ -998,11 +1001,37 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
         }}
       >
         <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
-          MATCHUP
+          LIMITED-DATA MATCHUP
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}>
           ESPN has no ATP/WTA ranking or recent-form data for {game.awayTeam} or {game.homeTeam} — common on
-          challenger/ITF draws. Use posted moneyline odds only; we never invent rankings or form.
+          challenger/ITF draws. This match remains available for a market-only evaluation; we never invent rankings
+          or form.
+        </Text>
+        {prices.length ? (
+          <View style={{ gap: 5, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 9 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.4 }}>
+              POSTED MONEYLINE · LIMITED DATA
+            </Text>
+            {prices.map((outcome) => (
+              <View
+                key={`${outcome.name}:${outcome.price}`}
+                style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 13 }}>
+                  {outcome.name}
+                </Text>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>
+                  {formatAmerican(outcome.price)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+          {markets.length
+            ? `${markets.length} posted market${markets.length === 1 ? "" : "s"} available. Confidence is capped until player data is available.`
+            : "No posted market is available yet, so no price-based recommendation can be made."}
         </Text>
       </View>
     );
