@@ -16,13 +16,17 @@ import {
   trackedSignalBias,
 } from "./pickTrackerAnalytics.ts";
 
+// One stable scheduled start for this module: repeated captures model the same
+// Coach card and must therefore generate the same ledger identity.
+const FUTURE_START = new Date(Date.now() + 3600_000).toISOString();
+
 const basePick = (over: Partial<CapturablePick> = {}): CapturablePick => ({
   game: "Yankees @ Red Sox",
   market: "Total",
   pick: "Over 8.5",
   odds: -110,
   sport: "mlb",
-  startsAt: new Date(Date.now() + 3600_000).toISOString(),
+  startsAt: FUTURE_START,
   scores: {
     grade: "B",
     confidencePct: 58,
