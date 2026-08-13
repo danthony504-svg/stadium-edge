@@ -21,3 +21,4 @@ export * from "./userSync";
 export * from "./notifications";
 export * from "./liveSteals";
 export * from "./coachPrecomputedSlate";
+export * from "./coachRecommendationLedger";
