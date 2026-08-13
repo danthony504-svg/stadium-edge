@@ -98,6 +98,16 @@ test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
   assert.equal(out[0]!.pick.market, "Spread");
 });
 
+test("collapseScoredLegsByMarketLadder lets a stronger posted alternate beat the main line", () => {
+  const scored = [
+    leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, mainScore),
+    leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 125, altScore),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick.market, "Alt Spread");
+});
+
 test("collapseScoredLegsByMarketLadder promotes alt when main fails quality bar", () => {
   const scored = [
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, belowBar),
