@@ -53,6 +53,7 @@ import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
+import { limitedDataMoneylineMetrics } from "./limitedDataGameLines.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -188,7 +189,8 @@ function scoredFromEvalRow(
   simHit?: number | null,
   calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
-  const hit = simHit ?? row.winProb ?? row.finalAiScore.simHit;
+  const marketOnly = simHit == null ? limitedDataMoneylineMetrics(row.pick, row.entry) : null;
+  const hit = simHit ?? row.winProb ?? row.finalAiScore.simHit ?? marketOnly?.marketProbability ?? null;
   if (!gameLineHasSimGrade(row, hit)) return null;
   const m = deriveGameSimLineMetrics(row);
   const implied =
@@ -196,15 +198,25 @@ function scoredFromEvalRow(
   const leg: Omit<BoardScoredLeg, "rankScore"> = {
     pick: {
       ...row.pick,
-      finalAiScore: row.finalAiScore,
-      highRiskValuePlay: row.finalAiScore.highRiskValuePlay,
+      finalAiScore: marketOnly
+        ? {
+            ...row.finalAiScore,
+            simHit: marketOnly.marketProbability,
+            edgePct: marketOnly.edgePct,
+            confidencePct: marketOnly.confidencePct,
+            grade: marketOnly.grade,
+            simAligned: true,
+            recommends: true,
+          }
+        : row.finalAiScore,
+      highRiskValuePlay: marketOnly ? false : row.finalAiScore.highRiskValuePlay,
     },
     evPct: m?.evPct ?? null,
-    edgePct: row.edgePct ?? row.finalAiScore.edgePct,
-    confidencePct: confidenceWithLearning(row.pick, row.finalAiScore.confidencePct, perfByFamily, calibration),
+    edgePct: marketOnly?.edgePct ?? row.edgePct ?? row.finalAiScore.edgePct,
+    confidencePct: marketOnly?.confidencePct ?? confidenceWithLearning(row.pick, row.finalAiScore.confidencePct, perfByFamily, calibration),
     impliedProbPct: implied,
     lineShoppingScore: lineShoppingFromPick(row.pick, row.entry),
-    grade: row.finalAiScore.grade,
+    grade: marketOnly?.grade ?? row.finalAiScore.grade,
     simHit: hit,
     composite: row.finalAiScore.composite,
   };

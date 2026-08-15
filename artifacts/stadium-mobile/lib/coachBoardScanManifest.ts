@@ -12,6 +12,7 @@ import type { FinalAiScore } from "./finalAiScore.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isAltPropPick } from "./altLinePool.ts";
+import { impliedProb } from "./format.ts";
 
 export type ManifestMarketFamily =
   | "playerProps"
@@ -61,7 +62,18 @@ export type CoachBoardScanManifest = {
   gateFailureCounts: Partial<Record<BoardLegGateCode, number>>;
   rejectedSamples: Array<{
     game: string;
+    sport: string;
     market: string;
+    line: number | null;
+    odds: number | null;
+    simulationProbability: number | null;
+    modelProbability: number | null;
+    impliedProbability: number | null;
+    confidence: number | null;
+    edge: number | null;
+    ev: number | null;
+    dataQualityTier: "full" | "partial" | "market_only" | "unknown";
+    correlationStatus: "not_evaluated";
     pick: string;
     category: BoardMarketCategory;
     family: ManifestMarketFamily;
@@ -229,15 +241,38 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     pick: ParsedPick,
     gate: BoardLegGateCode,
     reason: string,
+    score: Partial<FinalAiScore> | null | undefined,
     bucket: CoachBoardScanManifest["rejectedSamples"],
     seen: Set<string>,
   ) => {
     const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|${gate}`;
     if (seen.has(fp) || bucket.length >= MAX_REJECTED_SAMPLES) return;
     seen.add(fp);
+    const line =
+      pick.propLine ??
+      (() => {
+        const match = String(pick.pick ?? "").match(/([+-]?\d+(?:\.\d+)?)\s*$/);
+        return match ? Number(match[1]) : null;
+      })();
+    const simHit = score?.simHit ?? null;
+    const odds = pick.odds ?? null;
     bucket.push({
       game: pick.game,
+      sport: pick.sport ?? "unknown",
       market: String(pick.market ?? ""),
+      line: Number.isFinite(line) ? line : null,
+      odds,
+      simulationProbability: simHit,
+      modelProbability: simHit,
+      impliedProbability: odds != null && Number.isFinite(odds) ? impliedProb(odds) : null,
+      confidence: score?.confidencePct ?? null,
+      edge: score?.edgePct ?? null,
+      ev:
+        simHit != null && odds != null && Number.isFinite(odds)
+          ? simHit * (odds > 0 ? odds / 100 : 100 / -odds) - (1 - simHit)
+          : null,
+      dataQualityTier: "unknown",
+      correlationStatus: "not_evaluated",
       pick: pickLabelForManifest(pick),
       category: boardMarketCategory(pick),
       family: classifyManifestMarketFamily(pick),
@@ -297,7 +332,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
               isCompleteFinalAiScore(score) ? score : null,
             );
       bumpGate(q.gate, preScoreGateFailures);
-      pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp);
+      pushRejectedSample(pick, q.gate, q.reason, score, preScoreRejectedSamples, seenRejectFp);
       syncRecorder();
     },
     recordEvaluatedLeg(leg) {
@@ -315,7 +350,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         return;
       }
       bumpGate(q.gate, manifest.gateFailureCounts);
-      pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp);
+      pushRejectedSample(pick, q.gate, q.reason, score, manifest.rejectedSamples, seenRejectFp);
       syncRecorder();
     },
     recomputeQualificationFromScored(scored) {

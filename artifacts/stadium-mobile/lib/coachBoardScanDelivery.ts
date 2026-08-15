@@ -8,7 +8,7 @@ import {
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
-import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
+import { applyCoachTicketInvariants } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
@@ -84,7 +84,10 @@ export function deliverCoachBoardScanTicket(
 
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  // Board staging has already applied the market-aware sim, EV, edge, confidence,
+  // and correlation gates. Delivery must only enforce hard invariants; re-running
+  // generic delivery gating here can erase an otherwise qualified shortfall.
+  const picks = applyCoachTicketInvariants(finalized.picks, enrich);
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
@@ -168,7 +171,7 @@ export function deliverCoachBoardScanProgress(
   }
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  let picks = applyCoachTicketInvariants(finalized.picks, enrich);
   if (legTarget > 0 && picks.length > legTarget) {
     picks = picks.slice(0, legTarget);
   }
