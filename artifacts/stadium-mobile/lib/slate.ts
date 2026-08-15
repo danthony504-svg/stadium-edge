@@ -100,9 +100,11 @@ export function localDayDiff(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return null;
-  const startOfDay = (x: Date) =>
-    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  return Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
+  // Compare calendar dates, not elapsed milliseconds. Local midnight gaps or
+  // repeats around DST otherwise turn an exact tomorrow event into day 0/2.
+  const localCalendarDay = (x: Date) =>
+    Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()) / 86_400_000;
+  return localCalendarDay(d) - localCalendarDay(new Date());
 }
 
 /** True when the user explicitly asked for tonight's / today's upcoming slate. */

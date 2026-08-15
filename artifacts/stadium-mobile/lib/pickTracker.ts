@@ -84,9 +84,8 @@ const pickKey = (p: {
   game: string;
   market: string;
   pick: string;
-  startsAt?: string | null;
 }) =>
-  `${p.sport ?? ""}|${p.game}|${p.market}|${p.pick}|${p.startsAt ?? ""}`.toLowerCase();
+  `${p.sport ?? ""}|${p.game}|${p.market}|${p.pick}`.toLowerCase();
 
 /** Odds bucket for performance breakdowns (matches web tracker). */
 export type OddsBucket = "heavyFav" | "fav" | "plus" | "longshot";

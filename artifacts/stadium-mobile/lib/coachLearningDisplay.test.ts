@@ -26,7 +26,10 @@ test("gradeTierColor maps letter tiers to palette", () => {
 });
 
 test("buildPerformanceHeadlines includes yesterday and last 7 days", () => {
-  const yesterday = Date.now() - 20 * 3600_000;
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  yesterdayDate.setHours(12, 0, 0, 0);
+  const yesterday = yesterdayDate.getTime();
   const picks: TrackedPick[] = [
     {
       id: "1",
@@ -74,6 +77,7 @@ test("buildPerformanceHeadlines includes yesterday and last 7 days", () => {
 
   const lines = buildPerformanceHeadlines(picks);
   assert.ok(lines.some((l) => l.startsWith("Yesterday:")));
+  assert.ok(lines.some((l) => l.startsWith("Last 7 Days:")));
 });
 
 test("computeLearningCardStats surfaces avg line value from settled edges", () => {
