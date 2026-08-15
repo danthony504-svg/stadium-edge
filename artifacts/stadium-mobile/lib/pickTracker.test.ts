@@ -16,17 +16,13 @@ import {
   trackedSignalBias,
 } from "./pickTrackerAnalytics.ts";
 
-// Repeated captures below model the same scheduled Coach recommendation. Keep
-// its kickoff stable so the identity test does not manufacture two events.
-const FUTURE_START = new Date(Date.now() + 3600_000).toISOString();
-
 const basePick = (over: Partial<CapturablePick> = {}): CapturablePick => ({
   game: "Yankees @ Red Sox",
   market: "Total",
   pick: "Over 8.5",
   odds: -110,
   sport: "mlb",
-  startsAt: FUTURE_START,
+  startsAt: new Date(Date.now() + 3600_000).toISOString(),
   scores: {
     grade: "B",
     confidencePct: 58,
