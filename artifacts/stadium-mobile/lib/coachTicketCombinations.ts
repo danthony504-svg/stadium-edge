@@ -51,6 +51,8 @@ export type CoachTicketBuildOpts = {
   varietySeed: string;
   /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
   ticketStyle?: CoachTicketStyle;
+  /** Rank all market categories together; used by the final Coach board scan. */
+  marketAgnostic?: boolean;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -494,18 +496,36 @@ function assembleBalancedDiverseTicket(
   target: number,
   config: AssemblyConfig,
   ticketStyle: CoachTicketStyle = "balanced",
+  marketAgnostic = false,
 ): ParsedPick[] {
-  // Market category is not a selection signal. Every qualified, posted market
-  // competes in one pool; only rank and correlation can move a leg down.
-  const ticket = pickDiverseLegsFromPool(
-    qualifying,
-    [],
-    target,
-    target,
-    new Set<string>(),
-    config,
-  );
-  return tieredBackfillStagedTicket(ticket, target, allScored, ticketStyle, config.seed);
+  if (marketAgnostic) {
+    const ticket = pickDiverseLegsFromPool(
+      qualifying,
+      [],
+      target,
+      target,
+      new Set<string>(),
+      config,
+    );
+    return tieredBackfillStagedTicket(ticket, target, allScored, ticketStyle, config.seed);
+  }
+  const pools = partitionScoredLegsByCategory(qualifying);
+  const rotatedPools: Record<BoardMarketCategory, BoardScoredLeg[]> = {
+    props: rotateLegPoolForSize(pools.props, config.poolRotate),
+    gameLines: rotateLegPoolForSize(pools.gameLines, config.poolRotate + 2),
+    teamTotals: rotateLegPoolForSize(pools.teamTotals, config.poolRotate + 4),
+    alternateLines: rotateLegPoolForSize(pools.alternateLines, config.poolRotate + 1),
+  };
+  const slots = balancedMixSlots(target);
+  const ticket: ParsedPick[] = [];
+  const used = new Set<string>();
+
+  for (const cat of config.categoryOrder) {
+    appendFromCategory(ticket, used, rotatedPools[cat], slots[cat], target, config);
+  }
+
+  const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
+  return tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
@@ -703,6 +723,7 @@ function generateTicketCandidates(
       target,
       config,
       ticketStyle,
+      opts.marketAgnostic,
     );
     if (!picks.length) continue;
     const legKeys = picks.map((p) => parlayLegKey(p));

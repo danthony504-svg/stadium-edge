@@ -376,6 +376,7 @@ export function buildStagedTicketFromScan(
     return buildIndependentCoachTicket(scored, target, {
       varietySeed,
       ticketStyle,
+      marketAgnostic: true,
       ...varietyContext,
     } satisfies CoachTicketBuildOpts);
   }
