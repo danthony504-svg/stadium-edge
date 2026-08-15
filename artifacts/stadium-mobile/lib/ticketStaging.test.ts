@@ -76,7 +76,7 @@ test("tagTicketRoles labels period moneylines as main — not alt", () => {
   assert.ok(tagged.every((p) => p.ticketRole === "main"));
 });
 
-test("buildStagedTicketFromScan builds balanced mix for 4+ leg targets", () => {
+test("buildStagedTicketFromScan selects the highest-ranked mixed markets without prop quotas", () => {
   const propMainScore = { ...mainScore };
   const scored: BoardScoredLeg[] = [
     leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
@@ -129,10 +129,17 @@ test("buildStagedTicketFromScan builds balanced mix for 4+ leg targets", () => {
   ];
   const { picks } = buildStagedTicketFromScan(scored, 4);
   assert.equal(picks.length, 4);
-  const props = picks.filter((p) => p.isProp).length;
-  const gameLines = picks.filter((p) => !p.isProp).length;
-  assert.ok(props >= 2, `expected at least 2 props, got ${props}`);
-  assert.ok(gameLines <= 2, `expected at most 2 game lines, got ${gameLines}`);
+  assert.deepEqual(
+    picks.map((p) => p.pick),
+    [
+      "B -3.5",
+      "Player Over 24.5 Points",
+      "Star Over 10.5 Rebounds",
+      "Over 8.5",
+    ],
+  );
+  assert.ok(picks.some((p) => p.isProp), "includes a player O/U when it earns the rank");
+  assert.ok(picks.some((p) => !p.isProp), "includes a real non-O/U game market when it earns the rank");
 });
 
 test("buildStagedTicketFromScan returns honest shortfall — no reach-tier filler", () => {

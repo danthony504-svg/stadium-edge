@@ -435,18 +435,6 @@ async function simPropPoolUntilQualified(
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
 
-    // The board is already sufficient. Continuing to simulate the remaining
-    // props cannot improve delivery and makes fixed-leg requests needlessly
-    // wait for unrelated markets.
-    if (
-      buildStagedTicketFromScan(
-        combinedScored(),
-        opts.target,
-      ).picks.length >= opts.target
-    ) {
-      break;
-    }
-
     if (simIndex >= rankedProps.length) break;
 
     batchSize = boardPropSimExpansionBatchSize(opts.target);

@@ -81,7 +81,7 @@ import { attachPropPoolLadder, attachSimAltOptionsToPicks } from "@/lib/altLineR
 import { isQualifyingBackupGameLine, pickShowsAltBadge } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
-import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
+import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks, propShare, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
   recentParlayVarietyContext,
@@ -3494,18 +3494,6 @@ export default function CoachScreen() {
             explicitSingleGame,
             propsOnly: propsOnlyTicket,
           });
-        if (!fullBoardScanned && composeFromBoard) {
-          picks = picks.filter((p) => p.isProp);
-        }
-        if (!fullBoardScanned && !isAnalyze && deepMultiLegParlay && !propsOnlyTicket) {
-          picks = dedupeSameTeamGameLegs(picks).picks;
-          const seeded = prepareDeepParlaySeed(picks, legTarget, { longshotAsk });
-          picks = seeded.picks;
-          if (seeded.stripped > 0) {
-            boardBuilt = true;
-            diversityNote = `_Cleared ${seeded.stripped} chalk game line${seeded.stripped === 1 ? "" : "s"} from the model scaffold — deep parlays are rebuilt from player props and alt rungs on the real board._`;
-          }
-        }
         const lockedPropMarket =
           mentionsProps &&
           /\b(strikeouts?|k'?s|home runs?|hrs?|hits?|total bases?|rebounds?|reb|assists?|ast|points?|pts|anytime td|touchdowns?|receptions?|pass yds?|rush yds?|rec yds?|goals?|shots on goal)\b/i.test(

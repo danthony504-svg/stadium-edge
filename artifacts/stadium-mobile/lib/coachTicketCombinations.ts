@@ -51,6 +51,8 @@ export type CoachTicketBuildOpts = {
   varietySeed: string;
   /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
   ticketStyle?: CoachTicketStyle;
+  /** Rank all market categories together; used by the final Coach board scan. */
+  marketAgnostic?: boolean;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -494,7 +496,19 @@ function assembleBalancedDiverseTicket(
   target: number,
   config: AssemblyConfig,
   ticketStyle: CoachTicketStyle = "balanced",
+  marketAgnostic = false,
 ): ParsedPick[] {
+  if (marketAgnostic) {
+    const ticket = pickDiverseLegsFromPool(
+      qualifying,
+      [],
+      target,
+      target,
+      new Set<string>(),
+      config,
+    );
+    return tieredBackfillStagedTicket(ticket, target, allScored, ticketStyle, config.seed);
+  }
   const pools = partitionScoredLegsByCategory(qualifying);
   const rotatedPools: Record<BoardMarketCategory, BoardScoredLeg[]> = {
     props: rotateLegPoolForSize(pools.props, config.poolRotate),
@@ -709,6 +723,7 @@ function generateTicketCandidates(
       target,
       config,
       ticketStyle,
+      opts.marketAgnostic,
     );
     if (!picks.length) continue;
     const legKeys = picks.map((p) => parlayLegKey(p));
