@@ -12,6 +12,7 @@ import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
+import { traceCoachMarketStage } from "./coachMarketDiagnostics.ts";
 
 export type CoachBoardScanDelivery = {
   picks: ParsedPick[];
@@ -85,6 +86,7 @@ export function deliverCoachBoardScanTicket(
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
   const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  traceCoachMarketStage("FINAL_SELECTED", picks);
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,

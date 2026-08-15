@@ -53,6 +53,7 @@ import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
+import { nonOuCandidateDiagnostic, traceCoachMarketStage } from "./coachMarketDiagnostics.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -552,6 +553,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
+  traceCoachMarketStage(
+    "INGESTED",
+    [...[...evalLinesByGame.values()].flat().map((e) => ({ game: e.game, market: e.market, pick: e.pick, odds: e.odds, sport: e.sport, isProp: false as const })), ...poolBase.map(parsedPickFromPoolEntry)],
+  );
 
   // Always expand to the full posted prop board when ESPN games are available.
   let pool = filterBettablePropPool(poolBase);
@@ -644,6 +649,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
+  const normalized = [
+    ...[...evalLinesByGame.values()].flat().map((e) => ({ game: e.game, market: e.market, pick: e.pick, odds: e.odds, sport: e.sport, isProp: false as const })),
+    ...pool.map(parsedPickFromPoolEntry),
+  ];
+  traceCoachMarketStage("NORMALIZED", normalized);
+  traceCoachMarketStage("SIMULATION_ATTEMPTED", normalized);
 
   for (const entry of pool) {
     manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
@@ -683,8 +694,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
+  traceCoachMarketStage("SIMULATION_SUCCEEDED", scored.map((leg) => leg.pick));
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+  traceCoachMarketStage("QUALIFIED", collapsed.filter((leg) => leg.pick.finalAiScore?.recommends).map((leg) => leg.pick));
+  traceCoachMarketStage("RANKED_TOP_25", collapsed.slice(0, 25).map((leg) => leg.pick));
+  const rejectedNonOu = collapsed
+    .filter((leg) => !leg.pick.isProp && !leg.pick.finalAiScore?.recommends)
+    .slice(0, 20)
+    .map((leg) => nonOuCandidateDiagnostic(leg.pick, leg.pick.finalAiScore, "failed qualification gate"));
+  console.log("[coach-market-diagnostics]", JSON.stringify({ stage: "TOP_20_NON_OU", candidates: rejectedNonOu }));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   const result = buildScanResult(collapsed, {
     target: opts.target,
