@@ -64,8 +64,11 @@ function settledPicks(picks: TrackedPick[]): TrackedPick[] {
 }
 
 function picksSettledOnDay(picks: TrackedPick[], dayOffset: number): TrackedPick[] {
-  const targetStart = startOfLocalDay() + dayOffset * 86_400_000;
-  const targetEnd = targetStart + 86_400_000;
+  const target = new Date(startOfLocalDay());
+  target.setDate(target.getDate() + dayOffset);
+  const targetStart = target.getTime();
+  target.setDate(target.getDate() + 1);
+  const targetEnd = target.getTime();
   return picks.filter((p) => {
     const ts = p.settledAt;
     return ts != null && ts >= targetStart && ts < targetEnd;
@@ -188,7 +191,7 @@ export function buildPerformanceHeadlines(picks: TrackedPick[]): string[] {
 
   const last7 = picksSettledSince(settled, 7);
   const w7 = tallyPicks(last7);
-  if (decided(w7) >= 3) {
+  if (decided(w7) >= 1) {
     const pct = winPct(w7);
     lines.push(`Last 7 Days: ${recordText(w7)} (${pct?.toFixed(0)}%)`);
   }
