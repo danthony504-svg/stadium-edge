@@ -184,7 +184,7 @@ export function trackedPickFromParsedPick(
   const model = p.isProp ? resolvePositionMarketModel(sport, position, marketKey) : null;
 
   return {
-    id: pickKey({ sport: p.sport, game: p.game, market: p.market, pick: p.pick, startsAt }),
+    id: pickKey({ sport: p.sport, game: p.game, market: p.market, pick: p.pick }),
     capturedAt: now,
     date: gameDay,
     sport,
