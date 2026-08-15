@@ -181,6 +181,17 @@ test("buildStagedTicketFromScan stops at available qualifiers without filler", (
   assert.equal(breakdown.altQualified, 1);
 });
 
+test("a six-leg request returns its three qualified candidates without filler", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Moneyline", pick: "A ML", odds: -110 }, 100, mainScore),
+    leg({ game: "C @ D", market: "Spread", pick: "C -2.5", odds: -110 }, 95, mainScore),
+    leg({ game: "E @ F", market: "Total", pick: "Over 7.5", odds: -110 }, 90, mainScore),
+  ];
+  const { picks } = buildStagedTicketFromScan(scored, 6);
+  assert.equal(picks.length, 3);
+  assert.deepEqual(picks.map((p) => p.market), ["Moneyline", "Spread", "Total"]);
+});
+
 test("capThinStatMarketsOnTicket limits stolen bases on 6+ leg tickets", () => {
   const sb = (player: string, game: string) => ({
     game,
