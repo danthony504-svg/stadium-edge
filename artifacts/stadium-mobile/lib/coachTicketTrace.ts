@@ -13,7 +13,8 @@ export type CoachTicketTraceStage =
   | "server-staged"
   | "mobile-received"
   | "mobile-delivered"
-  | "slip-capture";
+  | "slip-capture"
+  | "market-stage";
 
 function pickTraceIds(picks: readonly ParsedPick[]): string[] {
   return picks.map((p) => pickLegFingerprint(p));
@@ -21,6 +22,25 @@ function pickTraceIds(picks: readonly ParsedPick[]): string[] {
 
 function pickLegKeys(picks: readonly ParsedPick[]): string[] {
   return picks.map((p) => parlayLegKey(p));
+}
+
+export function coachMarketFamilyCounts(picks: readonly ParsedPick[]): Record<string, number> {
+  const counts: Record<string, number> = {
+    moneyline: 0, spread: 0, total: 0, teamTotal: 0, playerOu: 0, milestone: 0, alternate: 0,
+  };
+  for (const pick of picks) {
+    const market = String(pick.market ?? "").toLowerCase();
+    if (pick.isProp) {
+      if (pick.propIsAlt || /\balt\b/.test(market)) counts.alternate++;
+      else if (pick.propLine == null || /anytime|milestone|threshold/.test(market)) counts.milestone++;
+      else counts.playerOu++;
+    } else if (/team total/.test(market)) counts.teamTotal++;
+    else if (/alt /.test(market)) counts.alternate++;
+    else if (/moneyline|\bml\b/.test(market)) counts.moneyline++;
+    else if (/spread|run line|puck line/.test(market)) counts.spread++;
+    else if (/total/.test(market)) counts.total++;
+  }
+  return counts;
 }
 
 /** Structured console trace for ticket path debugging. */

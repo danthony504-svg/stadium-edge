@@ -52,7 +52,7 @@ export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type Boa
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
-import { traceCoachTicket } from "./coachTicketTrace.ts";
+import { coachMarketFamilyCounts, traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -552,6 +552,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
+  const ingested = [
+    ...[...evalLinesByGame.values()].flat().map((entry) => ({
+      sport: entry.sport, game: entry.game, market: entry.market, pick: entry.pick,
+      odds: entry.odds, startsAt: entry.startsAt, isProp: false as const,
+    })),
+    ...poolBase.map(parsedPickFromPoolEntry),
+  ];
+  traceCoachTicket("market-stage", {
+    source: "INGESTED",
+    pickIds: ingested,
+    extra: { marketFamilies: coachMarketFamilyCounts(ingested) },
+  });
 
   // Always expand to the full posted prop board when ESPN games are available.
   let pool = filterBettablePropPool(poolBase);
@@ -683,9 +695,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
+  traceCoachTicket("market-stage", {
+    source: "SIMULATED_RANKED",
+    pickIds: scored.map((leg) => leg.pick),
+    extra: { marketFamilies: coachMarketFamilyCounts(scored.map((leg) => leg.pick)) },
+  });
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+  traceCoachTicket("market-stage", {
+    source: "QUALIFIED",
+    pickIds: collapsed.map((leg) => leg.pick),
+    extra: { marketFamilies: coachMarketFamilyCounts(collapsed.map((leg) => leg.pick)) },
+  });
   const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
