@@ -380,7 +380,24 @@ export function buildStagedTicketFromScan(
     } satisfies CoachTicketBuildOpts);
   }
   if (target >= 3) {
-    return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
+    const qualifying = qualifyingScoredLegs(scored);
+    const topRanked = selectTopBoardLegs(qualifying, target, varietySeed).map((pick) => ({
+      ...pick,
+      ticketRole: boardLegPoolRole(pick, pick.finalAiScore)!,
+      highRiskValuePlay: false,
+    }));
+    const finalPicks = applyCapAndBackfillToTarget(topRanked, target, qualifying);
+    const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
+    const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
+    return {
+      picks: finalPicks,
+      breakdown: {
+        mainQualified: mains.length,
+        altQualified: alts.length,
+        mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
+        altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
+      },
+    };
   }
 
   const mains: BoardScoredLeg[] = [];

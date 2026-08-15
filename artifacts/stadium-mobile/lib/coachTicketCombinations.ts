@@ -495,23 +495,17 @@ function assembleBalancedDiverseTicket(
   config: AssemblyConfig,
   ticketStyle: CoachTicketStyle = "balanced",
 ): ParsedPick[] {
-  const pools = partitionScoredLegsByCategory(qualifying);
-  const rotatedPools: Record<BoardMarketCategory, BoardScoredLeg[]> = {
-    props: rotateLegPoolForSize(pools.props, config.poolRotate),
-    gameLines: rotateLegPoolForSize(pools.gameLines, config.poolRotate + 2),
-    teamTotals: rotateLegPoolForSize(pools.teamTotals, config.poolRotate + 4),
-    alternateLines: rotateLegPoolForSize(pools.alternateLines, config.poolRotate + 1),
-  };
-  const slots = balancedMixSlots(target);
-  const ticket: ParsedPick[] = [];
-  const used = new Set<string>();
-
-  for (const cat of config.categoryOrder) {
-    appendFromCategory(ticket, used, rotatedPools[cat], slots[cat], target, config);
-  }
-
-  const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
-  return tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
+  // Market category is not a selection signal. Every qualified, posted market
+  // competes in one pool; only rank and correlation can move a leg down.
+  const ticket = pickDiverseLegsFromPool(
+    qualifying,
+    [],
+    target,
+    target,
+    new Set<string>(),
+    config,
+  );
+  return tieredBackfillStagedTicket(ticket, target, allScored, ticketStyle, config.seed);
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
