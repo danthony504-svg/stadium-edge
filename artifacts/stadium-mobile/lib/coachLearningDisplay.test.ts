@@ -74,6 +74,7 @@ test("buildPerformanceHeadlines includes yesterday and last 7 days", () => {
 
   const lines = buildPerformanceHeadlines(picks);
   assert.ok(lines.some((l) => l.startsWith("Yesterday:")));
+  assert.ok(lines.some((l) => l.startsWith("Last 7 Days:")));
 });
 
 test("computeLearningCardStats surfaces avg line value from settled edges", () => {

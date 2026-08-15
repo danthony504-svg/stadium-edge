@@ -137,7 +137,6 @@ test("filterTomorrowSlatePicks keeps only tomorrow kickoffs", () => {
   tomorrow.setHours(17, 35, 0, 0);
   const today = new Date();
   today.setHours(23, 0, 0, 0);
-  if (today.getTime() <= Date.now()) today.setDate(today.getDate() + 1);
   const kept = filterPicksForSlateDay(
     [{ startsAt: tomorrow.toISOString() }, { startsAt: today.toISOString() }],
     "tomorrow",
