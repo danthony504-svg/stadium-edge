@@ -54,6 +54,7 @@ import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { nonOuCandidateDiagnostic, traceCoachMarketStage } from "./coachMarketDiagnostics.ts";
+import { explainBoardLegQualification } from "./boardLegQualification.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -699,10 +700,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   traceCoachMarketStage("QUALIFIED", collapsed.filter((leg) => leg.pick.finalAiScore?.recommends).map((leg) => leg.pick));
   traceCoachMarketStage("RANKED_TOP_25", collapsed.slice(0, 25).map((leg) => leg.pick));
-  const rejectedNonOu = collapsed
-    .filter((leg) => !leg.pick.isProp && !leg.pick.finalAiScore?.recommends)
+  const rejectedNonOu = scored
+    .filter((leg) => !leg.pick.isProp && !explainBoardLegQualification(leg.pick, leg.pick.finalAiScore).qualifies)
+    .sort((a, b) => b.rankScore - a.rankScore)
     .slice(0, 20)
-    .map((leg) => nonOuCandidateDiagnostic(leg.pick, leg.pick.finalAiScore, "failed qualification gate"));
+    .map((leg) => {
+      const qualification = explainBoardLegQualification(leg.pick, leg.pick.finalAiScore);
+      return nonOuCandidateDiagnostic(leg.pick, leg.pick.finalAiScore, `${qualification.gate}: ${qualification.reason}`);
+    });
   console.log("[coach-market-diagnostics]", JSON.stringify({ stage: "TOP_20_NON_OU", candidates: rejectedNonOu }));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   const result = buildScanResult(collapsed, {
