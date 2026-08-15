@@ -48,6 +48,12 @@ test("formatCoachBoardScanManifest lists coverage and gate failures", () => {
   assert.match(text, /0 legs delivered/i);
   assert.match(text, /Candidates evaluated \(with sim\): \*\*1\*\*/);
   assert.match(text, /No sim grade/i);
+  const rejected = manifest.rejectedSamples[0]!;
+  assert.equal(rejected.sport, "nba");
+  assert.equal(rejected.line, 24.5);
+  assert.equal(rejected.odds, -110);
+  assert.equal(rejected.simulationProbability, null);
+  assert.equal(rejected.gate, "no_sim_grade");
 });
 
 test("recomputeQualificationFromScored does not double-count evaluated candidates", () => {
