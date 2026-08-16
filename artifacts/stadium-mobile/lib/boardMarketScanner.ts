@@ -698,7 +698,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   traceCoachMarketStage("SIMULATION_SUCCEEDED", scored.map((leg) => leg.pick));
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
-  traceCoachMarketStage("QUALIFIED", collapsed.filter((leg) => leg.pick.finalAiScore?.recommends).map((leg) => leg.pick));
+  traceCoachMarketStage("QUALIFIED", collapsed.map((leg) => leg.pick));
   traceCoachMarketStage("RANKED_TOP_25", collapsed.slice(0, 25).map((leg) => leg.pick));
   const rejectedNonOu = scored
     .filter((leg) => !leg.pick.isProp && !explainBoardLegQualification(leg.pick, leg.pick.finalAiScore).qualifies)
