@@ -101,3 +101,42 @@ test("stageServerTicketBalanced builds independent tickets per leg count", () =>
   assert.equal(fifteen.length, 15);
   assert.equal(isPrefixServerTicket(fifteen, five), false);
 });
+
+test("stageServerTicketBalanced fulfills 3, 5, and 10 legs when qualified main and alternate markets exist", () => {
+  const ranked = Array.from({ length: 12 }, (_, index) => {
+    const number = index + 1;
+    const isProp = number <= 6;
+    const isAlt = number === 3 || number === 9 || number === 12;
+    return {
+      pick: pick(
+        isProp
+          ? {
+              game: `P${number} @ Q${number}`,
+              market: isAlt ? "Alt Points" : "Points",
+              pick: `Player ${number} Over ${18 + number / 2}`,
+              odds: -110,
+              isProp: true,
+              player: `Player ${number}`,
+              propIsAlt: isAlt,
+            }
+          : {
+              game: `G${number} @ H${number}`,
+              market: isAlt ? "Alt Spread" : number % 2 ? "Spread" : "Total",
+              pick: isAlt ? `G${number} -1.5` : `G${number} -3.5`,
+              odds: -110,
+            },
+      ),
+      rankScore: 200 - number,
+      isAlt,
+    };
+  });
+
+  for (const target of [3, 5, 10]) {
+    const staged = stageServerTicketBalanced(ranked, target);
+    assert.equal(staged.picks.length, target, `${target}-leg ticket should be complete`);
+    assert.ok(
+      staged.breakdown.mainOnTicket + staged.breakdown.altOnTicket === target,
+      `${target}-leg ticket should account for every delivered leg`,
+    );
+  }
+});

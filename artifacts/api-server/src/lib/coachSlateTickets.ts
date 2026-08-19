@@ -42,6 +42,16 @@ function scanFromRanked(
       | Record<string, { mlLean?: { side?: string } }>
       | undefined,
   });
+  console.info(
+    "[coach-ticket-funnel]",
+    JSON.stringify({
+      requestedLegs: target,
+      passedToFinalCandidateSelection: sorted.length,
+      beforeCorrelation: staged.picks.length,
+      afterCorrelation: picks.length,
+      returnedToClient: picks.length,
+    }),
+  );
   console.log(
     "[coach-ticket-trace] server-staged",
     JSON.stringify({
