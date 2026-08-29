@@ -229,6 +229,7 @@ export function simEdgeStagingQualifies(
 ): boolean {
   if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (!score.simAligned) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
   if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;

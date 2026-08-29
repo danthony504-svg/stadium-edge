@@ -63,11 +63,11 @@ export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> 
       awayTeamId: g.awayTeamId,
       homeTeam: home,
       awayTeam: away,
-      homeAliases: teamAliases(home, g.homeAbbr),
-      awayAliases: teamAliases(away, g.awayAbbr),
+      homeAliases: teamAliases(home, g.homeAbbr ?? undefined),
+      awayAliases: teamAliases(away, g.awayAbbr ?? undefined),
     };
-    for (const awayAlias of ids.awayAliases) {
-      for (const homeAlias of ids.homeAliases) {
+    for (const awayAlias of ids.awayAliases ?? []) {
+      for (const homeAlias of ids.homeAliases ?? []) {
         map.set(`${awayAlias} @ ${homeAlias}`, ids);
       }
     }

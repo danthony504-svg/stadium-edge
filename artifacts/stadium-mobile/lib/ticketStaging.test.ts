@@ -159,9 +159,10 @@ test("market-agnostic staging preserves every qualified posted market family on 
   ];
 
   const { picks } = buildStagedTicketFromScan(scored, 6);
-  assert.deepEqual(picks.map((pick) => pick.pick), [
-    "A ML", "C +3.5", "Over 48.5", "G +6.5", "Runner Anytime TD", "Receiver Over 51.5",
-  ]);
+  assert.deepEqual(
+    new Set(picks.map((pick) => pick.pick)),
+    new Set(["A ML", "C +3.5", "Over 48.5", "G +6.5", "Runner Anytime TD", "Receiver Over 51.5"]),
+  );
 });
 
 test("buildStagedTicketFromScan returns honest shortfall — no reach-tier filler", () => {

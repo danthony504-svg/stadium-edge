@@ -1913,6 +1913,7 @@ export async function fetchPropSimulations(
     propLine?: number | null;
     propSide?: string;
     propMarketKey?: string;
+    market?: string;
     athleteId?: string | null;
     game?: string;
     sport?: string;
