@@ -176,8 +176,18 @@ function propSimConfidenceFloor(simHit: number | null | undefined): number {
   return Math.max(5, Math.min(95, Math.round(50 + Math.abs(simHit - 0.5) * 40)));
 }
 
+export function effectiveCoachConfidence(
+  score: Pick<FinalAiScore, "confidencePct" | "simHit"> | null | undefined,
+  isProp: boolean,
+): number {
+  if (!score) return 0;
+  return isProp
+    ? Math.max(score.confidencePct ?? 0, propSimConfidenceFloor(score.simHit))
+    : score.confidencePct ?? 0;
+}
+
 function effectivePropConfidence(score: FinalAiScore): number {
-  return Math.max(score.confidencePct ?? 0, propSimConfidenceFloor(score.simHit));
+  return effectiveCoachConfidence(score, true);
 }
 
 function legacyPropStagingQualifies(
