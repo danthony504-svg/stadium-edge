@@ -1462,14 +1462,34 @@ export default function CoachScreen() {
         legTarget?: number;
         legNote?: string;
         pinScroll?: boolean;
+        allowQualifiedPreviewTerminal?: boolean;
       },
     ) => {
+      const startedAt = Date.now();
+      const traceFinalStage = (stage: string, extra: Record<string, unknown> = {}) => {
+        console.log(
+          "[coach-final-trace]",
+          JSON.stringify({
+            stage,
+            elapsedMs: Date.now() - startedAt,
+            requestId: coachRequestContextRef.current?.requestId ?? "",
+            scanComplete: boardScanIsComplete(partial),
+            scanPickCount: partial.picks.length,
+            ...extra,
+          }),
+        );
+      };
       const ctx = coachRequestContextRef.current;
       const sendGen = sendGenerationRef.current;
       if (ctx?.requestId && coachRequestWasCompleted(sendGen, ctx.requestId)) {
+        traceFinalStage("final_selection_skipped_completed_request");
         return true;
       }
-      if (!boardScanIsComplete(partial)) return false;
+      const terminalPreview =
+        opts?.allowQualifiedPreviewTerminal === true &&
+        (opts.legTarget ?? activeRequestLegTargetRef.current) > 0 &&
+        partial.picks.length >= (opts.legTarget ?? activeRequestLegTargetRef.current);
+      if (!boardScanIsComplete(partial) && !terminalPreview) return false;
 
       const enrich = opts?.enrichOverride ?? flashEnrichRef.current;
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
@@ -1482,10 +1502,17 @@ export default function CoachScreen() {
         (activeRequestLegTargetRef.current ||
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
-      const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
+      traceFinalStage("final_selection_started", { legTarget, terminalPreview });
+      const delivered = boardScanIsComplete(partial)
+        ? deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget)
+        : deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
       let ticket = delivered.picks;
-      let legNote = opts?.legNote ?? partial.note;
-      const coachDetailNote = delivered.coachDetailNote;
+      traceFinalStage("ticket_creation_finished", { ticketCount: ticket.length });
+      let legNote =
+        opts?.legNote ??
+        ("progressNote" in delivered ? delivered.progressNote : partial.note);
+      const coachDetailNote =
+        "coachDetailNote" in delivered ? delivered.coachDetailNote : "";
       if (legTarget > 0 && ticket.length < legTarget) {
         legNote = ticket.length
           ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
@@ -1495,6 +1522,7 @@ export default function CoachScreen() {
       }
 
       if (legTarget >= 3) {
+        traceFinalStage("ticket_finalization_started", { ticketCount: ticket.length });
         const finalized = finalizeCoachTicketForRequest(ticket, {
           requestedLegs: legTarget,
           requestId: ctx?.requestId,
@@ -1505,13 +1533,15 @@ export default function CoachScreen() {
         });
         if (!finalized.ok) ticket = [];
         else ticket = finalized.picks;
+        traceFinalStage("ticket_finalization_finished", { ticketCount: ticket.length });
       } else if (legTarget > 0 && ticket.length) {
         rememberParlayBuild(ticket);
         if (ctx) recordCoachTicketDelivered(ticket, ctx);
       }
 
       setCoachRequestPhase("finalizing", ctx?.requestId);
-      return commitCoachRequestTerminal({
+      traceFinalStage("terminal_state_commit_started", { ticketCount: ticket.length });
+      const committed = commitCoachRequestTerminal({
         partial,
         picks: ticket,
         legNote,
@@ -1520,6 +1550,8 @@ export default function CoachScreen() {
         pinScroll: opts?.pinScroll,
         terminal: ticket.length > 0 ? "completed" : "empty",
       });
+      traceFinalStage("terminal_state_commit_finished", { committed, ticketCount: ticket.length });
+      return committed;
     },
     [commitCoachRequestTerminal],
   );
@@ -1840,6 +1872,14 @@ export default function CoachScreen() {
       }
       latestBoardScanRef.current = partial;
       if (boardScanIsComplete(partial)) {
+        console.log(
+          "[coach-final-trace]",
+          JSON.stringify({
+            stage: "board_scan_completion_callback",
+            requestId: ctx?.requestId ?? "",
+            scanPickCount: partial.picks.length,
+          }),
+        );
         setCoachRequestPhase("correlation", ctx?.requestId);
         if (partial.picks.length) {
           setBoardScanPartialLegs(partial.picks.length);
@@ -1849,6 +1889,32 @@ export default function CoachScreen() {
           legTarget: legTarget > 0 ? legTarget : undefined,
         });
         return;
+      }
+      if (partial.picks.length) {
+        const previewStartedAt = Date.now();
+        const terminalPreview =
+          legTarget > 0 && partial.picks.length >= legTarget;
+        const committed = terminalPreview
+          ? tryCommitCoachScanResult(partial, {
+              legTarget,
+              allowQualifiedPreviewTerminal: true,
+            })
+          : patchInstantBoardScanTicket(partial, undefined, {
+              ticketLegTarget: legTarget || undefined,
+            });
+        console.log(
+          "[coach-final-trace]",
+          JSON.stringify({
+            stage: terminalPreview
+              ? "qualified_preview_terminal"
+              : "qualified_preview_rendered",
+            elapsedMs: Date.now() - previewStartedAt,
+            requestId: ctx?.requestId ?? "",
+            scanPickCount: partial.picks.length,
+            committed,
+          }),
+        );
+        if (committed) return;
       }
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
