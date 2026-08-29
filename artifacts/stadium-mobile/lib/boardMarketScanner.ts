@@ -34,6 +34,7 @@ import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
+import { explainBoardLegQualification } from "./boardLegQualification.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
 import { marketConfidenceDelta } from "./marketWeighting.ts";
 import { scoreLineShopping } from "./pickScore.ts";
@@ -513,6 +514,8 @@ function buildScanResult(
 
 export async function buildTopLegsFromFullBoardScan(opts: {
   target: number;
+  /** Restrict a direct run-line/spread request to team run-line ladders. */
+  marketScope?: "run-line";
   oddsGames: OddsGame[];
   propPool: PropPoolEntry[];
   realOdds: RealOddsEntry[];
@@ -543,11 +546,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
 
+  const isRunLineEntry = (entry: RealOddsEntry) =>
+    /\b(?:alt(?:ernate)?\s+)?(?:run line|spread)\b/i.test(entry.market);
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
     const label = `${og.awayTeam} @ ${og.homeTeam}`;
     const ladder = buildEvalLinesForAllGames([og]).get(label) ?? [];
-    evalLinesByGame.set(label, buildFullEvalLinesForGame(og, ladder));
+    const fullLines = buildFullEvalLinesForGame(og, ladder);
+    evalLinesByGame.set(
+      label,
+      opts.marketScope === "run-line" ? fullLines.filter(isRunLineEntry) : fullLines,
+    );
   }
   evalLinesByGame = augmentEvalLinesWithPostedOdds(evalLinesByGame, [
     ...opts.realOdds,
@@ -564,8 +573,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
 
   // Always expand to the full posted prop board when ESPN games are available.
-  let pool = filterBettablePropPool(poolBase);
-  const poolExpandP = opts.espnGames?.length
+  // A direct run-line request is a team-market request, never a player-prop
+  // request. Keep the prop pool empty so no player line can consume scan work.
+  let pool = opts.marketScope === "run-line" ? [] : filterBettablePropPool(poolBase);
+  const poolExpandP = opts.marketScope !== "run-line" && opts.espnGames?.length
     ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
         .then((rows) => filterBettablePropPool(rows))
         .catch(() => null)
@@ -627,6 +638,27 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
+        if (opts.marketScope === "run-line") {
+          const score = {
+            ...row.finalAiScore,
+            simHit: simHit ?? row.finalAiScore.simHit ?? null,
+          };
+          const qualification = explainBoardLegQualification(row.pick, score);
+          console.info("[Coach run-line market]", {
+            market: row.pick.market,
+            pick: row.pick.pick,
+            odds: row.pick.odds ?? null,
+            simulatedCoverProbabilityPct:
+              score.simHit == null ? null : Math.round(score.simHit * 10_000) / 100,
+            impliedProbabilityPct:
+              row.pick.odds == null ? null : Math.round(impliedProb(row.pick.odds) * 10_000) / 100,
+            edgePct: score.edgePct ?? null,
+            confidencePct: score.confidencePct ?? null,
+            grade: score.grade ?? null,
+            accepted: qualification.qualifies,
+            rejectionReason: qualification.qualifies ? null : qualification.reason,
+          });
+        }
         if (leg) {
           scored.push(leg);
         } else if (sim) {
@@ -727,7 +759,31 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     requestId: opts.requestId,
   });
   if (opts.onPartial) opts.onPartial(result);
+  const manifest = result.manifest;
+  if (opts.marketScope === "run-line" && manifest) {
+    const rejected = Object.values(manifest.gateFailureCounts).reduce(
+      (total, count) => total + (count ?? 0),
+      0,
+    );
+    console.info("[Coach run-line audit]", {
+      marketsLoaded: [...evalLinesByGame.values()].flat().length,
+      marketsEvaluated: manifest.totalEvaluated,
+      marketsRejected: rejected,
+      deliveredLegs: result.picks.length,
+      rejectedMarkets: manifest.rejectedSamples.map((sample) => ({
+        market: sample.market,
+        pick: sample.pick,
+        reason: sample.reason,
+      })),
+      playerPropsSearched: false,
+    });
+  }
   return result;
+}
+
+/** Direct team run-line / spread intent; avoids accidentally entering prop scan paths. */
+export function isRunLineMarketRequest(text: string | null | undefined): boolean {
+  return /\b(?:alternate\s+)?run\s*line\b|\bspread(?:s)?\b/i.test(String(text ?? ""));
 }
 
 export function shouldUseFullBoardScan(

@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
-import { reachBoardScanEligible, shouldUseFullBoardScan } from "./boardMarketScanner.ts";
+import {
+  isRunLineMarketRequest,
+  reachBoardScanEligible,
+  shouldUseFullBoardScan,
+} from "./boardMarketScanner.ts";
 
 test("FULL_BOARD_MARKET_FAMILIES lists every period and combo market", () => {
   assert.match(FULL_BOARD_MARKET_FAMILIES, /live markets/i);
@@ -41,4 +45,11 @@ test("reachBoardScanEligible requires 3+ legs and no locks", () => {
   assert.equal(reachBoardScanEligible({ requestedLegs: 2 }), false);
   assert.equal(reachBoardScanEligible({ requestedLegs: 15, propsOnly: true }), false);
   assert.equal(shouldUseFullBoardScan(15, { requestedLegs: 15 }), true);
+});
+
+test("run-line requests route only to team run-line market scope", () => {
+  assert.equal(isRunLineMarketRequest("3 leg run line"), true);
+  assert.equal(isRunLineMarketRequest("alternate run line parlay"), true);
+  assert.equal(isRunLineMarketRequest("3 leg spread"), true);
+  assert.equal(isRunLineMarketRequest("3 leg player props"), false);
 });
