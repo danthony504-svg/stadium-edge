@@ -177,7 +177,7 @@ function propSimConfidenceFloor(simHit: number | null | undefined): number {
 }
 
 export function effectiveCoachConfidence(
-  score: Pick<FinalAiScore, "confidencePct" | "simHit"> | null | undefined,
+  score: { confidencePct?: number | null; simHit?: number | null } | null | undefined,
   isProp: boolean,
 ): number {
   if (!score) return 0;
