@@ -167,6 +167,7 @@ import {
 import {
   coachRequestWasCompleted,
   completeCoachRequest,
+  getCoachRequestPhase,
   registerActiveCoachRequest,
   setCoachRequestPhase,
 } from "@/lib/coachRequestCompletion";
@@ -1419,6 +1420,11 @@ export default function CoachScreen() {
           legTarget,
         },
         () => {
+          console.log("[coach-final-trace]", {
+            event: "state_update_start",
+            requestId,
+            pickCount: picks.length,
+          });
           if (opts.partial) latestBoardScanRef.current = opts.partial;
           boardTicketSnapshotRef.current = picks;
           if (opts.partial && boardScanIsComplete(opts.partial)) {
@@ -1443,10 +1449,35 @@ export default function CoachScreen() {
             coachDetailNote: opts.coachDetailNote?.trim() || undefined,
             ticketLegTarget: legTarget > 0 ? legTarget : undefined,
           });
+          console.log("[coach-final-trace]", {
+            event: "state_update_complete",
+            requestId,
+            patched,
+            pickCount: picks.length,
+          });
           if (patched) {
             setAiPicks(picks);
             if (picks.length) captureCoachPicksOnce(picks);
+            console.log("[coach-final-trace]", {
+              event: "results_rendered",
+              requestId,
+              pickCount: picks.length,
+            });
           }
+          console.log("[coach-final-trace]", {
+            event: "progress_100",
+            requestId,
+            progress: 100,
+          });
+          console.log("[coach-final-trace]", {
+            event: "finalTicketReady_true",
+            requestId,
+            value: picks.length > 0,
+          });
+          console.log("[coach-final-trace]", {
+            event: "isScanning_false",
+            requestId,
+          });
           if (opts.pinScroll !== false) scrollToEnd(false);
         },
       );
@@ -1482,8 +1513,20 @@ export default function CoachScreen() {
         (activeRequestLegTargetRef.current ||
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
+      console.log("[coach-final-trace]", {
+        event: "final_selection_start",
+        requestId: ctx?.requestId ?? "",
+        qualifiedCandidateCount: partial.totalQualified,
+        scanPickCount: partial.picks.length,
+        legTarget,
+      });
       const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
       let ticket = delivered.picks;
+      console.log("[coach-final-trace]", {
+        event: "final_selection_complete",
+        requestId: ctx?.requestId ?? "",
+        returnedPickCount: ticket.length,
+      });
       let legNote = opts?.legNote ?? partial.note;
       const coachDetailNote = delivered.coachDetailNote;
       if (legTarget > 0 && ticket.length < legTarget) {
@@ -1495,6 +1538,12 @@ export default function CoachScreen() {
       }
 
       if (legTarget >= 3) {
+        console.log("[coach-final-trace]", {
+          event: "ticket_creation_start",
+          requestId: ctx?.requestId ?? "",
+          candidateCount: ticket.length,
+          legTarget,
+        });
         const finalized = finalizeCoachTicketForRequest(ticket, {
           requestedLegs: legTarget,
           requestId: ctx?.requestId,
@@ -1505,6 +1554,12 @@ export default function CoachScreen() {
         });
         if (!finalized.ok) ticket = [];
         else ticket = finalized.picks;
+        console.log("[coach-final-trace]", {
+          event: "ticket_creation_complete",
+          requestId: ctx?.requestId ?? "",
+          ok: finalized.ok,
+          returnedPickCount: ticket.length,
+        });
       } else if (legTarget > 0 && ticket.length) {
         rememberParlayBuild(ticket);
         if (ctx) recordCoachTicketDelivered(ticket, ctx);
@@ -1761,6 +1816,12 @@ export default function CoachScreen() {
       const stallMs = buildStallBudgetMs(legs);
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
+        console.warn("[coach-final-trace]", {
+          event: "final_selection_timeout",
+          requestId: coachRequestContextRef.current?.requestId ?? "",
+          phase: getCoachRequestPhase(),
+          message: "Request remained unresolved until the build-stall watchdog fired",
+        });
         setMessages((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
@@ -1829,6 +1890,12 @@ export default function CoachScreen() {
       }
       latestBoardScanRef.current = partial;
       if (boardScanIsComplete(partial)) {
+        console.log("[coach-final-trace]", {
+          event: "correlation_finished",
+          requestId: ctx?.requestId ?? "",
+          qualifiedCandidateCount: partial.totalQualified,
+          scanPickCount: partial.picks.length,
+        });
         setCoachRequestPhase("correlation", ctx?.requestId);
         if (partial.picks.length) {
           setBoardScanPartialLegs(partial.picks.length);
@@ -5466,6 +5533,11 @@ export default function CoachScreen() {
           );
         }
       } catch (e: any) {
+        console.error("[coach-final-trace]", {
+          event: "ticket_creation_error",
+          requestId: coachRequestContextRef.current?.requestId ?? "",
+          error: e instanceof Error ? e.message : String(e),
+        });
         if (handedOffRef.current) {
           // We deliberately aborted the in-app stream to hand the build off to
           // the server when the app was backgrounded. It keeps generating and
