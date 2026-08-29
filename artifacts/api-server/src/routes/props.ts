@@ -396,7 +396,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     }
 
     const fetchOdds = async (mkList: string[]) => {
-      const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${effectiveEventId}/odds?apiKey=${apiKey}&regions=us&markets=${mkList.join(",")}&oddsFormat=american`;
+      // Props must use the same supported-book coverage as the game board.
+      // Keep both US regions so a strong alternate rung at a US2 book does not
+      // disappear before the Coach can compare it with the standard line.
+      const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${effectiveEventId}/odds?apiKey=${apiKey}&regions=us,us2&markets=${mkList.join(",")}&oddsFormat=american`;
       const r = await fetchOddsApi(url);
       if (!r.ok) {
         const text = await r.text();
@@ -431,13 +434,25 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           })
         : Promise.resolve(null),
       altMarkets.length
-        ? cachedJson<RawEventOdds | null>(`props-alt:${oddsKey}:${effectiveEventId}:v1`, 5 * 60 * 1000, async () => {
-            // Same honest fallback as QH: the alternate-ladder batch is all-or-
-            // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
-            // window) returns null and the base + QH props stand on their own.
-            try { return await fetchOdds(altMarkets); } catch { return null; }
-          })
-        : Promise.resolve(null),
+        ? Promise.all(
+            altMarkets.map((market) =>
+              cachedJson<RawEventOdds | null>(
+                `props-alt:${oddsKey}:${effectiveEventId}:${market}:v2`,
+                5 * 60 * 1000,
+                async () => {
+                  // Alternate keys are fault-isolated. The upstream rejects an
+                  // entire batch for one unsupported key, which previously
+                  // erased every other posted alternate market for the game.
+                  try {
+                    return await fetchOdds([market]);
+                  } catch {
+                    return null;
+                  }
+                },
+              ),
+            ),
+          )
+        : Promise.resolve([] as Array<RawEventOdds | null>),
     ]);
 
     // Union player markets across ALL bookmakers (base + quarter/half),
@@ -481,7 +496,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       underSpread?: number | null;
     };
     const byKey = new Map<string, PropRow>();
-    // Per-book two-sided prices for MAIN lines, used to compute the no-vig
+    // Per-book two-sided prices for every rung, used to compute the no-vig
     // consensus fair value. Keyed the same as byKey (player|market|line), then by
     // book title → { over, under }. Only a book that posts BOTH sides can be
     // de-vigged, so we keep them per book and require a minimum count below.
@@ -491,9 +506,11 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     // "_alternate" suffix so each rung folds into the SAME (player, stat) bucket
     // as the main line; a rung that also exists as a real MAIN line is treated
     // as main (alt=false), never as an alt rung.
-    const ingest = (src: RawEventOdds | null, isAlt: boolean) => {
-      if (!src) return;
-      for (const book of src.bookmakers ?? []) {
+    const ingest = (source: RawEventOdds | Array<RawEventOdds | null> | null, isAlt: boolean) => {
+      const sources = Array.isArray(source) ? source : [source];
+      for (const src of sources) {
+        if (!src) continue;
+        for (const book of src.bookmakers ?? []) {
         for (const m of book.markets ?? []) {
           const marketKey = isAlt ? m.key.replace(/_alternate$/, "") : m.key;
           for (const o of m.outcomes ?? []) {
@@ -518,11 +535,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
               else { const b = betterAmerican(row.underPrice, price); if (b !== row.underPrice) { row.underPrice = b; row.underBook = title; } }
             }
             byKey.set(k, row);
-            // Record this book's posted price per side (MAIN lines only) so we can
-            // de-vig each book individually and form a consensus fair value. Alt
-            // rungs are excluded — they have sparse, lopsided coverage that would
-            // produce an unreliable "fair" line.
-            if (!isAlt && (isOver || isUnder)) {
+            // Record each book's price for every standard and alternate rung.
+            // A rung with insufficient two-sided coverage simply has no
+            // cross-book metric; it is not assigned invented value.
+            if (isOver || isUnder) {
               let bm = bookByKey.get(k);
               if (!bm) { bm = new Map(); bookByKey.set(k, bm); }
               const sb = bm.get(title) ?? {};
@@ -532,52 +548,20 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           }
         }
       }
+      }
     };
     // Mains first (so a shared line stays main), then alternate ladders.
     ingest(data, false);
     ingest(qhData, false);
     ingest(altData, true);
 
-    // Trim alternate rungs: the raw ladder can run 3.5 → 49.5 with deep-ITM and
-    // longshot rungs that would bloat the chat context + UI list (capped
-    // downstream). Per (player, stat) keep only rungs within a sane bettable
-    // price band and nearest the MAIN line — enough for a cushion rung and a
-    // value rung on each side. Mains are always kept and emitted first so the
-    // downstream slice caps drop alt rungs before any main line.
-    const inBand = (p: number | null) => p != null && p >= -600 && p <= 600;
     const allRows = Array.from(byKey.values());
-    const mainLineByPM = new Map<string, number>();
-    for (const r of allRows) {
-      if (!r.alt && r.line != null) {
-        const pm = `${r.player}|${r.market}`;
-        if (!mainLineByPM.has(pm)) mainLineByPM.set(pm, r.line);
-      }
-    }
-    const mains = allRows.filter((r) => !r.alt);
-    const altByPM = new Map<string, PropRow[]>();
-    for (const r of allRows) {
-      if (!r.alt) continue;
-      if (!inBand(r.overPrice) && !inBand(r.underPrice)) continue;
-      const pm = `${r.player}|${r.market}`;
-      const list = altByPM.get(pm) ?? [];
-      list.push(r);
-      altByPM.set(pm, list);
-    }
-    const ALT_CAP_PER_PM = 12;
-    const trimmedAlts: PropRow[] = [];
-    for (const [pm, list] of altByPM) {
-      const mainLine = mainLineByPM.get(pm);
-      list.sort((a, b) => {
-        const da = a.line != null ? Math.abs(a.line - (mainLine ?? 0)) : Infinity;
-        const db = b.line != null ? Math.abs(b.line - (mainLine ?? 0)) : Infinity;
-        return da - db;
-      });
-      for (const r of list.slice(0, ALT_CAP_PER_PM)) trimmedAlts.push(r);
-    }
-    const aggregatedRows = [...mains, ...trimmedAlts];
+    // Full-board Coach scans must retain every posted rung. The scanner scores
+    // each line independently, then selects the objectively strongest rung.
+    const aggregatedRows = allRows;
 
-    // ---- Cross-book +EV ("mispriced prop") detection (MAIN lines only) -------
-    // For each main line we de-vig EVERY book that posted BOTH sides
+    // ---- Cross-book +EV ("mispriced prop") detection (every rung) ------------
+    // For each posted line we de-vig every book that posted both sides
     // (fairOver = oImpl / (oImpl + uImpl)), take the MEDIAN across books as the
     // consensus fair win probability, then compare the BEST posted price on each
     // side to that fair value. EV% = fair * decimalOdds(best) - 1 (>0 means the
@@ -593,7 +577,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       const mid = Math.floor(s.length / 2);
       return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
     };
-    for (const r of mains) {
+    for (const r of aggregatedRows) {
       const k = `${r.player}|${r.market}|${r.line ?? "_"}`;
       const bm = bookByKey.get(k);
       if (!bm) continue;
@@ -625,12 +609,12 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       r.books = fairOvers.length;
     }
 
-    // ---- Line-shopping spread per side (MAIN lines only) -------------------
+    // ---- Line-shopping spread per side (every rung) -------------------------
     // Independent of the +EV de-vig (needs only 2+ books on a side): how much
     // the BEST price beats the cross-book median, in implied-prob pct points.
     // Lets a prop pick ground its line-shopping sub-score honestly; thin sides
     // stay null (never guessed).
-    for (const r of mains) {
+    for (const r of aggregatedRows) {
       const k = `${r.player}|${r.market}|${r.line ?? "_"}`;
       const bm = bookByKey.get(k);
       if (!bm) continue;

@@ -88,10 +88,30 @@ test("marketLadderKey groups alt spreads with main spread on the same side", () 
   assert.equal(main, alt);
 });
 
-test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
+test("collapseScoredLegsByMarketLadder keeps the higher-ranked main line", () => {
   const scored = [
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, mainScore),
     leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 90, altScore),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick.market, "Spread");
+});
+
+test("collapseScoredLegsByMarketLadder promotes a stronger qualifying alternate", () => {
+  const scored = [
+    leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 90, mainScore),
+    leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 100, altScore),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick.market, "Alt Spread");
+});
+
+test("collapseScoredLegsByMarketLadder prefers the main line on an exact score tie", () => {
+  const scored = [
+    leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, mainScore),
+    leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 100, altScore),
   ];
   const out = collapseScoredLegsByMarketLadder(scored);
   assert.equal(out.length, 1);
