@@ -535,6 +535,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
 }): Promise<FullBoardScanResult> {
+  const startedAt = Date.now();
+  const traceTiming = (stage: string, extra: Record<string, unknown> = {}) => {
+    console.log(
+      "[coach-final-trace]",
+      JSON.stringify({
+        stage,
+        elapsedMs: Date.now() - startedAt,
+        target: opts.target,
+        ...extra,
+      }),
+    );
+  };
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -570,6 +582,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         .then((rows) => filterBettablePropPool(rows))
         .catch(() => null)
     : null;
+  traceTiming("board_scan_started", {
+    gameCount: oddsGames.length,
+    seedPropCount: poolBase.length,
+  });
 
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
@@ -651,9 +667,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
     scoreGamesAndMaybePartial(batch.map(([game]) => game));
   }
+  traceTiming("game_simulations_finished", {
+    simulatedGameCount: gameSimulations.size,
+    scoredCount: scored.length,
+  });
 
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
+  traceTiming("prop_board_expansion_finished", { propCount: pool.length });
   const normalized = [
     ...[...evalLinesByGame.values()].flat().map((e) => ({ game: e.game, market: e.market, pick: e.pick, odds: e.odds, sport: e.sport, isProp: false as const })),
     ...pool.map(parsedPickFromPoolEntry),
@@ -697,6 +718,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
 
   scored.push(...propScored);
+  traceTiming("prop_simulations_finished", {
+    propScoredCount: propScored.length,
+    totalScoredCount: scored.length,
+  });
 
   totalScanned += pool.length;
   traceCoachMarketStage("SIMULATION_SUCCEEDED", scored.map((leg) => leg.pick));
@@ -727,6 +752,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     requestId: opts.requestId,
   });
   if (opts.onPartial) opts.onPartial(result);
+  traceTiming("board_scan_finished", {
+    qualifiedCount: result.totalQualified,
+    deliveredCount: result.picks.length,
+  });
   return result;
 }
 
