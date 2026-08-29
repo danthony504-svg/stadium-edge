@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGameTeamIdMap, resolveTeamIds } from "./coachGameMonteCarlo.ts";
+import { buildGameTeamIdMap, resolveTeamIds, resolveTeamIdsWithReason } from "./coachGameMonteCarlo.ts";
 
 test("resolves an unambiguous posted-event abbreviation to ESPN team IDs", () => {
   const ids = buildGameTeamIdMap([{
@@ -31,4 +31,8 @@ test("does not invent IDs for an unknown posted event", () => {
   ] as never);
 
   assert.equal(resolveTeamIds("Unknown @ Tigers", "ncaaf", ids), null);
+  assert.equal(
+    resolveTeamIdsWithReason("Unknown @ Tigers", "ncaaf", ids).reason,
+    "no_matching_event",
+  );
 });

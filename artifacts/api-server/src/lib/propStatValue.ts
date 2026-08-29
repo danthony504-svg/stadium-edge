@@ -31,6 +31,7 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_shots_on_target: ["SOT"],
   player_pass_yds: ["YDS"],
   player_pass_tds: ["TD"],
+  player_anytime_td: ["TD"],
   player_rush_yds: ["YDS"],
   player_reception_yds: ["YDS"],
   player_receptions: ["REC"],

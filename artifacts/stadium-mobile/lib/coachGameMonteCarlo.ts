@@ -75,15 +75,18 @@ export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> 
   return map;
 }
 
-export function resolveTeamIds(
+export type TeamIdResolution = {
+  ids: GameTeamIds | null;
+  reason: "resolved" | "invalid_event_label" | "no_matching_event" | "ambiguous_event";
+};
+
+export function resolveTeamIdsWithReason(
   gameLabel: string,
   sport: string | undefined,
   map: Map<string, GameTeamIds>,
-): GameTeamIds | null {
-  const direct = map.get(teamKey(gameLabel).replace(/\s*@\s*/g, " @ "));
-  if (direct) return direct;
+): TeamIdResolution {
   const parts = gameLabel.split(" @ ");
-  if (parts.length !== 2) return null;
+  if (parts.length !== 2) return { ids: null, reason: "invalid_event_label" };
   const away = teamKey(parts[0]!);
   const home = teamKey(parts[1]!);
   const candidates = [...new Map(
@@ -94,11 +97,21 @@ export function resolveTeamIds(
   const exact = candidates.filter(
     (entry) => entry.awayAliases?.includes(away) && entry.homeAliases?.includes(home),
   );
-  if (exact.length === 1) return exact[0]!;
+  if (exact.length === 1) return { ids: exact[0]!, reason: "resolved" };
+  if (exact.length > 1) return { ids: null, reason: "ambiguous_event" };
   const byNickname = candidates.filter(
     (entry) => nickname(entry.awayTeam) === nickname(away) && nickname(entry.homeTeam) === nickname(home),
   );
-  return byNickname.length === 1 ? byNickname[0]! : null;
+  if (byNickname.length === 1) return { ids: byNickname[0]!, reason: "resolved" };
+  return { ids: null, reason: byNickname.length > 1 ? "ambiguous_event" : "no_matching_event" };
+}
+
+export function resolveTeamIds(
+  gameLabel: string,
+  sport: string | undefined,
+  map: Map<string, GameTeamIds>,
+): GameTeamIds | null {
+  return resolveTeamIdsWithReason(gameLabel, sport, map).ids;
 }
 
 function uniqueCoverQueries(
@@ -180,8 +193,14 @@ export async function fetchCoachGameSimulationsForPicks(
   await Promise.all(
     entries.map(async ([gameLabel, legs]) => {
       const sport = legs[0]?.sport;
-      const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
-      if (!ids) return;
+      const resolution = resolveTeamIdsWithReason(gameLabel, sport, teamIdsByGame);
+      const ids = resolution.ids;
+      if (!ids) {
+        console.warn("[coach-market-diagnostics]", JSON.stringify({
+          stage: "SIMULATION_SKIPPED", game: gameLabel, reason: resolution.reason,
+        }));
+        return;
+      }
       const coverQueries = uniqueCoverQueries(legs, realOdds, evalLinesByGame);
       const result = await fetchGameOutcomeSimulation(
         {
@@ -222,8 +241,14 @@ export async function fetchSlateGameSimulations(
   async function simGame([gameLabel, lines]: [string, RealOddsEntry[]]) {
     if (!lines.length) return;
     const sport = lines[0]?.sport;
-    const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
-    if (!ids) return;
+    const resolution = resolveTeamIdsWithReason(gameLabel, sport, teamIdsByGame);
+    const ids = resolution.ids;
+    if (!ids) {
+      console.warn("[coach-market-diagnostics]", JSON.stringify({
+        stage: "SIMULATION_SKIPPED", game: gameLabel, reason: resolution.reason,
+      }));
+      return;
+    }
 
     const seen = new Set<string>();
     const coverQueries: GameCoverQuery[] = [];
