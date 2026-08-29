@@ -4228,13 +4228,9 @@ export async function buildChatContext(
         );
         const game = `${g.awayTeam} @ ${g.homeTeam}`;
         const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
-        // Two passes so MAIN lines are pushed before ALT ladder rungs: the
-        // breadth-balanced context cap (balancePropsByGame) keeps the earlier
-        // rows, so mains must come first. Alt rungs are real bookmaker ladder
-        // values for the SAME player+stat — added as cushion/value options but
-        // capped per player+market so one star's deep ladder can't crowd the pool.
-        const altRungs = new Map<string, number>();
-        const ALT_RUNGS_PER_PROP = 16;
+        // Standard and alternate lines are both retained. The full-board
+        // scanner scores every posted rung independently and chooses the best
+        // one after simulation; no alternate cap may hide a stronger line.
         for (const altPass of [false, true]) {
           for (const p of usable) {
             if (!!p.alt !== altPass) continue;
@@ -4258,12 +4254,6 @@ export async function buildChatContext(
             const overQ = sideQualifies(p.overPrice);
             const underQ = sideQualifies(p.underPrice);
             if ((oddsThreshold || altSign) && !overQ && !underQ) continue;
-            if (p.alt) {
-              const k = `${p.player}|${p.market}`.toLowerCase();
-              const n = altRungs.get(k) ?? 0;
-              if (n >= ALT_RUNGS_PER_PROP) continue;
-              altRungs.set(k, n + 1);
-            }
             realProps.push({
               sport,
               game,
