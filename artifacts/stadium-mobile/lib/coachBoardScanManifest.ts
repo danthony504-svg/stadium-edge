@@ -148,7 +148,11 @@ export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
   recordGameLineSimulated(): void;
   recordPropSimBatch(size: number, timedOut: boolean): void;
   /** Sim ran but the pick could not be graded (null MC hit, batch timeout, etc.). */
-  recordPreScoreGateFailure(pick: ParsedPick, score?: Partial<FinalAiScore> | null): void;
+  recordPreScoreGateFailure(
+    pick: ParsedPick,
+    score?: Partial<FinalAiScore> | null,
+    reason?: string,
+  ): void;
   recordEvaluatedLeg(leg: BoardScoredLeg): void;
   recordEvaluatedPick(pick: ParsedPick, score: ParsedPick["finalAiScore"]): void;
   recomputeQualificationFromScored(scored: BoardScoredLeg[]): void;
@@ -281,7 +285,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       if (timedOut) manifest.propsSimTimeouts += 1;
       syncRecorder();
     },
-    recordPreScoreGateFailure(pick, score) {
+    recordPreScoreGateFailure(pick, score, failureReason) {
       const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|pre_score`;
       if (seenPreScoreFp.has(fp)) return;
       seenPreScoreFp.add(fp);
@@ -290,7 +294,7 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         score?.simHit == null
           ? {
               gate: "no_sim_grade" as const,
-              reason: "No simulation result (10k MC not complete)",
+              reason: failureReason ?? "No simulation result (10k MC not complete)",
             }
           : explainBoardLegQualification(
               pick,

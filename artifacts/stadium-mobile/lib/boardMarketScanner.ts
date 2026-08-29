@@ -12,7 +12,12 @@ import {
   type CoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
 import { filterBettableOddsGames, filterBettablePropPool } from "./slate.ts";
-import { fetchSlateGameSimulations, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
+import {
+  fetchCoachGameSimulationsForPicks,
+  fetchSlateGameSimulations,
+  type GameTeamIds,
+  type CoachGameSimEntry,
+} from "./coachGameMonteCarlo.ts";
 import {
   buildEvalLinesForAllGames,
   evaluateGameLines,
@@ -572,6 +577,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : null;
 
   const scored: BoardScoredLeg[] = [];
+  const pendingGameRows: EvaluatedGameLine[] = [];
   let totalScanned = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
@@ -629,11 +635,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
           scored.push(leg);
-        } else if (sim) {
-          manifestRecorder.recordPreScoreGateFailure(row.pick, {
-            ...row.finalAiScore,
-            simHit: simHit ?? row.finalAiScore.simHit ?? null,
-          });
+        } else {
+          // A null cover hit is not a rejection. The initial slate batch may
+          // complete before a particular line's cover query is materialized.
+          // Defer it to the targeted completion batch below.
+          pendingGameRows.push(row);
         }
       }
     }
@@ -650,6 +656,42 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     );
     for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
     scoreGamesAndMaybePartial(batch.map(([game]) => game));
+  }
+
+  // Complete every pending game-line cover query before applying any grading
+  // gate. This mirrors prop batching: simulate first, then score immediately
+  // after the batch returns. Only a terminal retry miss becomes a no-sim-grade
+  // rejection in the manifest.
+  if (pendingGameRows.length && !opts.signal?.aborted) {
+    const completed = await fetchCoachGameSimulationsForPicks(
+      pendingGameRows.map((row) => row.pick),
+      opts.teamIdMap,
+      opts.signal,
+      mergedOdds,
+      evalLinesByGame,
+    ).catch(() => new Map<string, CoachGameSimEntry>());
+    for (const [game, sim] of completed) gameSimulations.set(game, sim);
+    for (const row of pendingGameRows) {
+      const sim = gameSimulations.get(row.pick.game);
+      const simHit = gameSimHitForPick(row.pick, sim);
+      const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
+      if (leg) {
+        scored.push(leg);
+        continue;
+      }
+      const reason =
+        !sim
+          ? "Simulation timeout or null response after targeted completion batch"
+          : simHit == null
+            ? "Simulation completed without a cover probability for this market"
+            : "Completed simulation could not produce a final AI score";
+      manifestRecorder.recordPreScoreGateFailure(
+        row.pick,
+        { ...row.finalAiScore, simHit: simHit ?? row.finalAiScore.simHit ?? null },
+        reason,
+      );
+    }
+    emitBoardScanPartial();
   }
 
   const expandedPool = await poolExpandP;
