@@ -29,12 +29,26 @@ export type GameTeamIds = {
   awayTeamId: string;
   homeTeam: string;
   awayTeam: string;
+  homeAliases?: readonly string[];
+  awayAliases?: readonly string[];
 };
 
+const teamKey = (team: string) =>
+  String(team ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\bthe\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const nickname = (team: string) => {
-  const t = String(team ?? "").trim().split(/\s+/);
-  return (t[t.length - 1] ?? team).toLowerCase();
+  const t = teamKey(team).split(" ");
+  return t[t.length - 1] ?? "";
 };
+
+function teamAliases(team: string, abbr?: string): string[] {
+  return [...new Set([teamKey(team), teamKey(abbr ?? ""), nickname(team)].filter(Boolean))];
+}
 
 /** Map "Away @ Home" labels to ESPN team ids from a games fetch. */
 export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> {
@@ -43,39 +57,48 @@ export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> 
     const home = g.homeTeam || g.homeAbbr || "";
     const away = g.awayTeam || g.awayAbbr || "";
     if (!home || !away || !g.homeTeamId || !g.awayTeamId) continue;
-    const label = `${away} @ ${home}`;
-    map.set(label.toLowerCase(), {
+    const ids: GameTeamIds = {
       sport: g.sport,
       homeTeamId: g.homeTeamId,
       awayTeamId: g.awayTeamId,
       homeTeam: home,
       awayTeam: away,
-    });
-    map.set(`${nickname(away)}|${nickname(home)}`, {
-      sport: g.sport,
-      homeTeamId: g.homeTeamId,
-      awayTeamId: g.awayTeamId,
-      homeTeam: home,
-      awayTeam: away,
-    });
+      homeAliases: teamAliases(home, g.homeAbbr),
+      awayAliases: teamAliases(away, g.awayAbbr),
+    };
+    for (const awayAlias of ids.awayAliases) {
+      for (const homeAlias of ids.homeAliases) {
+        map.set(`${awayAlias} @ ${homeAlias}`, ids);
+      }
+    }
   }
   return map;
 }
 
-function resolveTeamIds(
+export function resolveTeamIds(
   gameLabel: string,
   sport: string | undefined,
   map: Map<string, GameTeamIds>,
 ): GameTeamIds | null {
-  const direct = map.get(gameLabel.toLowerCase());
+  const direct = map.get(teamKey(gameLabel).replace(/\s*@\s*/g, " @ "));
   if (direct) return direct;
   const parts = gameLabel.split(" @ ");
-  if (parts.length === 2) {
-    const nick = `${nickname(parts[0]!)}|${nickname(parts[1]!)}`;
-    const hit = map.get(nick);
-    if (hit) return hit;
-  }
-  return null;
+  if (parts.length !== 2) return null;
+  const away = teamKey(parts[0]!);
+  const home = teamKey(parts[1]!);
+  const candidates = [...new Map(
+    [...map.values()]
+      .filter((entry) => !sport || !entry.sport || entry.sport.toLowerCase() === sport.toLowerCase())
+      .map((entry) => [`${entry.awayTeamId}|${entry.homeTeamId}`, entry] as const),
+  ).values()];
+  const exact = candidates.filter(
+    (entry) => entry.awayAliases?.includes(away) && entry.homeAliases?.includes(home),
+  );
+  if (exact.length === 1) return exact[0]!;
+  const byNickname = candidates.filter(
+    (entry) => nickname(entry.awayTeam) === nickname(away) && nickname(entry.homeTeam) === nickname(home),
+  );
+  return byNickname.length === 1 ? byNickname[0]! : null;
 }
 
 function uniqueCoverQueries(

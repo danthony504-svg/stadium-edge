@@ -142,6 +142,28 @@ test("buildStagedTicketFromScan selects the highest-ranked mixed markets without
   assert.ok(picks.some((p) => !p.isProp), "includes a real non-O/U game market when it earns the rank");
 });
 
+test("market-agnostic staging preserves every qualified posted market family on merit", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Moneyline", pick: "A ML", odds: 120 }, 100, mainScore),
+    leg({ game: "C @ D", market: "Spread", pick: "C +3.5", odds: -105 }, 99, mainScore),
+    leg({ game: "E @ F", market: "Total", pick: "Over 48.5", odds: -110 }, 98, mainScore),
+    leg({ game: "G @ H", market: "Alt Spread", pick: "G +6.5", odds: 135 }, 97, altScore),
+    leg({
+      game: "I @ J", market: "Anytime Touchdown", pick: "Runner Anytime TD", odds: 140,
+      isProp: true, sport: "nfl", player: "Runner", propMarketKey: "player_anytime_td",
+    }, 96, mainScore),
+    leg({
+      game: "K @ L", market: "Receiving Yards", pick: "Receiver Over 51.5", odds: -110,
+      isProp: true, sport: "nfl", player: "Receiver", propLine: 51.5, propSide: "Over",
+    }, 95, mainScore),
+  ];
+
+  const { picks } = buildStagedTicketFromScan(scored, 6);
+  assert.deepEqual(picks.map((pick) => pick.pick), [
+    "A ML", "C +3.5", "Over 48.5", "G +6.5", "Runner Anytime TD", "Receiver Over 51.5",
+  ]);
+});
+
 test("buildStagedTicketFromScan returns honest shortfall — no reach-tier filler", () => {
   const belowBarScore = {
     composite: 5,

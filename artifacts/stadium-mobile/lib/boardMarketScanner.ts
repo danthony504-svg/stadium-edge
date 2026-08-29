@@ -55,6 +55,7 @@ import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { nonOuCandidateDiagnostic, traceCoachMarketStage } from "./coachMarketDiagnostics.ts";
 import { explainBoardLegQualification } from "./boardLegQualification.ts";
+import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -76,11 +77,13 @@ function propSimKeyForPick(pick: ParsedPick, poolRow?: { marketKey?: string | nu
 }
 
 function poolRowForPropPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEntry | undefined {
+  const line = simulationLineForProp(pick.propMarketKey ?? pick.market, pick.propLine);
+  const side = pick.propSide ?? (isYesNoPropMarket(pick.propMarketKey ?? pick.market) ? "Over" : undefined);
   return pool.find(
     (e) =>
       e.player === pick.player &&
-      e.side === pick.propSide &&
-      (pick.propLine == null || e.line === pick.propLine) &&
+      e.side === side &&
+      simulationLineForProp(e.marketKey, e.line) === line &&
       (pick.game ? e.game === pick.game : true),
   );
 }
@@ -107,16 +110,17 @@ function aliasPropSimHitsForBatch(
     const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
     const altKey =
       altMarket && altMarket !== market
-        ? propSimKey(pick.player, altMarket, pick.propLine, pick.propSide ?? "")
+        ? propSimKey(pick.player, altMarket, simulationLineForProp(market, pick.propLine), pick.propSide ?? (isYesNoPropMarket(market) ? "Over" : ""))
         : null;
     if (altKey && out.has(altKey)) {
       out.set(clientKey, out.get(altKey)!);
       continue;
     }
     const side =
-      pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
-    if (!side || pick.propLine == null) continue;
-    const suffix = `|${pick.propLine}|${side}`;
+      pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : isYesNoPropMarket(market) ? "Over" : null;
+    const line = simulationLineForProp(market, pick.propLine);
+    if (!side || line == null) continue;
+    const suffix = `|${line}|${side}`;
     for (const [serverKey, row] of hits) {
       if (serverKey.startsWith(`${pick.player}|`) && serverKey.endsWith(suffix)) {
         out.set(clientKey, row);

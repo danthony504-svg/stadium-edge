@@ -2,6 +2,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
+import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -11,7 +12,8 @@ export const BOARD_PROP_SIM_BATCH = 21;
 export function isRealisticBoardPropCandidate(pick: ParsedPick): boolean {
   if (!pick.isProp) return false;
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return false;
-  if (pick.propLine == null || !Number.isFinite(pick.propLine) || !pick.propSide) return false;
+  if (simulationLineForProp(pick.propMarketKey ?? pick.market, pick.propLine) == null) return false;
+  if (!pick.propSide && !isYesNoPropMarket(pick.propMarketKey ?? pick.market)) return false;
   return marketSupportsSimulation(pick.market ?? "", pick);
 }
 

@@ -25,8 +25,8 @@ import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   pickIsAiRecommended,
-  propSimEdgeStagingQualifies,
   qualifiesAltPick,
+  simEdgeStagingQualifies,
 } from "./pickRecommendation.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 
@@ -74,11 +74,11 @@ export function boardLegPoolRole(
 ): "main" | "alt" | null {
   if (isMainBoardPick(pick)) {
     if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
-    if (pick.isProp && propSimEdgeStagingQualifies(pick, score ?? undefined)) return "main";
+    if (simEdgeStagingQualifies(pick, score ?? undefined)) return "main";
     return null;
   }
   if (isAltBoardPick(pick)) {
-    return qualifiesAltPick(pick, score ?? undefined) ? "alt" : null;
+    return qualifiesAltPick(pick, score ?? undefined) || simEdgeStagingQualifies(pick, score ?? undefined) ? "alt" : null;
   }
   if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
   if (qualifiesAltPick(pick, score ?? undefined)) return "alt";
@@ -93,10 +93,10 @@ export function boardLegPoolRole(
   ) {
     return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
   }
-  if (pick.isProp && qualifiesAltPick(pick, score ?? undefined)) {
+  if (qualifiesAltPick(pick, score ?? undefined)) {
     return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
   }
-  if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
+  if (simEdgeStagingQualifies(pick, score ?? undefined)) {
     return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
   }
   return null;
@@ -372,9 +372,9 @@ export function buildStagedTicketFromScan(
   varietyContext?: CoachTicketStagingContext,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
-  if (target >= 3 && varietySeed) {
+  if (target >= 3) {
     return buildIndependentCoachTicket(scored, target, {
-      varietySeed,
+      varietySeed: varietySeed ?? "market-agnostic-board-rank",
       ticketStyle,
       marketAgnostic: true,
       ...varietyContext,

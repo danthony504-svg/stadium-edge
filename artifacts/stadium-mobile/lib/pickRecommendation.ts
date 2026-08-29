@@ -222,12 +222,12 @@ function propHolisticGatePassed(
   return true;
 }
 
-/** Sim + edge staging bar for filling fixed-leg tickets when holistic context is thin. */
-export function propSimEdgeStagingQualifies(
+/** Shared sim + edge qualification floor for every posted market family. */
+export function simEdgeStagingQualifies(
   pick: RecommendablePick,
   score: FinalAiScore | null | undefined,
 ): boolean {
-  if (!score || !pick.isProp) return false;
+  if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
@@ -240,6 +240,9 @@ export function propSimEdgeStagingQualifies(
   }
   return true;
 }
+
+/** @deprecated Use simEdgeStagingQualifies for market-agnostic staging. */
+export const propSimEdgeStagingQualifies = simEdgeStagingQualifies;
 
 /** Same role gate as board staging pools — keeps delivery aligned with scan qualification. */
 export function pickQualifiesForBoardDelivery(
@@ -255,10 +258,10 @@ export function pickQualifiesForBoardDelivery(
   const boardPick = { ...pick, market: pick.market, pick: pick.pick };
   if (isMainBoardPick(boardPick)) {
     if (pickIsAiRecommended(pick, score)) return true;
-    return !!(pick.isProp && propSimEdgeStagingQualifies(pick, score));
+    return simEdgeStagingQualifies(pick, score);
   }
   if (isAltBoardPick(boardPick)) {
-    return qualifiesAltPick(pick, score);
+    return qualifiesAltPick(pick, score) || simEdgeStagingQualifies(pick, score);
   }
   if (pickIsAiRecommended(pick, score)) return true;
   if (qualifiesAltPick(pick, score)) return true;
@@ -273,8 +276,8 @@ export function pickQualifiesForBoardDelivery(
   ) {
     return true;
   }
-  if (pick.isProp && qualifiesAltPick(pick, score)) return true;
-  if (propSimEdgeStagingQualifies(pick, score)) return true;
+  if (qualifiesAltPick(pick, score)) return true;
+  if (simEdgeStagingQualifies(pick, score)) return true;
   return false;
 }
 

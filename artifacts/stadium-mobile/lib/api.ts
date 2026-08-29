@@ -6,6 +6,7 @@ import {
 } from "./stealFeedClient.ts";
 import { logStealScanLifecycle } from "./stealScanLifecycle.ts";
 import { isCoachDiagnosticContent } from "./coachMessageContent.ts";
+import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
@@ -1944,18 +1945,21 @@ export async function fetchPropSimulations(
   const props: BuiltProp[] = [];
 
   for (const p of picks) {
-    if (!p?.isProp || !p.player || p.propLine == null) continue;
-    const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
+    if (!p?.isProp || !p.player) continue;
+    const marketKey = p.propMarketKey ?? p.market;
+    const line = simulationLineForProp(marketKey, p.propLine);
+    if (line == null) continue;
+    const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : isYesNoPropMarket(marketKey) ? "Over" : null;
     if (!side) continue;
     const pool =
       propPool.find(
         (e) =>
           e.player === p.player &&
           e.side === side &&
-          e.line === p.propLine &&
+          simulationLineForProp(e.marketKey, e.line) === line &&
           (p.game ? e.game === p.game : true),
       ) ?? propPool.find((e) => e.player === p.player && e.side === side);
-    const market = p.propMarketKey ?? pool?.marketKey;
+    const market = marketKey ?? pool?.marketKey;
     if (!market) continue;
     const sport = (p.sport ?? pool?.sport ?? picks.find((x) => x.sport)?.sport ?? "nba").toLowerCase();
     const game = p.game ?? pool?.game ?? "";
@@ -1964,14 +1968,15 @@ export async function fetchPropSimulations(
       if (e.player !== p.player || e.side !== side) continue;
       if (market && e.marketKey !== market) continue;
       if (game && e.game !== game) continue;
-      if (e.line == null || e.line === p.propLine) continue;
-      if (!additionalLines.includes(e.line)) additionalLines.push(e.line);
+      const additionalLine = simulationLineForProp(e.marketKey, e.line);
+      if (additionalLine == null || additionalLine === line) continue;
+      if (!additionalLines.includes(additionalLine)) additionalLines.push(additionalLine);
     }
     additionalLines.sort((a, b) => a - b);
     props.push({
       player: p.player,
       market,
-      line: p.propLine,
+      line,
       side,
       athleteId: p.athleteId ?? pool?.athleteId,
       sport,

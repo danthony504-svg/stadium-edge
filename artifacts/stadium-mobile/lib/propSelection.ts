@@ -10,6 +10,7 @@ import {
   type PlayerHistorySlice,
 } from "@/lib/pickScoreContext";
 import type { PropSimAttachOpts } from "@/lib/propSimProgressive";
+import { isYesNoPropMarket, simulationLineForProp } from "@/lib/propYesNoMarkets";
 import { varietyRankKey } from "@/lib/varietySeed";
 
 const SIM_SELECTION_TIMEOUT_MS = 2800;
@@ -48,11 +49,13 @@ export function propSimLookupKey(
   },
   poolRow?: { marketKey?: string | null } | null,
 ): string | null {
-  if (!pick.player || pick.propLine == null || !pick.propSide) return null;
-  const side = pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
-  if (!side) return null;
+  if (!pick.player) return null;
   const market = pick.propMarketKey ?? poolRow?.marketKey ?? pick.market ?? "";
-  return propSimKey(pick.player, market, pick.propLine, side);
+  const line = simulationLineForProp(market, pick.propLine);
+  if (line == null) return null;
+  const side = pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : isYesNoPropMarket(market) ? "Over" : null;
+  if (!side) return null;
+  return propSimKey(pick.player, market, line, side);
 }
 
 export function lookupPropSimHit(
