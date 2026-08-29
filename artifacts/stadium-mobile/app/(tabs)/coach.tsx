@@ -1761,6 +1761,17 @@ export default function CoachScreen() {
       const stallMs = buildStallBudgetMs(legs);
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
+        const committed = commitCoachRequestTerminal({
+          picks: [],
+          legTarget: legs || undefined,
+          terminal: "failed",
+          legNote:
+            "_Coach could not complete final ticket selection in time. No picks were delivered; please try again._",
+        });
+        if (committed) {
+          scrollToEnd(false);
+          return;
+        }
         setMessages((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
@@ -1785,7 +1796,7 @@ export default function CoachScreen() {
         scrollToEnd(false);
       }, stallMs);
     },
-    [clearBuildStallWatchdog, scrollToEnd],
+    [clearBuildStallWatchdog, scrollToEnd, commitCoachRequestTerminal],
   );
 
   const flashBoardScanResult = useCallback(
