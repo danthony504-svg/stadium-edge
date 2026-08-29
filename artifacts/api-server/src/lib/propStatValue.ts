@@ -114,7 +114,7 @@ export function gameValueForMarket(
 
 /** Markets whose outcomes are low-count integers (Poisson-friendly). */
 export function isDiscreteCountMarket(market: string): boolean {
-  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|anytime_td|goal_scorer|receptions/i.test(
+  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|anytime_td|goal_scorer|receptions|assists|rebounds|batter_hits|pitcher_walks|takedowns/i.test(
     market,
   );
 }

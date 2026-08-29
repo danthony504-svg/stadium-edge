@@ -60,7 +60,6 @@ import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts"
 import {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
-  countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
 } from "./boardPropSimExpansion.ts";
 export {
