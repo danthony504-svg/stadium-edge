@@ -25,6 +25,7 @@ import {
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
+  absoluteFloorForStyle,
   type CoachTicketStyle,
   type QualityTierGrade,
   poolRoleAtMinGrade,
@@ -696,8 +697,9 @@ function generateTicketCandidates(
   scored: BoardScoredLeg[],
   target: number,
   opts: CoachTicketBuildOpts,
+  qualifyingOverride?: BoardScoredLeg[],
 ): TicketCandidate[] {
-  const qualifying = qualifyingScoredLegs(scored);
+  const qualifying = qualifyingOverride ?? qualifyingScoredLegs(scored);
   const ticketStyle = opts.ticketStyle ?? "balanced";
   const out: TicketCandidate[] = [];
   const profile = ticketSizeProfile(target);
@@ -867,8 +869,13 @@ export function buildIndependentCoachTicket(
   target: number,
   opts: CoachTicketBuildOpts,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
-  const qualifying = qualifyingScoredLegs(scored);
-  const candidates = generateTicketCandidates(scored, target, opts);
+  const ticketStyle = opts.ticketStyle ?? "balanced";
+  const qualifying = qualifyingScoredLegs(scored).filter(
+    (leg) =>
+      ticketStyle !== "safe" ||
+      poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, absoluteFloorForStyle(ticketStyle)) != null,
+  );
+  const candidates = generateTicketCandidates(scored, target, opts, qualifying);
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
     candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),

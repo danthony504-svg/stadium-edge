@@ -90,3 +90,15 @@ test("summarizeCoachTicket omits blank avg stats", () => {
   assert.equal(s.avgEdge, null);
   assert.equal(s.overallGrade, null);
 });
+
+test("summarizeCoachTicket displays the same effective confidence used for props", () => {
+  const s = summarizeCoachTicket([{
+    game: "A @ B",
+    market: "Points",
+    pick: "Player Over 20.5",
+    odds: -110,
+    isProp: true,
+    finalAiScore: { confidencePct: 49, simHit: 0.6 },
+  }]);
+  assert.equal(s.avgConfidence, 54);
+});

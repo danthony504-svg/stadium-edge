@@ -83,6 +83,22 @@ test("isRealisticBoardPropCandidate requires sim-supported market and posted odd
   );
 });
 
+test("isRealisticBoardPropCandidate admits posted binary milestone markets", () => {
+  assert.equal(
+    isRealisticBoardPropCandidate({
+      game: "KC @ BUF",
+      market: "Anytime Touchdown",
+      pick: "Runner Anytime TD",
+      odds: 145,
+      isProp: true,
+      sport: "nfl",
+      player: "Runner",
+      propMarketKey: "player_anytime_td",
+    }),
+    true,
+  );
+});
+
 test("boardPropSim batch sizes grow with leg target", () => {
   assert.equal(boardPropSimInitialBatchSize(6), 21);
   assert.equal(boardPropSimInitialBatchSize(15), 30);

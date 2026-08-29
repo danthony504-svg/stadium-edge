@@ -18,6 +18,7 @@ import {
 } from "./pickRecommendation.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
+import { isYesNoPropMarket } from "./propYesNoMarkets.ts";
 
 const GRADE_RANK: Record<string, number> = {
   F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
@@ -149,12 +150,15 @@ export function explainBoardLegQualification(
           reason: "No posted odds",
         };
       }
-      if (pick.propLine == null || !pick.propSide) {
+      if (
+        pick.propLine == null &&
+        !isYesNoPropMarket(pick.propMarketKey ?? pick.market)
+      ) {
         return {
           qualifies: false,
           role: null,
           gate: "missing_prop_line",
-          reason: "Missing prop line or side",
+          reason: "Missing numeric prop line",
         };
       }
       if (!marketSupportsSimulation(pick.market ?? "", pick)) {

@@ -6,7 +6,7 @@ import {
   serverBoardMarketCategory,
   ticketCategoryMix,
 } from "../src/lib/coachSlateMarketPools.js";
-import { stageServerTicketBalanced, isPrefixServerTicket } from "../src/lib/coachSlateBalancedStaging.js";
+import { stageServerTicketBalanced, stageServerTicketMarketAgnostic, isPrefixServerTicket } from "../src/lib/coachSlateBalancedStaging.js";
 import type { ParsedPick } from "../src/lib/coachSlateTypes.js";
 
 function pick(
@@ -100,4 +100,17 @@ test("stageServerTicketBalanced builds independent tickets per leg count", () =>
   assert.equal(five.length, 5);
   assert.equal(fifteen.length, 15);
   assert.equal(isPrefixServerTicket(fifteen, five), false);
+});
+
+test("stageServerTicketMarketAgnostic selects the highest qualified ranks across families", () => {
+  const ranked = [
+    { pick: pick({ game: "A @ B", market: "Moneyline", pick: "A ML", odds: 120 }), rankScore: 100, isAlt: false },
+    { pick: pick({ game: "C @ D", market: "Spread", pick: "C +3.5", odds: -110 }), rankScore: 99, isAlt: false },
+    { pick: pick({ game: "E @ F", market: "Points", pick: "P Over 20.5", odds: -110, isProp: true, player: "P" }), rankScore: 98, isAlt: false },
+    { pick: pick({ game: "G @ H", market: "Team Total", pick: "Over 108.5", odds: -110 }), rankScore: 97, isAlt: false },
+  ];
+  assert.deepEqual(
+    stageServerTicketMarketAgnostic(ranked, 3).picks.map((row) => row.pick),
+    ["A ML", "C +3.5", "P Over 20.5"],
+  );
 });

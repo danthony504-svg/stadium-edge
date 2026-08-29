@@ -4,6 +4,7 @@ import { gradeFromComposite } from "./pickScore.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import { decimalToAmerican } from "./format.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
+import { effectiveCoachConfidence } from "./pickRecommendation.ts";
 
 function fairOddsFromSimHit(simHit: number | null | undefined): number | null {
   if (simHit == null || !Number.isFinite(simHit) || simHit <= 0 || simHit >= 1) return null;
@@ -137,7 +138,10 @@ function scoresForPick(p: TicketPick) {
   const simGraded = simHit != null;
   return {
     grade: fa?.grade ?? rubric?.grade ?? null,
-    confidence: fa?.confidencePct ?? rubric?.confidencePct ?? null,
+    confidence:
+      fa || rubric
+        ? effectiveCoachConfidence(fa ?? rubric, !!p.isProp)
+        : null,
     edge: simGraded ? (fa?.edgePct ?? null) : (fa?.edgePct ?? rubric?.edgePct ?? null),
     composite: fa?.composite ?? rubric?.composite ?? null,
     simHitPct: simHit != null ? Math.round(simHit * 1000) / 10 : null,

@@ -187,6 +187,33 @@ export function stageServerTicketBalanced(
   };
 }
 
+/** Default board assembly: every qualified posted market competes by rank. */
+export function stageServerTicketMarketAgnostic(
+  ranked: ServerRankedLeg[],
+  target: number,
+): { picks: ParsedPick[]; breakdown: FullBoardScanResult["staging"] } {
+  const mains = ranked.filter((row) => !row.isAlt);
+  const alts = ranked.filter((row) => row.isAlt);
+  const used = new Set<string>();
+  const picks: ParsedPick[] = [];
+  for (const row of [...ranked].sort((a, b) => b.rankScore - a.rankScore)) {
+    if (picks.length >= target) break;
+    const fingerprint = legFingerprint(row.pick);
+    if (used.has(fingerprint)) continue;
+    used.add(fingerprint);
+    picks.push({ ...row.pick, ticketRole: row.isAlt ? "alt" : "main" });
+  }
+  return {
+    picks,
+    breakdown: {
+      mainQualified: mains.length,
+      altQualified: alts.length,
+      mainOnTicket: picks.filter((pick) => pick.ticketRole === "main").length,
+      altOnTicket: picks.filter((pick) => pick.ticketRole === "alt").length,
+    },
+  };
+}
+
 /** True when shorter leg keys are the prefix of a longer ticket. */
 export function isPrefixServerTicket(
   longer: readonly ParsedPick[],
