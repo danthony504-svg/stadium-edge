@@ -56,7 +56,7 @@ const bTierGameLine = {
   rubric: { composite: 6, grade: "B", confidencePct: 55, edgePct: 2, scores: {} as never },
 };
 
-test("buildIndependentCoachTicket fills 4-leg ask with B-tier fallback legs", () => {
+test("buildIndependentCoachTicket admits B-grade game lines through the shared documented gate", () => {
   const scored: BoardScoredLeg[] = [
     leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
     leg({ game: "C @ D", market: "Total", pick: "Over 8.5", odds: -110 }, 95, bTierGameLine),
@@ -68,10 +68,8 @@ test("buildIndependentCoachTicket fills 4-leg ask with B-tier fallback legs", ()
     ticketStyle: "balanced",
   });
   assert.equal(picks.length, 4, `expected 4 legs, got ${picks.length}`);
-  assert.ok(
-    picks.some((p) => p.coachFillTier === "B" || p.coachFillTier === "B+"),
-    "expected at least one tier-relaxed fill leg",
-  );
+  assert.ok(picks.some((p) => p.finalAiScore?.grade === "B"));
+  assert.ok(!picks.some((p) => p.coachFillTier), "qualified legs are not hidden fallback fills");
   assert.ok(
     picks.every((p) => boardScanStagedLegQualifies(p, p.finalAiScore)),
     "all delivered legs must pass staged delivery gates",
