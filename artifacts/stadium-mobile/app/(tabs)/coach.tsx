@@ -101,7 +101,9 @@ import { fillReachTicketStaged } from "@/lib/parlayReachCore";
 import { tagTicketRoles } from "@/lib/boardMarketScanner";
 import { parsedPickFromPoolEntry } from "@/lib/propSelection";
 import {
+  abortCoachBoardScan,
   buildTopLegsFromFullBoardScan,
+  isCoachBoardScanAborted,
   shouldUseFullBoardScan,
   tryReachFullBoardScan,
   reachBoardScanEligible,
@@ -1403,6 +1405,12 @@ export default function CoachScreen() {
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
       const terminal = opts.terminal ?? (picks.length > 0 ? "completed" : "empty");
+      // Stop remaining board scan / prop_sim work for this requestId.
+      abortCoachBoardScan(requestId, "request_terminal");
+      if (terminal === "failed") {
+        abortRef.current?.abort();
+        simAbortRef.current?.abort();
+      }
       recordCoachRequestTrace("state_update_start", {
         requestId,
         returnedPickCount: picks.length,
@@ -1839,10 +1847,15 @@ export default function CoachScreen() {
       const stallMs = buildStallBudgetMs(legs);
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
+        const requestId = coachRequestContextRef.current?.requestId;
         recordCoachRequestTrace("watchdog_fired", {
-          requestId: coachRequestContextRef.current?.requestId,
+          requestId,
           error: `stall_timeout_${stallMs}ms`,
         });
+        // Abort in-flight board scan / prop_sim — do not let late work continue after terminal.
+        abortCoachBoardScan(requestId, "watchdog_fired");
+        abortRef.current?.abort();
+        simAbortRef.current?.abort();
         const committed = commitCoachRequestTerminal({
           picks: [],
           legTarget: legs || undefined,
@@ -1897,6 +1910,13 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
+      const requestId = ctx?.requestId;
+      if (
+        (requestId && isCoachBoardScanAborted(requestId)) ||
+        coachRequestWasCompleted(sendGenerationRef.current, requestId)
+      ) {
+        return;
+      }
       if (
         !boardScanAppliesToRequest(
           partial,
@@ -2145,6 +2165,8 @@ export default function CoachScreen() {
       setAiPicks([]);
 
       const resetInFlightBuild = () => {
+        const previousRequestId = coachRequestContextRef.current?.requestId;
+        abortCoachBoardScan(previousRequestId, "superseded");
         abortRef.current?.abort();
         simAbortRef.current?.abort();
         boardTicketSnapshotRef.current = null;
@@ -3399,7 +3421,11 @@ export default function CoachScreen() {
           );
           if (cachedBoardScan && !didReachFullPreScan) {
             reachBoardScan = cachedBoardScan;
-          } else if (!didReachFullPreScan || !freshBoardScanComplete) {
+          } else if (
+            (!didReachFullPreScan || !freshBoardScanComplete) &&
+            !coachRequestWasCompleted(sendGenerationRef.current, coachRequestContextRef.current?.requestId) &&
+            !isCoachBoardScanAborted(coachRequestContextRef.current?.requestId)
+          ) {
             const scanSports = coachLiveScanSports(excludedSports);
             const [espnGames, oddsGames, liveFeed] = await Promise.all([
               Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
@@ -3433,6 +3459,7 @@ export default function CoachScreen() {
                 perfByFamily: marketPerf,
                 calibration: modelCalibration,
                 onPartial: onBoardScanPartial,
+                signal: abortRef.current?.signal,
                 varietySeed,
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
@@ -3849,7 +3876,12 @@ export default function CoachScreen() {
               diversityNote = boardScanResult.note;
             }
           }
-        } else if (!fullBoardScanned && useFullBoardScan) {
+        } else if (
+          !fullBoardScanned &&
+          useFullBoardScan &&
+          !coachRequestWasCompleted(sendGenerationRef.current, coachRequestContextRef.current?.requestId) &&
+          !isCoachBoardScanAborted(coachRequestContextRef.current?.requestId)
+        ) {
           setParlayBuildPhase("board-scan");
           const scanSports = coachLiveScanSports(excludedSports);
           const [espnGames, oddsGames, liveFeed] = await Promise.all([

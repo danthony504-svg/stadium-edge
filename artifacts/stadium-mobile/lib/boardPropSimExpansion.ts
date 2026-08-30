@@ -1,7 +1,7 @@
-// Progressive board prop sim — prescore entire pool, run MC on every candidate.
+// Progressive board prop sim — prescore entire pool, deep-sim a ranked/deduped subset.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
+import { marketLadderKey, collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
@@ -25,6 +25,47 @@ export function countQualifiedBoardLegs(scored: BoardScoredLeg[], target: number
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   const { picks } = buildStagedTicketFromScan(collapsed, target);
   return picks.length;
+}
+
+/**
+ * Pre-rank + ladder-dedupe before deep MC. Keeps the best-ranked rung per market
+ * ladder first, then fills remaining slots with next-best candidates. Does not
+ * change qualification thresholds — only which rows reach the 10k deep stage.
+ */
+export function selectBoardPropSimCandidates<T extends ParsedPick>(
+  rankedProps: readonly T[],
+  maxToSim: number,
+): { selected: T[]; skippedCount: number } {
+  if (maxToSim <= 0 || rankedProps.length === 0) {
+    return { selected: [], skippedCount: rankedProps.length };
+  }
+  if (rankedProps.length <= maxToSim) {
+    return { selected: [...rankedProps], skippedCount: 0 };
+  }
+
+  const selected: T[] = [];
+  const seenLadder = new Set<string>();
+  const deferred: T[] = [];
+
+  for (const pick of rankedProps) {
+    const ladder = marketLadderKey(pick);
+    if (!seenLadder.has(ladder)) {
+      seenLadder.add(ladder);
+      selected.push(pick);
+      if (selected.length >= maxToSim) {
+        return { selected, skippedCount: rankedProps.length - selected.length };
+      }
+    } else {
+      deferred.push(pick);
+    }
+  }
+
+  for (const pick of deferred) {
+    selected.push(pick);
+    if (selected.length >= maxToSim) break;
+  }
+
+  return { selected, skippedCount: rankedProps.length - selected.length };
 }
 
 /** First prop-sim wave — wide enough to surface early qualifiers quickly. */

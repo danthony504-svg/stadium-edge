@@ -5,8 +5,10 @@ import {
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
+  selectBoardPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
+import type { ParsedPick } from "../components/PickCard.tsx";
 
 const qualScore = {
   composite: 7,
@@ -51,6 +53,22 @@ function propLeg(
     simHit: 0.55,
     composite: 7,
     rankScore,
+  };
+}
+
+function rankedPick(player: string, line: number, rank: number): ParsedPick {
+  return {
+    game: "NYY @ WSH",
+    market: "Total Bases",
+    pick: `${player} Over ${line} Total Bases`,
+    odds: -110 - rank,
+    isProp: true,
+    sport: "mlb",
+    player,
+    propLine: line,
+    propSide: "Over",
+    propIsAlt: line > 1.5,
+    finalAiScore: { ...qualScore, composite: 10 - rank / 10 },
   };
 }
 
@@ -114,4 +132,22 @@ test("countQualifiedBoardLegs collapses duplicate ladder rungs before counting f
   }
   assert.equal(scored.length, 10, "ten qualifying rungs before ladder collapse");
   assert.equal(countQualifiedBoardLegs(scored, 9), 5, "only one rung per player/market ladder counts");
+});
+
+test("selectBoardPropSimCandidates ladder-dedupes then caps before deep sim", () => {
+  const ranked: ParsedPick[] = [];
+  for (let i = 0; i < 20; i++) {
+    ranked.push(rankedPick(`Player${i}`, 1.5, i));
+    ranked.push(rankedPick(`Player${i}`, 2.5, i + 0.5));
+  }
+  assert.equal(ranked.length, 40);
+  const { selected, skippedCount } = selectBoardPropSimCandidates(ranked, 25);
+  assert.equal(selected.length, 25);
+  assert.equal(skippedCount, 15);
+  const firstLadders = selected.slice(0, 20).map((p) => `${p.player}|${p.propLine}`);
+  assert.equal(
+    firstLadders.filter((k) => k.endsWith("|1.5")).length,
+    20,
+    "best rung per ladder is preferred before filling with alts",
+  );
 });
