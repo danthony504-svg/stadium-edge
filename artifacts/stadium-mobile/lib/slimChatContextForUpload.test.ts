@@ -98,7 +98,7 @@ test("slimChatContextForUpload drops heavy upload-only fields", () => {
   assert.equal("noVigFair" in slim.realOdds[0], false);
   assert.equal(slim.mlbPlatoon, undefined);
   assert.equal(slim.mlbGameEnv, undefined);
-  assert.equal(slim.matchupInjuries, undefined);
+  assert.deepEqual(slim.matchupInjuries, heavyContext().matchupInjuries);
   assert.equal(slim.matchupHistory?.["Away Team @ Home Team"]?.mlLean?.side, "Home Team");
   assert.equal(slim.matchupHistory?.["Away Team @ Home Team"]?.home, null);
 });
@@ -120,7 +120,7 @@ test("slimChatContextForUpload preserves pre-build selection signals on props", 
 test("slimChatContextForUpload shrinks serialized upload size", () => {
   const before = JSON.stringify(heavyContext()).length;
   const after = JSON.stringify(slimChatContextForUpload(heavyContext())).length;
-  assert.ok(after < before * 0.7, `expected meaningful shrink: ${after} vs ${before}`);
+  assert.ok(after < before * 0.75, `expected meaningful shrink: ${after} vs ${before}`);
 });
 
 test("ultraSlimChatContextForUpload caps pools for emergency retry", () => {

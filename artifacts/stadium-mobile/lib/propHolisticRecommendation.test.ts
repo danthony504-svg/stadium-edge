@@ -54,6 +54,8 @@ test("missing contextual factors reduce confidence", () => {
   });
   assert.ok((rich.confidencePct ?? 0) > (thin.confidencePct ?? 0));
   assert.ok(rich.coveragePct > thin.coveragePct);
+  assert.ok(thin.missingSignals.length > 0);
+  assert.ok(thin.missingSignals.includes("Recent Form"));
   assert.equal(
     (rich.confidencePct ?? 0) - (thin.confidencePct ?? 0) >= CONFIDENCE_PENALTY_PER_MISSING,
     true,
