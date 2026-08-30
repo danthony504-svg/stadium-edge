@@ -46,7 +46,12 @@ router.get("/sports/injuries", async (req, res): Promise<void> => {
       },
     );
 
-    const out = (data.injuries ?? []).map((team) => ({
+    // ESPN's successful empty payload is `{ injuries: [] }`. Treat absent or
+    // malformed `injuries` fields as a failed feed, never as a clean report.
+    if (!data || !Array.isArray(data.injuries)) {
+      throw new Error("Malformed ESPN injury response");
+    }
+    const out = data.injuries.map((team) => ({
       team: team.displayName ?? "Unknown",
       teamAbbr: team.abbreviation ?? "",
       entries: (team.injuries ?? []).map((i) => ({
