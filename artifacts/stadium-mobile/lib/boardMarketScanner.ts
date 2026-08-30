@@ -63,15 +63,29 @@ import {
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
+  selectBoardPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
 export {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
+  selectBoardPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
+import {
+  boardPropSimFetchConcurrency,
+  boardScanMaxPropsToSim,
+  boardScanPropSimBatchTimeoutMs,
+} from "./boardScanScope.ts";
+import { mapWithConcurrency, yieldToEventLoop } from "./boundedConcurrency.ts";
+import {
+  isCoachBoardScanAborted,
+  mergeAbortSignals,
+  runExclusiveCoachBoardScan,
+} from "./coachBoardScanGuard.ts";
 
-const PROP_SIM_BATCH_TIMEOUT_MS = 60_000;
+const PROP_SIM_BATCH_TIMEOUT_MS = boardScanPropSimBatchTimeoutMs();
+const PROP_SIM_SUB_BATCH = 40;
 
 function propSimKeyForPick(pick: ParsedPick, poolRow?: { marketKey?: string | null }): string | null {
   return propSimLookupKey(pick, poolRow);
@@ -260,25 +274,55 @@ async function simPropBatch(
 }> {
   const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
   if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
-  let timedOut = false;
-  try {
-    const rows = await Promise.race([
-      fetchPropSimulations(
-        batch,
-        pool,
-        { tier: "deep", teamIdsByGame },
-        signal,
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
-      ),
-    ]);
-    for (const [k, v] of rows) {
-      out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
-    }
-  } catch {
-    timedOut = true;
+  if (signal?.aborted) return { hits: out, timedOut: false, playerHistory: {} };
+
+  const chunks: ParsedPick[][] = [];
+  for (let i = 0; i < batch.length; i += PROP_SIM_SUB_BATCH) {
+    chunks.push(batch.slice(i, i + PROP_SIM_SUB_BATCH));
   }
+
+  let timedOut = false;
+  const chunkResults = await mapWithConcurrency(
+    chunks,
+    boardPropSimFetchConcurrency(),
+    async (chunk) => {
+      if (signal?.aborted) {
+        return { hits: new Map<string, { hitProbability: number | null; nullReason?: string | null }>(), timedOut: false };
+      }
+      try {
+        const rows = await Promise.race([
+          fetchPropSimulations(
+            chunk,
+            pool,
+            { tier: "deep", teamIdsByGame },
+            signal,
+          ),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
+          ),
+        ]);
+        const hits = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
+        for (const [k, v] of rows) {
+          hits.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
+        }
+        return { hits, timedOut: false };
+      } catch {
+        return {
+          hits: new Map<string, { hitProbability: number | null; nullReason?: string | null }>(),
+          timedOut: true,
+        };
+      }
+    },
+    { signal },
+  );
+
+  for (const result of chunkResults) {
+    if (!result) continue;
+    if (result.timedOut) timedOut = true;
+    for (const [k, v] of result.hits) out.set(k, v);
+  }
+
+  if (signal?.aborted) return { hits: out, timedOut, playerHistory: {} };
   const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
   return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory };
 }
@@ -354,7 +398,20 @@ function prescorePropRank(pick: ParsedPick): number {
   );
 }
 
-/** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
+export type PropSimPoolStats = {
+  propScored: BoardScoredLeg[];
+  propHits: Map<string, { hitProbability: number | null }>;
+  inputCount: number;
+  simulatedCount: number;
+  skippedCount: number;
+  qualifiedCount: number;
+  durationMs: number;
+  timedOut: boolean;
+  aborted: boolean;
+  error?: string;
+};
+
+/** Fast-rank + dedupe, then expand deep MC in bounded batches until enough qualify. */
 async function simPropPoolUntilQualified(
   pool: PropPoolEntry[],
   mergedOdds: RealOddsEntry[],
@@ -374,10 +431,12 @@ async function simPropPoolUntilQualified(
     teamIdsByGame?: Map<string, GameTeamIds>;
   },
   signal?: AbortSignal,
-): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
+): Promise<PropSimPoolStats> {
+  const startedAt = Date.now();
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
+  let timedOut = false;
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
     realOdds: mergedOdds,
@@ -389,9 +448,11 @@ async function simPropPoolUntilQualified(
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
   });
-  const rankedProps = [...prescorePool]
+  const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
     .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
+  const maxToSim = boardScanMaxPropsToSim(opts.target, rankedAll.length);
+  const { selected: rankedProps, skippedCount } = selectBoardPropSimCandidates(rankedAll, maxToSim);
 
   const scoreOpts = {
     pool,
@@ -407,9 +468,21 @@ async function simPropPoolUntilQualified(
   };
 
   const combinedScored = () => [...gameScored, ...propScored];
+  const finish = (simulatedCount: number, error?: string): PropSimPoolStats => ({
+    propScored,
+    propHits,
+    inputCount: rankedAll.length,
+    simulatedCount,
+    skippedCount,
+    qualifiedCount: countQualifiedBoardLegs(combinedScored(), opts.target),
+    durationMs: Date.now() - startedAt,
+    timedOut,
+    aborted: !!signal?.aborted,
+    ...(error ? { error } : signal?.aborted ? { error: "aborted" } : timedOut ? { error: "batch_timeout" } : {}),
+  });
 
   if (rankedProps.length === 0) {
-    return { propScored, propHits, simEvaluated: 0 };
+    return finish(0);
   }
 
   let simIndex = 0;
@@ -421,6 +494,7 @@ async function simPropPoolUntilQualified(
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
     const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal);
+    if (wave.timedOut) timedOut = true;
     for (const [k, v] of wave.hits) propHits.set(k, v);
     for (const [k, v] of Object.entries(wave.playerHistory)) {
       scoreOpts.playerHistory[k] = v;
@@ -442,12 +516,18 @@ async function simPropPoolUntilQualified(
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
 
+    // Enough unique ladder-collapsed legs to fill the ticket — stop deep MC.
+    if (countQualifiedBoardLegs(combinedScored(), opts.target) >= opts.target) {
+      return finish(simIndex);
+    }
+
     if (simIndex >= rankedProps.length) break;
 
     batchSize = boardPropSimExpansionBatchSize(opts.target);
+    await yieldToEventLoop();
   }
 
-  return { propScored, propHits, simEvaluated: simIndex };
+  return finish(simIndex);
 }
 
 function buildScanResult(
@@ -550,12 +630,37 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   };
   const traceRequest = (
     stage: Parameters<typeof recordCoachRequestTrace>[0],
-    extra: { candidateCount?: number; qualifiedCount?: number; returnedPickCount?: number; error?: string } = {},
+    extra: {
+      candidateCount?: number;
+      qualifiedCount?: number;
+      returnedPickCount?: number;
+      simulatedCount?: number;
+      skippedCount?: number;
+      durationMs?: number;
+      error?: string;
+    } = {},
   ) =>
     recordCoachRequestTrace(stage, {
       requestId: opts.requestId,
       ...extra,
     });
+  if (opts.requestId && isCoachBoardScanAborted(opts.requestId)) {
+    traceRequest("request_terminal", {
+      error: "scan_ignored_after_terminal",
+    });
+    return {
+      picks: [],
+      evalLinesByGame: new Map(),
+      gameSimulations: new Map(),
+      totalScanned: 0,
+      totalQualified: 0,
+      staging: { mainQualified: 0, altQualified: 0, mainOnTicket: 0, altOnTicket: 0 },
+      note: "",
+      scanComplete: true,
+      requestedLegs: opts.target,
+      requestId: opts.requestId,
+    };
+  }
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -725,7 +830,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   };
 
   traceRequest("prop_sim_start", { candidateCount: pool.length, qualifiedCount: scored.length });
-  const { propScored } = await simPropPoolUntilQualified(
+  const propSim = await simPropPoolUntilQualified(
     pool,
     mergedOdds,
     scored,
@@ -744,17 +849,24 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     opts.signal,
   );
 
-  scored.push(...propScored);
+  scored.push(...propSim.propScored);
   traceTiming("prop_simulations_finished", {
-    propScoredCount: propScored.length,
+    propScoredCount: propSim.propScored.length,
     totalScoredCount: scored.length,
+    simulatedCount: propSim.simulatedCount,
+    skippedCount: propSim.skippedCount,
   });
   traceRequest("prop_sim_complete", {
-    candidateCount: pool.length,
-    qualifiedCount: scored.length,
+    candidateCount: propSim.inputCount,
+    qualifiedCount: propSim.qualifiedCount,
+    returnedPickCount: propSim.propScored.length,
+    simulatedCount: propSim.simulatedCount,
+    skippedCount: propSim.skippedCount,
+    durationMs: propSim.durationMs,
+    error: propSim.error,
   });
 
-  totalScanned += pool.length;
+  totalScanned += propSim.simulatedCount;
   traceCoachMarketStage("SIMULATION_SUCCEEDED", scored.map((leg) => leg.pick));
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
@@ -829,13 +941,24 @@ export function reachBoardScanEligible(opts: {
   return true;
 }
 
-/** Full-board scan wrapper — never throws through to the coach render path. */
+/** Full-board scan wrapper — single-flight per requestId; never throws to coach UI. */
 export async function tryReachFullBoardScan(
   opts: Parameters<typeof buildTopLegsFromFullBoardScan>[0],
 ): Promise<FullBoardScanResult | null> {
+  const requestId = opts.requestId ?? "";
+  if (requestId && isCoachBoardScanAborted(requestId)) {
+    return null;
+  }
+
   try {
-    return await buildTopLegsFromFullBoardScan(opts);
+    return await runExclusiveCoachBoardScan(requestId, async (scanSignal) => {
+      if (requestId && isCoachBoardScanAborted(requestId)) return null;
+      const signal = mergeAbortSignals(opts.signal, scanSignal);
+      return buildTopLegsFromFullBoardScan({ ...opts, signal });
+    });
   } catch {
     return null;
   }
 }
+
+export { abortCoachBoardScan, isCoachBoardScanAborted } from "./coachBoardScanGuard.ts";

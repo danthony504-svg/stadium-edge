@@ -31,6 +31,12 @@ export type CoachTraceEvent = {
   candidateCount: number;
   qualifiedCount: number;
   returnedPickCount: number;
+  /** Prop-sim: how many candidates actually received deep MC. */
+  simulatedCount?: number;
+  /** Prop-sim: pre-rank/dedupe skips before deep MC. */
+  skippedCount?: number;
+  /** Stage wall duration when recorded by the scanner. */
+  durationMs?: number;
   error?: string;
 };
 
@@ -65,6 +71,9 @@ export function recordCoachRequestTrace(
     candidateCount: details.candidateCount ?? 0,
     qualifiedCount: details.qualifiedCount ?? 0,
     returnedPickCount: details.returnedPickCount ?? 0,
+    ...(details.simulatedCount != null ? { simulatedCount: details.simulatedCount } : {}),
+    ...(details.skippedCount != null ? { skippedCount: details.skippedCount } : {}),
+    ...(details.durationMs != null ? { durationMs: details.durationMs } : {}),
     ...(details.error ? { error: details.error } : {}),
   };
   currentTrace.events.push(event);
@@ -104,6 +113,9 @@ export function formatCoachRequestTrace(trace: CoachRequestTrace | null): string
         `candidates=${event.candidateCount}`,
         `qualified=${event.qualifiedCount}`,
         `returned=${event.returnedPickCount}`,
+        event.simulatedCount != null ? `simulated=${event.simulatedCount}` : "",
+        event.skippedCount != null ? `skipped=${event.skippedCount}` : "",
+        event.durationMs != null ? `durationMs=${event.durationMs}` : "",
         event.error ? `error=${event.error}` : "",
       ]
         .filter(Boolean)
