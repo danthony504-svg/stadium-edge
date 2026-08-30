@@ -21,6 +21,11 @@ import {
   type OtaFullDiagnostics,
 } from "@/lib/otaDebug";
 import { formatOtaLogLines } from "@/lib/otaLaunchLog";
+import {
+  formatCoachRequestTrace,
+  loadCoachRequestTrace,
+  type CoachRequestTrace,
+} from "@/lib/coachRequestTrace";
 
 function initialDiagnostics(): OtaFullDiagnostics {
   return {
@@ -131,12 +136,14 @@ function OtaDebugScreenInner() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [probeLoading, setProbeLoading] = useState(true);
+  const [coachTrace, setCoachTrace] = useState<CoachRequestTrace | null>(null);
 
   const refresh = useCallback(async () => {
     setProbeLoading(true);
     try {
       const next = await collectOtaFullDiagnostics();
       setDiag(next);
+      setCoachTrace(await loadCoachRequestTrace());
       return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -161,6 +168,13 @@ function OtaDebugScreenInner() {
     const snap = diag ?? (await refresh());
     await Clipboard.setStringAsync(buildReport(snap));
     setStatus("Copied full report to clipboard");
+  };
+
+  const copyCoachTrace = async () => {
+    const trace = await loadCoachRequestTrace();
+    setCoachTrace(trace);
+    await Clipboard.setStringAsync(formatCoachRequestTrace(trace));
+    setStatus("Copied Coach trace to clipboard");
   };
 
   const runCheckFetchReload = async () => {
@@ -266,6 +280,37 @@ function OtaDebugScreenInner() {
           <Row label="Bundle source" value={diag.bundleSource} />
           <Row label="Commit hash (running JS)" value={diag.commitHash} />
           <Row label="Deploy message" value={diag.deployMessage} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Coach request trace
+          </Text>
+          <LogBlock
+            title="Most recent request (persisted on device)"
+            lines={formatCoachRequestTrace(coachTrace).split("\n")}
+          />
+          <Pressable
+            onPress={() => void copyCoachTrace()}
+            style={({ pressed }) => ({
+              paddingVertical: 10,
+              alignItems: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>
+              Copy Trace
+            </Text>
+          </Pressable>
         </View>
 
         <View

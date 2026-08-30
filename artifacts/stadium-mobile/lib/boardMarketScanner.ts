@@ -56,6 +56,7 @@ import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { nonOuCandidateDiagnostic, traceCoachMarketStage } from "./coachMarketDiagnostics.ts";
 import { explainBoardLegQualification } from "./boardLegQualification.ts";
 import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
+import { recordCoachRequestTrace } from "./coachRequestTrace.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -547,6 +548,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       }),
     );
   };
+  const traceRequest = (
+    stage: Parameters<typeof recordCoachRequestTrace>[0],
+    extra: { candidateCount?: number; qualifiedCount?: number; returnedPickCount?: number; error?: string } = {},
+  ) =>
+    recordCoachRequestTrace(stage, {
+      requestId: opts.requestId,
+      ...extra,
+    });
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -586,6 +595,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     gameCount: oddsGames.length,
     seedPropCount: poolBase.length,
   });
+  traceRequest("scan_start", {
+    candidateCount: poolBase.length + [...evalLinesByGame.values()].flat().length,
+  });
+  traceRequest("prop_expansion_start", { candidateCount: poolBase.length });
 
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
@@ -623,9 +636,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
     });
-    if (partial.picks.length > 0) opts.onPartial(partial);
+    if (partial.picks.length > 0) {
+      traceRequest("partial_candidates_emitted", {
+        candidateCount: totalScanned,
+        qualifiedCount: partial.totalQualified,
+        returnedPickCount: partial.picks.length,
+      });
+      opts.onPartial(partial);
+    }
   };
 
+  traceRequest("game_sim_start", { candidateCount: gameEntries.length });
   const scoreGamesAndMaybePartial = (games: string[]) => {
     for (const game of games) {
       const lines = evalLinesByGame.get(game);
@@ -671,10 +692,15 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     simulatedGameCount: gameSimulations.size,
     scoredCount: scored.length,
   });
+  traceRequest("game_sim_complete", {
+    candidateCount: totalScanned,
+    qualifiedCount: scored.length,
+  });
 
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
   traceTiming("prop_board_expansion_finished", { propCount: pool.length });
+  traceRequest("prop_expansion_complete", { candidateCount: pool.length });
   const normalized = [
     ...[...evalLinesByGame.values()].flat().map((e) => ({ game: e.game, market: e.market, pick: e.pick, odds: e.odds, sport: e.sport, isProp: false as const })),
     ...pool.map(parsedPickFromPoolEntry),
@@ -698,6 +724,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     calibration: opts.calibration,
   };
 
+  traceRequest("prop_sim_start", { candidateCount: pool.length, qualifiedCount: scored.length });
   const { propScored } = await simPropPoolUntilQualified(
     pool,
     mergedOdds,
@@ -722,12 +749,20 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     propScoredCount: propScored.length,
     totalScoredCount: scored.length,
   });
+  traceRequest("prop_sim_complete", {
+    candidateCount: pool.length,
+    qualifiedCount: scored.length,
+  });
 
   totalScanned += pool.length;
   traceCoachMarketStage("SIMULATION_SUCCEEDED", scored.map((leg) => leg.pick));
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   traceCoachMarketStage("QUALIFIED", collapsed.map((leg) => leg.pick));
+  traceRequest("qualification_complete", {
+    candidateCount: totalScanned,
+    qualifiedCount: collapsed.length,
+  });
   traceCoachMarketStage("RANKED_TOP_25", collapsed.slice(0, 25).map((leg) => leg.pick));
   const rejectedNonOu = scored
     .filter((leg) => !leg.pick.isProp && !explainBoardLegQualification(leg.pick, leg.pick.finalAiScore).qualifies)
