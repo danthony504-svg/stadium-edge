@@ -28,7 +28,6 @@ import {
   qualifiesAltPick,
   simEdgeStagingQualifies,
 } from "./pickRecommendation.ts";
-import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 
 function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
@@ -82,20 +81,6 @@ export function boardLegPoolRole(
   }
   if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
   if (qualifiesAltPick(pick, score ?? undefined)) return "alt";
-  if (
-    pick.isProp &&
-    score?.propHolistic &&
-    propQualifiesForTicketFill(pick, score.propHolistic, {
-      edgePct: score.edgePct,
-      simHit: score.simHit,
-      odds: pick.odds,
-    })
-  ) {
-    return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
-  }
-  if (qualifiesAltPick(pick, score ?? undefined)) {
-    return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
-  }
   if (simEdgeStagingQualifies(pick, score ?? undefined)) {
     return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
   }

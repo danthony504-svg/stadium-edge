@@ -1968,22 +1968,15 @@ export default function CoachScreen() {
       }
       if (partial.picks.length) {
         const previewStartedAt = Date.now();
-        const terminalPreview =
-          legTarget > 0 && partial.picks.length >= legTarget;
-        const committed = terminalPreview
-          ? tryCommitCoachScanResult(partial, {
-              legTarget,
-              allowQualifiedPreviewTerminal: true,
-            })
-          : patchInstantBoardScanTicket(partial, undefined, {
-              ticketLegTarget: legTarget || undefined,
-            });
+        // Incomplete scans may flash qualified legs but must not terminal-commit —
+        // prop waves can reach leg target before game lines finish sim/ranking.
+        const committed = patchInstantBoardScanTicket(partial, undefined, {
+          ticketLegTarget: legTarget || undefined,
+        });
         console.log(
           "[coach-final-trace]",
           JSON.stringify({
-            stage: terminalPreview
-              ? "qualified_preview_terminal"
-              : "qualified_preview_rendered",
+            stage: "qualified_preview_rendered",
             elapsedMs: Date.now() - previewStartedAt,
             requestId: ctx?.requestId ?? "",
             scanPickCount: partial.picks.length,

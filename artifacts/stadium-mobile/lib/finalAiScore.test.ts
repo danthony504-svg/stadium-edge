@@ -93,7 +93,7 @@ test("buildFinalAiScore recommends sim-aligned B+ leg", () => {
   assert.equal(score.highRiskValuePlay, false);
 });
 
-test("buildFinalAiScore prop aligns when sim beats implied even below 52% hit", () => {
+test("buildFinalAiScore uses the same simAligned floor for props and game lines", () => {
   const score = buildFinalAiScore({
     pick: {
       game: "Sparks @ Dream",
@@ -117,7 +117,7 @@ test("buildFinalAiScore prop aligns when sim beats implied even below 52% hit", 
     odds: 105,
     propSimHit: 0.5,
   });
-  assert.equal(score.simAligned, true);
+  assert.equal(score.simAligned, false, "50% hit stays below the shared 52% sim-aligned floor");
 });
 
 test("buildFinalAiScore does not recommend without sim grade", () => {

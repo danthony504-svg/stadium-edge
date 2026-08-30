@@ -276,18 +276,6 @@ export function pickQualifiesForBoardDelivery(
   }
   if (pickIsAiRecommended(pick, score)) return true;
   if (qualifiesAltPick(pick, score)) return true;
-  if (
-    pick.isProp &&
-    score.propHolistic &&
-    propQualifiesForTicketFill(pick as ParsedPick, score.propHolistic, {
-      edgePct: score.edgePct,
-      simHit: score.simHit,
-      odds: pick.odds,
-    })
-  ) {
-    return true;
-  }
-  if (qualifiesAltPick(pick, score)) return true;
   if (simEdgeStagingQualifies(pick, score)) return true;
   return false;
 }
@@ -322,12 +310,9 @@ export function pickIsAiRecommended(
 ): boolean {
   if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
-  if (propUsesHolisticGate(pick)) {
-    return propHolisticGatePassed(pick, score);
-  }
-  if (!score.simAligned) return false;
+  if (!score.simAligned && !score.highRiskValuePlay) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (effectiveCoachConfidence(score, !!pick.isProp) < COACH_SIM_MIN_CONFIDENCE) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);

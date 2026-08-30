@@ -57,6 +57,12 @@ import { nonOuCandidateDiagnostic, traceCoachMarketStage } from "./coachMarketDi
 import { explainBoardLegQualification } from "./boardLegQualification.ts";
 import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 import { recordCoachRequestTrace } from "./coachRequestTrace.ts";
+import {
+  auditFootballQualificationFailures,
+  createCoachMarketPipelineAudit,
+  legsQualifiedForStaging,
+  picksSimulationEligible,
+} from "./coachMarketPipelineAudit.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -711,6 +717,26 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 2;
   const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+  const pipelineAudit = createCoachMarketPipelineAudit(opts.requestId ?? "unknown");
+
+  const rawFeedPicks = [
+    ...[...evalLinesByGame.values()].flat().map((e) => ({
+      game: e.game,
+      market: e.market,
+      pick: e.pick,
+      odds: e.odds,
+      sport: e.sport,
+      isProp: false as const,
+    })),
+    ...poolBase.map(parsedPickFromPoolEntry),
+  ];
+  pipelineAudit.recordRawFeed(rawFeedPicks);
+  for (const pick of rawFeedPicks) {
+    pipelineAudit.recordFootballCandidate(pick, "raw_feed", {
+      unresolvedEvent: !pick.game?.trim(),
+      missingOdds: pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0,
+    });
+  }
 
   for (const [, lines] of gameEntries) {
     for (const entry of lines ?? []) {
@@ -772,6 +798,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         if (leg) {
           scored.push(leg);
         } else if (sim) {
+          pipelineAudit.recordFootballCandidate(row.pick, "simulation_eligible", { simFailure: true });
           manifestRecorder.recordPreScoreGateFailure(row.pick, {
             ...row.finalAiScore,
             simHit: simHit ?? row.finalAiScore.simHit ?? null,
@@ -810,6 +837,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...[...evalLinesByGame.values()].flat().map((e) => ({ game: e.game, market: e.market, pick: e.pick, odds: e.odds, sport: e.sport, isProp: false as const })),
     ...pool.map(parsedPickFromPoolEntry),
   ];
+  pipelineAudit.recordNormalized(normalized);
+  const simEligible = picksSimulationEligible(normalized);
+  pipelineAudit.recordSimulationEligible(simEligible);
   traceCoachMarketStage("NORMALIZED", normalized);
   traceCoachMarketStage("SIMULATION_ATTEMPTED", normalized);
 
@@ -867,9 +897,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   });
 
   totalScanned += propSim.simulatedCount;
+  const qualifiedLegs = legsQualifiedForStaging(scored);
+  pipelineAudit.recordQualified(qualifiedLegs);
+  auditFootballQualificationFailures(pipelineAudit, scored.map((leg) => leg.pick), "qualified");
   traceCoachMarketStage("SIMULATION_SUCCEEDED", scored.map((leg) => leg.pick));
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+  pipelineAudit.recordRanked(collapsed);
   traceCoachMarketStage("QUALIFIED", collapsed.map((leg) => leg.pick));
   traceRequest("qualification_complete", {
     candidateCount: totalScanned,
@@ -898,6 +932,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
   });
+  pipelineAudit.recordFinalSelected(result.picks);
+  pipelineAudit.emitTrace();
   if (opts.onPartial) opts.onPartial(result);
   traceTiming("board_scan_finished", {
     qualifiedCount: result.totalQualified,
