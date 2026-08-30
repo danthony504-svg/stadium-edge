@@ -170,6 +170,10 @@ import {
   registerActiveCoachRequest,
   setCoachRequestPhase,
 } from "@/lib/coachRequestCompletion";
+import {
+  recordCoachRequestTrace,
+  startCoachRequestTrace,
+} from "@/lib/coachRequestTrace";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1399,6 +1403,10 @@ export default function CoachScreen() {
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
       const terminal = opts.terminal ?? (picks.length > 0 ? "completed" : "empty");
+      recordCoachRequestTrace("state_update_start", {
+        requestId,
+        returnedPickCount: picks.length,
+      });
       console.log("[coach-request-commit] terminal candidate", {
         currentRequestId: requestId,
         completedRequestId: opts.partial?.requestId ?? requestId,
@@ -1408,7 +1416,7 @@ export default function CoachScreen() {
         renderedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
         terminal,
       });
-      return completeCoachRequest(
+      const committed = completeCoachRequest(
         {
           requestId,
           sendGeneration: sendGen,
@@ -1450,6 +1458,19 @@ export default function CoachScreen() {
           if (opts.pinScroll !== false) scrollToEnd(false);
         },
       );
+      recordCoachRequestTrace("state_update_complete", {
+        requestId,
+        returnedPickCount: picks.length,
+        error: committed ? undefined : "terminal_state_rejected",
+      });
+      if (committed) {
+        recordCoachRequestTrace("request_terminal", {
+          requestId,
+          returnedPickCount: picks.length,
+          error: terminal === "failed" ? "watchdog_failure" : undefined,
+        });
+      }
+      return committed;
     },
     [clearBuildStallWatchdog, scrollToEnd, captureCoachPicksOnce],
   );
@@ -1503,11 +1524,23 @@ export default function CoachScreen() {
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
       traceFinalStage("final_selection_started", { legTarget, terminalPreview });
+      recordCoachRequestTrace("final_selection_start", {
+        requestId: ctx?.requestId,
+        candidateCount: partial.totalScanned,
+        qualifiedCount: partial.totalQualified,
+        returnedPickCount: partial.picks.length,
+      });
       const delivered = boardScanIsComplete(partial)
         ? deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget)
         : deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
       let ticket = delivered.picks;
       traceFinalStage("ticket_creation_finished", { ticketCount: ticket.length });
+      recordCoachRequestTrace("final_selection_complete", {
+        requestId: ctx?.requestId,
+        candidateCount: partial.totalScanned,
+        qualifiedCount: partial.totalQualified,
+        returnedPickCount: ticket.length,
+      });
       let legNote =
         opts?.legNote ??
         ("progressNote" in delivered ? delivered.progressNote : partial.note);
@@ -1523,6 +1556,12 @@ export default function CoachScreen() {
 
       if (legTarget >= 3) {
         traceFinalStage("ticket_finalization_started", { ticketCount: ticket.length });
+        recordCoachRequestTrace("ticket_creation_start", {
+          requestId: ctx?.requestId,
+          candidateCount: partial.totalScanned,
+          qualifiedCount: partial.totalQualified,
+          returnedPickCount: ticket.length,
+        });
         const finalized = finalizeCoachTicketForRequest(ticket, {
           requestedLegs: legTarget,
           requestId: ctx?.requestId,
@@ -1534,6 +1573,13 @@ export default function CoachScreen() {
         if (!finalized.ok) ticket = [];
         else ticket = finalized.picks;
         traceFinalStage("ticket_finalization_finished", { ticketCount: ticket.length });
+        recordCoachRequestTrace("ticket_creation_complete", {
+          requestId: ctx?.requestId,
+          candidateCount: partial.totalScanned,
+          qualifiedCount: partial.totalQualified,
+          returnedPickCount: ticket.length,
+          error: finalized.ok ? undefined : finalized.reason,
+        });
       } else if (legTarget > 0 && ticket.length) {
         rememberParlayBuild(ticket);
         if (ctx) recordCoachTicketDelivered(ticket, ctx);
@@ -1793,6 +1839,10 @@ export default function CoachScreen() {
       const stallMs = buildStallBudgetMs(legs);
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
+        recordCoachRequestTrace("watchdog_fired", {
+          requestId: coachRequestContextRef.current?.requestId,
+          error: `stall_timeout_${stallMs}ms`,
+        });
         const committed = commitCoachRequestTerminal({
           picks: [],
           legTarget: legs || undefined,
@@ -1880,6 +1930,12 @@ export default function CoachScreen() {
             scanPickCount: partial.picks.length,
           }),
         );
+        recordCoachRequestTrace("correlation_finished", {
+          requestId: ctx?.requestId,
+          candidateCount: partial.totalScanned,
+          qualifiedCount: partial.totalQualified,
+          returnedPickCount: partial.picks.length,
+        });
         setCoachRequestPhase("correlation", ctx?.requestId);
         if (partial.picks.length) {
           setBoardScanPartialLegs(partial.picks.length);
@@ -2282,6 +2338,7 @@ export default function CoachScreen() {
           varietySeed,
         });
         registerActiveCoachRequest(varietySeed, sendGen);
+        startCoachRequestTrace(varietySeed);
       }
 
       const controller = new AbortController();
@@ -2478,6 +2535,7 @@ export default function CoachScreen() {
             coachRequestContextRef.current.requestId,
             sendGen,
           );
+          startCoachRequestTrace(coachRequestContextRef.current.requestId);
         }
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
