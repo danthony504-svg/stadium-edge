@@ -418,7 +418,7 @@ export function coachBuildSports(
     const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
     if (n >= 11) sports = [...allSports];
     else if (n >= 6) {
-      sports = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"].filter((id) =>
+      sports = ["mlb", "wnba", "nba", "nhl", "nfl", "ncaaf", "soccer", "ufc", "tennis"].filter((id) =>
         allSports.includes(id),
       );
     } else {

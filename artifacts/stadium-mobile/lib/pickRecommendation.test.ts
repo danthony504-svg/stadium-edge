@@ -337,7 +337,7 @@ test("filterTicketPicksPreservingTicket drops sim-opposed legs from rescoring fa
       edgePct: 1.4,
       simHit: 0.48,
       simAligned: false,
-      highRiskValuePlay: true,
+      highRiskValuePlay: false,
       recommends: true,
       factors: [],
       rubric: { composite: 6.2, grade: "C+", confidencePct: 52, edgePct: 1.4, scores: {} as never },
