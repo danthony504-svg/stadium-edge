@@ -13,6 +13,8 @@ import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { boardLegPoolRole } from "./ticketStaging.ts";
+import { persistCoachMarketPipelineAudit } from "./coachRequestTrace.ts";
+import { isYesNoPropMarket } from "./propYesNoMarkets.ts";
 
 export type PipelineAuditStage =
   | "raw_feed"
@@ -22,7 +24,8 @@ export type PipelineAuditStage =
   | "ranked"
   | "final_selected";
 
-export type SportMarketCounts = Record<string, Record<CoachMarketFamily, number>>;
+export type AuditMarketFamily = "playerProps" | "moneyline" | "spread" | "gameTotal" | "teamTotal" | "alternateGameLine" | "touchdownBinary" | "other";
+export type SportMarketCounts = Record<string, Record<AuditMarketFamily, number>>;
 
 export type FootballRejection = {
   sport: string;
@@ -38,6 +41,7 @@ export type CoachMarketPipelineSnapshot = {
   requestId: string;
   stages: Partial<Record<PipelineAuditStage, SportMarketCounts>>;
   footballRejections: FootballRejection[];
+  nonPropRejectionAggregates?: Record<string, number>;
 };
 
 const FOOTBALL_SPORTS = new Set(["nfl", "ncaaf"]);
@@ -48,17 +52,27 @@ function normSport(s: string | null | undefined): string {
 
 function bump(counts: SportMarketCounts, pick: ParsedPick): void {
   const sport = normSport(pick.sport);
-  const family = coachMarketFamily(pick);
+  const family = auditMarketFamily(pick);
   counts[sport] ??= {
-    moneyline: 0,
-    spread: 0,
-    gameTotal: 0,
-    teamTotal: 0,
-    playerOu: 0,
-    milestone: 0,
-    alternate: 0,
+    playerProps: 0, moneyline: 0, spread: 0, gameTotal: 0,
+    teamTotal: 0, alternateGameLine: 0, touchdownBinary: 0, other: 0,
   };
   counts[sport]![family] += 1;
+}
+
+export function auditMarketFamily(pick: ParsedPick): AuditMarketFamily {
+  const market = String(pick.market ?? "").toLowerCase();
+  if (pick.isProp) {
+    return isYesNoPropMarket(market) || /touchdown|anytime.*td/.test(market)
+      ? "touchdownBinary"
+      : "playerProps";
+  }
+  if (/\balt\b/.test(market)) return "alternateGameLine";
+  if (/team total/.test(market)) return "teamTotal";
+  if (/moneyline|\bml\b/.test(market)) return "moneyline";
+  if (/spread|run line|puck line/.test(market)) return "spread";
+  if (/\btotal\b/.test(market)) return "gameTotal";
+  return "other";
 }
 
 function countsFromPicks(picks: readonly ParsedPick[]): SportMarketCounts {
@@ -128,13 +142,13 @@ export function createCoachMarketPipelineAudit(requestId: string): {
     recordRanked: (legs) => recordStage("ranked", legs.map((l) => l.pick)),
     recordFinalSelected: (picks) => recordStage("final_selected", picks),
     recordFootballQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => {
-      if (!isFootballPick(pick)) return;
+      if (pick.isProp) return;
       const q = explainBoardLegQualification(pick, pick.finalAiScore);
       if (q.qualifies) return;
       pushFootballRejection(footballRejectionFromQualification(pick, stage, q.gate, q.reason));
     },
     recordFootballCandidate: (pick, stage, opts) => {
-      if (!isFootballPick(pick)) return;
+      if (pick.isProp) return;
       if (opts.unresolvedEvent || !pick.game?.trim()) {
         pushFootballRejection({
           sport: normSport(pick.sport),
@@ -172,20 +186,41 @@ export function createCoachMarketPipelineAudit(requestId: string): {
       }
     },
     emitTrace: () => {
+      const nonPropRejectionAggregates: Record<string, number> = {};
+      for (const row of footballRejections) {
+        const key =
+          row.gate === "missing_odds" ? "missing odds"
+            : row.gate === "simulation_failure" ? "simulation unavailable"
+              : row.gate === "not_sim_aligned" || row.gate === "sim_below_implied" ? "simAligned false"
+                : row.gate === "confidence_below_minimum" ? "confidence"
+                  : row.gate === "grade_below_minimum" ? "grade"
+                    : row.gate === "negative_edge" || row.gate === "negative_ev" ? "EV/edge"
+                      : row.gate === "high_risk_value_play" ? "high risk"
+                        : row.gate === "unresolved_event" ? "unsupported normalization"
+                          : "other explicit reason";
+        nonPropRejectionAggregates[key] = (nonPropRejectionAggregates[key] ?? 0) + 1;
+      }
+      const snapshot = {
+        requestId, stages, footballRejections, nonPropRejectionAggregates, familyTotals: summarizeFamilies(stages),
+      };
+      persistCoachMarketPipelineAudit(snapshot);
       console.log(
         "[coach-market-pipeline-audit]",
-        JSON.stringify({ requestId, stages, footballRejections, familyTotals: summarizeFamilies(stages) }),
+        JSON.stringify(snapshot),
       );
     },
   };
 }
 
 function summarizeFamilies(stages: Partial<Record<PipelineAuditStage, SportMarketCounts>>): Record<string, unknown> {
-  const out: Record<string, Record<CoachMarketFamily, number>> = {};
+  const out: Record<string, Record<AuditMarketFamily, number>> = {};
   for (const [stage, bySport] of Object.entries(stages)) {
-    const totals = countsByMarketFamily([]);
+    const totals: Record<AuditMarketFamily, number> = {
+      playerProps: 0, moneyline: 0, spread: 0, gameTotal: 0,
+      teamTotal: 0, alternateGameLine: 0, touchdownBinary: 0, other: 0,
+    };
     for (const families of Object.values(bySport ?? {})) {
-      for (const [fam, n] of Object.entries(families) as [CoachMarketFamily, number][]) {
+      for (const [fam, n] of Object.entries(families) as [AuditMarketFamily, number][]) {
         totals[fam] += n;
       }
     }

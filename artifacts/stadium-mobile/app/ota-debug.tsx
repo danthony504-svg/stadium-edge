@@ -23,9 +23,11 @@ import {
 import { formatOtaLogLines } from "@/lib/otaLaunchLog";
 import {
   formatCoachRequestTrace,
+  loadCoachMarketPipelineAudit,
   loadCoachRequestTrace,
   type CoachRequestTrace,
 } from "@/lib/coachRequestTrace";
+import type { CoachMarketPipelineSnapshot } from "@/lib/coachMarketPipelineAudit";
 
 function initialDiagnostics(): OtaFullDiagnostics {
   return {
@@ -137,6 +139,7 @@ function OtaDebugScreenInner() {
   const [busy, setBusy] = useState(false);
   const [probeLoading, setProbeLoading] = useState(true);
   const [coachTrace, setCoachTrace] = useState<CoachRequestTrace | null>(null);
+  const [marketAudit, setMarketAudit] = useState<CoachMarketPipelineSnapshot | null>(null);
 
   const refresh = useCallback(async () => {
     setProbeLoading(true);
@@ -144,6 +147,7 @@ function OtaDebugScreenInner() {
       const next = await collectOtaFullDiagnostics();
       setDiag(next);
       setCoachTrace(await loadCoachRequestTrace());
+      setMarketAudit(await loadCoachMarketPipelineAudit<CoachMarketPipelineSnapshot>());
       return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -175,6 +179,15 @@ function OtaDebugScreenInner() {
     setCoachTrace(trace);
     await Clipboard.setStringAsync(formatCoachRequestTrace(trace));
     setStatus("Copied Coach trace to clipboard");
+  };
+
+  const copyMarketAudit = async () => {
+    const audit = await loadCoachMarketPipelineAudit<CoachMarketPipelineSnapshot>();
+    setMarketAudit(audit);
+    await Clipboard.setStringAsync(
+      audit ? JSON.stringify(audit, null, 2) : "No completed Coach market audit recorded yet.",
+    );
+    setStatus("Copied Market Audit to clipboard");
   };
 
   const runCheckFetchReload = async () => {
@@ -280,6 +293,41 @@ function OtaDebugScreenInner() {
           <Row label="Bundle source" value={diag.bundleSource} />
           <Row label="Commit hash (running JS)" value={diag.commitHash} />
           <Row label="Deploy message" value={diag.deployMessage} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Coach market pipeline audit
+          </Text>
+          <LogBlock
+            title="Completed board scan — stages, sports, families, and football rejections"
+            lines={
+              marketAudit
+                ? JSON.stringify(marketAudit, null, 2).split("\n")
+                : ["No completed Coach market audit recorded yet."]
+            }
+          />
+          <Pressable
+            onPress={() => void copyMarketAudit()}
+            style={({ pressed }) => ({
+              paddingVertical: 10,
+              alignItems: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>
+              Copy Market Audit
+            </Text>
+          </Pressable>
         </View>
 
         <View

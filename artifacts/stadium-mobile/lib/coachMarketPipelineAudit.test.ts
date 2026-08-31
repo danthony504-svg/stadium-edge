@@ -25,7 +25,7 @@ test("pipeline audit records counts by sport and market family at each stage", (
   audit.recordSimulationEligible(simEligible);
   const snap = audit.snapshot();
   assert.equal(snap.stages.raw_feed?.nfl?.spread, 1);
-  assert.equal(snap.stages.raw_feed?.mlb?.playerOu, 1);
+  assert.equal(snap.stages.raw_feed?.mlb?.playerProps, 1);
   assert.equal(snap.stages.simulation_eligible?.nfl?.spread, 1);
 });
 

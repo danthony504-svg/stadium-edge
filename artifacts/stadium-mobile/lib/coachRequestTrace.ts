@@ -47,6 +47,7 @@ export type CoachRequestTrace = {
 };
 
 let currentTrace: CoachRequestTrace | null = null;
+let currentMarketAudit: unknown = null;
 
 export function startCoachRequestTrace(requestId: string): void {
   currentTrace = { requestId, startedAt: Date.now(), events: [] };
@@ -95,6 +96,21 @@ export async function loadCoachRequestTrace(): Promise<CoachRequestTrace | null>
     const raw = await AsyncStorage.getItem(COACH_REQUEST_TRACE_KEY);
     const parsed = raw ? (JSON.parse(raw) as CoachRequestTrace) : null;
     return parsed?.events && Array.isArray(parsed.events) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function persistCoachMarketPipelineAudit(audit: unknown): void {
+  currentMarketAudit = audit;
+  void AsyncStorage.setItem("stadium-edge:coach-market-pipeline-audit:v1", JSON.stringify(audit)).catch(() => {});
+}
+
+export async function loadCoachMarketPipelineAudit<T>(): Promise<T | null> {
+  if (currentMarketAudit) return currentMarketAudit as T;
+  try {
+    const raw = await AsyncStorage.getItem("stadium-edge:coach-market-pipeline-audit:v1");
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     return null;
   }
