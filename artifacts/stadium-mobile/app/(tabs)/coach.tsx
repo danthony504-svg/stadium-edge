@@ -2975,6 +2975,11 @@ export default function CoachScreen() {
                   })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
+              recordCoachRequestTrace("scan_start", {
+                requestId: coachRequestContextRef.current?.requestId,
+                candidateCount: propPool.length,
+                error: "launch_path=pre_scan",
+              });
               preBoardScan = await Promise.race([
                 tryReachFullBoardScan({
                   target: reachTargetPreScan,
@@ -3448,6 +3453,11 @@ export default function CoachScreen() {
               })),
             ]);
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
+            recordCoachRequestTrace("scan_start", {
+              requestId: coachRequestContextRef.current?.requestId,
+              candidateCount: mergedPropPool.length,
+              error: "launch_path=reach_scan",
+            });
             reachBoardScan = await Promise.race([
               tryReachFullBoardScan({
                 target: Math.min(legTarget, MAX_LEGS),
