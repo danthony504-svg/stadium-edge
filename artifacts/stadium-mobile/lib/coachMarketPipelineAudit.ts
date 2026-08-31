@@ -42,6 +42,14 @@ export type CoachMarketPipelineSnapshot = {
   stages: Partial<Record<PipelineAuditStage, SportMarketCounts>>;
   footballRejections: FootballRejection[];
   nonPropRejectionAggregates?: Record<string, number>;
+  qualifiedCandidates?: QualifiedCandidateAudit[];
+};
+
+export type QualifiedCandidateAudit = {
+  sport: string; marketFamily: AuditMarketFamily; selection: string; odds: number | null;
+  confidence: number | null; edge: number | null; grade: string | null; simHitRate: number | null;
+  rankScore: number; correlationAdjustment: number | null; finalRankPosition: number | null;
+  selected: boolean; exclusionReason: string | null;
 };
 
 const FOOTBALL_SPORTS = new Set(["nfl", "ncaaf"]);
@@ -120,6 +128,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
 } {
   const stages: Partial<Record<PipelineAuditStage, SportMarketCounts>> = {};
   const footballRejections: FootballRejection[] = [];
+  let qualifiedCandidates: QualifiedCandidateAudit[] = [];
   const seenFootballRejection = new Set<string>();
 
   const pushFootballRejection = (row: FootballRejection) => {
@@ -134,13 +143,39 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   };
 
   return {
-    snapshot: () => ({ requestId, stages, footballRejections }),
+    snapshot: () => ({ requestId, stages, footballRejections, qualifiedCandidates }),
     recordRawFeed: (picks) => recordStage("raw_feed", picks),
     recordNormalized: (picks) => recordStage("normalized", picks),
     recordSimulationEligible: (picks) => recordStage("simulation_eligible", picks),
-    recordQualified: (legs) => recordStage("qualified", legs.map((l) => l.pick)),
-    recordRanked: (legs) => recordStage("ranked", legs.map((l) => l.pick)),
-    recordFinalSelected: (picks) => recordStage("final_selected", picks),
+    recordQualified: (legs) => {
+      recordStage("qualified", legs.map((l) => l.pick));
+      qualifiedCandidates = legs.map((leg) => ({
+        sport: normSport(leg.pick.sport), marketFamily: auditMarketFamily(leg.pick),
+        selection: leg.pick.pick, odds: leg.pick.odds ?? null, confidence: leg.confidencePct,
+        edge: leg.edgePct, grade: leg.grade, simHitRate: leg.simHit, rankScore: leg.rankScore,
+        correlationAdjustment: null, finalRankPosition: null, selected: false, exclusionReason: "not ranked",
+      }));
+    },
+    recordRanked: (legs) => {
+      recordStage("ranked", legs.map((l) => l.pick));
+      const positions = new Map(legs.map((leg, index) => [leg.pick.pick, index + 1]));
+      qualifiedCandidates = qualifiedCandidates.map((candidate) => ({
+        ...candidate,
+        finalRankPosition: positions.get(candidate.selection) ?? null,
+        exclusionReason: positions.has(candidate.selection)
+          ? "excluded by correlation-aware ticket staging/ranking"
+          : "collapsed by ladder/dedup before ranking",
+      }));
+    },
+    recordFinalSelected: (picks) => {
+      recordStage("final_selected", picks);
+      const selected = new Set(picks.map((pick) => pick.pick));
+      qualifiedCandidates = qualifiedCandidates.map((candidate) => ({
+        ...candidate,
+        selected: selected.has(candidate.selection),
+        exclusionReason: selected.has(candidate.selection) ? null : candidate.exclusionReason,
+      }));
+    },
     recordFootballQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => {
       if (pick.isProp) return;
       const q = explainBoardLegQualification(pick, pick.finalAiScore);
@@ -201,7 +236,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
         nonPropRejectionAggregates[key] = (nonPropRejectionAggregates[key] ?? 0) + 1;
       }
       const snapshot = {
-        requestId, stages, footballRejections, nonPropRejectionAggregates, familyTotals: summarizeFamilies(stages),
+        requestId, stages, footballRejections, nonPropRejectionAggregates, qualifiedCandidates, familyTotals: summarizeFamilies(stages),
       };
       persistCoachMarketPipelineAudit(snapshot);
       console.log(
