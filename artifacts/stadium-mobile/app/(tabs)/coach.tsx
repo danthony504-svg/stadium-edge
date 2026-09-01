@@ -174,6 +174,7 @@ import {
   setCoachRequestPhase,
 } from "@/lib/coachRequestCompletion";
 import {
+  freezeCoachMarketPipelineAudit,
   recordCoachRequestTrace,
   startCoachRequestTrace,
 } from "@/lib/coachRequestTrace";
@@ -1478,6 +1479,7 @@ export default function CoachScreen() {
           returnedPickCount: picks.length,
           error: terminal === "failed" ? "watchdog_failure" : undefined,
         });
+        freezeCoachMarketPipelineAudit(requestId);
       }
       return committed;
     },
