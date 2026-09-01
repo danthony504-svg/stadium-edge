@@ -1,7 +1,11 @@
 import {
+  freezeCoachMarketPipelineAudit,
   formatCoachRequestTrace,
+  loadCoachMarketPipelineAudit,
   loadCoachRequestTrace,
+  persistCoachMarketPipelineAudit,
   recordCoachRequestTrace,
+  resetCoachMarketAuditStorageForTests,
   startCoachRequestTrace,
 } from "./coachRequestTrace.ts";
 
@@ -58,5 +62,27 @@ describe("Coach request trace", () => {
     expect(formatted).toContain("simulated=500");
     expect(formatted).toContain("skipped=5085");
     expect(formatted).toContain("durationMs=42000");
+  });
+
+  it("keeps the frozen user-request audit when unknown scans persist later", async () => {
+    resetCoachMarketAuditStorageForTests();
+    const completedAudit = {
+      requestId: "user-request-123",
+      stages: { final_selected: { mlb: { playerProps: 5 } } },
+      qualifiedCandidates: [{ selection: "Qualified game line", selected: false }],
+    };
+
+    persistCoachMarketPipelineAudit(completedAudit);
+    freezeCoachMarketPipelineAudit("user-request-123");
+    persistCoachMarketPipelineAudit({
+      requestId: "unknown",
+      stages: { final_selected: { nfl: { moneyline: 1 } } },
+    });
+    persistCoachMarketPipelineAudit({
+      requestId: "background-request",
+      stages: { final_selected: { nfl: { moneyline: 1 } } },
+    });
+
+    await expect(loadCoachMarketPipelineAudit<typeof completedAudit>()).resolves.toEqual(completedAudit);
   });
 });

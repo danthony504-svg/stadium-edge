@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const COACH_REQUEST_TRACE_KEY = "stadium-edge:coach-request-trace:v1";
+const COACH_MARKET_AUDIT_KEY = "stadium-edge:coach-market-pipeline-audit:v2";
 const MAX_TRACE_EVENTS = 80;
 
 export type CoachTraceStage =
@@ -47,7 +48,9 @@ export type CoachRequestTrace = {
 };
 
 let currentTrace: CoachRequestTrace | null = null;
-let currentMarketAudit: unknown = null;
+type MarketAudit = { requestId?: string; [key: string]: unknown };
+let marketAuditsByRequestId = new Map<string, MarketAudit>();
+let completedMarketAuditRequestId = "";
 
 export function startCoachRequestTrace(requestId: string): void {
   currentTrace = { requestId, startedAt: Date.now(), events: [] };
@@ -101,19 +104,51 @@ export async function loadCoachRequestTrace(): Promise<CoachRequestTrace | null>
   }
 }
 
-export function persistCoachMarketPipelineAudit(audit: unknown): void {
-  currentMarketAudit = audit;
-  void AsyncStorage.setItem("stadium-edge:coach-market-pipeline-audit:v1", JSON.stringify(audit)).catch(() => {});
+function persistMarketAuditStore(): void {
+  void AsyncStorage.setItem(
+    COACH_MARKET_AUDIT_KEY,
+    JSON.stringify({
+      completedRequestId: completedMarketAuditRequestId,
+      audits: Object.fromEntries(marketAuditsByRequestId),
+    }),
+  ).catch(() => {});
+}
+
+export function persistCoachMarketPipelineAudit(audit: MarketAudit): void {
+  const requestId = audit.requestId?.trim();
+  if (!requestId || requestId === "unknown") return;
+  marketAuditsByRequestId.set(requestId, audit);
+  persistMarketAuditStore();
+}
+
+export function freezeCoachMarketPipelineAudit(requestId: string | null | undefined): void {
+  const id = requestId?.trim();
+  if (!id || id === "unknown") return;
+  completedMarketAuditRequestId = id;
+  persistMarketAuditStore();
 }
 
 export async function loadCoachMarketPipelineAudit<T>(): Promise<T | null> {
-  if (currentMarketAudit) return currentMarketAudit as T;
+  if (completedMarketAuditRequestId) {
+    return (marketAuditsByRequestId.get(completedMarketAuditRequestId) as T | undefined) ?? null;
+  }
   try {
-    const raw = await AsyncStorage.getItem("stadium-edge:coach-market-pipeline-audit:v1");
-    return raw ? (JSON.parse(raw) as T) : null;
+    const raw = await AsyncStorage.getItem(COACH_MARKET_AUDIT_KEY);
+    const parsed = raw
+      ? (JSON.parse(raw) as { completedRequestId?: string; audits?: Record<string, MarketAudit> })
+      : null;
+    if (!parsed?.completedRequestId || !parsed.audits?.[parsed.completedRequestId]) return null;
+    completedMarketAuditRequestId = parsed.completedRequestId;
+    marketAuditsByRequestId = new Map(Object.entries(parsed.audits));
+    return marketAuditsByRequestId.get(completedMarketAuditRequestId) as T;
   } catch {
     return null;
   }
+}
+
+export function resetCoachMarketAuditStorageForTests(): void {
+  marketAuditsByRequestId = new Map();
+  completedMarketAuditRequestId = "";
 }
 
 export function formatCoachRequestTrace(trace: CoachRequestTrace | null): string {

@@ -308,6 +308,7 @@ function OtaDebugScreenInner() {
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
             Coach market pipeline audit
           </Text>
+          <Row label="Completed request ID" value={marketAudit?.requestId ?? "—"} />
           <LogBlock
             title="Completed board scan — stages, sports, families, and football rejections"
             lines={
