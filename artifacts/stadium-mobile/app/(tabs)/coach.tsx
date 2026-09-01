@@ -1408,8 +1408,8 @@ export default function CoachScreen() {
       const terminal = opts.terminal ?? (picks.length > 0 ? "completed" : "empty");
       // Stop remaining board scan / prop_sim work for this requestId.
       abortCoachBoardScan(requestId, "request_terminal");
+      abortRef.current?.abort();
       if (terminal === "failed") {
-        abortRef.current?.abort();
         simAbortRef.current?.abort();
       }
       recordCoachRequestTrace("state_update_start", {
@@ -2975,13 +2975,18 @@ export default function CoachScreen() {
                   })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
-              recordCoachRequestTrace("scan_start", {
-                requestId: coachRequestContextRef.current?.requestId,
-                candidateCount: propPool.length,
-                error: "launch_path=pre_scan",
-              });
-              preBoardScan = await Promise.race([
-                tryReachFullBoardScan({
+              const scanRequestId = coachRequestContextRef.current?.requestId ?? varietySeed;
+              if (
+                !coachRequestWasCompleted(sendGenerationRef.current, scanRequestId) &&
+                !isCoachBoardScanAborted(scanRequestId)
+              ) {
+                recordCoachRequestTrace("scan_start", {
+                  requestId: scanRequestId,
+                  candidateCount: propPool.length,
+                  error: "launch_path=pre_scan",
+                });
+                preBoardScan = await Promise.race([
+                  tryReachFullBoardScan({
                   target: reachTargetPreScan,
                   oddsGames,
                   propPool,
@@ -3000,10 +3005,11 @@ export default function CoachScreen() {
                   calibration: modelCalibration,
                   onPartial: onBoardScanPartial,
                   signal: abortRef.current?.signal,
-                  ...boardScanVariety,
-                }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
-              ]);
+                    ...boardScanVariety,
+                  }),
+                  new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
+                ]);
+              }
               // The race can settle before the request-scoped scanner's final
               // callback. Never terminally fail here: that callback owns the
               // authoritative result and may still carry qualified picks.
@@ -3453,13 +3459,18 @@ export default function CoachScreen() {
               })),
             ]);
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
-            recordCoachRequestTrace("scan_start", {
-              requestId: coachRequestContextRef.current?.requestId,
-              candidateCount: mergedPropPool.length,
-              error: "launch_path=reach_scan",
-            });
-            reachBoardScan = await Promise.race([
-              tryReachFullBoardScan({
+            const scanRequestId = coachRequestContextRef.current?.requestId ?? varietySeed;
+            if (
+              !coachRequestWasCompleted(sendGenerationRef.current, scanRequestId) &&
+              !isCoachBoardScanAborted(scanRequestId)
+            ) {
+              recordCoachRequestTrace("scan_start", {
+                requestId: scanRequestId,
+                candidateCount: mergedPropPool.length,
+                error: "launch_path=reach_scan",
+              });
+              reachBoardScan = await Promise.race([
+                tryReachFullBoardScan({
                 target: Math.min(legTarget, MAX_LEGS),
                 oddsGames,
                 propPool: mergedPropPool,
@@ -3481,10 +3492,11 @@ export default function CoachScreen() {
                 varietySeed,
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
-                requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
-              }),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
-            ]);
+                  requestId: scanRequestId,
+                }),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
+              ]);
+            }
             if (!reachBoardScan && boardScanIsComplete(latestBoardScanRef.current)) {
               const ref = latestBoardScanRef.current;
               if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {

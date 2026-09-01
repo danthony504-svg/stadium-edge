@@ -88,6 +88,20 @@ test("marketLadderKey groups alt spreads with main spread on the same side", () 
   assert.equal(main, alt);
 });
 
+test("marketLadderKey keeps game and team totals in separate ladders", () => {
+  const gameTotal = marketLadderKey({
+    game: "A @ B", market: "Total", pick: "Over 8.5", odds: -110, isProp: false,
+  });
+  const awayTeamTotal = marketLadderKey({
+    game: "A @ B", market: "Team Total", pick: "A Team Total Over 4.5", odds: -110, isProp: false,
+  });
+  const homeTeamTotal = marketLadderKey({
+    game: "A @ B", market: "Team Total", pick: "B Team Total Over 4.5", odds: -110, isProp: false,
+  });
+  assert.notEqual(gameTotal, awayTeamTotal);
+  assert.notEqual(awayTeamTotal, homeTeamTotal);
+});
+
 test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
   const scored = [
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, mainScore),

@@ -31,7 +31,22 @@ export function marketLadderKey(pick: ParsedPick): string {
     const side = pick.propSide ?? (/\bover\b/i.test(pick.pick) ? "Over" : /\bunder\b/i.test(pick.pick) ? "Under" : "");
     return `${norm(pick.game)}|prop|${player}|${market}|${side}`.toLowerCase();
   }
-  return `${norm(pick.game)}|${marketFamily(pick.market)}|${pickSideKey(pick.pick)}`.toLowerCase();
+  const game = norm(pick.game);
+  const market = norm(pick.market);
+  const side = pickSideKey(pick.pick);
+  if (/team total/.test(market)) {
+    const team = norm(
+      pick.pick
+        .replace(/\bteam total\b/gi, "")
+        .replace(/\b(over|under)\b/gi, "")
+        .replace(/[+-]?\d+(?:\.\d+)?/g, ""),
+    );
+    return `${game}|team-total|${team || "unknown"}|${side}`.toLowerCase();
+  }
+  if (/\btotal\b/.test(market)) {
+    return `${game}|game-total|${side}`.toLowerCase();
+  }
+  return `${game}|${marketFamily(pick.market)}|${side}`.toLowerCase();
 }
 
 function ladderSortRank(leg: BoardScoredLeg): number {
