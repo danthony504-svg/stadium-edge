@@ -114,6 +114,13 @@ function sideOfTeam(team: string, away: string, home: string): "home" | "away" |
 
 function gamePickTeam(pick: ParsedPick): string | null {
   const p = pick.pick || "";
+  if (/team total/i.test(pick.market)) {
+    const team = p
+      .replace(/\bteam total\b/gi, "")
+      .replace(/\s+\b(over|under)\b\s+[+-]?\d+(?:\.\d+)?\s*$/i, "")
+      .trim();
+    return team || null;
+  }
   if (/\b(over|under)\b/i.test(p)) return null;
   const team = p
     .replace(/\s*(ml|moneyline)\s*$/i, "")
@@ -284,12 +291,12 @@ export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
   return null;
 }
 
-function coverQueryHits(
+function coverQueryResult(
   q: GameCoverQuery,
   homeScore: number,
   awayScore: number,
   sport = "nba",
-): boolean {
+): boolean | null {
   if (q.kind === "raceTo") {
     const target = q.raceTarget ?? 0;
     const side = q.teamSide ?? "home";
@@ -306,18 +313,26 @@ function coverQueryHits(
   const total = hs + as;
 
   if (q.kind === "ml") {
+    if (hs === as) return null;
     if (q.teamSide === "home") return hs > as;
     if (q.teamSide === "away") return as > hs;
     return false;
   }
   if (q.kind === "spread") {
     const line = q.line ?? 0;
-    if (q.teamSide === "home") return hs + line > as;
-    if (q.teamSide === "away") return as + line > hs;
+    if (q.teamSide === "home") {
+      const margin = hs + line - as;
+      return margin === 0 ? null : margin > 0;
+    }
+    if (q.teamSide === "away") {
+      const margin = as + line - hs;
+      return margin === 0 ? null : margin > 0;
+    }
     return false;
   }
   if (q.kind === "total") {
     const line = q.line ?? 0;
+    if (total === line) return null;
     if (q.totalSide === "over") return total > line;
     if (q.totalSide === "under") return total < line;
     return false;
@@ -325,6 +340,7 @@ function coverQueryHits(
   if (q.kind === "teamTotal") {
     const line = q.line ?? 0;
     const score = q.teamSide === "home" ? hs : as;
+    if (score === line) return null;
     if (q.totalSide === "over") return score > line;
     if (q.totalSide === "under") return score < line;
     return false;
@@ -343,10 +359,14 @@ export function deriveCoverHitRatesFromOutcomes(
   const rates: Record<string, number> = {};
   for (const q of queries) {
     let hits = 0;
+    let decisions = 0;
     for (let i = 0; i < n; i++) {
-      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!, sport)) hits += 1;
+      const result = coverQueryResult(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!, sport);
+      if (result == null) continue;
+      decisions += 1;
+      if (result) hits += 1;
     }
-    rates[q.id] = Math.round((hits / n) * 1000) / 1000;
+    if (decisions > 0) rates[q.id] = Math.round((hits / decisions) * 1000) / 1000;
   }
   return rates;
 }

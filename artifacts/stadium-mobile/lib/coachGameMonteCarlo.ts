@@ -5,6 +5,7 @@ import type { EspnGame } from "./api.ts";
 import { fetchGameOutcomeSimulation } from "./api.ts";
 import {
   buildGameCoverQuery,
+  deriveCoverHitRatesFromOutcomes,
   gamePickCoverQueryId,
   gameSimHitForPick,
   isGameLinePick,
@@ -216,7 +217,14 @@ export async function fetchCoachGameSimulationsForPicks(
         signal,
       );
       if (result) {
-        const sim = result as CoachGameSimEntry;
+        const rawSim = result as CoachGameSimEntry;
+        const derivedRates = rawSim.outcomes
+          ? deriveCoverHitRatesFromOutcomes(rawSim.outcomes, coverQueries, sport ?? "nba")
+          : {};
+        const sim: CoachGameSimEntry = {
+          ...rawSim,
+          coverHitRates: { ...rawSim.coverHitRates, ...derivedRates },
+        };
         out.set(gameLabel, sim);
         for (const leg of legs) {
           if (leg.game !== gameLabel) out.set(leg.game, sim);
@@ -280,7 +288,19 @@ export async function fetchSlateGameSimulations(
       },
       signal,
     );
-    if (result) out.set(gameLabel, result as CoachGameSimEntry);
+    if (result) {
+      const sim = result as CoachGameSimEntry;
+      // Grade every posted line from the returned draws. This makes the board
+      // independent of response cover-query key formatting and uses no
+      // synthetic probability: each rate comes from this game's 10k outcomes.
+      const derivedRates = sim.outcomes
+        ? deriveCoverHitRatesFromOutcomes(sim.outcomes, coverQueries, sport ?? "nba")
+        : {};
+      out.set(gameLabel, {
+        ...sim,
+        coverHitRates: { ...sim.coverHitRates, ...derivedRates },
+      });
+    }
   }
 
   for (let i = 0; i < entries.length; i += SLATE_SIM_CONCURRENCY) {

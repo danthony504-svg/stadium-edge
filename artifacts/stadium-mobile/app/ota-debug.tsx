@@ -310,7 +310,7 @@ function OtaDebugScreenInner() {
           </Text>
           <Row label="Completed request ID" value={marketAudit?.requestId ?? "—"} />
           <LogBlock
-            title="Completed board scan — stages, sports, families, and football rejections"
+            title="Completed board scan — stages, sports, families, and non-prop rejections"
             lines={
               marketAudit
                 ? JSON.stringify(marketAudit, null, 2).split("\n")

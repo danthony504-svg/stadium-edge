@@ -27,7 +27,7 @@ export type PipelineAuditStage =
 export type AuditMarketFamily = "playerProps" | "moneyline" | "spread" | "gameTotal" | "teamTotal" | "alternateGameLine" | "touchdownBinary" | "other";
 export type SportMarketCounts = Record<string, Record<AuditMarketFamily, number>>;
 
-export type FootballRejection = {
+export type NonPropRejection = {
   sport: string;
   stage: PipelineAuditStage;
   event: string;
@@ -40,7 +40,7 @@ export type FootballRejection = {
 export type CoachMarketPipelineSnapshot = {
   requestId: string;
   stages: Partial<Record<PipelineAuditStage, SportMarketCounts>>;
-  footballRejections: FootballRejection[];
+  nonPropRejections: NonPropRejection[];
   nonPropRejectionAggregates?: Record<string, number>;
   qualifiedCandidates?: QualifiedCandidateAudit[];
 };
@@ -51,8 +51,6 @@ export type QualifiedCandidateAudit = {
   rankScore: number; correlationAdjustment: number | null; finalRankPosition: number | null;
   selected: boolean; exclusionReason: string | null;
 };
-
-const FOOTBALL_SPORTS = new Set(["nfl", "ncaaf"]);
 
 function normSport(s: string | null | undefined): string {
   return String(s ?? "unknown").toLowerCase();
@@ -89,16 +87,12 @@ function countsFromPicks(picks: readonly ParsedPick[]): SportMarketCounts {
   return out;
 }
 
-function isFootballPick(pick: ParsedPick): boolean {
-  return FOOTBALL_SPORTS.has(normSport(pick.sport));
-}
-
-function footballRejectionFromQualification(
+function nonPropRejectionFromQualification(
   pick: ParsedPick,
   stage: PipelineAuditStage,
   gate: BoardLegGateCode,
   reason: string,
-): FootballRejection {
+): NonPropRejection {
   return {
     sport: normSport(pick.sport),
     stage,
@@ -118,8 +112,8 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   recordQualified: (legs: readonly BoardScoredLeg[]) => void;
   recordRanked: (legs: readonly BoardScoredLeg[]) => void;
   recordFinalSelected: (picks: readonly ParsedPick[]) => void;
-  recordFootballQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => void;
-  recordFootballCandidate: (
+  recordNonPropQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => void;
+  recordNonPropCandidate: (
     pick: ParsedPick,
     stage: PipelineAuditStage,
     opts: { unresolvedEvent?: boolean; missingOdds?: boolean; simFailure?: boolean },
@@ -127,15 +121,15 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   emitTrace: () => void;
 } {
   const stages: Partial<Record<PipelineAuditStage, SportMarketCounts>> = {};
-  const footballRejections: FootballRejection[] = [];
+  const nonPropRejections: NonPropRejection[] = [];
   let qualifiedCandidates: QualifiedCandidateAudit[] = [];
-  const seenFootballRejection = new Set<string>();
+  const seenNonPropRejection = new Set<string>();
 
-  const pushFootballRejection = (row: FootballRejection) => {
+  const pushNonPropRejection = (row: NonPropRejection) => {
     const key = `${row.stage}|${row.event}|${row.selection}|${row.gate}`;
-    if (seenFootballRejection.has(key)) return;
-    seenFootballRejection.add(key);
-    footballRejections.push(row);
+    if (seenNonPropRejection.has(key)) return;
+    seenNonPropRejection.add(key);
+    nonPropRejections.push(row);
   };
 
   const recordStage = (stage: PipelineAuditStage, picks: readonly ParsedPick[]) => {
@@ -143,7 +137,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   };
 
   return {
-    snapshot: () => ({ requestId, stages, footballRejections, qualifiedCandidates }),
+    snapshot: () => ({ requestId, stages, nonPropRejections, qualifiedCandidates }),
     recordRawFeed: (picks) => recordStage("raw_feed", picks),
     recordNormalized: (picks) => recordStage("normalized", picks),
     recordSimulationEligible: (picks) => recordStage("simulation_eligible", picks),
@@ -176,16 +170,16 @@ export function createCoachMarketPipelineAudit(requestId: string): {
         exclusionReason: selected.has(candidate.selection) ? null : candidate.exclusionReason,
       }));
     },
-    recordFootballQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => {
+    recordNonPropQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => {
       if (pick.isProp) return;
       const q = explainBoardLegQualification(pick, pick.finalAiScore);
       if (q.qualifies) return;
-      pushFootballRejection(footballRejectionFromQualification(pick, stage, q.gate, q.reason));
+      pushNonPropRejection(nonPropRejectionFromQualification(pick, stage, q.gate, q.reason));
     },
-    recordFootballCandidate: (pick, stage, opts) => {
+    recordNonPropCandidate: (pick, stage, opts) => {
       if (pick.isProp) return;
       if (opts.unresolvedEvent || !pick.game?.trim()) {
-        pushFootballRejection({
+        pushNonPropRejection({
           sport: normSport(pick.sport),
           stage,
           event: pick.game || "—",
@@ -197,7 +191,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
         return;
       }
       if (opts.missingOdds || pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) {
-        pushFootballRejection({
+        pushNonPropRejection({
           sport: normSport(pick.sport),
           stage,
           event: pick.game,
@@ -209,7 +203,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
         return;
       }
       if (opts.simFailure) {
-        pushFootballRejection({
+        pushNonPropRejection({
           sport: normSport(pick.sport),
           stage,
           event: pick.game,
@@ -222,7 +216,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
     },
     emitTrace: () => {
       const nonPropRejectionAggregates: Record<string, number> = {};
-      for (const row of footballRejections) {
+      for (const row of nonPropRejections) {
         const key =
           row.gate === "missing_odds" ? "missing odds"
             : row.gate === "simulation_failure" ? "simulation unavailable"
@@ -236,7 +230,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
         nonPropRejectionAggregates[key] = (nonPropRejectionAggregates[key] ?? 0) + 1;
       }
       const snapshot = {
-        requestId, stages, footballRejections, nonPropRejectionAggregates, qualifiedCandidates, familyTotals: summarizeFamilies(stages),
+        requestId, stages, nonPropRejections, nonPropRejectionAggregates, qualifiedCandidates, familyTotals: summarizeFamilies(stages),
       };
       persistCoachMarketPipelineAudit(snapshot);
       console.log(
@@ -278,14 +272,14 @@ export function legsQualifiedForStaging(legs: readonly BoardScoredLeg[]): BoardS
   return legs.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null);
 }
 
-/** Record explicit football qualification failures with gate codes. */
-export function auditFootballQualificationFailures(
+/** Record explicit non-prop qualification failures with gate codes. */
+export function auditNonPropQualificationFailures(
   audit: ReturnType<typeof createCoachMarketPipelineAudit>,
   picks: readonly ParsedPick[],
   stage: PipelineAuditStage,
 ): void {
   for (const pick of picks) {
-    audit.recordFootballQualificationFailure(pick, stage);
+    audit.recordNonPropQualificationFailure(pick, stage);
   }
 }
 
