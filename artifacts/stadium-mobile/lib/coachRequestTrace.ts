@@ -148,7 +148,8 @@ export async function loadCoachMarketPipelineAudit<T>(): Promise<T | null> {
     // unknown scans were never safe diagnostics and remain intentionally ignored.
     const legacyRaw = await AsyncStorage.getItem(LEGACY_COACH_MARKET_AUDIT_KEY);
     const legacyAudit = legacyRaw ? (JSON.parse(legacyRaw) as MarketAudit) : null;
-    const legacyRequestId = legacyAudit?.requestId?.trim();
+    if (!legacyAudit) return null;
+    const legacyRequestId = legacyAudit.requestId?.trim();
     if (!legacyRequestId || legacyRequestId === "unknown") return null;
     marketAuditsByRequestId.set(legacyRequestId, legacyAudit);
     completedMarketAuditRequestId = legacyRequestId;
