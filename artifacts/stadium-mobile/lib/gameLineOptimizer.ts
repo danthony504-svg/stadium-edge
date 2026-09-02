@@ -129,8 +129,11 @@ export function mergeOddsEntries(...sources: RealOddsEntry[][]): RealOddsEntry[]
   return [...map.values()];
 }
 
-function pickTeamName(pick: string): string | null {
+function pickTeamName(pick: string, market?: string): string | null {
   const p = String(pick ?? "");
+  if (/team total/i.test(market ?? "")) {
+    return p.replace(/\s+\b(over|under)\b\s+[+-]?\d+(?:\.\d+)?\s*$/i, "").trim() || null;
+  }
   if (/\b(over|under)\b/i.test(p)) return null;
   return (
     p
@@ -141,7 +144,7 @@ function pickTeamName(pick: string): string | null {
 }
 
 function isTeamSidedEntry(entry: RealOddsEntry): boolean {
-  return pickTeamName(entry.pick) != null;
+  return pickTeamName(entry.pick, entry.market) != null;
 }
 
 function isGameTotalEntry(entry: RealOddsEntry): boolean {
@@ -190,7 +193,7 @@ function candidatesForPick(
   const parts = pick.game.split(" @ ");
   const away = parts[0]?.trim() ?? "";
   const home = parts[1]?.trim() ?? "";
-  const pickTeam = pickTeamName(pick.pick);
+  const pickTeam = pickTeamName(pick.pick, pick.market);
   const leanTeam = committedTeamForGame(pick.game, away, home, matchupHistory);
 
   if (isGameTotalPick(pick)) {
@@ -200,14 +203,14 @@ function candidatesForPick(
     const team = pickTeam;
     if (!team) return lines.filter((e) => /team total/i.test(e.market));
     return lines.filter(
-      (e) => /team total/i.test(e.market) && pickTeamName(e.pick) && teamsMatch(pickTeamName(e.pick)!, team),
+      (e) => /team total/i.test(e.market) && pickTeamName(e.pick, e.market) && teamsMatch(pickTeamName(e.pick, e.market)!, team),
     );
   }
   // ML / spread family — sim-favored team wins over mlLean / scaffold team.
   const team = simFavoredTeam ?? leanTeam ?? pickTeam;
   if (!team) return lines.filter((e) => isTeamSidedEntry(e));
   return lines.filter((e) => {
-    const t = pickTeamName(e.pick);
+    const t = pickTeamName(e.pick, e.market);
     return t != null && teamsMatch(t, team);
   });
 }
@@ -232,10 +235,10 @@ function bucketKeyForPick(pick: ParsedPick): string | null {
   if (!isGameLinePick(pick) || pick.isProp) return null;
   if (isGameTotalPick(pick)) return `${pick.game}|game-total`;
   if (/team total/i.test(pick.market)) {
-    const team = pickTeamName(pick.pick);
+    const team = pickTeamName(pick.pick, pick.market);
     return team ? `${pick.game}|team-total|${norm(team)}` : `${pick.game}|team-total`;
   }
-  const team = pickTeamName(pick.pick);
+  const team = pickTeamName(pick.pick, pick.market);
   if (!team) return `${pick.game}|team-sided`;
   return `${pick.game}|team|${norm(team)}`;
 }
@@ -393,7 +396,7 @@ export function recommendBestLinesForGame(input: {
 
   const bestForTeam = (team: string): EvaluatedGameLine | null => {
     const pool = ranked.filter((row) => {
-      const t = pickTeamName(row.entry.pick);
+      const t = pickTeamName(row.entry.pick, row.entry.market);
       return t != null && teamsMatch(t, team);
     });
     return selectBestEvaluated(pool);
@@ -608,7 +611,7 @@ function isTeamSidedGameLine(pick: ParsedPick): boolean {
   if (!isGameLinePick(pick) || pick.isProp) return false;
   const m = String(pick.market ?? "").toLowerCase();
   if (/total|over|under|o\/u/.test(m) || /\b(over|under)\b/i.test(pick.pick)) return false;
-  return pickTeamName(pick.pick) != null;
+  return pickTeamName(pick.pick, pick.market) != null;
 }
 
 /**

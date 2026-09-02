@@ -58,7 +58,7 @@ import { explainBoardLegQualification } from "./boardLegQualification.ts";
 import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 import { recordCoachRequestTrace } from "./coachRequestTrace.ts";
 import {
-  auditFootballQualificationFailures,
+  auditNonPropQualificationFailures,
   createCoachMarketPipelineAudit,
   legsQualifiedForStaging,
   picksSimulationEligible,
@@ -732,7 +732,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ];
   pipelineAudit.recordRawFeed(rawFeedPicks);
   for (const pick of rawFeedPicks) {
-    pipelineAudit.recordFootballCandidate(pick, "raw_feed", {
+    pipelineAudit.recordNonPropCandidate(pick, "raw_feed", {
       unresolvedEvent: !pick.game?.trim(),
       missingOdds: pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0,
     });
@@ -797,12 +797,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
           scored.push(leg);
-        } else if (sim) {
-          pipelineAudit.recordFootballCandidate(row.pick, "simulation_eligible", { simFailure: true });
+        } else {
+          pipelineAudit.recordNonPropCandidate(row.pick, "simulation_eligible", {
+            simFailure: true,
+            simulationFailureReason: sim
+              ? "Simulation did not produce a gradable hit rate"
+              : "No simulation result returned for this event",
+          });
+          if (sim) {
           manifestRecorder.recordPreScoreGateFailure(row.pick, {
             ...row.finalAiScore,
             simHit: simHit ?? row.finalAiScore.simHit ?? null,
           });
+          }
         }
       }
     }
@@ -899,7 +906,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   totalScanned += propSim.simulatedCount;
   const qualifiedLegs = legsQualifiedForStaging(scored);
   pipelineAudit.recordQualified(qualifiedLegs);
-  auditFootballQualificationFailures(pipelineAudit, scored.map((leg) => leg.pick), "qualified");
+  auditNonPropQualificationFailures(pipelineAudit, scored.map((leg) => leg.pick), "qualified");
   traceCoachMarketStage("SIMULATION_SUCCEEDED", scored.map((leg) => leg.pick));
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));

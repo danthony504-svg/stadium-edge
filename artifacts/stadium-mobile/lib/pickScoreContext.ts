@@ -113,6 +113,10 @@ function sideOfTeam(
 // words are the team name.
 function gamePickTeam(pick: ParsedPick): string | null {
   const p = pick.pick || "";
+  if (/team total/i.test(pick.market)) {
+    const team = p.replace(/\s+\b(over|under)\b\s+[+-]?\d+(?:\.\d+)?\s*$/i, "").trim();
+    return team || null;
+  }
   if (/\b(over|under)\b/i.test(p)) return null; // game total — no side
   const team = p
     .replace(/\s*(ml|moneyline)\s*$/i, "")

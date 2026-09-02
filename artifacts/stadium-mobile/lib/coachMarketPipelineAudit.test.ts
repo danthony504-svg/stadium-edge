@@ -29,20 +29,20 @@ test("pipeline audit records counts by sport and market family at each stage", (
   assert.equal(snap.stages.simulation_eligible?.nfl?.spread, 1);
 });
 
-test("pipeline audit records football rejection reasons", () => {
+test("pipeline audit records non-prop rejection reasons across sports", () => {
   const audit = createCoachMarketPipelineAudit("req-football");
-  audit.recordFootballCandidate(
-    { game: "", market: "Spread", pick: "Team +3", odds: -110, sport: "ncaaf", isProp: false },
+  audit.recordNonPropCandidate(
+    { game: "", market: "Spread", pick: "Team +3", odds: -110, sport: "mlb", isProp: false },
     "raw_feed",
     { unresolvedEvent: true },
   );
-  audit.recordFootballQualificationFailure(
+  audit.recordNonPropQualificationFailure(
     {
       game: "ALA @ AUB",
       market: "Moneyline",
       pick: "ALA ML",
       odds: -150,
-      sport: "ncaaf",
+      sport: "soccer",
       isProp: false,
       finalAiScore: {
         composite: 4,
@@ -60,8 +60,8 @@ test("pipeline audit records football rejection reasons", () => {
     "qualified",
   );
   const snap = audit.snapshot();
-  assert.ok(snap.footballRejections.some((r) => r.gate === "unresolved_event"));
-  assert.ok(snap.footballRejections.some((r) => r.gate === "negative_edge"));
+  assert.ok(snap.nonPropRejections.some((r) => r.gate === "unresolved_event" && r.sport === "mlb"));
+  assert.ok(snap.nonPropRejections.some((r) => r.gate === "negative_edge" && r.sport === "soccer"));
 });
 
 test("legsQualifiedForStaging uses shared boardLegPoolRole gates", () => {
