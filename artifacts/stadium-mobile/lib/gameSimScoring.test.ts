@@ -99,17 +99,19 @@ test("game outcomes grade every posted game-market family and exclude pushes", (
     ...sim,
     coverHitRates: undefined,
     outcomes: {
-      homeScores: [5, 4, 3, 2],
-      awayScores: [3, 4, 4, 2],
+      homeScores: [7, 5, 3, 2],
+      awayScores: [5, 4, 4, 2],
     },
   };
   const score = (market: string, pick: string) =>
     gameSimHitForPick(gamePick({ market, pick }), outcomeSim);
 
-  assert.equal(score("Moneyline", "Braves ML"), 0.5);
-  assert.equal(score("Moneyline", "Mets ML"), 0.5);
+  assert.equal(score("Moneyline", "Braves ML"), 0.667);
+  assert.equal(score("Moneyline", "Mets ML"), 0.333);
   assert.equal(score("Spread", "Braves -1.5"), 0.25);
   assert.equal(score("Spread", "Mets +1.5"), 0.75);
+  assert.equal(score("Spread", "Braves -1"), 0.333);
+  assert.equal(score("Spread", "Mets +1"), 0.667);
   assert.equal(score("Total", "Over 7"), 0.667);
   assert.equal(score("Total", "Under 7"), 0.333);
   assert.equal(score("Team Total", "Braves Over 3.5"), 0.5);
