@@ -797,12 +797,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
           scored.push(leg);
-        } else if (sim) {
-          pipelineAudit.recordNonPropCandidate(row.pick, "simulation_eligible", { simFailure: true });
+        } else {
+          pipelineAudit.recordNonPropCandidate(row.pick, "simulation_eligible", {
+            simFailure: true,
+            simulationFailureReason: sim
+              ? "Simulation did not produce a gradable hit rate"
+              : "No simulation result returned for this event",
+          });
+          if (sim) {
           manifestRecorder.recordPreScoreGateFailure(row.pick, {
             ...row.finalAiScore,
             simHit: simHit ?? row.finalAiScore.simHit ?? null,
           });
+          }
         }
       }
     }

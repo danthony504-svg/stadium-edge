@@ -116,7 +116,12 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   recordNonPropCandidate: (
     pick: ParsedPick,
     stage: PipelineAuditStage,
-    opts: { unresolvedEvent?: boolean; missingOdds?: boolean; simFailure?: boolean },
+    opts: {
+      unresolvedEvent?: boolean;
+      missingOdds?: boolean;
+      simFailure?: boolean;
+      simulationFailureReason?: string;
+    },
   ) => void;
   emitTrace: () => void;
 } {
@@ -210,7 +215,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
           marketFamily: coachMarketFamily(pick),
           selection: pick.pick,
           gate: "simulation_failure",
-          reason: "Simulation did not produce a gradable hit rate",
+          reason: opts.simulationFailureReason ?? "Simulation did not produce a gradable hit rate",
         });
       }
     },
