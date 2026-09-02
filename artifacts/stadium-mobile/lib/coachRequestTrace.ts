@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const COACH_REQUEST_TRACE_KEY = "stadium-edge:coach-request-trace:v1";
 const COACH_MARKET_AUDIT_KEY = "stadium-edge:coach-market-pipeline-audit:v2";
+const LEGACY_COACH_MARKET_AUDIT_KEY = "stadium-edge:coach-market-pipeline-audit:v1";
 const MAX_TRACE_EVENTS = 80;
 
 export type CoachTraceStage =
@@ -137,10 +138,22 @@ export async function loadCoachMarketPipelineAudit<T>(): Promise<T | null> {
     const parsed = raw
       ? (JSON.parse(raw) as { completedRequestId?: string; audits?: Record<string, MarketAudit> })
       : null;
-    if (!parsed?.completedRequestId || !parsed.audits?.[parsed.completedRequestId]) return null;
-    completedMarketAuditRequestId = parsed.completedRequestId;
-    marketAuditsByRequestId = new Map(Object.entries(parsed.audits));
-    return marketAuditsByRequestId.get(completedMarketAuditRequestId) as T;
+    if (parsed?.completedRequestId && parsed.audits?.[parsed.completedRequestId]) {
+      completedMarketAuditRequestId = parsed.completedRequestId;
+      marketAuditsByRequestId = new Map(Object.entries(parsed.audits));
+      return marketAuditsByRequestId.get(completedMarketAuditRequestId) as T;
+    }
+
+    // v1 kept only a global latest audit. Migrate a valid completed request once;
+    // unknown scans were never safe diagnostics and remain intentionally ignored.
+    const legacyRaw = await AsyncStorage.getItem(LEGACY_COACH_MARKET_AUDIT_KEY);
+    const legacyAudit = legacyRaw ? (JSON.parse(legacyRaw) as MarketAudit) : null;
+    const legacyRequestId = legacyAudit?.requestId?.trim();
+    if (!legacyRequestId || legacyRequestId === "unknown") return null;
+    marketAuditsByRequestId.set(legacyRequestId, legacyAudit);
+    completedMarketAuditRequestId = legacyRequestId;
+    persistMarketAuditStore();
+    return legacyAudit as T;
   } catch {
     return null;
   }
