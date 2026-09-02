@@ -1,3 +1,5 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import {
   freezeCoachMarketPipelineAudit,
   formatCoachRequestTrace,
@@ -84,5 +86,28 @@ describe("Coach request trace", () => {
     });
 
     await expect(loadCoachMarketPipelineAudit<typeof completedAudit>()).resolves.toEqual(completedAudit);
+  });
+
+  it("migrates a valid v1 completed audit and ignores unknown legacy data", async () => {
+    resetCoachMarketAuditStorageForTests();
+    await AsyncStorage.clear();
+    const legacyAudit = { requestId: "old-user-request", stages: { ranked: {} } };
+    await AsyncStorage.setItem(
+      "stadium-edge:coach-market-pipeline-audit:v1",
+      JSON.stringify(legacyAudit),
+    );
+
+    await expect(loadCoachMarketPipelineAudit<typeof legacyAudit>()).resolves.toEqual(legacyAudit);
+    await expect(AsyncStorage.getItem("stadium-edge:coach-market-pipeline-audit:v2")).resolves.toContain(
+      '"completedRequestId":"old-user-request"',
+    );
+
+    resetCoachMarketAuditStorageForTests();
+    await AsyncStorage.clear();
+    await AsyncStorage.setItem(
+      "stadium-edge:coach-market-pipeline-audit:v1",
+      JSON.stringify({ requestId: "unknown", stages: { ranked: {} } }),
+    );
+    await expect(loadCoachMarketPipelineAudit()).resolves.toBeNull();
   });
 });

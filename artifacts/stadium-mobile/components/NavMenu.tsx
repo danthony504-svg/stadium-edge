@@ -23,6 +23,7 @@ const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
   { label: "+500 Steals", route: "/steals", icon: "target" },
   { label: "Slip", route: "/slip", icon: "layers" },
   { label: "Model Report", route: "/report", icon: "bar-chart-2" },
+  { label: "OTA Diagnostics", route: "/ota-debug", icon: "info" },
 ];
 
 function isActive(pathname: string, route: string) {
@@ -227,35 +228,6 @@ export function NavMenu() {
                 </Text>
               </Pressable>
             ) : null}
-            <Pressable
-              onPress={() => go("/ota-debug")}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                backgroundColor: pressed ? colors.background : "transparent",
-              })}
-            >
-              <Feather
-                name="info"
-                size={18}
-                color={isActive(pathname, "/ota-debug") ? colors.primary : colors.mutedForeground}
-              />
-              <Text
-                style={{
-                  flex: 1,
-                  color: isActive(pathname, "/ota-debug")
-                    ? colors.foreground
-                    : colors.mutedForeground,
-                  fontFamily: FONT.medium,
-                  fontSize: 15,
-                }}
-              >
-                OTA Diagnostics
-              </Text>
-            </Pressable>
             <Pressable
               onPress={() => go(accountRoute)}
               style={({ pressed }) => ({
