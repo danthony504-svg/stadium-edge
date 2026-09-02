@@ -1,7 +1,7 @@
 import React from "react";
 import TestRenderer from "react-test-renderer";
 
-import OtaDebugScreen from "./ota-debug";
+import OtaDebugScreen from "../app/ota-debug";
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn() }) }));
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn() }));
