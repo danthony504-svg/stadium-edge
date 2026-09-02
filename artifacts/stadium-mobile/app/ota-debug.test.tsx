@@ -28,7 +28,9 @@ jest.mock("@/lib/otaDebug", () => ({
     buildNumber: "1", commitHash: "commit", deployMessage: "—", updateUrl: "url",
     requestHeaders: "{}", projectId: "project",
   }),
-  collectOtaFullDiagnostics: jest.fn(),
+  collectOtaFullDiagnostics: jest.fn(async () => {
+    throw new Error("offline");
+  }),
   forceOtaCheckFetchAndReload: jest.fn(),
 }));
 jest.mock("@/lib/coachRequestTrace", () => ({
@@ -37,8 +39,12 @@ jest.mock("@/lib/coachRequestTrace", () => ({
   loadCoachMarketPipelineAudit: async () => null,
 }));
 
-test("OTA Diagnostics renders when no prior diagnostic storage exists", () => {
-  const screen = TestRenderer.create(<OtaDebugScreen />);
+test("OTA Diagnostics renders when no prior diagnostic storage exists", async () => {
+  let screen!: TestRenderer.ReactTestRenderer;
+  await TestRenderer.act(async () => {
+    screen = TestRenderer.create(<OtaDebugScreen />);
+    await Promise.resolve();
+  });
   expect(JSON.stringify(screen.toJSON())).toContain("OTA Diagnostics");
   expect(JSON.stringify(screen.toJSON())).toContain("No completed Coach market audit recorded yet.");
 });
