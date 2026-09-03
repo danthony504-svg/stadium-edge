@@ -59,6 +59,15 @@ function decodeMarketKey(key: string): Decoded | null {
     return { base: m[1] as Decoded["base"], period, alt: false, rawKey: key };
   }
 
+  m = key.match(/^(alternate_)?team_totals?_(h1|h2|q1|q2|q3|q4|p1|p2|p3)$/i);
+  if (m) {
+    return {
+      base: "totals",
+      period: PERIOD_SUFFIX[m[2]!.toLowerCase()] ?? m[2]!.toUpperCase(),
+      alt: Boolean(m[1]),
+      rawKey: key,
+    };
+  }
   if (/^team_totals?$/i.test(key)) return { base: "totals", period: "", alt: false, rawKey: key };
   if (/^race_to/i.test(key)) return { base: "other", period: "", alt: false, rawKey: key };
 
@@ -80,7 +89,11 @@ function humanizeUnknownKey(key: string): string {
 
 function marketTitle(d: Decoded): string {
   if (d.base === "other") return humanizeUnknownKey(d.rawKey);
-  if (d.rawKey.includes("team_total")) return "Team Total";
+  if (d.rawKey.includes("team_total")) {
+    const prefix = d.period ? `${d.period} ` : "";
+    const alt = d.alt ? "Alt " : "";
+    return `${prefix}${alt}Team Total`;
+  }
   const baseLabel =
     d.base === "h2h"
       ? "Moneyline"
@@ -109,6 +122,7 @@ function pickForOutcome(
   teamLabel: (name: string) => string,
   name: string,
   point: number | null | undefined,
+  description?: string,
 ): string {
   if (d.base === "h2h" || (d.base === "other" && /moneyline|h2h/i.test(d.rawKey))) {
     return `${teamLabel(name)} ML`;
@@ -119,6 +133,9 @@ function pickForOutcome(
   }
   if (d.base === "totals" || d.base === "other") {
     const pt = point == null ? "" : ` ${point}`;
+    if (d.rawKey.includes("team_total") && description) {
+      return `${teamLabel(description)} ${name}${pt}`.trim();
+    }
     return `${name}${pt}`.trim();
   }
   const pt = point == null ? "" : ` ${point}`;
@@ -149,7 +166,7 @@ export function discoverAllPostedGameLines(g: OddsGame): RealOddsEntry[] {
     const title = marketTitle(decoded);
     for (const o of market.outcomes ?? []) {
       if (!evalPriceOk(o.price)) continue;
-      const pick = pickForOutcome(decoded, teamLabel, o.name, o.point);
+      const pick = pickForOutcome(decoded, teamLabel, o.name, o.point, o.description);
       const row: RealOddsEntry = { ...base, market: title, pick, odds: o.price!, ...scoreInputs(o) };
       const k = entryKey(row);
       if (seen.has(k)) continue;

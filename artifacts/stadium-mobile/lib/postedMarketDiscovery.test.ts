@@ -20,8 +20,8 @@ test("discoverAllPostedGameLines includes race-to and team total markets", () =>
       {
         key: "team_totals",
         outcomes: [
-          { name: "Over", price: -110, point: 112.5 },
-          { name: "Under", price: -110, point: 112.5 },
+          { name: "Over", description: "Boston Celtics", price: -110, point: 112.5 },
+          { name: "Under", description: "Los Angeles Lakers", price: -110, point: 112.5 },
         ],
       },
       {
@@ -33,6 +33,8 @@ test("discoverAllPostedGameLines includes race-to and team total markets", () =>
   const lines = discoverAllPostedGameLines(g);
   assert.ok(lines.some((e) => /race to/i.test(e.market)));
   assert.ok(lines.some((e) => e.market === "Team Total"));
+  assert.ok(lines.some((e) => e.pick === "Celtics Over 112.5"));
+  assert.ok(lines.some((e) => e.pick === "Lakers Under 112.5"));
   assert.ok(lines.some((e) => e.market === "Q2 Spread"));
 });
 

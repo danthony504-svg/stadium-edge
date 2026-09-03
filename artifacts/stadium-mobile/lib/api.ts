@@ -128,6 +128,8 @@ export type OddsOutcome = {
   name: string;
   price: number;
   point?: number | null;
+  /** Provider-supplied team identity for team-total outcomes. */
+  description?: string;
   books?: OddsBookPrice[];
   // Cross-book no-vig + line-shopping signals (two-sided MAIN markets only;
   // null otherwise — never guessed). Computed server-side. noVigFair = median

@@ -12,6 +12,8 @@ export interface OddsOutcome {
   price: number;
   /** @nullable */
   point?: number | null;
+  /** Provider-supplied team identity for team-total outcomes. */
+  description?: string;
   /** Per-bookmaker prices for this outcome (best first); present on main markets for line shopping. */
   books?: OddsBookPrice[];
   /**
