@@ -175,6 +175,7 @@ import {
 } from "@/lib/coachRequestCompletion";
 import {
   freezeCoachMarketPipelineAudit,
+  recordCoachTicketFinalizationAudit,
   recordCoachRequestTrace,
   startCoachRequestTrace,
 } from "@/lib/coachRequestTrace";
@@ -1545,6 +1546,8 @@ export default function CoachScreen() {
         ? deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget)
         : deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
       let ticket = delivered.picks;
+      const preFinalizationTicket = [...ticket];
+      let finalizationReason: string | null = null;
       traceFinalStage("ticket_creation_finished", { ticketCount: ticket.length });
       recordCoachRequestTrace("final_selection_complete", {
         requestId: ctx?.requestId,
@@ -1583,6 +1586,7 @@ export default function CoachScreen() {
         });
         if (!finalized.ok) ticket = [];
         else ticket = finalized.picks;
+        if (!finalized.ok) finalizationReason = finalized.reason;
         traceFinalStage("ticket_finalization_finished", { ticketCount: ticket.length });
         recordCoachRequestTrace("ticket_creation_complete", {
           requestId: ctx?.requestId,
@@ -1595,6 +1599,25 @@ export default function CoachScreen() {
         rememberParlayBuild(ticket);
         if (ctx) recordCoachTicketDelivered(ticket, ctx);
       }
+
+      const finalSelections = new Set(ticket.map((pick) => pick.pick));
+      recordCoachTicketFinalizationAudit(ctx?.requestId, {
+        requestedLegs: legTarget,
+        qualifiedPoolSize: partial.totalQualified,
+        preCorrelationCount: partial.totalQualified,
+        postCorrelationCount: partial.picks.length,
+        postDedupeCount: partial.picks.length,
+        postVarietyCount: preFinalizationTicket.length,
+        preFinalizationCount: preFinalizationTicket.length,
+        finalTicketCount: ticket.length,
+        removals: preFinalizationTicket
+          .filter((pick) => !finalSelections.has(pick.pick))
+          .map((pick) => ({
+            selection: pick.pick,
+            removalStage: "finalizeCoachTicketForRequest",
+            removalReason: finalizationReason ?? "not present after finalization",
+          })),
+      });
 
       setCoachRequestPhase("finalizing", ctx?.requestId);
       traceFinalStage("terminal_state_commit_started", { ticketCount: ticket.length });

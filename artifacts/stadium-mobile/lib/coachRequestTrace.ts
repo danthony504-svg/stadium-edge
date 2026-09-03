@@ -50,6 +50,17 @@ export type CoachRequestTrace = {
 
 let currentTrace: CoachRequestTrace | null = null;
 type MarketAudit = { requestId?: string; [key: string]: unknown };
+export type CoachTicketFinalizationAudit = {
+  requestedLegs: number;
+  qualifiedPoolSize: number;
+  preCorrelationCount: number;
+  postCorrelationCount: number;
+  postDedupeCount: number;
+  postVarietyCount: number;
+  preFinalizationCount: number;
+  finalTicketCount: number;
+  removals: Array<{ selection: string; removalStage: string; removalReason: string }>;
+};
 let marketAuditsByRequestId = new Map<string, MarketAudit>();
 let completedMarketAuditRequestId = "";
 const frozenMarketAuditRequestIds = new Set<string>();
@@ -138,6 +149,19 @@ export function freezeCoachMarketPipelineAudit(requestId: string | null | undefi
   if (audit) marketAuditsByRequestId.set(id, frozenAuditCopy(audit));
   frozenMarketAuditRequestIds.add(id);
   completedMarketAuditRequestId = id;
+  persistMarketAuditStore();
+}
+
+/** Attach delivery-only counts after final ticket invariants run. */
+export function recordCoachTicketFinalizationAudit(
+  requestId: string | null | undefined,
+  finalization: CoachTicketFinalizationAudit,
+): void {
+  const id = requestId?.trim();
+  if (!id || id === "unknown" || frozenMarketAuditRequestIds.has(id)) return;
+  const audit = marketAuditsByRequestId.get(id);
+  if (!audit) return;
+  marketAuditsByRequestId.set(id, { ...audit, finalization });
   persistMarketAuditStore();
 }
 
