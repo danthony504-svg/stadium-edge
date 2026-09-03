@@ -19,7 +19,7 @@ type RawOddsGame = {
     title?: string;
     markets?: Array<{
       key: string;
-      outcomes?: Array<{ name: string; price: number; point?: number }>;
+      outcomes?: Array<{ name: string; price: number; point?: number; description?: string }>;
     }>;
   }>;
 };
@@ -231,7 +231,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     ];
     const periodMarketsFor = (sportKey: string) =>
       sportKey.startsWith("baseball") ? PERIOD_MARKETS_BASEBALL : PERIOD_MARKETS_DEFAULT;
-    type Outcome = { name: string; price: number; point: number | null };
+    type Outcome = { name: string; price: number; point: number | null; description?: string };
     const altByEvent = new Map<string, Map<string, Map<string, Outcome>>>();
     await Promise.all(
       upcoming.map(async (g) => {
@@ -263,10 +263,15 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
               let bucket = byMarket.get(m.key);
               if (!bucket) { bucket = new Map(); byMarket.set(m.key, bucket); }
               for (const o of m.outcomes ?? []) {
-                const k = `${o.name}|${o.point ?? ""}`;
+                const k = `${o.description ?? ""}|${o.name}|${o.point ?? ""}`;
                 const prev = bucket.get(k);
                 if (!prev || americanToProb(o.price) < americanToProb(prev.price)) {
-                  bucket.set(k, { name: o.name, price: Math.round(o.price), point: o.point ?? null });
+                  bucket.set(k, {
+                    name: o.name,
+                    price: Math.round(o.price),
+                    point: o.point ?? null,
+                    ...(o.description ? { description: o.description } : {}),
+                  });
                 }
               }
             }
@@ -367,7 +372,10 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
         return { key, outcomes };
       });
       const alt = altByEvent.get(g.id);
-      const altMarkets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
+      const altMarkets: Array<{
+        key: string;
+        outcomes: Array<{ name: string; price: number; point: number | null; description?: string }>;
+      }> = [];
       if (alt) {
         // Emit each period/alt market in a stable order so downstream
         // consumers (and the chat AI) see them grouped predictably.

@@ -35,6 +35,7 @@ export const GetOddsResponseItem = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "point": zod.number().nullish(),
+  "description": zod.string().optional().describe('Provider-supplied team identity for team-total outcomes.'),
   "books": zod.array(zod.object({
   "book": zod.string(),
   "price": zod.number(),

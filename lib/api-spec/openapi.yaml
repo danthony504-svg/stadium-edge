@@ -177,6 +177,9 @@ components:
         name: { type: string }
         price: { type: integer }
         point: { type: ["number", "null"] }
+        description:
+          type: string
+          description: Provider-supplied team identity for team-total outcomes.
         books:
           type: array
           description: Per-bookmaker prices for this outcome (best first); present on main markets for line shopping.
