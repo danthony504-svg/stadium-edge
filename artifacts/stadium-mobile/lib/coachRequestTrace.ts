@@ -52,6 +52,11 @@ let currentTrace: CoachRequestTrace | null = null;
 type MarketAudit = { requestId?: string; [key: string]: unknown };
 let marketAuditsByRequestId = new Map<string, MarketAudit>();
 let completedMarketAuditRequestId = "";
+const frozenMarketAuditRequestIds = new Set<string>();
+
+function frozenAuditCopy(audit: MarketAudit): MarketAudit {
+  return JSON.parse(JSON.stringify(audit)) as MarketAudit;
+}
 
 export function startCoachRequestTrace(requestId: string): void {
   currentTrace = { requestId, startedAt: Date.now(), events: [] };
@@ -118,6 +123,10 @@ function persistMarketAuditStore(): void {
 export function persistCoachMarketPipelineAudit(audit: MarketAudit): void {
   const requestId = audit.requestId?.trim();
   if (!requestId || requestId === "unknown") return;
+  // A request reaches its terminal state exactly once. Late callbacks from a
+  // cancelled scan can carry the same request ID, so protect the completed
+  // snapshot as well as protecting it from "unknown" background scans.
+  if (frozenMarketAuditRequestIds.has(requestId)) return;
   marketAuditsByRequestId.set(requestId, audit);
   persistMarketAuditStore();
 }
@@ -125,6 +134,9 @@ export function persistCoachMarketPipelineAudit(audit: MarketAudit): void {
 export function freezeCoachMarketPipelineAudit(requestId: string | null | undefined): void {
   const id = requestId?.trim();
   if (!id || id === "unknown") return;
+  const audit = marketAuditsByRequestId.get(id);
+  if (audit) marketAuditsByRequestId.set(id, frozenAuditCopy(audit));
+  frozenMarketAuditRequestIds.add(id);
   completedMarketAuditRequestId = id;
   persistMarketAuditStore();
 }
@@ -163,6 +175,7 @@ export async function loadCoachMarketPipelineAudit<T>(): Promise<T | null> {
 export function resetCoachMarketAuditStorageForTests(): void {
   marketAuditsByRequestId = new Map();
   completedMarketAuditRequestId = "";
+  frozenMarketAuditRequestIds.clear();
 }
 
 export function formatCoachRequestTrace(trace: CoachRequestTrace | null): string {
