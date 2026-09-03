@@ -2001,6 +2001,7 @@ export default function CoachScreen() {
       target: number;
       sportScopeText: string;
       excludedSports: Set<string>;
+      requestId?: string;
       seedBuilt?: {
         context: ChatContext;
         propPool: PropPoolEntry[];
@@ -2008,7 +2009,7 @@ export default function CoachScreen() {
       };
       signal?: AbortSignal;
     }) => {
-      const { target, sportScopeText, excludedSports, seedBuilt, signal } = opts;
+      const { target, sportScopeText, excludedSports, requestId, seedBuilt, signal } = opts;
       const scanSports = coachBuildSports(sportScopeText, target, DEFAULT_SPORTS).filter(
         (s) => !excludedSports.has(s),
       );
@@ -2024,6 +2025,12 @@ export default function CoachScreen() {
             ),
             getLiveOdds(scanSports, signal).catch(() => ({ games: [], odds: [] })),
           ]);
+          if (
+            (requestId && isCoachBoardScanAborted(requestId)) ||
+            coachRequestWasCompleted(sendGenerationRef.current, requestId)
+          ) {
+            return null;
+          }
           if (seedBuilt) {
             flashEnrichRef.current = coachFlashEnrichFromBuilt(
               {
@@ -2057,6 +2064,7 @@ export default function CoachScreen() {
               calibration: modelCalibration,
               onPartial: onBoardScanPartial,
               signal,
+              requestId,
             }),
             new Promise<null>((resolve) =>
               setTimeout(() => resolve(null), boardScanBudgetMs(reachTarget)),
@@ -2975,6 +2983,13 @@ export default function CoachScreen() {
                     ]);
                     return { espnGames: eg, oddsGames: og, liveFeed: lf };
                   })();
+              const preScanRequestId = coachRequestContextRef.current?.requestId;
+              if (
+                (preScanRequestId && isCoachBoardScanAborted(preScanRequestId)) ||
+                coachRequestWasCompleted(sendGenerationRef.current, preScanRequestId)
+              ) {
+                return;
+              }
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
               recordCoachRequestTrace("scan_start", {
@@ -3003,6 +3018,7 @@ export default function CoachScreen() {
                   onPartial: onBoardScanPartial,
                   signal: abortRef.current?.signal,
                   ...boardScanVariety,
+                  requestId: preScanRequestId ?? boardScanVariety.requestId,
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
@@ -3454,9 +3470,16 @@ export default function CoachScreen() {
                 odds: [],
               })),
             ]);
+            const reachScanRequestId = coachRequestContextRef.current?.requestId;
+            if (
+              (reachScanRequestId && isCoachBoardScanAborted(reachScanRequestId)) ||
+              coachRequestWasCompleted(sendGenerationRef.current, reachScanRequestId)
+            ) {
+              return;
+            }
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
             recordCoachRequestTrace("scan_start", {
-              requestId: coachRequestContextRef.current?.requestId,
+              requestId: reachScanRequestId,
               candidateCount: mergedPropPool.length,
               error: "launch_path=reach_scan",
             });
@@ -3913,6 +3936,13 @@ export default function CoachScreen() {
             ),
             getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);
+          const inlineScanRequestId = coachRequestContextRef.current?.requestId;
+          if (
+            (inlineScanRequestId && isCoachBoardScanAborted(inlineScanRequestId)) ||
+            coachRequestWasCompleted(sendGenerationRef.current, inlineScanRequestId)
+          ) {
+            return;
+          }
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
           const inlineBoardScanMs = boardScanBudgetMs(reachTarget);
           const inlineScan = await Promise.race([
@@ -3938,7 +3968,7 @@ export default function CoachScreen() {
               varietySeed,
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
-              requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+              requestId: inlineScanRequestId ?? varietySeed,
             }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
           ]);

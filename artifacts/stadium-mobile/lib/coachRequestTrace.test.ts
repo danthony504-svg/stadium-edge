@@ -68,6 +68,7 @@ describe("Coach request trace", () => {
 
   it("keeps the frozen user-request audit when unknown scans persist later", async () => {
     resetCoachMarketAuditStorageForTests();
+    await AsyncStorage.clear();
     const completedAudit = {
       requestId: "user-request-123",
       stages: { final_selected: { mlb: { playerProps: 5 } } },
@@ -83,6 +84,24 @@ describe("Coach request trace", () => {
     persistCoachMarketPipelineAudit({
       requestId: "background-request",
       stages: { final_selected: { nfl: { moneyline: 1 } } },
+    });
+
+    await expect(loadCoachMarketPipelineAudit<typeof completedAudit>()).resolves.toEqual(completedAudit);
+  });
+
+  it("keeps the terminal snapshot when a late scan uses the same request ID", async () => {
+    resetCoachMarketAuditStorageForTests();
+    await AsyncStorage.clear();
+    const completedAudit = {
+      requestId: "user-request-456",
+      stages: { final_selected: { mlb: { moneyline: 1, playerProps: 5 } } },
+    };
+
+    persistCoachMarketPipelineAudit(completedAudit);
+    freezeCoachMarketPipelineAudit(completedAudit.requestId);
+    persistCoachMarketPipelineAudit({
+      requestId: completedAudit.requestId,
+      stages: { final_selected: { nfl: { playerProps: 99 } } },
     });
 
     await expect(loadCoachMarketPipelineAudit<typeof completedAudit>()).resolves.toEqual(completedAudit);
