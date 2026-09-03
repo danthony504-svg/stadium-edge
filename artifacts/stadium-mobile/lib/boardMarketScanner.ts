@@ -792,11 +792,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       });
       totalScanned += evaluated.length;
       for (const row of evaluated) {
-        const simHit = gameSimHitForPick(row.pick, sim);
+        const simHit = gameSimHitForPick(row.pick, sim, (diagnostic) => {
+          pipelineAudit.recordGameSimulation(diagnostic);
+        });
+        pipelineAudit.recordFunnel("simulationAttempted", [row.pick]);
+        if (sim) pipelineAudit.recordFunnel("simulationReturned", [row.pick]);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
           scored.push(leg);
+          pipelineAudit.recordScoredFunnel(row.pick, leg.pick.finalAiScore);
         } else {
           pipelineAudit.recordNonPropCandidate(row.pick, "simulation_eligible", {
             simFailure: true,
@@ -847,6 +852,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   pipelineAudit.recordNormalized(normalized);
   const simEligible = picksSimulationEligible(normalized);
   pipelineAudit.recordSimulationEligible(simEligible);
+  // Game rows were recorded as their simulator was invoked. Props have their
+  // own deep-MC queue; recording eligibility here preserves the complete
+  // request funnel without changing which rows that queue evaluates.
+  pipelineAudit.recordFunnel("simulationAttempted", simEligible.filter((pick) => pick.isProp));
   traceCoachMarketStage("NORMALIZED", normalized);
   traceCoachMarketStage("SIMULATION_ATTEMPTED", normalized);
 
@@ -887,6 +896,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
 
   scored.push(...propSim.propScored);
+  for (const leg of propSim.propScored) {
+    pipelineAudit.recordFunnel("simulationReturned", [leg.pick]);
+    pipelineAudit.recordScoredFunnel(leg.pick, leg.pick.finalAiScore);
+  }
   traceTiming("prop_simulations_finished", {
     propScoredCount: propSim.propScored.length,
     totalScoredCount: scored.length,

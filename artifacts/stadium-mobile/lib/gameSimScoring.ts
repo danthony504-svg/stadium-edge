@@ -48,6 +48,17 @@ export type CoachGameSimEntry = GameSimulationResult & {
   outcomes?: { homeScores: number[]; awayScores: number[] };
 };
 
+export type GameSimScoreDiagnostic = {
+  sport: string; event: string; marketFamily: "moneyline" | "spread" | "gameTotal" | "teamTotal" | "alternateGameLine" | "other"; selection: string;
+  line: number | null; odds: number | null; homeTeam: string; awayTeam: string;
+  simulationShape: string[]; homeScoreSource: string; awayScoreSource: string;
+  sampleHomeScore: number | null; sampleAwayScore: number | null;
+  winnerSource: string | null; totalSource: string | null;
+  parsedTeam: string | null; parsedSide: string | null; parsedLine: number | null;
+  wins: number; losses: number; pushes: number; simHitRate: number | null;
+  nullReason: string | null;
+};
+
 export function gameLabelsMatch(a: string, b: string): boolean {
   const pa = splitLabel(a);
   const pb = splitLabel(b);
@@ -348,6 +359,34 @@ function coverQueryResult(
   return false;
 }
 
+function diagnosticMarketFamily(pick: ParsedPick): GameSimScoreDiagnostic["marketFamily"] {
+  const market = String(pick.market ?? "").toLowerCase();
+  if (/\balt\b/.test(market)) return "alternateGameLine";
+  if (/team total/.test(market)) return "teamTotal";
+  if (/moneyline|\bml\b/.test(market)) return "moneyline";
+  if (/spread|run line|puck line/.test(market)) return "spread";
+  if (/total/.test(market)) return "gameTotal";
+  return "other";
+}
+
+function outcomeCounts(
+  sim: CoachGameSimEntry | null | undefined,
+  query: GameCoverQuery | null,
+  sport: string,
+): { wins: number; losses: number; pushes: number } {
+  if (!sim?.outcomes || !query) return { wins: 0, losses: 0, pushes: 0 };
+  let wins = 0;
+  let losses = 0;
+  let pushes = 0;
+  for (let i = 0; i < sim.outcomes.homeScores.length; i++) {
+    const result = coverQueryResult(query, sim.outcomes.homeScores[i]!, sim.outcomes.awayScores[i]!, sport);
+    if (result == null) pushes += 1;
+    else if (result) wins += 1;
+    else losses += 1;
+  }
+  return { wins, losses, pushes };
+}
+
 /** Derive hit rates for arbitrary lines from a saved 10k draw set. */
 export function deriveCoverHitRatesFromOutcomes(
   outcomes: { homeScores: number[]; awayScores: number[] },
@@ -463,28 +502,65 @@ function fuzzyCoverHitRate(
 export function gameSimHitForPick(
   pick: ParsedPick,
   sim: CoachGameSimEntry | null | undefined,
+  onDiagnostic?: (diagnostic: GameSimScoreDiagnostic) => void,
 ): number | null {
-  if (!gameSimHasValidRun(sim)) return null;
-  if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
-  const query = buildGameCoverQuery(pick);
+  const { away, home } = splitLabel(pick.game);
+  const team = gamePickTeam(pick);
+  let query: GameCoverQuery | null = null;
+  let hit: number | null = null;
+  let nullReason: string | null = null;
+  if (!gameSimHasValidRun(sim)) nullReason = "missing simulation result";
+  else if (!marketSupportsSimulation(pick.market ?? "", pick)) nullReason = "unsupported market family";
+  else {
+    query = buildGameCoverQuery(pick);
+    if (!query) nullReason = team ? "unable to determine home/away" : "missing team identity";
+  }
+  if (nullReason) {
+    const counts = outcomeCounts(sim, query, pick.sport ?? "nba");
+    onDiagnostic?.({
+      sport: pick.sport ?? "", event: pick.game, marketFamily: diagnosticMarketFamily(pick), selection: pick.pick,
+      line: numLine(pick.pick), odds: pick.odds ?? null, homeTeam: home, awayTeam: away,
+      simulationShape: sim ? Object.keys(sim).sort() : [], homeScoreSource: sim?.outcomes ? "outcomes.homeScores" : "none",
+      awayScoreSource: sim?.outcomes ? "outcomes.awayScores" : "none",
+      sampleHomeScore: sim?.outcomes?.homeScores[0] ?? null, sampleAwayScore: sim?.outcomes?.awayScores[0] ?? null,
+      winnerSource: "homeWinProbability/awayWinProbability", totalSource: sim?.outcomes ? "homeScores + awayScores" : null,
+      parsedTeam: team, parsedSide: query?.teamSide ?? null, parsedLine: query?.line ?? null,
+      ...counts, simHitRate: null, nullReason,
+    });
+    return null;
+  }
   if (!query) return null;
   const fromCover = sim!.coverHitRates?.[query.id];
-  if (fromCover != null && Number.isFinite(fromCover)) return fromCover;
+  if (fromCover != null && Number.isFinite(fromCover)) hit = fromCover;
 
-  const fuzzy = fuzzyCoverHitRate(pick, query, sim!);
-  if (fuzzy != null) return fuzzy;
+  if (hit == null) {
+    const fuzzy = fuzzyCoverHitRate(pick, query, sim!);
+    if (fuzzy != null) hit = fuzzy;
+  }
 
-  if (sim!.outcomes) {
+  if (hit == null && sim!.outcomes) {
     const derived = deriveCoverHitRatesFromOutcomes(sim!.outcomes, [query], pick.sport ?? "nba");
-    const hit = derived[query.id];
-    if (hit != null && Number.isFinite(hit)) return hit;
+    const derivedHit = derived[query.id];
+    if (derivedHit != null && Number.isFinite(derivedHit)) hit = derivedHit;
   }
 
   // Fallback when cover rates were not requested — ML only from win probs.
-  if (query.kind === "ml" && query.teamSide) {
-    return query.teamSide === "home" ? sim!.homeWinProbability : sim!.awayWinProbability;
+  if (hit == null && query.kind === "ml" && query.teamSide) {
+    hit = query.teamSide === "home" ? sim!.homeWinProbability : sim!.awayWinProbability;
   }
-  return null;
+  if (hit == null) nullReason = sim!.outcomes ? "no gradable draws" : "other";
+  const counts = outcomeCounts(sim, query, pick.sport ?? "nba");
+  onDiagnostic?.({
+    sport: pick.sport ?? "", event: pick.game, marketFamily: diagnosticMarketFamily(pick), selection: pick.pick,
+    line: numLine(pick.pick), odds: pick.odds ?? null, homeTeam: home, awayTeam: away,
+    simulationShape: Object.keys(sim!).sort(), homeScoreSource: sim!.outcomes ? "outcomes.homeScores" : "none",
+    awayScoreSource: sim!.outcomes ? "outcomes.awayScores" : "none",
+    sampleHomeScore: sim!.outcomes?.homeScores[0] ?? null, sampleAwayScore: sim!.outcomes?.awayScores[0] ?? null,
+    winnerSource: "homeWinProbability/awayWinProbability", totalSource: sim!.outcomes ? "homeScores + awayScores" : null,
+    parsedTeam: team, parsedSide: query.teamSide ?? null, parsedLine: query.line ?? null,
+    ...counts, simHitRate: hit, nullReason,
+  });
+  return hit;
 }
 
 /** True when sim supports the pick at or above the coach floor. */

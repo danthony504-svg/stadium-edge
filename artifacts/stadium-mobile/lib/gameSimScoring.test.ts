@@ -52,6 +52,24 @@ test("gameSimHitForPick reads coverHitRates", () => {
   assert.equal(hit, 0.38);
 });
 
+test("gameSimHitForPick emits draw-level diagnostics without changing its score", () => {
+  let diagnostic: import("./gameSimScoring.ts").GameSimScoreDiagnostic | undefined;
+  const hit = gameSimHitForPick(
+    gamePick({ market: "Total", pick: "Over 8.5" }),
+    {
+      ...sim,
+      outcomes: { homeScores: [5, 4, 2], awayScores: [4, 4, 3] },
+    },
+    (row) => { diagnostic = row; },
+  );
+  assert.equal(hit, 0.333);
+  assert.equal(diagnostic?.marketFamily, "gameTotal");
+  assert.equal(diagnostic?.wins, 1);
+  assert.equal(diagnostic?.losses, 2);
+  assert.equal(diagnostic?.pushes, 0);
+  assert.equal(diagnostic?.homeScoreSource, "outcomes.homeScores");
+});
+
 test("gameSimDisagreement when hit below floor", () => {
   const d = gameSimDisagreement(gamePick(), sim);
   assert.ok(d);
