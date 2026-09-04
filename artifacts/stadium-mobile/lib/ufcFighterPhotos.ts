@@ -59,7 +59,7 @@ export function normFighterName(s: string): string {
 
 /** Batch-resolve Sherdog headshots for a UFC odds feed (cached per fighter). */
 export async function buildUfcFeedPhotoMap(
-  fights: ReadonlyArray<{ awayTeam: string; homeTeam: string }>,
+  fights: readonly { awayTeam: string; homeTeam: string }[],
   signal?: AbortSignal,
 ): Promise<UfcPhotoMap> {
   const out: UfcPhotoMap = {};

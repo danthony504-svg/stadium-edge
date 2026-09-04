@@ -6,12 +6,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-assert.equal(
-  process.env.EXPO_PUBLIC_DOMAIN,
-  "stadium-edge.onrender.com",
-  "set EXPO_PUBLIC_DOMAIN=stadium-edge.onrender.com so api.ts hits production",
-);
-
 import { enrichCoachPropSimHits } from "../lib/coachPropSimFallback.ts";
 import { impliedProb } from "../lib/format.ts";
 import { simEdgeFromHit, simEvPct } from "../lib/gameSimQualityGates.ts";
@@ -22,6 +16,12 @@ import {
 } from "../lib/pickRecommendation.ts";
 import { parsedPickFromPoolEntry } from "../lib/propSelection.ts";
 import type { PropPoolEntry } from "../lib/api.ts";
+
+assert.equal(
+  process.env.EXPO_PUBLIC_DOMAIN,
+  "stadium-edge.onrender.com",
+  "set EXPO_PUBLIC_DOMAIN=stadium-edge.onrender.com so api.ts hits production",
+);
 
 const API = "https://stadium-edge.onrender.com/api";
 
@@ -52,21 +52,21 @@ type PropSide = {
 async function fetchWnbaSlate(): Promise<PropSide[]> {
   const oddsRes = await fetch(`${API}/sports/odds?sport=wnba`);
   assert.equal(oddsRes.ok, true);
-  const oddsGames = (await oddsRes.json()) as Array<{
+  const oddsGames = (await oddsRes.json()) as {
     id: string;
     homeTeam: string;
     awayTeam: string;
-  }>;
+  }[];
 
   const espnRes = await fetch(
     "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
   );
   const espn = (await espnRes.json()) as {
-    events?: Array<{
-      competitions?: Array<{
-        competitors?: Array<{ homeAway?: string; team?: { id?: string; displayName?: string } }>;
-      }>;
-    }>;
+    events?: {
+      competitions?: {
+        competitors?: { homeAway?: string; team?: { id?: string; displayName?: string } }[];
+      }[];
+    }[];
   };
 
   const teamIds = new Map<string, { homeTeamId: string; awayTeamId: string }>();
@@ -98,7 +98,7 @@ async function fetchWnbaSlate(): Promise<PropSide[]> {
     const propsRes = await fetch(`${API}/sports/props?${q.toString()}`);
     if (!propsRes.ok) continue;
     const body = (await propsRes.json()) as {
-      props?: Array<{
+      props?: {
         player: string;
         market: string;
         line: number;
@@ -107,7 +107,7 @@ async function fetchWnbaSlate(): Promise<PropSide[]> {
         athleteId?: string | null;
         edge?: number | null;
         evSide?: string | null;
-      }>;
+      }[];
     };
     for (const p of body.props ?? []) {
       if (p.overPrice != null) {

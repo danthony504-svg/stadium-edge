@@ -3,16 +3,20 @@
 // then deep-tier refines the grade in the background.
 
 import type { ParsedPick } from "@/components/PickCard";
-import type { PropPoolEntry, RealOddsEntry } from "@/lib/api";
-import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
+import {
+  fetchPropSimulations,
+  type PropPoolEntry,
+  type RealOddsEntry,
+  type PropSimulationResult,
+  type MatchupHistoryEntry,
+  type InjuryTeam,
+} from "@/lib/api";
 import { attachSimAltOptionsToPicks, attachPropSimAltLines } from "@/lib/altLineRecommendations";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
 import type { CoachGameSimEntry } from "@/lib/coachGameMonteCarlo";
 import { filterPicksForExcludedSports } from "@/lib/chatContextPriority";
 import type { GameInjuryReport } from "@/lib/injuries";
-import type { MatchupHistoryEntry } from "@/lib/api";
-import type { InjuryTeam } from "@/lib/api";
 
 export type PropSimAttachOpts = {
   propPool: PropPoolEntry[];
