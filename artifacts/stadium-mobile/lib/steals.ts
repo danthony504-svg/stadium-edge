@@ -1,3 +1,5 @@
+import type { StealScanMeta } from "./api.ts";
+
 // Pure, dependency-free helpers for the "+500 Steals" screen. The server
 // (api-server lib/liveSteals.ts) does ALL the finding/grading honestly — every
 // surfaced steal carries a REAL cross-book no-vig edge and the W/L record is

@@ -1,8 +1,8 @@
 // After the 10k game sim, rank EVERY posted full-game line by Final AI Score and
 // swap each Coach game-line leg to the best win-probability + value combination.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
-import { marketFamily } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
+import { marketFamily } from "./altLinePool.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry, OddsGame, RealOddsEntry } from "./api.ts";
 import { buildAllEvalGameLines } from "./api.ts";

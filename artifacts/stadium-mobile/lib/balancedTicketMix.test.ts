@@ -3,7 +3,7 @@ import test from "node:test";
 import { balancedMixSlots, BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
 import { buildBalancedStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
 import { boardMarketCategory, partitionScoredLegsByCategory, ticketCategoryMix } from "./boardMarketPools.ts";
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 
 function leg(
   pick: Partial<ParsedPick> & Pick<ParsedPick, "game" | "market" | "pick" | "odds">,

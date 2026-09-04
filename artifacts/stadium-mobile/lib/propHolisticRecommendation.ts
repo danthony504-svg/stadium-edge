@@ -4,7 +4,7 @@
 // Carlo simulation. Missing contextual data reduces confidence instead of being
 // silently renormalized away.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { PickSubScores } from "./pickScore.ts";
 import {
   scoreInjury,
@@ -665,6 +665,13 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
   const formPresent = form?.present || minutes?.present;
   const formDisplay = form?.display ?? minutes?.display;
 
+  const injuryFactor = factor("injury");
+  const injuryDisplay =
+    injuryFactor?.display ??
+    (pick.injuryDataUnavailable && (injuryFactor?.score ?? null) == null
+      ? "Injury data unavailable"
+      : undefined);
+
   const coachFactors: PropHolisticFactor[] = [
     factor("sportsbookValue") ?? {
       key: "sportsbookValue",
@@ -694,12 +701,18 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
       score: formScore,
       display: formDisplay,
       applicable: true,
-      present: formPresent && formScore != null,
+      present: Boolean(formPresent && formScore != null),
     },
-    factor("injury") ?? {
+    injuryFactor
+      ? {
+          ...injuryFactor,
+          display: injuryDisplay,
+        }
+      : {
       key: "injury",
       label: "Injuries",
       score: null,
+      display: pick.injuryDataUnavailable ? "Injury data unavailable" : undefined,
       applicable: true,
       present: false,
     },

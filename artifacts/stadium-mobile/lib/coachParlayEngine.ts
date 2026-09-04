@@ -1,6 +1,6 @@
 // Parlay builds: server slate + board scan only — never LLM-parsed legs.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { deliverCoachBoardScanTicket } from "./coachBoardScanDelivery.ts";
 import { boardScanIsComplete, boardScanMeetsLegTarget, boardScanReadyForDelivery } from "./coachScanPolicy.ts";
