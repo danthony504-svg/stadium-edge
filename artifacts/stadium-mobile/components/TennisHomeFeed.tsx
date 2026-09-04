@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
 import type { GameMeta } from "@/components/GameCard";
-import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -177,10 +177,10 @@ export function TennisHomeFeed({
           opacity: pressed ? 0.92 : 1,
         })}
       >
-        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+        <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>
           Build best parlay
         </Text>
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
+        <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, marginTop: 4 }}>
           AI picks from live tennis moneylines when matches are on the board.
         </Text>
       </Pressable>
@@ -190,7 +190,7 @@ export function TennisHomeFeed({
           <Text
             style={{
               color: colors.foreground,
-              fontFamily: FONT.display,
+              ...TYPE.button, fontFamily: FONT.bold,
               fontSize: 18,
               paddingHorizontal: 16,
               marginBottom: 12,
@@ -241,7 +241,7 @@ export function TennisHomeFeed({
           marginBottom: 12,
         }}
       >
-        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+        <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>
           Upcoming Matches
         </Text>
         {canExpandUpcoming || upcomingExpanded ? (
@@ -250,7 +250,7 @@ export function TennisHomeFeed({
             onPress={() => setUpcomingExpanded((open) => !open)}
             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
           >
-            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+            <Text style={{ color: colors.primary, ...TYPE.secondary, fontFamily: FONT.bold }}>
               {upcomingExpanded ? "Show less" : "View all"}
             </Text>
           </Pressable>

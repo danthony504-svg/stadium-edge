@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppleAuthButton, AUTH_ACCENT } from "@/components/auth";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
@@ -158,11 +158,11 @@ export default function WelcomeScreen() {
               contentFit="contain"
             />
             <Text
-              style={{ fontFamily: FONT.display, fontSize: 40, color: colors.foreground }}
+              style={{ ...TYPE.displayTitle, fontSize: 40, color: colors.foreground }}
             >
               Bet Smarter.
             </Text>
-            <Text style={{ fontFamily: FONT.display, fontSize: 40, color: AUTH_ACCENT }}>
+            <Text style={{ ...TYPE.displayTitle, fontSize: 40, color: AUTH_ACCENT }}>
               Win More.
             </Text>
             <Text
@@ -283,7 +283,7 @@ export default function WelcomeScreen() {
             }}
           >
             <Text
-              style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}
+              style={{ fontFamily: TYPE.secondary.fontFamily, fontSize: TYPE.secondary.fontSize, lineHeight: TYPE.secondary.lineHeight, color: colors.mutedForeground }}
             >
               Already have an account?{" "}
             </Text>

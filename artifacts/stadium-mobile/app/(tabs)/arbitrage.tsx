@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getOdds, getProps, propMarketLabel, PROPS_SPORTS } from "@/lib/api";
 import {
@@ -168,7 +168,7 @@ function StakeLeg({
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
           BET
         </Text>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+        <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
           ${stake.toFixed(2)}
         </Text>
       </View>
@@ -389,7 +389,7 @@ function ValueCard({ vb, total }: { vb: ValueBet; total: number }) {
         </View>
         <View style={{ alignItems: "flex-end" }}>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>BET</Text>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>${total.toFixed(2)}</Text>
+          <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>${total.toFixed(2)}</Text>
         </View>
       </View>
 
@@ -615,7 +615,7 @@ export default function ArbitrageScreen() {
         {isLoading ? (
           <View style={{ paddingVertical: 60, alignItems: "center", gap: 12 }}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
               Scanning the board…
             </Text>
           </View>
@@ -643,7 +643,7 @@ export default function ArbitrageScreen() {
             <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, textAlign: "center" }}>
               No edges on the board right now
             </Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, textAlign: "center", lineHeight: 19 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, textAlign: "center", lineHeight: 19 }}>
               Books are priced efficiently at the moment. Edges appear and disappear quickly —
               pull to refresh to scan again.
             </Text>

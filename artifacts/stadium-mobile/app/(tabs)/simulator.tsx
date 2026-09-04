@@ -1063,7 +1063,7 @@ export default function SimulatorScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <Text style={{ fontFamily: FONT.display, fontSize: 20, color: colors.foreground }}>
+                <Text style={{ fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, color: colors.foreground }}>
                   Game Simulator
                 </Text>
                 <View
@@ -1357,7 +1357,7 @@ export default function SimulatorScreen() {
                     placeholderTextColor={colors.mutedForeground}
                     value={search}
                     onChangeText={setSearch}
-                    style={{ flex: 1, color: colors.foreground, fontFamily: FONT.body, fontSize: 14 }}
+                    style={{ flex: 1, color: colors.foreground, fontFamily: TYPE.secondary.fontFamily, fontSize: TYPE.secondary.fontSize, lineHeight: TYPE.secondary.lineHeight }}
                   />
                 </View>
 
@@ -1577,7 +1577,7 @@ export default function SimulatorScreen() {
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 6 }}>
                           Recommendation
                         </Text>
-                        <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
+                        <Text style={{ fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight, color: colors.foreground }}>
                           {gameSimRecommendation.emoji} {gameSimRecommendation.label}
                         </Text>
                         <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, marginTop: 4, lineHeight: 17 }}>
@@ -1739,7 +1739,7 @@ export default function SimulatorScreen() {
               <Text style={{ fontFamily: FONT.semibold, fontSize: 17, color: colors.foreground, marginBottom: 10 }}>
                 How it works
               </Text>
-              <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
+              <Text style={{ fontFamily: TYPE.secondary.fontFamily, fontSize: TYPE.secondary.fontSize, lineHeight: TYPE.secondary.lineHeight, color: colors.mutedForeground, lineHeight: 21 }}>
                 Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
                 minutes, injuries, matchup splits, and park weather. One draw set powers every market on that game.
                 For each team we ask: Does the team win? Do they cover? How often do they cover? Is the price worth it?
@@ -1823,7 +1823,7 @@ function SettingRow({
         borderTopColor: colors.border,
       }}
     >
-      <Text style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.mutedForeground }}>{label}</Text>
+      <Text style={{ fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, color: colors.mutedForeground }}>{label}</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {icon ? <Feather name={icon} size={14} color={colors.mutedForeground} /> : null}
         <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>{value}</Text>
@@ -1855,7 +1855,7 @@ function SimulationSummaryCard({
       </Text>
       {analyzing ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground }}>
+          <Text style={{ fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, color: colors.foreground }}>
             Calculating best betting lines…
           </Text>
           {[
@@ -1894,7 +1894,7 @@ function SimulationSummaryCard({
           <SummaryLine label="Recommendation" value={summary.recommendation} accent />
         </View>
       ) : (
-        <Text style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.mutedForeground, lineHeight: 18 }}>
+        <Text style={{ fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, color: colors.mutedForeground, lineHeight: 18 }}>
           Recommendation: {summary.recommendation}
         </Text>
       )}
@@ -1950,7 +1950,7 @@ function BestLinesLoadingCard({
       <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
         Best Lines (Final AI Score)
       </Text>
-      <Text style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground, marginTop: 8 }}>
+      <Text style={{ fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, color: colors.foreground, marginTop: 8 }}>
         Calculating best betting lines…
       </Text>
       <View style={{ gap: 8, marginTop: 12 }}>

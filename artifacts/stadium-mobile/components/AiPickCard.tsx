@@ -15,7 +15,7 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican } from "@/lib/format";
 import { EdgeReadout, type ParsedPick } from "@/components/PickCard";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 
 if (
   Platform.OS === "android" &&

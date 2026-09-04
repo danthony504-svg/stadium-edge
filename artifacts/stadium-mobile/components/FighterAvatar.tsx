@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Image, Text, View } from "react-native";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
 function initials(name: string): string {

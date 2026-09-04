@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -44,8 +44,7 @@ function StatCell({ label, value }: { label: string; value: string }) {
       <Text
         style={{
           color: colors.foreground,
-          fontFamily: FONT.display,
-          fontSize: 17,
+          ...TYPE.button,
           marginTop: 2,
         }}
       >
@@ -68,7 +67,7 @@ function ModalRow({ label, value }: { label: string; value: string }) {
         borderBottomColor: colors.border,
       }}
     >
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, flex: 1 }}>
+      <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, flex: 1 }}>
         {label}
       </Text>
       <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
@@ -118,7 +117,7 @@ function LearningDetailModal({
               borderBottomColor: colors.border,
             }}
           >
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+            <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>
               AI Learning History
             </Text>
             <Pressable onPress={onClose} hitSlop={12}>
@@ -250,8 +249,8 @@ export function CoachLearningPanel() {
           <Text
             style={{
               color: colors.primary,
-              fontFamily: FONT.display,
-              fontSize: 13,
+              ...TYPE.caption,
+                  fontFamily: FONT.bold,
               letterSpacing: 0.3,
             }}
           >

@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
-import { Card, FONT } from "@/components/ui";
+import { Card, FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getParkWeather, type ParkWeatherReport } from "@/lib/api";
 import {
@@ -131,7 +131,7 @@ export default function WeatherScreen() {
         {q.isLoading ? (
           <View style={{ paddingVertical: 60, alignItems: "center", gap: 12 }}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
               Loading live park conditions…
             </Text>
           </View>
@@ -392,7 +392,7 @@ function HeroWeatherCard({ report }: { report: ParkWeatherReport }) {
     <Card style={{ marginBottom: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
         <View>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 48, lineHeight: 52 }}>
+          <Text style={{ color: colors.foreground, ...TYPE.displayTitle, fontSize: 48, lineHeight: 52 }}>
             {fmtVal(c.tempF, (n) => `${Math.round(n)}°F`)}
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 2 }}>

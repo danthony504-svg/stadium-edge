@@ -110,7 +110,7 @@ import {
   parseConfidenceThreshold,
 } from "@/lib/confidence";
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
@@ -5897,7 +5897,7 @@ export default function CoachScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
+        <Text style={{ color: colors.foreground, fontFamily: TYPE.sectionHeader.fontFamily, fontSize: TYPE.sectionHeader.fontSize, lineHeight: TYPE.sectionHeader.lineHeight }}>
           AI Coach
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
@@ -6375,7 +6375,7 @@ export default function CoachScreen() {
           }}
         >
           <Feather name="check" size={14} color={colors.background} />
-          <Text style={{ color: colors.background, fontFamily: FONT.medium, fontSize: 13 }}>
+          <Text style={{ color: colors.background, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
             Copied
           </Text>
         </View>

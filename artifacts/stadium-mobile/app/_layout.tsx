@@ -1,9 +1,4 @@
 import {
-  BricolageGrotesque_400Regular,
-  BricolageGrotesque_600SemiBold,
-  BricolageGrotesque_800ExtraBold,
-} from "@expo-google-fonts/bricolage-grotesque";
-import {
   Inter_400Regular,
   Inter_500Medium,
   Inter_600SemiBold,
@@ -28,6 +23,7 @@ import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
+import { FONT } from "@/lib/typography";
 import { setAuthTokenGetter } from "@/lib/authToken";
 import {
   addNotificationResponseListener,
@@ -97,6 +93,7 @@ function BootScreen() {
         <Text
           style={{
             color: "#e2e8f0",
+            fontFamily: FONT.regular,
             fontSize: 15,
             lineHeight: 21,
             textAlign: "center",
@@ -159,9 +156,6 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    BricolageGrotesque_400Regular: BricolageGrotesque_400Regular,
-    BricolageGrotesque_600SemiBold: BricolageGrotesque_600SemiBold,
-    BricolageGrotesque_800ExtraBold: BricolageGrotesque_800ExtraBold,
   });
 
   useEffect(() => {
@@ -173,7 +167,7 @@ export default function RootLayout() {
   if (!publishableKey) {
     return (
       <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
-        <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
+        <Text style={{ color: "#e2e8f0", fontFamily: FONT.regular, fontSize: 15, textAlign: "center", lineHeight: 22 }}>
           App configuration error (missing auth key). Reinstall from the App Store or contact support.
         </Text>
       </View>

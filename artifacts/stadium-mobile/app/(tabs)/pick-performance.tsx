@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
-import { EmptyState, FONT, Loading } from "@/components/ui";
+import { EmptyState, FONT, Loading, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getLiveSteals, propMarketLabel, type GradedSteal } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
@@ -73,12 +73,12 @@ function WonPickRow({ row }: { row: GradedSteal }) {
         <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}>
           {row.player ?? row.pick}
         </Text>
-        <Text style={{ color: "#34d399", fontFamily: FONT.bold, fontSize: 15 }}>
+        <Text style={{ color: "#34d399", fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
           {formatAmerican(row.price)}
         </Text>
       </View>
       {row.player ? (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+        <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
           {row.pick}
         </Text>
       ) : null}
@@ -185,7 +185,7 @@ export default function PickPerformanceScreen() {
                           borderLeftColor: colors.border,
                         }}
                       >
-                        <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>
+                        <Text style={{ color: m.tint, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>
                           {m.val}
                         </Text>
                         <Text
@@ -228,8 +228,8 @@ export default function PickPerformanceScreen() {
               <Text
                 style={{
                   color: colors.primary,
-                  fontFamily: FONT.display,
-                  fontSize: 13,
+                  ...TYPE.caption,
+                  fontFamily: FONT.bold,
                   letterSpacing: 0.5,
                 }}
               >
