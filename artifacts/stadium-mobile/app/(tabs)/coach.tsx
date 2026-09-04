@@ -135,6 +135,16 @@ import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
 } from "@/lib/coachParlayEngine";
+import {
+  armCoachStageTimer,
+  clearCoachStageTimer,
+  coachPipelineTimeoutMessage,
+  markCoachPipelineStage,
+  resetCoachPipeline,
+  setCoachPipelineTimeoutHandler,
+  updateCoachPipelineCounts,
+  withCoachStageTimeout,
+} from "@/lib/coachPipelineTrace";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   boardScanIsComplete,
@@ -1305,6 +1315,9 @@ export default function CoachScreen() {
         setAiPicks(finalized.picks);
         captureFromCoach(finalized.picks);
         liveScanDeliveredRef.current = true;
+        markCoachPipelineStage("responseReturned", { pickCount: finalized.picks.length, source: opts?.source });
+        markCoachPipelineStage("loadingCleared");
+        clearCoachStageTimer();
         scrollToEnd(false);
         return true;
       }
@@ -1322,6 +1335,9 @@ export default function CoachScreen() {
       clearBuildStallWatchdog();
       setAiPicks(cleaned);
       captureFromCoach(cleaned);
+      markCoachPipelineStage("responseReturned", { pickCount: cleaned.length, source: opts?.source });
+      markCoachPipelineStage("loadingCleared");
+      clearCoachStageTimer();
       scrollToEnd(false);
       return true;
     },
@@ -1665,7 +1681,43 @@ export default function CoachScreen() {
     [clearBuildStallWatchdog, scrollToEnd],
   );
 
-  const flashBoardScanResult = useCallback(
+  const handleCoachPipelineTimeout = useCallback(
+    (stage: "BuildFinalTicket" | "GenerateCoachResponse" | "ReturnResponse", stack: string) => {
+      console.error("[coach-pipeline] timeout stack", stack);
+      clearBuildStallWatchdog();
+      if (buildProgressTimerRef.current) {
+        clearTimeout(buildProgressTimerRef.current);
+        buildProgressTimerRef.current = null;
+      }
+      setBuildProgressExpired(true);
+      setCoachBuildBusy(false);
+      setStreaming(false);
+      setWaiting(false);
+      setBuildFinishing(false);
+      setParlayBuildPhase("idle");
+      markCoachPipelineStage("loadingCleared", { reason: "timeout", stage });
+      setMessages((prev) => {
+        const copy = [...prev];
+        const last = copy[copy.length - 1];
+        if (last?.role !== "assistant") return prev;
+        copy[copy.length - 1] = {
+          ...last,
+          content: coachPipelineTimeoutMessage(stage),
+          retry: activeParlayAskRef.current || undefined,
+          parlayBuild: true,
+        };
+        return copy;
+      });
+      scrollToEnd(false);
+    },
+    [clearBuildStallWatchdog, scrollToEnd],
+  );
+
+  useEffect(() => {
+    setCoachPipelineTimeoutHandler(handleCoachPipelineTimeout);
+    return () => setCoachPipelineTimeoutHandler(null);
+  }, [handleCoachPipelineTimeout]);
+
     (scan: FullBoardScanResult | null | undefined, enrichOverride?: CoachFlashEnrich) => {
       if (!scan?.picks?.length) return false;
       setBoardScanPartialLegs(scan.picks.length);
@@ -1708,6 +1760,12 @@ export default function CoachScreen() {
       if (partial.picks.length) {
         setBoardScanPartialLegs(partial.picks.length);
         setParlayBuildPhase("stream");
+        updateCoachPipelineCounts({ candidateCount: partial.picks.length });
+        markCoachPipelineStage("candidatePropsReceived", {
+          candidateCount: partial.picks.length,
+          scanComplete: !!partial.scanComplete,
+        });
+        armCoachStageTimer("BuildFinalTicket");
       }
       patchInstantBoardScanTicket(partial, undefined, {
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
@@ -2067,6 +2125,8 @@ export default function CoachScreen() {
       // replay the same ranked props and game-line walk order every tap.
       const varietySeed = makeBuildId();
       varietySeedRef.current = varietySeed;
+      resetCoachPipeline(varietySeed);
+      clearCoachStageTimer();
       if (openingParlayBuild && earlyLegTarget >= 3) {
         activeRequestLegTargetRef.current = earlyLegTarget;
         coachRequestContextRef.current = startCoachTicketRequest({
@@ -2084,6 +2144,20 @@ export default function CoachScreen() {
       if (openingParlayBuild) {
         // Cached slate may flash as a preview only — final picks come from a fresh scan.
         tryInstantSlateSeedDelivery(earlyLegTarget, slateSport);
+        if (earlyLegTarget >= 3 && !analyzeSlipSnapshot) {
+          const priorUserTexts = messages.filter((m) => m.role === "user").map((m) => m.content);
+          const kickoffExcluded = resolveExcludedSports(
+            priorUserTexts,
+            trimmed,
+            persistedExcludedSportsRef.current,
+          );
+          earlyReachBoardScanRef.current = kickoffEarlyReachBoardScan({
+            target: earlyLegTarget,
+            sportScopeText: trimmed,
+            excludedSports: kickoffExcluded,
+            signal: controller.signal,
+          });
+        }
       }
 
       // Card/booking asks have no feed — answer instantly instead of streaming guesses.
@@ -2486,6 +2560,7 @@ export default function CoachScreen() {
           const boardScanPreEligible = reachBoardScanEligible({
             isAnalyze: wantsAnalyzeSlip(trimmed),
             requestedLegs,
+            legTarget,
             propsOnly: wantsPropsOnly(trimmed),
             explicitSingleGame,
             oddsThreshold,
@@ -2697,6 +2772,14 @@ export default function CoachScreen() {
                 boardScanIsComplete(preBoardScan) &&
                 boardScanReadyForDelivery(preBoardScan, reachTargetPreScan)
               );
+              if (freshBoardScanComplete) {
+                markCoachPipelineStage("correlationScored", {
+                  candidateCount: preBoardScan?.picks?.length ?? 0,
+                  legTarget: reachTargetPreScan,
+                });
+                updateCoachPipelineCounts({ candidateCount: preBoardScan?.picks?.length ?? 0 });
+                armCoachStageTimer("BuildFinalTicket");
+              }
               const scanForDelivery = preferFinalBoardScanForDelivery(
                 reachTargetPreScan,
                 preBoardScan,
@@ -2829,7 +2912,7 @@ export default function CoachScreen() {
           };
 
           try {
-            if (skipModelStreamForBoardScan || useParlayKernel) {
+            if (skipModelStreamForBoardScan) {
               full = "";
               setWaiting(false);
               let scanForDelivery = preferFinalBoardScanForDelivery(
@@ -2875,6 +2958,7 @@ export default function CoachScreen() {
                   deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
                 ) {
                   kernelParlayDelivered = true;
+                  markCoachPipelineStage("aiResponseGenerated", { source: "kernel-skip-stream" });
                 } else {
                   tryInstantSlateSeedDelivery(legTarget);
                 }
@@ -2887,10 +2971,13 @@ export default function CoachScreen() {
               full = "";
               setWaiting(false);
               setParlayBuildPhase("board-scan");
+              armCoachStageTimer("BuildFinalTicket");
               let scanForDelivery: FullBoardScanResult | null = null;
               if (earlyReachBoardScanRef.current) {
                 try {
-                  scanForDelivery = await earlyReachBoardScanRef.current;
+                  scanForDelivery = await withCoachStageTimeout("BuildFinalTicket", async () => {
+                    return earlyReachBoardScanRef.current!;
+                  });
                 } catch {
                   scanForDelivery = latestBoardScanRef.current;
                 }
@@ -2915,13 +3002,15 @@ export default function CoachScreen() {
                   deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
                 ) {
                   kernelParlayDelivered = true;
+                  markCoachPipelineStage("aiResponseGenerated", { source: "kernel-skip-stream" });
                 } else {
                   tryInstantSlateSeedDelivery(legTarget);
                 }
               }
             } else {
               setParlayBuildPhase("stream");
-              full = await runStream();
+              full = await withCoachStageTimeout("GenerateCoachResponse", () => runStream());
+              markCoachPipelineStage("aiResponseGenerated");
             }
             if (!wantsAnalyzeSlip(trimmed)) {
               setMessages((prev) => {
@@ -3070,6 +3159,7 @@ export default function CoachScreen() {
         const reachBoardEligible = reachBoardScanEligible({
           isAnalyze: wantsAnalyzeSlip(trimmed),
           requestedLegs,
+          legTarget,
           propsOnly: wantsPropsOnly(trimmed),
           explicitSingleGame,
           oddsThreshold,
@@ -3283,7 +3373,7 @@ export default function CoachScreen() {
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         const reachFull =
-          requestedLegs >= 6 && deepMultiLegParlay && !propsOnlyTicket && !explicitSingleGame;
+          legTarget >= 6 && deepMultiLegParlay && !propsOnlyTicket && !explicitSingleGame;
         // Fixed-leg policy: mains first, then qualifying alts — never round-out filler.
         const promoteQualifyingAlts = shouldPromoteQualifyingAltsForFixedLegTicket({
           requestedLegs,
@@ -3508,13 +3598,14 @@ export default function CoachScreen() {
         };
         const useFullBoardScan =
           !isAnalyze &&
-          requestedLegs > 0 &&
+          legTarget >= 3 &&
           shouldUseFullBoardScan(legTarget, {
             propsOnly: propsOnlyTicket,
             explicitSingleGame,
             oddsThreshold,
             confidenceThreshold,
-            requestedLegs,
+            requestedLegs: legTarget,
+            legTarget,
             reachFull,
           });
         if (!fullBoardScanned && (preBoardScan || reachBoardScan)) {
@@ -4987,6 +5078,13 @@ export default function CoachScreen() {
         if (isParlayBuild && picks.length > 1 && !fullBoardScanned && !didReachFullPreScan) {
           picks = rotateParlayDisplayOrder(picks, varietySeed);
         }
+        markCoachPipelineStage("filteringCompleted", { pickCount: picks.length });
+        updateCoachPipelineCounts({ filteredCount: picks.length });
+        markCoachPipelineStage("rankingCompleted", { pickCount: picks.length });
+        if (picks.length > 0) {
+          markCoachPipelineStage("ticketBuilt", { ticketLegCount: picks.length });
+          updateCoachPipelineCounts({ ticketLegCount: picks.length, rankedCount: picks.length });
+        }
         const boardSnapshot = boardTicketSnapshotRef.current;
         const resolveOutPicks = (existingPicks?: ParsedPick[]) => {
           if (
@@ -5013,7 +5111,11 @@ export default function CoachScreen() {
               }
             }
             if (!freshBoardScanComplete) {
-              return existingPicks?.length ? existingPicks : [];
+              const scanSettled =
+                liveFinal != null && boardScanIsComplete(liveFinal);
+              if (!scanSettled && !boardSnapshot?.length && !picks.length) {
+                return existingPicks?.length ? existingPicks : [];
+              }
             }
           }
           const raw =
@@ -5047,45 +5149,52 @@ export default function CoachScreen() {
         };
         let outPicks: ParsedPick[] = [];
         let outCoachDetailNote = "";
-        setMessages((prev) => {
-          const copy = [...prev];
-          const { legNote: _dropLegNote, ...prevAssistant } = copy[copy.length - 1];
-          outPicks = gateResolvedPicks(resolveOutPicks(prevAssistant.picks));
-          outCoachDetailNote = dedupeLegNoteParagraphs(
-            [coachDetailNote, prevAssistant.coachDetailNote ?? ""].filter(Boolean).join("\n\n"),
-          );
-          const manifestReply = coachReplyHasScanManifest(
-            boardScanManifestDetail,
-            outCoachDetailNote,
-          );
-          copy[copy.length - 1] = {
-            ...prevAssistant,
-            role: "assistant",
-            content: outPicks.length > 0 ? "" : manifestReply ? "" : finalContent,
-            picks: outPicks,
-            ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
-            ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
-            ...(outCoachDetailNote.trim() ? { coachDetailNote: outCoachDetailNote.trim() } : {}),
-            ...(backupPicks.length ? { backupPicks, backupNote } : {}),
-          };
-          return copy;
+        await withCoachStageTimeout("ReturnResponse", async () => {
+          setMessages((prev) => {
+            const copy = [...prev];
+            const { legNote: _dropLegNote, ...prevAssistant } = copy[copy.length - 1];
+            outPicks = gateResolvedPicks(resolveOutPicks(prevAssistant.picks));
+            outCoachDetailNote = dedupeLegNoteParagraphs(
+              [coachDetailNote, prevAssistant.coachDetailNote ?? ""].filter(Boolean).join("\n\n"),
+            );
+            const manifestReply = coachReplyHasScanManifest(
+              boardScanManifestDetail,
+              outCoachDetailNote,
+            );
+            copy[copy.length - 1] = {
+              ...prevAssistant,
+              role: "assistant",
+              content: outPicks.length > 0 ? "" : manifestReply ? "" : finalContent,
+              picks: outPicks,
+              ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
+              ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
+              ...(outCoachDetailNote.trim() ? { coachDetailNote: outCoachDetailNote.trim() } : {}),
+              ...(backupPicks.length ? { backupPicks, backupNote } : {}),
+            };
+            return copy;
+          });
+          if (outPicks.length > 0) {
+            boardTicketSnapshotRef.current = outPicks;
+            setStreaming(false);
+            setWaiting(false);
+            setBuildFinishing(false);
+            setBuildProgressExpired(false);
+            setParlayBuildPhase("idle");
+            setAiPicks(outPicks);
+            captureFromCoach(outPicks);
+            markCoachPipelineStage("responseReturned", { pickCount: outPicks.length });
+            markCoachPipelineStage("loadingCleared");
+            clearCoachStageTimer();
+          } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
+            setStreaming(false);
+            setWaiting(false);
+            setBuildFinishing(false);
+            setBuildProgressExpired(false);
+            setParlayBuildPhase("idle");
+            markCoachPipelineStage("loadingCleared", { emptyManifest: true });
+            clearCoachStageTimer();
+          }
         });
-        if (outPicks.length > 0) {
-          boardTicketSnapshotRef.current = outPicks;
-          setStreaming(false);
-          setWaiting(false);
-          setBuildFinishing(false);
-          setBuildProgressExpired(false);
-          setParlayBuildPhase("idle");
-          setAiPicks(outPicks);
-          captureFromCoach(outPicks);
-        } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
-          setStreaming(false);
-          setWaiting(false);
-          setBuildFinishing(false);
-          setBuildProgressExpired(false);
-          setParlayBuildPhase("idle");
-        }
         // Server-side Monte Carlo: quick tier first, deep tier refines in the
         // background. Picks are already on screen — simulation is one rubric input.
         if (picks.some((p) => p.isProp)) {
