@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = new URL("../", import.meta.url).href;
 const FAKE_EXPO_FETCH = new URL("./fakes/expo-fetch.ts", import.meta.url).href;
+const FAKE_PICK_CARD = new URL("./fakes/pick-card.ts", import.meta.url).href;
 
 module.registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -12,6 +13,21 @@ module.registerHooks({
 
     if (specifier === "expo/fetch" || specifier === "expo/fetch.js") {
       return { url: FAKE_EXPO_FETCH, shortCircuit: true };
+    }
+
+    if (
+      specifier.endsWith("/components/PickCard.tsx") ||
+      specifier.endsWith("/components/PickCard.ts")
+    ) {
+      return { url: FAKE_PICK_CARD, shortCircuit: true };
+    }
+
+    if (specifier.endsWith(".tsx")) {
+      const tsSpecifier = specifier.replace(/\.tsx$/, ".ts");
+      const tsUrl = new URL(tsSpecifier, parent);
+      if (existsSync(fileURLToPath(tsUrl))) {
+        return { url: tsUrl.href, shortCircuit: true };
+      }
     }
 
     if (specifier.startsWith("@/")) {
