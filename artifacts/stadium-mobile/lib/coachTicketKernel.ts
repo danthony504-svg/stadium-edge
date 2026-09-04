@@ -14,6 +14,8 @@ import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { filterCoachDeliveredPicks } from "./pickRecommendation.ts";
 
+export { filterValidCoachPicks, isValidCoachPick } from "./coachTicketValidation.ts";
+
 export type CoachTicketKernelOpts = {
   enrich: CoachFlashEnrich;
   legTarget?: number;
