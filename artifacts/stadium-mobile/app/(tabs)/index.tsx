@@ -21,7 +21,7 @@ import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
-import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, Pill, ViewAllGamesButton } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -77,7 +77,7 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 const HOME_MIN_VALUE_EV = 1.5;
 const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl"];
 const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
-const UPCOMING_PREVIEW_COUNT = 8;
+const UPCOMING_PREVIEW_COUNT = 5;
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
   const map = new Map<string, GameMeta>();
@@ -583,11 +583,8 @@ function HomeSportFeed({
   }, [games, sport]);
   const displayUpcoming = useMemo(() => games, [games]);
   const visibleUpcoming = useMemo(
-    () =>
-      upcomingExpanded
-        ? displayUpcoming
-        : displayUpcoming.slice(0, UPCOMING_PREVIEW_COUNT),
-    [displayUpcoming, upcomingExpanded],
+    () => displayUpcoming.slice(0, UPCOMING_PREVIEW_COUNT),
+    [displayUpcoming],
   );
   const canExpandUpcoming = displayUpcoming.length > UPCOMING_PREVIEW_COUNT;
 
@@ -1087,17 +1084,15 @@ function HomeSportFeed({
 
         {/* Today's Performance — real graded steal picks; honest empty state when none settled. */}
         <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
-          <Pressable
-            onPress={() => router.push("/pick-performance")}
-            style={({ pressed }) => ({
+          <View
+            style={{
               backgroundColor: colors.card,
               borderWidth: 1,
               borderColor: colors.border,
               borderRadius: colors.radius,
               padding: 16,
               gap: 14,
-              opacity: pressed ? 0.9 : 1,
-            })}
+            }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Feather name="bar-chart-2" size={16} color={colors.primary} />
@@ -1110,9 +1105,6 @@ function HomeSportFeed({
                 }}
               >
                 Today&apos;s Performance
-              </Text>
-              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                View all
               </Text>
             </View>
             <View
@@ -1184,18 +1176,18 @@ function HomeSportFeed({
                 No settled picks yet
               </Text>
             ) : null}
-          </Pressable>
+          </View>
         </View>
 
-        {/* Hot Picks Today — disabled for now; graded prop rail preserved below. */}
-        {false && featuredEnabled && (hotLoading || topHot.length > 0) ? (
+        {/* Hot Picks — graded props ranked by real recent hit-rate. */}
+        {featuredEnabled && (hotLoading || topHot.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
                 paddingHorizontal: 16,
-                marginBottom: 4,
+                marginBottom: 12,
               }}
             >
               <Feather name="trending-up" size={16} color="#fb923c" />
@@ -1208,17 +1200,8 @@ function HomeSportFeed({
                   flex: 1,
                 }}
               >
-                Hot Picks Today
+                Hot Picks
               </Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-              >
-                <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                  View all
-                </Text>
-              </Pressable>
             </View>
             {topHot.length === 0 ? (
               <View style={{ paddingHorizontal: 16 }}>
@@ -1330,15 +1313,15 @@ function HomeSportFeed({
           </View>
         ) : null}
 
-        {/* Value Props — disabled; ranked +EV list preserved for future reuse. */}
-        {false && featuredEnabled && valueProps.length > 0 ? (
+        {/* Best Value — server +EV props above the honesty floor. */}
+        {featuredEnabled && valueProps.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
                 paddingHorizontal: 16,
-                marginBottom: 4,
+                marginBottom: 12,
               }}
             >
               <Feather name="award" size={16} color={colors.primary} />
@@ -1351,17 +1334,8 @@ function HomeSportFeed({
                   flex: 1,
                 }}
               >
-                Value Props
+                Best Value
               </Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-              >
-                <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                  View all
-                </Text>
-              </Pressable>
             </View>
             <Text
               style={{
@@ -1590,7 +1564,6 @@ function HomeSportFeed({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            justifyContent: "space-between",
             paddingHorizontal: 16,
             marginBottom: 12,
           }}
@@ -1629,25 +1602,6 @@ function HomeSportFeed({
               </View>
             ) : null}
           </View>
-          {displayUpcoming.length > 0 ? (
-            <Pressable
-              hitSlop={8}
-              onPress={() =>
-                router.push({ pathname: "/upcoming", params: { sport } })
-              }
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-            >
-              <Text
-                style={{
-                  color: colors.primary,
-                  fontFamily: FONT.display,
-                  fontSize: 14,
-                }}
-              >
-                View all
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
         {sportFeedLoading && displayUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
@@ -1805,6 +1759,12 @@ function HomeSportFeed({
                 </Pressable>
               );
             })}
+            {canExpandUpcoming ? (
+              <ViewAllGamesButton
+                matchupCount={displayUpcoming.length}
+                onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
+              />
+            ) : null}
           </View>
         )}
 
@@ -1986,7 +1946,7 @@ export default function HomeScreen() {
         <Pressable
           onPress={() =>
             router.push({
-              pathname: "/props",
+              pathname: "/search",
               params: featuredEnabled ? { sp: sport } : {},
             })
           }

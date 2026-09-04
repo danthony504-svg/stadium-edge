@@ -1,4 +1,5 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import type { ComponentProps, ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -12,8 +13,8 @@ import {
 import { useColors } from "@/hooks/useColors";
 
 export const FONT = {
-  display: "Bricolage_800ExtraBold",
-  displaySemi: "Bricolage_600SemiBold",
+  display: "BricolageGrotesque_800ExtraBold",
+  displaySemi: "BricolageGrotesque_600SemiBold",
   body: "Inter_400Regular",
   medium: "Inter_500Medium",
   semibold: "Inter_600SemiBold",
@@ -175,6 +176,116 @@ export function PrimaryButton({
           </Text>
         </>
       )}
+    </Pressable>
+  );
+}
+
+export function ViewAllGamesButton({
+  matchupCount,
+  onPress,
+  style,
+}: {
+  matchupCount: number;
+  onPress: () => void;
+  style?: ViewStyle;
+}) {
+  const colors = useColors();
+  const subtitle = `See all ${matchupCount} ${matchupCount === 1 ? "matchup" : "matchups"}`;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [{ marginTop: 12, marginBottom: 4, opacity: pressed ? 0.92 : 1 }, style]}
+    >
+      <LinearGradient
+        colors={["#1a3a6e", "#122a52", "#0c1d3a"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{
+          borderRadius: colors.radius,
+          borderWidth: 1,
+          borderColor: "rgba(59,130,246,0.55)",
+          paddingVertical: 14,
+          paddingHorizontal: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          shadowColor: "#3b82f6",
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0.35,
+          shadowRadius: 10,
+          elevation: 6,
+        }}
+      >
+        <View
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 12,
+            backgroundColor: "rgba(2,6,23,0.75)",
+            borderWidth: 1,
+            borderColor: "rgba(59,130,246,0.25)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <MaterialCommunityIcons name="stadium-variant" size={22} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>
+            View All Games
+          </Text>
+          <Text style={{ color: "rgba(148,163,184,0.95)", fontFamily: FONT.medium, fontSize: 13 }}>
+            {subtitle}
+          </Text>
+        </View>
+        <Feather name="chevron-right" size={22} color={colors.foreground} />
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+export function SectionViewAllButton({
+  title,
+  subtitle,
+  onPress,
+  style,
+}: {
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  style?: ViewStyle;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          backgroundColor: colors.primary,
+          borderRadius: colors.radius,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          marginTop: 12,
+          marginBottom: 4,
+          opacity: pressed ? 0.9 : 1,
+        },
+        style,
+      ]}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
+          {title}
+        </Text>
+        <Text style={{ color: "rgba(255,255,255,0.82)", fontFamily: FONT.medium, fontSize: 12 }}>
+          {subtitle}
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={20} color={colors.primaryForeground} />
     </Pressable>
   );
 }

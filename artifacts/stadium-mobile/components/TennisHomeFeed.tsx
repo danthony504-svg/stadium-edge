@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
 import type { GameMeta } from "@/components/GameCard";
-import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, SectionViewAllButton } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -236,7 +236,6 @@ export function TennisHomeFeed({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
           paddingHorizontal: 16,
           marginBottom: 12,
         }}
@@ -244,17 +243,6 @@ export function TennisHomeFeed({
         <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
           Upcoming Matches
         </Text>
-        {canExpandUpcoming || upcomingExpanded ? (
-          <Pressable
-            hitSlop={8}
-            onPress={() => setUpcomingExpanded((open) => !open)}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-          >
-            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-              {upcomingExpanded ? "Show less" : "View all"}
-            </Text>
-          </Pressable>
-        ) : null}
       </View>
 
       {loading && upcoming.length === 0 ? (
@@ -326,6 +314,17 @@ export function TennisHomeFeed({
               </Pressable>
             );
           })}
+          {upcoming.length > 0 ? (
+            <SectionViewAllButton
+              title={upcomingExpanded ? "Show Fewer Matches →" : "View All Matches →"}
+              subtitle={
+                upcomingExpanded
+                  ? `Showing all ${upcoming.length} matches`
+                  : `See all ${upcoming.length} ${upcoming.length === 1 ? "matchup" : "matchups"}`
+              }
+              onPress={() => setUpcomingExpanded((open) => !open)}
+            />
+          ) : null}
         </View>
       )}
 
