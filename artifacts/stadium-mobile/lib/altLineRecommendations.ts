@@ -4,7 +4,7 @@
 // labeled Safest / Best / Best Value / High Risk and ranked for display.
 
 import type { ParsedPick, SimAltLine, SimAltTierLabel } from "../components/PickCard.tsx";
-import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
+import type { PropPoolEntry, RealOddsEntry , MatchupHistoryEntry , PropSimulationResult } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   evaluateGameLines,
@@ -27,10 +27,8 @@ import {
   isPostablePoolLadderOdds,
   poolLadderChampionIndices,
 } from "./altLinePool.ts";
-export { gameAltPoolForPick, poolMatchesPickFamily, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
 import type { GameInjuryReport } from "./injuries.ts";
-import type { MatchupHistoryEntry } from "./api.ts";
-import type { PropSimulationResult } from "./api.ts";
+export { gameAltPoolForPick, poolMatchesPickFamily, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
 
 export type AltRungMetrics = {
   side: string;
@@ -206,7 +204,7 @@ function buildRankedSimAltLines(
 ): SimAltLine[] {
   if (!rows.length) return [];
   const champions = pickChampions(rows);
-  const championPairs: Array<{ rung: AltRungMetrics; tierLabel: SimAltTierLabel }> = [
+  const championPairs: { rung: AltRungMetrics; tierLabel: SimAltTierLabel }[] = [
     { rung: champions.safest, tierLabel: "Safest" },
     { rung: champions.best, tierLabel: "Best" },
     { rung: champions.bestValue, tierLabel: "Best Value" },

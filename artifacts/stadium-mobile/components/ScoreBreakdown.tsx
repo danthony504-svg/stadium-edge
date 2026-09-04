@@ -27,7 +27,7 @@ function useScoreColor() {
           : colors.mutedForeground;
 }
 
-const COACH_CARD_STRIP: Array<{ key: string; label: string; altKeys?: string[] }> = [
+const COACH_CARD_STRIP: { key: string; label: string; altKeys?: string[] }[] = [
   { key: "sportsbookValue", label: "EV" },
   { key: "simulation", label: "Sim" },
   { key: "matchup", label: "Match", altKeys: ["opponentTendency"] },
@@ -124,7 +124,7 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
 }
 
 /** Five full-detail bars for prop/game detail pages (not coach cards). */
-const FACTORS: Array<{ key: keyof PickSubScores; label: string; icon: keyof typeof Feather.glyphMap }> = [
+const FACTORS: { key: keyof PickSubScores; label: string; icon: keyof typeof Feather.glyphMap }[] = [
   { key: "matchup", label: "Matchup", icon: "users" },
   { key: "trend", label: "Trend", icon: "trending-up" },
   { key: "lineValue", label: "Expected Value", icon: "tag" },

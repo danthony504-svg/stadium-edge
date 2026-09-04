@@ -97,7 +97,7 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
 
 /** Greedy top-N with correlation penalty — prefers independent legs across games. */
 export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
-  ranked: Array<{ pick: T; rankScore: number }>,
+  ranked: { pick: T; rankScore: number }[],
   target: number,
 ): T[] {
   const selected: T[] = [];

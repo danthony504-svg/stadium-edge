@@ -9,11 +9,11 @@ export type CoverFrequency = { pick: string; market: string; hitPct: number };
 
 export type FullSimulationAnalytics = {
   topScores: ScoreBucket[];
-  runDistribution: Array<{ totalRuns: number; pct: number }>;
+  runDistribution: { totalRuns: number; pct: number }[];
   coverFrequencies: CoverFrequency[];
   totalOverProb: number | null;
   totalLine: number | null;
-  teamTotalProbs: Array<{ team: string; pick: string; hitPct: number }>;
+  teamTotalProbs: { team: string; pick: string; hitPct: number }[];
   tieProb: number;
   oneRunGameProb: number;
   underdogWinProb: number | null;

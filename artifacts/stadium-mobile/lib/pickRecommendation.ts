@@ -11,6 +11,7 @@ import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts
 import { enrichPicksWithSport } from "./chatContextPriority.ts";
 import { filterBettablePicks, enrichPicksWithStartsAt, preferBettableQualifiedPicks } from "./slate.ts";
 import { isAltBoardPick, isAltPropPick, isMainBoardPick } from "./altLinePool.ts";
+import type { ParsedPick } from "../components/PickCard.tsx";
 import { isFillerBackfillPick } from "./coachScanPolicy.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
@@ -19,8 +20,8 @@ import {
 } from "./propHolisticRecommendation.ts";
 
 export type CoachPickEnrichSources = Parameters<typeof enrichPicksWithStartsAt>[1] & {
-  propPool?: Array<{ game: string; player?: string; sport?: string; startsAt?: string | null }>;
-  gameMeta?: Array<{ game: string; sport: string; startsAt?: string | null }>;
+  propPool?: { game: string; player?: string; sport?: string; startsAt?: string | null }[];
+  gameMeta?: { game: string; sport: string; startsAt?: string | null }[];
 };
 
 function stripHrvpFromPick<
@@ -134,12 +135,12 @@ function enrichCoachPicksForGate<
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
   if (!enrich) return picks;
   const withSport = enrichPicksWithSport(
-    picks,
-    enrich.propPool ?? [],
+    picks as ParsedPick[],
+    (enrich.propPool ?? []) as import("./api.ts").PropPoolEntry[],
     enrich.realOdds ?? [],
     enrich.gameMeta,
-  );
-  return enrichPicksWithStartsAt(withSport, enrich);
+  ) as T[];
+  return enrichPicksWithStartsAt(withSport, enrich) as T[];
 }
 
 /** Alt ladder legs use the same confidence floor as main picks — never lowered to fill a ticket. */
@@ -247,11 +248,11 @@ export function pickQualifiesForBoardDelivery(
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!score) return false;
-  if (isMainBoardPick(pick as { market?: string; pick?: string; isProp?: boolean; propIsAlt?: boolean })) {
+  if (isMainBoardPick(pick as { market: string; pick: string; isProp?: boolean; propIsAlt?: boolean })) {
     if (pickIsAiRecommended(pick, score)) return true;
     return !!(pick.isProp && propSimEdgeStagingQualifies(pick, score));
   }
-  if (isAltBoardPick(pick as { market?: string; pick?: string; isProp?: boolean })) {
+  if (isAltBoardPick(pick as { market: string; pick: string; isProp?: boolean })) {
     return qualifiesAltPick(pick, score);
   }
   if (pickIsAiRecommended(pick, score)) return true;
@@ -259,7 +260,7 @@ export function pickQualifiesForBoardDelivery(
   if (
     pick.isProp &&
     score.propHolistic &&
-    propQualifiesForTicketFill(pick, score.propHolistic, {
+    propQualifiesForTicketFill(pick as ParsedPick, score.propHolistic, {
       edgePct: score.edgePct,
       simHit: score.simHit,
       odds: pick.odds,
@@ -497,7 +498,7 @@ export function filterCoachDeliveredPicks<
 }
 
 export function countAiRecommendedPicks(
-  picks: Array<RecommendablePick & { finalAiScore?: FinalAiScore | null }>,
+  picks: (RecommendablePick & { finalAiScore?: FinalAiScore | null })[],
 ): number {
   return picks.filter((p) => pickIsAiRecommended(p, p.finalAiScore)).length;
 }
@@ -520,7 +521,7 @@ export function sanitizeCoachTicketPicks<
     player?: string;
   },
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
-  const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const noFiller = picks.filter((p) => !isFillerBackfillPick(p as { edge?: string | null }));
   const enriched = enrichCoachPicksForGate(noFiller, enrich);
   const gated = filterTicketPicks(enriched);
   const kept = gated.length > 0 ? gated : enriched.filter((p) => qualifiesAltPick(p, p.finalAiScore));
@@ -609,7 +610,7 @@ export function coachDeliverBoardScanPicks<
   },
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
   if (!picks.length) return [];
-  const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const noFiller = picks.filter((p) => !isFillerBackfillPick(p as { edge?: string | null }));
   const normalized = normalizeBoardScanPicks(noFiller);
   const board = prepareBoardScanDelivery(normalized, enrich);
   if (board.length > 0) return board;
@@ -718,7 +719,7 @@ export function finalizeBoardBuiltCoachTicket<
   enrich?: CoachPickEnrichSources,
 ): { picks: T[]; removed: number; usedRescoringFallback: boolean } {
   if (!picks.length) return { picks: [], removed: 0, usedRescoringFallback: false };
-  const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const noFiller = picks.filter((p) => !isFillerBackfillPick(p as { edge?: string | null }));
   const enriched = enrichCoachPicksForGate(noFiller, enrich).map(stripHrvpFromPick);
   const kept = enriched.filter((p) => boardScanStagedLegQualifies(p, p.finalAiScore));
   if (kept.length > 0) {
@@ -748,11 +749,11 @@ export function topUpBoardBuiltTicket<
 >(current: T[], target: number, pool: T[], enrich?: CoachPickEnrichSources): T[] {
   if (current.length >= target || !pool.length) return current.slice(0, target);
   const enriched = enrichCoachPicksForGate(pool, enrich).map(stripHrvpFromPick);
-  const seen = new Set(current.map((p) => pickLegFingerprint(p)));
+  const seen = new Set(current.map((p) => pickLegFingerprint(p as ParsedPick)));
   const out: T[] = [...current];
   for (const leg of enriched) {
     if (out.length >= target) break;
-    const fp = pickLegFingerprint(leg);
+    const fp = pickLegFingerprint(leg as ParsedPick);
     if (seen.has(fp)) continue;
     if (!boardScanStagedLegQualifies(leg, leg.finalAiScore)) continue;
     out.push(leg);
@@ -781,7 +782,7 @@ export function finalizeCoachTicketPicks<
   enrich?: CoachPickEnrichSources,
 ): { picks: T[]; removed: number; usedRescoringFallback: boolean } {
   if (!picks.length) return { picks: [], removed: 0, usedRescoringFallback: false };
-  const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const noFiller = picks.filter((p) => !isFillerBackfillPick(p as { edge?: string | null }));
   const staged = coachPreserveStagedBoardPicks(noFiller, enrich);
   if (staged.length > 0) {
     const delivered = filterCoachDeliveredPicks(staged, enrich);

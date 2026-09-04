@@ -8,8 +8,8 @@ import { fetchPropSimulations } from "@/lib/api";
 import {
   attachPickScores,
   type PlayerHistorySlice,
-  type PropSimAttachOpts,
 } from "@/lib/pickScoreContext";
+import type { PropSimAttachOpts } from "@/lib/propSimProgressive";
 import { varietyRankKey } from "@/lib/varietySeed";
 
 const SIM_SELECTION_TIMEOUT_MS = 2800;

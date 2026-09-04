@@ -18,14 +18,13 @@ import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisAnalysis, streamChat, tennisMarketsFromGame, type FightAnalysis, type FightFighterDataSource, type OddsGame, type OddsMarket, type TennisAnalysis, type TennisPlayer } from "@/lib/api";
+import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisAnalysis, streamChat, tennisMarketsFromGame, type FightAnalysis, type FightFighterDataSource, type OddsGame, type OddsMarket, type TennisAnalysis, type TennisPlayer , EspnGame } from "@/lib/api";
 import {
   findOddsByTeams,
   oddsGameFromEspnOdds,
   oddsGameFromEspnShell,
 } from "@/lib/gameResolve";
 import { espnRowsFromQuery, isRenderableOddsGame, oddsRowsFromQuery, safeMarkets } from "@/lib/sportFeed";
-import type { EspnGame } from "@/lib/api";
 import { attachPickScores } from "@/lib/pickScoreContext";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { computeAnalytics } from "@/lib/modelReport";
