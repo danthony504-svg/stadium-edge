@@ -8,6 +8,11 @@ import {
 } from "../lib/openaiConfig.js";
 
 const router: IRouter = Router();
+const deploymentSha =
+  process.env.RENDER_GIT_COMMIT ??
+  process.env.GIT_COMMIT ??
+  process.env.COMMIT_SHA ??
+  "unknown";
 
 router.get("/healthz", async (_req, res) => {
   const data = HealthCheckResponse.parse({ status: "ok" });
@@ -18,6 +23,7 @@ router.get("/healthz", async (_req, res) => {
   res.json({
     ...data,
     build: "cricket-tabletennis-v1",
+    deploymentSha,
     ai: {
       configured,
       provider,
