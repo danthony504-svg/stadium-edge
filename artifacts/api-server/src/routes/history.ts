@@ -5,6 +5,14 @@ import { shouldBlockPlayerSearch } from "../lib/coachIntent.js";
 
 const router: IRouter = Router();
 
+// Bounded ESPN fetches so a slow/hung upstream can never leave the mobile
+// team-detail spinner running forever (expo/fetch + client retries stack badly).
+const ESPN_FETCH_TIMEOUT_MS = 8000;
+
+async function fetchEspn(url: string): Promise<Response> {
+  return fetch(url, { signal: AbortSignal.timeout(ESPN_FETCH_TIMEOUT_MS) });
+}
+
 // ESPN search returns a league slug per athlete; map the ones whose game-log
 // shape we support (US major + college) back to our internal sportId so the
 // follow-up /player-history call works. Soccer/tennis/UFC have a different
@@ -65,7 +73,7 @@ async function fetchTeamHistory(path: string, teamId: string, season?: string) {
   const url =
     `https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}/schedule` +
     (season ? `?season=${season}` : "");
-  const r = await fetch(url);
+  const r = await fetchEspn(url);
   if (!r.ok) throw new Error(`ESPN team schedule ${r.status}`);
   const data = (await r.json()) as SchedResp;
   const events = data.events ?? [];
@@ -396,40 +404,7 @@ router.get("/sports/team-history", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `team-history:${path}:${teamId}`;
-    const out = await cachedJson(key, 15 * 60 * 1000, async () => {
-      let { teamName, results } = await fetchTeamHistory(path, teamId);
-      let season: string | null = null;
-      const decided = (rs: typeof results) =>
-        rs.filter((r) => r.won === true || r.won === false).length;
-      // Off-season fallback: current schedule has no decided games → pull the
-      // prior season so the team still has real, recent form to show.
-      if (decided(results) === 0) {
-        const prev = String(new Date().getFullYear() - 1);
-        const back = await fetchTeamHistory(path, teamId, prev).catch(
-          () => ({ teamName: null, results: [] as typeof results }),
-        );
-        if (decided(back.results) > 0) {
-          teamName = teamName || back.teamName;
-          results = back.results;
-          season = prev;
-        }
-      }
-      return {
-        sport: sportId,
-        teamId,
-        teamName,
-        season,
-        last10: summarizeForm(results, 10),
-        last5: summarizeForm(results, 5),
-        homeSplit: summarizeForm(results.filter((r) => r.isHome), 10),
-        awaySplit: summarizeForm(results.filter((r) => !r.isHome), 10),
-        streak: computeStreak(results),
-        record: seasonRecord(results),
-        recent: recentList(results, 10),
-        lastGameDate: results[0]?.date ?? null,
-      };
-    });
+    const out = await buildTeamHistoryPayload(path, sportId, teamId);
     res.json(out);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch team history");
@@ -450,6 +425,137 @@ router.get("/sports/team-history", async (req, res): Promise<void> => {
   }
 });
 
+type TeamSearchHit = {
+  teamId: string;
+  name: string;
+  location: string | null;
+  abbrev: string | null;
+  sport: string;
+  league: string;
+  logo: string | null;
+};
+
+type EspnTeamSearchItem = {
+  id?: string;
+  displayName?: string;
+  name?: string;
+  location?: string;
+  abbreviation?: string;
+  league?: string;
+  defaultLeagueSlug?: string;
+  logos?: Array<{ href?: string; rel?: string[] }>;
+};
+
+// Pro leagues first, then college — so "Eagles" resolves to the Philadelphia
+// Eagles (NFL) over Boston College, and "Lakers" to the LA Lakers (NBA).
+const LEAGUE_RANK: Record<string, number> = {
+  nfl: 0, nba: 1, mlb: 2, nhl: 3, wnba: 4, ncaaf: 5, ncaab: 6,
+};
+
+function normTeamName(s: string): string {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function teamNameMatches(candidate: string, hint: string): boolean {
+  const c = normTeamName(candidate);
+  const h = normTeamName(hint);
+  if (!c || !h) return false;
+  if (c === h) return true;
+  const cToks = c.split(" ").filter(Boolean);
+  const hToks = h.split(" ").filter(Boolean);
+  const cNick = cToks[cToks.length - 1] ?? "";
+  const hNick = hToks[hToks.length - 1] ?? "";
+  if (cNick && hNick && cNick === hNick && cNick.length >= 4) return true;
+  return hToks.every((t) => cToks.includes(t));
+}
+
+function parseTeamSearchItems(items: EspnTeamSearchItem[] | undefined): TeamSearchHit[] {
+  const results: TeamSearchHit[] = [];
+  const seen = new Set<string>();
+  for (const it of items ?? []) {
+    const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
+    const sport = LEAGUE_TO_SPORT[leagueSlug];
+    if (!sport || !it.id || !it.displayName) continue;
+    const dedup = `${sport}:${it.id}`;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    const logo =
+      it.logos?.find((l) => (l.rel ?? []).includes("default"))?.href ??
+      it.logos?.[0]?.href ??
+      null;
+    results.push({
+      teamId: it.id,
+      name: it.displayName,
+      location: it.location ?? null,
+      abbrev: it.abbreviation ?? null,
+      sport,
+      league: leagueSlug,
+      logo,
+    });
+  }
+  results.sort((a, b) => (LEAGUE_RANK[a.sport] ?? 99) - (LEAGUE_RANK[b.sport] ?? 99));
+  return results;
+}
+
+async function searchTeamsByName(query: string): Promise<TeamSearchHit[]> {
+  const key = `team-search:${query.toLowerCase()}`;
+  const data = await cachedJson<{ items?: EspnTeamSearchItem[] }>(key, 30 * 60 * 1000, async () => {
+    const url =
+      `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=team&query=` +
+      encodeURIComponent(query);
+    const r = await fetchEspn(url);
+    if (!r.ok) throw new Error(`ESPN team search ${r.status}`);
+    return (await r.json()) as { items?: EspnTeamSearchItem[] };
+  });
+  return parseTeamSearchItems(data.items);
+}
+
+function pickTeamForSport(hits: TeamSearchHit[], sportId: string, nameHint: string): TeamSearchHit | null {
+  const sportHits = hits.filter((t) => t.sport === sportId);
+  return sportHits.find((t) => teamNameMatches(t.name, nameHint)) ?? sportHits[0] ?? null;
+}
+
+async function buildTeamHistoryPayload(path: string, sportId: string, teamId: string) {
+  const key = `team-history:${path}:${teamId}`;
+  return cachedJson(key, 15 * 60 * 1000, async () => {
+    let { teamName, results } = await fetchTeamHistory(path, teamId);
+    let season: string | null = null;
+    const decided = (rs: typeof results) =>
+      rs.filter((r) => r.won === true || r.won === false).length;
+    if (decided(results) === 0) {
+      const prev = String(new Date().getFullYear() - 1);
+      const back = await fetchTeamHistory(path, teamId, prev).catch(
+        () => ({ teamName: null, results: [] as typeof results }),
+      );
+      if (decided(back.results) > 0) {
+        teamName = teamName || back.teamName;
+        results = back.results;
+        season = prev;
+      }
+    }
+    return {
+      sport: sportId,
+      teamId,
+      teamName,
+      season,
+      last10: summarizeForm(results, 10),
+      last5: summarizeForm(results, 5),
+      homeSplit: summarizeForm(results.filter((r) => r.isHome), 10),
+      awaySplit: summarizeForm(results.filter((r) => !r.isHome), 10),
+      streak: computeStreak(results),
+      record: seasonRecord(results),
+      recent: recentList(results, 10),
+      lastGameDate: results[0]?.date ?? null,
+    };
+  });
+}
+
 // Team name search — resolves a free-text team name ("Lakers", "the Eagles")
 // to a real ESPN team id + our sportId so the chat can pull team-history for
 // anyone, not just teams in today's slate. Only returns teams whose league
@@ -460,69 +566,128 @@ router.get("/sports/team-search", async (req, res): Promise<void> => {
     res.status(400).json({ error: "query (>= 2 chars) required" });
     return;
   }
-  type TeamItem = {
-    id?: string;
-    displayName?: string;
-    name?: string;
-    location?: string;
-    abbreviation?: string;
-    league?: string;
-    defaultLeagueSlug?: string;
-    logos?: Array<{ href?: string; rel?: string[] }>;
-  };
-  // Pro leagues first, then college — so "Eagles" resolves to the Philadelphia
-  // Eagles (NFL) over Boston College, and "Lakers" to the LA Lakers (NBA).
-  const LEAGUE_RANK: Record<string, number> = {
-    nfl: 0, nba: 1, mlb: 2, nhl: 3, wnba: 4, ncaaf: 5, ncaab: 6,
-  };
   try {
-    const key = `team-search:${query.toLowerCase()}`;
-    const data = await cachedJson<{ items?: TeamItem[] }>(key, 30 * 60 * 1000, async () => {
-      const url =
-        `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=team&query=` +
-        encodeURIComponent(query);
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`ESPN team search ${r.status}`);
-      return (await r.json()) as { items?: TeamItem[] };
-    });
-    const results: Array<{
-      teamId: string;
-      name: string;
-      location: string | null;
-      abbrev: string | null;
-      sport: string;
-      league: string;
-      logo: string | null;
-    }> = [];
-    const seen = new Set<string>();
-    for (const it of data.items ?? []) {
-      const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
-      const sport = LEAGUE_TO_SPORT[leagueSlug];
-      if (!sport || !it.id || !it.displayName) continue;
-      const dedup = `${sport}:${it.id}`;
-      if (seen.has(dedup)) continue;
-      seen.add(dedup);
-      const logo =
-        it.logos?.find((l) => (l.rel ?? []).includes("default"))?.href ??
-        it.logos?.[0]?.href ??
-        null;
-      results.push({
-        teamId: it.id,
-        name: it.displayName,
-        location: it.location ?? null,
-        abbrev: it.abbreviation ?? null,
-        sport,
-        league: leagueSlug,
-        logo,
-      });
-    }
-    results.sort(
-      (a, b) => (LEAGUE_RANK[a.sport] ?? 99) - (LEAGUE_RANK[b.sport] ?? 99),
-    );
+    const results = await searchTeamsByName(query);
     res.json({ query, results });
   } catch (err) {
     req.log.error({ err }, "Failed team search");
     res.json({ query, results: [] });
+  }
+});
+
+// One-hop team detail: resolve a name (or accept a known teamId) and return
+// real recent form in a single round trip. Cuts the mobile waterfall that was
+// searchTeam → getTeamHistory and left the detail sheet spinning on slow links.
+router.get("/sports/team-history-by-name", async (req, res): Promise<void> => {
+  const sportId = String(req.query.sport || "").toLowerCase();
+  const teamIdQ = String(req.query.teamId || "").trim();
+  const nameQ = String(req.query.name || req.query.query || "").trim();
+  if (!sportId || (!teamIdQ && nameQ.length < 2)) {
+    res.status(400).json({ error: "sport and name (>=2 chars) or teamId required" });
+    return;
+  }
+  const path = ESPN_SPORT_PATHS[sportId];
+  if (!path) {
+    res.status(400).json({ error: `Unsupported sport: ${sportId}` });
+    return;
+  }
+  const empty = {
+    sport: sportId,
+    teamId: teamIdQ || "",
+    teamName: null,
+    season: null,
+    last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    homeSplit: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    awaySplit: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    streak: null,
+    record: { games: 0, wins: 0, losses: 0, winPct: null },
+    recent: [],
+    lastGameDate: null,
+    resolved: null as TeamSearchHit | null,
+  };
+  try {
+    let resolved: TeamSearchHit | null = null;
+    let teamId = teamIdQ;
+    if (!teamId) {
+      const hits = await searchTeamsByName(nameQ);
+      resolved = pickTeamForSport(hits, sportId, nameQ);
+      teamId = resolved?.teamId ?? "";
+    }
+    if (!teamId) {
+      res.json(empty);
+      return;
+    }
+    const history = await buildTeamHistoryPayload(path, sportId, teamId);
+    if (!resolved && history.teamName) {
+      resolved = {
+        teamId,
+        name: history.teamName,
+        location: null,
+        abbrev: null,
+        sport: sportId,
+        league: sportId,
+        logo: null,
+      };
+    }
+    res.json({ ...history, resolved });
+  } catch (err) {
+    req.log.error({ err }, "Failed team history by name");
+    res.json(empty);
+  }
+});
+
+// Game-total matchup sheet: BOTH teams' real recent scoring in one request.
+// Server resolves each name and pulls schedules in parallel.
+router.get("/sports/matchup-scoring-form", async (req, res): Promise<void> => {
+  const sportId = String(req.query.sport || "").toLowerCase();
+  const awayName = String(req.query.away || "").trim();
+  const homeName = String(req.query.home || "").trim();
+  if (!sportId || awayName.length < 2 || homeName.length < 2) {
+    res.status(400).json({ error: "sport, away, and home (>=2 chars each) required" });
+    return;
+  }
+  const path = ESPN_SPORT_PATHS[sportId];
+  if (!path) {
+    res.status(400).json({ error: `Unsupported sport: ${sportId}` });
+    return;
+  }
+  const emptySide = {
+    sport: sportId,
+    teamId: "",
+    teamName: null,
+    season: null,
+    last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    homeSplit: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    awaySplit: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+    streak: null,
+    record: { games: 0, wins: 0, losses: 0, winPct: null },
+    recent: [],
+    lastGameDate: null,
+    resolved: null as TeamSearchHit | null,
+  };
+  const loadSide = async (name: string) => {
+    try {
+      const hits = await searchTeamsByName(name);
+      const resolved = pickTeamForSport(hits, sportId, name);
+      if (!resolved?.teamId) return { ...emptySide, resolved: null };
+      const history = await buildTeamHistoryPayload(path, sportId, resolved.teamId);
+      return { ...history, resolved };
+    } catch {
+      return { ...emptySide, resolved: null };
+    }
+  };
+  try {
+    const key = `matchup-scoring-form:${path}:${awayName.toLowerCase()}:${homeName.toLowerCase()}`;
+    const out = await cachedJson(key, 10 * 60 * 1000, async () => {
+      const [away, home] = await Promise.all([loadSide(awayName), loadSide(homeName)]);
+      return { away, home };
+    });
+    res.json(out);
+  } catch (err) {
+    req.log.error({ err }, "Failed matchup scoring form");
+    res.json({ away: emptySide, home: emptySide });
   }
 });
 
