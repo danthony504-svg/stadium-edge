@@ -2,6 +2,7 @@ import React from "react";
 import TestRenderer from "react-test-renderer";
 
 import OtaDebugScreen from "../app/ota-debug";
+import { loadCoachMarketPipelineAudit } from "@/lib/coachRequestTrace";
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn() }) }));
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn() }));
@@ -36,7 +37,7 @@ jest.mock("@/lib/otaDebug", () => ({
 jest.mock("@/lib/coachRequestTrace", () => ({
   formatCoachRequestTrace: () => "No Coach request trace recorded yet.",
   loadCoachRequestTrace: async () => null,
-  loadCoachMarketPipelineAudit: async () => null,
+  loadCoachMarketPipelineAudit: jest.fn(async () => null),
 }));
 
 test("OTA Diagnostics renders when no prior diagnostic storage exists", async () => {
@@ -46,5 +47,24 @@ test("OTA Diagnostics renders when no prior diagnostic storage exists", async ()
     await Promise.resolve();
   });
   expect(JSON.stringify(screen.toJSON())).toContain("OTA Diagnostics");
-  expect(JSON.stringify(screen.toJSON())).toContain("No completed Coach market audit recorded yet.");
+  expect(JSON.stringify(screen.toJSON())).toContain("Show market audit preview (bounded)");
+});
+
+test("OTA Diagnostics does not render an unbounded audit until explicitly expanded", async () => {
+  const hugeAudit = {
+    requestId: "request",
+    nonPropRejections: Array.from({ length: 500 }, (_, index) => ({
+      selection: `rejection-${index}`,
+    })),
+  };
+  (loadCoachMarketPipelineAudit as jest.Mock).mockResolvedValueOnce(hugeAudit);
+
+  let screen!: TestRenderer.ReactTestRenderer;
+  await TestRenderer.act(async () => {
+    screen = TestRenderer.create(<OtaDebugScreen />);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(JSON.stringify(screen.toJSON())).not.toContain("rejection-499");
 });

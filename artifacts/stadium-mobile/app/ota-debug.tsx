@@ -1,7 +1,7 @@
 import * as Clipboard from "expo-clipboard";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { useColors } from "@/hooks/useColors";
 import {
   collectOtaFullDiagnostics,
@@ -29,6 +30,9 @@ import {
 } from "@/lib/coachRequestTrace";
 import type { CoachMarketPipelineSnapshot } from "@/lib/coachMarketPipelineAudit";
 
+const MAX_DISPLAY_LINES = 80;
+const MAX_DISPLAY_CHARS = 500;
+
 function initialDiagnostics(): OtaFullDiagnostics {
   return {
     ...readOtaDebugSnapshot(),
@@ -38,6 +42,51 @@ function initialDiagnostics(): OtaFullDiagnostics {
     startupLogs: ["loading native logs…"],
     jsLaunchLogs: formatOtaLogLines(),
   };
+}
+
+function safeLines(value: unknown, fallback: string): string[] {
+  try {
+    const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    if (!text) return [fallback];
+    const lines = text.split("\n").slice(0, MAX_DISPLAY_LINES);
+    const bounded = lines.map((line) =>
+      line.length > MAX_DISPLAY_CHARS ? `${line.slice(0, MAX_DISPLAY_CHARS)}…` : line,
+    );
+    return text.split("\n").length > MAX_DISPLAY_LINES
+      ? [...bounded, `… ${MAX_DISPLAY_LINES}-line on-screen limit; use Copy for the complete record.`]
+      : bounded;
+  } catch (error) {
+    return [`Unable to render diagnostic data: ${error instanceof Error ? error.message : String(error)}`];
+  }
+}
+
+function auditPreview(audit: CoachMarketPipelineSnapshot | null): Record<string, unknown> | string {
+  if (!audit) return "No completed Coach market audit recorded yet.";
+  const source = audit as Record<string, unknown>;
+  return {
+    requestId: source.requestId ?? "—",
+    stages: source.stages ?? {},
+    funnel: source.funnel ?? {},
+    qualificationGateCounts: source.qualificationGateCounts ?? {},
+    gameSimulations: Array.isArray(source.gameSimulations) ? source.gameSimulations.slice(0, 10) : [],
+    nonPropRejections: Array.isArray(source.nonPropRejections) ? source.nonPropRejections.slice(0, 20) : [],
+    qualifiedCandidates: Array.isArray(source.qualifiedCandidates) ? source.qualifiedCandidates.slice(0, 25) : [],
+    finalization: source.finalization ?? null,
+  };
+}
+
+function OtaDiagnosticsErrorFallback({ error }: ErrorFallbackProps) {
+  return (
+    <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0b1220", gap: 10 }}>
+      <Text style={{ color: "#f8fafc", fontSize: 20, fontWeight: "700" }}>OTA Diagnostics unavailable</Text>
+      <Text style={{ color: "#94a3b8", fontSize: 14, lineHeight: 20 }}>
+        This diagnostics-only screen encountered an error. The rest of Stadium Edge remains available.
+      </Text>
+      <Text numberOfLines={3} style={{ color: "#64748b", fontSize: 12, lineHeight: 18 }}>
+        {error.message || "Unknown diagnostics error"}
+      </Text>
+    </View>
+  );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -124,7 +173,7 @@ function buildReport(diag: OtaFullDiagnostics): string {
 
 export default function OtaDebugScreen() {
   return (
-    <ErrorBoundary>
+    <ErrorBoundary FallbackComponent={OtaDiagnosticsErrorFallback}>
       <OtaDebugScreenInner />
     </ErrorBoundary>
   );
@@ -140,14 +189,26 @@ function OtaDebugScreenInner() {
   const [probeLoading, setProbeLoading] = useState(true);
   const [coachTrace, setCoachTrace] = useState<CoachRequestTrace | null>(null);
   const [marketAudit, setMarketAudit] = useState<CoachMarketPipelineSnapshot | null>(null);
+  const [showAudit, setShowAudit] = useState(false);
+  const [showTrace, setShowTrace] = useState(false);
+  const mounted = useRef(true);
 
   const refresh = useCallback(async () => {
+    if (!mounted.current) return null;
     setProbeLoading(true);
     try {
       const next = await collectOtaFullDiagnostics();
+      if (!mounted.current) return null;
       setDiag(next);
-      setCoachTrace(await loadCoachRequestTrace());
-      setMarketAudit(await loadCoachMarketPipelineAudit<CoachMarketPipelineSnapshot>());
+      console.log("OTA_DIAG_UPDATE_INFO_LOADED");
+      const trace = await loadCoachRequestTrace();
+      if (!mounted.current) return null;
+      setCoachTrace(trace);
+      console.log("OTA_DIAG_TRACE_LOADED");
+      const audit = await loadCoachMarketPipelineAudit<CoachMarketPipelineSnapshot>();
+      if (!mounted.current) return null;
+      setMarketAudit(audit);
+      console.log("OTA_DIAG_AUDIT_LOADED");
       return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -160,51 +221,70 @@ function OtaDebugScreenInner() {
       }));
       return null;
     } finally {
-      setProbeLoading(false);
+      if (mounted.current) setProbeLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    console.log("OTA_DIAG_MOUNT");
     void refresh();
+    console.log("OTA_DIAG_RENDER_COMPLETE");
+    return () => {
+      mounted.current = false;
+      console.log("OTA_DIAG_UNMOUNT");
+    };
   }, [refresh]);
 
   const copyAll = async () => {
     const snap = diag ?? (await refresh());
     await Clipboard.setStringAsync(buildReport(snap));
-    setStatus("Copied full report to clipboard");
+    if (mounted.current) setStatus("Copied full report to clipboard");
   };
 
   const copyCoachTrace = async () => {
     const trace = await loadCoachRequestTrace();
-    setCoachTrace(trace);
+    if (mounted.current) setCoachTrace(trace);
     await Clipboard.setStringAsync(formatCoachRequestTrace(trace));
-    setStatus("Copied Coach trace to clipboard");
+    if (mounted.current) setStatus("Copied Coach trace to clipboard");
   };
 
   const copyMarketAudit = async () => {
     const audit = await loadCoachMarketPipelineAudit<CoachMarketPipelineSnapshot>();
-    setMarketAudit(audit);
-    await Clipboard.setStringAsync(
-      audit ? JSON.stringify(audit, null, 2) : "No completed Coach market audit recorded yet.",
-    );
-    setStatus("Copied Market Audit to clipboard");
+    if (mounted.current) setMarketAudit(audit);
+    let report = "No completed Coach market audit recorded yet.";
+    try {
+      report = audit ? JSON.stringify(audit, null, 2) : report;
+    } catch (error) {
+      report = `Unable to copy Market Audit: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    await Clipboard.setStringAsync(report);
+    if (mounted.current) setStatus("Copied Market Audit to clipboard");
   };
 
   const runCheckFetchReload = async () => {
     setBusy(true);
     setStatus("checkForUpdateAsync → fetchUpdateAsync → reloadAsync…");
-    const result = await forceOtaCheckFetchAndReload();
-    if (result.reloaded) {
-      setStatus(result.reloadResult ?? "Reloading into new bundle…");
-      return;
+    try {
+      const result = await forceOtaCheckFetchAndReload();
+      if (result.reloaded) {
+        if (mounted.current) setStatus(result.reloadResult ?? "Reloading into new bundle…");
+        return;
+      }
+      const next = await refresh();
+      if (next && mounted.current) setDiag(next);
+      if (mounted.current) {
+        setStatus(
+          [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
+            "Probe finished — see reloadAsync row",
+        );
+      }
+    } catch (error) {
+      if (mounted.current) {
+        setStatus(`Update action failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      if (mounted.current) setBusy(false);
     }
-    const next = await refresh();
-    if (next) setDiag(next);
-    setStatus(
-      [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
-        "Probe finished — see reloadAsync row",
-    );
-    setBusy(false);
   };
 
   const embeddedWarning =
@@ -309,14 +389,17 @@ function OtaDebugScreenInner() {
             Coach market pipeline audit
           </Text>
           <Row label="Completed request ID" value={marketAudit?.requestId ?? "—"} />
-          <LogBlock
-            title="Completed board scan — stages, sports, families, and non-prop rejections"
-            lines={
-              marketAudit
-                ? JSON.stringify(marketAudit, null, 2).split("\n")
-                : ["No completed Coach market audit recorded yet."]
-            }
-          />
+          <Pressable onPress={() => setShowAudit((visible) => !visible)}>
+            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>
+              {showAudit ? "Hide market audit preview" : "Show market audit preview (bounded)"}
+            </Text>
+          </Pressable>
+          {showAudit ? (
+            <LogBlock
+              title="Completed board scan — bounded preview"
+              lines={safeLines(auditPreview(marketAudit), "No completed Coach market audit recorded yet.")}
+            />
+          ) : null}
           <Pressable
             onPress={() => void copyMarketAudit()}
             style={({ pressed }) => ({
@@ -344,10 +427,17 @@ function OtaDebugScreenInner() {
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
             Coach request trace
           </Text>
-          <LogBlock
-            title="Most recent request (persisted on device)"
-            lines={formatCoachRequestTrace(coachTrace).split("\n")}
-          />
+          <Pressable onPress={() => setShowTrace((visible) => !visible)}>
+            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 14 }}>
+              {showTrace ? "Hide Coach trace preview" : "Show Coach trace preview (bounded)"}
+            </Text>
+          </Pressable>
+          {showTrace ? (
+            <LogBlock
+              title="Most recent request (persisted on device)"
+              lines={safeLines(formatCoachRequestTrace(coachTrace), "No Coach request trace recorded yet.")}
+            />
+          ) : null}
           <Pressable
             onPress={() => void copyCoachTrace()}
             style={({ pressed }) => ({
@@ -428,8 +518,8 @@ function OtaDebugScreenInner() {
             gap: 12,
           }}
         >
-          <LogBlock title="expo-updates native logs (startup / error recovery)" lines={diag.startupLogs} />
-          <LogBlock title="JS OtaStartupGate / manual logs" lines={diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"]} />
+          <LogBlock title="expo-updates native logs (startup / error recovery)" lines={safeLines(diag.startupLogs, "(none yet)")} />
+          <LogBlock title="JS OtaStartupGate / manual logs" lines={safeLines(diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"], "(none yet)")} />
         </View>
 
         {status ? (

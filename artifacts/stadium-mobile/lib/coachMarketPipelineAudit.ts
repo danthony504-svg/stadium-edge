@@ -61,6 +61,8 @@ export type MarketFunnelStage =
   | "qualified"
   | "ranked";
 
+const MAX_NON_PROP_REJECTIONS = 100;
+
 export type GameSimulationAudit = {
   sport: string; event: string; marketFamily: AuditMarketFamily; selection: string;
   line: number | null; odds: number | null; homeTeam: string; awayTeam: string;
@@ -173,6 +175,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
     const key = `${row.stage}|${row.event}|${row.selection}|${row.gate}`;
     if (seenNonPropRejection.has(key)) return;
     seenNonPropRejection.add(key);
+    if (nonPropRejections.length >= MAX_NON_PROP_REJECTIONS) return;
     nonPropRejections.push(row);
   };
 

@@ -4,6 +4,10 @@ const COACH_REQUEST_TRACE_KEY = "stadium-edge:coach-request-trace:v1";
 const COACH_MARKET_AUDIT_KEY = "stadium-edge:coach-market-pipeline-audit:v2";
 const LEGACY_COACH_MARKET_AUDIT_KEY = "stadium-edge:coach-market-pipeline-audit:v1";
 const MAX_TRACE_EVENTS = 80;
+// Diagnostics are retained only to investigate the current/recent requests.
+// Keeping every full board audit indefinitely can exhaust AsyncStorage and
+// render memory on production devices.
+const MAX_RETAINED_MARKET_AUDITS = 3;
 
 export type CoachTraceStage =
   | "scan_start"
@@ -131,6 +135,16 @@ function persistMarketAuditStore(): void {
   ).catch(() => {});
 }
 
+function trimMarketAudits(): void {
+  while (marketAuditsByRequestId.size > MAX_RETAINED_MARKET_AUDITS) {
+    const removableId = [...marketAuditsByRequestId.keys()].find(
+      (id) => id !== completedMarketAuditRequestId,
+    );
+    if (!removableId) break;
+    marketAuditsByRequestId.delete(removableId);
+  }
+}
+
 export function persistCoachMarketPipelineAudit(audit: MarketAudit): void {
   const requestId = audit.requestId?.trim();
   if (!requestId || requestId === "unknown") return;
@@ -139,6 +153,7 @@ export function persistCoachMarketPipelineAudit(audit: MarketAudit): void {
   // snapshot as well as protecting it from "unknown" background scans.
   if (frozenMarketAuditRequestIds.has(requestId)) return;
   marketAuditsByRequestId.set(requestId, audit);
+  trimMarketAudits();
   persistMarketAuditStore();
 }
 
@@ -149,6 +164,7 @@ export function freezeCoachMarketPipelineAudit(requestId: string | null | undefi
   if (audit) marketAuditsByRequestId.set(id, frozenAuditCopy(audit));
   frozenMarketAuditRequestIds.add(id);
   completedMarketAuditRequestId = id;
+  trimMarketAudits();
   persistMarketAuditStore();
 }
 
@@ -177,6 +193,7 @@ export async function loadCoachMarketPipelineAudit<T>(): Promise<T | null> {
     if (parsed?.completedRequestId && parsed.audits?.[parsed.completedRequestId]) {
       completedMarketAuditRequestId = parsed.completedRequestId;
       marketAuditsByRequestId = new Map(Object.entries(parsed.audits));
+      trimMarketAudits();
       return marketAuditsByRequestId.get(completedMarketAuditRequestId) as T;
     }
 
