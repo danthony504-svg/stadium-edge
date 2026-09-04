@@ -10,6 +10,12 @@ const MAX_TRACE_EVENTS = 80;
 const MAX_RETAINED_MARKET_AUDITS = 3;
 
 export type CoachTraceStage =
+  | "UI_REQUEST_STARTED"
+  | "UI_PARTIAL_RESULTS_RENDERED"
+  | "UI_INTERACTION_ENABLED"
+  | "UI_FINAL_RESULTS_RENDERED"
+  | "UI_REQUEST_COMPLETE"
+  | "UI_LONG_TASK"
   | "scan_start"
   | "game_sim_start"
   | "game_sim_complete"

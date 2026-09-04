@@ -58,6 +58,7 @@ import { nonOuCandidateDiagnostic, traceCoachMarketStage } from "./coachMarketDi
 import { explainBoardLegQualification } from "./boardLegQualification.ts";
 import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 import { recordCoachRequestTrace } from "./coachRequestTrace.ts";
+import { shouldEmitPartialUpdate } from "./coachPartialUi.ts";
 import {
   auditNonPropQualificationFailures,
   createCoachMarketPipelineAudit,
@@ -569,11 +570,15 @@ function buildScanResult(
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const scanComplete = !opts.preview && opts.boardExhausted === true;
-  const manifest = opts.manifestRecorder.finalize({
-    scanComplete,
-    boardExhausted: opts.boardExhausted === true,
-    deliveredLegs: scanComplete ? picks.length : 0,
-  });
+  // The exhaustive manifest is final-only. Recomputing it for every preview
+  // wave blocks the mobile JS thread without affecting preview picks.
+  const manifest = opts.preview
+    ? undefined
+    : opts.manifestRecorder.finalize({
+        scanComplete,
+        boardExhausted: opts.boardExhausted === true,
+        deliveredLegs: scanComplete ? picks.length : 0,
+      });
   const note =
     picks.length >= opts.target
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
@@ -756,9 +761,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     }
   }
 
+  let lastPartialEmissionMs = 0;
   const emitBoardScanPartial = () => {
     if (!opts.onPartial) return;
-    manifestRecorder.recomputeQualificationFromScored(scored);
+    const now = Date.now();
+    if (!shouldEmitPartialUpdate(now, lastPartialEmissionMs, 400)) return;
+    lastPartialEmissionMs = now;
     const partial = buildScanResult(scored, {
       target: opts.target,
       evalLinesByGame,
