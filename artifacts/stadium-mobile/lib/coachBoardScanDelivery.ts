@@ -4,6 +4,12 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { boardScanIsComplete, boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import {
+  traceFinalStageAfter,
+  traceFinalStageBefore,
+  traceFinalStageBlocked,
+  traceFinalStageError,
+} from "./coachFinalStageTrace.ts";
+import {
   type CoachBoardScanManifest,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
@@ -26,6 +32,12 @@ export function deliverCoachBoardScanTicket(
   enrich: CoachFlashEnrich,
   legTarget: number,
 ): CoachBoardScanDelivery {
+  traceFinalStageBefore(2, "coachBoardScanDelivery.ts:deliverCoachBoardScanTicket", {
+    legTarget,
+    scanComplete: scan.scanComplete,
+    scanPickCount: scan.picks?.length ?? 0,
+    requestedLegs: scan.requestedLegs,
+  });
   const manifest = scan.manifest ?? {
     scanComplete: !!scan.scanComplete,
     boardExhausted: !!scan.scanComplete,
@@ -57,6 +69,12 @@ export function deliverCoachBoardScanTicket(
   };
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {
+    traceFinalStageBlocked(
+      3,
+      "coachBoardScanDelivery.ts:deliverCoachBoardScanTicket",
+      "scan not complete",
+      { scanComplete: scan.scanComplete },
+    );
     return {
       picks: [],
       manifest,
@@ -66,6 +84,16 @@ export function deliverCoachBoardScanTicket(
   }
 
   if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
+    traceFinalStageBlocked(
+      3,
+      "coachBoardScanDelivery.ts:deliverCoachBoardScanTicket",
+      "scan leg target mismatch",
+      {
+        legTarget,
+        scanRequestedLegs: scan.requestedLegs,
+        scanPickCount: scan.picks?.length ?? 0,
+      },
+    );
     return {
       picks: [],
       manifest: {
@@ -83,8 +111,18 @@ export function deliverCoachBoardScanTicket(
   }
 
   const tagged = tagTicketRoles([...scan.picks]);
-  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  let finalized;
+  let picks;
+  try {
+    finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
+    picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  } catch (err) {
+    traceFinalStageError(3, "coachBoardScanDelivery.ts:deliverCoachBoardScanTicket", err, {
+      legTarget,
+      scanPickCount: scan.picks?.length ?? 0,
+    });
+    throw err;
+  }
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
@@ -99,6 +137,11 @@ export function deliverCoachBoardScanTicket(
     scanRequestedLegs: scan.requestedLegs,
     pickIds: picks,
     source: "deliverCoachBoardScanTicket",
+  });
+
+  traceFinalStageAfter(3, "coachBoardScanDelivery.ts:deliverCoachBoardScanTicket", {
+    deliveredPickCount: picks.length,
+    legTarget,
   });
 
   return {
