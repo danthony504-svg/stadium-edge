@@ -136,7 +136,7 @@ test("market-agnostic ticket gives every qualified family a selection opportunit
   assert.equal(picks.length, 6);
   assert.deepEqual(familyVariety.qualifiedByFamily, {
     moneyline: 1, spread: 1, gameTotal: 1, teamTotal: 1,
-    playerOu: 1, milestone: 0, alternate: 1,
+    playerOu: 0, milestone: 1, alternate: 1,
   });
   assert.deepEqual(familyVariety.selectedByFamily, familyVariety.qualifiedByFamily);
   assert.deepEqual(familyVariety.skippedFamilies, []);

@@ -366,7 +366,11 @@ export function buildStagedTicketFromScan(
   target: number,
   varietySeed?: string,
   varietyContext?: CoachTicketStagingContext,
-): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+): {
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  familyVariety: TicketFamilyVarietyAudit;
+} {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
   if (target >= 3) {
     return buildIndependentCoachTicket(scored, target, {
@@ -393,6 +397,11 @@ export function buildStagedTicketFromScan(
         altQualified: alts.length,
         mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
         altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
+      },
+      familyVariety: {
+        qualifiedByFamily: countsByMarketFamily(qualifying.map((leg) => leg.pick)),
+        selectedByFamily: countsByMarketFamily(finalPicks),
+        skippedFamilies: [],
       },
     };
   }
@@ -457,6 +466,11 @@ export function buildStagedTicketFromScan(
       altQualified: alts.length,
       mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
       altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
+    },
+    familyVariety: {
+      qualifiedByFamily: countsByMarketFamily([...mains, ...alts].map((leg) => leg.pick)),
+      selectedByFamily: countsByMarketFamily(finalPicks),
+      skippedFamilies: [],
     },
   };
 }

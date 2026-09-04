@@ -571,7 +571,10 @@ function assembleBalancedDiverseTicket(
           used,
           config,
         )];
-    const picks = tieredBackfillStagedTicket(ticket, target, allScored, ticketStyle, config.seed);
+    const cappedTicket = capThinStatMarketsOnTicket(ticket, target);
+    const picks = cappedTicket.length < target
+      ? tieredBackfillStagedTicket(cappedTicket, target, allScored, ticketStyle, config.seed)
+      : cappedTicket;
     const selectedByFamily = familyCounts(picks);
     return {
       picks,
