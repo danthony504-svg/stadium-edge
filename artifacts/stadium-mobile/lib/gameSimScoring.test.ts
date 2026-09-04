@@ -59,6 +59,8 @@ test("gameSimHitForPick emits draw-level diagnostics without changing its score"
     {
       ...sim,
       outcomes: { homeScores: [5, 4, 2], awayScores: [4, 4, 3] },
+      requestedCoverQueryIds: ["new york mets @ atlanta braves|total|over 8.5"],
+      requestedCoverQueryCount: 1,
     },
     (row) => { diagnostic = row; },
   );
@@ -68,6 +70,12 @@ test("gameSimHitForPick emits draw-level diagnostics without changing its score"
   assert.equal(diagnostic?.losses, 2);
   assert.equal(diagnostic?.pushes, 0);
   assert.equal(diagnostic?.homeScoreSource, "outcomes.homeScores");
+  assert.equal(diagnostic?.outcomesReturned, true);
+  assert.equal(diagnostic?.homeScoreDrawCount, 3);
+  assert.deepEqual(
+    diagnostic?.submittedCoverQueryIds,
+    ["new york mets @ atlanta braves|total|over 8.5"],
+  );
 });
 
 test("gameSimDisagreement when hit below floor", () => {

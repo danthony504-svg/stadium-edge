@@ -168,6 +168,58 @@ function uniqueCoverQueries(
 }
 
 const COACH_GAME_SIMS = 10_000;
+const NAME_ONLY_GAME_SIM_SPORTS = new Set(["tennis", "ufc", "mma"]);
+const MAX_AUDIT_COVER_QUERY_IDS = 80;
+
+function nameOnlyGameTeams(gameLabel: string): { away: string; home: string } | null {
+  const [away, home, ...extra] = gameLabel.split(" @ ").map((team) => team.trim());
+  return away && home && extra.length === 0 ? { away, home } : null;
+}
+
+export function slateGameSimulationIdentity(
+  gameLabel: string,
+  sport: string | undefined,
+  resolution: TeamIdResolution,
+): {
+  sport: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  homeTeam: string;
+  awayTeam: string;
+} | null {
+  const ids = resolution.ids;
+  if (ids) {
+    return {
+      sport: ids.sport || sport || "mlb",
+      homeTeamId: ids.homeTeamId,
+      awayTeamId: ids.awayTeamId,
+      homeTeam: ids.homeTeam,
+      awayTeam: ids.awayTeam,
+    };
+  }
+  const names = nameOnlyGameTeams(gameLabel);
+  if (!names || !NAME_ONLY_GAME_SIM_SPORTS.has(String(sport ?? "").toLowerCase())) return null;
+  return {
+    sport: String(sport).toLowerCase(),
+    homeTeamId: "",
+    awayTeamId: "",
+    homeTeam: names.home,
+    awayTeam: names.away,
+  };
+}
+
+function withTransportEvidence(
+  result: import("./api.ts").GameSimulationResult,
+  coverQueries: readonly GameCoverQuery[],
+): CoachGameSimEntry {
+  return {
+    ...result,
+    requestedCoverQueryIds: coverQueries
+      .slice(0, MAX_AUDIT_COVER_QUERY_IDS)
+      .map((query) => query.id),
+    requestedCoverQueryCount: coverQueries.length,
+  };
+}
 
 /**
  * Run the same game-outcome Monte Carlo the Simulator uses for every unique
@@ -250,10 +302,14 @@ export async function fetchSlateGameSimulations(
     if (!lines.length) return;
     const sport = lines[0]?.sport;
     const resolution = resolveTeamIdsWithReason(gameLabel, sport, teamIdsByGame);
-    const ids = resolution.ids;
-    if (!ids) {
+    const identity = slateGameSimulationIdentity(gameLabel, sport, resolution);
+    if (!identity) {
       console.warn("[coach-market-diagnostics]", JSON.stringify({
-        stage: "SIMULATION_SKIPPED", game: gameLabel, reason: resolution.reason,
+        stage: "SIMULATION_SKIPPED",
+        game: gameLabel,
+        sport,
+        reason: resolution.reason,
+        nameOnlySupported: NAME_ONLY_GAME_SIM_SPORTS.has(String(sport ?? "").toLowerCase()),
       }));
       return;
     }
@@ -277,11 +333,7 @@ export async function fetchSlateGameSimulations(
 
     const result = await fetchGameOutcomeSimulation(
       {
-        sport: ids.sport || sport || "mlb",
-        homeTeamId: ids.homeTeamId,
-        awayTeamId: ids.awayTeamId,
-        homeTeam: ids.homeTeam,
-        awayTeam: ids.awayTeam,
+        ...identity,
         simulations: COACH_GAME_SIMS,
         coverQueries,
         retainOutcomes: true,
@@ -289,7 +341,7 @@ export async function fetchSlateGameSimulations(
       signal,
     );
     if (result) {
-      const sim = result as CoachGameSimEntry;
+      const sim = withTransportEvidence(result, coverQueries);
       // Grade every posted line from the returned draws. This makes the board
       // independent of response cover-query key formatting and uses no
       // synthetic probability: each rate comes from this game's 10k outcomes.

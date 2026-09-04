@@ -39,20 +39,26 @@ test("pipeline audit preserves simulation and qualification funnel evidence", ()
     rubric: { composite: 7, grade: "B", confidencePct: 58, edgePct: 3, scores: {} as never },
   };
   audit.recordFunnel("simulationAttempted", [pick]);
+  audit.recordFunnel("simulationAttempted", [pick]);
   audit.recordFunnel("simulationReturned", [pick]);
   audit.recordScoredFunnel(pick, score);
   audit.recordGameSimulation({
     sport: "nfl", event: pick.game, marketFamily: "spread", selection: pick.pick, line: 3, odds: -110,
     homeTeam: "BUF", awayTeam: "KC", simulationShape: ["outcomes"], homeScoreSource: "outcomes.homeScores",
     awayScoreSource: "outcomes.awayScores", sampleHomeScore: 24, sampleAwayScore: 20,
+    submittedCoverQueryIds: ["kc @ buf|spread|kc +3"], submittedCoverQueryCount: 1,
+    returnedCoverHitRateIds: ["kc @ buf|spread|kc +3"], returnedCoverHitRateCount: 1,
+    outcomesReturned: true, homeScoreDrawCount: 10_000, awayScoreDrawCount: 10_000,
     winnerSource: null, totalSource: "homeScores + awayScores", parsedTeam: "KC", parsedSide: "away",
     parsedLine: 3, wins: 5600, losses: 4400, pushes: 0, simHitRate: 0.56, nullReason: null,
   });
   const snap = audit.snapshot();
+  assert.equal(snap.funnel?.simulationAttempted?.nfl?.spread, 2);
   assert.equal(snap.funnel?.simulationGradable?.nfl?.spread, 1);
   assert.equal(snap.funnel?.positiveEdge?.nfl?.spread, 1);
   assert.equal(snap.qualificationGateCounts?.qualified_main?.nfl?.spread, 1);
   assert.equal(snap.gameSimulations?.[0]?.wins, 5600);
+  assert.equal(snap.gameSimulations?.[0]?.homeScoreDrawCount, 10_000);
 });
 
 test("pipeline audit records non-prop rejection reasons across sports", () => {

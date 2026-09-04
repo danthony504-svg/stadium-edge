@@ -88,7 +88,7 @@ function teamMean(forPts: number | null, oppAgainst: number | null, fallback: nu
   return parts.reduce((a, b) => a + b, 0) / parts.length;
 }
 
-function coverQueryResult(
+export function coverQueryResult(
   q: GameCoverQuery,
   homeScore: number,
   awayScore: number,

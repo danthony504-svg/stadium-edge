@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { coverQueryHits, runGameMonteCarlo } from "../src/lib/gameMonteCarlo.ts";
+import { coverQueryResult, runGameMonteCarlo } from "../src/lib/gameMonteCarlo.ts";
 
 test("runGameMonteCarlo returns win probabilities and projected scores", () => {
   const result = runGameMonteCarlo({
@@ -16,25 +16,25 @@ test("runGameMonteCarlo returns win probabilities and projected scores", () => {
   assert.ok(result!.awayProjectedScore > 0);
 });
 
-test("coverQueryHits scores spread and total covers", () => {
+test("coverQueryResult scores spread and total covers", () => {
   assert.equal(
-    coverQueryHits({ id: "s", kind: "spread", teamSide: "home", line: -1.5 }, 5, 2),
+    coverQueryResult({ id: "s", kind: "spread", teamSide: "home", line: -1.5 }, 5, 2),
     true,
   );
   assert.equal(
-    coverQueryHits({ id: "s", kind: "spread", teamSide: "home", line: -1.5 }, 4, 3),
+    coverQueryResult({ id: "s", kind: "spread", teamSide: "home", line: -1.5 }, 4, 3),
     false,
   );
-  assert.equal(coverQueryHits({ id: "t", kind: "total", totalSide: "over", line: 8.5 }, 5, 4), true);
-  assert.equal(coverQueryHits({ id: "t", kind: "total", totalSide: "under", line: 8.5 }, 5, 4), false);
+  assert.equal(coverQueryResult({ id: "t", kind: "total", totalSide: "over", line: 8.5 }, 5, 4), true);
+  assert.equal(coverQueryResult({ id: "t", kind: "total", totalSide: "under", line: 8.5 }, 5, 4), false);
 });
 
-test("coverQueryHits scores team totals and period totals", () => {
+test("coverQueryResult scores team totals and period totals", () => {
   assert.equal(
-    coverQueryHits({ id: "tt", kind: "teamTotal", teamSide: "home", totalSide: "over", line: 4.5 }, 6, 2),
+    coverQueryResult({ id: "tt", kind: "teamTotal", teamSide: "home", totalSide: "over", line: 4.5 }, 6, 2),
     true,
   );
-  const periodHit = coverQueryHits(
+  const periodHit = coverQueryResult(
     { id: "q1", kind: "total", totalSide: "over", line: 50, period: "q1" },
     110,
     108,
@@ -43,10 +43,10 @@ test("coverQueryHits scores team totals and period totals", () => {
   assert.equal(typeof periodHit, "boolean");
 });
 
-test("coverQueryHits scores race-to markets", () => {
+test("coverQueryResult scores race-to markets", () => {
   let hits = 0;
   for (let i = 0; i < 200; i++) {
-    if (coverQueryHits({ id: "rt", kind: "raceTo", teamSide: "home", raceTarget: 20 }, 115, 105, "nba")) {
+    if (coverQueryResult({ id: "rt", kind: "raceTo", teamSide: "home", raceTarget: 20 }, 115, 105, "nba")) {
       hits += 1;
     }
   }
@@ -62,12 +62,17 @@ test("runGameMonteCarlo returns coverHitRates for queries", () => {
     coverQueries: [
       { id: "home-ml", kind: "ml", teamSide: "home" },
       { id: "home-15", kind: "spread", teamSide: "home", line: -1.5 },
+      { id: "total-over-8", kind: "total", totalSide: "over", line: 8 },
+      { id: "home-total-over-4", kind: "teamTotal", teamSide: "home", totalSide: "over", line: 4 },
     ],
     retainOutcomes: true,
   });
   assert.ok(result?.coverHitRates);
   assert.ok((result!.coverHitRates!["home-ml"] ?? 0) > 0.4);
   assert.ok((result!.coverHitRates!["home-15"] ?? 0) < (result!.coverHitRates!["home-ml"] ?? 1));
+  assert.equal(typeof result!.coverHitRates!["total-over-8"], "number");
+  assert.equal(typeof result!.coverHitRates!["home-total-over-4"], "number");
   assert.ok(result?.outcomes);
   assert.equal(result!.outcomes!.homeScores.length, 5000);
+  assert.equal(result!.outcomes!.awayScores.length, 5000);
 });
