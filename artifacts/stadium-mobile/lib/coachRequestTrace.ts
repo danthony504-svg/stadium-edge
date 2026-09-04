@@ -10,6 +10,12 @@ const MAX_TRACE_EVENTS = 80;
 const MAX_RETAINED_MARKET_AUDITS = 3;
 
 export type CoachTraceStage =
+  | "UI_REQUEST_STARTED"
+  | "UI_PARTIAL_RESULTS_RENDERED"
+  | "UI_INTERACTION_ENABLED"
+  | "UI_FINAL_RESULTS_RENDERED"
+  | "UI_REQUEST_COMPLETE"
+  | "UI_LONG_TASK"
   | "scan_start"
   | "game_sim_start"
   | "game_sim_complete"
@@ -53,6 +59,7 @@ export type CoachRequestTrace = {
 };
 
 let currentTrace: CoachRequestTrace | null = null;
+let tracePersistTimer: ReturnType<typeof setTimeout> | null = null;
 type MarketAudit = { requestId?: string; [key: string]: unknown };
 export type CoachTicketFinalizationAudit = {
   requestedLegs: number;
@@ -75,7 +82,7 @@ function frozenAuditCopy(audit: MarketAudit): MarketAudit {
 
 export function startCoachRequestTrace(requestId: string): void {
   currentTrace = { requestId, startedAt: Date.now(), events: [] };
-  void persistCoachRequestTrace();
+  scheduleCoachRequestTracePersist(true);
 }
 
 export function recordCoachRequestTrace(
@@ -103,7 +110,23 @@ export function recordCoachRequestTrace(
   };
   currentTrace.events.push(event);
   while (currentTrace.events.length > MAX_TRACE_EVENTS) currentTrace.events.shift();
-  void persistCoachRequestTrace();
+  scheduleCoachRequestTracePersist(
+    stage === "request_terminal" || stage === "UI_REQUEST_COMPLETE",
+  );
+}
+
+function scheduleCoachRequestTracePersist(immediate = false): void {
+  if (immediate) {
+    if (tracePersistTimer) clearTimeout(tracePersistTimer);
+    tracePersistTimer = null;
+    void persistCoachRequestTrace();
+    return;
+  }
+  if (tracePersistTimer) return;
+  tracePersistTimer = setTimeout(() => {
+    tracePersistTimer = null;
+    void persistCoachRequestTrace();
+  }, 500);
 }
 
 async function persistCoachRequestTrace(): Promise<void> {
@@ -217,6 +240,8 @@ export function resetCoachMarketAuditStorageForTests(): void {
   marketAuditsByRequestId = new Map();
   completedMarketAuditRequestId = "";
   frozenMarketAuditRequestIds.clear();
+  if (tracePersistTimer) clearTimeout(tracePersistTimer);
+  tracePersistTimer = null;
 }
 
 export function formatCoachRequestTrace(trace: CoachRequestTrace | null): string {

@@ -169,8 +169,9 @@ export function deliverCoachBoardScanProgress(
     return { picks: [], progressNote: "" };
   }
   const tagged = tagTicketRoles([...scan.picks]);
-  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  // scan.picks was already staged by the scanner. Full ticket finalization is
+  // terminal-only; preview delivery must remain cheap and preserve visible cards.
+  let picks = applyCoachTicketInvariants(tagged, enrich);
   if (legTarget > 0 && picks.length > legTarget) {
     picks = picks.slice(0, legTarget);
   }

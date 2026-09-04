@@ -118,3 +118,21 @@ test("patchLastAssistantPicks skips clone when picks are unchanged", () => {
   assert.notEqual(second.next, initial);
   assert.equal(second.next[1]?.picks, upgraded);
 });
+
+test("partial pick append preserves existing pick object references", () => {
+  const existing = samplePick({ pick: "Existing Over 1.5" });
+  const appended = samplePick({ pick: "New Over 2.5" });
+  const initial: Msg[] = [
+    { role: "user", content: "build" },
+    { role: "assistant", picks: [existing], content: "" },
+  ];
+  const { next, changed } = runSetMessages(initial, (setMessages) =>
+    patchAssistantMessageIfChanged(setMessages, {
+      picks: [{ ...existing }, appended],
+      content: "",
+    }),
+  );
+  assert.equal(changed, true);
+  assert.equal(next[1]?.picks?.[0], existing);
+  assert.equal(next[1]?.picks?.[1], appended);
+});

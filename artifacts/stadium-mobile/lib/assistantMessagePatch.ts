@@ -31,6 +31,29 @@ export function assistantMessagePatchSignature(fields: AssistantMessagePatchFiel
   });
 }
 
+function pickPatchSignature(p: AssistantMessagePick): string {
+  const grade = p.finalAiScore?.grade ?? p.scores?.grade ?? "";
+  const simHit = p.finalAiScore?.simHit ?? "";
+  return `${pickLegFingerprint(p as never)}|${p.player ?? ""}|${p.propLine ?? ""}|${grade}|${simHit}|${p.simulationPending ? "1" : "0"}`;
+}
+
+function preserveUnchangedPickReferences(
+  existing: readonly AssistantMessagePick[],
+  incoming: AssistantMessagePick[],
+): AssistantMessagePick[] {
+  const existingByFingerprint = new Map(existing.map((pick) => [pickLegFingerprint(pick), pick]));
+  let preserved = false;
+  const picks = incoming.map((pick) => {
+    const prior = existingByFingerprint.get(pickLegFingerprint(pick));
+    if (prior && pickPatchSignature(prior) === pickPatchSignature(pick)) {
+      preserved = true;
+      return prior;
+    }
+    return pick;
+  });
+  return preserved ? picks : incoming;
+}
+
 function findLastAssistantIndex<T extends { role: string }>(messages: T[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]!.role === "assistant") return i;
@@ -55,7 +78,7 @@ export function patchAssistantMessageIfChanged<
     if (idx < 0) return prev;
     const existing = prev[idx]!;
     const nextFields: AssistantMessagePatchFields = {
-      picks: fields.picks,
+      picks: preserveUnchangedPickReferences(existing.picks ?? [], fields.picks),
       legNote: fields.legNote !== undefined ? fields.legNote.trim() || undefined : existing.legNote,
       coachDetailNote:
         fields.coachDetailNote !== undefined
