@@ -1,6 +1,6 @@
 // Progressive board prop sim — prescore entire pool, run MC on every candidate.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
@@ -25,12 +25,16 @@ export function countQualifiedBoardLegs(scored: BoardScoredLeg[], target: number
   return picks.length;
 }
 
-/** First prop-sim wave — wide enough to surface early qualifiers quickly. */
+/** First prop-sim wave — small enough to finish within the 12s quick-tier batch budget. */
 export function boardPropSimInitialBatchSize(target: number): number {
-  return Math.max(BOARD_PROP_SIM_BATCH, target * 2);
+  if (target >= 15) return 12;
+  if (target >= 9) return 14;
+  return Math.min(BOARD_PROP_SIM_BATCH, Math.max(10, target * 2));
 }
 
 /** Later waves while still short of the leg target. */
 export function boardPropSimExpansionBatchSize(target: number): number {
-  return Math.max(BOARD_PROP_SIM_BATCH, Math.min(84, target * 4));
+  if (target >= 15) return 14;
+  if (target >= 9) return 16;
+  return Math.min(BOARD_PROP_SIM_BATCH, Math.max(12, target * 3));
 }

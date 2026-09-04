@@ -1,6 +1,6 @@
 // Pure helpers for explicit N-leg parlay reach (no React / PickCard imports).
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import {
   isAltPropPick,
   isMainBoardPick,

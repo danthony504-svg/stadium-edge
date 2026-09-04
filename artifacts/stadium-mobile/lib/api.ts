@@ -3,9 +3,9 @@ import {
   stealFeedFullUrl,
   stealFeedPath,
   type StealFeedClientLog,
-} from "./stealFeedClient";
-import { logStealScanLifecycle } from "./stealScanLifecycle";
-import { fetch as expoFetch } from "expo/fetch";
+} from "./stealFeedClient.ts";
+import { logStealScanLifecycle } from "./stealScanLifecycle.ts";
+import { fetch as expoFetch } from "expo/fetch.js";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
 import {
@@ -235,7 +235,7 @@ function sleepBackoff(attempt: number): Promise<void> {
 // each wait the full per-request timeout, so we cap THOSE at a single retry to
 // avoid stacking long stalls onto the chat-context fan-outs that share this
 // fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+export async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
@@ -273,7 +273,7 @@ export { setAuthTokenGetter };
 
 async function authedFetch(
   path: string,
-  init?: { method?: string; body?: string; headers?: Record<string, string> },
+  init?: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init?.headers ?? {}) };
   let token: string | null = null;
@@ -288,6 +288,7 @@ async function authedFetch(
     method: init?.method ?? "GET",
     headers,
     body: init?.body,
+    signal: init?.signal,
   }) as unknown as Promise<Response>;
 }
 
@@ -1384,20 +1385,8 @@ export function getStatmuseGamelog(
   return getJson<StatMuseGameLog>(`/sports/statmuse-gamelog?${params.toString()}`, signal);
 }
 
-export { propMarketLabel } from "./propMarketLabel";
-
-// Reverse of propMarketLabel for the base (non-period) labels: resolve a human
-// market label ("Strikeouts") back to its raw Odds API key ("pitcher_strikeouts")
-// so a stored bet-slip leg — which keeps only the label — can open the right
-// market on the prop stats page. Returns null for labels we don't recognize
-// (e.g. period-suffixed ones), so callers fail closed instead of guessing.
-const PROP_LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(PROP_MARKET_LABEL_MAP).map(([k, v]) => [v.toLowerCase(), k]),
-);
-
-export function propMarketKeyForLabel(label: string): string | null {
-  return PROP_LABEL_TO_KEY[label.trim().toLowerCase()] ?? null;
-}
+export { propMarketLabel, propMarketKeyForLabel } from "./propMarketLabel";
+import { propMarketLabel } from "./propMarketLabel";
 
 // ---------- Pickability window ----------
 // These pure slate/pickability helpers live in ./slate (dependency-free so they
@@ -2416,6 +2405,10 @@ export type ChatContext = {
   // a transparent guide from real severity × position — NOT a fabricated player
   // rating. Omitted when no pickable game had a betting-relevant injury.
   matchupInjuries?: Record<string, GameInjuryReport>;
+  /** Raw league injury teams when per-game matchupInjuries is absent. */
+  injuryTeams?: InjuryTeam[];
+  /** Coach build injury feed status — unavailable when fetch timed out or errored. */
+  injuryStatus?: "available" | "unavailable";
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -4659,6 +4652,7 @@ export async function fetchFullBoardPropPool(
   espnGames: EspnGame[],
   basePool: PropPoolEntry[],
   signal?: AbortSignal,
+  opts?: { maxGames?: number; concurrency?: number },
 ): Promise<PropPoolEntry[]> {
   const poolKey = (e: PropPoolEntry) =>
     `${e.game}|${e.player}|${e.line}|${e.side}|${e.marketLabel}`.toLowerCase();
@@ -4675,12 +4669,19 @@ export async function fetchFullBoardPropPool(
   const candidates = oddsGames.filter(
     (g) => PROPS_SPORTS.includes(g.sport) && g.homeTeam && g.awayTeam,
   );
+  const limited = opts?.maxGames ? candidates.slice(0, opts.maxGames) : candidates;
+  const concurrency = opts?.concurrency ?? 3;
 
-  for (let i = 0; i < candidates.length; i += FULL_BOARD_PROP_BATCH) {
+  const { mapWithConcurrency } = await import("./boundedConcurrency.ts");
+
+  const batchSize = 3;
+  for (let i = 0; i < limited.length; i += batchSize) {
     if (signal?.aborted) break;
-    const batch = candidates.slice(i, i + FULL_BOARD_PROP_BATCH);
-    const responses = await Promise.all(
-      batch.map(async (g) => {
+    const batch = limited.slice(i, i + batchSize);
+    const responses = await mapWithConcurrency(
+      batch,
+      concurrency,
+      async (g) => {
         const idMap = buildPropIdMap(gamesBySport.get(g.sport) ?? []);
         const ids =
           idMap.get(`${nickname(g.awayTeam!)}|${nickname(g.homeTeam!)}`.toLowerCase()) ?? null;
@@ -4694,13 +4695,18 @@ export async function fetchFullBoardPropPool(
           startsAt: g.commenceTime,
         };
         try {
-          return g.sport === "soccer"
-            ? await getPropsWithPrizePicksFallback(args, signal)
-            : await getProps(args, signal);
+          const result = await Promise.race([
+            g.sport === "soccer"
+              ? getPropsWithPrizePicksFallback(args, signal)
+              : getProps(args, signal),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+          ]);
+          return result;
         } catch {
           return null;
         }
-      }),
+      },
+      { signal },
     );
 
     for (let j = 0; j < batch.length; j++) {
@@ -4762,7 +4768,7 @@ export async function fetchFullBoardPropPool(
 export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    authToken = getAuthTokenGetter() ? await getAuthTokenGetter()!() : null;
   } catch {
     authToken = null;
   }
@@ -4947,7 +4953,7 @@ export async function streamChat({
   // under the account); harmless for normal chats. Resolved once up front.
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    authToken = getAuthTokenGetter() ? await getAuthTokenGetter()!() : null;
   } catch {
     authToken = null;
   }
