@@ -1,7 +1,7 @@
 // One committed Over/Under (or Yes/No) side per player prop — prevents Colin Rea
 // Over 3.5 K and Colin Rea Under 3.5 K on the same ticket or back-to-back asks.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { parsePropLeg } from "./propLegParse.ts";
 import type { TrackedPick } from "./pickTracker.ts";

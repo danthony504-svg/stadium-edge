@@ -49,5 +49,11 @@ export function propMarketLabel(key: string | null | undefined): string {
   return base + suffix;
 }
 
-/** Raw Odds API market key → short label map (for reverse lookups in api.ts). */
-export const PROP_MARKET_LABEL_MAP = PROP_MARKET_LABELS;
+const PROP_LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(PROP_MARKET_LABELS).map(([k, v]) => [v.toLowerCase(), k]),
+);
+
+/** Resolve a human market label ("Strikeouts") to its raw Odds API key. */
+export function propMarketKeyForLabel(label: string): string | null {
+  return PROP_LABEL_TO_KEY[label.trim().toLowerCase()] ?? null;
+}

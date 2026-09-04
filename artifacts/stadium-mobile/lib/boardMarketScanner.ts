@@ -2,9 +2,25 @@
 // score (EV/sim/matchup/form/injury/line-move/market-efficiency), top N.
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
+import {
+  emitCoachLiveBoardSummary,
+  markCoachLiveBoardScanEnded,
+  markCoachLiveBoardScanStarted,
+  recordCoachLiveBoardDeduped,
+  recordCoachLiveBoardConfidencePassed,
+  recordCoachLiveBoardCorrelationPassed,
+  recordCoachLiveBoardDelivered,
+  recordCoachLiveBoardError,
+  recordCoachLiveBoardEvScored,
+  recordCoachLiveBoardFeedCounts,
+  recordCoachLiveBoardPriced,
+  recordCoachLiveBoardSimulated,
+  recordCoachLiveBoardValidated,
+  recordCoachLiveBoardExitReason,
+} from "./coachLiveBoardTrace.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
@@ -104,7 +120,7 @@ function aliasPropSimHitsForBatch(
     const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
     const altKey =
       altMarket && altMarket !== market
-        ? propSimKey(pick.player, altMarket, pick.propLine, pick.propSide ?? "")
+        ? propSimKey(pick.player ?? "", altMarket, pick.propLine, pick.propSide ?? "")
         : null;
     if (altKey && out.has(altKey)) {
       out.set(clientKey, out.get(altKey)!);
@@ -140,8 +156,12 @@ export type FullBoardScanResult = {
   requestId?: string;
   /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
   scanComplete?: boolean;
+  /** Correlation combinator status — unavailable when timed out or errored. */
+  correlationStatus?: "available" | "unavailable";
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
+  /** Full scored candidate pool after ladder collapse — used for delivery salvage. */
+  scoredPool?: BoardScoredLeg[];
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -149,7 +169,7 @@ function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
 }
 
 function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {
-  const rubric = pick.finalAiScore?.rubricScores?.lineShopping ?? pick.scores?.lineShopping ?? null;
+  const rubric = pick.finalAiScore?.rubric?.scores?.lineShopping ?? pick.scores?.scores?.lineShopping ?? null;
   if (rubric != null) return rubric;
   if (entry?.bookSpread != null) return scoreLineShopping(entry.bookSpread);
   return null;
@@ -328,7 +348,7 @@ function prescorePropRank(pick: ParsedPick): number {
     impliedProbPct: null,
     lineShoppingScore:
       pick.finalAiScore?.rubric?.scores?.lineShopping ??
-      pick.scores?.lineShopping ??
+      pick.scores?.scores?.lineShopping ??
       null,
     grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
     simHit: pick.finalAiScore?.simHit ?? null,
@@ -453,17 +473,20 @@ function buildScanResult(
     varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
+    correlationResult?: import("./coachCorrelation.ts").CoachCorrelationResult;
   },
 ): FullBoardScanResult {
-  const staged = buildStagedTicketFromScan(
-    scored,
-    opts.target,
-    opts.varietySeed,
-    {
-      ...opts.varietyContext,
-      ticketStyle: opts.ticketStyle,
-    },
-  );
+  const staged = opts.correlationResult
+    ? { picks: opts.correlationResult.picks, breakdown: opts.correlationResult.breakdown }
+    : buildStagedTicketFromScan(
+        scored,
+        opts.target,
+        opts.varietySeed,
+        {
+          ...opts.varietyContext,
+          ticketStyle: opts.ticketStyle,
+        },
+      );
   const picks = staged.picks;
   const breakdown = staged.breakdown;
 
@@ -497,7 +520,9 @@ function buildScanResult(
     scanComplete,
     requestedLegs: opts.target,
     requestId: opts.requestId,
+    correlationStatus: opts.correlationResult?.correlationStatus,
     manifest,
+    scoredPool: scored,
   };
 }
 
@@ -525,6 +550,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
 }): Promise<FullBoardScanResult> {
+  markCoachLiveBoardScanStarted();
+  try {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -532,6 +559,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ? opts.oddsGames.filter((g) => !opts.excludedSports!.has(g.sport))
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
+
+  recordCoachLiveBoardFeedCounts({
+    games: oddsGames.length,
+    props: poolBase.length,
+  });
 
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
@@ -545,7 +577,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ]);
   const mergedOdds = mergeOddsEntries(
     opts.realOdds,
-    ...(opts.liveOdds ?? []),
+    opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
 
@@ -563,6 +595,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 2;
   const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+  manifestRecorder.recordGamesLoaded(oddsGames.length);
 
   for (const [, lines] of gameEntries) {
     for (const entry of lines ?? []) {
@@ -639,10 +672,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
+  recordCoachLiveBoardFeedCounts({
+    games: oddsGames.length,
+    props: pool.length,
+  });
 
   for (const entry of pool) {
     manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
   }
+  let gameLineCount = 0;
+  for (const [, lines] of gameEntries) gameLineCount += lines?.length ?? 0;
+  manifestRecorder.recordCandidatesBeforeGrading(gameLineCount + pool.length);
+  recordCoachLiveBoardValidated(gameLineCount + pool.length);
 
   const propScoreOpts = {
     pool,
@@ -669,6 +710,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       },
       onPropBatch: (size, timedOut) => {
         manifestRecorder.recordPropSimBatch(size, timedOut);
+        if (timedOut) {
+          recordCoachLiveBoardSimulated(
+            manifestRecorder.propsSimulated + manifestRecorder.gameLinesSimulated,
+            { timeouts: 1 },
+          );
+        }
       },
       manifestRecorder,
     },
@@ -678,9 +725,29 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
+  recordCoachLiveBoardPriced(scored.length);
+  recordCoachLiveBoardEvScored(scored);
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+  recordCoachLiveBoardDeduped(collapsed.length);
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+  recordCoachLiveBoardSimulated(
+    manifestRecorder.propsSimulated + manifestRecorder.gameLinesSimulated,
+  );
+  recordCoachLiveBoardConfidencePassed(manifestRecorder.totalQualified);
+  const { fetchCoachCorrelationForBuild } = await import("./coachCorrelation.ts");
+  const correlationResult = await fetchCoachCorrelationForBuild({
+    requestId: opts.requestId ?? `scan-${opts.target}`,
+    target: opts.target,
+    scored: collapsed,
+    varietySeed: opts.varietySeed,
+    varietyContext: {
+      ...opts.varietyContext,
+      ticketStyle: opts.ticketStyle,
+    },
+    preview: false,
+  });
+  recordCoachLiveBoardCorrelationPassed(correlationResult.picks.length);
   const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
@@ -692,9 +759,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
+    correlationResult,
   });
+  recordCoachLiveBoardDelivered(result.picks.length);
   if (opts.onPartial) opts.onPartial(result);
+  markCoachLiveBoardScanEnded(result.scanComplete);
+  if (result.scanComplete) {
+    emitCoachLiveBoardSummary();
+  }
   return result;
+  } catch (e) {
+    markCoachLiveBoardScanEnded(false);
+    throw e;
+  }
 }
 
 export function shouldUseFullBoardScan(
@@ -737,8 +814,16 @@ export async function tryReachFullBoardScan(
   opts: Parameters<typeof buildTopLegsFromFullBoardScan>[0],
 ): Promise<FullBoardScanResult | null> {
   try {
-    return await buildTopLegsFromFullBoardScan(opts);
-  } catch {
+    const result = await buildTopLegsFromFullBoardScan(opts);
+    if (!result) {
+      recordCoachLiveBoardError("null-scan-result");
+      emitCoachLiveBoardSummary("null-scan-result");
+    }
+    return result;
+  } catch (e) {
+    recordCoachLiveBoardError(e instanceof Error ? e.message : String(e));
+    recordCoachLiveBoardExitReason("scan_exception");
+    emitCoachLiveBoardSummary("scan-exception");
     return null;
   }
 }
