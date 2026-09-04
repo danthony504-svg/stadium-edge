@@ -52,6 +52,7 @@ export function startCoachTicketRequest(opts: {
   ticketType?: string;
   riskType?: string;
   excludedSports?: readonly string[];
+  mixConstraints?: CoachTicketMixConstraints;
 }): CoachTicketRequestContext {
   const previousRequestId = lastRequestId;
   const cacheKey = buildCoachTicketCacheKey(opts);
