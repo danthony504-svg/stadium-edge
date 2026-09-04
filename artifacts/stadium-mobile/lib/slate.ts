@@ -515,6 +515,27 @@ export function parseRequestedLegCount(text: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+export type CoachTicketMixConstraints = {
+  minPlayerProps: number;
+  minGameLines: number;
+};
+
+/** Parse explicit composition floors; unspecified groups remain unrestricted. */
+export function parseCoachTicketMixConstraints(
+  text: string,
+  legTarget: number,
+): CoachTicketMixConstraints {
+  const valueFor = (pattern: RegExp) => {
+    const match = String(text ?? "").match(pattern);
+    return match ? Number.parseInt(match[1]!, 10) || 0 : 0;
+  };
+  const minPlayerProps = valueFor(/\bat\s+least\s+(\d+)\s+(?:player\s+)?props?\b/i);
+  const minGameLines = valueFor(/\bat\s+least\s+(\d+)\s+game\s+lines?\b/i);
+  const props = Math.max(0, Math.min(minPlayerProps, legTarget));
+  const games = Math.max(0, Math.min(minGameLines, Math.max(0, legTarget - props)));
+  return { minPlayerProps: props, minGameLines: games };
+}
+
 /**
  * Leg target for compact parlay builds when the user omits a count ("build a
  * parlay", "player props only parlay"). Without this, those asks fall through

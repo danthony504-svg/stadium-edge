@@ -217,6 +217,7 @@ import {
   filterOddsForSlateDay,
   filterPicksForSlateDay,
   mentionsPropIntent,
+  parseCoachTicketMixConstraints,
   slateDayFromThread,
   slateOddsLabel,
   tonightExhaustedNote,
@@ -2411,6 +2412,7 @@ export default function CoachScreen() {
           requestedLegs: earlyLegTarget,
           sport: slateSport,
           varietySeed,
+          mixConstraints: parseCoachTicketMixConstraints(trimmed, earlyLegTarget),
         });
         registerActiveCoachRequest(varietySeed, sendGen);
         startCoachRequestTrace(varietySeed);
@@ -2599,11 +2601,13 @@ export default function CoachScreen() {
         const requestedLegs = requestedLegCount(trimmed);
         const buildLegs = effectiveBuildLegCount(trimmed);
         const legTarget = requestedLegs > 0 ? requestedLegs : buildLegs;
+        const mixConstraints = parseCoachTicketMixConstraints(trimmed, legTarget);
         activeRequestLegTargetRef.current = legTarget;
         if (coachRequestContextRef.current) {
           coachRequestContextRef.current = {
             ...coachRequestContextRef.current,
             requestedLegs: legTarget,
+            mixConstraints,
           };
         } else if (legTarget >= 3) {
           coachRequestContextRef.current = startCoachTicketRequest({
@@ -2612,6 +2616,7 @@ export default function CoachScreen() {
             requestedLegs: legTarget,
             sport: slateSport,
             varietySeed: varietySeedRef.current,
+            mixConstraints,
           });
           registerActiveCoachRequest(
             coachRequestContextRef.current.requestId,
@@ -2995,6 +3000,7 @@ export default function CoachScreen() {
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
             requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
             ticketStyle: coachTicketStyle,
+            mixConstraints: coachRequestContextRef.current?.mixConstraints,
           };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -3563,6 +3569,7 @@ export default function CoachScreen() {
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+                mixConstraints: coachRequestContextRef.current?.mixConstraints,
               }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
             ]);
@@ -4025,6 +4032,7 @@ export default function CoachScreen() {
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
               requestId: inlineScanRequestId ?? varietySeed,
+              mixConstraints: coachRequestContextRef.current?.mixConstraints,
             }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
           ]);
