@@ -167,7 +167,7 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
-import { prefetchAndMaybeApplyOta } from "@/lib/otaUpdater";
+import { prefetchOtaInBackground } from "@/lib/otaUpdater";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
@@ -5563,7 +5563,7 @@ export default function CoachScreen() {
           startSlatePreAnalysis("coach-focus");
         })();
         if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
-          void prefetchAndMaybeApplyOta(true);
+          void prefetchOtaInBackground().catch(() => {});
         }
       }
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
