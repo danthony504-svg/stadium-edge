@@ -1401,6 +1401,8 @@ export default function CoachScreen() {
       partial?: FullBoardScanResult | null;
       terminal?: "completed" | "empty" | "failed";
       pinScroll?: boolean;
+      /** Terminalize the visible request but keep non-mutating scan work alive. */
+      continueBackgroundScan?: boolean;
     }) => {
       const ctx = coachRequestContextRef.current;
       const sendGen = sendGenerationRef.current;
@@ -1412,8 +1414,12 @@ export default function CoachScreen() {
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
       const terminal = opts.terminal ?? (picks.length > 0 ? "completed" : "empty");
-      // Stop remaining board scan / prop_sim work for this requestId.
-      abortCoachBoardScan(requestId, "request_terminal");
+      // A completed exhaustive scan has no useful work left. An early visible
+      // terminal keeps the scan alive for diagnostics/enrichment without
+      // allowing it to mutate this request after completion.
+      if (!opts.continueBackgroundScan) {
+        abortCoachBoardScan(requestId, "request_terminal");
+      }
       if (terminal === "failed") {
         abortRef.current?.abort();
         simAbortRef.current?.abort();
@@ -1459,6 +1465,10 @@ export default function CoachScreen() {
           }
           clearBuildStallWatchdog();
           setCoachBuildBusy(false);
+          recordCoachRequestTrace("ui_loading_flags_cleared", {
+            requestId,
+            returnedPickCount: picks.length,
+          });
           const patched = patchAssistantMessageIfChanged(setMessages, {
             picks,
             content: "",
@@ -1479,6 +1489,16 @@ export default function CoachScreen() {
         error: committed ? undefined : "terminal_state_rejected",
       });
       if (committed) {
+        recordCoachRequestTrace("final_ticket_committed", {
+          requestId,
+          returnedPickCount: picks.length,
+        });
+        if (opts.continueBackgroundScan) {
+          recordCoachRequestTrace("background_scan_continuing", {
+            requestId,
+            returnedPickCount: picks.length,
+          });
+        }
         recordCoachRequestTrace("request_terminal", {
           requestId,
           returnedPickCount: picks.length,
@@ -1500,6 +1520,7 @@ export default function CoachScreen() {
         legNote?: string;
         pinScroll?: boolean;
         allowQualifiedPreviewTerminal?: boolean;
+        continueBackgroundScan?: boolean;
       },
     ) => {
       const startedAt = Date.now();
@@ -1633,6 +1654,7 @@ export default function CoachScreen() {
         legTarget,
         pinScroll: opts?.pinScroll,
         terminal: ticket.length > 0 ? "completed" : "empty",
+        continueBackgroundScan: terminalPreview,
       });
       traceFinalStage("terminal_state_commit_finished", { committed, ticketCount: ticket.length });
       if (committed) {
@@ -1924,6 +1946,12 @@ export default function CoachScreen() {
         (requestId && isCoachBoardScanAborted(requestId)) ||
         coachRequestWasCompleted(sendGenerationRef.current, requestId)
       ) {
+        recordCoachRequestTrace("late_partial_ignored_after_terminal", {
+          requestId,
+          candidateCount: partial.totalScanned,
+          qualifiedCount: partial.totalQualified,
+          returnedPickCount: partial.picks.length,
+        });
         return;
       }
       if (
@@ -1976,6 +2004,20 @@ export default function CoachScreen() {
         return;
       }
       if (partial.picks.length) {
+        if (legTarget > 0 && partial.picks.length >= legTarget) {
+          recordCoachRequestTrace("requested_leg_count_reached", {
+            requestId,
+            candidateCount: partial.totalScanned,
+            qualifiedCount: partial.totalQualified,
+            returnedPickCount: partial.picks.length,
+          });
+          tryCommitCoachScanResult(partial, {
+            legTarget,
+            allowQualifiedPreviewTerminal: true,
+            continueBackgroundScan: true,
+          });
+          return;
+        }
         const previewStartedAt = Date.now();
         // Incomplete scans may flash qualified legs but must not terminal-commit —
         // prop waves can reach leg target before game lines finish sim/ranking.

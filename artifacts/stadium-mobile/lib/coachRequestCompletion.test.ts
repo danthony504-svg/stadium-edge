@@ -37,6 +37,35 @@ test("completeCoachRequest is idempotent per request", () => {
   assert.equal(commits, 1);
 });
 
+test("six committed legs terminalize immediately while later background callbacks are ignored", () => {
+  resetCoachRequestCompletion();
+  registerActiveCoachRequest("req-six", 6);
+  const picks = Array.from({ length: 6 }, (_, index) => ({
+    ...stubPick,
+    pick: `Pick ${index + 1}`,
+  }));
+  let commits = 0;
+  assert.equal(
+    completeCoachRequest(
+      { requestId: "req-six", sendGeneration: 6, terminal: "completed", picks },
+      () => { commits += 1; },
+    ),
+    true,
+  );
+  assert.equal(getCoachRequestPhase(), "completed");
+  assert.equal(coachRequestWasCompleted(6, "req-six"), true);
+  // A late callback cannot re-open or overwrite the visible terminal result.
+  assert.equal(
+    completeCoachRequest(
+      { requestId: "req-six", sendGeneration: 6, terminal: "completed", picks: [...picks] },
+      () => { commits += 1; },
+    ),
+    true,
+  );
+  assert.equal(commits, 1);
+  assert.equal(getLatestCoachCompleteResult("req-six")?.picks.length, 6);
+});
+
 test("stale requestId cannot overwrite active request", () => {
   resetCoachRequestCompletion();
   registerActiveCoachRequest("req-new", 2);
