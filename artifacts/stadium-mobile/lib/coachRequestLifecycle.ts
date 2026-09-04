@@ -5,6 +5,7 @@ import { parlayLegKey, rememberParlayBuild, type CoachParlayVarietyContext } fro
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import type { CoachTicketMixConstraints } from "./slate.ts";
 
 export type CoachTicketRequestContext = {
   requestId: string;
@@ -14,6 +15,7 @@ export type CoachTicketRequestContext = {
   sport: string | null;
   varietySeed: string;
   cacheKey: string;
+  mixConstraints: CoachTicketMixConstraints;
 };
 
 let lastRequestId = "";
@@ -28,6 +30,7 @@ export function buildCoachTicketCacheKey(opts: {
   riskType?: string;
   varietySeed: string;
   excludedSports?: readonly string[];
+  mixConstraints?: CoachTicketMixConstraints;
 }): string {
   const sports = (opts.excludedSports ?? []).slice().sort().join(",") || "all";
   return [
@@ -72,6 +75,7 @@ export function startCoachTicketRequest(opts: {
     sport: opts.sport ?? null,
     varietySeed: opts.varietySeed,
     cacheKey,
+    mixConstraints: opts.mixConstraints ?? { minPlayerProps: 0, minGameLines: 0 },
   };
 }
 

@@ -142,6 +142,55 @@ test("market-agnostic ticket gives every qualified family a selection opportunit
   assert.deepEqual(familyVariety.skippedFamilies, []);
 });
 
+test("explicit mix reserves qualified player-prop and game-line slots", () => {
+  const scored: BoardScoredLeg[] = [
+    propLeg("Prop One", "A @ B", "Points", 15, 100),
+    propLeg("Prop Two", "C @ D", "Rebounds", 14, 99),
+    ...[0, 1, 2, 3].map((index) => mainGame(`G${index} @ H${index}`, 98 - index)),
+  ];
+  const { picks, familyVariety } = buildIndependentCoachTicket(scored, 6, {
+    varietySeed: "explicit-two-and-two",
+    marketAgnostic: true,
+    mixConstraints: { minPlayerProps: 2, minGameLines: 2 },
+  });
+  assert.equal(picks.filter((pick) => pick.isProp).length >= 2, true);
+  assert.equal(picks.filter((pick) => !pick.isProp).length >= 2, true);
+  assert.equal(familyVariety.composition?.compositionShortfallReason, null);
+});
+
+test("explicit mix reports an honest player-prop shortfall without unqualified filler", () => {
+  const scored: BoardScoredLeg[] = [
+    propLeg("Only Prop", "A @ B", "Points", 15, 100),
+    ...[0, 1, 2, 3, 4].map((index) => mainGame(`G${index} @ H${index}`, 98 - index)),
+  ];
+  const { picks, familyVariety } = buildIndependentCoachTicket(scored, 6, {
+    varietySeed: "prop-shortfall",
+    marketAgnostic: true,
+    mixConstraints: { minPlayerProps: 2, minGameLines: 2 },
+  });
+  assert.equal(picks.filter((pick) => pick.isProp).length, 1);
+  assert.match(familyVariety.composition?.compositionShortfallReason ?? "", /only 1 qualified/i);
+});
+
+test("explicit mix reports an honest game-line shortfall without altering a normal ticket", () => {
+  const scored: BoardScoredLeg[] = [
+    ...[0, 1, 2, 3, 4].map((index) => propLeg(`Prop ${index}`, `P${index} @ Q${index}`, "Points", 15, 100 - index)),
+    mainGame("Only Game @ Opponent", 90),
+  ];
+  const constrained = buildIndependentCoachTicket(scored, 6, {
+    varietySeed: "game-shortfall",
+    marketAgnostic: true,
+    mixConstraints: { minPlayerProps: 2, minGameLines: 2 },
+  });
+  const unconstrained = buildIndependentCoachTicket(scored, 6, {
+    varietySeed: "game-shortfall",
+    marketAgnostic: true,
+  });
+  assert.equal(constrained.picks.filter((pick) => !pick.isProp).length, 1);
+  assert.match(constrained.familyVariety.composition?.compositionShortfallReason ?? "", /only 1 qualified/i);
+  assert.equal(unconstrained.familyVariety.composition?.requestedMinGameLines, 0);
+});
+
 test("6-leg and 15-leg tickets are built independently — not a prefix slice", () => {
   const scored: BoardScoredLeg[] = [];
   const players = [

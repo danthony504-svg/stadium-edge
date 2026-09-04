@@ -59,6 +59,7 @@ import { explainBoardLegQualification } from "./boardLegQualification.ts";
 import { isYesNoPropMarket, simulationLineForProp } from "./propYesNoMarkets.ts";
 import { recordCoachRequestTrace } from "./coachRequestTrace.ts";
 import { shouldEmitPartialUpdate } from "./coachPartialUi.ts";
+import type { CoachTicketMixConstraints } from "./slate.ts";
 import {
   auditNonPropQualificationFailures,
   createCoachMarketPipelineAudit,
@@ -554,6 +555,7 @@ function buildScanResult(
     varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
+    mixConstraints?: CoachTicketMixConstraints;
   },
 ): FullBoardScanResult {
   const staged = buildStagedTicketFromScan(
@@ -563,6 +565,7 @@ function buildScanResult(
     {
       ...opts.varietyContext,
       ticketStyle: opts.ticketStyle,
+      mixConstraints: opts.mixConstraints,
     },
   );
   const picks = staged.picks;
@@ -628,6 +631,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   onPartial?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
   varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+  mixConstraints?: CoachTicketMixConstraints;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
 }): Promise<FullBoardScanResult> {
@@ -983,6 +987,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
+    mixConstraints: opts.mixConstraints,
   });
   if (result.familyVariety) pipelineAudit.recordTicketVariety(result.familyVariety);
   pipelineAudit.recordFinalSelected(result.picks);

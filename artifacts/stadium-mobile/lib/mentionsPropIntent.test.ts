@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks, preferBettableQualifiedPicks } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, parseCoachTicketMixConstraints, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks, preferBettableQualifiedPicks } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -35,6 +35,20 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("6 leg strikeout parlay"), true);
   assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);
   assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
+});
+
+test("parses explicit player-prop and game-line minimums", () => {
+  assert.deepEqual(
+    parseCoachTicketMixConstraints(
+      "Give me a 6-leg parlay with at least 2 player props and at least 2 game lines",
+      6,
+    ),
+    { minPlayerProps: 2, minGameLines: 2 },
+  );
+  assert.deepEqual(parseCoachTicketMixConstraints("Build a 6-leg parlay", 6), {
+    minPlayerProps: 0,
+    minGameLines: 0,
+  });
 });
 
 test("effectiveBuildLegCount defaults bare parlay asks onto the compact path", () => {

@@ -25,6 +25,7 @@ import {
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { coachMarketFamily, type CoachMarketFamily } from "./coachMarketDiagnostics.ts";
+import type { CoachTicketMixConstraints } from "./slate.ts";
 import {
   absoluteFloorForStyle,
   type CoachTicketStyle,
@@ -55,6 +56,8 @@ export type CoachTicketBuildOpts = {
   ticketStyle?: CoachTicketStyle;
   /** Rank all market categories together; used by the final Coach board scan. */
   marketAgnostic?: boolean;
+  /** Explicit user-requested floors, applied only to already-qualified legs. */
+  mixConstraints?: CoachTicketMixConstraints;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -74,6 +77,15 @@ export type TicketFamilyVarietyAudit = {
     qualifiedCount: number;
     reason: string;
   }>;
+  composition?: {
+    requestedMinPlayerProps: number;
+    requestedMinGameLines: number;
+    qualifiedPlayerProps: number;
+    qualifiedGameLines: number;
+    selectedPlayerProps: number;
+    selectedGameLines: number;
+    compositionShortfallReason: string | null;
+  };
 };
 
 function emptyFamilyCounts(): Record<CoachMarketFamily, number> {
@@ -97,6 +109,39 @@ function familyCounts(
     counts[coachMarketFamily(pick)]++;
   }
   return counts;
+}
+
+function compositionAudit(
+  constraints: CoachTicketMixConstraints | undefined,
+  qualifying: readonly BoardScoredLeg[],
+  picks: readonly ParsedPick[],
+): TicketFamilyVarietyAudit["composition"] {
+  const requestedMinPlayerProps = constraints?.minPlayerProps ?? 0;
+  const requestedMinGameLines = constraints?.minGameLines ?? 0;
+  const qualifiedPlayerProps = qualifying.filter((leg) => leg.pick.isProp).length;
+  const qualifiedGameLines = qualifying.length - qualifiedPlayerProps;
+  const selectedPlayerProps = picks.filter((pick) => pick.isProp).length;
+  const selectedGameLines = picks.length - selectedPlayerProps;
+  const reasons: string[] = [];
+  if (selectedPlayerProps < requestedMinPlayerProps) {
+    reasons.push(
+      `Requested at least ${requestedMinPlayerProps} player props; only ${qualifiedPlayerProps} qualified`,
+    );
+  }
+  if (selectedGameLines < requestedMinGameLines) {
+    reasons.push(
+      `Requested at least ${requestedMinGameLines} game lines; only ${qualifiedGameLines} qualified`,
+    );
+  }
+  return {
+    requestedMinPlayerProps,
+    requestedMinGameLines,
+    qualifiedPlayerProps,
+    qualifiedGameLines,
+    selectedPlayerProps,
+    selectedGameLines,
+    compositionShortfallReason: reasons.length ? reasons.join("; ") : null,
+  };
 }
 
 type AssemblyConfig = {
@@ -533,11 +578,28 @@ function assembleBalancedDiverseTicket(
   config: AssemblyConfig,
   ticketStyle: CoachTicketStyle = "balanced",
   marketAgnostic = false,
+  mixConstraints?: CoachTicketMixConstraints,
 ): { picks: ParsedPick[]; familyVariety: TicketFamilyVarietyAudit } {
   if (marketAgnostic) {
     const qualifiedByFamily = familyCounts(qualifying);
     const selected: ParsedPick[] = [];
     const used = new Set<string>();
+    // Explicit composition floors reserve qualified candidates first. Selection
+    // inside each group remains correlation-aware and rank-based.
+    for (const [want, pool] of [
+      [mixConstraints?.minPlayerProps ?? 0, qualifying.filter((leg) => leg.pick.isProp)],
+      [mixConstraints?.minGameLines ?? 0, qualifying.filter((leg) => !leg.pick.isProp)],
+    ] as const) {
+      if (selected.length >= target || want <= 0) continue;
+      selected.push(...pickDiverseLegsFromPool(
+        pool,
+        selected,
+        Math.min(want, target - selected.length),
+        target,
+        used,
+        config,
+      ));
+    }
     const families = (Object.keys(qualifiedByFamily) as CoachMarketFamily[])
       .filter((family) => qualifiedByFamily[family] > 0)
       .sort((a, b) => {
@@ -590,6 +652,7 @@ function assembleBalancedDiverseTicket(
               ? `Requested ${target} legs; higher-ranked qualified families filled the family-coverage slots`
               : "No candidate from this qualified family survived correlation-aware selection",
           })),
+        composition: compositionAudit(mixConstraints, qualifying, picks),
       },
     };
   }
@@ -616,6 +679,7 @@ function assembleBalancedDiverseTicket(
       qualifiedByFamily: familyCounts(qualifying),
       selectedByFamily: familyCounts(picks),
       skippedFamilies: [],
+      composition: compositionAudit(mixConstraints, qualifying, picks),
     },
   };
 }
@@ -822,6 +886,7 @@ function generateTicketCandidates(
       config,
       ticketStyle,
       opts.marketAgnostic,
+      opts.mixConstraints,
     );
     const picks = assembled.picks;
     if (!picks.length) continue;
@@ -996,6 +1061,7 @@ export function buildIndependentCoachTicket(
     qualifiedByFamily: familyCounts(qualifying),
     selectedByFamily: emptyFamilyCounts(),
     skippedFamilies: [],
+    composition: compositionAudit(opts.mixConstraints, qualifying, []),
   };
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
@@ -1007,6 +1073,7 @@ export function buildIndependentCoachTicket(
       qualifiedByFamily: familyVariety.qualifiedByFamily,
       selectedByFamily: familyVariety.selectedByFamily,
       skippedFamilies: familyVariety.skippedFamilies,
+      composition: familyVariety.composition,
     },
   });
   return {

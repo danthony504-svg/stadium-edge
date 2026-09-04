@@ -14,6 +14,7 @@ import {
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { countsByMarketFamily } from "./coachMarketDiagnostics.ts";
+import type { CoachTicketMixConstraints } from "./slate.ts";
 import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
@@ -358,6 +359,7 @@ export function buildBalancedStagedTicketFromScan(
 
 export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
+  mixConstraints?: CoachTicketMixConstraints;
 };
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
@@ -377,6 +379,7 @@ export function buildStagedTicketFromScan(
       varietySeed: varietySeed ?? "market-agnostic-board-rank",
       ticketStyle,
       marketAgnostic: true,
+      mixConstraints: varietyContext?.mixConstraints,
       ...varietyContext,
     } satisfies CoachTicketBuildOpts);
   }
