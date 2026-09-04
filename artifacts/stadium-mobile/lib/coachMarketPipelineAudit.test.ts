@@ -61,6 +61,29 @@ test("pipeline audit preserves simulation and qualification funnel evidence", ()
   assert.equal(snap.gameSimulations?.[0]?.homeScoreDrawCount, 10_000);
 });
 
+test("pipeline audit retains final family-variety counts and skip reasons", () => {
+  const audit = createCoachMarketPipelineAudit("req-variety");
+  audit.recordTicketVariety({
+    qualifiedByFamily: {
+      moneyline: 2, spread: 1, gameTotal: 1, teamTotal: 0,
+      playerOu: 12, milestone: 0, alternate: 1,
+    },
+    selectedByFamily: {
+      moneyline: 1, spread: 1, gameTotal: 1, teamTotal: 0,
+      playerOu: 2, milestone: 0, alternate: 0,
+    },
+    skippedFamilies: [{
+      marketFamily: "alternate",
+      qualifiedCount: 1,
+      reason: "Requested 5 legs; higher-ranked qualified families filled the family-coverage slots",
+    }],
+  });
+  const snap = audit.snapshot();
+  assert.equal(snap.ticketVariety?.qualifiedByFamily.playerOu, 12);
+  assert.equal(snap.ticketVariety?.selectedByFamily.moneyline, 1);
+  assert.equal(snap.ticketVariety?.skippedFamilies[0]?.marketFamily, "alternate");
+});
+
 test("pipeline audit records non-prop rejection reasons across sports", () => {
   const audit = createCoachMarketPipelineAudit("req-football");
   audit.recordNonPropCandidate(

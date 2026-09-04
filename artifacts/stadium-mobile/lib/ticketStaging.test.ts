@@ -76,7 +76,7 @@ test("tagTicketRoles labels period moneylines as main — not alt", () => {
   assert.ok(tagged.every((p) => p.ticketRole === "main"));
 });
 
-test("buildStagedTicketFromScan selects the highest-ranked mixed markets without prop quotas", () => {
+test("buildStagedTicketFromScan gives qualified mixed market families coverage", () => {
   const propMainScore = { ...mainScore };
   const scored: BoardScoredLeg[] = [
     leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
@@ -134,8 +134,8 @@ test("buildStagedTicketFromScan selects the highest-ranked mixed markets without
     [
       "B -3.5",
       "Player Over 24.5 Points",
-      "Star Over 10.5 Rebounds",
       "Over 8.5",
+      "E +2.5",
     ],
   );
   assert.ok(picks.some((p) => p.isProp), "includes a player O/U when it earns the rank");

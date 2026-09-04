@@ -24,6 +24,7 @@ import {
 } from "./parlayVarietyMemory.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
+import { coachMarketFamily, type CoachMarketFamily } from "./coachMarketDiagnostics.ts";
 import {
   absoluteFloorForStyle,
   type CoachTicketStyle,
@@ -62,7 +63,41 @@ type TicketCandidate = {
   qualityScore: number;
   diversityScore: number;
   varietyPenalty: number;
+  familyVariety: TicketFamilyVarietyAudit;
 };
+
+export type TicketFamilyVarietyAudit = {
+  qualifiedByFamily: Record<CoachMarketFamily, number>;
+  selectedByFamily: Record<CoachMarketFamily, number>;
+  skippedFamilies: Array<{
+    marketFamily: CoachMarketFamily;
+    qualifiedCount: number;
+    reason: string;
+  }>;
+};
+
+function emptyFamilyCounts(): Record<CoachMarketFamily, number> {
+  return {
+    moneyline: 0,
+    spread: 0,
+    gameTotal: 0,
+    teamTotal: 0,
+    playerOu: 0,
+    milestone: 0,
+    alternate: 0,
+  };
+}
+
+function familyCounts(
+  rows: readonly BoardScoredLeg[] | readonly ParsedPick[],
+): Record<CoachMarketFamily, number> {
+  const counts = emptyFamilyCounts();
+  for (const row of rows) {
+    const pick = "rankScore" in row ? row.pick : row;
+    counts[coachMarketFamily(pick)]++;
+  }
+  return counts;
+}
 
 type AssemblyConfig = {
   seed: string;
@@ -498,17 +533,65 @@ function assembleBalancedDiverseTicket(
   config: AssemblyConfig,
   ticketStyle: CoachTicketStyle = "balanced",
   marketAgnostic = false,
-): ParsedPick[] {
+): { picks: ParsedPick[]; familyVariety: TicketFamilyVarietyAudit } {
   if (marketAgnostic) {
-    const ticket = pickDiverseLegsFromPool(
-      qualifying,
-      [],
-      target,
-      target,
-      new Set<string>(),
-      config,
-    );
-    return tieredBackfillStagedTicket(ticket, target, allScored, ticketStyle, config.seed);
+    const qualifiedByFamily = familyCounts(qualifying);
+    const selected: ParsedPick[] = [];
+    const used = new Set<string>();
+    const families = (Object.keys(qualifiedByFamily) as CoachMarketFamily[])
+      .filter((family) => qualifiedByFamily[family] > 0)
+      .sort((a, b) => {
+        const best = (family: CoachMarketFamily) =>
+          Math.max(...qualifying
+            .filter((leg) => coachMarketFamily(leg.pick) === family)
+            .map((leg) => leg.rankScore));
+        return best(b) - best(a);
+      });
+
+    // Each family gets one correlation-aware opportunity before rank-based
+    // backfill. All candidates have already passed the existing quality gates.
+    for (const family of families) {
+      if (selected.length >= target) break;
+      selected.push(...pickDiverseLegsFromPool(
+        qualifying.filter((leg) => coachMarketFamily(leg.pick) === family),
+        selected,
+        1,
+        target,
+        used,
+        config,
+      ));
+    }
+    const ticket = selected.length >= target
+      ? selected
+      : [...selected, ...pickDiverseLegsFromPool(
+          qualifying,
+          selected,
+          target - selected.length,
+          target,
+          used,
+          config,
+        )];
+    const cappedTicket = capThinStatMarketsOnTicket(ticket, target);
+    const picks = cappedTicket.length < target
+      ? tieredBackfillStagedTicket(cappedTicket, target, allScored, ticketStyle, config.seed)
+      : cappedTicket;
+    const selectedByFamily = familyCounts(picks);
+    return {
+      picks,
+      familyVariety: {
+        qualifiedByFamily,
+        selectedByFamily,
+        skippedFamilies: families
+          .filter((family) => selectedByFamily[family] === 0)
+          .map((marketFamily) => ({
+            marketFamily,
+            qualifiedCount: qualifiedByFamily[marketFamily],
+            reason: families.indexOf(marketFamily) >= target
+              ? `Requested ${target} legs; higher-ranked qualified families filled the family-coverage slots`
+              : "No candidate from this qualified family survived correlation-aware selection",
+          })),
+      },
+    };
   }
   const pools = partitionScoredLegsByCategory(qualifying);
   const rotatedPools: Record<BoardMarketCategory, BoardScoredLeg[]> = {
@@ -526,7 +609,15 @@ function assembleBalancedDiverseTicket(
   }
 
   const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
-  return tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
+  const picks = tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
+  return {
+    picks,
+    familyVariety: {
+      qualifiedByFamily: familyCounts(qualifying),
+      selectedByFamily: familyCounts(picks),
+      skippedFamilies: [],
+    },
+  };
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
@@ -657,7 +748,12 @@ function referenceGreedyLegKeys(
     poolRotate: 0,
     lineShoppingBias: 0.5,
   };
-  const picks = assembleBalancedDiverseTicket(qualifying, qualifying, largerTarget, config);
+  const { picks } = assembleBalancedDiverseTicket(
+    qualifying,
+    qualifying,
+    largerTarget,
+    config,
+  );
   return picks.map((p) => parlayLegKey(p));
 }
 
@@ -719,7 +815,7 @@ function generateTicketCandidates(
       recentPlayerCounts: opts.recentPlayerCounts,
       lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
     };
-    const picks = assembleBalancedDiverseTicket(
+    const assembled = assembleBalancedDiverseTicket(
       qualifying,
       scored,
       target,
@@ -727,6 +823,7 @@ function generateTicketCandidates(
       ticketStyle,
       opts.marketAgnostic,
     );
+    const picks = assembled.picks;
     if (!picks.length) continue;
     const legKeys = picks.map((p) => parlayLegKey(p));
     const candidate: TicketCandidate = {
@@ -735,6 +832,7 @@ function generateTicketCandidates(
       qualityScore: ticketQualityScore(picks, qualifying),
       diversityScore: ticketDiversityScore(picks),
       varietyPenalty: 0,
+      familyVariety: assembled.familyVariety,
     };
     candidate.varietyPenalty =
       candidateVarietyPenalty(candidate, qualifying, opts) +
@@ -868,13 +966,24 @@ export function buildIndependentCoachTicket(
   scored: BoardScoredLeg[],
   target: number,
   opts: CoachTicketBuildOpts,
-): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+): {
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  familyVariety: TicketFamilyVarietyAudit;
+} {
   const ticketStyle = opts.ticketStyle ?? "balanced";
   const qualifying = qualifyingScoredLegs(scored).filter(
     (leg) =>
       ticketStyle !== "safe" ||
       poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, absoluteFloorForStyle(ticketStyle)) != null,
   );
+  traceCoachTicket("combinator-candidates", {
+    requestedLegs: target,
+    extra: {
+      varietyStage: "qualified_before_family_selection",
+      qualifiedByFamily: familyCounts(qualifying),
+    },
+  });
   const candidates = generateTicketCandidates(scored, target, opts, qualifying);
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
@@ -883,16 +992,27 @@ export function buildIndependentCoachTicket(
   });
   const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
   const picks = chosen?.picks ?? [];
+  const familyVariety = chosen?.familyVariety ?? {
+    qualifiedByFamily: familyCounts(qualifying),
+    selectedByFamily: emptyFamilyCounts(),
+    skippedFamilies: [],
+  };
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
     candidateId: chosen
       ? `score:${candidateTotalScore(chosen).toFixed(1)}`
       : "none",
     pickIds: picks,
+    extra: {
+      qualifiedByFamily: familyVariety.qualifiedByFamily,
+      selectedByFamily: familyVariety.selectedByFamily,
+      skippedFamilies: familyVariety.skippedFamilies,
+    },
   });
   return {
     picks,
     breakdown: stagingBreakdown(picks, qualifying),
+    familyVariety,
   };
 }
 

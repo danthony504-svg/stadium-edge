@@ -13,6 +13,7 @@ import {
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
+import { countsByMarketFamily } from "./coachMarketDiagnostics.ts";
 import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
@@ -20,6 +21,7 @@ import {
   buildIndependentCoachTicket,
   tieredBackfillStagedTicket,
   type CoachTicketBuildOpts,
+  type TicketFamilyVarietyAudit,
 } from "./coachTicketCombinations.ts";
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
@@ -311,7 +313,11 @@ export function buildBalancedStagedTicketFromScan(
   target: number,
   varietySeed?: string,
   ticketStyle: CoachTicketStyle = "balanced",
-): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+): {
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  familyVariety: TicketFamilyVarietyAudit;
+} {
   const qualifying = qualifyingScoredLegs(scored);
   const pools = partitionScoredLegsByCategory(qualifying);
   const slots = balancedMixSlots(target);
@@ -342,6 +348,11 @@ export function buildBalancedStagedTicketFromScan(
       mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
       altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
     },
+    familyVariety: {
+      qualifiedByFamily: countsByMarketFamily(qualifying.map((leg) => leg.pick)),
+      selectedByFamily: countsByMarketFamily(finalPicks),
+      skippedFamilies: [],
+    },
   };
 }
 
@@ -355,7 +366,11 @@ export function buildStagedTicketFromScan(
   target: number,
   varietySeed?: string,
   varietyContext?: CoachTicketStagingContext,
-): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+): {
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  familyVariety: TicketFamilyVarietyAudit;
+} {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
   if (target >= 3) {
     return buildIndependentCoachTicket(scored, target, {
@@ -382,6 +397,11 @@ export function buildStagedTicketFromScan(
         altQualified: alts.length,
         mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
         altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
+      },
+      familyVariety: {
+        qualifiedByFamily: countsByMarketFamily(qualifying.map((leg) => leg.pick)),
+        selectedByFamily: countsByMarketFamily(finalPicks),
+        skippedFamilies: [],
       },
     };
   }
@@ -446,6 +466,11 @@ export function buildStagedTicketFromScan(
       altQualified: alts.length,
       mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
       altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
+    },
+    familyVariety: {
+      qualifiedByFamily: countsByMarketFamily([...mains, ...alts].map((leg) => leg.pick)),
+      selectedByFamily: countsByMarketFamily(finalPicks),
+      skippedFamilies: [],
     },
   };
 }

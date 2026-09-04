@@ -110,6 +110,38 @@ test("buildIndependentCoachTicket avoids repeating the same player when near-equ
   );
 });
 
+test("market-agnostic ticket gives every qualified family a selection opportunity", () => {
+  const gameLeg = (market: string, pick: string, rank: number): BoardScoredLeg => ({
+    ...mainGame(`${market} Away @ Home`, rank),
+    pick: {
+      ...mainGame(`${market} Away @ Home`, rank).pick,
+      market,
+      pick,
+    },
+  });
+  const scored: BoardScoredLeg[] = [
+    propLeg("Prop Star", "Props Away @ Home", "Points", 18, 100),
+    gameLeg("Moneyline", "Away ML", 99),
+    gameLeg("Spread", "Away +1.5", 98),
+    gameLeg("Game Total", "Over 8.5", 97),
+    gameLeg("Team Total", "Away Over 3.5", 96),
+    gameLeg("Alt Total", "Under 9.5", 95),
+  ];
+
+  const { picks, familyVariety } = buildIndependentCoachTicket(scored, 6, {
+    varietySeed: "family-coverage",
+    marketAgnostic: true,
+  });
+
+  assert.equal(picks.length, 6);
+  assert.deepEqual(familyVariety.qualifiedByFamily, {
+    moneyline: 1, spread: 1, gameTotal: 1, teamTotal: 1,
+    playerOu: 0, milestone: 1, alternate: 1,
+  });
+  assert.deepEqual(familyVariety.selectedByFamily, familyVariety.qualifiedByFamily);
+  assert.deepEqual(familyVariety.skippedFamilies, []);
+});
+
 test("6-leg and 15-leg tickets are built independently — not a prefix slice", () => {
   const scored: BoardScoredLeg[] = [];
   const players = [
