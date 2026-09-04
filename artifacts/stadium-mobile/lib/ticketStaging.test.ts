@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildStagedTicketFromScan, capThinStatMarketsOnTicket, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
+import {
+  buildStagedTicketFromScan,
+  capThinStatMarketsOnTicket,
+  tagTicketRoles,
+  ticketDiversificationScore,
+  type BoardScoredLeg,
+} from "./ticketStaging.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function leg(
@@ -342,4 +348,17 @@ test("buildStagedTicketFromScan example: 10 main + 5 alt for 15-leg ask", () => 
   assert.equal(picks.length, 15);
   assert.equal(breakdown.mainOnTicket, 10);
   assert.equal(breakdown.altOnTicket, 5);
+});
+
+test("ticketDiversificationScore penalizes duplicate player and same-game exposure", () => {
+  const independent = [
+    { game: "A @ B", market: "Hits", pick: "Alpha Over 0.5 Hits", odds: -110, isProp: true, player: "Alpha" },
+    { game: "C @ D", market: "Hits", pick: "Bravo Over 0.5 Hits", odds: -110, isProp: true, player: "Bravo" },
+  ] as ParsedPick[];
+  const correlated = [
+    ...independent.slice(0, 1),
+    { game: "A @ B", market: "Total Bases", pick: "Alpha Over 1.5 Total Bases", odds: -110, isProp: true, player: "Alpha" },
+  ] as ParsedPick[];
+  assert.equal(ticketDiversificationScore(independent), 100);
+  assert.ok(ticketDiversificationScore(correlated) < ticketDiversificationScore(independent));
 });
