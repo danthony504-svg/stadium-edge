@@ -13,6 +13,7 @@ import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { boardLegPoolRole } from "./ticketStaging.ts";
+import type { TicketFamilyVarietyAudit } from "./coachTicketCombinations.ts";
 import { persistCoachMarketPipelineAudit } from "./coachRequestTrace.ts";
 import { isYesNoPropMarket } from "./propYesNoMarkets.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
@@ -48,6 +49,7 @@ export type CoachMarketPipelineSnapshot = {
   nonPropRejections: NonPropRejection[];
   nonPropRejectionAggregates?: Record<string, number>;
   qualifiedCandidates?: QualifiedCandidateAudit[];
+  ticketVariety?: TicketFamilyVarietyAudit;
 };
 
 export type MarketFunnelStage =
@@ -146,6 +148,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   recordFunnel: (stage: MarketFunnelStage, picks: readonly ParsedPick[]) => void;
   recordScoredFunnel: (pick: ParsedPick, score: FinalAiScore | null | undefined) => void;
   recordGameSimulation: (row: GameSimulationAudit) => void;
+  recordTicketVariety: (audit: TicketFamilyVarietyAudit) => void;
   recordFinalSelected: (picks: readonly ParsedPick[]) => void;
   recordNonPropQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => void;
   recordNonPropCandidate: (
@@ -167,6 +170,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   const seenGameSimulationExamples = new Set<string>();
   const nonPropRejections: NonPropRejection[] = [];
   let qualifiedCandidates: QualifiedCandidateAudit[] = [];
+  let ticketVariety: TicketFamilyVarietyAudit | undefined;
   const seenNonPropRejection = new Set<string>();
 
   const bumpFunnel = (stage: MarketFunnelStage, pick: ParsedPick) => {
@@ -188,7 +192,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
 
   return {
     snapshot: () => ({
-      requestId, stages, funnel, qualificationGateCounts, gameSimulations, nonPropRejections, qualifiedCandidates,
+      requestId, stages, funnel, qualificationGateCounts, gameSimulations, nonPropRejections, qualifiedCandidates, ticketVariety,
     }),
     recordRawFeed: (picks) => recordStage("raw_feed", picks),
     recordNormalized: (picks) => {
@@ -216,6 +220,9 @@ export function createCoachMarketPipelineAudit(requestId: string): {
       if (seenGameSimulationExamples.has(key) || gameSimulations.length >= 10) return;
       seenGameSimulationExamples.add(key);
       gameSimulations.push(row);
+    },
+    recordTicketVariety: (audit) => {
+      ticketVariety = audit;
     },
     recordQualified: (legs) => {
       recordStage("qualified", legs.map((l) => l.pick));
@@ -308,7 +315,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
         nonPropRejectionAggregates[key] = (nonPropRejectionAggregates[key] ?? 0) + 1;
       }
       const snapshot = {
-        requestId, stages, funnel, qualificationGateCounts, gameSimulations, nonPropRejections, nonPropRejectionAggregates, qualifiedCandidates, familyTotals: summarizeFamilies(stages),
+        requestId, stages, funnel, qualificationGateCounts, gameSimulations, nonPropRejections, nonPropRejectionAggregates, qualifiedCandidates, ticketVariety, familyTotals: summarizeFamilies(stages),
       };
       persistCoachMarketPipelineAudit(snapshot);
       console.log(

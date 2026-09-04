@@ -48,6 +48,7 @@ import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
+import type { TicketFamilyVarietyAudit } from "./coachTicketCombinations.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
@@ -161,6 +162,8 @@ export type FullBoardScanResult = {
   totalScanned: number;
   totalQualified: number;
   staging: TicketStagingBreakdown;
+  /** Qualified-family coverage and any family-level selection exclusions. */
+  familyVariety?: TicketFamilyVarietyAudit;
   note: string;
   /** Leg count this scan was staged for — must match delivery target. */
   requestedLegs?: number;
@@ -590,6 +593,7 @@ function buildScanResult(
     totalScanned: opts.totalScanned,
     totalQualified,
     staging: breakdown,
+    familyVariety: staged.familyVariety,
     note,
     scanComplete,
     requestedLegs: opts.target,
@@ -952,6 +956,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
   });
+  if (result.familyVariety) pipelineAudit.recordTicketVariety(result.familyVariety);
   pipelineAudit.recordFinalSelected(result.picks);
   pipelineAudit.emitTrace();
   if (opts.onPartial) opts.onPartial(result);
