@@ -2,16 +2,20 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
-import { boardScanIsComplete, boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
+import { boardScanIsComplete } from "./coachScanPolicy.ts";
+import { traceCoachTicket } from "./coachTicketTrace.ts";
+import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import {
   type CoachBoardScanManifest,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
-import { traceCoachTicket } from "./coachTicketTrace.ts";
-import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
-import type { CoachFlashEnrich } from "./pickScoreContext.ts";
-import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
-import { tagTicketRoles } from "./ticketStaging.ts";
+import { finalizeCoachPipelineTickets } from "./coachPipelineFinalize.ts";
+import { logCoachRun } from "./coachRunTrace.ts";
+import {
+  logFinalTicketCardsRendered,
+  logFinalTicketMessageCreated,
+  runFinalTicketAssembly,
+} from "./coachFinalTicketAssembly.ts";
 
 export type CoachBoardScanDelivery = {
   picks: ParsedPick[];
@@ -65,26 +69,35 @@ export function deliverCoachBoardScanTicket(
     };
   }
 
-  if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
-    return {
-      picks: [],
-      manifest: {
-        ...manifest,
-        requestedLegs: legTarget,
-        deliveredLegs: 0,
-      },
-      scanComplete: false,
-      coachDetailNote: formatCoachBoardScanManifest({
-        ...manifest,
-        scanComplete: false,
-        requestedLegs: legTarget,
-      }),
-    };
+  const requestId = scan.requestId ?? "";
+  const assembly = runFinalTicketAssembly({
+    requestId,
+    candidates: scan.picks,
+    enrich,
+    requestedLegs: legTarget,
+    relaxCorrelation: legTarget > 0 && scan.picks.length >= legTarget,
+  });
+  let picks = assembly.picks;
+  if (!picks.length && scan.picks.length) {
+    const salvage = runFinalTicketAssembly({
+      requestId,
+      candidates: scan.picks,
+      enrich,
+      requestedLegs: legTarget,
+      relaxCorrelation: true,
+    });
+    picks = salvage.picks;
   }
-
-  const tagged = tagTicketRoles([...scan.picks]);
-  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  if (assembly.failureReason && picks.length) {
+    logCoachRun("final-selection", {
+      requestId,
+      requested: legTarget,
+      selected: picks.length,
+      failureReason: assembly.failureReason,
+    });
+  }
+  logFinalTicketMessageCreated(requestId, picks.length);
+  logFinalTicketCardsRendered(requestId, picks.length);
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
@@ -99,6 +112,11 @@ export function deliverCoachBoardScanTicket(
     scanRequestedLegs: scan.requestedLegs,
     pickIds: picks,
     source: "deliverCoachBoardScanTicket",
+  });
+  logCoachRun("simulations-complete", {
+    requestId,
+    count: scan.picks.length,
+    delivered: picks.length,
   });
 
   return {
@@ -155,9 +173,14 @@ export function deliverCoachBoardScanProgress(
   if (!scan.picks.length || boardScanIsComplete(scan)) {
     return { picks: [], progressNote: "" };
   }
-  const tagged = tagTicketRoles([...scan.picks]);
-  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  const pipeline = finalizeCoachPipelineTickets({
+    requestId: scan.requestId ?? "",
+    candidates: scan.picks,
+    enrich,
+    requestedLegs: legTarget,
+    relaxCorrelation: true,
+  });
+  let picks = pipeline.picks;
   if (legTarget > 0 && picks.length > legTarget) {
     picks = picks.slice(0, legTarget);
   }

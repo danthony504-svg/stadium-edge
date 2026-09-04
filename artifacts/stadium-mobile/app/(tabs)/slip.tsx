@@ -29,12 +29,12 @@ import {
   buildGameMeta,
   getGames,
   gradeBets,
-  propMarketKeyForLabel,
   searchPlayer,
   type EspnGame,
   type GradeLegInput,
   type GradeLegResult,
 } from "@/lib/api";
+import { propMarketKeyForLabel } from "@/lib/propMarketConstants";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
 import { isGameLevelMarket, parsePropLeg } from "@/lib/propLegParse";
 import { saveSlipToPhotos } from "@/lib/slipImage";
