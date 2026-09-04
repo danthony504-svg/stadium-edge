@@ -152,6 +152,8 @@ export type StealScanMeta = {
   totalOpportunities: number;
   /** True when a full odds/props pass finished (even if zero steals qualified). */
   scanComplete: boolean;
+  gamesScanned: number;
+  scannedAt: string;
 };
 
 /** Conservative book-count estimate when outcome-level book lists are absent. */
@@ -241,6 +243,8 @@ export function buildScanMeta(
     longshotsAnalyzed: number;
     booksScanned: number;
     scanComplete?: boolean;
+    gamesScanned: number;
+    scannedAt: string;
   },
 ): StealScanMeta {
   return {
@@ -251,6 +255,8 @@ export function buildScanMeta(
     sportCounts: sportCountsForSteals(steals),
     totalOpportunities: steals.length + almostQualified.length,
     scanComplete: stats.scanComplete === true,
+    gamesScanned: stats.gamesScanned,
+    scannedAt: stats.scannedAt,
   };
 }
 
