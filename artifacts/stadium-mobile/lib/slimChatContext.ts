@@ -57,6 +57,9 @@ export type SlimChatContextInput = {
   playerHistory?: Record<string, unknown>;
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
+  mlbTeamPlatoon?: Record<string, unknown>;
+  opponentDefense?: Record<string, unknown>;
+  teamPeriodStats?: Record<string, unknown>;
   modelStrengths?: string[];
   matchupInjuries?: Record<string, unknown>;
 };
@@ -138,6 +141,9 @@ export function slimChatContextForUpload<T extends SlimChatContextInput>(context
     tennisAnalysis: hasTennis ? context.tennisAnalysis : undefined,
     mlbPlatoon: undefined,
     mlbGameEnv: undefined,
+    mlbTeamPlatoon: context.mlbTeamPlatoon,
+    opponentDefense: context.opponentDefense,
+    teamPeriodStats: context.teamPeriodStats,
     matchupInjuries: undefined,
   };
 }
@@ -240,6 +246,9 @@ export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(
     playerHistory: undefined,
     mlbPlatoon: undefined,
     mlbGameEnv: undefined,
+    mlbTeamPlatoon: context.mlbTeamPlatoon,
+    opponentDefense: context.opponentDefense,
+    teamPeriodStats: context.teamPeriodStats,
     matchupInjuries: undefined,
     realGames: [],
   };
@@ -260,6 +269,9 @@ export function largeCompactSlimChatContextForUpload<T extends SlimChatContextIn
     playerHistory: undefined,
     mlbPlatoon: undefined,
     mlbGameEnv: undefined,
+    mlbTeamPlatoon: context.mlbTeamPlatoon,
+    opponentDefense: context.opponentDefense,
+    teamPeriodStats: context.teamPeriodStats,
     matchupInjuries: undefined,
     realGames: [],
   };
