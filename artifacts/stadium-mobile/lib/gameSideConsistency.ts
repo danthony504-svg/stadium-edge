@@ -1,7 +1,7 @@
 // One committed team per game for ML/spread legs — prevents Mets ML + Braves -1.5
 // on the same ticket and aligns side picks to the shared game simulator.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import {
   gameLabelsMatch,

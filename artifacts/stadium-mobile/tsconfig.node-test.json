@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "@/components/PickCard": ["./scripts/stub-pickcard.mjs"],
+      "@expo/vector-icons": ["./scripts/stub-module.mjs"],
+      "@expo/vector-icons/*": ["./scripts/stub-module.mjs"],
+      "react-native": ["./scripts/stub-module.mjs"],
+      "expo/fetch": ["./scripts/expo-fetch-shim.mjs"],
+      "expo/fetch.js": ["./scripts/expo-fetch-shim.mjs"]
+    }
+  },
+  "include": ["lib/**/*.ts", "scripts/**/*.mjs"]
+}
