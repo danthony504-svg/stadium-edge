@@ -7,6 +7,33 @@
       "path": "./lib/coach-types"
     },
     {
+      "path": "./lib/coach-data"
+    },
+    {
+      "path": "./lib/coach-sim-cache"
+    },
+    {
+      "path": "./lib/coach-sim"
+    },
+    {
+      "path": "./lib/coach-gates"
+    },
+    {
+      "path": "./lib/coach-grade"
+    },
+    {
+      "path": "./lib/coach-scan"
+    },
+    {
+      "path": "./lib/coach-learn"
+    },
+    {
+      "path": "./lib/coach-rank"
+    },
+    {
+      "path": "./lib/coach-alts"
+    },
+    {
       "path": "./lib/db"
     },
     {
