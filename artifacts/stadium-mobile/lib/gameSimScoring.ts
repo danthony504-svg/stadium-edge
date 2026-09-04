@@ -46,12 +46,18 @@ export type GameCoverQuery = {
 export type CoachGameSimEntry = GameSimulationResult & {
   coverHitRates?: Record<string, number>;
   outcomes?: { homeScores: number[]; awayScores: number[] };
+  /** Bounded transport evidence supplied by the Coach game-sim caller. */
+  requestedCoverQueryIds?: string[];
+  requestedCoverQueryCount?: number;
 };
 
 export type GameSimScoreDiagnostic = {
   sport: string; event: string; marketFamily: "moneyline" | "spread" | "gameTotal" | "teamTotal" | "alternateGameLine" | "other"; selection: string;
   line: number | null; odds: number | null; homeTeam: string; awayTeam: string;
   simulationShape: string[]; homeScoreSource: string; awayScoreSource: string;
+  submittedCoverQueryIds: string[]; submittedCoverQueryCount: number;
+  returnedCoverHitRateIds: string[]; returnedCoverHitRateCount: number;
+  outcomesReturned: boolean; homeScoreDrawCount: number; awayScoreDrawCount: number;
   sampleHomeScore: number | null; sampleAwayScore: number | null;
   winnerSource: string | null; totalSource: string | null;
   parsedTeam: string | null; parsedSide: string | null; parsedLine: number | null;
@@ -387,6 +393,20 @@ function outcomeCounts(
   return { wins, losses, pushes };
 }
 
+function responseEvidence(sim: CoachGameSimEntry | null | undefined) {
+  const rates = sim?.coverHitRates ?? {};
+  const outcomes = sim?.outcomes;
+  return {
+    submittedCoverQueryIds: (sim?.requestedCoverQueryIds ?? []).slice(0, 80),
+    submittedCoverQueryCount: sim?.requestedCoverQueryCount ?? 0,
+    returnedCoverHitRateIds: Object.keys(rates).slice(0, 80),
+    returnedCoverHitRateCount: Object.keys(rates).length,
+    outcomesReturned: !!outcomes,
+    homeScoreDrawCount: outcomes?.homeScores?.length ?? 0,
+    awayScoreDrawCount: outcomes?.awayScores?.length ?? 0,
+  };
+}
+
 /** Derive hit rates for arbitrary lines from a saved 10k draw set. */
 export function deriveCoverHitRatesFromOutcomes(
   outcomes: { homeScores: number[]; awayScores: number[] },
@@ -525,6 +545,7 @@ export function gameSimHitForPick(
       sampleHomeScore: sim?.outcomes?.homeScores[0] ?? null, sampleAwayScore: sim?.outcomes?.awayScores[0] ?? null,
       winnerSource: "homeWinProbability/awayWinProbability", totalSource: sim?.outcomes ? "homeScores + awayScores" : null,
       parsedTeam: team, parsedSide: query?.teamSide ?? null, parsedLine: query?.line ?? null,
+      ...responseEvidence(sim),
       ...counts, simHitRate: null, nullReason,
     });
     return null;
@@ -558,6 +579,7 @@ export function gameSimHitForPick(
     sampleHomeScore: sim!.outcomes?.homeScores[0] ?? null, sampleAwayScore: sim!.outcomes?.awayScores[0] ?? null,
     winnerSource: "homeWinProbability/awayWinProbability", totalSource: sim!.outcomes ? "homeScores + awayScores" : null,
     parsedTeam: team, parsedSide: query.teamSide ?? null, parsedLine: query.line ?? null,
+    ...responseEvidence(sim),
     ...counts, simHitRate: hit, nullReason,
   });
   return hit;

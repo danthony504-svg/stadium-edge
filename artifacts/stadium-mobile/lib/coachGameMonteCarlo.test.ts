@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGameTeamIdMap, resolveTeamIds, resolveTeamIdsWithReason } from "./coachGameMonteCarlo.ts";
+import {
+  buildGameTeamIdMap,
+  resolveTeamIds,
+  resolveTeamIdsWithReason,
+  slateGameSimulationIdentity,
+} from "./coachGameMonteCarlo.ts";
 
 test("resolves an unambiguous posted-event abbreviation to ESPN team IDs", () => {
   const ids = buildGameTeamIdMap([{
@@ -34,5 +39,23 @@ test("does not invent IDs for an unknown posted event", () => {
   assert.equal(
     resolveTeamIdsWithReason("Unknown @ Tigers", "ncaaf", ids).reason,
     "no_matching_event",
+  );
+});
+
+test("uses the supported name-only simulation route for tennis and UFC only", () => {
+  const unresolved = { ids: null, reason: "no_matching_event" } as const;
+  assert.deepEqual(
+    slateGameSimulationIdentity("Fighter A @ Fighter B", "ufc", unresolved),
+    {
+      sport: "ufc",
+      homeTeamId: "",
+      awayTeamId: "",
+      homeTeam: "Fighter B",
+      awayTeam: "Fighter A",
+    },
+  );
+  assert.equal(
+    slateGameSimulationIdentity("Club A @ Club B", "soccer", unresolved),
+    null,
   );
 });

@@ -67,6 +67,9 @@ export type GameSimulationAudit = {
   sport: string; event: string; marketFamily: AuditMarketFamily; selection: string;
   line: number | null; odds: number | null; homeTeam: string; awayTeam: string;
   simulationShape: string[]; homeScoreSource: string; awayScoreSource: string;
+  submittedCoverQueryIds: string[]; submittedCoverQueryCount: number;
+  returnedCoverHitRateIds: string[]; returnedCoverHitRateCount: number;
+  outcomesReturned: boolean; homeScoreDrawCount: number; awayScoreDrawCount: number;
   sampleHomeScore: number | null; sampleAwayScore: number | null;
   winnerSource: string | null; totalSource: string | null;
   parsedTeam: string | null; parsedSide: string | null; parsedLine: number | null;
@@ -193,7 +196,9 @@ export function createCoachMarketPipelineAudit(requestId: string): {
       funnel.normalized = countsFromPicks(picks);
     },
     recordSimulationEligible: (picks) => recordStage("simulation_eligible", picks),
-    recordFunnel: (stage, picks) => { funnel[stage] = countsFromPicks(picks); },
+    recordFunnel: (stage, picks) => {
+      for (const pick of picks) bumpFunnel(stage, pick);
+    },
     recordScoredFunnel: (pick, score) => {
       if (!score) return;
       if ((score.simHit ?? null) != null && Number.isFinite(score.simHit)) {
