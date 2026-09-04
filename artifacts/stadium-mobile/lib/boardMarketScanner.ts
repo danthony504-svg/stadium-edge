@@ -46,12 +46,21 @@ import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
+  buildStagedTicketFromScanAsync,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
-export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
+export { buildStagedTicketFromScan, buildStagedTicketFromScanAsync, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
+import { CoachEvStageError, runCoachEvPropPrescore } from "./coachEvPipeline.ts";
+import {
+  CoachCorrelationStageError,
+  beginCoachScanPipeline,
+  resolveCoachScanRequestId,
+} from "./coachScanPipeline.ts";
+import { logPipelineCorrelationStart } from "./coachPipelineTrace.ts";
+import { beginCoachPipelineCorrelation } from "./coachPipelineStateMachine.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -361,6 +370,8 @@ async function simPropPoolUntilQualified(
     onPropBatch?: (size: number, timedOut: boolean) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
+    requestId?: string;
+    onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
@@ -368,16 +379,27 @@ async function simPropPoolUntilQualified(
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
 
-  const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
-    realOdds: mergedOdds,
-    propPool: pool,
-    matchupHistory: opts.matchupHistory,
-    matchupInjuries: opts.matchupInjuries,
-    playerHistory: opts.playerHistory,
-    mlbPlatoon: opts.mlbPlatoon,
-    mlbGameEnv: opts.mlbGameEnv,
-    perfByFamily: opts.perfByFamily,
-  });
+  const poolPicks = pool.map(parsedPickFromPoolEntry);
+  const { scored: prescorePool } = await runCoachEvPropPrescore(
+    poolPicks,
+    {
+      realOdds: mergedOdds,
+      propPool: pool,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+      playerHistory: opts.playerHistory,
+      mlbPlatoon: opts.mlbPlatoon,
+      mlbGameEnv: opts.mlbGameEnv,
+      perfByFamily: opts.perfByFamily,
+    },
+    {
+      requestId: opts.requestId,
+      signal,
+      onProgress: opts.onBuildProgress,
+    },
+  );
+  opts.onBuildProgress?.("simulations", opts.requestId);
+
   const rankedProps = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
     .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
@@ -439,7 +461,20 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
-function buildScanResult(
+/** Yield before/after collapse+sort so correlation handoff can run on the event loop. */
+async function collapseAndSortScoredLegs(
+  scored: BoardScoredLeg[],
+  varietySeed?: string,
+): Promise<BoardScoredLeg[]> {
+  await Promise.resolve();
+  const collapsed = collapseScoredLegsByMarketLadder(scored);
+  await Promise.resolve();
+  collapsed.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  return collapsed;
+}
+
+function finalizeScanResult(
+  staged: { picks: ParsedPick[]; breakdown: TicketStagingBreakdown },
   scored: BoardScoredLeg[],
   opts: {
     target: number;
@@ -449,24 +484,11 @@ function buildScanResult(
     preview?: boolean;
     boardExhausted?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
-    varietySeed?: string;
-    varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
-    ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
   },
 ): FullBoardScanResult {
-  const staged = buildStagedTicketFromScan(
-    scored,
-    opts.target,
-    opts.varietySeed,
-    {
-      ...opts.varietyContext,
-      ticketStyle: opts.ticketStyle,
-    },
-  );
   const picks = staged.picks;
   const breakdown = staged.breakdown;
-
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const scanComplete = !opts.preview && opts.boardExhausted === true;
   const manifest = opts.manifestRecorder.finalize({
@@ -501,6 +523,65 @@ function buildScanResult(
   };
 }
 
+function buildScanResultPreview(
+  scored: BoardScoredLeg[],
+  opts: {
+    target: number;
+    evalLinesByGame: Map<string, RealOddsEntry[]>;
+    gameSimulations: Map<string, CoachGameSimEntry>;
+    totalScanned: number;
+    manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    varietySeed?: string;
+    varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+    ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
+    requestId?: string;
+  },
+): FullBoardScanResult {
+  const staged = buildStagedTicketFromScan(scored, opts.target, opts.varietySeed, {
+    ...opts.varietyContext,
+    ticketStyle: opts.ticketStyle,
+    requestId: opts.requestId,
+    preview: true,
+  });
+  return finalizeScanResult(staged, scored, { ...opts, preview: true });
+}
+
+async function buildScanResultFinal(
+  scored: BoardScoredLeg[],
+  opts: {
+    target: number;
+    evalLinesByGame: Map<string, RealOddsEntry[]>;
+    gameSimulations: Map<string, CoachGameSimEntry>;
+    totalScanned: number;
+    boardExhausted?: boolean;
+    manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    varietySeed?: string;
+    varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+    ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
+    requestId?: string;
+    onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+    onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
+  },
+): Promise<FullBoardScanResult> {
+  const requestId = resolveCoachScanRequestId(opts.requestId, "buildScanResultFinal");
+  logPipelineCorrelationStart(requestId, {
+    target: opts.target,
+    poolSize: scored.length,
+    phase: "scan-final-handoff",
+  });
+  opts.onBuildProgress?.("correlation", requestId);
+  opts.onBuildPhase?.("stream", requestId);
+
+  const staged = await buildStagedTicketFromScanAsync(scored, opts.target, opts.varietySeed, {
+    ...opts.varietyContext,
+    ticketStyle: opts.ticketStyle,
+    requestId,
+    onBuildPhase: opts.onBuildPhase,
+    onBuildProgress: opts.onBuildProgress,
+  });
+  return finalizeScanResult(staged, scored, { ...opts, preview: false, requestId });
+}
+
 export async function buildTopLegsFromFullBoardScan(opts: {
   target: number;
   oddsGames: OddsGame[];
@@ -524,7 +605,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
+  onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
+  onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
 }): Promise<FullBoardScanResult> {
+  const requestId = resolveCoachScanRequestId(opts.requestId, "buildTopLegsFromFullBoardScan");
+  beginCoachScanPipeline(requestId);
+
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -579,17 +665,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const emitBoardScanPartial = () => {
     if (!opts.onPartial) return;
     manifestRecorder.recomputeQualificationFromScored(scored);
-    const partial = buildScanResult(scored, {
+    const partial = buildScanResultPreview(scored, {
       target: opts.target,
       evalLinesByGame,
       gameSimulations,
       totalScanned,
-      preview: true,
       manifestRecorder,
       varietySeed: opts.varietySeed,
       varietyContext: opts.varietyContext,
       ticketStyle: opts.ticketStyle,
-      requestId: opts.requestId,
+      requestId,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
@@ -599,13 +684,23 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       const lines = evalLinesByGame.get(game);
       if (!lines?.length) continue;
       const sim = gameSimulations.get(game);
-      const evaluated = evaluateGameLines({
-        lines,
-        gameSim: sim,
-        realOdds: mergedOdds,
-        matchupHistory: opts.matchupHistory,
-        matchupInjuries: opts.matchupInjuries,
-      });
+      let evaluated: ReturnType<typeof evaluateGameLines>;
+      try {
+        evaluated = evaluateGameLines({
+          lines,
+          gameSim: sim,
+          realOdds: mergedOdds,
+          matchupHistory: opts.matchupHistory,
+          matchupInjuries: opts.matchupInjuries,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          "[coach-scan] ev-error",
+          JSON.stringify({ requestId, game, message }),
+        );
+        continue;
+      }
       totalScanned += evaluated.length;
       for (const row of evaluated) {
         manifestRecorder.recordMarketFound(row.pick);
@@ -664,6 +759,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       target: opts.target,
       ...propScoreOpts,
       teamIdsByGame: opts.teamIdMap,
+      requestId,
+      onBuildProgress: opts.onBuildProgress,
       onWave: () => {
         emitBoardScanPartial();
       },
@@ -678,10 +775,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
-  const collapsed = collapseScoredLegsByMarketLadder(scored);
-  collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+
+  beginCoachPipelineCorrelation(requestId, "post-simulations-handoff");
+  logPipelineCorrelationStart(requestId, {
+    target: opts.target,
+    poolSize: scored.length,
+    phase: "pre-collapse-handoff",
+  });
+  opts.onBuildProgress?.("correlation", requestId);
+  opts.onBuildPhase?.("stream", requestId);
+
+  const collapsed = await collapseAndSortScoredLegs(scored, opts.varietySeed);
   manifestRecorder.recomputeQualificationFromScored(collapsed);
-  const result = buildScanResult(collapsed, {
+  const result = await buildScanResultFinal(collapsed, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,
@@ -691,7 +797,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     varietySeed: opts.varietySeed,
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
-    requestId: opts.requestId,
+    requestId,
+    onBuildPhase: opts.onBuildPhase,
+    onBuildProgress: opts.onBuildProgress,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;
@@ -732,13 +840,15 @@ export function reachBoardScanEligible(opts: {
   return true;
 }
 
-/** Full-board scan wrapper — never throws through to the coach render path. */
+/** Full-board scan wrapper — propagates correlation stage errors to Coach UI. */
 export async function tryReachFullBoardScan(
   opts: Parameters<typeof buildTopLegsFromFullBoardScan>[0],
 ): Promise<FullBoardScanResult | null> {
   try {
     return await buildTopLegsFromFullBoardScan(opts);
-  } catch {
+  } catch (err) {
+    if (err instanceof CoachCorrelationStageError) throw err;
+    if (err instanceof CoachEvStageError) throw err;
     return null;
   }
 }
