@@ -1,6 +1,6 @@
 // Board leg qualification diagnostics — mirrors staging gates with explicit failure reasons.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   COACH_SIM_MIN_CONFIDENCE,
@@ -9,7 +9,7 @@ import {
 } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
-import { isAltBoardPick, isMainBoardPick } from "./altLinePool.ts";
+import { isAltBoardPick, isAltPropPick, isMainBoardPick } from "./altLinePool.ts";
 import { boardLegPoolRole } from "./ticketStaging.ts";
 import {
   pickIsAiRecommended,
@@ -193,6 +193,14 @@ export function explainBoardLegQualification(
   }
 
   if (pick.isProp && score.propHolistic && !score.recommends) {
+    if (propSimEdgeStagingQualifies(pick, score)) {
+      return {
+        qualifies: true,
+        role: isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main",
+        gate: "qualified_main",
+        reason: "Sim+edge qualifies — optional holistic signals missing or thin",
+      };
+    }
     const holisticFail = !propQualifiesForTicketFill(pick, score.propHolistic, {
       edgePct: score.edgePct,
       simHit: score.simHit,

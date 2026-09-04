@@ -1,6 +1,6 @@
 // Coach ticket rescore helpers — avoids a pickRecommendation ↔ pickScoreContext cycle.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   rescoreCoachTicketPicks,
