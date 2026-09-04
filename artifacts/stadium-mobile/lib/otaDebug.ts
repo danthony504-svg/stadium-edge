@@ -257,24 +257,17 @@ export async function collectOtaFullDiagnostics(
   const snapshot = readOtaDebugSnapshot();
   const jsLaunchLogs = formatOtaLogLines();
 
-  const probe = await Promise.race([
+  const probe = await withOtaTimeout(
+    "diagnostics probe",
     probeOtaCheckOnly(),
-    new Promise<OtaProbeResults>((resolve) =>
-      setTimeout(
-        () =>
-          resolve({
-            checkResult: `timeout after ${timeoutMs}ms`,
-            fetchResult: "skipped (probe timeout)",
-            reloadResult: "skipped (probe timeout)",
-          }),
-        timeoutMs,
-      ),
-    ),
-  ]).catch(
-    (): OtaProbeResults => ({
-      checkResult: "ERR: probe failed",
-      fetchResult: "skipped",
-      reloadResult: "skipped",
+    timeoutMs,
+  ).catch(
+    (error): OtaProbeResults => ({
+      checkResult: error instanceof Error && error.message.includes("timed out")
+        ? `timeout after ${timeoutMs}ms`
+        : "ERR: probe failed",
+      fetchResult: "skipped (probe timeout)",
+      reloadResult: "skipped (probe timeout)",
     }),
   );
 
