@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildStagedTicketFromScan, capThinStatMarketsOnTicket, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 
 function leg(
   pick: Partial<ParsedPick> & Pick<ParsedPick, "game" | "market" | "pick" | "odds">,

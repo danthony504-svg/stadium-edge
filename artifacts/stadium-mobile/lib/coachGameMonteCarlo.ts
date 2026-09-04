@@ -1,6 +1,6 @@
 // Fetch game-outcome Monte Carlo for Coach game-line legs — same endpoint as Simulator.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { EspnGame } from "./api.ts";
 import { fetchGameOutcomeSimulation } from "./api.ts";
 import {
