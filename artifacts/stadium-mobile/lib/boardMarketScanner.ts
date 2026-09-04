@@ -19,7 +19,7 @@ import {
   mergeOddsEntries,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
-import { gameSimHitForPick } from "./gameSimScoring.ts";
+import { gameSimHitForPick, enrichGameSimCoverRatesFromLines } from "./gameSimScoring.ts";
 import {
   deriveGameSimLineMetrics,
   simEvPct,
@@ -60,6 +60,9 @@ import {
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
 } from "./boardPropSimExpansion.ts";
+import { boardScanMaxPropsToSim } from "./boardScanScope.ts";
+import { boardScanPrescoreRank, type LongshotScanContext } from "./longshotEngine.ts";
+import { quickPropPrescore } from "./boardPropPrescore.ts";
 export {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
@@ -319,7 +322,7 @@ function appendPropScoredLegs(
   }
 }
 
-function prescorePropRank(pick: ParsedPick): number {
+function prescorePropRank(pick: ParsedPick, longshotCtx: LongshotScanContext): number {
   const leg: BoardScoredLeg = {
     pick,
     evPct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
@@ -335,12 +338,12 @@ function prescorePropRank(pick: ParsedPick): number {
     composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
     rankScore: 0,
   };
-  return (
+  const base =
     coachCompositeRankScore(leg) ??
     pick.finalAiScore?.composite ??
     pick.scores?.composite ??
-    0
-  );
+    quickPropPrescore(pick).total;
+  return boardScanPrescoreRank(pick, base, longshotCtx);
 }
 
 /** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
@@ -361,12 +364,14 @@ async function simPropPoolUntilQualified(
     onPropBatch?: (size: number, timedOut: boolean) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
+    longshotCtx?: LongshotScanContext;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
+  const longshotCtx: LongshotScanContext = opts.longshotCtx ?? { targetLegs: opts.target };
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
     realOdds: mergedOdds,
@@ -378,9 +383,13 @@ async function simPropPoolUntilQualified(
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
   });
-  const rankedProps = [...prescorePool]
+  const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
-    .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
+    .sort((a, b) => prescorePropRank(b, longshotCtx) - prescorePropRank(a, longshotCtx));
+  const simCap = boardScanMaxPropsToSim(opts.target, rankedAll.length, {
+    longshotAsk: longshotCtx.longshotAsk || longshotCtx.ticketStyle === "longshot",
+  });
+  const rankedProps = rankedAll.slice(0, simCap);
 
   const scoreOpts = {
     pool,
@@ -523,6 +532,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   varietySeed?: string;
   varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
+  longshotAsk?: boolean;
   requestId?: string;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
@@ -561,8 +571,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let totalScanned = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
-  const SLATE_SIM_BATCH = 2;
+  const SLATE_SIM_BATCH = 4;
   const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+  const longshotCtx: LongshotScanContext = {
+    ticketStyle: opts.ticketStyle,
+    longshotAsk: opts.longshotAsk ?? opts.ticketStyle === "longshot",
+    targetLegs: opts.target,
+  };
 
   for (const [, lines] of gameEntries) {
     for (const entry of lines ?? []) {
@@ -598,7 +613,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     for (const game of games) {
       const lines = evalLinesByGame.get(game);
       if (!lines?.length) continue;
-      const sim = gameSimulations.get(game);
+      const rawSim = gameSimulations.get(game);
+      const sim = rawSim ? enrichGameSimCoverRatesFromLines(rawSim, lines) : rawSim;
+      if (sim && sim !== rawSim) gameSimulations.set(game, sim);
       const evaluated = evaluateGameLines({
         lines,
         gameSim: sim,
@@ -609,7 +626,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       totalScanned += evaluated.length;
       for (const row of evaluated) {
         manifestRecorder.recordMarketFound(row.pick);
-        const simHit = gameSimHitForPick(row.pick, sim);
+        const simHit = gameSimHitForPick(row.pick, sim, row.entry);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
@@ -664,6 +681,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       target: opts.target,
       ...propScoreOpts,
       teamIdsByGame: opts.teamIdMap,
+      longshotCtx,
       onWave: () => {
         emitBoardScanPartial();
       },

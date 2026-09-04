@@ -3,6 +3,8 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { GameSimulationResult, RealOddsEntry } from "./api.ts";
+import { isAlternateOrPeriodMarket } from "./altLinePool.ts";
+import { impliedProb } from "./format.ts";
 import { fourQuestionsNoteForPick } from "./gameLineFourQuestions.ts";
 import { parseMarketPeriod, type SimPeriodScope, marketSupportsSimulation } from "./simMarketSupport.ts";
 import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeriodScoring.ts";
@@ -439,10 +441,61 @@ function fuzzyCoverHitRate(
   return null;
 }
 
+/**
+ * Batch-derive cover hit rates for every posted rung (alt spreads/totals, team
+ * totals, period lines) from saved 10k outcome draws — fills gaps when the server
+ * omits rates for long alt ladders.
+ */
+export function enrichGameSimCoverRatesFromLines(
+  sim: CoachGameSimEntry,
+  lines: RealOddsEntry[],
+): CoachGameSimEntry {
+  if (!sim.outcomes?.homeScores?.length || !lines.length) return sim;
+  const sport = lines[0]?.sport ?? sim.sport ?? "mlb";
+  const queries: GameCoverQuery[] = [];
+  const seen = new Set<string>();
+  for (const e of lines) {
+    const q = buildGameCoverQuery({
+      game: e.game,
+      market: e.market,
+      pick: e.pick,
+      odds: e.odds,
+      isProp: false,
+      sport: e.sport,
+    });
+    if (!q || seen.has(q.id)) continue;
+    seen.add(q.id);
+    queries.push(q);
+  }
+  if (!queries.length) return sim;
+  const derived = deriveCoverHitRatesFromOutcomes(sim.outcomes, queries, sport);
+  return {
+    ...sim,
+    coverHitRates: { ...(sim.coverHitRates ?? {}), ...derived },
+  };
+}
+
+/** Book fair prob / edge fallback when MC cover rate is missing (alt lines only). */
+export function bookEstimateSimHit(
+  pick: ParsedPick,
+  entry?: { noVigFair?: number | null; edge?: number | null },
+): number | null {
+  if (!isAlternateOrPeriodMarket(String(pick.market ?? ""))) return null;
+  const fair = entry?.noVigFair;
+  if (fair != null && fair > 0 && fair < 1) return fair;
+  if (entry?.edge != null && pick.odds != null) {
+    const implied = impliedProb(pick.odds);
+    const est = implied + entry.edge / 100;
+    if (est > 0.01 && est < 0.99) return Math.round(est * 1000) / 1000;
+  }
+  return null;
+}
+
 /** Monte Carlo hit probability for this pick from the shared game sim. */
 export function gameSimHitForPick(
   pick: ParsedPick,
   sim: CoachGameSimEntry | null | undefined,
+  entry?: { noVigFair?: number | null; edge?: number | null },
 ): number | null {
   if (!gameSimHasValidRun(sim)) return null;
   if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
@@ -464,7 +517,8 @@ export function gameSimHitForPick(
   if (query.kind === "ml" && query.teamSide) {
     return query.teamSide === "home" ? sim!.homeWinProbability : sim!.awayWinProbability;
   }
-  return null;
+
+  return bookEstimateSimHit(pick, entry);
 }
 
 /** True when sim supports the pick at or above the coach floor. */

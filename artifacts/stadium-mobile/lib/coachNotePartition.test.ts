@@ -40,3 +40,22 @@ test("partitionCoachNotes prefers stored coachDetailNote", () => {
   const { detail } = partitionCoachNotes("", "Stored optimizer note");
   assert.equal(detail, "Stored optimizer note");
 });
+
+test("partitionCoachNotes keeps pipeline breakdown shortfall visible for 15-leg asks", () => {
+  const leg = `You asked for **15** legs — **1** delivered after the full-board scan.
+
+**Pipeline breakdown**
+- Markets loaded: **1,200**
+- Markets simulated: **1,000**
+- Positive-edge candidates: **42**
+- Rejected by confidence: **18**
+- Rejected by correlation: **23**
+- Final picks delivered: **1** of **15**
+
+No ungraded filler or unposted odds were added.`;
+  const { shortfall, detail } = partitionCoachNotes(leg);
+  assert.match(shortfall, /Pipeline breakdown/i);
+  assert.match(shortfall, /Markets loaded: \*\*1,200\*\*/i);
+  assert.match(shortfall, /Final picks delivered: \*\*1\*\* of \*\*15\*\*/i);
+  assert.equal(detail, "");
+});

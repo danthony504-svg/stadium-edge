@@ -4,7 +4,7 @@ const OPTIMIZER_RE =
   /after the 10k sim|built from player props|chalk moneyline scaffold|highest final ai score|longshot parlays are built from player props|cleared \d+ chalk game line/i;
 
 const SHORTFALL_RE =
-  /asked for (\*\*)?\d+(\*\*)? legs|only (\*\*)?\d+(\*\*)? cleared|every qualifying market|every ai-backed pick|no ungraded filler|tickets cap at|held up against|almost qualified|cleared the quality bar|cleared quality filters/i;
+  /asked for (\*\*)?\d+(\*\*)? legs|only (\*\*)?\d+(\*\*)? cleared|delivered after the full-board scan|pipeline breakdown|markets loaded:|markets simulated:|positive-edge candidates:|rejected by confidence:|rejected by correlation:|final picks delivered:|no ungraded filler or unposted odds|every qualifying market|every ai-backed pick|no ungraded filler|tickets cap at|held up against|almost qualified|cleared the quality bar|cleared quality filters/i;
 
 export function isOptimizerCoachParagraph(text: string): boolean {
   return OPTIMIZER_RE.test(text);
