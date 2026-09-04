@@ -2,7 +2,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
-import { boardScanIsComplete, boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
+import { boardScanIsComplete } from "./coachScanPolicy.ts";
 import {
   type CoachBoardScanManifest,
   formatCoachBoardScanManifest,
@@ -12,6 +12,7 @@ import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
+import { runCoachFinalTicketStage } from "./coachFinalTicketStage.ts";
 
 export type CoachBoardScanDelivery = {
   picks: ParsedPick[];
@@ -65,26 +66,18 @@ export function deliverCoachBoardScanTicket(
     };
   }
 
-  if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
-    return {
-      picks: [],
-      manifest: {
-        ...manifest,
-        requestedLegs: legTarget,
-        deliveredLegs: 0,
-      },
-      scanComplete: false,
-      coachDetailNote: formatCoachBoardScanManifest({
-        ...manifest,
-        scanComplete: false,
-        requestedLegs: legTarget,
-      }),
-    };
+  const staged = runCoachFinalTicketStage({
+    candidates: scan.picks,
+    enrich,
+    legTarget,
+    scan,
+  });
+  let picks = staged.picks;
+  if (!picks.length) {
+    const tagged = tagTicketRoles([...scan.picks]);
+    const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
+    picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
   }
-
-  const tagged = tagTicketRoles([...scan.picks]);
-  const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
