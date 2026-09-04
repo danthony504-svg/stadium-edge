@@ -1,6 +1,7 @@
 // Per-request Coach ticket lifecycle — isolate leg count, cache keys, and traces.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { normalizedCoachPickKey } from "./coachPickDiversity.ts";
 import { parlayLegKey, rememberParlayBuild, type CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
@@ -79,7 +80,7 @@ export function recordCoachTicketDelivered(
   picks: readonly ParsedPick[],
   ctx: Pick<CoachTicketRequestContext, "requestId" | "requestedLegs">,
 ): void {
-  lastDeliveredTicketKeys = picks.map((p) => parlayLegKey(p));
+  lastDeliveredTicketKeys = picks.map((p) => normalizedCoachPickKey(p));
   lastDeliveredLegCount = picks.length;
   traceCoachTicket("mobile-delivered", {
     requestedLegs: ctx.requestedLegs,
@@ -113,7 +114,7 @@ export function rejectPrefixOfLastDelivered(
     lastDeliveredTicketKeys.length > requestedLegs &&
     picks.length === requestedLegs
   ) {
-    const candidateKeys = picks.map((p) => parlayLegKey(p));
+    const candidateKeys = picks.map((p) => normalizedCoachPickKey(p));
     if (ticketMatchesLargerPrefix(candidateKeys, lastDeliveredTicketKeys)) {
       return true;
     }
