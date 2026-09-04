@@ -171,9 +171,19 @@ function teamsLooseMatch(a: string, b: string): boolean {
 
 export function findBackingOddsRow(pick: ParsedPick, realOdds: RealOddsEntry[]): RealOddsEntry | undefined {
   const exact = realOdds.find(
-    (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
+    (r) =>
+      gameLabelsMatch(r.game, pick.game) &&
+      r.market === pick.market &&
+      r.pick === pick.pick,
   );
   if (exact) return exact;
+  const fuzzyMarket = realOdds.find(
+    (r) =>
+      gameLabelsMatch(r.game, pick.game) &&
+      norm(r.market) === norm(pick.market) &&
+      r.pick === pick.pick,
+  );
+  if (fuzzyMarket) return fuzzyMarket;
   const pickTeam = gamePickTeam(pick);
   const pickLine = numSpreadLine(pick.pick);
   const isSpread = /spread/i.test(pick.market);
