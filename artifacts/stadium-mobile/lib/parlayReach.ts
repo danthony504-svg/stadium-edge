@@ -1,6 +1,7 @@
 // Reach explicit N-leg parlay targets across the full live board before trimming.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
+import type { GameMeta, PropPoolEntry, RealOddsEntry } from "./api.ts";
 import {
   backfillGameLinesFromEvalScores,
   evaluateGameLines,
