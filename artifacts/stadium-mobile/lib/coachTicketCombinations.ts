@@ -8,6 +8,10 @@ import {
 } from "./balancedTicketMix.ts";
 import { partitionScoredLegsByCategory } from "./boardMarketPools.ts";
 import { compareBoardLegsForRank, sortBoardLegsForRank } from "./coachBoardRankVariety.ts";
+import {
+  countAlternateMarketOnTicket,
+  countMarketTierQualification,
+} from "./coachAlternateMarketTiers.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   isThinPropStatMarket,
@@ -31,6 +35,7 @@ import {
   qualityTiersForStyle,
 } from "./coachTicketQualityTiers.ts";
 import {
+  backfillFromAlternateMarketTiers,
   boardLegPoolRole,
   capThinStatMarketsOnTicket,
   type BoardScoredLeg,
@@ -511,7 +516,13 @@ function assembleBalancedDiverseTicket(
   }
 
   const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
-  return tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
+  const afterAlternate = backfillFromAlternateMarketTiers(
+    afterStrict,
+    target,
+    qualifying,
+    config.seed,
+  );
+  return tieredBackfillStagedTicket(afterAlternate, target, allScored, ticketStyle, config.seed);
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
@@ -838,11 +849,15 @@ function stagingBreakdown(
   const alts = qualifying.filter(
     (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt",
   );
+  const tierCounts = countMarketTierQualification(qualifying);
   return {
     mainQualified: mains.length,
     altQualified: alts.length,
     mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
     altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+    primaryMarketQualified: tierCounts.primaryMarketQualified,
+    alternateMarketQualified: tierCounts.alternateMarketQualified,
+    alternateMarketOnTicket: countAlternateMarketOnTicket(picks),
   };
 }
 
