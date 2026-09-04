@@ -51,8 +51,8 @@ export const TICKET_STYLE_CONFIG: Record<CoachTicketStyle, CoachTicketStyleConfi
     absoluteFloor: "B",
   },
   longshot: {
-    tiers: ["A+", "A", "A-", "B+", "B"],
-    absoluteFloor: "B",
+    tiers: ["A+", "A", "A-", "B+", "B", "B-"],
+    absoluteFloor: "B-",
   },
 };
 
