@@ -5,6 +5,7 @@ import { parlayLegKey, rememberParlayBuild, type CoachParlayVarietyContext } fro
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { beginCoachRun } from "./coachRunTrace.ts";
 
 export type CoachTicketRequestContext = {
   requestId: string;
@@ -53,6 +54,7 @@ export function startCoachTicketRequest(opts: {
   const previousRequestId = lastRequestId;
   const cacheKey = buildCoachTicketCacheKey(opts);
   lastRequestId = opts.requestId;
+  beginCoachRun(opts.requestId, opts.requestedLegs);
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.requestedLegs,
     source: "request-start",
