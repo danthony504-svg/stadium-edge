@@ -131,6 +131,8 @@ import {
   topUpCoachTicketToTarget,
 } from "@/lib/coachTicketRescore";
 import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket } from "@/lib/coachTicketKernel";
+import { filterValidCoachPicks } from "@/lib/coachTicketValidation";
+import { coachBuildProgressFromPhase } from "@/lib/coachBuildProgress";
 import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
@@ -556,15 +558,46 @@ function scrubDeadBuildProseFromMessages(msgs: UIMessage[]): UIMessage[] {
 
 /** Drop assistant rows that only carried the legacy watchdog line. */
 function pruneDeadParlayPlaceholders(msgs: UIMessage[]): UIMessage[] {
-  return msgs.filter((m) => {
+  let changed = false;
+  const next = msgs.filter((m) => {
     if (isWelcomeMessage(m)) return true;
     if (m.role !== "assistant") return true;
     if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard) {
       return true;
     }
     if (m.retry || m.parlayBuild) return true;
-    return !DEAD_BUILD_PROSE_RE.test(m.content) && !!m.content.trim();
+    const keep = !DEAD_BUILD_PROSE_RE.test(m.content) && !!m.content.trim();
+    if (!keep) changed = true;
+    return keep;
   });
+  return changed ? next : msgs;
+}
+
+function pickSnapshotKey(p: ParsedPick): string {
+  return `${p.game}|${p.market}|${p.pick}|${p.odds}`.toLowerCase();
+}
+
+function picksSnapshotEqual(a: readonly ParsedPick[], b: readonly ParsedPick[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (pickSnapshotKey(a[i]!) !== pickSnapshotKey(b[i]!)) return false;
+  }
+  return true;
+}
+
+function assistantTicketPatchEqual(
+  current: UIMessage,
+  ticket: ParsedPick[],
+  legNote: string,
+  coachDetailNote: string,
+  legTarget: number,
+): boolean {
+  const currentPicks = current.picks ?? [];
+  if (!picksSnapshotEqual(currentPicks, ticket)) return false;
+  if ((current.legNote ?? "").trim() !== legNote.trim()) return false;
+  if ((current.coachDetailNote ?? "").trim() !== coachDetailNote.trim()) return false;
+  if (legTarget > 0 && current.ticketLegTarget !== legTarget) return false;
+  return true;
 }
 
 function assistantHasVisibleContent(m: UIMessage): boolean {
@@ -1096,6 +1129,14 @@ export default function CoachScreen() {
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messagesRef = useRef<UIMessage[]>([]);
+  const scanStartedRef = useRef(false);
+  const scanInFlightRef = useRef(false);
+  const terminalRef = useRef(false);
+  const lastProgressSignatureRef = useRef("");
+  const boardScanReplaySigRef = useRef("");
+  const deadProseScrubbedRef = useRef(false);
+  const deadEndRecoverySigRef = useRef("");
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1297,6 +1338,8 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        terminalRef.current = true;
+        scanInFlightRef.current = false;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1400,6 +1443,8 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        terminalRef.current = true;
+        scanInFlightRef.current = false;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1450,13 +1495,14 @@ export default function CoachScreen() {
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
       if (isFinal) liveScanDeliveredRef.current = true;
-      setBoardScanPartialLegs(ticket.length);
       if (boardScanIsComplete(partial)) {
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        terminalRef.current = true;
+        scanInFlightRef.current = false;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1467,7 +1513,7 @@ export default function CoachScreen() {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
           if (copy[i].role === "assistant") {
-            copy[i] = {
+            const nextMsg = {
               ...copy[i],
               picks: ticket,
               content: "",
@@ -1475,11 +1521,16 @@ export default function CoachScreen() {
               ...(coachDetailNote.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
               ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
             };
+            if (assistantTicketPatchEqual(copy[i], ticket, legNote, coachDetailNote, legTarget)) {
+              return prev;
+            }
+            copy[i] = nextMsg;
             return copy;
           }
         }
         return prev;
       });
+      setBoardScanPartialLegs((prev) => (prev === ticket.length ? prev : ticket.length));
       setAiPicks(ticket);
       captureFromCoach(ticket);
       if (!isFinal && buildFinishingRef.current) {
@@ -2067,6 +2118,14 @@ export default function CoachScreen() {
       // replay the same ranked props and game-line walk order every tap.
       const varietySeed = makeBuildId();
       varietySeedRef.current = varietySeed;
+      const coachTicketStyle = detectCoachTicketStyle(trimmed);
+      terminalRef.current = false;
+      lastProgressSignatureRef.current = "";
+      boardScanReplaySigRef.current = "";
+      scanStartedRef.current = true;
+      scanInFlightRef.current = true;
+      deadProseScrubbedRef.current = false;
+      deadEndRecoverySigRef.current = "";
       if (openingParlayBuild && earlyLegTarget >= 3) {
         activeRequestLegTargetRef.current = earlyLegTarget;
         coachRequestContextRef.current = startCoachTicketRequest({
@@ -2616,7 +2675,6 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
-          const coachTicketStyle = detectCoachTicketStyle(trimmed);
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
@@ -3112,8 +3170,6 @@ export default function CoachScreen() {
                 matchupHistory: context.matchupHistory,
                 matchupInjuries: context.matchupInjuries,
                 playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
                 mlbPlatoon: context.mlbPlatoon,
                 mlbGameEnv: context.mlbGameEnv,
                 perfByFamily: marketPerf,
@@ -4203,8 +4259,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             };
             const scoredMainProps = attachPickScores(
@@ -4369,8 +4423,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             });
             picks = scrubExcludedSportsFromPicks(
@@ -4450,8 +4502,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             };
             const scoredMainProps = attachPickScores(
@@ -4582,8 +4632,6 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-              mlbPlatoon: context.mlbPlatoon,
-              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             });
             backupPicks = filterQualifyingAltLegs(backupPicks);
@@ -5646,6 +5694,10 @@ export default function CoachScreen() {
     return () => {
       abortRef.current?.abort();
       simAbortRef.current?.abort();
+      if (buildProgressTimerRef.current) clearTimeout(buildProgressTimerRef.current);
+      if (buildStallTimerRef.current) clearTimeout(buildStallTimerRef.current);
+      terminalRef.current = true;
+      scanInFlightRef.current = false;
     };
   }, []);
 
@@ -5667,10 +5719,15 @@ export default function CoachScreen() {
   // Legacy OTA watchdog prose can survive in React state — scrub once build is idle.
   useEffect(() => {
     if (streaming || buildFinishing || waiting) return;
-    const last = messages[messages.length - 1];
+    if (deadProseScrubbedRef.current) return;
+    const last = messagesRef.current[messagesRef.current.length - 1];
     if (last?.role !== "assistant" || !DEAD_BUILD_PROSE_RE.test(last.content ?? "")) return;
-    setMessages((prev) => pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev)));
-  }, [messages, streaming, buildFinishing, waiting]);
+    deadProseScrubbedRef.current = true;
+    setMessages((prev) => {
+      const scrubbed = pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev));
+      return scrubbed === prev ? prev : scrubbed;
+    });
+  }, [streaming, buildFinishing, waiting]);
 
   const footerParlayProgress = useMemo(() => {
     const last = messages[messages.length - 1];
@@ -5730,7 +5787,7 @@ export default function CoachScreen() {
   // already on screen — unlock the composer so the user can type a new ask.
   useEffect(() => {
     if (!hasUserTurn || (!streaming && !buildFinishing && !waiting)) return;
-    const last = messages[messages.length - 1];
+    const last = messagesRef.current[messagesRef.current.length - 1];
     if (last?.role !== "assistant") return;
     if (!coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
     const scan = latestBoardScanRef.current;
@@ -5741,20 +5798,16 @@ export default function CoachScreen() {
     setBuildProgressExpired(false);
     setParlayBuildPhase("idle");
     setCoachBuildBusy(false);
+    terminalRef.current = true;
+    scanInFlightRef.current = false;
     clearBuildStallWatchdog();
-  }, [
-    hasUserTurn,
-    messages,
-    streaming,
-    buildFinishing,
-    waiting,
-    clearBuildStallWatchdog,
-  ]);
+  }, [hasUserTurn, streaming, buildFinishing, waiting, clearBuildStallWatchdog]);
 
-  // Board scan finished but delivery gates zeroed the ticket — replay from stash.
+  // Board scan finished but delivery gates zeroed the ticket — replay from stash once.
   useEffect(() => {
+    if (terminalRef.current) return;
     if (!buildFinishing && !streaming && !waiting) return;
-    const last = messages[messages.length - 1];
+    const last = messagesRef.current[messagesRef.current.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     const partial = latestBoardScanRef.current;
     if (!partial?.picks?.length) return;
@@ -5774,42 +5827,23 @@ export default function CoachScreen() {
     ) {
       return;
     }
-    setBoardScanPartialLegs(partial.picks.length);
+    const replaySig = `${ctx?.requestId ?? ""}|${partial.picks.length}|${partial.scanComplete ? 1 : 0}`;
+    if (boardScanReplaySigRef.current === replaySig) return;
+    boardScanReplaySigRef.current = replaySig;
+    setBoardScanPartialLegs((prev) => (prev === partial.picks.length ? prev : partial.picks.length));
     patchInstantBoardScanTicket(partial, undefined, {
       ticketLegTarget: legTarget > 0 ? legTarget : undefined,
     });
-    const interval = setInterval(() => {
-      if (!buildFinishingRef.current && !streamingRef.current && !waiting) {
-        clearInterval(interval);
-        return;
-      }
-      const partialRetry = latestBoardScanRef.current;
-      if (!partialRetry?.picks?.length) return;
-      if (
-        !boardScanAppliesToRequest(
-          partialRetry,
-          legTarget,
-          ctx?.sendGeneration ?? sendGenerationRef.current,
-          sendGenerationRef.current,
-        )
-      ) {
-        return;
-      }
-      setBoardScanPartialLegs(partialRetry.picks.length);
-      patchInstantBoardScanTicket(partialRetry, undefined, {
-        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [buildFinishing, streaming, waiting, messages, patchInstantBoardScanTicket]);
+  }, [buildFinishing, streaming, waiting, patchInstantBoardScanTicket]);
 
   // Silent dead-end: parlay build finished with no pick cards (blank or generic fallback).
   useEffect(() => {
+    if (terminalRef.current) return;
     if (streaming || buildFinishing || waiting) return;
-    const last = messages[messages.length - 1];
+    const last = messagesRef.current[messagesRef.current.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     if (coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
-    const priorUser = [...messages].reverse().find((m) => m.role === "user");
+    const priorUser = [...messagesRef.current].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent) return;
     const content = (last.content ?? "").trim();
@@ -5817,6 +5851,10 @@ export default function CoachScreen() {
       /couldn't ground a real ticket/i.test(content) ||
       /couldn't ground any of those legs/i.test(content);
     if (content && !genericFailure) return;
+
+    const recoverySig = `${priorUser?.content ?? ""}|${content}`;
+    if (deadEndRecoverySigRef.current === recoverySig) return;
+    deadEndRecoverySigRef.current = recoverySig;
 
     const tryStashedDelivery = () => {
       const legTarget =
@@ -5892,7 +5930,13 @@ export default function CoachScreen() {
       if (tryStashedDelivery()) clearInterval(interval);
     }, 2000);
     return () => clearInterval(interval);
-  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery, marketPerf]);
+  }, [streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery, marketPerf]);
+
+  messagesRef.current = messages;
+  const buildProgressSnapshot = coachBuildProgressFromPhase(
+    parlayBuildPhase === "idle" ? undefined : parlayBuildPhase,
+    footerProgressLegCount,
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -5924,7 +5968,10 @@ export default function CoachScreen() {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const displayPicks = hasPicks
               ? filterCoachDeliveredPicks(
-                  coerceCoachDisplayPicks(m.picks!, flashEnrichRef.current),
+                  coerceCoachDisplayPicks(
+                    filterValidCoachPicks(m.picks!),
+                    flashEnrichRef.current,
+                  ),
                   flashEnrichRef.current,
                 )
               : [];
@@ -6169,6 +6216,8 @@ export default function CoachScreen() {
                     mode="build"
                     legCount={progressLegCount}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+                    timedOut={parlayBuildHung}
+                    slowStageLabel={buildProgressSnapshot.slowStageLabel}
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
@@ -6263,7 +6312,6 @@ export default function CoachScreen() {
                         m.retry ||
                           activeParlayAskRef.current ||
                           priorUserText ||
-                          trimmed ||
                           "Build me a 15-leg longshot parlay",
                         { freshThread: true },
                       );
@@ -6322,6 +6370,8 @@ export default function CoachScreen() {
               mode="build"
               legCount={footerProgressLegCount}
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+              timedOut={buildProgressExpired}
+              slowStageLabel={buildProgressSnapshot.slowStageLabel}
             />
           ) : null}
 

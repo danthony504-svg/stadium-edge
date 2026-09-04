@@ -12,6 +12,8 @@ test("live-steals route source never returns HTTP 502", () => {
   assert.equal(source.includes("could not load steals"), false);
   assert.ok(source.includes("feedDegraded"));
   assert.ok(source.includes("scanComplete: false"));
+  assert.ok(source.includes("scanError"));
+  assert.ok(source.includes("live-steals scan failed"));
 });
 
 test("degraded feed diagnostics always include scan endpoint metadata", () => {

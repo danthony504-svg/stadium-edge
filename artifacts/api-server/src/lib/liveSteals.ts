@@ -8,6 +8,13 @@ import {
   type StealOddsSportProbe,
 } from "./stealFeedDiagnostics.ts";
 import {
+  failLiveStealsStage,
+  liveStealsPipelineFailure,
+  liveStealsPipelineStages,
+  logLiveStealsStage,
+  resetLiveStealsPipelineTrace,
+} from "./liveStealsPipelineTrace.ts";
+import {
   findGameSteals,
   findPropSteals,
   findNearMissGameSteals,
@@ -127,114 +134,243 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
       feed: freshCache.feed,
     };
   }
+
+  resetLiveStealsPipelineTrace();
   const scanStarted = Date.now();
   const now = Date.now();
   const sportProbes: StealOddsSportProbe[] = [];
 
-  const oddsBySport = new Map<string, OddsRow[]>();
-  await Promise.all(
-    STEAL_SPORTS.map(async (sport) => {
-      const endpoint = `/sports/odds?sport=${sport}`;
-      const probe = await probeJson<OddsRow[]>(endpoint);
-      const rows = Array.isArray(probe.data) ? probe.data : [];
-      sportProbes.push({
-        sport,
-        endpoint,
-        ok: probe.ok && Array.isArray(probe.data),
-        httpStatus: probe.httpStatus,
-        responseTimeMs: probe.responseTimeMs,
-        games: rows.length,
-        error: probe.error,
-      });
-      if (probe.ok && Array.isArray(probe.data)) {
-        oddsBySport.set(sport, rows.filter((g) => nearTerm(g.commenceTime, now)));
-      }
-    }),
-  );
-
-  const sportsOk = sportProbes.filter((p) => p.ok).length;
-  const sportsFailed = sportProbes.length - sportsOk;
-  const baseFeed = emptyStealFeedDiagnostics({
-    responseTimeMs: Date.now() - scanStarted,
-    sportsProbed: sportProbes.length,
-    sportsOk,
-    sportsFailed,
-    sportProbes,
-  });
-
-  if (sportsOk === 0) {
-    const reason =
-      sportProbes.find((p) => p.error)?.error ??
-      (baseFeed.oddsKeyConfigured ? "all_sports_odds_unreachable" : "ODDS_API_KEY not configured");
-    throw new StealFeedScanError(reason, {
-      ...baseFeed,
-      errorReason: reason,
+  try {
+    logLiveStealsStage("1-scan-start", STEAL_SPORTS.length, {
+      message: "Calling internal odds routes (The Odds API via /sports/odds)",
+      detail: { sports: STEAL_SPORTS, propSports: PROP_STEAL_SPORTS },
     });
+
+    const oddsBySport = new Map<string, OddsRow[]>();
+    await Promise.all(
+      STEAL_SPORTS.map(async (sport) => {
+        const endpoint = `/sports/odds?sport=${sport}`;
+        const probe = await probeJson<OddsRow[]>(endpoint);
+        const rows = Array.isArray(probe.data) ? probe.data : [];
+        sportProbes.push({
+          sport,
+          endpoint,
+          ok: probe.ok && Array.isArray(probe.data),
+          httpStatus: probe.httpStatus,
+          responseTimeMs: probe.responseTimeMs,
+          games: rows.length,
+          error: probe.error,
+        });
+        if (probe.ok && Array.isArray(probe.data)) {
+          oddsBySport.set(sport, rows.filter((g) => nearTerm(g.commenceTime, now)));
+        }
+      }),
+    );
+
+    const sportsOk = sportProbes.filter((p) => p.ok).length;
+    const sportsFailed = sportProbes.length - sportsOk;
+    const gamesNearTerm = [...oddsBySport.values()].reduce((sum, rows) => sum + rows.length, 0);
+
+    logLiveStealsStage("2-odds-api-fetch", sportsOk, {
+      message: sportsOk > 0 ? "Odds routes responded" : "All odds routes failed",
+      detail: { sportsOk, sportsFailed, sportProbes },
+    });
+
+    logLiveStealsStage("3-games-filtered", gamesNearTerm, {
+      message: "Games within 48h pickable horizon",
+      detail: { gamesNearTerm },
+    });
+
+    const baseFeed = emptyStealFeedDiagnostics({
+      responseTimeMs: Date.now() - scanStarted,
+      sportsProbed: sportProbes.length,
+      sportsOk,
+      sportsFailed,
+      sportProbes,
+      scanStages: [...liveStealsPipelineStages()],
+    });
+
+    if (sportsOk === 0) {
+      const reason =
+        sportProbes.find((p) => p.error)?.error ??
+        (baseFeed.oddsKeyConfigured ? "all_sports_odds_unreachable" : "ODDS_API_KEY not configured");
+      throw new StealFeedScanError(reason, {
+        ...baseFeed,
+        errorReason: reason,
+        scanStages: [...liveStealsPipelineStages()],
+        failedStage: "2-odds-api-fetch",
+      });
+    }
+
+    if (gamesNearTerm === 0) {
+      const reason = "no_near_term_games_in_pickable_horizon";
+      throw new StealFeedScanError(reason, {
+        ...baseFeed,
+        errorReason: reason,
+        scanStages: [...liveStealsPipelineStages()],
+        failedStage: "3-games-filtered",
+      });
+    }
+
+    let gameTallies: Array<{
+      marketsChecked: number;
+      longshotsAnalyzed: number;
+      books: Set<string>;
+    }> = [];
+    let gameSteals: Steal[] = [];
+    let nearGame: NearMissSteal[] = [];
+
+    try {
+      for (const rows of oddsBySport.values()) {
+        gameTallies.push(tallyGameScan(rows));
+      }
+      const marketsChecked = gameTallies.reduce((s, t) => s + t.marketsChecked, 0);
+      logLiveStealsStage("4-game-markets-parsed", marketsChecked, {
+        message: "Game-line markets parsed from odds feed",
+      });
+
+      for (const rows of oddsBySport.values()) {
+        gameSteals.push(...findGameSteals(rows));
+        nearGame.push(...findNearMissGameSteals(rows));
+      }
+    } catch (err) {
+      failLiveStealsStage("4-game-markets-parsed", err);
+    }
+
+    type Cand = { sport: string; g: OddsRow };
+    const cands: Cand[] = [];
+    for (const sport of PROP_STEAL_SPORTS) {
+      for (const g of oddsBySport.get(sport) ?? []) cands.push({ sport, g });
+    }
+    cands.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
+
+    let propGames: PropGame[] = [];
+    try {
+      propGames = await Promise.all(
+        cands.slice(0, MAX_PROP_GAMES).map(async ({ sport, g }): Promise<PropGame> => {
+          const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
+          const r = await fetchJson<{ props?: FeedProp[] }>(`/sports/props?${q.toString()}`);
+          return {
+            eventId: g.id,
+            game: `${g.awayTeam} @ ${g.homeTeam}`,
+            sport,
+            startsAt: g.commenceTime,
+            props: r?.props ?? [],
+          };
+        }),
+      );
+      const propRows = propGames.reduce((s, pg) => s + pg.props.length, 0);
+      logLiveStealsStage("5-props-fetch", propGames.length, {
+        message: "Per-game props routes fetched",
+        detail: { gamesFetched: propGames.length, maxGames: MAX_PROP_GAMES },
+      });
+      logLiveStealsStage("6-player-prop-markets", propRows, {
+        message: "Total player prop rows returned",
+      });
+
+      const stolenBaseProps = propGames.reduce(
+        (s, pg) => s + pg.props.filter((p) => p.market === "batter_stolen_bases").length,
+        0,
+      );
+      logLiveStealsStage("7-stolen-base-props", stolenBaseProps, {
+        message: "MLB batter_stolen_bases markets in prop pool",
+      });
+    } catch (err) {
+      failLiveStealsStage("5-props-fetch", err);
+    }
+
+    let propTally = { marketsChecked: 0, longshotsAnalyzed: 0 };
+    let scanStats = {
+      marketsChecked: 0,
+      longshotsAnalyzed: 0,
+      booksScanned: 0,
+      scanComplete: false,
+    };
+    let propSteals: Steal[] = [];
+    let nearProp: NearMissSteal[] = [];
+
+    try {
+      propTally = tallyPropScan(propGames);
+      scanStats = finalizeStealScanStats(gameTallies, propTally);
+      logLiveStealsStage("8-ev-candidates", scanStats.longshotsAnalyzed, {
+        message: "Longshots in +500..+30000 band analyzed for EV/edge",
+        detail: {
+          marketsChecked: scanStats.marketsChecked,
+          booksScanned: scanStats.booksScanned,
+        },
+      });
+
+      propSteals = findPropSteals(propGames);
+      nearProp = findNearMissPropSteals(propGames);
+    } catch (err) {
+      failLiveStealsStage("8-ev-candidates", err);
+    }
+
+    let steals: Steal[] = [];
+    let almostQualified: NearMissSteal[] = [];
+    try {
+      const byId = new Map<string, Steal>();
+      for (const s of [...gameSteals, ...propSteals]) {
+        const prev = byId.get(s.id);
+        if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) byId.set(s.id, s);
+      }
+      steals = Array.from(byId.values())
+        .sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0))
+        .slice(0, MAX_STEALS);
+
+      const nearById = new Map<string, NearMissSteal>();
+      for (const s of [...nearGame, ...nearProp]) {
+        if (byId.has(s.id)) continue;
+        const prev = nearById.get(s.id);
+        if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) nearById.set(s.id, s);
+      }
+      almostQualified = Array.from(nearById.values())
+        .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
+        .slice(0, 12);
+
+      logLiveStealsStage("9-ranked-picks", steals.length, {
+        message: "Final ranked steals after dedupe and EV sort",
+        detail: { almostQualified: almostQualified.length },
+      });
+    } catch (err) {
+      failLiveStealsStage("9-ranked-picks", err);
+    }
+
+    const meta = buildScanMeta(steals, almostQualified, scanStats);
+    const feed: StealFeedDiagnostics = {
+      ...baseFeed,
+      responseTimeMs: Date.now() - scanStarted,
+      errorReason: null,
+      scanStages: [...liveStealsPipelineStages()],
+      failedStage: null,
+    };
+
+    freshCache = { at: Date.now(), steals, meta, almostQualified, feed };
+    return { steals, meta, almostQualified, feed };
+  } catch (err) {
+    const failure = liveStealsPipelineFailure();
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    if (stack) {
+      console.error(`[live-steals-pipeline] unhandled failure:\n${stack}`);
+    }
+
+    if (err instanceof StealFeedScanError) {
+      throw err;
+    }
+
+    const feed = emptyStealFeedDiagnostics({
+      responseTimeMs: Date.now() - scanStarted,
+      sportsProbed: sportProbes.length,
+      sportsOk: sportProbes.filter((p) => p.ok).length,
+      sportsFailed: sportProbes.filter((p) => !p.ok).length,
+      sportProbes,
+      errorReason: message,
+      scanStages: [...liveStealsPipelineStages()],
+      failedStage: failure.stage,
+    });
+    throw new StealFeedScanError(message, feed, { failedStage: failure.stage, cause: err });
   }
-
-  const gameTallies: Array<{
-    marketsChecked: number;
-    longshotsAnalyzed: number;
-    books: Set<string>;
-  }> = [];
-  for (const rows of oddsBySport.values()) {
-    gameTallies.push(tallyGameScan(rows));
-  }
-
-  const gameSteals: Steal[] = [];
-  const nearGame: NearMissSteal[] = [];
-  for (const rows of oddsBySport.values()) {
-    gameSteals.push(...findGameSteals(rows));
-    nearGame.push(...findNearMissGameSteals(rows));
-  }
-
-  type Cand = { sport: string; g: OddsRow };
-  const cands: Cand[] = [];
-  for (const sport of PROP_STEAL_SPORTS) {
-    for (const g of oddsBySport.get(sport) ?? []) cands.push({ sport, g });
-  }
-  cands.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
-  const propGames = await Promise.all(
-    cands.slice(0, MAX_PROP_GAMES).map(async ({ sport, g }): Promise<PropGame> => {
-      const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
-      const r = await fetchJson<{ props?: FeedProp[] }>(`/sports/props?${q.toString()}`);
-      return { eventId: g.id, game: `${g.awayTeam} @ ${g.homeTeam}`, sport, startsAt: g.commenceTime, props: r?.props ?? [] };
-    }),
-  );
-  const propTally = tallyPropScan(propGames);
-  const scanStats = finalizeStealScanStats(gameTallies, propTally);
-
-  const propSteals = findPropSteals(propGames);
-  const nearProp = findNearMissPropSteals(propGames);
-
-  const byId = new Map<string, Steal>();
-  for (const s of [...gameSteals, ...propSteals]) {
-    const prev = byId.get(s.id);
-    if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) byId.set(s.id, s);
-  }
-  const steals = Array.from(byId.values())
-    .sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0))
-    .slice(0, MAX_STEALS);
-
-  const nearById = new Map<string, NearMissSteal>();
-  for (const s of [...nearGame, ...nearProp]) {
-    if (byId.has(s.id)) continue;
-    const prev = nearById.get(s.id);
-    if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) nearById.set(s.id, s);
-  }
-  const almostQualified = Array.from(nearById.values())
-    .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
-    .slice(0, 12);
-
-  const meta = buildScanMeta(steals, almostQualified, scanStats);
-  const feed: StealFeedDiagnostics = {
-    ...baseFeed,
-    responseTimeMs: Date.now() - scanStarted,
-    errorReason: null,
-  };
-
-  freshCache = { at: Date.now(), steals, meta, almostQualified, feed };
-  return { steals, meta, almostQualified, feed };
 }
 
 export async function fetchSteals(): Promise<Steal[]> {
