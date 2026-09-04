@@ -178,6 +178,12 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/coach-runtime':
+        specifier: workspace:*
+        version: link:../../lib/coach-runtime
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../../lib/coach-types
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
@@ -814,6 +820,235 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 3.25.76
+
+  lib/coach-alts:
+    dependencies:
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-background:
+    dependencies:
+      '@workspace/coach-cache':
+        specifier: workspace:*
+        version: link:../coach-cache
+      '@workspace/coach-data':
+        specifier: workspace:*
+        version: link:../coach-data
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-scan':
+        specifier: workspace:*
+        version: link:../coach-scan
+      '@workspace/coach-sim':
+        specifier: workspace:*
+        version: link:../coach-sim
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+      '@workspace/coach-gates':
+        specifier: workspace:*
+        version: link:../coach-gates
+      '@workspace/coach-sim-cache':
+        specifier: workspace:*
+        version: link:../coach-sim-cache
+
+  lib/coach-cache:
+    dependencies:
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-ticket':
+        specifier: workspace:*
+        version: link:../coach-ticket
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-data:
+    dependencies:
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-gates:
+    dependencies:
+      '@workspace/coach-data':
+        specifier: workspace:*
+        version: link:../coach-data
+      '@workspace/coach-sim':
+        specifier: workspace:*
+        version: link:../coach-sim
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-grade:
+    dependencies:
+      '@workspace/coach-gates':
+        specifier: workspace:*
+        version: link:../coach-gates
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-learn:
+    dependencies:
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-rank:
+    dependencies:
+      '@workspace/coach-learn':
+        specifier: workspace:*
+        version: link:../coach-learn
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-runtime:
+    dependencies:
+      '@workspace/coach-background':
+        specifier: workspace:*
+        version: link:../coach-background
+      '@workspace/coach-cache':
+        specifier: workspace:*
+        version: link:../coach-cache
+      '@workspace/coach-data':
+        specifier: workspace:*
+        version: link:../coach-data
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-scan':
+        specifier: workspace:*
+        version: link:../coach-scan
+      '@workspace/coach-sim':
+        specifier: workspace:*
+        version: link:../coach-sim
+      '@workspace/coach-ticket':
+        specifier: workspace:*
+        version: link:../coach-ticket
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+      '@workspace/coach-gates':
+        specifier: workspace:*
+        version: link:../coach-gates
+      '@workspace/coach-sim-cache':
+        specifier: workspace:*
+        version: link:../coach-sim-cache
+
+  lib/coach-scan:
+    dependencies:
+      '@workspace/coach-data':
+        specifier: workspace:*
+        version: link:../coach-data
+      '@workspace/coach-gates':
+        specifier: workspace:*
+        version: link:../coach-gates
+      '@workspace/coach-grade':
+        specifier: workspace:*
+        version: link:../coach-grade
+      '@workspace/coach-sim':
+        specifier: workspace:*
+        version: link:../coach-sim
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-sim:
+    dependencies:
+      '@workspace/coach-data':
+        specifier: workspace:*
+        version: link:../coach-data
+      '@workspace/coach-sim-cache':
+        specifier: workspace:*
+        version: link:../coach-sim-cache
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-sim-cache:
+    dependencies:
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-ticket:
+    dependencies:
+      '@workspace/coach-alts':
+        specifier: workspace:*
+        version: link:../coach-alts
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
 
   lib/coach-types:
     dependencies:
