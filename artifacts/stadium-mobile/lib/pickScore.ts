@@ -302,6 +302,22 @@ export function confidenceFromSignals(scores: PickSubScores): number | null {
   return clamp(Math.round(pts), 5, 95);
 }
 
+/** Typical conviction % aligned with composite / letter-grade thresholds. */
+export function confidenceFromComposite(composite: number | null): number | null {
+  if (composite == null || !Number.isFinite(composite)) return null;
+  if (composite >= 9.0) return 78;
+  if (composite >= 8.5) return 74;
+  if (composite >= 8.0) return 70;
+  if (composite >= 7.5) return 66;
+  if (composite >= 7.0) return 62;
+  if (composite >= 6.5) return 58;
+  if (composite >= 6.0) return 52;
+  if (composite >= 5.5) return 48;
+  if (composite >= 5.0) return 45;
+  if (composite >= 4.0) return 40;
+  return 35;
+}
+
 // Letter grade from the 1-10 composite — same thresholds the existing card uses,
 // so a "B+" still means the same thing. Null composite -> null grade.
 export function gradeFromComposite(composite: number | null): string | null {

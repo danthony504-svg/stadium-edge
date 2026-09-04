@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
 import { boardScanStagedLegQualifies } from "./pickRecommendation.ts";
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 
 function leg(
   pick: Partial<ParsedPick> & Pick<ParsedPick, "game" | "market" | "pick" | "odds">,
