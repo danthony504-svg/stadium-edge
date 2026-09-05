@@ -315,7 +315,12 @@ async function authedFetch(
 // Whitelisted namespaces on the server (routes/sync.ts). "coachBuild" is
 // written server-side (a parlay finished in the background after the user left)
 // and only READ here on return — never PUT from the client.
-export type SyncNamespace = "savedSlips" | "tracker" | "results" | "coachBuild";
+export type SyncNamespace =
+  | "savedSlips"
+  | "tracker"
+  | "results"
+  | "coachBuild"
+  | "fantasyRosters";
 
 // A parlay build the server finished after the phone disconnected. Stashed
 // under the signed-in user's account so the app can rebuild the exact same pick
@@ -1134,6 +1139,7 @@ export type PlayerSearchResult = {
   sport: string;
   league: string;
   team: string | null;
+  position?: string | null;
   headshot: string | null;
   isActive: boolean;
 };
@@ -1184,6 +1190,23 @@ export function getPlayerHistory(
   if (args.season) q.set("season", args.season);
   if (args.opponentName) q.set("opponentName", args.opponentName);
   return getJson<PlayerHistory>(`/sports/player-history?${q.toString()}`, signal);
+}
+
+export type FantasyNflGameLog = {
+  eventId: string;
+  date: string | null;
+  opponent: string | null;
+  isHome: boolean | null;
+  /** ESPN's position-specific canonical stat names (not duplicate display labels). */
+  stats: Record<string, string>;
+};
+
+/** Category-preserving ESPN NFL logs for Fantasy only; never used by bet models. */
+export function getFantasyNflPlayerHistory(
+  athleteId: string,
+  signal?: AbortSignal,
+): Promise<{ athleteId: string; source: string; games: FantasyNflGameLog[] }> {
+  return getJson(`/sports/fantasy/nfl-player-history?athleteId=${encodeURIComponent(athleteId)}`, signal);
 }
 
 // ---------- Team stats (real ESPN schedule form) ----------
@@ -2434,6 +2457,21 @@ export type ChatContext = {
   // ones, but it's advisory only and never overrides real matchup analytics.
   // Omitted when not enough has settled to say anything honest.
   modelStrengths?: string[];
+  // The server reloads this authenticated roster from account sync before
+  // prompting the Coach. This optional client shape supports cached/offline
+  // context and contains no changing projections or simulation results.
+  fantasyRoster?: {
+    rosterId: string;
+    name: string;
+    scoringFormat: string;
+    players: Array<{
+      athleteId: string;
+      name: string;
+      team: string | null;
+      position?: string | null;
+      rosterSlot: string;
+    }>;
+  };
   // Real ESPN injury report distilled per pickable game, keyed by "Away @ Home"
   // (matching realGames/realOdds). Each side lists the key players actually out
   // (with a friendly status + a high/med impact tier) plus per-position-group

@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
 import {
   clearBiometricLogin,
@@ -31,6 +32,7 @@ export default function AccountScreen() {
   const router = useRouter();
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
+  const { defaultRoster, hydrated: fantasyHydrated } = useFantasyRoster();
 
   const [bioLoginEmail, setBioLoginEmail] = React.useState<string | null>(null);
   const [bioCap, setBioCap] = React.useState({
@@ -198,6 +200,34 @@ export default function AccountScreen() {
             </Text>
           </View>
         </View>
+
+        <Pressable
+          onPress={() => router.push("/fantasy")}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: colors.radius,
+            padding: 16,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Feather name="users" size={18} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
+              Fantasy Football
+            </Text>
+            <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, marginTop: 2 }}>
+              {fantasyHydrated ? `${defaultRoster.players.length} Players Saved` : "Loading saved players…"}
+            </Text>
+          </View>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.primary }}>
+            View My Team ›
+          </Text>
+        </Pressable>
 
         {referralLink ? (
           <View

@@ -2,7 +2,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/express";
+import { and, eq } from "drizzle-orm";
 import { SendChatMessageBody } from "@workspace/api-zod";
+import { db, userSyncTable } from "@workspace/db";
 import { rateLimit } from "../lib/sports.js";
 import {
   recordBackgroundBuildPending,
@@ -22,6 +24,9 @@ import {
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
 
 const router: IRouter = Router();
+// Shared by both /chat and /chat/context-stash. Kept as one instance so both
+// entry points enforce the same real per-IP budget (matches the main branch).
+const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
 
 function streamCannedCoachReply(res: Response, text: string): void {
   res.setHeader("Content-Type", "text/event-stream");
@@ -39,7 +44,7 @@ function streamCannedCoachReply(res: Response, text: string): void {
 // fires multiple chats in quick succession (per-game live parlay builds,
 // re-asks while exploring slips) and the old cap was tripping during
 // normal use, surfacing as a misleading "AI unavailable" message.
-router.use("/chat", rateLimit({ windowMs: 60_000, max: 240, name: "chat" }));
+router.use("/chat", chatLimiter);
 
 // Odds-threshold request detection ("build a 10 leg with -300 or less",
 // "every leg +300 or more"). Mirrors the client helpers in stadium-mobile
@@ -1867,12 +1872,57 @@ router.post("/chat", async (req, res): Promise<void> => {
     // StatMuse is best-effort enrichment — never block a chat on it.
   }
 
+  // Roster identity belongs to the authenticated account, not to device-local
+  // chat context. Load only durable identifiers/slots; projections and other
+  // changing analysis remain live data concerns.
+  const rosterUserId = chatUserId(req);
+  if (rosterUserId) {
+    try {
+      const rows = await db.select({ data: userSyncTable.data }).from(userSyncTable)
+        .where(and(eq(userSyncTable.userId, rosterUserId), eq(userSyncTable.namespace, "fantasyRosters"))).limit(1);
+      const data = rows[0]?.data as { defaultRosterId?: unknown; rosters?: Record<string, unknown> } | undefined;
+      const id = typeof data?.defaultRosterId === "string" ? data.defaultRosterId : "";
+      const roster = id && data?.rosters?.[id];
+      if (roster && typeof roster === "object") {
+        const raw = roster as { id?: unknown; name?: unknown; scoringFormat?: unknown; players?: unknown };
+        const players = Array.isArray(raw.players) ? raw.players
+          .filter((player): player is Record<string, unknown> => !!player && typeof player === "object")
+          .map((player) => ({
+            athleteId: typeof player.athleteId === "string" ? player.athleteId : "",
+            name: typeof player.name === "string" ? player.name : "",
+            team: typeof player.team === "string" ? player.team : null,
+            position: typeof player.position === "string" ? player.position : null,
+            rosterSlot: typeof player.rosterSlot === "string" ? player.rosterSlot : "Bench",
+          }))
+          .filter((player) => player.athleteId && player.name) : [];
+        lockedContext = {
+          ...(lockedContext && typeof lockedContext === "object" ? lockedContext : {}),
+          fantasyRoster: { rosterId: raw.id, name: raw.name, scoringFormat: raw.scoringFormat, players },
+        };
+      }
+    } catch {
+      // Chat remains available if account sync storage is temporarily unavailable.
+    }
+  }
+
   if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
     lockedContext = trimLockedContextForDirectOpenAI(
       lockedContext as Record<string, unknown>,
       { namedGameLabels },
     ) as typeof lockedContext;
   }
+
+  const fantasyRosterContext = lockedContext && typeof lockedContext === "object"
+    ? (lockedContext as { fantasyRoster?: { players?: unknown[]; scoringFormat?: unknown } }).fantasyRoster
+    : undefined;
+  const fantasySystemAddendum = Array.isArray(fantasyRosterContext?.players)
+    ? `\n\nFANTASY ROSTER MODE:
+- The authenticated user's saved roster and scoring format are in context.fantasyRoster. Use those exact players, roster slots, and scoring format for lineup optimization, start/sit, drops, trade analysis, and player comparisons. Never ask the user to retype this roster.
+- A FLEX slot accepts only RB, WR, or TE. Do not put QB, K, or DEF in FLEX. Respect each player's saved starter/bench/IR state.
+- Only use Fantasy metrics that are supplied with a named source input. If current-week projection, matchup-by-position, snap share, red-zone usage, waiver-pool, or rest-of-season valuation data is absent, say it is unavailable; never infer a number or recommend an unidentified pickup.
+- For "Optimize my lineup", return starters, bench, FLEX, best floor lineup and highest-upside lineup only to the extent the supplied data supports them. Clearly distinguish recorded historical form from a weekly projection.
+`
+    : "";
 
   const contextBlock =
     lockedContext && Object.keys(lockedContext).length > 0
@@ -2225,7 +2275,7 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + fantasySystemAddendum + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
