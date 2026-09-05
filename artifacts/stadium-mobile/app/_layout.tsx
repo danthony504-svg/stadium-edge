@@ -27,6 +27,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
+import { FantasyRosterProvider } from "@/context/FantasyRosterContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import {
@@ -189,7 +190,8 @@ function AppShell() {
         <AuthTokenBridge />
         <PushNotificationsBridge />
         <BetSlipProvider>
-          <PickTrackerProvider>
+          <FantasyRosterProvider>
+            <PickTrackerProvider>
             <GestureHandlerRootView
               style={{ flex: 1, backgroundColor: DARK_BG }}
             >
@@ -199,7 +201,8 @@ function AppShell() {
                 {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaDiagnosticsBanner /> : null}
               </KeyboardProvider>
             </GestureHandlerRootView>
-          </PickTrackerProvider>
+            </PickTrackerProvider>
+          </FantasyRosterProvider>
         </BetSlipProvider>
       </QueryClientProvider>
     </>

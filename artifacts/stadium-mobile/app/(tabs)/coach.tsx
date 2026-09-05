@@ -120,6 +120,7 @@ import { FONT } from "@/components/ui";
 import { isInjuryIntelAsk } from "@/lib/injuryFeed";
 import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
+import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
@@ -1005,6 +1006,7 @@ export default function CoachScreen() {
   // context so the Coach can lean into hot categories — advisory only, omitted
   // when nothing has settled. Recomputed only when the results ledger changes.
   const modelStrengths = useMemo(() => computeModelStrengths(results), [results]);
+  const { defaultRoster: fantasyRoster } = useFantasyRoster();
   // Real settled hit-rate per market family, from the SAME results ledger the
   // Model Report uses. Feeds the market-weighting layer so a market above/below
   // the user's historical thresholds nudges its legs' Confidence (real data only;
@@ -3214,6 +3216,16 @@ export default function CoachScreen() {
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
           // pick filter below stays consistent with the context build.
           if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
+          if (fantasyRoster.players.length > 0) {
+            context.fantasyRoster = {
+              rosterId: fantasyRoster.id,
+              name: fantasyRoster.name,
+              scoringFormat: fantasyRoster.scoringFormat,
+              players: fantasyRoster.players.map(({ athleteId, name, team, position, rosterSlot }) => ({
+                athleteId, name, team, position, rosterSlot,
+              })),
+            };
+          }
           const apiMessages: ChatMessage[] = history.map((m) => ({
             role: m.role,
             content: m.apiContent ?? m.content,

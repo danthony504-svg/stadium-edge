@@ -58,6 +58,18 @@ export type SlimChatContextInput = {
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
   modelStrengths?: string[];
+  fantasyRoster?: {
+    rosterId: string;
+    name: string;
+    scoringFormat: string;
+    players: Array<{
+      athleteId: string;
+      name: string;
+      team: string | null;
+      position?: string | null;
+      rosterSlot: string;
+    }>;
+  };
   matchupInjuries?: Record<string, unknown>;
   injuryClearedGames?: string[];
   injuryFeed?: {

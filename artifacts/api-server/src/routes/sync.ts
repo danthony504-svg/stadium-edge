@@ -13,12 +13,12 @@ import { logger } from "../lib/logger";
 // Namespaces a signed-in client may READ. "coachBuild" is written server-side
 // by the /chat route (a parlay the user walked away from, finished in the
 // background) and only READ by the client on return.
-const READABLE_NAMESPACES = new Set(["savedSlips", "tracker", "results", "coachBuild"]);
+const READABLE_NAMESPACES = new Set(["savedSlips", "tracker", "results", "coachBuild", "fantasyRosters"]);
 // Namespaces a client may WRITE. "coachBuild" is intentionally EXCLUDED so the
 // stashed finished ticket stays server-authored — a client can never overwrite
 // it with fabricated picks (honesty: replayed builds are exactly what the model
 // produced server-side).
-const WRITABLE_NAMESPACES = new Set(["savedSlips", "tracker", "results"]);
+const WRITABLE_NAMESPACES = new Set(["savedSlips", "tracker", "results", "fantasyRosters"]);
 
 const syncLimiter = rateLimit({ windowMs: 60_000, max: 120, name: "sync" });
 

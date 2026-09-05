@@ -1,17 +1,18 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useState } from "react";
+import { useRouter } from "expo-router";
+import React, { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { FantasyPlayerCard } from "@/components/FantasyPlayerCard";
 import { Badge, Card, FONT, Pill } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
+import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
 import { searchPlayer, type PlayerSearchResult } from "@/lib/api";
+import { FANTASY_ROSTER_SLOTS, type FantasyRosterSlot } from "@/lib/fantasyRoster";
 import { FANTASY_SCORING_LABELS, type FantasyScoringFormat } from "@/lib/fantasyScoring";
 
-const ROSTER_KEY = "stadium-edge:fantasy-roster:v1";
 type FantasyView = "team" | "lineup" | "startsit" | "waivers" | "trade" | "players";
 const features: Array<{ id: FantasyView; title: string; body: string; icon: React.ComponentProps<typeof Feather>["name"] }> = [
   { id: "lineup", title: "Optimize Lineup", body: "Build a starting lineup from your manual roster.", icon: "award" },
@@ -23,23 +24,13 @@ const features: Array<{ id: FantasyView; title: string; body: string; icon: Reac
 export default function FantasyScreen() {
   const colors = useColors();
   const clearance = useSlipClearance();
+  const router = useRouter();
+  const { defaultRoster, hydrated, addPlayer, movePlayer, removePlayer, setScoringFormat } = useFantasyRoster();
   const [view, setView] = useState<FantasyView>("team");
-  const [format, setFormat] = useState<FantasyScoringFormat>("ppr");
-  const [roster, setRoster] = useState<PlayerSearchResult[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlayerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
 
-  useEffect(() => {
-    void AsyncStorage.getItem(ROSTER_KEY).then((raw) => {
-      if (!raw) return;
-      try { setRoster(JSON.parse(raw) as PlayerSearchResult[]); } catch { /* ignore legacy/corrupt local roster */ }
-    }).catch(() => {});
-  }, []);
-  const saveRoster = (next: PlayerSearchResult[]) => {
-    setRoster(next);
-    void AsyncStorage.setItem(ROSTER_KEY, JSON.stringify(next)).catch(() => {});
-  };
   const findPlayers = async () => {
     const term = query.trim();
     if (!term) return;
@@ -49,7 +40,11 @@ export default function FantasyScreen() {
       setResults(response.results.filter((player) => player.sport.toLowerCase() === "nfl").slice(0, 10));
     } catch { setResults([]); } finally { setSearching(false); }
   };
-  const rosterIds = useMemo(() => new Set(roster.map((player) => player.athleteId)), [roster]);
+  const rosterIds = useMemo(() => new Set(defaultRoster.players.map((player) => player.athleteId)), [defaultRoster.players]);
+  const startSlot = (position: string | null | undefined): FantasyRosterSlot => {
+    const normalized = position?.toUpperCase();
+    return (["QB", "RB", "WR", "TE", "K", "DEF"].includes(normalized ?? "") ? normalized : "FLEX") as FantasyRosterSlot;
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -65,7 +60,7 @@ export default function FantasyScreen() {
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>Scoring format</Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
             {(Object.keys(FANTASY_SCORING_LABELS) as FantasyScoringFormat[]).map((id) => (
-              <Pill key={id} label={FANTASY_SCORING_LABELS[id]} active={format === id} onPress={() => setFormat(id)} />
+              <Pill key={id} label={FANTASY_SCORING_LABELS[id]} active={defaultRoster.scoringFormat === id} onPress={() => setScoringFormat(id)} />
             ))}
           </View>
         </Card>
@@ -73,7 +68,13 @@ export default function FantasyScreen() {
         {view === "team" || view === "players" ? (
           <>
             <Card style={{ gap: 10 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16 }}>My Team</Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16 }}>My Fantasy Team</Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>{hydrated ? `${defaultRoster.players.length} saved` : "Loading…"}</Text>
+              </View>
+              <Pressable onPress={() => router.push({ pathname: "/coach", params: { autoMsg: "Optimize my fantasy football lineup using only my saved roster. Show starters, bench, FLEX, best floor lineup, highest upside lineup, and recommended changes with projected gain and confidence.", send: "1", ts: String(Date.now()) } })} disabled={!defaultRoster.players.length} style={({ pressed }) => ({ alignItems: "center", backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, opacity: !defaultRoster.players.length ? 0.45 : pressed ? 0.85 : 1 })}>
+                <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold }}>Optimize My Lineup</Text>
+              </Pressable>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <TextInput value={query} onChangeText={setQuery} placeholder="Search NFL player" placeholderTextColor={colors.mutedForeground} style={{ flex: 1, color: colors.foreground, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontFamily: FONT.body }} />
                 <Pressable onPress={findPlayers} style={{ justifyContent: "center", paddingHorizontal: 13, borderRadius: 10, backgroundColor: colors.primary }}>
@@ -81,18 +82,28 @@ export default function FantasyScreen() {
                 </Pressable>
               </View>
               {results.map((player) => (
-                <Pressable key={player.athleteId} onPress={() => !rosterIds.has(player.athleteId) && saveRoster([...roster, player])} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 }}>
+                <Pressable key={player.athleteId} onPress={() => !rosterIds.has(player.athleteId) && addPlayer({ athleteId: player.athleteId, name: player.name, team: player.team, headshot: player.headshot, position: null })} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 }}>
                   <Text style={{ color: colors.foreground, fontFamily: FONT.medium }}>{player.name} · {player.team ?? "Team unavailable"}</Text>
                   <Badge label={rosterIds.has(player.athleteId) ? "ON TEAM" : "ADD"} tone="primary" />
                 </Pressable>
               ))}
             </Card>
-            {roster.length ? roster.map((player) => (
-              <View key={player.athleteId} style={{ gap: 6 }}>
-                <FantasyPlayerCard player={{ name: player.name, team: player.team, position: null }} />
-                <Pressable onPress={() => saveRoster(roster.filter((item) => item.athleteId !== player.athleteId))}><Text style={{ color: colors.live, fontFamily: FONT.medium, fontSize: 13 }}>Remove from My Team</Text></Pressable>
-              </View>
-            )) : <Card><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body }}>Add NFL players to begin lineup, start/sit, and trade analysis.</Text></Card>}
+            {defaultRoster.players.length ? FANTASY_ROSTER_SLOTS.map((slot) => {
+              const players = defaultRoster.players.filter((player) => player.rosterSlot === slot);
+              if (!players.length && !["QB", "RB", "WR", "TE", "FLEX", "Bench"].includes(slot)) return null;
+              return <Card key={slot} style={{ gap: 8 }}>
+                <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>{slot.toUpperCase()}</Text>
+                {players.length ? players.map((player) => <View key={player.athleteId} style={{ gap: 6 }}>
+                  <Pressable onPress={() => setView("players")}><FantasyPlayerCard player={{ name: player.name, team: player.team, position: player.position }} /></Pressable>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    <Pill label="Start" active={false} onPress={() => movePlayer(player.athleteId, startSlot(player.position))} />
+                    <Pill label="Bench" active={player.rosterSlot === "Bench"} onPress={() => movePlayer(player.athleteId, "Bench")} />
+                    {FANTASY_ROSTER_SLOTS.filter((candidate) => candidate !== "Bench").map((candidate) => <Pill key={candidate} label={`Move ${candidate}`} active={player.rosterSlot === candidate} onPress={() => movePlayer(player.athleteId, candidate)} />)}
+                    <Pill label="Drop Player" active={false} onPress={() => removePlayer(player.athleteId)} />
+                  </ScrollView>
+                </View>) : <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>No players assigned</Text>}
+              </Card>;
+            }) : <Card><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body }}>Search and add NFL players to save a team to your Stadium Edge account.</Text></Card>}
           </>
         ) : (
           <>

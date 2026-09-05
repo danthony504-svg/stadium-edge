@@ -2,7 +2,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/express";
+import { and, eq } from "drizzle-orm";
 import { SendChatMessageBody } from "@workspace/api-zod";
+import { db, userSyncTable } from "@workspace/db";
 import { rateLimit } from "../lib/sports.js";
 import {
   recordBackgroundBuildPending,
@@ -1865,6 +1867,39 @@ router.post("/chat", async (req, res): Promise<void> => {
     }
   } catch {
     // StatMuse is best-effort enrichment — never block a chat on it.
+  }
+
+  // Roster identity belongs to the authenticated account, not to device-local
+  // chat context. Load only durable identifiers/slots; projections and other
+  // changing analysis remain live data concerns.
+  const rosterUserId = chatUserId(req);
+  if (rosterUserId) {
+    try {
+      const rows = await db.select({ data: userSyncTable.data }).from(userSyncTable)
+        .where(and(eq(userSyncTable.userId, rosterUserId), eq(userSyncTable.namespace, "fantasyRosters"))).limit(1);
+      const data = rows[0]?.data as { defaultRosterId?: unknown; rosters?: Record<string, unknown> } | undefined;
+      const id = typeof data?.defaultRosterId === "string" ? data.defaultRosterId : "";
+      const roster = id && data?.rosters?.[id];
+      if (roster && typeof roster === "object") {
+        const raw = roster as { id?: unknown; name?: unknown; scoringFormat?: unknown; players?: unknown };
+        const players = Array.isArray(raw.players) ? raw.players
+          .filter((player): player is Record<string, unknown> => !!player && typeof player === "object")
+          .map((player) => ({
+            athleteId: typeof player.athleteId === "string" ? player.athleteId : "",
+            name: typeof player.name === "string" ? player.name : "",
+            team: typeof player.team === "string" ? player.team : null,
+            position: typeof player.position === "string" ? player.position : null,
+            rosterSlot: typeof player.rosterSlot === "string" ? player.rosterSlot : "Bench",
+          }))
+          .filter((player) => player.athleteId && player.name) : [];
+        lockedContext = {
+          ...(lockedContext && typeof lockedContext === "object" ? lockedContext : {}),
+          fantasyRoster: { rosterId: raw.id, name: raw.name, scoringFormat: raw.scoringFormat, players },
+        };
+      }
+    } catch {
+      // Chat remains available if account sync storage is temporarily unavailable.
+    }
   }
 
   if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
