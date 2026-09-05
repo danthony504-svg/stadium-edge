@@ -134,7 +134,6 @@ export default function FantasyScreen() {
           ))}
         </ScrollView> : null}
         {view !== "overview" ? <Card style={{ gap: 10 }}>
-        <Card style={{ gap: 10 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>Scoring format</Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
             {(Object.keys(FANTASY_SCORING_LABELS) as FantasyScoringFormat[]).map((id) => (
