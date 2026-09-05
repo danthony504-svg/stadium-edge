@@ -15,7 +15,7 @@ const ROSTER_KEY = "stadium-edge:fantasy-roster:v1";
 type FantasyView = "team" | "lineup" | "startsit" | "waivers" | "trade" | "players";
 const features: Array<{ id: FantasyView; title: string; body: string; icon: React.ComponentProps<typeof Feather>["name"] }> = [
   { id: "lineup", title: "Optimize Lineup", body: "Build a starting lineup from your manual roster.", icon: "award" },
-  { id: "startsit", title: "Start / Sit", body: "Compare two or more rostered NFL players.", icon: "git-compare" },
+  { id: "startsit", title: "Start / Sit", body: "Compare two or more rostered NFL players.", icon: "git-branch" },
   { id: "waivers", title: "Waiver Scanner", body: "Find evidence-backed pickup opportunities.", icon: "search" },
   { id: "trade", title: "Trade Analyzer", body: "Compare Side A and Side B rest-of-season value.", icon: "repeat" },
 ];
@@ -54,7 +54,7 @@ export default function FantasyScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader />
-      <PageTitleRow title="Fantasy Football" subtitle="AI-powered lineup, waiver, trade, and player analysis" />
+      <PageTitleRow icon="award" title="Fantasy Football" subtitle="AI-powered lineup, waiver, trade, and player analysis" />
       <ScrollView contentContainerStyle={{ gap: 12, padding: 16, paddingBottom: clearance + 24 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {(["team", "lineup", "startsit", "waivers", "trade", "players"] as FantasyView[]).map((id) => (
