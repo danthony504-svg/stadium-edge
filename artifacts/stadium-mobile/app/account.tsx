@@ -202,7 +202,7 @@ export default function AccountScreen() {
         </View>
 
         <Pressable
-          onPress={() => router.push("/fantasy")}
+          onPress={() => router.push({ pathname: "/(tabs)/fantasy" })}
           style={({ pressed }) => ({
             flexDirection: "row",
             alignItems: "center",
