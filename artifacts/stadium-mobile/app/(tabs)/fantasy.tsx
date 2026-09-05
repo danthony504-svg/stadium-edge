@@ -1,9 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
-import { AppHeader, PageTitleRow } from "@/components/AppHeader";
+import { AppHeader } from "@/components/AppHeader";
 import { FantasyPlayerCard } from "@/components/FantasyPlayerCard";
 import { Badge, Card, FONT, Pill } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
@@ -14,7 +15,7 @@ import { historicalFantasyAnalysis, type HistoricalFantasyAnalysis } from "@/lib
 import { FANTASY_ROSTER_SLOTS, type FantasyRosterSlot } from "@/lib/fantasyRoster";
 import { FANTASY_SCORING_LABELS, type FantasyScoringFormat } from "@/lib/fantasyScoring";
 
-type FantasyView = "team" | "lineup" | "startsit" | "waivers" | "trade" | "players";
+type FantasyView = "overview" | "team" | "lineup" | "startsit" | "waivers" | "trade" | "players";
 const features: Array<{ id: FantasyView; title: string; body: string; icon: React.ComponentProps<typeof Feather>["name"] }> = [
   { id: "lineup", title: "Optimize Lineup", body: "Build a starting lineup from your manual roster.", icon: "award" },
   { id: "startsit", title: "Start / Sit", body: "Compare two or more rostered NFL players.", icon: "git-branch" },
@@ -27,7 +28,7 @@ export default function FantasyScreen() {
   const clearance = useSlipClearance();
   const router = useRouter();
   const { defaultRoster, hydrated, addPlayer, movePlayer, removePlayer, setScoringFormat } = useFantasyRoster();
-  const [view, setView] = useState<FantasyView>("team");
+  const [view, setView] = useState<FantasyView>("overview");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlayerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -74,13 +75,65 @@ export default function FantasyScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader />
-      <PageTitleRow icon="award" title="Fantasy Football" subtitle="AI-powered lineup, waiver, trade, and player analysis" />
       <ScrollView contentContainerStyle={{ gap: 12, padding: 16, paddingBottom: clearance + 24 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {(["team", "lineup", "startsit", "waivers", "trade", "players"] as FantasyView[]).map((id) => (
-            <Pill key={id} label={id === "startsit" ? "Start / Sit" : id === "team" ? "My Team" : id === "waivers" ? "Waiver Scanner" : id === "players" ? "Fantasy Players" : id[0]!.toUpperCase() + id.slice(1)} active={view === id} onPress={() => setView(id)} />
+        {view === "overview" ? (
+          <>
+            <LinearGradient
+              colors={["#082f49", "#0c4a6e", "#020617"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{ minHeight: 164, borderRadius: 16, padding: 18, overflow: "hidden", borderWidth: 1, borderColor: "#0369a1" }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                <Feather name="award" size={17} color="#38bdf8" />
+                <Text style={{ color: "#e0f2fe", fontFamily: FONT.bold, fontSize: 13, letterSpacing: 0.6 }}>FANTASY FOOTBALL</Text>
+              </View>
+              <Text style={{ color: "#f8fafc", fontFamily: FONT.display, fontSize: 25, marginTop: 12 }}>Smarter Decisions.</Text>
+              <Text style={{ color: "#38bdf8", fontFamily: FONT.display, fontSize: 25 }}>A Stronger Season.</Text>
+              <Text style={{ color: "#cbd5e1", fontFamily: FONT.body, fontSize: 13, lineHeight: 19, marginTop: 8, maxWidth: "72%" }}>
+                Player rankings, lineup analysis, and AI-powered insights for your fantasy league.
+              </Text>
+              <Text style={{ position: "absolute", right: 14, bottom: 12, fontSize: 60, opacity: 0.7 }}>🏈</Text>
+            </LinearGradient>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {([
+                ["overview", "Overview", "home"],
+                ["players", "Rankings", "list"],
+                ["lineup", "Projections", "bar-chart-2"],
+                ["startsit", "Matchups", "calendar"],
+                ["waivers", "Waiver Wire", "plus-circle"],
+                ["trade", "Trade Analyzer", "repeat"],
+              ] as Array<[FantasyView, string, React.ComponentProps<typeof Feather>["name"]]>).map(([id, label, icon]) => (
+                <Pressable key={id} onPress={() => setView(id)} style={({ pressed }) => ({ width: 76, minHeight: 58, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 11, borderWidth: 1, borderColor: view === id ? colors.primary : colors.border, backgroundColor: view === id ? "#0c4a6e" : colors.card, opacity: pressed ? 0.8 : 1 })}>
+                  <Feather name={icon} size={17} color={view === id ? "#38bdf8" : colors.mutedForeground} />
+                  <Text style={{ color: view === id ? colors.foreground : colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, textAlign: "center" }}>{label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Card style={{ gap: 8 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>My Fantasy Team</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>{hydrated ? `${defaultRoster.players.length} players saved to your profile` : "Loading your team…"}</Text></View>
+                <Pressable onPress={() => setView("team")}><Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>View team ›</Text></Pressable>
+              </View>
+              {defaultRoster.players.slice(0, 5).map((player, index) => <Pressable key={player.athleteId} onPress={() => setView("team")} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 7, gap: 10 }}>
+                <Text style={{ width: 18, color: colors.mutedForeground, fontFamily: FONT.bold }}>{index + 1}</Text>
+                <View style={{ flex: 1 }}><Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{player.name}</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>{[player.position, player.team].filter(Boolean).join(" · ")}</Text></View>
+                <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12 }}>{player.rosterSlot}</Text>
+              </Pressable>)}
+              {!defaultRoster.players.length ? <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>Add your roster to unlock personalized lineup tools.</Text> : null}
+            </Card>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable onPress={() => setView("lineup")} style={{ flex: 1, padding: 14, borderWidth: 1, borderColor: "#0369a1", borderRadius: 12, backgroundColor: "#082f49" }}><Feather name="calendar" size={19} color="#38bdf8" /><Text style={{ color: colors.foreground, fontFamily: FONT.semibold, marginTop: 8 }}>Week 1 Matchups</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>Lineup decisions ›</Text></Pressable>
+              <Pressable onPress={() => setView("waivers")} style={{ flex: 1, padding: 14, borderWidth: 1, borderColor: "#0369a1", borderRadius: 12, backgroundColor: "#082f49" }}><Feather name="plus-circle" size={19} color="#38bdf8" /><Text style={{ color: colors.foreground, fontFamily: FONT.semibold, marginTop: 8 }}>Waiver Wire</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>Find pickups ›</Text></Pressable>
+            </View>
+          </>
+        ) : null}
+        {view !== "overview" ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {(["overview", "team", "lineup", "startsit", "waivers", "trade", "players"] as FantasyView[]).map((id) => (
+            <Pill key={id} label={id === "startsit" ? "Start / Sit" : id === "team" ? "My Team" : id === "waivers" ? "Waiver Scanner" : id === "players" ? "Fantasy Players" : id === "overview" ? "Overview" : id[0]!.toUpperCase() + id.slice(1)} active={view === id} onPress={() => setView(id)} />
           ))}
-        </ScrollView>
+        </ScrollView> : null}
+        {view !== "overview" ? <Card style={{ gap: 10 }}>
         <Card style={{ gap: 10 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>Scoring format</Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
@@ -88,7 +141,7 @@ export default function FantasyScreen() {
               <Pill key={id} label={FANTASY_SCORING_LABELS[id]} active={defaultRoster.scoringFormat === id} onPress={() => setScoringFormat(id)} />
             ))}
           </View>
-        </Card>
+        </Card> : null}
 
         {view === "team" || view === "players" ? (
           <>
