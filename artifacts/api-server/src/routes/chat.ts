@@ -1912,6 +1912,18 @@ router.post("/chat", async (req, res): Promise<void> => {
     ) as typeof lockedContext;
   }
 
+  const fantasyRosterContext = lockedContext && typeof lockedContext === "object"
+    ? (lockedContext as { fantasyRoster?: { players?: unknown[]; scoringFormat?: unknown } }).fantasyRoster
+    : undefined;
+  const fantasySystemAddendum = Array.isArray(fantasyRosterContext?.players)
+    ? `\n\nFANTASY ROSTER MODE:
+- The authenticated user's saved roster and scoring format are in context.fantasyRoster. Use those exact players, roster slots, and scoring format for lineup optimization, start/sit, drops, trade analysis, and player comparisons. Never ask the user to retype this roster.
+- A FLEX slot accepts only RB, WR, or TE. Do not put QB, K, or DEF in FLEX. Respect each player's saved starter/bench/IR state.
+- Only use Fantasy metrics that are supplied with a named source input. If current-week projection, matchup-by-position, snap share, red-zone usage, waiver-pool, or rest-of-season valuation data is absent, say it is unavailable; never infer a number or recommend an unidentified pickup.
+- For "Optimize my lineup", return starters, bench, FLEX, best floor lineup and highest-upside lineup only to the extent the supplied data supports them. Clearly distinguish recorded historical form from a weekly projection.
+`
+    : "";
+
   const contextBlock =
     lockedContext && Object.keys(lockedContext).length > 0
       ? `\n\nCurrent app context:\n${
@@ -2263,7 +2275,7 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + fantasySystemAddendum + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {

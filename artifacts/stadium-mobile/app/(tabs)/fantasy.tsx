@@ -128,7 +128,7 @@ export default function FantasyScreen() {
                     ceiling: analysis[player.athleteId]?.ceiling,
                     injuryStatus: injuries[player.name.trim().toLowerCase()] ?? null,
                     dataNote: analysis[player.athleteId]?.games
-                      ? `Recent average, floor and ceiling use ${analysis[player.athleteId]!.games} recorded ESPN game logs. Weekly projections and usage feeds are unavailable.`
+                      ? `ESPN recorded L${analysis[player.athleteId]!.games}: ${analysis[player.athleteId]!.targetsPerGame ?? "—"} targets, ${analysis[player.athleteId]!.carriesPerGame ?? "—"} carries, ${analysis[player.athleteId]!.touchesPerGame ?? "—"} touches/game. Weekly projections, snap share and red-zone usage are unavailable.`
                       : "Recorded ESPN fantasy game logs are unavailable.",
                   }} /></Pressable>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>

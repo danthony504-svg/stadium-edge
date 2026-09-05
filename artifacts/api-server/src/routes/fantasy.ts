@@ -40,12 +40,13 @@ router.get("/sports/fantasy/nfl-player-history", async (req, res): Promise<void>
     );
     const games = new Map<string, {
       eventId: string; date: string | null; opponent: string | null; isHome: boolean | null;
-      categories: Record<string, Record<string, string>>;
+      stats: Record<string, string>;
     }>();
+    // ESPN's NFL endpoint exposes one position-specific full stat row per
+    // event. `names` (not the duplicate display labels) uniquely identifies
+    // pass/rush/receive values, targets, carries, and fumbles.
+    const names = data.names ?? data.labels ?? [];
     for (const season of data.seasonTypes ?? []) for (const category of season.categories ?? []) {
-      const categoryName = String(category.name ?? category.displayName ?? "").trim().toLowerCase();
-      if (!categoryName) continue;
-      const labels = category.labels ?? category.names ?? data.labels ?? data.names ?? [];
       for (const event of category.events ?? []) {
         if (!event.eventId) continue;
         const meta = data.events?.[event.eventId];
@@ -55,10 +56,10 @@ router.get("/sports/fantasy/nfl-player-history", async (req, res): Promise<void>
           date: meta?.gameDate ?? null,
           opponent: meta?.opponent?.displayName ?? null,
           isHome: meta?.atVs === "vs" ? true : meta?.atVs === "@" ? false : null,
-          categories: {},
+          stats: {},
         };
-        row.categories[categoryName] = Object.fromEntries(
-          (event.stats ?? []).map((value, index) => [String(labels[index] ?? index), String(value)]),
+        row.stats = Object.fromEntries(
+          (event.stats ?? []).map((value, index) => [String(names[index] ?? index), String(value)]),
         );
         games.set(event.eventId, row);
       }

@@ -1197,7 +1197,8 @@ export type FantasyNflGameLog = {
   date: string | null;
   opponent: string | null;
   isHome: boolean | null;
-  categories: Record<string, Record<string, string>>;
+  /** ESPN's position-specific canonical stat names (not duplicate display labels). */
+  stats: Record<string, string>;
 };
 
 /** Category-preserving ESPN NFL logs for Fantasy only; never used by bet models. */
