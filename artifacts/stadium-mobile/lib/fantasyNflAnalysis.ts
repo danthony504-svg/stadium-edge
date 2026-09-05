@@ -32,15 +32,15 @@ export function fantasyPointsFromRecordedNflGame(
   const fumbles = category(game, "fumble");
   if (!pass && !rush && !receive) return null;
   const stat: FantasyStatLine = {
-    passingYards: numberFor(pass, ["yds", "yards"]),
-    passingTouchdowns: numberFor(pass, ["td", "touchdowns"]),
-    interceptions: numberFor(pass, ["int", "interceptions"]),
-    rushingYards: numberFor(rush, ["yds", "yards"]),
-    rushingTouchdowns: numberFor(rush, ["td", "touchdowns"]),
-    receivingYards: numberFor(receive, ["yds", "yards"]),
-    receivingTouchdowns: numberFor(receive, ["td", "touchdowns"]),
-    receptions: numberFor(receive, ["rec", "receptions"]),
-    fumblesLost: numberFor(fumbles, ["lost", "fl"]),
+    passingYards: numberFor(pass, ["yds", "yards"]) ?? undefined,
+    passingTouchdowns: numberFor(pass, ["td", "touchdowns"]) ?? undefined,
+    interceptions: numberFor(pass, ["int", "interceptions"]) ?? undefined,
+    rushingYards: numberFor(rush, ["yds", "yards"]) ?? undefined,
+    rushingTouchdowns: numberFor(rush, ["td", "touchdowns"]) ?? undefined,
+    receivingYards: numberFor(receive, ["yds", "yards"]) ?? undefined,
+    receivingTouchdowns: numberFor(receive, ["td", "touchdowns"]) ?? undefined,
+    receptions: numberFor(receive, ["rec", "receptions"]) ?? undefined,
+    fumblesLost: numberFor(fumbles, ["lost", "fl"]) ?? undefined,
   };
   return fantasyPoints(stat, format);
 }
