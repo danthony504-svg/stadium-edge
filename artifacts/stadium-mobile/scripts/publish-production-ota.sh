@@ -44,6 +44,16 @@ if [[ "$RUNTIME_POLICY" != "appVersion" ]]; then
 fi
 
 echo "Running deterministic release gate before OTA publish…"
+# `tsc` includes .expo/types directly but does not regenerate that ignored
+# manifest. Refresh it first so the gate validates the current filesystem
+# routes instead of a stale developer-machine route union.
+EXPO_ROUTER_APP_ROOT="$PWD/app" node -e '
+  const fs = require("node:fs");
+  const { regenerateDeclarations } = require("expo-router/build/typed-routes");
+  fs.mkdirSync(".expo/types", { recursive: true });
+  regenerateDeclarations(".expo/types");
+  setTimeout(() => {}, 1100);
+'
 pnpm typecheck
 pnpm test
 pnpm exec expo export --platform ios --output-dir /tmp/stadium-mobile-ota-release
