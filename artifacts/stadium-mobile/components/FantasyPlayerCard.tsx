@@ -16,6 +16,8 @@ export type FantasyPlayerAnalysis = {
   confidence?: number | null;
   recommendation?: string | null;
   why?: string | null;
+  injuryStatus?: string | null;
+  dataNote?: string | null;
 };
 
 export type FantasyPlayerCardData = FantasyPlayerAnalysis & {
@@ -59,8 +61,8 @@ export function FantasyPlayerCard({ player }: { player: FantasyPlayerCardData })
         <>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {[
-              ["Projected", metric(player.projectedPoints, " FP")],
-              ["Simulation Avg", metric(player.simulationAverage, " FP")],
+              ["Projection", metric(player.projectedPoints, " FP")],
+              ["Recent Avg", metric(player.simulationAverage, " FP")],
               ["Floor", metric(player.floor)],
               ["Ceiling", metric(player.ceiling)],
               ["Boom", metric(player.boomProbability, "%")],
@@ -75,7 +77,11 @@ export function FantasyPlayerCard({ player }: { player: FantasyPlayerCardData })
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
             Matchup: {player.matchupGrade ?? "Data unavailable"} · Opportunity: {player.opportunityGrade ?? "Data unavailable"} · AI confidence: {metric(player.confidence, "/10")}
           </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
+            Injury: {player.injuryStatus ?? "Unavailable"} · Snap share, targets/touches and red-zone usage: unavailable
+          </Text>
           {player.why ? <Text style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13 }}>{player.why}</Text> : null}
+          {player.dataNote ? <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>{player.dataNote}</Text> : null}
         </>
       )}
     </Card>

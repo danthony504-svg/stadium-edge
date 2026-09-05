@@ -890,6 +890,7 @@ router.get("/sports/player-search", async (req, res): Promise<void> => {
     isRetired?: boolean;
     headshot?: { href?: string } | string | null;
     teamRelationships?: Array<{ displayName?: string }>;
+    position?: { abbreviation?: string; displayName?: string } | string | null;
   };
   try {
     const key = `player-search:${query.toLowerCase()}`;
@@ -917,6 +918,9 @@ router.get("/sports/player-search", async (req, res): Promise<void> => {
         sport,
         league: leagueSlug,
         team: it.teamRelationships?.[0]?.displayName ?? null,
+        position: typeof it.position === "string"
+          ? it.position
+          : it.position?.abbreviation ?? it.position?.displayName ?? null,
         headshot,
         isActive: it.isActive !== false && it.isRetired !== true,
       });

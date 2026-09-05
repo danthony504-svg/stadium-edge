@@ -1139,6 +1139,7 @@ export type PlayerSearchResult = {
   sport: string;
   league: string;
   team: string | null;
+  position?: string | null;
   headshot: string | null;
   isActive: boolean;
 };
@@ -1189,6 +1190,22 @@ export function getPlayerHistory(
   if (args.season) q.set("season", args.season);
   if (args.opponentName) q.set("opponentName", args.opponentName);
   return getJson<PlayerHistory>(`/sports/player-history?${q.toString()}`, signal);
+}
+
+export type FantasyNflGameLog = {
+  eventId: string;
+  date: string | null;
+  opponent: string | null;
+  isHome: boolean | null;
+  categories: Record<string, Record<string, string>>;
+};
+
+/** Category-preserving ESPN NFL logs for Fantasy only; never used by bet models. */
+export function getFantasyNflPlayerHistory(
+  athleteId: string,
+  signal?: AbortSignal,
+): Promise<{ athleteId: string; source: string; games: FantasyNflGameLog[] }> {
+  return getJson(`/sports/fantasy/nfl-player-history?athleteId=${encodeURIComponent(athleteId)}`, signal);
 }
 
 // ---------- Team stats (real ESPN schedule form) ----------

@@ -3,6 +3,7 @@ import {
   FANTASY_ROSTER_SLOTS,
   createDefaultFantasyRosters,
   defaultFantasyRoster,
+  positionEligibleForSlot,
 } from "./fantasyRoster";
 
 describe("fantasy roster persistence shape", () => {
@@ -22,5 +23,14 @@ describe("fantasy roster persistence shape", () => {
     expect(FANTASY_ROSTER_SLOTS).toEqual([
       "QB", "RB", "WR", "TE", "FLEX", "K", "DEF", "Bench", "IR",
     ]);
+  });
+
+  it("enforces known position and FLEX eligibility while allowing bench and IR", () => {
+    expect(positionEligibleForSlot("RB", "RB")).toBe(true);
+    expect(positionEligibleForSlot("RB", "FLEX")).toBe(true);
+    expect(positionEligibleForSlot("QB", "FLEX")).toBe(false);
+    expect(positionEligibleForSlot("WR", "TE")).toBe(false);
+    expect(positionEligibleForSlot("QB", "Bench")).toBe(true);
+    expect(positionEligibleForSlot("QB", "IR")).toBe(true);
   });
 });

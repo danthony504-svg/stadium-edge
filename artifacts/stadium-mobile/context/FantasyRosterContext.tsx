@@ -6,6 +6,7 @@ import { getSync, putSync } from "@/lib/api";
 import {
   createDefaultFantasyRosters,
   defaultFantasyRoster,
+  positionEligibleForSlot,
   type FantasyRosterPlayer,
   type FantasyRostersSync,
   type FantasyRosterSlot,
@@ -115,9 +116,15 @@ export function FantasyRosterProvider({ children }: { children: React.ReactNode 
     if (roster.players.some((existing) => existing.athleteId === player.athleteId)) return roster;
     return { ...roster, players: [...roster.players, { ...player, rosterSlot: "Bench", dateAdded: Date.now() }], updatedAt: Date.now() };
   }), [update]);
-  const movePlayer = useCallback((athleteId: string, rosterSlot: FantasyRosterSlot) => update((roster) => ({
-    ...roster, players: roster.players.map((player) => player.athleteId === athleteId ? { ...player, rosterSlot } : player), updatedAt: Date.now(),
-  })), [update]);
+  const movePlayer = useCallback((athleteId: string, rosterSlot: FantasyRosterSlot) => update((roster) => {
+    const player = roster.players.find((candidate) => candidate.athleteId === athleteId);
+    if (!player || !positionEligibleForSlot(player.position, rosterSlot)) return roster;
+    return {
+      ...roster,
+      players: roster.players.map((candidate) => candidate.athleteId === athleteId ? { ...candidate, rosterSlot } : candidate),
+      updatedAt: Date.now(),
+    };
+  }), [update]);
   const removePlayer = useCallback((athleteId: string) => update((roster) => ({
     ...roster, players: roster.players.filter((player) => player.athleteId !== athleteId), updatedAt: Date.now(),
   })), [update]);

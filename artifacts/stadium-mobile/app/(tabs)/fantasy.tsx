@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
@@ -9,7 +9,8 @@ import { Badge, Card, FONT, Pill } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
-import { searchPlayer, type PlayerSearchResult } from "@/lib/api";
+import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
+import { historicalFantasyAnalysis, type HistoricalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
 import { FANTASY_ROSTER_SLOTS, type FantasyRosterSlot } from "@/lib/fantasyRoster";
 import { FANTASY_SCORING_LABELS, type FantasyScoringFormat } from "@/lib/fantasyScoring";
 
@@ -30,6 +31,30 @@ export default function FantasyScreen() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlayerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [analysis, setAnalysis] = useState<Record<string, HistoricalFantasyAnalysis>>({});
+  const [injuries, setInjuries] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void getInjuries("nfl").then((teams) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const team of teams) for (const entry of team.entries) next[entry.player.trim().toLowerCase()] = entry.status;
+      setInjuries(next);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(defaultRoster.players.map(async (player) => {
+      const { games } = await getFantasyNflPlayerHistory(player.athleteId);
+      return [player.athleteId, historicalFantasyAnalysis(games, defaultRoster.scoringFormat)] as const;
+    })).then((rows) => {
+      if (!cancelled) setAnalysis(Object.fromEntries(rows));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [defaultRoster.players, defaultRoster.scoringFormat]);
 
   const findPlayers = async () => {
     const term = query.trim();
@@ -82,8 +107,8 @@ export default function FantasyScreen() {
                 </Pressable>
               </View>
               {results.map((player) => (
-                <Pressable key={player.athleteId} onPress={() => !rosterIds.has(player.athleteId) && addPlayer({ athleteId: player.athleteId, name: player.name, team: player.team, headshot: player.headshot, position: null })} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 }}>
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.medium }}>{player.name} · {player.team ?? "Team unavailable"}</Text>
+                <Pressable key={player.athleteId} onPress={() => !rosterIds.has(player.athleteId) && addPlayer({ athleteId: player.athleteId, name: player.name, team: player.team, headshot: player.headshot, position: player.position })} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.medium }}>{player.name} · {[player.position, player.team ?? "Team unavailable"].filter(Boolean).join(" · ")}</Text>
                   <Badge label={rosterIds.has(player.athleteId) ? "ON TEAM" : "ADD"} tone="primary" />
                 </Pressable>
               ))}
@@ -94,7 +119,18 @@ export default function FantasyScreen() {
               return <Card key={slot} style={{ gap: 8 }}>
                 <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>{slot.toUpperCase()}</Text>
                 {players.length ? players.map((player) => <View key={player.athleteId} style={{ gap: 6 }}>
-                  <Pressable onPress={() => setView("players")}><FantasyPlayerCard player={{ name: player.name, team: player.team, position: player.position }} /></Pressable>
+                  <Pressable onPress={() => setView("players")}><FantasyPlayerCard player={{
+                    name: player.name,
+                    team: player.team,
+                    position: player.position,
+                    simulationAverage: analysis[player.athleteId]?.recentAverage,
+                    floor: analysis[player.athleteId]?.floor,
+                    ceiling: analysis[player.athleteId]?.ceiling,
+                    injuryStatus: injuries[player.name.trim().toLowerCase()] ?? null,
+                    dataNote: analysis[player.athleteId]?.games
+                      ? `Recent average, floor and ceiling use ${analysis[player.athleteId]!.games} recorded ESPN game logs. Weekly projections and usage feeds are unavailable.`
+                      : "Recorded ESPN fantasy game logs are unavailable.",
+                  }} /></Pressable>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                     <Pill label="Start" active={false} onPress={() => movePlayer(player.athleteId, startSlot(player.position))} />
                     <Pill label="Bench" active={player.rosterSlot === "Bench"} onPress={() => movePlayer(player.athleteId, "Bench")} />

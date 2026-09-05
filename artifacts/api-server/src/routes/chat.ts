@@ -24,6 +24,9 @@ import {
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
 
 const router: IRouter = Router();
+// Shared by both /chat and /chat/context-stash. Kept as one instance so both
+// entry points enforce the same real per-IP budget (matches the main branch).
+const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
 
 function streamCannedCoachReply(res: Response, text: string): void {
   res.setHeader("Content-Type", "text/event-stream");
@@ -41,7 +44,7 @@ function streamCannedCoachReply(res: Response, text: string): void {
 // fires multiple chats in quick succession (per-game live parlay builds,
 // re-asks while exploring slips) and the old cap was tripping during
 // normal use, surfacing as a misleading "AI unavailable" message.
-router.use("/chat", rateLimit({ windowMs: 60_000, max: 240, name: "chat" }));
+router.use("/chat", chatLimiter);
 
 // Odds-threshold request detection ("build a 10 leg with -300 or less",
 // "every leg +300 or more"). Mirrors the client helpers in stadium-mobile
