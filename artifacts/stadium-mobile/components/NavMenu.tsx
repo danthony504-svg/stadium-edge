@@ -16,7 +16,7 @@ type FeatherName = React.ComponentProps<typeof Feather>["name"];
 const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
   { label: "Discover", route: "/", icon: "compass" },
   { label: "Coach", route: "/coach", icon: "zap" },
-  { label: "Fantasy", route: "/fantasy", icon: "award" },
+  { label: "Fantasy Football", route: "/fantasy", icon: "award" },
   { label: "Park Weather", route: "/weather", icon: "cloud-drizzle" },
   { label: "Props", route: "/props", icon: "user" },
   { label: "Simulator", route: "/simulator", icon: "cpu" },
