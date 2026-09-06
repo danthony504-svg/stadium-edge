@@ -104,7 +104,7 @@ export default function FantasyScreen() {
                 ["waivers", "Waiver Wire", "plus-circle"],
                 ["trade", "Trade Analyzer", "repeat"],
               ] as Array<[FantasyView, string, React.ComponentProps<typeof Feather>["name"]]>).map(([id, label, icon]) => (
-                <Pressable key={id} onPress={() => setView(id)} style={({ pressed }) => ({ width: 76, minHeight: 58, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 11, borderWidth: 1, borderColor: view === id ? colors.primary : colors.border, backgroundColor: view === id ? "#0c4a6e" : colors.card, opacity: pressed ? 0.8 : 1 })}>
+                <Pressable key={id} onPress={() => id === "trade" ? router.push("/fantasy-trade") : setView(id)} style={({ pressed }) => ({ width: 76, minHeight: 58, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 11, borderWidth: 1, borderColor: view === id ? colors.primary : colors.border, backgroundColor: view === id ? "#0c4a6e" : colors.card, opacity: pressed ? 0.8 : 1 })}>
                   <Feather name={icon} size={17} color={view === id ? "#38bdf8" : colors.mutedForeground} />
                   <Text style={{ color: view === id ? colors.foreground : colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, textAlign: "center" }}>{label}</Text>
                 </Pressable>

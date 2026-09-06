@@ -1,4 +1,5 @@
 import type { FantasyScoringFormat } from "@/lib/fantasyScoring";
+import type { FantasyTradeAnalysis } from "@/lib/fantasyTrade";
 
 export const FANTASY_ROSTER_SLOTS = [
   "QB",
@@ -39,6 +40,7 @@ export type FantasyRostersSync = {
   version: 1;
   defaultRosterId: string;
   rosters: Record<string, FantasyRoster>;
+  tradeHistory?: FantasyTradeAnalysis[];
 };
 
 export const DEFAULT_FANTASY_ROSTER_ID = "default";
@@ -58,6 +60,7 @@ export function createDefaultFantasyRosters(): FantasyRostersSync {
         updatedAt: now,
       },
     },
+    tradeHistory: [],
   };
 }
 

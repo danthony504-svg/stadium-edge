@@ -42,7 +42,15 @@ export default function FantasyTeamScreen() {
       setResults(response.results.filter((p) => p.sport.toLowerCase() === "nfl").slice(0, 10));
     } catch { setResults([]); } finally { setSearching(false); }
   };
-  const askCoach = (prompt: string) => router.push({ pathname: "/coach", params: { autoMsg: prompt, send: "1", ts: String(Date.now()) } });
+  const askCoach = (prompt: string) => {
+    const tradePlayer = prompt.match(/^Analyze whether I should trade (.+) from my saved fantasy roster/)?.[1];
+    const player = tradePlayer ? defaultRoster.players.find((candidate) => candidate.name === tradePlayer) : null;
+    if (player) {
+      router.push({ pathname: "/fantasy-trade", params: { giveId: player.athleteId } });
+      return;
+    }
+    router.push({ pathname: "/coach", params: { autoMsg: prompt, send: "1", ts: String(Date.now()) } });
+  };
   const suggestedSlot = (position?: string | null): FantasyRosterSlot =>
     (["QB", "RB", "WR", "TE", "K", "DEF"].includes(position?.toUpperCase() ?? "") ? position!.toUpperCase() : "FLEX") as FantasyRosterSlot;
 
