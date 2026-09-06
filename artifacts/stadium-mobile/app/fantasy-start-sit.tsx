@@ -1,16 +1,82 @@
+import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import React, { useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+
 import { AppHeader } from "@/components/AppHeader";
 import { Card, FONT, Pill } from "@/components/ui";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
+import { useColors } from "@/hooks/useColors";
 import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
 import { historicalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
 
 export default function FantasyStartSitScreen() {
-  const router=useRouter(); const { playerAId }=useLocalSearchParams<{playerAId?:string}>(); const {defaultRoster}=useFantasyRoster();
-  const [playerB,setPlayerB]=useState<PlayerSearchResult|null>(null); const [query,setQuery]=useState(""); const [results,setResults]=useState<PlayerSearchResult[]>([]); const [result,setResult]=useState<string|null>(null);
-  const playerA=defaultRoster.players.find(p=>p.athleteId===playerAId)??null;
-  const compare=async()=>{if(!playerA||!playerB)return; const [a,b,inj]=await Promise.all([getFantasyNflPlayerHistory(playerA.athleteId),getFantasyNflPlayerHistory(playerB.athleteId),getInjuries("nfl")]);const aa=historicalFantasyAnalysis(a.games,defaultRoster.scoringFormat).recentAverage,bb=historicalFantasyAnalysis(b.games,defaultRoster.scoringFormat).recentAverage;const injured=new Set(inj.flatMap(t=>t.entries.filter(e=>!/active|healthy/i.test(e.status)).map(e=>e.player.toLowerCase())));setResult(aa==null||bb==null?"INSUFFICIENT DATA":injured.has(playerA.name.toLowerCase())||injured.has(playerB.name.toLowerCase())?"TOO CLOSE":aa>bb+1?"START PLAYER A":bb>aa+1?"START PLAYER B":"TOO CLOSE");};
-  return <View style={{flex:1}}><AppHeader/><ScrollView contentContainerStyle={{padding:16,gap:12}}><Card><Text style={{fontFamily:FONT.display,fontSize:22}}>Start / Sit</Text><Text>Uses recorded NFL production and injury status only.</Text></Card><Card><Text style={{fontFamily:FONT.bold}}>Player A</Text><Text>{playerA?.name??"Saved player unavailable"}</Text></Card><Card><Text style={{fontFamily:FONT.bold}}>Player B</Text><TextInput value={query} onChangeText={setQuery} placeholder="Search NFL player"/><Pressable onPress={async()=>setResults((await searchPlayer(query,undefined,{rawMessage:query})).results.filter(p=>p.sport==="nfl"))}><Text>Search</Text></Pressable>{results.map(p=><Pill key={p.athleteId} label={p.name} active={playerB?.athleteId===p.athleteId} onPress={()=>setPlayerB(p)}/>)}</Card><Pressable onPress={compare}><Text>Compare players</Text></Pressable>{result&&<Card><Text style={{fontFamily:FONT.display,fontSize:20}}>{result}</Text><Text>Based on recent performance, injuries, and supported recorded data.</Text></Card>}<Pressable onPress={()=>router.back()}><Text>Back to My Fantasy Team</Text></Pressable></ScrollView></View>;
+  const colors = useColors();
+  const router = useRouter();
+  const { playerAId } = useLocalSearchParams<{ playerAId?: string }>();
+  const { defaultRoster } = useFantasyRoster();
+  const [playerB, setPlayerB] = useState<PlayerSearchResult | null>(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlayerSearchResult[]>([]);
+  const [result, setResult] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const playerA = defaultRoster.players.find((p) => p.athleteId === playerAId) ?? null;
+
+  const findPlayers = async () => {
+    const term = query.trim();
+    if (!term) return;
+    setSearching(true);
+    try {
+      setResults((await searchPlayer(term, undefined, { rawMessage: term })).results.filter((p) => p.sport === "nfl"));
+    } catch {
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const compare = async () => {
+    if (!playerA || !playerB) return;
+    const [a, b, injuries] = await Promise.all([getFantasyNflPlayerHistory(playerA.athleteId), getFantasyNflPlayerHistory(playerB.athleteId), getInjuries("nfl")]);
+    const aRecent = historicalFantasyAnalysis(a.games, defaultRoster.scoringFormat).recentAverage;
+    const bRecent = historicalFantasyAnalysis(b.games, defaultRoster.scoringFormat).recentAverage;
+    const unavailable = new Set(injuries.flatMap((team) => team.entries.filter((entry) => !/active|healthy/i.test(entry.status)).map((entry) => entry.player.toLowerCase())));
+    setResult(aRecent == null || bRecent == null ? "INSUFFICIENT DATA" : unavailable.has(playerA.name.toLowerCase()) || unavailable.has(playerB.name.toLowerCase()) ? "TOO CLOSE" : aRecent > bRecent + 1 ? "START PLAYER A" : bRecent > aRecent + 1 ? "START PLAYER B" : "TOO CLOSE");
+  };
+
+  const canCompare = !!playerA && !!playerB;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
+        <Card style={{ gap: 5 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>Start / Sit</Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>Compare recorded NFL production and current injury status.</Text>
+        </Card>
+        <Card style={{ gap: 5 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12 }}>PLAYER A</Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 17 }}>{playerA?.name ?? "Saved player unavailable"}</Text>
+          {playerA ? <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>{[playerA.position, playerA.team].filter(Boolean).join(" · ")}</Text> : null}
+        </Card>
+        <Card style={{ gap: 9 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12 }}>PLAYER B</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TextInput accessibilityLabel="Search NFL player" value={query} onChangeText={setQuery} placeholder="Search NFL player" placeholderTextColor={colors.mutedForeground} style={{ flex: 1, color: colors.foreground, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontFamily: FONT.body }} />
+            <Pressable accessibilityLabel="Search players" onPress={findPlayers} style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 14, justifyContent: "center" }}>
+              {searching ? <ActivityIndicator color={colors.primaryForeground} /> : <Feather name="search" size={18} color={colors.primaryForeground} />}
+            </Pressable>
+          </View>
+          {playerB ? <Text style={{ color: colors.foreground, fontFamily: FONT.medium }}>{playerB.name} · {[playerB.position, playerB.team].filter(Boolean).join(" · ")}</Text> : null}
+          {results.map((player) => <Pill key={player.athleteId} label={`${player.name}${player.position ? ` · ${player.position}` : ""}`} active={playerB?.athleteId === player.athleteId} onPress={() => setPlayerB(player)} />)}
+        </Card>
+        <Pressable accessibilityLabel="Compare Players" disabled={!canCompare} onPress={compare} style={{ backgroundColor: colors.primary, borderRadius: 10, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: canCompare ? 1 : 0.45 }}>
+          <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold }}>Compare Players</Text>
+        </Pressable>
+        {result ? <Card><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{result}</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, marginTop: 4 }}>Based on recent performance, injuries, and supported recorded data.</Text></Card> : null}
+        <Pressable accessibilityLabel="Back to My Fantasy Team" onPress={() => router.back()} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 10, minHeight: 46, alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Back to My Fantasy Team</Text>
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
 }
