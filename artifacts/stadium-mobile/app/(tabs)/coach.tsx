@@ -888,8 +888,8 @@ function serializeStatCardForAI(card: StatCardResult): string {
 
 // A one-tap add-all / remove-all control above a parlay's pick cards. Picks are
 // already resolved to REAL odds entries by parsePicks, so this never fabricates
-// a leg — it just funnels each card's pick through the same addLeg()/removeLeg()
-// the per-leg button uses. addLeg() refuses duplicates AND a full slip (MAX_LEGS),
+// a leg — it atomically inserts the same displayed card picks into the slip.
+// The slip helper refuses duplicates AND a full slip (MAX_LEGS),
 // so the in-slip count is purely reactive. Once every leg is in the slip the
 // button flips to a "Remove all" action so the user can pull the whole parlay
 // back out in one tap; a partial mix offers to add the remaining legs. When the
@@ -897,13 +897,18 @@ function serializeStatCardForAI(card: StatCardResult): string {
 function AddAllButton({
   picks,
   slipCount,
-  addLeg,
+  addLegs,
   removeLeg,
   hasLeg,
 }: {
   picks: ParsedPick[];
   slipCount: number;
-  addLeg: (leg: ParsedPick) => boolean;
+  addLegs: (legs: ParsedPick[]) => {
+    sourceCount: number;
+    existingCount: number;
+    addedCount: number;
+    finalCount: number;
+  };
   removeLeg: (id: string) => void;
   hasLeg: (game: string, market: string, pick: string) => boolean;
 }) {
@@ -932,21 +937,22 @@ function AddAllButton({
       Alert.alert("Slip full", `Your slip is at the ${MAX_LEGS}-leg max. Remove a leg to add more.`);
       return;
     }
-    let added = 0;
-    for (const p of picks) {
-      if (hasLeg(p.game, p.market, p.pick)) continue;
-      if (addLeg(p)) added++;
-    }
+    recordCoachRequestTrace("coach_bulk_add_pressed", { returnedPickCount: picks.length });
+    const result = addLegs(picks);
+    recordCoachRequestTrace("coach_bulk_add_source_count", { returnedPickCount: result.sourceCount });
+    recordCoachRequestTrace("coach_bulk_add_existing_count", { returnedPickCount: result.existingCount });
+    recordCoachRequestTrace("coach_bulk_add_added_count", { returnedPickCount: result.addedCount });
+    recordCoachRequestTrace("coach_bulk_add_final_slip_count", { returnedPickCount: result.finalCount });
     Haptics.impactAsync(
-      added > 0 ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+      result.addedCount > 0 ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
     );
     // If the cap stopped us short of every leg, say exactly how many landed so a
     // partial add never looks like a glitch.
-    if (added < remaining) {
+    if (result.addedCount < remaining && result.finalCount >= MAX_LEGS) {
       Alert.alert(
         "Slip full",
-        added > 0
-          ? `Added ${added} of ${remaining} — your slip is now at the ${MAX_LEGS}-leg max.`
+        result.addedCount > 0
+          ? `Added ${result.addedCount} of ${remaining} — your slip is now at the ${MAX_LEGS}-leg max.`
           : `Your slip is at the ${MAX_LEGS}-leg max. Remove a leg to add more.`,
       );
     }
@@ -999,7 +1005,7 @@ function AddAllButton({
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { legs, results, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
+  const { legs, results, setAiPicks, addLegs, removeLeg, hasLeg } = useBetSlip();
   const { captureFromCoach, picks: trackedPicks } = usePickTracker();
   // Soft, real-data-only signal about which bet categories the model has actually
   // been hitting (from the user's graded Model Report). Injected into every chat
@@ -6457,14 +6463,7 @@ export default function CoachScreen() {
             )
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
-            const activePreview =
-              hasPicks &&
-              m.role === "assistant" &&
-              i === messages.length - 1 &&
-              coachBuildInFlight;
-            const displayPicks = activePreview
-              ? m.picks!
-              : hasPicks
+            const displayPicks = hasPicks
               ? filterCoachDeliveredPicks(
                   coerceCoachDisplayPicks(m.picks!, flashEnrichRef.current),
                   flashEnrichRef.current,
@@ -6733,7 +6732,7 @@ export default function CoachScreen() {
                       <AddAllButton
                         picks={displayPicks}
                         slipCount={legs.length}
-                        addLeg={addLeg}
+                        addLegs={addLegs}
                         removeLeg={removeLeg}
                         hasLeg={hasLeg}
                       />
