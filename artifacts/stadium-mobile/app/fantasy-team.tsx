@@ -11,6 +11,7 @@ import { useColors } from "@/hooks/useColors";
 import { getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
 import { FANTASY_ROSTER_SLOTS, type FantasyRosterSlot } from "@/lib/fantasyRoster";
 import { FANTASY_SCORING_LABELS, type FantasyScoringFormat } from "@/lib/fantasyScoring";
+import { fantasyCompareRoute } from "@/lib/fantasyCompareRoute";
 
 const SLOT_LABEL: Record<FantasyRosterSlot, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", FLEX: "FLEX", K: "K", DEF: "DST", Bench: "Bench", IR: "IR" };
 
@@ -52,7 +53,7 @@ export default function FantasyTeamScreen() {
     const comparePlayer = prompt.match(/^Compare (.+) with my saved fantasy roster/)?.[1];
     const compare = comparePlayer ? defaultRoster.players.find((candidate) => candidate.name === comparePlayer) : null;
     if (compare) {
-      router.push({ pathname: "/fantasy-start-sit", params: { playerAId: compare.athleteId } });
+      router.push(fantasyCompareRoute(compare.athleteId));
       return;
     }
     const tradePlayer = prompt.match(/^Analyze whether I should trade (.+) from my saved fantasy roster/)?.[1];
