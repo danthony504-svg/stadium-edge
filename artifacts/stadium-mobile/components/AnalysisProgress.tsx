@@ -74,8 +74,12 @@ const ASK_CHECKLIST: { label: string; doneAt: number }[] = [
 
 export type ParlayBuildPhase = "context" | "board-scan" | "stream" | "score";
 
-export function finalTicketChecklistState(isTicketFinalized: boolean, buildPhase?: ParlayBuildPhase) {
-  return isTicketFinalized ? "complete" : buildPhase === "score" ? "active" : "pending";
+export function finalTicketChecklistState(
+  isTicketFinalized: boolean,
+  buildPhase: ParlayBuildPhase | undefined,
+  precedingStagesComplete = false,
+) {
+  return isTicketFinalized ? "complete" : buildPhase === "score" || precedingStagesComplete ? "active" : "pending";
 }
 
 /**
@@ -304,7 +308,15 @@ export function AnalysisProgress({
       >
         {checklist.map((item, idx) => {
           const isFinalTicketStage = item.label === "Final ticket ready";
-          const finalTicketState = finalTicketChecklistState(isTicketFinalized, buildPhase);
+          // Board scanning can remain active after correlation is scored while
+          // prop simulation/qualification waves finish. That is real final-ticket
+          // work, not cosmetic progress, so keep the final row active until the
+          // visible ticket commits.
+          const finalTicketState = finalTicketChecklistState(
+            isTicketFinalized,
+            buildPhase,
+            effectiveIndex >= 7,
+          );
           const done = isFinalTicketStage ? finalTicketState === "complete" : effectiveIndex >= item.doneAt;
           const active = !done && (isFinalTicketStage
             ? finalTicketState === "active"
