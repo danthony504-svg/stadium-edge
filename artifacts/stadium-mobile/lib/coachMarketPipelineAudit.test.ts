@@ -84,6 +84,42 @@ test("pipeline audit retains final family-variety counts and skip reasons", () =
   assert.equal(snap.ticketVariety?.skippedFamilies[0]?.marketFamily, "alternate");
 });
 
+test("pipeline audit exposes request-scoped prop selection counts and exclusion reason", () => {
+  const audit = createCoachMarketPipelineAudit("req-prop-selection");
+  const prop = {
+    game: "KC @ BUF", market: "Passing Yards", pick: "Quarterback Over 250.5",
+    odds: -110, sport: "nfl", isProp: true, player: "Quarterback", propLine: 250.5, propSide: "Over",
+  };
+  const game = { game: "KC @ BUF", market: "Spread", pick: "KC +3", odds: -110, sport: "nfl", isProp: false };
+  const score = {
+    composite: 7, grade: "B", confidencePct: 58, edgePct: 3, simHit: 0.56,
+    simAligned: true, highRiskValuePlay: false, recommends: true, factors: [],
+    rubric: { composite: 7, grade: "B", confidencePct: 58, edgePct: 3, scores: {} as never },
+  };
+  audit.recordNormalized([prop, game]);
+  audit.recordPropSimulationSummary(1, 1);
+  audit.recordQualified([
+    { pick: prop, rankScore: 7, confidencePct: 58, edgePct: 3, grade: "B", simHit: 56 } as BoardScoredLeg,
+    { pick: { ...game, finalAiScore: score }, rankScore: 8, confidencePct: 58, edgePct: 3, grade: "B", simHit: 56 } as BoardScoredLeg,
+  ]);
+  audit.recordTicketVariety({
+    qualifiedByFamily: { moneyline: 0, spread: 1, gameTotal: 0, teamTotal: 0, playerOu: 1, milestone: 0, alternate: 0 },
+    selectedByFamily: { moneyline: 0, spread: 1, gameTotal: 0, teamTotal: 0, playerOu: 0, milestone: 0, alternate: 0 },
+    skippedFamilies: [{ marketFamily: "playerOu", qualifiedCount: 1, reason: "higher-ranked families filled the family-coverage slots" }],
+  });
+  audit.recordFinalSelected([game]);
+
+  assert.deepEqual(audit.snapshot().playerPropDiagnostics, {
+    playerPropCandidates: 1,
+    playerPropSimulated: 1,
+    playerPropQualified: 1,
+    playerPropSelected: 0,
+    gameLineQualified: 1,
+    gameLineSelected: 1,
+    playerPropSelectionReason: "higher-ranked families filled the family-coverage slots",
+  });
+});
+
 test("pipeline audit records non-prop rejection reasons across sports", () => {
   const audit = createCoachMarketPipelineAudit("req-football");
   audit.recordNonPropCandidate(

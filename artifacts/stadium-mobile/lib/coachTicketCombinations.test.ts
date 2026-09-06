@@ -142,6 +142,33 @@ test("market-agnostic ticket gives every qualified family a selection opportunit
   assert.deepEqual(familyVariety.skippedFamilies, []);
 });
 
+test("generic six-leg market-agnostic tickets reserve a qualified player prop", () => {
+  const gameLeg = (market: string, rank: number): BoardScoredLeg => ({
+    ...mainGame(`${market} Away @ Home`, rank),
+    pick: {
+      ...mainGame(`${market} Away @ Home`, rank).pick,
+      market,
+      pick: `${market} selection`,
+    },
+  });
+  const scored: BoardScoredLeg[] = [
+    propLeg("Qualified Prop", "Prop Away @ Home", "Points", 12, 80),
+    gameLeg("Moneyline", 100),
+    gameLeg("Spread", 99),
+    gameLeg("Game Total", 98),
+    gameLeg("Team Total", 97),
+    gameLeg("Alt Total", 96),
+    gameLeg("Alt Spread", 95),
+  ];
+  const { picks } = buildIndependentCoachTicket(scored, 6, {
+    varietySeed: "generic-six-prop-floor",
+    marketAgnostic: true,
+  });
+
+  assert.equal(picks.length, 6);
+  assert.ok(picks.some((pick) => pick.isProp), "a qualified player prop must survive family coverage");
+});
+
 test("explicit mix reserves qualified player-prop and game-line slots", () => {
   const scored: BoardScoredLeg[] = [
     propLeg("Prop One", "A @ B", "Points", 15, 100),

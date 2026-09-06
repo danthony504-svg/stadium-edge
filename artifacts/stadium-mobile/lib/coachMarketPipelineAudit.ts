@@ -50,6 +50,16 @@ export type CoachMarketPipelineSnapshot = {
   nonPropRejectionAggregates?: Record<string, number>;
   qualifiedCandidates?: QualifiedCandidateAudit[];
   ticketVariety?: TicketFamilyVarietyAudit;
+  /** Request-scoped prop/game-line funnel summary for Coach diagnostics. */
+  playerPropDiagnostics?: {
+    playerPropCandidates: number;
+    playerPropSimulated: number;
+    playerPropQualified: number;
+    playerPropSelected: number;
+    gameLineQualified: number;
+    gameLineSelected: number;
+    playerPropSelectionReason: string | null;
+  };
 };
 
 export type MarketFunnelStage =
@@ -149,6 +159,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   recordScoredFunnel: (pick: ParsedPick, score: FinalAiScore | null | undefined) => void;
   recordGameSimulation: (row: GameSimulationAudit) => void;
   recordTicketVariety: (audit: TicketFamilyVarietyAudit) => void;
+  recordPropSimulationSummary: (inputCount: number, simulatedCount: number) => void;
   recordFinalSelected: (picks: readonly ParsedPick[]) => void;
   recordNonPropQualificationFailure: (pick: ParsedPick, stage: PipelineAuditStage) => void;
   recordNonPropCandidate: (
@@ -171,6 +182,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   const nonPropRejections: NonPropRejection[] = [];
   let qualifiedCandidates: QualifiedCandidateAudit[] = [];
   let ticketVariety: TicketFamilyVarietyAudit | undefined;
+  let propSimulationSummary = { inputCount: 0, simulatedCount: 0 };
   const seenNonPropRejection = new Set<string>();
 
   const bumpFunnel = (stage: MarketFunnelStage, pick: ParsedPick) => {
@@ -189,11 +201,40 @@ export function createCoachMarketPipelineAudit(requestId: string): {
   const recordStage = (stage: PipelineAuditStage, picks: readonly ParsedPick[]) => {
     stages[stage] = countsFromPicks(picks);
   };
+  const playerPropDiagnostics = () => {
+    const count = (source: SportMarketCounts | undefined, predicate: (family: AuditMarketFamily) => boolean) =>
+      Object.values(source ?? {}).reduce((sum, byFamily) =>
+        sum + Object.entries(byFamily).reduce((inner, [family, value]) =>
+          inner + (predicate(family as AuditMarketFamily) ? value : 0), 0), 0);
+    const playerProps = (family: AuditMarketFamily) => family === "playerProps" || family === "touchdownBinary";
+    const qualified = stages.qualified;
+    const selected = stages.final_selected;
+    const playerPropQualified = count(qualified, playerProps);
+    const playerPropSelected = count(selected, playerProps);
+    const varietyReason = ticketVariety?.skippedFamilies
+      .filter((row) => row.marketFamily === "playerOu" || row.marketFamily === "milestone")
+      .map((row) => row.reason)
+      .join("; ") || null;
+    return {
+      playerPropCandidates: count(stages.normalized, playerProps),
+      playerPropSimulated: propSimulationSummary.simulatedCount,
+      playerPropQualified,
+      playerPropSelected,
+      gameLineQualified: count(qualified, (family) => !playerProps(family)),
+      gameLineSelected: count(selected, (family) => !playerProps(family)),
+      playerPropSelectionReason: playerPropQualified > 0 && playerPropSelected === 0
+        ? varietyReason ?? "Qualified player props were excluded by correlation-aware ticket staging/ranking"
+        : null,
+    };
+  };
 
   return {
-    snapshot: () => ({
-      requestId, stages, funnel, qualificationGateCounts, gameSimulations, nonPropRejections, qualifiedCandidates, ticketVariety,
-    }),
+    snapshot: () => {
+      return {
+        requestId, stages, funnel, qualificationGateCounts, gameSimulations, nonPropRejections, qualifiedCandidates, ticketVariety,
+        playerPropDiagnostics: playerPropDiagnostics(),
+      };
+    },
     recordRawFeed: (picks) => recordStage("raw_feed", picks),
     recordNormalized: (picks) => {
       recordStage("normalized", picks);
@@ -223,6 +264,9 @@ export function createCoachMarketPipelineAudit(requestId: string): {
     },
     recordTicketVariety: (audit) => {
       ticketVariety = audit;
+    },
+    recordPropSimulationSummary: (inputCount, simulatedCount) => {
+      propSimulationSummary = { inputCount, simulatedCount };
     },
     recordQualified: (legs) => {
       recordStage("qualified", legs.map((l) => l.pick));
@@ -316,6 +360,7 @@ export function createCoachMarketPipelineAudit(requestId: string): {
       }
       const snapshot = {
         requestId, stages, funnel, qualificationGateCounts, gameSimulations, nonPropRejections, nonPropRejectionAggregates, qualifiedCandidates, ticketVariety, familyTotals: summarizeFamilies(stages),
+        playerPropDiagnostics: playerPropDiagnostics(),
       };
       persistCoachMarketPipelineAudit(snapshot);
       console.log(

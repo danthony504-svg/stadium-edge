@@ -932,6 +932,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
 
   scored.push(...propSim.propScored);
+  pipelineAudit.recordPropSimulationSummary(propSim.inputCount, propSim.simulatedCount);
   for (const leg of propSim.propScored) {
     pipelineAudit.recordFunnel("simulationReturned", [leg.pick]);
     pipelineAudit.recordScoredFunnel(leg.pick, leg.pick.finalAiScore);
