@@ -560,11 +560,18 @@ function buildScanResult(
   },
 ): FullBoardScanResult {
   if (opts.preview) {
-    const qualifying = scored
-      .filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null)
-      .sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+    // Preview updates are emitted frequently. Classify each immutable scored leg
+    // once rather than repeating role filters after sorting.
+    let mainQualified = 0;
+    const qualifying: BoardScoredLeg[] = [];
+    for (const leg of scored) {
+      const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);
+      if (role == null) continue;
+      if (role === "main") mainQualified++;
+      qualifying.push(leg);
+    }
+    qualifying.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
     const picks = qualifying.slice(0, opts.target).map((leg) => leg.pick);
-    const mainQualified = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main").length;
     const altQualified = qualifying.length - mainQualified;
     return {
       picks,
@@ -575,8 +582,8 @@ function buildScanResult(
       staging: {
         mainQualified,
         altQualified,
-        mainOnTicket: picks.filter((pick) => pick.ticketRole === "main").length,
-        altOnTicket: picks.filter((pick) => pick.ticketRole === "alt").length,
+        mainOnTicket: picks.reduce((count, pick) => count + (pick.ticketRole === "main" ? 1 : 0), 0),
+        altOnTicket: picks.reduce((count, pick) => count + (pick.ticketRole === "alt" ? 1 : 0), 0),
       },
       note: picks.length
         ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
