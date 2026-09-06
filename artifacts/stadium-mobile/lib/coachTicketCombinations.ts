@@ -600,6 +600,25 @@ function assembleBalancedDiverseTicket(
         config,
       ));
     }
+    // A generic six-leg board ticket is market-agnostic, not game-line-only.
+    // Reserve one already-qualified player prop before family coverage so the
+    // many game-market families cannot consume every slot. This reuses the
+    // existing correlation-aware pick selection and never changes any gate.
+    if (
+      target === 6 &&
+      (mixConstraints?.minPlayerProps ?? 0) === 0 &&
+      (mixConstraints?.minGameLines ?? 0) === 0 &&
+      qualifying.some((leg) => leg.pick.isProp)
+    ) {
+      selected.push(...pickDiverseLegsFromPool(
+        qualifying.filter((leg) => leg.pick.isProp),
+        selected,
+        1,
+        target,
+        used,
+        config,
+      ));
+    }
     const families = (Object.keys(qualifiedByFamily) as CoachMarketFamily[])
       .filter((family) => qualifiedByFamily[family] > 0)
       .sort((a, b) => {
