@@ -70,8 +70,9 @@ export function defaultFantasyRoster(data: FantasyRostersSync): FantasyRoster {
 
 /** Unknown ESPN positions remain manually assignable; known positions cannot be put in an invalid starter slot. */
 export function positionEligibleForSlot(position: string | null | undefined, slot: FantasyRosterSlot): boolean {
-  const normalized = position?.trim().toUpperCase();
-  if (!normalized || slot === "Bench" || slot === "IR") return true;
+  const rawPosition = position?.trim().toUpperCase();
+  const normalized = rawPosition === "DST" ? "DEF" : rawPosition;
+  if (!normalized || slot === "Bench") return true;
   if (slot === "FLEX") return ["RB", "WR", "TE"].includes(normalized);
   return normalized === slot;
 }
