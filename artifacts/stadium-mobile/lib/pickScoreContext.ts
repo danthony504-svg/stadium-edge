@@ -47,6 +47,7 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
+import { buildTeamCoachFactor } from "@/lib/teamCoachFactor";
 import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
 import { evaluatePositionMarketModel, inferPropPosition } from "@/lib/positionMarketModels";
 import {
@@ -717,6 +718,11 @@ export function attachPickScores(
         ? mlbPlatoonFor(p.player, propEntry?.athleteId ?? p.athleteId, opts.mlbPlatoon)
         : null;
     const mlbGameEnv = p.isProp ? mlbGameEnvFor(p.game, opts.mlbGameEnv) : null;
+    const teamCoach = buildTeamCoachFactor(
+      p,
+      opts.matchupHistory?.[p.game],
+      propPlayerTeam,
+    );
     const finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
@@ -724,6 +730,7 @@ export function attachPickScores(
       odds: p.odds,
       gameSim,
       propSimHit,
+      teamCoach,
       propHolisticContext: p.isProp
         ? {
             sport: p.sport ?? propEntry?.sport,

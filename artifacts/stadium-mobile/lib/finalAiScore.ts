@@ -24,6 +24,7 @@ import {
   type PropHolisticContext,
   type PropHolisticScore,
 } from "./propHolisticRecommendation.ts";
+import type { TeamCoachFactor } from "./teamCoachFactor.ts";
 
 /** Minimum no-vig edge (pct pts) to keep a sim-opposed leg as High-Risk Value Play. */
 export const HIGH_RISK_EDGE_MIN = 4.5;
@@ -32,7 +33,8 @@ export const HIGH_RISK_EDGE_MIN = 4.5;
 export const FINAL_AI_WEIGHTS: Record<string, number> = {
   simulation: 0.3,
   lineValue: 0.2,
-  matchup: 0.15,
+  matchup: 0.12,
+  teamCoach: 0.08,
   injury: 0.1,
   trend: 0.1,
   sharpMoney: 0.05,
@@ -138,6 +140,7 @@ export function buildFinalAiScore(input: {
   gameSim?: CoachGameSimEntry | null;
   propSimHit?: number | null;
   propHolisticContext?: Omit<PropHolisticContext, "rubricScores" | "edgePct" | "simHit">;
+  teamCoach?: TeamCoachFactor | null;
 }): FinalAiScore {
   const simHit = simHitForPick(input.pick, input.gameSim, input.propSimHit);
   const rubric = combinePickScore(
@@ -165,6 +168,12 @@ export function buildFinalAiScore(input: {
         rubric.edgePct != null ? `${rubric.edgePct > 0 ? "+" : ""}${rubric.edgePct}%` : undefined,
     },
     { key: "matchup", label: "Matchup", score: input.rubricScores.matchup },
+    {
+      key: "teamCoach",
+      label: "Team Coach",
+      score: input.teamCoach?.score ?? null,
+      display: input.teamCoach?.display,
+    },
     { key: "trend", label: "Recent Form", score: input.rubricScores.trend },
     { key: "injury", label: "Injuries", score: input.rubricScores.injury },
     { key: "sharpMoney", label: "Sharp Money", score: null, display: "No feed" },
@@ -210,22 +219,32 @@ export function buildFinalAiScore(input: {
     }
   }
 
-  const composite = input.pick.isProp && propHolistic?.composite != null
-    ? propHolistic.composite
-    : combineFinalAiFactors(factors);
-  const grade = input.pick.isProp && propHolistic?.grade
-    ? propHolistic.grade
-    : gradeFromComposite(composite);
-  const confidencePct = input.pick.isProp && propHolistic?.confidencePct != null
-    ? propHolistic.confidencePct
-    : confidenceFromFinalAiFactors(factors);
+  const teamCoachScore = input.teamCoach?.score ?? null;
+  const propComposite =
+    input.pick.isProp && propHolistic?.composite != null
+      ? teamCoachScore == null
+        ? propHolistic.composite
+        : Math.round((propHolistic.composite * 0.85 + teamCoachScore * 0.15) * 10) / 10
+      : null;
+  const composite = propComposite ?? combineFinalAiFactors(factors);
+  const grade = gradeFromComposite(composite);
+  const propConfidence =
+    input.pick.isProp && propHolistic?.confidencePct != null
+      ? teamCoachScore == null
+        ? propHolistic.confidencePct
+        : Math.round(propHolistic.confidencePct * 0.9 + teamCoachScore * 10 * 0.1)
+      : null;
+  const confidencePct = propConfidence ?? confidenceFromFinalAiFactors(factors);
 
   const recommends = input.pick.isProp && propHolistic
     ? propHolisticRecommends(input.pick, propHolistic, {
         edgePct: rubric.edgePct,
         simHit,
         odds: input.odds,
-      })
+      }) &&
+        // A strong Team Coach disagreement needs a documented pricing edge to
+        // outweigh it; otherwise the candidate is held before delivery.
+        (teamCoachScore == null || teamCoachScore >= 4 || (rubric.edgePct ?? 0) >= 5)
     : gradeRank(grade) >= gradeRank(FINAL_AI_MIN_GRADE) &&
       (rubric.edgePct ?? 0) > 0 &&
       pickHasSimGrade(input.pick, simHit) &&
