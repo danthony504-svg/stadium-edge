@@ -798,6 +798,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     if (!shouldEmitPartialUpdate(now, lastPartialEmissionMs, 400)) return;
     lastPartialEmissionMs = now;
     const previewStartedAt = Date.now();
+    traceRequest("preview_construction_start", {
+      candidateCount: totalScanned,
+      qualifiedCount: scored.length,
+    });
     const partial = buildScanResult(scored, {
       target: opts.target,
       evalLinesByGame,
@@ -811,6 +815,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       requestId: opts.requestId,
     });
     const previewDurationMs = Date.now() - previewStartedAt;
+    traceRequest("preview_construction_complete", {
+      candidateCount: totalScanned,
+      qualifiedCount: partial.totalQualified,
+      returnedPickCount: partial.picks.length,
+      durationMs: previewDurationMs,
+    });
     if (previewDurationMs > 100) {
       console.log(
         "[coach-ui-diagnostics]",

@@ -1742,6 +1742,14 @@ export default function CoachScreen() {
       });
       if (patched) {
         setAiPicks(ticket);
+        requestAnimationFrame(() => {
+          recordCoachRequestTrace("react_visible_commit", {
+            requestId: coachRequestContextRef.current?.requestId,
+            candidateCount: partial.totalScanned,
+            qualifiedCount: partial.totalQualified,
+            returnedPickCount: ticket.length,
+          });
+        });
       }
       if (buildFinishingRef.current) {
         setParlayBuildPhase("stream");
@@ -1955,6 +1963,12 @@ export default function CoachScreen() {
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
       const requestId = ctx?.requestId;
+      recordCoachRequestTrace("partial_callback_received", {
+        requestId,
+        candidateCount: partial.totalScanned,
+        qualifiedCount: partial.totalQualified,
+        returnedPickCount: partial.picks.length,
+      });
       if (
         (requestId && isCoachBoardScanAborted(requestId)) ||
         coachRequestWasCompleted(sendGenerationRef.current, requestId)
