@@ -8,8 +8,13 @@ import { Card, FONT, Pill } from "@/components/ui";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
 import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
-import { historicalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
+import { historicalFantasyAnalysis, type HistoricalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
 import { fantasyRecommendation } from "@/lib/fantasyRecommendation";
+
+type ComparisonRow = {
+  player: { athleteId: string; name: string };
+  stats: HistoricalFantasyAnalysis | null;
+};
 
 export default function FantasyStartSitScreen() {
   const colors = useColors();
@@ -53,6 +58,9 @@ export default function FantasyStartSitScreen() {
   };
 
   const canCompare = !!playerA && !!playerB;
+  const comparisonRows: ComparisonRow[] = detail && playerA && playerB
+    ? [{ player: playerA, stats: detail.a }, { player: playerB, stats: detail.b }]
+    : [];
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader />
@@ -80,7 +88,7 @@ export default function FantasyStartSitScreen() {
         <Pressable accessibilityLabel="Compare Players" disabled={!canCompare} onPress={compare} style={{ backgroundColor: colors.primary, borderRadius: 10, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: canCompare ? 1 : 0.45 }}>
           <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold }}>Compare Players</Text>
         </Pressable>
-        {result ? <Card><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{result}</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, marginTop: 4 }}>{detail?.reason}</Text></Card> : null}
+        {result && detail ? <Card style={{gap:8}}><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{result}</Text><Text style={{color:colors.mutedForeground,fontFamily:FONT.body}}>Scoring: {defaultRoster.scoringFormat.toUpperCase()}</Text><View style={{flexDirection:"row",gap:8}}>{comparisonRows.map(({player,stats})=><View key={player.athleteId} style={{flex:1,gap:3}}><Text style={{color:colors.foreground,fontFamily:FONT.semibold}}>{player.name}</Text><Text style={{color:colors.mutedForeground,fontSize:12}}>{stats?.recentAverage == null ? "Limited recent data" : `L10 Avg: ${stats.recentAverage.toFixed(1)}\nFloor: ${stats.floor?.toFixed(1) ?? "Unavailable"}\nCeiling: ${stats.ceiling?.toFixed(1) ?? "Unavailable"}\nTargets: ${stats.targetsPerGame?.toFixed(1) ?? "Unavailable"}\nCarries: ${stats.carriesPerGame?.toFixed(1) ?? "Unavailable"}\nTouches: ${stats.touchesPerGame?.toFixed(1) ?? "Unavailable"}\nStatus: ${detail.injuries[player.name.toLowerCase()] ?? "Active"}`}</Text></View>)}</View><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body }}>{detail.reason}</Text><Text style={{color:colors.mutedForeground,fontSize:12}}>Current-week matchup data unavailable</Text></Card> : null}
         <Pressable accessibilityLabel="Back to My Fantasy Team" onPress={() => router.back()} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 10, minHeight: 46, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Back to My Fantasy Team</Text>
         </Pressable>
