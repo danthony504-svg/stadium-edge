@@ -113,9 +113,9 @@ export default function FantasyScreen() {
             <Card style={{ gap: 8 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <View><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>My Fantasy Team</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>{hydrated ? `${defaultRoster.players.length} players saved to your profile` : "Loading your team…"}</Text></View>
-                <Pressable onPress={() => setView("team")}><Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>View team ›</Text></Pressable>
+                <Pressable onPress={() => router.push("/fantasy-team")}><Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>View team ›</Text></Pressable>
               </View>
-              {defaultRoster.players.slice(0, 5).map((player, index) => <Pressable key={player.athleteId} onPress={() => setView("team")} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 7, gap: 10 }}>
+              {defaultRoster.players.slice(0, 5).map((player, index) => <Pressable key={player.athleteId} onPress={() => router.push("/fantasy-team")} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 7, gap: 10 }}>
                 <Text style={{ width: 18, color: colors.mutedForeground, fontFamily: FONT.bold }}>{index + 1}</Text>
                 <View style={{ flex: 1 }}><Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{player.name}</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>{[player.position, player.team].filter(Boolean).join(" · ")}</Text></View>
                 <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12 }}>{player.rosterSlot}</Text>
