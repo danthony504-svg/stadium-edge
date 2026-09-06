@@ -1,6 +1,9 @@
+import { coachBoardScanMayTerminalize } from "./coachTerminalGate.ts";
+
 export type CoachTimedOutBoardScan = {
   requestedLegs?: number;
   picks?: { length: number };
+  scanComplete?: boolean;
 };
 
 export type CoachBoardScanTimeoutResolution<T extends CoachTimedOutBoardScan> =
@@ -9,8 +12,9 @@ export type CoachBoardScanTimeoutResolution<T extends CoachTimedOutBoardScan> =
 
 /**
  * Decide the terminal outcome after the full-board promise reaches its deadline.
- * A request-matched staged ticket is usable even if the final scan promise has
- * not settled yet; it contains only legs already qualified by the normal scan.
+ * A request-matched ticket may complete only after it reaches the requested
+ * count, or when the board scan itself has completed and established a
+ * legitimate shortfall.
  */
 export function resolveCoachBoardScanTimeout<T extends CoachTimedOutBoardScan>(
   raceResult: T | null | undefined,
@@ -20,7 +24,13 @@ export function resolveCoachBoardScanTimeout<T extends CoachTimedOutBoardScan>(
   for (const scan of [raceResult, stagedResult]) {
     if (!scan?.picks?.length) continue;
     if (requestedLegs > 0 && scan.requestedLegs !== requestedLegs) continue;
-    return { terminal: "completed", scan };
+    if (coachBoardScanMayTerminalize({
+      requestedLegs,
+      finalizedPickCount: scan.picks.length,
+      scanComplete: scan.scanComplete,
+    })) {
+      return { terminal: "completed", scan };
+    }
   }
   return { terminal: "failed", scan: null };
 }

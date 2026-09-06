@@ -157,6 +157,7 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { resolveCoachBoardScanTimeout } from "@/lib/coachBoardScanTimeout";
+import { coachBoardScanMayTerminalize } from "@/lib/coachTerminalGate";
 import { coachScreenInteractionEnabled, coachSubmitIsBlocked } from "@/lib/coachPartialUi";
 import { pickLegFingerprint } from "@/lib/parlayReachCore";
 import { isCoachDiagnosticContent, visibleCoachMessageContent } from "@/lib/coachMessageContent";
@@ -1527,8 +1528,6 @@ export default function CoachScreen() {
         legTarget?: number;
         legNote?: string;
         pinScroll?: boolean;
-        allowQualifiedPreviewTerminal?: boolean;
-        continueBackgroundScan?: boolean;
       },
     ) => {
       const startedAt = Date.now();
@@ -1551,12 +1550,6 @@ export default function CoachScreen() {
         traceFinalStage("final_selection_skipped_completed_request");
         return true;
       }
-      const terminalPreview =
-        opts?.allowQualifiedPreviewTerminal === true &&
-        (opts.legTarget ?? activeRequestLegTargetRef.current) > 0 &&
-        partial.picks.length >= (opts.legTarget ?? activeRequestLegTargetRef.current);
-      if (!boardScanIsComplete(partial) && !terminalPreview) return false;
-
       const enrich = opts?.enrichOverride ?? flashEnrichRef.current;
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
       const enrichWithScan = {
@@ -1568,7 +1561,7 @@ export default function CoachScreen() {
         (activeRequestLegTargetRef.current ||
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
-      traceFinalStage("final_selection_started", { legTarget, terminalPreview });
+      traceFinalStage("final_selection_started", { legTarget });
       recordCoachRequestTrace("final_selection_start", {
         requestId: ctx?.requestId,
         candidateCount: partial.totalScanned,
@@ -1652,6 +1645,18 @@ export default function CoachScreen() {
           })),
       });
 
+      const mayTerminalize = coachBoardScanMayTerminalize({
+        requestedLegs: legTarget,
+        finalizedPickCount: ticket.length,
+        scanComplete: boardScanIsComplete(partial),
+      });
+      if (!mayTerminalize) {
+        traceFinalStage("terminal_state_deferred_incomplete_ticket", {
+          ticketCount: ticket.length,
+          legTarget,
+        });
+        return false;
+      }
       setCoachRequestPhase("finalizing", ctx?.requestId);
       traceFinalStage("terminal_state_commit_started", { ticketCount: ticket.length });
       const committed = commitCoachRequestTerminal({
@@ -1662,7 +1667,7 @@ export default function CoachScreen() {
         legTarget,
         pinScroll: opts?.pinScroll,
         terminal: ticket.length > 0 ? "completed" : "empty",
-        continueBackgroundScan: terminalPreview,
+        continueBackgroundScan: false,
       });
       traceFinalStage("terminal_state_commit_finished", { committed, ticketCount: ticket.length });
       if (committed) {
@@ -2019,11 +2024,14 @@ export default function CoachScreen() {
             qualifiedCount: partial.totalQualified,
             returnedPickCount: partial.picks.length,
           });
-          tryCommitCoachScanResult(partial, {
+          const terminalized = tryCommitCoachScanResult(partial, {
             legTarget,
-            allowQualifiedPreviewTerminal: true,
-            continueBackgroundScan: true,
           });
+          if (!terminalized) {
+            patchInstantBoardScanTicket(partial, undefined, {
+              ticketLegTarget: legTarget,
+            });
+          }
           return;
         }
         const previewStartedAt = Date.now();
@@ -3150,19 +3158,10 @@ export default function CoachScreen() {
                 );
                 if (timeoutResolution.terminal === "completed") {
                   const stagedScan = timeoutResolution.scan;
-                  const stagedPicks = boardScanPartialToTicket(
-                    stagedScan,
-                    flashEnrichRef.current,
-                    reachTargetPreScan,
-                  );
-                  if (stagedPicks.length) {
-                    commitCoachRequestTerminal({
-                      partial: stagedScan,
-                      picks: stagedPicks,
-                      legTarget: reachTargetPreScan,
-                      terminal: "completed",
-                      legNote: stagedScan.note,
-                    });
+                  if (tryCommitCoachScanResult(stagedScan, {
+                    legTarget: reachTargetPreScan,
+                    legNote: stagedScan.note,
+                  })) {
                     return;
                   }
                 }
