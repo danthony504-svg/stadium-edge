@@ -6667,6 +6667,7 @@ export default function CoachScreen() {
                     mode="build"
                     legCount={progressLegCount}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+                    isTicketFinalized={!visualTicketLoading}
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
@@ -6820,6 +6821,7 @@ export default function CoachScreen() {
               mode="build"
               legCount={footerProgressLegCount}
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+              isTicketFinalized={!visualTicketLoading}
             />
           ) : null}
 

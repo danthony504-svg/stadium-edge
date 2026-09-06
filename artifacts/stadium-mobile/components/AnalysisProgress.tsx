@@ -74,6 +74,10 @@ const ASK_CHECKLIST: { label: string; doneAt: number }[] = [
 
 export type ParlayBuildPhase = "context" | "board-scan" | "stream" | "score";
 
+export function finalTicketChecklistState(isTicketFinalized: boolean, buildPhase?: ParlayBuildPhase) {
+  return isTicketFinalized ? "complete" : buildPhase === "score" ? "active" : "pending";
+}
+
 /**
  * A step-by-step "AI is analyzing real data" loading screen shown while the
  * Coach builds a parlay or analyzes a ticket. Shows the current stage, a
@@ -89,10 +93,13 @@ export function AnalysisProgress({
   mode = "build",
   legCount = 0,
   buildPhase,
+  isTicketFinalized = false,
 }: {
   mode?: "build" | "analyze" | "ask";
   legCount?: number;
   buildPhase?: ParlayBuildPhase;
+  /** Only the visible committed ticket may complete the final checklist item. */
+  isTicketFinalized?: boolean;
 }) {
   const colors = useColors();
   const [autoIndex, setAutoIndex] = useState(0);
@@ -296,11 +303,12 @@ export function AnalysisProgress({
         }}
       >
         {checklist.map((item, idx) => {
-          const done =
-            item.label === "Final ticket ready"
-              ? legCount > 0
-              : effectiveIndex >= item.doneAt;
-          const active = idx === activeChecklist;
+          const isFinalTicketStage = item.label === "Final ticket ready";
+          const finalTicketState = finalTicketChecklistState(isTicketFinalized, buildPhase);
+          const done = isFinalTicketStage ? finalTicketState === "complete" : effectiveIndex >= item.doneAt;
+          const active = !done && (isFinalTicketStage
+            ? finalTicketState === "active"
+            : idx === activeChecklist);
           return (
             <View
               key={item.label}
