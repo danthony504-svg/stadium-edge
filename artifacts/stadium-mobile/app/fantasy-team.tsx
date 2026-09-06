@@ -49,7 +49,8 @@ export default function FantasyTeamScreen() {
       router.push({ pathname: "/fantasy-trade", params: { giveId: player.athleteId } });
       return;
     }
-    router.push({ pathname: "/coach", params: { autoMsg: prompt, send: "1", ts: String(Date.now()) } });
+    // Fantasy actions do not enter the Sports AI Coach request pipeline.
+    return;
   };
   const suggestedSlot = (position?: string | null): FantasyRosterSlot =>
     (["QB", "RB", "WR", "TE", "K", "DEF"].includes(position?.toUpperCase() ?? "") ? position!.toUpperCase() : "FLEX") as FantasyRosterSlot;

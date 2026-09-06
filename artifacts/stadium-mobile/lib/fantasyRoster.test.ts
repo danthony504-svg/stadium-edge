@@ -25,12 +25,17 @@ describe("fantasy roster persistence shape", () => {
     ]);
   });
 
-  it("enforces known position and FLEX eligibility while allowing bench and IR", () => {
+  it("enforces NFL position and FLEX eligibility at the mutation boundary", () => {
     expect(positionEligibleForSlot("RB", "RB")).toBe(true);
     expect(positionEligibleForSlot("RB", "FLEX")).toBe(true);
     expect(positionEligibleForSlot("QB", "FLEX")).toBe(false);
     expect(positionEligibleForSlot("WR", "TE")).toBe(false);
     expect(positionEligibleForSlot("QB", "Bench")).toBe(true);
-    expect(positionEligibleForSlot("QB", "IR")).toBe(true);
+    expect(positionEligibleForSlot("QB", "TE")).toBe(false);
+    expect(positionEligibleForSlot("QB", "K")).toBe(false);
+    expect(positionEligibleForSlot("DST", "DEF")).toBe(true);
+    expect(positionEligibleForSlot("DST", "K")).toBe(false);
+    expect(positionEligibleForSlot("K", "K")).toBe(true);
+    expect(positionEligibleForSlot("K", "DEF")).toBe(false);
   });
 });
