@@ -10,6 +10,10 @@ import { useColors } from "@/hooks/useColors";
 import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
 import { historicalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
 
+export function canComparePlayers(playerA: unknown, playerB: unknown): boolean {
+  return Boolean(playerA && playerB);
+}
+
 export default function FantasyStartSitScreen() {
   const colors = useColors();
   const router = useRouter();
@@ -44,7 +48,7 @@ export default function FantasyStartSitScreen() {
     setResult(aRecent == null || bRecent == null ? "INSUFFICIENT DATA" : unavailable.has(playerA.name.toLowerCase()) || unavailable.has(playerB.name.toLowerCase()) ? "TOO CLOSE" : aRecent > bRecent + 1 ? "START PLAYER A" : bRecent > aRecent + 1 ? "START PLAYER B" : "TOO CLOSE");
   };
 
-  const canCompare = !!playerA && !!playerB;
+  const canCompare = canComparePlayers(playerA, playerB);
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader />
@@ -69,8 +73,8 @@ export default function FantasyStartSitScreen() {
           {playerB ? <Text style={{ color: colors.foreground, fontFamily: FONT.medium }}>{playerB.name} · {[playerB.position, playerB.team].filter(Boolean).join(" · ")}</Text> : null}
           {results.map((player) => <Pill key={player.athleteId} label={`${player.name}${player.position ? ` · ${player.position}` : ""}`} active={playerB?.athleteId === player.athleteId} onPress={() => setPlayerB(player)} />)}
         </Card>
-        <Pressable accessibilityLabel="Compare Players" disabled={!canCompare} onPress={compare} style={{ backgroundColor: colors.primary, borderRadius: 10, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: canCompare ? 1 : 0.45 }}>
-          <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold }}>Compare Players</Text>
+        <Pressable accessibilityLabel="Compare Players" disabled={!canCompare} onPress={compare} style={{ backgroundColor: canCompare ? colors.primary : colors.card, borderWidth: canCompare ? 0 : 1, borderColor: colors.border, borderRadius: 10, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: canCompare ? 1 : 0.65 }}>
+          <Text style={{ color: canCompare ? colors.primaryForeground : colors.mutedForeground, fontFamily: FONT.bold }}>Compare Players</Text>
         </Pressable>
         {result ? <Card><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{result}</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, marginTop: 4 }}>Based on recent performance, injuries, and supported recorded data.</Text></Card> : null}
         <Pressable accessibilityLabel="Back to My Fantasy Team" onPress={() => router.back()} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 10, minHeight: 46, alignItems: "center", justifyContent: "center" }}>
