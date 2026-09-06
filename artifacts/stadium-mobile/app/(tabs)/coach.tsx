@@ -2031,23 +2031,6 @@ export default function CoachScreen() {
         return;
       }
       if (partial.picks.length) {
-        if (legTarget > 0 && partial.picks.length >= legTarget) {
-          recordCoachRequestTrace("requested_leg_count_reached", {
-            requestId,
-            candidateCount: partial.totalScanned,
-            qualifiedCount: partial.totalQualified,
-            returnedPickCount: partial.picks.length,
-          });
-          const terminalized = tryCommitCoachScanResult(partial, {
-            legTarget,
-          });
-          if (!terminalized) {
-            patchInstantBoardScanTicket(partial, undefined, {
-              ticketLegTarget: legTarget,
-            });
-          }
-          return;
-        }
         const previewStartedAt = Date.now();
         // Incomplete scans may flash qualified legs but must not terminal-commit —
         // prop waves can reach leg target before game lines finish sim/ranking.
