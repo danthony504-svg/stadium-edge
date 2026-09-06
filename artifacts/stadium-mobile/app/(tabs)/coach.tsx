@@ -193,7 +193,6 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
-import { prefetchAndMaybeApplyOta } from "@/lib/otaUpdater";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
@@ -6026,11 +6025,6 @@ export default function CoachScreen() {
           await hydrateCoachSlateFromServer();
           startSlatePreAnalysis("coach-focus");
         })();
-        if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
-          if (typeof prefetchAndMaybeApplyOta === "function") {
-            void prefetchAndMaybeApplyOta(true).catch(() => {});
-          }
-        }
       }
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
       const partial = latestBoardScanRef.current;

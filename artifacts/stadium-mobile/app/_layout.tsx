@@ -34,7 +34,7 @@ import {
   REQUIRE_AUTH_FOR_APP,
   SHOW_OTA_UI_FOR_APP_REVIEW,
 } from "@/lib/authFlags";
-import { applyOtaUpdateIfAvailable } from "@/lib/otaUpdater";
+import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -137,30 +137,6 @@ function BootScreen() {
   );
 }
 
-/**
- * Fetches a compatible OTA after launch without replacing the running bundle.
- * expo-updates selects the downloaded bundle only after the next reload, while
- * the embedded bundle remains the fallback if the update cannot launch.
- */
-function BootstrapOtaBackgroundFetch() {
-  useEffect(() => {
-    if (__DEV__) return;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const update = await Updates.checkForUpdateAsync();
-          if (!update.isAvailable) return;
-          await Updates.fetchUpdateAsync();
-        } catch {
-          // offline — keep embedded until next foreground
-        }
-      })();
-    }, 12000);
-    return () => clearTimeout(timer);
-  }, []);
-  return null;
-}
-
 function RootLayoutNav() {
   return (
     <Stack
@@ -186,9 +162,9 @@ function RootLayoutNav() {
 }
 
 function AppShell() {
+  useOtaUpdater(true);
   return (
     <>
-      <BootstrapOtaBackgroundFetch />
       <QueryClientProvider client={queryClient}>
         <AuthTokenBridge />
         <PushNotificationsBridge />

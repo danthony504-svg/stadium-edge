@@ -8,6 +8,7 @@ import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearc
 import { historicalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
 import { analyzeFantasyTrade, type FantasyTradeAnalysis } from "@/lib/fantasyTrade";
 import { preselectedTradeGiveIds } from "@/lib/fantasyTradeRoute";
+import { blockOtaReload } from "@/lib/otaBlock";
 
 export default function FantasyTradeScreen() {
   const router = useRouter(); const { defaultRoster, rosters, saveTradeAnalysis } = useFantasyRoster();
@@ -21,11 +22,16 @@ export default function FantasyTradeScreen() {
   const toggleGive = (id: string) => setGive(current => current.includes(id) ? current.filter(x => x !== id) : current.length < 2 ? [...current, id] : current);
   const toggleReceive = (p: PlayerSearchResult) => setReceive(current => current.some(x => x.athleteId === p.athleteId) ? current.filter(x => x.athleteId !== p.athleteId) : current.length < 2 ? [...current, p] : current);
   const run = async () => {
+    const releaseOtaBlock = blockOtaReload();
+    try {
     const givePlayers = give.map(id => rosterById.get(id)!).filter(Boolean);
     const receivePlayers = receive.map(p => ({ athleteId:p.athleteId,name:p.name,team:p.team,headshot:p.headshot,position:p.position,rosterSlot:"Bench" as const,dateAdded:Date.now() }));
     const all = [...givePlayers, ...receivePlayers]; const rows = await Promise.all(all.map(async p => [p.athleteId, historicalFantasyAnalysis((await getFantasyNflPlayerHistory(p.athleteId)).games, defaultRoster.scoringFormat)] as const));
     const injuries = await getInjuries("nfl").then(teams => Object.fromEntries(teams.flatMap(t => t.entries.map(e => [e.player.toLowerCase(), e.status])))).catch(() => ({}));
     const next = analyzeFantasyTrade({ give:givePlayers, receive:receivePlayers, roster:defaultRoster, analysis:Object.fromEntries(rows), injuries }); setTrade(next); saveTradeAnalysis(next);
+    } finally {
+      releaseOtaBlock();
+    }
   };
   return <View style={{flex:1}}><AppHeader/><ScrollView contentContainerStyle={{padding:16,gap:12}}><Card><Text style={{fontFamily:FONT.display,fontSize:22}}>Should I Trade?</Text><Text style={{fontFamily:FONT.body}}>Based on recent performance, injuries, and roster fit</Text></Card>
     <Card style={{gap:8}}><Text style={{fontFamily:FONT.bold}}>Players you give (up to 2)</Text>{defaultRoster.players.map(p=><Pill key={p.athleteId} label={p.name} active={give.includes(p.athleteId)} onPress={()=>toggleGive(p.athleteId)}/>)}</Card>
