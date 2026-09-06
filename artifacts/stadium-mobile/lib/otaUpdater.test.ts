@@ -22,11 +22,13 @@ jest.mock("react-native", () => ({
 jest.mock("@/lib/otaBlock", () => ({ isOtaReloadBlocked: jest.fn(() => false) }));
 
 import { prefetchOtaUpdate } from "./otaUpdater";
+import { isOtaReloadBlocked } from "@/lib/otaBlock";
 
 describe("production OTA prefetch", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockLatestContext.isUpdatePending = false;
+    (isOtaReloadBlocked as jest.Mock).mockReturnValue(false);
     Object.defineProperty(global, "__DEV__", { configurable: true, value: false });
   });
 
@@ -50,5 +52,19 @@ describe("production OTA prefetch", () => {
     mockFetchUpdateAsync.mockRejectedValue(new Error("offline"));
     await expect(prefetchOtaUpdate({ checkForUpdateAsync: mockCheckForUpdateAsync, fetchUpdateAsync: mockFetchUpdateAsync, reloadAsync: mockReloadAsync }, () => mockLatestContext.isUpdatePending)).resolves.toBe("none");
     expect(mockReloadAsync).not.toHaveBeenCalled();
+  });
+
+  it("stages a compatible update without reloading while Coach blocks reload", async () => {
+    (isOtaReloadBlocked as jest.Mock).mockReturnValue(true);
+    mockCheckForUpdateAsync.mockResolvedValue({ isAvailable: true });
+    mockFetchUpdateAsync.mockImplementation(async () => { mockLatestContext.isUpdatePending = true; });
+    await expect(prefetchOtaUpdate({ checkForUpdateAsync: mockCheckForUpdateAsync, fetchUpdateAsync: mockFetchUpdateAsync, reloadAsync: mockReloadAsync }, () => mockLatestContext.isUpdatePending)).resolves.toBe("pending");
+    expect(mockReloadAsync).not.toHaveBeenCalled();
+  });
+
+  it("applies a staged update once when a safe reload is requested", async () => {
+    mockLatestContext.isUpdatePending = true;
+    await expect(prefetchOtaUpdate({ checkForUpdateAsync: mockCheckForUpdateAsync, fetchUpdateAsync: mockFetchUpdateAsync, reloadAsync: mockReloadAsync }, () => mockLatestContext.isUpdatePending, true)).resolves.toBe("applied");
+    expect(mockReloadAsync).toHaveBeenCalledTimes(1);
   });
 });
