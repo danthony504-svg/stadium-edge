@@ -11,6 +11,7 @@ import { useColors } from "@/hooks/useColors";
 import { getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
 import { FANTASY_ROSTER_SLOTS, type FantasyRosterSlot } from "@/lib/fantasyRoster";
 import { FANTASY_SCORING_LABELS, type FantasyScoringFormat } from "@/lib/fantasyScoring";
+import { fantasyCompareRoute } from "@/lib/fantasyCompareRoute";
 
 const SLOT_LABEL: Record<FantasyRosterSlot, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", FLEX: "FLEX", K: "K", DEF: "DST", Bench: "Bench", IR: "IR" };
 
@@ -49,10 +50,20 @@ export default function FantasyTeamScreen() {
       router.push({ pathname: "/fantasy-start-sit", params: { playerAId: startSit.athleteId } });
       return;
     }
+    const comparePlayer = prompt.match(/^Compare (.+) with my saved fantasy roster/)?.[1];
+    const compare = comparePlayer ? defaultRoster.players.find((candidate) => candidate.name === comparePlayer) : null;
+    if (compare) {
+      router.push(fantasyCompareRoute(compare.athleteId));
+      return;
+    }
     const tradePlayer = prompt.match(/^Analyze whether I should trade (.+) from my saved fantasy roster/)?.[1];
     const player = tradePlayer ? defaultRoster.players.find((candidate) => candidate.name === tradePlayer) : null;
     if (player) {
       router.push({ pathname: "/fantasy-trade", params: { giveId: player.athleteId } });
+      return;
+    }
+    if (prompt.startsWith("Optimize my fantasy football lineup")) {
+      router.push("./fantasy-lineup");
       return;
     }
     // Fantasy actions do not enter the Sports AI Coach request pipeline.

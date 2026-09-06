@@ -8,7 +8,13 @@ import { Card, FONT, Pill } from "@/components/ui";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
 import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
-import { historicalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
+import { historicalFantasyAnalysis, type HistoricalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
+import { fantasyRecommendation } from "@/lib/fantasyRecommendation";
+
+type ComparisonRow = {
+  player: { athleteId: string; name: string };
+  stats: HistoricalFantasyAnalysis | null;
+};
 
 export default function FantasyStartSitScreen() {
   const colors = useColors();
@@ -20,6 +26,7 @@ export default function FantasyStartSitScreen() {
   const [results, setResults] = useState<PlayerSearchResult[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+  const [detail, setDetail] = useState<{ a: ReturnType<typeof historicalFantasyAnalysis>; b: ReturnType<typeof historicalFantasyAnalysis>; injuries: Record<string, string>; reason: string; confidence: string } | null>(null);
   const playerA = defaultRoster.players.find((p) => p.athleteId === playerAId) ?? null;
 
   const findPlayers = async () => {
@@ -41,10 +48,20 @@ export default function FantasyStartSitScreen() {
     const aRecent = historicalFantasyAnalysis(a.games, defaultRoster.scoringFormat).recentAverage;
     const bRecent = historicalFantasyAnalysis(b.games, defaultRoster.scoringFormat).recentAverage;
     const unavailable = new Set(injuries.flatMap((team) => team.entries.filter((entry) => !/active|healthy/i.test(entry.status)).map((entry) => entry.player.toLowerCase())));
-    setResult(aRecent == null || bRecent == null ? "INSUFFICIENT DATA" : unavailable.has(playerA.name.toLowerCase()) || unavailable.has(playerB.name.toLowerCase()) ? "TOO CLOSE" : aRecent > bRecent + 1 ? "START PLAYER A" : bRecent > aRecent + 1 ? "START PLAYER B" : "TOO CLOSE");
+    const aAnalysis = historicalFantasyAnalysis(a.games, defaultRoster.scoringFormat);
+    const bAnalysis = historicalFantasyAnalysis(b.games, defaultRoster.scoringFormat);
+    const injuryMap = Object.fromEntries(injuries.flatMap((team) => team.entries.map((entry) => [entry.player.toLowerCase(), entry.status])));
+    const aRecommendation = fantasyRecommendation(aAnalysis, injuryMap[playerA.name.toLowerCase()]);
+    const bRecommendation = fantasyRecommendation(bAnalysis, injuryMap[playerB.name.toLowerCase()]);
+    const preferred = aRecommendation.score == null || bRecommendation.score == null ? aRecommendation : aRecommendation.score >= bRecommendation.score ? aRecommendation : bRecommendation;
+    setDetail({ a: aAnalysis, b: bAnalysis, injuries: injuryMap, reason: preferred.reason, confidence: preferred.confidence });
+    setResult(aRecommendation.score == null || bRecommendation.score == null ? "INSUFFICIENT DATA" : aRecommendation.score >= bRecommendation.score ? "START PLAYER A" : "START PLAYER B");
   };
 
   const canCompare = !!playerA && !!playerB;
+  const comparisonRows: ComparisonRow[] = detail && playerA && playerB
+    ? [{ player: playerA, stats: detail.a }, { player: playerB, stats: detail.b }]
+    : [];
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader />
@@ -72,7 +89,7 @@ export default function FantasyStartSitScreen() {
         <Pressable accessibilityLabel="Compare Players" disabled={!canCompare} onPress={compare} style={{ backgroundColor: colors.primary, borderRadius: 10, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: canCompare ? 1 : 0.45 }}>
           <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold }}>Compare Players</Text>
         </Pressable>
-        {result ? <Card><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{result}</Text><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, marginTop: 4 }}>Based on recent performance, injuries, and supported recorded data.</Text></Card> : null}
+        {result && detail ? <Card style={{gap:8}}><Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{result}</Text><Text style={{color:colors.mutedForeground,fontFamily:FONT.body}}>Scoring: {defaultRoster.scoringFormat.toUpperCase()} · Confidence: {detail.confidence}</Text><View style={{flexDirection:"row",gap:8}}>{comparisonRows.map(({player,stats})=><View key={player.athleteId} style={{flex:1,gap:3}}><Text style={{color:colors.foreground,fontFamily:FONT.semibold}}>{player.name}</Text><Text style={{color:colors.mutedForeground,fontSize:12}}>{stats?.recentAverage == null ? "Limited recent data" : `L10 Avg: ${stats.recentAverage.toFixed(1)}\nFloor: ${stats.floor?.toFixed(1) ?? "Unavailable"}\nCeiling: ${stats.ceiling?.toFixed(1) ?? "Unavailable"}\nTargets: ${stats.targetsPerGame?.toFixed(1) ?? "Unavailable"}\nCarries: ${stats.carriesPerGame?.toFixed(1) ?? "Unavailable"}\nTouches: ${stats.touchesPerGame?.toFixed(1) ?? "Unavailable"}\nStatus: ${detail.injuries[player.name.toLowerCase()] ?? "Active"}`}</Text></View>)}</View><Text style={{ color: colors.mutedForeground, fontFamily: FONT.body }}>{detail.reason}</Text><Text style={{color:colors.mutedForeground,fontSize:12}}>Current-week matchup data unavailable</Text></Card> : null}
         <Pressable accessibilityLabel="Back to My Fantasy Team" onPress={() => router.back()} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 10, minHeight: 46, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ color: colors.primary, fontFamily: FONT.semibold }}>Back to My Fantasy Team</Text>
         </Pressable>
