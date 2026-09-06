@@ -49,10 +49,20 @@ export default function FantasyTeamScreen() {
       router.push({ pathname: "/fantasy-start-sit", params: { playerAId: startSit.athleteId } });
       return;
     }
+    const comparePlayer = prompt.match(/^Compare (.+) with my saved fantasy roster/)?.[1];
+    const compare = comparePlayer ? defaultRoster.players.find((candidate) => candidate.name === comparePlayer) : null;
+    if (compare) {
+      router.push({ pathname: "/fantasy-start-sit", params: { playerAId: compare.athleteId } });
+      return;
+    }
     const tradePlayer = prompt.match(/^Analyze whether I should trade (.+) from my saved fantasy roster/)?.[1];
     const player = tradePlayer ? defaultRoster.players.find((candidate) => candidate.name === tradePlayer) : null;
     if (player) {
       router.push({ pathname: "/fantasy-trade", params: { giveId: player.athleteId } });
+      return;
+    }
+    if (prompt.startsWith("Optimize my fantasy football lineup")) {
+      router.push("./fantasy-lineup");
       return;
     }
     // Fantasy actions do not enter the Sports AI Coach request pipeline.
