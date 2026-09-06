@@ -12,6 +12,7 @@ import {
   type FantasyRosterSlot,
 } from "@/lib/fantasyRoster";
 import type { FantasyScoringFormat } from "@/lib/fantasyScoring";
+import type { FantasyTradeAnalysis } from "@/lib/fantasyTrade";
 
 const STORAGE_KEY = "stadium-edge:fantasy-rosters:v1";
 
@@ -23,6 +24,7 @@ type FantasyRosterState = {
   movePlayer: (athleteId: string, rosterSlot: FantasyRosterSlot) => void;
   removePlayer: (athleteId: string) => void;
   setScoringFormat: (format: FantasyScoringFormat) => void;
+  saveTradeAnalysis: (analysis: FantasyTradeAnalysis) => void;
 };
 
 const FantasyRosterContext = createContext<FantasyRosterState | null>(null);
@@ -129,8 +131,15 @@ export function FantasyRosterProvider({ children }: { children: React.ReactNode 
     ...roster, players: roster.players.filter((player) => player.athleteId !== athleteId), updatedAt: Date.now(),
   })), [update]);
   const setScoringFormat = useCallback((scoringFormat: FantasyScoringFormat) => update((roster) => ({ ...roster, scoringFormat, updatedAt: Date.now() })), [update]);
+  const saveTradeAnalysis = useCallback((analysis: FantasyTradeAnalysis) => {
+    dirtyRef.current = true;
+    setRosters((current) => ({
+      ...current,
+      tradeHistory: [analysis, ...(current.tradeHistory ?? [])].slice(0, 20),
+    }));
+  }, []);
 
-  const value = useMemo(() => ({ rosters, hydrated, defaultRoster: defaultFantasyRoster(rosters), addPlayer, movePlayer, removePlayer, setScoringFormat }), [rosters, hydrated, addPlayer, movePlayer, removePlayer, setScoringFormat]);
+  const value = useMemo(() => ({ rosters, hydrated, defaultRoster: defaultFantasyRoster(rosters), addPlayer, movePlayer, removePlayer, setScoringFormat, saveTradeAnalysis }), [rosters, hydrated, addPlayer, movePlayer, removePlayer, setScoringFormat, saveTradeAnalysis]);
   return <FantasyRosterContext.Provider value={value}>{children}</FantasyRosterContext.Provider>;
 }
 
