@@ -1,5 +1,5 @@
-import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, FONT, Pill } from "@/components/ui";
@@ -7,12 +7,17 @@ import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
 import { historicalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
 import { analyzeFantasyTrade, type FantasyTradeAnalysis } from "@/lib/fantasyTrade";
+import { preselectedTradeGiveIds } from "@/lib/fantasyTradeRoute";
 
 export default function FantasyTradeScreen() {
   const router = useRouter(); const { defaultRoster, rosters, saveTradeAnalysis } = useFantasyRoster();
+  const { giveId } = useLocalSearchParams<{ giveId?: string }>();
   const [give, setGive] = useState<string[]>([]); const [receive, setReceive] = useState<PlayerSearchResult[]>([]);
   const [query, setQuery] = useState(""); const [results, setResults] = useState<PlayerSearchResult[]>([]); const [trade, setTrade] = useState<FantasyTradeAnalysis | null>(null);
   const rosterById = useMemo(() => new Map(defaultRoster.players.map(p => [p.athleteId, p])), [defaultRoster.players]);
+  useEffect(() => {
+    setGive((current) => preselectedTradeGiveIds(current, giveId, new Set(rosterById.keys())));
+  }, [giveId, rosterById]);
   const toggleGive = (id: string) => setGive(current => current.includes(id) ? current.filter(x => x !== id) : current.length < 2 ? [...current, id] : current);
   const toggleReceive = (p: PlayerSearchResult) => setReceive(current => current.some(x => x.athleteId === p.athleteId) ? current.filter(x => x.athleteId !== p.athleteId) : current.length < 2 ? [...current, p] : current);
   const run = async () => {
