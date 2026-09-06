@@ -43,6 +43,12 @@ export default function FantasyTeamScreen() {
     } catch { setResults([]); } finally { setSearching(false); }
   };
   const askCoach = (prompt: string) => {
+    const startSitPlayer = prompt.match(/^Should I start or sit (.+) from my saved fantasy roster/)?.[1];
+    const startSit = startSitPlayer ? defaultRoster.players.find((candidate) => candidate.name === startSitPlayer) : null;
+    if (startSit) {
+      router.push({ pathname: "/fantasy-start-sit", params: { playerAId: startSit.athleteId } });
+      return;
+    }
     const tradePlayer = prompt.match(/^Analyze whether I should trade (.+) from my saved fantasy roster/)?.[1];
     const player = tradePlayer ? defaultRoster.players.find((candidate) => candidate.name === tradePlayer) : null;
     if (player) {

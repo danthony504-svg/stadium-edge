@@ -178,6 +178,7 @@ function RootLayoutNav() {
       <Stack.Screen name="account" options={{ presentation: "card" }} />
       <Stack.Screen name="fantasy-team" options={{ presentation: "card" }} />
       <Stack.Screen name="fantasy-trade" options={{ presentation: "card" }} />
+      <Stack.Screen name="fantasy-start-sit" options={{ presentation: "card" }} />
       <Stack.Screen name="notifications" options={{ presentation: "card" }} />
       <Stack.Screen name="ota-debug" options={{ presentation: "card" }} />
     </Stack>
