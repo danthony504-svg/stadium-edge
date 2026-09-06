@@ -10,6 +10,7 @@ const LAUNCH_DELAY_MS = 400;
 const SAFE_RELOAD_DELAY_MS = 1_000;
 
 export type OtaPrefetchOutcome = "applied" | "pending" | "none";
+export type OtaUpdateClient = Pick<typeof Updates, "checkForUpdateAsync" | "fetchUpdateAsync" | "reloadAsync">;
 
 /** Retained for error-recovery flows; normal startup uses the deferred hook. */
 export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
@@ -21,15 +22,24 @@ export async function prefetchAndMaybeApplyOta(
   applyWhenReady = false,
 ): Promise<OtaPrefetchOutcome> {
   if (__DEV__ || !Updates.isEnabled || isOtaReloadBlocked()) return "none";
-  try {
-    const pendingBefore = !!latestContext?.isUpdatePending;
-    const result = await Updates.checkForUpdateAsync();
-    if (result.isAvailable) await Updates.fetchUpdateAsync();
+  return prefetchOtaUpdate(Updates, () => !!latestContext?.isUpdatePending, applyWhenReady);
+}
 
-    const pending = !!latestContext?.isUpdatePending || pendingBefore;
+/** Testable update transaction; callers must perform environment safety checks. */
+export async function prefetchOtaUpdate(
+  client: OtaUpdateClient,
+  isPending: () => boolean,
+  applyWhenReady = false,
+): Promise<OtaPrefetchOutcome> {
+  try {
+    const pendingBefore = isPending();
+    const result = await client.checkForUpdateAsync();
+    if (result.isAvailable) await client.fetchUpdateAsync();
+
+    const pending = isPending() || pendingBefore;
     if (!pending) return "none";
     if (applyWhenReady && !isOtaReloadBlocked()) {
-      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+      await client.reloadAsync({ reloadScreenOptions: { fade: true } });
       return "applied";
     }
     return "pending";
