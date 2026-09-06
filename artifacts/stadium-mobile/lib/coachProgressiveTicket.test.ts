@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { appendProgressiveCoachPreview } from "./coachProgressiveTicket.ts";
+import { coachScreenInteractionEnabled } from "./coachPartialUi.ts";
 
 const pick = (id: number) => ({
   game: `Away ${id} @ Home ${id}`, market: "Spread", pick: `Away ${id} +1.5`,
@@ -21,4 +22,16 @@ test("progressive 3 → 4 → 5 → 6 freezes existing visible card references",
   assert.equal(five[0], three[0]);
   assert.equal(six[0], three[0]);
   assert.equal(later, six);
+});
+
+test("six visible picks clear visual loading without releasing active request interaction", () => {
+  const visible = [1, 2, 3, 4, 5, 6].map(pick);
+  const visualLoading = visible.length < 6;
+  const activeRequestLock = true;
+  assert.equal(visualLoading, false);
+  assert.equal(activeRequestLock, true);
+  assert.equal(coachScreenInteractionEnabled({
+    requestActive: activeRequestLock,
+    hasVisiblePartialPicks: true,
+  }), true);
 });

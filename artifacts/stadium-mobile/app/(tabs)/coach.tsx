@@ -1130,6 +1130,9 @@ export default function CoachScreen() {
   const [input, setInput] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  // Presentation only. The active request lock remains driven by streaming /
+  // waiting so a background scan cannot accept a conflicting new request.
+  const [visualTicketLoading, setVisualTicketLoading] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [buildFinishing, setBuildFinishing] = useState(false);
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
@@ -1467,6 +1470,7 @@ export default function CoachScreen() {
           setStreaming(false);
           setWaiting(false);
           setBuildFinishing(false);
+          setVisualTicketLoading(false);
           setBuildProgressExpired(false);
           setParlayBuildPhase("idle");
           if (buildProgressTimerRef.current) {
@@ -1739,6 +1743,9 @@ export default function CoachScreen() {
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = visible;
       setBoardScanPartialLegs(visible.length);
+      if (legTarget > 0 && visible.length >= legTarget) {
+        setVisualTicketLoading(false);
+      }
       const patched = patchAssistantMessageIfChanged(setMessages, {
         picks: visible,
         content: "",
@@ -2432,6 +2439,7 @@ export default function CoachScreen() {
       }
       setWaiting(true);
       setStreaming(true);
+      setVisualTicketLoading(true);
       if (openingParlayBuild) {
         activeParlayAskRef.current = trimmed;
         setCoachBuildBusy(true);
@@ -6495,7 +6503,7 @@ export default function CoachScreen() {
               m.ticketLegTarget ?? (parlayBuildIntent ? requestedLegCount(priorUserText) : 0);
             const picksShortOfTarget =
               showTicketPicks && ticketLegTarget > 0 && displayPicks.length < ticketLegTarget;
-            const buildIdle = !buildFinishing && !streaming && !waiting;
+            const buildIdle = !visualTicketLoading;
             const parlayScanInProgress =
               i === messages.length - 1 &&
               parlayBuildIntent &&
