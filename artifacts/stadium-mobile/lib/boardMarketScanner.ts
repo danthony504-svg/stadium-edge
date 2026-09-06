@@ -845,7 +845,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         qualifiedCount: partial.totalQualified,
         returnedPickCount: partial.picks.length,
       });
-      opts.onPartial(partial);
+      // A scanner wave must return control to React Native before its preview
+      // state patch runs. Final ticket construction remains synchronous only on
+      // the completed-board path.
+      setTimeout(() => opts.onPartial?.(partial), 0);
     }
   };
 
