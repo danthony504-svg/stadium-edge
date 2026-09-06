@@ -160,6 +160,7 @@ import { resolveCoachBoardScanTimeout } from "@/lib/coachBoardScanTimeout";
 import { coachBoardScanMayTerminalize } from "@/lib/coachTerminalGate";
 import { coachScreenInteractionEnabled, coachSubmitIsBlocked } from "@/lib/coachPartialUi";
 import { pickLegFingerprint } from "@/lib/parlayReachCore";
+import { appendProgressiveCoachPreview } from "@/lib/coachProgressiveTicket";
 import { isCoachDiagnosticContent, visibleCoachMessageContent } from "@/lib/coachMessageContent";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
@@ -1730,24 +1731,29 @@ export default function CoachScreen() {
         return false;
       }
 
+      const visible = appendProgressiveCoachPreview(
+        boardTicketSnapshotRef.current ?? [],
+        ticket,
+        legTarget > 0 ? legTarget : ticket.length,
+      );
       latestBoardScanRef.current = partial;
-      boardTicketSnapshotRef.current = ticket;
-      setBoardScanPartialLegs(ticket.length);
+      boardTicketSnapshotRef.current = visible;
+      setBoardScanPartialLegs(visible.length);
       const patched = patchAssistantMessageIfChanged(setMessages, {
-        picks: ticket,
+        picks: visible,
         content: "",
         legNote: legNote.trim() || undefined,
         coachDetailNote: coachDetailNote.trim() || undefined,
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
       });
       if (patched) {
-        setAiPicks(ticket);
+        setAiPicks(visible);
         requestAnimationFrame(() => {
           recordCoachRequestTrace("react_visible_commit", {
             requestId: coachRequestContextRef.current?.requestId,
             candidateCount: partial.totalScanned,
             qualifiedCount: partial.totalQualified,
-            returnedPickCount: ticket.length,
+            returnedPickCount: visible.length,
           });
         });
       }
