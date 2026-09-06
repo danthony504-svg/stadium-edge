@@ -46,6 +46,7 @@ import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
+  boardLegPoolRole,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 import type { TicketFamilyVarietyAudit } from "./coachTicketCombinations.ts";
@@ -558,6 +559,33 @@ function buildScanResult(
     mixConstraints?: CoachTicketMixConstraints;
   },
 ): FullBoardScanResult {
+  if (opts.preview) {
+    const qualifying = scored
+      .filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null)
+      .sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+    const picks = qualifying.slice(0, opts.target).map((leg) => leg.pick);
+    const mainQualified = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main").length;
+    const altQualified = qualifying.length - mainQualified;
+    return {
+      picks,
+      evalLinesByGame: opts.evalLinesByGame,
+      gameSimulations: opts.gameSimulations,
+      totalScanned: opts.totalScanned,
+      totalQualified: qualifying.length,
+      staging: {
+        mainQualified,
+        altQualified,
+        mainOnTicket: picks.filter((pick) => pick.ticketRole === "main").length,
+        altOnTicket: picks.filter((pick) => pick.ticketRole === "alt").length,
+      },
+      note: picks.length
+        ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
+        : "",
+      scanComplete: false,
+      requestedLegs: opts.target,
+      requestId: opts.requestId,
+    };
+  }
   const staged = buildStagedTicketFromScan(
     scored,
     opts.target,
@@ -575,9 +603,7 @@ function buildScanResult(
   const scanComplete = !opts.preview && opts.boardExhausted === true;
   // The exhaustive manifest is final-only. Recomputing it for every preview
   // wave blocks the mobile JS thread without affecting preview picks.
-  const manifest = opts.preview
-    ? undefined
-    : opts.manifestRecorder.finalize({
+  const manifest = opts.manifestRecorder.finalize({
         scanComplete,
         boardExhausted: opts.boardExhausted === true,
         deliveredLegs: scanComplete ? picks.length : 0,
@@ -587,7 +613,7 @@ function buildScanResult(
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
       : picks.length > 0 && opts.preview
         ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
-        : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+      : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.target,
     pickIds: picks,
