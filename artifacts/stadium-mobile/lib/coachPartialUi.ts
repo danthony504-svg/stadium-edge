@@ -14,6 +14,11 @@ export function coachScreenInteractionEnabled(opts: {
   return !opts.requestActive || opts.hasVisiblePartialPicks;
 }
 
+/** Partial scan rows are internal progress only; visible tickets are final-board output. */
+export function shouldPresentCoachBoardTicket(scanComplete?: boolean): boolean {
+  return scanComplete === true;
+}
+
 /** Coalesce scan waves without scheduling a separate JS task. */
 export function shouldEmitPartialUpdate(
   nowMs: number,

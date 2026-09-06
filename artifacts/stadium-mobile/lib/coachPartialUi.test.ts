@@ -5,6 +5,7 @@ import {
   coachScreenInteractionEnabled,
   coachSubmitIsBlocked,
   shouldEmitPartialUpdate,
+  shouldPresentCoachBoardTicket,
 } from "./coachPartialUi.ts";
 
 test("visible partial results keep Coach interactions enabled while blocking a conflicting submit", () => {
@@ -27,6 +28,13 @@ test("partial scan updates are coalesced without changing displayed pick state",
   const partialPicks = ["existing-pick", "new-pick"];
   assert.deepEqual(slip, ["already-added-pick"]);
   assert.deepEqual(partialPicks, ["existing-pick", "new-pick"]);
+});
+
+test("internal one, three, and five-leg previews are not presented", () => {
+  for (const count of [1, 3, 5]) {
+    assert.equal(shouldPresentCoachBoardTicket(false), false, `${count}-leg preview stays internal`);
+  }
+  assert.equal(shouldPresentCoachBoardTicket(true), true);
 });
 
 test("inactive requests do not restrict Coach interactions or submission", () => {

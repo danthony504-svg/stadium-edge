@@ -158,7 +158,7 @@ import {
 } from "@/lib/coachScanPolicy";
 import { resolveCoachBoardScanTimeout } from "@/lib/coachBoardScanTimeout";
 import { coachBoardScanMayTerminalize } from "@/lib/coachTerminalGate";
-import { coachScreenInteractionEnabled, coachSubmitIsBlocked } from "@/lib/coachPartialUi";
+import { coachSubmitIsBlocked, shouldPresentCoachBoardTicket } from "@/lib/coachPartialUi";
 import { pickLegFingerprint } from "@/lib/parlayReachCore";
 import { appendProgressiveCoachPreview } from "@/lib/coachProgressiveTicket";
 import { isCoachDiagnosticContent, visibleCoachMessageContent } from "@/lib/coachMessageContent";
@@ -1322,7 +1322,6 @@ export default function CoachScreen() {
   const coachRequestContextRef = useRef<CoachTicketRequestContext | null>(null);
   const activeRequestLegTargetRef = useRef(0);
   const liveScanDeliveredRef = useRef(false);
-  const interactionEnabledRequestRef = useRef("");
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
@@ -1397,7 +1396,7 @@ export default function CoachScreen() {
         legTarget ??
         (requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
-      if (boardScanIsComplete(partial)) {
+      if (shouldPresentCoachBoardTicket(boardScanIsComplete(partial))) {
         return deliverCoachBoardScanTicket(partial, enrich, target).picks;
       }
       return deliverCoachBoardScanProgress(partial, enrich, target).picks;
@@ -2044,67 +2043,16 @@ export default function CoachScreen() {
         return;
       }
       if (partial.picks.length) {
-        const previewStartedAt = Date.now();
-        // Incomplete scans may flash qualified legs but must not terminal-commit —
-        // prop waves can reach leg target before game lines finish sim/ranking.
-        const committed = patchInstantBoardScanTicket(partial, undefined, {
-          ticketLegTarget: legTarget || undefined,
+        // Scanner previews are not user-visible tickets. Waiting for the
+        // completed-board selection prevents transient 1/3/5 leg tickets
+        // from rebuilding the Coach card before its final composition.
+        recordCoachRequestTrace("partial_candidates_emitted", {
+          requestId,
+          candidateCount: partial.totalScanned,
+          qualifiedCount: partial.totalQualified,
+          returnedPickCount: partial.picks.length,
+          error: "presentation_deferred_until_board_complete",
         });
-        const previewDurationMs = Date.now() - previewStartedAt;
-        if (committed) {
-          recordCoachRequestTrace("UI_PARTIAL_RESULTS_RENDERED", {
-            requestId,
-            candidateCount: partial.totalScanned,
-            qualifiedCount: partial.totalQualified,
-            returnedPickCount: partial.picks.length,
-            durationMs: previewDurationMs,
-          });
-          if (
-            coachScreenInteractionEnabled({
-              requestActive: true,
-              hasVisiblePartialPicks: partial.picks.length > 0,
-            }) &&
-            interactionEnabledRequestRef.current !== requestId
-          ) {
-            interactionEnabledRequestRef.current = requestId ?? "";
-            recordCoachRequestTrace("UI_INTERACTION_ENABLED", {
-              requestId,
-              candidateCount: partial.totalScanned,
-              qualifiedCount: partial.totalQualified,
-              returnedPickCount: partial.picks.length,
-            });
-          }
-        }
-        if (previewDurationMs > 100) {
-          console.log(
-            "[coach-ui-diagnostics]",
-            JSON.stringify({
-              stage: "UI_LONG_TASK",
-              function: "patchInstantBoardScanTicket",
-              durationMs: previewDurationMs,
-              requestId: requestId ?? "",
-            }),
-          );
-          recordCoachRequestTrace("UI_LONG_TASK", {
-            requestId,
-            candidateCount: partial.totalScanned,
-            qualifiedCount: partial.totalQualified,
-            returnedPickCount: partial.picks.length,
-            durationMs: previewDurationMs,
-            error: "function=patchInstantBoardScanTicket",
-          });
-        }
-        console.log(
-          "[coach-final-trace]",
-          JSON.stringify({
-            stage: "qualified_preview_rendered",
-            elapsedMs: Date.now() - previewStartedAt,
-            requestId: ctx?.requestId ?? "",
-            scanPickCount: partial.picks.length,
-            committed,
-          }),
-        );
-        if (committed) return;
       }
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
@@ -2491,7 +2439,6 @@ export default function CoachScreen() {
           qualifiedCount: 0,
           returnedPickCount: 0,
         });
-        interactionEnabledRequestRef.current = "";
       }
 
       const controller = new AbortController();

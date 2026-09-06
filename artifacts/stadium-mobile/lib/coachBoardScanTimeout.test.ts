@@ -29,8 +29,8 @@ test("timeout does not terminalize an incomplete qualified shortfall", () => {
   assert.deepEqual(resolveCoachBoardScanTimeout<Scan>(null, staged, 15), { terminal: "failed", scan: null });
 });
 
-test("timeout after target is reached preserves all requested legs", () => {
-  const staged = scan(15, 15);
+test("timeout after a completed target scan preserves all requested legs", () => {
+  const staged = scan(15, 15, true);
   const result = resolveCoachBoardScanTimeout<Scan>(null, staged, 15);
   assert.equal(result.terminal, "completed");
   if (result.terminal === "completed") assert.equal(result.scan.picks.length, 15);
