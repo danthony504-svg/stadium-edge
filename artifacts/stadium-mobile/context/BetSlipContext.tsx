@@ -12,6 +12,7 @@ import React, {
 
 import { parlayAmerican } from "@/lib/format";
 import { getSync, putSync, type GradeOutcome } from "@/lib/api";
+import { addMissingSlipLegs } from "@/lib/bulkSlipLegs";
 
 export type Leg = {
   id: string;
@@ -89,6 +90,12 @@ type BetSlipState = {
   hydrated: boolean;
   aiPicks: AiPick[];
   addLeg: (leg: Omit<Leg, "id">) => boolean;
+  addLegs: (legs: Omit<Leg, "id">[]) => {
+    sourceCount: number;
+    existingCount: number;
+    addedCount: number;
+    finalCount: number;
+  };
   removeLeg: (id: string) => void;
   clearLegs: () => void;
   hasLeg: (game: string, market: string, pick: string) => boolean;
@@ -305,6 +312,18 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     return added;
   }, []);
 
+  // Bulk inserts use one state transition rather than relying on the
+  // synchronous return of several batched addLeg calls.
+  const addLegs = useCallback((newLegs: Omit<Leg, "id">[]) => {
+    const toStored = (leg: Omit<Leg, "id">): Leg => ({
+      ...leg,
+      id: legKey(leg.game, leg.market, leg.pick),
+    });
+    const plan = addMissingSlipLegs(legs, newLegs, MAX_LEGS, toStored);
+    setLegs((current) => addMissingSlipLegs(current, newLegs, MAX_LEGS, toStored).legs);
+    return { ...plan, finalCount: plan.legs.length };
+  }, [legs]);
+
   const removeLeg = useCallback((id: string) => {
     setLegs((prev) => prev.filter((l) => l.id !== id));
   }, []);
@@ -365,6 +384,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       aiPicks,
       addLeg,
+      addLegs,
       removeLeg,
       clearLegs,
       hasLeg,
@@ -384,6 +404,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       aiPicks,
       addLeg,
+      addLegs,
       removeLeg,
       clearLegs,
       hasLeg,
