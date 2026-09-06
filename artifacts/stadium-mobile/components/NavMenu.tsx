@@ -24,7 +24,6 @@ const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
   { label: "+500 Steals", route: "/steals", icon: "target" },
   { label: "Slip", route: "/slip", icon: "layers" },
   { label: "Model Report", route: "/report", icon: "bar-chart-2" },
-  { label: "OTA Diagnostics", route: "/ota-debug", icon: "info" },
 ];
 
 function isActive(pathname: string, route: string) {

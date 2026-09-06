@@ -172,6 +172,11 @@ function buildReport(diag: OtaFullDiagnostics): string {
 }
 
 export default function OtaDebugScreen() {
+  const router = useRouter();
+  useEffect(() => {
+    if (!__DEV__) router.back();
+  }, [router]);
+  if (!__DEV__) return null;
   return (
     <ErrorBoundary FallbackComponent={OtaDiagnosticsErrorFallback}>
       <OtaDebugScreenInner />
