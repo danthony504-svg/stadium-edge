@@ -74,7 +74,16 @@ export type TennisPickAnalysis = {
   resolvedPlayers: number;
   unavailableFactors: string[];
   unavailableMarkets: string[];
+  dataTier: TennisDataTier;
 };
+
+export type TennisDataTier = "full" | "partial" | "market_only";
+
+export function classifyTennisDataTier(input: Pick<TennisPickAnalysis, "resolvedPlayers" | "dataCoveragePct">): TennisDataTier {
+  if (input.resolvedPlayers >= 2 && input.dataCoveragePct >= 15) return "full";
+  if (input.resolvedPlayers >= 1 || input.dataCoveragePct >= 15) return "partial";
+  return "market_only";
+}
 
 export const TENNIS_UNAVAILABLE_MARKETS = [
   "Player props (not in odds feed)",
@@ -235,6 +244,8 @@ export async function buildTennisPickAnalysis(
     countAvailable(matchupFactors as unknown as Record<string, AnalysisFactor<unknown>>) +
     (booksCount > 0 ? 1 : 0);
   const maxAvail = playerFactorCount * 2 + Object.keys(matchupFactors).length + 1;
+  const dataCoveragePct = Math.round((avail / maxAvail) * 1000) / 10;
+  const resolvedPlayers = resolved;
 
   return {
     away,
@@ -250,17 +261,18 @@ export async function buildTennisPickAnalysis(
         booksCount > 0,
       ),
     },
-    dataCoveragePct: Math.round((avail / maxAvail) * 1000) / 10,
-    resolvedPlayers: resolved,
+    dataCoveragePct,
+    resolvedPlayers,
     unavailableFactors: [...UNAVAILABLE_FACTOR_LABELS],
     unavailableMarkets: [...TENNIS_UNAVAILABLE_MARKETS],
+    dataTier: classifyTennisDataTier({ resolvedPlayers, dataCoveragePct }),
   };
 }
 
 export function passesTennisDataGate(pre: TennisPickAnalysis): boolean {
-  if (pre.resolvedPlayers === 0) return false;
-  if (pre.dataCoveragePct < 15) return false;
-  return true;
+  // Market-only rows are evaluable from real multi-book pricing. They are
+  // deliberately confidence-capped later; absent player data is not a reject.
+  return pre.dataTier !== "market_only" || pre.betting.bestOddsEveryBook.available;
 }
 
 export type TennisSimMetrics = {

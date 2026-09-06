@@ -2,7 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { computeTennisLean, normName, type TennisMatchup, type TennisPlayer } from "../src/lib/tennis.ts";
 import { homeWinProbFromMatchup } from "../src/lib/tennisMonteCarlo.ts";
-import { buildTennisPickAnalysis, passesTennisDataGate } from "../src/lib/tennisPickAnalysis.ts";
+import {
+  buildTennisPickAnalysis,
+  classifyTennisDataTier,
+  passesTennisDataGate,
+} from "../src/lib/tennisPickAnalysis.ts";
 import {
   buildCoverQueriesFromOutcomes,
   buildTennisRecommendations,
@@ -52,6 +56,17 @@ describe("buildTennisPickAnalysis", () => {
     assert.ok(pre.unavailableFactors.length > 5);
     assert.ok(passesTennisDataGate(pre));
   });
+
+  it("keeps an unranked Challenger/ITF matchup in the market-only tier when books post odds", async () => {
+    const m = matchup(
+      player({ name: "A", rank: null, recentForm: [] }),
+      player({ name: "B", rank: null, recentForm: [] }),
+    );
+    const pre = await buildTennisPickAnalysis(m, { away: { bio: null, career: null }, home: { bio: null, career: null } }, 3);
+    assert.equal(pre.dataTier, "market_only");
+    assert.equal(passesTennisDataGate(pre), true);
+    assert.equal(classifyTennisDataTier(pre), "market_only");
+  });
 });
 
 describe("buildTennisRecommendations", () => {
@@ -63,6 +78,7 @@ describe("buildTennisRecommendations", () => {
     const prePick = {
       dataCoveragePct: 25,
       resolvedPlayers: 2,
+      dataTier: "full" as const,
       unavailableFactors: [],
       unavailableMarkets: [],
       away: {} as never,
@@ -109,6 +125,42 @@ describe("buildTennisRecommendations", () => {
     assert.ok(recommendations.length >= 1);
     const dog = recommendations.find((r) => r.pick.includes("Djokovic"));
     assert.ok(dog?.skipped);
+  });
+
+  it("keeps a market-only moneyline eligible when multi-book no-vig pricing shows a real edge", () => {
+    const away = player({ name: "Unranked A", rank: null, recentForm: [] });
+    const home = player({ name: "Unranked B", rank: null, recentForm: [] });
+    const prePick = {
+      dataCoveragePct: 4,
+      resolvedPlayers: 0,
+      dataTier: "market_only" as const,
+      unavailableFactors: [],
+      unavailableMarkets: [],
+      away: {} as never, home: {} as never, matchup: {} as never,
+      betting: { bestOddsEveryBook: { available: true, value: "2 posted lines" } } as never,
+    };
+    const sim = {
+      simulations: 1000, homeWinProbability: 0.5, awayWinProbability: 0.5, tieProbability: 0,
+      homeProjectedScore: 12, awayProjectedScore: 12, mostLikelyWinner: "home" as const,
+      mostLikelyWinnerPct: 0.5, confidenceScore: 40,
+    };
+    const analysis = {
+      ...matchup(away, home), lean: null, prePickAnalysis: prePick, simulation: sim,
+      simMetrics: { winProbability: { away: 0.5, home: 0.5 }, projectedTotalGames: 24, avgGamesAway: 12, avgGamesHome: 12, confidenceScore: 40 },
+      recommendations: [], books: [],
+    };
+    const { recommendations } = buildTennisRecommendations(
+      analysis, away.name, home.name,
+      [
+        { name: away.name, price: 180, book: "BookA" }, { name: home.name, price: -190, book: "BookA" },
+        { name: away.name, price: 110, book: "BookB" }, { name: home.name, price: -130, book: "BookB" },
+      ],
+      [], [], sim, prePick,
+    );
+    const recommendation = recommendations.find((rec) => rec.pick === away.name);
+    assert.equal(recommendation?.skipped, false);
+    assert.ok((recommendation?.confidencePct ?? 100) <= 55);
+    assert.match(recommendation?.reason ?? "", /Market-only price evaluation/);
   });
 });
 

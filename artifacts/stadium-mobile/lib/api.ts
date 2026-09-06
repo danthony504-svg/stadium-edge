@@ -2870,6 +2870,7 @@ export type TennisBookLine = {
 export type TennisPickAnalysis = {
   dataCoveragePct: number;
   resolvedPlayers: number;
+  dataTier: "full" | "partial" | "market_only";
   unavailableFactors: string[];
   unavailableMarkets: string[];
   matchup: {
@@ -4205,7 +4206,10 @@ export async function buildChatContext(
         const oddsEntry = tennisOdds.find((o) => o.awayTeam === away && o.homeTeam === home);
         const markets = oddsEntry ? tennisMarketsFromGame(oddsEntry) : undefined;
         const data = await getTennisAnalysis(away, home, signal, markets);
-        if (!data || (!data.away?.rank && !data.home?.rank && !data.lean)) return;
+        // Challenger/ITF matchups can legitimately lack ESPN rank/form. Keep
+        // their real posted-market analysis so the Coach can label a limited
+        // market-only evaluation instead of silently removing the match.
+        if (!data) return;
         if (data.lean?.side) {
           const h2h = oddsEntry?.markets?.find((m) => m.key === "h2h");
           const nf = (s: unknown) =>
