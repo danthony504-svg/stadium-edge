@@ -5552,6 +5552,16 @@ export default function CoachScreen() {
     void resumePendingBackgroundBuild();
   }, [resumePendingBackgroundBuild]);
 
+  // Production OTA prefetch — once on mount, never during render/focus callbacks.
+  useEffect(() => {
+    if (__DEV__) return;
+    if (typeof prefetchAndMaybeApplyOta !== "function") {
+      console.warn("[ota] prefetch function unavailable");
+      return;
+    }
+    void prefetchAndMaybeApplyOta(false);
+  }, []);
+
   // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
   useFocusEffect(
     useCallback(() => {
@@ -5562,9 +5572,6 @@ export default function CoachScreen() {
           await hydrateCoachSlateFromServer();
           startSlatePreAnalysis("coach-focus");
         })();
-        if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
-          void prefetchAndMaybeApplyOta(true);
-        }
       }
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
       const partial = latestBoardScanRef.current;
