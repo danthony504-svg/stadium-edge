@@ -8,6 +8,7 @@ import type { MatchupHistoryEntry, OddsGame, RealOddsEntry } from "./api.ts";
 import { buildAllEvalGameLines } from "./api.ts";
 import { isQualifyingBackupGameLine, poolMatchesPickFamily } from "./altLinePool.ts";
 import { buildFinalAiScore, type FinalAiScore } from "./finalAiScore.ts";
+import { buildTeamCoachFactor } from "./teamCoachFactor.ts";
 import {
   buildGameCoverQuery,
   gameSimHitForPick,
@@ -352,6 +353,7 @@ export function evaluateGameLines(input: {
       odds: entry.odds,
       fairProb: entry.noVigFair ?? null,
       gameSim: input.gameSim,
+      teamCoach: buildTeamCoachFactor(pick, input.matchupHistory?.[pick.game]),
     });
     out.push({
       entry,

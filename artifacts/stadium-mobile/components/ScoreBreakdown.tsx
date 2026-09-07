@@ -340,6 +340,7 @@ export function ScoreBreakdown({
   gradeCaption,
   propHolistic,
   pick,
+  teamCoach,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
@@ -353,6 +354,7 @@ export function ScoreBreakdown({
   propHolistic?: PropHolisticScore | null;
   /** Source pick for synthesizing holistic factors when propHolistic is absent. */
   pick?: ParsedPick;
+  teamCoach?: string | null;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
@@ -389,6 +391,11 @@ export function ScoreBreakdown({
           </Text>
         ) : null}
         {holisticDisplay ? <HolisticFactorStrip holistic={holisticDisplay} /> : null}
+        {teamCoach ? (
+          <Text style={{ color: colors.success, fontFamily: FONT.medium, fontSize: 11 }}>
+            ✓ Team Coach: {teamCoach}
+          </Text>
+        ) : null}
       </View>
     );
   }
