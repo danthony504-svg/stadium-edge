@@ -1,0 +1,96 @@
+name: Migrate Coach learning production ledger
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type APPLY-COACH-LEARNING-MIGRATION to confirm the production migration.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    # Configure this Environment with required reviewers and a protected DATABASE_URL secret.
+    environment: coach-learning-production
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Confirm production migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirmation }}" = "APPLY-COACH-LEARNING-MIGRATION"
+
+      # Keep the migration source pinned to the immutable PR #394 revision.
+      - name: Check out Coach learning migration revision
+        uses: actions/checkout@v4
+        with:
+          ref: 2d72975f697c2d0d2e1f676af95575ad0bb57ae4
+
+      - name: Verify production database connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DATABASE_URL}"
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
+            -c 'SELECT current_database(), current_user;' >/dev/null
+
+      - name: Apply Coach learning migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
+            -f lib/db/migrations/0002_coach_learning_recommendations.sql
+
+      - name: Verify Coach learning schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF to_regclass('public.coach_learning_recommendations') IS NULL THEN
+              RAISE EXCEPTION 'coach_learning_recommendations table is missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'public.coach_learning_recommendations'::regclass
+                AND contype = 'p'
+            ) THEN
+              RAISE EXCEPTION 'coach_learning_recommendations primary key is missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'public.coach_learning_recommendations'::regclass
+                AND contype = 'u'
+                AND conkey = ARRAY[
+                  (SELECT attnum FROM pg_attribute
+                   WHERE attrelid = 'public.coach_learning_recommendations'::regclass
+                     AND attname = 'identity')
+                ]::smallint[]
+            ) THEN
+              RAISE EXCEPTION 'coach_learning_recommendations identity uniqueness is missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname = 'public'
+                AND tablename = 'coach_learning_recommendations'
+                AND indexname = 'coach_learning_pending_idx'
+            ) THEN
+              RAISE EXCEPTION 'coach_learning_pending_idx is missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname = 'public'
+                AND tablename = 'coach_learning_recommendations'
+                AND indexname = 'coach_learning_sport_market_idx'
+            ) THEN
+              RAISE EXCEPTION 'coach_learning_sport_market_idx is missing';
+            END IF;
+          END
+          $$;
+          SQL
