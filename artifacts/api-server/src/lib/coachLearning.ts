@@ -48,7 +48,7 @@ async function providerStatus(sport: string, eventId: string, startsAt: Date | n
   const day = startsAt.toISOString().slice(0, 10).replaceAll("-", "");
   const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${day}&limit=300`);
   if (!response.ok) return null;
-  const body = await response.json() as { events?: Array<{ id?: string; status?: { type?: { name?: string; detail?: string } }; competitions?: Array<{ status?: { type?: { name?: string; detail?: string } }> }> };
+  const body = await response.json() as { events?: Array<{ id?: string; status?: { type?: { name?: string; detail?: string } }; competitions?: Array<{ status?: { type?: { name?: string; detail?: string } } }> }> };
   const event = body.events?.find((candidate) => candidate.id === eventId);
   return event?.competitions?.[0]?.status?.type?.detail ?? event?.competitions?.[0]?.status?.type?.name
     ?? event?.status?.type?.detail ?? event?.status?.type?.name ?? null;
