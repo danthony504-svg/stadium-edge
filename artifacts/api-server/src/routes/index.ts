@@ -28,6 +28,7 @@ import liveOddsRouter from "./liveOdds";
 import modelCalibrationRouter from "./modelCalibration";
 import coachSlateRouter from "./coachSlate";
 import fantasyRouter from "./fantasy";
+import performanceRouter from "./performance";
 
 const router: IRouter = Router();
 
@@ -60,5 +61,6 @@ router.use(liveOddsRouter);
 router.use(modelCalibrationRouter);
 router.use(coachSlateRouter);
 router.use(fantasyRouter);
+router.use(performanceRouter);
 
 export default router;

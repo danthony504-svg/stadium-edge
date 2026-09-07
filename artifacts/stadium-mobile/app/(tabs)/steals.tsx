@@ -1,6 +1,7 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@clerk/expo";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -17,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { getLiveSteals, fetchLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
+import { capturePerformanceRecommendations, getLiveSteals, fetchLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
 import type { StealFeedClientLog } from "@/lib/stealFeedClient";
 import { logStealScanLifecycle } from "@/lib/stealScanLifecycle";
 import { SPORTS, sportLabel } from "@/lib/sports";
@@ -606,6 +607,7 @@ function StealCard({ steal }: { steal: LiveSteal }) {
 export default function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { isSignedIn } = useAuth();
   const [sportFilter, setSportFilter] = useState<string | null>(null);
   const [lastFeedLog, setLastFeedLog] = useState<StealFeedClientLog | null>(null);
 
@@ -661,6 +663,29 @@ export default function StealsScreen() {
   );
   const record: StealRecord =
     activeData?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
+
+  // A Longshots recommendation is recorded only once when it is first delivered
+  // by a successful feed response. Its server event id is already part of the
+  // canonical Steal id, so the unified ledger can dedupe rerenders/refetches.
+  useEffect(() => {
+    if (!isSignedIn || steals.length === 0) return;
+    const recommendations = steals.flatMap((steal) => {
+      const providerEventId = steal.id.split("|")[1];
+      if (!providerEventId) return [];
+      return [{
+        source: "longshots" as const,
+        sport: steal.sport,
+        providerEventId,
+        game: steal.game,
+        market: steal.market,
+        selection: steal.pick,
+        line: steal.pick.match(/[+-]?\d+(?:\.\d+)?/)?.[0] ?? null,
+        odds: steal.price,
+        startsAt: steal.startsAt,
+      }];
+    });
+    void capturePerformanceRecommendations(recommendations).catch(() => {});
+  }, [isSignedIn, steals]);
 
   useFocusEffect(
     useCallback(() => {
