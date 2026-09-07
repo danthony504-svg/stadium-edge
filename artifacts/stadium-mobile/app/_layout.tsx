@@ -29,6 +29,7 @@ import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { FantasyRosterProvider } from "@/context/FantasyRosterContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
+import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import {
   REQUIRE_AUTH_FOR_APP,
@@ -169,21 +170,23 @@ function AppShell() {
       <QueryClientProvider client={queryClient}>
         <AuthTokenBridge />
         <PushNotificationsBridge />
-        <BetSlipProvider>
-          <FantasyRosterProvider>
-            <PickTrackerProvider>
-            <GestureHandlerRootView
-              style={{ flex: 1, backgroundColor: DARK_BG }}
-            >
-              <KeyboardProvider>
-                <StatusBar style="light" />
-                <RootLayoutNav />
-                {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaDiagnosticsBanner /> : null}
-              </KeyboardProvider>
-            </GestureHandlerRootView>
-            </PickTrackerProvider>
-          </FantasyRosterProvider>
-        </BetSlipProvider>
+        <SubscriptionProvider>
+          <BetSlipProvider>
+            <FantasyRosterProvider>
+              <PickTrackerProvider>
+              <GestureHandlerRootView
+                style={{ flex: 1, backgroundColor: DARK_BG }}
+              >
+                <KeyboardProvider>
+                  <StatusBar style="light" />
+                  <RootLayoutNav />
+                  {SHOW_OTA_UI_FOR_APP_REVIEW ? <OtaDiagnosticsBanner /> : null}
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+              </PickTrackerProvider>
+            </FantasyRosterProvider>
+          </BetSlipProvider>
+        </SubscriptionProvider>
       </QueryClientProvider>
     </>
   );
