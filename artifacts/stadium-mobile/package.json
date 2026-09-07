@@ -81,6 +81,7 @@
     "expo-local-authentication": "~17.0.8",
     "expo-media-library": "~18.2.1",
     "expo-notifications": "~0.32.17",
-    "expo-updates": "~29.0.18"
+    "expo-updates": "~29.0.18",
+    "react-native-purchases": "^10.9.0"
   }
 }
