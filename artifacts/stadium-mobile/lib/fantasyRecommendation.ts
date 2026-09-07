@@ -27,7 +27,6 @@ export function selectFantasyStarter(
   const ranked = players
     .filter((player) => positionEligibleForSlot(player.position, slot))
     .map((player) => ({ player, recommendation: fantasyRecommendation(analysis[player.athleteId], injuries[player.name.toLowerCase()]) }))
-    .filter((row) => row.recommendation.score != null)
-    .sort((a, b) => b.recommendation.score! - a.recommendation.score! || a.player.athleteId.localeCompare(b.player.athleteId));
+    .sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity) || a.player.athleteId.localeCompare(b.player.athleteId));
   return { winner: ranked[0] ?? null, alternative: ranked[1] ?? null };
 }

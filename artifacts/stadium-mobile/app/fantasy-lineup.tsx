@@ -13,7 +13,7 @@ import { selectFantasyStarter } from "@/lib/fantasyRecommendation";
 const STARTER_SLOTS: FantasyRosterSlot[] = ["QB", "RB", "WR", "TE", "FLEX", "K", "DEF"];
 
 export default function FantasyLineupScreen() {
-  const colors = useColors(); const router = useRouter(); const { defaultRoster } = useFantasyRoster();
+  const colors = useColors(); const router = useRouter(); const { defaultRoster, hydrated } = useFantasyRoster();
   const [analysis, setAnalysis] = useState<Record<string, HistoricalFantasyAnalysis | undefined>>({});
   const [injuries, setInjuries] = useState<Record<string, string | undefined>>({});
   useEffect(() => { void Promise.all([
@@ -29,6 +29,7 @@ export default function FantasyLineupScreen() {
     });
   }, [analysis, defaultRoster.players, injuries]);
   const missing = starters.filter((row) => !row.player).map((row) => row.slot);
+  if (!hydrated) return <View style={{flex:1,backgroundColor:colors.background}}><AppHeader/><View style={{padding:16}}><Card><Text style={{color:colors.foreground,fontFamily:FONT.body}}>Loading saved roster…</Text></Card></View></View>;
   return <View style={{flex:1,backgroundColor:colors.background}}><AppHeader/><ScrollView contentContainerStyle={{padding:16,gap:12,paddingBottom:36}}>
     <Card style={{gap:5}}><Text style={{color:colors.foreground,fontFamily:FONT.display,fontSize:22}}>Best Lineup This Week</Text><Text style={{color:colors.mutedForeground,fontFamily:FONT.body}}>Uses only your saved roster and {defaultRoster.scoringFormat.toUpperCase()} scoring.</Text></Card>
     {starters.map(({slot,player,recommendation,alternative})=><Card key={slot} style={{gap:4}}><Text style={{color:colors.primary,fontFamily:FONT.bold,fontSize:12}}>{slot}</Text>{player?<><Text style={{color:colors.foreground,fontFamily:FONT.semibold,fontSize:17}}>{player.name}</Text><Text style={{color:colors.mutedForeground}}>{[player.position,player.team].filter(Boolean).join(" · ")}</Text><Text style={{color:colors.mutedForeground,fontFamily:FONT.body,fontSize:12}}>START — {recommendation?.reason}</Text>{slot==="FLEX"&&alternative?<Text style={{color:colors.mutedForeground,fontFamily:FONT.body,fontSize:12}}>Start {player.name} over {alternative.name}</Text>:null}</>:<Text style={{color:colors.mutedForeground}}>Missing eligible {slot} player on your saved roster.</Text>}</Card>)}
