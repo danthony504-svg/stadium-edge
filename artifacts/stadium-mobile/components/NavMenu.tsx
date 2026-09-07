@@ -13,10 +13,10 @@ import { REQUIRE_AUTH_FOR_APP } from "@/lib/authFlags";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
 
-const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
+const DESTINATIONS: { label: string; route: string; icon: FeatherName; beta?: boolean }[] = [
   { label: "Discover", route: "/", icon: "compass" },
   { label: "Coach", route: "/coach", icon: "zap" },
-  { label: "Fantasy Football", route: "/fantasy", icon: "award" },
+  { label: "Fantasy Football", route: "/fantasy", icon: "award", beta: true },
   { label: "Park Weather", route: "/weather", icon: "cloud-drizzle" },
   { label: "Props", route: "/props", icon: "user" },
   { label: "Simulator", route: "/simulator", icon: "cpu" },
@@ -156,6 +156,27 @@ export function NavMenu() {
                   >
                     {d.label}
                   </Text>
+                  {d.beta ? (
+                    <View
+                      style={{
+                        borderRadius: 999,
+                        backgroundColor: "rgba(59,130,246,0.18)",
+                        paddingHorizontal: 7,
+                        paddingVertical: 3,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: colors.primary,
+                          fontFamily: FONT.bold,
+                          fontSize: 9,
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        BETA
+                      </Text>
+                    </View>
+                  ) : null}
                   {d.route === "/slip" && legs.length > 0 ? (
                     <View
                       style={{

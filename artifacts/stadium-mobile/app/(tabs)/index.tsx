@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Image,
   Pressable,
   RefreshControl,
@@ -44,7 +45,9 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { buildRollingWinRateSeries, summarizeRecentPerformance } from "@/lib/performanceChart";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
+import { SPORTS } from "@/lib/sports";
+import { homeSports, HOME_SPORT_IDS } from "@/lib/homeSports";
+import { homeLiveGames } from "@/lib/homeLiveGames";
 import {
   hydrateDiscoverCache,
   rememberLiveGames,
@@ -54,7 +57,7 @@ import {
   type CachedPropEntry,
 } from "@/lib/discoverSessionCache";
 import { oddsGameFromEspnShell } from "@/lib/gameResolve";
-import { isRenderableOddsGame, safeMarkets } from "@/lib/sportFeed";
+import { isRenderableOddsGame, safeMarkets, type SportFeedPayload } from "@/lib/sportFeed";
 import { buildUfcFeedPhotoMap, withUfcFightPhotos } from "@/lib/ufcFighterPhotos";
 
 function AnimatedPerformanceValue({
@@ -93,8 +96,6 @@ function AnimatedPerformanceValue({
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
-type SportFeedPayload<T> = { gen: number; league: string; rows: T[] };
-
 function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
   return (
     !!v &&
@@ -110,8 +111,9 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
 // this margin. We NEVER recompute or guess EV client-side.
 const HOME_MIN_VALUE_EV = 1.5;
-const HOME_SPORT_IDS = ["nfl", "ncaaf", "mlb", "nba", "wnba", "nhl", "soccer", "tennis", "ufc"];
-const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
+// This is the final array consumed by the pill .map() below. It intentionally
+// iterates the desired Home order rather than filtering the catalog.
+const HOME_SPORTS = homeSports(SPORTS);
 const UPCOMING_PREVIEW_COUNT = 8;
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
@@ -492,6 +494,10 @@ function HomeSportFeed({
       }
     },
     staleTime: 45_000,
+    // ESPN drives the Live Now rail. Poll the active scoreboard frequently
+    // enough to advance clocks and convert finals without using a local fallback.
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
     refetchOnMount: "always",
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey?.[1] === sport ? previousData : undefined,
@@ -515,13 +521,12 @@ function HomeSportFeed({
       payload.league !== sport ||
       payload.gen !== sportFetchGenRef.current ||
       gamesQ.isPlaceholderData ||
-      gamesQ.isFetching ||
       !gamesQ.isSuccess
     ) {
       return [];
     }
     return payload.rows.filter((g) => g.sport === sport);
-  }, [gamesQ.data, gamesQ.isPlaceholderData, gamesQ.isFetching, gamesQ.isSuccess, sport]);
+  }, [gamesQ.data, gamesQ.isPlaceholderData, gamesQ.isSuccess, sport]);
 
   const oddsForSport = useMemo(() => {
     const payload = oddsQ.data;
@@ -541,19 +546,16 @@ function HomeSportFeed({
   const metaMap = useMemo(() => buildMetaMap(gamesForSport), [gamesForSport]);
 
   const freshLiveGames = useMemo(
-    () => gamesForSport.filter((g) => g.state === "in"),
-    [gamesForSport],
+    () => homeLiveGames(gamesQ.data, sport, sportFetchGenRef.current),
+    [gamesQ.data, sport],
   );
   useEffect(() => {
-    if (freshLiveGames.length > 0) {
-      rememberLiveGames(sport, freshLiveGames);
-    }
+    // A provider response with no live rows clears any completed game snapshot.
+    rememberLiveGames(sport, freshLiveGames);
   }, [freshLiveGames, sport]);
-  // Live Now: only rows from the active pill's successful games fetch.
-  const displayLiveGames = useMemo(
-    () => freshLiveGames.filter((g) => g.sport === sport),
-    [freshLiveGames, sport],
-  );
+  // Live Now only reads the selected sport's current provider payload. It never
+  // falls back to the persisted Discover snapshot.
+  const displayLiveGames = freshLiveGames;
 
   // Nickname keys (away|home) of games currently in progress, so we can drop them
   // from Upcoming — a live game already has its own card in the "Live Now" rail.
@@ -1990,7 +1992,7 @@ export default function HomeScreen() {
     : 168;
   // Four shortcut cards in one row on typical phone widths.
   const quickCardWidth = Math.max(76, (width - 32 - 3 * 8) / 4);
-  const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
+  const [sport, setSport] = useState<string>(HOME_SPORT_IDS[0]);
   const sportFetchGenRef = useRef(0);
   const sportRef = useRef(sport);
   sportRef.current = sport;
@@ -2022,6 +2024,17 @@ export default function HomeScreen() {
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
   }, []);
+
+  // React Query's web focus hook is not sufficient for native app resumes.
+  // Force the selected scoreboard query to refresh whenever the app returns
+  // active so a cached fourth-quarter clock cannot remain on Home.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      void queryClient.invalidateQueries({ queryKey: ["games", sportRef.current] });
+    });
+    return () => subscription.remove();
+  }, [queryClient]);
 
   const featuredEnabled = PROPS_SPORTS.includes(sport);
 

@@ -19,7 +19,17 @@ export const HERO_STICKY_MAX_MS = 12 * 60_000;
 const MAX_AGE_MS = 30 * 60_000;
 
 /** Sports surfaced on Discover that we persist hero/live/upcoming for. */
-export const DISCOVER_CACHE_SPORTS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl"];
+export const DISCOVER_CACHE_SPORTS = [
+  "mlb",
+  "wnba",
+  "nba",
+  "nhl",
+  "soccer",
+  "ufc",
+  "tennis",
+  "nfl",
+  "ncaaf",
+];
 
 const heroBySport = new Map<string, CachedPropEntry[]>();
 const heroAtBySport = new Map<string, number>();
@@ -207,7 +217,6 @@ export function rememberLiveGames(sport: string, games: EspnGame[]): void {
   const tagged = games
     .filter((g) => !g.sport || g.sport === sport)
     .map((g) => ({ ...g, sport }));
-  if (tagged.length === 0) return;
   liveBySport.set(sport, tagged);
   void writeStored(liveKey(sport), tagged);
 }
