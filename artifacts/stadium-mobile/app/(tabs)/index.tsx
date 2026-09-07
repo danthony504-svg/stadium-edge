@@ -48,6 +48,7 @@ import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { SPORTS } from "@/lib/sports";
 import { homeSports, HOME_SPORT_IDS } from "@/lib/homeSports";
 import { homeLiveGames } from "@/lib/homeLiveGames";
+import { HOME_LIVE_REFETCH_MS, shouldRefreshHomeScoreboard } from "@/lib/homeLiveRefresh";
 import {
   hydrateDiscoverCache,
   rememberLiveGames,
@@ -496,7 +497,7 @@ function HomeSportFeed({
     staleTime: 45_000,
     // ESPN drives the Live Now rail. Poll the active scoreboard frequently
     // enough to advance clocks and convert finals without using a local fallback.
-    refetchInterval: 15_000,
+    refetchInterval: HOME_LIVE_REFETCH_MS,
     refetchIntervalInBackground: false,
     refetchOnMount: "always",
     placeholderData: (previousData, previousQuery) =>
@@ -2030,7 +2031,7 @@ export default function HomeScreen() {
   // active so a cached fourth-quarter clock cannot remain on Home.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active") return;
+      if (!shouldRefreshHomeScoreboard(state)) return;
       void queryClient.invalidateQueries({ queryKey: ["games", sportRef.current] });
     });
     return () => subscription.remove();
