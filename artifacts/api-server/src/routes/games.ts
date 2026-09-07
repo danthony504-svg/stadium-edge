@@ -89,6 +89,14 @@ type EspnGameOut = {
   state: string | null;
 };
 
+type CachedScoreboard = {
+  events: EspnEvent[];
+  /** Timestamp of the completed upstream ESPN scoreboard fetch. */
+  fetchedAt: string;
+  /** Timestamp at which this provider result entered the shared cache. */
+  cachedAt: string;
+};
+
 function mapEspnEventToGames(
   e: EspnEvent,
   sportId: string,
@@ -232,9 +240,12 @@ router.get("/sports/games", async (req, res): Promise<void> => {
   const dateRange = `${fmt(yesterday)}-${fmt(weekOut)}`;
 
   try {
-    const data = await cachedJson(
-      `games:${allPaths.join("+")}:${dateRange}`,
-      60 * 1000,
+    const data = await cachedJson<CachedScoreboard>(
+      `games:v2:${allPaths.join("+")}:${dateRange}`,
+      // This response feeds Home's live score, period and clock. A short
+      // shared-cache TTL avoids serving an old fourth-quarter snapshot while
+      // still coalescing the active clients' scoreboard traffic.
+      15 * 1000,
       async () => {
         const fetchEspn = async (p: string, qs: string) => {
           const url = `https://site.api.espn.com/apis/site/v2/sports/${p}/scoreboard${qs}`;
@@ -266,12 +277,31 @@ router.get("/sports/games", async (req, res): Promise<void> => {
             events.push(e);
           }
         }
-        return { events };
+        const fetchedAt = new Date().toISOString();
+        return { events, fetchedAt, cachedAt: new Date().toISOString() };
       },
     );
 
     const mma = sportId === "ufc";
     const out = (data.events ?? []).flatMap((e) => mapEspnEventToGames(e, sportId, mma));
+    // Targeted operational trace for the production incident. Values are
+    // copied directly from ESPN's normalized event — no fallback score/clock.
+    for (const game of out) {
+      if (!/louisville/i.test(game.awayTeam ?? "") || !/ole miss/i.test(game.homeTeam ?? "")) continue;
+      req.log.info(
+        {
+          providerEventId: game.id,
+          providerStatus: game.status,
+          providerScore: { away: game.awayScore, home: game.homeScore },
+          providerPeriod: game.period,
+          providerClock: game.clock,
+          fetchedAt: data.fetchedAt,
+          cachedAt: data.cachedAt,
+          normalizedHomeValue: game,
+        },
+        "Home Live Now provider trace",
+      );
+    }
 
     const filtered = simulatorOnly ? out.filter((g) => isSimulatorPregame(g)) : out;
     res.json(GetGamesResponse.parse(filtered));

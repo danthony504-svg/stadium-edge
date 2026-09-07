@@ -10,21 +10,9 @@ import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { REQUIRE_AUTH_FOR_APP } from "@/lib/authFlags";
+import { NAV_DESTINATIONS } from "@/lib/navigationDestinations";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
-
-const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
-  { label: "Discover", route: "/", icon: "compass" },
-  { label: "Coach", route: "/coach", icon: "zap" },
-  { label: "Fantasy Football", route: "/fantasy", icon: "award" },
-  { label: "Park Weather", route: "/weather", icon: "cloud-drizzle" },
-  { label: "Props", route: "/props", icon: "user" },
-  { label: "Simulator", route: "/simulator", icon: "cpu" },
-  { label: "Edge Lock", route: "/arbitrage", icon: "repeat" },
-  { label: "+500 Steals", route: "/steals", icon: "target" },
-  { label: "Slip", route: "/slip", icon: "layers" },
-  { label: "Model Report", route: "/report", icon: "bar-chart-2" },
-];
 
 function isActive(pathname: string, route: string) {
   if (route === "/") return pathname === "/" || pathname === "/index";
@@ -126,7 +114,7 @@ export function NavMenu() {
               elevation: 12,
             }}
           >
-            {DESTINATIONS.map((d) => {
+            {NAV_DESTINATIONS.map((d) => {
               const active = isActive(pathname, d.route);
               return (
                 <Pressable
@@ -142,7 +130,7 @@ export function NavMenu() {
                   })}
                 >
                   <Feather
-                    name={d.icon}
+                    name={d.icon as FeatherName}
                     size={18}
                     color={active ? colors.primary : colors.mutedForeground}
                   />
@@ -156,6 +144,27 @@ export function NavMenu() {
                   >
                     {d.label}
                   </Text>
+                  {d.beta ? (
+                    <View
+                      style={{
+                        borderRadius: 999,
+                        backgroundColor: "rgba(59,130,246,0.18)",
+                        paddingHorizontal: 7,
+                        paddingVertical: 3,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: colors.primary,
+                          fontFamily: FONT.bold,
+                          fontSize: 9,
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        BETA
+                      </Text>
+                    </View>
+                  ) : null}
                   {d.route === "/slip" && legs.length > 0 ? (
                     <View
                       style={{
