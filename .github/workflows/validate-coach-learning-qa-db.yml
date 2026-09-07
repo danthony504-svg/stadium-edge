@@ -1,0 +1,115 @@
+name: Validate Coach learning QA database
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    # This GitHub Environment must contain a QA-only DATABASE_URL secret.
+    # Production credentials are intentionally not selectable by this workflow.
+    environment: coach-learning-qa
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TEST_REQUEST_ID: coach-learning-ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out the immutable PR 394 revision
+        uses: actions/checkout@v4
+        with:
+          ref: 2d72975f697c2d0d2e1f676af95575ad0bb57ae4
+
+      - name: Apply private ledger migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DATABASE_URL}"
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
+            -f lib/db/migrations/0002_coach_learning_recommendations.sql
+
+      - name: Verify schema and database behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DATABASE_URL}"
+          cleanup() {
+            psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
+              -v request_id="${TEST_REQUEST_ID}" \
+              -c "DELETE FROM coach_learning_recommendations WHERE request_id = :'request_id';" >/dev/null
+          }
+          trap cleanup EXIT
+
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
+            -v request_id="${TEST_REQUEST_ID}" <<'SQL'
+          SELECT CASE WHEN to_regclass('public.coach_learning_recommendations') IS NOT NULL
+            THEN 1 ELSE 1 / 0 END AS table_exists;
+          SELECT CASE WHEN count(*) = 3 THEN 1 ELSE 1 / 0 END AS required_indexes_exist
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND tablename = 'coach_learning_recommendations'
+            AND indexname IN (
+              'coach_learning_recommendations_pkey',
+              'coach_learning_pending_idx',
+              'coach_learning_sport_market_idx'
+            );
+
+          INSERT INTO coach_learning_recommendations (
+            id, identity, request_id, sport, provider_event_id, game, market,
+            selection, odds, source, base_model_version, inputs, status
+          ) VALUES
+            ('test-capture', 'test-capture-identity', :'request_id', 'nfl', 'event-1',
+             'Away @ Home', 'Spread', 'Away +3.5', '-110', 'coach', 'test-model',
+             '{"edge":3.2,"form":"captured"}'::jsonb, 'pending'),
+            ('test-win', 'test-win-identity', :'request_id', 'nfl', 'event-2',
+             'Away @ Home', 'Moneyline', 'Away ML', '+120', 'coach', 'test-model', '{}'::jsonb, 'pending'),
+            ('test-loss', 'test-loss-identity', :'request_id', 'nfl', 'event-3',
+             'Away @ Home', 'Moneyline', 'Home ML', '-140', 'coach', 'test-model', '{}'::jsonb, 'pending'),
+            ('test-push', 'test-push-identity', :'request_id', 'nfl', 'event-4',
+             'Away @ Home', 'Total', 'Over 44', '-110', 'coach', 'test-model', '{}'::jsonb, 'pending'),
+            ('test-void', 'test-void-identity', :'request_id', 'nfl', 'event-5',
+             'Away @ Home', 'Spread', 'Away +3', '-110', 'coach', 'test-model', '{}'::jsonb, 'pending'),
+            ('test-ungraded', 'test-ungraded-identity', :'request_id', NULL, NULL,
+             'Unresolved', 'Unsupported', 'Unknown', '-110', 'coach', 'test-model', '{}'::jsonb, 'pending')
+          ON CONFLICT (identity) DO NOTHING;
+
+          INSERT INTO coach_learning_recommendations (
+            id, identity, request_id, game, market, selection, odds, source, base_model_version, inputs
+          ) VALUES (
+            'test-capture-retry', 'test-capture-identity', :'request_id',
+            'Changed @ Changed', 'Total', 'Under 1', '+999', 'coach', 'wrong-model', '{}'::jsonb
+          ) ON CONFLICT (identity) DO NOTHING;
+
+          SQL
+
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -v request_id="${TEST_REQUEST_ID}" <<'SQL'
+          SET app.test_request_id TO :'request_id';
+          DO $$
+          DECLARE affected integer;
+          BEGIN
+            IF (SELECT count(*) FROM coach_learning_recommendations WHERE request_id = current_setting('app.test_request_id')) <> 6 THEN
+              RAISE EXCEPTION 'capture/deduplication failed';
+            END IF;
+            IF (SELECT inputs->>'form' FROM coach_learning_recommendations WHERE id = 'test-capture') <> 'captured' THEN
+              RAISE EXCEPTION 'original inputs mutated';
+            END IF;
+            UPDATE coach_learning_recommendations SET status = 'win', result_detail = 'verified score', settled_at = now()
+              WHERE id = 'test-win' AND status = 'pending';
+            UPDATE coach_learning_recommendations SET status = 'loss', result_detail = 'verified score', settled_at = now()
+              WHERE id = 'test-loss' AND status = 'pending';
+            UPDATE coach_learning_recommendations SET status = 'push', result_detail = 'verified total', settled_at = now()
+              WHERE id = 'test-push' AND status = 'pending';
+            UPDATE coach_learning_recommendations SET status = 'void', result_detail = 'provider status: Postponed', settled_at = now()
+              WHERE id = 'test-void' AND status = 'pending';
+            UPDATE coach_learning_recommendations SET status = 'ungraded', result_detail = 'provider event identity unresolved', settled_at = now()
+              WHERE id = 'test-ungraded' AND status = 'pending';
+            UPDATE coach_learning_recommendations SET status = 'loss', result_detail = 'must not overwrite'
+              WHERE id = 'test-win' AND status = 'pending';
+            GET DIAGNOSTICS affected = ROW_COUNT;
+            IF affected <> 0 THEN RAISE EXCEPTION 'terminal settlement was overwritten'; END IF;
+            IF (SELECT status FROM coach_learning_recommendations WHERE id = 'test-win') <> 'win' THEN
+              RAISE EXCEPTION 'terminal result corrupted';
+            END IF;
+          END $$;
+          SQL
