@@ -14,11 +14,14 @@ export async function captureCoachLearning(
   const picks = parseCoachPicks(text);
   if (!picks.length) return;
   const requestId = options.requestId ?? randomUUID();
-  // Server chat context does not currently retain provider event IDs in every
-  // market row. Preserve that fact as unresolved rather than guessing one.
+  const realGames = Array.isArray(options.inputs.realGames) ? options.inputs.realGames : [];
   await db.insert(coachLearningRecommendationsTable).values(picks.map((pick) => {
-    const sport = typeof options.inputs.sport === "string" ? options.inputs.sport : null;
-    const providerEventId = null;
+    const game = realGames.find((row): row is Record<string, unknown> =>
+      !!row && typeof row === "object" && row.game === pick.game,
+    );
+    const sport = typeof game?.sport === "string" ? game.sport : null;
+    // Missing/ambiguous metadata stays null; a server must never fabricate an ID.
+    const providerEventId = typeof game?.providerEventId === "string" ? game.providerEventId : null;
     return {
       id: randomUUID(),
       identity: learningIdentity(pick, sport, providerEventId),

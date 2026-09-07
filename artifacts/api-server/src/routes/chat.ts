@@ -2538,6 +2538,7 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
         requestId: bgBuildId,
         baseModelVersion: aiConfig.model,
         inputs: {
+          realGames: learningContext.realGames ?? [],
           realOdds: learningContext.realOdds ?? [],
           realProps: learningContext.realProps ?? [],
           matchupHistory: learningContext.matchupHistory ?? {},

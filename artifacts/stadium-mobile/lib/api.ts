@@ -197,6 +197,8 @@ export type RealOddsEntry = {
 export type RealGameEntry = {
   sport: string;
   game: string;
+  /** Canonical provider fixture id when the source feed has one. */
+  providerEventId?: string;
   status?: string;
   startsAt?: string;
   venue?: string | null;
@@ -3650,6 +3652,7 @@ async function buildLightParlayContext(
     realGames.push({
       sport: g.sport,
       game: `${g.awayTeam} @ ${g.homeTeam}`,
+      providerEventId: g.id,
       status: "Scheduled",
       startsAt: g.commenceTime,
       venue: null,
@@ -4169,6 +4172,7 @@ export async function buildChatContext(
       realGames.push({
         sport,
         game: gameLabel,
+        providerEventId: g.id,
         status: g.status,
         startsAt: g.startsAt,
         venue: g.venue ?? null,
