@@ -110,7 +110,7 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
 // this margin. We NEVER recompute or guess EV client-side.
 const HOME_MIN_VALUE_EV = 1.5;
-const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl"];
+const HOME_SPORT_IDS = ["nfl", "ncaaf", "mlb", "nba", "wnba", "nhl", "soccer", "tennis", "ufc"];
 const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
 const UPCOMING_PREVIEW_COUNT = 8;
 
