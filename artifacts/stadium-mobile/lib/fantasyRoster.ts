@@ -68,6 +68,18 @@ export function defaultFantasyRoster(data: FantasyRostersSync): FantasyRoster {
   return data.rosters[data.defaultRosterId] ?? createDefaultFantasyRosters().rosters.default!;
 }
 
+export function repairFantasyRosterSlots(data: FantasyRostersSync): FantasyRostersSync {
+  return {
+    ...data,
+    rosters: Object.fromEntries(Object.entries(data.rosters).map(([id, roster]) => [id, {
+      ...roster,
+      players: roster.players.map((player) => positionEligibleForSlot(player.position, player.rosterSlot)
+        ? player
+        : { ...player, rosterSlot: "Bench" as const }),
+    }])),
+  };
+}
+
 /** Unknown ESPN positions remain manually assignable; known positions cannot be put in an invalid starter slot. */
 export function positionEligibleForSlot(position: string | null | undefined, slot: FantasyRosterSlot): boolean {
   const rawPosition = position?.trim().toUpperCase();
