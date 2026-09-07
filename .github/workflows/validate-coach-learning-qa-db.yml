@@ -35,57 +35,67 @@ jobs:
           set -euo pipefail
           test -n "${DATABASE_URL}"
           cleanup() {
-            psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
-              -v request_id="${TEST_REQUEST_ID}" \
-              -c "DELETE FROM coach_learning_recommendations WHERE request_id = :'request_id';" >/dev/null
+            psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 >/dev/null <<SQL
+          DELETE FROM coach_learning_recommendations
+          WHERE request_id = '${TEST_REQUEST_ID}';
+          SQL
           }
           trap cleanup EXIT
 
-          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
-            -v request_id="${TEST_REQUEST_ID}" <<'SQL'
-          SELECT CASE WHEN to_regclass('public.coach_learning_recommendations') IS NOT NULL
-            THEN 1 ELSE 1 / 0 END AS table_exists;
-          SELECT CASE WHEN count(*) = 3 THEN 1 ELSE 1 / 0 END AS required_indexes_exist
-          FROM pg_indexes
-          WHERE schemaname = 'public'
-            AND tablename = 'coach_learning_recommendations'
-            AND indexname IN (
-              'coach_learning_recommendations_pkey',
-              'coach_learning_pending_idx',
-              'coach_learning_sport_market_idx'
-            );
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<SQL
+          DO \$\$
+          BEGIN
+            IF to_regclass('public.coach_learning_recommendations') IS NULL THEN
+              RAISE EXCEPTION 'coach_learning_recommendations is missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'public.coach_learning_recommendations'::regclass
+                AND contype = 'p'
+            ) THEN
+              RAISE EXCEPTION 'primary key is missing';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public'
+              AND tablename = 'coach_learning_recommendations' AND indexname = 'coach_learning_pending_idx') THEN
+              RAISE EXCEPTION 'coach_learning_pending_idx is missing';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public'
+              AND tablename = 'coach_learning_recommendations' AND indexname = 'coach_learning_sport_market_idx') THEN
+              RAISE EXCEPTION 'coach_learning_sport_market_idx is missing';
+            END IF;
+          END \$\$;
 
           INSERT INTO coach_learning_recommendations (
             id, identity, request_id, sport, provider_event_id, game, market,
             selection, odds, source, base_model_version, inputs, status
           ) VALUES
-            ('test-capture', 'test-capture-identity', :'request_id', 'nfl', 'event-1',
+            ('test-capture', 'test-capture-identity', '${TEST_REQUEST_ID}', 'nfl', 'event-1',
              'Away @ Home', 'Spread', 'Away +3.5', '-110', 'coach', 'test-model',
              '{"edge":3.2,"form":"captured"}'::jsonb, 'pending'),
-            ('test-win', 'test-win-identity', :'request_id', 'nfl', 'event-2',
+            ('test-win', 'test-win-identity', '${TEST_REQUEST_ID}', 'nfl', 'event-2',
              'Away @ Home', 'Moneyline', 'Away ML', '+120', 'coach', 'test-model', '{}'::jsonb, 'pending'),
-            ('test-loss', 'test-loss-identity', :'request_id', 'nfl', 'event-3',
+            ('test-loss', 'test-loss-identity', '${TEST_REQUEST_ID}', 'nfl', 'event-3',
              'Away @ Home', 'Moneyline', 'Home ML', '-140', 'coach', 'test-model', '{}'::jsonb, 'pending'),
-            ('test-push', 'test-push-identity', :'request_id', 'nfl', 'event-4',
+            ('test-push', 'test-push-identity', '${TEST_REQUEST_ID}', 'nfl', 'event-4',
              'Away @ Home', 'Total', 'Over 44', '-110', 'coach', 'test-model', '{}'::jsonb, 'pending'),
-            ('test-void', 'test-void-identity', :'request_id', 'nfl', 'event-5',
+            ('test-void', 'test-void-identity', '${TEST_REQUEST_ID}', 'nfl', 'event-5',
              'Away @ Home', 'Spread', 'Away +3', '-110', 'coach', 'test-model', '{}'::jsonb, 'pending'),
-            ('test-ungraded', 'test-ungraded-identity', :'request_id', NULL, NULL,
+            ('test-ungraded', 'test-ungraded-identity', '${TEST_REQUEST_ID}', NULL, NULL,
              'Unresolved', 'Unsupported', 'Unknown', '-110', 'coach', 'test-model', '{}'::jsonb, 'pending')
           ON CONFLICT (identity) DO NOTHING;
 
           INSERT INTO coach_learning_recommendations (
             id, identity, request_id, game, market, selection, odds, source, base_model_version, inputs
           ) VALUES (
-            'test-capture-retry', 'test-capture-identity', :'request_id',
+            'test-capture-retry', 'test-capture-identity', '${TEST_REQUEST_ID}',
             'Changed @ Changed', 'Total', 'Under 1', '+999', 'coach', 'wrong-model', '{}'::jsonb
           ) ON CONFLICT (identity) DO NOTHING;
 
           SQL
 
-          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -v request_id="${TEST_REQUEST_ID}" <<'SQL'
-          SET app.test_request_id TO :'request_id';
-          DO $$
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<SQL
+          SELECT set_config('app.test_request_id', '${TEST_REQUEST_ID}', false);
+          DO \$\$
           DECLARE affected integer;
           BEGIN
             IF (SELECT count(*) FROM coach_learning_recommendations WHERE request_id = current_setting('app.test_request_id')) <> 6 THEN
@@ -111,5 +121,5 @@ jobs:
             IF (SELECT status FROM coach_learning_recommendations WHERE id = 'test-win') <> 'win' THEN
               RAISE EXCEPTION 'terminal result corrupted';
             END IF;
-          END $$;
+          END \$\$;
           SQL
