@@ -10,6 +10,7 @@ import { logger } from "./logger";
 import { sendPush, type PushMessage } from "./push";
 import { sweepAbandonedCoachBuilds, pruneOldCoachBuilds } from "./coachBuild";
 import { runLiveStealsJob } from "./liveSteals";
+import { settleCoachLearning } from "./coachLearning";
 import {
   findGameLineArbs,
   findGameLineValueBets,
@@ -682,6 +683,12 @@ export async function runNotificationJobs(): Promise<{
     await runLiveStealsJob();
   } catch (err) {
     logger.warn({ err: (err as Error)?.message }, "notify: live steals job failed");
+  }
+  // Private Coach-quality settlement. Failures are isolated from notifications.
+  try {
+    await settleCoachLearning();
+  } catch (err) {
+    logger.warn({ err: (err as Error)?.message }, "notify: coach learning settlement failed");
   }
 
   const tokenRows = await db.select().from(pushTokensTable);
