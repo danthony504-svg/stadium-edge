@@ -7,6 +7,7 @@ import {
   createDefaultFantasyRosters,
   defaultFantasyRoster,
   positionEligibleForSlot,
+  repairFantasyRosterSlots,
   type FantasyRosterPlayer,
   type FantasyRostersSync,
   type FantasyRosterSlot,
@@ -53,7 +54,7 @@ export function FantasyRosterProvider({ children }: { children: React.ReactNode 
       if (raw) {
         try {
           const data: unknown = JSON.parse(raw);
-          if (isRosterSync(data)) setRosters(data);
+          if (isRosterSync(data)) setRosters(repairFantasyRosterSlots(data));
         } catch { /* Ignore corrupt local cache. */ }
       }
     }).catch(() => {}).finally(() => {
@@ -76,7 +77,7 @@ export function FantasyRosterProvider({ children }: { children: React.ReactNode 
     let retry: ReturnType<typeof setTimeout> | null = null;
     void getSync<FantasyRostersSync>("fantasyRosters").then(({ data }) => {
       if (cancelled) return;
-      if (isRosterSync(data)) setRosters(data);
+      if (isRosterSync(data)) setRosters(repairFantasyRosterSlots(data));
       else {
         dirtyRef.current = true; // first signed-in roster: seed the account once
         setRosters((current) => ({ ...current }));

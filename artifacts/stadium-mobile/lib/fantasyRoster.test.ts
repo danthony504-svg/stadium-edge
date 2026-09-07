@@ -4,6 +4,7 @@ import {
   createDefaultFantasyRosters,
   defaultFantasyRoster,
   positionEligibleForSlot,
+  repairFantasyRosterSlots,
 } from "./fantasyRoster";
 
 describe("fantasy roster persistence shape", () => {
@@ -38,4 +39,18 @@ describe("fantasy roster persistence shape", () => {
     expect(positionEligibleForSlot("K", "K")).toBe(true);
     expect(positionEligibleForSlot("K", "DEF")).toBe(false);
   });
+});
+
+test("repairs impossible persisted NFL slots without changing valid FLEX assignments", () => {
+  const data = createDefaultFantasyRosters();
+  data.rosters.default!.players = [
+    { athleteId: "allen", name: "Josh Allen", team: "BUF", position: "QB", rosterSlot: "TE", dateAdded: 1 },
+    { athleteId: "rb", name: "RB", team: "NFL", position: "RB", rosterSlot: "FLEX", dateAdded: 1 },
+    { athleteId: "dst", name: "DST", team: "NFL", position: "DST", rosterSlot: "K", dateAdded: 1 },
+  ];
+  const repaired = repairFantasyRosterSlots(data).rosters.default!.players;
+  expect(repaired[0].rosterSlot).toBe("Bench");
+  expect(repaired[1].rosterSlot).toBe("FLEX");
+  expect(repaired[2].rosterSlot).toBe("Bench");
+  expect(positionEligibleForSlot(repaired[0].position, "QB")).toBe(true);
 });
