@@ -2,7 +2,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/express";
+import { and, eq } from "drizzle-orm";
 import { SendChatMessageBody } from "@workspace/api-zod";
+import { db, userSyncTable } from "@workspace/db";
 import { rateLimit } from "../lib/sports.js";
 import {
   recordBackgroundBuildPending,
@@ -20,8 +22,11 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "../lib/coachUnsupportedMarkets.js";
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
+import { captureCoachLearning } from "../lib/coachLearning.js";
 
 const router: IRouter = Router();
+// Shared by both /chat and /chat/context-stash. Kept as one instance so both
+// entry points enforce the same real per-IP budget (matches the main branch).
 const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
 
 function streamCannedCoachReply(res: Response, text: string): void {
@@ -459,6 +464,9 @@ HOW TO WEIGH IT (real signal, never invented):
 - A "high"-impact player who is OUT is a real edge against that team — most of all an MLB starting pitcher (SP), an NFL/NCAAF quarterback (QB), or an NHL/soccer goalie (G). When a key starter is out, fade that team's side / lean the opponent, and for PLAYER PROPS lean UNDER on the absent player's own production while bumping the teammates who absorb that usage.
 - Use the edge line as a tie-breaker between two otherwise-close sides, and CITE the specific player(s) by name in the EDGE: note ("Spencer Strider (SP) out — fade the Braves' run line"). Stack it with matchupHistory / playerHistory; it informs a pick, it does not by itself create one.
 - HONESTY (hard): never invent an injury, a return date, a severity, or a player who is not in this map. If matchupInjuries has no entry for a game, do NOT claim anyone is hurt OR healthy — just rely on the other signals. The impact tiers and edge line are a transparent guide, not a precise metric, so never present them as an exact probability or as a player rating.
+- FEED STATUS (hard): when context.injuryFeed is present and injuryFeed.connected is false (or sportsUnavailable is non-empty), the ESPN injury feed did NOT load. You MUST say exactly: "My injury data feed is currently unavailable, so I can't verify today's injuries. I won't guess or invent player statuses." NEVER say "no injury report", "no injuries reported", "there is no injury report available", "everyone is healthy", or imply a clean bill of health when the feed failed.
+- CONFIRMED CLEAR (feed connected only): when context.injuryClearedGames includes a game's exact "Away @ Home" label, you MAY state that ESPN's injury report lists no injuries for either side of that matchup. This is the ONLY case where "no injuries reported" language is allowed.
+- INJURY INTEL QUESTIONS (reports, questionable/out players, starting lineups, minutes restrictions, injury impact on props, value created by injuries): answer ONLY from context.matchupInjuries, context.injuryClearedGames, and context.injuryFeed. Cite specific player names, statuses (Out / Questionable / Day-To-Day), and impact tiers when present. When the feed is unavailable, use the FEED STATUS line above — do not guess.
 
 HOME/AWAY SPLITS RULE — USE playerHistory.homeSplit / awaySplit: when a playerHistory entry has homeSplit or awaySplit, each is { games, averages: { <stat>: number } } — REAL per-stat season averages split by where the game was played. When a playerHistory entry has tonightSplit (with tonightVenue "home"/"away"), that is the split ALREADY pre-selected for tonight's venue — use it directly. Otherwise pick the side that matches TONIGHT'S venue for that player (home team's player → homeSplit; road team's player → awaySplit) and compare that stat's average to the posted prop line. A meaningfully better home (or away) average than the player's overall form is a real tilt: cite the specific split number in the edge note ("Judge averaging 1.1 HR-equiv / .619 SLG in 12 home games vs .495 on the road — at home tonight his TB over has real room"). Use it as a tiebreaker stacked on recent form, never as the sole reason. When the relevant split is absent or has 0 games, skip it — do not invent a home/away number.
 
@@ -1865,12 +1873,57 @@ router.post("/chat", async (req, res): Promise<void> => {
     // StatMuse is best-effort enrichment — never block a chat on it.
   }
 
+  // Roster identity belongs to the authenticated account, not to device-local
+  // chat context. Load only durable identifiers/slots; projections and other
+  // changing analysis remain live data concerns.
+  const rosterUserId = chatUserId(req);
+  if (rosterUserId) {
+    try {
+      const rows = await db.select({ data: userSyncTable.data }).from(userSyncTable)
+        .where(and(eq(userSyncTable.userId, rosterUserId), eq(userSyncTable.namespace, "fantasyRosters"))).limit(1);
+      const data = rows[0]?.data as { defaultRosterId?: unknown; rosters?: Record<string, unknown> } | undefined;
+      const id = typeof data?.defaultRosterId === "string" ? data.defaultRosterId : "";
+      const roster = id && data?.rosters?.[id];
+      if (roster && typeof roster === "object") {
+        const raw = roster as { id?: unknown; name?: unknown; scoringFormat?: unknown; players?: unknown };
+        const players = Array.isArray(raw.players) ? raw.players
+          .filter((player): player is Record<string, unknown> => !!player && typeof player === "object")
+          .map((player) => ({
+            athleteId: typeof player.athleteId === "string" ? player.athleteId : "",
+            name: typeof player.name === "string" ? player.name : "",
+            team: typeof player.team === "string" ? player.team : null,
+            position: typeof player.position === "string" ? player.position : null,
+            rosterSlot: typeof player.rosterSlot === "string" ? player.rosterSlot : "Bench",
+          }))
+          .filter((player) => player.athleteId && player.name) : [];
+        lockedContext = {
+          ...(lockedContext && typeof lockedContext === "object" ? lockedContext : {}),
+          fantasyRoster: { rosterId: raw.id, name: raw.name, scoringFormat: raw.scoringFormat, players },
+        };
+      }
+    } catch {
+      // Chat remains available if account sync storage is temporarily unavailable.
+    }
+  }
+
   if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
     lockedContext = trimLockedContextForDirectOpenAI(
       lockedContext as Record<string, unknown>,
       { namedGameLabels },
     ) as typeof lockedContext;
   }
+
+  const fantasyRosterContext = lockedContext && typeof lockedContext === "object"
+    ? (lockedContext as { fantasyRoster?: { players?: unknown[]; scoringFormat?: unknown } }).fantasyRoster
+    : undefined;
+  const fantasySystemAddendum = Array.isArray(fantasyRosterContext?.players)
+    ? `\n\nFANTASY ROSTER MODE:
+- The authenticated user's saved roster and scoring format are in context.fantasyRoster. Use those exact players, roster slots, and scoring format for lineup optimization, start/sit, drops, trade analysis, and player comparisons. Never ask the user to retype this roster.
+- A FLEX slot accepts only RB, WR, or TE. Do not put QB, K, or DEF in FLEX. Respect each player's saved starter/bench/IR state.
+- Only use Fantasy metrics that are supplied with a named source input. If current-week projection, matchup-by-position, snap share, red-zone usage, waiver-pool, or rest-of-season valuation data is absent, say it is unavailable; never infer a number or recommend an unidentified pickup.
+- For "Optimize my lineup", return starters, bench, FLEX, best floor lineup and highest-upside lineup only to the extent the supplied data supports them. Clearly distinguish recorded historical form from a weekly projection.
+`
+    : "";
 
   const contextBlock =
     lockedContext && Object.keys(lockedContext).length > 0
@@ -2223,7 +2276,7 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + fantasySystemAddendum + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
@@ -2476,6 +2529,26 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
     }
     stopHeartbeat();
     stopWatchdog();
+    // Private, best-effort quality telemetry. It observes only completed PICK
+    // lines and the market inputs already supplied to Coach; it never affects
+    // the response, ranking, scoring, simulation, or user data.
+    try {
+      const learningContext = (lockedContext ?? {}) as Record<string, unknown>;
+      await captureCoachLearning(fullText, {
+        requestId: bgBuildId,
+        baseModelVersion: aiConfig.model,
+        inputs: {
+          realGames: learningContext.realGames ?? [],
+          realOdds: learningContext.realOdds ?? [],
+          realProps: learningContext.realProps ?? [],
+          matchupHistory: learningContext.matchupHistory ?? {},
+          injuries: learningContext.injuries ?? {},
+          weather: learningContext.weather ?? {},
+        },
+      });
+    } catch (err) {
+      req.log.warn({ err }, "coach learning capture failed");
+    }
     if (!clientGone && !res.writableEnded) {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
