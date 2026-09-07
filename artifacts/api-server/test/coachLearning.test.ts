@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { learningIdentity, parseCoachPicks } from "../src/lib/coachLearning.ts";
+import { learningIdentity, parseCoachPicks } from "../src/lib/coachLearningCore.ts";
 
 test("captures only valid delivered Coach PICK lines", () => {
   const picks = parseCoachPicks("PICK: Away @ Home | Spread | Away +3.5 | -110\nEDGE: real input");
