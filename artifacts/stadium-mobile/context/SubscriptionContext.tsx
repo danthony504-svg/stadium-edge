@@ -5,13 +5,14 @@ import Purchases, {
   type PurchasesPackage,
 } from "react-native-purchases";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import {
   hasPremiumAccess,
   isPurchaseCancelled,
   isSupportedPremiumProduct,
   premiumAccessState,
+  shouldRefreshSubscriptionEntitlement,
   type PremiumAccessState,
   type PurchaseOutcome,
 } from "@/lib/subscription";
@@ -110,6 +111,20 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
     };
   }, [applyCustomerInfo, isSignedIn, refreshEntitlement, userId]);
+
+  // Entitlements can change while the app is backgrounded (renewal, expiry,
+  // billing retry, or a StoreKit transaction completed elsewhere). Refresh the
+  // RevenueCat snapshot on resume without changing any feature access here.
+  useEffect(() => {
+    if (Platform.OS !== "ios" || !REVENUECAT_IOS_API_KEY || !isConfigured) return;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (!shouldRefreshSubscriptionEntitlement(state)) return;
+      void refreshEntitlement().catch((cause) => {
+        setError(cause instanceof Error ? cause : new Error("Unable to refresh subscription."));
+      });
+    });
+    return () => subscription.remove();
+  }, [isConfigured, refreshEntitlement]);
 
   const purchase = useCallback(
     async (pkg: PurchasesPackage): Promise<PurchaseResult> => {

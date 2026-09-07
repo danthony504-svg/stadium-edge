@@ -44,3 +44,7 @@ export function isPurchaseCancelled(error: unknown, cancelledErrorCode: unknown)
   const purchaseError = error as { code?: unknown; userCancelled?: unknown };
   return purchaseError.userCancelled === true || purchaseError.code === cancelledErrorCode;
 }
+
+export function shouldRefreshSubscriptionEntitlement(appState: string): boolean {
+  return appState === "active";
+}

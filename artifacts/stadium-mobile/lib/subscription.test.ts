@@ -5,6 +5,7 @@ import {
   isPurchaseCancelled,
   isSupportedPremiumProduct,
   premiumAccessState,
+  shouldRefreshSubscriptionEntitlement,
 } from "./subscription";
 
 const customerInfo = (entitlement?: { willRenew?: boolean; billingIssueDetectedAt?: string | null }) => ({
@@ -40,4 +41,10 @@ test("recognizes user cancellations separately from purchase failures", () => {
   expect(isPurchaseCancelled({ code: "cancelled" }, "cancelled")).toBe(true);
   expect(isPurchaseCancelled({ userCancelled: true }, "other")).toBe(true);
   expect(isPurchaseCancelled({ code: "store_problem" }, "cancelled")).toBe(false);
+});
+
+test("refreshes RevenueCat entitlement state when the native app resumes", () => {
+  expect(shouldRefreshSubscriptionEntitlement("active")).toBe(true);
+  expect(shouldRefreshSubscriptionEntitlement("inactive")).toBe(false);
+  expect(shouldRefreshSubscriptionEntitlement("background")).toBe(false);
 });
