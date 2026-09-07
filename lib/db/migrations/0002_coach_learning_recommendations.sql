@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS coach_learning_recommendations (
   identity text NOT NULL UNIQUE,
   request_id text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  sport text, league text, provider_event_id text, game text NOT NULL, player text,
+  sport text, league text, provider_event_id text, starts_at timestamptz, game text NOT NULL, player text,
   market text NOT NULL, selection text NOT NULL, line text, odds text,
   confidence text, edge text, ai_grade text, simulation_probability text,
   source text NOT NULL, base_model_version text NOT NULL, inputs jsonb NOT NULL,

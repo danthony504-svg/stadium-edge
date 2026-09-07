@@ -9,6 +9,7 @@ export const coachLearningRecommendationsTable = pgTable("coach_learning_recomme
   sport: text("sport"),
   league: text("league"),
   providerEventId: text("provider_event_id"),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
   game: text("game").notNull(),
   player: text("player"),
   market: text("market").notNull(),

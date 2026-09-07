@@ -11,3 +11,22 @@ export function learningIdentity(pick: CoachLearningPick, sport: string | null, 
   return [sport ?? "unresolved", eventId ?? "unresolved", pick.market, pick.selection]
     .join("|").toLowerCase().replace(/\s+/g, " ").trim();
 }
+
+export type LearningSettlement = {
+  status: "win" | "loss" | "push" | "void" | "ungraded";
+  reason: string;
+};
+
+/** Positive cancellation evidence is the only path to void. */
+export function classifyLearningSettlement(
+  providerStatus: string | null,
+  grade: { result: "win" | "loss" | "push" | "ungraded"; detail: string } | null,
+): LearningSettlement {
+  if (providerStatus && /\b(cancell?ed|postponed|void|abandoned)\b/i.test(providerStatus)) {
+    return { status: "void", reason: `provider status: ${providerStatus}` };
+  }
+  if (!grade || grade.result === "ungraded") {
+    return { status: "ungraded", reason: grade?.detail || "provider result unresolved" };
+  }
+  return { status: grade.result, reason: grade.detail };
+}
