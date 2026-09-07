@@ -69,6 +69,7 @@ export function NavMenu() {
           borderColor: colors.border,
           opacity: pressed ? 0.8 : 1,
           zIndex: 50,
+          elevation: 50,
         })}
       >
         <Feather name={open ? "x" : "menu"} size={20} color={colors.foreground} />
