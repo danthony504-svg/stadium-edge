@@ -982,6 +982,60 @@ export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsRes
   }
 }
 
+export type PerformanceSource =
+  | "coach"
+  | "build_best_parlay"
+  | "hot_picks"
+  | "easy_money"
+  | "best_value"
+  | "longshots";
+
+export type PerformanceRecommendation = {
+  source: PerformanceSource;
+  sport: string;
+  game: string;
+  market: string;
+  selection: string;
+  line?: string | null;
+  odds: number;
+  startsAt?: string | null;
+  providerEventId: string;
+};
+
+export type PerformanceRow = PerformanceRecommendation & {
+  id: string;
+  createdAt: string;
+  status: "pending" | "win" | "loss" | "push" | "ungraded";
+  settledAt?: string | null;
+  resultDetail?: string | null;
+};
+
+export type PerformanceResponse = {
+  timezone: "UTC";
+  dayStart: string;
+  today: PerformanceRow[];
+  history: PerformanceRow[];
+};
+
+export async function capturePerformanceRecommendations(
+  recommendations: PerformanceRecommendation[],
+): Promise<void> {
+  if (!recommendations.length) return;
+  const res = await authedFetch("/sports/performance/capture", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recommendations }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+/** Unlike the retired steal feed, ledger failures remain visible to callers. */
+export async function getPerformance(): Promise<PerformanceResponse> {
+  const res = await authedFetch("/sports/performance");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<PerformanceResponse>;
+}
+
 export type GetPropsArgs = {
   sport: string;
   eventId: string;

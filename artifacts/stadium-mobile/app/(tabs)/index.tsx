@@ -29,7 +29,7 @@ import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
-  getLiveSteals,
+  getPerformance,
   getOdds,
   getProps,
   getTennisFlags,
@@ -796,26 +796,24 @@ function HomeSportFeed({
     .map((c) => `${c.player}|${c.marketKey}|${c.line}|${c.side}`)
     .join(",");
 
-  // Track record of the app's OWN longshot "steal" picks (auto-graded W/L vs real
-  // results). Real or hidden — never shown without graded results.
-  const stealsQ = useQuery({
-    queryKey: ["home-steals"],
-    queryFn: ({ signal }) => getLiveSteals(signal),
+  // User-scoped recommendations, restricted by the server to the current UTC day.
+  // A ledger failure remains visible to the card rather than becoming a fake 0-0.
+  const performanceQ = useQuery({
+    queryKey: ["app-performance"],
+    queryFn: () => getPerformance(),
     staleTime: 5 * 60_000,
   });
-  const gradedHistory = stealsQ.data?.history ?? [];
-  const perfSummary = summarizeRecentPerformance(gradedHistory);
-  const perfSeries = buildRollingWinRateSeries(gradedHistory);
+  const todayRows = performanceQ.data?.today ?? [];
+  const settledToday = todayRows
+    .filter((row) => row.status === "win" || row.status === "loss" || row.status === "push")
+    .map((row) => ({ status: row.status, gradedAt: row.settledAt ?? row.createdAt }));
+  const perfSummary = summarizeRecentPerformance(settledToday);
+  const perfSeries = buildRollingWinRateSeries(settledToday);
   const gradedPickCount = perfSummary.wins + perfSummary.losses + perfSummary.pushes;
   const hasPerfData = gradedPickCount > 0;
   const perfWinPct = gradedPickCount > 0 ? Math.round((perfSummary.wins / gradedPickCount) * 100) : 0;
   const perfRecord = `${perfSummary.wins}-${perfSummary.losses}`;
-  const todayPickCount =
-    (stealsQ.data?.record.wins ?? 0) +
-    (stealsQ.data?.record.losses ?? 0) +
-    (stealsQ.data?.record.pushes ?? 0) +
-    (stealsQ.data?.record.pending ?? 0) +
-    (stealsQ.data?.record.ungraded ?? 0);
+  const todayPickCount = todayRows.length;
   const performanceMessage =
     todayPickCount === 0
       ? "No picks placed today yet."
@@ -978,10 +976,14 @@ function HomeSportFeed({
     oddsQ.isFetching ||
     gamesQ.isFetching ||
     featuredGameQs.some((q) => q.isFetching) ||
-    stealsQ.isFetching ||
+    performanceQ.isFetching ||
     (sport !== "tennis" && upsetsQ.isFetching);
 
-  const askCoach = (msg: string, silent = false) => {
+  const askCoach = (
+    msg: string,
+    silent = false,
+    performanceSource: "hot_picks" | "easy_money" | "coach" = "coach",
+  ) => {
     if (silent) markCoachHomeLaunch();
     router.push({
       pathname: "/coach",
@@ -989,17 +991,19 @@ function HomeSportFeed({
         autoMsg: msg,
         send: "1",
         ts: String(Date.now()),
+        performanceSource,
       },
     });
   };
 
   // Open Coach without auto-sending — user can edit the prompt and tap send.
-  const goCoach = (prefill?: string) =>
+  const goCoach = (prefill?: string, performanceSource: "coach" | "build_best_parlay" = "coach") =>
     router.push({
       pathname: "/coach",
       params: {
         ...(prefill ? { prefill } : {}),
         ts: String(Date.now()),
+        performanceSource,
       },
     });
 
@@ -1015,14 +1019,14 @@ function HomeSportFeed({
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => askCoach("Build me the best parlay", true, "hot_picks"),
     },
     {
       label: "Easy Money",
       subtitle: "High win rate tonight",
       icon: "currency-usd",
       color: "#34d399",
-      onPress: () => askCoach("Build me a safe parlay"),
+      onPress: () => askCoach("Build me a safe parlay", false, "easy_money"),
     },
     {
       label: "Best Value",
@@ -1056,7 +1060,7 @@ function HomeSportFeed({
               // Manual refetch() fires even on disabled queries, so only kick
               // the featured props fan-out for sports that actually have props.
               if (featuredEnabled) featuredGameQs.forEach((q) => q.refetch());
-              stealsQ.refetch();
+              performanceQ.refetch();
               upsetsQ.refetch();
             }}
             tintColor={colors.mutedForeground}
@@ -1065,7 +1069,7 @@ function HomeSportFeed({
       >
 
         {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay")} />
+        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay", "build_best_parlay")} />
 
         {/* Quick actions — four shortcut cards in a single row. */}
         <View
@@ -1164,7 +1168,13 @@ function HomeSportFeed({
                 View all
               </Text>
             </View>
-            <View
+            {performanceQ.isError ? (
+              <Text style={{ color: colors.destructive, fontFamily: FONT.medium, fontSize: 12, lineHeight: 17 }}>
+                Performance history is temporarily unavailable. Pull to retry.
+              </Text>
+            ) : performanceQ.isLoading ? (
+              <Loading label="Loading today’s performance…" />
+            ) : <View
               style={{
                 flexDirection: isWideLayout ? "row" : "column",
                 alignItems: "center",
@@ -1220,7 +1230,7 @@ function HomeSportFeed({
                   width={isWideLayout ? Math.min(310, width * 0.42) : width - 64}
                 />
               ) : null}
-            </View>
+            </View>}
             <Text
               style={{
                 color: colors.mutedForeground,
@@ -1231,7 +1241,7 @@ function HomeSportFeed({
                 textAlign: "center",
               }}
             >
-              {performanceMessage}
+                {performanceQ.isError ? "We could not load your performance record." : performanceMessage}
             </Text>
           </Pressable>
         </View>

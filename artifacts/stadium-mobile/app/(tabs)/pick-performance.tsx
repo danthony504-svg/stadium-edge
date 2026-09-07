@@ -9,7 +9,7 @@ import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { EmptyState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { getLiveSteals, propMarketLabel, type GradedSteal } from "@/lib/api";
+import { getPerformance, propMarketLabel, type PerformanceRow } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import {
   PERFORMANCE_WINDOW,
@@ -28,7 +28,7 @@ const GAME_MARKET_LABEL: Record<string, string> = {
   Total: "Total",
 };
 
-function marketLabelFor(row: GradedSteal): string {
+function marketLabelFor(row: PerformanceRow): string {
   if (row.player) return propMarketLabel(row.market);
   return GAME_MARKET_LABEL[row.market] ?? row.market;
 }
@@ -44,7 +44,7 @@ function formatGradedAt(iso: string): string {
   });
 }
 
-function WonPickRow({ row }: { row: GradedSteal }) {
+function WonPickRow({ row }: { row: PerformanceRow }) {
   const colors = useColors();
   return (
     <View
@@ -71,7 +71,7 @@ function WonPickRow({ row }: { row: GradedSteal }) {
           <Feather name="check" size={13} color="#34d399" />
         </View>
         <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}>
-          {row.player ?? row.pick}
+          {row.selection}
         </Text>
         <Text style={{ color: "#34d399", fontFamily: FONT.bold, fontSize: 15 }}>
           {formatAmerican(row.price)}
@@ -79,7 +79,7 @@ function WonPickRow({ row }: { row: GradedSteal }) {
       </View>
       {row.player ? (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
-          {row.pick}
+          {row.source.replace(/_/g, " ")}
         </Text>
       ) : null}
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
@@ -98,13 +98,13 @@ export default function PickPerformanceScreen() {
   const router = useRouter();
 
   const stealsQ = useQuery({
-    queryKey: ["live-steals"],
-    queryFn: ({ signal }) => getLiveSteals(signal),
+    queryKey: ["app-performance"],
+    queryFn: () => getPerformance(),
     staleTime: 2 * 60_000,
   });
 
   const history = stealsQ.data?.history ?? [];
-  const record = stealsQ.data?.record ?? null;
+  const record = null;
   const recent = useMemo(() => summarizeRecentPerformance(history), [history]);
   const series = useMemo(() => buildRollingWinRateSeries(history), [history]);
   const wins = useMemo(() => wonPicks(history), [history]);
@@ -170,7 +170,7 @@ export default function PickPerformanceScreen() {
                         tint: colors.foreground,
                       },
                       {
-                        val: record ? String(record.graded) : "—",
+                        val: String(history.length),
                         label: "Graded (all time)",
                         tint: colors.foreground,
                       },

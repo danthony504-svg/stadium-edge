@@ -123,6 +123,7 @@ import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
+import { captureDeliveredCoachRecommendations } from "@/lib/performanceTracker";
 import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
@@ -1036,6 +1037,7 @@ export default function CoachScreen() {
     silent?: string;
     ts?: string;
     buildId?: string;
+    performanceSource?: "coach" | "build_best_parlay" | "hot_picks" | "easy_money";
   }>() ?? {};
   const autoSentRef = useRef<string | null>(null);
   // Signed-in state gates the background-finish path (the server stashes the
@@ -1173,8 +1175,12 @@ export default function CoachScreen() {
       if (lastCoachCaptureSigRef.current === sig) return;
       lastCoachCaptureSigRef.current = sig;
       captureFromCoach(picks);
+      // This is observability only: it records the delivered recommendation
+      // after resolving its real provider event. It does not influence Coach
+      // selection, scoring, simulation, or rendering.
+      void captureDeliveredCoachRecommendations(picks, params.performanceSource ?? "coach").catch(() => {});
     },
-    [captureFromCoach],
+    [captureFromCoach, params.performanceSource],
   );
 
   useEffect(() => () => {
