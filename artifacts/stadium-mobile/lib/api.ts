@@ -181,6 +181,8 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 // A single real-odds context entry sent to the chat AI (matches the web app).
 export type RealOddsEntry = {
   sport: string;
+  /** Canonical event id from the source odds payload. */
+  providerEventId?: string;
   game: string;
   market: string;
   pick: string;
@@ -1527,7 +1529,7 @@ export function buildRealOdds(
   if (!g || !g.markets) return [];
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
-  const base = { sport: g.sport, game, startsAt: g.commenceTime };
+  const base = { sport: g.sport, providerEventId: g.id, game, startsAt: g.commenceTime };
   // Soccer team names are multi-word ("Czech Republic", "South Korea"); the
   // last-word `nickname` truncates them to a confusing, ambiguous moneyline /
   // spread label ("Republic ML") that doesn't clearly name the home/away side.
@@ -1872,6 +1874,7 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
 // stat-mapping (player_points→PTS, pitcher_strikeouts→SO, …) works.
 export type RealPropEntry = {
   sport: string;
+  providerEventId?: string;
   game: string;
   startsAt: string;
   player: string;
@@ -3678,6 +3681,7 @@ async function buildLightParlayContext(
         }
         realProps.push({
           sport: g.sport,
+          providerEventId: g.id,
           game,
           startsAt: g.commenceTime,
           player: p.player,
@@ -4409,6 +4413,7 @@ export async function buildChatContext(
             }
             realProps.push({
               sport,
+              providerEventId: g.id,
               game,
               startsAt: g.commenceTime,
               player: p.player,
