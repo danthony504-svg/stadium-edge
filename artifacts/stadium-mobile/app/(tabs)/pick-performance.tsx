@@ -29,8 +29,7 @@ const GAME_MARKET_LABEL: Record<string, string> = {
 };
 
 function marketLabelFor(row: PerformanceRow): string {
-  if (row.player) return propMarketLabel(row.market);
-  return GAME_MARKET_LABEL[row.market] ?? row.market;
+  return GAME_MARKET_LABEL[row.market] ?? propMarketLabel(row.market);
 }
 
 function formatGradedAt(iso: string): string {
@@ -74,19 +73,17 @@ function WonPickRow({ row }: { row: PerformanceRow }) {
           {row.selection}
         </Text>
         <Text style={{ color: "#34d399", fontFamily: FONT.bold, fontSize: 15 }}>
-          {formatAmerican(row.price)}
+          {formatAmerican(row.odds)}
         </Text>
       </View>
-      {row.player ? (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
-          {row.source.replace(/_/g, " ")}
-        </Text>
-      ) : null}
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+        {row.source.replace(/_/g, " ")}
+      </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
         {row.game} · {marketLabelFor(row)} · {sportLabel(row.sport)}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-        Settled {formatGradedAt(row.gradedAt)}
+        Settled {formatGradedAt(row.settledAt ?? row.createdAt)}
       </Text>
     </View>
   );
@@ -103,7 +100,10 @@ export default function PickPerformanceScreen() {
     staleTime: 2 * 60_000,
   });
 
-  const history = stealsQ.data?.history ?? [];
+  const history: Array<PerformanceRow & { status: "win" | "loss" | "push"; gradedAt: string }> = (stealsQ.data?.history ?? []).flatMap((row) => {
+    if (row.status !== "win" && row.status !== "loss" && row.status !== "push") return [];
+    return [{ ...row, status: row.status as "win" | "loss" | "push", gradedAt: row.settledAt ?? row.createdAt }];
+  });
   const record = null;
   const recent = useMemo(() => summarizeRecentPerformance(history), [history]);
   const series = useMemo(() => buildRollingWinRateSeries(history), [history]);

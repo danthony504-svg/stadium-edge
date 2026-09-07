@@ -804,9 +804,10 @@ function HomeSportFeed({
     staleTime: 5 * 60_000,
   });
   const todayRows = performanceQ.data?.today ?? [];
-  const settledToday = todayRows
-    .filter((row) => row.status === "win" || row.status === "loss" || row.status === "push")
-    .map((row) => ({ status: row.status, gradedAt: row.settledAt ?? row.createdAt }));
+  const settledToday = todayRows.flatMap((row) => {
+    if (row.status !== "win" && row.status !== "loss" && row.status !== "push") return [];
+    return [{ status: row.status, gradedAt: row.settledAt ?? row.createdAt }];
+  });
   const perfSummary = summarizeRecentPerformance(settledToday);
   const perfSeries = buildRollingWinRateSeries(settledToday);
   const gradedPickCount = perfSummary.wins + perfSummary.losses + perfSummary.pushes;
