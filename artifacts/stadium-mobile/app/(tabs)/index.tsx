@@ -983,7 +983,7 @@ function HomeSportFeed({
   const askCoach = (
     msg: string,
     silent = false,
-    performanceSource: "hot_picks" | "easy_money" | "coach" = "coach",
+    performanceSource: "hot_picks" | "easy_money" | "best_value" | "coach" = "coach",
   ) => {
     if (silent) markCoachHomeLaunch();
     router.push({
@@ -1034,8 +1034,7 @@ function HomeSportFeed({
       subtitle: "Top projected edges",
       icon: "bullseye-arrow",
       color: colors.primary,
-      onPress: () =>
-        router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} }),
+      onPress: () => askCoach("Show me the best value picks tonight", false, "best_value"),
     },
     {
       label: "Longshots",

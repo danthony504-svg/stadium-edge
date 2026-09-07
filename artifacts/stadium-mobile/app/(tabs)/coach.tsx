@@ -1037,7 +1037,7 @@ export default function CoachScreen() {
     silent?: string;
     ts?: string;
     buildId?: string;
-    performanceSource?: "coach" | "build_best_parlay" | "hot_picks" | "easy_money";
+    performanceSource?: "coach" | "build_best_parlay" | "hot_picks" | "easy_money" | "best_value";
   }>() ?? {};
   const autoSentRef = useRef<string | null>(null);
   // Signed-in state gates the background-finish path (the server stashes the
