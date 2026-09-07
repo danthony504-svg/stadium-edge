@@ -4,7 +4,7 @@ import {
   qualifiesServerAiLine,
   simHitForGameLine,
 } from "./coachSlateGameSims.js";
-import { stageServerTicketMarketAgnostic } from "./coachSlateBalancedStaging.js";
+import { stageServerTicketBalanced } from "./coachSlateBalancedStaging.js";
 import { serverBoardLegQualifies } from "./coachSlateLegQualification.js";
 import { buildSlateTicketsIndex, primaryBoardScanFromRanked } from "./coachSlateTickets.js";
 import type {
@@ -34,23 +34,6 @@ function propSimKey(player: string, market: string, line: number, side: string):
   return `${player}|${market}|${line}|${side}`;
 }
 
-const BINARY_PROP_MARKETS = new Set([
-  "batter_home_runs",
-  "player_anytime_td",
-  "player_goals",
-  "player_goal_scorer_anytime",
-]);
-
-function simulationLineForEntry(e: PropPoolEntry): number | null {
-  if (e.line != null && Number.isFinite(e.line)) return e.line;
-  return BINARY_PROP_MARKETS.has(String(e.marketKey ?? "").toLowerCase()) ? 0.5 : null;
-}
-
-function simulationSideForEntry(e: PropPoolEntry): "Over" | "Under" | null {
-  if (e.side === "Over" || e.side === "Under") return e.side;
-  return BINARY_PROP_MARKETS.has(String(e.marketKey ?? "").toLowerCase()) ? "Over" : null;
-}
-
 function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
   const pick =
     e.line != null
@@ -62,7 +45,6 @@ function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     pick,
     odds: e.odds,
     sport: e.sport,
-    providerEventId: e.providerEventId,
     isProp: true,
     propIsAlt: !!e.alt,
     startsAt: e.startsAt,
@@ -71,8 +53,8 @@ function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     player: e.player,
     athleteId: e.athleteId,
     propMarketKey: e.marketKey,
-    propLine: simulationLineForEntry(e),
-    propSide: simulationSideForEntry(e) ?? undefined,
+    propLine: e.line,
+    propSide: e.side,
   };
 }
 
@@ -83,7 +65,6 @@ function pickFromOdds(o: RealOddsEntry): ParsedPick {
     pick: o.pick,
     odds: o.odds,
     sport: o.sport,
-    providerEventId: o.providerEventId,
     isProp: false,
     startsAt: o.startsAt,
   };
@@ -161,7 +142,7 @@ async function fetchPropSimulationsDeep(
   const out = new Map<string, number | null>();
   const bySport = new Map<string, PropPoolEntry[]>();
   for (const e of entries) {
-    if (simulationLineForEntry(e) == null || simulationSideForEntry(e) == null) continue;
+    if (e.line == null) continue;
     const rows = bySport.get(e.sport) ?? [];
     rows.push(e);
     bySport.set(e.sport, rows);
@@ -170,8 +151,8 @@ async function fetchPropSimulationsDeep(
     const props = sportEntries.map((e) => ({
       player: e.player,
       market: e.marketKey ?? e.marketLabel,
-      line: simulationLineForEntry(e)!,
-      side: simulationSideForEntry(e)!,
+      line: e.line!,
+      side: e.side,
       athleteId: e.athleteId ?? null,
     }));
     if (!props.length) continue;
@@ -202,10 +183,8 @@ async function fetchAllPropSimulations(
   const seen = new Set<string>();
   const entries: PropPoolEntry[] = [];
   for (const e of propPool) {
-    const line = simulationLineForEntry(e);
-    const side = simulationSideForEntry(e);
-    if (line == null || !side) continue;
-    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, line, side);
+    if (e.line == null) continue;
+    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side);
     if (seen.has(k)) continue;
     seen.add(k);
     entries.push(e);
@@ -238,18 +217,16 @@ async function fetchQuickPropSims(
   >();
 
   for (const e of propPool) {
-    const line = simulationLineForEntry(e);
-    const side = simulationSideForEntry(e);
-    if (line == null || !side) continue;
-    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, line, side);
+    if (e.line == null) continue;
+    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side);
     if (seen.has(k)) continue;
     seen.add(k);
     const rows = batches.get(e.sport) ?? [];
     rows.push({
       player: e.player,
       market: e.marketKey ?? e.marketLabel,
-      line,
-      side,
+      line: e.line,
+      side: e.side,
       athleteId: e.athleteId,
       game: e.game,
     });
@@ -362,8 +339,8 @@ export async function runServerBoardScan(
     const now = Date.now();
     if (now - lastPartialAt < 3000) return;
     lastPartialAt = now;
-    const tickets = buildSlateTicketsIndex(ranked, scanCtx(), stageServerTicketMarketAgnostic);
-    const scan = primaryBoardScanFromRanked(ranked, scanCtx(), stageServerTicketMarketAgnostic);
+    const tickets = buildSlateTicketsIndex(ranked, scanCtx(), stageServerTicketBalanced);
+    const scan = primaryBoardScanFromRanked(ranked, scanCtx(), stageServerTicketBalanced);
     if (!scan.picks.length) return;
     await opts.onPartial(scan, tickets);
   };
@@ -388,10 +365,7 @@ export async function runServerBoardScan(
     if (!isCoachBettableStartsAt(e.startsAt)) continue;
     totalScanned++;
     const pick = pickFromPoolEntry(e);
-    const line = simulationLineForEntry(e);
-    const side = simulationSideForEntry(e);
-    if (line == null || !side) continue;
-    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, line, side);
+    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);
     const minHit = propSims.get(k) ?? null;
     const edge = e.edge ?? 0;
     if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
@@ -409,8 +383,8 @@ export async function runServerBoardScan(
   const collapsed = collapseServerRankedByLadder(ranked);
   collapsed.sort((a, b) => b.rankScore - a.rankScore);
   const ctx = scanCtx();
-  const tickets = buildSlateTicketsIndex(collapsed, ctx, stageServerTicketMarketAgnostic);
-  const scan = primaryBoardScanFromRanked(collapsed, ctx, stageServerTicketMarketAgnostic);
+  const tickets = buildSlateTicketsIndex(collapsed, ctx, stageServerTicketBalanced);
+  const scan = primaryBoardScanFromRanked(collapsed, ctx, stageServerTicketBalanced);
 
   return { scan, tickets };
 }

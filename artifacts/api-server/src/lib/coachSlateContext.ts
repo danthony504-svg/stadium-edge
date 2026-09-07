@@ -223,7 +223,6 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
         if (!!p.alt !== altPass) continue;
         realProps.push({
           sport,
-          providerEventId: espn.id,
           game,
           startsAt: g.commenceTime,
           player: p.player,
@@ -242,7 +241,6 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
         if (p.overPrice != null) {
           propPool.push({
             sport,
-            providerEventId: espn.id,
             game,
             marketLabel,
             player: p.player,
@@ -262,7 +260,6 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
         if (p.line != null && p.underPrice != null) {
           propPool.push({
             sport,
-            providerEventId: espn.id,
             game,
             marketLabel,
             player: p.player,

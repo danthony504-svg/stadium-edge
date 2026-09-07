@@ -20,6 +20,4 @@
 export * from "./userSync";
 export * from "./notifications";
 export * from "./liveSteals";
-export * from "./appPerformance";
-export * from "./coachLearning";
 export * from "./coachPrecomputedSlate";
