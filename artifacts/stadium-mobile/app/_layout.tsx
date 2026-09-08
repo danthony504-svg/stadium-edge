@@ -29,7 +29,6 @@ import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
-import { checkFetchAndApplyOtaOnStartup } from "@/lib/otaAutoApply";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -134,10 +133,6 @@ function RootLayoutNav() {
 
 /** No startup OTA — updates are user-initiated via OtaUpdateBanner or Menu → OTA Diagnostics. */
 function AppShell() {
-  useEffect(() => {
-    void checkFetchAndApplyOtaOnStartup();
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       <AuthTokenBridge />

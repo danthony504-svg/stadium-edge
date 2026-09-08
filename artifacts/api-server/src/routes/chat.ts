@@ -20,35 +20,9 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "../lib/coachUnsupportedMarkets.js";
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
-import { captureCoachLearning } from "../lib/coachLearning.js";
 
 const router: IRouter = Router();
 const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
-
-// Best-effort mobile completion telemetry. It intentionally contains no prompt,
-// response text, pick identity, user identity, or persisted application state.
-router.post("/coach/trace", chatLimiter, (req, res): void => {
-  const body = req.body as Record<string, unknown> | undefined;
-  const traceId = typeof body?.traceId === "string" ? body.traceId : "";
-  const stage = typeof body?.stage === "string" ? body.stage : "";
-  if (!/^[a-zA-Z0-9_-]{8,128}$/.test(traceId) || !stage.startsWith("completion-")) {
-    res.status(400).json({ error: "invalid Coach trace" });
-    return;
-  }
-  req.log.info({
-    coachCompletionTrace: {
-      traceId,
-      stage,
-      requestedLegs: body?.requestedLegs,
-      scanRequestedLegs: body?.scanRequestedLegs,
-      pickCount: body?.pickCount,
-      candidateCount: body?.candidateCount,
-      source: body?.source,
-      extra: body?.extra,
-    },
-  }, "coach mobile completion trace");
-  res.status(204).end();
-});
 
 function streamCannedCoachReply(res: Response, text: string): void {
   res.setHeader("Content-Type", "text/event-stream");
@@ -686,7 +660,6 @@ router.post("/chat/context-stash", chatLimiter, async (req, res): Promise<void> 
 });
 
 router.post("/chat", async (req, res): Promise<void> => {
-  const requestStartedAt = Date.now();
   const parsed = SendChatMessageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -704,7 +677,6 @@ router.post("/chat", async (req, res): Promise<void> => {
     apiKey: aiConfig.apiKey,
     timeout: 120_000,
   });
-  req.log.info({ coachTiming: { requestStartedAt } }, "coach timing request started");
 
   // Background-finish opt-in (mobile AI Coach). These are read RAW off the body
   // (not part of the zod schema, which strips unknown top-level keys to the
@@ -2452,7 +2424,6 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
         : {}),
     };
 
-    const openAiStartedAt = Date.now();
     const upstream = await (async () => {
       const CHAT_CONNECT_ATTEMPTS = 3;
       for (let connectAttempt = 0; ; connectAttempt++) {
@@ -2505,34 +2476,6 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
     }
     stopHeartbeat();
     stopWatchdog();
-    const openAiMs = Date.now() - openAiStartedAt;
-    // Private, best-effort telemetry; never affects Coach output or user data.
-    const learningCaptureStartedAt = Date.now();
-    try {
-      const learningContext = (lockedContext ?? {}) as Record<string, unknown>;
-      await captureCoachLearning(fullText, {
-        requestId: bgBuildId,
-        baseModelVersion: aiConfig.model,
-        inputs: {
-          realGames: learningContext.realGames ?? [],
-          realOdds: learningContext.realOdds ?? [],
-          realProps: learningContext.realProps ?? [],
-          matchupHistory: learningContext.matchupHistory ?? {},
-          injuries: learningContext.injuries ?? {},
-          weather: learningContext.weather ?? {},
-        },
-      });
-    } catch (err) {
-      req.log.warn({ err }, "coach learning capture failed");
-    }
-    req.log.info({
-      coachTiming: {
-        openAiMs,
-        coachLearningCaptureMs: Date.now() - learningCaptureStartedAt,
-        totalRequestMs: Date.now() - requestStartedAt,
-        requestStartMs: requestStartedAt,
-      },
-    }, "coach timing request completed");
     if (!clientGone && !res.writableEnded) {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();

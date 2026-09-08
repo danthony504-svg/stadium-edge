@@ -19,9 +19,10 @@ export function isOtaUpdatePending(): boolean {
   return !!latestContext?.isUpdatePending;
 }
 
-/** True when expo-updates has a downloaded compatible OTA waiting to apply. */
+/** True when embedded JS has a downloaded OTA waiting — never while already on an OTA bundle. */
 export function shouldApplyDownloadedOta(): boolean {
   if (__DEV__ || !Updates.isEnabled) return false;
+  if (!Updates.isEmbeddedLaunch) return false;
   return isOtaUpdatePending();
 }
 
@@ -107,34 +108,5 @@ export async function safeReloadPendingOta(reason: string): Promise<boolean> {
     const msg = e instanceof Error ? e.message : String(e);
     pushOtaLog("reloadAsync", false, `auto (${reason}) ERR: ${msg}`);
     return false;
-  }
-}
-
-/**
- * Checks and applies a compatible production update during startup. Reloads are
- * bounded by the existing per-update loop guard.
- */
-export async function checkFetchAndApplyOtaOnStartup(): Promise<void> {
-  if (__DEV__ || !Updates.isEnabled) {
-    pushOtaLog("startup-ota", false, `skipped: enabled=${Updates.isEnabled}`);
-    return;
-  }
-  pushOtaLog(
-    "startup-ota",
-    true,
-    `runtime=${Updates.runtimeVersion ?? "—"} channel=${Updates.channel ?? "—"} update=${Updates.updateId ?? "embedded"} embedded=${Updates.isEmbeddedLaunch}`,
-  );
-  try {
-    const check = await Updates.checkForUpdateAsync();
-    pushOtaLog("checkForUpdateAsync", true, `isAvailable=${check.isAvailable}`);
-    if (check.isAvailable) {
-      await Updates.fetchUpdateAsync();
-      pushOtaLog("fetchUpdateAsync", true, "downloaded");
-    }
-    const reloaded = await safeReloadPendingOta("startup");
-    pushOtaLog("reloadAsync", reloaded, reloaded ? "startup reload invoked" : "not required or loop-guarded");
-  } catch (e) {
-    const message = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-    pushOtaLog("startup-ota", false, message);
   }
 }

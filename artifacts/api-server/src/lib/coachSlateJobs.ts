@@ -66,9 +66,7 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
       logger.warn({ err }, "coach slate: prebuild warm failed (continuing)");
     });
 
-    const dataLoadingStartedAt = Date.now();
     const built = await buildServerCompactParlayContext();
-    const oddsDataLoadingMs = Date.now() - dataLoadingStartedAt;
     const fingerprint = computeSlateFingerprint(built);
     const activeSports = built.context.selectedSports ?? [];
 
@@ -104,15 +102,6 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
     let lastPartialAt = 0;
     const { scan: boardScan, tickets } = await runServerBoardScan(built, {
       deepSim: true,
-      onTiming: (timing) => {
-        logger.info({
-          coachTiming: {
-            ...timing,
-            oddsDataLoadingMs,
-            stage: "precomputed-slate",
-          },
-        }, "coach timing");
-      },
       onPartial: async (partial, partialTickets) => {
         if (!partial.picks.length) return;
         const now = Date.now();
