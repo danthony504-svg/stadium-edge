@@ -4,7 +4,8 @@ import {
   stealFeedPath,
   type StealFeedClientLog,
 } from "./stealFeedClient";
-import { logStealScanLifecycle } from "./stealScanLifecycle";
+import { propMarketLabel, propMarketKeyForLabel } from "./propMarketLabel";
+import { normalizePropSide } from "./propPoolNormalize";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
@@ -719,6 +720,8 @@ export type StealScanMeta = {
   totalOpportunities: number;
   /** True when a full scan finished — even if zero steals qualified. */
   scanComplete?: boolean;
+  gamesScanned?: number;
+  scannedAt?: string;
 };
 
 export type NearMissSteal = LiveSteal & {
@@ -779,6 +782,8 @@ const EMPTY_STEAL_SCAN_META: StealScanMeta = {
   sportCounts: {},
   totalOpportunities: 0,
   scanComplete: false,
+  gamesScanned: 0,
+  scannedAt: "",
 };
 
 export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsFetchResult> {
@@ -787,7 +792,7 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
   const started = Date.now();
   logStealScanLifecycle({ stage: "request_start", endpoint: path });
   try {
-    const res = await withTimeout(expoFetch(fullUrl, { signal }), 45_000, path);
+    const res = await withTimeout(expoFetch(fullUrl, { signal }), 15_000, path);
     const responseTimeMs = Date.now() - started;
     const bodyText = await res.text();
     logStealScanLifecycle({
@@ -1384,20 +1389,7 @@ export function getStatmuseGamelog(
   return getJson<StatMuseGameLog>(`/sports/statmuse-gamelog?${params.toString()}`, signal);
 }
 
-export { propMarketLabel } from "./propMarketLabel";
-
-// Reverse of propMarketLabel for the base (non-period) labels: resolve a human
-// market label ("Strikeouts") back to its raw Odds API key ("pitcher_strikeouts")
-// so a stored bet-slip leg — which keeps only the label — can open the right
-// market on the prop stats page. Returns null for labels we don't recognize
-// (e.g. period-suffixed ones), so callers fail closed instead of guessing.
-const PROP_LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(PROP_MARKET_LABEL_MAP).map(([k, v]) => [v.toLowerCase(), k]),
-);
-
-export function propMarketKeyForLabel(label: string): string | null {
-  return PROP_LABEL_TO_KEY[label.trim().toLowerCase()] ?? null;
-}
+export { propMarketLabel, propMarketKeyForLabel };
 
 // ---------- Pickability window ----------
 // These pure slate/pickability helpers live in ./slate (dependency-free so they
@@ -3571,39 +3563,54 @@ async function buildLightParlayContext(
         const teamAbbr = p.playerTeamId
           ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
           : null;
-        const marketLabel = propMarketLabel(p.market);
         const athleteId = p.athleteId ?? null;
         if (p.overPrice != null) {
-          propPool.push({
-            sport: g.sport,
-            game,
-            marketLabel,
+          const over = normalizePropSide({
+            market: p.market,
             player: p.player,
             line: p.line,
             side: "Over",
             odds: p.overPrice,
+          });
+          if (!over) continue;
+          propPool.push({
+            sport: g.sport,
+            game,
+            marketLabel: over.propMarketLabel,
+            player: over.playerName,
+            line: over.line,
+            side: "Over",
+            odds: over.odds,
             headshot,
             teamAbbr,
             athleteId,
-            marketKey: p.market,
+            marketKey: over.propMarketKey,
             alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
           });
         }
         if (p.line != null && p.underPrice != null) {
-          propPool.push({
-            sport: g.sport,
-            game,
-            marketLabel,
+          const under = normalizePropSide({
+            market: p.market,
             player: p.player,
             line: p.line,
             side: "Under",
             odds: p.underPrice,
+          });
+          if (!under) continue;
+          propPool.push({
+            sport: g.sport,
+            game,
+            marketLabel: under.propMarketLabel,
+            player: under.playerName,
+            line: under.line,
+            side: "Under",
+            odds: under.odds,
             headshot,
             teamAbbr,
             athleteId,
-            marketKey: p.market,
+            marketKey: under.propMarketKey,
             alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
@@ -4282,13 +4289,60 @@ export async function buildChatContext(
             const teamAbbr = p.playerTeamId
               ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
               : null;
-            const marketLabel = propMarketLabel(p.market);
             const athleteId = p.athleteId ?? null;
             if (overQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Over" ? (p.edge ?? null) : null, bookSpread: p.overSpread ?? null });
+              const over = normalizePropSide({
+                market: p.market,
+                player: p.player,
+                line: p.line,
+                side: "Over",
+                odds: p.overPrice,
+              });
+              if (over) {
+                propPool.push({
+                  sport,
+                  game,
+                  marketLabel: over.propMarketLabel,
+                  player: over.playerName,
+                  line: over.line,
+                  side: "Over",
+                  odds: over.odds,
+                  headshot,
+                  teamAbbr,
+                  athleteId,
+                  marketKey: over.propMarketKey,
+                  alt: !!p.alt,
+                  edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+                  bookSpread: p.overSpread ?? null,
+                });
+              }
             }
             if (p.line != null && underQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Under" ? (p.edge ?? null) : null, bookSpread: p.underSpread ?? null });
+              const under = normalizePropSide({
+                market: p.market,
+                player: p.player,
+                line: p.line,
+                side: "Under",
+                odds: p.underPrice,
+              });
+              if (under) {
+                propPool.push({
+                  sport,
+                  game,
+                  marketLabel: under.propMarketLabel,
+                  player: under.playerName,
+                  line: under.line,
+                  side: "Under",
+                  odds: under.odds,
+                  headshot,
+                  teamAbbr,
+                  athleteId,
+                  marketKey: under.propMarketKey,
+                  alt: !!p.alt,
+                  edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+                  bookSpread: p.underSpread ?? null,
+                });
+              }
             }
           }
         }
@@ -4639,13 +4693,52 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
   const out: PropPoolEntry[] = [];
   for (const p of props) {
     if (!p) continue;
-    const marketLabel = propMarketLabel(p.market);
     const athleteId = p.athleteId ?? null;
     if (p.over != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over, athleteId, marketKey: p.market, startsAt: p.startsAt, alt: p.alt });
+      const over = normalizePropSide({
+        market: p.market,
+        player: p.player,
+        line: p.line,
+        side: "Over",
+        odds: p.over,
+      });
+      if (!over) continue;
+      out.push({
+        sport: p.sport,
+        game: p.game,
+        marketLabel: over.propMarketLabel,
+        player: over.playerName,
+        line: over.line,
+        side: "Over",
+        odds: over.odds,
+        athleteId,
+        marketKey: over.propMarketKey,
+        startsAt: p.startsAt,
+        alt: p.alt,
+      });
     }
     if (p.line != null && p.under != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market, startsAt: p.startsAt, alt: p.alt });
+      const under = normalizePropSide({
+        market: p.market,
+        player: p.player,
+        line: p.line,
+        side: "Under",
+        odds: p.under,
+      });
+      if (!under) continue;
+      out.push({
+        sport: p.sport,
+        game: p.game,
+        marketLabel: under.propMarketLabel,
+        player: under.playerName,
+        line: under.line,
+        side: "Under",
+        odds: under.odds,
+        athleteId,
+        marketKey: under.propMarketKey,
+        startsAt: p.startsAt,
+        alt: p.alt,
+      });
     }
   }
   return out;
@@ -4710,45 +4803,66 @@ export async function fetchFullBoardPropPool(
       const game = `${g.awayTeam} @ ${g.homeTeam}`;
       const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
       for (const p of usable) {
-        const marketLabel = propMarketLabel(p.market);
         const athleteId = p.athleteId ?? null;
-        const base = {
+        const shared = {
           sport: g.sport,
           game,
-          marketLabel,
-          player: p.player,
-          line: p.line,
           athleteId,
-          marketKey: p.market,
           startsAt: g.commenceTime,
           alt: !!p.alt,
         };
         if (p.overPrice != null) {
-          const row: PropPoolEntry = {
-            ...base,
+          const over = normalizePropSide({
+            market: p.market,
+            player: p.player,
+            line: p.line,
             side: "Over",
             odds: p.overPrice,
-            edge: p.evSide === "Over" ? (p.edge ?? null) : null,
-            bookSpread: p.overSpread ?? null,
-          };
-          const k = poolKey(row);
-          if (!seen.has(k)) {
-            seen.add(k);
-            out.push(row);
+          });
+          if (over) {
+            const row: PropPoolEntry = {
+              ...shared,
+              marketLabel: over.propMarketLabel,
+              player: over.playerName,
+              line: over.line,
+              marketKey: over.propMarketKey,
+              side: "Over",
+              odds: over.odds,
+              edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+              bookSpread: p.overSpread ?? null,
+            };
+            const k = poolKey(row);
+            if (!seen.has(k)) {
+              seen.add(k);
+              out.push(row);
+            }
           }
         }
         if (p.line != null && p.underPrice != null) {
-          const row: PropPoolEntry = {
-            ...base,
+          const under = normalizePropSide({
+            market: p.market,
+            player: p.player,
+            line: p.line,
             side: "Under",
             odds: p.underPrice,
-            edge: p.evSide === "Under" ? (p.edge ?? null) : null,
-            bookSpread: p.underSpread ?? null,
-          };
-          const k = poolKey(row);
-          if (!seen.has(k)) {
-            seen.add(k);
-            out.push(row);
+          });
+          if (under) {
+            const row: PropPoolEntry = {
+              ...shared,
+              marketLabel: under.propMarketLabel,
+              player: under.playerName,
+              line: under.line,
+              marketKey: under.propMarketKey,
+              side: "Under",
+              odds: under.odds,
+              edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+              bookSpread: p.underSpread ?? null,
+            };
+            const k = poolKey(row);
+            if (!seen.has(k)) {
+              seen.add(k);
+              out.push(row);
+            }
           }
         }
       }

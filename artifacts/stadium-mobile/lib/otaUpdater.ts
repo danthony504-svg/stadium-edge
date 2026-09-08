@@ -27,7 +27,8 @@ export async function prefetchOtaInBackground(): Promise<OtaPrefetchOutcome> {
       await Updates.fetchUpdateAsync();
     }
     return !!latestContext?.isUpdatePending ? "pending" : "none";
-  } catch {
+  } catch (err) {
+    console.warn("[ota] prefetch failed", err);
     return "none";
   }
 }

@@ -48,8 +48,12 @@ test("buildScanMeta marks scanComplete from stats", () => {
     longshotsAnalyzed: 12,
     booksScanned: 9,
     scanComplete: true,
+    gamesScanned: 24,
+    scannedAt: "2026-06-28T12:00:00.000Z",
   });
   assert.equal(meta.scanComplete, true);
   assert.equal(meta.booksScanned, 9);
   assert.equal(meta.marketsChecked, 100);
+  assert.equal(meta.gamesScanned, 24);
+  assert.equal(meta.scannedAt, "2026-06-28T12:00:00.000Z");
 });

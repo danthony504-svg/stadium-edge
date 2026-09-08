@@ -1,5 +1,13 @@
 /** Client-side +500 Steals scan lifecycle tracing (console + optional UI hooks). */
 
+export type StealScanLogKind =
+  | "start"
+  | "stage-update"
+  | "stats-update"
+  | "terminal"
+  | "duplicate-update-blocked"
+  | "cleanup";
+
 export type StealScanLifecycleStage =
   | "request_start"
   | "response_received"
@@ -29,8 +37,30 @@ export type StealScanLifecycleEvent = {
   detail?: string;
 };
 
+export type StealScanStatsSnapshot = {
+  sportsbookCount: number | null;
+  gameCount: number | null;
+  marketCount: number | null;
+  lastScanAt: string | number | null;
+  available: boolean;
+};
+
 let lastEvent: StealScanLifecycleEvent | null = null;
 const listeners = new Set<(event: StealScanLifecycleEvent) => void>();
+
+export function logStealsScan(
+  kind: StealScanLogKind,
+  detail: Record<string, string | number | boolean | null | undefined>,
+): void {
+  const parts = [
+    "[steals-scan]",
+    kind,
+    ...Object.entries(detail)
+      .filter(([, v]) => v != null && v !== "")
+      .map(([k, v]) => `${k}=${typeof v === "string" ? v : String(v)}`),
+  ];
+  console.info(parts.join(" "));
+}
 
 export function logStealScanLifecycle(
   partial: Omit<StealScanLifecycleEvent, "at"> & { at?: string },
