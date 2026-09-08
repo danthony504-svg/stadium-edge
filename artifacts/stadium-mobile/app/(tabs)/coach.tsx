@@ -151,6 +151,7 @@ import {
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
+  deliveredBoardTicketTerminalState,
   finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
   rejectPrefixOfLastDelivered,
@@ -3012,14 +3013,26 @@ export default function CoachScreen() {
             latestBoardScanRef.current,
             preBoardScan,
           );
+          // deliverKernelBoardScan has already validated and accepted this ticket.
+          // A later final-scan lookup can be absent or stale, but must not leave
+          // this active request at its terminal progress state.
+          const deliveredTicketState = deliveredBoardTicketTerminalState({
+            ticket: boardTicketSnapshotRef.current,
+            ticketWasDelivered: kernelParlayDelivered || liveScanDeliveredRef.current,
+            sendGeneration: sendGen,
+            activeSendGeneration: sendGenerationRef.current,
+          });
           const snapshotMatchesTarget =
             !boardTicketSnapshotRef.current?.length ||
             (finalScan != null && boardScanReadyForDelivery(finalScan, kernelLegTarget));
           if (
-            (freshBoardScanComplete || kernelParlayDelivered) &&
-            boardTicketSnapshotRef.current?.length &&
-            snapshotMatchesTarget &&
-            boardScanReadyForDelivery(finalScan, kernelLegTarget)
+            deliveredTicketState === "complete" ||
+            (
+              (freshBoardScanComplete || kernelParlayDelivered) &&
+              boardTicketSnapshotRef.current?.length &&
+              snapshotMatchesTarget &&
+              boardScanReadyForDelivery(finalScan, kernelLegTarget)
+            )
           ) {
             if (buildProgressTimerRef.current) {
               clearTimeout(buildProgressTimerRef.current);

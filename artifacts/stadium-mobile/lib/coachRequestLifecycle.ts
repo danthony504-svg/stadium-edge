@@ -198,6 +198,22 @@ export function boardScanAppliesToRequest(
   return boardScanMatchesLegTarget(scan, legTarget);
 }
 
+/**
+ * A delivered ticket is terminal for its own request. Its delivery path has
+ * already performed ticket validation; a later scan snapshot must not keep the
+ * request loading when it is null, stale, or for a different leg target.
+ */
+export function deliveredBoardTicketTerminalState(opts: {
+  ticket: readonly ParsedPick[] | null | undefined;
+  ticketWasDelivered: boolean;
+  sendGeneration: number;
+  activeSendGeneration: number;
+}): "complete" | "no-ticket" | "stale-request" {
+  if (opts.sendGeneration !== opts.activeSendGeneration) return "stale-request";
+  if (opts.ticketWasDelivered && opts.ticket?.length) return "complete";
+  return "no-ticket";
+}
+
 export function pickIdsForTrace(picks: readonly ParsedPick[]): string[] {
   return picks.map((p) => pickLegFingerprint(p));
 }

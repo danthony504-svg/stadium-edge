@@ -4,6 +4,7 @@ import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   buildCoachTicketCacheKey,
+  deliveredBoardTicketTerminalState,
   finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
   rejectPrefixOfLastDelivered,
@@ -112,6 +113,65 @@ test("boardScanAppliesToRequest rejects stale requestId", () => {
   };
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-4"), false);
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-15"), true);
+});
+
+test("a valid delivered five-leg ticket completes despite a missing or stale final scan", () => {
+  const ticket = wnbaBoard().slice(0, 5).map((row) => row.pick);
+  assert.equal(
+    deliveredBoardTicketTerminalState({
+      ticket,
+      ticketWasDelivered: true,
+      sendGeneration: 7,
+      activeSendGeneration: 7,
+    }),
+    "complete",
+  );
+});
+
+test("a valid delivered ticket takes the terminal completion path", () => {
+  const ticket = wnbaBoard().slice(0, 5).map((row) => row.pick);
+  const terminalState = deliveredBoardTicketTerminalState({
+    ticket,
+    ticketWasDelivered: true,
+    sendGeneration: 7,
+    activeSendGeneration: 7,
+  });
+  assert.equal(terminalState, "complete");
+  // The caller clears waiting, streaming, and buildFinishing for "complete".
+  assert.notEqual(terminalState, "no-ticket");
+});
+
+test("an invalid or absent ticket cannot report successful completion", () => {
+  assert.equal(
+    deliveredBoardTicketTerminalState({
+      ticket: [],
+      ticketWasDelivered: true,
+      sendGeneration: 7,
+      activeSendGeneration: 7,
+    }),
+    "no-ticket",
+  );
+  assert.equal(
+    deliveredBoardTicketTerminalState({
+      ticket: wnbaBoard().slice(0, 5).map((row) => row.pick),
+      ticketWasDelivered: false,
+      sendGeneration: 7,
+      activeSendGeneration: 7,
+    }),
+    "no-ticket",
+  );
+});
+
+test("a stale request generation cannot complete a newer request", () => {
+  assert.equal(
+    deliveredBoardTicketTerminalState({
+      ticket: wnbaBoard().slice(0, 5).map((row) => row.pick),
+      ticketWasDelivered: true,
+      sendGeneration: 7,
+      activeSendGeneration: 8,
+    }),
+    "stale-request",
+  );
 });
 
 test("finalizeCoachTicketForRequest rejects prefix then accepts independent ticket", () => {
