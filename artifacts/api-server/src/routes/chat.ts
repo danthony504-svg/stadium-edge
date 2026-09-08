@@ -20,6 +20,7 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "../lib/coachUnsupportedMarkets.js";
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
+import { captureCoachLearning } from "../lib/coachLearning.js";
 
 const router: IRouter = Router();
 const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
@@ -2476,6 +2477,24 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
     }
     stopHeartbeat();
     stopWatchdog();
+    // Private, best-effort telemetry; never affects Coach output or user data.
+    try {
+      const learningContext = (lockedContext ?? {}) as Record<string, unknown>;
+      await captureCoachLearning(fullText, {
+        requestId: bgBuildId,
+        baseModelVersion: aiConfig.model,
+        inputs: {
+          realGames: learningContext.realGames ?? [],
+          realOdds: learningContext.realOdds ?? [],
+          realProps: learningContext.realProps ?? [],
+          matchupHistory: learningContext.matchupHistory ?? {},
+          injuries: learningContext.injuries ?? {},
+          weather: learningContext.weather ?? {},
+        },
+      });
+    } catch (err) {
+      req.log.warn({ err }, "coach learning capture failed");
+    }
     if (!clientGone && !res.writableEnded) {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();

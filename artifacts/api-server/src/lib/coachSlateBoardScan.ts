@@ -45,6 +45,7 @@ function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     pick,
     odds: e.odds,
     sport: e.sport,
+    providerEventId: e.providerEventId,
     isProp: true,
     propIsAlt: !!e.alt,
     startsAt: e.startsAt,
@@ -65,6 +66,7 @@ function pickFromOdds(o: RealOddsEntry): ParsedPick {
     pick: o.pick,
     odds: o.odds,
     sport: o.sport,
+    providerEventId: o.providerEventId,
     isProp: false,
     startsAt: o.startsAt,
   };
