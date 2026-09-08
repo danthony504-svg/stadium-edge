@@ -4,6 +4,7 @@ import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   buildCoachTicketCacheKey,
+  deliveredBoardTicketTerminalState,
   finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
   rejectPrefixOfLastDelivered,
@@ -112,6 +113,60 @@ test("boardScanAppliesToRequest rejects stale requestId", () => {
   };
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-4"), false);
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-15"), true);
+});
+
+test("requested five, delivered five completes and clears loading despite a stale final scan", () => {
+  const ticket = wnbaBoard().slice(0, 5).map((row) => row.pick);
+  assert.deepEqual(
+    deliveredBoardTicketTerminalState({
+      ticket,
+      ticketWasDelivered: true,
+      requestedLegs: 5,
+      sendGeneration: 7,
+      activeSendGeneration: 7,
+    }),
+    { outcome: "complete", clearLoading: true },
+  );
+});
+
+test("requested five, delivered four reports insufficient picks and clears loading", () => {
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 4).map((row) => row.pick),
+    ticketWasDelivered: true,
+    requestedLegs: 5,
+    sendGeneration: 7,
+    activeSendGeneration: 7,
+  }), { outcome: "insufficient-picks", clearLoading: true });
+});
+
+test("requested five, delivered one cannot report success", () => {
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 1).map((row) => row.pick),
+    ticketWasDelivered: true,
+    requestedLegs: 5,
+    sendGeneration: 7,
+    activeSendGeneration: 7,
+  }), { outcome: "insufficient-picks", clearLoading: true });
+});
+
+test("requested five, delivered six cannot report success", () => {
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 6).map((row) => row.pick),
+    ticketWasDelivered: true,
+    requestedLegs: 5,
+    sendGeneration: 7,
+    activeSendGeneration: 7,
+  }), { outcome: "invalid-ticket-size", clearLoading: true });
+});
+
+test("a stale request generation cannot complete a newer request", () => {
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 5).map((row) => row.pick),
+    ticketWasDelivered: true,
+    requestedLegs: 5,
+    sendGeneration: 7,
+    activeSendGeneration: 8,
+  }), { outcome: "stale-request", clearLoading: false });
 });
 
 test("finalizeCoachTicketForRequest rejects prefix then accepts independent ticket", () => {

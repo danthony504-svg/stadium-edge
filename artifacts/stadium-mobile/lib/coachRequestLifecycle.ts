@@ -198,6 +198,45 @@ export function boardScanAppliesToRequest(
   return boardScanMatchesLegTarget(scan, legTarget);
 }
 
+/**
+ * A delivered ticket is terminal only at the requested leg count. Its delivery
+ * path has already performed ticket validation; a later scan snapshot must not
+ * keep the active request loading when it is null, stale, or target-mismatched.
+ */
+export function deliveredBoardTicketTerminalState(opts: {
+  ticket: readonly ParsedPick[] | null | undefined;
+  ticketWasDelivered: boolean;
+  requestedLegs: number;
+  sendGeneration: number;
+  activeSendGeneration: number;
+}): {
+  outcome:
+    | "complete"
+    | "insufficient-picks"
+    | "invalid-ticket-size"
+    | "no-deliverable-ticket"
+    | "pending"
+    | "stale-request";
+  clearLoading: boolean;
+} {
+  if (opts.sendGeneration !== opts.activeSendGeneration) {
+    return { outcome: "stale-request", clearLoading: false };
+  }
+  if (!opts.ticketWasDelivered) return { outcome: "pending", clearLoading: false };
+
+  const deliveredLegs = opts.ticket?.length ?? 0;
+  if (deliveredLegs === opts.requestedLegs) {
+    return { outcome: "complete", clearLoading: true };
+  }
+  if (deliveredLegs === 0) {
+    return { outcome: "no-deliverable-ticket", clearLoading: true };
+  }
+  if (deliveredLegs < opts.requestedLegs) {
+    return { outcome: "insufficient-picks", clearLoading: true };
+  }
+  return { outcome: "invalid-ticket-size", clearLoading: true };
+}
+
 export function pickIdsForTrace(picks: readonly ParsedPick[]): string[] {
   return picks.map((p) => pickLegFingerprint(p));
 }
