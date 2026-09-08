@@ -33,6 +33,7 @@ import {
   addNotificationResponseListener,
   registerForPushAsync,
 } from "@/lib/notifications";
+import { useOtaUpdater } from "@/lib/otaUpdater";
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 const proxyUrl = publishableKey.startsWith("pk_live")
@@ -131,8 +132,13 @@ function RootLayoutNav() {
   );
 }
 
-/** No startup OTA — updates are user-initiated via OtaUpdateBanner or Menu → OTA Diagnostics. */
+/**
+ * Silent check/fetch on launch + foreground. Auto-reloads when safe;
+ * OtaUpdateBanner always provides a production Restart path if pending.
+ * Detailed OTA Diagnostics remain available via the on-screen banner / ota-debug.
+ */
 function AppShell() {
+  useOtaUpdater(true);
   return (
     <QueryClientProvider client={queryClient}>
       <AuthTokenBridge />
