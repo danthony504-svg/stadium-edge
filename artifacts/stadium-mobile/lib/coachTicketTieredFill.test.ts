@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
-import { boardScanStagedLegQualifies } from "./pickRecommendation.ts";
+import {
+  boardScanStagedLegQualifies,
+  finalizeBoardBuiltCoachTicket,
+  filterCoachDeliveredPicks,
+} from "./pickRecommendation.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function leg(
@@ -87,4 +91,21 @@ test("safe ticket style does not fill below B+ even when B-tier legs exist", () 
   ];
   const { picks } = buildStagedTicketFromScan(scored, 4, "safe-fill-4", { ticketStyle: "safe" });
   assert.equal(picks.length, 1, "safe style should not backfill B-tier-only legs");
+});
+
+test("longshot tier-relaxed legs survive board delivery gates", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
+    leg({ game: "C @ D", market: "Total", pick: "Over 8.5", odds: -110 }, 95, bTierGameLine),
+    leg({ game: "E @ F", market: "Moneyline", pick: "E ML", odds: 120 }, 90, bTierGameLine),
+    leg({ game: "G @ H", market: "Moneyline", pick: "G ML", odds: 130 }, 85, bTierGameLine),
+  ];
+  const { picks: staged } = buildStagedTicketFromScan(scored, 4, "longshot-fill-4", {
+    ticketStyle: "longshot",
+  });
+  assert.ok(staged.some((p) => p.coachFillTier), "expected tier-relaxed staging legs");
+  const enrich = { realOdds: [], propPool: [], gameMeta: [] };
+  const finalized = finalizeBoardBuiltCoachTicket(staged, enrich);
+  assert.equal(finalized.picks.length, 4, "finalize should keep tier-relaxed board legs");
+  assert.equal(filterCoachDeliveredPicks(finalized.picks, enrich).length, 4);
 });

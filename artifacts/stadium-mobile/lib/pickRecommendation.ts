@@ -278,7 +278,7 @@ export function boardScanStagedLegQualifies(
     ticketRole?: "main" | "alt";
     odds?: number | null;
     propIsAlt?: boolean;
-    coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
+    coachFillTier?: "A+" | "A" | "A-" | "B+" | "B" | "B-";
   },
   score: FinalAiScore | null | undefined,
 ): boolean {
@@ -491,6 +491,13 @@ export function filterCoachDeliveredPicks<
     if (score.simHit != null && p.odds != null) {
       const ev = simEvPct(score.simHit, p.odds);
       if (ev != null && ev <= 0) return false;
+    }
+    const fillTier = (p as { coachFillTier?: "A+" | "A" | "A-" | "B+" | "B" | "B-" }).coachFillTier;
+    if (fillTier) {
+      return boardScanStagedLegQualifies(
+        { ...p, coachFillTier: fillTier },
+        score,
+      );
     }
     return pickQualifiesForBoardDelivery(p, score);
   });
@@ -722,7 +729,7 @@ export function finalizeBoardBuiltCoachTicket<
   const enriched = enrichCoachPicksForGate(noFiller, enrich).map(stripHrvpFromPick);
   const kept = enriched.filter((p) => boardScanStagedLegQualifies(p, p.finalAiScore));
   if (kept.length > 0) {
-    const delivered = filterCoachDeliveredPicks(preferBettableQualifiedPicks(kept), enrich);
+    const delivered = preferBettableQualifiedPicks(kept);
     return {
       picks: delivered,
       removed: noFiller.length - delivered.length,
