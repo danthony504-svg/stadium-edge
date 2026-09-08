@@ -3,8 +3,15 @@
 import { parlayLegKey } from "./parlayVarietyMemory.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { API_BASE } from "./apiBase";
+import { fetch as expoFetch } from "expo/fetch";
 
 export const COACH_TICKET_TRACE = true;
+let activeTraceId: string | null = null;
+
+export function setCoachTicketTraceId(traceId: string | null): void {
+  activeTraceId = traceId;
+}
 
 export type CoachTicketTraceStage =
   | "combinator-candidates"
@@ -64,4 +71,21 @@ export function traceCoachTicket(
       ...detail.extra,
     }),
   );
+  if (!activeTraceId) return;
+  void expoFetch(`${API_BASE}/coach/trace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      traceId: activeTraceId,
+      stage,
+      requestedLegs: detail.requestedLegs,
+      scanRequestedLegs: detail.scanRequestedLegs,
+      pickCount: ids?.length,
+      candidateCount: detail.candidateIds?.length,
+      source: detail.source,
+      extra: detail.extra,
+    }),
+  }).catch(() => {
+    // Completion telemetry must never alter a Coach request.
+  });
 }

@@ -25,6 +25,31 @@ import { captureCoachLearning } from "../lib/coachLearning.js";
 const router: IRouter = Router();
 const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
 
+// Best-effort mobile completion telemetry. It intentionally contains no prompt,
+// response text, pick identity, user identity, or persisted application state.
+router.post("/coach/trace", chatLimiter, (req, res): void => {
+  const body = req.body as Record<string, unknown> | undefined;
+  const traceId = typeof body?.traceId === "string" ? body.traceId : "";
+  const stage = typeof body?.stage === "string" ? body.stage : "";
+  if (!/^[a-zA-Z0-9_-]{8,128}$/.test(traceId) || !stage.startsWith("completion-")) {
+    res.status(400).json({ error: "invalid Coach trace" });
+    return;
+  }
+  req.log.info({
+    coachCompletionTrace: {
+      traceId,
+      stage,
+      requestedLegs: body?.requestedLegs,
+      scanRequestedLegs: body?.scanRequestedLegs,
+      pickCount: body?.pickCount,
+      candidateCount: body?.candidateCount,
+      source: body?.source,
+      extra: body?.extra,
+    },
+  }, "coach mobile completion trace");
+  res.status(204).end();
+});
+
 function streamCannedCoachReply(res: Response, text: string): void {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
