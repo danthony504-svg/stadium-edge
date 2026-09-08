@@ -1,0 +1,44 @@
+name: Stadium Mobile Release Gate
+
+on:
+  push:
+    branches: [main, release/**]
+    paths:
+      - "artifacts/stadium-mobile/**"
+      - ".github/workflows/stadium-mobile-release-gate.yml"
+  pull_request:
+    paths:
+      - "artifacts/stadium-mobile/**"
+      - ".github/workflows/stadium-mobile-release-gate.yml"
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: artifacts/stadium-mobile/package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Reject merge conflict markers
+        run: |
+          ! rg -n '^(<<<<<<<|=======|>>>>>>>)' app lib components
+
+      - name: TypeScript
+        run: npm run typecheck
+        continue-on-error: false
+
+      - name: Unit tests
+        run: node --test lib/coachRequestCompletion.test.ts lib/releaseRegression.test.ts lib/propSimProgressive.test.ts lib/coachRequestLifecycle.test.ts lib/coachScanPolicy.test.ts
+
+      - name: iOS Metro bundle
+        run: npx expo export --platform ios --output-dir /tmp/stadium-mobile-bundle

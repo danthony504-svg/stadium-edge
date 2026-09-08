@@ -177,13 +177,21 @@ export function finalizeCoachTicketForRequest(
   return { ok: true, picks };
 }
 
-/** Guards partial/final scan delivery against stale generation or wrong leg count. */
+/**
+ * Guards board-scan delivery against stale requests.
+ *
+ * A partial scan must match its requested leg count before it can render preview
+ * cards. A completed scan is terminal evidence: it must reach the request
+ * completion path even when it contains fewer than the requested count (or zero
+ * picks), otherwise the Coach remains in its loading state forever.
+ */
 export function boardScanAppliesToRequest(
   scan:
     | {
         requestedLegs?: number;
         picks?: { length: number };
         requestId?: string;
+        scanComplete?: boolean;
       }
     | null
     | undefined,
@@ -192,9 +200,13 @@ export function boardScanAppliesToRequest(
   activeSendGeneration: number,
   activeRequestId?: string | null,
 ): boolean {
-  if (!scan?.picks?.length || legTarget <= 0) return false;
+  if (!scan || legTarget <= 0) return false;
   if (sendGeneration !== activeSendGeneration) return false;
   if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) return false;
+  // Terminal scans may legitimately have no qualifying picks or a shortfall.
+  // Do not apply preview-card eligibility rules to their terminal handoff.
+  if (scan.scanComplete === true) return true;
+  if (!scan.picks?.length) return false;
   return boardScanMatchesLegTarget(scan, legTarget);
 }
 

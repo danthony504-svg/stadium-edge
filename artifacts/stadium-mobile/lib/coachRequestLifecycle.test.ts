@@ -114,6 +114,25 @@ test("boardScanAppliesToRequest rejects stale requestId", () => {
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-15"), true);
 });
 
+test("completed shortfall and empty scans reach their matching request", () => {
+  const shortfall = {
+    picks: { length: 2 },
+    requestedLegs: 5,
+    requestId: "req-5",
+    scanComplete: true,
+  };
+  const empty = {
+    picks: { length: 0 },
+    requestedLegs: 5,
+    requestId: "req-5",
+    scanComplete: true,
+  };
+
+  assert.equal(boardScanAppliesToRequest(shortfall, 5, 2, 2, "req-5"), true);
+  assert.equal(boardScanAppliesToRequest(empty, 5, 2, 2, "req-5"), true);
+  assert.equal(boardScanAppliesToRequest(empty, 5, 2, 2, "other-request"), false);
+});
+
 test("finalizeCoachTicketForRequest rejects prefix then accepts independent ticket", () => {
   clearParlayVarietyMemory();
   const scored = wnbaBoard();

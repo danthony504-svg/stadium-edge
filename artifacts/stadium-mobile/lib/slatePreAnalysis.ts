@@ -161,6 +161,16 @@ function seedFromSnapshot(
   const clean = sanitizeSlateSnapshot(snap);
   const requested = opts?.legs ?? SLATE_PRE_ANALYSIS_TARGET;
   const boardRaw = resolveSlateBoardScan(clean, opts);
+  // A completed, fresh, exact-size server ticket is already the same work the
+  // foreground full-board scan would perform. Preserve its terminal status so
+  // Coach can commit it immediately instead of discarding that work and
+  // starting another multi-minute scan. Any stale, shallow, or mismatched
+  // snapshot remains preview-only.
+  const terminalSeed =
+    !!boardRaw &&
+    clean.deepSimComplete &&
+    isSlatePreAnalysisFresh(clean) &&
+    boardScanReadyForDelivery(boardRaw, requested);
   return {
     built: clean.built,
     propSimulations: new Map(clean.propSimulations),
@@ -168,8 +178,7 @@ function seedFromSnapshot(
       ? deserializeBoardScan({
           ...boardRaw,
           requestedLegs: boardRaw.requestedLegs ?? boardRaw.picks.length,
-          // Cached slate seeds are preview-only until a live scan for this leg count completes.
-          scanComplete: false,
+          scanComplete: terminalSeed,
         })
       : null,
     fingerprint: clean.fingerprint,

@@ -9,6 +9,7 @@ import {
   pickLabelForManifest,
 } from "./boardLegQualification.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
+import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isAltPropPick } from "./altLinePool.ts";
 
@@ -156,15 +157,54 @@ export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
 
 const MAX_REJECTED_SAMPLES = 80;
 
+function isBoardLegGateCode(value: string): value is BoardLegGateCode {
+  return [
+    "qualified_main",
+    "qualified_alt",
+    "no_score",
+    "high_risk_value_play",
+    "unsupported_market",
+    "missing_odds",
+    "missing_prop_line",
+    "no_sim_grade",
+    "negative_edge",
+    "negative_ev",
+    "sim_below_implied",
+    "grade_below_minimum",
+    "confidence_below_minimum",
+    "not_sim_aligned",
+    "holistic_not_recommended",
+    "not_ai_recommended",
+    "not_staged",
+  ].includes(value);
+}
+
+function isCompleteFinalAiScore(
+  score: Partial<FinalAiScore> | null | undefined,
+): score is FinalAiScore {
+  return (
+    score != null &&
+    score.composite !== undefined &&
+    score.grade !== undefined &&
+    score.confidencePct !== undefined &&
+    score.edgePct !== undefined &&
+    score.simHit !== undefined &&
+    score.simAligned !== undefined &&
+    score.highRiskValuePlay !== undefined &&
+    score.recommends !== undefined &&
+    score.factors !== undefined &&
+    score.rubric !== undefined
+  );
+}
+
 function mergeGateFailureCounts(
   a: Partial<Record<BoardLegGateCode, number>>,
   b: Partial<Record<BoardLegGateCode, number>>,
 ): Partial<Record<BoardLegGateCode, number>> {
   const out: Partial<Record<BoardLegGateCode, number>> = { ...a };
   for (const [gate, count] of Object.entries(b)) {
-    if (!count) continue;
-    const code = gate as BoardLegGateCode;
-    out[code] = (out[code] ?? 0) + count;
+    if (!count || !isBoardLegGateCode(gate)) continue;
+    out[gate] = (out[gate] ?? 0) + count;
   }
   return out;
 }
@@ -237,7 +277,10 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       if (seenPreScoreFp.has(fp)) return;
       seenPreScoreFp.add(fp);
       manifest.preScoreEvaluated += 1;
-      const q = explainBoardLegQualification(pick, (score as FinalAiScore | null | undefined) ?? null);
+      const q = explainBoardLegQualification(
+        pick,
+        isCompleteFinalAiScore(score) ? score : null,
+      );
       bumpGate(q.gate, preScoreGateFailures);
       pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp);
     },
@@ -395,7 +438,9 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
     lines.push("");
     lines.push("**Gate failures**");
     for (const [gate, count] of failureEntries.sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))) {
-      lines.push(`- ${gateLabel(gate as BoardLegGateCode)}: **${count?.toLocaleString()}**`);
+      if (isBoardLegGateCode(gate)) {
+        lines.push(`- ${gateLabel(gate)}: **${count?.toLocaleString()}**`);
+      }
     }
   }
 
