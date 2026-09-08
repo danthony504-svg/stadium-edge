@@ -299,6 +299,11 @@ export function PlayerPropsSheet({
     return { side, price, hits, total, pct, tier, line: bookLine };
   }, [selectedProp, bookLine, bars]);
 
+  const rungAt = useMemo(() => {
+    if (chartLine == null) return null;
+    return rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
+  }, [rungs, chartLine]);
+
   if (!data) return null;
 
   const teamLine = [data.teamAbbr, sportLabel].filter(Boolean).join(" · ");
@@ -306,10 +311,6 @@ export function PlayerPropsSheet({
   // The hit-rate explorer only ever offers a REAL price, and only AT a posted
   // rung (main or alternate). The current line matches a rung → show its live
   // Over/Under prices; between rungs there is no real number, so we show none.
-  const rungAt = useMemo(() => {
-    if (chartLine == null) return null;
-    return rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
-  }, [rungs, chartLine]);
   const stepOverPrice = rungAt?.overPrice ?? null;
   const stepUnderPrice = rungAt?.underPrice ?? null;
   const mlabel = propMarketLabel(market);

@@ -165,7 +165,7 @@ async function fetchEspnRosterDirect(
         );
         if (!res.ok) continue;
         const data = (await res.json()) as {
-          athletes?: Array<EspnRosterAthlete | { items?: EspnRosterAthlete[] }>;
+          athletes?: (EspnRosterAthlete | { items?: EspnRosterAthlete[] })[];
         };
         const flat: EspnRosterAthlete[] = [];
         for (const entry of data.athletes ?? []) {
@@ -342,13 +342,13 @@ export async function fetchSimulatorGameOutcome(
     awayTeam?: string;
     simulations?: number;
     weatherImpact?: number | null;
-    coverQueries?: Array<{
+    coverQueries?: {
       id: string;
       kind: "ml" | "spread" | "total" | "teamTotal";
       teamSide?: "home" | "away";
       line?: number;
       totalSide?: "over" | "under";
-    }>;
+    }[];
     retainOutcomes?: boolean;
   },
   signal?: AbortSignal,
@@ -358,13 +358,13 @@ export async function fetchSimulatorGameOutcome(
 
 export async function fetchSimulatorPropSimulationsBatch(
   sport: string,
-  props: Array<{
+  props: {
     player: string;
     market: string;
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
-  }>,
+  }[],
   opts?: {
     homeTeam?: string;
     awayTeam?: string;

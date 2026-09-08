@@ -1,6 +1,8 @@
 // Coach full-board parlay scan policy — enforced in boardMarketScanner, ticket
 // staging, and delivery gates. Never pad tickets with ungraded posted lines.
 
+import type { FullBoardScanResult } from "./boardMarketScanner.ts";
+
 export const COACH_FULL_BOARD_SCAN_POLICY =
   "Scan every available market and every player prop — not just the top few. Score each market the same way (EV, edge, confidence, AI grade, and 10,000 simulations). Keep separate ranked pools for player props, game lines, team totals, and alternate lines. Build a balanced ticket (~50% player props, ~20–30% game lines, ~10–20% team totals, ~10–20% alternate lines). Only add more game lines when there truly are not enough qualified player props. Never lower AI standards to hit the leg count — every pick must have positive EV, positive edge, pass simulation, and meet the confidence threshold. Return fewer legs instead of weak filler.";
 
@@ -165,22 +167,23 @@ export function preferBoardScanForDelivery<
 }
 
 /** Final ticket delivery — complete live scans only; never promote preview-cache rows. */
-export function preferFinalBoardScanForDelivery<
-  T extends { scanComplete?: boolean; picks?: { length: number }; requestedLegs?: number },
->(legTarget: number, ...candidates: (T | null | undefined)[]): T | null;
-export function preferFinalBoardScanForDelivery<
-  T extends { scanComplete?: boolean; picks?: { length: number }; requestedLegs?: number },
->(...candidates: (T | null | undefined)[]): T | null;
-export function preferFinalBoardScanForDelivery<
-  T extends { scanComplete?: boolean; picks?: { length: number }; requestedLegs?: number },
->(...args: (T | null | undefined | number)[]): T | null {
+export function preferFinalBoardScanForDelivery(
+  legTarget: number,
+  ...candidates: (FullBoardScanResult | null | undefined)[]
+): FullBoardScanResult | null;
+export function preferFinalBoardScanForDelivery(
+  ...candidates: (FullBoardScanResult | null | undefined)[]
+): FullBoardScanResult | null;
+export function preferFinalBoardScanForDelivery(
+  ...args: (FullBoardScanResult | null | undefined | number)[]
+): FullBoardScanResult | null {
   let legTarget = 0;
-  let candidates: (T | null | undefined)[];
+  let candidates: (FullBoardScanResult | null | undefined)[];
   if (typeof args[0] === "number") {
     legTarget = args[0];
-    candidates = args.slice(1) as (T | null | undefined)[];
+    candidates = args.slice(1) as (FullBoardScanResult | null | undefined)[];
   } else {
-    candidates = args as (T | null | undefined)[];
+    candidates = args as (FullBoardScanResult | null | undefined)[];
   }
   for (const scan of candidates) {
     if (!scan || !boardScanIsComplete(scan)) continue;

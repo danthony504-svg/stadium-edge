@@ -15,6 +15,8 @@ import {
 } from "./gameSideConsistency.ts";
 import { BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
 
+import { shuffleWithSeed } from "./varietySeed.ts";
+
 const norm = (s: string) =>
   String(s ?? "")
     .toLowerCase()
@@ -198,8 +200,6 @@ export function rebalanceDeepParlayTicket(
 
   return { picks: out, note: notes.join("\n\n") };
 }
-
-import { shuffleWithSeed } from "./varietySeed.ts";
 
 /** Stable shuffle so backfill doesn't always walk the same first games. */
 export function rotatePool<T>(items: T[], seed: string): T[] {

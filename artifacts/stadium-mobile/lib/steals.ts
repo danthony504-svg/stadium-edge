@@ -34,6 +34,33 @@ export type StealRecord = {
   graded: number;
 };
 
+export type StealScanMeta = {
+  booksScanned: number;
+  marketsChecked: number;
+  longshotsAnalyzed: number;
+  stealsFound: number;
+  sportCounts: Record<string, number>;
+  totalOpportunities: number;
+  scanComplete?: boolean;
+  gamesScanned?: number;
+  scannedAt?: string;
+};
+
+export type GradedStealPick = {
+  pick: string;
+  player?: string | null;
+  price: number;
+  status: "win" | "loss" | "push";
+};
+
+export type StealTrackRecordStats = {
+  roiPct: number | null;
+  avgOdds: number | null;
+  unitsWon: number;
+  unitsLost: number;
+  highestWinPick: { label: string; price: number } | null;
+};
+
 // Win rate over SETTLED win/loss picks only (pushes are no-action, pending and
 // ungraded aren't decided). Returns null when nothing decisive has graded yet,
 // so the UI shows "—" instead of a fake 0%/100%. Range 0..100, 1 decimal.
@@ -98,4 +125,72 @@ export function nearMissNeededLabel(edge: number | null, neededEdge: number, nee
   const v = ev ?? 0;
   if (e < neededEdge) return `+${neededEdge}%`;
   return `+${neededEv}%`;
+}
+
+function winProfitUnits(price: number): number {
+  return price > 0 ? price / 100 : 100 / Math.abs(price);
+}
+
+/** Season track-record stats derived from graded steal history. */
+export function trackRecordStatsFromHistory(history: GradedStealPick[]): StealTrackRecordStats {
+  if (!history.length) {
+    return { roiPct: null, avgOdds: null, unitsWon: 0, unitsLost: 0, highestWinPick: null };
+  }
+  let profit = 0;
+  let risk = 0;
+  let oddsSum = 0;
+  let unitsWon = 0;
+  let unitsLost = 0;
+  let highestWinPick: { label: string; price: number } | null = null;
+  for (const h of history) {
+    risk += 1;
+    oddsSum += h.price;
+    if (h.status === "win") {
+      const units = winProfitUnits(h.price);
+      profit += units;
+      unitsWon += units;
+      const label = h.player?.trim() ? h.player : h.pick;
+      if (!highestWinPick || h.price > highestWinPick.price) {
+        highestWinPick = { label, price: h.price };
+      }
+    } else if (h.status === "loss") {
+      profit -= 1;
+      unitsLost += 1;
+    }
+  }
+  return {
+    roiPct: risk > 0 ? Math.round((profit / risk) * 1000) / 10 : null,
+    avgOdds: Math.round(oddsSum / history.length),
+    unitsWon: Math.round(unitsWon * 10) / 10,
+    unitsLost: Math.round(unitsLost * 10) / 10,
+    highestWinPick,
+  };
+}
+
+export function formatLastScanTime(iso: string | number | null | undefined): string {
+  if (iso == null) return "—";
+  const t = typeof iso === "number" ? iso : Date.parse(iso);
+  if (!Number.isFinite(t)) return "—";
+  return new Date(t).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function formatCountdownSeconds(totalSeconds: number): string {
+  const s = Math.max(0, Math.ceil(totalSeconds));
+  const mins = Math.floor(s / 60);
+  const secs = s % 60;
+  if (mins <= 0) return `${secs}s`;
+  return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+}
+
+/** Sum game counts from structured feed probes when meta.gamesScanned is absent. */
+export function gamesScannedFromFeedProbes(
+  probes: { games?: number }[] | null | undefined,
+): number {
+  if (!probes?.length) return 0;
+  return probes.reduce((sum, p) => sum + (p.games ?? 0), 0);
 }

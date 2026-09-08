@@ -274,14 +274,14 @@ function scoreOneSimulatorProp(
 }
 
 export function gradeSimulatorProps(
-  selected: Array<{
+  selected: {
     player: string;
     market: string;
     line: number;
     side: "Over" | "Under";
     odds: number;
     athleteId: string | null;
-  }>,
+  }[],
   gameLabel: string,
   sport: string,
   propPool: PropPoolEntry[],

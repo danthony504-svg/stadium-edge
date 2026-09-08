@@ -14,10 +14,9 @@ import {
   scoreSimulation,
   scoreTrend,
 } from "./pickScore.ts";
-import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
+import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE , simEvPct } from "./gameSimQualityGates.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
-import { simEvPct } from "./gameSimQualityGates.ts";
 
 export type PropHolisticFactorKey =
   | "recentForm"
@@ -694,7 +693,7 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
       score: formScore,
       display: formDisplay,
       applicable: true,
-      present: formPresent && formScore != null,
+      present: !!formPresent && formScore != null,
     },
     factor("injury") ?? {
       key: "injury",

@@ -77,7 +77,7 @@ test("combo prop markets do not match the single-market buckets", () => {
 
 // ---- performance bias (real data only) --------------------------------------
 
-const perfMap = (entries: Array<[string, number, number]>): Map<string, MarketPerf> => {
+const perfMap = (entries: [string, number, number][]): Map<string, MarketPerf> => {
   // [family, wins, losses]
   const byFamily = entries.map(([key, wins, losses]) => ({
     key,

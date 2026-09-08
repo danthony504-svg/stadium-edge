@@ -399,7 +399,7 @@ export function buildStagedTicketFromScan(
     ...p,
     ticketRole: "main" as const,
   }));
-  let allPicks = [...mainPicks];
+  let allPicks: ParsedPick[] = [...mainPicks];
   const used = new Set(allPicks.map(pickLegFingerprint));
   const altPool = alts.filter((l) => !used.has(pickLegFingerprint(l.pick)));
 

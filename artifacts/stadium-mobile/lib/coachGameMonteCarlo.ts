@@ -1,7 +1,7 @@
 // Fetch game-outcome Monte Carlo for Coach game-line legs — same endpoint as Simulator.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { EspnGame } from "./api.ts";
+import type { EspnGame , RealOddsEntry } from "./api.ts";
 import { fetchGameOutcomeSimulation } from "./api.ts";
 import {
   buildGameCoverQuery,
@@ -18,7 +18,6 @@ import {
   simHitForPick,
 } from "./finalAiScore.ts";
 import { gameLabelsMatch } from "./gameLineOptimizer.ts";
-import type { RealOddsEntry } from "./api.ts";
 import { passesCoachSimQualityGate } from "./gameSimQualityGates.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
