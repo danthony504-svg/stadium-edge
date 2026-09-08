@@ -38,4 +38,3 @@ test("football simulation reads ESPN's unique field names, not colliding labels"
     assert.equal(gameValueForMarket(market, stats, NONE), value, market);
   }
 });
-
