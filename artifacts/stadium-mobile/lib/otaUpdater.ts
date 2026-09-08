@@ -1,14 +1,31 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 import { useCallback, useEffect, useRef } from "react";
 import { AppState, Keyboard } from "react-native";
 
-import { isOtaReloadBlocked } from "@/lib/otaBlock";
+import { isOtaReloadBlocked, subscribeOtaReloadUnblocked } from "@/lib/otaBlock";
+import {
+  emptyFailedLaunchRecord,
+  isUpdatePreviouslyFailed,
+  noteReloadTarget,
+  OTA_FAILED_LAUNCH_KEY,
+  readFailedLaunchRecord,
+  reconcileLaunch,
+  updateFailedLaunchRecord,
+  writeFailedLaunchRecord,
+  type OtaFailedLaunchRecord,
+  type OtaFailedLaunchStorage,
+} from "@/lib/otaFailedLaunch";
 import { pushOtaLog } from "@/lib/otaLaunchLog";
+import { reportOtaRecoveryState } from "@/lib/otaRecoveryState";
+import { resolveReloadTargetId } from "@/lib/otaReloadGuard";
 import {
   prefetchOtaUpdate,
+  reloadPendingOtaUpdate,
   resetOtaUpdaterSessionGuardForTests,
   type OtaPrefetchOutcome,
+  type OtaUpdaterOptions,
 } from "@/lib/otaUpdaterCore";
 
 export type { OtaPrefetchOutcome, OtaUpdateClient, OtaFetchResult } from "@/lib/otaUpdaterCore";
@@ -17,10 +34,121 @@ export { prefetchOtaUpdate, resetOtaUpdaterSessionGuardForTests };
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 const LAUNCH_DELAY_MS = 400;
 const SAFE_RELOAD_DELAY_MS = 1_000;
+/** Backstop retry while an update is pending but every reload attempt is blocked. */
+const PENDING_RETRY_MS = 20_000;
+/** A hung check/fetch must not stall the session — expo-updates has no internal timeout. */
+const OTA_NETWORK_TIMEOUT_MS = 15_000;
 
-function reloadUpdateKey(): string {
+const failedLaunchStorage: OtaFailedLaunchStorage = {
+  read: () => AsyncStorage.getItem(OTA_FAILED_LAUNCH_KEY),
+  write: (raw) => AsyncStorage.setItem(OTA_FAILED_LAUNCH_KEY, raw),
+};
+
+/** Synchronous mirror of the persisted ledger so the pure core can consult it. */
+let failedLaunchRecord: OtaFailedLaunchRecord = emptyFailedLaunchRecord();
+let failedLaunchReconciled = false;
+
+function runningUpdateId(): string | null {
+  const id = Updates.updateId;
+  return id ? String(id) : null;
+}
+
+function downloadedUpdateId(): string | null {
   const downloaded = latestContext?.downloadedManifest as { id?: string } | null | undefined;
-  return String(Updates.updateId ?? downloaded?.id ?? "pending");
+  const id = downloaded?.id;
+  return id ? String(id) : null;
+}
+
+function rollbackState(): string {
+  const parts: string[] = [];
+  if (Updates.isEmbeddedLaunch) parts.push("embedded");
+  if (Updates.isEmergencyLaunch) {
+    parts.push(`emergency(${Updates.emergencyLaunchReason ?? "no reason"})`);
+  }
+  const commitTime = latestContext?.rollback?.commitTime;
+  if (commitTime) parts.push(`rollbackDirective@${String(commitTime)}`);
+  return parts.length ? parts.join(" · ") : "none";
+}
+
+/**
+ * Reconcile the previous launch once per session: if we asked to restart into a
+ * target and came back running something else, that target failed to launch.
+ */
+async function reconcileFailedLaunches(): Promise<void> {
+  if (failedLaunchReconciled) return;
+  failedLaunchReconciled = true;
+
+  const running = runningUpdateId();
+  const result = reconcileLaunch(await readFailedLaunchRecord(failedLaunchStorage), running);
+  failedLaunchRecord = result.record;
+  await writeFailedLaunchRecord(failedLaunchStorage, result.record);
+
+  if (result.observed === "failed") {
+    pushOtaLog(
+      "reloadAsync",
+      false,
+      `previous launch of ${result.failedTargetId} failed (count=${result.failedCount}); running ${running ?? "embedded"}`,
+    );
+  } else if (result.observed === "launched") {
+    pushOtaLog("reloadAsync", true, `confirmed running target ${running}`);
+  }
+
+  reportOtaRecoveryState({
+    runningUpdateId: running ?? "embedded",
+    rollbackState: rollbackState(),
+    failedLaunchCount: result.failedCount ?? 0,
+    updatePreviouslyFailed: !!result.failedTargetId,
+  });
+}
+
+async function noteReloadTargetPersisted(targetId: string): Promise<void> {
+  failedLaunchRecord = noteReloadTarget(failedLaunchRecord, targetId);
+  await updateFailedLaunchRecord(failedLaunchStorage, (record) =>
+    noteReloadTarget(record, targetId),
+  );
+}
+
+function withOtaTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${OTA_NETWORK_TIMEOUT_MS}ms`)),
+        OTA_NETWORK_TIMEOUT_MS,
+      );
+    }),
+  ]);
+}
+
+/** expo-updates with bounded check/fetch so a hung request cannot stall recovery. */
+const timeoutClient = {
+  checkForUpdateAsync: () =>
+    withOtaTimeout("checkForUpdateAsync", Updates.checkForUpdateAsync()),
+  fetchUpdateAsync: () => withOtaTimeout("fetchUpdateAsync", Updates.fetchUpdateAsync()),
+  reloadAsync: (opts?: { reloadScreenOptions?: { fade?: boolean } }) =>
+    Updates.reloadAsync(opts),
+};
+
+function updaterOptions(): OtaUpdaterOptions {
+  return {
+    isReloadBlocked: isOtaReloadBlocked,
+    log: pushOtaLog,
+    reloadUpdateKey: runningUpdateId() ?? "pending",
+    downloadedUpdateId,
+    isTargetPreviouslyFailed: (targetId) =>
+      isUpdatePreviouslyFailed(failedLaunchRecord, targetId),
+    onReloadTarget: noteReloadTargetPersisted,
+    report: reportOtaRecoveryState,
+  };
+}
+
+function otaDisabledReason(): string | null {
+  if (__DEV__) return "skipped: __DEV__";
+  if (!Updates.isEnabled) return "skipped: Updates.isEnabled=false";
+  return null;
 }
 
 /**
@@ -30,16 +158,19 @@ function reloadUpdateKey(): string {
 export async function prefetchAndMaybeApplyOta(
   applyWhenReady = false,
 ): Promise<OtaPrefetchOutcome> {
-  if (__DEV__ || !Updates.isEnabled) return "none";
+  const disabled = otaDisabledReason();
+  if (disabled) {
+    // Never return silently: an empty log must mean "never ran", not "disabled".
+    pushOtaLog("checkForUpdateAsync", false, disabled);
+    reportOtaRecoveryState({ checkResult: disabled, lastError: disabled });
+    return "none";
+  }
+  await reconcileFailedLaunches();
   return prefetchOtaUpdate(
-    Updates,
+    timeoutClient,
     () => !!latestContext?.isUpdatePending,
     applyWhenReady,
-    {
-      isReloadBlocked: isOtaReloadBlocked,
-      log: pushOtaLog,
-      reloadUpdateKey: reloadUpdateKey(),
-    },
+    updaterOptions(),
   );
 }
 
@@ -75,15 +206,16 @@ export function useOtaUpdater(enabled: boolean) {
     [],
   );
 
+  /**
+   * Apply a pending update without re-checking the network. Re-checking here is
+   * what previously let a flaky request discard a bundle already on disk.
+   */
   const reloadWhenSafe = useCallback(() => {
     if (reloadAttempted.current) return;
     if (!hasPending()) return;
     if (keyboardVisible.current) {
       pushOtaLog("reloadAsync", false, "blocked: keyboard visible");
-      return;
-    }
-    if (isOtaReloadBlocked()) {
-      pushOtaLog("reloadAsync", false, "blocked: coach/fantasy critical work");
+      reportOtaRecoveryState({ reloadBlocked: true, reloadBlockedReason: "keyboard visible" });
       return;
     }
 
@@ -92,23 +224,15 @@ export function useOtaUpdater(enabled: boolean) {
       if (reloadAttempted.current || !hasPending()) return;
       if (keyboardVisible.current) {
         pushOtaLog("reloadAsync", false, "blocked: keyboard visible");
-        return;
-      }
-      if (isOtaReloadBlocked()) {
-        pushOtaLog("reloadAsync", false, "blocked: coach/fantasy critical work");
+        reportOtaRecoveryState({ reloadBlocked: true, reloadBlockedReason: "keyboard visible" });
         return;
       }
 
-      void prefetchOtaUpdate(
-        Updates,
-        hasPending,
-        true,
-        {
-          isReloadBlocked: isOtaReloadBlocked,
-          log: pushOtaLog,
-          reloadUpdateKey: reloadUpdateKey(),
-        },
-      ).then((outcome) => {
+      const targetId = resolveReloadTargetId({
+        downloadedUpdateId: downloadedUpdateId(),
+        runningUpdateId: runningUpdateId(),
+      });
+      void reloadPendingOtaUpdate(timeoutClient, targetId, updaterOptions()).then((outcome) => {
         if (outcome === "applied") reloadAttempted.current = true;
       });
     }, SAFE_RELOAD_DELAY_MS);
@@ -116,7 +240,7 @@ export function useOtaUpdater(enabled: boolean) {
 
   const prefetch = useCallback(
     async (force = false) => {
-      if (__DEV__ || !enabled || !Updates.isEnabled || inFlight.current) return;
+      if (!enabled || otaDisabledReason() || inFlight.current) return;
 
       const now = Date.now();
       if (!force && now - lastCheckAt.current < FOREGROUND_DEBOUNCE_MS) return;
@@ -161,11 +285,23 @@ export function useOtaUpdater(enabled: boolean) {
       reloadWhenSafe();
     });
 
+    // Coach/Fantasy critical work finishing is the third retry trigger.
+    const unblocked = subscribeOtaReloadUnblocked(() => reloadWhenSafe());
+
+    // Backstop: a pending update must never be stranded just because no event
+    // fires while it is blocked.
+    const pendingRetry = setInterval(() => {
+      if (reloadAttempted.current) return;
+      if (hasPending()) reloadWhenSafe();
+    }, PENDING_RETRY_MS);
+
     return () => {
       clearTimeout(launchTimer);
+      clearInterval(pendingRetry);
       appState.remove();
       keyboardShow.remove();
       keyboardHide.remove();
+      unblocked();
       clearReloadTimer();
     };
   }, [clearReloadTimer, enabled, hasPending, prefetch, reloadWhenSafe]);
