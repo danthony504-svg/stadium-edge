@@ -47,6 +47,7 @@ import {
 } from "@/lib/simulatorApi";
 
 import { propMarketLabel } from "@/lib/propMarketLabel";
+import { FOOTBALL_PROP_FILTER_GROUPS } from "@/lib/footballPropFilters";
 import {
   buildGameFourQuestions,
   realOddsToGameLines,
@@ -172,16 +173,7 @@ const SOCCER_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
   { id: "goals", label: "Anytime Goal", markets: ["player_goal_scorer_anytime"] },
 ];
 
-const FOOTBALL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
-  { id: "popular", label: "Popular", icon: "zap" },
-  { id: "pass_attempts", label: "Pass Attempts", markets: ["player_pass_attempts"] },
-  { id: "completions", label: "Completions", markets: ["player_pass_completions"] },
-  { id: "interceptions", label: "INTs", markets: ["player_pass_interceptions"] },
-  { id: "longest_comp", label: "Longest Comp", markets: ["player_pass_longest_completion"] },
-  { id: "rush_attempts", label: "Rush Attempts", markets: ["player_rush_attempts"] },
-  { id: "longest_rush", label: "Longest Rush", markets: ["player_rush_longest"] },
-  { id: "longest_rec", label: "Longest Rec", markets: ["player_reception_longest"] },
-];
+const FOOTBALL_PROP_FILTERS: typeof MLB_PROP_FILTERS = FOOTBALL_PROP_FILTER_GROUPS;
 
 function propFiltersForSport(sport: string) {
   if (sport === "nba" || sport === "wnba") return BASKETBALL_PROP_FILTERS;
@@ -764,7 +756,11 @@ export default function SimulatorScreen() {
           propMarketLabel(p.market).toLowerCase().includes(q),
       );
     }
-    if (filter === "popular") {
+    // Popular mixes every market, and the football pills each span several, so
+    // rank by edge before the display cap — provider ordering can otherwise fill
+    // the cap with one market and bury the rest of the category. Single-market
+    // pills keep their provider ordering.
+    if (filter === "popular" || (f?.markets?.length ?? 0) > 1) {
       list = [...list].sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0));
     }
     return list.slice(0, 40);
