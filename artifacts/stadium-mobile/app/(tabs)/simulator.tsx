@@ -111,7 +111,7 @@ function simulatorGameEligible(sport: string, g: EspnGame): boolean {
   return true;
 }
 
-const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis", "ufc"] as const;
+const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis", "ufc", "nfl", "ncaaf"] as const;
 
 function isGameLinesOnlySport(sport: string): boolean {
   return sport === "tennis" || sport === "ufc" || sport === "mma";
@@ -172,10 +172,22 @@ const SOCCER_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
   { id: "goals", label: "Anytime Goal", markets: ["player_goal_scorer_anytime"] },
 ];
 
+const FOOTBALL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
+  { id: "popular", label: "Popular", icon: "zap" },
+  { id: "pass_attempts", label: "Pass Attempts", markets: ["player_pass_attempts"] },
+  { id: "completions", label: "Completions", markets: ["player_pass_completions"] },
+  { id: "interceptions", label: "INTs", markets: ["player_pass_interceptions"] },
+  { id: "longest_comp", label: "Longest Comp", markets: ["player_pass_longest_completion"] },
+  { id: "rush_attempts", label: "Rush Attempts", markets: ["player_rush_attempts"] },
+  { id: "longest_rush", label: "Longest Rush", markets: ["player_rush_longest"] },
+  { id: "longest_rec", label: "Longest Rec", markets: ["player_reception_longest"] },
+];
+
 function propFiltersForSport(sport: string) {
   if (sport === "nba" || sport === "wnba") return BASKETBALL_PROP_FILTERS;
   if (sport === "nhl") return NHL_PROP_FILTERS;
   if (sport === "soccer") return SOCCER_PROP_FILTERS;
+  if (sport === "nfl" || sport === "ncaaf") return FOOTBALL_PROP_FILTERS;
   return MLB_PROP_FILTERS;
 }
 

@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { gameValueForMarket } from "../src/lib/propStatValue.ts";
+import { gameValueForMarket, isDiscreteCountMarket } from "../src/lib/propStatValue.ts";
 
 const NONE = new Set<string>();
+
+const FOOTBALL_SEVEN = [
+  "player_pass_attempts",
+  "player_pass_completions",
+  "player_pass_interceptions",
+  "player_pass_longest_completion",
+  "player_rush_attempts",
+  "player_rush_longest",
+  "player_reception_longest",
+] as const;
 
 test("football simulation reads ESPN's unique field names, not colliding labels", () => {
   const stats = {
@@ -37,4 +47,15 @@ test("football simulation reads ESPN's unique field names, not colliding labels"
   for (const [market, value] of expected) {
     assert.equal(gameValueForMarket(market, stats, NONE), value, market);
   }
+});
+
+test("seven football mains are discrete count markets", () => {
+  for (const market of FOOTBALL_SEVEN) {
+    assert.equal(isDiscreteCountMarket(market), true, market);
+  }
+  // Existing discrete / non-discrete controls stay stable.
+  assert.equal(isDiscreteCountMarket("player_receptions"), true);
+  assert.equal(isDiscreteCountMarket("player_pass_tds"), true);
+  assert.equal(isDiscreteCountMarket("player_points"), false);
+  assert.equal(isDiscreteCountMarket("player_pass_yds"), false);
 });
