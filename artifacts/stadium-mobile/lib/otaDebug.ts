@@ -1,7 +1,9 @@
 import Constants from "expo-constants";
+import { fetch as expoFetch } from "expo/fetch";
 import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
+import { API_BASE } from "./apiBase";
 import { launchOtaCheckFetchReload } from "./otaLaunch";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
 
@@ -73,6 +75,57 @@ export async function withOtaTimeout<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/** Temporary best-effort startup report; it never reloads or changes update policy. */
+export async function reportOtaStartupDiagnostics(): Promise<void> {
+  const snapshot = readOtaDebugSnapshot();
+  let checkResult = "not attempted";
+  let fetchResult = "not attempted";
+  let reloadRequired = false;
+  let error: string | null = null;
+  try {
+    if (__DEV__ || !Updates.isEnabled) {
+      checkResult = __DEV__ ? "skipped: __DEV__" : "skipped: Updates.isEnabled=false";
+    } else {
+      const check = await withOtaTimeout("startup checkForUpdateAsync", Updates.checkForUpdateAsync());
+      checkResult = JSON.stringify({ isAvailable: check.isAvailable });
+      reloadRequired = check.isAvailable || !!latestContext?.isUpdatePending;
+      if (check.isAvailable) {
+        await withOtaTimeout("startup fetchUpdateAsync", Updates.fetchUpdateAsync());
+        fetchResult = "downloaded";
+      } else {
+        fetchResult = "not needed";
+      }
+    }
+  } catch (e) {
+    error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    checkResult = `ERR: ${error}`;
+    fetchResult = "not completed";
+  }
+  const traceId = `ota-${Date.now()}`;
+  void expoFetch(`${API_BASE}/coach/trace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      traceId,
+      stage: "ota-startup-diagnostics",
+      source: "app-startup",
+      extra: {
+        updatesEnabled: snapshot.updatesEnabled,
+        runtimeVersion: snapshot.runtimeVersion,
+        channel: snapshot.channel,
+        updateId: snapshot.updateId,
+        isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+        createdAt: snapshot.updateCreatedAt,
+        checkResult,
+        fetchResult,
+        reloadRequired,
+        reloadPerformed: false,
+        error,
+      },
+    }),
+  }).catch(() => {});
 }
 
 function formatCreatedAt(): string {

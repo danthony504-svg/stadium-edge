@@ -31,7 +31,10 @@ router.post("/coach/trace", chatLimiter, (req, res): void => {
   const body = req.body as Record<string, unknown> | undefined;
   const traceId = typeof body?.traceId === "string" ? body.traceId : "";
   const stage = typeof body?.stage === "string" ? body.stage : "";
-  if (!/^[a-zA-Z0-9_-]{8,128}$/.test(traceId) || !stage.startsWith("completion-")) {
+  if (
+    !/^[a-zA-Z0-9_-]{8,128}$/.test(traceId) ||
+    (!stage.startsWith("completion-") && stage !== "ota-startup-diagnostics")
+  ) {
     res.status(400).json({ error: "invalid Coach trace" });
     return;
   }
