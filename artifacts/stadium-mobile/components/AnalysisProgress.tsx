@@ -3,7 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
 // Cyan glow accent that pairs with the brand blue (#3b82f6). Kept local so the

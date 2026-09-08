@@ -10,7 +10,7 @@ import {
   AuthShell,
   PrimaryButton,
 } from "@/components/auth";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
 export default function SignUpScreen() {
@@ -117,7 +117,7 @@ export default function SignUpScreen() {
           marginTop: 22,
         }}
       >
-        <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}>
+        <Text style={{ fontFamily: TYPE.secondary.fontFamily, fontSize: TYPE.secondary.fontSize, lineHeight: TYPE.secondary.lineHeight, color: colors.mutedForeground }}>
           Already have an account?{" "}
         </Text>
         <Link href="/sign-in" replace>

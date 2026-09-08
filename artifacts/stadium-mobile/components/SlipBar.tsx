@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TABULAR, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican, payout } from "@/lib/format";
@@ -290,7 +290,7 @@ function SlipBarBody({
                       {leg.market} · {leg.game}
                     </Text>
                   </View>
-                  <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 13 }}>
+                  <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 13, ...TABULAR }}>
                     {formatAmerican(leg.odds)}
                   </Text>
                   <Pressable onPress={() => onRemove(leg.id)} hitSlop={8}>
@@ -403,16 +403,16 @@ function SlipBarBody({
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>
+            <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13, ...TABULAR }}>
               {legs.length}
             </Text>
           </View>
 
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 14 }}>
+            <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 14, ...TABULAR }}>
               Bet Slip {combinedOdds != null ? `· ${formatAmerican(combinedOdds)}` : ""}
             </Text>
-            <Text style={{ color: colors.primaryForeground, fontFamily: FONT.medium, fontSize: 11, opacity: 0.85 }}>
+            <Text style={{ color: colors.primaryForeground, fontFamily: FONT.medium, fontSize: 11, opacity: 0.85, ...TABULAR }}>
               ${stake.toFixed(0)} to win ${toWin.toFixed(2)}
             </Text>
           </View>

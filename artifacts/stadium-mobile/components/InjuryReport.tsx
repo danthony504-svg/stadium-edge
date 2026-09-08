@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getInjuries } from "@/lib/api";
 import {

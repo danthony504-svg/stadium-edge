@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   getPermissionStatus,
@@ -173,7 +173,7 @@ export default function NotificationsScreen() {
           justifyContent: "space-between",
         }}
       >
-        <Text style={{ fontFamily: FONT.display, fontSize: 24, color: colors.foreground }}>
+        <Text style={{ fontFamily: TYPE.sectionHeader.fontFamily, fontSize: TYPE.sectionHeader.fontSize, lineHeight: TYPE.sectionHeader.lineHeight, color: colors.foreground }}>
           Notifications
         </Text>
         <Pressable
@@ -339,7 +339,7 @@ export default function NotificationsScreen() {
             ) : (
               <Feather name="send" size={18} color={colors.foreground} />
             )}
-            <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
+            <Text style={{ fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight, color: colors.foreground }}>
               Send test notification
             </Text>
           </Pressable>

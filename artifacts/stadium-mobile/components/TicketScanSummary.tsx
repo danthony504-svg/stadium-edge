@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { Text, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import {
   computeTicketScan,
   type TicketLeg,
@@ -42,7 +42,7 @@ export function TicketScanSummary({
   );
 
   const calc = (
-    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+    <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
       Calculating…
     </Text>
   );
@@ -141,7 +141,7 @@ export function TicketScanSummary({
             }}
           >
             <Text
-              style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}
+              style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}
             >
               {r.label}
             </Text>

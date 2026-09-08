@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -199,7 +199,7 @@ function OtaDebugScreenInner() {
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </Pressable>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, flex: 1 }}>
+        <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, flex: 1 }}>
           OTA Diagnostics
         </Text>
       </View>
@@ -339,7 +339,7 @@ function OtaDebugScreenInner() {
         </View>
 
         {status ? (
-          <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 13 }}>{status}</Text>
+          <Text style={{ color: colors.primary, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>{status}</Text>
         ) : null}
 
         <View style={{ gap: 10 }}>
@@ -357,7 +357,7 @@ function OtaDebugScreenInner() {
             {busy ? (
               <ActivityIndicator color={colors.primaryForeground} />
             ) : (
-              <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
+              <Text style={{ color: colors.primaryForeground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
                 Check, fetch & reload (expo-updates)
               </Text>
             )}

@@ -7,7 +7,7 @@ import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -361,11 +361,11 @@ export function PlayerPropsSheet({
             borderBottomColor: colors.border,
           }}
         >
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
+          <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>
             Player Props
           </Text>
           <Pressable onPress={onClose} hitSlop={10}>
-            <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 15 }}>Close</Text>
+            <Text style={{ color: colors.primary, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>Close</Text>
           </Pressable>
         </View>
 
@@ -392,11 +392,11 @@ export function PlayerPropsSheet({
               )}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }} numberOfLines={1}>
+              <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }} numberOfLines={1}>
                 {data.player}
               </Text>
               {teamLine ? (
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 2 }}>
+                <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight, marginTop: 2 }}>
                   {teamLine}
                 </Text>
               ) : null}
@@ -831,7 +831,7 @@ export function PlayerPropsSheet({
                   <Feather name="minus" size={22} color={colors.foreground} />
                 </Pressable>
                 <View style={{ alignItems: "center" }}>
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 34 }}>{chartLine}</Text>
+                  <Text style={{ color: colors.foreground, ...TYPE.displayTitle }}>{chartLine}</Text>
                   <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase" }}>
                     {mlabel} line
                   </Text>

@@ -6,7 +6,7 @@ import React, { useState } from "react";
 import { Dimensions, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {

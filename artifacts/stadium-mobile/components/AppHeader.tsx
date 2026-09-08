@@ -5,7 +5,7 @@ import React from "react";
 import { Image, Pressable, Text, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/lib/typography";
 import { useColors } from "@/hooks/useColors";
 
 const WORDMARK = require("@/assets/images/logo-wordmark.png");
@@ -113,8 +113,8 @@ export function PageTitleRow({
           <Feather name={icon} size={19} color={colors.primary} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>{title}</Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+          <Text style={{ color: colors.foreground, ...TYPE.screenTitle, fontSize: 22 }}>{title}</Text>
+          <Text style={{ color: colors.mutedForeground, ...TYPE.caption, marginTop: 2 }}>
             {subtitle}
           </Text>
         </View>
@@ -133,7 +133,7 @@ export function PageTitleRow({
               opacity: pressed ? 0.75 : 1,
             })}
           >
-            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>How it works</Text>
+            <Text style={{ color: colors.primary, ...TYPE.caption }}>How it works</Text>
             <Feather name="info" size={13} color={colors.primary} />
           </Pressable>
         ) : null}

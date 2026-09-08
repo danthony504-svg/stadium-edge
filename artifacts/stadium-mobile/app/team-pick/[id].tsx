@@ -340,7 +340,7 @@ function TeamPickView() {
               />
             ) : null}
             <View style={{ flex: 1, gap: 3 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22, lineHeight: 26 }}>
+              <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, lineHeight: 26 }}>
                 {pickStr}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
@@ -860,7 +860,7 @@ function TotalMatchupView() {
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             <View style={{ flex: 1, gap: 3 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22, lineHeight: 26 }}>
+              <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, lineHeight: 26 }}>
                 {pickStr}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
@@ -1239,7 +1239,7 @@ function MetricTile({
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 9, letterSpacing: 0.5 }}>
         {label}
       </Text>
-      <Text style={{ color: tint, fontFamily: FONT.display, fontSize: 22 }}>{value}</Text>
+      <Text style={{ color: tint, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>{value}</Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }} numberOfLines={1}>
         {caption}
       </Text>
@@ -1298,7 +1298,7 @@ function BreakdownRow({
         <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{label}</Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{sub}</Text>
       </View>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>{value}</Text>
+      <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>{value}</Text>
     </View>
   );
 }

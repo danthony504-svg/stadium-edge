@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { enrichPickMeta, gameSideFromPick, PickCard, type ParsedPick } from "@/components/PickCard";
-import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
+import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader, TABULAR, TYPE } from "@/components/ui";
 import {
   useBetSlip,
   type BetResult,
@@ -210,7 +210,7 @@ function LegRow({
           {leg.market} · {leg.game}
         </Text>
       </View>
-      <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 14 }}>
+      <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 14, ...TABULAR }}>
         {formatAmerican(leg.odds)}
       </Text>
       {onPress ? (
@@ -343,14 +343,14 @@ function SavedSlipCard({
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Badge label={`${slip.legs.length} LEG`} tone="primary" />
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+          <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight, ...TABULAR }}>
             {formatAmerican(slip.combinedOdds)}
           </Text>
         </View>
         <Feather name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
       </Pressable>
 
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 6 }}>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 6, ...TABULAR }}>
         ${slip.stake.toFixed(0)} → ${ret.toFixed(2)} · {new Date(slip.createdAt).toLocaleDateString()}
       </Text>
 
@@ -834,8 +834,8 @@ export default function SlipScreen() {
             <Text
               style={{
                 color: colors.primary,
-                fontFamily: FONT.display,
-                fontSize: 13,
+                ...TYPE.caption,
+                  fontFamily: FONT.bold,
                 letterSpacing: 0.5,
                 marginBottom: 8,
               }}
@@ -905,18 +905,18 @@ export default function SlipScreen() {
             {/* Stake + payout */}
             <View style={{ marginTop: 14, gap: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+                <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
                   Combined odds
                 </Text>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16, ...TABULAR }}>
                   {formatAmerican(combined)}
                 </Text>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+                <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
                   Implied win prob
                 </Text>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, ...TABULAR }}>
                   {(implied * 100).toFixed(1)}%
                 </Text>
               </View>
@@ -939,13 +939,13 @@ export default function SlipScreen() {
                 <Text style={{ color: colors.success, fontFamily: FONT.semibold, fontSize: 14 }}>
                   To win
                 </Text>
-                <Text style={{ color: colors.success, fontFamily: FONT.display, fontSize: 20 }}>
+                <Text style={{ color: colors.success, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, ...TABULAR }}>
                   ${toWin.toFixed(2)}
                 </Text>
               </View>
 
               <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+                <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
                   Stake
                 </Text>
                 <View
@@ -960,7 +960,7 @@ export default function SlipScreen() {
                     paddingHorizontal: 12,
                   }}
                 >
-                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 15 }}>$</Text>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>$</Text>
                   <TextInput
                     value={String(stake)}
                     onChangeText={(t) => setStake(parseInt(t.replace(/[^0-9]/g, ""), 10) || 0)}

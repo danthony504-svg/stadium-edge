@@ -3,7 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { readOtaDebugSnapshot } from "@/lib/otaDebug";
 import { formatOtaLogLines, subscribeOtaLaunchLogs } from "@/lib/otaLaunchLog";
 

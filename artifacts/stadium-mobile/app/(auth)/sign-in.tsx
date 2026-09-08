@@ -12,7 +12,7 @@ import {
   AuthShell,
   PrimaryButton,
 } from "@/components/auth";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   clearBiometricLogin,
@@ -465,7 +465,7 @@ export default function SignInScreen() {
             )}
             <View>
               <Text
-                style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}
+                style={{ fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight, color: colors.foreground }}
               >
                 Sign in with {bioLabel}
               </Text>
@@ -539,7 +539,7 @@ export default function SignInScreen() {
           marginTop: 22,
         }}
       >
-        <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}>
+        <Text style={{ fontFamily: TYPE.secondary.fontFamily, fontSize: TYPE.secondary.fontSize, lineHeight: TYPE.secondary.lineHeight, color: colors.mutedForeground }}>
           New here?{" "}
         </Text>
         <Link href="/sign-up" replace>

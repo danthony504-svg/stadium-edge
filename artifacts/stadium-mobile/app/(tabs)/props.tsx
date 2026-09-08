@@ -24,7 +24,7 @@ import { Avatar, PropRow } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
 import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet";
-import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   fetchPropSimulations,
@@ -1226,7 +1226,7 @@ export default function PropsScreen() {
               })}
             >
               <Feather name="filter" size={15} color={colors.mutedForeground} />
-              <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 13 }}>
+              <Text style={{ color: colors.foreground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
                 Filters
               </Text>
             </Pressable>
@@ -1241,8 +1241,8 @@ export default function PropsScreen() {
             <Text
               style={{
                 color: colors.primary,
-                fontFamily: FONT.display,
-                fontSize: 13,
+                ...TYPE.caption,
+                  fontFamily: FONT.bold,
                 letterSpacing: 0.5,
                 marginBottom: 8,
                 paddingHorizontal: 16,
@@ -1316,8 +1316,8 @@ export default function PropsScreen() {
             <Text
               style={{
                 color: colors.primary,
-                fontFamily: FONT.display,
-                fontSize: 13,
+                ...TYPE.caption,
+                  fontFamily: FONT.bold,
                 letterSpacing: 0.5,
                 marginBottom: 2,
                 paddingHorizontal: 16,
@@ -1585,7 +1585,7 @@ export default function PropsScreen() {
                 {playerResults.map(({ g, players }, gi) => (
                   <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
+                      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }} numberOfLines={1}>
                         {g.gameLabel}
                       </Text>
                       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
@@ -1614,7 +1614,7 @@ export default function PropsScreen() {
             filtered.map((g, gi) => (
               <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }} numberOfLines={1}>
                     {g.gameLabel}
                   </Text>
                   <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
@@ -1649,7 +1649,7 @@ export default function PropsScreen() {
               {loadingMore ? (
                 <ActivityIndicator color={colors.mutedForeground} />
               ) : (
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+                <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
                   Load more games
                 </Text>
               )}

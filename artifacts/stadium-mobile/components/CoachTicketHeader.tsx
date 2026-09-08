@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
@@ -50,7 +50,7 @@ function SummaryStat({
       <Text
         style={{
           color: valueColor ?? colors.foreground,
-          fontFamily: FONT.display,
+          ...TYPE.button, fontFamily: FONT.bold,
           fontSize: 18,
           marginTop: 2,
         }}
@@ -225,8 +225,8 @@ export function CoachTicketHeader({
         <Text
           style={{
             color: colors.primary,
-            fontFamily: FONT.display,
-            fontSize: 13,
+            ...TYPE.caption,
+                  fontFamily: FONT.bold,
             letterSpacing: 0.4,
           }}
         >

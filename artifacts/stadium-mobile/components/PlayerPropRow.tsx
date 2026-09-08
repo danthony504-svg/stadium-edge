@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 
 import { ConfidenceRing } from "@/components/PropVisuals";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { propMarketLabel } from "@/lib/propMarketLabel";

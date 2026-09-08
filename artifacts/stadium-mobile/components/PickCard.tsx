@@ -31,7 +31,7 @@ import {
   pickGradeDisplayLabel,
 } from "@/lib/pickRecommendation";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
-import { FONT } from "@/components/ui";
+import { FONT, TABULAR, TYPE } from "@/components/ui";
 
 export type AltRungOption = {
   side: string;
@@ -205,7 +205,7 @@ function MatchupLine({ game }: { game: string }) {
   const parts = game.split(/\s+@\s+/);
   if (parts.length !== 2) {
     return (
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+      <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
         {game}
       </Text>
     );
@@ -621,10 +621,10 @@ export function EdgeReadout({
             {label}
           </Text>
         </View>
-        <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 26, marginTop: 8 }}>
+        <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 26, marginTop: 8, ...TABULAR }}>
           {value}
           {suffix ? (
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 14 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 14, ...TABULAR }}>
               {suffix}
             </Text>
           ) : null}
@@ -844,7 +844,7 @@ export function PickCard({
               {marketDisplayLabel(pick.market, pick.sport)}
             </Text>
           </View>
-          <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
+          <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22, ...TABULAR }}>
             {formatAmerican(pick.odds)}
           </Text>
         </View>

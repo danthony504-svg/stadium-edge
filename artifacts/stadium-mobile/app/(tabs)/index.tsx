@@ -21,7 +21,7 @@ import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
-import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading, Pill, TABULAR, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -127,7 +127,7 @@ function HomeFeedErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const colors = useColors();
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 32, gap: 12 }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
+      <Text style={{ color: colors.foreground, ...TYPE.button, textAlign: "center" }}>
         Couldn't load this league
       </Text>
       <Text
@@ -343,7 +343,7 @@ function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
             <MaterialCommunityIcons name="cards-playing-outline" size={26} color={colors.primary} />
           </View>
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17 }}>
+            <Text style={{ color: colors.foreground, ...TYPE.button }}>
               Build best parlay
             </Text>
             <Text
@@ -1104,14 +1104,14 @@ function HomeSportFeed({
               <Text
                 style={{
                   color: colors.foreground,
-                  fontFamily: FONT.display,
+                  ...TYPE.button, fontFamily: FONT.bold,
                   fontSize: 16,
                   flex: 1,
                 }}
               >
                 Today&apos;s Performance
               </Text>
-              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+              <Text style={{ color: colors.primary, ...TYPE.secondary, fontFamily: FONT.bold }}>
                 View all
               </Text>
             </View>
@@ -1150,7 +1150,7 @@ function HomeSportFeed({
                       borderLeftColor: colors.border,
                     }}
                   >
-                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
+                    <Text style={{ color: m.tint, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, ...TABULAR }}>{m.val}</Text>
                     <Text
                       style={{
                         color: colors.mutedForeground,
@@ -1202,7 +1202,7 @@ function HomeSportFeed({
               <Text
                 style={{
                   color: colors.foreground,
-                  fontFamily: FONT.display,
+                  ...TYPE.button, fontFamily: FONT.bold,
                   fontSize: 18,
                   marginLeft: 8,
                   flex: 1,
@@ -1215,7 +1215,7 @@ function HomeSportFeed({
                 onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
                 style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
               >
-                <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+                <Text style={{ color: colors.primary, ...TYPE.secondary, fontFamily: FONT.bold }}>
                   View all
                 </Text>
               </Pressable>
@@ -1302,7 +1302,7 @@ function HomeSportFeed({
                           </Text>
                         </View>
                         <View style={{ flex: 1, alignItems: "center", gap: 2, borderLeftWidth: 1, borderLeftColor: colors.border }}>
-                          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+                          <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
                             {hitPct}%
                           </Text>
                           <Text
@@ -1312,7 +1312,7 @@ function HomeSportFeed({
                           </Text>
                         </View>
                         <View style={{ flex: 1, alignItems: "center", gap: 2, borderLeftWidth: 1, borderLeftColor: colors.border }}>
-                          <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 15 }}>
+                          <Text style={{ color: colors.primary, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
                             {formatAmerican(c.price)}
                           </Text>
                           <Text
@@ -1345,7 +1345,7 @@ function HomeSportFeed({
               <Text
                 style={{
                   color: colors.foreground,
-                  fontFamily: FONT.display,
+                  ...TYPE.button, fontFamily: FONT.bold,
                   fontSize: 18,
                   marginLeft: 8,
                   flex: 1,
@@ -1358,7 +1358,7 @@ function HomeSportFeed({
                 onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
                 style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
               >
-                <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+                <Text style={{ color: colors.primary, ...TYPE.secondary, fontFamily: FONT.bold }}>
                   View all
                 </Text>
               </Pressable>
@@ -1464,7 +1464,7 @@ function HomeSportFeed({
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#ef4444" }} />
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+                <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>
                   Live Now
                 </Text>
               </View>
@@ -1599,7 +1599,7 @@ function HomeSportFeed({
             <Text
               style={{
                 color: colors.foreground,
-                fontFamily: FONT.display,
+                ...TYPE.button, fontFamily: FONT.bold,
                 fontSize: 18,
               }}
             >
@@ -1620,8 +1620,8 @@ function HomeSportFeed({
                 <Text
                   style={{
                     color: colors.primaryForeground,
-                    fontFamily: FONT.display,
-                    fontSize: 13,
+                    ...TYPE.caption,
+                  fontFamily: FONT.bold,
                   }}
                 >
                   {displayUpcoming.length}
@@ -1640,8 +1640,8 @@ function HomeSportFeed({
               <Text
                 style={{
                   color: colors.primary,
-                  fontFamily: FONT.display,
-                  fontSize: 14,
+                  ...TYPE.secondary,
+                  fontFamily: FONT.bold,
                 }}
               >
                 View all
@@ -1823,7 +1823,7 @@ function HomeSportFeed({
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+                <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>
                   Upset Watch
                 </Text>
               </View>

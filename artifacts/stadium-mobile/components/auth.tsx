@@ -18,7 +18,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
 // Blue accent used across the auth screens to match the "Welcome back" mockup.
@@ -96,7 +96,7 @@ export function AuthShell({
           />
           <Text
             style={{
-              fontFamily: FONT.display,
+              ...TYPE.button, fontFamily: FONT.bold,
               fontSize: 30,
               color: colors.foreground,
               textAlign: "center",

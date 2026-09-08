@@ -132,7 +132,7 @@ function PlayerRow({
         ) : null}
       </View>
 
-      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15, minWidth: 64, textAlign: "right" }}>
+      <Text style={{ color: colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight, minWidth: 64, textAlign: "right" }}>
         {formatOdds(player.price)}
       </Text>
 
@@ -173,7 +173,7 @@ function TournamentCard({ tournament }: { tournament: GolfTournament }) {
     <Card style={{ marginBottom: 14 }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+          <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>
             {tournament.title}
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>

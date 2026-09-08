@@ -2,7 +2,7 @@ import { Text, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import type { StatMuseGameLog } from "@/lib/api";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 
 // Real game-by-game PERIOD breakdown (e.g. "first quarter points, last 5
 // games"). ESPN game logs only carry full-game totals, so these per-period rows
@@ -53,7 +53,7 @@ export function PeriodGameLogCard({ data }: { data: PeriodGameLogCardData }) {
       <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 10, letterSpacing: 0.5 }}>
         GAME BY GAME
       </Text>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16, marginTop: 2 }}>
+      <Text style={{ color: colors.foreground, ...TYPE.body, fontFamily: FONT.bold, marginTop: 2 }}>
         {player || "Player"}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginBottom: 10 }}>

@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FactorGrid } from "@/components/FactorCards";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -208,11 +208,11 @@ export function TeamPropsSheet({
             borderBottomColor: colors.border,
           }}
         >
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
+          <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>
             Team Props
           </Text>
           <Pressable onPress={onClose} hitSlop={10}>
-            <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 15 }}>Close</Text>
+            <Text style={{ color: colors.primary, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>Close</Text>
           </Pressable>
         </View>
 
@@ -262,7 +262,7 @@ export function TeamPropsSheet({
                 <Image source={{ uri: resolved.logo }} style={{ width: 48, height: 48 }} resizeMode="contain" />
               ) : null}
               <View style={{ flex: 1, gap: 3 }}>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22, lineHeight: 26 }}>
+                <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight, lineHeight: 26 }}>
                   {resolved?.name ?? team}
                 </Text>
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
@@ -505,7 +505,7 @@ function Loading() {
   const colors = useColors();
   return (
     <View style={{ padding: 24, alignItems: "center" }}>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+      <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>
         Loading real team results…
       </Text>
     </View>
@@ -543,7 +543,7 @@ function MetricTile({
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 9, letterSpacing: 0.5 }}>
         {label}
       </Text>
-      <Text style={{ color: tint, fontFamily: FONT.display, fontSize: 22 }}>{value}</Text>
+      <Text style={{ color: tint, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>{value}</Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }} numberOfLines={1}>
         {caption}
       </Text>
@@ -602,7 +602,7 @@ function BreakdownRow({
         <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{label}</Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{sub}</Text>
       </View>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>{value}</Text>
+      <Text style={{ color: colors.foreground, fontFamily: TYPE.playerName.fontFamily, fontSize: TYPE.playerName.fontSize, lineHeight: TYPE.playerName.lineHeight }}>{value}</Text>
     </View>
   );
 }

@@ -5,7 +5,7 @@ import { ActivityIndicator, Text, View } from "react-native";
 
 import { PropRow } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getProps, PROPS_SPORTS, type OddsGame, type PlayerProp } from "@/lib/api";
 
@@ -64,7 +64,7 @@ export function GamePropsSection({ game }: { game: OddsGame }) {
 
   return (
     <View style={{ gap: 10 }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16 }}>
+      <Text style={{ color: colors.foreground, ...TYPE.body, fontFamily: FONT.bold }}>
         Player Props
       </Text>
 

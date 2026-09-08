@@ -3,7 +3,7 @@ import * as Updates from "expo-updates";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { FONT } from "@/components/ui";
+import { FONT, TYPE } from "@/components/ui";
 import { collectOtaFullDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
 
 /**

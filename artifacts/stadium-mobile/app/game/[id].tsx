@@ -15,7 +15,7 @@ import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
-import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
+import { Badge, ErrorState, FONT, Loading, PrimaryButton, TYPE } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisAnalysis, streamChat, tennisMarketsFromGame, type FightAnalysis, type FightFighterDataSource, type OddsGame, type OddsMarket, type TennisAnalysis, type TennisPlayer } from "@/lib/api";
@@ -124,7 +124,7 @@ function MarketBlock({ game, market, decoded }: { game: OddsGame; market: OddsMa
         onPress={() => collapsible && setOpen((o) => !o)}
         style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
       >
-        <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15 }}>{title}</Text>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>{title}</Text>
         {collapsible ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
@@ -191,7 +191,7 @@ function MarketBlock({ game, market, decoded }: { game: OddsGame; market: OddsMa
                 </Text>
               ) : null}
             </View>
-            <Text style={{ color: added ? colors.primary : colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+            <Text style={{ color: added ? colors.primary : colors.foreground, fontFamily: TYPE.button.fontFamily, fontSize: TYPE.button.fontSize, lineHeight: TYPE.button.lineHeight }}>
               {formatAmerican(o.price)}
             </Text>
             <Feather
@@ -325,7 +325,7 @@ function AiGamePicks({ game }: { game: OddsGame }) {
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+        <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, letterSpacing: 0.5 }}>
           ★ AI RECOMMENDED
         </Text>
         {tried && !loading ? (
@@ -402,7 +402,7 @@ function AiGamePicks({ game }: { game: OddsGame }) {
           signal is groundable. */}
       {!loading && picks.length > 0 && picks[0].scores && picks[0].scores.composite != null ? (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.display, fontSize: 11, letterSpacing: 0.5 }}>
+          <Text style={{ color: colors.mutedForeground, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.5 }}>
             TOP PICK GRADE — {picks[0].pick}
           </Text>
           <ScoreBreakdown data={picks[0].scores} variant="full" />
@@ -618,7 +618,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
       }}
     >
       <View style={{ gap: 2 }}>
-        <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+        <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, letterSpacing: 0.5 }}>
           TALE OF THE TAPE
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
@@ -713,7 +713,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
               DATA EDGE
             </Text>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 14 }}>
+            <Text style={{ color: colors.foreground, ...TYPE.secondary, fontFamily: FONT.bold }}>
               {lean.side}
             </Text>
             {lean.upset ? (
@@ -763,7 +763,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
 
       {pre ? (
         <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
-          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+          <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.4 }}>
             PRE-PICK ANALYSIS
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
@@ -791,7 +791,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
 
       {!simReady ? (
         <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+          <Text style={{ color: colors.mutedForeground, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.4 }}>
             10,000-FIGHT SIMULATION
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
@@ -811,7 +811,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
             gap: 6,
           }}
         >
-          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+          <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.4 }}>
             10,000-FIGHT SIMULATION
           </Text>
           <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
@@ -847,7 +847,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
 
       {recs.length > 0 ? (
         <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
-          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+          <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.4 }}>
             QUALITY-FILTERED PLAYS (MONEYLINE ONLY)
           </Text>
           {recs.map((r, i) => (
@@ -997,7 +997,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
           gap: 8,
         }}
       >
-        <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+        <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, letterSpacing: 0.5 }}>
           MATCHUP
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}>
@@ -1131,7 +1131,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
       }}
     >
       <View style={{ gap: 2 }}>
-        <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+        <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, letterSpacing: 0.5 }}>
           MATCHUP
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
@@ -1215,7 +1215,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
               DATA EDGE
             </Text>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 14 }}>
+            <Text style={{ color: colors.foreground, ...TYPE.secondary, fontFamily: FONT.bold }}>
               {lean.side}
             </Text>
             {lean.upset ? (
@@ -1243,7 +1243,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
 
       {pre ? (
         <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
-          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+          <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.4 }}>
             PRE-PICK ANALYSIS
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
@@ -1259,7 +1259,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
 
       {sim && metrics ? (
         <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 6 }}>
-          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+          <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.4 }}>
             10,000-MATCH SIMULATION
           </Text>
           <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
@@ -1280,7 +1280,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
 
       {recs.length > 0 ? (
         <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
-          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+          <Text style={{ color: colors.primary, ...TYPE.caption, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.4 }}>
             QUALITY-FILTERED PLAYS
           </Text>
           {recs.map((r, i) => (
@@ -1387,7 +1387,7 @@ function GameDetailErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const router = useRouter();
   return (
     <View style={{ flex: 1, padding: 24, justifyContent: "center", gap: 12, backgroundColor: colors.background }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
+      <Text style={{ color: colors.foreground, ...TYPE.button, textAlign: "center" }}>
         Couldn't open this game
       </Text>
       {error.message ? (
@@ -1535,7 +1535,7 @@ function GameDetailBody() {
         <ErrorState onRetry={() => oddsQ.refetch()} />
       ) : !game ? (
         <View style={{ padding: 16 }}>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 14 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.secondary.fontFamily, fontSize: TYPE.secondary.fontSize, lineHeight: TYPE.secondary.lineHeight }}>
             This game is no longer available.
           </Text>
         </View>
@@ -1550,17 +1550,17 @@ function GameDetailBody() {
                   onPress={() => setTennisSheet(game.awayTeam)}
                   style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
                 >
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>
                     {game.awayTeam}
                   </Text>
                   <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
                 </Pressable>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>at</Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>at</Text>
                 <Pressable
                   onPress={() => setTennisSheet(game.homeTeam)}
                   style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
                 >
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>
                     {game.homeTeam}
                   </Text>
                   <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
@@ -1568,11 +1568,11 @@ function GameDetailBody() {
               </>
             ) : (
               <>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>
                   {game.awayTeam}
                 </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>at</Text>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                <Text style={{ color: colors.mutedForeground, fontFamily: TYPE.caption.fontFamily, fontSize: TYPE.caption.fontSize, lineHeight: TYPE.caption.lineHeight }}>at</Text>
+                <Text style={{ color: colors.foreground, fontFamily: TYPE.cardTitle.fontFamily, fontSize: TYPE.cardTitle.fontSize, lineHeight: TYPE.cardTitle.lineHeight }}>
                   {game.homeTeam}
                 </Text>
               </>

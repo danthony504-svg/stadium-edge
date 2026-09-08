@@ -10,15 +10,21 @@ import {
 } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
+import { FONT, TYPE, withTabular } from "@/lib/typography";
 
-export const FONT = {
-  display: "Bricolage_800ExtraBold",
-  displaySemi: "Bricolage_600SemiBold",
-  body: "Inter_400Regular",
-  medium: "Inter_500Medium",
-  semibold: "Inter_600SemiBold",
-  bold: "Inter_700Bold",
-} as const;
+export { FONT, TYPE, TABULAR, numType, withTabular } from "@/lib/typography";
+export {
+  DisplayTitle,
+  ScreenTitle,
+  SectionHeaderText,
+  CardTitle,
+  PlayerName,
+  BodyText,
+  SecondaryText,
+  CaptionText,
+  ButtonText,
+  StatValue,
+} from "@/components/Typography";
 
 type FeatherName = ComponentProps<typeof Feather>["name"];
 
@@ -82,8 +88,8 @@ export function Pill({
       <Text
         style={{
           color: active ? colors.primary : colors.mutedForeground,
-          fontFamily: active ? FONT.bold : FONT.medium,
-          fontSize: 13,
+          ...TYPE.caption,
+          fontFamily: active ? FONT.semibold : FONT.medium,
         }}
       >
         {label}
@@ -120,8 +126,8 @@ export function Badge({
       <Text
         style={{
           color: map.fg,
+          fontFamily: FONT.semibold,
           fontSize: 11,
-          fontFamily: FONT.bold,
           letterSpacing: 0.4,
         }}
       >
@@ -170,7 +176,7 @@ export function PrimaryButton({
       ) : (
         <>
           {icon ? <Feather name={icon} size={18} color={colors.primaryForeground} /> : null}
-          <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
+          <Text style={{ color: colors.primaryForeground, ...TYPE.button }}>
             {label}
           </Text>
         </>
@@ -190,9 +196,7 @@ export function SectionHeader({ title, action }: { title: string; action?: React
         marginBottom: 12,
       }}
     >
-      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
-        {title}
-      </Text>
+      <Text style={{ color: colors.foreground, ...TYPE.sectionHeader }}>{title}</Text>
       {action}
     </View>
   );
@@ -224,18 +228,14 @@ export function EmptyState({
       >
         <Feather name={icon} size={24} color={colors.mutedForeground} />
       </View>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
-        {title}
-      </Text>
+      <Text style={{ color: colors.foreground, ...TYPE.cardTitle, fontSize: 17 }}>{title}</Text>
       {subtitle ? (
         <Text
           style={{
             color: colors.mutedForeground,
-            fontFamily: FONT.body,
-            fontSize: 13,
+            ...TYPE.secondary,
             textAlign: "center",
             paddingHorizontal: 32,
-            lineHeight: 19,
           }}
         >
           {subtitle}
@@ -251,9 +251,7 @@ export function Loading({ label }: { label?: string }) {
     <View style={{ alignItems: "center", paddingVertical: 48, gap: 12 }}>
       <ActivityIndicator color={colors.primary} />
       {label ? (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
-          {label}
-        </Text>
+        <Text style={{ color: colors.mutedForeground, ...TYPE.caption }}>{label}</Text>
       ) : null}
     </View>
   );
@@ -267,8 +265,8 @@ export function ErrorState({ onRetry }: { onRetry: () => void }) {
       <Text
         style={{
           color: colors.foreground,
-          fontFamily: FONT.semibold,
-          fontSize: 15,
+          ...TYPE.cardTitle,
+          fontSize: 17,
           textAlign: "center",
         }}
       >
@@ -290,7 +288,7 @@ export function ErrorState({ onRetry }: { onRetry: () => void }) {
         })}
       >
         <Feather name="refresh-cw" size={15} color={colors.foreground} />
-        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
+        <Text style={{ color: colors.foreground, ...TYPE.caption, fontFamily: FONT.semibold }}>
           Retry
         </Text>
       </Pressable>
