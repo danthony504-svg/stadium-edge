@@ -12,6 +12,10 @@ on:
         description: Roll back to embedded bundle before publishing (clears corrupt OTA)
         required: false
         default: "0"
+      runtime_version:
+        description: Optional Expo runtimeVersion override for this run only (blank = use app.json, currently 1.0.0)
+        required: false
+        default: ""
 
 jobs:
   publish:
@@ -35,6 +39,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
+
+      # Runner-local only: never commit/push. Blank/default leaves app.json as checked out (1.0.0).
+      - name: Optionally override Expo runtimeVersion (runner only)
+        if: ${{ github.event.inputs.runtime_version != '' }}
+        working-directory: ${{ github.workspace }}
+        env:
+          RUNTIME_VERSION_OVERRIDE: ${{ github.event.inputs.runtime_version }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "artifacts/stadium-mobile/app.json";
+          const next = process.env.RUNTIME_VERSION_OVERRIDE;
+          if (!next) {
+            console.log("runtime_version empty; leaving app.json unchanged");
+            process.exit(0);
+          }
+          const app = JSON.parse(fs.readFileSync(path, "utf8"));
+          const prev = app.expo.runtimeVersion;
+          app.expo.runtimeVersion = next;
+          fs.writeFileSync(path, JSON.stringify(app, null, 2) + "\n");
+          console.log(
+            `Patched expo.runtimeVersion: ${prev} -> ${next} (runner working tree only; not committed)`
+          );
+          NODE
 
       - name: Verify mobile bundle compiles
         env:
