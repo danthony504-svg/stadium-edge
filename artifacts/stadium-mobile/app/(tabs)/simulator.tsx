@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";

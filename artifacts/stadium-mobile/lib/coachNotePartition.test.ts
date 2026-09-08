@@ -17,14 +17,14 @@ _After the 10k sim, 3 game lines on this ticket use the highest Final AI Score a
 });
 
 test("partitionCoachNotes keeps full-board shortfall visible", () => {
-  const leg = `You asked for **8** legs — only **7** cleared the AI quality bar after every posted market was scanned. No ungraded filler was added.
+  const leg = `Only **7** positive-edge markets were available tonight.
 
 I scanned **840** posted lines across every market on today's real odds — moneylines, spreads, alt spreads, totals, alt totals, player props, periods, halves, quarters, innings, and team totals — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.
 
 **12** main lines and **3** alt lines cleared quality filters — I filled with every qualifying main, then promoted alternate rungs where mains ran out. These **7** are every sim-aligned leg on today's board.`;
   const { shortfall, detail } = partitionCoachNotes(leg);
-  assert.match(shortfall, /asked for \*\*8\*\* legs/i);
-  assert.match(shortfall, /only \*\*7\*\*/i);
+  assert.match(shortfall, /positive-edge markets were available tonight/i);
+  assert.match(shortfall, /Only \*\*7\*\*/i);
   assert.match(detail, /scanned \*\*840\*\*/i);
 });
 
