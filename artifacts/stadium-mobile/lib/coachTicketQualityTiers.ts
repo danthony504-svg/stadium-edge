@@ -1,6 +1,6 @@
 // Tiered quality fallback for Coach fixed-leg tickets — fill to N before shortfall.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { COACH_SIM_MIN_CONFIDENCE, simEvPct } from "./gameSimQualityGates.ts";
 import { gradeFromComposite } from "./propHolisticRecommendation.ts";

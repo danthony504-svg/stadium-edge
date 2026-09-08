@@ -441,3 +441,46 @@ test("buildCoachCardHolistic exposes EV/sim/match/form/injury/market strip witho
   assert.ok(holistic!.factors.some((f) => f.key === "matchup" && f.present));
   assert.ok(holistic!.factors.some((f) => f.key === "recentForm" && f.present));
 });
+
+test("buildCoachCardHolistic shows Injury data unavailable when flagged", () => {
+  const holistic = buildCoachCardHolistic({
+    game: "Fever @ Aces",
+    market: "Assists",
+    pick: "Aliyah Boston Under 2.5 Assists",
+    odds: 134,
+    isProp: true,
+    player: "Aliyah Boston",
+    propSide: "Under",
+    propLine: 2.5,
+    sport: "wnba",
+    injuryDataUnavailable: true,
+    finalAiScore: {
+      composite: 6,
+      grade: "B",
+      confidencePct: 55,
+      edgePct: 2,
+      simHit: 0.52,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: {
+        composite: 6,
+        grade: "B",
+        confidencePct: 55,
+        edgePct: 2,
+        scores: {
+          matchup: 6,
+          trend: 6,
+          lineValue: 6,
+          injury: null,
+          lineShopping: 6,
+          simulation: 6,
+        },
+      },
+    },
+  });
+  assert.ok(holistic);
+  const injury = holistic!.factors.find((f) => f.key === "injury");
+  assert.equal(injury?.display, "Injury data unavailable");
+});

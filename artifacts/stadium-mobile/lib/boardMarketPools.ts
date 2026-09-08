@@ -1,6 +1,6 @@
 // Partition board-scored legs into separate ranked pools for balanced ticket assembly.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { isAltBoardPick, isMainLineGameLeg } from "./altLinePool.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";

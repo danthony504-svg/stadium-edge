@@ -1,6 +1,6 @@
 // Similar-pick matching for the Coach AI Learning panel — uses REAL settled history.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { familyKeyForPick } from "./marketWeighting.ts";
 import {
   isDecidedStatus,

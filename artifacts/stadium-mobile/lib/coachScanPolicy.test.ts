@@ -117,7 +117,7 @@ test("COACH_EXHAUSTIVE_MARKET_LADDER_POLICY documents alt ladder exhaustion", ()
 
 test("COACH_FIXED_LEG_SHORTFALL_LEAD states honest shortfall copy", () => {
   assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /Every qualifying market/i);
-  assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /AI-backed picks/i);
+  assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /positive-edge markets/i);
 });
 
 test("boardScanMatchesLegTarget rejects partial without requestedLegs", () => {
@@ -146,11 +146,10 @@ test("boardScanIsComplete distinguishes partial previews from settled scans", ()
   assert.equal(boardScanIsComplete(null), false);
 });
 
-test("ensureFixedLegShortfallLegNote prepends lead when missing", () => {
-  const out = ensureFixedLegShortfallLegNote("", 9, 7);
-  assert.match(out, /asked for \*\*9\*\* legs/i);
-  assert.match(out, /only \*\*7\*\*/i);
-  const kept = ensureFixedLegShortfallLegNote(out, 9, 7);
+test("ensureFixedLegShortfallLegNote prepends positive-edge shortfall when missing", () => {
+  const out = ensureFixedLegShortfallLegNote("", 15, 4, 4);
+  assert.match(out, /Only \*\*4\*\* positive-edge markets were available tonight/i);
+  const kept = ensureFixedLegShortfallLegNote(out, 15, 4, 4);
   assert.equal(kept, out);
 });
 
