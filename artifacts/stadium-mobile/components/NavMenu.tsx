@@ -3,12 +3,16 @@ import { Feather } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useState } from "react";
-import { Modal, Platform, Pressable, Text, View } from "react-native";
+import { Dimensions, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
+import {
+  accountMenuItem,
+  shouldShowOtaDiagnosticsMenuItem,
+} from "@/lib/navMenuAuth";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
 
@@ -38,9 +42,9 @@ export function NavMenu() {
   const { isSignedIn } = useAuth();
   const [open, setOpen] = useState(false);
 
-  const accountRoute = isSignedIn ? "/account" : "/sign-in";
-  const accountLabel = isSignedIn ? "Account" : "Sign in";
-  const accountIcon: FeatherName = isSignedIn ? "user-check" : "log-in";
+  // Signed-out users always get Sign in at the bottom; signed-in keep Account.
+  const account = accountMenuItem(!!isSignedIn);
+  const showOtaDiagnostics = shouldShowOtaDiagnosticsMenuItem(__DEV__);
 
   const toggle = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -56,6 +60,7 @@ export function NavMenu() {
   };
 
   const panelTop = insets.top + 50;
+  const panelMaxHeight = Math.max(280, Dimensions.get("window").height - panelTop - insets.bottom - 16);
 
   return (
     <>
@@ -112,6 +117,7 @@ export function NavMenu() {
               top: panelTop,
               left: 16,
               width: 220,
+              maxHeight: panelMaxHeight,
               backgroundColor: colors.card,
               borderRadius: 16,
               borderWidth: 1,
@@ -122,14 +128,87 @@ export function NavMenu() {
               shadowRadius: 16,
               shadowOffset: { width: 0, height: 8 },
               elevation: 12,
+              overflow: "hidden",
             }}
           >
-            {DESTINATIONS.map((d) => {
-              const active = isActive(pathname, d.route);
-              return (
+            <ScrollView
+              bounces={false}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: panelMaxHeight - 16 }}
+            >
+              {DESTINATIONS.map((d) => {
+                const active = isActive(pathname, d.route);
+                return (
+                  <Pressable
+                    key={d.route}
+                    onPress={() => go(d.route)}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      backgroundColor: pressed ? colors.background : "transparent",
+                    })}
+                  >
+                    <Feather
+                      name={d.icon}
+                      size={18}
+                      color={active ? colors.primary : colors.mutedForeground}
+                    />
+                    <Text
+                      style={{
+                        flex: 1,
+                        color: active ? colors.foreground : colors.mutedForeground,
+                        fontFamily: active ? FONT.semibold : FONT.medium,
+                        fontSize: 15,
+                      }}
+                    >
+                      {d.label}
+                    </Text>
+                    {d.route === "/slip" && legs.length > 0 ? (
+                      <View
+                        style={{
+                          minWidth: 20,
+                          height: 20,
+                          borderRadius: 10,
+                          paddingHorizontal: 6,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: colors.primary,
+                        }}
+                      >
+                        <Text style={{ color: "#020617", fontFamily: FONT.bold, fontSize: 11 }}>
+                          {legs.length}
+                        </Text>
+                      </View>
+                    ) : active ? (
+                      <View
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: colors.primary,
+                        }}
+                      />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+
+              {/* Account / Sign in — always last in production (OTA debug is __DEV__ only). */}
+              <View
+                style={{
+                  height: 1,
+                  backgroundColor: colors.border,
+                  marginVertical: 6,
+                  marginHorizontal: 12,
+                }}
+              />
+              {isSignedIn ? (
                 <Pressable
-                  key={d.route}
-                  onPress={() => go(d.route)}
+                  onPress={() => go("/notifications")}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",
@@ -140,62 +219,60 @@ export function NavMenu() {
                   })}
                 >
                   <Feather
-                    name={d.icon}
+                    name="bell"
                     size={18}
-                    color={active ? colors.primary : colors.mutedForeground}
+                    color={
+                      isActive(pathname, "/notifications") ? colors.primary : colors.mutedForeground
+                    }
                   />
                   <Text
                     style={{
                       flex: 1,
-                      color: active ? colors.foreground : colors.mutedForeground,
-                      fontFamily: active ? FONT.semibold : FONT.medium,
+                      color: isActive(pathname, "/notifications")
+                        ? colors.foreground
+                        : colors.mutedForeground,
+                      fontFamily: FONT.medium,
                       fontSize: 15,
                     }}
                   >
-                    {d.label}
+                    Notifications
                   </Text>
-                  {d.route === "/slip" && legs.length > 0 ? (
-                    <View
-                      style={{
-                        minWidth: 20,
-                        height: 20,
-                        borderRadius: 10,
-                        paddingHorizontal: 6,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: colors.primary,
-                      }}
-                    >
-                      <Text style={{ color: "#020617", fontFamily: FONT.bold, fontSize: 11 }}>
-                        {legs.length}
-                      </Text>
-                    </View>
-                  ) : active ? (
-                    <View
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: 3,
-                        backgroundColor: colors.primary,
-                      }}
-                    />
-                  ) : null}
                 </Pressable>
-              );
-            })}
-
-            {/* Account / sign-in — auth is optional, shown at the bottom */}
-            <View
-              style={{
-                height: 1,
-                backgroundColor: colors.border,
-                marginVertical: 6,
-                marginHorizontal: 12,
-              }}
-            />
-            {isSignedIn ? (
+              ) : null}
+              {showOtaDiagnostics ? (
+                <Pressable
+                  onPress={() => go("/ota-debug")}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    backgroundColor: pressed ? colors.background : "transparent",
+                  })}
+                >
+                  <Feather
+                    name="info"
+                    size={18}
+                    color={isActive(pathname, "/ota-debug") ? colors.primary : colors.mutedForeground}
+                  />
+                  <Text
+                    style={{
+                      flex: 1,
+                      color: isActive(pathname, "/ota-debug")
+                        ? colors.foreground
+                        : colors.mutedForeground,
+                      fontFamily: FONT.medium,
+                      fontSize: 15,
+                    }}
+                  >
+                    OTA Diagnostics
+                  </Text>
+                </Pressable>
+              ) : null}
               <Pressable
-                onPress={() => go("/notifications")}
+                onPress={() => go(account.route)}
+                accessibilityLabel={account.label}
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "center",
@@ -206,82 +283,24 @@ export function NavMenu() {
                 })}
               >
                 <Feather
-                  name="bell"
+                  name={account.icon}
                   size={18}
-                  color={isActive(pathname, "/notifications") ? colors.primary : colors.mutedForeground}
+                  color={isActive(pathname, account.route) ? colors.primary : colors.mutedForeground}
                 />
                 <Text
                   style={{
                     flex: 1,
-                    color: isActive(pathname, "/notifications")
+                    color: isActive(pathname, account.route)
                       ? colors.foreground
                       : colors.mutedForeground,
                     fontFamily: FONT.medium,
                     fontSize: 15,
                   }}
                 >
-                  Notifications
+                  {account.label}
                 </Text>
               </Pressable>
-            ) : null}
-            <Pressable
-              onPress={() => go("/ota-debug")}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                backgroundColor: pressed ? colors.background : "transparent",
-              })}
-            >
-              <Feather
-                name="info"
-                size={18}
-                color={isActive(pathname, "/ota-debug") ? colors.primary : colors.mutedForeground}
-              />
-              <Text
-                style={{
-                  flex: 1,
-                  color: isActive(pathname, "/ota-debug")
-                    ? colors.foreground
-                    : colors.mutedForeground,
-                  fontFamily: FONT.medium,
-                  fontSize: 15,
-                }}
-              >
-                OTA Diagnostics
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => go(accountRoute)}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                backgroundColor: pressed ? colors.background : "transparent",
-              })}
-            >
-              <Feather
-                name={accountIcon}
-                size={18}
-                color={isActive(pathname, accountRoute) ? colors.primary : colors.mutedForeground}
-              />
-              <Text
-                style={{
-                  flex: 1,
-                  color: isActive(pathname, accountRoute)
-                    ? colors.foreground
-                    : colors.mutedForeground,
-                  fontFamily: FONT.medium,
-                  fontSize: 15,
-                }}
-              >
-                {accountLabel}
-              </Text>
-            </Pressable>
+            </ScrollView>
           </View>
         </Pressable>
       </Modal>
