@@ -115,63 +115,58 @@ test("boardScanAppliesToRequest rejects stale requestId", () => {
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-15"), true);
 });
 
-test("a valid delivered five-leg ticket completes despite a missing or stale final scan", () => {
+test("requested five, delivered five completes and clears loading despite a stale final scan", () => {
   const ticket = wnbaBoard().slice(0, 5).map((row) => row.pick);
-  assert.equal(
+  assert.deepEqual(
     deliveredBoardTicketTerminalState({
       ticket,
       ticketWasDelivered: true,
+      requestedLegs: 5,
       sendGeneration: 7,
       activeSendGeneration: 7,
     }),
-    "complete",
+    { outcome: "complete", clearLoading: true },
   );
 });
 
-test("a valid delivered ticket takes the terminal completion path", () => {
-  const ticket = wnbaBoard().slice(0, 5).map((row) => row.pick);
-  const terminalState = deliveredBoardTicketTerminalState({
-    ticket,
+test("requested five, delivered four reports insufficient picks and clears loading", () => {
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 4).map((row) => row.pick),
     ticketWasDelivered: true,
+    requestedLegs: 5,
     sendGeneration: 7,
     activeSendGeneration: 7,
-  });
-  assert.equal(terminalState, "complete");
-  // The caller clears waiting, streaming, and buildFinishing for "complete".
-  assert.notEqual(terminalState, "no-ticket");
+  }), { outcome: "insufficient-picks", clearLoading: true });
 });
 
-test("an invalid or absent ticket cannot report successful completion", () => {
-  assert.equal(
-    deliveredBoardTicketTerminalState({
-      ticket: [],
-      ticketWasDelivered: true,
-      sendGeneration: 7,
-      activeSendGeneration: 7,
-    }),
-    "no-ticket",
-  );
-  assert.equal(
-    deliveredBoardTicketTerminalState({
-      ticket: wnbaBoard().slice(0, 5).map((row) => row.pick),
-      ticketWasDelivered: false,
-      sendGeneration: 7,
-      activeSendGeneration: 7,
-    }),
-    "no-ticket",
-  );
+test("requested five, delivered one cannot report success", () => {
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 1).map((row) => row.pick),
+    ticketWasDelivered: true,
+    requestedLegs: 5,
+    sendGeneration: 7,
+    activeSendGeneration: 7,
+  }), { outcome: "insufficient-picks", clearLoading: true });
+});
+
+test("requested five, delivered six cannot report success", () => {
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 6).map((row) => row.pick),
+    ticketWasDelivered: true,
+    requestedLegs: 5,
+    sendGeneration: 7,
+    activeSendGeneration: 7,
+  }), { outcome: "invalid-ticket-size", clearLoading: true });
 });
 
 test("a stale request generation cannot complete a newer request", () => {
-  assert.equal(
-    deliveredBoardTicketTerminalState({
-      ticket: wnbaBoard().slice(0, 5).map((row) => row.pick),
-      ticketWasDelivered: true,
-      sendGeneration: 7,
-      activeSendGeneration: 8,
-    }),
-    "stale-request",
-  );
+  assert.deepEqual(deliveredBoardTicketTerminalState({
+    ticket: wnbaBoard().slice(0, 5).map((row) => row.pick),
+    ticketWasDelivered: true,
+    requestedLegs: 5,
+    sendGeneration: 7,
+    activeSendGeneration: 8,
+  }), { outcome: "stale-request", clearLoading: false });
 });
 
 test("finalizeCoachTicketForRequest rejects prefix then accepts independent ticket", () => {

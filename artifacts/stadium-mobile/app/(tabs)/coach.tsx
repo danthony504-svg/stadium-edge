@@ -1595,7 +1595,7 @@ export default function CoachScreen() {
         enrich,
         legTarget,
       });
-      if (ticket.length && deliverCoachTicket(ticket, legNote)) return true;
+      if (ticket.length === legTarget && deliverCoachTicket(ticket, legNote)) return true;
       if (boardScanIsComplete(scan)) {
         return patchInstantBoardScanTicket(scan, enrich, { ticketLegTarget: legTarget });
       }
@@ -3019,6 +3019,7 @@ export default function CoachScreen() {
           const deliveredTicketState = deliveredBoardTicketTerminalState({
             ticket: boardTicketSnapshotRef.current,
             ticketWasDelivered: kernelParlayDelivered || liveScanDeliveredRef.current,
+            requestedLegs: kernelLegTarget,
             sendGeneration: sendGen,
             activeSendGeneration: sendGenerationRef.current,
           });
@@ -3026,7 +3027,7 @@ export default function CoachScreen() {
             !boardTicketSnapshotRef.current?.length ||
             (finalScan != null && boardScanReadyForDelivery(finalScan, kernelLegTarget));
           if (
-            deliveredTicketState === "complete" ||
+            deliveredTicketState.clearLoading ||
             (
               (freshBoardScanComplete || kernelParlayDelivered) &&
               boardTicketSnapshotRef.current?.length &&
