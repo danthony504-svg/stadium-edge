@@ -1,6 +1,6 @@
 // Per-request Coach ticket lifecycle — isolate leg count, cache keys, and traces.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { parlayLegKey, rememberParlayBuild, type CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
@@ -177,6 +177,19 @@ export function finalizeCoachTicketForRequest(
   return { ok: true, picks };
 }
 
+/** True when the live Coach request still owns this requestId + generation. */
+export function coachRequestIsActive(
+  requestId: string | null | undefined,
+  sendGeneration: number,
+  activeRequestId: string | null | undefined,
+  activeSendGeneration: number,
+): boolean {
+  if (!requestId || !activeRequestId) return false;
+  if (requestId !== activeRequestId) return false;
+  if (sendGeneration !== activeSendGeneration) return false;
+  return true;
+}
+
 /** Guards partial/final scan delivery against stale generation or wrong leg count. */
 export function boardScanAppliesToRequest(
   scan:
@@ -188,13 +201,14 @@ export function boardScanAppliesToRequest(
     | null
     | undefined,
   legTarget: number,
-  sendGeneration: number,
+  expectedSendGeneration: number,
   activeSendGeneration: number,
   activeRequestId?: string | null,
 ): boolean {
   if (!scan?.picks?.length || legTarget <= 0) return false;
-  if (sendGeneration !== activeSendGeneration) return false;
-  if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) return false;
+  if (expectedSendGeneration !== activeSendGeneration) return false;
+  if (!activeRequestId) return false;
+  if (!scan.requestId || scan.requestId !== activeRequestId) return false;
   return boardScanMatchesLegTarget(scan, legTarget);
 }
 

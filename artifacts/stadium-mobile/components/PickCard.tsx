@@ -26,6 +26,10 @@ import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
 import {
+  coachPickDisplayGrade,
+  coachPickIsDelivered,
+} from "@/lib/coachDeliveredPickAnalysis";
+import {
   NOT_AI_RECOMMENDED,
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
@@ -33,95 +37,9 @@ import {
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
-export type AltRungOption = {
-  side: string;
-  line: number;
-  odds: number;
-  pick: string;
-  market?: string;
-  simMetrics?: {
-    winProb: number;
-    edgePct: number;
-    evPct: number;
-    confidencePct: number;
-    grade: string;
-  };
-};
+import type { AltRungOption, ParsedPick, SimAltLine, SimAltTierLabel } from "@/lib/parsedPick";
 
-export type SimAltTierLabel = "Safest" | "Best" | "Best Value" | "High Risk";
-
-/** A quality-filtered alt rung labeled after the 10k sim completes. */
-export type SimAltLine = AltRungOption & {
-  tierLabel: SimAltTierLabel;
-};
-
-export type ParsedPick = {
-  game: string;
-  market: string;
-  pick: string;
-  odds: number;
-  edge?: string;
-  sport?: string;
-  isProp?: boolean;
-  // Real ESPN scheduled kickoff/tipoff (ISO). Render-only — shown as a local
-  // date + time on the card so each leg names when its game starts.
-  startsAt?: string | null;
-  // Render-only (real ESPN data). headshot = player photo for prop legs;
-  // teamLogo/teamAbbr = the picked team for game-level legs.
-  headshot?: string | null;
-  teamLogo?: string | null;
-  teamAbbr?: string | null;
-  // Game totals name no single team, so they carry BOTH teams' real logos/codes
-  // for a matchup-style avatar + subtitle ("NYM @ SEA · TOTAL").
-  awayLogo?: string | null;
-  homeLogo?: string | null;
-  awayAbbr?: string | null;
-  homeAbbr?: string | null;
-  // Real alternate rungs for a prop leg (same player+market+side, REAL posted
-  // lines + odds from the pool — never invented). cushion = the nearest SAFER
-  // rung (more juice), value = the nearest HIGHER-PAYOUT rung. highConfidence =
-  // highest-confidence alt from 10k sim. Tappable: each chip adds/removes that
-  // exact rung as its own slip leg. `pick` is the full slip pick-string for the
-  // rung (same format as the main leg, line swapped).
-  // `market` lets a rung carry its OWN market label (e.g. a game leg's "Best" is
-  // a "Spread" while its "Safe" rung is an "Alt Spread") so the slip leg key and
-  // dedupe stay correct. Omitted for prop rungs, which share the parent's market.
-  altOptions?: {
-    cushion?: AltRungOption;
-    value?: AltRungOption;
-    highConfidence?: AltRungOption;
-  };
-  /** 10k-sim alt lines that passed quality filters — labeled Safest / Best Value / etc. */
-  simAltLines?: SimAltLine[];
-  // Render-only prop metadata used to open the prop detail page. Carried on
-  // AI-recommended prop cards so a tap can fetch the player's REAL game log and
-  // show the line/side. Never affects the slip leg key (game/market/pick do).
-  athleteId?: string | null;
-  player?: string;
-  propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
-  propLine?: number | null;
-  propSide?: string; // "Over" | "Under" | "Yes"
-  // True while a server-side Monte Carlo run is still refining this prop leg's
-  // simulation sub-score. Picks render immediately; the grade updates when done.
-  simulationPending?: boolean;
-  // The 5-component pick rubric (Matchup / Trend / Line Value / Injury /
-  // Line-Shopping) rolled into AI Grade + Confidence + Edge. Attached at resolve
-  // time ONLY when real scoring inputs are available (see lib/pickScoreContext);
-  // every sub-score is nullable and the compact breakdown is shown in place of
-  // the prose-derived EdgeReadout when present. Omitted entirely when no signal
-  // grounds — the card then falls back to the existing readout. Never fabricated.
-  scores?: CombinedPickScore | null;
-  /** Unified Final AI Score (simulation + rubric); shared by Coach and Simulator. */
-  finalAiScore?: import("@/lib/finalAiScore").FinalAiScore | null;
-  /** Sim disagrees but edge ≥ HIGH_RISK_EDGE_MIN — shown with warning badge. */
-  highRiskValuePlay?: boolean;
-  /** Main-board leg vs alt rung promoted to fill a reach-N ticket. */
-  ticketRole?: "main" | "alt";
-  /** Quality tier used when this leg filled a fixed-leg ticket below strict AI gates. */
-  coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
-  /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
-  propIsAlt?: boolean;
-};
+export type { AltRungOption, ParsedPick, SimAltLine, SimAltTierLabel };
 
 if (
   Platform.OS === "android" &&
@@ -716,6 +634,7 @@ export function PickCard({
   };
   const isAltLeg = pickShowsAltBadge(pick);
   const cardBadge = isAltLeg ? altPickBadge : badge;
+  const coachDelivered = coachPickIsDelivered(pick);
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
   // FULL team name (multi-word national teams) on a 3-way line, so "Canada -0.5"
@@ -900,8 +819,10 @@ export function PickCard({
 
       <LineLadder pick={pick} />
 
-      {hideReadout ? null : pick.scores ||
+      {hideReadout ? null : coachDelivered ||
+      pick.scores ||
       pick.finalAiScore?.rubric ||
+      pick.finalAiScore?.simHit != null ||
       ((pick.isProp || pick.player) &&
         (pick.finalAiScore?.simHit != null || pick.finalAiScore?.propHolistic)) ? (
         <ScoreBreakdown
@@ -927,24 +848,31 @@ export function PickCard({
           }}
           variant="compact"
           pick={pick}
-          propHolistic={
-            pick.isProp || pick.player ? buildCoachCardHolistic(pick) : undefined
-          }
+          propHolistic={buildCoachCardHolistic(pick) ?? pick.finalAiScore?.propHolistic ?? undefined}
           simulationPending={pick.simulationPending}
           simGradePending={
-            marketSupportsSimulation(pick.market ?? "", pick) &&
-            !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+            coachDelivered
+              ? false
+              : marketSupportsSimulation(pick.market ?? "", pick) &&
+                !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
           }
           gradeLabel={
-            marketSupportsSimulation(pick.market ?? "", pick)
+            coachDelivered
+              ? coachPickDisplayGrade(pick, pick.finalAiScore) ??
+                pick.finalAiScore?.grade ??
+                pick.scores?.grade ??
+                undefined
+              : marketSupportsSimulation(pick.market ?? "", pick)
               ? pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
                 ? (pickGradeDisplayLabel(pick, pick.finalAiScore) ?? NOT_AI_RECOMMENDED)
                 : undefined
               : undefined
           }
           gradeCaption={
-            marketSupportsSimulation(pick.market ?? "", pick) &&
-            !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+            coachDelivered
+              ? pickGradeDisplayCaption(pick, pick.finalAiScore)
+              : marketSupportsSimulation(pick.market ?? "", pick) &&
+                !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
               ? undefined
               : pickGradeDisplayCaption(pick, pick.finalAiScore)
           }
