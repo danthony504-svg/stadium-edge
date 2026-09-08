@@ -3,7 +3,7 @@
 // prop alt ladder rung is scored on the same 10k draw; qualifying lines are
 // labeled Safest / Best / Best Value / High Risk and ranked for display.
 
-import type { ParsedPick, SimAltLine, SimAltTierLabel } from "../components/PickCard.tsx";
+import type { ParsedPick, SimAltLine, SimAltTierLabel } from "./parsedPick.ts";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {

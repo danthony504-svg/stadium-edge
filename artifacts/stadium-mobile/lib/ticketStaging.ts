@@ -1,6 +1,6 @@
 // Step 2: fill with highest-rated mains. Step 3: qualifying alts to reach N.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { isAltBoardPick, isAltPropPick, isMainBoardPick, ticketRoleForPick } from "./altLinePool.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
@@ -399,7 +399,7 @@ export function buildStagedTicketFromScan(
     ...p,
     ticketRole: "main" as const,
   }));
-  let allPicks = [...mainPicks];
+  let allPicks: ParsedPick[] = [...mainPicks];
   const used = new Set(allPicks.map(pickLegFingerprint));
   const altPool = alts.filter((l) => !used.has(pickLegFingerprint(l.pick)));
 
