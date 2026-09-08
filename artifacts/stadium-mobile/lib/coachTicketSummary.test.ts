@@ -41,7 +41,7 @@ test("summarizeCoachTicket counts picks and game lines", () => {
   assert.equal(s.pickCount, 2);
   assert.equal(s.gameLineCount, 1);
   assert.equal(s.simulations, 10_000);
-  assert.equal(s.avgConfidence, 60);
+  assert.equal(s.avgConfidence, 66);
   assert.equal(s.avgEdge, 3.6);
   assert.equal(s.gameLines.length, 1);
   assert.equal(s.gameLines[0].grade, "B+");
@@ -73,6 +73,27 @@ test("dedupeTicketGameLines keeps one team-sided line per game", () => {
   const s = summarizeCoachTicket(picks);
   assert.equal(s.gameLineCount, 1);
   assert.equal(s.gameLines[0].pick.pick, "Braves -1");
+});
+
+test("summarizeCoachTicket aligns avg confidence with composite grade", () => {
+  const picks = Array.from({ length: 4 }, (_, i) => ({
+    game: `A${i} @ B${i}`,
+    market: "Spread",
+    pick: `Team ${i}`,
+    odds: -110,
+    sport: "mlb",
+    isProp: false,
+    finalAiScore: {
+      grade: "C+",
+      confidencePct: 33,
+      edgePct: 2,
+      simHit: 0.54,
+      composite: 6.2,
+    },
+  }));
+  const s = summarizeCoachTicket(picks);
+  assert.equal(s.overallGrade, "C+");
+  assert.ok((s.avgConfidence ?? 0) >= 52, `expected C+ aligned confidence, got ${s.avgConfidence}`);
 });
 
 test("summarizeCoachTicket omits blank avg stats", () => {

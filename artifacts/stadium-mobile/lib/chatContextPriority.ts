@@ -3,7 +3,7 @@
 // expo/fetch and can't load in a plain Node test) so the prioritization that
 // guards player game logs on busy slates can be unit-tested in isolation.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { PropPoolEntry } from "./api.ts";
 
 // Sport keywords used to focus the chat realOdds context on the league(s) the

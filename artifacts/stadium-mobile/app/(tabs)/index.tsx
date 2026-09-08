@@ -23,7 +23,7 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
+import { markCoachHomeLaunch, markCoachIdleReset } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -305,6 +305,15 @@ function BaseballMiniPanel() {
       </View>
     </View>
   );
+}
+
+/** Home "Build best parlay" — navigate to idle Coach (no auto-send, clear stale builds). */
+function navigateToCoachIdle(router: ReturnType<typeof useRouter>) {
+  markCoachIdleReset();
+  router.push({
+    pathname: "/coach",
+    params: { ts: String(Date.now()) },
+  });
 }
 
 /** Premium parlay CTA card — opens Coach for a new AI parlay. */
@@ -1015,8 +1024,8 @@ function HomeSportFeed({
         }
       >
 
-        {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
+        {/* Static hero — opens idle Coach; user types and sends when ready. */}
+        <BuildBestParlayHero onPress={() => navigateToCoachIdle(router)} />
 
         {/* Quick actions — four shortcut cards in a single row. */}
         <View
@@ -2075,17 +2084,7 @@ export default function HomeScreen() {
             width={width}
             slipClearance={slipClearance}
             bottomInset={insets.bottom}
-            onBuildParlay={() => {
-              markCoachHomeLaunch();
-              router.push({
-                pathname: "/coach",
-                params: {
-                  autoMsg: "Build me the best parlay",
-                  send: "1",
-                  ts: String(Date.now()),
-                },
-              });
-            }}
+            onBuildParlay={() => navigateToCoachIdle(router)}
           />
         </ErrorBoundary>
       ) : (
