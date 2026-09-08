@@ -107,6 +107,35 @@ const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
   nhl: ["player_points_alternate", "player_assists_alternate", "player_shots_on_goal_alternate"],
 };
 
+// Narrowed market list retried when the FULL base batch fails (see
+// loadBaseOdds below). The default is the first four entries of the sport's
+// list, which stays balanced for basketball/baseball because their lists open
+// with four different stat families. Football does NOT: both football lists
+// open with four passing markets, so the positional default degraded a failed
+// fetch into a passing-only board and silently dropped every rushing and
+// receiving prop. These overrides pin one market per stat family instead.
+// Keys here must exist in MARKETS_BY_SPORT for the same sport and are verified
+// against the live provider — NCAAF posts no player_receptions, so its fourth
+// slot is passing TDs (which the Monte Carlo can actually simulate) rather than
+// anytime TD (which has no stat mapping).
+const CORE_MARKETS_BY_SPORT: Record<string, string[]> = {
+  nfl: ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
+  ncaaf: ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_pass_tds"],
+};
+
+/**
+ * Markets to retry when the full base batch fails. Falls back to the leading
+ * slice for sports without an explicit balanced core.
+ */
+export function coreMarketsForSport(sport: string, markets: string[]): string[] {
+  const override = CORE_MARKETS_BY_SPORT[sport];
+  // Require the WHOLE override to be posted for this sport. Accepting a partial
+  // match could hand back a single-family list again, which is the very failure
+  // this map exists to prevent.
+  if (override?.every((m) => markets.includes(m))) return override;
+  return markets.slice(0, Math.min(4, markets.length));
+}
+
 type RawEventOdds = {
   home_team?: string;
   away_team?: string;
@@ -405,7 +434,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       return (await r.json()) as RawEventOdds;
     };
 
-    const coreMarkets = markets.slice(0, Math.min(4, markets.length));
+    const coreMarkets = coreMarketsForSport(sport, markets);
     const loadBaseOdds = async () => {
       try {
         return await cachedJson<RawEventOdds>(`props:${oddsKey}:${effectiveEventId}`, 5 * 60 * 1000, () =>
