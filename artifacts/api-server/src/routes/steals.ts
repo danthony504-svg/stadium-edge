@@ -60,6 +60,8 @@ async function loadLedger(): Promise<{
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    if (stack) console.error(`[live-steals] ledger load failed:\n${stack}`);
     return {
       record: EMPTY_RECORD,
       history: [],
@@ -80,6 +82,39 @@ function feedStatusFromDiagnostics(
   };
 }
 
+function scanErrorPayload(err: unknown, routeStarted: number): {
+  feed: StealFeedDiagnostics;
+  scanError: {
+    message: string;
+    failedStage: string | null;
+    scanStages: StealFeedDiagnostics["scanStages"];
+  };
+} {
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  const feed: StealFeedDiagnostics =
+    err instanceof StealFeedScanError
+      ? err.diagnostics
+      : emptyStealFeedDiagnostics({
+          responseTimeMs: Date.now() - routeStarted,
+          errorReason: message,
+        });
+
+  return {
+    feed: {
+      ...feed,
+      errorReason: feed.errorReason ?? message,
+      responseTimeMs: Date.now() - routeStarted,
+    },
+    scanError: {
+      message,
+      failedStage:
+        feed.failedStage ?? (err instanceof StealFeedScanError ? err.failedStage ?? null : null),
+      scanStages: feed.scanStages ?? [],
+    },
+  };
+}
+
 router.get("/sports/live-steals", async (req, res): Promise<void> => {
   const routeStarted = Date.now();
   const ledger = await loadLedger();
@@ -87,12 +122,16 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
   try {
     const scan = await fetchStealsWithMeta();
     await persistSteals(scan.steals).catch((err) => {
-      req.log.warn({ err }, "live-steals persist failed — continuing with scan results");
+      const stack = err instanceof Error ? err.stack : undefined;
+      req.log.warn({ err, stack }, "live-steals persist failed — continuing with scan results");
     });
 
     if (Date.now() - lastGradeAt > GRADE_THROTTLE_MS) {
       lastGradeAt = Date.now();
-      gradePending().catch(() => {});
+      gradePending().catch((err) => {
+        const stack = err instanceof Error ? err.stack : undefined;
+        req.log.warn({ err, stack }, "live-steals gradePending failed");
+      });
     }
 
     const feed = feedStatusFromDiagnostics(scan.feed, 200);
@@ -105,6 +144,7 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
         marketsChecked: scan.meta.marketsChecked,
         stealsFound: scan.meta.stealsFound,
         ledgerError: ledger.ledgerError,
+        scanStages: scan.feed.scanStages?.map((s) => ({ stage: s.stage, count: s.count, ok: s.ok })),
       },
       "live-steals scan ok",
     );
@@ -121,24 +161,23 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
       ledgerError: ledger.ledgerError,
     });
   } catch (err) {
-    const feed: StealFeedDiagnostics =
-      err instanceof StealFeedScanError
-        ? err.diagnostics
-        : emptyStealFeedDiagnostics({
-            responseTimeMs: Date.now() - routeStarted,
-            errorReason: err instanceof Error ? err.message : String(err),
-          });
+    const stack = err instanceof Error ? err.stack : undefined;
+    const { feed, scanError } = scanErrorPayload(err, routeStarted);
 
-    req.log.warn(
+    req.log.error(
       {
         err,
+        stack,
+        scanError,
         feed,
         responseTimeMs: Date.now() - routeStarted,
         ledgerError: ledger.ledgerError,
       },
-      "live-steals odds feed unavailable",
+      "live-steals scan failed",
     );
 
+    // Always 200 with structured diagnostics — never a bare HTTP 502 without detail.
+    // Mobile client surfaces feed.errorReason + scanError.failedStage to the user.
     res.status(200).json({
       steals: [],
       almostQualified: [],
@@ -149,6 +188,7 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
       feedDegraded: true,
       feed: feedStatusFromDiagnostics(feed, 200),
       ledgerError: ledger.ledgerError,
+      scanError,
     });
   }
 });
