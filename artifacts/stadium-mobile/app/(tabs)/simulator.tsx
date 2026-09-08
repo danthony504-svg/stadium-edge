@@ -275,7 +275,7 @@ function asPropList(data: unknown): PlayerProp[] {
     : [];
 }
 
-function asParkList(data: unknown): Array<{ homeTeam: string; current: { tempF: number; condition: string }; impact?: { rating?: string } }> {
+function asParkList(data: unknown): { homeTeam: string; current: { tempF: number; condition: string }; impact?: { rating?: string } }[] {
   return Array.isArray(data) ? data : [];
 }
 
@@ -655,11 +655,11 @@ export default function SimulatorScreen() {
     );
   }, [game, parkQ.data]);
 
-  const weatherImpact = weatherForGame?.climateControlled
+  const weatherImpact = (weatherForGame as { climateControlled?: boolean } | null)?.climateControlled
     ? null
     : weatherImpactFromRating(weatherForGame?.impact?.rating);
   const weatherLabel = weatherSettingLabel({
-    climateControlled: weatherForGame?.climateControlled,
+    climateControlled: (weatherForGame as { climateControlled?: boolean } | null)?.climateControlled,
     venue: game?.venue,
     tempF: weatherForGame?.current?.tempF ?? null,
     condition: weatherForGame?.current?.condition ?? null,
@@ -856,7 +856,13 @@ export default function SimulatorScreen() {
             awayTeam: game.awayTeam,
             simulations: SIM_COUNT,
             weatherImpact: wx,
-            coverQueries,
+            coverQueries: coverQueries as {
+              id: string;
+              kind: "ml" | "spread" | "total" | "teamTotal";
+              teamSide?: "home" | "away";
+              line?: number;
+              totalSide?: "over" | "under";
+            }[],
             retainOutcomes: true,
           });
           if (gr) {

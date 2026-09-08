@@ -42,7 +42,7 @@ export type SlatePreAnalysisSnapshot = {
   at: number;
   fingerprint: string;
   built: BuiltChatContext;
-  propSimulations: Array<[string, { hitProbability: number | null }]>;
+  propSimulations: [string, { hitProbability: number | null }][];
   boardScan: SerializedBoardScan | null;
   tickets?: SlateTicketsIndex | null;
   activeSports?: string[];

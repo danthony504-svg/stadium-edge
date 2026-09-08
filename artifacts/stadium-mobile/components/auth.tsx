@@ -302,7 +302,7 @@ function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: strin
 function describeSsoError(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as {
-      errors?: Array<{ code?: string; message?: string; longMessage?: string }>;
+      errors?: { code?: string; message?: string; longMessage?: string }[];
       message?: string;
     };
     const first = e.errors?.[0];

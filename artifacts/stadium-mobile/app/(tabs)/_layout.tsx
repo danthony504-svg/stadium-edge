@@ -1,7 +1,6 @@
 import { useAuth } from "@clerk/expo";
-import { useIsFocused } from "@react-navigation/native";
-import { Stack } from "expo-router";
-import React from "react";
+import { Stack, useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
 import { View } from "react-native";
 
 import { NavMenu } from "@/components/NavMenu";
@@ -9,8 +8,19 @@ import { SlipBar } from "@/components/SlipBar";
 
 const DARK_BG = "#0f172a";
 
+function useTabsFocused(): boolean {
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+  return focused;
+}
+
 export default function TabLayout() {
-  const tabsFocused = useIsFocused();
+  const tabsFocused = useTabsFocused();
   const { isLoaded } = useAuth();
 
   // Auth is optional — signed-out users land on Home; sign in via menu when needed.

@@ -57,12 +57,12 @@ function historySliceFromApi(
   return {
     player,
     recent: (h.recent ?? []).slice(0, 10).map((g) => ({
-      date: g.date,
-      opp: g.opponentName,
+      date: g.date ?? undefined,
+      opp: g.opponentName ?? undefined,
       stats: g.stats,
     })),
     vsOpponent: (h.vsOpponent ?? []).slice(0, 5).map((g) => ({
-      date: g.date,
+      date: g.date ?? undefined,
       stats: g.stats,
     })),
   };

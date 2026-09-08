@@ -154,7 +154,7 @@ function awayWinProbFromFight(input: {
     }
   }
 
-  const pairs: Array<[number | null, number | null, number]> = [
+  const pairs: [number | null, number | null, number][] = [
     [away.stats.strikeLPM, home.stats.strikeLPM, 0.18],
     [away.stats.strikeAccuracy, home.stats.strikeAccuracy, 0.14],
     [away.stats.takedownAvg, home.stats.takedownAvg, 0.12],

@@ -22,7 +22,7 @@ export type SlimChatContextInput = {
   selectedSports: string[];
   currentSlip: { game: string; market: string; pick: string; odds: number }[];
   realGames: unknown[];
-  realOdds: Array<{
+  realOdds: {
     sport: string;
     game: string;
     market: string;
@@ -32,8 +32,8 @@ export type SlimChatContextInput = {
     noVigFair?: number | null;
     edge?: number | null;
     bookSpread?: number | null;
-  }>;
-  realProps: Array<{
+  }[];
+  realProps: {
     sport: string;
     game: string;
     startsAt: string;
@@ -50,7 +50,7 @@ export type SlimChatContextInput = {
     edge?: number | null;
     simHitPct?: number | null;
     selectionScore?: number | null;
-  }>;
+  }[];
   matchupHistory?: Record<string, SlimMatchupEntry>;
   fightAnalysis?: Record<string, unknown>;
   tennisAnalysis?: Record<string, unknown>;
