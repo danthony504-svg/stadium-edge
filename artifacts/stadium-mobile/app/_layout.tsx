@@ -13,6 +13,7 @@ import {
 import { ClerkLoaded, ClerkLoading, ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as Updates from "expo-updates";
 import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -28,7 +29,9 @@ import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
+import { logBundleIdentity } from "@/lib/bundleIdentity";
 import { setAuthTokenGetter } from "@/lib/authToken";
+import { prefetchOtaInBackground } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -131,10 +134,25 @@ function RootLayoutNav() {
   );
 }
 
-/** No startup OTA — updates are user-initiated via OtaUpdateBanner or Menu → OTA Diagnostics. */
+/** Production-only OTA prefetch at app startup — never from Coach or dev builds. */
+function OtaStartupCheck() {
+  useEffect(() => {
+    if (!__DEV__ && Updates.isEnabled) {
+      void prefetchOtaInBackground();
+    }
+  }, []);
+  return null;
+}
+
+/** No startup OTA UI auto-reload — user applies via OtaUpdateBanner or Menu → OTA Diagnostics. */
 function AppShell() {
+  useEffect(() => {
+    logBundleIdentity();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
+      <OtaStartupCheck />
       <AuthTokenBridge />
       <PushNotificationsBridge />
       <BetSlipProvider>
