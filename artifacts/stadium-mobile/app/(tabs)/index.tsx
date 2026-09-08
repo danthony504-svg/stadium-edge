@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
-import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { AppHeader } from "@/components/AppHeader";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
@@ -27,7 +26,6 @@ import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
-  getLiveSteals,
   getOdds,
   getProps,
   getTennisFlags,
@@ -41,7 +39,6 @@ import {
   type UpsetSpot,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { buildRollingWinRateSeries, summarizeRecentPerformance } from "@/lib/performanceChart";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
@@ -758,22 +755,6 @@ function HomeSportFeed({
     .map((c) => `${c.player}|${c.marketKey}|${c.line}|${c.side}`)
     .join(",");
 
-  // Track record of the app's OWN longshot "steal" picks (auto-graded W/L vs real
-  // results). Real or hidden — never shown without graded results.
-  const stealsQ = useQuery({
-    queryKey: ["home-steals"],
-    queryFn: ({ signal }) => getLiveSteals(signal),
-    staleTime: 5 * 60_000,
-  });
-  const gradedHistory = stealsQ.data?.history ?? [];
-  const perfSummary = summarizeRecentPerformance(gradedHistory);
-  const perfSeries = buildRollingWinRateSeries(gradedHistory);
-  const hasPerfData = perfSummary.wins + perfSummary.losses > 0;
-  const perfWinPct = perfSummary.winPct;
-  const perfRecord = hasPerfData
-    ? `${perfSummary.wins}-${perfSummary.losses}${perfSummary.pushes > 0 ? `-${perfSummary.pushes}` : ""}`
-    : null;
-
   const hotGradesQ = useQuery({
     queryKey: ["home-hot-grades", sport, hotKey],
     enabled: featuredEnabled && hotCands.length > 0,
@@ -1083,108 +1064,6 @@ function HomeSportFeed({
               </Text>
             </Pressable>
           ))}
-        </View>
-
-        {/* Today's Performance — real graded steal picks; honest empty state when none settled. */}
-        <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
-          <Pressable
-            onPress={() => router.push("/pick-performance")}
-            style={({ pressed }) => ({
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: colors.radius,
-              padding: 16,
-              gap: 14,
-              opacity: pressed ? 0.9 : 1,
-            })}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Feather name="bar-chart-2" size={16} color={colors.primary} />
-              <Text
-                style={{
-                  color: colors.foreground,
-                  fontFamily: FONT.display,
-                  fontSize: 16,
-                  flex: 1,
-                }}
-              >
-                Today&apos;s Performance
-              </Text>
-              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
-                View all
-              </Text>
-            </View>
-            <View
-              style={{
-                flexDirection: isWideLayout ? "row" : "column",
-                alignItems: "center",
-                gap: isWideLayout ? 18 : 10,
-              }}
-            >
-              <View style={{ flexDirection: "row", flex: 1, alignSelf: "stretch" }}>
-                {[
-                  {
-                    val: hasPerfData && perfWinPct != null ? `${perfWinPct}%` : "—",
-                    label: "Win Rate",
-                    tint: hasPerfData ? "#34d399" : colors.mutedForeground,
-                  },
-                  {
-                    val: perfRecord ?? "—",
-                    label: "Record",
-                    tint: hasPerfData ? colors.foreground : colors.mutedForeground,
-                  },
-                  {
-                    val: hasPerfData ? String(perfSummary.wins + perfSummary.losses + perfSummary.pushes) : "—",
-                    label: "Graded",
-                    tint: hasPerfData ? colors.foreground : colors.mutedForeground,
-                  },
-                ].map((m, i) => (
-                  <View
-                    key={m.label}
-                    style={{
-                      flex: 1,
-                      alignItems: "center",
-                      gap: 3,
-                      borderLeftWidth: i === 0 ? 0 : 1,
-                      borderLeftColor: colors.border,
-                    }}
-                  >
-                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
-                    <Text
-                      style={{
-                        color: colors.mutedForeground,
-                        fontFamily: FONT.medium,
-                        fontSize: 10,
-                        letterSpacing: 0.4,
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {m.label}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              {perfSeries.length >= 2 ? (
-                <PerformanceSparkline
-                  series={perfSeries}
-                  width={isWideLayout ? Math.min(310, width * 0.42) : width - 64}
-                />
-              ) : null}
-            </View>
-            {!hasPerfData ? (
-              <Text
-                style={{
-                  color: colors.mutedForeground,
-                  fontFamily: FONT.medium,
-                  fontSize: 12,
-                  textAlign: "center",
-                }}
-              >
-                No settled picks yet
-              </Text>
-            ) : null}
-          </Pressable>
         </View>
 
         {/* Hot Picks Today — disabled for now; graded prop rail preserved below. */}
