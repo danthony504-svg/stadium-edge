@@ -2,7 +2,7 @@
 // Each factor is scored 0–10; weights renormalize over present signals only, and the
 // final rank penalizes missing context (partial weight sum).
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { PropHolisticScore } from "./propHolisticRecommendation.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -49,7 +49,7 @@ function holisticFactor(
 }
 
 function rubricScore(pick: ParsedPick, key: "matchup" | "trend" | "injury" | "lineShopping" | "lineValue") {
-  return pick.finalAiScore?.rubric?.scores?.[key] ?? pick.scores?.[key] ?? null;
+  return pick.finalAiScore?.rubric?.scores?.[key] ?? pick.scores?.scores?.[key] ?? null;
 }
 
 export function matchupQualityRankScore(pick: ParsedPick): number | null {

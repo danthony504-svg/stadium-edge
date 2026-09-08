@@ -1,6 +1,6 @@
 // Per-request Coach ticket lifecycle — isolate leg count, cache keys, and traces.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { parlayLegKey, rememberParlayBuild, type CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
