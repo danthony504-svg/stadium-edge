@@ -29,11 +29,22 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_goal_scorer_anytime: ["G"],
   player_shots: ["SH"],
   player_shots_on_target: ["SOT"],
-  player_pass_yds: ["YDS"],
-  player_pass_tds: ["TD"],
-  player_rush_yds: ["YDS"],
-  player_reception_yds: ["YDS"],
-  player_receptions: ["REC"],
+  // Football game logs repeat display labels such as YDS, TD, and LNG across
+  // passing, rushing, and receiving. The history route retains ESPN's stable
+  // machine field names alongside those labels, so use the unambiguous names
+  // rather than risk grading the wrong stat column.
+  player_pass_yds: ["passingYards"],
+  player_pass_attempts: ["passingAttempts"],
+  player_pass_completions: ["completions"],
+  player_pass_tds: ["passingTouchdowns"],
+  player_pass_interceptions: ["interceptions"],
+  player_pass_longest_completion: ["longPassing"],
+  player_rush_yds: ["rushingYards"],
+  player_rush_attempts: ["rushingAttempts"],
+  player_rush_longest: ["longRushing"],
+  player_reception_yds: ["receivingYards"],
+  player_receptions: ["receptions"],
+  player_reception_longest: ["longReception"],
 };
 
 const MARKET_MADE: Record<string, string[]> = {
@@ -113,7 +124,7 @@ export function gameValueForMarket(
 
 /** Markets whose outcomes are low-count integers (Poisson-friendly). */
 export function isDiscreteCountMarket(market: string): boolean {
-  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|anytime_td|goal_scorer|receptions/i.test(
+  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|anytime_td|goal_scorer|receptions|pass_attempts|pass_completions|pass_interceptions|pass_longest|rush_attempts|rush_longest|reception_longest/i.test(
     market,
   );
 }

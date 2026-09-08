@@ -38,6 +38,20 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_goal_scorer_anytime: ["G"],
   player_shots: ["SH"],
   player_shots_on_target: ["SOT"],
+  // Football display labels repeat YDS, TD, and LNG between stat families.
+  // Read the corresponding ESPN machine field retained by player-history.
+  player_pass_yds: ["passingYards"],
+  player_pass_attempts: ["passingAttempts"],
+  player_pass_completions: ["completions"],
+  player_pass_tds: ["passingTouchdowns"],
+  player_pass_interceptions: ["interceptions"],
+  player_pass_longest_completion: ["longPassing"],
+  player_rush_yds: ["rushingYards"],
+  player_rush_attempts: ["rushingAttempts"],
+  player_rush_longest: ["longRushing"],
+  player_reception_yds: ["receivingYards"],
+  player_receptions: ["receptions"],
+  player_reception_longest: ["longReception"],
 };
 
 // Markets whose ESPN gamelog column is a "made-attempted" string rather than a
