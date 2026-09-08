@@ -32,6 +32,16 @@ export async function prefetchOtaInBackground(): Promise<OtaPrefetchOutcome> {
   }
 }
 
+/**
+ * @deprecated Renamed to prefetchOtaInBackground — auto-reload removed.
+ * Kept for Coach focus prefetch; never reloads, only downloads when available.
+ */
+export async function prefetchAndMaybeApplyOta(
+  _applyWhenReady = false,
+): Promise<OtaPrefetchOutcome> {
+  return prefetchOtaInBackground();
+}
+
 /** @deprecated Not mounted from _layout. Foreground fetch-only if used elsewhere. */
 export function useOtaUpdater(enabled: boolean) {
   const inFlight = useRef(false);
