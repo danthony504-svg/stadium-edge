@@ -13,7 +13,17 @@ export type CoachTicketTraceStage =
   | "server-staged"
   | "mobile-received"
   | "mobile-delivered"
-  | "slip-capture";
+  | "slip-capture"
+  | "completion-api-response"
+  | "completion-response-parsed"
+  | "completion-ticket-constructed"
+  | "completion-ticket-validated"
+  | "completion-state-update-start"
+  | "completion-state-update-complete"
+  | "completion-ticket-ready"
+  | "completion-scanning-stopped"
+  | "completion-progress-finalized"
+  | "completion-blocked";
 
 function pickTraceIds(picks: readonly ParsedPick[]): string[] {
   return picks.map((p) => pickLegFingerprint(p));
