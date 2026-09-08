@@ -674,6 +674,7 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
     });
     // Flatten the gamelog into a flat list keyed by eventId with the labeled stats.
     const labels = (log.labels ?? log.names ?? []) as string[];
+    const names = (log.names ?? []) as string[];
     const eventMeta = log.events ?? {};
     const flat: Array<{ eventId: string; date: string | null; opponentId: string | null; opponentName: string | null; isHome: boolean | null; stats: Record<string, string> }> = [];
     for (const st of log.seasonTypes ?? []) {
@@ -682,7 +683,14 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
           if (!ev.eventId) continue;
           const meta = eventMeta[ev.eventId];
           const stats: Record<string, string> = {};
-          (ev.stats ?? []).forEach((v, i) => { if (labels[i]) stats[labels[i]] = v; });
+          (ev.stats ?? []).forEach((v, i) => {
+            // Preserve the display label for existing consumers. Also retain
+            // ESPN's unique machine name: football repeats labels such as YDS,
+            // TD, and LNG for different stat families, which cannot otherwise
+            // be safely used to simulate or grade a player prop.
+            if (labels[i]) stats[labels[i]] = v;
+            if (names[i]) stats[names[i]] = v;
+          });
           // ESPN gamelog encodes home/away in atVs: "vs" = home game,
           // "@" = away game. Null when the feed omits it.
           const atVs = meta?.atVs;

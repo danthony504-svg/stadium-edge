@@ -7,6 +7,7 @@ const LEAGUE_TO_SPORT: Record<string, string> = {
   wnba: "wnba",
   mlb: "mlb",
   nfl: "nfl",
+  "college-football": "ncaaf",
   nhl: "nhl",
 };
 

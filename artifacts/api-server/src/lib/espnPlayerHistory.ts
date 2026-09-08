@@ -26,6 +26,7 @@ type FlatGame = {
 
 function flattenGameLog(log: GameLog): FlatGame[] {
   const labels = (log.labels ?? log.names ?? []) as string[];
+  const names = (log.names ?? []) as string[];
   const eventMeta = log.events ?? {};
   const flat: FlatGame[] = [];
   for (const st of log.seasonTypes ?? []) {
@@ -36,6 +37,10 @@ function flattenGameLog(log: GameLog): FlatGame[] {
         const stats: Record<string, string> = {};
         (ev.stats ?? []).forEach((v, i) => {
           if (labels[i]) stats[labels[i]] = v;
+          // Football display labels repeat YDS, TD, and LNG between passing,
+          // rushing, and receiving. Preserve ESPN's unique machine field name
+          // as well so simulations can use the correct stat family.
+          if (names[i]) stats[names[i]] = v;
         });
         const atVs = meta?.atVs;
         const isHome = atVs === "vs" ? true : atVs === "@" ? false : null;
