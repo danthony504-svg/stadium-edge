@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   americanToDecimal,
+  formatCountdownSeconds,
+  formatLastScanTime,
   formatOdds,
   formatPct,
   inStealBand,
@@ -12,6 +14,7 @@ import {
   stealScanStatsAreConsistent,
   STEAL_MAX_ODDS,
   STEAL_MIN_ODDS,
+  trackRecordStatsFromHistory,
   type StealRecord,
 } from "./steals.ts";
 
@@ -107,4 +110,23 @@ test("stealScanIsComplete honors scanComplete flag", () => {
     true,
   );
   assert.equal(stealScanIsComplete(undefined, true), false);
+});
+
+test("trackRecordStatsFromHistory computes units and highest win", () => {
+  const stats = trackRecordStatsFromHistory([
+    { pick: "Team A ML", price: 650, status: "win" },
+    { pick: "Player O 2.5", player: "Star Player", price: 900, status: "win" },
+    { pick: "Team B ML", price: 700, status: "loss" },
+  ]);
+  assert.equal(stats.unitsWon, 15.5);
+  assert.equal(stats.unitsLost, 1);
+  assert.equal(stats.highestWinPick?.label, "Star Player");
+  assert.equal(stats.highestWinPick?.price, 900);
+  assert.equal(stats.avgOdds, 750);
+});
+
+test("formatLastScanTime and countdown helpers", () => {
+  assert.equal(formatLastScanTime(null), "—");
+  assert.equal(formatCountdownSeconds(0), "0s");
+  assert.equal(formatCountdownSeconds(65), "1m 05s");
 });

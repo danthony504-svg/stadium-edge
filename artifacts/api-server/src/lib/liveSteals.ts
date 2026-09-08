@@ -203,6 +203,8 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
   );
   const propTally = tallyPropScan(propGames);
   const scanStats = finalizeStealScanStats(gameTallies, propTally);
+  let gamesScanned = 0;
+  for (const rows of oddsBySport.values()) gamesScanned += rows.length;
 
   const propSteals = findPropSteals(propGames);
   const nearProp = findNearMissPropSteals(propGames);
@@ -226,7 +228,11 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
     .slice(0, 12);
 
-  const meta = buildScanMeta(steals, almostQualified, scanStats);
+  const meta = buildScanMeta(steals, almostQualified, {
+    ...scanStats,
+    gamesScanned,
+    scannedAt: new Date().toISOString(),
+  });
   const feed: StealFeedDiagnostics = {
     ...baseFeed,
     responseTimeMs: Date.now() - scanStarted,
