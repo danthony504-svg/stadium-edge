@@ -53,6 +53,7 @@ import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
+import { logBoardScanPipeline } from "./coachBoardScanPipelineTrace.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -469,6 +470,13 @@ function buildScanResult(
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const scanComplete = !opts.preview && opts.boardExhausted === true;
+  logBoardScanPipeline("8-ticket-staged", picks.length, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+    picksStaged: picks.length,
+    picksQualified: totalQualified,
+    scanComplete,
+  });
   const manifest = opts.manifestRecorder.finalize({
     scanComplete,
     boardExhausted: opts.boardExhausted === true,
@@ -525,6 +533,20 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
 }): Promise<FullBoardScanResult> {
+  logBoardScanPipeline("1-scan-start", opts.target, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+  });
+
+  const propPoolRaw = opts.propPool.length;
+  const oddsGamesRawCount = opts.oddsGames.length;
+  logBoardScanPipeline("2-fetch-markets", oddsGamesRawCount + propPoolRaw, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+    oddsGamesRaw: oddsGamesRawCount,
+    propPoolRaw,
+  });
+
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -532,6 +554,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ? opts.oddsGames.filter((g) => !opts.excludedSports!.has(g.sport))
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
+
+  logBoardScanPipeline("3-games-filtered", oddsGames.length, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+    gamesFiltered: oddsGames.length,
+  });
+  logBoardScanPipeline("4-props-filtered", poolBase.length, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+    propsFiltered: poolBase.length,
+  });
 
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
@@ -637,8 +670,22 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     scoreGamesAndMaybePartial(batch.map(([game]) => game));
   }
 
+  const gameLinesScored = scored.length;
+  logBoardScanPipeline("6-game-lines-scored", gameLinesScored, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+    gameLinesEvaluated: totalScanned,
+    gameLinesScored,
+  });
+
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
+
+  logBoardScanPipeline("5-props-expanded", pool.length, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+    propsExpanded: pool.length,
+  });
 
   for (const entry of pool) {
     manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
@@ -676,6 +723,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
 
   scored.push(...propScored);
+
+  logBoardScanPipeline("7-props-scored", propScored.length, {
+    requestId: opts.requestId,
+    targetLegs: opts.target,
+    propsScored: propScored.length,
+    marketsSurvivedFilter: scored.length,
+  });
 
   totalScanned += pool.length;
   const collapsed = collapseScoredLegsByMarketLadder(scored);
