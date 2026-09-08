@@ -133,28 +133,3 @@ export async function loadPropSimulationsProgressive(
     }
   }
 }
-
-/** Flash or refresh picks on the latest assistant reply (seeds cards during long builds). */
-export function patchLastAssistantPicks<
-  T extends { role: string; picks?: ParsedPick[]; content?: string; legNote?: string },
->(
-  setMessages: (fn: (prev: T[]) => T[]) => void,
-  picks: ParsedPick[],
-  legNote?: string,
-): void {
-  setMessages((prev) => {
-    const copy = [...prev];
-    for (let i = copy.length - 1; i >= 0; i--) {
-      if (copy[i].role === "assistant") {
-        copy[i] = {
-          ...copy[i],
-          picks,
-          content: picks.length > 0 ? "" : copy[i].content,
-          ...(legNote !== undefined ? { legNote: legNote.trim() || undefined } : {}),
-        };
-        return copy;
-      }
-    }
-    return prev;
-  });
-}
