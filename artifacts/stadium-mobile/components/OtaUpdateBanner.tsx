@@ -6,12 +6,15 @@ import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { getOtaRecoveryStatus, subscribeOtaRecoveryStatus } from "@/lib/otaRecoveryStatus";
 
 type OtaUiState = { isUpdatePending: boolean; isDownloading: boolean };
 
 function otaUiFromContext(ctx: typeof latestContext): OtaUiState {
+  // Recovery status marks pending immediately after fetch (before latestContext catches up).
+  const recoveryPending = getOtaRecoveryStatus().pending;
   return {
-    isUpdatePending: !!ctx?.isUpdatePending,
+    isUpdatePending: !!ctx?.isUpdatePending || recoveryPending,
     isDownloading: !!ctx?.isDownloading,
   };
 }
@@ -30,7 +33,13 @@ export function OtaUpdateBanner() {
     const sub = addUpdatesStateChangeListener((event) => {
       setOta(otaUiFromContext(event.context));
     });
-    return () => sub.remove();
+    const unsubRecovery = subscribeOtaRecoveryStatus(() => {
+      setOta(otaUiFromContext(latestContext));
+    });
+    return () => {
+      sub.remove();
+      unsubRecovery();
+    };
   }, []);
 
   if (__DEV__ || !Updates.isEnabled) return null;
