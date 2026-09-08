@@ -12,8 +12,8 @@ import {
 import { useColors } from "@/hooks/useColors";
 
 export const FONT = {
-  display: "Bricolage_800ExtraBold",
-  displaySemi: "Bricolage_600SemiBold",
+  display: "BricolageGrotesque_800ExtraBold",
+  displaySemi: "BricolageGrotesque_600SemiBold",
   body: "Inter_400Regular",
   medium: "Inter_500Medium",
   semibold: "Inter_600SemiBold",
