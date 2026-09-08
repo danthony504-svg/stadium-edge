@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { readOtaDebugSnapshot } from "@/lib/otaDebug";
 import { formatOtaLogLines, subscribeOtaLaunchLogs } from "@/lib/otaLaunchLog";
+import { readOtaRecoverySnapshot, subscribeOtaRecoveryState } from "@/lib/otaRecoveryState";
 
 /**
  * Temporary on-screen OTA deployment label (all tabs). Tap to expand launch logs.
@@ -17,6 +18,7 @@ export function OtaDiagnosticsBanner() {
   const [tick, setTick] = useState(0);
 
   useEffect(() => subscribeOtaLaunchLogs(() => setTick((n) => n + 1)), []);
+  useEffect(() => subscribeOtaRecoveryState(() => setTick((n) => n + 1)), []);
 
   if (__DEV__) return null;
 
@@ -26,6 +28,7 @@ export function OtaDiagnosticsBanner() {
   if (onCoach) return null;
 
   const snap = readOtaDebugSnapshot();
+  const recovery = readOtaRecoverySnapshot();
   const logs = formatOtaLogLines();
   void tick;
 
@@ -33,6 +36,23 @@ export function OtaDiagnosticsBanner() {
     snap.updateId.length > 12 ? `${snap.updateId.slice(0, 8)}…` : snap.updateId;
   const shortCommit =
     snap.commitHash.length > 10 ? snap.commitHash.slice(0, 8) : snap.commitHash;
+
+  // The recovery snapshot only learns the running id once the updater has run;
+  // fall back to the static snapshot so this field is never blank.
+  const runningId =
+    recovery.runningUpdateId !== "—" ? recovery.runningUpdateId : snap.updateId;
+
+  const recoveryRows: [string, string][] = [
+    ["RUNNING UPDATE ID", runningId],
+    ["AVAILABLE UPDATE ID", recovery.availableUpdateId],
+    ["FETCH RESULT", recovery.fetchResult],
+    ["PENDING", recovery.pending ? "YES" : "NO"],
+    [
+      "RELOAD BLOCKED",
+      recovery.reloadBlocked ? `YES — ${recovery.reloadBlockedReason}` : "NO",
+    ],
+    ["LAST OTA ERROR", recovery.lastError],
+  ];
 
   return (
     <View
@@ -79,8 +99,44 @@ export function OtaDiagnosticsBanner() {
         >
           commit {shortCommit} · {snap.updateCreatedAt} · {snap.deployMessage}
         </Text>
+        <Text
+          style={{
+            color: recovery.pending ? "#fbbf24" : "#64748b",
+            fontFamily: FONT.medium,
+            fontSize: 9,
+            lineHeight: 13,
+            marginTop: 2,
+          }}
+          selectable
+        >
+          pending={recovery.pending ? "YES" : "NO"} · blocked=
+          {recovery.reloadBlocked ? "YES" : "NO"} · avail {recovery.availableUpdateId}
+        </Text>
         {expanded ? (
           <View style={{ marginTop: 6, gap: 2 }}>
+            {recoveryRows.map(([label, value]) => (
+              <Text
+                key={label}
+                style={{ color: "#cbd5e1", fontFamily: FONT.body, fontSize: 8, lineHeight: 11 }}
+                selectable
+              >
+                {label}: {value}
+              </Text>
+            ))}
+            <Text
+              style={{ color: "#cbd5e1", fontFamily: FONT.body, fontSize: 8, lineHeight: 11 }}
+              selectable
+            >
+              RELOAD TARGET: {recovery.reloadTargetId} · PREV FAILED:{" "}
+              {recovery.updatePreviouslyFailed ? "YES" : "NO"} ({recovery.failedLaunchCount}) ·
+              ROLLBACK: {recovery.rollbackState}
+            </Text>
+            <Text
+              style={{ color: "#cbd5e1", fontFamily: FONT.body, fontSize: 8, lineHeight: 11 }}
+              selectable
+            >
+              CHECK: {recovery.checkResult}
+            </Text>
             {logs.length === 0 ? (
               <Text style={{ color: "#64748b", fontSize: 9 }}>No launch OTA logs yet</Text>
             ) : (

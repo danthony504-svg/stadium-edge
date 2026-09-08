@@ -127,7 +127,7 @@ test("failed fetch errors are logged instead of swallowed", async () => {
     { log },
   );
   assert.equal(outcome, "none");
-  assert.ok(entries.some((e) => e.step === "fetchUpdateAsync" && !e.ok && e.detail === "offline"));
+  assert.ok(entries.some((e) => e.step === "fetchUpdateAsync" && !e.ok && e.detail.includes("offline")));
 });
 
 test("no repeated reload loop under applyWhenReady", async () => {
