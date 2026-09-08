@@ -647,6 +647,7 @@ export function attachPickScores(
     playerHistory?: Record<string, PlayerHistorySlice>;
     /** Raw league injury teams when matchupInjuries report is absent. */
     injuryTeams?: InjuryTeam[];
+    injuryStatus?: "available" | "unavailable";
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
   },
@@ -693,7 +694,13 @@ export function attachPickScores(
     if (!scores && p.finalAiScore?.rubric) {
       scores = p.finalAiScore.rubric;
     }
-    if (!scores) return { ...p, scores: null };
+    if (!scores) {
+      return {
+        ...p,
+        scores: null,
+        ...(opts.injuryStatus === "unavailable" ? { injuryDataUnavailable: true } : {}),
+      };
+    }
 
     const propSimHit =
       p.isProp && sims ? lookupPropSimHit(p, propEntryEarly, sims) : null;
@@ -749,6 +756,9 @@ export function attachPickScores(
       scores: finalAiScore.rubric,
       finalAiScore,
       highRiskValuePlay: finalAiScore.highRiskValuePlay || p.highRiskValuePlay,
+      ...(opts.injuryStatus === "unavailable" && scores.scores?.injury == null
+        ? { injuryDataUnavailable: true }
+        : {}),
     };
   });
 }
@@ -770,6 +780,7 @@ export type CoachFlashEnrich = {
   fightAnalysis?: Record<string, FightAnalysis>;
   tennisAnalysis?: Record<string, TennisAnalysis>;
   injuryTeams?: InjuryTeam[];
+  injuryStatus?: "available" | "unavailable";
 };
 
 export function coachFlashEnrichFromBuilt(
@@ -794,6 +805,7 @@ export function coachFlashEnrichFromBuilt(
     fightAnalysis: context.fightAnalysis,
     tennisAnalysis: context.tennisAnalysis,
     injuryTeams: context.injuryTeams,
+    injuryStatus: context.injuryStatus,
     propSimulations: extras?.propSimulations,
     gameSimulations: extras?.gameSimulations,
     perfByFamily: extras?.perfByFamily,
@@ -836,5 +848,6 @@ export function rescoreCoachTicketPicks(
     fightAnalysis: enrich.fightAnalysis,
     tennisAnalysis: enrich.tennisAnalysis,
     injuryTeams: enrich.injuryTeams,
+    injuryStatus: enrich.injuryStatus,
   });
 }

@@ -1,7 +1,7 @@
 // Per-market ladder exhaustion — try the main posted line first, then every alt
 // rung in rank order until one qualifies or the ladder is exhausted.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import { isAltPropPick, isMainBoardPick, isMainLineGameLeg, marketFamily } from "./altLinePool.ts";
 import { boardLegPoolRole, type BoardScoredLeg } from "./ticketStaging.ts";
 

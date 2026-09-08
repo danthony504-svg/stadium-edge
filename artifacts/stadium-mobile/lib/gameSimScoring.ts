@@ -1,7 +1,7 @@
 // Shared game-outcome Monte Carlo scoring — used by Game Simulator and AI Coach
 // so ML / spread / total / alt legs never contradict the same sim engine.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { GameSimulationResult, RealOddsEntry } from "./api.ts";
 import { fourQuestionsNoteForPick } from "./gameLineFourQuestions.ts";
 import { parseMarketPeriod, type SimPeriodScope, marketSupportsSimulation } from "./simMarketSupport.ts";

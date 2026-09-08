@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createCoachBoardScanManifestRecorder,
+  coachReplyHasScanManifest,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
-import { coachBoardScanManifestForMessage, coachReplyHasScanManifest } from "./coachBoardScanDelivery.ts";
-import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 
 test("formatCoachBoardScanManifest lists coverage and gate failures", () => {
   const recorder = createCoachBoardScanManifestRecorder(8);
@@ -130,25 +129,30 @@ test("createCoachBoardScanManifestRecorder tracks prop pool rows", () => {
   assert.ok(recorder.propsEligibleForSim + recorder.propsSkippedUnsupported === 1);
 });
 
-test("coachBoardScanManifestForMessage returns manifest when scan staged zero legs", () => {
-  const scan: FullBoardScanResult = {
-    picks: [],
-    evalLinesByGame: new Map(),
-    gameSimulations: new Map(),
-    totalScanned: 1200,
-    totalQualified: 0,
-    staging: { mainQualified: 0, altQualified: 0, mainOnTicket: 0, altOnTicket: 0 },
-    note: "",
+test("formatCoachBoardScanManifest includes pipeline rejection tallies", () => {
+  const recorder = createCoachBoardScanManifestRecorder(5);
+  recorder.recordGamesLoaded(12);
+  recorder.recordCandidatesBeforeGrading(400);
+  recorder.recordPropPoolRow({
+    game: "A @ B",
+    market: "Points",
+    pick: "Star Over 20.5 Points",
+    odds: -110,
+    isProp: true,
+    player: "Star",
+    sport: "nba",
+    propLine: 20.5,
+    propSide: "Over",
+  });
+  const manifest = recorder.finalize({
     scanComplete: true,
-    manifest: createCoachBoardScanManifestRecorder(8).finalize({
-      scanComplete: true,
-      boardExhausted: true,
-      deliveredLegs: 0,
-    }),
-  };
-  const text = coachBoardScanManifestForMessage(scan, { realOdds: [], propPool: [], gameMeta: [] }, 8);
-  assert.match(text, /Scan manifest/i);
-  assert.match(text, /0 legs delivered/i);
+    boardExhausted: true,
+    deliveredLegs: 0,
+  });
+  const text = formatCoachBoardScanManifest(manifest);
+  assert.match(text, /Games loaded: \*\*12\*\*/);
+  assert.match(text, /Candidates before grading: \*\*400\*\*/);
+  assert.match(text, /Final selected: \*\*0\*\*/);
 });
 
 test("coachReplyHasScanManifest detects manifest heading in detail notes", () => {

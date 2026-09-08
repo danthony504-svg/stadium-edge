@@ -1,7 +1,7 @@
 // Final AI Score — one composite built from simulation + all grounded rubric signals.
 // Coach and Simulator share this module so recommendations never diverge.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import {
   combinePickScore,
   gradeFromComposite,

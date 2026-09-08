@@ -480,13 +480,13 @@ function DetailGrid({ report }: { report: ParkWeatherReport }) {
   const c = report.current;
   const tiles = [
     { label: "Temp", value: fmtVal(c.tempF, (n) => `${Math.round(n)}°F`), icon: "thermometer" as FeatherName },
-    { label: "Feels Like", value: fmtVal(c.feelsLikeF, (n) => `${Math.round(n)}°F`), icon: "thermometer" },
-    { label: "Wind", value: windDisplay(c, report.homeAbbr), icon: "wind" },
-    { label: "Gusts", value: fmtVal(c.gustMph, (n) => `${Math.round(n)} mph`), icon: "wind" },
-    { label: "Humidity", value: fmtVal(c.humidity, (n) => `${n}%`), icon: "droplet" },
-    { label: "Pressure", value: fmtVal(c.pressureInHg, (n) => `${n.toFixed(2)} in`), icon: "bar-chart-2" },
-    { label: "Cloud Cover", value: fmtVal(c.cloudCoverPct, (n) => `${n}%`), icon: "cloud" },
-    { label: "Precip Chance", value: fmtVal(c.precipChancePct, (n) => `${n}%`), icon: "cloud-rain" },
+    { label: "Feels Like", value: fmtVal(c.feelsLikeF, (n) => `${Math.round(n)}°F`), icon: "thermometer" as FeatherName },
+    { label: "Wind", value: windDisplay(c, report.homeAbbr), icon: "wind" as FeatherName },
+    { label: "Gusts", value: fmtVal(c.gustMph, (n) => `${Math.round(n)} mph`), icon: "wind" as FeatherName },
+    { label: "Humidity", value: fmtVal(c.humidity, (n) => `${n}%`), icon: "droplet" as FeatherName },
+    { label: "Pressure", value: fmtVal(c.pressureInHg, (n) => `${n.toFixed(2)} in`), icon: "bar-chart-2" as FeatherName },
+    { label: "Cloud Cover", value: fmtVal(c.cloudCoverPct, (n) => `${n}%`), icon: "cloud" as FeatherName },
+    { label: "Precip Chance", value: fmtVal(c.precipChancePct, (n) => `${n}%`), icon: "cloud-rain" as FeatherName },
   ];
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>

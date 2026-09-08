@@ -136,7 +136,7 @@ function OtaDebugScreenInner() {
     setProbeLoading(true);
     try {
       const next = await collectOtaFullDiagnostics();
-      setDiag(next);
+      if (next) setDiag(next);
       return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -172,7 +172,7 @@ function OtaDebugScreenInner() {
       return;
     }
     const next = await refresh();
-    setDiag(next);
+    if (next) setDiag(next);
     setStatus(
       [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
         "Probe finished — see reloadAsync row",

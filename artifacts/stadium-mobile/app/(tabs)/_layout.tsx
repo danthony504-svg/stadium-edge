@@ -1,6 +1,5 @@
 import { useAuth } from "@clerk/expo";
-import { useIsFocused } from "@react-navigation/native";
-import { Stack } from "expo-router";
+import { Stack, usePathname } from "expo-router";
 import React from "react";
 import { View } from "react-native";
 
@@ -9,8 +8,12 @@ import { SlipBar } from "@/components/SlipBar";
 
 const DARK_BG = "#0f172a";
 
+/** Root-stack overlays hide the tab chrome (slip bar + hamburger). */
+const TAB_CHROME_HIDDEN = /^\/(account|notifications|ota-debug|game\/|prop\/|team-pick\/|upcoming)(\/|$)/;
+
 export default function TabLayout() {
-  const tabsFocused = useIsFocused();
+  const pathname = usePathname();
+  const tabsFocused = !TAB_CHROME_HIDDEN.test(pathname);
   const { isLoaded } = useAuth();
 
   // Auth is optional — signed-out users land on Home; sign in via menu when needed.
