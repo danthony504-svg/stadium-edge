@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyPendingOtaReload,
   prefetchOtaUpdate,
+  prefetchOtaUpdateDetailed,
+  reloadGuardRetryDelayMs,
   resetOtaUpdaterSessionGuardForTests,
   type OtaUpdateClient,
 } from "./otaUpdaterCore.ts";
@@ -21,7 +24,7 @@ function logger() {
 
 function client(partial: Partial<OtaUpdateClient> & Pick<OtaUpdateClient, "checkForUpdateAsync">): OtaUpdateClient {
   return {
-    fetchUpdateAsync: async () => ({ isNew: true }),
+    fetchUpdateAsync: async () => ({ isNew: true, manifest: { id: "new-ota" } }),
     reloadAsync: async () => {},
     ...partial,
   };
@@ -33,10 +36,13 @@ test("available update always reaches fetch", async () => {
   const { entries, log } = logger();
   const outcome = await prefetchOtaUpdate(
     client({
-      checkForUpdateAsync: async () => ({ isAvailable: true }),
+      checkForUpdateAsync: async () => ({
+        isAvailable: true,
+        manifest: { id: "avail-1" },
+      }),
       fetchUpdateAsync: async () => {
         fetched += 1;
-        return { isNew: true };
+        return { isNew: true, manifest: { id: "avail-1" } };
       },
     }),
     () => false,
@@ -49,6 +55,29 @@ test("available update always reaches fetch", async () => {
   assert.ok(entries.some((e) => e.step === "fetchUpdateAsync" && e.detail === "start"));
 });
 
+test("check logs updatePreviouslyFailed explicitly", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  const { entries, log } = logger();
+  const report = await prefetchOtaUpdateDetailed(
+    client({
+      checkForUpdateAsync: async () => ({
+        isAvailable: false,
+        reason: "updatePreviouslyFailed",
+      }),
+    }),
+    () => false,
+    false,
+    { log },
+  );
+  assert.equal(report.outcome, "none");
+  assert.equal(report.previouslyFailed, true);
+  assert.ok(
+    entries.some(
+      (e) => e.step === "checkForUpdateAsync" && e.detail.includes("updatePreviouslyFailed"),
+    ),
+  );
+});
+
 test("blocked Coach/Fantasy state delays reload only, not check/fetch", async () => {
   resetOtaUpdaterSessionGuardForTests();
   let checked = 0;
@@ -59,11 +88,11 @@ test("blocked Coach/Fantasy state delays reload only, not check/fetch", async ()
     client({
       checkForUpdateAsync: async () => {
         checked += 1;
-        return { isAvailable: true };
+        return { isAvailable: true, manifest: { id: "u1" } };
       },
       fetchUpdateAsync: async () => {
         fetched += 1;
-        return { isNew: true };
+        return { isNew: true, manifest: { id: "u1" } };
       },
       reloadAsync: async () => {
         reloaded += 1;
@@ -85,8 +114,8 @@ test("successful fetch is pending even if context has not updated yet", async ()
   const { log } = logger();
   const outcome = await prefetchOtaUpdate(
     client({
-      checkForUpdateAsync: async () => ({ isAvailable: true }),
-      fetchUpdateAsync: async () => ({ isNew: true }),
+      checkForUpdateAsync: async () => ({ isAvailable: true, manifest: { id: "x" } }),
+      fetchUpdateAsync: async () => ({ isNew: true, manifest: { id: "x" } }),
     }),
     () => false, // latestContext still false — race
     false,
@@ -117,7 +146,7 @@ test("failed fetch errors are logged instead of swallowed", async () => {
   const { entries, log } = logger();
   const outcome = await prefetchOtaUpdate(
     client({
-      checkForUpdateAsync: async () => ({ isAvailable: true }),
+      checkForUpdateAsync: async () => ({ isAvailable: true, manifest: { id: "f" } }),
       fetchUpdateAsync: async () => {
         throw new Error("offline");
       },
@@ -130,28 +159,85 @@ test("failed fetch errors are logged instead of swallowed", async () => {
   assert.ok(entries.some((e) => e.step === "fetchUpdateAsync" && !e.ok && e.detail === "offline"));
 });
 
-test("no repeated reload loop under applyWhenReady", async () => {
+test("loop guard keys off pending id — running-bundle key does not strand a new download", async () => {
   resetOtaUpdaterSessionGuardForTests();
   let reloaded = 0;
-  const make = () =>
-    prefetchOtaUpdate(
-      client({
-        checkForUpdateAsync: async () => ({ isAvailable: true }),
-        fetchUpdateAsync: async () => ({ isNew: true }),
+  const runningKey = "01a081de-running-372";
+  const pendingKey = "01a082bd-pending-374";
+
+  // Exhaust guard for the *running* update id (old bug keyed reloads this way).
+  for (let i = 0; i < 2; i++) {
+    await applyPendingOtaReload(
+      {
         reloadAsync: async () => {
           reloaded += 1;
         },
-      }),
-      () => false,
-      true,
-      { reloadUpdateKey: "loop-id", log: () => {} },
+      },
+      { reloadUpdateKey: runningKey, log: () => {} },
     );
-
-  assert.equal(await make(), "applied");
-  assert.equal(await make(), "applied");
-  // Third attempt within window blocked by loop guard
-  assert.equal(await make(), "pending");
+  }
   assert.equal(reloaded, 2);
+  // Running key is now guarded…
+  assert.ok(reloadGuardRetryDelayMs(runningKey) > 0);
+  // …but a newly downloaded pending id must still be allowed to reload.
+  assert.equal(reloadGuardRetryDelayMs(pendingKey), 0);
+  const outcome = await applyPendingOtaReload(
+    {
+      reloadAsync: async () => {
+        reloaded += 1;
+      },
+    },
+    { reloadUpdateKey: pendingKey, log: () => {} },
+  );
+  assert.equal(outcome, "applied");
+  assert.equal(reloaded, 3);
+});
+
+test("loop guard does not drop pending — returns pending and reports retry", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  const key = "loop-pending";
+  const { entries, log } = logger();
+  let reloaded = 0;
+  const reloadClient = {
+    reloadAsync: async () => {
+      reloaded += 1;
+    },
+  };
+
+  assert.equal(await applyPendingOtaReload(reloadClient, { reloadUpdateKey: key, log }), "applied");
+  assert.equal(await applyPendingOtaReload(reloadClient, { reloadUpdateKey: key, log }), "applied");
+  const third = await prefetchOtaUpdateDetailed(
+    client({
+      checkForUpdateAsync: async () => ({ isAvailable: false, reason: "noUpdateAvailableOnServer" }),
+    }),
+    () => true, // already pending from prior fetch
+    true,
+    { log, reloadUpdateKey: key },
+  );
+  assert.equal(third.outcome, "pending");
+  assert.equal(third.pending, true);
+  assert.ok(third.lastError?.includes("reload_loop_guard"));
+  assert.ok(entries.some((e) => e.detail.includes("reload loop guard")));
+  assert.equal(reloaded, 2);
+});
+
+test("applyPendingOtaReload does not re-check the server", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  let checked = 0;
+  let reloaded = 0;
+  const outcome = await applyPendingOtaReload(
+    {
+      reloadAsync: async () => {
+        reloaded += 1;
+      },
+    },
+    { reloadUpdateKey: "already-fetched", log: () => {} },
+  );
+  assert.equal(outcome, "applied");
+  assert.equal(checked, 0);
+  assert.equal(reloaded, 1);
+  // Prove check is not involved:
+  void checked;
 });
 
 test("unavailable check does not fetch or reload", async () => {
@@ -179,4 +265,26 @@ test("unavailable check does not fetch or reload", async () => {
   assert.equal(outcome, "none");
   assert.equal(fetched, 0);
   assert.equal(reloaded, 0);
+});
+
+test("detailed report exposes available update id after fetch", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  const report = await prefetchOtaUpdateDetailed(
+    client({
+      checkForUpdateAsync: async () => ({
+        isAvailable: true,
+        manifest: { id: "01a082bd-95fd-7fdc-b8cf-e7aadbaefc43" },
+      }),
+      fetchUpdateAsync: async () => ({
+        isNew: true,
+        manifest: { id: "01a082bd-95fd-7fdc-b8cf-e7aadbaefc43" },
+      }),
+    }),
+    () => false,
+    false,
+    { log: () => {} },
+  );
+  assert.equal(report.outcome, "pending");
+  assert.equal(report.availableUpdateId, "01a082bd-95fd-7fdc-b8cf-e7aadbaefc43");
+  assert.equal(report.pending, true);
 });

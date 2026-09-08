@@ -4,35 +4,37 @@ import { usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
-import { readOtaDebugSnapshot } from "@/lib/otaDebug";
-import { formatOtaLogLines, subscribeOtaLaunchLogs } from "@/lib/otaLaunchLog";
+import {
+  getOtaRecoveryStatus,
+  subscribeOtaRecoveryStatus,
+  type OtaRecoveryStatus,
+} from "@/lib/otaRecoveryStatus";
+
+function shortId(id: string): string {
+  if (!id || id === "—") return id;
+  return id.length > 12 ? `${id.slice(0, 8)}…` : id;
+}
 
 /**
- * Temporary on-screen OTA deployment label (all tabs). Tap to expand launch logs.
+ * Production-safe OTA recovery diagnostics footer.
+ * Shows running/available IDs, fetch result, pending, reload block, last error.
  */
 export function OtaDiagnosticsBanner() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [status, setStatus] = useState<OtaRecoveryStatus>(() => getOtaRecoveryStatus());
 
-  useEffect(() => subscribeOtaLaunchLogs(() => setTick((n) => n + 1)), []);
+  useEffect(() => subscribeOtaRecoveryStatus(() => setStatus(getOtaRecoveryStatus())), []);
 
   if (__DEV__) return null;
 
-  // Coach pins a chat composer to the bottom — this banner sits at the same
-  // coordinates (zIndex 9998) and was fully covering the text field.
+  // Coach pins a chat composer to the bottom — keep this footer off Coach.
   const onCoach = pathname === "/coach" || pathname.startsWith("/coach/");
   if (onCoach) return null;
 
-  const snap = readOtaDebugSnapshot();
-  const logs = formatOtaLogLines();
-  void tick;
-
-  const shortId =
-    snap.updateId.length > 12 ? `${snap.updateId.slice(0, 8)}…` : snap.updateId;
-  const shortCommit =
-    snap.commitHash.length > 10 ? snap.commitHash.slice(0, 8) : snap.commitHash;
+  const pendingLabel = status.pending ? "YES" : "NO";
+  const blockedLabel = status.reloadBlocked ? "YES" : "NO";
 
   return (
     <View
@@ -65,7 +67,7 @@ export function OtaDiagnosticsBanner() {
           }}
           selectable
         >
-          OTA {snap.bundleSource} · embedded={String(snap.isEmbeddedLaunch)} · ch {snap.channel} · id {shortId}
+          RUNNING {shortId(status.runningUpdateId)} · AVAILABLE {shortId(status.availableUpdateId)}
         </Text>
         <Text
           style={{
@@ -77,23 +79,44 @@ export function OtaDiagnosticsBanner() {
           }}
           selectable
         >
-          commit {shortCommit} · {snap.updateCreatedAt} · {snap.deployMessage}
+          FETCH {status.fetchResult} · PENDING {pendingLabel} · RELOAD BLOCKED {blockedLabel}
+        </Text>
+        <Text
+          style={{
+            color: status.lastOtaError !== "—" ? "#f87171" : "#64748b",
+            fontFamily: FONT.body,
+            fontSize: 9,
+            lineHeight: 13,
+            marginTop: 2,
+          }}
+          selectable
+        >
+          LAST OTA ERROR {status.lastOtaError}
         </Text>
         {expanded ? (
           <View style={{ marginTop: 6, gap: 2 }}>
-            {logs.length === 0 ? (
-              <Text style={{ color: "#64748b", fontSize: 9 }}>No launch OTA logs yet</Text>
-            ) : (
-              logs.slice(-8).map((line) => (
-                <Text
-                  key={line}
-                  style={{ color: "#94a3b8", fontFamily: FONT.body, fontSize: 8, lineHeight: 11 }}
-                  selectable
-                >
-                  {line}
-                </Text>
-              ))
-            )}
+            <Text style={{ color: "#94a3b8", fontSize: 8, lineHeight: 11 }} selectable>
+              RUNNING UPDATE ID {status.runningUpdateId}
+            </Text>
+            <Text style={{ color: "#94a3b8", fontSize: 8, lineHeight: 11 }} selectable>
+              AVAILABLE UPDATE ID {status.availableUpdateId}
+            </Text>
+            <Text style={{ color: "#94a3b8", fontSize: 8, lineHeight: 11 }} selectable>
+              FETCH RESULT {status.fetchResult}
+            </Text>
+            <Text style={{ color: "#94a3b8", fontSize: 8, lineHeight: 11 }} selectable>
+              PENDING {pendingLabel}
+            </Text>
+            <Text style={{ color: "#94a3b8", fontSize: 8, lineHeight: 11 }} selectable>
+              RELOAD BLOCKED {blockedLabel}
+            </Text>
+            <Text style={{ color: "#94a3b8", fontSize: 8, lineHeight: 11 }} selectable>
+              LAST OTA ERROR {status.lastOtaError}
+            </Text>
+            <Text style={{ color: "#64748b", fontSize: 8, lineHeight: 11 }} selectable>
+              checkReason={status.checkReason} emergency={String(status.isEmergencyLaunch)}{" "}
+              rollback={status.rollbackCommitTime}
+            </Text>
           </View>
         ) : null}
       </Pressable>
