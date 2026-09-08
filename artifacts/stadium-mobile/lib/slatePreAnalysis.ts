@@ -249,6 +249,7 @@ async function runBoardScan(
   const { espnGames, oddsGames, liveFeed } = await fetchScanFeeds(signal);
   if (signal?.aborted) return null;
   const teamIdMap = buildGameTeamIdMap(espnGames);
+  const requestId = `slate-pre-${Date.now()}`;
   return tryReachFullBoardScan({
     target: SLATE_PRE_ANALYSIS_TARGET,
     oddsGames,
@@ -258,6 +259,7 @@ async function runBoardScan(
     espnGames,
     gameMeta,
     teamIdMap,
+    requestId,
     matchupHistory: context.matchupHistory,
     matchupInjuries: context.matchupInjuries,
     playerHistory: context.playerHistory as Record<string, import("./pickScoreContext.ts").PlayerHistorySlice> | undefined,

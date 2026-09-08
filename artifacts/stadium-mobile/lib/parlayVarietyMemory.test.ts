@@ -16,18 +16,19 @@ import {
 
 test("rememberParlayBuild feeds recentParlayLegKeys", () => {
   clearParlayVarietyMemory();
-  rememberParlayBuild([
-    {
-      game: "Cardinals @ Cubs",
-      market: "Hits",
-      pick: "Alec Burleson Over 1.5 Hits",
-      player: "Alec Burleson",
-      odds: 220,
-      isProp: true,
-    },
-  ]);
+  const pick = {
+    game: "Cardinals @ Cubs",
+    market: "Hits",
+    pick: "Alec Burleson Over 1.5 Hits",
+    player: "Alec Burleson",
+    propSide: "Over",
+    propLine: 1.5,
+    odds: 220,
+    isProp: true,
+  };
+  rememberParlayBuild([pick]);
   const keys = recentParlayLegKeys();
-  assert.ok(keys.has(parlayLegKey({ game: "Cardinals @ Cubs", market: "Hits", player: "Alec Burleson" })));
+  assert.ok(keys.has(parlayLegKey(pick)));
 });
 
 test("rotateParlayDisplayOrder changes lead leg per seed", () => {

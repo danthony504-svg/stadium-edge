@@ -127,7 +127,7 @@ test("buildStagedTicketFromScan builds balanced mix for 4+ leg targets", () => {
       altScore,
     ),
   ];
-  const { picks } = buildStagedTicketFromScan(scored, 4);
+  const { picks } = buildStagedTicketFromScan(scored, 4, "test-staging-4");
   assert.equal(picks.length, 4);
   const props = picks.filter((p) => p.isProp).length;
   const gameLines = picks.filter((p) => !p.isProp).length;
@@ -154,7 +154,7 @@ test("buildStagedTicketFromScan returns honest shortfall — no reach-tier fille
     leg({ game: "E @ F", market: "Moneyline", pick: "E ML", odds: 120 }, 90, belowBarScore),
     leg({ game: "G @ H", market: "Moneyline", pick: "G ML", odds: 130 }, 85, belowBarScore),
   ];
-  const { picks, breakdown } = buildStagedTicketFromScan(scored, 4);
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 4, "test-staging-4");
   assert.equal(picks.length, 1);
   assert.equal(breakdown.mainOnTicket, 1);
   assert.equal(breakdown.altOnTicket, 0);
@@ -166,7 +166,7 @@ test("buildStagedTicketFromScan stops at available qualifiers without filler", (
     leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
     leg({ game: "C @ D", market: "Alt Spread", pick: "C +1.5", odds: 115 }, 90, altScore),
   ];
-  const { picks, breakdown } = buildStagedTicketFromScan(scored, 15);
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 15, "test-staging-15");
   assert.equal(picks.length, 2);
   assert.equal(breakdown.mainOnTicket, 1);
   assert.equal(breakdown.altOnTicket, 1);
@@ -230,7 +230,7 @@ test("buildStagedTicketFromScan backfills after thin-market cap drops a leg", ()
       ),
     );
   }
-  const { picks } = buildStagedTicketFromScan(scored, 9);
+  const { picks } = buildStagedTicketFromScan(scored, 9, "test-staging-9");
   assert.equal(picks.length, 9);
   assert.equal(picks.filter((p) => p.market === "Stolen Bases").length, 2);
 });
@@ -249,7 +249,7 @@ test("buildStagedTicketFromScan backfills when same-team game-line dedupe shrink
       ),
     );
   }
-  const { picks } = buildStagedTicketFromScan(scored, 9);
+  const { picks } = buildStagedTicketFromScan(scored, 9, "test-staging-9");
   assert.equal(picks.length, 9);
 });
 
@@ -267,7 +267,7 @@ test("buildStagedTicketFromScan greedy-fills alts without correlation throttle",
       ),
     );
   }
-  const { picks, breakdown } = buildStagedTicketFromScan(scored, 6);
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 6, "test-staging-6");
   assert.equal(picks.length, 6);
   assert.equal(breakdown.mainOnTicket, 2);
   assert.equal(breakdown.altOnTicket, 4);
@@ -308,7 +308,7 @@ test("buildStagedTicketFromScan example: 10 main + 5 alt for 15-leg ask", () => 
       altScore,
     ),
   );
-  const { picks, breakdown } = buildStagedTicketFromScan(scored, 15);
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 15, "test-staging-15");
   assert.equal(picks.length, 15);
   assert.equal(breakdown.mainOnTicket, 10);
   assert.equal(breakdown.altOnTicket, 5);

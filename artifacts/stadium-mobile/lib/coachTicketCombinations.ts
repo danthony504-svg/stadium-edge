@@ -14,7 +14,20 @@ import {
   maxLegsPerThinStatMarket,
   parlayCorrelationPenalty,
 } from "./parlayCorrelationScore.ts";
-import { pickLegFingerprint } from "./parlayReachCore.ts";
+import {
+  applyCoachDiversityTag,
+  canAddPickToTicket,
+  capMarketConcentrationOnTicket,
+  coachTicketDiversityScore,
+  dominantMarketShare,
+  logDiversityRelaxed,
+  maxPicksPerMarket,
+  marketFamilyKey,
+  normalizedCoachPickKey,
+  ticketReuseFromPriorRatio,
+  type CoachDiversityTag,
+  type DiversityRelaxation,
+} from "./coachPickDiversity.ts";
 import {
   isPrefixLegKeys,
   parlayLegKey,
@@ -22,7 +35,9 @@ import {
   ticketOverlapRatio,
   type CoachParlayVarietyContext,
 } from "./parlayVarietyMemory.ts";
+import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
+import { correlationTimedOut } from "./coachScanPipeline.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
   type CoachTicketStyle,
@@ -44,6 +59,8 @@ export const SIGNIFICANT_EDGE_GAP_PCT = 3;
 export const NEAR_EQUAL_TICKET_EDGE_PCT = 2;
 /** Max leg overlap vs a recent ticket before we prefer another candidate. */
 export const MAX_RECENT_TICKET_OVERLAP = 0.4;
+/** Max share of a smaller prior ticket that may reappear on a larger follow-up ask. */
+export const MAX_PRIOR_TICKET_REUSE_RATIO = 0.2;
 /** Lead-player repeat penalty unless edge gap exceeds this. */
 export const SIGNIFICANT_LEAD_EDGE_GAP_PCT = 2.5;
 
@@ -51,6 +68,9 @@ export type CoachTicketBuildOpts = {
   varietySeed: string;
   /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
   ticketStyle?: CoachTicketStyle;
+  correlationDeadlineAt?: number;
+  /** Skip expensive reference-ticket prefix checks during correlation scoring. */
+  correlationFastMode?: boolean;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -71,6 +91,8 @@ type AssemblyConfig = {
   recentLeadPlayers?: readonly string[];
   recentPlayerCounts?: ReadonlyMap<string, number>;
   lineShoppingBias: number;
+  sameTicketRepeat?: boolean;
+  blockRecentRepeats?: boolean;
 };
 
 /** Per-leg-count optimization — different pools, weights, and assembly for each size. */
@@ -90,7 +112,7 @@ const SIZE_PROFILES: Partial<Record<number, TicketSizeProfile>> = {
   8: { diversityBase: 0.4, poolRotate: 7, orderShift: 1, lineShoppingBias: 0.9, candidateCount: 40 },
   9: { diversityBase: 0.36, poolRotate: 4, orderShift: 6, lineShoppingBias: 0.85, candidateCount: 40 },
   10: { diversityBase: 0.32, poolRotate: 8, orderShift: 3, lineShoppingBias: 0.8, candidateCount: 40 },
-  15: { diversityBase: 0.28, poolRotate: 2, orderShift: 0, lineShoppingBias: 0.75, candidateCount: 40 },
+  15: { diversityBase: 0.38, poolRotate: 4, orderShift: 0, lineShoppingBias: 0.75, candidateCount: 40 },
 };
 
 function ticketSizeProfile(target: number): TicketSizeProfile {
@@ -235,11 +257,38 @@ function recentLegPenalty(
   selected: ParsedPick[],
   recentLegKeys?: Set<string>,
 ): number {
-  if (!recentLegKeys?.has(parlayLegKey(leg.pick))) return 0;
+  if (!recentLegKeys?.has(normalizedCoachPickKey(leg.pick))) return 0;
   const legEdge = leg.edgePct ?? 0;
   const altEdge = bestAlternativeEdge(leg, pool, ticket, selected);
   if (legEdge - altEdge >= SIGNIFICANT_EDGE_GAP_PCT) return 8;
-  return 38;
+  return 80;
+}
+
+function diversityNoveltyBonus(
+  leg: BoardScoredLeg,
+  ticket: ParsedPick[],
+  selected: ParsedPick[],
+  recentLegKeys?: Set<string>,
+): number {
+  const pick = leg.pick;
+  const gk = pick.game;
+  const onTicket = [...ticket, ...selected];
+  const newGame = onTicket.every((p) => p.game !== pick.game);
+  const newPlayer =
+    pick.player &&
+    onTicket.every((p) => (p.player ?? "").toLowerCase() !== pick.player!.toLowerCase());
+  const newMarket =
+    onTicket.every(
+      (p) =>
+        (p.propMarketKey ?? p.market ?? "").toLowerCase() !==
+        (pick.propMarketKey ?? pick.market ?? "").toLowerCase(),
+    );
+  let bonus = 0;
+  if (newGame) bonus += 6;
+  if (newPlayer) bonus += 5;
+  if (newMarket) bonus += 4;
+  if (recentLegKeys && !recentLegKeys.has(normalizedCoachPickKey(pick))) bonus += 8;
+  return bonus;
 }
 
 function lineShoppingTieBonus(
@@ -275,15 +324,51 @@ function pickDiverseLegsFromPool(
     }
   }
   const selected: ParsedPick[] = [];
+  let structureRelaxation: 0 | 1 | 2 = 0;
+  let allowRecentRepeats = false;
 
   while (selected.length < want && poolCopy.length) {
     let bestIdx = -1;
     let bestScore = -Infinity;
+    let bestTag: CoachDiversityTag | undefined;
+    let sawStructureReject = false;
+    let sawRecentReject = false;
+    let sawMarketReject = false;
+    let sawGameReject = false;
+
     for (let i = 0; i < poolCopy.length; i++) {
       const row = poolCopy[i]!;
       const fp = pickLegFingerprint(row.pick);
       if (used.has(fp)) continue;
       if (selected.some((p) => pickLegFingerprint(p) === fp)) continue;
+      if (
+        config.blockRecentRepeats &&
+        config.recentLegKeys?.has(normalizedCoachPickKey(row.pick))
+      ) {
+        sawRecentReject = true;
+        continue;
+      }
+
+      const verdict = canAddPickToTicket(row.pick, [...ticket, ...selected], target, {
+        structureRelaxation,
+        allowRecentRepeats,
+        allowMarketOverflow: false,
+        recentPickKeys: config.recentLegKeys,
+        sameTicketRepeat: config.sameTicketRepeat,
+      });
+      if (!verdict.ok) {
+        if (verdict.reason === "recent-pick") sawRecentReject = true;
+        else if (verdict.reason === "market-concentration") {
+          sawMarketReject = true;
+          sawStructureReject = true;
+        } else if (verdict.reason === "same-game-limit" || verdict.reason === "same-player") {
+          sawGameReject = true;
+          sawStructureReject = true;
+        } else if (verdict.reason !== "duplicate" && verdict.reason !== "conflicting-side") {
+          sawStructureReject = true;
+        }
+        continue;
+      }
 
       const corr = parlayCorrelationPenalty(row.pick, [...ticket, ...selected]);
       let effective =
@@ -291,14 +376,30 @@ function pickDiverseLegsFromPool(
         corr * config.diversityWeight -
         samePlayerRepeatPenalty(row, poolCopy, ticket, selected) -
         recentLegPenalty(row, poolCopy, ticket, selected, config.recentLegKeys) +
-        lineShoppingTieBonus(row, config);
+        lineShoppingTieBonus(row, config) +
+        diversityNoveltyBonus(row, ticket, selected, config.recentLegKeys);
 
       if (effective > bestScore) {
         bestScore = effective;
         bestIdx = i;
+        bestTag = verdict.tag;
       }
     }
-    if (bestIdx < 0) break;
+
+    if (bestIdx < 0) {
+      if (!allowRecentRepeats && sawRecentReject && !config.blockRecentRepeats) {
+        logDiversityRelaxed(0, 1, target);
+        allowRecentRepeats = true;
+        continue;
+      }
+      if (structureRelaxation < 2 && sawGameReject) {
+        const next = (structureRelaxation + 1) as 1 | 2;
+        logDiversityRelaxed(structureRelaxation, next, target);
+        structureRelaxation = next;
+        continue;
+      }
+      break;
+    }
 
     const chosen = poolCopy[bestIdx]!;
     const chosenEdge = chosen.edgePct ?? 0;
@@ -306,6 +407,14 @@ function pickDiverseLegsFromPool(
       if (i === bestIdx) continue;
       const alt = poolCopy[i]!;
       if (!legsNearlyEqualEdge(chosen, alt)) continue;
+      const verdict = canAddPickToTicket(alt.pick, [...ticket, ...selected], target, {
+        structureRelaxation,
+        allowRecentRepeats,
+        allowMarketOverflow: false,
+        recentPickKeys: config.recentLegKeys,
+        sameTicketRepeat: config.sameTicketRepeat,
+      });
+      if (!verdict.ok) continue;
       const corrChosen = parlayCorrelationPenalty(chosen.pick, [...ticket, ...selected]);
       const corrAlt = parlayCorrelationPenalty(alt.pick, [...ticket, ...selected]);
       const repeatChosen = samePlayerRepeatPenalty(chosen, poolCopy, ticket, selected);
@@ -317,21 +426,27 @@ function pickDiverseLegsFromPool(
         corrChosen * config.diversityWeight -
         repeatChosen -
         recentChosen +
-        lineShoppingTieBonus(chosen, config);
+        lineShoppingTieBonus(chosen, config) +
+        diversityNoveltyBonus(chosen, ticket, selected, config.recentLegKeys);
       const effAlt =
         alt.rankScore -
         corrAlt * config.diversityWeight -
         repeatAlt -
         recentAlt +
-        lineShoppingTieBonus(alt, config);
+        lineShoppingTieBonus(alt, config) +
+        diversityNoveltyBonus(alt, ticket, selected, config.recentLegKeys);
       if (effAlt > effChosen && Math.abs((alt.edgePct ?? 0) - chosenEdge) <= NEAR_EQUAL_TICKET_EDGE_PCT) {
         bestIdx = i;
+        bestTag = verdict.tag;
       }
     }
 
     const row = poolCopy[bestIdx]!;
     const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
-    const pick = { ...row.pick, ticketRole: role, highRiskValuePlay: false as const };
+    const pick = applyCoachDiversityTag(
+      { ...row.pick, ticketRole: role, highRiskValuePlay: false as const },
+      bestTag,
+    );
     selected.push(pick);
     used.add(pickLegFingerprint(pick));
     poolCopy.splice(bestIdx, 1);
@@ -375,6 +490,22 @@ function tryAppendBackfillLeg(
   config: AssemblyConfig,
   fillTier?: QualityTierGrade,
 ): ParsedPick[] | null {
+  const verdict = canAddPickToTicket(row.pick, current, target, {
+    structureRelaxation: 0,
+    allowRecentRepeats: !config.blockRecentRepeats,
+    allowMarketOverflow: false,
+    recentPickKeys: config.recentLegKeys,
+    sameTicketRepeat: config.sameTicketRepeat,
+  });
+  if (
+    config.blockRecentRepeats &&
+    config.recentLegKeys?.has(normalizedCoachPickKey(row.pick))
+  ) {
+    return null;
+  }
+  if (!verdict.ok && verdict.reason === "duplicate") return null;
+  if (!verdict.ok && verdict.reason === "conflicting-side") return null;
+
   const thinOnTicket = current.filter(
     (p) => p.isProp && isThinPropStatMarket(p.market),
   ).length;
@@ -389,10 +520,8 @@ function tryAppendBackfillLeg(
   const corr = parlayCorrelationPenalty(row.pick, current);
   const repeat = samePlayerRepeatPenalty(row, ranked, current, []);
   const recent = recentLegPenalty(row, ranked, current, [], config.recentLegKeys);
-  const trial = capThinStatMarketsOnTicket(
-    [...current, stagedPickFromRow(row, role, fillTier)],
-    target,
-  );
+  const staged = applyCoachDiversityTag(stagedPickFromRow(row, role, fillTier), verdict.tag);
+  const trial = capThinStatMarketsOnTicket([...current, staged], target);
   if (trial.length > current.length && row.rankScore - corr * 0.4 - repeat - recent > 0) {
     return trial;
   }
@@ -488,6 +617,102 @@ export function tieredBackfillStagedTicket(
   return current.slice(0, target);
 }
 
+function fillTicketToTarget(
+  ticket: ParsedPick[],
+  target: number,
+  allScored: BoardScoredLeg[],
+  config: AssemblyConfig,
+): ParsedPick[] {
+  let current = [...ticket];
+  const used = new Set(current.map(pickLegFingerprint));
+  const ranked = sortBoardLegsForRank(
+    allScored.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null),
+    config.seed,
+  );
+  for (const row of ranked) {
+    if (current.length >= target) break;
+    const fp = pickLegFingerprint(row.pick);
+    if (used.has(fp)) continue;
+    if (
+      config.blockRecentRepeats &&
+      config.recentLegKeys?.has(normalizedCoachPickKey(row.pick))
+    ) {
+      continue;
+    }
+    let verdict = canAddPickToTicket(row.pick, current, target, {
+      structureRelaxation: 0,
+      allowRecentRepeats: !config.blockRecentRepeats,
+      allowMarketOverflow: current.length < target,
+      recentPickKeys: config.recentLegKeys,
+      sameTicketRepeat: config.sameTicketRepeat,
+    });
+    if (!verdict.ok && verdict.reason !== "duplicate" && verdict.reason !== "conflicting-side") {
+      const reason = verdict.reason;
+      verdict = canAddPickToTicket(row.pick, current, target, {
+        structureRelaxation: 2,
+        allowRecentRepeats: !config.blockRecentRepeats,
+        allowMarketOverflow: current.length < target,
+        recentPickKeys: config.recentLegKeys,
+        sameTicketRepeat: config.sameTicketRepeat,
+      });
+    }
+    if (!verdict.ok) continue;
+    const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
+    current.push(
+      applyCoachDiversityTag(
+        { ...row.pick, ticketRole: role, highRiskValuePlay: false as const },
+        verdict.tag,
+      ),
+    );
+    used.add(fp);
+  }
+  return current.slice(0, target);
+}
+
+function rebalanceTicketMarketMix(
+  ticket: ParsedPick[],
+  target: number,
+  allScored: BoardScoredLeg[],
+  config: AssemblyConfig,
+): ParsedPick[] {
+  let current = [...ticket];
+  const maxMarket = maxPicksPerMarket(target);
+  for (let attempt = 0; attempt < 24 && current.length >= target; attempt++) {
+    const counts = new Map<string, number>();
+    for (const p of current) {
+      const mk = marketFamilyKey(p);
+      counts.set(mk, (counts.get(mk) ?? 0) + 1);
+    }
+    const overflow = [...counts.entries()].find(([, count]) => count > maxMarket);
+    if (!overflow) return current.slice(0, target);
+    const [mk] = overflow;
+    const dropIdx = current.findIndex((p) => marketFamilyKey(p) === mk);
+    if (dropIdx < 0) return current.slice(0, target);
+    const trialTicket = current.filter((_, i) => i !== dropIdx);
+    const replacement = allScored.find((row) => {
+      if (boardLegPoolRole(row.pick, row.pick.finalAiScore) == null) return false;
+      if (marketFamilyKey(row.pick) === mk) return false;
+      const fp = pickLegFingerprint(row.pick);
+      if (trialTicket.some((p) => pickLegFingerprint(p) === fp)) return false;
+      const verdict = canAddPickToTicket(row.pick, trialTicket, target, {
+        structureRelaxation: 0,
+        allowRecentRepeats: true,
+        allowMarketOverflow: false,
+        recentPickKeys: config.recentLegKeys,
+        sameTicketRepeat: config.sameTicketRepeat,
+      });
+      return verdict.ok;
+    });
+    if (!replacement) return current.slice(0, target);
+    const role = boardLegPoolRole(replacement.pick, replacement.pick.finalAiScore)!;
+    current = [
+      ...trialTicket,
+      { ...replacement.pick, ticketRole: role, highRiskValuePlay: false as const },
+    ];
+  }
+  return current.slice(0, target);
+}
+
 function assembleBalancedDiverseTicket(
   qualifying: BoardScoredLeg[],
   allScored: BoardScoredLeg[],
@@ -511,7 +736,10 @@ function assembleBalancedDiverseTicket(
   }
 
   const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
-  return tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
+  const tiered = tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
+  const rebalanced = rebalanceTicketMarketMix(tiered, target, allScored, config);
+  const capped = capMarketConcentrationOnTicket(rebalanced, target);
+  return fillTicketToTarget(capped, target, allScored, config);
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
@@ -529,26 +757,6 @@ function ticketQualityScore(picks: ParsedPick[], qualifying: BoardScoredLeg[]): 
   );
   const avgEdge = edges.reduce((a, b) => a + b, 0) / edges.length;
   return avgRank + avgEdge * 0.5;
-}
-
-function normGame(g: string): string {
-  return String(g ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9@]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function ticketDiversityScore(picks: ParsedPick[]): number {
-  if (!picks.length) return 0;
-  const games = new Set(picks.map((p) => normGame(p.game)));
-  const propPicks = picks.filter((p) => p.player);
-  const players = new Set(propPicks.map((p) => p.player!.toLowerCase()));
-  const markets = new Set(picks.map((p) => String(p.market ?? "").toLowerCase()));
-  const gameRatio = games.size / picks.length;
-  const playerRatio = propPicks.length ? players.size / propPicks.length : 1;
-  const dupPlayers = propPicks.length - players.size;
-  return gameRatio * 32 + playerRatio * 28 + markets.size * 1.5 - dupPlayers * 14;
 }
 
 function bestAlternativeLeadEdge(
@@ -579,8 +787,15 @@ function candidateVarietyPenalty(
   for (let i = 0; i < recentTickets.length; i++) {
     const recent = recentTickets[i]!;
     const overlap = ticketOverlapRatio(candidate.legKeys, [...recent]);
+    const reuse = ticketReuseFromPriorRatio(
+      candidate.legKeys,
+      recent.length < candidate.legKeys.length ? [...recent] : [...recent],
+    );
     const recency = 1 - i / Math.max(recentTickets.length, 1);
     penalty += overlap * recency * 52;
+    if (reuse > MAX_PRIOR_TICKET_REUSE_RATIO) {
+      penalty += (reuse - MAX_PRIOR_TICKET_REUSE_RATIO) * 90 * recency;
+    }
     if (overlap >= 1) penalty += 90 * recency;
     else if (overlap > MAX_RECENT_TICKET_OVERLAP) penalty += (overlap - MAX_RECENT_TICKET_OVERLAP) * 40 * recency;
   }
@@ -678,59 +893,168 @@ function prefixPenaltyForTarget(
   return penalty;
 }
 
+function buildSingleTicketCandidate(
+  scored: BoardScoredLeg[],
+  target: number,
+  opts: CoachTicketBuildOpts,
+  index: number,
+): TicketCandidate | null {
+  const qualifying = qualifyingScoredLegs(scored);
+  const ticketStyle = opts.ticketStyle ?? "balanced";
+  const profile = ticketSizeProfile(target);
+  const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
+  const recentFlat = new Set((opts.recentTickets ?? []).flatMap((r) => [...r]));
+  const priorTicketSize = opts.recentTickets?.[0]?.length ?? 0;
+  const orderIdx = (index + profile.orderShift) % ASSEMBLY_CATEGORY_ORDERS.length;
+  const config: AssemblyConfig = {
+    seed: `${sizeSeed}|ticket-${index}`,
+    diversityWeight: profile.diversityBase + (index % 6) * 0.08,
+    bandOffset: index + target * 5,
+    categoryOrder: ASSEMBLY_CATEGORY_ORDERS[orderIdx]!,
+    poolRotate: profile.poolRotate + index,
+    recentLegKeys: recentFlat.size ? recentFlat : undefined,
+    recentLeadPlayers: opts.recentLeadPlayers,
+    recentPlayerCounts: opts.recentPlayerCounts,
+    lineShoppingBias: profile.lineShoppingBias + (index % 4) * 0.12,
+    blockRecentRepeats: priorTicketSize > 0 && target > priorTicketSize,
+  };
+  const picks = assembleBalancedDiverseTicket(
+    qualifying,
+    scored,
+    target,
+    config,
+    ticketStyle,
+  );
+  if (!picks.length) return null;
+  const legKeys = picks.map((p) => normalizedCoachPickKey(p));
+  const candidate: TicketCandidate = {
+    picks,
+    legKeys,
+    qualityScore: ticketQualityScore(picks, qualifying),
+    diversityScore: coachTicketDiversityScore(picks, recentFlat.size ? recentFlat : undefined),
+    varietyPenalty: 0,
+  };
+  candidate.varietyPenalty =
+    candidateVarietyPenalty(candidate, qualifying, opts) +
+    prefixPenaltyForTarget(candidate, target, opts);
+  return candidate;
+}
+
 function generateTicketCandidates(
   scored: BoardScoredLeg[],
   target: number,
   opts: CoachTicketBuildOpts,
 ): TicketCandidate[] {
-  const qualifying = qualifyingScoredLegs(scored);
-  const ticketStyle = opts.ticketStyle ?? "balanced";
-  const out: TicketCandidate[] = [];
   const profile = ticketSizeProfile(target);
-  const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
-  const recentFlat = new Set((opts.recentTickets ?? []).flatMap((r) => [...r]));
   const candidateCount = profile.candidateCount;
+  const deadlineAt = opts.correlationDeadlineAt;
+  const out: TicketCandidate[] = [];
   for (let i = 0; i < candidateCount; i++) {
-    const orderIdx = (i + profile.orderShift) % ASSEMBLY_CATEGORY_ORDERS.length;
-    const config: AssemblyConfig = {
-      seed: `${sizeSeed}|ticket-${i}`,
-      diversityWeight: profile.diversityBase + (i % 6) * 0.08,
-      bandOffset: i + target * 5,
-      categoryOrder: ASSEMBLY_CATEGORY_ORDERS[orderIdx]!,
-      poolRotate: profile.poolRotate + i,
-      recentLegKeys: recentFlat.size ? recentFlat : undefined,
-      recentLeadPlayers: opts.recentLeadPlayers,
-      recentPlayerCounts: opts.recentPlayerCounts,
-      lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
-    };
-    const picks = assembleBalancedDiverseTicket(
-      qualifying,
-      scored,
-      target,
-      config,
-      ticketStyle,
-    );
-    if (!picks.length) continue;
-    const legKeys = picks.map((p) => parlayLegKey(p));
-    const candidate: TicketCandidate = {
-      picks,
-      legKeys,
-      qualityScore: ticketQualityScore(picks, qualifying),
-      diversityScore: ticketDiversityScore(picks),
-      varietyPenalty: 0,
-    };
-    candidate.varietyPenalty =
-      candidateVarietyPenalty(candidate, qualifying, opts) +
-      prefixPenaltyForTarget(candidate, target, opts);
-    out.push(candidate);
+    if (deadlineAt != null && correlationTimedOut(deadlineAt)) break;
+    const candidate = buildSingleTicketCandidate(scored, target, opts, i);
+    if (candidate) out.push(candidate);
   }
   return out;
 }
 
-function candidateTotalScore(candidate: TicketCandidate): number {
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Batched async candidate generation — yields between candidates for deadline checks. */
+export async function buildIndependentCoachTicketAsync(
+  scored: BoardScoredLeg[],
+  target: number,
+  opts: CoachTicketBuildOpts,
+  runtime: {
+    batchSize: number;
+    deadlineAt: number;
+    maxCandidates?: number;
+    isAborted?: () => boolean;
+    onProgress?: (correlationsScored: number, candidateTicketCount: number) => void;
+    onTicketError?: (index: number, err: unknown) => void;
+  },
+): Promise<{
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  candidateTicketCount: number;
+  correlationsScored: number;
+  timedOut: boolean;
+  exceptions: string[];
+}> {
+  const qualifying = qualifyingScoredLegs(scored);
+  const profile = ticketSizeProfile(target);
+  const candidateTicketCount = Math.min(
+    profile.candidateCount,
+    runtime.maxCandidates ?? profile.candidateCount,
+  );
+  const candidates: TicketCandidate[] = [];
+  const exceptions: string[] = [];
+  let timedOut = false;
+
+  const shouldStop = (): boolean =>
+    correlationTimedOut(runtime.deadlineAt) || runtime.isAborted?.() === true;
+
+  for (let i = 0; i < candidateTicketCount; i++) {
+    if (shouldStop()) {
+      timedOut = true;
+      break;
+    }
+    await yieldToEventLoop();
+    if (shouldStop()) {
+      timedOut = true;
+      break;
+    }
+    try {
+      const candidate = buildSingleTicketCandidate(scored, target, opts, i);
+      if (candidate) candidates.push(candidate);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      exceptions.push(`ticket-${i}: ${message}`);
+      runtime.onTicketError?.(i, err);
+    }
+    if ((i + 1) % Math.max(1, runtime.batchSize) === 0 || i === candidateTicketCount - 1) {
+      runtime.onProgress?.(candidates.length, candidateTicketCount);
+    }
+  }
+
+  traceCoachTicket("combinator-candidates", {
+    requestedLegs: target,
+    candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),
+    extra: { candidateCount: candidates.length, candidateTicketCount, timedOut },
+  });
+
+  let chosen: TicketCandidate | null = null;
+  if (candidates.length) {
+    if (!timedOut && !shouldStop()) {
+      chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
+    }
+    if (!chosen) {
+      chosen = [...candidates].sort((a, b) => candidateTotalScore(b, target) - candidateTotalScore(a, target))[0]!;
+    }
+  }
+  const picks = chosen?.picks ?? [];
+  traceCoachTicket("combinator-selected", {
+    requestedLegs: target,
+    candidateId: chosen ? `score:${candidateTotalScore(chosen, target).toFixed(1)}` : "none",
+    pickIds: picks,
+  });
+
+  return {
+    picks,
+    breakdown: stagingBreakdown(picks, qualifying),
+    candidateTicketCount,
+    correlationsScored: candidates.length,
+    timedOut,
+    exceptions,
+  };
+}
+
+function candidateTotalScore(candidate: TicketCandidate, legTarget = 0): number {
+  const diversityWeight = legTarget >= 15 ? 0.35 : legTarget >= 9 ? 0.28 : 0.2;
   return (
     candidate.qualityScore +
-    candidate.diversityScore * 0.2 -
+    candidate.diversityScore * diversityWeight -
     candidate.varietyPenalty
   );
 }
@@ -777,10 +1101,12 @@ function pickBestDistinctCandidate(
 ): TicketCandidate | null {
   if (!candidates.length) return null;
   const recentTickets = opts.recentTickets ?? [];
-  const largerTickets = [
-    ...largerTicketsForTarget(target, opts.recentTicketsByLegCount),
-    ...sameBoardLargerReferenceTickets(qualifying, target, opts.varietySeed),
-  ];
+  const largerTickets = opts.correlationFastMode
+    ? largerTicketsForTarget(target, opts.recentTicketsByLegCount)
+    : [
+        ...largerTicketsForTarget(target, opts.recentTicketsByLegCount),
+        ...sameBoardLargerReferenceTickets(qualifying, target, opts.varietySeed),
+      ];
 
   // Hard reject: never return a ticket that exactly matches the first N legs of a larger ticket.
   const nonPrefix = candidates.filter(
@@ -797,8 +1123,36 @@ function pickBestDistinctCandidate(
   }
   let pool = nonPrefix;
 
+  if (recentTickets.length) {
+    const lastTicket = recentTickets[0]!;
+    const reuseCap =
+      lastTicket.length < target
+        ? MAX_PRIOR_TICKET_REUSE_RATIO
+        : MAX_RECENT_TICKET_OVERLAP;
+    const byReuse = [...pool].sort(
+      (a, b) =>
+        ticketReuseFromPriorRatio(a.legKeys, [...lastTicket]) -
+        ticketReuseFromPriorRatio(b.legKeys, [...lastTicket]),
+    );
+    const lowReuse = byReuse.filter(
+      (c) => ticketReuseFromPriorRatio(c.legKeys, [...lastTicket]) <= reuseCap,
+    );
+    pool = lowReuse.length ? lowReuse : byReuse.slice(0, Math.max(3, Math.ceil(byReuse.length * 0.25)));
+    const lowOverlap = pool.filter(
+      (c) => ticketOverlapRatio(c.legKeys, [...lastTicket]) <= MAX_RECENT_TICKET_OVERLAP,
+    );
+    if (lowOverlap.length) pool = lowOverlap;
+  }
+
+  const maxMarketShare = maxPicksPerMarket(target) / Math.max(target, 1) + 0.01;
+  const byMarket = [...pool].sort(
+    (a, b) => dominantMarketShare(a.picks) - dominantMarketShare(b.picks),
+  );
+  const diversified = byMarket.filter((c) => dominantMarketShare(c.picks) <= maxMarketShare);
+  pool = diversified.length ? diversified : byMarket.slice(0, Math.max(3, Math.ceil(byMarket.length * 0.25)));
+
   const sorted = [...pool].sort(
-    (a, b) => candidateTotalScore(b) - candidateTotalScore(a),
+    (a, b) => candidateTotalScore(b, target) - candidateTotalScore(a, target),
   );
   if (!recentTickets.length) return sorted[0]!;
 
@@ -817,8 +1171,8 @@ function pickBestDistinctCandidate(
   const viable = sorted.filter((c) => c.qualityScore >= qualityFloor);
   const viablePool = viable.length ? viable : sorted;
   const diversePick = [...viablePool].sort((a, b) => {
-    const scoreA = candidateTotalScore(a) - maxRecentOverlap(a, recentTickets) * 25;
-    const scoreB = candidateTotalScore(b) - maxRecentOverlap(b, recentTickets) * 25;
+    const scoreA = candidateTotalScore(a, target) - maxRecentOverlap(a, recentTickets) * 25;
+    const scoreB = candidateTotalScore(b, target) - maxRecentOverlap(b, recentTickets) * 25;
     return scoreB - scoreA;
   })[0];
   if (diversePick) return diversePick;
@@ -864,7 +1218,7 @@ export function buildIndependentCoachTicket(
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
     candidateId: chosen
-      ? `score:${candidateTotalScore(chosen).toFixed(1)}`
+      ? `score:${candidateTotalScore(chosen, target).toFixed(1)}`
       : "none",
     pickIds: picks,
   });

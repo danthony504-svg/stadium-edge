@@ -2,6 +2,10 @@
 
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry } from "@/lib/api";
+import {
+  normalizedCoachPickKey,
+  normalizedCoachPickKeyFromPool,
+} from "./coachPickDiversity.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -10,20 +14,24 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Stable key for a prop leg — game + player + market (not line side noise). */
+/** Stable key for a prop leg — normalized sport/event/player/market/line/side. */
 export function parlayLegKey(p: {
   game: string;
   market: string;
   player?: string | null;
   pick?: string;
   isProp?: boolean;
+  sport?: string;
+  athleteId?: string | null;
+  propMarketKey?: string;
+  propLine?: number | null;
+  propSide?: string;
 }): string {
-  if (p.player) return `${norm(p.game)}|${norm(p.player)}|${norm(p.market)}`;
-  return `${norm(p.game)}|${norm(p.market)}|${norm(p.pick ?? "")}`;
+  return normalizedCoachPickKey(p as ParsedPick);
 }
 
 export function parlayLegKeyFromPool(e: PropPoolEntry): string {
-  return `${norm(e.game)}|${norm(e.player)}|${norm(e.marketLabel)}`;
+  return normalizedCoachPickKeyFromPool(e);
 }
 
 /** Player-only key for anchor / frequency tracking. */

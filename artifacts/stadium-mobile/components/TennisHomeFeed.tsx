@@ -7,7 +7,6 @@ import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-
 import type { GameMeta } from "@/components/GameCard";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
   getGames,
   getOdds,
@@ -140,13 +139,14 @@ export function TennisHomeFeed({
   const loading = oddsQ.isFetching || gamesQ.isFetching;
   const refreshing = oddsQ.isFetching || gamesQ.isFetching || flagsQ.isFetching;
 
-  const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
+  const goCoach = (prefill?: string) =>
     router.push({
       pathname: "/coach",
-      params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
+      params: {
+        ...(prefill ? { prefill } : {}),
+        ts: String(Date.now()),
+      },
     });
-  };
 
   return (
     <ScrollView
@@ -330,7 +330,7 @@ export function TennisHomeFeed({
       )}
 
       <Pressable
-        onPress={() => askCoach("Build me the best tennis parlay for today's board")}
+        onPress={() => goCoach("Build me the best tennis parlay for today's board")}
         style={({ pressed }) => ({
           marginHorizontal: 16,
           marginTop: 20,

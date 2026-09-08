@@ -119,6 +119,8 @@ export type ParsedPick = {
   ticketRole?: "main" | "alt";
   /** Quality tier used when this leg filled a fixed-leg ticket below strict AI gates. */
   coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
+  /** Cross-request diversity label when rules were relaxed to fill the ticket. */
+  coachDiversityTag?: "REPEAT VALUE" | "LIMITED BOARD";
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
 };
