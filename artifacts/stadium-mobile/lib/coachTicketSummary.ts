@@ -1,6 +1,6 @@
 // Compact parlay-ticket stats for the Coach UI — derived from grounded pick scores only.
 
-import { gradeFromComposite } from "./pickScore.ts";
+import { gradeFromComposite, confidenceFromComposite } from "./pickScore.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import { decimalToAmerican } from "./format.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
@@ -135,11 +135,18 @@ function scoresForPick(p: TicketPick) {
   const rubric = p.scores;
   const simHit = fa?.simHit ?? null;
   const simGraded = simHit != null;
+  const composite = fa?.composite ?? rubric?.composite ?? null;
+  const rawConfidence = fa?.confidencePct ?? rubric?.confidencePct ?? null;
+  const fromComposite = composite != null ? confidenceFromComposite(composite) : null;
+  const confidence =
+    rawConfidence != null && fromComposite != null
+      ? Math.max(rawConfidence, fromComposite)
+      : (rawConfidence ?? fromComposite);
   return {
     grade: fa?.grade ?? rubric?.grade ?? null,
-    confidence: fa?.confidencePct ?? rubric?.confidencePct ?? null,
+    confidence,
     edge: simGraded ? (fa?.edgePct ?? null) : (fa?.edgePct ?? rubric?.edgePct ?? null),
-    composite: fa?.composite ?? rubric?.composite ?? null,
+    composite,
     simHitPct: simHit != null ? Math.round(simHit * 1000) / 10 : null,
     fairOdds: fairOddsFromSimHit(simHit),
   };

@@ -2,7 +2,7 @@
 // resolution, etc.), grade props from the same ESPN game logs the stats UI uses.
 // Mirrors simulatorLocalSim — real history only, never fabricated.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "./parsedPick.ts";
 import type { PropPoolEntry } from "./api.ts";
 import { getPlayerHistory, searchPlayer } from "./api.ts";
 import { pickPlayerSearchResult } from "./playerSearchPick.ts";
@@ -57,12 +57,12 @@ function historySliceFromApi(
   return {
     player,
     recent: (h.recent ?? []).slice(0, 10).map((g) => ({
-      date: g.date,
-      opp: g.opponentName,
+      date: g.date ?? undefined,
+      opp: g.opponentName ?? undefined,
       stats: g.stats,
     })),
     vsOpponent: (h.vsOpponent ?? []).slice(0, 5).map((g) => ({
-      date: g.date,
+      date: g.date ?? undefined,
       stats: g.stats,
     })),
   };
