@@ -4353,18 +4353,6 @@ export async function buildChatContext(
     ? []
     : prioritizePlayerHistoryTargets(playerTargets, focalText, depth.history);
   if (phTargets.length > 0) {
-    // Each player can appear on multiple posted sides/rungs. Fetch their
-    // immutable ESPN history once per sport/opponent pairing, and avoid
-    // overwhelming the API with an unbounded fan-out on large boards.
-    const uniqueHistoryTargets = Array.from(
-      new Map(
-        phTargets.map((target) => [
-          `${target.sport}|${target.athleteId}|${target.opponentTeamId ?? ""}`,
-          target,
-        ]),
-      ).values(),
-    );
-    const PLAYER_HISTORY_CONCURRENCY = 6;
     type HistWindow = { games?: number; averages?: Record<string, number> };
     type HistResp = {
       recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];
@@ -4374,9 +4362,8 @@ export async function buildChatContext(
       windows?: { last5?: HistWindow; last10?: HistWindow; last20?: HistWindow } | null;
       minutesTrend?: { l5: number | null; l10: number | null; season: number | null; direction: string } | null;
     };
-    for (let offset = 0; offset < uniqueHistoryTargets.length; offset += PLAYER_HISTORY_CONCURRENCY) {
-      await Promise.all(
-        uniqueHistoryTargets.slice(offset, offset + PLAYER_HISTORY_CONCURRENCY).map(async (t) => {
+    await Promise.all(
+      phTargets.map(async (t) => {
         try {
           const q = new URLSearchParams({ sport: t.sport, athleteId: t.athleteId });
           if (t.opponentTeamId) q.set("opponentTeamId", t.opponentTeamId);
@@ -4411,9 +4398,8 @@ export async function buildChatContext(
         } catch {
           /* honest no-history fallback */
         }
-        }),
-      );
-    }
+      }),
+    );
   }
 
   // Resolve free-form player-name candidates against ESPN and inject their REAL

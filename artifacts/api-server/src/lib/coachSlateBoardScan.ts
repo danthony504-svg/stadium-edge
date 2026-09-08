@@ -45,7 +45,6 @@ function pickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     pick,
     odds: e.odds,
     sport: e.sport,
-    providerEventId: e.providerEventId,
     isProp: true,
     propIsAlt: !!e.alt,
     startsAt: e.startsAt,
@@ -66,7 +65,6 @@ function pickFromOdds(o: RealOddsEntry): ParsedPick {
     pick: o.pick,
     odds: o.odds,
     sport: o.sport,
-    providerEventId: o.providerEventId,
     isProp: false,
     startsAt: o.startsAt,
   };
@@ -303,17 +301,8 @@ export async function runServerBoardScan(
   opts?: {
     deepSim?: boolean;
     onPartial?: (partial: FullBoardScanResult, tickets: SlateTicketsIndex) => void | Promise<void>;
-    onTiming?: (timing: {
-      simulationMs: number;
-      candidateGenerationMs: number;
-      qualificationMs: number;
-      correlationRankingMs: number;
-      ticketConstructionMs: number;
-      totalMs: number;
-    }) => void;
   },
 ): Promise<ServerBoardScanBundle> {
-  const startedAt = Date.now();
   const { context, propPool } = built;
   const realOdds = context.realOdds ?? [];
   const activeSports = context.selectedSports?.length
@@ -327,19 +316,15 @@ export async function runServerBoardScan(
     evalLinesByGame.set(o.game, rows);
   }
 
-  const simulationStartedAt = Date.now();
   const propSims =
     opts?.deepSim !== false
       ? await fetchAllPropSimulations(propPool)
       : await fetchQuickPropSims(propPool, 96);
 
   const gameSimulations = await fetchServerGameSimulations(realOdds);
-  const simulationMs = Date.now() - simulationStartedAt;
   const ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> = [];
   let totalScanned = 0;
   let lastPartialAt = 0;
-  let qualificationMs = 0;
-  let candidateGenerationMs = 0;
 
   const scanCtx = () => ({
     evalLinesByGame,
@@ -361,20 +346,11 @@ export async function runServerBoardScan(
   };
 
   for (const o of realOdds) {
-    const qualificationStartedAt = Date.now();
-    if (!isCoachBettableStartsAt(o.startsAt)) {
-      qualificationMs += Date.now() - qualificationStartedAt;
-      continue;
-    }
+    if (!isCoachBettableStartsAt(o.startsAt)) continue;
     totalScanned++;
     const isAlt = /^alt /i.test(o.market) || /alt/i.test(o.market);
     const simHit = simHitForGameLine(o, gameSimulations.get(o.game));
-    if (!qualifiesServerAiLine(o, simHit)) {
-      qualificationMs += Date.now() - qualificationStartedAt;
-      continue;
-    }
-    qualificationMs += Date.now() - qualificationStartedAt;
-    const candidateStartedAt = Date.now();
+    if (!qualifiesServerAiLine(o, simHit)) continue;
     const pick = pickFromOdds(o);
     if (o.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = o.edge;
     if (simHit != null) {
@@ -382,59 +358,33 @@ export async function runServerBoardScan(
     }
     const score = rankScoreForPick(pick, propSims, simHit);
     ranked.push({ pick, rankScore: score, isAlt });
-    candidateGenerationMs += Date.now() - candidateStartedAt;
     if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
   for (const e of propPool) {
-    const qualificationStartedAt = Date.now();
-    if (!isCoachBettableStartsAt(e.startsAt)) {
-      qualificationMs += Date.now() - qualificationStartedAt;
-      continue;
-    }
+    if (!isCoachBettableStartsAt(e.startsAt)) continue;
     totalScanned++;
     const pick = pickFromPoolEntry(e);
     const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);
     const minHit = propSims.get(k) ?? null;
     const edge = e.edge ?? 0;
-    if (edge <= 0 && (minHit ?? 0) < 0.52) {
-      qualificationMs += Date.now() - qualificationStartedAt;
-      continue;
-    }
-    if (minHit != null && minHit < 0.52 && edge <= 0) {
-      qualificationMs += Date.now() - qualificationStartedAt;
-      continue;
-    }
-    qualificationMs += Date.now() - qualificationStartedAt;
-    const candidateStartedAt = Date.now();
+    if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
+    if (minHit != null && minHit < 0.52 && edge <= 0) continue;
     if (e.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = e.edge;
     if (minHit != null) {
       pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
     }
     const score = rankScoreForPick(pick, propSims, minHit ?? null);
     ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
-    candidateGenerationMs += Date.now() - candidateStartedAt;
     if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
-  const rankingStartedAt = Date.now();
   ranked.sort((a, b) => b.rankScore - a.rankScore);
   const collapsed = collapseServerRankedByLadder(ranked);
   collapsed.sort((a, b) => b.rankScore - a.rankScore);
-  const correlationRankingMs = Date.now() - rankingStartedAt;
-  const ticketConstructionStartedAt = Date.now();
   const ctx = scanCtx();
   const tickets = buildSlateTicketsIndex(collapsed, ctx, stageServerTicketBalanced);
   const scan = primaryBoardScanFromRanked(collapsed, ctx, stageServerTicketBalanced);
-  const ticketConstructionMs = Date.now() - ticketConstructionStartedAt;
-  opts?.onTiming?.({
-    simulationMs,
-    candidateGenerationMs,
-    qualificationMs,
-    correlationRankingMs,
-    ticketConstructionMs,
-    totalMs: Date.now() - startedAt,
-  });
 
   return { scan, tickets };
 }

@@ -224,7 +224,6 @@ export function NavMenu() {
                 </Text>
               </Pressable>
             ) : null}
-            {/* Temporary production OTA troubleshooting entry. */}
             <Pressable
               onPress={() => go("/ota-debug")}
               style={({ pressed }) => ({
@@ -251,7 +250,7 @@ export function NavMenu() {
                   fontSize: 15,
                 }}
               >
-                OTA Diagnostics · Debug
+                OTA Diagnostics
               </Text>
             </Pressable>
             <Pressable

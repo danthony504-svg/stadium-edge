@@ -17,7 +17,6 @@ export type ParsedPick = {
   odds: number;
   edge?: string;
   sport?: string;
-  providerEventId?: string;
   isProp?: boolean;
   startsAt?: string | null;
   headshot?: string | null;
@@ -41,7 +40,6 @@ export type ParsedPick = {
 
 export type RealOddsEntry = {
   sport: string;
-  providerEventId?: string;
   game: string;
   market: string;
   pick: string;
@@ -54,7 +52,6 @@ export type RealOddsEntry = {
 
 export type RealPropEntry = {
   sport: string;
-  providerEventId?: string;
   game: string;
   startsAt?: string;
   player: string;
@@ -74,7 +71,6 @@ export type RealPropEntry = {
 
 export type PropPoolEntry = {
   sport: string;
-  providerEventId?: string;
   game: string;
   marketLabel: string;
   player: string;

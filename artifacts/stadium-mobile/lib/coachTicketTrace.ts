@@ -3,15 +3,8 @@
 import { parlayLegKey } from "./parlayVarietyMemory.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { API_BASE } from "./apiBase";
-import { fetch as expoFetch } from "expo/fetch";
 
 export const COACH_TICKET_TRACE = true;
-let activeTraceId: string | null = null;
-
-export function setCoachTicketTraceId(traceId: string | null): void {
-  activeTraceId = traceId;
-}
 
 export type CoachTicketTraceStage =
   | "combinator-candidates"
@@ -20,17 +13,7 @@ export type CoachTicketTraceStage =
   | "server-staged"
   | "mobile-received"
   | "mobile-delivered"
-  | "slip-capture"
-  | "completion-api-response"
-  | "completion-response-parsed"
-  | "completion-ticket-constructed"
-  | "completion-ticket-validated"
-  | "completion-state-update-start"
-  | "completion-state-update-complete"
-  | "completion-ticket-ready"
-  | "completion-scanning-stopped"
-  | "completion-progress-finalized"
-  | "completion-blocked";
+  | "slip-capture";
 
 function pickTraceIds(picks: readonly ParsedPick[]): string[] {
   return picks.map((p) => pickLegFingerprint(p));
@@ -71,21 +54,4 @@ export function traceCoachTicket(
       ...detail.extra,
     }),
   );
-  if (!activeTraceId) return;
-  void expoFetch(`${API_BASE}/coach/trace`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      traceId: activeTraceId,
-      stage,
-      requestedLegs: detail.requestedLegs,
-      scanRequestedLegs: detail.scanRequestedLegs,
-      pickCount: ids?.length,
-      candidateCount: detail.candidateIds?.length,
-      source: detail.source,
-      extra: detail.extra,
-    }),
-  }).catch(() => {
-    // Completion telemetry must never alter a Coach request.
-  });
 }
