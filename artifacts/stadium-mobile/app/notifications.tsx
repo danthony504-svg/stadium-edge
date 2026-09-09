@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/expo";
-import { Feather } from "@expo/vector-icons";
+import Feather from "@expo/vector-icons/Feather";
 import { Redirect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {

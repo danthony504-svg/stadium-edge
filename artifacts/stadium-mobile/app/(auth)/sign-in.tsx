@@ -1,5 +1,6 @@
 import { useSignIn } from "@clerk/expo";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import Feather from "@expo/vector-icons/Feather";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { type Href, Link, useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";

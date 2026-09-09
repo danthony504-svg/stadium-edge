@@ -1,5 +1,5 @@
 import { useAuth, useUser } from "@clerk/expo";
-import { Feather } from "@expo/vector-icons";
+import Feather from "@expo/vector-icons/Feather";
 import * as Clipboard from "expo-clipboard";
 import { Redirect, useRouter } from "expo-router";
 import React from "react";

@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import Feather from "@expo/vector-icons/Feather";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { Pressable, Text, View } from "react-native";

@@ -1,5 +1,5 @@
 import { useSSO } from "@clerk/expo";
-import { Feather } from "@expo/vector-icons";
+import Feather from "@expo/vector-icons/Feather";
 import * as AuthSession from "expo-auth-session";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
