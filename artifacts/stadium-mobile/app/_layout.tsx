@@ -21,9 +21,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { DeferredOtaRuntime } from "@/components/DeferredOtaRuntime";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
-import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
@@ -31,7 +30,6 @@ import {
   addNotificationResponseListener,
   registerForPushAsync,
 } from "@/lib/notifications";
-import { useOtaUpdater } from "@/lib/otaUpdater";
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 const proxyUrl = publishableKey.startsWith("pk_live")
@@ -69,8 +67,20 @@ function PushNotificationsBridge() {
   return null;
 }
 
-SplashScreen.preventAutoHideAsync();
-SystemUI.setBackgroundColorAsync("#0f172a");
+/**
+ * Module scope runs before any error boundary exists, so a native module that
+ * throws or rejects here aborts the launch outright. Never let these escape.
+ */
+function ignoreStartupFailure(run: () => Promise<unknown>): void {
+  try {
+    void run().catch(() => {});
+  } catch {
+    // Native module unavailable — startup must continue regardless.
+  }
+}
+
+ignoreStartupFailure(() => SplashScreen.preventAutoHideAsync());
+ignoreStartupFailure(() => SystemUI.setBackgroundColorAsync("#0f172a"));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: {} } });
 const DARK_BG = "#0f172a";
@@ -134,9 +144,9 @@ function RootLayoutNav() {
  * Silent check/fetch on launch + foreground. Auto-reloads when safe;
  * OtaUpdateBanner always provides a production Restart path if pending.
  * Detailed OTA Diagnostics remain available via the on-screen banner / ota-debug.
+ * DeferredOtaRuntime keeps all of that off the startup path until first paint.
  */
 function AppShell() {
-  useOtaUpdater(true);
   return (
     <QueryClientProvider client={queryClient}>
       <AuthTokenBridge />
@@ -147,8 +157,7 @@ function AppShell() {
             <KeyboardProvider>
               <StatusBar style="light" />
               <RootLayoutNav />
-              <OtaUpdateBanner />
-              <OtaDiagnosticsBanner />
+              <DeferredOtaRuntime />
             </KeyboardProvider>
           </GestureHandlerRootView>
         </PickTrackerProvider>
@@ -157,7 +166,7 @@ function AppShell() {
   );
 }
 
-export default function RootLayout() {
+function RootLayoutContent() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -170,7 +179,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      ignoreStartupFailure(() => SplashScreen.hideAsync());
     }
   }, [fontsLoaded, fontError]);
 
@@ -193,16 +202,28 @@ export default function RootLayout() {
   }
 
   return (
+    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
+      <ClerkLoading>
+        <BootScreen />
+      </ClerkLoading>
+      <ClerkLoaded>
+        <AppShell />
+      </ClerkLoaded>
+    </ClerkProvider>
+  );
+}
+
+/**
+ * ErrorBoundary wraps the whole app render, including useFonts, the missing-key
+ * screen and the pre-Clerk boot path — a throw in any of those used to escape
+ * to the native handler and fail the launch. SafeAreaProvider stays above it
+ * because the fallback screen reads safe-area insets.
+ */
+export default function RootLayout() {
+  return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
-          <ClerkLoading>
-            <BootScreen />
-          </ClerkLoading>
-          <ClerkLoaded>
-            <AppShell />
-          </ClerkLoaded>
-        </ClerkProvider>
+        <RootLayoutContent />
       </ErrorBoundary>
     </SafeAreaProvider>
   );

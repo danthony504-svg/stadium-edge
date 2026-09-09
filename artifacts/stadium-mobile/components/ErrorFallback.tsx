@@ -1,5 +1,4 @@
 import Feather from "@expo/vector-icons/Feather";
-import * as Updates from "expo-updates";
 import React, { useState } from "react";
 import {
   Modal,
@@ -14,9 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { looksLikeCorruptOtaBundle } from "@/lib/otaCorruptBundle";
-import { clearSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -30,9 +27,14 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const [isModalVisible, setIsModalVisible] = useState(false);
 
+  // Loaded on tap, not at import time: this component sits in the root bundle's
+  // static graph, and expo-updates must not be evaluated during startup.
   const handleRestart = async () => {
     if (corruptBundle) return;
     try {
+      const Updates = await import("expo-updates");
+      const { clearDiscoverCache } = await import("@/lib/discoverSessionCache");
+      const { clearSlatePreAnalysisCache } = await import("@/lib/slatePreAnalysisCache");
       await clearDiscoverCache();
       await clearSlatePreAnalysisCache();
       if (Updates.isEnabled) {
