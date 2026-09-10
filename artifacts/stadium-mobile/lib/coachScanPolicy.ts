@@ -202,3 +202,18 @@ export function shouldAllowReachCountBackfill(opts: {
   if (opts.isParlayBuild && (opts.legTarget ?? 0) >= 3) return false;
   return true;
 }
+
+/**
+ * Temporary scanning state for a short ticket — never treat a partial as the
+ * completed Coach shortfall until boardScanComplete === true.
+ */
+export function coachTicketShowsScanInProgress(opts: {
+  picksShortOfTarget: boolean;
+  buildIdle: boolean;
+  boardScanComplete?: boolean | null;
+}): boolean {
+  if (!opts.picksShortOfTarget) return false;
+  if (opts.boardScanComplete === true) return false;
+  if (opts.boardScanComplete === false) return true;
+  return !opts.buildIdle;
+}

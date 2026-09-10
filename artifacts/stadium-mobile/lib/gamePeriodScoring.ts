@@ -31,7 +31,8 @@ export function periodScoresForDraw(
 ): { home: number; away: number } {
   if (period === "fg") return { home: homeFull, away: awayFull };
   const frac = periodIncrementFrac(sport, period);
-  if (frac == null) return { home: homeFull, away: awayFull };
+  // Unsupported period×sport must not silently reuse full-game scores.
+  if (frac == null) return { home: Number.NaN, away: Number.NaN };
   const noiseH = 1 + (Math.random() - 0.5) * 0.14;
   const noiseA = 1 + (Math.random() - 0.5) * 0.14;
   return {

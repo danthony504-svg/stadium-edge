@@ -418,11 +418,23 @@ export function coachBuildSports(
     const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
     if (n >= 11) sports = [...allSports];
     else if (n >= 6) {
-      sports = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"].filter((id) =>
+      // NFL/NCAAF sit early so compact/light context probes (maxSports ~4)
+      // and early board-scan kickoff both keep football in the candidate set.
+      sports = [
+        "mlb",
+        "nfl",
+        "nba",
+        "ncaaf",
+        "nhl",
+        "wnba",
+        "soccer",
+        "ufc",
+        "tennis",
+      ].filter((id) => allSports.includes(id));
+    } else {
+      sports = ["mlb", "nfl", "nba", "ncaaf", "nhl", "wnba"].filter((id) =>
         allSports.includes(id),
       );
-    } else {
-      sports = ["mlb", "wnba", "nba", "nhl"].filter((id) => allSports.includes(id));
     }
   }
   return sports.filter((s) => !excluded.has(s));

@@ -40,7 +40,7 @@ import { scoreLineShopping } from "./pickScore.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
-import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
+import { marketSupportsSimulation, parseMarketPeriod, pickHasSimGrade, sanitizeSimHitForGrade } from "./simMarketSupport.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
@@ -184,7 +184,18 @@ function scoredFromEvalRow(
   simHit?: number | null,
   calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
-  const hit = simHit ?? row.winProb ?? row.finalAiScore.simHit;
+  const rawHit = simHit ?? row.winProb ?? row.finalAiScore.simHit;
+  const hit =
+    sanitizeSimHitForGrade(rawHit, {
+      market: row.pick.market,
+      sport: row.pick.sport,
+      isProp: !!row.pick.isProp,
+      period: parseMarketPeriod(row.pick.market ?? ""),
+      line: null,
+      odds: row.pick.odds ?? null,
+      simulationStatKey: "game_line_eval",
+      edge: row.edgePct ?? row.finalAiScore.edgePct,
+    }) ?? null;
   if (!gameLineHasSimGrade(row, hit)) return null;
   const m = deriveGameSimLineMetrics(row);
   const implied =
@@ -213,7 +224,17 @@ function scoredFromPropPick(
   perfByFamily?: Map<string, MarketPerf>,
   calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
-  if (!propHasSimGrade(pick, simHit)) return null;
+  const hit = sanitizeSimHitForGrade(simHit, {
+    market: pick.market,
+    sport: pick.sport,
+    isProp: true,
+    period: parseMarketPeriod(pick.market ?? ""),
+    line: pick.propLine ?? null,
+    odds: pick.odds ?? null,
+    simulationStatKey: "player_prop",
+    expectedStatKey: "player_prop",
+  });
+  if (!propHasSimGrade(pick, hit)) return null;
   const ev =
     simHit != null && pick.odds != null ? simEvPct(simHit, pick.odds) : null;
   const implied =

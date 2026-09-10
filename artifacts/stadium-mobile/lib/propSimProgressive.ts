@@ -136,11 +136,18 @@ export async function loadPropSimulationsProgressive(
 
 /** Flash or refresh picks on the latest assistant reply (seeds cards during long builds). */
 export function patchLastAssistantPicks<
-  T extends { role: string; picks?: ParsedPick[]; content?: string; legNote?: string },
+  T extends {
+    role: string;
+    picks?: ParsedPick[];
+    content?: string;
+    legNote?: string;
+    boardScanComplete?: boolean;
+  },
 >(
   setMessages: (fn: (prev: T[]) => T[]) => void,
   picks: ParsedPick[],
   legNote?: string,
+  extras?: { boardScanComplete?: boolean },
 ): void {
   setMessages((prev) => {
     const copy = [...prev];
@@ -151,6 +158,9 @@ export function patchLastAssistantPicks<
           picks,
           content: picks.length > 0 ? "" : copy[i].content,
           ...(legNote !== undefined ? { legNote: legNote.trim() || undefined } : {}),
+          ...(extras?.boardScanComplete != null
+            ? { boardScanComplete: extras.boardScanComplete }
+            : {}),
         };
         return copy;
       }
