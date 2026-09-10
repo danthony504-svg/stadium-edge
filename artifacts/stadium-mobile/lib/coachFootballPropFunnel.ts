@@ -163,3 +163,19 @@ export function bumpCounterMap(
 ): void {
   map[key] = (map[key] ?? 0) + by;
 }
+
+/**
+ * Fail-safe wrapper for NFL/NCAAF funnel / manifest instrumentation.
+ * Never rethrows — Coach scan selection must not abort on logging failures.
+ */
+export function safeCoachManifestInstrument(label: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    try {
+      console.debug?.(`[coach-manifest-instrument] ${label}`, err);
+    } catch {
+      // ignore diagnostic logging failures too
+    }
+  }
+}
