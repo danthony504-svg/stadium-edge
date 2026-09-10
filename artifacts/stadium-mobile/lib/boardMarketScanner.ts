@@ -705,26 +705,29 @@ export function shouldUseFullBoardScan(
     oddsThreshold?: unknown;
     confidenceThreshold?: unknown;
     requestedLegs?: number;
+    legTarget?: number;
     reachFull?: boolean;
   },
 ): boolean {
   if (reachBoardScanEligible(opts)) return true;
-  const asked = opts.requestedLegs ?? 0;
+  const asked = opts.legTarget ?? opts.requestedLegs ?? 0;
   if (opts.reachFull && asked > 0) return true;
-  return asked > 0 && legTarget >= 3;
+  return asked >= 3 && legTarget >= 3;
 }
 
-/** True for explicit 3+ leg parlay asks that should always full-board scan. */
+/** True for 3+ leg parlay asks that should always full-board scan. */
 export function reachBoardScanEligible(opts: {
   isAnalyze?: boolean;
   requestedLegs?: number;
+  /** Effective leg target (includes default counts like "build a parlay" → 8). */
+  legTarget?: number;
   propsOnly?: boolean;
   explicitSingleGame?: boolean;
   oddsThreshold?: unknown;
   confidenceThreshold?: unknown;
 }): boolean {
   if (opts.isAnalyze) return false;
-  const asked = opts.requestedLegs ?? 0;
+  const asked = opts.legTarget ?? opts.requestedLegs ?? 0;
   if (asked < 3) return false;
   if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
     return false;

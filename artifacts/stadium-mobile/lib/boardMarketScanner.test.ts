@@ -42,3 +42,9 @@ test("reachBoardScanEligible requires 3+ legs and no locks", () => {
   assert.equal(reachBoardScanEligible({ requestedLegs: 15, propsOnly: true }), false);
   assert.equal(shouldUseFullBoardScan(15, { requestedLegs: 15 }), true);
 });
+
+test("reachBoardScanEligible uses legTarget when user omits explicit count", () => {
+  assert.equal(reachBoardScanEligible({ requestedLegs: 0, legTarget: 8 }), true);
+  assert.equal(reachBoardScanEligible({ requestedLegs: 0, legTarget: 2 }), false);
+  assert.equal(shouldUseFullBoardScan(8, { legTarget: 8 }), true);
+});
