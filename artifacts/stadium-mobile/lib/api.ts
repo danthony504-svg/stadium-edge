@@ -1299,6 +1299,63 @@ export function getMlbBatterSplits(athleteId: string, signal?: AbortSignal): Pro
   return getJson<MlbBatterSplits>(`/sports/mlb-batter-splits?athleteId=${encodeURIComponent(athleteId)}`, signal);
 }
 
+export type MlbTeamPlatoonCompact = {
+  game: string;
+  away: Record<string, unknown>;
+  home: Record<string, unknown>;
+  offenseLean: string | null;
+  note: string | null;
+};
+
+export function getMlbGamePlatoonCompare(
+  opts: { game: string; awayTeam: string; homeTeam: string; awayTeamId?: string; homeTeamId?: string },
+  signal?: AbortSignal,
+): Promise<{ compact?: MlbTeamPlatoonCompact } | null> {
+  const q = new URLSearchParams({
+    game: opts.game,
+    awayTeam: opts.awayTeam,
+    homeTeam: opts.homeTeam,
+  });
+  if (opts.awayTeamId) q.set("awayTeamId", opts.awayTeamId);
+  if (opts.homeTeamId) q.set("homeTeamId", opts.homeTeamId);
+  return getJson<{ compact?: MlbTeamPlatoonCompact } | null>(`/sports/mlb-game-platoon-compare?${q}`, signal);
+}
+
+export type OpponentDefenseEntry = {
+  teamName: string | null;
+  avgPointsAgainst: number | null;
+  avgPointsFor: number | null;
+  pointDifferential: number | null;
+  defensive: Record<string, number>;
+  offensive?: Record<string, number>;
+};
+
+export type TeamPeriodStatsEntry = {
+  sampleSize: number;
+  periodAverages: Record<string, { scored: number; allowed: number }>;
+};
+
+export function getTeamDefense(
+  sport: string,
+  teamId: string,
+  signal?: AbortSignal,
+): Promise<OpponentDefenseEntry | null> {
+  const q = `sport=${encodeURIComponent(sport)}&teamId=${encodeURIComponent(teamId)}`;
+  return getJson<OpponentDefenseEntry | null>(`/sports/team-defense?${q}`, signal).catch(() => null);
+}
+
+export function getTeamPeriodStats(
+  sport: string,
+  teamId: string,
+  signal?: AbortSignal,
+): Promise<{ sampleSize?: number; periodAverages?: TeamPeriodStatsEntry["periodAverages"] } | null> {
+  const q = `sport=${encodeURIComponent(sport)}&teamId=${encodeURIComponent(teamId)}`;
+  return getJson<{ sampleSize?: number; periodAverages?: TeamPeriodStatsEntry["periodAverages"] } | null>(
+    `/sports/team-period-stats?${q}`,
+    signal,
+  ).catch(() => null);
+}
+
 // ---------- Real injury report (ESPN) ----------
 
 // One player's REAL injury designation from ESPN's league-wide report.
@@ -1801,6 +1858,9 @@ export type RealPropEntry = {
   // EV, matchup, form, injury, line-shopping, and simulation. Omitted when
   // ungradeable.
   selectionScore?: number | null;
+  // ESPN id of the team this player faces tonight — lets the AI join
+  // opponentDefense at "<sport>#<opponentTeamId>". Null when unmapped.
+  opponentTeamId?: string | null;
 };
 
 // Resolution-shape prop entry (one row per posted side) that the slip parser
@@ -2403,6 +2463,14 @@ export type ChatContext = {
   // factor + altitude, real ballpark weather (null for domes), and both probable
   // starters' real tendency. Omitted when no MLB game resolved data.
   mlbGameEnv?: Record<string, unknown>;
+  /** Team offense vs opposing starter hand (LHP/RHP splits + starter tendency). */
+  mlbTeamPlatoon?: Record<string, MlbTeamPlatoonCompact>;
+  // Opponent team offense/defense profile keyed "<sport>#<teamId>" — real ESPN
+  // season averages. Used as a prop tie-breaker and team-level matchup read.
+  opponentDefense?: Record<string, OpponentDefenseEntry>;
+  // Per-team period scoring (q1–q4, h1/h2) keyed "<sport>#<teamId>" for
+  // NBA/NFL/NCAAF period markets. Real L-up-to-10 ESPN linescore averages.
+  teamPeriodStats?: Record<string, TeamPeriodStatsEntry>;
   // Soft signal derived ONLY from the user's REAL graded results (Model Report):
   // short strings like "Unders: strong (61%, 11-7)" for categories above the
   // sample bar. The model may lean into hot categories / be cautious on cold
@@ -4245,6 +4313,13 @@ export async function buildChatContext(
               if (n >= ALT_RUNGS_PER_PROP) continue;
               altRungs.set(k, n + 1);
             }
+            let propOppId: string | null = null;
+            let propIsHome: boolean | null = null;
+            if (p.playerTeamId && ids) {
+              const pt = String(p.playerTeamId);
+              propOppId = pt === ids.homeTeamId ? ids.awayTeamId : pt === ids.awayTeamId ? ids.homeTeamId : null;
+              propIsHome = pt === ids.homeTeamId ? true : pt === ids.awayTeamId ? false : null;
+            }
             realProps.push({
               sport,
               game,
@@ -4256,6 +4331,7 @@ export async function buildChatContext(
               over: overQ ? p.overPrice : null,
               under: underQ ? p.underPrice : null,
               alt: !!p.alt,
+              opponentTeamId: propOppId,
               // Carry the server-computed +EV signal (MAIN lines only) so the
               // chat AI can surface real mispriced/value props on request.
               ev: p.ev ?? null,
@@ -4264,19 +4340,16 @@ export async function buildChatContext(
               edge: p.edge ?? null,
             });
             // Collect each unique player once for the game-log / platoon fetch.
-            // opponentTeamId + isHome come from the player's team vs the game's
-            // home/away ids (null when the mapping is unavailable — the server
-            // then skips the vs-opponent / venue split rather than inventing one).
             if (p.athleteId && !seenAthletes.has(p.athleteId)) {
               seenAthletes.add(p.athleteId);
-              let oppId: string | null = null;
-              let isHome: boolean | null = null;
-              if (p.playerTeamId && ids) {
-                const pt = String(p.playerTeamId);
-                oppId = pt === ids.homeTeamId ? ids.awayTeamId : pt === ids.awayTeamId ? ids.homeTeamId : null;
-                isHome = pt === ids.homeTeamId ? true : pt === ids.awayTeamId ? false : null;
-              }
-              playerTargets.push({ sport, game, player: p.player, athleteId: String(p.athleteId), opponentTeamId: oppId, isHome });
+              playerTargets.push({
+                sport,
+                game,
+                player: p.player,
+                athleteId: String(p.athleteId),
+                opponentTeamId: propOppId,
+                isHome: propIsHome,
+              });
             }
             const headshot = p.headshot ?? null;
             const teamAbbr = p.playerTeamId
@@ -4498,8 +4571,10 @@ export async function buildChatContext(
   // tendency) plus a per-batter vs-LHP/RHP split fetch. Same maps + keys as web.
   const mlbPlatoon: Record<string, unknown> = {};
   const mlbGameEnv: Record<string, unknown> = {};
+  const mlbTeamPlatoon: Record<string, MlbTeamPlatoonCompact> = {};
   const mlbTargets = phTargets.filter((t) => t.sport === "mlb");
-  if (mlbTargets.length > 0) {
+  const hasMlbSlate = sports.includes("mlb");
+  if (hasMlbSlate) {
     type Probable = { name?: string; throws?: string | null; tendency?: unknown };
     type ProbGame = {
       venue?: string | null;
@@ -4518,40 +4593,6 @@ export async function buildChatContext(
     } catch {
       /* honest no-probables fallback */
     }
-    await Promise.all(
-      mlbTargets.map(async (t) => {
-        try {
-          const data = await getJson<{ bats?: string | null; vsLeft?: unknown; vsRight?: unknown }>(
-            `/sports/mlb-batter-splits?athleteId=${encodeURIComponent(t.athleteId)}`,
-            signal,
-          );
-          const bats = data?.bats || null;
-          const oppPitcher = (t.opponentTeamId ? probables[t.opponentTeamId] : null) || null;
-          const oppThrows = oppPitcher?.throws || null;
-          let platoon: string | null = null;
-          if (bats === "Switch") platoon = "switch";
-          else if (bats && oppThrows) platoon = bats !== oppThrows ? "advantage" : "disadvantage";
-          const vsThatHand = oppThrows === "Left" ? data?.vsLeft : oppThrows === "Right" ? data?.vsRight : null;
-          if (!bats && !oppThrows && !data?.vsLeft && !data?.vsRight) return;
-          mlbPlatoon[`${t.player}#${t.athleteId}`] = {
-            player: t.player,
-            bats,
-            opposingPitcherName: oppPitcher?.name || null,
-            opposingPitcherThrows: oppThrows,
-            opposingPitcherTendency: oppPitcher?.tendency || null,
-            platoon,
-            vsThatHand: vsThatHand || null,
-            vsLeft: data?.vsLeft || null,
-            vsRight: data?.vsRight || null,
-          };
-        } catch {
-          /* honest no-platoon fallback */
-        }
-      }),
-    );
-    // Per-game ballpark environment for every MLB game in the pool. Built from
-    // the ESPN games list (which carries the team ids realGames omits), keyed by
-    // the same "Away @ Home" label as realProps so the model can join them.
     for (let i = 0; i < sports.length; i++) {
       if (sports[i] !== "mlb") continue;
       for (const g of gamesAll[i]) {
@@ -4571,6 +4612,139 @@ export async function buildChatContext(
         };
       }
     }
+    const mlbGamesForPlatoon: Array<{
+      game: string;
+      awayTeam: string;
+      homeTeam: string;
+      awayTeamId?: string;
+      homeTeamId?: string;
+    }> = [];
+    for (let i = 0; i < sports.length; i++) {
+      if (sports[i] !== "mlb") continue;
+      for (const g of gamesAll[i]) {
+        if (!g.homeTeam || !g.awayTeam) continue;
+        mlbGamesForPlatoon.push({
+          game: `${g.awayTeam} @ ${g.homeTeam}`,
+          awayTeam: g.awayTeam,
+          homeTeam: g.homeTeam,
+          awayTeamId: g.awayTeamId ?? undefined,
+          homeTeamId: g.homeTeamId ?? undefined,
+        });
+      }
+    }
+    await Promise.all(
+      mlbGamesForPlatoon.slice(0, 8).map(async (row) => {
+        try {
+          const cmp = await getMlbGamePlatoonCompare(row, signal);
+          if (cmp?.compact) mlbTeamPlatoon[row.game] = cmp.compact;
+        } catch {
+          /* honest no team-platoon fallback */
+        }
+      }),
+    );
+    if (mlbTargets.length > 0) {
+      await Promise.all(
+        mlbTargets.map(async (t) => {
+          try {
+            const data = await getJson<{ bats?: string | null; vsLeft?: unknown; vsRight?: unknown }>(
+              `/sports/mlb-batter-splits?athleteId=${encodeURIComponent(t.athleteId)}`,
+              signal,
+            );
+            const bats = data?.bats || null;
+            const oppPitcher = (t.opponentTeamId ? probables[t.opponentTeamId] : null) || null;
+            const oppThrows = oppPitcher?.throws || null;
+            let platoon: string | null = null;
+            if (bats === "Switch") platoon = "switch";
+            else if (bats && oppThrows) platoon = bats !== oppThrows ? "advantage" : "disadvantage";
+            const vsThatHand = oppThrows === "Left" ? data?.vsLeft : oppThrows === "Right" ? data?.vsRight : null;
+            if (!bats && !oppThrows && !data?.vsLeft && !data?.vsRight) return;
+            mlbPlatoon[`${t.player}#${t.athleteId}`] = {
+              player: t.player,
+              bats,
+              opposingPitcherName: oppPitcher?.name || null,
+              opposingPitcherThrows: oppThrows,
+              opposingPitcherTendency: oppPitcher?.tendency || null,
+              platoon,
+              vsThatHand: vsThatHand || null,
+              vsLeft: data?.vsLeft || null,
+              vsRight: data?.vsRight || null,
+            };
+          } catch {
+            /* honest no-platoon fallback */
+          }
+        }),
+      );
+    }
+  }
+
+  // Opponent team offense/defense profiles — keyed "<sport>#<teamId>". Pulled for
+  // every unique opponent on prop targets plus both teams on history targets so
+  // game-line picks can read either side's profile. Cached 60min server-side.
+  const opponentDefense: Record<string, OpponentDefenseEntry> = {};
+  const defenseTargets: { sport: string; teamId: string; key: string }[] = [];
+  const seenDef = new Set<string>();
+  const queueDefense = (sport: string, teamId: string | null | undefined) => {
+    if (!teamId) return;
+    const key = `${sport}#${teamId}`;
+    if (seenDef.has(key)) return;
+    seenDef.add(key);
+    defenseTargets.push({ sport, teamId: String(teamId), key });
+  };
+  for (const t of phTargets) queueDefense(t.sport, t.opponentTeamId);
+  for (const t of historyTargets) {
+    queueDefense(t.sport, t.homeTeamId);
+    queueDefense(t.sport, t.awayTeamId);
+  }
+  if (defenseTargets.length > 0) {
+    await Promise.all(
+      defenseTargets.slice(0, 24).map(async (d) => {
+        try {
+          const data = await getTeamDefense(d.sport, d.teamId, signal);
+          if (!data) return;
+          opponentDefense[d.key] = {
+            teamName: data.teamName ?? null,
+            avgPointsAgainst: data.avgPointsAgainst ?? null,
+            avgPointsFor: data.avgPointsFor ?? null,
+            pointDifferential: data.pointDifferential ?? null,
+            defensive: data.defensive ?? {},
+            ...(data.offensive ? { offensive: data.offensive } : {}),
+          };
+        } catch {
+          /* honest no-defense fallback */
+        }
+      }),
+    );
+  }
+
+  // Per-team period scoring (NBA/NFL/NCAAF) for 1Q/1H period markets.
+  const teamPeriodStats: Record<string, TeamPeriodStatsEntry> = {};
+  const periodSports = new Set(["nba", "nfl", "ncaaf"]);
+  const periodTeamTargets: { sport: string; teamId: string }[] = [];
+  const seenPeriodTeam = new Set<string>();
+  for (const t of historyTargets) {
+    if (!periodSports.has(t.sport)) continue;
+    for (const teamId of [t.homeTeamId, t.awayTeamId]) {
+      const k = `${t.sport}#${teamId}`;
+      if (seenPeriodTeam.has(k)) continue;
+      seenPeriodTeam.add(k);
+      periodTeamTargets.push({ sport: t.sport, teamId });
+    }
+  }
+  if (periodTeamTargets.length > 0) {
+    await Promise.all(
+      periodTeamTargets.slice(0, 24).map(async (t) => {
+        try {
+          const data = await getTeamPeriodStats(t.sport, t.teamId, signal);
+          if (!data?.periodAverages || !data?.sampleSize) return;
+          teamPeriodStats[`${t.sport}#${t.teamId}`] = {
+            sampleSize: data.sampleSize,
+            periodAverages: data.periodAverages,
+          };
+        } catch {
+          /* honest no-data fallback */
+        }
+      }),
+    );
   }
 
   return {
@@ -4586,6 +4760,9 @@ export async function buildChatContext(
       ...(Object.keys(playerHistory).length ? { playerHistory } : {}),
       ...(Object.keys(mlbPlatoon).length ? { mlbPlatoon } : {}),
       ...(Object.keys(mlbGameEnv).length ? { mlbGameEnv } : {}),
+      ...(Object.keys(mlbTeamPlatoon).length ? { mlbTeamPlatoon } : {}),
+      ...(Object.keys(opponentDefense).length ? { opponentDefense } : {}),
+      ...(Object.keys(teamPeriodStats).length ? { teamPeriodStats } : {}),
       ...(Object.keys(matchupInjuries).length ? { matchupInjuries } : {}),
     },
     propPool,
