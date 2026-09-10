@@ -45,6 +45,7 @@ import {
   type AltRungBias,
 } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
+import { ScoutingReportPanel } from "@/components/ScoutingReportPanel";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
 import {
@@ -251,6 +252,13 @@ import {
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { NAME_FALLBACK_SKIP, parseStatLookup, isCoachRecommendationQuestion, isPitcherInningsWorkloadAsk } from "@/lib/statLookup";
+import { enrichPlayerScouting, enrichTeamScouting } from "@/lib/scoutingEnrichment";
+import {
+  buildPlayerScoutingReport,
+  buildTeamScoutingReport,
+  serializeScoutingReportForAI,
+  type ScoutingReport,
+} from "@/lib/scoutingReport";
 import {
   decideBackgroundRestore,
   deserializePendingBuild,
@@ -277,6 +285,7 @@ type UIMessage = {
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
+  scoutingReport?: ScoutingReport;
   // Local URIs of user-attached photos (up to 3), shown in the user bubble.
   imageUris?: string[];
   // Set on the recovery message shown when a background build couldn't finish
@@ -301,6 +310,7 @@ type StatCardResult = {
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
+  scoutingReport?: ScoutingReport;
 };
 
 // ---- Background-finished parlay builds (Task: continue-on-disconnect) --------
@@ -560,7 +570,7 @@ function pruneDeadParlayPlaceholders(msgs: UIMessage[]): UIMessage[] {
   return msgs.filter((m) => {
     if (isWelcomeMessage(m)) return true;
     if (m.role !== "assistant") return true;
-    if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard) {
+    if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard || m.scoutingReport) {
       return true;
     }
     if (m.retry || m.parlayBuild) return true;
@@ -2119,9 +2129,36 @@ export default function CoachScreen() {
         if (card) {
           const wantsProjection =
             isProjectionQuestion(trimmed) || isPitcherInningsWorkloadAsk(trimmed);
+          const wantsScoutingStream = !!(card.statCard || card.teamCard);
+
+          let scoutingReport: ScoutingReport | null = null;
+          if (card.statCard) {
+            try {
+              const enrich = await enrichPlayerScouting(card.statCard.resolved, controller.signal);
+              scoutingReport = buildPlayerScoutingReport(
+                card.statCard.resolved,
+                card.statCard.history,
+                enrich,
+              );
+            } catch (e: any) {
+              if (e?.name === "AbortError") throw e;
+            }
+          } else if (card.teamCard) {
+            try {
+              const enrich = await enrichTeamScouting(card.teamCard.resolved, controller.signal);
+              scoutingReport = buildTeamScoutingReport(
+                card.teamCard.resolved,
+                card.teamCard.history,
+                enrich,
+              );
+            } catch (e: any) {
+              if (e?.name === "AbortError") throw e;
+            }
+          }
+
           setMessages((prev) => {
             const copy = [...prev];
-            const payload = { ...card };
+            const payload = { ...card, scoutingReport: scoutingReport ?? undefined };
             if (wantsProjection && payload.statCard) {
               payload.statCard = { ...payload.statCard, expectProjection: true };
             }
@@ -2130,11 +2167,10 @@ export default function CoachScreen() {
           });
           scrollToEnd();
 
-          // A pure lookup ("Wembanyama points last 10 games") is fully answered
-          // by the card above. But an opinion/projection question ("how many
-          // points do you think he'll score tonight?") wants the coach's actual
-          // take — stream a grounded answer on the SAME message, below the card.
-          if (wantsProjection) {
+          // Player/team scouting asks get a verified data card plus a grounded AI
+          // scouting narrative. Period game-log cards keep the old projection-only
+          // stream so quarter/half grids aren't double-answered.
+          if (wantsScoutingStream || wantsProjection) {
             setWaiting(true);
             scrollToEnd();
             try {
@@ -2151,9 +2187,12 @@ export default function CoachScreen() {
                 role: m.role,
                 content: m.apiContent ?? m.content,
               }));
+              const groundingBlock = scoutingReport
+                ? serializeScoutingReportForAI(scoutingReport)
+                : serializeStatCardForAI(card);
               grounded[grounded.length - 1] = {
                 role: "user",
-                content: `${trimmed}\n\n${serializeStatCardForAI(card)}`,
+                content: `${trimmed}\n\n${groundingBlock}`,
               };
               let first = true;
               const full = await streamChat({
@@ -6086,6 +6125,7 @@ export default function CoachScreen() {
                 {m.statCard ? (
                   <View style={{ gap: 10, marginBottom: m.content?.trim() ? 4 : 0 }}>
                     <PlayerStatCard data={m.statCard} />
+                    {m.scoutingReport ? <ScoutingReportPanel report={m.scoutingReport} /> : null}
                     {m.content?.trim() ? (
                       <View
                         style={{
@@ -6110,7 +6150,30 @@ export default function CoachScreen() {
                 ) : m.periodGameLog ? (
                   <PeriodGameLogCard data={m.periodGameLog} />
                 ) : m.teamCard ? (
-                  <TeamStatCard data={m.teamCard} />
+                  <View style={{ gap: 10, marginBottom: m.content?.trim() ? 4 : 0 }}>
+                    <TeamStatCard data={m.teamCard} />
+                    {m.scoutingReport ? <ScoutingReportPanel report={m.scoutingReport} /> : null}
+                    {m.content?.trim() ? (
+                      <View
+                        style={{
+                          alignSelf: "flex-start",
+                          maxWidth: "88%",
+                          backgroundColor: colors.card,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: 16,
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <ChatMarkdown
+                          text={assistantBubbleText(m.content, false)}
+                          color={colors.foreground}
+                          mutedColor={colors.mutedForeground}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
                 ) : showBubble ? (
                   <Pressable
                     onLongPress={isWaiting ? undefined : () => copyMessage(bubbleText)}
