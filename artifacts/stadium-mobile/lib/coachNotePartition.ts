@@ -14,6 +14,24 @@ export function isShortfallCoachParagraph(text: string): boolean {
   return SHORTFALL_RE.test(text);
 }
 
+/** Merge coach detail blobs (scan manifest first) without duplicating paragraphs. */
+export function mergeCoachDetailNotes(
+  ...parts: Array<string | null | undefined>
+): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of parts) {
+    const trimmed = part?.trim() ?? "";
+    if (!trimmed) continue;
+    for (const paragraph of trimmed.split(/\n\n+/).map((p) => p.trim()).filter(Boolean)) {
+      if (seen.has(paragraph)) continue;
+      seen.add(paragraph);
+      out.push(paragraph);
+    }
+  }
+  return out.join("\n\n");
+}
+
 export function partitionCoachNotes(legNote?: string, coachDetailNote?: string) {
   const storedDetail = coachDetailNote?.trim() ?? "";
   const leg = legNote?.trim() ?? "";

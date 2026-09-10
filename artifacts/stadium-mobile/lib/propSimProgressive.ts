@@ -10,6 +10,7 @@ import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContex
 import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
 import type { CoachGameSimEntry } from "@/lib/coachGameMonteCarlo";
 import { filterPicksForExcludedSports } from "@/lib/chatContextPriority";
+import { mergeCoachDetailNotes } from "@/lib/coachNotePartition";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
@@ -141,23 +142,33 @@ export function patchLastAssistantPicks<
     picks?: ParsedPick[];
     content?: string;
     legNote?: string;
+    coachDetailNote?: string;
     boardScanComplete?: boolean;
   },
 >(
   setMessages: (fn: (prev: T[]) => T[]) => void,
   picks: ParsedPick[],
   legNote?: string,
-  extras?: { boardScanComplete?: boolean },
+  extras?: { boardScanComplete?: boolean; coachDetailNote?: string },
 ): void {
   setMessages((prev) => {
     const copy = [...prev];
     for (let i = copy.length - 1; i >= 0; i--) {
       if (copy[i].role === "assistant") {
+        const nextDetail = extras?.coachDetailNote?.trim();
         copy[i] = {
           ...copy[i],
           picks,
           content: picks.length > 0 ? "" : copy[i].content,
           ...(legNote !== undefined ? { legNote: legNote.trim() || undefined } : {}),
+          ...(nextDetail
+            ? {
+                coachDetailNote: mergeCoachDetailNotes(
+                  nextDetail,
+                  copy[i].coachDetailNote,
+                ),
+              }
+            : {}),
           ...(extras?.boardScanComplete != null
             ? { boardScanComplete: extras.boardScanComplete }
             : {}),
