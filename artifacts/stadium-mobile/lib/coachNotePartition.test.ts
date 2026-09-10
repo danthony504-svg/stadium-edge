@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { partitionCoachNotes } from "./coachNotePartition.ts";
+import { mergeCoachDetailNotes, partitionCoachNotes } from "./coachNotePartition.ts";
 
 test("partitionCoachNotes routes optimizer blob to collapsed detail", () => {
   const leg = `_Your 8-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._
@@ -39,4 +39,15 @@ test("partitionCoachNotes keeps shortfall visible", () => {
 test("partitionCoachNotes prefers stored coachDetailNote", () => {
   const { detail } = partitionCoachNotes("", "Stored optimizer note");
   assert.equal(detail, "Stored optimizer note");
+});
+
+test("mergeCoachDetailNotes keeps scan manifest ahead of prior detail", () => {
+  const merged = mergeCoachDetailNotes(
+    "### Scan manifest\n\n**Coverage**\n- Markets found: **12**\n\n**Delivery**\n- Delivered **2** of **8**",
+    "Prior optimizer note",
+  );
+  assert.match(merged, /^### Scan manifest/i);
+  assert.match(merged, /Coverage/i);
+  assert.match(merged, /Delivery/i);
+  assert.match(merged, /Prior optimizer note/);
 });

@@ -135,7 +135,7 @@ import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
 } from "@/lib/coachParlayEngine";
-import { partitionCoachNotes } from "@/lib/coachNotePartition";
+import { mergeCoachDetailNotes, partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   boardScanIsComplete,
   boardScanMatchesLegTarget,
@@ -1277,7 +1277,11 @@ export default function CoachScreen() {
   const liveScanDeliveredRef = useRef(false);
 
   const deliverCoachTicket = useCallback(
-    (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
+    (
+      ticket: ParsedPick[],
+      legNote?: string,
+      opts?: { legTarget?: number; source?: string; coachDetailNote?: string },
+    ): boolean => {
       const enrich = flashEnrichRef.current;
       const cleaned = prepareCoachDeliveredTicket(ticket, enrich);
       if (!cleaned.length) return false;
@@ -1287,6 +1291,12 @@ export default function CoachScreen() {
           requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
       const ctx = coachRequestContextRef.current;
+      const detailExtras = {
+        boardScanComplete: true as const,
+        ...(opts?.coachDetailNote?.trim()
+          ? { coachDetailNote: opts.coachDetailNote.trim() }
+          : {}),
+      };
       if (legTarget >= 3) {
         const finalized = finalizeCoachTicketForRequest(cleaned, {
           requestedLegs: legTarget,
@@ -1298,9 +1308,7 @@ export default function CoachScreen() {
         });
         if (!finalized.ok) return false;
         boardTicketSnapshotRef.current = finalized.picks;
-        patchLastAssistantPicks(setMessages, finalized.picks, legNote, {
-          boardScanComplete: true,
-        });
+        patchLastAssistantPicks(setMessages, finalized.picks, legNote, detailExtras);
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -1318,7 +1326,7 @@ export default function CoachScreen() {
         return true;
       }
       boardTicketSnapshotRef.current = cleaned;
-      patchLastAssistantPicks(setMessages, cleaned, legNote, { boardScanComplete: true });
+      patchLastAssistantPicks(setMessages, cleaned, legNote, detailExtras);
       setStreaming(false);
       setWaiting(false);
       setBuildFinishing(false);
@@ -1571,26 +1579,19 @@ export default function CoachScreen() {
       const legTarget =
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
-      const ticket = boardScanPartialToTicket(partial, enrichOverride);
-      if (!ticket.length) {
-        if (boardScanIsComplete(partial)) {
-          patchInstantBoardScanTicket(partial, enrichOverride, { ticketLegTarget: legTarget });
-        }
+      // Complete scans always go through patchInstant so the read-only scan
+      // manifest lands on coachDetailNote (More ticket detail) for every run —
+      // including shortfall tickets with picks, not only zero-leg replies.
+      if (boardScanIsComplete(partial)) {
+        patchInstantBoardScanTicket(partial, enrichOverride, { ticketLegTarget: legTarget });
         return;
       }
-      let legNote = partial.note;
-      if (legTarget > ticket.length) {
-        legNote = boardScanIsComplete(partial)
-          ? ensureFixedLegShortfallLegNote(partial.note, legTarget, ticket.length)
-          : `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
-      }
-      if (boardScanIsComplete(partial)) {
-        deliverCoachTicket(ticket, legNote);
-      } else {
-        patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
-      }
+      const ticket = boardScanPartialToTicket(partial, enrichOverride);
+      if (!ticket.length) return;
+      const legNote = `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
+      patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
     },
-    [boardScanPartialToTicket, deliverCoachTicket, patchInstantBoardScanTicket],
+    [boardScanPartialToTicket, patchInstantBoardScanTicket],
   );
 
   const deliverKernelBoardScan = useCallback(
@@ -1600,12 +1601,17 @@ export default function CoachScreen() {
       legTarget: number,
     ): boolean => {
       if (!scan) return false;
-      const { ticket, legNote } = resolveCoachParlayKernelTicket({
+      const { ticket, legNote, coachDetailNote } = resolveCoachParlayKernelTicket({
         scan,
         enrich,
         legTarget,
       });
-      if (ticket.length === legTarget && deliverCoachTicket(ticket, legNote)) return true;
+      if (
+        ticket.length === legTarget &&
+        deliverCoachTicket(ticket, legNote, { coachDetailNote })
+      ) {
+        return true;
+      }
       if (boardScanIsComplete(scan)) {
         return patchInstantBoardScanTicket(scan, enrich, { ticketLegTarget: legTarget });
       }
@@ -3049,6 +3055,45 @@ export default function CoachScreen() {
               boardScanReadyForDelivery(finalScan, kernelLegTarget)
             )
           ) {
+            // Kernel shortfall / complete tickets often return here before the
+            // stream-end note merge — ensure the read-only scan manifest is on
+            // the bubble so More ticket detail can show Coverage → Delivery.
+            const scanForManifest = preferFinalBoardScanForDelivery(
+              kernelLegTarget,
+              finalScan,
+              latestBoardScanRef.current,
+              preBoardScan,
+            );
+            if (scanForManifest && boardScanIsComplete(scanForManifest)) {
+              const manifestNote = coachBoardScanManifestForMessage(
+                scanForManifest,
+                flashEnrichRef.current,
+                kernelLegTarget,
+              );
+              if (manifestNote.trim()) {
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  for (let i = copy.length - 1; i >= 0; i--) {
+                    if (copy[i].role !== "assistant") continue;
+                    if (coachReplyHasScanManifest(undefined, copy[i].coachDetailNote)) {
+                      return prev;
+                    }
+                    const merged = mergeCoachDetailNotes(
+                      manifestNote,
+                      copy[i].coachDetailNote,
+                    );
+                    copy[i] = {
+                      ...copy[i],
+                      coachDetailNote: merged,
+                      boardScanComplete: true,
+                      ...(kernelLegTarget > 0 ? { ticketLegTarget: kernelLegTarget } : {}),
+                    };
+                    return copy;
+                  }
+                  return prev;
+                });
+              }
+            }
             if (buildProgressTimerRef.current) {
               clearTimeout(buildProgressTimerRef.current);
               buildProgressTimerRef.current = null;
@@ -4990,7 +5035,7 @@ export default function CoachScreen() {
           );
           const note =
             hasManifestReply
-              ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
+              ? "_Full board scan finished — no legs cleared delivery gates. Open **More ticket detail** below for coverage and rejection reasons._"
               : todayNote ||
             thresholdNote ||
             confidenceNote ||
@@ -5006,7 +5051,7 @@ export default function CoachScreen() {
         // 200 with no visible content never lands as a silent dead end.
         if (picks.length === 0 && assistantBubbleText(finalContent, false).trim() === "") {
           finalContent = coachReplyHasScanManifest(boardScanManifestDetail, coachDetailNote)
-            ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
+            ? "_Full board scan finished — no legs cleared delivery gates. Open **More ticket detail** below for coverage and rejection reasons._"
             : "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
         if (isParlayBuild && legTarget >= 3) {

@@ -206,7 +206,6 @@ export function CoachTicketHeader({
   );
   const hasDetail = summary.gameLines.length > 0;
   const hasCoachDetail = Boolean(notes.detail?.trim());
-  const hasScanManifest = /### Scan manifest/i.test(notes.detail ?? "");
   const [detailExpanded, setDetailExpanded] = useState(false);
   const gradeColor = gradeTierColor(summary.overallGrade, colors);
 
@@ -328,7 +327,7 @@ export function CoachTicketHeader({
                 fontSize: 12,
               }}
             >
-              {hasScanManifest ? "View scan manifest" : "More ticket detail"}
+              More ticket detail
             </Text>
           </Pressable>
         ) : null}
