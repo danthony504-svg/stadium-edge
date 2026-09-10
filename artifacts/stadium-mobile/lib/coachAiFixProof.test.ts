@@ -224,7 +224,7 @@ test("matrix: 6-leg generic — partial temporary, final uses all qualified up t
   assert.ok((complete.row.sportMix as Record<string, number>).ncaaf >= 1);
 });
 
-test("matrix: 10-leg generic shortfall after full scan reports reasons", () => {
+test("matrix: 10-leg generic shortfall — fixture intentionally supplies only 4 qualified candidates", () => {
   const scored = Array.from({ length: 4 }, (_, i) =>
     leg({
       pick: {
@@ -237,14 +237,15 @@ test("matrix: 10-leg generic shortfall after full scan reports reasons", () => {
       },
     }),
   );
+  assert.equal(scored.length, 4, "fixture supplies exactly 4 pre-qualified legs");
   const result = stageScenario({
-    label: "10-leg-generic-shortfall",
+    label: "10-leg-generic-shortfall-intentional-4-qualified",
     requested: 10,
     scored,
     scanComplete: true,
   });
   assert.equal(result.row.scanComplete, true);
-  assert.ok((result.row.finalCount as number) < 10);
+  assert.equal(result.row.finalCount, 4, "final equals qualified pool size, not a hard 4-cap");
   assert.ok((result.row.rejectionReasons as string[]).length > 0);
   assert.equal(
     coachTicketShowsScanInProgress({
@@ -363,9 +364,9 @@ test("sim integrity: mismatched period×sport cannot grade", () => {
   assert.equal(gameSimHitForPick(pick, sim), null);
 });
 
-test("100% / +64.9% Over 23.5 game-total example is rejected as extreme", () => {
+test("NFL Over 23.5 full-game mismatch is rejected by market integrity — not extremity alone", () => {
   // Reproduces the suspicious 49ers/Rams Over 23.5 display: NFL full-game total
-  // line ~23.5 vs typical ~45 projected totals → near-certain overs.
+  // line ~23.5 vs typical ~45–52 projected totals → near-certain overs.
   const pick: ParsedPick = {
     game: "San Francisco 49ers @ Los Angeles Rams",
     market: "Total",
@@ -406,11 +407,24 @@ test("100% / +64.9% Over 23.5 game-total example is rejected as extreme", () => 
     mostLikelyWinnerPct: 0.52,
     confidenceScore: 60,
     coverHitRates: { [query!.id]: rawHit },
+    outcomes: { homeScores, awayScores },
   };
   const graded = gameSimHitForPick(pick, sim);
-  assert.equal(graded, null, "extreme simHit must be rejected from grading");
-  assert.equal(pickHasSimGrade(pick, rawHit), false);
-  assert.equal(sanitizeSimHitForGrade(rawHit, { market: pick.market, sport: "nfl" }), null);
+  assert.equal(graded, null, "mismatched NFL FG total line must be rejected");
+  assert.equal(
+    sanitizeSimHitForGrade(rawHit, {
+      market: pick.market,
+      sport: "nfl",
+      period: "fg",
+      periodUsed: "fg",
+      line: 23.5,
+      simulationStatKey: "fg:game_total:over",
+      expectedStatKey: "fg:game_total:over",
+      simulatedMean: 52,
+      simulatedStdev: 6,
+    }),
+    null,
+  );
 
   report("100pct-over-23.5-case", {
     rawHit,
@@ -419,7 +433,92 @@ test("100% / +64.9% Over 23.5 game-total example is rejected as extreme", () => 
     edge,
     gradedHit: graded,
     rejected: true,
+    rejectBasis: "market_integrity_not_extremity_alone",
   });
+});
+
+test("legitimate prop simHit >= 0.99 is allowed when mapping is valid", () => {
+  const hit = sanitizeSimHitForGrade(0.993, {
+    market: "Passing Yards",
+    sport: "nfl",
+    isProp: true,
+    line: 149.5,
+    odds: -200,
+    simulationStatKey: "player_prop",
+    expectedStatKey: "player_prop",
+    simulatedMean: 278,
+    simulatedMedian: 276,
+    simulatedStdev: 40,
+  });
+  assert.equal(hit, 0.993);
+  assert.equal(
+    pickHasSimGrade({ market: "Passing Yards", sport: "nfl", isProp: true }, 0.993),
+    true,
+  );
+});
+
+test("legitimate Under simHit <= 0.01 is allowed when mapping is valid", () => {
+  const hit = sanitizeSimHitForGrade(0.007, {
+    market: "Rushing Yards",
+    sport: "ncaaf",
+    isProp: true,
+    line: 140.5,
+    odds: 450,
+    simulationStatKey: "player_prop",
+    expectedStatKey: "player_prop",
+    simulatedMean: 42,
+    simulatedMedian: 40,
+    simulatedStdev: 16,
+  });
+  assert.equal(hit, 0.007);
+});
+
+test("normal 50–90% simulations are unchanged", () => {
+  for (const h of [0.5, 0.55, 0.72, 0.89]) {
+    assert.equal(
+      sanitizeSimHitForGrade(h, {
+        market: "Spread",
+        sport: "nfl",
+        line: -3.5,
+        simulationStatKey: "fg:margin:home",
+      }),
+      h,
+    );
+    assert.equal(pickHasSimGrade({ market: "Spread", sport: "nba" }, h), true);
+  }
+});
+
+test("NFL/CFB props, game lines, team totals, and alt lines still flow when graded normally", () => {
+  const samples: Array<{ market: string; sport: string; isProp?: boolean; hit: number }> = [
+    { market: "Passing Yards", sport: "nfl", isProp: true, hit: 0.58 },
+    { market: "Spread", sport: "nfl", hit: 0.56 },
+    { market: "Team Total", sport: "nfl", hit: 0.54 },
+    { market: "Alt Spread", sport: "nfl", hit: 0.53 },
+    { market: "Receiving Yards", sport: "ncaaf", isProp: true, hit: 0.57 },
+    { market: "Total", sport: "ncaaf", hit: 0.55 },
+    { market: "Team Total", sport: "ncaaf", hit: 0.52 },
+    { market: "Alt Total", sport: "ncaaf", hit: 0.51 },
+  ];
+  for (const s of samples) {
+    assert.equal(
+      sanitizeSimHitForGrade(s.hit, {
+        market: s.market,
+        sport: s.sport,
+        isProp: s.isProp,
+        simulationStatKey: s.isProp
+          ? "player_prop"
+          : /team total/i.test(s.market)
+            ? "fg:team_total:home:over"
+            : /total/i.test(s.market)
+              ? "fg:game_total:over"
+              : "fg:margin:home",
+        expectedStatKey: s.isProp ? "player_prop" : undefined,
+        line: s.isProp ? 65.5 : /total/i.test(s.market) ? (/team/i.test(s.market) ? 22.5 : 48.5) : -3.5,
+      }),
+      s.hit,
+      `${s.sport} ${s.market}`,
+    );
+  }
 });
 
 test("correctly mapped near-even total remains gradable", () => {

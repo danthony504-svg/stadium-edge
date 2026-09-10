@@ -75,54 +75,289 @@ export function marketSupportsSimulation(
   return simModelForMarket(market, opts) !== "unsupported";
 }
 
-/** Extreme hit rates that almost always indicate a market/period mapping bug. */
+/** Extreme hit rates — logged always; rejected only with mapping-mismatch evidence. */
 export const SIM_HIT_EXTREME_HIGH = 0.99;
 export const SIM_HIT_EXTREME_LOW = 0.01;
+
+/** Plausible full-game total line bands by sport (rejects absurd FG totals like NFL 23.5). */
+const GAME_TOTAL_LINE_RANGE: Record<string, { min: number; max: number }> = {
+  nfl: { min: 32, max: 75 },
+  ncaaf: { min: 35, max: 90 },
+  nba: { min: 180, max: 280 },
+  wnba: { min: 130, max: 200 },
+  mlb: { min: 5, max: 14 },
+  nhl: { min: 3.5, max: 9.5 },
+  soccer: { min: 1.5, max: 5.5 },
+  ncaab: { min: 110, max: 180 },
+};
+
+/** Plausible team-total line bands (not game totals). */
+const TEAM_TOTAL_LINE_RANGE: Record<string, { min: number; max: number }> = {
+  nfl: { min: 9, max: 42 },
+  ncaaf: { min: 10, max: 55 },
+  nba: { min: 85, max: 145 },
+  wnba: { min: 60, max: 105 },
+  mlb: { min: 2, max: 8 },
+  nhl: { min: 1.5, max: 5.5 },
+  ncaab: { min: 50, max: 100 },
+};
 
 export type SimHitSanityContext = {
   market?: string;
   sport?: string;
   period?: string;
+  /** Period scope the cover query / engine actually used. */
+  periodUsed?: string;
   line?: number | null;
   odds?: number | null;
+  isProp?: boolean;
+  normalizedMarketKey?: string;
+  /** Stat key the market claims (expected). */
+  expectedStatKey?: string;
+  /** Stat key the simulator actually graded against. */
+  simulationStatKey?: string;
+  /** @deprecated prefer simulationStatKey */
   simulatedStatistic?: string;
+  simulatedMean?: number | null;
+  simulatedMedian?: number | null;
+  simulatedStdev?: number | null;
   hits?: number | null;
   losses?: number | null;
   impliedProb?: number | null;
   edge?: number | null;
   ev?: number | null;
+  /** True when a fallback path graded the pick (e.g. period→FG). */
+  mappingFallbackUsed?: boolean;
+  /** True when that fallback changes the wager's meaning. */
+  mappingFallbackChangesMeaning?: boolean;
   simHit: number;
   reason?: string;
+  decision?: "accept" | "reject";
+};
+
+export type SimIntegrityDecision = {
+  accept: boolean;
+  reason: string;
 };
 
 export function isExtremeSimHit(simHit: number): boolean {
   return simHit >= SIM_HIT_EXTREME_HIGH || simHit <= SIM_HIT_EXTREME_LOW;
 }
 
-/** Log raw inputs when a sim hit collapses to ~0% or ~100% so mapping bugs can be audited. */
+export function normalizeMarketKey(
+  market: string,
+  opts: { isProp?: boolean; sport?: string } = {},
+): string {
+  const kind = simModelForMarket(market, opts);
+  const period = parseMarketPeriod(market);
+  return `${kind}|${period}|${String(market ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()}`;
+}
+
+function sportKey(sport?: string | null): string {
+  return String(sport ?? "")
+    .toLowerCase()
+    .trim();
+}
+
+function marketFamilyFromKey(statKey: string | undefined): "game_total" | "team_total" | "prop" | "other" {
+  const k = String(statKey ?? "").toLowerCase();
+  if (k.includes("team_total")) return "team_total";
+  if (k.includes("game_total")) return "game_total";
+  if (k.includes("player_prop") || k.startsWith("prop:")) return "prop";
+  return "other";
+}
+
+/**
+ * Evidence-based integrity check. Extreme hits alone never reject —
+ * only mapping / period / family / line-range / fallback mismatches do.
+ */
+export function assessSimMarketIntegrity(
+  simHit: number,
+  ctx: Omit<SimHitSanityContext, "simHit" | "reason" | "decision">,
+): SimIntegrityDecision {
+  const market = ctx.market ?? "";
+  const sport = sportKey(ctx.sport);
+  const pick = { market, sport: ctx.sport, isProp: ctx.isProp };
+  const periodClaimed = (ctx.period ?? parseMarketPeriod(market)) as SimPeriodScope;
+  const periodUsed = (ctx.periodUsed ?? periodClaimed) as SimPeriodScope;
+  const expectedKind = simModelForMarket(market, pick);
+  const simStat = ctx.simulationStatKey ?? ctx.simulatedStatistic ?? ctx.expectedStatKey ?? "";
+  const expectedStat =
+    ctx.expectedStatKey ??
+    (ctx.isProp || expectedKind === "playerProp"
+      ? "player_prop"
+      : expectedKind === "teamTotal"
+        ? `${periodClaimed}:team_total`
+        : expectedKind === "fullGame" || expectedKind === "period"
+          ? /total/i.test(market) && !/team total/i.test(market)
+            ? `${periodClaimed}:game_total`
+            : `${periodClaimed}:${expectedKind}`
+          : `${periodClaimed}:${expectedKind}`);
+
+  if (!simMarketMappingIsValid(pick)) {
+    return { accept: false, reason: "unsupported_market_or_period_mapping" };
+  }
+  if (periodClaimed !== "fg" && periodUsed === "fg") {
+    return { accept: false, reason: "period_mapped_to_full_game_simulation" };
+  }
+  if (periodClaimed !== periodUsed && periodClaimed !== "fg") {
+    return { accept: false, reason: `period_mismatch_claimed_${periodClaimed}_used_${periodUsed}` };
+  }
+  if (ctx.mappingFallbackUsed && ctx.mappingFallbackChangesMeaning) {
+    return { accept: false, reason: "mapping_fallback_changed_wager_meaning" };
+  }
+
+  const claimedFamily =
+    expectedKind === "teamTotal"
+      ? "team_total"
+      : expectedKind === "playerProp" || ctx.isProp
+        ? "prop"
+        : /total/i.test(market) && !/team total/i.test(market)
+          ? "game_total"
+          : "other";
+  const usedFamily = marketFamilyFromKey(simStat || expectedStat);
+  if (
+    claimedFamily !== "other" &&
+    usedFamily !== "other" &&
+    claimedFamily !== usedFamily
+  ) {
+    return {
+      accept: false,
+      reason: `market_family_mismatch_claimed_${claimedFamily}_used_${usedFamily}`,
+    };
+  }
+  if (
+    /team total/i.test(market) &&
+    usedFamily === "game_total"
+  ) {
+    return { accept: false, reason: "team_total_evaluated_as_game_total" };
+  }
+  if (
+    !/team total/i.test(market) &&
+    /\btotal\b/i.test(market) &&
+    !ctx.isProp &&
+    usedFamily === "team_total"
+  ) {
+    return { accept: false, reason: "game_total_evaluated_as_team_total" };
+  }
+  if (
+    (ctx.isProp || expectedKind === "playerProp") &&
+    simStat &&
+    !/player_prop|prop:/i.test(simStat) &&
+    /game_total|team_total|winner|margin/i.test(simStat)
+  ) {
+    return { accept: false, reason: "player_prop_mapped_to_wrong_simulation_stat" };
+  }
+
+  const line = ctx.line;
+  if (line != null && Number.isFinite(line)) {
+    if (claimedFamily === "game_total") {
+      const band = GAME_TOTAL_LINE_RANGE[sport];
+      if (band && (line < band.min || line > band.max)) {
+        return {
+          accept: false,
+          reason: `line_outside_reasonable_range_for_game_total_${sport}_${band.min}_${band.max}`,
+        };
+      }
+    }
+    if (claimedFamily === "team_total") {
+      const band = TEAM_TOTAL_LINE_RANGE[sport];
+      if (band && (line < band.min || line > band.max)) {
+        return {
+          accept: false,
+          reason: `line_outside_reasonable_range_for_team_total_${sport}_${band.min}_${band.max}`,
+        };
+      }
+    }
+    // Distribution check only for game/team totals — extreme prop hits with a soft
+    // or tough line are often legitimate when the prop mapping itself is valid.
+    const mean = ctx.simulatedMean;
+    const stdev = ctx.simulatedStdev;
+    if (
+      (claimedFamily === "game_total" || claimedFamily === "team_total") &&
+      mean != null &&
+      Number.isFinite(mean) &&
+      isExtremeSimHit(simHit)
+    ) {
+      const sigma =
+        stdev != null && Number.isFinite(stdev) && stdev > 0
+          ? stdev
+          : Math.max(Math.abs(mean) * 0.12, claimedFamily === "game_total" ? 3 : 1);
+      const z = Math.abs(line - mean) / sigma;
+      if (z >= 4.5) {
+        return {
+          accept: false,
+          reason: `line_outside_simulated_distribution_z_${z.toFixed(1)}`,
+        };
+      }
+    }
+  }
+
+  if (isExtremeSimHit(simHit)) {
+    return { accept: true, reason: "extreme_sim_hit_mapping_valid" };
+  }
+  return { accept: true, reason: "mapping_valid" };
+}
+
+/** Log every extreme sim hit with accept/reject decision and audit fields. */
 export function logExtremeSimHit(ctx: SimHitSanityContext): void {
+  const payload = {
+    sport: ctx.sport ?? null,
+    market: ctx.market ?? null,
+    normalizedMarketKey:
+      ctx.normalizedMarketKey ??
+      normalizeMarketKey(ctx.market ?? "", { isProp: ctx.isProp, sport: ctx.sport }),
+    period: ctx.period ?? parseMarketPeriod(ctx.market ?? ""),
+    periodUsed: ctx.periodUsed ?? null,
+    line: ctx.line ?? null,
+    odds: ctx.odds ?? null,
+    simulationStatKey: ctx.simulationStatKey ?? ctx.simulatedStatistic ?? null,
+    expectedStatKey: ctx.expectedStatKey ?? null,
+    simulatedMean: ctx.simulatedMean ?? null,
+    simulatedMedian: ctx.simulatedMedian ?? null,
+    simulatedStdev: ctx.simulatedStdev ?? null,
+    simHit: ctx.simHit,
+    impliedProb: ctx.impliedProb ?? null,
+    edge: ctx.edge ?? null,
+    ev: ctx.ev ?? null,
+    hits: ctx.hits ?? null,
+    losses: ctx.losses ?? null,
+    decision: ctx.decision ?? null,
+    reason: ctx.reason ?? null,
+  };
   try {
-    console.warn("[coach-sim-sanity]", JSON.stringify(ctx));
+    console.warn("[coach-sim-integrity]", JSON.stringify(payload));
   } catch {
-    console.warn("[coach-sim-sanity]", ctx.simHit, ctx.market, ctx.sport);
+    console.warn("[coach-sim-integrity]", ctx.simHit, ctx.market, ctx.sport, ctx.reason);
   }
 }
 
 /**
- * Reject non-finite, {0,1}, and extreme hits from grading.
- * Extreme hits are logged with market/period/line context for inspection.
+ * Sanitize a sim hit for grading.
+ * Exact 0/1 and non-finite values are unusable.
+ * Extreme hits are logged always and rejected only when integrity evidence shows a mismatch.
  */
 export function sanitizeSimHitForGrade(
   simHit: number | null | undefined,
-  ctx?: Omit<SimHitSanityContext, "simHit">,
+  ctx?: Omit<SimHitSanityContext, "simHit" | "decision">,
 ): number | null {
   if (simHit == null || !Number.isFinite(simHit)) return null;
   if (simHit <= 0 || simHit >= 1) return null;
-  if (isExtremeSimHit(simHit)) {
-    logExtremeSimHit({ ...ctx, simHit, reason: ctx?.reason ?? "extreme_sim_hit" });
-    return null;
+
+  const baseCtx = ctx ?? {};
+  const decision = assessSimMarketIntegrity(simHit, baseCtx);
+  if (isExtremeSimHit(simHit) || !decision.accept) {
+    logExtremeSimHit({
+      ...baseCtx,
+      simHit,
+      decision: decision.accept ? "accept" : "reject",
+      reason: decision.reason,
+    });
   }
-  return simHit;
+  return decision.accept ? simHit : null;
 }
 
 /**
@@ -156,7 +391,10 @@ export function pickHasSimGrade(
   const hit = sanitizeSimHitForGrade(simHit, {
     market: pick.market,
     sport: pick.sport,
+    isProp: pick.isProp,
     period: parseMarketPeriod(pick.market ?? ""),
+    simulationStatKey: pick.isProp ? "player_prop" : undefined,
+    expectedStatKey: pick.isProp ? "player_prop" : undefined,
   });
   return hit != null;
 }

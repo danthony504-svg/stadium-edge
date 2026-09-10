@@ -114,10 +114,12 @@ export function simHitForPick(
     return sanitizeSimHitForGrade(propSimHit, {
       market: pick.market,
       sport: pick.sport,
+      isProp: true,
       period: parseMarketPeriod(pick.market ?? ""),
       line: pick.propLine ?? null,
       odds: pick.odds ?? null,
-      simulatedStatistic: "player_prop",
+      simulationStatKey: "player_prop",
+      expectedStatKey: "player_prop",
     });
   }
   if (!isGameLinePick(pick)) return null;

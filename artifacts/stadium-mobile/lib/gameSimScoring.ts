@@ -9,6 +9,7 @@ import {
   type SimPeriodScope,
   sanitizeSimHitForGrade,
   simMarketMappingIsValid,
+  normalizeMarketKey,
 } from "./simMarketSupport.ts";
 import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeriodScoring.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
@@ -459,6 +460,49 @@ function simulatedStatisticForQuery(query: GameCoverQuery): string {
   return period;
 }
 
+function distributionForQuery(
+  query: GameCoverQuery,
+  sim: CoachGameSimEntry,
+): { mean: number | null; median: number | null; stdev: number | null } {
+  const outcomes = sim.outcomes;
+  if (outcomes?.homeScores?.length && outcomes.homeScores.length === outcomes.awayScores.length) {
+    const values: number[] = [];
+    for (let i = 0; i < outcomes.homeScores.length; i++) {
+      const h = outcomes.homeScores[i]!;
+      const a = outcomes.awayScores[i]!;
+      if (query.kind === "total") values.push(h + a);
+      else if (query.kind === "teamTotal") values.push(query.teamSide === "away" ? a : h);
+      else if (query.kind === "spread") {
+        values.push(query.teamSide === "away" ? a - h : h - a);
+      } else if (query.kind === "ml") {
+        values.push(query.teamSide === "away" ? (a > h ? 1 : 0) : h > a ? 1 : 0);
+      }
+    }
+    if (values.length) {
+      const sorted = [...values].sort((x, y) => x - y);
+      const mean = values.reduce((s, v) => s + v, 0) / values.length;
+      const median = sorted[Math.floor(sorted.length / 2)]!;
+      const variance =
+        values.reduce((s, v) => s + (v - mean) * (v - mean), 0) / values.length;
+      return { mean, median, stdev: Math.sqrt(variance) };
+    }
+  }
+  const home = sim.homeProjectedScore;
+  const away = sim.awayProjectedScore;
+  if (home == null || away == null || !Number.isFinite(home) || !Number.isFinite(away)) {
+    return { mean: null, median: null, stdev: null };
+  }
+  if (query.kind === "total") {
+    const mean = home + away;
+    return { mean, median: mean, stdev: Math.max(Math.abs(mean) * 0.12, 3) };
+  }
+  if (query.kind === "teamTotal") {
+    const mean = query.teamSide === "away" ? away : home;
+    return { mean, median: mean, stdev: Math.max(Math.abs(mean) * 0.15, 2) };
+  }
+  return { mean: null, median: null, stdev: null };
+}
+
 function sanitizeGameSimHit(
   pick: ParsedPick,
   query: GameCoverQuery,
@@ -479,18 +523,35 @@ function sanitizeGameSimHit(
     odds != null && Number.isFinite(odds)
       ? Math.round((hit * americanToDecimal(odds) - 1) * 1000) / 10
       : null;
+  const periodClaimed = parseMarketPeriod(pick.market ?? "");
+  const periodUsed = query.period ?? "fg";
+  const dist = distributionForQuery(query, sim);
+  const simStat = simulatedStatisticForQuery(query);
   return sanitizeSimHitForGrade(hit, {
     market: pick.market,
     sport: pick.sport,
-    period: query.period ?? "fg",
+    isProp: !!pick.isProp,
+    period: periodClaimed,
+    periodUsed,
     line: query.line ?? query.raceTarget ?? null,
     odds: odds ?? null,
-    simulatedStatistic: simulatedStatisticForQuery(query),
+    normalizedMarketKey: normalizeMarketKey(pick.market ?? "", {
+      isProp: !!pick.isProp,
+      sport: pick.sport,
+    }),
+    expectedStatKey: simStat,
+    simulationStatKey: simStat,
+    simulatedStatistic: simStat,
+    simulatedMean: dist.mean,
+    simulatedMedian: dist.median,
+    simulatedStdev: dist.stdev,
     hits,
     losses,
     impliedProb: implied,
     edge,
     ev,
+    mappingFallbackUsed: periodClaimed !== "fg" && periodUsed === "fg",
+    mappingFallbackChangesMeaning: periodClaimed !== "fg" && periodUsed === "fg",
   });
 }
 

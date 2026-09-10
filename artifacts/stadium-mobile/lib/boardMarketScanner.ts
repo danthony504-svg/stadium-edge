@@ -189,10 +189,11 @@ function scoredFromEvalRow(
     sanitizeSimHitForGrade(rawHit, {
       market: row.pick.market,
       sport: row.pick.sport,
+      isProp: !!row.pick.isProp,
       period: parseMarketPeriod(row.pick.market ?? ""),
       line: null,
       odds: row.pick.odds ?? null,
-      simulatedStatistic: "game_line_eval",
+      simulationStatKey: "game_line_eval",
       edge: row.edgePct ?? row.finalAiScore.edgePct,
     }) ?? null;
   if (!gameLineHasSimGrade(row, hit)) return null;
@@ -226,10 +227,12 @@ function scoredFromPropPick(
   const hit = sanitizeSimHitForGrade(simHit, {
     market: pick.market,
     sport: pick.sport,
+    isProp: true,
     period: parseMarketPeriod(pick.market ?? ""),
     line: pick.propLine ?? null,
     odds: pick.odds ?? null,
-    simulatedStatistic: "player_prop",
+    simulationStatKey: "player_prop",
+    expectedStatKey: "player_prop",
   });
   if (!propHasSimGrade(pick, hit)) return null;
   const ev =
