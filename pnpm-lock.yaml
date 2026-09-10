@@ -815,6 +815,16 @@ importers:
         specifier: 'catalog:'
         version: 3.25.76
 
+  lib/coach-data:
+    dependencies:
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
   lib/coach-types:
     dependencies:
       zod:
