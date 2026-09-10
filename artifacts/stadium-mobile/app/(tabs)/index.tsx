@@ -1987,7 +1987,7 @@ export default function HomeScreen() {
         <Pressable
           onPress={() =>
             router.push({
-              pathname: "/props",
+              pathname: "/search",
               params: featuredEnabled ? { sp: sport } : {},
             })
           }
