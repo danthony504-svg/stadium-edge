@@ -59,6 +59,32 @@ export type FootballPropStageRejectReason =
   | "thin_cap"
   | "not_selected";
 
+/** Discovery / eligible-stage gates logged in recordPropPoolRow — must survive recompute. */
+export const FOOTBALL_PROP_DISCOVERY_REJECT_REASONS = [
+  "unsupported_market",
+  "normalization_failure",
+  "missing_odds",
+  "missing_prop_line",
+] as const satisfies readonly FootballPropStageRejectReason[];
+
+export function isFootballPropDiscoveryRejectReason(
+  reason: string,
+): boolean {
+  return (FOOTBALL_PROP_DISCOVERY_REJECT_REASONS as readonly string[]).includes(reason);
+}
+
+export function isFootballPropDiscoverySample(sample: {
+  stageStopped: FootballPropFunnelStage | "rejected";
+  gate: FootballPropStageRejectReason;
+}): boolean {
+  return (
+    sample.stageStopped === "eligible" ||
+    sample.stageStopped === "raw_found" ||
+    sample.stageStopped === "normalized" ||
+    isFootballPropDiscoveryRejectReason(sample.gate)
+  );
+}
+
 export type FootballPropFunnelCounters = Record<FootballPropFunnelStage, number>;
 
 export type FootballPropRejectedSample = {

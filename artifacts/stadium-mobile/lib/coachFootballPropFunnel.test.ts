@@ -172,3 +172,256 @@ test("football funnel reject counts map integrity_mapping from not_sim_aligned",
     manifest.footballPropRejectedSamples.some((s) => s.gate === "integrity_mapping"),
   );
 });
+
+function nflUnsupportedPick(): ParsedPick {
+  return {
+    game: "KC @ BUF",
+    market: "First TD Scorer",
+    pick: "Mahomes First TD",
+    odds: 450,
+    isProp: true,
+    player: "Mahomes",
+    sport: "nfl",
+    // Missing line/side → discovery eligible-stage skip
+    propLine: null,
+    propSide: undefined,
+    propMarketKey: "player_first_td",
+  } as ParsedPick;
+}
+
+function ncaafUnsupportedPick(): ParsedPick {
+  return {
+    game: "ALA @ UGA",
+    market: "First TD Scorer",
+    pick: "Back First TD",
+    odds: 500,
+    isProp: true,
+    player: "Back",
+    sport: "ncaaf",
+    propLine: null,
+    propSide: undefined,
+    propMarketKey: "player_first_td",
+  } as ParsedPick;
+}
+
+function qualifyingFootballPick(base: ParsedPick): ParsedPick {
+  return {
+    ...base,
+    finalAiScore: {
+      simHit: 0.58,
+      edgePct: 4.5,
+      grade: "B+",
+      confidencePct: 62,
+      simAligned: true,
+      composite: 70,
+      recommends: true,
+    },
+  } as ParsedPick;
+}
+
+test("unsupported-market discovery rejects and samples survive final recompute", () => {
+  const recorder = createCoachBoardScanManifestRecorder(6);
+  const nflBad = nflUnsupportedPick();
+  const ncaafBad = ncaafUnsupportedPick();
+  const nflOk = nflPassPick();
+  const ncaafOk = ncaafRushPick();
+
+  recorder.recordPropPoolRow(nflBad);
+  recorder.recordPropPoolRow(ncaafBad);
+  recorder.recordPropPoolRow(nflOk);
+  recorder.recordPropPoolRow(ncaafOk);
+
+  assert.equal(recorder.footballPropRejectCountsBySport.nfl.unsupported_market, 1);
+  assert.equal(recorder.footballPropRejectCountsBySport.ncaaf.unsupported_market, 1);
+  assert.ok(
+    recorder.footballPropRejectedSamples.some(
+      (s) => s.sport === "nfl" && s.gate === "unsupported_market",
+    ),
+  );
+  assert.ok(
+    recorder.footballPropRejectedSamples.some(
+      (s) => s.sport === "ncaaf" && s.gate === "unsupported_market",
+    ),
+  );
+
+  const scoredNfl = qualifyingFootballPick(nflOk);
+  const scoredNcaaf = qualifyingFootballPick(ncaafOk);
+  recorder.recomputeQualificationFromScored([
+    {
+      pick: scoredNfl,
+      evPct: 4,
+      edgePct: 4.5,
+      confidencePct: 62,
+      impliedProbPct: 52,
+      lineShoppingScore: null,
+      grade: "B+",
+      simHit: 0.58,
+      composite: 70,
+      rankScore: 10,
+    },
+    {
+      pick: scoredNcaaf,
+      evPct: 4,
+      edgePct: 4.5,
+      confidencePct: 62,
+      impliedProbPct: 53,
+      lineShoppingScore: null,
+      grade: "B+",
+      simHit: 0.58,
+      composite: 70,
+      rankScore: 9,
+    },
+  ]);
+
+  // Discovery rejects must still be present after recompute (not wiped by pre-score-only seed).
+  assert.equal(recorder.footballPropRejectCountsBySport.nfl.unsupported_market, 1);
+  assert.equal(recorder.footballPropRejectCountsBySport.ncaaf.unsupported_market, 1);
+  assert.ok(
+    recorder.footballPropRejectedSamples.some(
+      (s) => s.sport === "nfl" && s.gate === "unsupported_market" && s.stageStopped === "eligible",
+    ),
+  );
+  assert.ok(
+    recorder.footballPropRejectedSamples.some(
+      (s) =>
+        s.sport === "ncaaf" && s.gate === "unsupported_market" && s.stageStopped === "eligible",
+    ),
+  );
+
+  const manifest = recorder.finalize({
+    scanComplete: true,
+    boardExhausted: true,
+    deliveredLegs: 0,
+  });
+  assert.equal(manifest.footballPropRejectCountsBySport.nfl.unsupported_market, 1);
+  assert.equal(manifest.footballPropRejectCountsBySport.ncaaf.unsupported_market, 1);
+  assert.ok(
+    manifest.footballPropRejectedSamples.some(
+      (s) => s.sport === "nfl" && s.gate === "unsupported_market",
+    ),
+  );
+  assert.ok(
+    manifest.footballPropRejectedSamples.some(
+      (s) => s.sport === "ncaaf" && s.gate === "unsupported_market",
+    ),
+  );
+});
+
+test("one unselected qualified prop creates exactly one terminal rejection", () => {
+  const recorder = createCoachBoardScanManifestRecorder(4);
+  const nfl = qualifyingFootballPick(nflPassPick());
+  const ncaaf = qualifyingFootballPick(ncaafRushPick());
+  recorder.recordPropPoolRow(nfl);
+  recorder.recordPropPoolRow(ncaaf);
+  recorder.recordPropSimBatch(2, false, [nfl, ncaaf]);
+  recorder.recomputeQualificationFromScored([
+    {
+      pick: nfl,
+      evPct: 4,
+      edgePct: 4.5,
+      confidencePct: 62,
+      impliedProbPct: 52,
+      lineShoppingScore: null,
+      grade: "B+",
+      simHit: 0.58,
+      composite: 70,
+      rankScore: 10,
+    },
+    {
+      pick: ncaaf,
+      evPct: 4,
+      edgePct: 4.5,
+      confidencePct: 62,
+      impliedProbPct: 53,
+      lineShoppingScore: null,
+      grade: "B+",
+      simHit: 0.58,
+      composite: 70,
+      rankScore: 9,
+    },
+  ]);
+
+  assert.equal(recorder.footballPropFunnelBySport.nfl.qualified, 1);
+  assert.equal(recorder.footballPropFunnelBySport.ncaaf.qualified, 1);
+
+  // Neither sport selected onto the ticket.
+  recorder.recordFootballPropDeliveryFunnel([nfl, ncaaf], []);
+
+  const manifest = recorder.finalize({
+    scanComplete: true,
+    boardExhausted: true,
+    deliveredLegs: 0,
+  });
+
+  for (const sport of ["nfl", "ncaaf"] as const) {
+    const funnel = manifest.footballPropFunnelBySport[sport];
+    const gap = funnel.qualified - funnel.final_selected;
+    assert.equal(gap, 1);
+    assert.equal(manifest.footballPropRejectCountsBySport[sport].correlation, 1);
+    assert.equal(
+      manifest.footballPropRejectCountsBySport[sport].not_selected ?? 0,
+      0,
+      `${sport} must not double-count not_selected alongside correlation`,
+    );
+    assert.equal(
+      manifest.footballPropRejectCountsBySport[sport].correlation,
+      gap,
+      `${sport} correlation rejects must reconcile with qualified−final_selected`,
+    );
+    const terminalSamples = manifest.footballPropRejectedSamples.filter(
+      (s) => s.sport === sport && s.gate === "correlation",
+    );
+    assert.equal(terminalSamples.length, 1);
+  }
+});
+
+test("football delivery rejection totals reconcile with funnel gap when one sport is selected", () => {
+  const recorder = createCoachBoardScanManifestRecorder(4);
+  const nfl = qualifyingFootballPick(nflPassPick());
+  const ncaaf = qualifyingFootballPick(ncaafRushPick());
+  recorder.recordPropPoolRow(nfl);
+  recorder.recordPropPoolRow(ncaaf);
+  recorder.recomputeQualificationFromScored([
+    {
+      pick: nfl,
+      evPct: 4,
+      edgePct: 4.5,
+      confidencePct: 62,
+      impliedProbPct: 52,
+      lineShoppingScore: null,
+      grade: "B+",
+      simHit: 0.58,
+      composite: 70,
+      rankScore: 10,
+    },
+    {
+      pick: ncaaf,
+      evPct: 4,
+      edgePct: 4.5,
+      confidencePct: 62,
+      impliedProbPct: 53,
+      lineShoppingScore: null,
+      grade: "B+",
+      simHit: 0.58,
+      composite: 70,
+      rankScore: 9,
+    },
+  ]);
+  // Select only NFL; NCAAF drops once via correlation.
+  recorder.recordFootballPropDeliveryFunnel([nfl, ncaaf], [nfl]);
+  const manifest = recorder.finalize({
+    scanComplete: true,
+    boardExhausted: true,
+    deliveredLegs: 1,
+  });
+
+  assert.equal(manifest.footballPropFunnelBySport.nfl.final_selected, 1);
+  assert.equal(manifest.footballPropFunnelBySport.ncaaf.final_selected, 0);
+  assert.equal(manifest.footballPropRejectCountsBySport.nfl.correlation ?? 0, 0);
+  assert.equal(manifest.footballPropRejectCountsBySport.ncaaf.correlation, 1);
+  assert.equal(manifest.footballPropRejectCountsBySport.ncaaf.not_selected ?? 0, 0);
+  const ncaafGap =
+    manifest.footballPropFunnelBySport.ncaaf.qualified -
+    manifest.footballPropFunnelBySport.ncaaf.final_selected;
+  assert.equal(manifest.footballPropRejectCountsBySport.ncaaf.correlation, ncaafGap);
+});
