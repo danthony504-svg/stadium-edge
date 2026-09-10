@@ -1384,7 +1384,8 @@ export function getStatmuseGamelog(
   return getJson<StatMuseGameLog>(`/sports/statmuse-gamelog?${params.toString()}`, signal);
 }
 
-export { propMarketLabel } from "./propMarketLabel";
+import { PROP_MARKET_LABEL_MAP, propMarketLabel } from "./propMarketLabel";
+export { propMarketLabel };
 
 // Reverse of propMarketLabel for the base (non-period) labels: resolve a human
 // market label ("Strikeouts") back to its raw Odds API key ("pitcher_strikeouts")
