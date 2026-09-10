@@ -75,13 +75,90 @@ export function marketSupportsSimulation(
   return simModelForMarket(market, opts) !== "unsupported";
 }
 
+/** Extreme hit rates that almost always indicate a market/period mapping bug. */
+export const SIM_HIT_EXTREME_HIGH = 0.99;
+export const SIM_HIT_EXTREME_LOW = 0.01;
+
+export type SimHitSanityContext = {
+  market?: string;
+  sport?: string;
+  period?: string;
+  line?: number | null;
+  odds?: number | null;
+  simulatedStatistic?: string;
+  hits?: number | null;
+  losses?: number | null;
+  impliedProb?: number | null;
+  edge?: number | null;
+  ev?: number | null;
+  simHit: number;
+  reason?: string;
+};
+
+export function isExtremeSimHit(simHit: number): boolean {
+  return simHit >= SIM_HIT_EXTREME_HIGH || simHit <= SIM_HIT_EXTREME_LOW;
+}
+
+/** Log raw inputs when a sim hit collapses to ~0% or ~100% so mapping bugs can be audited. */
+export function logExtremeSimHit(ctx: SimHitSanityContext): void {
+  try {
+    console.warn("[coach-sim-sanity]", JSON.stringify(ctx));
+  } catch {
+    console.warn("[coach-sim-sanity]", ctx.simHit, ctx.market, ctx.sport);
+  }
+}
+
+/**
+ * Reject non-finite, {0,1}, and extreme hits from grading.
+ * Extreme hits are logged with market/period/line context for inspection.
+ */
+export function sanitizeSimHitForGrade(
+  simHit: number | null | undefined,
+  ctx?: Omit<SimHitSanityContext, "simHit">,
+): number | null {
+  if (simHit == null || !Number.isFinite(simHit)) return null;
+  if (simHit <= 0 || simHit >= 1) return null;
+  if (isExtremeSimHit(simHit)) {
+    logExtremeSimHit({ ...ctx, simHit, reason: ctx?.reason ?? "extreme_sim_hit" });
+    return null;
+  }
+  return simHit;
+}
+
+/**
+ * True when the provider market + sport + period have a dedicated sim model.
+ * Period markets must not fall through to full-game scores.
+ */
+export function simMarketMappingIsValid(pick: {
+  market?: string;
+  isProp?: boolean;
+  sport?: string;
+}): boolean {
+  const market = pick.market ?? "";
+  const kind = simModelForMarket(market, pick);
+  if (kind === "unsupported") return false;
+  if (pick.isProp || kind === "playerProp") return true;
+  const period = parseMarketPeriod(market);
+  if (period === "fg") return true;
+  const sport = (pick.sport ?? "").toLowerCase();
+  if (PERIOD_UNSUPPORTED_SPORTS.has(sport)) return false;
+  if (period === "p1" || period === "p2" || period === "p3") return sport === "nhl";
+  if (period === "f5" || period === "i1") return sport === "mlb";
+  return true;
+}
+
 /** True when a pick has a real sim-backed grade (not rubric-only). */
 export function pickHasSimGrade(
   pick: { market?: string; isProp?: boolean; sport?: string },
   simHit: number | null | undefined,
 ): boolean {
-  if (!marketSupportsSimulation(pick.market ?? "", pick)) return false;
-  return simHit != null && Number.isFinite(simHit) && simHit > 0 && simHit < 1;
+  if (!simMarketMappingIsValid(pick)) return false;
+  const hit = sanitizeSimHitForGrade(simHit, {
+    market: pick.market,
+    sport: pick.sport,
+    period: parseMarketPeriod(pick.market ?? ""),
+  });
+  return hit != null;
 }
 
 export const NOT_YET_AI_GRADED = "Not yet AI graded";

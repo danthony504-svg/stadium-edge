@@ -5,6 +5,7 @@ import {
   boardScanMatchesLegTarget,
   boardScanMeetsLegTarget,
   boardScanReadyForDelivery,
+  coachTicketShowsScanInProgress,
   ensureFixedLegShortfallLegNote,
   preferBoardScanForDelivery,
   preferFinalBoardScanForDelivery,
@@ -101,6 +102,41 @@ test("COACH_FULL_BOARD_SCAN_POLICY documents balanced scan and no filler", () =>
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /separate ranked pools/i);
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /50%/i);
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /fewer legs instead of weak filler/i);
+});
+
+test("coachTicketShowsScanInProgress keeps partials temporary until scanComplete", () => {
+  assert.equal(
+    coachTicketShowsScanInProgress({
+      picksShortOfTarget: true,
+      buildIdle: true,
+      boardScanComplete: false,
+    }),
+    true,
+  );
+  assert.equal(
+    coachTicketShowsScanInProgress({
+      picksShortOfTarget: true,
+      buildIdle: true,
+      boardScanComplete: true,
+    }),
+    false,
+  );
+  assert.equal(
+    coachTicketShowsScanInProgress({
+      picksShortOfTarget: true,
+      buildIdle: false,
+      boardScanComplete: undefined,
+    }),
+    true,
+  );
+  assert.equal(
+    coachTicketShowsScanInProgress({
+      picksShortOfTarget: false,
+      buildIdle: false,
+      boardScanComplete: false,
+    }),
+    false,
+  );
 });
 
 test("COACH_FIXED_LEG_TICKET_POLICY never pads to reach leg count", () => {

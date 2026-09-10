@@ -3399,7 +3399,8 @@ function extractNamedCandidates(text: string): string[] {
   return out;
 }
 
-const TINY_PARLAY_SPORTS = ["mlb", "wnba", "nba", "nhl"] as const;
+/** Default light-parlay probe order — NFL/NCAAF early so generic builds keep football. */
+const TINY_PARLAY_SPORTS = ["mlb", "nfl", "nba", "ncaaf", "nhl", "wnba"] as const;
 
 type LightParlayOpts = {
   sports?: readonly string[];
@@ -3679,11 +3680,13 @@ async function buildLightParlayContext(
  */
 export async function buildTinyParlayContext(
   signal?: AbortSignal,
-  opts?: { excludeSports?: readonly string[] },
+  opts?: { excludeSports?: readonly string[]; sports?: readonly string[] },
 ): Promise<BuiltChatContext> {
   return buildLightParlayContext(signal, {
+    sports: opts?.sports,
     excludeSports: opts?.excludeSports,
-    maxSports: 1,
+    // Probe at least two leagues so NFL/NCAAF can survive when MLB also has games.
+    maxSports: 2,
     maxPropGames: 2,
     maxOddsGames: 6,
     propsBalanceCap: 18,
@@ -3695,12 +3698,14 @@ export async function buildTinyParlayContext(
 export async function buildCompactParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
-  opts?: { excludeSports?: readonly string[] },
+  opts?: { excludeSports?: readonly string[]; sports?: readonly string[] },
 ): Promise<BuiltChatContext> {
   const n = Math.max(4, Math.min(15, requestedLegs));
   return buildLightParlayContext(signal, {
+    sports: opts?.sports,
     excludeSports: opts?.excludeSports,
-    maxSports: n >= 11 ? 6 : n >= 9 ? 5 : 4,
+    // Wide enough that mlb+nfl+nba+ncaaf fit in the active probe set for 6–10 legs.
+    maxSports: n >= 11 ? 7 : n >= 9 ? 6 : 5,
     maxPropGames: Math.min(14, n + 2),
     maxOddsGames: Math.min(24, n + 8),
     propsBalanceCap: Math.min(96, n * 8),

@@ -4,8 +4,14 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { GameSimulationResult, RealOddsEntry } from "./api.ts";
 import { fourQuestionsNoteForPick } from "./gameLineFourQuestions.ts";
-import { parseMarketPeriod, type SimPeriodScope, marketSupportsSimulation } from "./simMarketSupport.ts";
+import {
+  parseMarketPeriod,
+  type SimPeriodScope,
+  sanitizeSimHitForGrade,
+  simMarketMappingIsValid,
+} from "./simMarketSupport.ts";
 import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeriodScoring.ts";
+import { americanToDecimal, impliedProb } from "./format.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
 function gameMarketFamily(market: string): string {
@@ -297,8 +303,10 @@ function coverQueryHits(
     return raceToHits(target, side, homeScore, awayScore);
   }
   const period: SimPeriodScope = q.period ?? "fg";
+  // Never grade a period market from full-game scores — mismatch must not cover.
+  if (period !== "fg" && !sportSupportsPeriod(sport, period)) return false;
   const scoped =
-    period === "fg" || !sportSupportsPeriod(sport, period)
+    period === "fg"
       ? { home: homeScore, away: awayScore }
       : periodScoresForDraw(sport, period, homeScore, awayScore);
   const hs = scoped.home;
@@ -439,30 +447,87 @@ function fuzzyCoverHitRate(
   return null;
 }
 
+function simulatedStatisticForQuery(query: GameCoverQuery): string {
+  const period = query.period ?? "fg";
+  if (query.kind === "ml") return `${period}:winner:${query.teamSide ?? "?"}`;
+  if (query.kind === "spread") return `${period}:margin:${query.teamSide ?? "?"}`;
+  if (query.kind === "total") return `${period}:game_total:${query.totalSide ?? "?"}`;
+  if (query.kind === "teamTotal") {
+    return `${period}:team_total:${query.teamSide ?? "?"}:${query.totalSide ?? "?"}`;
+  }
+  if (query.kind === "raceTo") return `${period}:race_to:${query.raceTarget ?? "?"}`;
+  return period;
+}
+
+function sanitizeGameSimHit(
+  pick: ParsedPick,
+  query: GameCoverQuery,
+  hit: number | null,
+  sim: CoachGameSimEntry,
+): number | null {
+  if (hit == null || !Number.isFinite(hit)) return null;
+  const n = sim.simulations ?? 0;
+  const hits = n > 0 ? Math.round(hit * n) : null;
+  const losses = hits != null && n > 0 ? n - hits : null;
+  const odds = pick.odds;
+  const implied = odds != null && Number.isFinite(odds) ? impliedProb(odds) : null;
+  const edge =
+    odds != null && Number.isFinite(odds) && implied != null
+      ? Math.round((hit - implied) * 1000) / 10
+      : null;
+  const ev =
+    odds != null && Number.isFinite(odds)
+      ? Math.round((hit * americanToDecimal(odds) - 1) * 1000) / 10
+      : null;
+  return sanitizeSimHitForGrade(hit, {
+    market: pick.market,
+    sport: pick.sport,
+    period: query.period ?? "fg",
+    line: query.line ?? query.raceTarget ?? null,
+    odds: odds ?? null,
+    simulatedStatistic: simulatedStatisticForQuery(query),
+    hits,
+    losses,
+    impliedProb: implied,
+    edge,
+    ev,
+  });
+}
+
 /** Monte Carlo hit probability for this pick from the shared game sim. */
 export function gameSimHitForPick(
   pick: ParsedPick,
   sim: CoachGameSimEntry | null | undefined,
 ): number | null {
   if (!gameSimHasValidRun(sim)) return null;
-  if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
+  if (!simMarketMappingIsValid(pick)) return null;
   const query = buildGameCoverQuery(pick);
   if (!query) return null;
+  // Period on the query must match a supported sport period — no FG fallback grade.
+  if (query.period && query.period !== "fg" && !sportSupportsPeriod(pick.sport ?? "", query.period)) {
+    return null;
+  }
   const fromCover = sim!.coverHitRates?.[query.id];
-  if (fromCover != null && Number.isFinite(fromCover)) return fromCover;
+  if (fromCover != null && Number.isFinite(fromCover)) {
+    return sanitizeGameSimHit(pick, query, fromCover, sim!);
+  }
 
   const fuzzy = fuzzyCoverHitRate(pick, query, sim!);
-  if (fuzzy != null) return fuzzy;
+  if (fuzzy != null) return sanitizeGameSimHit(pick, query, fuzzy, sim!);
 
   if (sim!.outcomes) {
     const derived = deriveCoverHitRatesFromOutcomes(sim!.outcomes, [query], pick.sport ?? "nba");
     const hit = derived[query.id];
-    if (hit != null && Number.isFinite(hit)) return hit;
+    if (hit != null && Number.isFinite(hit)) {
+      return sanitizeGameSimHit(pick, query, hit, sim!);
+    }
   }
 
   // Fallback when cover rates were not requested — ML only from win probs.
   if (query.kind === "ml" && query.teamSide) {
-    return query.teamSide === "home" ? sim!.homeWinProbability : sim!.awayWinProbability;
+    const mlHit =
+      query.teamSide === "home" ? sim!.homeWinProbability : sim!.awayWinProbability;
+    return sanitizeGameSimHit(pick, query, mlHit, sim!);
   }
   return null;
 }

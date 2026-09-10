@@ -141,6 +141,7 @@ import {
   boardScanMatchesLegTarget,
   boardScanReadyForDelivery,
   buildFixedLegCountShortfallLead,
+  coachTicketShowsScanInProgress,
   ensureFixedLegShortfallLegNote,
   preferFinalBoardScanForDelivery,
   shouldAllowReachCountBackfill,
@@ -295,6 +296,11 @@ type UIMessage = {
   parlayBuild?: boolean;
   /** Requested leg count for this ticket — drives visible shortfall copy in the header. */
   ticketLegTarget?: number;
+  /**
+   * Board-scan completeness for this bubble. false = temporary scanning state
+   * (partial ticket); true = final ticket after full scan; undefined = legacy.
+   */
+  boardScanComplete?: boolean;
 };
 
 type StatCardResult = {
@@ -1292,7 +1298,9 @@ export default function CoachScreen() {
         });
         if (!finalized.ok) return false;
         boardTicketSnapshotRef.current = finalized.picks;
-        patchLastAssistantPicks(setMessages, finalized.picks, legNote);
+        patchLastAssistantPicks(setMessages, finalized.picks, legNote, {
+          boardScanComplete: true,
+        });
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -1310,7 +1318,7 @@ export default function CoachScreen() {
         return true;
       }
       boardTicketSnapshotRef.current = cleaned;
-      patchLastAssistantPicks(setMessages, cleaned, legNote);
+      patchLastAssistantPicks(setMessages, cleaned, legNote, { boardScanComplete: true });
       setStreaming(false);
       setWaiting(false);
       setBuildFinishing(false);
@@ -1417,6 +1425,7 @@ export default function CoachScreen() {
                 content: "",
                 legNote: legNote.trim() || undefined,
                 coachDetailNote: coachDetailNote.trim() || undefined,
+                boardScanComplete: true,
                 ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
               };
               return copy;
@@ -1475,6 +1484,7 @@ export default function CoachScreen() {
               ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
               ...(coachDetailNote.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
               ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+              boardScanComplete: isFinal,
             };
             return copy;
           }
@@ -2555,7 +2565,10 @@ export default function CoachScreen() {
                 todayOnly: false,
               }
             : useTinyParlayPath
-            ? await buildTinyParlayContext(controller.signal, { excludeSports: excludeSportsList })
+            ? await buildTinyParlayContext(controller.signal, {
+                  excludeSports: excludeSportsList,
+                  sports: buildSports,
+                })
             : usePropsOnlyParlayPath
               ? await buildPropsOnlyParlayContext(buildLegs, controller.signal, {
                   excludeSports: excludeSportsList,
@@ -2568,6 +2581,7 @@ export default function CoachScreen() {
             : useCompactParlayPath
               ? await buildCompactParlayContext(buildLegs, controller.signal, {
                   excludeSports: excludeSportsList,
+                  sports: buildSports,
                 })
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
@@ -5081,6 +5095,17 @@ export default function CoachScreen() {
             ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
             ...(outCoachDetailNote.trim() ? { coachDetailNote: outCoachDetailNote.trim() } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
+            boardScanComplete:
+              fullBoardScanned || didReachFullPreScan
+                ? boardScanIsComplete(
+                    preferFinalBoardScanForDelivery(
+                      legTarget,
+                      fullBoardScanMeta,
+                      preBoardScan,
+                      latestBoardScanRef.current,
+                    ) ?? fullBoardScanMeta,
+                  )
+                : prevAssistant.boardScanComplete,
           };
           return copy;
         });
@@ -5970,8 +5995,11 @@ export default function CoachScreen() {
             const parlayScanInProgress =
               i === messages.length - 1 &&
               parlayBuildIntent &&
-              picksShortOfTarget &&
-              !buildIdle;
+              coachTicketShowsScanInProgress({
+                picksShortOfTarget,
+                buildIdle,
+                boardScanComplete: m.boardScanComplete,
+              });
             const deadBuildProse =
               m.role === "assistant" && DEAD_BUILD_PROSE_RE.test(m.content);
             const isBuildingParlay =
