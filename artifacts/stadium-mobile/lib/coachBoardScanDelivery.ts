@@ -54,6 +54,33 @@ export function deliverCoachBoardScanTicket(
     qualifiedByCategory: { props: 0, gameLines: 0, teamTotals: 0, alternateLines: 0 },
     gateFailureCounts: {},
     rejectedSamples: [],
+    footballPropFunnelBySport: {
+      nfl: {
+        raw_found: 0,
+        normalized: 0,
+        eligible: 0,
+        simulated: 0,
+        graded: 0,
+        qualified: 0,
+        after_dedupe: 0,
+        after_correlation: 0,
+        final_selected: 0,
+      },
+      ncaaf: {
+        raw_found: 0,
+        normalized: 0,
+        eligible: 0,
+        simulated: 0,
+        graded: 0,
+        qualified: 0,
+        after_dedupe: 0,
+        after_correlation: 0,
+        final_selected: 0,
+      },
+    },
+    footballPropFoundByMarketBySport: { nfl: {}, ncaaf: {} },
+    footballPropRejectCountsBySport: { nfl: {}, ncaaf: {} },
+    footballPropRejectedSamples: [],
   };
 
   if (!boardScanIsComplete(scan) || !scan.scanComplete) {

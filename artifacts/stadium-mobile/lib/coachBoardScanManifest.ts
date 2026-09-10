@@ -11,6 +11,24 @@ import {
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isAltPropPick } from "./altLinePool.ts";
+import type { BoardScoredLeg } from "./ticketStaging.ts";
+import {
+  bumpCounterMap,
+  emptyFootballPropFunnelCounters,
+  footballPropMarketKey,
+  footballPropMarketLabel,
+  type FootballPropFunnelCounters,
+  type FootballPropFunnelStage,
+  type FootballPropRejectedSample,
+  type FootballPropSport,
+  type FootballPropStageRejectReason,
+  FOOTBALL_PROP_FUNNEL_STAGES,
+  FOOTBALL_PROP_MARKET_KEYS,
+  isFootballPropPick,
+  isFootballPropSport,
+  safeCoachManifestInstrument,
+  scoreDiagnosticsFromPartial,
+} from "./coachFootballPropFunnel.ts";
 
 export type ManifestMarketFamily =
   | "playerProps"
@@ -66,7 +84,29 @@ export type CoachBoardScanManifest = {
     family: ManifestMarketFamily;
     gate: BoardLegGateCode;
     reason: string;
+    sport?: string;
+    player?: string;
+    line?: number | null;
+    odds?: number;
+    simHit?: number | null;
+    impliedProbPct?: number | null;
+    edgePct?: number | null;
+    evPct?: number | null;
+    confidencePct?: number | null;
+    grade?: string | null;
   }>;
+
+  /** NFL/NCAAF player-prop funnel (instrumentation only). */
+  footballPropFunnelBySport: Record<FootballPropSport, FootballPropFunnelCounters>;
+  /** Found counts by Odds API market key per football sport. */
+  footballPropFoundByMarketBySport: Record<FootballPropSport, Record<string, number>>;
+  /** Stage/gate reject counts for football props. */
+  footballPropRejectCountsBySport: Record<
+    FootballPropSport,
+    Partial<Record<FootballPropStageRejectReason, number>>
+  >;
+  /** Sample rejected NFL/NCAAF props with score diagnostics. */
+  footballPropRejectedSamples: FootballPropRejectedSample[];
 };
 
 export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanManifest {
@@ -112,6 +152,13 @@ export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanMa
     qualifiedByCategory: { props: 0, gameLines: 0, teamTotals: 0, alternateLines: 0 },
     gateFailureCounts: {},
     rejectedSamples: [],
+    footballPropFunnelBySport: {
+      nfl: emptyFootballPropFunnelCounters(),
+      ncaaf: emptyFootballPropFunnelCounters(),
+    },
+    footballPropFoundByMarketBySport: { nfl: {}, ncaaf: {} },
+    footballPropRejectCountsBySport: { nfl: {}, ncaaf: {} },
+    footballPropRejectedSamples: [],
   };
 }
 
@@ -145,16 +192,25 @@ export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
   recordMarketFound(pick: ParsedPick): void;
   recordPropPoolRow(pick: ParsedPick): void;
   recordGameLineSimulated(): void;
-  recordPropSimBatch(size: number, timedOut: boolean): void;
+  recordPropSimBatch(size: number, timedOut: boolean, batch?: ParsedPick[]): void;
   /** Sim ran but the pick could not be graded (null MC hit, batch timeout, etc.). */
   recordPreScoreGateFailure(pick: ParsedPick, score?: Partial<FinalAiScore> | null): void;
   recordEvaluatedLeg(leg: BoardScoredLeg): void;
   recordEvaluatedPick(pick: ParsedPick, score: ParsedPick["finalAiScore"]): void;
   recomputeQualificationFromScored(scored: BoardScoredLeg[]): void;
+  /**
+   * Observational post-staging funnel for NFL/NCAAF props — does not change
+   * which legs were selected; only records counts for the scan manifest.
+   */
+  recordFootballPropDeliveryFunnel(
+    qualifiedFootballProps: ParsedPick[],
+    selectedPicks: ParsedPick[],
+  ): void;
   finalize(opts: { scanComplete: boolean; boardExhausted: boolean; deliveredLegs: number }): CoachBoardScanManifest;
 };
 
 const MAX_REJECTED_SAMPLES = 80;
+const MAX_FOOTBALL_REJECT_SAMPLES = 10;
 
 function mergeGateFailureCounts(
   a: Partial<Record<BoardLegGateCode, number>>,
@@ -169,15 +225,75 @@ function mergeGateFailureCounts(
   return out;
 }
 
+function resetFootballEvalStages(manifest: CoachBoardScanManifest): void {
+  for (const sport of ["nfl", "ncaaf"] as FootballPropSport[]) {
+    manifest.footballPropFunnelBySport[sport].graded = 0;
+    manifest.footballPropFunnelBySport[sport].qualified = 0;
+    manifest.footballPropFunnelBySport[sport].after_dedupe = 0;
+    manifest.footballPropFunnelBySport[sport].after_correlation = 0;
+    manifest.footballPropFunnelBySport[sport].final_selected = 0;
+    // Keep discovery/sim counters; clear only evaluation-stage reject keys that
+    // are recomputed from scored legs. Preserve preScore rejects already logged.
+  }
+}
+
 export function createCoachBoardScanManifestRecorder(requestedLegs: number): CoachBoardScanManifestRecorder {
   const manifest = emptyCoachBoardScanManifest(requestedLegs);
   const seenRejectFp = new Set<string>();
   const seenPreScoreFp = new Set<string>();
+  const seenFootballSampleFp = new Set<string>();
   let preScoreGateFailures: Partial<Record<BoardLegGateCode, number>> = {};
   let preScoreRejectedSamples: CoachBoardScanManifest["rejectedSamples"] = [];
+  let preScoreFootballRejects: FootballPropRejectedSample[] = [];
+  let preScoreFootballRejectCounts: Record<
+    FootballPropSport,
+    Partial<Record<FootballPropStageRejectReason, number>>
+  > = { nfl: {}, ncaaf: {} };
+  let preScoreFootballGraded: Record<FootballPropSport, number> = { nfl: 0, ncaaf: 0 };
+  /** True after recomputeQualificationFromScored seeded pre-score football rejects into manifest. */
+  let footballEvalSeededFromPreScore = false;
 
   const bumpGate = (gate: BoardLegGateCode, target: Partial<Record<BoardLegGateCode, number>>) => {
     target[gate] = (target[gate] ?? 0) + 1;
+  };
+
+  const bumpFootballReject = (
+    sport: FootballPropSport,
+    reason: FootballPropStageRejectReason,
+    target: Record<FootballPropSport, Partial<Record<FootballPropStageRejectReason, number>>>,
+  ) => {
+    bumpCounterMap(target[sport] as Record<string, number>, reason, 1);
+  };
+
+  const pushFootballSample = (
+    pick: ParsedPick,
+    gate: FootballPropStageRejectReason,
+    reason: string,
+    stageStopped: FootballPropRejectedSample["stageStopped"],
+    score: Partial<FinalAiScore> | null | undefined,
+    bucket: FootballPropRejectedSample[],
+  ) => {
+    if (!isFootballPropPick(pick) || !isFootballPropSport(pick.sport)) return;
+    if (bucket.length >= MAX_FOOTBALL_REJECT_SAMPLES) return;
+    const sport = pick.sport;
+    const fp = `${sport}|${pick.game}|${pick.player}|${pick.market}|${pick.odds}|${gate}`;
+    if (seenFootballSampleFp.has(fp)) return;
+    seenFootballSampleFp.add(fp);
+    const diag = scoreDiagnosticsFromPartial(pick, score);
+    bucket.push({
+      sport,
+      player: String(pick.player ?? pick.pick ?? ""),
+      market: String(pick.market ?? ""),
+      marketKey: footballPropMarketKey(pick),
+      line: pick.propLine ?? null,
+      odds: pick.odds,
+      ...diag,
+      stageStopped,
+      gate,
+      reason,
+      game: pick.game,
+      pick: pickLabelForManifest(pick),
+    });
   };
 
   const pushRejectedSample = (
@@ -186,11 +302,12 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     reason: string,
     bucket: CoachBoardScanManifest["rejectedSamples"],
     seen: Set<string>,
+    score?: Partial<FinalAiScore> | null,
   ) => {
     const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|${gate}`;
     if (seen.has(fp) || bucket.length >= MAX_REJECTED_SAMPLES) return;
     seen.add(fp);
-    bucket.push({
+    const base = {
       game: pick.game,
       market: String(pick.market ?? ""),
       pick: pickLabelForManifest(pick),
@@ -198,7 +315,21 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       family: classifyManifestMarketFamily(pick),
       gate,
       reason,
+    };
+    // Optional #429 diagnostics — must not abort rejection logging / scan.
+    let enriched: CoachBoardScanManifest["rejectedSamples"][number] = base;
+    safeCoachManifestInstrument("rejected-sample-diagnostics", () => {
+      const diag = scoreDiagnosticsFromPartial(pick, score);
+      enriched = {
+        ...base,
+        sport: pick.sport,
+        player: pick.player,
+        line: pick.propLine ?? null,
+        odds: pick.odds,
+        ...diag,
+      };
     });
+    bucket.push(enriched);
   };
 
   const recorder: CoachBoardScanManifestRecorder = {
@@ -216,21 +347,54 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       manifest.propsFound += 1;
       recorder.recordMarketFound(pick);
       if (isAltPropPick(pick) || pick.propIsAlt) manifest.alternatePropsFound += 1;
-      if (isRealisticBoardPropCandidate(pick)) {
+      const eligible = isRealisticBoardPropCandidate(pick);
+      if (eligible) {
         manifest.propsEligibleForSim += 1;
       } else {
         manifest.propsSkippedUnsupported += 1;
       }
+      safeCoachManifestInstrument("football-prop-pool-row", () => {
+        if (!isFootballPropPick(pick) || !isFootballPropSport(pick.sport)) return;
+        const sport = pick.sport;
+        const funnel = manifest.footballPropFunnelBySport[sport];
+        funnel.raw_found += 1;
+        funnel.normalized += 1;
+        if (eligible) {
+          funnel.eligible += 1;
+        } else {
+          bumpFootballReject(sport, "unsupported_market", manifest.footballPropRejectCountsBySport);
+          pushFootballSample(
+            pick,
+            "unsupported_market",
+            "Prop skipped — no sim model / missing line",
+            "eligible",
+            null,
+            manifest.footballPropRejectedSamples,
+          );
+        }
+        bumpCounterMap(
+          manifest.footballPropFoundByMarketBySport[sport],
+          footballPropMarketKey(pick),
+          1,
+        );
+      });
     },
     recordGameLineSimulated() {
       manifest.gameLinesSimulated += 1;
       manifest.marketsSimulated += 1;
     },
-    recordPropSimBatch(size, timedOut) {
+    recordPropSimBatch(size, timedOut, batch) {
       manifest.propsSimBatches += 1;
       manifest.propsSimulated += size;
       manifest.marketsSimulated += size;
       if (timedOut) manifest.propsSimTimeouts += 1;
+      safeCoachManifestInstrument("football-prop-sim-batch", () => {
+        if (!batch?.length) return;
+        for (const pick of batch) {
+          if (!isFootballPropPick(pick) || !isFootballPropSport(pick.sport)) continue;
+          manifest.footballPropFunnelBySport[pick.sport].simulated += 1;
+        }
+      });
     },
     recordPreScoreGateFailure(pick, score) {
       const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|pre_score`;
@@ -239,23 +403,63 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       manifest.preScoreEvaluated += 1;
       const q = explainBoardLegQualification(pick, (score as FinalAiScore | null | undefined) ?? null);
       bumpGate(q.gate, preScoreGateFailures);
-      pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp);
+      pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp, score);
+      safeCoachManifestInstrument("football-pre-score-reject", () => {
+        if (!isFootballPropPick(pick) || !isFootballPropSport(pick.sport)) return;
+        const sport = pick.sport;
+        preScoreFootballGraded[sport] += 1;
+        manifest.footballPropFunnelBySport[sport].graded += 1;
+        const reasonCode: FootballPropStageRejectReason =
+          q.gate === "not_sim_aligned" ? "integrity_mapping" : q.gate;
+        bumpFootballReject(sport, reasonCode, preScoreFootballRejectCounts);
+        pushFootballSample(
+          pick,
+          reasonCode,
+          q.reason,
+          "graded",
+          score,
+          preScoreFootballRejects,
+        );
+      });
     },
     recordEvaluatedLeg(leg) {
       recorder.recordEvaluatedPick(leg.pick, leg.pick.finalAiScore);
     },
     recordEvaluatedPick(pick, score) {
       const q = explainBoardLegQualification(pick, score);
+      safeCoachManifestInstrument("football-evaluated-graded", () => {
+        if (!isFootballPropPick(pick) || !isFootballPropSport(pick.sport)) return;
+        manifest.footballPropFunnelBySport[pick.sport].graded += 1;
+      });
       if (q.qualifies) {
         manifest.totalQualified += 1;
         if (q.role === "main") manifest.qualifiedMain += 1;
         if (q.role === "alt") manifest.qualifiedAlt += 1;
         const cat = boardMarketCategory(pick);
         manifest.qualifiedByCategory[cat] += 1;
+        safeCoachManifestInstrument("football-evaluated-qualified", () => {
+          if (!isFootballPropPick(pick) || !isFootballPropSport(pick.sport)) return;
+          manifest.footballPropFunnelBySport[pick.sport].qualified += 1;
+        });
         return;
       }
       bumpGate(q.gate, manifest.gateFailureCounts);
-      pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp);
+      pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp, score);
+      safeCoachManifestInstrument("football-evaluated-reject", () => {
+        if (!isFootballPropPick(pick) || !isFootballPropSport(pick.sport)) return;
+        const sport = pick.sport;
+        const reasonCode: FootballPropStageRejectReason =
+          q.gate === "not_sim_aligned" ? "integrity_mapping" : q.gate;
+        bumpFootballReject(sport, reasonCode, manifest.footballPropRejectCountsBySport);
+        pushFootballSample(
+          pick,
+          reasonCode,
+          q.reason,
+          "qualified",
+          score,
+          manifest.footballPropRejectedSamples,
+        );
+      });
     },
     recomputeQualificationFromScored(scored) {
       manifest.totalQualified = 0;
@@ -265,12 +469,70 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       manifest.gateFailureCounts = {};
       manifest.rejectedSamples = [];
       seenRejectFp.clear();
+      safeCoachManifestInstrument("football-recompute-seed", () => {
+        resetFootballEvalStages(manifest);
+        for (const sport of ["nfl", "ncaaf"] as FootballPropSport[]) {
+          manifest.footballPropFunnelBySport[sport].graded = preScoreFootballGraded[sport];
+        }
+        manifest.footballPropRejectCountsBySport = {
+          nfl: { ...preScoreFootballRejectCounts.nfl },
+          ncaaf: { ...preScoreFootballRejectCounts.ncaaf },
+        };
+        manifest.footballPropRejectedSamples = [...preScoreFootballRejects];
+        seenFootballSampleFp.clear();
+        for (const s of manifest.footballPropRejectedSamples) {
+          seenFootballSampleFp.add(
+            `${s.sport}|${s.game}|${s.player}|${s.market}|${s.odds}|${s.gate}`,
+          );
+        }
+        footballEvalSeededFromPreScore = true;
+      });
 
       for (const leg of scored) {
         recorder.recordEvaluatedPick(leg.pick, leg.pick.finalAiScore);
       }
 
       manifest.totalEvaluated = manifest.preScoreEvaluated + scored.length;
+    },
+    recordFootballPropDeliveryFunnel(qualifiedFootballProps, selectedPicks) {
+      safeCoachManifestInstrument("football-delivery-funnel", () => {
+        const selectedFp = new Set(
+          selectedPicks
+            .filter(isFootballPropPick)
+            .map((p) => `${p.sport}|${p.game}|${p.player}|${p.market}|${p.odds}`),
+        );
+        for (const sport of ["nfl", "ncaaf"] as FootballPropSport[]) {
+          const qualified = qualifiedFootballProps.filter((p) => p.sport === sport);
+          const selected = selectedPicks.filter(
+            (p) => isFootballPropPick(p) && p.sport === sport,
+          );
+          // Observational: props are not hard-dropped by same-team game-line dedupe.
+          // Treat qualified count as after_dedupe; correlation/ranking explains the gap
+          // to final_selected (instrumentation only — selection unchanged).
+          const afterDedupe = qualified.length;
+          const afterCorrelation = selected.length;
+          const finalSelected = selected.length;
+          const funnel = manifest.footballPropFunnelBySport[sport];
+          funnel.after_dedupe = afterDedupe;
+          funnel.after_correlation = afterCorrelation;
+          funnel.final_selected = finalSelected;
+
+          for (const pick of qualified) {
+            const key = `${pick.sport}|${pick.game}|${pick.player}|${pick.market}|${pick.odds}`;
+            if (selectedFp.has(key)) continue;
+            bumpFootballReject(sport, "correlation", manifest.footballPropRejectCountsBySport);
+            bumpFootballReject(sport, "not_selected", manifest.footballPropRejectCountsBySport);
+            pushFootballSample(
+              pick,
+              "correlation",
+              "Qualified football prop not selected after correlation / ticket mix ranking",
+              "after_correlation",
+              pick.finalAiScore,
+              manifest.footballPropRejectedSamples,
+            );
+          }
+        }
+      });
     },
     finalize(opts) {
       manifest.scanComplete = opts.scanComplete;
@@ -288,6 +550,33 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         manifest.preScoreEvaluated += gap;
         manifest.totalEvaluated = manifest.marketsSimulated;
       }
+      let footballPropRejectedSamples = manifest.footballPropRejectedSamples;
+      let footballPropRejectCountsBySport = {
+        nfl: { ...manifest.footballPropRejectCountsBySport.nfl },
+        ncaaf: { ...manifest.footballPropRejectCountsBySport.ncaaf },
+      };
+      safeCoachManifestInstrument("football-finalize-snapshot", () => {
+        footballPropRejectedSamples = (
+          footballEvalSeededFromPreScore
+            ? manifest.footballPropRejectedSamples
+            : [...preScoreFootballRejects, ...manifest.footballPropRejectedSamples]
+        ).slice(0, MAX_FOOTBALL_REJECT_SAMPLES);
+        footballPropRejectCountsBySport = footballEvalSeededFromPreScore
+          ? {
+              nfl: { ...manifest.footballPropRejectCountsBySport.nfl },
+              ncaaf: { ...manifest.footballPropRejectCountsBySport.ncaaf },
+            }
+          : {
+              nfl: {
+                ...preScoreFootballRejectCounts.nfl,
+                ...manifest.footballPropRejectCountsBySport.nfl,
+              },
+              ncaaf: {
+                ...preScoreFootballRejectCounts.ncaaf,
+                ...manifest.footballPropRejectCountsBySport.ncaaf,
+              },
+            };
+      });
       return {
         ...manifest,
         gateFailureCounts: mergeGateFailureCounts(preScoreGateFailures, manifest.gateFailureCounts),
@@ -295,6 +584,8 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
           0,
           MAX_REJECTED_SAMPLES,
         ),
+        footballPropRejectedSamples,
+        footballPropRejectCountsBySport,
       };
     },
   };
@@ -323,6 +614,113 @@ function gateLabel(gate: BoardLegGateCode): string {
     not_staged: "Not staged",
   };
   return labels[gate] ?? gate;
+}
+
+function footballRejectLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    missing_odds: "Missing odds",
+    missing_prop_line: "Missing line",
+    unsupported_market: "Unsupported market",
+    normalization_failure: "Normalization failure",
+    no_sim_grade: "No sim grade",
+    integrity_mapping: "Integrity / mapping failure",
+    confidence_below_minimum: "Confidence below minimum",
+    negative_edge: "Negative edge",
+    negative_ev: "Negative EV",
+    sim_below_implied: "Sim below implied",
+    grade_below_minimum: "Grade below minimum",
+    holistic_not_recommended: "Holistic / not recommended",
+    not_ai_recommended: "Not AI recommended",
+    not_sim_aligned: "Sim not aligned",
+    not_staged: "Not staged",
+    dedupe: "Dedupe",
+    correlation: "Correlation / ranking",
+    thin_cap: "Thin-market cap",
+    not_selected: "Not selected",
+  };
+  return labels[reason] ?? reason;
+}
+
+function formatFootballPropFunnelSection(manifest: CoachBoardScanManifest): string[] {
+  const lines: string[] = [];
+  const sports: Array<[FootballPropSport, string]> = [
+    ["nfl", "NFL"],
+    ["ncaaf", "NCAAF"],
+  ];
+  const any =
+    sports.some(([s]) => manifest.footballPropFunnelBySport[s].raw_found > 0) ||
+    manifest.footballPropRejectedSamples.length > 0;
+  if (!any) return lines;
+
+  lines.push("");
+  lines.push("**NFL / NCAAF player-prop funnel**");
+  for (const [sport, label] of sports) {
+    const f = manifest.footballPropFunnelBySport[sport];
+    if (f.raw_found <= 0 && f.final_selected <= 0) continue;
+    lines.push(`- **${label}**`);
+    const stageLabels: Record<FootballPropFunnelStage, string> = {
+      raw_found: "raw / found",
+      normalized: "normalized",
+      eligible: "eligible",
+      simulated: "simulated",
+      graded: "graded",
+      qualified: "qualified",
+      after_dedupe: "after dedupe",
+      after_correlation: "after correlation",
+      final_selected: "final selected",
+    };
+    for (const stage of FOOTBALL_PROP_FUNNEL_STAGES) {
+      lines.push(`  - ${stageLabels[stage]}: **${f[stage].toLocaleString()}**`);
+    }
+    const byMarket = manifest.footballPropFoundByMarketBySport[sport];
+    const marketKeys = [
+      ...FOOTBALL_PROP_MARKET_KEYS.filter((k) => (byMarket[k] ?? 0) > 0),
+      ...Object.keys(byMarket).filter(
+        (k) => !(FOOTBALL_PROP_MARKET_KEYS as readonly string[]).includes(k) && (byMarket[k] ?? 0) > 0,
+      ),
+    ];
+    if (marketKeys.length) {
+      lines.push(`  - Markets found:`);
+      for (const key of marketKeys) {
+        lines.push(
+          `    - ${footballPropMarketLabel(key)} (\`${key}\`): **${(byMarket[key] ?? 0).toLocaleString()}**`,
+        );
+      }
+    }
+    const rejects = Object.entries(manifest.footballPropRejectCountsBySport[sport]).filter(
+      ([, n]) => (n ?? 0) > 0,
+    );
+    if (rejects.length) {
+      lines.push(`  - Stage / gate rejects:`);
+      for (const [reason, count] of rejects.sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))) {
+        lines.push(`    - ${footballRejectLabel(reason)}: **${(count ?? 0).toLocaleString()}**`);
+      }
+    }
+  }
+
+  const samples = manifest.footballPropRejectedSamples;
+  if (samples.length) {
+    lines.push("");
+    lines.push(`**Sample rejected NFL/NCAAF props** (up to ${samples.length})`);
+    for (const r of samples) {
+      const sim =
+        r.simHit == null ? "—" : `${Math.round(r.simHit * 1000) / 10}%`;
+      const implied =
+        r.impliedProbPct == null ? "—" : `${Math.round(r.impliedProbPct * 10) / 10}%`;
+      const edge =
+        r.edgePct == null ? "—" : `${r.edgePct > 0 ? "+" : ""}${Math.round(r.edgePct * 10) / 10}%`;
+      const ev =
+        r.evPct == null ? "—" : `${r.evPct > 0 ? "+" : ""}${Math.round(r.evPct * 10) / 10}%`;
+      const conf = r.confidencePct == null ? "—" : `${Math.round(r.confidencePct)}%`;
+      lines.push(
+        `- **${r.sport.toUpperCase()}** · ${r.player || r.pick} · ${r.market}` +
+          `${r.line != null ? ` ${r.line}` : ""} @ ${r.odds}` +
+          ` — simHit ${sim}, implied ${implied}, edge ${edge}, EV ${ev}, conf ${conf}, grade ${r.grade ?? "—"}` +
+          ` — stopped at **${r.stageStopped}** (_${r.reason}_)`,
+      );
+    }
+  }
+  return lines;
 }
 
 /** User-facing scan manifest block (markdown). */
@@ -403,12 +801,26 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
     lines.push("");
     lines.push(`**Sample rejections** (top ${manifest.rejectedSamples.length} by scan order)`);
     for (const r of manifest.rejectedSamples.slice(0, 25)) {
-      lines.push(`- ${r.game} · ${r.pick} — _${r.reason}_`);
+      const extras = [
+        r.sport ? `sport ${r.sport}` : null,
+        r.simHit != null ? `simHit ${Math.round(r.simHit * 1000) / 10}%` : null,
+        r.edgePct != null ? `edge ${r.edgePct > 0 ? "+" : ""}${Math.round(r.edgePct * 10) / 10}%` : null,
+        r.grade ? `grade ${r.grade}` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      lines.push(
+        `- ${r.game} · ${r.pick} — _${r.reason}_${extras ? ` (${extras})` : ""}`,
+      );
     }
     if (manifest.rejectedSamples.length > 25) {
       lines.push(`- _…and ${manifest.rejectedSamples.length - 25} more logged rejections_`);
     }
   }
+
+  safeCoachManifestInstrument("football-format-section", () => {
+    lines.push(...formatFootballPropFunnelSection(manifest));
+  });
 
   lines.push("");
   lines.push("**Delivery**");

@@ -45,9 +45,11 @@ import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
+  boardLegPoolRole,
   buildStagedTicketFromScan,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
+import { safeCoachManifestInstrument } from "./coachFootballPropFunnel.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
@@ -379,7 +381,7 @@ async function simPropPoolUntilQualified(
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
-    onPropBatch?: (size: number, timedOut: boolean) => void;
+    onPropBatch?: (size: number, timedOut: boolean, batch?: ParsedPick[]) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
   },
@@ -435,7 +437,7 @@ async function simPropPoolUntilQualified(
     for (const [k, v] of Object.entries(wave.playerHistory)) {
       scoreOpts.playerHistory[k] = v;
     }
-    opts.onPropBatch?.(batch.length, wave.timedOut);
+    opts.onPropBatch?.(batch.length, wave.timedOut, batch);
 
     for (const pick of batch) {
       const key = propSimKeyForPick(pick, poolRowForPropPick(pick, pool));
@@ -460,7 +462,7 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
-function buildScanResult(
+export function buildScanResult(
   scored: BoardScoredLeg[],
   opts: {
     target: number;
@@ -490,6 +492,19 @@ function buildScanResult(
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const scanComplete = !opts.preview && opts.boardExhausted === true;
+  // NFL/NCAAF funnel bookkeeping — fail-safe; never alters picks or staging.
+  safeCoachManifestInstrument("football-prop-delivery-funnel", () => {
+    const qualifiedFootballProps = scored
+      .map((leg) => leg.pick)
+      .filter((pick) => {
+        if (!pick.isProp) return false;
+        const sport = String(pick.sport ?? "").toLowerCase();
+        if (sport !== "nfl" && sport !== "ncaaf") return false;
+        const role = boardLegPoolRole(pick, pick.finalAiScore);
+        return role === "main" || role === "alt";
+      });
+    opts.manifestRecorder.recordFootballPropDeliveryFunnel(qualifiedFootballProps, picks);
+  });
   const manifest = opts.manifestRecorder.finalize({
     scanComplete,
     boardExhausted: opts.boardExhausted === true,
@@ -688,8 +703,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       onWave: () => {
         emitBoardScanPartial();
       },
-      onPropBatch: (size, timedOut) => {
-        manifestRecorder.recordPropSimBatch(size, timedOut);
+      onPropBatch: (size, timedOut, batch) => {
+        // Fail-safe: batch football counters must never abort the prop sim loop.
+        safeCoachManifestInstrument("onPropBatch-manifest", () => {
+          manifestRecorder.recordPropSimBatch(size, timedOut, batch);
+        });
       },
       manifestRecorder,
     },
