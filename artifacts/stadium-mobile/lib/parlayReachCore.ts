@@ -8,7 +8,11 @@ import {
   isQualifyingBackupGameLine,
 } from "./altLinePool.ts";
 import { COACH_FIXED_LEG_SHORTFALL_LEAD, buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
-import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
+import {
+  FULL_BOARD_MARKET_FAMILIES,
+  buildAlternateMarketSearchSummary,
+  type TicketStagingBreakdown,
+} from "./fullBoardMarketCopy.ts";
 
 export type ParlayLegReject = {
   pick: ParsedPick;
@@ -201,6 +205,9 @@ export function buildFullBoardShortfallNote(
     altQualified: number;
     mainOnTicket: number;
     altOnTicket: number;
+    primaryMarketQualified?: number;
+    alternateMarketQualified?: number;
+    alternateMarketOnTicket?: number;
   },
 ): string {
   const exclusion =
@@ -219,6 +226,10 @@ export function buildFullBoardShortfallNote(
         : "";
   const scanLead = `${exclusion}I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
   const shortfallLead = buildFixedLegCountShortfallLead(requested, actual);
+  const marketSummary =
+    actual < requested && staging
+      ? buildAlternateMarketSearchSummary(requested, staging as TicketStagingBreakdown, actual)
+      : "";
   if (actual >= requested) {
     return [
       scanLead,
@@ -230,13 +241,19 @@ export function buildFullBoardShortfallNote(
       shortfallLead,
       scanLead,
       `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters — I filled with every qualifying main, then promoted alternate rungs where mains ran out.${altFill} These **${actual}** are every sim-aligned leg on today's board.`,
-    ].join("\n\n");
+      marketSummary,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
   return [
     shortfallLead,
     scanLead,
     `${COACH_FIXED_LEG_SHORTFALL_LEAD} **${mainQ}** main and **${altQ}** alt lines met quality standards after the full-board scan.${altFill} These **${actual}** are every AI-backed pick on the board.`,
-  ].join("\n\n");
+    marketSummary,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function buildQualifyingAltShortfallNote(

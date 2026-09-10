@@ -28,6 +28,12 @@ import {
   propSimEdgeStagingQualifies,
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
+import {
+  ALTERNATE_MARKET_SEARCH_ORDER,
+  countAlternateMarketOnTicket,
+  countMarketTierQualification,
+  partitionScoredLegsByMarketTier,
+} from "./coachAlternateMarketTiers.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 
 function pickRank(p: ParsedPick): number {
@@ -255,6 +261,60 @@ function qualifyingScoredLegs(scored: BoardScoredLeg[]): BoardScoredLeg[] {
   return scored.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null);
 }
 
+export function buildStagingBreakdown(
+  qualifying: BoardScoredLeg[],
+  finalPicks: ParsedPick[],
+): TicketStagingBreakdown {
+  const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
+  const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
+  const tierCounts = countMarketTierQualification(qualifying);
+  return {
+    mainQualified: mains.length,
+    altQualified: alts.length,
+    mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
+    altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
+    primaryMarketQualified: tierCounts.primaryMarketQualified,
+    alternateMarketQualified: tierCounts.alternateMarketQualified,
+    alternateMarketOnTicket: countAlternateMarketOnTicket(finalPicks),
+  };
+}
+
+/** Walk the 12-tier alternate market order before relaxing quality or returning short. */
+export function backfillFromAlternateMarketTiers(
+  picks: ParsedPick[],
+  target: number,
+  qualifying: BoardScoredLeg[],
+  varietySeed?: string,
+): ParsedPick[] {
+  let current = capThinStatMarketsOnTicket(picks, target);
+  if (current.length >= target) return current.slice(0, target);
+
+  const pools = partitionScoredLegsByMarketTier(qualifying);
+  const used = new Set(current.map(pickLegFingerprint));
+
+  for (const tier of ALTERNATE_MARKET_SEARCH_ORDER) {
+    if (current.length >= target) break;
+    const ranked = [...pools[tier]].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+    for (const row of ranked) {
+      if (current.length >= target) break;
+      const fp = pickLegFingerprint(row.pick);
+      if (used.has(fp)) continue;
+      const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
+      if (!role) continue;
+      const trial = capThinStatMarketsOnTicket(
+        [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
+        target,
+      );
+      if (trial.length > current.length) {
+        current = trial;
+        used.add(fp);
+      }
+    }
+  }
+  return current;
+}
+
+
 function appendPicksFromPool(
   out: ParsedPick[],
   used: Set<string>,
@@ -315,6 +375,10 @@ function applyBalancedCapAndBackfill(
     }
   }
   if (allScored?.length && ticketStyle && current.length < target) {
+    const tierQualifying = qualifyingScoredLegs(allScored);
+    current = backfillFromAlternateMarketTiers(current, target, tierQualifying, varietySeed);
+  }
+  if (allScored?.length && ticketStyle && current.length < target) {
     current = tieredBackfillStagedTicket(current, target, allScored, ticketStyle, varietySeed);
   }
   return current;
@@ -346,17 +410,10 @@ export function buildBalancedStagedTicketFromScan(
     scored,
     ticketStyle,
   ).slice(0, target);
-  const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
-  const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
 
   return {
     picks: finalPicks,
-    breakdown: {
-      mainQualified: mains.length,
-      altQualified: alts.length,
-      mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
-      altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
-    },
+    breakdown: buildStagingBreakdown(qualifying, finalPicks),
   };
 }
 
@@ -433,16 +490,15 @@ export function buildStagedTicketFromScan(
     ...mains,
     ...alts,
   ]);
+  const qualifying = [...mains, ...alts];
+  if (finalPicks.length < target) {
+    finalPicks = backfillFromAlternateMarketTiers(finalPicks, target, qualifying, varietySeed);
+  }
   if (finalPicks.length < target) {
     finalPicks = tieredBackfillStagedTicket(finalPicks, target, scored, ticketStyle, varietySeed);
   }
   return {
     picks: finalPicks,
-    breakdown: {
-      mainQualified: mains.length,
-      altQualified: alts.length,
-      mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
-      altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
-    },
+    breakdown: buildStagingBreakdown(qualifying, finalPicks),
   };
 }
