@@ -5,6 +5,7 @@ import type { ParsedPick } from "@/components/PickCard";
 import type { BuiltChatContext, RealOddsEntry } from "./api.ts";
 import type { CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
+import type { CoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 
 const PREFIX = "slate-preanalysis:v4:invariants:";
@@ -31,6 +32,8 @@ export type SerializedBoardScan = {
   scanComplete?: boolean;
   /** Leg count this ticket was staged for — blocks cross-size reuse. */
   requestedLegs?: number;
+  /** Read-only scan audit funnel — restored for More ticket detail. */
+  manifest?: CoachBoardScanManifest;
 };
 
 export type SlateTicketsIndex = {
@@ -134,6 +137,7 @@ export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardSc
     note: scan.note,
     scanComplete: scan.scanComplete ?? true,
     requestedLegs: scan.requestedLegs ?? scan.picks.length,
+    ...(scan.manifest ? { manifest: scan.manifest } : {}),
   };
 }
 
@@ -148,6 +152,7 @@ export function deserializeBoardScan(raw: SerializedBoardScan): FullBoardScanRes
     note: raw.note,
     scanComplete: raw.scanComplete ?? false,
     requestedLegs: raw.requestedLegs,
+    ...(raw.manifest ? { manifest: raw.manifest } : {}),
   };
 }
 

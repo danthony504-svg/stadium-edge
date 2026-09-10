@@ -124,6 +124,7 @@ import {
   deliverCoachBoardScanTicket,
   coachBoardScanManifestForMessage,
   coachReplyHasScanManifest,
+  resolveCoachBoardScanManifestDetail,
 } from "@/lib/coachBoardScanDelivery";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
@@ -3058,41 +3059,35 @@ export default function CoachScreen() {
             // Kernel shortfall / complete tickets often return here before the
             // stream-end note merge — ensure the read-only scan manifest is on
             // the bubble so More ticket detail can show Coverage → Delivery.
-            const scanForManifest = preferFinalBoardScanForDelivery(
+            const manifestNote = resolveCoachBoardScanManifestDetail(
               kernelLegTarget,
+              flashEnrichRef.current,
               finalScan,
               latestBoardScanRef.current,
               preBoardScan,
             );
-            if (scanForManifest && boardScanIsComplete(scanForManifest)) {
-              const manifestNote = coachBoardScanManifestForMessage(
-                scanForManifest,
-                flashEnrichRef.current,
-                kernelLegTarget,
-              );
-              if (manifestNote.trim()) {
-                setMessages((prev) => {
-                  const copy = [...prev];
-                  for (let i = copy.length - 1; i >= 0; i--) {
-                    if (copy[i].role !== "assistant") continue;
-                    if (coachReplyHasScanManifest(undefined, copy[i].coachDetailNote)) {
-                      return prev;
-                    }
-                    const merged = mergeCoachDetailNotes(
-                      manifestNote,
-                      copy[i].coachDetailNote,
-                    );
-                    copy[i] = {
-                      ...copy[i],
-                      coachDetailNote: merged,
-                      boardScanComplete: true,
-                      ...(kernelLegTarget > 0 ? { ticketLegTarget: kernelLegTarget } : {}),
-                    };
-                    return copy;
+            if (manifestNote.trim()) {
+              setMessages((prev) => {
+                const copy = [...prev];
+                for (let i = copy.length - 1; i >= 0; i--) {
+                  if (copy[i].role !== "assistant") continue;
+                  if (coachReplyHasScanManifest(undefined, copy[i].coachDetailNote)) {
+                    return prev;
                   }
-                  return prev;
-                });
-              }
+                  const merged = mergeCoachDetailNotes(
+                    manifestNote,
+                    copy[i].coachDetailNote,
+                  );
+                  copy[i] = {
+                    ...copy[i],
+                    coachDetailNote: merged,
+                    boardScanComplete: true,
+                    ...(kernelLegTarget > 0 ? { ticketLegTarget: kernelLegTarget } : {}),
+                  };
+                  return copy;
+                }
+                return prev;
+              });
             }
             if (buildProgressTimerRef.current) {
               clearTimeout(buildProgressTimerRef.current);
@@ -4945,24 +4940,28 @@ export default function CoachScreen() {
           );
         }
         if (!boardScanManifestDetail.trim()) {
-          const scanForManifest = preferFinalBoardScanForDelivery(
+          // Stream-end shortfall with picks often lands here without fullBoardScanned
+          // matching (aiFilterNote path). Still attach any recorded scan.manifest so
+          // More ticket detail shows Coverage → Delivery instead of prose only.
+          boardScanManifestDetail = resolveCoachBoardScanManifestDetail(
             ticketTarget,
+            ticketEnrich,
             fullBoardScanMeta,
             latestBoardScanRef.current,
             preBoardScan,
           );
-          if (scanForManifest && boardScanIsComplete(scanForManifest)) {
-            boardScanManifestDetail = coachBoardScanManifestForMessage(
-              scanForManifest,
-              ticketEnrich,
-              ticketTarget,
-            );
-          }
         }
         const coachDetailNote = dedupeLegNoteParagraphs(
-          [boardScanManifestDetail, exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote, aiFilterNote]
-            .filter(Boolean)
-            .join("\n\n"),
+          mergeCoachDetailNotes(
+            boardScanManifestDetail,
+            exclusionNote,
+            diversityNote,
+            gameSimNote,
+            mlLeanNote,
+            propsOnlyNote,
+            tonightNote,
+            aiFilterNote,
+          ),
         );
         if (picks.length === 0) {
           if (mlLeanNote) {

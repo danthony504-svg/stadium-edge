@@ -116,16 +116,47 @@ export function coachBoardScanManifestForMessage(
   legTarget: number,
 ): string {
   if (!scan) return "";
-  if (boardScanIsComplete(scan) && scan.scanComplete) {
-    return deliverCoachBoardScanTicket(scan, enrich, legTarget).coachDetailNote;
-  }
+  // Prefer the recorded scan.manifest whenever present so stream-end shortfall
+  // tickets still surface Coverage → Delivery even when leg-target matching
+  // rejects deliverCoachBoardScanTicket staging.
   if (scan.manifest) {
     return formatCoachBoardScanManifest({
       ...scan.manifest,
-      scanComplete: !!scan.scanComplete,
-      boardExhausted: !!scan.scanComplete,
-      requestedLegs: legTarget,
+      scanComplete: !!scan.scanComplete || !!scan.manifest.scanComplete,
+      boardExhausted:
+        !!(scan.scanComplete || scan.manifest.boardExhausted || scan.manifest.scanComplete),
+      requestedLegs: legTarget > 0 ? legTarget : scan.manifest.requestedLegs,
+      deliveredLegs:
+        scan.manifest.deliveredLegs ||
+        (boardScanIsComplete(scan) ? scan.picks?.length ?? 0 : scan.manifest.deliveredLegs),
     });
+  }
+  if (boardScanIsComplete(scan) && scan.scanComplete) {
+    return deliverCoachBoardScanTicket(scan, enrich, legTarget).coachDetailNote;
+  }
+  return "";
+}
+
+/**
+ * Resolve read-only scan-manifest markdown from any available board-scan
+ * candidate — complete matching scans first, then any scan that still carries
+ * a recorder manifest (including shortfall / target-mismatch leftovers).
+ */
+export function resolveCoachBoardScanManifestDetail(
+  legTarget: number,
+  enrich: CoachFlashEnrich,
+  ...candidates: Array<FullBoardScanResult | null | undefined>
+): string {
+  for (const scan of candidates) {
+    if (!scan || !boardScanIsComplete(scan)) continue;
+    if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) continue;
+    const text = coachBoardScanManifestForMessage(scan, enrich, legTarget);
+    if (text.trim()) return text;
+  }
+  for (const scan of candidates) {
+    if (!scan?.manifest) continue;
+    const text = coachBoardScanManifestForMessage(scan, enrich, legTarget);
+    if (text.trim()) return text;
   }
   return "";
 }

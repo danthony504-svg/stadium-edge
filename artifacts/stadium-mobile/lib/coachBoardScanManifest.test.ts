@@ -4,7 +4,7 @@ import {
   createCoachBoardScanManifestRecorder,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
-import { coachBoardScanManifestForMessage, coachReplyHasScanManifest } from "./coachBoardScanDelivery.ts";
+import { coachBoardScanManifestForMessage, coachReplyHasScanManifest, resolveCoachBoardScanManifestDetail } from "./coachBoardScanDelivery.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 
 test("formatCoachBoardScanManifest lists coverage and gate failures", () => {
@@ -155,4 +155,97 @@ test("coachReplyHasScanManifest detects manifest heading in detail notes", () =>
   assert.equal(coachReplyHasScanManifest("### Scan manifest\n\nfoo", ""), true);
   assert.equal(coachReplyHasScanManifest("", "### Scan manifest\n\nbar"), true);
   assert.equal(coachReplyHasScanManifest("", "no manifest here"), false);
+});
+
+test("resolveCoachBoardScanManifestDetail uses recorded manifest when leg-target match fails", () => {
+  const manifest = createCoachBoardScanManifestRecorder(15).finalize({
+    scanComplete: true,
+    boardExhausted: true,
+    deliveredLegs: 1,
+  });
+  const mismatched: FullBoardScanResult = {
+    picks: [
+      {
+        game: "Sabah FK @ Manchester United",
+        market: "Alt Total",
+        pick: "Under 5.5",
+        odds: -290,
+      } as FullBoardScanResult["picks"][number],
+    ],
+    evalLinesByGame: new Map(),
+    gameSimulations: new Map(),
+    totalScanned: 900,
+    totalQualified: 1,
+    staging: { mainQualified: 0, altQualified: 1, mainOnTicket: 0, altOnTicket: 1 },
+    note: "board note",
+    scanComplete: true,
+    // Staged for 15 — must not match an 8-leg ask via preferFinal, but still
+    // carry the recorder so More ticket detail can show Coverage → Delivery.
+    requestedLegs: 15,
+    manifest: {
+      ...manifest,
+      marketsFound: 900,
+      totalEvaluated: 400,
+      totalQualified: 1,
+      gateFailureCounts: { negative_edge: 120, grade_below_minimum: 40 },
+      rejectedSamples: [
+        {
+          game: "A @ B",
+          market: "Points",
+          pick: "Star Over 24.5",
+          category: "props",
+          family: "playerProps",
+          gate: "negative_edge",
+          reason: "Edge ≤ 0",
+        },
+      ],
+      marketsFoundByFamily: {
+        ...manifest.marketsFoundByFamily,
+        playerProps: 200,
+        moneyline: 40,
+        spread: 40,
+        total: 30,
+        teamTotal: 10,
+        altTotal: 20,
+      },
+    },
+  };
+  const text = resolveCoachBoardScanManifestDetail(
+    8,
+    { realOdds: [], propPool: [], gameMeta: [] },
+    null,
+    mismatched,
+  );
+  assert.match(text, /### Scan manifest/i);
+  assert.match(text, /\*\*Coverage\*\*/i);
+  assert.match(text, /\*\*Market families discovered\*\*/i);
+  assert.match(text, /\*\*Qualification\*\*/i);
+  assert.match(text, /\*\*Gate failures\*\*/i);
+  assert.match(text, /\*\*Sample rejections\*\*/i);
+  assert.match(text, /\*\*Delivery\*\*/i);
+  assert.match(text, /Markets found: \*\*900\*\*/);
+});
+
+test("coachBoardScanManifestForMessage prefers scan.manifest over empty delivery staging", () => {
+  const manifest = createCoachBoardScanManifestRecorder(8).finalize({
+    scanComplete: true,
+    boardExhausted: true,
+    deliveredLegs: 1,
+  });
+  const scan: FullBoardScanResult = {
+    picks: [],
+    evalLinesByGame: new Map(),
+    gameSimulations: new Map(),
+    totalScanned: 100,
+    totalQualified: 0,
+    staging: { mainQualified: 0, altQualified: 0, mainOnTicket: 0, altOnTicket: 0 },
+    note: "",
+    scanComplete: true,
+    requestedLegs: 8,
+    manifest: { ...manifest, marketsFound: 100, deliveredLegs: 1 },
+  };
+  const text = coachBoardScanManifestForMessage(scan, { realOdds: [], propPool: [], gameMeta: [] }, 8);
+  assert.match(text, /### Scan manifest/i);
+  assert.match(text, /Markets found: \*\*100\*\*/);
+  assert.match(text, /Delivered \*\*1\*\*/);
 });
