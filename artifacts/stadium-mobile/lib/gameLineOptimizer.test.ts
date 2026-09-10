@@ -259,3 +259,59 @@ test("buildGameLineOptimizerNote uses attachPickScores simHit on final ticket pi
   assert.match(note, /sim 56%/);
   assert.match(note, /edge \+1\.5%/);
 });
+
+test("buildGameLineOptimizerNote resolves WNBA nickname alt spread sim and edge", () => {
+  const GAME = "Dallas Wings @ Toronto Raptors";
+  const picks = [
+    {
+      game: GAME,
+      market: "Alt Spread",
+      pick: "Wings -7",
+      odds: 100,
+      isProp: false,
+      sport: "wnba",
+    },
+  ];
+  const simByGame = new Map([
+    [
+      GAME,
+      {
+        sport: "wnba",
+        simulations: 10_000,
+        homeWinProbability: 0.62,
+        awayWinProbability: 0.38,
+        tieProbability: 0,
+        homeProjectedScore: 82,
+        awayProjectedScore: 74,
+        mostLikelyWinner: "home" as const,
+        mostLikelyWinnerPct: 0.62,
+        confidenceScore: 62,
+        coverHitRates: {
+          [`${GAME.toLowerCase()}|alt spread|dallas wings -7`]: 0.54,
+        },
+      },
+    ],
+  ]);
+  const note = buildGameLineOptimizerNote(picks, simByGame, {
+    evalLinesByGame: new Map([
+      [
+        GAME,
+        [
+          {
+            sport: "wnba",
+            game: GAME,
+            market: "Alt Spread",
+            pick: "Dallas Wings -7",
+            odds: 100,
+            edge: 2.2,
+          },
+        ],
+      ],
+    ]),
+    realOdds: [],
+  });
+  assert.match(note, /sim 54%/);
+  assert.match(note, /edge \+2\.2%/);
+  assert.doesNotMatch(note, /sim —/);
+  assert.doesNotMatch(note, /edge —/);
+});
