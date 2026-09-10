@@ -10,6 +10,10 @@ import { readOtaRecoverySnapshot, subscribeOtaRecoveryState } from "@/lib/otaRec
 
 /**
  * Temporary on-screen OTA deployment label (all tabs). Tap to expand launch logs.
+ *
+ * Not mounted anywhere: it floats over real content on every tab, and the same
+ * snapshot is on the /ota-debug screen. Render it from OtaRuntime to bring it
+ * back while diagnosing a launch.
  */
 export function OtaDiagnosticsBanner() {
   const insets = useSafeAreaInsets();

@@ -143,7 +143,7 @@ function RootLayoutNav() {
 /**
  * Silent check/fetch on launch + foreground. Auto-reloads when safe;
  * OtaUpdateBanner always provides a production Restart path if pending.
- * Detailed OTA Diagnostics remain available via the on-screen banner / ota-debug.
+ * Detailed OTA Diagnostics remain available on the /ota-debug screen.
  * DeferredOtaRuntime keeps all of that off the startup path until first paint.
  */
 function AppShell() {

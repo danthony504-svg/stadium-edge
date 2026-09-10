@@ -1,4 +1,3 @@
-import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { useOtaUpdater } from "@/lib/otaUpdater";
 
@@ -11,10 +10,5 @@ import { useOtaUpdater } from "@/lib/otaUpdater";
  */
 export default function OtaRuntime() {
   useOtaUpdater(true);
-  return (
-    <>
-      <OtaUpdateBanner />
-      <OtaDiagnosticsBanner />
-    </>
-  );
+  return <OtaUpdateBanner />;
 }
