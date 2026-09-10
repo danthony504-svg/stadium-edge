@@ -2395,6 +2395,9 @@ export default function CoachScreen() {
         // replay mode this is seeded from the stashed result. Real bookmaker rows
         // only — never fabricated.
         const serverPropPool: PropPoolEntry[] = [];
+        // Hoisted above the replay/else split — later board-scan delivery paths
+        // (outside this if/else) also pass ticketStyle into tryReachFullBoardScan.
+        const coachTicketStyle = detectCoachTicketStyle(trimmed);
 
         if (replay) {
           // Background-finished build: reuse the saved context + stashed reply.
@@ -2638,7 +2641,6 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
-          const coachTicketStyle = detectCoachTicketStyle(trimmed);
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
