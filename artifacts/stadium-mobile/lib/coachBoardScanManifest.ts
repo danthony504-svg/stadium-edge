@@ -24,6 +24,7 @@ import {
   type FootballPropStageRejectReason,
   FOOTBALL_PROP_FUNNEL_STAGES,
   FOOTBALL_PROP_MARKET_KEYS,
+  isFootballPropDiscoverySample,
   isFootballPropPick,
   isFootballPropSport,
   safeCoachManifestInstrument,
@@ -250,7 +251,13 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
     Partial<Record<FootballPropStageRejectReason, number>>
   > = { nfl: {}, ncaaf: {} };
   let preScoreFootballGraded: Record<FootballPropSport, number> = { nfl: 0, ncaaf: 0 };
-  /** True after recomputeQualificationFromScored seeded pre-score football rejects into manifest. */
+  /** Discovery/eligible-stage rejects from recordPropPoolRow — must survive recompute. */
+  let discoveryFootballRejects: FootballPropRejectedSample[] = [];
+  let discoveryFootballRejectCounts: Record<
+    FootballPropSport,
+    Partial<Record<FootballPropStageRejectReason, number>>
+  > = { nfl: {}, ncaaf: {} };
+  /** True after recomputeQualificationFromScored seeded football rejects into manifest. */
   let footballEvalSeededFromPreScore = false;
 
   const bumpGate = (gate: BoardLegGateCode, target: Partial<Record<BoardLegGateCode, number>>) => {
@@ -363,14 +370,26 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
           funnel.eligible += 1;
         } else {
           bumpFootballReject(sport, "unsupported_market", manifest.footballPropRejectCountsBySport);
+          bumpFootballReject(sport, "unsupported_market", discoveryFootballRejectCounts);
+          // Record into the durable discovery bucket first; mirror into the live
+          // manifest sample list so eligible-stage drops survive recompute.
+          const before = discoveryFootballRejects.length;
           pushFootballSample(
             pick,
             "unsupported_market",
             "Prop skipped — no sim model / missing line",
             "eligible",
             null,
-            manifest.footballPropRejectedSamples,
+            discoveryFootballRejects,
           );
+          if (
+            discoveryFootballRejects.length > before &&
+            manifest.footballPropRejectedSamples.length < MAX_FOOTBALL_REJECT_SAMPLES
+          ) {
+            manifest.footballPropRejectedSamples.push(
+              discoveryFootballRejects[discoveryFootballRejects.length - 1]!,
+            );
+          }
         }
         bumpCounterMap(
           manifest.footballPropFoundByMarketBySport[sport],
@@ -474,11 +493,23 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         for (const sport of ["nfl", "ncaaf"] as FootballPropSport[]) {
           manifest.footballPropFunnelBySport[sport].graded = preScoreFootballGraded[sport];
         }
+        // Preserve discovery/eligible-stage rejects from recordPropPoolRow, then
+        // layer pre-score rejects. Do not wipe unsupported_market (etc.) with
+        // pre-score-only data.
         manifest.footballPropRejectCountsBySport = {
-          nfl: { ...preScoreFootballRejectCounts.nfl },
-          ncaaf: { ...preScoreFootballRejectCounts.ncaaf },
+          nfl: {
+            ...discoveryFootballRejectCounts.nfl,
+            ...preScoreFootballRejectCounts.nfl,
+          },
+          ncaaf: {
+            ...discoveryFootballRejectCounts.ncaaf,
+            ...preScoreFootballRejectCounts.ncaaf,
+          },
         };
-        manifest.footballPropRejectedSamples = [...preScoreFootballRejects];
+        manifest.footballPropRejectedSamples = [
+          ...discoveryFootballRejects,
+          ...preScoreFootballRejects,
+        ].slice(0, MAX_FOOTBALL_REJECT_SAMPLES);
         seenFootballSampleFp.clear();
         for (const s of manifest.footballPropRejectedSamples) {
           seenFootballSampleFp.add(
@@ -520,8 +551,9 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
           for (const pick of qualified) {
             const key = `${pick.sport}|${pick.game}|${pick.player}|${pick.market}|${pick.odds}`;
             if (selectedFp.has(key)) continue;
+            // One terminal rejection per unselected qualified prop — counts must
+            // reconcile with qualified − final_selected (no correlation+not_selected double bump).
             bumpFootballReject(sport, "correlation", manifest.footballPropRejectCountsBySport);
-            bumpFootballReject(sport, "not_selected", manifest.footballPropRejectCountsBySport);
             pushFootballSample(
               pick,
               "correlation",
@@ -556,10 +588,18 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         ncaaf: { ...manifest.footballPropRejectCountsBySport.ncaaf },
       };
       safeCoachManifestInstrument("football-finalize-snapshot", () => {
+        // After recompute, manifest already holds discovery + pre-score + eval rejects.
+        // Before recompute, merge durable discovery + pre-score buckets with live samples.
         footballPropRejectedSamples = (
           footballEvalSeededFromPreScore
             ? manifest.footballPropRejectedSamples
-            : [...preScoreFootballRejects, ...manifest.footballPropRejectedSamples]
+            : [
+                ...discoveryFootballRejects,
+                ...preScoreFootballRejects,
+                ...manifest.footballPropRejectedSamples.filter(
+                  (s) => !isFootballPropDiscoverySample(s),
+                ),
+              ]
         ).slice(0, MAX_FOOTBALL_REJECT_SAMPLES);
         footballPropRejectCountsBySport = footballEvalSeededFromPreScore
           ? {
@@ -568,10 +608,12 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
             }
           : {
               nfl: {
+                ...discoveryFootballRejectCounts.nfl,
                 ...preScoreFootballRejectCounts.nfl,
                 ...manifest.footballPropRejectCountsBySport.nfl,
               },
               ncaaf: {
+                ...discoveryFootballRejectCounts.ncaaf,
                 ...preScoreFootballRejectCounts.ncaaf,
                 ...manifest.footballPropRejectCountsBySport.ncaaf,
               },
