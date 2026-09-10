@@ -256,6 +256,8 @@ export const coachSnapshotSchema = z.object({
   activeSports: z.array(coachSportIdOrCustomSchema),
   deepSimComplete: z.boolean(),
   serveable: z.boolean(),
+  propsQualified: z.number().int().nonnegative(),
+  gameLinesQualified: z.number().int().nonnegative(),
 });
 
 export const coachV2SlateResponseSchema = z.object({
