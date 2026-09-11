@@ -155,6 +155,7 @@ import {
   shouldBlankHeldBoardScanPickDisplay,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
+import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
@@ -1327,6 +1328,7 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setCoachBuildBusy(false);
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1345,6 +1347,7 @@ export default function CoachScreen() {
       setBuildFinishing(false);
       setBuildProgressExpired(false);
       setParlayBuildPhase("idle");
+      setCoachBuildBusy(false);
       if (buildProgressTimerRef.current) {
         clearTimeout(buildProgressTimerRef.current);
         buildProgressTimerRef.current = null;
@@ -1582,6 +1585,7 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setCoachBuildBusy(false);
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -6113,15 +6117,29 @@ export default function CoachScreen() {
     clearBuildStallWatchdog();
   }, [hasUserTurn, streaming, buildFinishing, waiting, clearBuildStallWatchdog]);
 
-  // Finished empty-scan tickets can leave build flags set while the manifest is
-  // already on screen — unlock the composer so the user can type a new ask.
+  // Finished board-scan tickets can leave streaming/waiting sticky while the
+  // send() join is still alive — unlock the composer once a completed ticket
+  // (or empty complete + manifest) is on screen. Does not alter picks.
   useEffect(() => {
-    if (!hasUserTurn || (!streaming && !buildFinishing && !waiting)) return;
     const last = messages[messages.length - 1];
-    if (last?.role !== "assistant") return;
-    if (!coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
     const scan = latestBoardScanRef.current;
-    if (!scan || !boardScanIsComplete(scan)) return;
+    if (
+      !shouldUnlockCoachComposer({
+        hasUserTurn,
+        streaming,
+        buildFinishing,
+        waiting,
+        assistantHasPicks: last?.role === "assistant" && (last.picks?.length ?? 0) > 0,
+        boardScanComplete: last?.role === "assistant" ? last.boardScanComplete : undefined,
+        stashScanComplete: scan?.scanComplete,
+        hasScanManifest:
+          last?.role === "assistant" &&
+          coachReplyHasScanManifest(undefined, last.coachDetailNote),
+        liveScanDelivered: liveScanDeliveredRef.current,
+      })
+    ) {
+      return;
+    }
     setStreaming(false);
     setBuildFinishing(false);
     setWaiting(false);
