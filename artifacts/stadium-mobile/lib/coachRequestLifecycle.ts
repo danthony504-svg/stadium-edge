@@ -199,8 +199,47 @@ export function boardScanAppliesToRequest(
   // partials still need at least one pick before we stash/stream them.
   if (pickCount <= 0 && scan.scanComplete !== true) return false;
   if (sendGeneration !== activeSendGeneration) return false;
-  if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) return false;
+  // Zero-pick recovery requires positive same-request proof. Missing requestId
+  // on either side is not acceptable — a prior ask's late empty complete must
+  // never attach just because both asks wanted the same leg count.
+  if (pickCount <= 0) {
+    if (!activeRequestId || !scan.requestId) return false;
+    if (scan.requestId !== activeRequestId) return false;
+  } else if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) {
+    return false;
+  }
   return boardScanMatchesLegTarget(scan, legTarget);
+}
+
+/**
+ * finally / abort / stash recovery: re-validate identity before consuming
+ * latestBoardScanRef. Same rules as boardScanAppliesToRequest.
+ */
+export function boardScanRecoverableForRequest(
+  scan:
+    | {
+        requestedLegs?: number;
+        picks?: { length: number };
+        requestId?: string;
+        scanComplete?: boolean;
+      }
+    | null
+    | undefined,
+  legTarget: number,
+  sendGeneration: number,
+  activeSendGeneration: number,
+  activeRequestId?: string | null,
+): boolean {
+  if (!scan) return false;
+  const hasLegs = (scan.picks?.length ?? 0) > 0;
+  if (!hasLegs && scan.scanComplete !== true) return false;
+  return boardScanAppliesToRequest(
+    scan,
+    legTarget,
+    sendGeneration,
+    activeSendGeneration,
+    activeRequestId,
+  );
 }
 
 /**

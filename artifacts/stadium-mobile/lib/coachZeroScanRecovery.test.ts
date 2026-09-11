@@ -19,7 +19,10 @@ import {
   deliverCoachBoardScanTicket,
 } from "./coachBoardScanDelivery.ts";
 import { createCoachBoardScanManifestRecorder } from "./coachBoardScanManifest.ts";
-import { boardScanAppliesToRequest } from "./coachRequestLifecycle.ts";
+import {
+  boardScanAppliesToRequest,
+  boardScanRecoverableForRequest,
+} from "./coachRequestLifecycle.ts";
 import {
   boardScanIsComplete,
   boardScanMatchesLegTarget,
@@ -304,9 +307,12 @@ test("coach.tsx recovery paths no longer require picks.length > 0 for completed 
     /freshBoardScanComplete = !!\(\s*preBoardScan &&\s*boardScanIsComplete\(preBoardScan\) &&\s*boardScanReadyForDelivery\(preBoardScan, reachTargetPreScan\)\s*\)/,
   );
 
-  // finally recovery must allow completed zero
-  assert.match(src, /hasCompletedZero/);
-  assert.match(src, /hasStashedLegs \|\| hasCompletedZero/);
+  // finally / abort must re-validate request identity before consuming stash
+  assert.match(src, /boardScanRecoverableForRequest/);
+  assert.match(
+    src,
+    /Establish request identity BEFORE any await/,
+  );
 
   // tryStashedDelivery must keep recovering through the "still scoring" placeholder
   assert.match(src, /stillScoringPlaceholder/);
@@ -315,4 +321,144 @@ test("coach.tsx recovery paths no longer require picks.length > 0 for completed 
   // Honest completed-zero lead must be wired
   assert.match(src, /COACH_EMPTY_BOARD_SCAN_LEAD/);
   assert.ok(COACH_EMPTY_BOARD_SCAN_LEAD.toLowerCase().includes("no legs cleared"));
+});
+
+test("Request A (8) then Request B (8): late completed zero-pick from A is rejected", () => {
+  const lateFromA = mockScan([], {
+    requestedLegs: 8,
+    requestId: "req-A",
+    scanComplete: true,
+  });
+  assert.equal(
+    boardScanAppliesToRequest(lateFromA, 8, 2, 2, "req-B"),
+    false,
+  );
+  assert.equal(
+    boardScanRecoverableForRequest(lateFromA, 8, 2, 2, "req-B"),
+    false,
+  );
+  assert.equal(
+    recoverStashedScan({
+      scan: lateFromA,
+      legTarget: 8,
+      sendGeneration: 2,
+      activeSendGeneration: 2,
+      requestId: "req-B",
+    }).stashed,
+    false,
+  );
+});
+
+test("Request A (6) then Request B (8): late result from A is rejected", () => {
+  const lateFromA = mockScan([], {
+    requestedLegs: 6,
+    requestId: "req-A",
+    scanComplete: true,
+  });
+  assert.equal(boardScanMatchesLegTarget(lateFromA, 8), false);
+  assert.equal(
+    boardScanRecoverableForRequest(lateFromA, 8, 2, 2, "req-B"),
+    false,
+  );
+  const shortfallFromA = mockScan(Array.from({ length: 2 }, (_, i) => validPropLeg(i)), {
+    requestedLegs: 6,
+    requestId: "req-A",
+  });
+  assert.equal(
+    boardScanRecoverableForRequest(shortfallFromA, 8, 2, 2, "req-B"),
+    false,
+  );
+});
+
+test("zero-pick scan with missing requestId rejected from cross-request recovery", () => {
+  const missingId = mockScan([], {
+    requestedLegs: 8,
+    scanComplete: true,
+  });
+  delete (missingId as { requestId?: string }).requestId;
+  assert.equal(
+    boardScanAppliesToRequest(missingId, 8, 1, 1, "req-B"),
+    false,
+    "missing scan.requestId must not recover",
+  );
+  assert.equal(
+    boardScanAppliesToRequest(missingId, 8, 1, 1, null),
+    false,
+    "missing activeRequestId must not recover zero-pick",
+  );
+  assert.equal(
+    boardScanRecoverableForRequest(missingId, 8, 1, 1, "req-B"),
+    false,
+  );
+});
+
+test("current-request zero-pick scan still recovers correctly", () => {
+  const scan = mockScan([], {
+    requestedLegs: 8,
+    requestId: "req-B",
+    scanComplete: true,
+  });
+  const recovered = recoverStashedScan({
+    scan,
+    legTarget: 8,
+    sendGeneration: 3,
+    activeSendGeneration: 3,
+    requestId: "req-B",
+  });
+  assert.equal(recovered.stashed, true);
+  assert.equal(recovered.honestZeroUi, true);
+  assert.equal(recovered.messageCount, 0);
+  assert.ok(coachReplyHasScanManifest(undefined, recovered.delivered!.coachDetailNote));
+});
+
+test("current-request non-empty shortfall still preserves its picks", () => {
+  const picks = Array.from({ length: 6 }, (_, i) => validPropLeg(i));
+  const scan = mockScan(picks, { requestedLegs: 8, requestId: "req-B" });
+  const recovered = recoverStashedScan({
+    scan,
+    legTarget: 8,
+    sendGeneration: 3,
+    activeSendGeneration: 3,
+    requestId: "req-B",
+  });
+  assert.equal(recovered.stashed, true);
+  assert.equal(recovered.messageCount, 6);
+  assert.equal(recovered.renderedCount, 6);
+});
+
+test("Try Again starts a fresh request and rejects previous generation results", () => {
+  const prevGenZero = mockScan([], {
+    requestedLegs: 8,
+    requestId: "req-A",
+    scanComplete: true,
+  });
+  // Fresh send bumps generation 1 → 2 and issues a new requestId.
+  assert.equal(
+    boardScanRecoverableForRequest(prevGenZero, 8, 1, 2, "req-B"),
+    false,
+    "previous sendGeneration must not recover into Try Again",
+  );
+  assert.equal(
+    boardScanRecoverableForRequest(prevGenZero, 8, 2, 2, "req-B"),
+    false,
+    "previous requestId must not recover into Try Again",
+  );
+  const freshCurrent = mockScan([], {
+    requestedLegs: 8,
+    requestId: "req-B",
+    scanComplete: true,
+  });
+  assert.equal(
+    boardScanRecoverableForRequest(freshCurrent, 8, 2, 2, "req-B"),
+    true,
+  );
+
+  const coachPath = join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/coach.tsx");
+  const src = readFileSync(coachPath, "utf8");
+  const marker = '<Feather name="refresh-cw"';
+  const featherIdx = src.indexOf(marker);
+  assert.ok(featherIdx > 0);
+  const slice = src.slice(Math.max(0, featherIdx - 1600), featherIdx + 400);
+  assert.match(slice, /freshThread:\s*true/);
+  assert.match(slice, /abortRef\.current\?\.abort/);
 });

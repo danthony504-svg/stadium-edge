@@ -3,6 +3,8 @@ import test from "node:test";
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
+  boardScanAppliesToRequest,
+  boardScanRecoverableForRequest,
   buildCoachTicketCacheKey,
   deliveredBoardTicketTerminalState,
   finalizeCoachTicketForRequest,
@@ -11,7 +13,6 @@ import {
   startCoachTicketRequest,
   ticketMatchesLargerPrefix,
   varietyContextWithLastDelivered,
-  boardScanAppliesToRequest,
 } from "./coachRequestLifecycle.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import {
@@ -124,7 +125,38 @@ test("boardScanAppliesToRequest accepts completed zero-pick same-request scan", 
     scanComplete: true,
   };
   assert.equal(boardScanAppliesToRequest(scan, 8, 3, 3, "req-8"), true);
+  assert.equal(boardScanRecoverableForRequest(scan, 8, 3, 3, "req-8"), true);
   assert.equal(boardScanMatchesLegTarget(scan, 8), true);
+});
+
+test("boardScanAppliesToRequest rejects zero-pick without positive request identity", () => {
+  const scan = {
+    picks: { length: 0 },
+    requestedLegs: 8,
+    scanComplete: true,
+  };
+  assert.equal(boardScanAppliesToRequest(scan, 8, 3, 3, "req-8"), false);
+  assert.equal(boardScanAppliesToRequest(scan, 8, 3, 3, null), false);
+  assert.equal(
+    boardScanAppliesToRequest(
+      { ...scan, requestId: "req-A" },
+      8,
+      3,
+      3,
+      "req-B",
+    ),
+    false,
+  );
+  assert.equal(
+    boardScanRecoverableForRequest(
+      { ...scan, requestId: "req-A" },
+      8,
+      3,
+      3,
+      "req-B",
+    ),
+    false,
+  );
 });
 
 test("boardScanAppliesToRequest rejects incomplete zero-pick partial", () => {

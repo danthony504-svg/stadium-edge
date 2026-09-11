@@ -154,6 +154,7 @@ import {
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
+  boardScanRecoverableForRequest,
   deliveredBoardTicketTerminalState,
   finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
@@ -1994,6 +1995,20 @@ export default function CoachScreen() {
         legs: earlyLegTarget || undefined,
         sport: slateSport,
       };
+      // Establish request identity BEFORE any await so a prior generation's late
+      // onPartial cannot land while coachRequestContextRef is null.
+      const varietySeed = makeBuildId();
+      varietySeedRef.current = varietySeed;
+      if (openingParlayBuild && earlyLegTarget >= 3) {
+        activeRequestLegTargetRef.current = earlyLegTarget;
+        coachRequestContextRef.current = startCoachTicketRequest({
+          requestId: varietySeed,
+          sendGeneration: sendGen,
+          requestedLegs: earlyLegTarget,
+          sport: slateSport,
+          varietySeed,
+        });
+      }
       let openingPicks: ParsedPick[] | undefined;
       let openingLegNote: string | undefined;
       if (openingParlayBuild) {
@@ -2080,21 +2095,6 @@ export default function CoachScreen() {
         setStreaming(false);
         setBuildFinishing(false);
         return;
-      }
-
-      // Fresh entropy each send so identical prompts (e.g. "15-leg longshot") don't
-      // replay the same ranked props and game-line walk order every tap.
-      const varietySeed = makeBuildId();
-      varietySeedRef.current = varietySeed;
-      if (openingParlayBuild && earlyLegTarget >= 3) {
-        activeRequestLegTargetRef.current = earlyLegTarget;
-        coachRequestContextRef.current = startCoachTicketRequest({
-          requestId: varietySeed,
-          sendGeneration: sendGen,
-          requestedLegs: earlyLegTarget,
-          sport: slateSport,
-          varietySeed,
-        });
       }
 
       const controller = new AbortController();
@@ -2236,11 +2236,21 @@ export default function CoachScreen() {
           if (sendGenerationRef.current !== sendGen) return;
           if (openingParlayBuild) {
             const partial = latestBoardScanRef.current;
+            const ctx = coachRequestContextRef.current;
+            const legTarget =
+              activeRequestLegTargetRef.current ||
+              requestedLegCount(trimmed) ||
+              effectiveBuildLegCount(trimmed);
             if (
-              partial &&
-              ((partial.picks?.length ?? 0) > 0 || boardScanIsComplete(partial))
+              boardScanRecoverableForRequest(
+                partial,
+                legTarget,
+                ctx?.sendGeneration ?? sendGen,
+                sendGenerationRef.current,
+                ctx?.requestId,
+              )
             ) {
-              deliverBoardScanTicket(partial);
+              deliverBoardScanTicket(partial!);
             } else {
               tryInstantSlateSeedDelivery(
                 requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
@@ -5412,11 +5422,21 @@ export default function CoachScreen() {
         } else if (e?.name === "AbortError" || isAbortLikeError(e)) {
           if (isParlayBuildAsk(trimmed)) {
             const partial = latestBoardScanRef.current;
+            const ctx = coachRequestContextRef.current;
+            const legTarget =
+              activeRequestLegTargetRef.current ||
+              requestedLegCount(trimmed) ||
+              effectiveBuildLegCount(trimmed);
             if (
-              partial &&
-              ((partial.picks?.length ?? 0) > 0 || boardScanIsComplete(partial))
+              boardScanRecoverableForRequest(
+                partial,
+                legTarget,
+                ctx?.sendGeneration ?? sendGen,
+                sendGenerationRef.current,
+                ctx?.requestId,
+              )
             ) {
-              deliverBoardScanTicket(partial);
+              deliverBoardScanTicket(partial!);
             } else {
               tryInstantSlateSeedDelivery(
                 requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
@@ -5442,20 +5462,26 @@ export default function CoachScreen() {
         if (sendGenerationRef.current !== sendGen) return;
         if (isParlayBuildAsk(trimmed)) {
           const partial = latestBoardScanRef.current;
-          const hasStashedLegs = (partial?.picks?.length ?? 0) > 0;
-          const hasCompletedZero =
-            !!partial && boardScanIsComplete(partial) && !hasStashedLegs;
+          const ctx = coachRequestContextRef.current;
+          const legTarget =
+            activeRequestLegTargetRef.current ||
+            requestedLegCount(trimmed) ||
+            effectiveBuildLegCount(trimmed);
           if (
-            partial &&
             !boardTicketSnapshotRef.current?.length &&
-            (hasStashedLegs || hasCompletedZero)
+            boardScanRecoverableForRequest(
+              partial,
+              legTarget,
+              ctx?.sendGeneration ?? sendGen,
+              sendGenerationRef.current,
+              ctx?.requestId,
+            )
           ) {
             if (boardScanIsComplete(partial)) {
-              deliverBoardScanTicket(partial);
+              deliverBoardScanTicket(partial!);
             } else {
-              patchInstantBoardScanTicket(partial, undefined, {
-                ticketLegTarget:
-                  requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
+              patchInstantBoardScanTicket(partial!, undefined, {
+                ticketLegTarget: legTarget,
               });
             }
           } else if (!boardTicketSnapshotRef.current?.length) {
@@ -5935,8 +5961,7 @@ export default function CoachScreen() {
       const ctx = coachRequestContextRef.current;
       if (partial && boardScanIsComplete(partial)) {
         if (
-          legTarget > 0 &&
-          !boardScanAppliesToRequest(
+          !boardScanRecoverableForRequest(
             partial,
             legTarget,
             ctx?.sendGeneration ?? sendGenerationRef.current,
@@ -5963,8 +5988,7 @@ export default function CoachScreen() {
       }
       if (partial?.picks?.length) {
         if (
-          legTarget > 0 &&
-          !boardScanAppliesToRequest(
+          !boardScanRecoverableForRequest(
             partial,
             legTarget,
             ctx?.sendGeneration ?? sendGenerationRef.current,
