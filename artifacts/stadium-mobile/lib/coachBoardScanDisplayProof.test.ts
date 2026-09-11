@@ -43,28 +43,45 @@ function applyWave(state: {
   ) {
     return state;
   }
-  return {
+  const next = {
     displayedPickCount: wave.pickCount,
-    displayedScanComplete: wave.scanComplete,
+    displayedScanComplete:
+      wave.scanComplete ||
+      (legTarget >= 3 && wave.pickCount >= legTarget),
   };
+  return next;
 }
 
-test("timeline: 2 → 4 → final 6 becomes stable finished ticket only", () => {
+test("timeline: 2 → 4 → full 6 freezes; late waves cannot reshape", () => {
   let state = { displayedPickCount: 0, displayedScanComplete: false };
   state = applyWave(state, { pickCount: 2, scanComplete: false }, 6);
   assert.deepEqual(state, { displayedPickCount: 0, displayedScanComplete: false });
   state = applyWave(state, { pickCount: 4, scanComplete: false }, 6);
   assert.deepEqual(state, { displayedPickCount: 0, displayedScanComplete: false });
-  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  // Scored 6 of 6 paints without scanComplete — no permanent 93%.
+  state = applyWave(state, { pickCount: 6, scanComplete: false }, 6);
   assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
   assert.equal(
     shouldFreezeDisplayedCoachTicket({
-      displayedScanComplete: true,
-      displayedPickCount: 6,
+      displayedScanComplete: state.displayedScanComplete,
+      displayedPickCount: state.displayedPickCount,
       legTarget: 6,
     }),
     true,
   );
+  assert.equal(
+    boardScanDisplayProgressPct({
+      displayedLegCount: 6,
+      scoredLegCount: 6,
+      legTarget: 6,
+    }),
+    100,
+  );
+  // Late reshape rejected.
+  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
+  state = applyWave(state, { pickCount: 5, scanComplete: false }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
 });
 
 test("timeline: final 6 → late partial 5 stays at 6", () => {
@@ -83,12 +100,10 @@ test("timeline: new request empty bubble rejects old incomplete; accepts new com
   const fresh = { displayedPickCount: 0, displayedScanComplete: false };
   assert.equal(
     shouldAcceptSameRequestBoardScanTicketUpdate({
-      ...{
-        displayedScanComplete: fresh.displayedScanComplete,
-        displayedPickCount: fresh.displayedPickCount,
-      },
+      displayedScanComplete: fresh.displayedScanComplete,
+      displayedPickCount: fresh.displayedPickCount,
       incomingScanComplete: false,
-      incomingPickCount: 6,
+      incomingPickCount: 4,
       legTarget: 6,
     }),
     false,
@@ -113,24 +128,15 @@ test("timeline: shortfall 5-of-6 only after scanComplete", () => {
   );
 });
 
-test("timeline: scored 6 of 6 → scanComplete → 100% → final ticket (no permanent 93%)", () => {
+test("timeline: scored 6 of 6 → 100% → final ticket (no permanent 93%)", () => {
   let state = { displayedPickCount: 0, displayedScanComplete: false };
-  // Scored full while still scanning — hold at 93%, not permanent.
   assert.equal(
-    shouldHoldIncompleteBoardScanPickDisplay({
-      scanComplete: false,
+    canCompleteFixedLegBoardScanHandoff({
       legTarget: 6,
-      readyPickCount: 6,
+      scoredLegCount: 6,
+      scanComplete: false,
     }),
     true,
-  );
-  assert.equal(
-    boardScanDisplayProgressPct({
-      displayedLegCount: 0,
-      scoredLegCount: 6,
-      legTarget: 6,
-    }),
-    93,
   );
   assert.equal(
     isPermanentBoardScan93PctState({
@@ -139,26 +145,9 @@ test("timeline: scored 6 of 6 → scanComplete → 100% → final ticket (no per
       displayedLegCount: 0,
       scanComplete: false,
     }),
-    false,
-  );
-  assert.equal(
-    canCompleteFixedLegBoardScanHandoff({
-      legTarget: 6,
-      scoredLegCount: 6,
-      scanComplete: false,
-    }),
-    false,
-  );
-  // Handoff on scanComplete.
-  assert.equal(
-    canCompleteFixedLegBoardScanHandoff({
-      legTarget: 6,
-      scoredLegCount: 6,
-      scanComplete: true,
-    }),
     true,
   );
-  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  state = applyWave(state, { pickCount: 6, scanComplete: false }, 6);
   assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
   assert.equal(
     boardScanDisplayProgressPct({
@@ -173,9 +162,24 @@ test("timeline: scored 6 of 6 → scanComplete → 100% → final ticket (no per
       legTarget: 6,
       scoredLegCount: 6,
       displayedLegCount: state.displayedPickCount,
-      scanComplete: true,
+      scanComplete: false,
     }),
     false,
+  );
+});
+
+test("timeline: scored N of N → scanComplete still stable at 100%", () => {
+  let state = { displayedPickCount: 0, displayedScanComplete: false };
+  state = applyWave(state, { pickCount: 6, scanComplete: false }, 6);
+  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
+  assert.equal(
+    boardScanDisplayProgressPct({
+      displayedLegCount: 6,
+      scoredLegCount: 6,
+      legTarget: 6,
+    }),
+    100,
   );
 });
 
@@ -185,7 +189,6 @@ test("timeline: post-freeze sim rescore cannot mutate visible finished ticket", 
     shouldBlockPostFreezeTicketDisplayMutation({ frozen: true, legTarget: 6 }),
     true,
   );
-  // Deep-sim "upgrade" shaped like a new final 6 with different ordering — rejected.
   state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
   assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
   state = applyWave(state, { pickCount: 5, scanComplete: true }, 6);
@@ -204,13 +207,12 @@ test("timeline: Try Again clears freeze and accepts a fresh completed ticket", (
     }),
     false,
   );
-  // New Ask / Try Again resets freeze + empty bubble.
   const fresh = { displayedPickCount: 0, displayedScanComplete: false };
   assert.equal(
     shouldBlockPostFreezeTicketDisplayMutation({ frozen: false, legTarget: 6 }),
     false,
   );
-  const next = applyWave(fresh, { pickCount: 8, scanComplete: true }, 8);
+  const next = applyWave(fresh, { pickCount: 8, scanComplete: false }, 8);
   assert.deepEqual(next, { displayedPickCount: 8, displayedScanComplete: true });
 });
 
@@ -224,4 +226,5 @@ test("coach.tsx wires freeze accept gate and post-freeze sim block", () => {
   assert.match(src, /shouldBlockPostFreezeTicketDisplayMutation/);
   assert.match(src, /footerDisplayedLegCount/);
   assert.match(src, /footerScoredLegCount/);
+  assert.match(src, /freezeNow/);
 });
