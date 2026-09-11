@@ -4,6 +4,7 @@ import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   boardScanAppliesToRequest,
+  boardScanMatchesRequestId,
   boardScanRecoverableForRequest,
   buildCoachTicketCacheKey,
   deliveredBoardTicketTerminalState,
@@ -157,6 +158,36 @@ test("boardScanAppliesToRequest rejects zero-pick without positive request ident
     ),
     false,
   );
+});
+
+test("boardScanAppliesToRequest rejects non-empty completed scan with missing requestId", () => {
+  const scan = {
+    picks: { length: 6 },
+    requestedLegs: 8,
+    scanComplete: true,
+  };
+  assert.equal(boardScanMatchesRequestId(scan, "req-B"), false);
+  assert.equal(boardScanAppliesToRequest(scan, 8, 1, 1, "req-B"), false);
+  assert.equal(boardScanRecoverableForRequest(scan, 8, 1, 1, "req-B"), false);
+  assert.equal(boardScanAppliesToRequest(scan, 8, 1, 1, null), false);
+});
+
+test("boardScanAppliesToRequest rejects late Request A result after Request B starts", () => {
+  const lateFromA = {
+    picks: { length: 6 },
+    requestedLegs: 8,
+    requestId: "req-A",
+    scanComplete: true,
+  };
+  assert.equal(boardScanAppliesToRequest(lateFromA, 8, 2, 2, "req-B"), false);
+  assert.equal(boardScanRecoverableForRequest(lateFromA, 8, 2, 2, "req-B"), false);
+  const lateZeroFromA = {
+    picks: { length: 0 },
+    requestedLegs: 8,
+    requestId: "req-A",
+    scanComplete: true,
+  };
+  assert.equal(boardScanRecoverableForRequest(lateZeroFromA, 8, 2, 2, "req-B"), false);
 });
 
 test("boardScanAppliesToRequest rejects incomplete zero-pick partial", () => {

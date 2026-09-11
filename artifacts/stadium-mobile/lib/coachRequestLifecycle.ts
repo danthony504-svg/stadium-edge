@@ -177,6 +177,19 @@ export function finalizeCoachTicketForRequest(
   return { ok: true, picks };
 }
 
+/**
+ * Positive same-request identity. Missing requestId on either side never
+ * silently passes — a prior ask's late result must not attach just because
+ * both asks wanted the same leg count.
+ */
+export function boardScanMatchesRequestId(
+  scan: { requestId?: string } | null | undefined,
+  activeRequestId?: string | null,
+): boolean {
+  if (!activeRequestId || !scan?.requestId) return false;
+  return scan.requestId === activeRequestId;
+}
+
 /** Guards partial/final scan delivery against stale generation or wrong leg count. */
 export function boardScanAppliesToRequest(
   scan:
@@ -199,21 +212,16 @@ export function boardScanAppliesToRequest(
   // partials still need at least one pick before we stash/stream them.
   if (pickCount <= 0 && scan.scanComplete !== true) return false;
   if (sendGeneration !== activeSendGeneration) return false;
-  // Zero-pick recovery requires positive same-request proof. Missing requestId
-  // on either side is not acceptable — a prior ask's late empty complete must
-  // never attach just because both asks wanted the same leg count.
-  if (pickCount <= 0) {
-    if (!activeRequestId || !scan.requestId) return false;
-    if (scan.requestId !== activeRequestId) return false;
-  } else if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) {
-    return false;
-  }
+  // Every scan that reaches stash/delivery must positively match the active
+  // request. No active context (clear→start gap) and missing scan.requestId
+  // both reject — including non-empty completed leftovers from a prior ask.
+  if (!boardScanMatchesRequestId(scan, activeRequestId)) return false;
   return boardScanMatchesLegTarget(scan, legTarget);
 }
 
 /**
- * finally / abort / stash recovery: re-validate identity before consuming
- * latestBoardScanRef. Same rules as boardScanAppliesToRequest.
+ * finally / abort / stash recovery / message attach: re-validate identity
+ * before consuming latestBoardScanRef. Same rules as boardScanAppliesToRequest.
  */
 export function boardScanRecoverableForRequest(
   scan:
