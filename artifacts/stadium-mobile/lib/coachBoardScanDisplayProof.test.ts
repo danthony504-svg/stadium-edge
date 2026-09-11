@@ -5,78 +5,115 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  boardScanDisplayReadyCount,
   canShowFixedLegBoardScanPicks,
+  shouldAcceptSameRequestBoardScanTicketUpdate,
+  shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
 
-test("proof: short gated progress + full stash must prefer fail-soft release", () => {
-  // Mirrors patchInstant: ready=max(4,6)=6 → hold false; ticket must upgrade
-  // from short progress to full soft before canShow.
-  const gated = 4;
-  const stash = 6;
-  const ready = boardScanDisplayReadyCount(gated, stash);
-  assert.equal(ready, 6);
+/**
+ * Timeline proof: same-request reshape must not replace a finished ticket.
+ */
+function applyWave(state: {
+  displayedPickCount: number;
+  displayedScanComplete: boolean;
+}, wave: { pickCount: number; scanComplete: boolean }, legTarget: number) {
+  if (
+    !shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: state.displayedScanComplete,
+      displayedPickCount: state.displayedPickCount,
+      incomingScanComplete: wave.scanComplete,
+      incomingPickCount: wave.pickCount,
+      legTarget,
+    })
+  ) {
+    return state;
+  }
+  if (
+    !canShowFixedLegBoardScanPicks({
+      legTarget,
+      pickCount: wave.pickCount,
+      scanComplete: wave.scanComplete,
+    }) &&
+    wave.pickCount > 0
+  ) {
+    return state;
+  }
+  return {
+    displayedPickCount: wave.pickCount,
+    displayedScanComplete: wave.scanComplete,
+  };
+}
+
+test("timeline: 2 → 4 → final 6 becomes stable finished ticket only", () => {
+  let state = { displayedPickCount: 0, displayedScanComplete: false };
+  state = applyWave(state, { pickCount: 2, scanComplete: false }, 6);
+  assert.deepEqual(state, { displayedPickCount: 0, displayedScanComplete: false });
+  state = applyWave(state, { pickCount: 4, scanComplete: false }, 6);
+  assert.deepEqual(state, { displayedPickCount: 0, displayedScanComplete: false });
+  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
   assert.equal(
-    shouldHoldIncompleteBoardScanPickDisplay({
-      scanComplete: false,
+    shouldFreezeDisplayedCoachTicket({
+      displayedScanComplete: true,
+      displayedPickCount: 6,
       legTarget: 6,
-      readyPickCount: ready,
+    }),
+    true,
+  );
+});
+
+test("timeline: final 6 → late partial 5 stays at 6", () => {
+  let state = { displayedPickCount: 6, displayedScanComplete: true };
+  state = applyWave(state, { pickCount: 5, scanComplete: false }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
+});
+
+test("timeline: final 6 → duplicate final 6 no flicker/replace", () => {
+  let state = { displayedPickCount: 6, displayedScanComplete: true };
+  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
+});
+
+test("timeline: new request empty bubble rejects old incomplete; accepts new complete", () => {
+  const fresh = { displayedPickCount: 0, displayedScanComplete: false };
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      ...{
+        displayedScanComplete: fresh.displayedScanComplete,
+        displayedPickCount: fresh.displayedPickCount,
+      },
+      incomingScanComplete: false,
+      incomingPickCount: 6,
+      legTarget: 6,
     }),
     false,
   );
-  let ticketLen = gated;
-  if (stash >= 6 && ticketLen < 6) ticketLen = stash; // fail-soft upgrade
+  const next = applyWave(fresh, { pickCount: 6, scanComplete: true }, 6);
+  assert.deepEqual(next, { displayedPickCount: 6, displayedScanComplete: true });
+});
+
+test("timeline: shortfall 5-of-6 only after scanComplete", () => {
+  let state = { displayedPickCount: 0, displayedScanComplete: false };
+  state = applyWave(state, { pickCount: 5, scanComplete: false }, 6);
+  assert.equal(state.displayedPickCount, 0);
+  state = applyWave(state, { pickCount: 5, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 5, displayedScanComplete: true });
   assert.equal(
-    canShowFixedLegBoardScanPicks({
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: true,
       legTarget: 6,
-      pickCount: ticketLen,
-      scanComplete: false,
-      stashPickCount: stash,
+      readyPickCount: 5,
     }),
-    true,
+    false,
   );
 });
 
-test("proof: 2→5 of 6 mid-scan cannot show cards; 6 of 6 can", () => {
-  for (const n of [2, 3, 4, 5]) {
-    assert.equal(
-      canShowFixedLegBoardScanPicks({
-        legTarget: 6,
-        pickCount: n,
-        scanComplete: false,
-      }),
-      false,
-    );
-    assert.equal(
-      shouldHoldIncompleteBoardScanPickDisplay({
-        scanComplete: false,
-        legTarget: 6,
-        readyPickCount: n,
-      }),
-      true,
-    );
-  }
-  assert.equal(
-    canShowFixedLegBoardScanPicks({
-      legTarget: 6,
-      pickCount: 6,
-      scanComplete: false,
-    }),
-    true,
-  );
-});
-
-test("coach.tsx no longer stamps scan-continues under-count legNote mid-scan", () => {
+test("coach.tsx wires freeze accept gate", () => {
   const src = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/coach.tsx"),
     "utf8",
   );
-  assert.doesNotMatch(
-    src,
-    /showing \*\*\$\{ticket\.length\}\*\* while the full-board scan continues/,
-  );
-  assert.match(src, /canShowFixedLegBoardScanPicks/);
-  assert.match(src, /Absolute UI lock: never render mid-scan under-count cards/);
-  assert.match(src, /ticket\.length < legTarget/);
+  assert.match(src, /shouldAcceptSameRequestBoardScanTicketUpdate/);
+  assert.match(src, /shouldFreezeDisplayedCoachTicket/);
 });

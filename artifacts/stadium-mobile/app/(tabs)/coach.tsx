@@ -154,7 +154,9 @@ import {
 import {
   boardScanDisplayReadyCount,
   canShowFixedLegBoardScanPicks,
+  shouldAcceptSameRequestBoardScanTicketUpdate,
   shouldBlankHeldBoardScanPickDisplay,
+  shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
@@ -1283,6 +1285,8 @@ export default function CoachScreen() {
 
   const boardTicketSnapshotRef = useRef<ParsedPick[] | null>(null);
   const latestBoardScanRef = useRef<FullBoardScanResult | null>(null);
+  /** Same-request finished ticket freeze — set after scanComplete delivery. */
+  const boardScanTicketFrozenRef = useRef(false);
   /** After stall/progress expiry, allow incomplete stash to render (no empty 81% forever). */
   const forceShowIncompleteBoardScanRef = useRef(false);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
@@ -1488,13 +1492,13 @@ export default function CoachScreen() {
             setParlayBuildPhase("board-scan");
           }
           const displayedCount = boardTicketSnapshotRef.current?.length ?? 0;
-          // Already showed a full ticket — never blank it when a later wave
-          // restages under-count (user saw 6 legs disappear).
+          // Already showed a finished ticket — never blank it on later waves.
           if (
             !shouldBlankHeldBoardScanPickDisplay({
               holdIncomplete: true,
               displayedPickCount: displayedCount,
               legTarget,
+              displayedScanComplete: boardScanTicketFrozenRef.current,
             })
           ) {
             if (opts?.pinScroll !== false) scrollToEnd(false);
@@ -1552,6 +1556,7 @@ export default function CoachScreen() {
         }
         clearBuildStallWatchdog();
         setCoachBuildBusy(false);
+        boardScanTicketFrozenRef.current = true;
         setMessages((prev) => {
           const copy = [...prev];
           for (let i = copy.length - 1; i >= 0; i--) {
@@ -1576,8 +1581,24 @@ export default function CoachScreen() {
       }
 
       const isFinal = boardScanIsComplete(partial);
-      const fullCountPreview =
-        !isFinal && legTarget >= 3 && ticket.length >= legTarget;
+      if (
+        !shouldAcceptSameRequestBoardScanTicketUpdate({
+          displayedScanComplete: boardScanTicketFrozenRef.current,
+          displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+          incomingScanComplete: isFinal,
+          incomingPickCount: ticket.length,
+          legTarget,
+        })
+      ) {
+        latestBoardScanRef.current = partial;
+        if (partial.picks?.length) {
+          setBoardScanPartialLegs(
+            boardScanDisplayReadyCount(ticket.length, partial.picks.length),
+          );
+        }
+        if (opts?.pinScroll !== false) scrollToEnd(false);
+        return true;
+      }
       if (
         !canShowFixedLegBoardScanPicks({
           legTarget,
@@ -1585,7 +1606,6 @@ export default function CoachScreen() {
           scanComplete: isFinal,
           allowIncompletePicks: opts?.allowIncompletePicks,
           forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
-          stashPickCount: partial.picks?.length ?? 0,
         })
       ) {
         latestBoardScanRef.current = partial;
@@ -1608,12 +1628,10 @@ export default function CoachScreen() {
           recordDelivered: isFinal,
         });
         if (!finalized.ok) {
-          // Final delivery must stay gated. Mid-scan full-count flash should still
-          // land cards so we never wedge at 93% with an empty bubble.
-          if (isFinal || !fullCountPreview) return false;
-        } else {
-          ticket = finalized.picks;
+          if (isFinal) return false;
+          return false;
         }
+        ticket = finalized.picks;
       } else if (isFinal && legTarget > 0) {
         rememberParlayBuild(ticket);
         if (ctx) recordCoachTicketDelivered(ticket, ctx);
@@ -1622,11 +1640,21 @@ export default function CoachScreen() {
 
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
-      if (isFinal) liveScanDeliveredRef.current = true;
+      if (isFinal) {
+        liveScanDeliveredRef.current = true;
+        if (
+          shouldFreezeDisplayedCoachTicket({
+            displayedScanComplete: true,
+            displayedPickCount: ticket.length,
+            legTarget,
+          })
+        ) {
+          boardScanTicketFrozenRef.current = true;
+        }
+      }
       setBoardScanPartialLegs(ticket.length);
-      // Clear busy once cards are on screen for a full ticket (final or preview)
-      // so AnalysisProgress unmounts instead of freezing at 93%.
-      if (isFinal || fullCountPreview) {
+      // Clear busy only for authoritative completed tickets (not mid-scan previews).
+      if (isFinal) {
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -1659,7 +1687,7 @@ export default function CoachScreen() {
       });
       setAiPicks(ticket);
       captureFromCoach(ticket);
-      if (!isFinal && !fullCountPreview && buildFinishingRef.current) {
+      if (!isFinal && buildFinishingRef.current) {
         setParlayBuildPhase("stream");
       }
       if (opts?.pinScroll !== false) scrollToEnd(false);
@@ -2098,6 +2126,7 @@ export default function CoachScreen() {
       varietySeedRef.current = varietySeed;
 
       boardTicketSnapshotRef.current = null;
+      boardScanTicketFrozenRef.current = false;
       latestBoardScanRef.current = null;
       forceShowIncompleteBoardScanRef.current = false;
       earlyReachBoardScanRef.current = null;
@@ -5448,9 +5477,19 @@ export default function CoachScreen() {
           );
         };
         const gateResolvedPicks = (resolved: ParsedPick[]): ParsedPick[] => {
-          if (!resolved.length || legTarget < 3) return resolved;
-          // Stream-end must not paint under-count "scan continues" cards while the
-          // board scan is still open — that was the 2→3→4→5 drip on device.
+          if (legTarget < 3) return resolved;
+          const displayedCount = boardTicketSnapshotRef.current?.length ?? 0;
+          const frozen = boardScanTicketFrozenRef.current;
+          // Finished same-request ticket: never reshape at stream-end.
+          if (
+            shouldFreezeDisplayedCoachTicket({
+              displayedScanComplete: frozen,
+              displayedPickCount: displayedCount,
+              legTarget,
+            })
+          ) {
+            return boardTicketSnapshotRef.current ?? resolved;
+          }
           const liveScan = preferFinalBoardScanForDelivery(
             legTarget,
             fullBoardScanMeta,
@@ -5461,35 +5500,27 @@ export default function CoachScreen() {
             boardScanIsComplete(liveScan) ||
             boardScanIsComplete(fullBoardScanMeta ?? undefined) ||
             boardScanIsComplete(latestBoardScanRef.current);
-          const stashCount =
-            liveScan?.picks?.length ??
-            latestBoardScanRef.current?.picks?.length ??
-            0;
-          let candidate = resolved;
           if (
-            !scanDone &&
-            stashCount >= legTarget &&
-            candidate.length < legTarget &&
-            latestBoardScanRef.current
-          ) {
-            const soft = boardScanToCoachTicket(
-              latestBoardScanRef.current,
-              ticketEnrich,
+            !shouldAcceptSameRequestBoardScanTicketUpdate({
+              displayedScanComplete: frozen,
+              displayedPickCount: displayedCount,
+              incomingScanComplete: scanDone,
+              incomingPickCount: resolved.length,
               legTarget,
-            );
-            if (soft.length) candidate = soft.slice(0, Math.max(soft.length, legTarget));
+            })
+          ) {
+            return displayedCount > 0 ? (boardTicketSnapshotRef.current ?? []) : [];
           }
           if (
             !canShowFixedLegBoardScanPicks({
               legTarget,
-              pickCount: candidate.length,
+              pickCount: resolved.length,
               scanComplete: scanDone,
-              stashPickCount: stashCount,
             })
           ) {
             return [];
           }
-          const finalized = finalizeCoachTicketForRequest(candidate, {
+          const finalized = finalizeCoachTicketForRequest(resolved, {
             requestedLegs: legTarget,
             requestId: coachRequestContextRef.current?.requestId,
             previousRequestId: coachRequestContextRef.current?.previousRequestId,
@@ -5497,12 +5528,7 @@ export default function CoachScreen() {
             source: "resolveOutPicks",
             recordDelivered: scanDone,
           });
-          if (finalized.ok) return finalized.picks;
-          // Full-stash mid-scan: still return soft so we don't freeze at 93%.
-          if (!scanDone && stashCount >= legTarget && candidate.length > 0) {
-            return candidate.slice(0, legTarget);
-          }
-          return [];
+          return finalized.ok ? finalized.picks : [];
         };
         let outPicks: ParsedPick[] = [];
         let outCoachDetailNote = "";
@@ -5517,6 +5543,17 @@ export default function CoachScreen() {
             boardScanManifestDetail,
             outCoachDetailNote,
           );
+          const outComplete =
+            fullBoardScanned || didReachFullPreScan
+              ? boardScanIsComplete(
+                  preferFinalBoardScanForDelivery(
+                    legTarget,
+                    fullBoardScanMeta,
+                    preBoardScan,
+                    latestBoardScanRef.current,
+                  ) ?? fullBoardScanMeta,
+                )
+              : prevAssistant.boardScanComplete;
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
@@ -5526,22 +5563,31 @@ export default function CoachScreen() {
             ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
             ...(outCoachDetailNote.trim() ? { coachDetailNote: outCoachDetailNote.trim() } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
-            boardScanComplete:
-              fullBoardScanned || didReachFullPreScan
-                ? boardScanIsComplete(
-                    preferFinalBoardScanForDelivery(
-                      legTarget,
-                      fullBoardScanMeta,
-                      preBoardScan,
-                      latestBoardScanRef.current,
-                    ) ?? fullBoardScanMeta,
-                  )
-                : prevAssistant.boardScanComplete,
+            boardScanComplete: outComplete,
           };
           return copy;
         });
         if (outPicks.length > 0) {
           boardTicketSnapshotRef.current = outPicks;
+          const outDone =
+            boardScanIsComplete(
+              preferFinalBoardScanForDelivery(
+                legTarget,
+                fullBoardScanMeta,
+                preBoardScan,
+                latestBoardScanRef.current,
+              ) ?? fullBoardScanMeta,
+            ) === true;
+          if (
+            outDone &&
+            shouldFreezeDisplayedCoachTicket({
+              displayedScanComplete: true,
+              displayedPickCount: outPicks.length,
+              legTarget,
+            })
+          ) {
+            boardScanTicketFrozenRef.current = true;
+          }
           setStreaming(false);
           setWaiting(false);
           setBuildFinishing(false);
@@ -5553,58 +5599,16 @@ export default function CoachScreen() {
           isParlayBuild &&
           legTarget >= 3 &&
           latestBoardScanRef.current &&
-          !boardScanIsComplete(latestBoardScanRef.current)
+          !boardScanIsComplete(latestBoardScanRef.current) &&
+          !boardScanTicketFrozenRef.current
         ) {
-          const stash = latestBoardScanRef.current;
-          const stashCount = stash.picks?.length ?? 0;
-          if (stashCount >= legTarget) {
-            // Scored full count but stream-end gated to [] — force fail-soft flash
-            // so we never sit on "Scored N of N" at 93% with no cards.
-            const delivered = patchInstantBoardScanTicket(stash, undefined, {
-              ticketLegTarget: legTarget,
-            });
-            if (!delivered) {
-              const soft = boardScanToCoachTicket(stash, flashEnrichRef.current, legTarget);
-              if (soft.length >= legTarget) {
-                boardTicketSnapshotRef.current = soft.slice(0, legTarget);
-                setMessages((prev) => {
-                  const copy = [...prev];
-                  const last = copy[copy.length - 1];
-                  if (last?.role === "assistant") {
-                    copy[copy.length - 1] = {
-                      ...last,
-                      picks: soft.slice(0, legTarget),
-                      content: "",
-                      ticketLegTarget: legTarget,
-                      boardScanComplete: false,
-                    };
-                  }
-                  return copy;
-                });
-                setAiPicks(soft.slice(0, legTarget));
-                setStreaming(false);
-                setWaiting(false);
-                setBuildFinishing(false);
-                setBuildProgressExpired(false);
-                setParlayBuildPhase("idle");
-                setCoachBuildBusy(false);
-                captureFromCoach(soft.slice(0, legTarget));
-              } else {
-                setBoardScanPartialLegs(stashCount);
-                setParlayBuildPhase("board-scan");
-                setBuildFinishing(true);
-                setWaiting(true);
-              }
-            }
-          } else {
-            // Under-count mid-scan — keep progress, not drip cards.
-            setBoardScanPartialLegs(stashCount);
-            setParlayBuildPhase("board-scan");
-            setBuildFinishing(true);
-            setWaiting(true);
-            setAiPicks([]);
-            boardTicketSnapshotRef.current = null;
-          }
+          // Mid-scan stream-end: keep progress only — do not paint reshapeable cards.
+          setBoardScanPartialLegs(latestBoardScanRef.current.picks?.length ?? 0);
+          setParlayBuildPhase("board-scan");
+          setBuildFinishing(true);
+          setWaiting(true);
+          setAiPicks([]);
+          boardTicketSnapshotRef.current = null;
         } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
           setStreaming(false);
           setWaiting(false);
@@ -6594,10 +6598,6 @@ export default function CoachScreen() {
                       legTarget: renderLegTarget,
                       pickCount: candidate.length,
                       scanComplete: m.boardScanComplete,
-                      stashPickCount:
-                        i === messages.length - 1
-                          ? (latestBoardScanRef.current?.picks?.length ?? 0)
-                          : 0,
                     })
                   ) {
                     return [];
