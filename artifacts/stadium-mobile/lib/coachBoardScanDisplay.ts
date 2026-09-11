@@ -3,14 +3,16 @@
  * Does not change staging, qualification, simulation, or delivery gates —
  * only whether incomplete restaged pick cards are shown in the chat bubble.
  *
- * Hold cards until scanComplete (or stall / preview). Releasing on "full count"
- * early let all-MLB waves lock in before NFL/NCAAF finished scoring.
+ * Hold under-count waves (no 2→4 churn). Release once the stash hits the
+ * requested count, scanComplete, stall, or preview — never sit on 93% with
+ * "Scored N of N" and no cards. Sticky blank protection keeps a shown ticket.
  */
 
-/** Fixed-leg live scans: hold pick cards until the board scan completes. */
+/** Fixed-leg live scans: hold pick cards until full count / complete / stall. */
 export function shouldHoldIncompleteBoardScanPickDisplay(opts: {
   scanComplete?: boolean | null;
   legTarget: number;
+  /** Qualified / restaged pick count currently in the scan stash. */
   readyPickCount?: number;
   allowIncompletePicks?: boolean;
   forceShowIncomplete?: boolean;
@@ -18,12 +20,14 @@ export function shouldHoldIncompleteBoardScanPickDisplay(opts: {
   if (opts.allowIncompletePicks || opts.forceShowIncomplete) return false;
   if (opts.scanComplete === true) return false;
   if (opts.legTarget < 3) return false;
+  // Full requested count: show the ticket (scan may still exhaust the board).
+  if ((opts.readyPickCount ?? 0) >= opts.legTarget) return false;
   return true;
 }
 
 /**
- * Under-count / incomplete restages must not erase an already-visible ticket.
- * Keep the on-screen cards; only stash/progress updates until scanComplete.
+ * Under-count restages must not erase an already-visible ticket.
+ * Keep the on-screen cards until scanComplete replaces them.
  */
 export function shouldBlankHeldBoardScanPickDisplay(opts: {
   holdIncomplete: boolean;
