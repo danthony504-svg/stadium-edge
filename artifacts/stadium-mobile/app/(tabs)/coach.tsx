@@ -160,7 +160,7 @@ import {
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
-import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
+import { shouldAllowCoachComposerSend, shouldUnlockCoachComposer, isFinishedCoachTicketOnScreen } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
@@ -2133,7 +2133,15 @@ export default function CoachScreen() {
       const trimmed = text.trim();
       const images = replay ? [] : attachedImages;
       const parlayPreempt = isParlayBuildAsk(trimmed);
-      const mayInterrupt = !!opts?.freshThread || parlayPreempt;
+      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+      const finishedTicketOnScreen = isFinishedCoachTicketOnScreen({
+        displayedPickCount: lastAssistant?.picks?.length ?? 0,
+        ticketLegTarget: lastAssistant?.ticketLegTarget,
+        boardScanComplete: lastAssistant?.boardScanComplete,
+        ticketFrozen: boardScanTicketFrozenRef.current,
+        hasScanManifest: coachReplyHasScanManifest(undefined, lastAssistant?.coachDetailNote),
+      });
+      const mayInterrupt = !!opts?.freshThread || parlayPreempt || finishedTicketOnScreen;
       if (
         (!trimmed && !images.length) ||
         ((streamingRef.current || buildFinishingRef.current) && !mayInterrupt)
@@ -6311,8 +6319,20 @@ export default function CoachScreen() {
     isOrphanCoachThread(messages, { streaming, buildFinishing });
 
   const hasUserTurn = messages.some((m) => m.role === "user");
+  const lastAssistantMsg = [...messages].reverse().find((m) => m.role === "assistant");
+  const finishedTicketOnScreen = isFinishedCoachTicketOnScreen({
+    displayedPickCount: lastAssistantMsg?.picks?.length ?? 0,
+    ticketLegTarget:
+      lastAssistantMsg?.ticketLegTarget || activeRequestLegTargetRef.current || 0,
+    boardScanComplete: lastAssistantMsg?.boardScanComplete,
+    ticketFrozen: boardScanTicketFrozenRef.current,
+    hasScanManifest: coachReplyHasScanManifest(undefined, lastAssistantMsg?.coachDetailNote),
+  });
   /** Busy spinners only when a build is actually in flight — not on the welcome screen. */
-  const coachBuildInFlight = hasUserTurn && (streaming || buildFinishing || waiting);
+  const coachBuildInFlight =
+    hasUserTurn &&
+    (streaming || buildFinishing || waiting) &&
+    !finishedTicketOnScreen;
 
   // Recover stale busy flags left after a superseded send or OTA reload — welcome
   // with spinners on every quick prompt means streaming stuck true with no thread.
@@ -6354,6 +6374,7 @@ export default function CoachScreen() {
           last?.role === "assistant" &&
           coachReplyHasScanManifest(undefined, last.coachDetailNote),
         liveScanDelivered: liveScanDeliveredRef.current,
+        ticketFrozen: boardScanTicketFrozenRef.current,
       })
     ) {
       return;
@@ -7110,8 +7131,8 @@ export default function CoachScreen() {
         </View>
       ) : null}
 
-      {/* Composer — pinned at bottom; flexShrink keeps it in the viewport */}
-      <View style={{ flexShrink: 0 }}>
+      {/* Composer — pinned at bottom; above SlipBar so send stays tappable */}
+      <View style={{ flexShrink: 0, zIndex: 50, elevation: 50 }}>
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
       {/* Keyboard-dismiss button — only while the keyboard is open */}
       {inputFocused ? (
@@ -7242,37 +7263,45 @@ export default function CoachScreen() {
         <Pressable
           onPress={() => send(input)}
           disabled={
-            (!input.trim() && !attachedImages.length) ||
-            (coachBuildInFlight && !isParlayBuildAsk(input.trim()))
+            !shouldAllowCoachComposerSend({
+              hasInput: !!(input.trim() || attachedImages.length),
+              coachBuildInFlight,
+              isParlayBuildAsk: isParlayBuildAsk(input.trim()),
+              finishedTicketOnScreen,
+            })
           }
-          style={({ pressed }) => ({
+          style={({ pressed }) => {
+            const allow = shouldAllowCoachComposerSend({
+              hasInput: !!(input.trim() || attachedImages.length),
+              coachBuildInFlight,
+              isParlayBuildAsk: isParlayBuildAsk(input.trim()),
+              finishedTicketOnScreen,
+            });
+            return {
             width: 44,
             height: 44,
             borderRadius: 22,
-            backgroundColor:
-              (!input.trim() && !attachedImages.length) ||
-              (coachBuildInFlight && !isParlayBuildAsk(input.trim()))
-                ? colors.card
-                : colors.primary,
-            borderWidth:
-              (!input.trim() && !attachedImages.length) ||
-              (coachBuildInFlight && !isParlayBuildAsk(input.trim()))
-                ? 1
-                : 0,
+            backgroundColor: allow ? colors.primary : colors.card,
+            borderWidth: allow ? 0 : 1,
             borderColor: colors.border,
             alignItems: "center",
             justifyContent: "center",
             opacity: pressed ? 0.85 : 1,
-          })}
+          };
+          }}
         >
-          {coachBuildInFlight && !isParlayBuildAsk(input.trim()) ? (
+          {coachBuildInFlight &&
+          !finishedTicketOnScreen &&
+          !isParlayBuildAsk(input.trim()) ? (
             <ActivityIndicator color={colors.mutedForeground} size="small" />
           ) : (
             <Feather
               name="arrow-up"
               size={20}
               color={
-                !input.trim() && !attachedImages.length ? colors.mutedForeground : colors.primaryForeground
+                !input.trim() && !attachedImages.length
+                  ? colors.mutedForeground
+                  : colors.primaryForeground
               }
             />
           )}
