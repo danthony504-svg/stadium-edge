@@ -3,9 +3,10 @@
  * Does not change staging, qualification, simulation, or delivery gates —
  * only whether incomplete restaged pick cards are shown in the chat bubble.
  *
- * Hold under-count waves (no 2→4 churn). Release once the stash hits the
- * requested count, scanComplete, stall, or preview — never sit on 93% with
- * "Scored N of N" and no cards. Sticky blank protection keeps a shown ticket.
+ * Hold under-count waves (no 4→5 churn / "scan continues" flicker).
+ * Release once the stash hits the requested count, scanComplete, or an
+ * empty-card stall escape — never sit on 93% with "Scored N of N" and no cards.
+ * Sticky blank protection only for a full shown ticket.
  */
 
 /** Prefer the larger of gated progress vs raw stash — never `||` (4 || 6 === 4). */
@@ -34,14 +35,16 @@ export function shouldHoldIncompleteBoardScanPickDisplay(opts: {
 }
 
 /**
- * Under-count restages must not erase an already-visible ticket.
- * Keep the on-screen cards until scanComplete replaces them.
+ * Under-count restages may blank held cards (re-hold).
+ * Only a full-count ticket already on screen is sticky — never freeze 4 of 6.
  */
 export function shouldBlankHeldBoardScanPickDisplay(opts: {
   holdIncomplete: boolean;
   displayedPickCount: number;
+  legTarget?: number;
 }): boolean {
   if (!opts.holdIncomplete) return false;
-  if (opts.displayedPickCount > 0) return false;
+  const target = opts.legTarget ?? 0;
+  if (target >= 3 && opts.displayedPickCount >= target) return false;
   return true;
 }

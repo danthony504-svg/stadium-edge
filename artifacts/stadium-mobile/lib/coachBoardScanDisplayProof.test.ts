@@ -7,19 +7,44 @@ import {
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
 
-test("9-leg: ready=9 releases hold; gated-short stash-full uses max ready", () => {
+test("6-leg: hold 4 and 5; release at 6; sticky only full ticket", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
-      legTarget: 9,
-      readyPickCount: boardScanDisplayReadyCount(4, 9),
+      legTarget: 6,
+      readyPickCount: boardScanDisplayReadyCount(4, 4),
+    }),
+    true,
+  );
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 6,
+      readyPickCount: 5,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 6,
+      readyPickCount: boardScanDisplayReadyCount(4, 6),
     }),
     false,
   );
   assert.equal(
     shouldBlankHeldBoardScanPickDisplay({
       holdIncomplete: true,
-      displayedPickCount: 9,
+      displayedPickCount: 4,
+      legTarget: 6,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlankHeldBoardScanPickDisplay({
+      holdIncomplete: true,
+      displayedPickCount: 6,
+      legTarget: 6,
     }),
     false,
   );

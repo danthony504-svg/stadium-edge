@@ -1493,6 +1493,7 @@ export default function CoachScreen() {
             !shouldBlankHeldBoardScanPickDisplay({
               holdIncomplete: true,
               displayedPickCount: displayedCount,
+              legTarget,
             })
           ) {
             if (opts?.pinScroll !== false) scrollToEnd(false);
@@ -1701,7 +1702,7 @@ export default function CoachScreen() {
       return patchInstantBoardScanTicket(markBoardScanAsPreview(scan), enrich, {
         legNote: COACH_SLATE_PREVIEW_NOTE,
         ticketLegTarget: legTarget,
-        allowIncompletePicks: true,
+        // Fixed-leg hold applies — do not open under-count "scan continues" cards.
       });
     },
     [patchInstantBoardScanTicket, marketPerf],
@@ -1794,21 +1795,31 @@ export default function CoachScreen() {
         if (sendGenerationRef.current !== sendGen) return;
         // Release display hold so a scored-but-incomplete stash can leave the
         // empty 81–93% progress card — backend scan may still finish later.
-        forceShowIncompleteBoardScanRef.current = true;
+        // (forceShow is applied only when no cards are on screen — see below.)
         const stashed = latestBoardScanRef.current;
         const legTarget =
           activeRequestLegTargetRef.current ||
           legs ||
           effectiveBuildLegCount(userText);
         if (stashed?.picks?.length) {
+          const displayed = boardTicketSnapshotRef.current?.length ?? 0;
+          // Empty-card stall only — never reopen under-count churn once cards exist.
+          const allowIncomplete = displayed === 0;
+          if (allowIncomplete) {
+            forceShowIncompleteBoardScanRef.current = true;
+          }
           patchInstantBoardScanTicket(stashed, undefined, {
-            allowIncompletePicks: true,
+            allowIncompletePicks: allowIncomplete,
             ticketLegTarget: legTarget > 0 ? legTarget : undefined,
             legNote:
               boardScanIsComplete(stashed)
                 ? undefined
-                : `Still finishing the full-board scan — showing **${stashed.picks.length}** of **${legTarget || stashed.picks.length}** legs scored so far.`,
+                : allowIncomplete
+                  ? `Still finishing the full-board scan — showing **${stashed.picks.length}** of **${legTarget || stashed.picks.length}** legs scored so far.`
+                  : undefined,
           });
+          // One-shot: do not leave forceShow latched for later 4→5 restages.
+          forceShowIncompleteBoardScanRef.current = false;
         }
         setMessages((prev) => {
           const copy = [...prev];
@@ -2221,6 +2232,15 @@ export default function CoachScreen() {
                 pickIds: prepared,
                 source: "rejected-opening-preview-prefix",
               });
+            } else if (
+              earlyLegTarget >= 3 &&
+              prepared.length < earlyLegTarget
+            ) {
+              // Fixed-leg: never paint under-count opening cards (4→5 churn).
+              // Seed progress scoring only; hold until full count / complete.
+              latestBoardScanRef.current = markBoardScanAsPreview(seed.boardScan);
+              setBoardScanPartialLegs(prepared.length);
+              setParlayBuildPhase("board-scan");
             } else {
               openingPicks = prepared;
             }
@@ -2759,7 +2779,6 @@ export default function CoachScreen() {
             patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current, {
               legNote: COACH_SLATE_PREVIEW_NOTE,
               ticketLegTarget: legTarget,
-              allowIncompletePicks: true,
             });
           }
           const earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
@@ -2863,7 +2882,6 @@ export default function CoachScreen() {
                       ...[...preBoardScan.evalLinesByGame.values()].flat(),
                     ],
                   },
-                  { allowIncompletePicks: true },
                 );
               }
               if (earlyReachBoardScanPromise) {
@@ -2878,7 +2896,6 @@ export default function CoachScreen() {
                         ...[...(earlyScan.evalLinesByGame?.values() ?? [])].flat(),
                       ],
                     },
-                    { allowIncompletePicks: true },
                   );
                 }
               }
@@ -6348,7 +6365,6 @@ export default function CoachScreen() {
         return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich, {
           legNote: COACH_SLATE_PREVIEW_NOTE,
           ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-          allowIncompletePicks: true,
         });
       }
       return tryInstantSlateSeedDelivery(legTarget);
