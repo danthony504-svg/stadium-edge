@@ -151,36 +151,52 @@ export function AnalysisProgress({
               : null;
   const displayStage = phaseStage ?? stageList[effectiveIndex];
 
+  // Board-scan waits can last a minute — advance stages quickly so the bar does
+  // not crawl (e.g. sit on 60% / "Line value") while feeds + sims warm up.
+  const stageIntervalMs =
+    mode === "build" && (buildPhase === "board-scan" || buildPhase === "stream")
+      ? 550
+      : 1500;
+
   // Advance the stage on a steady cadence (capped at maxAuto).
   useEffect(() => {
     const id = setInterval(() => {
       setAutoIndex((i) => (i < maxAuto ? i + 1 : i));
-    }, 1500);
+    }, stageIntervalMs);
     return () => clearInterval(id);
-  }, [maxAuto]);
+  }, [maxAuto, stageIntervalMs]);
 
   // Full-board scans can take a minute with no streamed PICK lines — hold on the
   // penultimate stage until real pick cards land so we never show a false 100%.
   // (The bar still eases to 93%; finalize only when legCount > 0.)
 
+  // When legs are scoring off-screen / in stash, lift the floor so % tracks work.
+  const scoredFloor =
+    mode === "build" && requestedLegs > 0 && scoredLegCount > 0 && legCount === 0
+      ? Math.min(93, Math.round(40 + (53 * scoredLegCount) / requestedLegs))
+      : 0;
+
   // Ease the displayed percentage toward the current stage's target so the bar
   // glides instead of jumping, and never looks frozen or goes backwards.
   useEffect(() => {
     if (mode === "build" && legCount === 0) {
-      setPct((p) => Math.min(p, targetList[Math.min(autoIndex, maxAuto)]));
+      setPct((p) => Math.min(p, Math.max(scoredFloor, targetList[Math.min(autoIndex, maxAuto)])));
     }
-  }, [mode, legCount, autoIndex, maxAuto, targetList]);
+  }, [mode, legCount, autoIndex, maxAuto, targetList, scoredFloor]);
 
   useEffect(() => {
+    const ease = boardScanWaiting || scoredFloor > 0 ? 0.28 : 0.14;
     const id = setInterval(() => {
       setPct((p) => {
-        if (p >= target) return target;
-        const next = p + Math.max(0.4, (target - p) * 0.14);
-        return next >= target ? target : next;
+        const floor = Math.max(p, scoredFloor);
+        const goal = Math.max(target, scoredFloor);
+        if (floor >= goal) return goal;
+        const next = floor + Math.max(0.8, (goal - floor) * ease);
+        return next >= goal ? goal : next;
       });
-    }, 70);
+    }, 50);
     return () => clearInterval(id);
-  }, [target]);
+  }, [target, boardScanWaiting, scoredFloor]);
 
   // Soft pulse for the header glow dot + the progress bar so the surface always
   // reads as "actively working".
