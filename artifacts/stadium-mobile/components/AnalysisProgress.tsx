@@ -170,17 +170,19 @@ export function AnalysisProgress({
   // penultimate stage until real pick cards land so we never show a false 100%.
   // (The bar still eases to 93%; finalize only when legCount > 0.)
 
-  // When legs are scoring off-screen / in stash, lift the floor so % tracks work.
+  // When legs are scoring off-screen / in stash, lift the floor so % tracks work
+  // (2/6 → ~58%, 4/6 → ~75%) instead of crawling a cosmetic timer at 60%.
   const scoredFloor =
     mode === "build" && requestedLegs > 0 && scoredLegCount > 0 && legCount === 0
       ? Math.min(93, Math.round(40 + (53 * scoredLegCount) / requestedLegs))
       : 0;
 
-  // Ease the displayed percentage toward the current stage's target so the bar
-  // glides instead of jumping, and never looks frozen or goes backwards.
+  // Never pull % backwards below the scored floor; only cap runaway overshoot.
   useEffect(() => {
     if (mode === "build" && legCount === 0) {
-      setPct((p) => Math.min(p, Math.max(scoredFloor, targetList[Math.min(autoIndex, maxAuto)])));
+      const stageCap = targetList[Math.min(autoIndex, maxAuto)]!;
+      const cap = Math.max(scoredFloor, stageCap);
+      setPct((p) => (p > cap ? cap : Math.max(p, scoredFloor)));
     }
   }, [mode, legCount, autoIndex, maxAuto, targetList, scoredFloor]);
 
@@ -325,10 +327,26 @@ export function AnalysisProgress({
         }}
       >
         {checklist.map((item, idx) => {
+          const scoredRatio =
+            !isAsk && requestedLegs > 0 && scoredLegCount > 0
+              ? scoredLegCount / requestedLegs
+              : 0;
+          const scoredDone =
+            item.label === "Final ticket ready"
+              ? false
+              : item.label === "Correlation scored"
+                ? scoredRatio >= 0.75
+                : item.label === "Line value calculated"
+                  ? scoredRatio >= 0.5
+                  : item.label === "Injury report checked"
+                    ? scoredRatio >= 0.35
+                    : item.label === "Matchups analyzed"
+                      ? scoredRatio >= 0.2
+                      : false;
           const done =
             item.label === "Final ticket ready"
               ? legCount > 0
-              : effectiveIndex >= item.doneAt;
+              : effectiveIndex >= item.doneAt || scoredDone;
           const active = idx === activeChecklist;
           return (
             <View
