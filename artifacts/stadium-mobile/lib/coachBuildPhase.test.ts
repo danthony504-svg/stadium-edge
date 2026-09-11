@@ -5,7 +5,9 @@ import {
   coachPhaseWhileAwaitingTicketCards,
   emptyCardBoardScanStallMs,
   shouldClearBusyAfterFailedStallPaint,
+  shouldEndBoardScanAttemptAfterLateJoins,
   shouldKeepBusyForIncompleteBoardScan,
+  shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
 } from "./coachBuildPhase.ts";
 
@@ -124,6 +126,50 @@ test("suppress empty-ticket dead-end while board-scan pending without stash", ()
       boardScanPending: false,
       scanComplete: true,
       hasScanStash: true,
+    }),
+    false,
+  );
+});
+
+test("stall/join escape releases under-count when stash has picks and bubble empty", () => {
+  assert.equal(
+    shouldReleaseUnderCountBoardScanAtEscape({
+      stashPickCount: 7,
+      displayedPickCount: 0,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldReleaseUnderCountBoardScanAtEscape({
+      stashPickCount: 7,
+      displayedPickCount: 7,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldReleaseUnderCountBoardScanAtEscape({
+      stashPickCount: 0,
+      displayedPickCount: 0,
+    }),
+    false,
+  );
+});
+
+test("late joins always end board-scan attempt ownership when drained", () => {
+  assert.equal(shouldEndBoardScanAttemptAfterLateJoins({ lateJoinsRemaining: 0 }), true);
+  assert.equal(shouldEndBoardScanAttemptAfterLateJoins({ lateJoinsRemaining: 2 }), false);
+});
+
+test("forceShow escape prevents keep-busy from re-locking at 93%", () => {
+  assert.equal(
+    shouldKeepBusyForIncompleteBoardScan({
+      isParlayBuild: true,
+      legTarget: 9,
+      displayedPickCount: 0,
+      scanComplete: false,
+      hasScanStash: true,
+      boardScanPending: true,
+      forceShowIncomplete: true,
     }),
     false,
   );

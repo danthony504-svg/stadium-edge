@@ -59,10 +59,14 @@ export function shouldKeepBusyForIncompleteBoardScan(opts: {
   ticketFrozen?: boolean;
   /** True while this send still owns a board-scan attempt (feeds/scan/late-join). */
   boardScanPending?: boolean;
+  /** Stall/join escape already released under-count cards — do not re-arm busy. */
+  forceShowIncomplete?: boolean;
 }): boolean {
   if (!opts.isParlayBuild || opts.legTarget < 3) return false;
   if (opts.displayedPickCount > 0) return false;
   if (opts.ticketFrozen) return false;
+  // Escape latch: cards may still be painting; never re-lock at 93%.
+  if (opts.forceShowIncomplete) return false;
   if (opts.boardScanPending && opts.scanComplete !== true) return true;
   if (!opts.hasScanStash) return false;
   return opts.scanComplete !== true;
@@ -80,4 +84,27 @@ export function shouldSuppressEmptyTicketDeadEnd(opts: {
   if (opts.boardScanPending && opts.scanComplete !== true) return true;
   if (opts.hasScanStash && opts.scanComplete !== true) return true;
   return false;
+}
+
+/**
+ * Stall / late-join escape: if the scan stash already has scored legs but the
+ * bubble is still empty (fixed-leg hold), release under-count cards and clear
+ * busy. Keeps mid-scan 2→5 drip blocked until this escape fires.
+ */
+export function shouldReleaseUnderCountBoardScanAtEscape(opts: {
+  stashPickCount: number;
+  displayedPickCount: number;
+}): boolean {
+  return opts.stashPickCount > 0 && opts.displayedPickCount <= 0;
+}
+
+/**
+ * After late joins hit zero, always end the owned board-scan attempt — even if
+ * the stash is still incomplete. Otherwise keep-busy + fixed-leg hold leave
+ * Coach permanently at 93% with no cards.
+ */
+export function shouldEndBoardScanAttemptAfterLateJoins(opts: {
+  lateJoinsRemaining: number;
+}): boolean {
+  return opts.lateJoinsRemaining <= 0;
 }

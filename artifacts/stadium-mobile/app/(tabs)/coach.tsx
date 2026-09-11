@@ -166,7 +166,9 @@ import {
   coachPhaseWhileAwaitingTicketCards,
   emptyCardBoardScanStallMs,
   shouldClearBusyAfterFailedStallPaint,
+  shouldEndBoardScanAttemptAfterLateJoins,
   shouldKeepBusyForIncompleteBoardScan,
+  shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
 } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
@@ -1322,22 +1324,69 @@ export default function CoachScreen() {
   }, []);
 
   const endBoardScanAttemptIfSettled = useCallback(() => {
-    if (boardScanLateJoinsRef.current > 0) return;
-    const stash = latestBoardScanRef.current;
-    if (stash && !boardScanIsComplete(stash)) return;
+    if (!shouldEndBoardScanAttemptAfterLateJoins({
+      lateJoinsRemaining: boardScanLateJoinsRef.current,
+    })) {
+      return;
+    }
+    // Always clear ownership once late joins drain — do not hold forever on an
+    // incomplete stash (that + fixed-leg hold = permanent 93% with no cards).
     boardScanAttemptActiveRef.current = false;
   }, []);
 
+  const releaseUnderCountBoardScanEscape = useCallback(
+    (stashed: FullBoardScanResult, userText: string) => {
+      const displayed = boardTicketSnapshotRef.current?.length ?? 0;
+      if (
+        !shouldReleaseUnderCountBoardScanAtEscape({
+          stashPickCount: stashed.picks?.length ?? 0,
+          displayedPickCount: displayed,
+        })
+      ) {
+        return false;
+      }
+      const legTarget =
+        activeRequestLegTargetRef.current ||
+        requestedLegCount(userText) ||
+        effectiveBuildLegCount(userText);
+      // Latch until cards land or a new send — render gate must see this flag.
+      forceShowIncompleteBoardScanRef.current = true;
+      patchInstantBoardScanTicket(stashed, undefined, {
+        allowIncompletePicks: true,
+        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+        legNote: boardScanIsComplete(stashed)
+          ? undefined
+          : `Still finishing the full-board scan — showing **${stashed.picks.length}** of **${legTarget || stashed.picks.length}** legs scored so far.`,
+      });
+      boardScanAttemptActiveRef.current = false;
+      setStreaming(false);
+      setWaiting(false);
+      setBuildFinishing(false);
+      setCoachBuildBusy(false);
+      setParlayBuildPhase("idle");
+      return true;
+    },
+    [patchInstantBoardScanTicket],
+  );
+
   const trackLateBoardScanJoin = useCallback(
-    (join: Promise<unknown>) => {
+    (join: Promise<unknown>, userText?: string) => {
       boardScanAttemptActiveRef.current = true;
       boardScanLateJoinsRef.current += 1;
       void join.finally(() => {
         boardScanLateJoinsRef.current = Math.max(0, boardScanLateJoinsRef.current - 1);
         endBoardScanAttemptIfSettled();
+        const stashed = latestBoardScanRef.current;
+        if (
+          stashed?.picks?.length &&
+          userText &&
+          !(boardTicketSnapshotRef.current?.length)
+        ) {
+          releaseUnderCountBoardScanEscape(stashed, userText);
+        }
       });
     },
-    [endBoardScanAttemptIfSettled],
+    [endBoardScanAttemptIfSettled, releaseUnderCountBoardScanEscape],
   );
 
   const deliverCoachTicket = useCallback(
@@ -1958,23 +2007,16 @@ export default function CoachScreen() {
           effectiveBuildLegCount(userText);
         if (stashed?.picks?.length) {
           const displayed = boardTicketSnapshotRef.current?.length ?? 0;
-          // Empty-card stall only — never reopen under-count churn once cards exist.
-          const allowIncomplete = displayed === 0;
-          if (allowIncomplete) {
-            forceShowIncompleteBoardScanRef.current = true;
+          if (
+            shouldReleaseUnderCountBoardScanAtEscape({
+              stashPickCount: stashed.picks.length,
+              displayedPickCount: displayed,
+            })
+          ) {
+            // Durable latch — render gate must keep seeing forceShow or cards
+            // get stripped again and Coach sits at 93% with an empty bubble.
+            releaseUnderCountBoardScanEscape(stashed, userText);
           }
-          patchInstantBoardScanTicket(stashed, undefined, {
-            allowIncompletePicks: allowIncomplete,
-            ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-            legNote:
-              boardScanIsComplete(stashed)
-                ? undefined
-                : allowIncomplete
-                  ? `Still finishing the full-board scan — showing **${stashed.picks.length}** of **${legTarget || stashed.picks.length}** legs scored so far.`
-                  : undefined,
-          });
-          // One-shot: do not leave forceShow latched for later 4→5 restages.
-          forceShowIncompleteBoardScanRef.current = false;
         }
         const displayedAfter = boardTicketSnapshotRef.current?.length ?? 0;
         if (
@@ -1982,6 +2024,7 @@ export default function CoachScreen() {
             hadStashPicks: !!(stashed?.picks?.length),
             displayedPickCountAfter: displayedAfter,
             incompleteScanInFlight:
+              !forceShowIncompleteBoardScanRef.current &&
               boardScanPendingForActiveSend() &&
               !(stashed && boardScanIsComplete(stashed)),
           })
@@ -2019,7 +2062,7 @@ export default function CoachScreen() {
         scrollToEnd(false);
       }, stallMs);
     },
-    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend],
+    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape],
   );
 
   const flashBoardScanResult = useCallback(
@@ -3204,6 +3247,7 @@ export default function CoachScreen() {
                     };
                     deliverBoardScanTicket(late, lateEnrich);
                   }),
+                  trimmed,
                 );
               }
             } catch {
@@ -3704,6 +3748,7 @@ export default function CoachScreen() {
                   latestBoardScanRef.current = late;
                   deliverBoardScanTicket(late);
                 }),
+                trimmed,
               );
             }
           }
@@ -4205,6 +4250,7 @@ export default function CoachScreen() {
                 latestBoardScanRef.current = late;
                 deliverBoardScanTicket(late, pickEnrich);
               }),
+              trimmed,
             );
           }
         } else if (forceBoardBuild && !blockUngradedTopUp) {
@@ -6117,6 +6163,7 @@ export default function CoachScreen() {
           hasScanStash: !!latestBoardScanRef.current,
           ticketFrozen: boardScanTicketFrozenRef.current,
           boardScanPending: boardScanPendingForActiveSend(),
+          forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
         });
         if (keepBusy) {
           // Late board-scan join still running — do not clear busy or the
@@ -6809,11 +6856,13 @@ export default function CoachScreen() {
                           : m.picks!;
                   // Absolute UI lock: never render mid-scan under-count cards
                   // (2→3→4→5 "scan continues"), even if a write path leaked them.
+                  // Stall / late-join escape may latch forceShowIncomplete.
                   if (
                     !canShowFixedLegBoardScanPicks({
                       legTarget: renderLegTarget,
                       pickCount: candidate.length,
                       scanComplete: m.boardScanComplete,
+                      forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
                     })
                   ) {
                     return [];

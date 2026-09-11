@@ -74,6 +74,8 @@ test("coach.tsx wires kernel props-only onto board-scan + keeps busy mid-scan", 
   assert.match(src, /shouldSuppressEmptyTicketDeadEnd\(/);
   assert.match(src, /trackLateBoardScanJoin\(/);
   assert.match(src, /beginBoardScanAttempt\(/);
+  assert.match(src, /releaseUnderCountBoardScanEscape\(/);
+  assert.match(src, /forceShowIncomplete:\s*forceShowIncompleteBoardScanRef\.current/);
 });
 
 test("boardMarketScanner stages props-only from prop legs", () => {
