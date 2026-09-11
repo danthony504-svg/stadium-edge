@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   boardScanDisplayProgressPct,
   boardScanDisplayReadyCount,
+  boardScanSoftProgressLegCount,
   canCompleteFixedLegBoardScanHandoff,
   canShowFixedLegBoardScanPicks,
   isPermanentBoardScan93PctState,
@@ -13,6 +14,15 @@ import {
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
+
+test("boardScanSoftProgressLegCount never claims N of N on empty staged ticket", () => {
+  assert.equal(boardScanSoftProgressLegCount(0, 6), 0);
+  assert.equal(boardScanSoftProgressLegCount(1, 6), 1);
+  assert.equal(boardScanSoftProgressLegCount(5, 6), 5);
+  assert.equal(boardScanSoftProgressLegCount(6, 6), 5);
+  assert.equal(boardScanSoftProgressLegCount(40, 6), 5);
+  assert.equal(boardScanSoftProgressLegCount(3, 2), 2);
+});
 
 test("partial 2 → partial 4 → final 6: only final 6 can show", () => {
   for (const n of [2, 4]) {

@@ -35,6 +35,9 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("6 leg strikeout parlay"), true);
   assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);
   assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
+  // Prop-heavy phrasing without "only"/"parlay" — still NOT props-only today.
+  assert.equal(wantsPropsOnly("6 leg player props"), false);
+  assert.equal(wantsPropsOnly("6 leg player prop"), false);
 });
 
 test("effectiveBuildLegCount defaults bare parlay asks onto the compact path", () => {

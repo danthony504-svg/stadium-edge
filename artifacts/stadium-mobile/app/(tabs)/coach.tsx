@@ -153,6 +153,7 @@ import {
 } from "@/lib/coachScanPolicy";
 import {
   boardScanDisplayReadyCount,
+  boardScanSoftProgressLegCount,
   canShowFixedLegBoardScanPicks,
   shouldAcceptSameRequestBoardScanTicketUpdate,
   shouldBlockPostFreezeTicketDisplayMutation,
@@ -2029,6 +2030,18 @@ export default function CoachScreen() {
             stashPickCount: partial.picks.length,
           }),
         );
+      } else {
+        // Qualifying candidates exist but staged ticket still empty — show soft
+        // scored progress (capped below N) so users aren't stuck on "Scanning…"
+        // with zero feedback. Does not claim N-of-N / freeze release.
+        const soft = boardScanSoftProgressLegCount(
+          partial.totalQualified ?? 0,
+          legTarget,
+        );
+        if (soft > 0) {
+          setBoardScanPartialLegs(soft);
+          setParlayBuildPhase("board-scan");
+        }
       }
       patchInstantBoardScanTicket(partial, undefined, {
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,

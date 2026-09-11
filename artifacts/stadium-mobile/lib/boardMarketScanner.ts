@@ -613,10 +613,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     }
   }
 
-  const emitBoardScanPartial = () => {
+  // Mid-scan partials must stage from the *current* scored set. Prop waves pass
+  // game+prop combined legs — never emit from outer `scored` alone during props,
+  // or onPartial stays empty until the final boardExhausted result.
+  const emitBoardScanPartial = (legs: BoardScoredLeg[] = scored) => {
     if (!opts.onPartial) return;
-    manifestRecorder.recomputeQualificationFromScored(scored);
-    const partial = buildScanResult(scored, {
+    manifestRecorder.recomputeQualificationFromScored(legs);
+    const partial = buildScanResult(legs, {
       target: opts.target,
       evalLinesByGame,
       gameSimulations,
@@ -628,7 +631,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
     });
-    if (partial.picks.length > 0) opts.onPartial(partial);
+    if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
   };
 
   const scoreGamesAndMaybePartial = (games: string[]) => {
@@ -701,8 +704,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       target: opts.target,
       ...propScoreOpts,
       teamIdsByGame: opts.teamIdMap,
-      onWave: () => {
-        emitBoardScanPartial();
+      onWave: (combined) => {
+        emitBoardScanPartial(combined);
       },
       onPropBatch: (size, timedOut, batch) => {
         // Fail-safe: batch football counters must never abort the prop sim loop.
@@ -752,6 +755,18 @@ export function shouldUseFullBoardScan(
   const asked = opts.requestedLegs ?? 0;
   if (opts.reachFull && asked > 0) return true;
   return asked > 0 && legTarget >= 3;
+}
+
+/**
+ * Mid-scan onPartial gate: emit staged picks, or qualifying-candidate progress
+ * when the gated ticket is still empty so Coach is not stuck with zero cards
+ * while the board has already produced candidates.
+ */
+export function shouldEmitBoardScanPartial(partial: {
+  picks: readonly unknown[];
+  totalQualified: number;
+}): boolean {
+  return partial.picks.length > 0 || partial.totalQualified > 0;
 }
 
 /** True for explicit 3+ leg parlay asks that should always full-board scan. */

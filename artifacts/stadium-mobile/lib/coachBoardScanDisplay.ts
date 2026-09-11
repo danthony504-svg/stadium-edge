@@ -20,6 +20,20 @@ export function boardScanDisplayReadyCount(
 }
 
 /**
+ * Soft scored progress when qualifying candidates exist but the staged ticket
+ * is still empty. Caps below N for fixed-leg asks so freeze / N-of-N release
+ * never fires on a zero-card bubble.
+ */
+export function boardScanSoftProgressLegCount(
+  totalQualified: number,
+  legTarget: number,
+): number {
+  if (totalQualified <= 0) return 0;
+  if (legTarget < 3) return Math.min(totalQualified, Math.max(legTarget, 1));
+  return Math.min(totalQualified, legTarget - 1);
+}
+
+/**
  * Hard gate: fixed-leg cards after full scored count, scanComplete, or stall escape.
  * Under-count mid-scan flashes must not paint.
  */
