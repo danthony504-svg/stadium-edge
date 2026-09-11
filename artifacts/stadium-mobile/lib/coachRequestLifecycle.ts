@@ -177,6 +177,19 @@ export function finalizeCoachTicketForRequest(
   return { ok: true, picks };
 }
 
+/**
+ * Positive same-request identity. Missing requestId on either side never
+ * silently passes — a prior ask's late result must not attach just because
+ * both asks wanted the same leg count.
+ */
+export function boardScanMatchesRequestId(
+  scan: { requestId?: string } | null | undefined,
+  activeRequestId?: string | null,
+): boolean {
+  if (!activeRequestId || !scan?.requestId) return false;
+  return scan.requestId === activeRequestId;
+}
+
 /** Guards partial/final scan delivery against stale generation or wrong leg count. */
 export function boardScanAppliesToRequest(
   scan:
@@ -184,6 +197,7 @@ export function boardScanAppliesToRequest(
         requestedLegs?: number;
         picks?: { length: number };
         requestId?: string;
+        scanComplete?: boolean;
       }
     | null
     | undefined,
@@ -192,10 +206,48 @@ export function boardScanAppliesToRequest(
   activeSendGeneration: number,
   activeRequestId?: string | null,
 ): boolean {
-  if (!scan?.picks?.length || legTarget <= 0) return false;
+  if (!scan || legTarget <= 0) return false;
+  const pickCount = scan.picks?.length ?? 0;
+  // Completed same-request scans apply even with zero staged picks. Incomplete
+  // partials still need at least one pick before we stash/stream them.
+  if (pickCount <= 0 && scan.scanComplete !== true) return false;
   if (sendGeneration !== activeSendGeneration) return false;
-  if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) return false;
+  // Every scan that reaches stash/delivery must positively match the active
+  // request. No active context (clear→start gap) and missing scan.requestId
+  // both reject — including non-empty completed leftovers from a prior ask.
+  if (!boardScanMatchesRequestId(scan, activeRequestId)) return false;
   return boardScanMatchesLegTarget(scan, legTarget);
+}
+
+/**
+ * finally / abort / stash recovery / message attach: re-validate identity
+ * before consuming latestBoardScanRef. Same rules as boardScanAppliesToRequest.
+ */
+export function boardScanRecoverableForRequest(
+  scan:
+    | {
+        requestedLegs?: number;
+        picks?: { length: number };
+        requestId?: string;
+        scanComplete?: boolean;
+      }
+    | null
+    | undefined,
+  legTarget: number,
+  sendGeneration: number,
+  activeSendGeneration: number,
+  activeRequestId?: string | null,
+): boolean {
+  if (!scan) return false;
+  const hasLegs = (scan.picks?.length ?? 0) > 0;
+  if (!hasLegs && scan.scanComplete !== true) return false;
+  return boardScanAppliesToRequest(
+    scan,
+    legTarget,
+    sendGeneration,
+    activeSendGeneration,
+    activeRequestId,
+  );
 }
 
 /**

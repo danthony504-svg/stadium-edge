@@ -3,6 +3,9 @@ import test from "node:test";
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
+  boardScanAppliesToRequest,
+  boardScanMatchesRequestId,
+  boardScanRecoverableForRequest,
   buildCoachTicketCacheKey,
   deliveredBoardTicketTerminalState,
   finalizeCoachTicketForRequest,
@@ -11,7 +14,6 @@ import {
   startCoachTicketRequest,
   ticketMatchesLargerPrefix,
   varietyContextWithLastDelivered,
-  boardScanAppliesToRequest,
 } from "./coachRequestLifecycle.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import {
@@ -110,9 +112,168 @@ test("boardScanAppliesToRequest rejects stale requestId", () => {
     picks: { length: 4 },
     requestedLegs: 4,
     requestId: "req-15",
+    scanComplete: true,
   };
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-4"), false);
   assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-15"), true);
+});
+
+test("boardScanAppliesToRequest accepts completed zero-pick same-request scan", () => {
+  const scan = {
+    picks: { length: 0 },
+    requestedLegs: 8,
+    requestId: "req-8",
+    scanComplete: true,
+  };
+  assert.equal(boardScanAppliesToRequest(scan, 8, 3, 3, "req-8"), true);
+  assert.equal(boardScanRecoverableForRequest(scan, 8, 3, 3, "req-8"), true);
+  assert.equal(boardScanMatchesLegTarget(scan, 8), true);
+});
+
+test("boardScanAppliesToRequest rejects zero-pick without positive request identity", () => {
+  const scan = {
+    picks: { length: 0 },
+    requestedLegs: 8,
+    scanComplete: true,
+  };
+  assert.equal(boardScanAppliesToRequest(scan, 8, 3, 3, "req-8"), false);
+  assert.equal(boardScanAppliesToRequest(scan, 8, 3, 3, null), false);
+  assert.equal(
+    boardScanAppliesToRequest(
+      { ...scan, requestId: "req-A" },
+      8,
+      3,
+      3,
+      "req-B",
+    ),
+    false,
+  );
+  assert.equal(
+    boardScanRecoverableForRequest(
+      { ...scan, requestId: "req-A" },
+      8,
+      3,
+      3,
+      "req-B",
+    ),
+    false,
+  );
+});
+
+test("boardScanAppliesToRequest rejects non-empty completed scan with missing requestId", () => {
+  const scan = {
+    picks: { length: 6 },
+    requestedLegs: 8,
+    scanComplete: true,
+  };
+  assert.equal(boardScanMatchesRequestId(scan, "req-B"), false);
+  assert.equal(boardScanAppliesToRequest(scan, 8, 1, 1, "req-B"), false);
+  assert.equal(boardScanRecoverableForRequest(scan, 8, 1, 1, "req-B"), false);
+  assert.equal(boardScanAppliesToRequest(scan, 8, 1, 1, null), false);
+});
+
+test("boardScanAppliesToRequest rejects late Request A result after Request B starts", () => {
+  const lateFromA = {
+    picks: { length: 6 },
+    requestedLegs: 8,
+    requestId: "req-A",
+    scanComplete: true,
+  };
+  assert.equal(boardScanAppliesToRequest(lateFromA, 8, 2, 2, "req-B"), false);
+  assert.equal(boardScanRecoverableForRequest(lateFromA, 8, 2, 2, "req-B"), false);
+  const lateZeroFromA = {
+    picks: { length: 0 },
+    requestedLegs: 8,
+    requestId: "req-A",
+    scanComplete: true,
+  };
+  assert.equal(boardScanRecoverableForRequest(lateZeroFromA, 8, 2, 2, "req-B"), false);
+});
+
+test("boardScanAppliesToRequest rejects incomplete zero-pick partial", () => {
+  const scan = {
+    picks: { length: 0 },
+    requestedLegs: 8,
+    requestId: "req-8",
+    scanComplete: false,
+  };
+  assert.equal(boardScanAppliesToRequest(scan, 8, 3, 3, "req-8"), false);
+});
+
+test("boardScanAppliesToRequest preserves shortfall and exact-count scans", () => {
+  assert.equal(
+    boardScanAppliesToRequest(
+      { picks: { length: 6 }, requestedLegs: 8, requestId: "req-8", scanComplete: true },
+      8,
+      1,
+      1,
+      "req-8",
+    ),
+    true,
+  );
+  assert.equal(
+    boardScanAppliesToRequest(
+      { picks: { length: 2 }, requestedLegs: 6, requestId: "req-6", scanComplete: true },
+      6,
+      1,
+      1,
+      "req-6",
+    ),
+    true,
+  );
+  assert.equal(
+    boardScanAppliesToRequest(
+      { picks: { length: 8 }, requestedLegs: 8, requestId: "req-8", scanComplete: true },
+      8,
+      1,
+      1,
+      "req-8",
+    ),
+    true,
+  );
+});
+
+test("boardScanAppliesToRequest rejects foreign/mismatched/oversized scans", () => {
+  assert.equal(
+    boardScanAppliesToRequest(
+      { picks: { length: 15 }, requestedLegs: 15, requestId: "req-8", scanComplete: true },
+      8,
+      1,
+      1,
+      "req-8",
+    ),
+    false,
+  );
+  assert.equal(
+    boardScanAppliesToRequest(
+      { picks: { length: 0 }, requestedLegs: 15, requestId: "req-8", scanComplete: true },
+      8,
+      1,
+      1,
+      "req-8",
+    ),
+    false,
+  );
+  assert.equal(
+    boardScanAppliesToRequest(
+      { picks: { length: 0 }, requestedLegs: 8, requestId: "req-other", scanComplete: true },
+      8,
+      1,
+      1,
+      "req-8",
+    ),
+    false,
+  );
+  assert.equal(
+    boardScanAppliesToRequest(
+      { picks: { length: 0 }, requestedLegs: 8, requestId: "req-8", scanComplete: true },
+      8,
+      1,
+      2,
+      "req-8",
+    ),
+    false,
+  );
 });
 
 test("requested five, delivered five completes and clears loading despite a stale final scan", () => {
