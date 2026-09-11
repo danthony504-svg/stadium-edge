@@ -6022,6 +6022,16 @@ export default function CoachScreen() {
       last.ticketLegTarget ||
       requestedLegCount(activeParlayAskRef.current) ||
       effectiveBuildLegCount(activeParlayAskRef.current);
+    // Fixed-leg live scans intentionally keep picks empty until scanComplete —
+    // do not treat that as a zeroed ticket and re-patch in a loop.
+    if (
+      shouldHoldIncompleteBoardScanPickDisplay({
+        scanComplete: partial.scanComplete,
+        legTarget,
+      })
+    ) {
+      return;
+    }
     const ctx = coachRequestContextRef.current;
     if (
       !boardScanAppliesToRequest(
@@ -6047,6 +6057,14 @@ export default function CoachScreen() {
       if (!partialRetry) return;
       const retryHasLegs = (partialRetry.picks?.length ?? 0) > 0;
       if (!retryHasLegs && !boardScanIsComplete(partialRetry)) return;
+      if (
+        shouldHoldIncompleteBoardScanPickDisplay({
+          scanComplete: partialRetry.scanComplete,
+          legTarget,
+        })
+      ) {
+        return;
+      }
       if (
         !boardScanAppliesToRequest(
           partialRetry,
