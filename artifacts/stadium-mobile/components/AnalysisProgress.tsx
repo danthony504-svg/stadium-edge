@@ -226,11 +226,38 @@ export function AnalysisProgress({
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
 
   const displayPct = Math.round(pct);
-  // The first not-yet-done checklist item is the one currently in progress.
-  // During board-scan wait we stay at 93% until real legs land — keep
-  // "Final ticket ready" as the active (spinning) step so the UI does not
-  // look frozen with a dead empty circle.
-  const activeChecklist = checklist.findIndex((c) => effectiveIndex < c.doneAt);
+  // First not-yet-done checklist item is active. When every pre-Final row is
+  // already scored-done (e.g. Scored 6 of 6 @ 93%) but cards have not landed,
+  // keep "Final ticket ready" spinning — never a dead empty circle.
+  const scoredRatioForChecklist =
+    !isAsk && requestedLegs > 0 && scoredLegCount > 0
+      ? scoredLegCount / requestedLegs
+      : 0;
+  const checklistDoneFlags = checklist.map((item) => {
+    const scoredDone =
+      item.label === "Final ticket ready"
+        ? false
+        : item.label === "Correlation scored"
+          ? scoredRatioForChecklist >= 0.75
+          : item.label === "Line value calculated"
+            ? scoredRatioForChecklist >= 0.5
+            : item.label === "Injury report checked"
+              ? scoredRatioForChecklist >= 0.35
+              : item.label === "Matchups analyzed"
+                ? scoredRatioForChecklist >= 0.2
+                : false;
+    if (item.label === "Final ticket ready") return legCount > 0;
+    return effectiveIndex >= item.doneAt || scoredDone;
+  });
+  let activeChecklist = checklistDoneFlags.findIndex((done) => !done);
+  if (
+    activeChecklist < 0 &&
+    mode === "build" &&
+    legCount === 0 &&
+    scoredRatioForChecklist >= 1
+  ) {
+    activeChecklist = checklist.findIndex((c) => c.label === "Final ticket ready");
+  }
 
   return (
     <View
@@ -327,26 +354,7 @@ export function AnalysisProgress({
         }}
       >
         {checklist.map((item, idx) => {
-          const scoredRatio =
-            !isAsk && requestedLegs > 0 && scoredLegCount > 0
-              ? scoredLegCount / requestedLegs
-              : 0;
-          const scoredDone =
-            item.label === "Final ticket ready"
-              ? false
-              : item.label === "Correlation scored"
-                ? scoredRatio >= 0.75
-                : item.label === "Line value calculated"
-                  ? scoredRatio >= 0.5
-                  : item.label === "Injury report checked"
-                    ? scoredRatio >= 0.35
-                    : item.label === "Matchups analyzed"
-                      ? scoredRatio >= 0.2
-                      : false;
-          const done =
-            item.label === "Final ticket ready"
-              ? legCount > 0
-              : effectiveIndex >= item.doneAt || scoredDone;
+          const done = checklistDoneFlags[idx] ?? false;
           const active = idx === activeChecklist;
           return (
             <View

@@ -2,16 +2,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  boardScanDisplayReadyCount,
   shouldBlankHeldBoardScanPickDisplay,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
+
+test("ready count uses Math.max — gated 4 + stash 6 must not hold as 4", () => {
+  assert.equal(boardScanDisplayReadyCount(4, 6), 6);
+  assert.equal(boardScanDisplayReadyCount(0, 6), 6);
+  assert.equal(boardScanDisplayReadyCount(6, 6), 6);
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 6,
+      readyPickCount: boardScanDisplayReadyCount(4, 6),
+    }),
+    false,
+  );
+});
 
 test("under-count incomplete scans hold pick cards", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
       legTarget: 9,
-      readyPickCount: 6,
+      readyPickCount: boardScanDisplayReadyCount(4, 6),
     }),
     true,
   );

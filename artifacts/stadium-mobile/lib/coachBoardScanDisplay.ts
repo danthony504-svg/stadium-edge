@@ -8,6 +8,14 @@
  * "Scored N of N" and no cards. Sticky blank protection keeps a shown ticket.
  */
 
+/** Prefer the larger of gated progress vs raw stash — never `||` (4 || 6 === 4). */
+export function boardScanDisplayReadyCount(
+  gatedPickCount: number,
+  stashPickCount: number,
+): number {
+  return Math.max(gatedPickCount || 0, stashPickCount || 0);
+}
+
 /** Fixed-leg live scans: hold pick cards until full count / complete / stall. */
 export function shouldHoldIncompleteBoardScanPickDisplay(opts: {
   scanComplete?: boolean | null;

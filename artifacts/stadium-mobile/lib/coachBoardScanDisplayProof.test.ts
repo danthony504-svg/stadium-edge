@@ -2,16 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  boardScanDisplayReadyCount,
   shouldBlankHeldBoardScanPickDisplay,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
 
-test("9-leg: ready=9 releases hold; later under-count keeps sticky ticket", () => {
+test("9-leg: ready=9 releases hold; gated-short stash-full uses max ready", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
       legTarget: 9,
-      readyPickCount: 9,
+      readyPickCount: boardScanDisplayReadyCount(4, 9),
     }),
     false,
   );

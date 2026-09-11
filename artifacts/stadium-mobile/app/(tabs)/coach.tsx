@@ -152,6 +152,7 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import {
+  boardScanDisplayReadyCount,
   shouldBlankHeldBoardScanPickDisplay,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
@@ -1461,7 +1462,12 @@ export default function CoachScreen() {
         }
       } else {
         const progress = deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
-        const ready = progress.picks.length || partial.picks.length;
+        // Stash can already be full while gated progress is shorter — never use `||`
+        // (4 || 6 === 4) or hold forever on "Scored 6 of 6" with empty cards.
+        const ready = boardScanDisplayReadyCount(
+          progress.picks.length,
+          partial.picks.length,
+        );
         // Live fixed-leg scans restage every wave (legs add/remove on screen).
         // Hold pick cards until scanComplete / full count / stall release.
         if (
@@ -1514,6 +1520,13 @@ export default function CoachScreen() {
           return true;
         }
         ticket = progress.picks;
+        if (
+          !ticket.length &&
+          legTarget >= 3 &&
+          (partial.picks?.length ?? 0) >= legTarget
+        ) {
+          ticket = boardScanToCoachTicket(partial, enrichWithScan, legTarget);
+        }
         if (!ticket.length) return false;
         legNote = progress.progressNote || legNote;
       }
@@ -1558,6 +1571,8 @@ export default function CoachScreen() {
       }
 
       const isFinal = boardScanIsComplete(partial);
+      const fullCountPreview =
+        !isFinal && legTarget >= 3 && ticket.length >= legTarget;
       if (legTarget >= 3) {
         const finalized = finalizeCoachTicketForRequest(ticket, {
           requestedLegs: legTarget,
@@ -1567,8 +1582,13 @@ export default function CoachScreen() {
           source: isFinal ? "final" : "preview",
           recordDelivered: isFinal,
         });
-        if (!finalized.ok) return false;
-        ticket = finalized.picks;
+        if (!finalized.ok) {
+          // Final delivery must stay gated. Mid-scan full-count flash should still
+          // land cards so we never wedge at 93% with an empty bubble.
+          if (isFinal || !fullCountPreview) return false;
+        } else {
+          ticket = finalized.picks;
+        }
       } else if (isFinal && legTarget > 0) {
         rememberParlayBuild(ticket);
         if (ctx) recordCoachTicketDelivered(ticket, ctx);
@@ -1579,7 +1599,9 @@ export default function CoachScreen() {
       boardTicketSnapshotRef.current = ticket;
       if (isFinal) liveScanDeliveredRef.current = true;
       setBoardScanPartialLegs(ticket.length);
-      if (boardScanIsComplete(partial)) {
+      // Clear busy once cards are on screen for a full ticket (final or preview)
+      // so AnalysisProgress unmounts instead of freezing at 93%.
+      if (isFinal || fullCountPreview) {
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -1612,7 +1634,7 @@ export default function CoachScreen() {
       });
       setAiPicks(ticket);
       captureFromCoach(ticket);
-      if (!isFinal && buildFinishingRef.current) {
+      if (!isFinal && !fullCountPreview && buildFinishingRef.current) {
         setParlayBuildPhase("stream");
       }
       if (opts?.pinScroll !== false) scrollToEnd(false);
@@ -6395,11 +6417,38 @@ export default function CoachScreen() {
             )
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
+            const priorUserTextForLegs =
+              messages
+                .slice(0, i)
+                .reverse()
+                .find((x) => x.role === "user")
+                ?.apiContent ??
+              messages.slice(0, i).reverse().find((x) => x.role === "user")?.content ??
+              "";
+            const renderLegTarget =
+              m.ticketLegTarget ??
+              (m.role === "assistant" && isParlayBuildAsk(priorUserTextForLegs)
+                ? requestedLegCount(priorUserTextForLegs)
+                : 0);
             const displayPicks = hasPicks
-              ? filterCoachDeliveredPicks(
-                  coerceCoachDisplayPicks(m.picks!, flashEnrichRef.current),
-                  flashEnrichRef.current,
-                )
+              ? (() => {
+                  const soft = coerceCoachDisplayPicks(
+                    m.picks!,
+                    flashEnrichRef.current,
+                  );
+                  const gated = filterCoachDeliveredPicks(soft, flashEnrichRef.current);
+                  if (gated.length) return gated;
+                  // Message already holds a full ticket but render gates emptied it —
+                  // keep soft/original picks so we never show blank after scoring N of N.
+                  if (
+                    renderLegTarget > 0 &&
+                    m.picks!.length >= renderLegTarget &&
+                    soft.length
+                  ) {
+                    return soft;
+                  }
+                  return soft.length ? soft : m.picks!;
+                })()
               : [];
             const showTicketPicks = displayPicks.length > 0;
             const hasScanManifest = /### Scan manifest/i.test(m.coachDetailNote ?? "");
@@ -6411,14 +6460,7 @@ export default function CoachScreen() {
             // A parlay BUILD is in flight when either the user explicitly asked to
             // build one (catches the early stream BEFORE any PICK line, so the
             // lead-in prose never flashes) or PICK lines have started arriving.
-            const priorUserText =
-              messages
-                .slice(0, i)
-                .reverse()
-                .find((x) => x.role === "user")
-                ?.apiContent ??
-              messages.slice(0, i).reverse().find((x) => x.role === "user")?.content ??
-              "";
+            const priorUserText = priorUserTextForLegs;
             const parlayBuildIntent =
               m.role === "assistant" && !!(m.parlayBuild || isParlayBuildAsk(priorUserText));
             const ticketLegTarget =
