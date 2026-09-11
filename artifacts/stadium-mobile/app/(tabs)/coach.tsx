@@ -152,6 +152,7 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { shouldHoldIncompleteBoardScanPickDisplay } from "@/lib/coachBoardScanDisplay";
+import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
@@ -1463,7 +1464,9 @@ export default function CoachScreen() {
           const ready = progress.picks.length || partial.picks.length;
           if (ready > 0) {
             setBoardScanPartialLegs(ready);
-            setParlayBuildPhase("stream");
+            // Stay on board-scan phase so AnalysisProgress keeps the live-scan
+            // copy and Final-ticket spinner until cards actually land.
+            setParlayBuildPhase("board-scan");
           }
           setMessages((prev) => {
             const copy = [...prev];
@@ -3310,20 +3313,20 @@ export default function CoachScreen() {
               })),
             ]);
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
-            reachBoardScan = await Promise.race([
-              tryReachFullBoardScan({
-                target: Math.min(legTarget, MAX_LEGS),
-                oddsGames,
-                propPool: mergedPropPool,
-                realOdds: context.realOdds,
-                liveOdds: liveFeed.odds,
-                espnGames,
-                gameMeta,
-                teamIdMap: buildGameTeamIdMap(espnGames),
-                excludedSports,
-                matchupHistory: context.matchupHistory,
-                matchupInjuries: context.matchupInjuries,
-                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            const reachScanTarget = Math.min(legTarget, MAX_LEGS);
+            const reachScanPromise = tryReachFullBoardScan({
+              target: reachScanTarget,
+              oddsGames,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              liveOdds: liveFeed.odds,
+              espnGames,
+              gameMeta,
+              teamIdMap: buildGameTeamIdMap(espnGames),
+              excludedSports,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
                 mlbPlatoon: context.mlbPlatoon,
@@ -3335,7 +3338,9 @@ export default function CoachScreen() {
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
-              }),
+              });
+            reachBoardScan = await Promise.race([
+              reachScanPromise,
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
             ]);
             if (!reachBoardScan && boardScanIsComplete(latestBoardScanRef.current)) {
@@ -3351,6 +3356,34 @@ export default function CoachScreen() {
               if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
                 reachBoardScan = ref;
               }
+            }
+            // Budget race returns null without cancelling the scan. If we only have
+            // an incomplete partial on screen, keep joining the floating promise so a
+            // late scanComplete:true (e.g. 4 → 5) still replaces "scan continues".
+            if (!boardScanIsComplete(reachBoardScan)) {
+              const joinGen = sendGenerationRef.current;
+              const joinRequestId = coachRequestContextRef.current?.requestId;
+              void awaitLateBoardScanAfterBudget(reachScanPromise, {
+                legTarget: reachScanTarget,
+                stillActive: () =>
+                  sendGenerationRef.current === joinGen &&
+                  coachRequestContextRef.current?.requestId === joinRequestId,
+              }).then((late) => {
+                if (!late) return;
+                if (
+                  !boardScanAppliesToRequest(
+                    late,
+                    reachScanTarget,
+                    coachRequestContextRef.current?.sendGeneration ?? joinGen,
+                    sendGenerationRef.current,
+                    joinRequestId,
+                  )
+                ) {
+                  return;
+                }
+                latestBoardScanRef.current = late;
+                deliverBoardScanTicket(late);
+              });
             }
           }
         }
@@ -6338,9 +6371,18 @@ export default function CoachScreen() {
                 retryAffordance);
             // Progress finalizes once pick cards are on the message — or when a
             // board-scan partial has scored legs waiting for delivery gates.
+            // Fixed-leg hold keeps cards off-screen until scanComplete: do not
+            // feed stash leg counts into AnalysisProgress or it jumps to 100% /
+            // "Final ticket ready" with an empty bubble (stuck-looking 93% hang).
+            const holdingIncompletePickDisplay =
+              !hasPicks &&
+              shouldHoldIncompleteBoardScanPickDisplay({
+                scanComplete: m.boardScanComplete,
+                legTarget: ticketLegTarget,
+              });
             const progressLegCount = showTicketPicks
               ? displayPicks.length
-              : buildIdle
+              : buildIdle || holdingIncompletePickDisplay
                 ? 0
                 : Math.max(
                     boardScanPartialLegs,
