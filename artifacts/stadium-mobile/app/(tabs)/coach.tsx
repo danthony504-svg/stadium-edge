@@ -160,6 +160,7 @@ import {
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
+import { coachPhaseWhileAwaitingTicketCards, shouldClearBusyAfterFailedStallPaint } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
@@ -1546,7 +1547,21 @@ export default function CoachScreen() {
         ) {
           ticket = boardScanToCoachTicket(partial, enrichWithScan, legTarget);
         }
-        if (!ticket.length) return false;
+        if (!ticket.length) {
+          latestBoardScanRef.current = partial;
+          if ((partial.picks?.length ?? 0) > 0) {
+            setBoardScanPartialLegs(
+              boardScanDisplayReadyCount(0, partial.picks.length),
+            );
+            setParlayBuildPhase(
+              coachPhaseWhileAwaitingTicketCards({
+                displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+                stashPickCount: partial.picks.length,
+              }),
+            );
+          }
+          return false;
+        }
         legNote = progress.progressNote || legNote;
       }
 
@@ -1638,7 +1653,18 @@ export default function CoachScreen() {
           recordDelivered: isFinal,
         });
         if (!finalized.ok) {
-          if (isFinal) return false;
+          latestBoardScanRef.current = partial;
+          if ((partial.picks?.length ?? 0) > 0) {
+            setBoardScanPartialLegs(
+              boardScanDisplayReadyCount(ticket.length, partial.picks.length),
+            );
+            setParlayBuildPhase(
+              coachPhaseWhileAwaitingTicketCards({
+                displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+                stashPickCount: partial.picks.length,
+              }),
+            );
+          }
           return false;
         }
         ticket = finalized.picks;
@@ -1902,6 +1928,20 @@ export default function CoachScreen() {
           // One-shot: do not leave forceShow latched for later 4→5 restages.
           forceShowIncompleteBoardScanRef.current = false;
         }
+        const displayedAfter = boardTicketSnapshotRef.current?.length ?? 0;
+        if (
+          shouldClearBusyAfterFailedStallPaint({
+            hadStashPicks: !!(stashed?.picks?.length),
+            displayedPickCountAfter: displayedAfter,
+          })
+        ) {
+          // Force-show could not paint — do not leave composer locked on spinner.
+          setStreaming(false);
+          setWaiting(false);
+          setBuildFinishing(false);
+          setCoachBuildBusy(false);
+          setParlayBuildPhase("idle");
+        }
         setMessages((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
@@ -1975,7 +2015,12 @@ export default function CoachScreen() {
       latestBoardScanRef.current = partial;
       if (partial.picks.length) {
         setBoardScanPartialLegs(partial.picks.length);
-        setParlayBuildPhase("stream");
+        setParlayBuildPhase(
+          coachPhaseWhileAwaitingTicketCards({
+            displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+            stashPickCount: partial.picks.length,
+          }),
+        );
       }
       patchInstantBoardScanTicket(partial, undefined, {
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
@@ -3604,7 +3649,14 @@ export default function CoachScreen() {
           });
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
-          setParlayBuildPhase("score");
+          // Avoid "Building final AI grade…" @ 93% with an empty bubble — keep
+          // board-scan until cards actually land (#452/#453 policies untouched).
+          setParlayBuildPhase(
+            coachPhaseWhileAwaitingTicketCards({
+              displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+              stashPickCount: latestBoardScanRef.current?.picks?.length ?? 0,
+            }),
+          );
         }
         let boardBuilt = fullBoardScanned;
         let diversityNote = fullBoardScanMeta?.note ?? "";
