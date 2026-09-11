@@ -418,13 +418,13 @@ export function coachBuildSports(
     const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
     if (n >= 11) sports = [...allSports];
     else if (n >= 6) {
-      // NFL/NCAAF sit early so compact/light context probes (maxSports ~4)
-      // and early board-scan kickoff both keep football in the candidate set.
+      // NFL/NCAAF sit with MLB at the front so compact probes and live scans
+      // keep football in the candidate set for generic fixed-leg parlays.
       sports = [
         "mlb",
         "nfl",
-        "nba",
         "ncaaf",
+        "nba",
         "nhl",
         "wnba",
         "soccer",
@@ -432,7 +432,7 @@ export function coachBuildSports(
         "tennis",
       ].filter((id) => allSports.includes(id));
     } else {
-      sports = ["mlb", "nfl", "nba", "ncaaf", "nhl", "wnba"].filter((id) =>
+      sports = ["mlb", "nfl", "ncaaf", "nba", "nhl", "wnba"].filter((id) =>
         allSports.includes(id),
       );
     }

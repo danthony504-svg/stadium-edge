@@ -33,6 +33,7 @@ import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
+import { injectPrioritySportsIntoTicket } from "./coachPrioritySports.ts";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
 import { marketConfidenceDelta } from "./marketWeighting.ts";
@@ -487,7 +488,7 @@ export function buildScanResult(
       ticketStyle: opts.ticketStyle,
     },
   );
-  const picks = staged.picks;
+  const picks = injectPrioritySportsIntoTicket(staged.picks, scored, opts.target);
   const breakdown = staged.breakdown;
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;

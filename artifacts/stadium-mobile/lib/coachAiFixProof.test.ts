@@ -141,6 +141,8 @@ test("sport-selection paths keep NFL and NCAAF for generic parlays", () => {
   assert.ok(live.includes("ncaaf"));
   assert.ok(live.includes("mlb"));
   assert.ok(live.includes("nba"));
+  assert.ok(live.indexOf("nfl") < live.indexOf("soccer"));
+  assert.ok(live.indexOf("ncaaf") < live.indexOf("wnba"));
 
   const nflOnly = coachBuildSports("NFL only 6 leg parlay", 6, ALL_SPORTS);
   assert.deepEqual(nflOnly, ["nfl"]);

@@ -407,8 +407,8 @@ test("coachBuildSports uses a tiny core set for generic 3-leg asks", () => {
   assert.deepEqual(coachBuildSports("Build me a 3-leg parlay", 3, ALL_SPORTS), [
     "mlb",
     "nfl",
-    "nba",
     "ncaaf",
+    "nba",
     "nhl",
     "wnba",
   ]);
@@ -420,8 +420,9 @@ test("coachBuildSports widens for 6-leg generic asks", () => {
   assert.ok(sports.includes("soccer"));
   assert.ok(sports.includes("nfl"));
   assert.ok(sports.includes("ncaaf"));
+  assert.ok(sports.indexOf("nfl") < sports.indexOf("nba"));
+  assert.ok(sports.indexOf("ncaaf") < sports.indexOf("nba"));
   assert.ok(sports.indexOf("nfl") < sports.indexOf("soccer"));
-  assert.ok(sports.indexOf("ncaaf") < sports.indexOf("soccer"));
 });
 
 test("coachBuildSports uses every sport for 11+ leg tickets", () => {
