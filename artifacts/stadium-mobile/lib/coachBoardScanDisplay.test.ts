@@ -6,7 +6,7 @@ import {
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
 
-test("under-count incomplete fixed-leg scans hold pick cards", () => {
+test("incomplete fixed-leg scans hold until scanComplete (not early full count)", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
@@ -19,20 +19,9 @@ test("under-count incomplete fixed-leg scans hold pick cards", () => {
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
       legTarget: 6,
-      readyPickCount: 4,
-    }),
-    true,
-  );
-});
-
-test("full count releases hold so all picks show once", () => {
-  assert.equal(
-    shouldHoldIncompleteBoardScanPickDisplay({
-      scanComplete: false,
-      legTarget: 6,
       readyPickCount: 6,
     }),
-    false,
+    true,
   );
 });
 
@@ -79,7 +68,7 @@ test("sub-3-leg asks never hold", () => {
   );
 });
 
-test("already-displayed ticket is never blanked by under-count hold", () => {
+test("already-displayed ticket is never blanked by incomplete hold", () => {
   assert.equal(
     shouldBlankHeldBoardScanPickDisplay({
       holdIncomplete: true,
@@ -93,12 +82,5 @@ test("already-displayed ticket is never blanked by under-count hold", () => {
       displayedPickCount: 0,
     }),
     true,
-  );
-  assert.equal(
-    shouldBlankHeldBoardScanPickDisplay({
-      holdIncomplete: false,
-      displayedPickCount: 0,
-    }),
-    false,
   );
 });

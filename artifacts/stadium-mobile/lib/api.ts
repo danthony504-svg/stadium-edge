@@ -3400,7 +3400,7 @@ function extractNamedCandidates(text: string): string[] {
 }
 
 /** Default light-parlay probe order — NFL/NCAAF early so generic builds keep football. */
-const TINY_PARLAY_SPORTS = ["mlb", "nfl", "nba", "ncaaf", "nhl", "wnba"] as const;
+const TINY_PARLAY_SPORTS = ["mlb", "nfl", "ncaaf", "nba", "nhl", "wnba"] as const;
 
 type LightParlayOpts = {
   sports?: readonly string[];

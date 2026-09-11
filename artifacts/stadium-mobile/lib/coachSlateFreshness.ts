@@ -4,18 +4,18 @@ import type { BuiltChatContext } from "./api.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { SlatePreAnalysisSeed } from "./slatePreAnalysis.ts";
 
-/** All sports the Coach surfaces — kept local to avoid expo-ui imports in unit tests. */
+/** All sports the Coach surfaces — football early so NFL/CFB are scanned with MLB. */
 const LIVE_SCAN_SPORT_IDS = [
   "mlb",
-  "wnba",
+  "nfl",
+  "ncaaf",
   "nba",
+  "ncaab",
   "nhl",
+  "wnba",
   "soccer",
   "ufc",
   "tennis",
-  "nfl",
-  "ncaaf",
-  "ncaab",
 ] as const;
 
 export const COACH_SLATE_PREVIEW_NOTE =
