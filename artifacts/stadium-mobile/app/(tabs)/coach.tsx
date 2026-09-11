@@ -153,6 +153,7 @@ import {
 } from "@/lib/coachScanPolicy";
 import {
   boardScanDisplayReadyCount,
+  canShowFixedLegBoardScanPicks,
   shouldBlankHeldBoardScanPickDisplay,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
@@ -1574,6 +1575,25 @@ export default function CoachScreen() {
       const isFinal = boardScanIsComplete(partial);
       const fullCountPreview =
         !isFinal && legTarget >= 3 && ticket.length >= legTarget;
+      if (
+        !canShowFixedLegBoardScanPicks({
+          legTarget,
+          pickCount: ticket.length,
+          scanComplete: isFinal,
+          allowIncompletePicks: opts?.allowIncompletePicks,
+          forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+        })
+      ) {
+        latestBoardScanRef.current = partial;
+        if (ticket.length || partial.picks?.length) {
+          setBoardScanPartialLegs(
+            boardScanDisplayReadyCount(ticket.length, partial.picks?.length ?? 0),
+          );
+          setParlayBuildPhase("board-scan");
+        }
+        if (opts?.pinScroll !== false) scrollToEnd(false);
+        return true;
+      }
       if (legTarget >= 3) {
         const finalized = finalizeCoachTicketForRequest(ticket, {
           requestedLegs: legTarget,
@@ -1724,12 +1744,11 @@ export default function CoachScreen() {
         patchInstantBoardScanTicket(partial, enrichOverride, { ticketLegTarget: legTarget });
         return;
       }
-      const ticket = boardScanPartialToTicket(partial, enrichOverride);
-      if (!ticket.length) return;
-      const legNote = `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
-      patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
+      // Mid-scan: never stamp "showing X while scan continues" under-count cards.
+      // Route through patchInstant hold — progress scoring only until full/complete.
+      patchInstantBoardScanTicket(partial, enrichOverride, { ticketLegTarget: legTarget });
     },
-    [boardScanOwnedByActiveRequest, boardScanPartialToTicket, patchInstantBoardScanTicket],
+    [boardScanOwnedByActiveRequest, patchInstantBoardScanTicket],
   );
 
   const deliverKernelBoardScan = useCallback(
@@ -5426,6 +5445,27 @@ export default function CoachScreen() {
         };
         const gateResolvedPicks = (resolved: ParsedPick[]): ParsedPick[] => {
           if (!resolved.length || legTarget < 3) return resolved;
+          // Stream-end must not paint under-count "scan continues" cards while the
+          // board scan is still open — that was the 2→3→4→5 drip on device.
+          const liveScan = preferFinalBoardScanForDelivery(
+            legTarget,
+            fullBoardScanMeta,
+            preBoardScan,
+            latestBoardScanRef.current,
+          );
+          const scanDone =
+            boardScanIsComplete(liveScan) ||
+            boardScanIsComplete(fullBoardScanMeta ?? undefined) ||
+            boardScanIsComplete(latestBoardScanRef.current);
+          if (
+            !canShowFixedLegBoardScanPicks({
+              legTarget,
+              pickCount: resolved.length,
+              scanComplete: scanDone,
+            })
+          ) {
+            return [];
+          }
           const finalized = finalizeCoachTicketForRequest(resolved, {
             requestedLegs: legTarget,
             requestId: coachRequestContextRef.current?.requestId,
@@ -5481,6 +5521,19 @@ export default function CoachScreen() {
           setParlayBuildPhase("idle");
           setAiPicks(outPicks);
           captureFromCoach(outPicks);
+        } else if (
+          isParlayBuild &&
+          legTarget >= 3 &&
+          latestBoardScanRef.current &&
+          !boardScanIsComplete(latestBoardScanRef.current)
+        ) {
+          // Stream ended before the board scan — keep progress, not under-count cards.
+          setBoardScanPartialLegs(latestBoardScanRef.current.picks?.length ?? 0);
+          setParlayBuildPhase("board-scan");
+          setBuildFinishing(true);
+          setWaiting(true);
+          setAiPicks([]);
+          boardTicketSnapshotRef.current = null;
         } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
           setStreaming(false);
           setWaiting(false);
@@ -6453,20 +6506,38 @@ export default function CoachScreen() {
                     flashEnrichRef.current,
                   );
                   const gated = filterCoachDeliveredPicks(soft, flashEnrichRef.current);
-                  if (gated.length) return gated;
-                  // Message already holds a full ticket but render gates emptied it —
-                  // keep soft/original picks so we never show blank after scoring N of N.
+                  const candidate =
+                    gated.length > 0
+                      ? gated
+                      : renderLegTarget > 0 &&
+                          m.picks!.length >= renderLegTarget &&
+                          soft.length
+                        ? soft
+                        : soft.length
+                          ? soft
+                          : m.picks!;
+                  // Absolute UI lock: never render mid-scan under-count cards
+                  // (2→3→4→5 "scan continues"), even if a write path leaked them.
                   if (
-                    renderLegTarget > 0 &&
-                    m.picks!.length >= renderLegTarget &&
-                    soft.length
+                    !canShowFixedLegBoardScanPicks({
+                      legTarget: renderLegTarget,
+                      pickCount: candidate.length,
+                      scanComplete: m.boardScanComplete,
+                    })
                   ) {
-                    return soft;
+                    return [];
                   }
-                  return soft.length ? soft : m.picks!;
+                  return candidate;
                 })()
               : [];
             const showTicketPicks = displayPicks.length > 0;
+            const liveUnderCountHidden =
+              hasPicks &&
+              !showTicketPicks &&
+              renderLegTarget >= 3 &&
+              (m.picks?.length ?? 0) > 0 &&
+              (m.picks?.length ?? 0) < renderLegTarget &&
+              m.boardScanComplete !== true;
             const hasScanManifest = /### Scan manifest/i.test(m.coachDetailNote ?? "");
             const showTicketHeader = showTicketPicks || hasScanManifest;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
@@ -6499,15 +6570,16 @@ export default function CoachScreen() {
               streaming &&
               !buildProgressExpired &&
               i === messages.length - 1 &&
-              !hasPicks &&
+              (!hasPicks || liveUnderCountHidden) &&
               (parlayBuildIntent ||
                 m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim())));
             const parlayStillBuilding =
               m.role === "assistant" &&
               i === messages.length - 1 &&
-              !hasPicks &&
+              (!hasPicks || liveUnderCountHidden) &&
               (buildFinishing ||
                 streaming ||
+                liveUnderCountHidden ||
                 (buildProgressExpired &&
                   parlayBuildPhase !== "board-scan" &&
                   parlayBuildPhase !== "stream") ||
@@ -6693,9 +6765,9 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung)) &&
+                {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung) || liveUnderCountHidden) &&
                   !showTicketPicks &&
-                  !hasPicks) ? (
+                  (!hasPicks || liveUnderCountHidden)) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}

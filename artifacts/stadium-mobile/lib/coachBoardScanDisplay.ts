@@ -3,9 +3,8 @@
  * Does not change staging, qualification, simulation, or delivery gates —
  * only whether incomplete restaged pick cards are shown in the chat bubble.
  *
- * Hold under-count waves (no 4→5 churn / "scan continues" flicker).
- * Release once the stash hits the requested count, scanComplete, or an
- * empty-card stall escape — never sit on 93% with "Scored N of N" and no cards.
+ * Hold under-count waves (no 2→3→4→5 churn / "scan continues" flicker).
+ * Release once the stash hits the requested count or scanComplete.
  * Sticky blank protection only for a full shown ticket.
  */
 
@@ -15,6 +14,24 @@ export function boardScanDisplayReadyCount(
   stashPickCount: number,
 ): number {
   return Math.max(gatedPickCount || 0, stashPickCount || 0);
+}
+
+/**
+ * Hard gate: fixed-leg mid-scan under-count cards must never render.
+ * Complete scans may show honest shortfalls; full-count may flash early.
+ */
+export function canShowFixedLegBoardScanPicks(opts: {
+  legTarget: number;
+  pickCount: number;
+  scanComplete?: boolean | null;
+  allowIncompletePicks?: boolean;
+  forceShowIncomplete?: boolean;
+}): boolean {
+  if (opts.pickCount <= 0) return false;
+  if (opts.allowIncompletePicks || opts.forceShowIncomplete) return true;
+  if (opts.legTarget < 3) return true;
+  if (opts.scanComplete === true) return true;
+  return opts.pickCount >= opts.legTarget;
 }
 
 /** Fixed-leg live scans: hold pick cards until full count / complete / stall. */
