@@ -88,10 +88,16 @@ export type ParlayBuildPhase = "context" | "board-scan" | "stream" | "score";
 export function AnalysisProgress({
   mode = "build",
   legCount = 0,
+  scoredLegCount = 0,
+  requestedLegs = 0,
   buildPhase,
 }: {
   mode?: "build" | "analyze" | "ask";
+  /** When > 0, progress finalizes to 100% / Final ticket ready (cards on screen). */
   legCount?: number;
+  /** Legs scored in the scan stash while cards may still be held off-screen. */
+  scoredLegCount?: number;
+  requestedLegs?: number;
   buildPhase?: ParlayBuildPhase;
 }) {
   const colors = useColors();
@@ -129,13 +135,20 @@ export function AnalysisProgress({
         : autoIndex;
   const target = legCount > 0 && mode === "build" ? 100 : targetList[effectiveIndex];
   const phaseStage =
-    mode === "build" && buildPhase === "board-scan"
-      ? "Scanning every posted market on the live board…"
-      : mode === "build" && buildPhase === "context"
-        ? "Pulling live odds and props…"
-        : mode === "build" && buildPhase === "score" && legCount > 0
-          ? "Finalizing your ticket…"
-          : null;
+    mode === "build" &&
+    buildPhase === "board-scan" &&
+    scoredLegCount > 0 &&
+    requestedLegs > 0
+      ? `Scored ${scoredLegCount} of ${requestedLegs} legs — finishing your ticket…`
+      : mode === "build" && buildPhase === "board-scan" && scoredLegCount > 0
+        ? `Scored ${scoredLegCount} legs — finishing your ticket…`
+        : mode === "build" && buildPhase === "board-scan"
+          ? "Scanning every posted market on the live board…"
+          : mode === "build" && buildPhase === "context"
+            ? "Pulling live odds and props…"
+            : mode === "build" && buildPhase === "score" && legCount > 0
+              ? "Finalizing your ticket…"
+              : null;
   const displayStage = phaseStage ?? stageList[effectiveIndex];
 
   // Advance the stage on a steady cadence (capped at maxAuto).

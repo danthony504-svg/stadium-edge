@@ -8,6 +8,7 @@ test("fixed-leg incomplete live scans hold pick cards until complete", () => {
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
       legTarget: 6,
+      readyPickCount: 2,
     }),
     true,
   );
@@ -15,6 +16,7 @@ test("fixed-leg incomplete live scans hold pick cards until complete", () => {
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
       legTarget: 5,
+      readyPickCount: 3,
     }),
     true,
   );
@@ -25,6 +27,7 @@ test("completed scans never hold — final ticket may display including shortfal
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: true,
       legTarget: 6,
+      readyPickCount: 4,
     }),
     false,
   );
@@ -46,6 +49,30 @@ test("sub-3-leg asks still allow incomplete flashes", () => {
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
       legTarget: 2,
+      readyPickCount: 1,
+    }),
+    false,
+  );
+});
+
+test("reaching requested count releases hold even before scanComplete", () => {
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 5,
+      readyPickCount: 5,
+    }),
+    false,
+  );
+});
+
+test("stall / forceShowIncomplete releases hold so progress is not empty forever", () => {
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 5,
+      readyPickCount: 3,
+      forceShowIncomplete: true,
     }),
     false,
   );
