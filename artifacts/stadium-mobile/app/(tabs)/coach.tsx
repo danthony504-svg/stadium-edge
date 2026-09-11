@@ -155,6 +155,7 @@ import {
   boardScanDisplayReadyCount,
   canShowFixedLegBoardScanPicks,
   shouldAcceptSameRequestBoardScanTicketUpdate,
+  shouldBlockPostFreezeTicketDisplayMutation,
   shouldBlankHeldBoardScanPickDisplay,
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
@@ -1458,6 +1459,15 @@ export default function CoachScreen() {
         const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
         ticket = delivered.picks;
         coachDetailNote = delivered.coachDetailNote;
+        // Completion handoff: scored N of N + scanComplete must not strand an
+        // empty bubble at 93% — fail-soft to staged stash before freezing empty.
+        if (
+          legTarget >= 3 &&
+          !ticket.length &&
+          (partial.picks?.length ?? 0) >= legTarget
+        ) {
+          ticket = boardScanToCoachTicket(partial, enrichWithScan, legTarget);
+        }
         if (legTarget > 0 && ticket.length < legTarget) {
           legNote = ticket.length
             ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
@@ -1706,11 +1716,29 @@ export default function CoachScreen() {
     ) {
       return false;
     }
+    const legTarget =
+      requestedLegCount(activeParlayAskRef.current) ||
+      effectiveBuildLegCount(activeParlayAskRef.current);
+    // Frozen finished ticket: patchInstant still runs its accept gate for
+    // stash recovery, but never rescore/mutate the visible snapshot in place.
+    if (
+      shouldBlockPostFreezeTicketDisplayMutation({
+        frozen: boardScanTicketFrozenRef.current,
+        legTarget,
+      })
+    ) {
+      const partial = latestBoardScanRef.current;
+      if (!partial?.picks?.length) return false;
+      if (legTarget > 0 && !boardScanReadyForDelivery(partial, legTarget)) {
+        return false;
+      }
+      return patchInstantBoardScanTicket(partial, enrich, {
+        pinScroll: false,
+        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+      });
+    }
     const partial = latestBoardScanRef.current;
     if (partial?.picks?.length) {
-      const legTarget =
-        requestedLegCount(activeParlayAskRef.current) ||
-        effectiveBuildLegCount(activeParlayAskRef.current);
       if (legTarget > 0 && !boardScanReadyForDelivery(partial, legTarget)) {
         return false;
       }
@@ -5649,6 +5677,15 @@ export default function CoachScreen() {
             gameMeta,
           );
           const applySimPicks = (scored: ParsedPick[], tier: "quick" | "deep") => {
+            // Background sim may continue, but never reshape a frozen finished ticket.
+            if (
+              shouldBlockPostFreezeTicketDisplayMutation({
+                frozen: boardScanTicketFrozenRef.current,
+                legTarget: ticketTarget,
+              })
+            ) {
+              return;
+            }
             let next = scored.map((p) => {
               if ((p.simAltLines?.length ?? 0) > 0) return p;
               return attachPropPoolLadder([p], mergedPropPool)[0] ?? p;
@@ -6257,10 +6294,13 @@ export default function CoachScreen() {
     return last?.role === "user";
   }, [messages, buildFinishing, streaming, buildProgressExpired]);
 
-  const footerProgressLegCount = Math.max(
+  // Displayed cards only → 100%. Stash/scored count alone must not finalize
+  // progress (avoids false 100% while fixed-leg UI holds at "Scored N of N" @ 93%).
+  const footerDisplayedLegCount = boardTicketSnapshotRef.current?.length ?? 0;
+  const footerScoredLegCount = Math.max(
     boardScanPartialLegs,
-    boardTicketSnapshotRef.current?.length ?? 0,
     latestBoardScanRef.current?.picks?.length ?? 0,
+    footerDisplayedLegCount,
   );
 
   const showQuickPrompts =
@@ -7000,8 +7040,8 @@ export default function CoachScreen() {
           {footerParlayProgress ? (
             <AnalysisProgress
               mode="build"
-              legCount={footerProgressLegCount}
-              scoredLegCount={footerProgressLegCount}
+              legCount={footerDisplayedLegCount}
+              scoredLegCount={footerScoredLegCount}
               requestedLegs={
                 messages[messages.length - 1]?.ticketLegTarget ||
                 activeRequestLegTargetRef.current ||

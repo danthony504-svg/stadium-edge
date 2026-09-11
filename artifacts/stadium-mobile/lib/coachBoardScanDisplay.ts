@@ -5,7 +5,9 @@
  *
  * Fixed-leg same-request rules:
  * - Hold cards until scanComplete (no 2→4 drip, no mid-scan reshape).
+ * - Scored N of N @ 93% is temporary until scanComplete handoff → 100%.
  * - Once a completed ticket is displayed, freeze it for that request.
+ * - Post-freeze sim/rescore must not mutate the visible finished ticket.
  * - Late incomplete / lower-quality snapshots must not replace it.
  * - Authoritative completed may replace only while the visible ticket is
  *   still explicitly incomplete (or empty).
@@ -92,7 +94,9 @@ export function shouldFreezeDisplayedCoachTicket(opts: {
 
 /**
  * Same-request ticket update gate.
- * Frozen finished tickets reject all replacements (including duplicate finals).
+ * Frozen finished tickets reject replacements (including duplicate finals).
+ * Exception: frozen empty may accept a completed non-empty recovery so
+ * "Scored N of N" never stays permanently stuck after scanComplete.
  * Incomplete/empty visible tickets accept only authoritative completed results.
  */
 export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
@@ -109,9 +113,81 @@ export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
       legTarget: opts.legTarget,
     })
   ) {
+    // Visible finished ticket stays frozen. Empty frozen may recover to a
+    // completed non-empty ticket (handoff after a zeroed delivery race).
+    if (
+      opts.displayedPickCount === 0 &&
+      opts.incomingScanComplete === true &&
+      opts.incomingPickCount > 0
+    ) {
+      return true;
+    }
     return false;
   }
   if (opts.legTarget < 3) return true;
   // Visible still incomplete/empty — only completed authoritative results land.
   return opts.incomingScanComplete === true;
+}
+
+/**
+ * Fixed-leg progress %: cards on screen → 100%; otherwise scored floor ≤ 93%.
+ * Mid-scan "Scored N of N" is temporary; handoff to 100% when the finished
+ * ticket is displayed after scanComplete.
+ */
+export function boardScanDisplayProgressPct(opts: {
+  displayedLegCount: number;
+  scoredLegCount: number;
+  legTarget: number;
+}): number {
+  if (opts.displayedLegCount > 0) return 100;
+  if (opts.legTarget > 0 && opts.scoredLegCount > 0) {
+    const scored = Math.min(opts.scoredLegCount, opts.legTarget);
+    return Math.min(93, Math.round(40 + (53 * scored) / opts.legTarget));
+  }
+  return 0;
+}
+
+/**
+ * True when scored N of N + scanComplete should hand off to the final ticket
+ * (and 100%). Mid-scan full score alone is not enough — keep #451 hold.
+ */
+export function canCompleteFixedLegBoardScanHandoff(opts: {
+  legTarget: number;
+  scoredLegCount: number;
+  scanComplete?: boolean | null;
+  allowIncompletePicks?: boolean;
+  forceShowIncomplete?: boolean;
+}): boolean {
+  if (opts.allowIncompletePicks || opts.forceShowIncomplete) {
+    return opts.scoredLegCount > 0;
+  }
+  if (opts.legTarget < 3) return opts.scoredLegCount > 0;
+  return opts.scanComplete === true && opts.scoredLegCount > 0;
+}
+
+/**
+ * Permanent 93% bug state: scan finished with a full scored stash but no cards.
+ * Temporary mid-scan "Scored N of N" @ 93% (scanComplete false) is not permanent.
+ */
+export function isPermanentBoardScan93PctState(opts: {
+  legTarget: number;
+  scoredLegCount: number;
+  displayedLegCount: number;
+  scanComplete?: boolean | null;
+}): boolean {
+  if (opts.displayedLegCount > 0) return false;
+  if (opts.scanComplete !== true) return false;
+  if (opts.legTarget < 3) return false;
+  return opts.scoredLegCount >= opts.legTarget;
+}
+
+/**
+ * After a finished same-request ticket is frozen, sim/rescore must not mutate
+ * the visible picks/odds/grades/confidence/edge/ordering.
+ */
+export function shouldBlockPostFreezeTicketDisplayMutation(opts: {
+  frozen: boolean;
+  legTarget: number;
+}): boolean {
+  return opts.frozen === true && opts.legTarget >= 3;
 }

@@ -5,8 +5,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  boardScanDisplayProgressPct,
+  canCompleteFixedLegBoardScanHandoff,
   canShowFixedLegBoardScanPicks,
+  isPermanentBoardScan93PctState,
   shouldAcceptSameRequestBoardScanTicketUpdate,
+  shouldBlockPostFreezeTicketDisplayMutation,
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
@@ -109,11 +113,115 @@ test("timeline: shortfall 5-of-6 only after scanComplete", () => {
   );
 });
 
-test("coach.tsx wires freeze accept gate", () => {
+test("timeline: scored 6 of 6 → scanComplete → 100% → final ticket (no permanent 93%)", () => {
+  let state = { displayedPickCount: 0, displayedScanComplete: false };
+  // Scored full while still scanning — hold at 93%, not permanent.
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 6,
+      readyPickCount: 6,
+    }),
+    true,
+  );
+  assert.equal(
+    boardScanDisplayProgressPct({
+      displayedLegCount: 0,
+      scoredLegCount: 6,
+      legTarget: 6,
+    }),
+    93,
+  );
+  assert.equal(
+    isPermanentBoardScan93PctState({
+      legTarget: 6,
+      scoredLegCount: 6,
+      displayedLegCount: 0,
+      scanComplete: false,
+    }),
+    false,
+  );
+  assert.equal(
+    canCompleteFixedLegBoardScanHandoff({
+      legTarget: 6,
+      scoredLegCount: 6,
+      scanComplete: false,
+    }),
+    false,
+  );
+  // Handoff on scanComplete.
+  assert.equal(
+    canCompleteFixedLegBoardScanHandoff({
+      legTarget: 6,
+      scoredLegCount: 6,
+      scanComplete: true,
+    }),
+    true,
+  );
+  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
+  assert.equal(
+    boardScanDisplayProgressPct({
+      displayedLegCount: state.displayedPickCount,
+      scoredLegCount: 6,
+      legTarget: 6,
+    }),
+    100,
+  );
+  assert.equal(
+    isPermanentBoardScan93PctState({
+      legTarget: 6,
+      scoredLegCount: 6,
+      displayedLegCount: state.displayedPickCount,
+      scanComplete: true,
+    }),
+    false,
+  );
+});
+
+test("timeline: post-freeze sim rescore cannot mutate visible finished ticket", () => {
+  let state = { displayedPickCount: 6, displayedScanComplete: true };
+  assert.equal(
+    shouldBlockPostFreezeTicketDisplayMutation({ frozen: true, legTarget: 6 }),
+    true,
+  );
+  // Deep-sim "upgrade" shaped like a new final 6 with different ordering — rejected.
+  state = applyWave(state, { pickCount: 6, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
+  state = applyWave(state, { pickCount: 5, scanComplete: true }, 6);
+  assert.deepEqual(state, { displayedPickCount: 6, displayedScanComplete: true });
+});
+
+test("timeline: Try Again clears freeze and accepts a fresh completed ticket", () => {
+  const prior = { displayedPickCount: 6, displayedScanComplete: true };
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: prior.displayedScanComplete,
+      displayedPickCount: prior.displayedPickCount,
+      incomingScanComplete: true,
+      incomingPickCount: 6,
+      legTarget: 6,
+    }),
+    false,
+  );
+  // New Ask / Try Again resets freeze + empty bubble.
+  const fresh = { displayedPickCount: 0, displayedScanComplete: false };
+  assert.equal(
+    shouldBlockPostFreezeTicketDisplayMutation({ frozen: false, legTarget: 6 }),
+    false,
+  );
+  const next = applyWave(fresh, { pickCount: 8, scanComplete: true }, 8);
+  assert.deepEqual(next, { displayedPickCount: 8, displayedScanComplete: true });
+});
+
+test("coach.tsx wires freeze accept gate and post-freeze sim block", () => {
   const src = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/coach.tsx"),
     "utf8",
   );
   assert.match(src, /shouldAcceptSameRequestBoardScanTicketUpdate/);
   assert.match(src, /shouldFreezeDisplayedCoachTicket/);
+  assert.match(src, /shouldBlockPostFreezeTicketDisplayMutation/);
+  assert.match(src, /footerDisplayedLegCount/);
+  assert.match(src, /footerScoredLegCount/);
 });
