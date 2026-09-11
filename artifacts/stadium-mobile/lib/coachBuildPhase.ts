@@ -2,7 +2,7 @@
  * Coach build-phase UI handoff while a board scan is in flight.
  * Does not change staging, qualification, freeze, or composer unlock policy —
  * only which AnalysisProgress phase label is shown while cards are still empty,
- * and when stall escape must clear busy.
+ * and when stall escape / send finally must clear busy.
  */
 
 /** Keep "board-scan" (not "stream"/"score") until pick cards actually land. */
@@ -11,24 +11,20 @@ export function coachPhaseWhileAwaitingTicketCards(opts: {
   stashPickCount: number;
 }): "board-scan" | "stream" {
   if (opts.displayedPickCount > 0) return "stream";
-  // Stash may already be scoring — stay on board-scan so UI does not sit on
-  // "Building final AI grade…" @ 93% with an empty bubble.
   if (opts.stashPickCount > 0) return "board-scan";
   return "board-scan";
 }
 
 /**
- * After a stall attempt, clear busy whenever cards still did not land —
- * including empty stash (no onPartial yet). Otherwise composer stays locked
- * on "Scanning…" @ 93% forever.
- *
- * Exception: an incomplete board-scan still in flight must keep busy so the
- * dead-end "finished without pick cards" effect cannot fire before delivery.
+ * After a stall attempt, clear busy only when cards still missing AND no
+ * same-request board-scan attempt is still pending (including empty stash
+ * before the first onPartial). Otherwise composer unlocks mid-scan and the
+ * dead-end "finished without pick cards" copy fires for every N-leg ask.
  */
 export function shouldClearBusyAfterFailedStallPaint(opts: {
   hadStashPicks: boolean;
   displayedPickCountAfter: number;
-  /** True when a same-request scan exists but has not exhaustively finished. */
+  /** Incomplete stash scan, or owned attempt before first partial. */
   incompleteScanInFlight?: boolean;
 }): boolean {
   if (opts.displayedPickCountAfter > 0) return false;
@@ -37,9 +33,8 @@ export function shouldClearBusyAfterFailedStallPaint(opts: {
 }
 
 /**
- * Empty-card board-scan stall must cover context fetch + full board-scan budget
- * (120s for 6 legs). Unlocking at 90s was racing late/kernel scans and writing
- * "finished without pick cards" before cards could land.
+ * Empty-card stall must cover context fetch + full board-scan budget.
+ * 9-leg budget is 150s — stall must stay above that.
  */
 export function emptyCardBoardScanStallMs(requestedLegs: number): number {
   if (requestedLegs >= 15) return 200_000;
@@ -50,9 +45,10 @@ export function emptyCardBoardScanStallMs(requestedLegs: number): number {
 }
 
 /**
- * After send()'s try path ends, keep Coach "finishing" when a same-request board
- * scan is still incomplete and no cards are on screen — otherwise finally clears
- * busy and the empty-ticket dead-end copy fires mid-scan.
+ * Keep Coach "finishing" after send()'s try path when a same-request board-scan
+ * attempt is still pending — including the empty-stash window before the first
+ * onPartial. Requiring hasScanStash alone let finally clear busy and fire the
+ * empty-ticket dead-end for plain N-leg parlays and props-only alike.
  */
 export function shouldKeepBusyForIncompleteBoardScan(opts: {
   isParlayBuild: boolean;
@@ -61,10 +57,27 @@ export function shouldKeepBusyForIncompleteBoardScan(opts: {
   scanComplete: boolean | null | undefined;
   hasScanStash: boolean;
   ticketFrozen?: boolean;
+  /** True while this send still owns a board-scan attempt (feeds/scan/late-join). */
+  boardScanPending?: boolean;
 }): boolean {
   if (!opts.isParlayBuild || opts.legTarget < 3) return false;
   if (opts.displayedPickCount > 0) return false;
   if (opts.ticketFrozen) return false;
+  if (opts.boardScanPending && opts.scanComplete !== true) return true;
   if (!opts.hasScanStash) return false;
   return opts.scanComplete !== true;
+}
+
+/**
+ * Suppress the "finished without pick cards" dead-end while a board-scan
+ * attempt is still pending or an incomplete stash exists.
+ */
+export function shouldSuppressEmptyTicketDeadEnd(opts: {
+  boardScanPending: boolean;
+  scanComplete: boolean | null | undefined;
+  hasScanStash: boolean;
+}): boolean {
+  if (opts.boardScanPending && opts.scanComplete !== true) return true;
+  if (opts.hasScanStash && opts.scanComplete !== true) return true;
+  return false;
 }

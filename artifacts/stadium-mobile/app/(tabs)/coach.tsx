@@ -162,7 +162,13 @@ import {
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
-import { coachPhaseWhileAwaitingTicketCards, emptyCardBoardScanStallMs, shouldClearBusyAfterFailedStallPaint, shouldKeepBusyForIncompleteBoardScan } from "@/lib/coachBuildPhase";
+import {
+  coachPhaseWhileAwaitingTicketCards,
+  emptyCardBoardScanStallMs,
+  shouldClearBusyAfterFailedStallPaint,
+  shouldKeepBusyForIncompleteBoardScan,
+  shouldSuppressEmptyTicketDeadEnd,
+} from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
@@ -1294,11 +1300,45 @@ export default function CoachScreen() {
   /** After stall/progress expiry, allow incomplete stash to render (no empty 81% forever). */
   const forceShowIncompleteBoardScanRef = useRef(false);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
+  /**
+   * This send still owns a board-scan attempt (feeds / scan / late-join), including
+   * the empty-stash window before the first onPartial. Prevents finally + dead-end
+   * from claiming "finished without pick cards" mid-scan for any N-leg ask.
+   */
+  const boardScanAttemptActiveRef = useRef(false);
+  const boardScanLateJoinsRef = useRef(0);
   const activeParlayAskRef = useRef("");
   const varietySeedRef = useRef("");
   const coachRequestContextRef = useRef<CoachTicketRequestContext | null>(null);
   const activeRequestLegTargetRef = useRef(0);
   const liveScanDeliveredRef = useRef(false);
+
+  const boardScanPendingForActiveSend = useCallback(() => {
+    return boardScanAttemptActiveRef.current || boardScanLateJoinsRef.current > 0;
+  }, []);
+
+  const beginBoardScanAttempt = useCallback(() => {
+    boardScanAttemptActiveRef.current = true;
+  }, []);
+
+  const endBoardScanAttemptIfSettled = useCallback(() => {
+    if (boardScanLateJoinsRef.current > 0) return;
+    const stash = latestBoardScanRef.current;
+    if (stash && !boardScanIsComplete(stash)) return;
+    boardScanAttemptActiveRef.current = false;
+  }, []);
+
+  const trackLateBoardScanJoin = useCallback(
+    (join: Promise<unknown>) => {
+      boardScanAttemptActiveRef.current = true;
+      boardScanLateJoinsRef.current += 1;
+      void join.finally(() => {
+        boardScanLateJoinsRef.current = Math.max(0, boardScanLateJoinsRef.current - 1);
+        endBoardScanAttemptIfSettled();
+      });
+    },
+    [endBoardScanAttemptIfSettled],
+  );
 
   const deliverCoachTicket = useCallback(
     (
@@ -1941,7 +1981,9 @@ export default function CoachScreen() {
           shouldClearBusyAfterFailedStallPaint({
             hadStashPicks: !!(stashed?.picks?.length),
             displayedPickCountAfter: displayedAfter,
-            incompleteScanInFlight: !!(stashed && !boardScanIsComplete(stashed)),
+            incompleteScanInFlight:
+              boardScanPendingForActiveSend() &&
+              !(stashed && boardScanIsComplete(stashed)),
           })
         ) {
           // No cards after stall (empty stash or failed force-show) — unlock
@@ -1977,7 +2019,7 @@ export default function CoachScreen() {
         scrollToEnd(false);
       }, stallMs);
     },
-    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket],
+    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend],
   );
 
   const flashBoardScanResult = useCallback(
@@ -2228,6 +2270,8 @@ export default function CoachScreen() {
       latestBoardScanRef.current = null;
       forceShowIncompleteBoardScanRef.current = false;
       earlyReachBoardScanRef.current = null;
+      boardScanAttemptActiveRef.current = false;
+      boardScanLateJoinsRef.current = 0;
       liveScanDeliveredRef.current = false;
       setBoardScanPartialLegs(0);
       setAiPicks([]);
@@ -2252,6 +2296,8 @@ export default function CoachScreen() {
         boardTicketSnapshotRef.current = null;
         latestBoardScanRef.current = null;
         earlyReachBoardScanRef.current = null;
+        boardScanAttemptActiveRef.current = false;
+        boardScanLateJoinsRef.current = 0;
         // Keep coachRequestContextRef / activeRequestLegTargetRef — already
         // swapped to this send's identity above (closes clear→start gap).
         liveScanDeliveredRef.current = false;
@@ -2888,6 +2934,7 @@ export default function CoachScreen() {
           const reachFullPreScanEligible =
             boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS && !slipImageVerdictOnly;
           if (reachFullPreScanEligible || (boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS)) {
+            beginBoardScanAttempt();
             setParlayBuildPhase("board-scan");
           }
           type ScanFeeds = {
@@ -3128,34 +3175,36 @@ export default function CoachScreen() {
               if (!boardScanIsComplete(preBoardScan)) {
                 const joinGen = sendGenerationRef.current;
                 const joinRequestId = coachRequestContextRef.current?.requestId;
-                void awaitLateBoardScanAfterBudget(preScanPromise, {
-                  legTarget: reachTargetPreScan,
-                  stillActive: () =>
-                    sendGenerationRef.current === joinGen &&
-                    coachRequestContextRef.current?.requestId === joinRequestId,
-                }).then((late) => {
-                  if (!late) return;
-                  if (
-                    !boardScanAppliesToRequest(
-                      late,
-                      reachTargetPreScan,
-                      coachRequestContextRef.current?.sendGeneration ?? joinGen,
-                      sendGenerationRef.current,
-                      joinRequestId,
-                    )
-                  ) {
-                    return;
-                  }
-                  latestBoardScanRef.current = late;
-                  const lateEnrich = {
-                    ...flashEnrichRef.current,
-                    realOdds: [
-                      ...flashEnrichRef.current.realOdds,
-                      ...[...(late.evalLinesByGame?.values() ?? [])].flat(),
-                    ],
-                  };
-                  deliverBoardScanTicket(late, lateEnrich);
-                });
+                trackLateBoardScanJoin(
+                  awaitLateBoardScanAfterBudget(preScanPromise, {
+                    legTarget: reachTargetPreScan,
+                    stillActive: () =>
+                      sendGenerationRef.current === joinGen &&
+                      coachRequestContextRef.current?.requestId === joinRequestId,
+                  }).then((late) => {
+                    if (!late) return;
+                    if (
+                      !boardScanAppliesToRequest(
+                        late,
+                        reachTargetPreScan,
+                        coachRequestContextRef.current?.sendGeneration ?? joinGen,
+                        sendGenerationRef.current,
+                        joinRequestId,
+                      )
+                    ) {
+                      return;
+                    }
+                    latestBoardScanRef.current = late;
+                    const lateEnrich = {
+                      ...flashEnrichRef.current,
+                      realOdds: [
+                        ...flashEnrichRef.current.realOdds,
+                        ...[...(late.evalLinesByGame?.values() ?? [])].flat(),
+                      ],
+                    };
+                    deliverBoardScanTicket(late, lateEnrich);
+                  }),
+                );
               }
             } catch {
               preBoardScan = preferFinalBoardScanForDelivery(
@@ -3558,8 +3607,10 @@ export default function CoachScreen() {
           explicitSingleGame,
           oddsThreshold,
           confidenceThreshold,
+          kernelOnly: useParlayKernel || COACH_PARLAY_KERNEL_ONLY,
         });
         if (reachBoardEligible) {
+          beginBoardScanAttempt();
           const cachedBoardScan = preferFinalBoardScanForDelivery(
             Math.min(legTarget, MAX_LEGS),
             preBoardScan,
@@ -3631,27 +3682,29 @@ export default function CoachScreen() {
             if (!boardScanIsComplete(reachBoardScan)) {
               const joinGen = sendGenerationRef.current;
               const joinRequestId = coachRequestContextRef.current?.requestId;
-              void awaitLateBoardScanAfterBudget(reachScanPromise, {
-                legTarget: reachScanTarget,
-                stillActive: () =>
-                  sendGenerationRef.current === joinGen &&
-                  coachRequestContextRef.current?.requestId === joinRequestId,
-              }).then((late) => {
-                if (!late) return;
-                if (
-                  !boardScanAppliesToRequest(
-                    late,
-                    reachScanTarget,
-                    coachRequestContextRef.current?.sendGeneration ?? joinGen,
-                    sendGenerationRef.current,
-                    joinRequestId,
-                  )
-                ) {
-                  return;
-                }
-                latestBoardScanRef.current = late;
-                deliverBoardScanTicket(late);
-              });
+              trackLateBoardScanJoin(
+                awaitLateBoardScanAfterBudget(reachScanPromise, {
+                  legTarget: reachScanTarget,
+                  stillActive: () =>
+                    sendGenerationRef.current === joinGen &&
+                    coachRequestContextRef.current?.requestId === joinRequestId,
+                }).then((late) => {
+                  if (!late) return;
+                  if (
+                    !boardScanAppliesToRequest(
+                      late,
+                      reachScanTarget,
+                      coachRequestContextRef.current?.sendGeneration ?? joinGen,
+                      sendGenerationRef.current,
+                      joinRequestId,
+                    )
+                  ) {
+                    return;
+                  }
+                  latestBoardScanRef.current = late;
+                  deliverBoardScanTicket(late);
+                }),
+              );
             }
           }
         }
@@ -4064,6 +4117,7 @@ export default function CoachScreen() {
             }
           }
         } else if (!fullBoardScanned && useFullBoardScan) {
+          beginBoardScanAttempt();
           setParlayBuildPhase("board-scan");
           const scanSports = coachLiveScanSports(excludedSports);
           const [espnGames, oddsGames, liveFeed] = await Promise.all([
@@ -4129,27 +4183,29 @@ export default function CoachScreen() {
           if (!boardScanIsComplete(inlineScan)) {
             const joinGen = sendGenerationRef.current;
             const joinRequestId = coachRequestContextRef.current?.requestId;
-            void awaitLateBoardScanAfterBudget(inlineScanPromise, {
-              legTarget: reachTarget,
-              stillActive: () =>
-                sendGenerationRef.current === joinGen &&
-                coachRequestContextRef.current?.requestId === joinRequestId,
-            }).then((late) => {
-              if (!late) return;
-              if (
-                !boardScanAppliesToRequest(
-                  late,
-                  reachTarget,
-                  coachRequestContextRef.current?.sendGeneration ?? joinGen,
-                  sendGenerationRef.current,
-                  joinRequestId,
-                )
-              ) {
-                return;
-              }
-              latestBoardScanRef.current = late;
-              deliverBoardScanTicket(late, pickEnrich);
-            });
+            trackLateBoardScanJoin(
+              awaitLateBoardScanAfterBudget(inlineScanPromise, {
+                legTarget: reachTarget,
+                stillActive: () =>
+                  sendGenerationRef.current === joinGen &&
+                  coachRequestContextRef.current?.requestId === joinRequestId,
+              }).then((late) => {
+                if (!late) return;
+                if (
+                  !boardScanAppliesToRequest(
+                    late,
+                    reachTarget,
+                    coachRequestContextRef.current?.sendGeneration ?? joinGen,
+                    sendGenerationRef.current,
+                    joinRequestId,
+                  )
+                ) {
+                  return;
+                }
+                latestBoardScanRef.current = late;
+                deliverBoardScanTicket(late, pickEnrich);
+              }),
+            );
           }
         } else if (forceBoardBuild && !blockUngradedTopUp) {
           picks = assembleDeepParlayFromBoard(
@@ -6060,6 +6116,7 @@ export default function CoachScreen() {
           scanComplete: latestBoardScanRef.current?.scanComplete,
           hasScanStash: !!latestBoardScanRef.current,
           ticketFrozen: boardScanTicketFrozenRef.current,
+          boardScanPending: boardScanPendingForActiveSend(),
         });
         if (keepBusy) {
           // Late board-scan join still running — do not clear busy or the
@@ -6570,7 +6627,15 @@ export default function CoachScreen() {
     if (!parlayIntent) return;
     // Incomplete same-request scan still scoring — never claim the build finished.
     const inFlight = latestBoardScanRef.current;
-    if (inFlight && !boardScanIsComplete(inFlight)) return;
+    if (
+      shouldSuppressEmptyTicketDeadEnd({
+        boardScanPending: boardScanPendingForActiveSend(),
+        scanComplete: inFlight?.scanComplete,
+        hasScanStash: !!inFlight,
+      })
+    ) {
+      return;
+    }
     const content = (last.content ?? "").trim();
     const genericFailure =
       /couldn't ground a real ticket/i.test(content) ||

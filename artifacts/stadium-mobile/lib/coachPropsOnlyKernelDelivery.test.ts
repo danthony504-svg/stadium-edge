@@ -51,6 +51,17 @@ test("empty stall and finally busy keep cannot race a 120s board scan", () => {
     }),
     true,
   );
+  assert.equal(
+    shouldKeepBusyForIncompleteBoardScan({
+      isParlayBuild: true,
+      legTarget: 9,
+      displayedPickCount: 0,
+      scanComplete: undefined,
+      hasScanStash: false,
+      boardScanPending: true,
+    }),
+    true,
+  );
 });
 
 test("coach.tsx wires kernel props-only onto board-scan + keeps busy mid-scan", () => {
@@ -59,11 +70,10 @@ test("coach.tsx wires kernel props-only onto board-scan + keeps busy mid-scan", 
   assert.match(src, /propsOnly:\s*wantsPropsOnly\(trimmed\)/);
   assert.match(src, /propsOnly:\s*propsOnlyTicket/);
   assert.match(src, /shouldKeepBusyForIncompleteBoardScan\(/);
-  assert.match(src, /incompleteScanInFlight:\s*!!\(stashed\s*&&\s*!boardScanIsComplete\(stashed\)\)/);
-  assert.match(
-    src,
-    /if\s*\(inFlight\s*&&\s*!boardScanIsComplete\(inFlight\)\)\s*return;/,
-  );
+  assert.match(src, /boardScanPending:\s*boardScanPendingForActiveSend\(\)/);
+  assert.match(src, /shouldSuppressEmptyTicketDeadEnd\(/);
+  assert.match(src, /trackLateBoardScanJoin\(/);
+  assert.match(src, /beginBoardScanAttempt\(/);
 });
 
 test("boardMarketScanner stages props-only from prop legs", () => {
