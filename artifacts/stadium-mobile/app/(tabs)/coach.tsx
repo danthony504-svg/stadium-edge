@@ -1487,7 +1487,6 @@ export default function CoachScreen() {
         return true;
       }
 
-      const ctx = coachRequestContextRef.current;
       const isFinal = boardScanIsComplete(partial);
       if (legTarget >= 3) {
         const finalized = finalizeCoachTicketForRequest(ticket, {
