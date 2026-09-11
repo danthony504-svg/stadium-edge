@@ -477,10 +477,13 @@ export function buildScanResult(
     varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
+    /** Stage only player-prop legs (props-only asks). Qual gates unchanged. */
+    propsOnly?: boolean;
   },
 ): FullBoardScanResult {
+  const stagePool = opts.propsOnly ? scored.filter((leg) => !!leg.pick.isProp) : scored;
   const staged = buildStagedTicketFromScan(
-    scored,
+    stagePool,
     opts.target,
     opts.varietySeed,
     {
@@ -488,7 +491,7 @@ export function buildScanResult(
       ticketStyle: opts.ticketStyle,
     },
   );
-  const picks = injectPrioritySportsIntoTicket(staged.picks, scored, opts.target);
+  const picks = injectPrioritySportsIntoTicket(staged.picks, stagePool, opts.target);
   const breakdown = staged.breakdown;
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
@@ -561,6 +564,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
+  propsOnly?: boolean;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -630,6 +634,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       varietyContext: opts.varietyContext,
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
+      propsOnly: opts.propsOnly,
     });
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
   };
@@ -735,6 +740,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
+    propsOnly: opts.propsOnly,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;
@@ -777,12 +783,20 @@ export function reachBoardScanEligible(opts: {
   explicitSingleGame?: boolean;
   oddsThreshold?: unknown;
   confidenceThreshold?: unknown;
+  /**
+   * When the Coach parlay kernel skips the LLM, props-only has no alternate
+   * delivery path — board-scan must stay eligible or the ticket finishes empty.
+   */
+  kernelOnly?: boolean;
 }): boolean {
   if (opts.isAnalyze) return false;
   const asked = opts.requestedLegs ?? 0;
   if (asked < 3) return false;
-  if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
+  if (opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
     return false;
+  }
+  if (opts.propsOnly) {
+    return opts.kernelOnly === true;
   }
   return true;
 }

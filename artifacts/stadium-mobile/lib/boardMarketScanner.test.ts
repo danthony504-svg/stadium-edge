@@ -50,8 +50,22 @@ test("reachBoardScanEligible requires 3+ legs and no locks", () => {
   assert.equal(reachBoardScanEligible({ requestedLegs: 5 }), true);
   assert.equal(reachBoardScanEligible({ requestedLegs: 2 }), false);
   assert.equal(reachBoardScanEligible({ requestedLegs: 15, propsOnly: true }), false);
-  // "6 leg player props" is props-only — must not enter the full board-scan hang path.
+  // Without kernel, props-only stays off the board-scan path.
   assert.equal(reachBoardScanEligible({ requestedLegs: 6, propsOnly: true }), false);
+  // Kernel-only: props-only must board-scan (no LLM fallback).
+  assert.equal(
+    reachBoardScanEligible({ requestedLegs: 6, propsOnly: true, kernelOnly: true }),
+    true,
+  );
+  assert.equal(
+    reachBoardScanEligible({
+      requestedLegs: 6,
+      propsOnly: true,
+      kernelOnly: true,
+      oddsThreshold: { signed: -110, mode: "atLeast" },
+    }),
+    false,
+  );
   assert.equal(shouldUseFullBoardScan(15, { requestedLegs: 15 }), true);
 });
 

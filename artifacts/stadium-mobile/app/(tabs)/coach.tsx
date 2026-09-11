@@ -135,6 +135,7 @@ import {
 import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket } from "@/lib/coachTicketKernel";
 import {
   coachParlayKernelSkipStream,
+  COACH_PARLAY_KERNEL_ONLY,
   resolveCoachParlayKernelTicket,
 } from "@/lib/coachParlayEngine";
 import { mergeCoachDetailNotes, partitionCoachNotes } from "@/lib/coachNotePartition";
@@ -161,7 +162,7 @@ import {
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
-import { coachPhaseWhileAwaitingTicketCards, emptyCardBoardScanStallMs, shouldClearBusyAfterFailedStallPaint } from "@/lib/coachBuildPhase";
+import { coachPhaseWhileAwaitingTicketCards, emptyCardBoardScanStallMs, shouldClearBusyAfterFailedStallPaint, shouldKeepBusyForIncompleteBoardScan } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
@@ -1940,6 +1941,7 @@ export default function CoachScreen() {
           shouldClearBusyAfterFailedStallPaint({
             hadStashPicks: !!(stashed?.picks?.length),
             displayedPickCountAfter: displayedAfter,
+            incompleteScanInFlight: !!(stashed && !boardScanIsComplete(stashed)),
           })
         ) {
           // No cards after stall (empty stash or failed force-show) — unlock
@@ -2880,6 +2882,8 @@ export default function CoachScreen() {
             explicitSingleGame,
             oddsThreshold,
             confidenceThreshold,
+            // Kernel skips the LLM — props-only must board-scan or finishes empty.
+            kernelOnly: useParlayKernel || COACH_PARLAY_KERNEL_ONLY,
           });
           const reachFullPreScanEligible =
             boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS && !slipImageVerdictOnly;
@@ -3086,6 +3090,7 @@ export default function CoachScreen() {
                 calibration: modelCalibration,
                 onPartial: onBoardScanPartial,
                 signal: abortRef.current?.signal,
+                propsOnly: wantsPropsOnly(trimmed),
                 ...boardScanVariety,
               });
               preBoardScan = await Promise.race([
@@ -3600,6 +3605,7 @@ export default function CoachScreen() {
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+              propsOnly: wantsPropsOnly(trimmed),
             });
             reachBoardScan = await Promise.race([
               reachScanPromise,
@@ -4094,6 +4100,7 @@ export default function CoachScreen() {
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
             ticketStyle: coachTicketStyle,
             requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+            propsOnly: propsOnlyTicket,
           });
           const inlineScan = await Promise.race([
             inlineScanPromise,
@@ -5259,6 +5266,9 @@ export default function CoachScreen() {
           );
           picks = delivered.picks;
           boardScanManifestDetail = delivered.coachDetailNote;
+          if (propsOnlyTicket && picks.some((p) => !p.isProp)) {
+            picks = picks.filter((p) => p.isProp);
+          }
         } else if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
           const finalized = finalizeCoachTicketPicks(picks, ticketEnrich);
@@ -6039,16 +6049,38 @@ export default function CoachScreen() {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
         }
-        clearBuildStallWatchdog();
         releaseOtaBlock();
-        setWaiting(false);
-        setStreaming(false);
-        setBuildFinishing(false);
-        setBuildProgressExpired(false);
-        setParlayBuildPhase("idle");
-        setBoardScanPartialLegs(0);
-        setCoachBuildBusy(false);
-        abortRef.current = null;
+        const keepBusy = shouldKeepBusyForIncompleteBoardScan({
+          isParlayBuild: isParlayBuildAsk(trimmed),
+          legTarget:
+            activeRequestLegTargetRef.current ||
+            requestedLegCount(trimmed) ||
+            effectiveBuildLegCount(trimmed),
+          displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+          scanComplete: latestBoardScanRef.current?.scanComplete,
+          hasScanStash: !!latestBoardScanRef.current,
+          ticketFrozen: boardScanTicketFrozenRef.current,
+        });
+        if (keepBusy) {
+          // Late board-scan join still running — do not clear busy or the
+          // empty-ticket dead-end copy fires mid-scan.
+          setStreaming(false);
+          setWaiting(true);
+          setBuildFinishing(true);
+          setParlayBuildPhase("board-scan");
+          setCoachBuildBusy(true);
+          armBuildStallWatchdog(sendGen, trimmed);
+        } else {
+          clearBuildStallWatchdog();
+          setWaiting(false);
+          setStreaming(false);
+          setBuildFinishing(false);
+          setBuildProgressExpired(false);
+          setParlayBuildPhase("idle");
+          setBoardScanPartialLegs(0);
+          setCoachBuildBusy(false);
+          abortRef.current = null;
+        }
         scrollToEnd();
       }
     },
@@ -6536,6 +6568,9 @@ export default function CoachScreen() {
     const priorUser = [...messages].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent) return;
+    // Incomplete same-request scan still scoring — never claim the build finished.
+    const inFlight = latestBoardScanRef.current;
+    if (inFlight && !boardScanIsComplete(inFlight)) return;
     const content = (last.content ?? "").trim();
     const genericFailure =
       /couldn't ground a real ticket/i.test(content) ||
