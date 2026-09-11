@@ -160,7 +160,7 @@ import {
   shouldFreezeDisplayedCoachTicket,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "@/lib/coachBoardScanDisplay";
-import { coachPhaseWhileAwaitingTicketCards, shouldClearBusyAfterFailedStallPaint } from "@/lib/coachBuildPhase";
+import { coachPhaseWhileAwaitingTicketCards, emptyCardBoardScanStallMs, shouldClearBusyAfterFailedStallPaint } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
@@ -1897,7 +1897,13 @@ export default function CoachScreen() {
     (sendGen: number, userText: string) => {
       clearBuildStallWatchdog();
       const legs = requestedLegCount(userText);
-      const stallMs = buildStallBudgetMs(legs);
+      // Empty-card / empty-stash board-scan: unlock sooner than the deep 240s budget.
+      const emptyCard =
+        !(boardTicketSnapshotRef.current?.length) &&
+        !(latestBoardScanRef.current?.picks?.length);
+      const stallMs = emptyCard
+        ? emptyCardBoardScanStallMs(legs || effectiveBuildLegCount(userText))
+        : buildStallBudgetMs(legs);
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
         // Release display hold so a scored-but-incomplete stash can leave the
@@ -1935,7 +1941,9 @@ export default function CoachScreen() {
             displayedPickCountAfter: displayedAfter,
           })
         ) {
-          // Force-show could not paint — do not leave composer locked on spinner.
+          // No cards after stall (empty stash or failed force-show) — unlock
+          // composer instead of leaving "Scanning…" @ 93% with a locked send.
+          // Do not abort the in-flight scan; late complete may still deliver.
           setStreaming(false);
           setWaiting(false);
           setBuildFinishing(false);
