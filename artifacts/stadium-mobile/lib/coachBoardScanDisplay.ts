@@ -3,18 +3,29 @@
  * Does not change staging, qualification, simulation, or delivery gates —
  * only whether incomplete restaged pick cards are shown in the chat bubble.
  *
- * Hold was tried to stop mid-scan add/remove flicker, but it stranded users on
- * a slow empty 60–93% progress card. Incomplete picks show again; late
- * scanComplete still replaces the ticket via budget handoff.
+ * Mid-scan waves restage (2→4→3…) and flicker on screen. Hold cards while the
+ * stash is still under the requested count; AnalysisProgress shows "Scored X of Y"
+ * instead. Release on full count, scanComplete, stall, or explicit preview.
  */
 
-/** @deprecated Always false — incomplete board-scan picks are shown. */
-export function shouldHoldIncompleteBoardScanPickDisplay(_opts: {
+/** Fixed-leg live scans: hold pick cards until full count / complete / stall. */
+export function shouldHoldIncompleteBoardScanPickDisplay(opts: {
   scanComplete?: boolean | null;
   legTarget: number;
+  /** Qualified / restaged pick count currently in the scan stash. */
   readyPickCount?: number;
+  /** Slate seed / explicit preview flashes may still show incomplete picks. */
   allowIncompletePicks?: boolean;
+  /**
+   * Stall / progress-expired fallback — show the best ticket we already have
+   * rather than leaving an empty progress card forever.
+   */
   forceShowIncomplete?: boolean;
 }): boolean {
-  return false;
+  if (opts.allowIncompletePicks || opts.forceShowIncomplete) return false;
+  if (opts.scanComplete === true) return false;
+  if (opts.legTarget < 3) return false;
+  // Full requested count: show once (even if scanner is still exhausting).
+  if ((opts.readyPickCount ?? 0) >= opts.legTarget) return false;
+  return true;
 }

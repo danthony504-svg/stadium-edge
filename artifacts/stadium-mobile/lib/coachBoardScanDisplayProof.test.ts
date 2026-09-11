@@ -1,123 +1,66 @@
 /**
- * Pre-OTA proof: with hold disabled, partials display and finalize to 100%.
+ * Proof: 6-leg under-count waves stay off-screen; full ticket shows once at 100%.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { shouldHoldIncompleteBoardScanPickDisplay } from "./coachBoardScanDisplay.ts";
-import {
-  awaitLateBoardScanAfterBudget,
-  runBoardScanBudgetHandoffTimeline,
-  type BudgetHandoffScan,
-} from "./coachBoardScanBudgetHandoff.ts";
 
 const TARGETS = [6, 16, 28, 40, 52, 64, 74, 84, 93, 100] as const;
 
-function progressPct(opts: { legCount: number; effectiveIndex: number }): number {
-  if (opts.legCount > 0) return 100;
-  return TARGETS[Math.min(opts.effectiveIndex, TARGETS.length - 1)]!;
+function progressPct(legCount: number, effectiveIndex = 8): number {
+  if (legCount > 0) return 100;
+  return TARGETS[Math.min(effectiveIndex, TARGETS.length - 1)]!;
 }
 
-type UiTicket = {
-  displayedPicks: number;
-  pct: number;
-  holding: boolean;
-};
+function scoredFloor(scored: number, requested: number): number {
+  if (requested <= 0 || scored <= 0) return 0;
+  return Math.min(93, Math.round(40 + (53 * scored) / requested));
+}
 
-function applyScanWave(opts: {
-  legTarget: number;
-  readyPickCount: number;
-  scanComplete: boolean;
-  effectiveIndex?: number;
-}): UiTicket {
+function applyWave(opts: {
+  ready: number;
+  target: number;
+  complete?: boolean;
+  force?: boolean;
+}) {
   const holding = shouldHoldIncompleteBoardScanPickDisplay({
-    scanComplete: opts.scanComplete,
-    legTarget: opts.legTarget,
-    readyPickCount: opts.readyPickCount,
+    scanComplete: opts.complete === true,
+    legTarget: opts.target,
+    readyPickCount: opts.ready,
+    forceShowIncomplete: opts.force,
   });
-  const displayedPicks = holding ? 0 : opts.readyPickCount;
+  const displayed = holding ? 0 : opts.ready;
   return {
-    displayedPicks,
-    pct: progressPct({
-      legCount: displayedPicks,
-      effectiveIndex: opts.effectiveIndex ?? 8,
-    }),
     holding,
+    displayed,
+    pct: progressPct(displayed),
+    floor: scoredFloor(opts.ready, opts.target),
   };
 }
 
-function mockScan(
-  pickCount: number,
-  opts: { requestedLegs: number; requestId: string; scanComplete: boolean },
-): BudgetHandoffScan {
-  return {
-    picks: { length: pickCount },
-    requestedLegs: opts.requestedLegs,
-    requestId: opts.requestId,
-    scanComplete: opts.scanComplete,
-  };
-}
-
-test("5-leg: first partials show cards and hit 100% (no empty hold)", () => {
-  const ui = applyScanWave({
-    legTarget: 5,
-    readyPickCount: 2,
-    scanComplete: false,
-  });
-  assert.equal(ui.holding, false);
-  assert.equal(ui.displayedPicks, 2);
-  assert.equal(ui.pct, 100);
+test("6-leg: 2 then 4 stay held (no add/remove cards); progress floor tracks score", () => {
+  const w2 = applyWave({ ready: 2, target: 6 });
+  const w4 = applyWave({ ready: 4, target: 6 });
+  assert.equal(w2.holding, true);
+  assert.equal(w2.displayed, 0);
+  assert.ok(w2.pct < 100);
+  assert.equal(w2.floor, Math.round(40 + (53 * 2) / 6));
+  assert.equal(w4.holding, true);
+  assert.equal(w4.displayed, 0);
+  assert.ok(w4.floor > w2.floor);
 });
 
-test("5-leg: full count + complete shows all picks at 100%", () => {
-  const ui = applyScanWave({
-    legTarget: 5,
-    readyPickCount: 5,
-    scanComplete: true,
-  });
-  assert.equal(ui.holding, false);
-  assert.equal(ui.displayedPicks, 5);
-  assert.equal(ui.pct, 100);
+test("6-leg: ready=6 shows all picks once at 100%", () => {
+  const w6 = applyWave({ ready: 6, target: 6 });
+  assert.equal(w6.holding, false);
+  assert.equal(w6.displayed, 6);
+  assert.equal(w6.pct, 100);
 });
 
-test("5-leg: late budget complete still delivers full ticket", async () => {
-  const partial2 = mockScan(2, {
-    requestedLegs: 5,
-    requestId: "req-5",
-    scanComplete: false,
-  });
-  const partial4 = mockScan(4, {
-    requestedLegs: 5,
-    requestId: "req-5",
-    scanComplete: false,
-  });
-  const final5 = mockScan(5, {
-    requestedLegs: 5,
-    requestId: "req-5",
-    scanComplete: true,
-  });
-
-  const timeline = runBoardScanBudgetHandoffTimeline({
-    requestedLegs: 5,
-    partials: [partial2, partial4],
-    raceWinner: null,
-    latestAtRaceEnd: partial4,
-    lateFinal: final5,
-  });
-  assert.equal(timeline.uiAfterLateFinal.pickCount, 5);
-  assert.equal(timeline.uiAfterLateFinal.boardScanComplete, true);
-  assert.equal(timeline.showsContinuesAfterLateFinal, false);
-
-  const late = await awaitLateBoardScanAfterBudget(Promise.resolve(final5), {
-    legTarget: 5,
-    stillActive: () => true,
-  });
-  assert.equal(late?.picks?.length, 5);
-  const ui = applyScanWave({
-    legTarget: 5,
-    readyPickCount: 5,
-    scanComplete: true,
-  });
-  assert.equal(ui.displayedPicks, 5);
-  assert.equal(ui.pct, 100);
+test("6-leg: scanComplete shortfall shows actual picks at 100%", () => {
+  const w = applyWave({ ready: 5, target: 6, complete: true });
+  assert.equal(w.holding, false);
+  assert.equal(w.displayed, 5);
+  assert.equal(w.pct, 100);
 });
