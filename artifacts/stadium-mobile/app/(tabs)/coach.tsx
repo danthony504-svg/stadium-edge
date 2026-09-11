@@ -5461,24 +5461,48 @@ export default function CoachScreen() {
             boardScanIsComplete(liveScan) ||
             boardScanIsComplete(fullBoardScanMeta ?? undefined) ||
             boardScanIsComplete(latestBoardScanRef.current);
+          const stashCount =
+            liveScan?.picks?.length ??
+            latestBoardScanRef.current?.picks?.length ??
+            0;
+          let candidate = resolved;
+          if (
+            !scanDone &&
+            stashCount >= legTarget &&
+            candidate.length < legTarget &&
+            latestBoardScanRef.current
+          ) {
+            const soft = boardScanToCoachTicket(
+              latestBoardScanRef.current,
+              ticketEnrich,
+              legTarget,
+            );
+            if (soft.length) candidate = soft.slice(0, Math.max(soft.length, legTarget));
+          }
           if (
             !canShowFixedLegBoardScanPicks({
               legTarget,
-              pickCount: resolved.length,
+              pickCount: candidate.length,
               scanComplete: scanDone,
+              stashPickCount: stashCount,
             })
           ) {
             return [];
           }
-          const finalized = finalizeCoachTicketForRequest(resolved, {
+          const finalized = finalizeCoachTicketForRequest(candidate, {
             requestedLegs: legTarget,
             requestId: coachRequestContextRef.current?.requestId,
             previousRequestId: coachRequestContextRef.current?.previousRequestId,
             cacheKey: coachRequestContextRef.current?.cacheKey,
             source: "resolveOutPicks",
-            recordDelivered: true,
+            recordDelivered: scanDone,
           });
-          return finalized.ok ? finalized.picks : [];
+          if (finalized.ok) return finalized.picks;
+          // Full-stash mid-scan: still return soft so we don't freeze at 93%.
+          if (!scanDone && stashCount >= legTarget && candidate.length > 0) {
+            return candidate.slice(0, legTarget);
+          }
+          return [];
         };
         let outPicks: ParsedPick[] = [];
         let outCoachDetailNote = "";
