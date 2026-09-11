@@ -196,10 +196,10 @@ export function AnalysisProgress({
 
   const displayPct = Math.round(pct);
   // The first not-yet-done checklist item is the one currently in progress.
-  const activeChecklist = checklist.findIndex((c) => {
-    if (boardScanWaiting && c.label === "Final ticket ready") return false;
-    return effectiveIndex < c.doneAt;
-  });
+  // During board-scan wait we stay at 93% until real legs land — keep
+  // "Final ticket ready" as the active (spinning) step so the UI does not
+  // look frozen with a dead empty circle.
+  const activeChecklist = checklist.findIndex((c) => effectiveIndex < c.doneAt);
 
   return (
     <View

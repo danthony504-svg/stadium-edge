@@ -151,6 +151,8 @@ import {
   shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
+import { shouldHoldIncompleteBoardScanPickDisplay } from "@/lib/coachBoardScanDisplay";
+import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
@@ -1399,7 +1401,13 @@ export default function CoachScreen() {
     (
       partial: FullBoardScanResult,
       enrichOverride?: CoachFlashEnrich,
-      opts?: { legNote?: string; ticketLegTarget?: number; pinScroll?: boolean },
+      opts?: {
+        legNote?: string;
+        ticketLegTarget?: number;
+        pinScroll?: boolean;
+        /** Slate seed preview may flash incomplete picks; live fixed-leg scans hold cards. */
+        allowIncompletePicks?: boolean;
+      },
     ) => {
       const legTarget =
         opts?.ticketLegTarget ??
@@ -1443,6 +1451,44 @@ export default function CoachScreen() {
         }
       } else {
         const progress = deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
+        // Live fixed-leg scans restage every wave (legs add/remove on screen).
+        // Hold pick cards until scanComplete — backend staging unchanged.
+        if (
+          shouldHoldIncompleteBoardScanPickDisplay({
+            scanComplete: partial.scanComplete,
+            legTarget,
+            allowIncompletePicks: opts?.allowIncompletePicks,
+          })
+        ) {
+          latestBoardScanRef.current = partial;
+          const ready = progress.picks.length || partial.picks.length;
+          if (ready > 0) {
+            setBoardScanPartialLegs(ready);
+            // Stay on board-scan phase so AnalysisProgress keeps the live-scan
+            // copy and Final-ticket spinner until cards actually land.
+            setParlayBuildPhase("board-scan");
+          }
+          setMessages((prev) => {
+            const copy = [...prev];
+            for (let i = copy.length - 1; i >= 0; i--) {
+              if (copy[i].role === "assistant") {
+                copy[i] = {
+                  ...copy[i],
+                  picks: [],
+                  content: "",
+                  legNote: undefined,
+                  ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+                  boardScanComplete: false,
+                };
+                return copy;
+              }
+            }
+            return prev;
+          });
+          setAiPicks([]);
+          if (opts?.pinScroll !== false) scrollToEnd(false);
+          return true;
+        }
         ticket = progress.picks;
         if (!ticket.length) return false;
         legNote = progress.progressNote || legNote;
@@ -1608,6 +1654,7 @@ export default function CoachScreen() {
       return patchInstantBoardScanTicket(markBoardScanAsPreview(scan), enrich, {
         legNote: COACH_SLATE_PREVIEW_NOTE,
         ticketLegTarget: legTarget,
+        allowIncompletePicks: true,
       });
     },
     [patchInstantBoardScanTicket, marketPerf],
@@ -1726,10 +1773,14 @@ export default function CoachScreen() {
   );
 
   const flashBoardScanResult = useCallback(
-    (scan: FullBoardScanResult | null | undefined, enrichOverride?: CoachFlashEnrich) => {
+    (
+      scan: FullBoardScanResult | null | undefined,
+      enrichOverride?: CoachFlashEnrich,
+      opts?: { allowIncompletePicks?: boolean; legNote?: string; ticketLegTarget?: number },
+    ) => {
       if (!scan?.picks?.length) return false;
       setBoardScanPartialLegs(scan.picks.length);
-      return patchInstantBoardScanTicket(scan, enrichOverride);
+      return patchInstantBoardScanTicket(scan, enrichOverride, opts);
     },
     [patchInstantBoardScanTicket],
   );
@@ -2642,6 +2693,7 @@ export default function CoachScreen() {
             patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current, {
               legNote: COACH_SLATE_PREVIEW_NOTE,
               ticketLegTarget: legTarget,
+              allowIncompletePicks: true,
             });
           }
           const earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
@@ -2736,24 +2788,32 @@ export default function CoachScreen() {
             didReachFullPreScan = true;
             try {
               if (preBoardScan?.picks?.length) {
-                flashBoardScanResult(markBoardScanAsPreview(preBoardScan), {
-                  ...flashEnrichRef.current,
-                  realOdds: [
-                    ...flashEnrichRef.current.realOdds,
-                    ...[...preBoardScan.evalLinesByGame.values()].flat(),
-                  ],
-                });
+                flashBoardScanResult(
+                  markBoardScanAsPreview(preBoardScan),
+                  {
+                    ...flashEnrichRef.current,
+                    realOdds: [
+                      ...flashEnrichRef.current.realOdds,
+                      ...[...preBoardScan.evalLinesByGame.values()].flat(),
+                    ],
+                  },
+                  { allowIncompletePicks: true },
+                );
               }
               if (earlyReachBoardScanPromise) {
                 const earlyScan = await earlyReachBoardScanPromise;
                 if (earlyScan?.picks?.length) {
-                  flashBoardScanResult(markBoardScanAsPreview(earlyScan), {
-                    ...flashEnrichRef.current,
-                    realOdds: [
-                      ...flashEnrichRef.current.realOdds,
-                      ...[...(earlyScan.evalLinesByGame?.values() ?? [])].flat(),
-                    ],
-                  });
+                  flashBoardScanResult(
+                    markBoardScanAsPreview(earlyScan),
+                    {
+                      ...flashEnrichRef.current,
+                      realOdds: [
+                        ...flashEnrichRef.current.realOdds,
+                        ...[...(earlyScan.evalLinesByGame?.values() ?? [])].flat(),
+                      ],
+                    },
+                    { allowIncompletePicks: true },
+                  );
                 }
               }
               const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
@@ -3253,20 +3313,20 @@ export default function CoachScreen() {
               })),
             ]);
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
-            reachBoardScan = await Promise.race([
-              tryReachFullBoardScan({
-                target: Math.min(legTarget, MAX_LEGS),
-                oddsGames,
-                propPool: mergedPropPool,
-                realOdds: context.realOdds,
-                liveOdds: liveFeed.odds,
-                espnGames,
-                gameMeta,
-                teamIdMap: buildGameTeamIdMap(espnGames),
-                excludedSports,
-                matchupHistory: context.matchupHistory,
-                matchupInjuries: context.matchupInjuries,
-                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            const reachScanTarget = Math.min(legTarget, MAX_LEGS);
+            const reachScanPromise = tryReachFullBoardScan({
+              target: reachScanTarget,
+              oddsGames,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              liveOdds: liveFeed.odds,
+              espnGames,
+              gameMeta,
+              teamIdMap: buildGameTeamIdMap(espnGames),
+              excludedSports,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
                 mlbPlatoon: context.mlbPlatoon,
@@ -3278,7 +3338,9 @@ export default function CoachScreen() {
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
                 ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
-              }),
+              });
+            reachBoardScan = await Promise.race([
+              reachScanPromise,
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
             ]);
             if (!reachBoardScan && boardScanIsComplete(latestBoardScanRef.current)) {
@@ -3294,6 +3356,34 @@ export default function CoachScreen() {
               if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
                 reachBoardScan = ref;
               }
+            }
+            // Budget race returns null without cancelling the scan. If we only have
+            // an incomplete partial on screen, keep joining the floating promise so a
+            // late scanComplete:true (e.g. 4 → 5) still replaces "scan continues".
+            if (!boardScanIsComplete(reachBoardScan)) {
+              const joinGen = sendGenerationRef.current;
+              const joinRequestId = coachRequestContextRef.current?.requestId;
+              void awaitLateBoardScanAfterBudget(reachScanPromise, {
+                legTarget: reachScanTarget,
+                stillActive: () =>
+                  sendGenerationRef.current === joinGen &&
+                  coachRequestContextRef.current?.requestId === joinRequestId,
+              }).then((late) => {
+                if (!late) return;
+                if (
+                  !boardScanAppliesToRequest(
+                    late,
+                    reachScanTarget,
+                    coachRequestContextRef.current?.sendGeneration ?? joinGen,
+                    sendGenerationRef.current,
+                    joinRequestId,
+                  )
+                ) {
+                  return;
+                }
+                latestBoardScanRef.current = late;
+                deliverBoardScanTicket(late);
+              });
             }
           }
         }
@@ -5965,6 +6055,16 @@ export default function CoachScreen() {
       last.ticketLegTarget ||
       requestedLegCount(activeParlayAskRef.current) ||
       effectiveBuildLegCount(activeParlayAskRef.current);
+    // Fixed-leg live scans intentionally keep picks empty until scanComplete —
+    // do not treat that as a zeroed ticket and re-patch in a loop.
+    if (
+      shouldHoldIncompleteBoardScanPickDisplay({
+        scanComplete: partial.scanComplete,
+        legTarget,
+      })
+    ) {
+      return;
+    }
     const ctx = coachRequestContextRef.current;
     if (
       !boardScanAppliesToRequest(
@@ -5990,6 +6090,14 @@ export default function CoachScreen() {
       if (!partialRetry) return;
       const retryHasLegs = (partialRetry.picks?.length ?? 0) > 0;
       if (!retryHasLegs && !boardScanIsComplete(partialRetry)) return;
+      if (
+        shouldHoldIncompleteBoardScanPickDisplay({
+          scanComplete: partialRetry.scanComplete,
+          legTarget,
+        })
+      ) {
+        return;
+      }
       if (
         !boardScanAppliesToRequest(
           partialRetry,
@@ -6091,6 +6199,7 @@ export default function CoachScreen() {
         return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich, {
           legNote: COACH_SLATE_PREVIEW_NOTE,
           ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+          allowIncompletePicks: true,
         });
       }
       return tryInstantSlateSeedDelivery(legTarget);
@@ -6262,9 +6371,18 @@ export default function CoachScreen() {
                 retryAffordance);
             // Progress finalizes once pick cards are on the message — or when a
             // board-scan partial has scored legs waiting for delivery gates.
+            // Fixed-leg hold keeps cards off-screen until scanComplete: do not
+            // feed stash leg counts into AnalysisProgress or it jumps to 100% /
+            // "Final ticket ready" with an empty bubble (stuck-looking 93% hang).
+            const holdingIncompletePickDisplay =
+              !hasPicks &&
+              shouldHoldIncompleteBoardScanPickDisplay({
+                scanComplete: m.boardScanComplete,
+                legTarget: ticketLegTarget,
+              });
             const progressLegCount = showTicketPicks
               ? displayPicks.length
-              : buildIdle
+              : buildIdle || holdingIncompletePickDisplay
                 ? 0
                 : Math.max(
                     boardScanPartialLegs,
