@@ -50,6 +50,8 @@ test("reachBoardScanEligible requires 3+ legs and no locks", () => {
   assert.equal(reachBoardScanEligible({ requestedLegs: 5 }), true);
   assert.equal(reachBoardScanEligible({ requestedLegs: 2 }), false);
   assert.equal(reachBoardScanEligible({ requestedLegs: 15, propsOnly: true }), false);
+  // "6 leg player props" is props-only — must not enter the full board-scan hang path.
+  assert.equal(reachBoardScanEligible({ requestedLegs: 6, propsOnly: true }), false);
   assert.equal(shouldUseFullBoardScan(15, { requestedLegs: 15 }), true);
 });
 
