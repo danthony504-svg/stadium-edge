@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  boardScanStallMsForPaintState,
   coachPhaseWhileAwaitingTicketCards,
   emptyCardBoardScanStallMs,
   shouldClearBusyAfterFailedStallPaint,
@@ -9,6 +10,7 @@ import {
   shouldKeepBusyForIncompleteBoardScan,
   shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
+  underCountHeldBoardScanEscapeMs,
 } from "./coachBuildPhase.ts";
 
 test("empty cards + stash picks stay on board-scan (not stream/score grade limbo)", () => {
@@ -172,5 +174,42 @@ test("forceShow escape prevents keep-busy from re-locking at 93%", () => {
       forceShowIncomplete: true,
     }),
     false,
+  );
+});
+
+test("under-count held escape is far shorter than deep 240s stall", () => {
+  assert.equal(underCountHeldBoardScanEscapeMs(6), 20_000);
+  assert.equal(underCountHeldBoardScanEscapeMs(9), 25_000);
+  assert.ok(underCountHeldBoardScanEscapeMs(6) < emptyCardBoardScanStallMs(6));
+  assert.ok(underCountHeldBoardScanEscapeMs(6) < 240_000);
+});
+
+test("paint-state stall: scored stash + empty bubble uses under-count escape", () => {
+  assert.equal(
+    boardScanStallMsForPaintState({
+      displayedPickCount: 0,
+      stashPickCount: 4,
+      requestedLegs: 6,
+      deepStallMs: 240_000,
+    }),
+    20_000,
+  );
+  assert.equal(
+    boardScanStallMsForPaintState({
+      displayedPickCount: 0,
+      stashPickCount: 0,
+      requestedLegs: 6,
+      deepStallMs: 240_000,
+    }),
+    emptyCardBoardScanStallMs(6),
+  );
+  assert.equal(
+    boardScanStallMsForPaintState({
+      displayedPickCount: 6,
+      stashPickCount: 6,
+      requestedLegs: 6,
+      deepStallMs: 240_000,
+    }),
+    240_000,
   );
 });

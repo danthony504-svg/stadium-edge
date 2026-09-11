@@ -45,6 +45,38 @@ export function emptyCardBoardScanStallMs(requestedLegs: number): number {
 }
 
 /**
+ * When the stash already has scored legs but fixed-leg hold still hides cards,
+ * escape far sooner than the deep 240s stall. AnalysisProgress reaches ~93% /
+ * "Final ticket ready" in a few seconds — waiting minutes with a scored stash
+ * is the permanent-93% hang.
+ */
+export function underCountHeldBoardScanEscapeMs(requestedLegs: number): number {
+  if (requestedLegs >= 9) return 25_000;
+  if (requestedLegs >= 6) return 20_000;
+  if (requestedLegs >= 3) return 15_000;
+  return 15_000;
+}
+
+/**
+ * Pick stall timeout from paint state:
+ * - cards visible → deep budget
+ * - stash scored, bubble empty → short under-count escape
+ * - empty stash → empty-card budget (covers full board scan)
+ */
+export function boardScanStallMsForPaintState(opts: {
+  displayedPickCount: number;
+  stashPickCount: number;
+  requestedLegs: number;
+  deepStallMs: number;
+}): number {
+  if (opts.displayedPickCount > 0) return opts.deepStallMs;
+  if (opts.stashPickCount > 0) {
+    return underCountHeldBoardScanEscapeMs(opts.requestedLegs);
+  }
+  return emptyCardBoardScanStallMs(opts.requestedLegs);
+}
+
+/**
  * Keep Coach "finishing" after send()'s try path when a same-request board-scan
  * attempt is still pending — including the empty-stash window before the first
  * onPartial. Requiring hasScanStash alone let finally clear busy and fire the
