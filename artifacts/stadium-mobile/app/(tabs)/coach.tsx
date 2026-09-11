@@ -1522,10 +1522,13 @@ export default function CoachScreen() {
           return true;
         }
         ticket = progress.picks;
+        // Stash already hit the requested count but gated progress is short/empty —
+        // always fail-soft to the full staged ticket. Using short progress here made
+        // canShowFixedLegBoardScanPicks reject and freeze on "Scored 6 of 6" @ 93%.
         if (
-          !ticket.length &&
           legTarget >= 3 &&
-          (partial.picks?.length ?? 0) >= legTarget
+          (partial.picks?.length ?? 0) >= legTarget &&
+          ticket.length < legTarget
         ) {
           ticket = boardScanToCoachTicket(partial, enrichWithScan, legTarget);
         }
@@ -1582,6 +1585,7 @@ export default function CoachScreen() {
           scanComplete: isFinal,
           allowIncompletePicks: opts?.allowIncompletePicks,
           forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+          stashPickCount: partial.picks?.length ?? 0,
         })
       ) {
         latestBoardScanRef.current = partial;
@@ -5527,13 +5531,56 @@ export default function CoachScreen() {
           latestBoardScanRef.current &&
           !boardScanIsComplete(latestBoardScanRef.current)
         ) {
-          // Stream ended before the board scan — keep progress, not under-count cards.
-          setBoardScanPartialLegs(latestBoardScanRef.current.picks?.length ?? 0);
-          setParlayBuildPhase("board-scan");
-          setBuildFinishing(true);
-          setWaiting(true);
-          setAiPicks([]);
-          boardTicketSnapshotRef.current = null;
+          const stash = latestBoardScanRef.current;
+          const stashCount = stash.picks?.length ?? 0;
+          if (stashCount >= legTarget) {
+            // Scored full count but stream-end gated to [] — force fail-soft flash
+            // so we never sit on "Scored N of N" at 93% with no cards.
+            const delivered = patchInstantBoardScanTicket(stash, undefined, {
+              ticketLegTarget: legTarget,
+            });
+            if (!delivered) {
+              const soft = boardScanToCoachTicket(stash, flashEnrichRef.current, legTarget);
+              if (soft.length >= legTarget) {
+                boardTicketSnapshotRef.current = soft.slice(0, legTarget);
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const last = copy[copy.length - 1];
+                  if (last?.role === "assistant") {
+                    copy[copy.length - 1] = {
+                      ...last,
+                      picks: soft.slice(0, legTarget),
+                      content: "",
+                      ticketLegTarget: legTarget,
+                      boardScanComplete: false,
+                    };
+                  }
+                  return copy;
+                });
+                setAiPicks(soft.slice(0, legTarget));
+                setStreaming(false);
+                setWaiting(false);
+                setBuildFinishing(false);
+                setBuildProgressExpired(false);
+                setParlayBuildPhase("idle");
+                setCoachBuildBusy(false);
+                captureFromCoach(soft.slice(0, legTarget));
+              } else {
+                setBoardScanPartialLegs(stashCount);
+                setParlayBuildPhase("board-scan");
+                setBuildFinishing(true);
+                setWaiting(true);
+              }
+            }
+          } else {
+            // Under-count mid-scan — keep progress, not drip cards.
+            setBoardScanPartialLegs(stashCount);
+            setParlayBuildPhase("board-scan");
+            setBuildFinishing(true);
+            setWaiting(true);
+            setAiPicks([]);
+            boardTicketSnapshotRef.current = null;
+          }
         } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
           setStreaming(false);
           setWaiting(false);
@@ -6523,6 +6570,10 @@ export default function CoachScreen() {
                       legTarget: renderLegTarget,
                       pickCount: candidate.length,
                       scanComplete: m.boardScanComplete,
+                      stashPickCount:
+                        i === messages.length - 1
+                          ? (latestBoardScanRef.current?.picks?.length ?? 0)
+                          : 0,
                     })
                   ) {
                     return [];

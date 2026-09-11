@@ -5,9 +5,38 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  boardScanDisplayReadyCount,
   canShowFixedLegBoardScanPicks,
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
+
+test("proof: short gated progress + full stash must prefer fail-soft release", () => {
+  // Mirrors patchInstant: ready=max(4,6)=6 → hold false; ticket must upgrade
+  // from short progress to full soft before canShow.
+  const gated = 4;
+  const stash = 6;
+  const ready = boardScanDisplayReadyCount(gated, stash);
+  assert.equal(ready, 6);
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 6,
+      readyPickCount: ready,
+    }),
+    false,
+  );
+  let ticketLen = gated;
+  if (stash >= 6 && ticketLen < 6) ticketLen = stash; // fail-soft upgrade
+  assert.equal(
+    canShowFixedLegBoardScanPicks({
+      legTarget: 6,
+      pickCount: ticketLen,
+      scanComplete: false,
+      stashPickCount: stash,
+    }),
+    true,
+  );
+});
 
 test("proof: 2→5 of 6 mid-scan cannot show cards; 6 of 6 can", () => {
   for (const n of [2, 3, 4, 5]) {
@@ -49,4 +78,5 @@ test("coach.tsx no longer stamps scan-continues under-count legNote mid-scan", (
   );
   assert.match(src, /canShowFixedLegBoardScanPicks/);
   assert.match(src, /Absolute UI lock: never render mid-scan under-count cards/);
+  assert.match(src, /ticket\.length < legTarget/);
 });
