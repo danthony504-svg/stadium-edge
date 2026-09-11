@@ -25,8 +25,16 @@ test("under-count incomplete scans hold pick cards", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
-      legTarget: 9,
-      readyPickCount: boardScanDisplayReadyCount(4, 6),
+      legTarget: 6,
+      readyPickCount: boardScanDisplayReadyCount(4, 4),
+    }),
+    true,
+  );
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 6,
+      readyPickCount: 5,
     }),
     true,
   );
@@ -54,12 +62,32 @@ test("scanComplete releases hold", () => {
   );
 });
 
-test("sticky: do not blank an already-shown ticket on under-count restage", () => {
+test("sticky: full-count ticket is not blanked on under-count restage", () => {
   assert.equal(
     shouldBlankHeldBoardScanPickDisplay({
       holdIncomplete: true,
-      displayedPickCount: 9,
+      displayedPickCount: 6,
+      legTarget: 6,
     }),
     false,
+  );
+});
+
+test("under-count displayed cards are blankable — no frozen 4 of 6", () => {
+  assert.equal(
+    shouldBlankHeldBoardScanPickDisplay({
+      holdIncomplete: true,
+      displayedPickCount: 4,
+      legTarget: 6,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlankHeldBoardScanPickDisplay({
+      holdIncomplete: true,
+      displayedPickCount: 5,
+      legTarget: 6,
+    }),
+    true,
   );
 });
