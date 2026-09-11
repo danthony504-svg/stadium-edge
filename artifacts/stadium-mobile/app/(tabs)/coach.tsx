@@ -6118,18 +6118,26 @@ export default function CoachScreen() {
   }, [hasUserTurn, streaming, buildFinishing, waiting, clearBuildStallWatchdog]);
 
   // Finished board-scan tickets can leave streaming/waiting sticky while the
-  // send() join is still alive — unlock the composer once a completed ticket
+  // send() join is still alive — unlock once a completed or full-count ticket
   // (or empty complete + manifest) is on screen. Does not alter picks.
   useEffect(() => {
     const last = messages[messages.length - 1];
     const scan = latestBoardScanRef.current;
+    const displayedPickCount =
+      last?.role === "assistant" ? (last.picks?.length ?? 0) : 0;
+    const ticketLegTarget =
+      (last?.role === "assistant" ? last.ticketLegTarget : undefined) ||
+      activeRequestLegTargetRef.current ||
+      0;
     if (
       !shouldUnlockCoachComposer({
         hasUserTurn,
         streaming,
         buildFinishing,
         waiting,
-        assistantHasPicks: last?.role === "assistant" && (last.picks?.length ?? 0) > 0,
+        assistantHasPicks: displayedPickCount > 0,
+        displayedPickCount,
+        ticketLegTarget,
         boardScanComplete: last?.role === "assistant" ? last.boardScanComplete : undefined,
         stashScanComplete: scan?.scanComplete,
         hasScanManifest:
@@ -6170,8 +6178,8 @@ export default function CoachScreen() {
       last.ticketLegTarget ||
       requestedLegCount(activeParlayAskRef.current) ||
       effectiveBuildLegCount(activeParlayAskRef.current);
-    // Fixed-leg live scans intentionally keep picks empty until scanComplete —
-    // do not treat that as a zeroed ticket and re-patch in a loop.
+    // Fixed-leg live scans intentionally keep picks empty until full count /
+    // scanComplete — do not treat that as a zeroed ticket and re-patch in a loop.
     if (
       shouldHoldIncompleteBoardScanPickDisplay({
         scanComplete: partial.scanComplete,

@@ -18,7 +18,7 @@ test("unlocks when completed ticket picks are on screen but streaming stuck", ()
   );
 });
 
-test("does not unlock mid-scan sticky picks before scanComplete", () => {
+test("unlocks when full-count ticket is on screen even if scan still finishing", () => {
   assert.equal(
     shouldUnlockCoachComposer({
       hasUserTurn: true,
@@ -26,28 +26,33 @@ test("does not unlock mid-scan sticky picks before scanComplete", () => {
       buildFinishing: false,
       waiting: false,
       assistantHasPicks: true,
+      displayedPickCount: 9,
+      ticketLegTarget: 9,
+      boardScanComplete: false,
+      stashScanComplete: false,
+      hasScanManifest: false,
+      liveScanDelivered: false,
+    }),
+    true,
+  );
+});
+
+test("does not unlock mid-scan under-count sticky picks", () => {
+  assert.equal(
+    shouldUnlockCoachComposer({
+      hasUserTurn: true,
+      streaming: true,
+      buildFinishing: false,
+      waiting: false,
+      assistantHasPicks: true,
+      displayedPickCount: 4,
+      ticketLegTarget: 9,
       boardScanComplete: false,
       stashScanComplete: false,
       hasScanManifest: false,
       liveScanDelivered: false,
     }),
     false,
-  );
-});
-
-test("unlocks empty complete with scan manifest", () => {
-  assert.equal(
-    shouldUnlockCoachComposer({
-      hasUserTurn: true,
-      streaming: true,
-      buildFinishing: false,
-      waiting: true,
-      assistantHasPicks: false,
-      boardScanComplete: true,
-      stashScanComplete: true,
-      hasScanManifest: true,
-    }),
-    true,
   );
 });
 

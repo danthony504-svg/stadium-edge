@@ -9,6 +9,8 @@ export function shouldUnlockCoachComposer(opts: {
   buildFinishing: boolean;
   waiting: boolean;
   assistantHasPicks: boolean;
+  displayedPickCount?: number;
+  ticketLegTarget?: number;
   boardScanComplete?: boolean | null;
   stashScanComplete?: boolean | null;
   hasScanManifest: boolean;
@@ -18,8 +20,16 @@ export function shouldUnlockCoachComposer(opts: {
   if (!opts.streaming && !opts.buildFinishing && !opts.waiting) return false;
   const scanComplete =
     opts.boardScanComplete === true || opts.stashScanComplete === true;
+  const fullCount =
+    (opts.ticketLegTarget ?? 0) > 0 &&
+    (opts.displayedPickCount ?? 0) >= (opts.ticketLegTarget ?? 0);
   if (opts.assistantHasPicks) {
-    return scanComplete || opts.hasScanManifest || opts.liveScanDelivered === true;
+    return (
+      scanComplete ||
+      fullCount ||
+      opts.hasScanManifest ||
+      opts.liveScanDelivered === true
+    );
   }
   return opts.hasScanManifest && scanComplete;
 }

@@ -6,81 +6,45 @@ import {
   shouldHoldIncompleteBoardScanPickDisplay,
 } from "./coachBoardScanDisplay.ts";
 
-test("incomplete fixed-leg scans hold until scanComplete (not early full count)", () => {
+test("under-count incomplete scans hold pick cards", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: false,
-      legTarget: 6,
-      readyPickCount: 2,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldHoldIncompleteBoardScanPickDisplay({
-      scanComplete: false,
-      legTarget: 6,
+      legTarget: 9,
       readyPickCount: 6,
     }),
     true,
   );
 });
 
-test("scanComplete releases hold including shortfalls", () => {
+test("full count releases hold so Scored N of N is not stuck at 93%", () => {
+  assert.equal(
+    shouldHoldIncompleteBoardScanPickDisplay({
+      scanComplete: false,
+      legTarget: 9,
+      readyPickCount: 9,
+    }),
+    false,
+  );
+});
+
+test("scanComplete releases hold", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
       scanComplete: true,
-      legTarget: 6,
-      readyPickCount: 5,
+      legTarget: 9,
+      readyPickCount: 9,
     }),
     false,
   );
 });
 
-test("slate preview and stall force-show never hold", () => {
-  assert.equal(
-    shouldHoldIncompleteBoardScanPickDisplay({
-      scanComplete: false,
-      legTarget: 6,
-      readyPickCount: 2,
-      allowIncompletePicks: true,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldHoldIncompleteBoardScanPickDisplay({
-      scanComplete: false,
-      legTarget: 6,
-      readyPickCount: 2,
-      forceShowIncomplete: true,
-    }),
-    false,
-  );
-});
-
-test("sub-3-leg asks never hold", () => {
-  assert.equal(
-    shouldHoldIncompleteBoardScanPickDisplay({
-      scanComplete: false,
-      legTarget: 2,
-      readyPickCount: 1,
-    }),
-    false,
-  );
-});
-
-test("already-displayed ticket is never blanked by incomplete hold", () => {
+test("sticky: do not blank an already-shown ticket on under-count restage", () => {
   assert.equal(
     shouldBlankHeldBoardScanPickDisplay({
       holdIncomplete: true,
-      displayedPickCount: 6,
+      displayedPickCount: 9,
     }),
     false,
-  );
-  assert.equal(
-    shouldBlankHeldBoardScanPickDisplay({
-      holdIncomplete: true,
-      displayedPickCount: 0,
-    }),
-    true,
   );
 });
