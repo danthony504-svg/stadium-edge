@@ -10,8 +10,12 @@ import { readOtaRecoverySnapshot, subscribeOtaRecoveryState } from "@/lib/otaRec
 
 /**
  * Temporary on-screen OTA deployment label (all tabs). Tap to expand launch logs.
+ * Hidden in production — full report remains at Menu → OTA Diagnostics.
  */
 export function OtaDiagnosticsBanner() {
+  // Deploy-verify overlay — hide so it no longer covers Home / Upcoming Games.
+  return null;
+
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
