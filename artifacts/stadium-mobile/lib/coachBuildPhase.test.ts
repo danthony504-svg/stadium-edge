@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   coachPhaseWhileAwaitingTicketCards,
+  emptyCardBoardScanStallMs,
   shouldClearBusyAfterFailedStallPaint,
 } from "./coachBuildPhase.ts";
 
@@ -33,10 +34,17 @@ test("once cards land, phase may advance to stream", () => {
   );
 });
 
-test("stall force-show that still leaves empty cards should clear busy", () => {
+test("stall clears busy when cards still empty — even with empty stash", () => {
   assert.equal(
     shouldClearBusyAfterFailedStallPaint({
       hadStashPicks: true,
+      displayedPickCountAfter: 0,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldClearBusyAfterFailedStallPaint({
+      hadStashPicks: false,
       displayedPickCountAfter: 0,
     }),
     true,
@@ -48,11 +56,10 @@ test("stall force-show that still leaves empty cards should clear busy", () => {
     }),
     false,
   );
-  assert.equal(
-    shouldClearBusyAfterFailedStallPaint({
-      hadStashPicks: false,
-      displayedPickCountAfter: 0,
-    }),
-    false,
-  );
+});
+
+test("empty-card stall budget is shorter than deep 6+ leg hold", () => {
+  assert.equal(emptyCardBoardScanStallMs(6), 90_000);
+  assert.ok(emptyCardBoardScanStallMs(6) < 240_000);
+  assert.equal(emptyCardBoardScanStallMs(3), 75_000);
 });
