@@ -1943,7 +1943,7 @@ export default function CoachScreen() {
         ) {
           // No cards after stall (empty stash or failed force-show) — unlock
           // composer instead of leaving "Scanning…" @ 93% with a locked send.
-          abortRef.current?.abort();
+          // Do not abort the in-flight scan; late complete may still deliver.
           setStreaming(false);
           setWaiting(false);
           setBuildFinishing(false);
