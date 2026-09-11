@@ -151,7 +151,10 @@ import {
   shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
-import { shouldHoldIncompleteBoardScanPickDisplay } from "@/lib/coachBoardScanDisplay";
+import {
+  shouldBlankHeldBoardScanPickDisplay,
+  shouldHoldIncompleteBoardScanPickDisplay,
+} from "@/lib/coachBoardScanDisplay";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
@@ -1473,6 +1476,18 @@ export default function CoachScreen() {
             // Stay on board-scan phase so AnalysisProgress keeps the live-scan
             // copy and Final-ticket spinner until cards actually land.
             setParlayBuildPhase("board-scan");
+          }
+          const displayedCount = boardTicketSnapshotRef.current?.length ?? 0;
+          // Already showed a full ticket — never blank it when a later wave
+          // restages under-count (user saw 6 legs disappear).
+          if (
+            !shouldBlankHeldBoardScanPickDisplay({
+              holdIncomplete: true,
+              displayedPickCount: displayedCount,
+            })
+          ) {
+            if (opts?.pinScroll !== false) scrollToEnd(false);
+            return true;
           }
           setMessages((prev) => {
             const copy = [...prev];
@@ -6455,31 +6470,9 @@ export default function CoachScreen() {
                 parlayStuckDeadProse ||
                 parlayBuildHung ||
                 retryAffordance);
-            // Progress finalizes once pick cards are on the message — or when a
-            // board-scan partial has scored legs waiting for delivery gates.
-            // Fixed-leg hold keeps cards off-screen until scanComplete: do not
-            // feed stash leg counts into AnalysisProgress or it jumps to 100% /
-            // "Final ticket ready" with an empty bubble (stuck-looking 93% hang).
-            const holdingIncompletePickDisplay =
-              !hasPicks &&
-              shouldHoldIncompleteBoardScanPickDisplay({
-                scanComplete: m.boardScanComplete,
-                legTarget: ticketLegTarget,
-                readyPickCount: Math.max(
-                  boardScanPartialLegs,
-                  latestBoardScanRef.current?.picks?.length ?? 0,
-                ),
-                forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
-              });
-            const progressLegCount = showTicketPicks
-              ? displayPicks.length
-              : buildIdle || holdingIncompletePickDisplay
-                ? 0
-                : Math.max(
-                    boardScanPartialLegs,
-                    boardTicketSnapshotRef.current?.length ?? 0,
-                    latestBoardScanRef.current?.picks?.length ?? 0,
-                  );
+            // Progress finalizes only when pick cards are actually on the message —
+            // never from stash alone (avoids "Final ticket ready" with an empty bubble).
+            const progressLegCount = showTicketPicks ? displayPicks.length : 0;
             const scoredLegCount = Math.max(
               boardScanPartialLegs,
               latestBoardScanRef.current?.picks?.length ?? 0,
