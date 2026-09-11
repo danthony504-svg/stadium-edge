@@ -5907,12 +5907,15 @@ export default function CoachScreen() {
         effectiveBuildLegCount(priorUser?.content ?? "");
       const partial = latestBoardScanRef.current;
       if (partial && boardScanIsComplete(partial)) {
+        // boardScanReadyForDelivery now allows same-target shortfalls AND completed
+        // zero-pick scans so we attach the final manifest instead of "still scoring".
         if (legTarget > 0 && !boardScanReadyForDelivery(partial, legTarget)) {
           return false;
         }
         if (partial.picks?.length) {
           deliverBoardScanTicket(partial);
         } else {
+          // Completed scan, 0 staged legs — attach manifest / honest empty result.
           patchInstantBoardScanTicket(partial, undefined, {
             ticketLegTarget: legTarget > 0 ? legTarget : undefined,
           });

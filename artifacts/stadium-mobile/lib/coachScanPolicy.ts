@@ -100,7 +100,10 @@ export function boardScanMeetsLegTarget(
   return (scan?.picks?.length ?? 0) >= requestedLegs;
 }
 
-/** True when scan was staged for the exact leg count being delivered. */
+/**
+ * True when scan was staged for this delivery target.
+ * Same-request shortfalls (0 ≤ picks ≤ target) match; a larger foreign scan does not.
+ */
 export function boardScanMatchesLegTarget(
   scan:
     | {
@@ -114,15 +117,16 @@ export function boardScanMatchesLegTarget(
 ): boolean {
   if (!scan || legTarget <= 0) return true;
   if (scan.requestedLegs != null) return scan.requestedLegs === legTarget;
-  // Legacy scans without metadata: only accept a complete ticket with exact leg count.
-  // Never treat a partial larger scan (e.g. 4 picks from a 15-leg build) as a 4-leg ticket.
+  // Legacy scans without metadata: accept a complete same-or-short ticket only.
+  // Never treat an oversized scan (e.g. 15 picks) as an 8-leg ticket.
   if (!boardScanIsComplete(scan)) return false;
-  return (scan.picks?.length ?? 0) === legTarget;
+  return (scan.picks?.length ?? 0) <= legTarget;
 }
 
 /**
- * True when a complete scan may finalize for this leg count.
- * A 15-leg scan must NOT satisfy an 8-leg ask (fixes prefix/slice reuse).
+ * True when a complete scan may finalize for this leg count — including honest
+ * shortfalls and completed zero-pick results. A 15-leg scan must NOT satisfy an
+ * 8-leg ask (fixes prefix/slice reuse).
  */
 export function boardScanReadyForDelivery(
   scan:
@@ -135,10 +139,11 @@ export function boardScanReadyForDelivery(
     | undefined,
   legTarget: number,
 ): boolean {
-  if (!scan?.picks?.length || !boardScanIsComplete(scan)) return false;
-  if (legTarget <= 0) return true;
+  if (!scan || !boardScanIsComplete(scan)) return false;
+  if (legTarget <= 0) return (scan.picks?.length ?? 0) > 0;
   if (scan.requestedLegs != null) return scan.requestedLegs === legTarget;
-  return scan.picks.length === legTarget;
+  // Legacy: allow shortfall / zero; reject oversized foreign tickets.
+  return (scan.picks?.length ?? 0) <= legTarget;
 }
 
 /** True when a board-scan finished evaluating the live board (not a partial preview). */
