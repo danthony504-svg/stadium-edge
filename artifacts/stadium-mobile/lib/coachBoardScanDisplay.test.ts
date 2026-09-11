@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { shouldHoldIncompleteBoardScanPickDisplay } from "./coachBoardScanDisplay.ts";
+import {
+  shouldBlankHeldBoardScanPickDisplay,
+  shouldHoldIncompleteBoardScanPickDisplay,
+} from "./coachBoardScanDisplay.ts";
 
 test("under-count incomplete fixed-leg scans hold pick cards", () => {
   assert.equal(
@@ -71,6 +74,30 @@ test("sub-3-leg asks never hold", () => {
       scanComplete: false,
       legTarget: 2,
       readyPickCount: 1,
+    }),
+    false,
+  );
+});
+
+test("already-displayed ticket is never blanked by under-count hold", () => {
+  assert.equal(
+    shouldBlankHeldBoardScanPickDisplay({
+      holdIncomplete: true,
+      displayedPickCount: 6,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldBlankHeldBoardScanPickDisplay({
+      holdIncomplete: true,
+      displayedPickCount: 0,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlankHeldBoardScanPickDisplay({
+      holdIncomplete: false,
+      displayedPickCount: 0,
     }),
     false,
   );
