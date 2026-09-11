@@ -184,6 +184,7 @@ export function boardScanAppliesToRequest(
         requestedLegs?: number;
         picks?: { length: number };
         requestId?: string;
+        scanComplete?: boolean;
       }
     | null
     | undefined,
@@ -192,7 +193,11 @@ export function boardScanAppliesToRequest(
   activeSendGeneration: number,
   activeRequestId?: string | null,
 ): boolean {
-  if (!scan?.picks?.length || legTarget <= 0) return false;
+  if (!scan || legTarget <= 0) return false;
+  const pickCount = scan.picks?.length ?? 0;
+  // Completed same-request scans apply even with zero staged picks. Incomplete
+  // partials still need at least one pick before we stash/stream them.
+  if (pickCount <= 0 && scan.scanComplete !== true) return false;
   if (sendGeneration !== activeSendGeneration) return false;
   if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) return false;
   return boardScanMatchesLegTarget(scan, legTarget);

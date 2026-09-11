@@ -125,6 +125,7 @@ import {
   coachBoardScanManifestForMessage,
   coachReplyHasScanManifest,
   resolveCoachBoardScanManifestDetail,
+  COACH_EMPTY_BOARD_SCAN_LEAD,
 } from "@/lib/coachBoardScanDelivery";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
@@ -1397,9 +1398,9 @@ export default function CoachScreen() {
         if (legTarget > 0 && ticket.length < legTarget) {
           legNote = ticket.length
             ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
-            : buildFixedLegCountShortfallLead(legTarget, 0);
+            : COACH_EMPTY_BOARD_SCAN_LEAD;
         } else if (!ticket.length) {
-          legNote = legNote.trim() || partial.note;
+          legNote = legNote.trim() || COACH_EMPTY_BOARD_SCAN_LEAD;
         }
       } else {
         const progress = deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
@@ -2235,7 +2236,10 @@ export default function CoachScreen() {
           if (sendGenerationRef.current !== sendGen) return;
           if (openingParlayBuild) {
             const partial = latestBoardScanRef.current;
-            if (partial?.picks?.length) {
+            if (
+              partial &&
+              ((partial.picks?.length ?? 0) > 0 || boardScanIsComplete(partial))
+            ) {
               deliverBoardScanTicket(partial);
             } else {
               tryInstantSlateSeedDelivery(
@@ -2714,8 +2718,9 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
+              // Recognize completed same-request scans even when picks.length === 0.
               freshBoardScanComplete = !!(
-                preBoardScan?.picks?.length &&
+                preBoardScan &&
                 boardScanIsComplete(preBoardScan) &&
                 boardScanReadyForDelivery(preBoardScan, reachTargetPreScan)
               );
@@ -5407,7 +5412,10 @@ export default function CoachScreen() {
         } else if (e?.name === "AbortError" || isAbortLikeError(e)) {
           if (isParlayBuildAsk(trimmed)) {
             const partial = latestBoardScanRef.current;
-            if (partial?.picks?.length) {
+            if (
+              partial &&
+              ((partial.picks?.length ?? 0) > 0 || boardScanIsComplete(partial))
+            ) {
               deliverBoardScanTicket(partial);
             } else {
               tryInstantSlateSeedDelivery(
@@ -5434,7 +5442,14 @@ export default function CoachScreen() {
         if (sendGenerationRef.current !== sendGen) return;
         if (isParlayBuildAsk(trimmed)) {
           const partial = latestBoardScanRef.current;
-          if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
+          const hasStashedLegs = (partial?.picks?.length ?? 0) > 0;
+          const hasCompletedZero =
+            !!partial && boardScanIsComplete(partial) && !hasStashedLegs;
+          if (
+            partial &&
+            !boardTicketSnapshotRef.current?.length &&
+            (hasStashedLegs || hasCompletedZero)
+          ) {
             if (boardScanIsComplete(partial)) {
               deliverBoardScanTicket(partial);
             } else {
@@ -5840,7 +5855,9 @@ export default function CoachScreen() {
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     const partial = latestBoardScanRef.current;
-    if (!partial?.picks?.length) return;
+    if (!partial) return;
+    const hasLegs = (partial.picks?.length ?? 0) > 0;
+    if (!hasLegs && !boardScanIsComplete(partial)) return;
     const legTarget =
       activeRequestLegTargetRef.current ||
       last.ticketLegTarget ||
@@ -5853,6 +5870,7 @@ export default function CoachScreen() {
         legTarget,
         ctx?.sendGeneration ?? sendGenerationRef.current,
         sendGenerationRef.current,
+        ctx?.requestId,
       )
     ) {
       return;
@@ -5867,13 +5885,16 @@ export default function CoachScreen() {
         return;
       }
       const partialRetry = latestBoardScanRef.current;
-      if (!partialRetry?.picks?.length) return;
+      if (!partialRetry) return;
+      const retryHasLegs = (partialRetry.picks?.length ?? 0) > 0;
+      if (!retryHasLegs && !boardScanIsComplete(partialRetry)) return;
       if (
         !boardScanAppliesToRequest(
           partialRetry,
           legTarget,
           ctx?.sendGeneration ?? sendGenerationRef.current,
           sendGenerationRef.current,
+          ctx?.requestId,
         )
       ) {
         return;
@@ -5899,15 +5920,33 @@ export default function CoachScreen() {
     const genericFailure =
       /couldn't ground a real ticket/i.test(content) ||
       /couldn't ground any of those legs/i.test(content);
-    if (content && !genericFailure) return;
+    const stillScoringPlaceholder =
+      /board scan may still be scoring/i.test(content);
+    // Keep trying stash recovery while the bubble is blank, a known soft failure,
+    // or the temporary "still scoring" placeholder — a late same-request complete
+    // (including zero-pick) must still be able to attach its manifest.
+    if (content && !genericFailure && !stillScoringPlaceholder) return;
 
     const tryStashedDelivery = () => {
       const legTarget =
         requestedLegCount(priorUser?.content ?? "") ||
         effectiveBuildLegCount(priorUser?.content ?? "");
       const partial = latestBoardScanRef.current;
+      const ctx = coachRequestContextRef.current;
       if (partial && boardScanIsComplete(partial)) {
-        // boardScanReadyForDelivery now allows same-target shortfalls AND completed
+        if (
+          legTarget > 0 &&
+          !boardScanAppliesToRequest(
+            partial,
+            legTarget,
+            ctx?.sendGeneration ?? sendGenerationRef.current,
+            sendGenerationRef.current,
+            ctx?.requestId,
+          )
+        ) {
+          return false;
+        }
+        // boardScanReadyForDelivery allows same-target shortfalls AND completed
         // zero-pick scans so we attach the final manifest instead of "still scoring".
         if (legTarget > 0 && !boardScanReadyForDelivery(partial, legTarget)) {
           return false;
@@ -5923,6 +5962,18 @@ export default function CoachScreen() {
         return true;
       }
       if (partial?.picks?.length) {
+        if (
+          legTarget > 0 &&
+          !boardScanAppliesToRequest(
+            partial,
+            legTarget,
+            ctx?.sendGeneration ?? sendGenerationRef.current,
+            sendGenerationRef.current,
+            ctx?.requestId,
+          )
+        ) {
+          return false;
+        }
         if (legTarget > 0 && !boardScanMatchesLegTarget(partial, legTarget)) {
           return false;
         }
@@ -5948,7 +5999,7 @@ export default function CoachScreen() {
     if (tryStashedDelivery()) return;
 
     const retryText = priorUser?.content?.trim();
-    if (retryText) {
+    if (retryText && !stillScoringPlaceholder) {
       setBuildProgressExpired(false);
       setMessages((prev) => {
         const copy = [...prev];
