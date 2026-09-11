@@ -19,6 +19,8 @@ export function boardScanDisplayReadyCount(
 /**
  * Hard gate: fixed-leg mid-scan under-count cards must never render.
  * Complete scans may show honest shortfalls; full-count may flash early.
+ * If the stash already hit the target but soft/invariants yield a slightly
+ * shorter ticket, still allow that flash so we never freeze at 93%.
  */
 export function canShowFixedLegBoardScanPicks(opts: {
   legTarget: number;
@@ -26,12 +28,17 @@ export function canShowFixedLegBoardScanPicks(opts: {
   scanComplete?: boolean | null;
   allowIncompletePicks?: boolean;
   forceShowIncomplete?: boolean;
+  /** Raw scan stash size — used only for full-stash fail-soft flash. */
+  stashPickCount?: number;
 }): boolean {
   if (opts.pickCount <= 0) return false;
   if (opts.allowIncompletePicks || opts.forceShowIncomplete) return true;
   if (opts.legTarget < 3) return true;
   if (opts.scanComplete === true) return true;
-  return opts.pickCount >= opts.legTarget;
+  if (opts.pickCount >= opts.legTarget) return true;
+  // Stash full, soft ticket slightly short — show soft rather than eternal 93%.
+  if ((opts.stashPickCount ?? 0) >= opts.legTarget && opts.pickCount > 0) return true;
+  return false;
 }
 
 /** Fixed-leg live scans: hold pick cards until full count / complete / stall. */

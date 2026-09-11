@@ -51,6 +51,28 @@ test("hard gate blocks 2/3/4/5 of 6 mid-scan display", () => {
   );
 });
 
+test("full stash fail-soft may show slightly short soft ticket (no 93% freeze)", () => {
+  assert.equal(
+    canShowFixedLegBoardScanPicks({
+      legTarget: 6,
+      pickCount: 5,
+      scanComplete: false,
+      stashPickCount: 6,
+    }),
+    true,
+  );
+  assert.equal(
+    canShowFixedLegBoardScanPicks({
+      legTarget: 6,
+      pickCount: 4,
+      scanComplete: false,
+      stashPickCount: 4,
+    }),
+    false,
+    "under-count stash must stay hidden",
+  );
+});
+
 test("under-count incomplete scans hold pick cards", () => {
   assert.equal(
     shouldHoldIncompleteBoardScanPickDisplay({
