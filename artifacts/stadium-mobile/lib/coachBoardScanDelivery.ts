@@ -8,7 +8,11 @@ import {
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
-import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
+import {
+  applyCoachTicketInvariants,
+  boardScanToCoachTicket,
+  prepareCoachDeliveredTicket,
+} from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
@@ -92,26 +96,57 @@ export function deliverCoachBoardScanTicket(
     };
   }
 
+  // Refuse foreign / oversized scans only. boardScanMatchesLegTarget now accepts
+  // same-request shortfalls (0 ≤ picks ≤ target), so we never wipe a non-empty
+  // shortfall merely because pick count < requestedLegs.
   if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
+    // Prefix-reuse guard (e.g. 15-leg for an 8-leg ask). Still mark complete so
+    // recovery can attach the scan manifest instead of "may still be scoring".
+    const finalManifest: CoachBoardScanManifest = {
+      ...manifest,
+      scanComplete: true,
+      boardExhausted: true,
+      requestedLegs: legTarget,
+      deliveredLegs: 0,
+    };
     return {
       picks: [],
-      manifest: {
-        ...manifest,
-        requestedLegs: legTarget,
-        deliveredLegs: 0,
-      },
-      scanComplete: false,
-      coachDetailNote: formatCoachBoardScanManifest({
-        ...manifest,
-        scanComplete: false,
-        requestedLegs: legTarget,
-      }),
+      manifest: finalManifest,
+      scanComplete: true,
+      coachDetailNote: formatCoachBoardScanManifest(finalManifest),
+    };
+  }
+
+  // Zero staged legs — completed empty result with manifest (not "still scoring").
+  if (!scan.picks.length) {
+    const finalManifest: CoachBoardScanManifest = {
+      ...manifest,
+      scanComplete: true,
+      boardExhausted: true,
+      requestedLegs: legTarget > 0 ? legTarget : manifest.requestedLegs,
+      deliveredLegs: 0,
+    };
+    return {
+      picks: [],
+      manifest: finalManifest,
+      scanComplete: true,
+      coachDetailNote: formatCoachBoardScanManifest(finalManifest),
     };
   }
 
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  // Finalize already ran delivery filtering. Apply invariants only — do not
+  // re-run filterCoachDeliveredPicks (prepareCoachDeliveredTicket), which can
+  // zero a valid shortfall solely from a second gate pass / thin enrich.
+  let picks = applyCoachTicketInvariants(finalized.picks, enrich);
+  if (!picks.length && finalized.picks.length) {
+    picks = finalized.picks;
+  }
+  if (!picks.length && scan.picks.length) {
+    // Last resort: trust already-staged scan legs through fail-soft board path.
+    picks = boardScanToCoachTicket(scan, enrich, legTarget);
+  }
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,

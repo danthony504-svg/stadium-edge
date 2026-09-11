@@ -168,6 +168,30 @@ test("boardScanMatchesLegTarget rejects partial without requestedLegs", () => {
   );
 });
 
+test("boardScanMatchesLegTarget accepts same-request shortfall and zero-pick complete", () => {
+  assert.equal(
+    boardScanMatchesLegTarget({ picks: { length: 6 }, requestedLegs: 8, scanComplete: true }, 8),
+    true,
+  );
+  assert.equal(
+    boardScanMatchesLegTarget({ picks: { length: 0 }, requestedLegs: 8, scanComplete: true }, 8),
+    true,
+  );
+  // Legacy (no requestedLegs): shortfall / zero OK; oversized foreign refused.
+  assert.equal(
+    boardScanMatchesLegTarget({ picks: { length: 6 }, scanComplete: true }, 8),
+    true,
+  );
+  assert.equal(
+    boardScanMatchesLegTarget({ picks: { length: 0 }, scanComplete: true }, 8),
+    true,
+  );
+  assert.equal(
+    boardScanMatchesLegTarget({ picks: { length: 15 }, scanComplete: true }, 8),
+    false,
+  );
+});
+
 test("boardScanMeetsLegTarget requires picks length >= requested legs", () => {
   assert.equal(boardScanMeetsLegTarget({ picks: { length: 6 } }, 9), false);
   assert.equal(boardScanMeetsLegTarget({ picks: { length: 7 } }, 15), false);
@@ -261,7 +285,7 @@ test("preferBoardScanForDelivery prefers complete scan over partial with picks",
   );
 });
 
-test("boardScanReadyForDelivery requires exact leg count — 15-leg never satisfies 8-leg", () => {
+test("boardScanReadyForDelivery rejects foreign targets — 15-leg never satisfies 8-leg", () => {
   const fifteen = {
     scanComplete: true,
     requestedLegs: 15,
@@ -276,6 +300,32 @@ test("boardScanReadyForDelivery requires exact leg count — 15-leg never satisf
   assert.equal(boardScanReadyForDelivery(fifteen, 15), true);
   assert.equal(boardScanReadyForDelivery(eight, 8), true);
   assert.equal(boardScanReadyForDelivery(eight, 15), false);
+});
+
+test("boardScanReadyForDelivery allows shortfall and completed zero-pick same-target scans", () => {
+  assert.equal(
+    boardScanReadyForDelivery(
+      { scanComplete: true, requestedLegs: 8, picks: Array.from({ length: 6 }) },
+      8,
+    ),
+    true,
+  );
+  assert.equal(
+    boardScanReadyForDelivery({ scanComplete: true, requestedLegs: 8, picks: [] }, 8),
+    true,
+  );
+  assert.equal(
+    boardScanReadyForDelivery({ scanComplete: true, picks: Array.from({ length: 2 }) }, 6),
+    true,
+  );
+  assert.equal(
+    boardScanReadyForDelivery({ scanComplete: true, picks: [] }, 8),
+    true,
+  );
+  assert.equal(
+    boardScanReadyForDelivery({ scanComplete: true, picks: Array.from({ length: 15 }) }, 8),
+    false,
+  );
 });
 
 test("preferFinalBoardScanForDelivery never returns preview-cache partials", () => {
