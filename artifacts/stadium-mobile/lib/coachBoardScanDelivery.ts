@@ -254,6 +254,14 @@ export function deliverCoachBoardScanProgress(
   if (legTarget > 0 && picks.length > legTarget) {
     picks = picks.slice(0, legTarget);
   }
+  // Stash already hit the requested count but delivery gates stripped the flash
+  // — fail-soft to staged legs so "Scored N of N" never sits at 93% with no cards.
+  if (legTarget >= 3 && scan.picks.length >= legTarget && picks.length < legTarget) {
+    const soft = boardScanToCoachTicket(scan, enrich, legTarget);
+    if (soft.length) {
+      picks = legTarget > 0 && soft.length > legTarget ? soft.slice(0, legTarget) : soft;
+    }
+  }
   if (!picks.length) {
     return { picks: [], progressNote: "" };
   }
