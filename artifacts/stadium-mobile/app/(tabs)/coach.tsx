@@ -1650,21 +1650,21 @@ export default function CoachScreen() {
 
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
-      if (isFinal) {
+      // Freeze on scanComplete OR full scored count — never leave Scored N/N @ 93%.
+      const freezeNow = shouldFreezeDisplayedCoachTicket({
+        displayedScanComplete: isFinal,
+        displayedPickCount: ticket.length,
+        legTarget,
+      });
+      if (freezeNow) {
         liveScanDeliveredRef.current = true;
-        if (
-          shouldFreezeDisplayedCoachTicket({
-            displayedScanComplete: true,
-            displayedPickCount: ticket.length,
-            legTarget,
-          })
-        ) {
-          boardScanTicketFrozenRef.current = true;
-        }
+        boardScanTicketFrozenRef.current = true;
+      } else if (isFinal) {
+        liveScanDeliveredRef.current = true;
       }
       setBoardScanPartialLegs(ticket.length);
-      // Clear busy only for authoritative completed tickets (not mid-scan previews).
-      if (isFinal) {
+      // Clear busy when the finished ticket is on screen (complete or full-count freeze).
+      if (isFinal || freezeNow) {
         setStreaming(false);
         setWaiting(false);
         setBuildFinishing(false);
@@ -1688,7 +1688,9 @@ export default function CoachScreen() {
               ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
               ...(coachDetailNote.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
               ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
-              boardScanComplete: isFinal,
+              // Full-count freeze is display-final for this request even if the
+              // backend scan flag has not flipped yet.
+              boardScanComplete: isFinal || freezeNow,
             };
             return copy;
           }
@@ -1697,7 +1699,7 @@ export default function CoachScreen() {
       });
       setAiPicks(ticket);
       captureFromCoach(ticket);
-      if (!isFinal && buildFinishingRef.current) {
+      if (!isFinal && !freezeNow && buildFinishingRef.current) {
         setParlayBuildPhase("stream");
       }
       if (opts?.pinScroll !== false) scrollToEnd(false);
@@ -5572,7 +5574,7 @@ export default function CoachScreen() {
             outCoachDetailNote,
           );
           const outComplete =
-            fullBoardScanned || didReachFullPreScan
+            (fullBoardScanned || didReachFullPreScan
               ? boardScanIsComplete(
                   preferFinalBoardScanForDelivery(
                     legTarget,
@@ -5581,7 +5583,8 @@ export default function CoachScreen() {
                     latestBoardScanRef.current,
                   ) ?? fullBoardScanMeta,
                 )
-              : prevAssistant.boardScanComplete;
+              : prevAssistant.boardScanComplete) ||
+            (legTarget >= 3 && outPicks.length >= legTarget);
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
@@ -5595,7 +5598,7 @@ export default function CoachScreen() {
           };
           return copy;
         });
-        if (outPicks.length > 0) {
+          if (outPicks.length > 0) {
           boardTicketSnapshotRef.current = outPicks;
           const outDone =
             boardScanIsComplete(
@@ -5607,14 +5610,14 @@ export default function CoachScreen() {
               ) ?? fullBoardScanMeta,
             ) === true;
           if (
-            outDone &&
             shouldFreezeDisplayedCoachTicket({
-              displayedScanComplete: true,
+              displayedScanComplete: outDone || (legTarget >= 3 && outPicks.length >= legTarget),
               displayedPickCount: outPicks.length,
               legTarget,
             })
           ) {
             boardScanTicketFrozenRef.current = true;
+            liveScanDeliveredRef.current = true;
           }
           setStreaming(false);
           setWaiting(false);

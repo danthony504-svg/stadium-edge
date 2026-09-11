@@ -4,14 +4,11 @@
  * only whether pick cards are shown / replaced in the chat bubble.
  *
  * Fixed-leg same-request rules:
- * - Hold cards until scanComplete (no 2→4 drip, no mid-scan reshape).
- * - Scored N of N @ 93% is temporary until scanComplete handoff → 100%.
- * - Once a completed ticket is displayed, freeze it for that request.
- * - Post-freeze sim/rescore must not mutate the visible finished ticket.
- * - Late incomplete / lower-quality snapshots must not replace it.
- * - Authoritative completed may replace only while the visible ticket is
- *   still explicitly incomplete (or empty).
- * New Ask / Try Again starts a new request and is unaffected.
+ * - Hold under-count cards (no 2→4 drip).
+ * - Once scored N of N (or scanComplete shortfall), paint + freeze — never sit
+ *   permanently at "Scored N of N" @ 93% waiting on scanComplete.
+ * - Frozen finished tickets reject late reshape / post-freeze sim mutations.
+ * - New Ask / Try Again starts a new request and is unaffected.
  */
 
 /** Prefer the larger of gated progress vs raw stash — never `||` (4 || 6 === 4). */
@@ -23,8 +20,8 @@ export function boardScanDisplayReadyCount(
 }
 
 /**
- * Hard gate: fixed-leg cards only after scanComplete (or stall escape).
- * Mid-scan full-count flashes are not "final" and must not paint.
+ * Hard gate: fixed-leg cards after full scored count, scanComplete, or stall escape.
+ * Under-count mid-scan flashes must not paint.
  */
 export function canShowFixedLegBoardScanPicks(opts: {
   legTarget: number;
@@ -32,16 +29,21 @@ export function canShowFixedLegBoardScanPicks(opts: {
   scanComplete?: boolean | null;
   allowIncompletePicks?: boolean;
   forceShowIncomplete?: boolean;
-  /** @deprecated Ignored — mid-scan stash-full flash removed to stop reshape. */
+  /** @deprecated Ignored — under-count mid-scan flash still blocked. */
   stashPickCount?: number;
 }): boolean {
   if (opts.pickCount <= 0) return false;
   if (opts.allowIncompletePicks || opts.forceShowIncomplete) return true;
   if (opts.legTarget < 3) return true;
-  return opts.scanComplete === true;
+  if (opts.scanComplete === true) return true;
+  // Scored all requested legs — finished ticket is ready; do not wait on scanComplete.
+  return opts.pickCount >= opts.legTarget;
 }
 
-/** Fixed-leg live scans: hold pick cards until scanComplete / stall escape. */
+/**
+ * Fixed-leg live scans: hold under-count pick cards.
+ * Release when scored N of N, scanComplete, or stall escape.
+ */
 export function shouldHoldIncompleteBoardScanPickDisplay(opts: {
   scanComplete?: boolean | null;
   legTarget: number;
@@ -53,7 +55,8 @@ export function shouldHoldIncompleteBoardScanPickDisplay(opts: {
   if (opts.allowIncompletePicks || opts.forceShowIncomplete) return false;
   if (opts.scanComplete === true) return false;
   if (opts.legTarget < 3) return false;
-  // Do not release on ready >= target — mid-scan full count still restages.
+  // Full scored count is ready for handoff — do not hold at 93% for scanComplete.
+  if ((opts.readyPickCount ?? 0) >= opts.legTarget) return false;
   return true;
 }
 
@@ -80,12 +83,19 @@ export function shouldBlankHeldBoardScanPickDisplay(opts: {
   return true;
 }
 
-/** Completed same-request ticket (full or honest shortfall / zero) is frozen. */
+/**
+ * Finished same-request ticket is frozen:
+ * - full scored count on screen, or
+ * - scanComplete delivery (including honest shortfall / zero).
+ */
 export function shouldFreezeDisplayedCoachTicket(opts: {
   displayedScanComplete?: boolean | null;
   displayedPickCount: number;
   legTarget: number;
 }): boolean {
+  if (opts.legTarget >= 3 && opts.displayedPickCount >= opts.legTarget) {
+    return true;
+  }
   if (opts.displayedScanComplete !== true) return false;
   if (opts.legTarget < 3) return opts.displayedPickCount > 0;
   // Fixed-leg: any completed delivery (including 0-pick + manifest) is finished.
@@ -95,9 +105,8 @@ export function shouldFreezeDisplayedCoachTicket(opts: {
 /**
  * Same-request ticket update gate.
  * Frozen finished tickets reject replacements (including duplicate finals).
- * Exception: frozen empty may accept a completed non-empty recovery so
- * "Scored N of N" never stays permanently stuck after scanComplete.
- * Incomplete/empty visible tickets accept only authoritative completed results.
+ * Exception: frozen empty may accept a completed non-empty recovery.
+ * Empty/under-count visible tickets accept full-count or completed results.
  */
 export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
   displayedScanComplete?: boolean | null;
@@ -125,14 +134,17 @@ export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
     return false;
   }
   if (opts.legTarget < 3) return true;
-  // Visible still incomplete/empty — only completed authoritative results land.
-  return opts.incomingScanComplete === true;
+  if (opts.incomingScanComplete === true) return true;
+  // First full-count paint while visible is still empty / under-count.
+  return (
+    opts.incomingPickCount >= opts.legTarget &&
+    opts.displayedPickCount < opts.legTarget
+  );
 }
 
 /**
  * Fixed-leg progress %: cards on screen → 100%; otherwise scored floor ≤ 93%.
- * Mid-scan "Scored N of N" is temporary; handoff to 100% when the finished
- * ticket is displayed after scanComplete.
+ * Scored N of N must hand off to displayed cards (100%) — not sit at 93%.
  */
 export function boardScanDisplayProgressPct(opts: {
   displayedLegCount: number;
@@ -148,8 +160,9 @@ export function boardScanDisplayProgressPct(opts: {
 }
 
 /**
- * True when scored N of N + scanComplete should hand off to the final ticket
- * (and 100%). Mid-scan full score alone is not enough — keep #451 hold.
+ * True when the finished ticket should hand off (paint → 100%).
+ * Scored N of N is enough — do not require scanComplete.
+ * Honest shortfalls still need scanComplete.
  */
 export function canCompleteFixedLegBoardScanHandoff(opts: {
   legTarget: number;
@@ -162,12 +175,13 @@ export function canCompleteFixedLegBoardScanHandoff(opts: {
     return opts.scoredLegCount > 0;
   }
   if (opts.legTarget < 3) return opts.scoredLegCount > 0;
+  if (opts.scoredLegCount >= opts.legTarget) return true;
   return opts.scanComplete === true && opts.scoredLegCount > 0;
 }
 
 /**
- * Permanent 93% bug state: scan finished with a full scored stash but no cards.
- * Temporary mid-scan "Scored N of N" @ 93% (scanComplete false) is not permanent.
+ * Permanent 93% bug: full scored stash with no cards on screen.
+ * (scanComplete may still be false — that wait is the bug.)
  */
 export function isPermanentBoardScan93PctState(opts: {
   legTarget: number;
@@ -176,7 +190,6 @@ export function isPermanentBoardScan93PctState(opts: {
   scanComplete?: boolean | null;
 }): boolean {
   if (opts.displayedLegCount > 0) return false;
-  if (opts.scanComplete !== true) return false;
   if (opts.legTarget < 3) return false;
   return opts.scoredLegCount >= opts.legTarget;
 }
