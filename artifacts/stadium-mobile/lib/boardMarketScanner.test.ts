@@ -199,3 +199,5 @@ test("instrumentation throw does not change Coach scan picks or delivery counts"
   assert.equal(experimental.manifest?.requestedLegs, control.manifest?.requestedLegs);
   assert.equal(experimental.totalQualified, control.totalQualified);
 });
+
+

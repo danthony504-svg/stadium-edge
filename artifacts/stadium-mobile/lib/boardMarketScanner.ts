@@ -66,6 +66,11 @@ import {
   shouldStopPropSimForTicketMix,
 } from "./boardPropSimExpansion.ts";
 import {
+  boardScanNonPropPreviewCap,
+  boardScanPropSlotCount,
+  shouldKeepAwaitingPropSlots,
+} from "./boardScanPropDelivery.ts";
+import {
   boardScanGamePhaseBudgetMs,
   boardScanMaxPropsToSim,
   boardScanPropPhaseDeadlineMs,
@@ -550,30 +555,27 @@ export function buildScanResult(
   let picks = injectPrioritySportsIntoTicket(staged.picks, stagePool, opts.target);
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
-  let awaitingPropSlots = false;
+  let propCount = picks.filter((p) => p.isProp).length;
   if (opts.preview && !opts.propsOnly && opts.target >= 3) {
-    const propCount = picks.filter((p) => p.isProp).length;
-    const propSlots = Math.max(1, Math.round(opts.target * 0.5));
+    const propSlots = boardScanPropSlotCount(opts.target);
     if (propCount < propSlots) {
       const props = picks.filter((p) => p.isProp);
       const nonProps = picks.filter((p) => !p.isProp);
-      const nonPropCap = Math.max(0, opts.target - propSlots);
+      const nonPropCap = boardScanNonPropPreviewCap(opts.target);
       picks = [...props, ...nonProps.slice(0, nonPropCap)].slice(0, opts.target);
-      awaitingPropSlots = propCount === 0;
+      propCount = picks.filter((p) => p.isProp).length;
     }
   }
   // Final ticket with a loaded prop board that never finished scoring props —
   // keep awaitingPropSlots so callers do not publish game-line-only shortfalls
   // as "every market scanned" (7-leg → exactly 3 F5 lines).
-  if (
-    !opts.preview &&
-    opts.propPhaseIncomplete &&
-    !opts.propsOnly &&
-    opts.target >= 3 &&
-    picks.every((p) => !p.isProp)
-  ) {
-    awaitingPropSlots = true;
-  }
+  const awaitingPropSlots = shouldKeepAwaitingPropSlots({
+    preview: opts.preview,
+    propsOnly: opts.propsOnly,
+    targetLegs: opts.target,
+    propCount,
+    propPhaseIncomplete: opts.propPhaseIncomplete,
+  });
   const breakdown = staged.breakdown;
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
