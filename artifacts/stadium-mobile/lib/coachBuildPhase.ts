@@ -140,3 +140,19 @@ export function shouldEndBoardScanAttemptAfterLateJoins(opts: {
 }): boolean {
   return opts.lateJoinsRemaining <= 0;
 }
+
+/**
+ * Dead-end bubble copy. Only claim the board scan "may still be scoring" while
+ * a same-request attempt is actually pending — otherwise that line is a lie and
+ * trains users to wait on a finished empty build.
+ */
+export function emptyTicketDeadEndMessage(opts: {
+  boardScanPending: boolean;
+  scanComplete?: boolean | null;
+}): string {
+  if (opts.boardScanPending && opts.scanComplete !== true) {
+    return "This build finished without pick cards — the board scan may still be scoring. Tap below to try again.";
+  }
+  return "This build finished without pick cards. Tap below to try again.";
+}
+

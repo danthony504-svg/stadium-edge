@@ -171,6 +171,7 @@ import {
   shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
+  emptyTicketDeadEndMessage,
 } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
@@ -1557,11 +1558,10 @@ export default function CoachScreen() {
         coachDetailNote = delivered.coachDetailNote;
         // Completion handoff: scored N of N + scanComplete must not strand an
         // empty bubble at 93% — fail-soft to staged stash before freezing empty.
-        if (
-          legTarget >= 3 &&
-          !ticket.length &&
-          (partial.picks?.length ?? 0) >= legTarget
-        ) {
+        // Fail-soft on ANY complete stash with staged picks — not only full N.
+        // Shortfalls (e.g. 4 of 6) were zeroed by enrich gates and skipped this
+        // path, then the bubble died on "finished without pick cards".
+        if (legTarget >= 3 && !ticket.length && (partial.picks?.length ?? 0) > 0) {
           ticket = boardScanToCoachTicket(partial, enrichWithScan, legTarget);
         }
         if (legTarget > 0 && ticket.length < legTarget) {
@@ -1946,8 +1946,11 @@ export default function CoachScreen() {
         enrich,
         legTarget,
       });
+      // Full count OR honest shortfall — never require exact N before painting a
+      // completed scan (exact-N-only left 4-of-6 builds on the empty dead-end).
       if (
-        ticket.length === legTarget &&
+        ticket.length > 0 &&
+        boardScanIsComplete(scan) &&
         deliverCoachTicket(ticket, legNote, { coachDetailNote })
       ) {
         return true;
@@ -2045,9 +2048,17 @@ export default function CoachScreen() {
               !(stashed && boardScanIsComplete(stashed)),
           })
         ) {
-          // No cards after stall (empty stash or failed force-show) — unlock
-          // composer instead of leaving "Scanning…" @ 93% with a locked send.
-          // Do not abort the in-flight scan; late complete may still deliver.
+          // Last chance before empty dead-end: complete stash → manifest/cards,
+          // else slate seed. Then unlock so composer is not stuck at 93%.
+          let painted = displayedAfter > 0;
+          if (!painted && stashed && boardScanIsComplete(stashed)) {
+            painted = !!patchInstantBoardScanTicket(stashed, undefined, {
+              ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+            });
+          }
+          if (!painted && legTarget > 0) {
+            painted = !!tryInstantSlateSeedDelivery(legTarget);
+          }
           setStreaming(false);
           setWaiting(false);
           setBuildFinishing(false);
@@ -2078,7 +2089,7 @@ export default function CoachScreen() {
         scrollToEnd(false);
       }, stallMs);
     },
-    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape],
+    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape, tryInstantSlateSeedDelivery],
   );
 
   const flashBoardScanResult = useCallback(
@@ -6789,8 +6800,10 @@ export default function CoachScreen() {
         if (copy[idx]?.role !== "assistant") return prev;
         copy[idx] = {
           ...copy[idx],
-          content:
-            "This build finished without pick cards — the board scan may still be scoring. Tap below to try again.",
+          content: emptyTicketDeadEndMessage({
+            boardScanPending: boardScanPendingForActiveSend(),
+            scanComplete: latestBoardScanRef.current?.scanComplete,
+          }),
           retry: retryText,
         };
         return copy;

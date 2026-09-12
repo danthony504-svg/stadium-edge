@@ -11,6 +11,7 @@ import {
   shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
+  emptyTicketDeadEndMessage,
 } from "./coachBuildPhase.ts";
 
 test("empty cards + stash picks stay on board-scan (not stream/score grade limbo)", () => {
@@ -211,5 +212,16 @@ test("paint-state stall: scored stash + empty bubble uses under-count escape", (
       deepStallMs: 240_000,
     }),
     240_000,
+  );
+});
+
+test("dead-end copy only claims still-scoring while board-scan pending", () => {
+  assert.match(
+    emptyTicketDeadEndMessage({ boardScanPending: true, scanComplete: false }),
+    /may still be scoring/i,
+  );
+  assert.doesNotMatch(
+    emptyTicketDeadEndMessage({ boardScanPending: false, scanComplete: true }),
+    /may still be scoring/i,
   );
 });
