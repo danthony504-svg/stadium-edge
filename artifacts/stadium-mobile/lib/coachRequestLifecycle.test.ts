@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
+  adoptBoardScanForActiveRequest,
   boardScanAppliesToRequest,
   boardScanMatchesRequestId,
   boardScanRecoverableForRequest,
@@ -474,4 +475,28 @@ test("skipPrefixReject allows escape paint of under-count / prefix-shaped ticket
     skipPrefixReject: true,
   });
   assert.equal(allowed.ok, true);
+});
+
+
+test("adoptBoardScanForActiveRequest stamps requestId so seed paint passes identity gate", () => {
+  const seed = {
+    picks: [{ length: 4 } as never],
+    requestedLegs: 6,
+    scanComplete: false as boolean | undefined,
+  };
+  // Cached seeds have no requestId — identity gate must reject them raw.
+  assert.equal(
+    boardScanAppliesToRequest(seed as never, 6, 1, 1, "req-active"),
+    false,
+  );
+  const adopted = adoptBoardScanForActiveRequest(seed, {
+    requestId: "req-active",
+    requestedLegs: 6,
+  });
+  assert.equal(adopted.requestId, "req-active");
+  assert.equal(adopted.requestedLegs, 6);
+  assert.equal(
+    boardScanAppliesToRequest(adopted as never, 6, 1, 1, "req-active"),
+    true,
+  );
 });

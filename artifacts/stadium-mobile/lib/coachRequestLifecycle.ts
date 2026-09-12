@@ -226,6 +226,22 @@ export function boardScanAppliesToRequest(
 }
 
 /**
+ * Stamp a cached/preview scan onto the active Coach request so paint/escape
+ * gates can accept it. Slate seeds are serialized without requestId; without
+ * this adopt, patchInstant always rejects and keep-busy + dead-end suppress
+ * leave a permanent empty 93% hang.
+ */
+export function adoptBoardScanForActiveRequest<
+  T extends { requestId?: string; requestedLegs?: number },
+>(scan: T, opts: { requestId: string; requestedLegs: number }): T {
+  return {
+    ...scan,
+    requestId: opts.requestId,
+    ...(opts.requestedLegs > 0 ? { requestedLegs: opts.requestedLegs } : {}),
+  };
+}
+
+/**
  * finally / abort / stash recovery / message attach: re-validate identity
  * before consuming latestBoardScanRef. Same rules as boardScanAppliesToRequest.
  */

@@ -273,3 +273,15 @@ test("coach.tsx passes forceShowIncomplete into accept gate (escape paint)", () 
     /skipPrefixReject:\s*escapePaint/,
   );
 });
+
+test("coach.tsx adopts seed/escape scans onto active requestId", () => {
+  const src = readFileSync(new URL("../app/(tabs)/coach.tsx", import.meta.url), "utf8");
+  assert.match(src, /adoptBoardScanForActiveRequest\(/);
+  // Escape success requires on-screen cards, not bare patchInstant true.
+  assert.match(
+    src,
+    /Only real on-screen cards count|never trust a bare patchInstant true|Only real on-screen cards/,
+  );
+  // finally unlock clears attempt ownership.
+  assert.match(src, /boardScanAttemptActiveRef\.current = false/);
+});

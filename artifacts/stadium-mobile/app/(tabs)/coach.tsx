@@ -178,6 +178,7 @@ import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
+  adoptBoardScanForActiveRequest,
   boardScanAppliesToRequest,
   boardScanRecoverableForRequest,
   boardScanMatchesRequestId,
@@ -1360,14 +1361,27 @@ export default function CoachScreen() {
       // Latch until cards land or a new send — render gate must see this flag.
       forceShowIncompleteBoardScanRef.current = true;
       underCountEscapeDeadlineRef.current = null;
-      const painted = patchInstantBoardScanTicket(stashed, undefined, {
+      // Cached/preview stashes often lack requestId — adopt onto the active
+      // request or patchInstant rejects and we hang at empty 93%.
+      const ctx = coachRequestContextRef.current;
+      const toPaint =
+        ctx?.requestId
+          ? adoptBoardScanForActiveRequest(stashed, {
+              requestId: ctx.requestId,
+              requestedLegs: legTarget,
+            })
+          : stashed;
+      latestBoardScanRef.current = toPaint;
+      patchInstantBoardScanTicket(toPaint, undefined, {
         allowIncompletePicks: true,
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-        legNote: boardScanIsComplete(stashed)
+        legNote: boardScanIsComplete(toPaint)
           ? undefined
-          : `Still finishing the full-board scan — showing **${stashed.picks.length}** of **${legTarget || stashed.picks.length}** legs scored so far.`,
+          : `Still finishing the full-board scan — showing **${toPaint.picks.length}** of **${legTarget || toPaint.picks.length}** legs scored so far.`,
       });
-      const hasCards = painted || (boardTicketSnapshotRef.current?.length ?? 0) > 0;
+      // Only real on-screen cards count — never trust a bare patchInstant true
+      // (empty complete freeze used to fake escape success and clear busy).
+      const hasCards = (boardTicketSnapshotRef.current?.length ?? 0) > 0;
       if (!hasCards) {
         // Keep busy + forceShow latched so stall/retry can try again — do not
         // unlock into the empty dead-end after a failed escape paint.
@@ -1937,7 +1951,15 @@ export default function CoachScreen() {
         // Ensure render gate sees the latch even if seed is the first paint.
         forceShowIncompleteBoardScanRef.current = true;
       }
-      return patchInstantBoardScanTicket(markBoardScanAsPreview(scan), enrich, {
+      const ctx = coachRequestContextRef.current;
+      const preview = markBoardScanAsPreview(scan);
+      const adopted = ctx?.requestId
+        ? adoptBoardScanForActiveRequest(preview, {
+            requestId: ctx.requestId,
+            requestedLegs: legTarget,
+          })
+        : preview;
+      return patchInstantBoardScanTicket(adopted, enrich, {
         legNote: COACH_SLATE_PREVIEW_NOTE,
         ticketLegTarget: legTarget,
         allowIncompletePicks: allowIncomplete,
@@ -2554,7 +2576,15 @@ export default function CoachScreen() {
             ) {
               // Fixed-leg: never paint under-count opening cards (4→5 churn).
               // Seed progress scoring only; hold until full count / complete.
-              latestBoardScanRef.current = markBoardScanAsPreview(seed.boardScan);
+              // Stamp requestId so later escape/patchInstant can accept this stash.
+              const openingPreview = markBoardScanAsPreview(seed.boardScan);
+              const openingCtx = coachRequestContextRef.current;
+              latestBoardScanRef.current = openingCtx?.requestId
+                ? adoptBoardScanForActiveRequest(openingPreview, {
+                    requestId: openingCtx.requestId,
+                    requestedLegs: earlyLegTarget,
+                  })
+                : openingPreview;
               setBoardScanPartialLegs(prepared.length);
               setParlayBuildPhase("board-scan");
             } else {
@@ -6306,6 +6336,9 @@ export default function CoachScreen() {
           setCoachBuildBusy(true);
           armBuildStallWatchdog(sendGen, trimmed);
         } else {
+          // Terminal for this send — drop attempt ownership so stall/dead-end
+          // cannot treat a stuck active flag as forever-pending at 93%.
+          boardScanAttemptActiveRef.current = false;
           clearBuildStallWatchdog();
           setWaiting(false);
           setStreaming(false);
@@ -6931,9 +6964,18 @@ export default function CoachScreen() {
           return false;
         }
         const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
-        return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich, {
+        const preview = markBoardScanAsPreview(seed.boardScan);
+        const seedCtx = coachRequestContextRef.current;
+        const adopted = seedCtx?.requestId
+          ? adoptBoardScanForActiveRequest(preview, {
+              requestId: seedCtx.requestId,
+              requestedLegs: legTarget,
+            })
+          : preview;
+        return patchInstantBoardScanTicket(adopted, enrich, {
           legNote: COACH_SLATE_PREVIEW_NOTE,
           ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+          allowIncompletePicks: forceShowIncompleteBoardScanRef.current,
         });
       }
       return tryInstantSlateSeedDelivery(legTarget);
