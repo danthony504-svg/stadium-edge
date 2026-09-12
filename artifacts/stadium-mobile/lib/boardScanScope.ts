@@ -20,13 +20,35 @@ export function boardScanPropSimBatchTimeoutMs(): number {
 }
 
 /**
- * Hard wall for the entire prop-sim phase after game lines are scored.
+ * Hard wall for the entire prop-sim phase.
  * Guarantees buildTopLegsFromFullBoardScan falls through to boardExhausted
  * final even when props never qualify — Coach must not sit at 84% forever.
+ *
+ * When the prop pool is prefetched, this phase overlaps game-line sims so the
+ * absolute Coach budget cannot starve player props (7-leg → 3 F5 game lines).
  */
 export function boardScanPropPhaseDeadlineMs(targetLegs: number): number {
   if (targetLegs >= 15) return 75_000;
   if (targetLegs >= 9) return 60_000;
   if (targetLegs >= 6) return 45_000;
   return 35_000;
+}
+
+/**
+ * Cap game-line sims when props run in parallel, so the wall clock still
+ * leaves room for prop MC inside the Coach absolute delivery budget.
+ */
+export function boardScanGamePhaseBudgetMs(targetLegs: number): number {
+  if (targetLegs >= 9) return 32_000;
+  if (targetLegs >= 6) return 28_000;
+  return 24_000;
+}
+
+/** Prefetched pools should overlap prop scoring with game lines. */
+export function shouldOverlapPropPhaseWithGames(
+  skipPropPoolExpand: boolean | undefined,
+  propPoolSize: number,
+  propsOnly?: boolean,
+): boolean {
+  return !!skipPropPoolExpand && propPoolSize > 0 && !propsOnly;
 }

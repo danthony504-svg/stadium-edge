@@ -66,9 +66,16 @@ import {
   shouldStopPropSimForTicketMix,
 } from "./boardPropSimExpansion.ts";
 import {
+  boardScanNonPropPreviewCap,
+  boardScanPropSlotCount,
+  shouldKeepAwaitingPropSlots,
+} from "./boardScanPropDelivery.ts";
+import {
+  boardScanGamePhaseBudgetMs,
   boardScanMaxPropsToSim,
   boardScanPropPhaseDeadlineMs,
   boardScanPropSimBatchTimeoutMs,
+  shouldOverlapPropPhaseWithGames,
 } from "./boardScanScope.ts";
 export {
   boardPropSimExpansionBatchSize,
@@ -158,6 +165,11 @@ export type FullBoardScanResult = {
    * "3 of 6 game lines" before prop sims started.
    */
   awaitingPropSlots?: boolean;
+  /**
+   * Prop scoring was cut short (abort/deadline) before any prop legs landed.
+   * Callers must not treat a game-line-only shortfall as "every market scanned".
+   */
+  propPhaseIncomplete?: boolean;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
 };
@@ -526,6 +538,8 @@ export function buildScanResult(
     requestId?: string;
     /** Stage only player-prop legs (props-only asks). Qual gates unchanged. */
     propsOnly?: boolean;
+    /** Prop scoring was cut short before any prop legs landed. */
+    propPhaseIncomplete?: boolean;
   },
 ): FullBoardScanResult {
   const stagePool = opts.propsOnly ? scored.filter((leg) => !!leg.pick.isProp) : scored;
@@ -541,22 +555,31 @@ export function buildScanResult(
   let picks = injectPrioritySportsIntoTicket(staged.picks, stagePool, opts.target);
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
-  let awaitingPropSlots = false;
+  let propCount = picks.filter((p) => p.isProp).length;
   if (opts.preview && !opts.propsOnly && opts.target >= 3) {
-    const propCount = picks.filter((p) => p.isProp).length;
-    const propSlots = Math.max(1, Math.round(opts.target * 0.5));
+    const propSlots = boardScanPropSlotCount(opts.target);
     if (propCount < propSlots) {
       const props = picks.filter((p) => p.isProp);
       const nonProps = picks.filter((p) => !p.isProp);
-      const nonPropCap = Math.max(0, opts.target - propSlots);
+      const nonPropCap = boardScanNonPropPreviewCap(opts.target);
       picks = [...props, ...nonProps.slice(0, nonPropCap)].slice(0, opts.target);
-      awaitingPropSlots = propCount === 0;
+      propCount = picks.filter((p) => p.isProp).length;
     }
   }
+  // Final ticket with a loaded prop board that never finished scoring props —
+  // keep awaitingPropSlots so callers do not publish game-line-only shortfalls
+  // as "every market scanned" (7-leg → exactly 3 F5 lines).
+  const awaitingPropSlots = shouldKeepAwaitingPropSlots({
+    preview: opts.preview,
+    propsOnly: opts.propsOnly,
+    targetLegs: opts.target,
+    propCount,
+    propPhaseIncomplete: opts.propPhaseIncomplete,
+  });
   const breakdown = staged.breakdown;
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
-  const scanComplete = !opts.preview && opts.boardExhausted === true;
+  const scanComplete = !opts.preview && opts.boardExhausted === true && !opts.propPhaseIncomplete;
   // NFL/NCAAF funnel bookkeeping — fail-safe; never alters picks or staging.
   safeCoachManifestInstrument("football-prop-delivery-funnel", () => {
     const qualifiedFootballProps = scored
@@ -572,7 +595,7 @@ export function buildScanResult(
   });
   const manifest = opts.manifestRecorder.finalize({
     scanComplete,
-    boardExhausted: opts.boardExhausted === true,
+    boardExhausted: opts.boardExhausted === true && !opts.propPhaseIncomplete,
     deliveredLegs: scanComplete ? picks.length : 0,
   });
   const note =
@@ -585,7 +608,7 @@ export function buildScanResult(
     requestedLegs: opts.target,
     pickIds: picks,
     source: opts.preview ? "buildScanResult-preview" : "buildScanResult-final",
-    extra: { scanComplete: !opts.preview && opts.boardExhausted === true },
+    extra: { scanComplete },
   });
   return {
     picks,
@@ -599,6 +622,7 @@ export function buildScanResult(
     requestedLegs: opts.target,
     requestId: opts.requestId,
     ...(awaitingPropSlots ? { awaitingPropSlots: true } : {}),
+    ...(opts.propPhaseIncomplete ? { propPhaseIncomplete: true } : {}),
     manifest,
   };
 }
@@ -739,41 +763,32 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     emitBoardScanPartial();
   };
 
-  for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
-    if (opts.signal?.aborted) break;
-    const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
-    const batchSims = await fetchSlateGameSimulations(
-      new Map(batch),
-      opts.teamIdMap,
-      opts.signal,
-    );
-    for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
-    scoreGamesAndMaybePartial(batch.map(([game]) => game));
-  }
+  const overlapProps = shouldOverlapPropPhaseWithGames(
+    opts.skipPropPoolExpand,
+    pool.length,
+    opts.propsOnly,
+  );
+  let propPhaseIncomplete = false;
+  let propScoredAcc: BoardScoredLeg[] = [];
 
-  const expandedPool = await poolExpandP;
-  if (expandedPool?.length) pool = expandedPool;
-
-  for (const entry of pool) {
-    manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
-  }
-
-  const propScoreOpts = {
-    pool,
-    mergedOdds,
-    matchupHistory: opts.matchupHistory,
-    matchupInjuries: opts.matchupInjuries,
-    playerHistory: opts.playerHistory,
-    mlbPlatoon: opts.mlbPlatoon,
-    mlbGameEnv: opts.mlbGameEnv,
-    perfByFamily: opts.perfByFamily,
-    calibration: opts.calibration,
-  };
-
-  const propPhaseStartedAt = Date.now();
-  try {
-    const { propScored } = await simPropPoolUntilQualified(
-      pool,
+  const runPropPhase = (activePool: PropPoolEntry[]) => {
+    for (const entry of activePool) {
+      manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
+    }
+    const propScoreOpts = {
+      pool: activePool,
+      mergedOdds,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+      playerHistory: opts.playerHistory,
+      mlbPlatoon: opts.mlbPlatoon,
+      mlbGameEnv: opts.mlbGameEnv,
+      perfByFamily: opts.perfByFamily,
+      calibration: opts.calibration,
+    };
+    const propPhaseStartedAt = Date.now();
+    return simPropPoolUntilQualified(
+      activePool,
       mergedOdds,
       scored,
       {
@@ -795,10 +810,62 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       },
       opts.signal,
     );
-    scored.push(...propScored);
-  } catch {
-    // Prop phase must never skip the final ticket — fall through with game
-    // (+ any partial prop) legs already scored.
+  };
+
+  // Prefetched prop boards score in parallel with game lines so the absolute
+  // Coach budget cannot burn out on F5 MLs before player props ever run.
+  let propPhaseP: Promise<{
+    propScored: BoardScoredLeg[];
+    propHits: Map<string, { hitProbability: number | null }>;
+    simEvaluated: number;
+  } | null> | null = null;
+  if (overlapProps) {
+    propPhaseP = runPropPhase(pool)
+      .then((r) => r)
+      .catch(() => {
+        propPhaseIncomplete = true;
+        return null;
+      });
+  }
+
+  const gamePhaseBudgetMs = overlapProps ? boardScanGamePhaseBudgetMs(opts.target) : null;
+  const gamePhaseStartedAt = Date.now();
+  for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
+    if (opts.signal?.aborted) break;
+    if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) break;
+    const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
+    const batchSims = await fetchSlateGameSimulations(
+      new Map(batch),
+      opts.teamIdMap,
+      opts.signal,
+    );
+    for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
+    scoreGamesAndMaybePartial(batch.map(([game]) => game));
+  }
+
+  const expandedPool = await poolExpandP;
+  if (expandedPool?.length) pool = expandedPool;
+
+  if (!propPhaseP) {
+    try {
+      const propResult = await runPropPhase(pool);
+      propScoredAcc = propResult.propScored;
+    } catch {
+      propPhaseIncomplete = true;
+    }
+  } else {
+    const propResult = await propPhaseP;
+    if (propResult) propScoredAcc = propResult.propScored;
+    else propPhaseIncomplete = true;
+  }
+  scored.push(...propScoredAcc);
+  if (
+    pool.length > 0 &&
+    !opts.propsOnly &&
+    propScoredAcc.length === 0 &&
+    (propPhaseIncomplete || opts.signal?.aborted)
+  ) {
+    propPhaseIncomplete = true;
   }
 
   totalScanned += pool.length;
@@ -817,6 +884,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
     propsOnly: opts.propsOnly,
+    propPhaseIncomplete,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;

@@ -49,6 +49,8 @@ test("beginSend clears terminal latch", () => {
 test("shortfall note is honest under-count copy", () => {
   assert.match(coachShortfallNote(6, 3), /only \*\*3\*\*/);
   assert.equal(coachShortfallNote(6, 6), "");
+  assert.doesNotMatch(coachShortfallNote(7, 3), /every posted market/i);
+  assert.doesNotMatch(coachShortfallNote(7, 3), /every market was scanned/i);
 });
 
 test("resolveCoachOutcome maps pick counts", () => {
