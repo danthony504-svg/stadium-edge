@@ -64,3 +64,17 @@ test("board scan game phase continues after a thrown slate batch", () => {
   assert.match(src, /incomplete: boolean/);
   assert.match(src, /Start the prop MC clock AFTER sync ranking/);
 });
+
+
+test("board scan passes liveOdds as one mergeOddsEntries source (SCAN_THREW)", () => {
+  const src = readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");
+  // Must NOT spread live odds into mergeOddsEntries(...sources).
+  assert.doesNotMatch(
+    src,
+    /mergeOddsEntries\(\s*[^)]*\.\.\.\(opts\.liveOdds/,
+  );
+  assert.match(
+    src,
+    /mergeOddsEntries\(\s*opts\.realOdds,\s*opts\.liveOdds \?\? \[\]/,
+  );
+});

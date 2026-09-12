@@ -733,9 +733,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
+  // liveOdds is RealOddsEntry[] — pass the array as one source. Spreading it
+  // fed mergeOddsEntries individual entries; for..of then threw TypeError and
+  // tryReachFullBoardScan returned null → phone SCAN_THREW empty tickets.
   const mergedOdds = mergeOddsEntries(
     opts.realOdds,
-    ...(opts.liveOdds ?? []),
+    opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
 
