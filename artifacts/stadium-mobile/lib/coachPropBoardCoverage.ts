@@ -13,6 +13,8 @@
 import {
   coachBuildSports,
   focalSportsFromText,
+  isSoftSportPreferenceAsk,
+  softSportPreferenceExpandsBoard,
 } from "./chatContextPriority.ts";
 
 /** Prop-capable leagues (mirrors stadium-mobile PROPS_SPORTS / api-server markets). */
@@ -35,7 +37,7 @@ export function isPlayerPropSport(sport: string): boolean {
 
 /**
  * Sports to load for a Coach board scan so player props cover every prop league
- * on generic asks, while named-league asks remain focused.
+ * on generic (and soft-pref) asks, while hard named-league asks remain focused.
  */
 export function coachBoardSportsForAsk(
   askText: string | null | undefined,
@@ -44,7 +46,12 @@ export function coachBoardSportsForAsk(
 ): string[] {
   const base = coachBuildSports(askText, requestedLegs, [...allSports]);
   const focal = focalSportsFromText(askText);
-  if (focal.size > 0) return base;
+  const softExpand =
+    focal.size > 0 &&
+    isSoftSportPreferenceAsk(askText) &&
+    softSportPreferenceExpandsBoard(focal);
+  // Hard named leagues stay scoped. Soft prefs + generics union every prop sport.
+  if (focal.size > 0 && !softExpand) return base;
 
   const propSports = PLAYER_PROP_SPORTS.filter((s) => allSports.includes(s));
   const out: string[] = [];

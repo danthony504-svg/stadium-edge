@@ -40,3 +40,22 @@ test("CFB ask must not inject NFL via priority sports", () => {
 test("generic ask keeps NFL+NCAAF priority inject", () => {
   assert.deepEqual([...prioritySportsForAsk("6 leg parlay")], ["nfl", "ncaaf"]);
 });
+
+test("mostly baseball soft-pref keeps MLB first but still loads football", () => {
+  const ask = "10 leg mostly baseball";
+  const sports = coachBuildSports(ask, 10, ALL_SPORTS);
+  assert.ok(sports.includes("mlb"));
+  assert.ok(sports.includes("nfl"), `expected nfl in ${sports}`);
+  assert.ok(sports.includes("ncaaf"), `expected ncaaf in ${sports}`);
+  assert.ok(sports.indexOf("mlb") < sports.indexOf("nfl"));
+});
+
+test("mostly baseball still allows NFL/NCAAF priority inject", () => {
+  assert.deepEqual([...prioritySportsForAsk("10 leg mostly baseball")], ["nfl", "ncaaf"]);
+});
+
+test("hard MLB-only ask stays exclusive (no soft expand)", () => {
+  assert.deepEqual(coachBuildSports("10 leg mlb", 10, ALL_SPORTS), ["mlb"]);
+  assert.deepEqual(coachBuildSports("10 leg only baseball", 10, ALL_SPORTS), ["mlb"]);
+  assert.deepEqual([...prioritySportsForAsk("10 leg mlb")], []);
+});

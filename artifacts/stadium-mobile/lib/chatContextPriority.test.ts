@@ -403,6 +403,13 @@ test("coachBuildSports honors named leagues", () => {
   assert.deepEqual(coachBuildSports("Build me a 12 leg mlb", 12, ALL_SPORTS), ["mlb"]);
 });
 
+test("coachBuildSports soft mostly-baseball keeps football in the board", () => {
+  const sports = coachBuildSports("10 leg mostly baseball", 10, ALL_SPORTS);
+  assert.ok(sports.includes("mlb"));
+  assert.ok(sports.includes("nfl"));
+  assert.ok(sports.includes("ncaaf"));
+});
+
 test("coachBuildSports uses a tiny core set for generic 3-leg asks", () => {
   assert.deepEqual(coachBuildSports("Build me a 3-leg parlay", 3, ALL_SPORTS), [
     "mlb",

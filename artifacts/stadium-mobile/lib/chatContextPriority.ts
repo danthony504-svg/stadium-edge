@@ -53,6 +53,61 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   return out;
 }
 
+/**
+ * Soft mix asks ("mostly baseball", "mainly MLB") prefer a league without
+ * locking the board to it. Hard named asks ("college football", "12 leg mlb")
+ * stay exclusive. "Only/just/all baseball" stays exclusive even with soft words.
+ */
+export function isSoftSportPreferenceAsk(text: string | null | undefined): boolean {
+  const t = String(text || "");
+  if (!t.trim()) return false;
+  if (/\b(only|just|strictly|exclusively)\b/i.test(t)) return false;
+  return /\b(mostly|mainly|primarily|majority|prefer|heavy on)\b/i.test(t);
+}
+
+const FOOTBALL_SPORTS = new Set(["nfl", "ncaaf"]);
+
+/** Soft non-football preferences expand the board so football stays consider-able. */
+export function softSportPreferenceExpandsBoard(focal: Set<string>): boolean {
+  if (focal.size === 0) return false;
+  return [...focal].some((s) => !FOOTBALL_SPORTS.has(s));
+}
+
+function genericCoachSportsForLegs(
+  requestedLegs: number,
+  allSports: readonly string[],
+): string[] {
+  const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
+  if (n >= 11) return [...allSports];
+  if (n >= 6) {
+    return [
+      "mlb",
+      "nfl",
+      "ncaaf",
+      "nba",
+      "nhl",
+      "wnba",
+      "soccer",
+      "ufc",
+      "tennis",
+    ].filter((id) => allSports.includes(id));
+  }
+  return ["mlb", "nfl", "ncaaf", "nba", "nhl", "wnba"].filter((id) =>
+    allSports.includes(id),
+  );
+}
+
+function uniqueSports(ids: Iterable<string>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 /** Sports the user explicitly excluded ("no MLB", "without NBA"). */
 export function excludedSportsFromText(text: string | null | undefined): Set<string> {
   const out = new Set<string>();
@@ -403,9 +458,10 @@ export function propGamesCapForLegs(requestedLegs: number, fullCap = 24): number
 }
 
 /**
- * Which sports to fetch for a Coach build. Named leagues win; otherwise scale
- * breadth to ticket size so a generic "3-leg parlay" does not fan out all 10
- * sports (20+ parallel fetches + a 300-500KB POST that connect-stalls on LTE).
+ * Which sports to fetch for a Coach build. Hard named leagues stay exclusive;
+ * soft prefs ("mostly baseball") keep the preferred league first but still load
+ * football so rush/pass/rec/sack can be considered. Generic asks scale breadth
+ * to ticket size.
  */
 export function coachBuildSports(
   text: string | null | undefined,
@@ -415,44 +471,39 @@ export function coachBuildSports(
   const excluded = excludedSportsFromText(text);
   const named = focalSportsFromText(text);
   let sports: string[];
-  if (named.size > 0) sports = [...named];
-  else {
-    const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
-    if (n >= 11) sports = [...allSports];
-    else if (n >= 6) {
-      // NFL/NCAAF sit with MLB at the front so compact probes and live scans
-      // keep football in the candidate set for generic fixed-leg parlays.
-      sports = [
-        "mlb",
-        "nfl",
-        "ncaaf",
-        "nba",
-        "nhl",
-        "wnba",
-        "soccer",
-        "ufc",
-        "tennis",
-      ].filter((id) => allSports.includes(id));
-    } else {
-      sports = ["mlb", "nfl", "ncaaf", "nba", "nhl", "wnba"].filter((id) =>
-        allSports.includes(id),
-      );
-    }
+  if (
+    named.size > 0 &&
+    isSoftSportPreferenceAsk(text) &&
+    softSportPreferenceExpandsBoard(named)
+  ) {
+    // Preferred leagues first, then size-scaled board (includes NFL/NCAAF).
+    sports = uniqueSports([...named, ...genericCoachSportsForLegs(requestedLegs, allSports)]);
+  } else if (named.size > 0) {
+    sports = [...named];
+  } else {
+    sports = genericCoachSportsForLegs(requestedLegs, allSports);
   }
   return sports.filter((s) => !excluded.has(s));
 }
 
 /**
- * Priority inject must stay inside named leagues.
- * A "college football" ask must never inject NFL legs.
+ * Priority inject must stay inside hard-named leagues.
+ * Soft prefs ("mostly baseball") still allow NFL/NCAAF inject.
+ * A hard "college football" ask must never inject NFL legs.
  */
 export function prioritySportsForAsk(
   askText: string | null | undefined,
   prioritySports: readonly string[] = ["nfl", "ncaaf"],
 ): readonly string[] {
   const focal = focalSportsFromText(askText);
-  if (focal.size === 0) return prioritySports;
-  return prioritySports.filter((s) => focal.has(s));
+  const excluded = excludedSportsFromText(askText);
+  if (focal.size === 0) {
+    return prioritySports.filter((s) => !excluded.has(s));
+  }
+  if (isSoftSportPreferenceAsk(askText) && softSportPreferenceExpandsBoard(focal)) {
+    return prioritySports.filter((s) => !excluded.has(s));
+  }
+  return prioritySports.filter((s) => focal.has(s) && !excluded.has(s));
 }
 
 /** When resolved legs share one sport, focus salvage/top-up pools on that league. */
