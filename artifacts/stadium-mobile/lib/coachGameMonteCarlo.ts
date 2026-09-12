@@ -18,6 +18,10 @@ import {
   simHitForPick,
 } from "./finalAiScore.ts";
 import { gameLabelsMatch } from "./gameLineOptimizer.ts";
+import {
+  resolveCoachGameTeamIds,
+  type CoachGameTeamIds,
+} from "./coachTeamIdResolve.ts";
 import type { RealOddsEntry } from "./api.ts";
 import { passesCoachSimQualityGate } from "./gameSimQualityGates.ts";
 
@@ -62,20 +66,23 @@ export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> 
   return map;
 }
 
-function resolveTeamIds(
+/**
+ * Resolve ESPN team ids for an odds-board game label.
+ * Exact + nickname keys first; then fuzzy gameLabelsMatch against stored
+ * Away @ Home names. Nickname-only keys fail for NCAAF ("Ohio State Buckeyes"
+ * → buckeyes vs Odds "Ohio State" → state) and silently skipped every sim —
+ * Coach then staged 0 legs with a fake "quality bar" empty.
+ */
+export function resolveTeamIds(
   gameLabel: string,
   sport: string | undefined,
   map: Map<string, GameTeamIds>,
 ): GameTeamIds | null {
-  const direct = map.get(gameLabel.toLowerCase());
-  if (direct) return direct;
-  const parts = gameLabel.split(" @ ");
-  if (parts.length === 2) {
-    const nick = `${nickname(parts[0]!)}|${nickname(parts[1]!)}`;
-    const hit = map.get(nick);
-    if (hit) return hit;
-  }
-  return null;
+  return resolveCoachGameTeamIds(
+    gameLabel,
+    sport,
+    map as Map<string, CoachGameTeamIds>,
+  ) as GameTeamIds | null;
 }
 
 function uniqueCoverQueries(
@@ -200,7 +207,10 @@ export async function fetchSlateGameSimulations(
     if (!lines.length) return;
     const sport = lines[0]?.sport;
     const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
-    if (!ids) return;
+    if (!ids) {
+      // No ESPN ids for this odds label — cannot run game MC (was silent empty ticket).
+      return;
+    }
 
     const seen = new Set<string>();
     const coverQueries: GameCoverQuery[] = [];

@@ -19,7 +19,12 @@ import {
   mergeOddsEntries,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
-import { gameSimHitForPick } from "./gameSimScoring.ts";
+import { gameSimHitForPick, lookupGameSim } from "./gameSimScoring.ts";
+import {
+  deriveCoachScanFailureReason,
+  formatCoachScanFailureTrace,
+  type CoachScanFailureReason,
+} from "./coachScanFailureReason.ts";
 import {
   deriveGameSimLineMetrics,
   simEvPct,
@@ -172,6 +177,21 @@ export type FullBoardScanResult = {
   propPhaseIncomplete?: boolean;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
+  /** When picks are empty, stable code explaining why — for phone/OTA triage. */
+  failureReason?: CoachScanFailureReason;
+  /** Counters used to derive failureReason (also useful in logs). */
+  failureDiagnostics?: {
+    oddsGameCount: number;
+    teamIdMapSize: number;
+    gameEntryCount: number;
+    gameSimsLoaded: number;
+    gameLegsScored: number;
+    gameLegsDroppedNoSim: number;
+    propPoolSize: number;
+    propLegsScored: number;
+    propPhaseIncomplete: boolean;
+    scoredBeforeStage: number;
+  };
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -562,6 +582,7 @@ export function buildScanResult(
     propsOnly?: boolean;
     /** Prop scoring was cut short before any prop legs landed. */
     propPhaseIncomplete?: boolean;
+    failureDiagnostics?: FullBoardScanResult["failureDiagnostics"];
   },
 ): FullBoardScanResult {
   const stagePool = opts.propsOnly ? scored.filter((leg) => !!leg.pick.isProp) : scored;
@@ -631,6 +652,19 @@ export function buildScanResult(
     source: opts.preview ? "buildScanResult-preview" : "buildScanResult-final",
     extra: { scanComplete },
   });
+  const failureReason =
+    !opts.preview && picks.length === 0 && opts.failureDiagnostics
+      ? deriveCoachScanFailureReason({
+          ...opts.failureDiagnostics,
+          stagedPickCount: picks.length,
+          propPhaseIncomplete: opts.propPhaseIncomplete,
+        })
+      : null;
+  const noteWithTrace =
+    failureReason && !opts.preview && picks.length === 0
+      ? `${note}${formatCoachScanFailureTrace(failureReason)}`
+      : note;
+
   return {
     picks,
     evalLinesByGame: opts.evalLinesByGame,
@@ -638,13 +672,15 @@ export function buildScanResult(
     totalScanned: opts.totalScanned,
     totalQualified,
     staging: breakdown,
-    note,
+    note: noteWithTrace,
     scanComplete,
     requestedLegs: opts.target,
     requestId: opts.requestId,
     ...(awaitingPropSlots ? { awaitingPropSlots: true } : {}),
     ...(opts.propPhaseIncomplete ? { propPhaseIncomplete: true } : {}),
     manifest,
+    ...(failureReason ? { failureReason } : {}),
+    ...(opts.failureDiagnostics ? { failureDiagnostics: opts.failureDiagnostics } : {}),
   };
 }
 
@@ -714,6 +750,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
+  let gameLegsScored = 0;
+  let gameLegsDroppedNoSim = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 2;
@@ -757,7 +795,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     for (const game of games) {
       const lines = evalLinesByGame.get(game);
       if (!lines?.length) continue;
-      const sim = gameSimulations.get(game);
+      // Fuzzy bind — sims may be keyed under ESPN labels while eval uses odds labels.
+      const sim = lookupGameSim(game, gameSimulations);
       const evaluated = evaluateGameLines({
         lines,
         gameSim: sim,
@@ -773,11 +812,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) {
           scored.push(leg);
-        } else if (sim) {
+          if (!leg.pick.isProp) gameLegsScored += 1;
+        } else {
+          // Always record — missing sims used to drop silently and look like a quality-bar miss.
           manifestRecorder.recordPreScoreGateFailure(row.pick, {
             ...row.finalAiScore,
             simHit: simHit ?? row.finalAiScore.simHit ?? null,
           });
+          if (!sim) gameLegsDroppedNoSim += 1;
         }
       }
     }
@@ -906,6 +948,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+  const propLegsScored = collapsed.filter((leg) => !!leg.pick.isProp).length;
+  const failureDiagnostics = {
+    oddsGameCount: oddsGames.length,
+    teamIdMapSize: opts.teamIdMap.size,
+    gameEntryCount: gameEntries.length,
+    gameSimsLoaded: gameSimulations.size,
+    gameLegsScored,
+    gameLegsDroppedNoSim,
+    propPoolSize: pool.length,
+    propLegsScored,
+    propPhaseIncomplete,
+    scoredBeforeStage: collapsed.length,
+  };
   const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
@@ -919,6 +974,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     requestId: opts.requestId,
     propsOnly: opts.propsOnly,
     propPhaseIncomplete,
+    failureDiagnostics,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;
