@@ -136,6 +136,7 @@ function RootLayoutNav() {
       <Stack.Screen name="account" options={{ presentation: "card" }} />
       <Stack.Screen name="notifications" options={{ presentation: "card" }} />
       <Stack.Screen name="ota-debug" options={{ presentation: "card" }} />
+      <Stack.Screen name="coach-scan-debug" options={{ presentation: "card" }} />
     </Stack>
   );
 }
