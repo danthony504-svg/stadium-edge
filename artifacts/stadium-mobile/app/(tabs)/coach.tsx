@@ -30,10 +30,13 @@ import { isParlayBuildAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
 import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
+  coachPropLoadFailsafeMs,
+  coachSessionIsTerminal,
   coachSessionShouldKeepBusy,
   coachShortfallNote,
   createCoachSession,
   latchCoachSession,
+  resetCoachAbsoluteClock,
   resolveCoachOutcome,
 } from "@/lib/coach/session";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -151,7 +154,7 @@ export default function CoachScreen() {
       setDraft("");
       setBusy(true);
 
-      armCoachAbsoluteTerminal(sessionRef.current, () => {
+      const fireAbsoluteTerminal = () => {
         if (sendGenRef.current !== sendGen) return;
         abort.abort();
         setMessages((prev) => {
@@ -168,10 +171,19 @@ export default function CoachScreen() {
           });
           return prev;
         });
-      });
+      };
 
       try {
         if (isParlayBuildAsk(text) && requestedLegs >= 3) {
+          // Prop-board prefetch can take a while — do not burn the scoring budget
+          // during load (that latched "2 game totals" before props ran).
+          let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+            loadTimer = null;
+            if (sendGenRef.current !== sendGen) return;
+            if (coachSessionIsTerminal(sessionRef.current)) return;
+            fireAbsoluteTerminal();
+          }, coachPropLoadFailsafeMs());
+
           const result = await buildCoachParlay({
             requestedLegs,
             signal: abort.signal,
@@ -183,7 +195,20 @@ export default function CoachScreen() {
               if (sendGenRef.current !== sendGen) return;
               patchAssistant(assistantId, { picks: [...picks] });
             },
+            onReadyToScan: () => {
+              if (sendGenRef.current !== sendGen) return;
+              if (loadTimer) {
+                clearTimeout(loadTimer);
+                loadTimer = null;
+              }
+              resetCoachAbsoluteClock(sessionRef.current);
+              armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+            },
           });
+          if (loadTimer) {
+            clearTimeout(loadTimer);
+            loadTimer = null;
+          }
           if (sendGenRef.current !== sendGen) return;
           if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
           finishSession(assistantId, {
@@ -194,6 +219,7 @@ export default function CoachScreen() {
           return;
         }
 
+        armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
         patchAssistant(assistantId, { buildStatus: "Pulling live odds…" });
         const built = await buildChatContext(
           DEFAULT_SPORTS.slice(0, 6),

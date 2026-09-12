@@ -627,6 +627,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
   propsOnly?: boolean;
+  /**
+   * When the caller already prefetched the full posted prop board, skip a
+   * second fan-out so prop scoring can start right after game-line sims.
+   * Fixes greenfield "2 game totals" tickets that latched before props loaded.
+   */
+  skipPropPoolExpand?: boolean;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -652,13 +658,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...evalLinesByGame.values(),
   );
 
-  // Always expand to the full posted prop board when ESPN games are available.
+  // Expand to the full posted prop board unless the caller already loaded it.
   let pool = filterBettablePropPool(poolBase);
-  const poolExpandP = opts.espnGames?.length
-    ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
-        .then((rows) => filterBettablePropPool(rows))
-        .catch(() => null)
-    : null;
+  const poolExpandP =
+    opts.espnGames?.length && !opts.skipPropPoolExpand
+      ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
+          .then((rows) => filterBettablePropPool(rows))
+          .catch(() => null)
+      : null;
 
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
