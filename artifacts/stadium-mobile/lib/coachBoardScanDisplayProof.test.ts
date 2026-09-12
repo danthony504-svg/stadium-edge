@@ -257,4 +257,19 @@ test("coach.tsx passes forceShowIncomplete into accept gate (escape paint)", () 
     src,
     /!forceShowIncompleteBoardScanRef\.current/,
   );
+  // Stream-end empty bubble with scored stash must forceShow-escape.
+  assert.match(
+    src,
+    /Stream-end left an empty bubble with a scored stash/,
+  );
+  // keepBusy must require real stash picks (not empty {}).
+  assert.match(
+    src,
+    /hasScanStash:\s*\(.*picks\?\.length \?\? 0\) > 0/,
+  );
+  // Stream-end finalize must skip prefix reject on escape paint.
+  assert.match(
+    src,
+    /skipPrefixReject:\s*escapePaint/,
+  );
 });

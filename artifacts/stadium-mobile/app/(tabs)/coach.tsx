@@ -172,6 +172,7 @@ import {
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
   emptyTicketDeadEndMessage,
+  stallIncompleteScanStillInFlight,
 } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
@@ -1303,6 +1304,9 @@ export default function CoachScreen() {
   const boardScanTicketFrozenRef = useRef(false);
   /** After stall/progress expiry, allow incomplete stash to render (no empty 81% forever). */
   const forceShowIncompleteBoardScanRef = useRef(false);
+  const armBuildStallWatchdogRef = useRef<
+    ((sendGen: number, userText: string) => void) | null
+  >(null);
   /** Absolute deadline for under-count stash → paint escape (not reset by every partial). */
   const underCountEscapeDeadlineRef = useRef<number | null>(null);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
@@ -1388,12 +1392,19 @@ export default function CoachScreen() {
         boardScanLateJoinsRef.current = Math.max(0, boardScanLateJoinsRef.current - 1);
         endBoardScanAttemptIfSettled();
         const stashed = latestBoardScanRef.current;
-        if (
-          stashed?.picks?.length &&
-          userText &&
-          !(boardTicketSnapshotRef.current?.length)
-        ) {
+        if (boardTicketSnapshotRef.current?.length) return;
+        if (stashed?.picks?.length && userText) {
           releaseUnderCountBoardScanEscape(stashed, userText);
+          return;
+        }
+        // Late join yielded nothing paint-able — poke a short stall so seed /
+        // escape settle runs in seconds instead of the full empty-card budget.
+        if (userText) {
+          underCountEscapeDeadlineRef.current = Date.now() + 8_000;
+          armBuildStallWatchdogRef.current?.(
+            sendGenerationRef.current,
+            userText,
+          );
         }
       });
     },
@@ -1754,13 +1765,16 @@ export default function CoachScreen() {
         return true;
       }
       if (legTarget >= 3) {
+        const escapePaint =
+          !!opts?.allowIncompletePicks || forceShowIncompleteBoardScanRef.current;
         const finalized = finalizeCoachTicketForRequest(ticket, {
           requestedLegs: legTarget,
           requestId: ctx?.requestId,
           previousRequestId: ctx?.previousRequestId,
           cacheKey: ctx?.cacheKey,
           source: isFinal ? "final" : "preview",
-          recordDelivered: isFinal,
+          recordDelivered: isFinal && !escapePaint,
+          skipPrefixReject: escapePaint,
         });
         if (!finalized.ok) {
           latestBoardScanRef.current = partial;
@@ -1917,10 +1931,16 @@ export default function CoachScreen() {
       if (!boardScanMatchesLegTarget(scan, legTarget)) return false;
       const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
       flashEnrichRef.current = enrich;
+      // Escape / dead-end recovery may need under-count seed cards — honor forceShow.
+      const allowIncomplete = forceShowIncompleteBoardScanRef.current;
+      if (allowIncomplete) {
+        // Ensure render gate sees the latch even if seed is the first paint.
+        forceShowIncompleteBoardScanRef.current = true;
+      }
       return patchInstantBoardScanTicket(markBoardScanAsPreview(scan), enrich, {
         legNote: COACH_SLATE_PREVIEW_NOTE,
         ticketLegTarget: legTarget,
-        // Fixed-leg hold applies — do not open under-count "scan continues" cards.
+        allowIncompletePicks: allowIncomplete,
       });
     },
     [patchInstantBoardScanTicket, marketPerf],
@@ -2025,8 +2045,11 @@ export default function CoachScreen() {
           underCountEscapeDeadlineRef.current = Date.now() + windowMs;
         }
         stallMs = Math.max(0, underCountEscapeDeadlineRef.current - Date.now());
+      } else if (underCountEscapeDeadlineRef.current != null) {
+        // Re-arm short poke (failed escape / empty settle) — do NOT expand back
+        // to the full empty-card budget or 93% hangs for minutes again.
+        stallMs = Math.max(0, underCountEscapeDeadlineRef.current - Date.now());
       } else {
-        underCountEscapeDeadlineRef.current = null;
         stallMs = emptyCardBoardScanStallMs(legsEffective);
       }
       buildStallTimerRef.current = setTimeout(() => {
@@ -2057,10 +2080,13 @@ export default function CoachScreen() {
           shouldClearBusyAfterFailedStallPaint({
             hadStashPicks: !!(stashed?.picks?.length),
             displayedPickCountAfter: displayedAfter,
-            incompleteScanInFlight:
-              !forceShowIncompleteBoardScanRef.current &&
-              boardScanPendingForActiveSend() &&
-              !(stashed && boardScanIsComplete(stashed)),
+            incompleteScanInFlight: stallIncompleteScanStillInFlight({
+              forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+              boardScanPending: boardScanPendingForActiveSend(),
+              scanComplete: stashed?.scanComplete,
+              stashPickCount: stashed?.picks?.length ?? 0,
+              displayedPickCount: displayedAfter,
+            }),
           })
         ) {
           // Last chance before empty dead-end: complete stash → manifest/cards,
@@ -2112,6 +2138,8 @@ export default function CoachScreen() {
     },
     [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape, tryInstantSlateSeedDelivery],
   );
+  armBuildStallWatchdogRef.current = armBuildStallWatchdog;
+
 
   const flashBoardScanResult = useCallback(
     (
@@ -5795,15 +5823,22 @@ export default function CoachScreen() {
             }
             return [];
           }
+          const escapePaint = forceShowIncompleteBoardScanRef.current;
           const finalized = finalizeCoachTicketForRequest(resolved, {
             requestedLegs: legTarget,
             requestId: coachRequestContextRef.current?.requestId,
             previousRequestId: coachRequestContextRef.current?.previousRequestId,
             cacheKey: coachRequestContextRef.current?.cacheKey,
             source: "resolveOutPicks",
-            recordDelivered: scanDone,
+            recordDelivered: scanDone && !escapePaint,
+            skipPrefixReject: escapePaint,
           });
-          return finalized.ok ? finalized.picks : [];
+          if (finalized.ok) return finalized.picks;
+          // Prefix/finalize reject must not wipe escape cards already on screen.
+          if (escapePaint && displayedCount > 0) {
+            return boardTicketSnapshotRef.current ?? [];
+          }
+          return [];
         };
         let outPicks: ParsedPick[] = [];
         let outCoachDetailNote = "";
@@ -5902,6 +5937,24 @@ export default function CoachScreen() {
           setBuildProgressExpired(false);
           setParlayBuildPhase("idle");
           setCoachBuildBusy(false);
+        } else if (
+          isParlayBuild &&
+          legTarget >= 3 &&
+          !(boardTicketSnapshotRef.current?.length) &&
+          (latestBoardScanRef.current?.picks?.length ?? 0) > 0 &&
+          activeParlayAskRef.current
+        ) {
+          // Stream-end left an empty bubble with a scored stash — forceShow escape
+          // before busy clears into Try-again limbo.
+          const ask = activeParlayAskRef.current;
+          if (!releaseUnderCountBoardScanEscape(latestBoardScanRef.current!, ask)) {
+            if (!boardScanIsComplete(latestBoardScanRef.current)) {
+              setBoardScanPartialLegs(latestBoardScanRef.current!.picks?.length ?? 0);
+              setParlayBuildPhase("board-scan");
+              setBuildFinishing(true);
+              setWaiting(true);
+            }
+          }
         } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
           setStreaming(false);
           setWaiting(false);
@@ -6237,7 +6290,8 @@ export default function CoachScreen() {
             effectiveBuildLegCount(trimmed),
           displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
           scanComplete: latestBoardScanRef.current?.scanComplete,
-          hasScanStash: !!latestBoardScanRef.current,
+          // Empty {} / zero-pick stash must not hold busy forever at 93%.
+          hasScanStash: (latestBoardScanRef.current?.picks?.length ?? 0) > 0,
           ticketFrozen: boardScanTicketFrozenRef.current,
           boardScanPending: boardScanPendingForActiveSend(),
           forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
@@ -6288,6 +6342,7 @@ export default function CoachScreen() {
       isSignedIn,
       modelStrengths,
       marketPerf,
+      releaseUnderCountBoardScanEscape,
     ],
   );
 
@@ -6740,6 +6795,30 @@ export default function CoachScreen() {
     return () => clearInterval(interval);
   }, [buildFinishing, streaming, waiting, messages, patchInstantBoardScanTicket]);
 
+
+  // forceShow latched with stash picks but empty bubble — keep retrying paint.
+  // Covers the window where escape latched forceShow, paint failed once, and
+  // busy/dead-end logic would otherwise leave a blank Coach with no Try again.
+  useEffect(() => {
+    if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
+    if (!forceShowIncompleteBoardScanRef.current) return;
+    const stashed = latestBoardScanRef.current;
+    if (!stashed?.picks?.length) return;
+    const ask =
+      activeParlayAskRef.current ||
+      [...messages].reverse().find((m) => m.role === "user")?.content ||
+      "";
+    if (!ask.trim()) return;
+    const id = setInterval(() => {
+      if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
+      if (!forceShowIncompleteBoardScanRef.current) return;
+      const again = latestBoardScanRef.current;
+      if (!again?.picks?.length) return;
+      releaseUnderCountBoardScanEscape(again, ask.trim());
+    }, 2000);
+    return () => clearInterval(id);
+  }, [messages, streaming, buildFinishing, waiting, releaseUnderCountBoardScanEscape]);
+
   // Silent dead-end: parlay build finished with no pick cards (blank or generic fallback).
   useEffect(() => {
     if (streaming || buildFinishing || waiting) return;
@@ -6749,13 +6828,23 @@ export default function CoachScreen() {
     const priorUser = [...messages].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent) return;
-    // Incomplete same-request scan still scoring — never claim the build finished.
+    // Last paint chance before suppress/dead-end: under-count stash → forceShow escape.
     const inFlight = latestBoardScanRef.current;
+    const priorAsk = priorUser?.content?.trim() ?? "";
+    if (
+      inFlight?.picks?.length &&
+      priorAsk &&
+      !(boardTicketSnapshotRef.current?.length)
+    ) {
+      if (releaseUnderCountBoardScanEscape(inFlight, priorAsk)) return;
+    }
+    // Incomplete same-request scan still scoring — never claim the build finished.
+    // Only treat stash with real picks as suppressible (empty {} refs must not block Try again).
     if (
       shouldSuppressEmptyTicketDeadEnd({
         boardScanPending: boardScanPendingForActiveSend(),
         scanComplete: inFlight?.scanComplete,
-        hasScanStash: !!inFlight,
+        hasScanStash: (inFlight?.picks?.length ?? 0) > 0,
       })
     ) {
       return;
@@ -6796,6 +6885,12 @@ export default function CoachScreen() {
         }
         if (partial.picks?.length) {
           deliverBoardScanTicket(partial);
+          if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) return true;
+          // Hold may have swallowed deliver — forceShow escape as last resort.
+          if (priorAsk && releaseUnderCountBoardScanEscape(partial, priorAsk)) {
+            return (boardTicketSnapshotRef.current?.length ?? 0) > 0;
+          }
+          return false;
         } else {
           // Completed scan, 0 staged legs — attach manifest / honest empty result.
           patchInstantBoardScanTicket(partial, undefined, {
@@ -6816,11 +6911,17 @@ export default function CoachScreen() {
         ) {
           return false;
         }
+        // Prefer forceShow escape so fixed-leg hold cannot swallow recovery.
+        if (priorAsk) {
+          if (releaseUnderCountBoardScanEscape(partial, priorAsk)) {
+            return (boardTicketSnapshotRef.current?.length ?? 0) > 0;
+          }
+        }
         if (legTarget > 0 && !boardScanMatchesLegTarget(partial, legTarget)) {
           return false;
         }
         deliverBoardScanTicket(partial);
-        return true;
+        return (boardTicketSnapshotRef.current?.length ?? 0) > 0;
       }
       const seed = readSlatePreAnalysisSeed(
         legTarget > 0 ? { legs: legTarget } : undefined,
@@ -6873,7 +6974,7 @@ export default function CoachScreen() {
       if (tryStashedDelivery()) clearInterval(interval);
     }, 2000);
     return () => clearInterval(interval);
-  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery, marketPerf]);
+  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery, marketPerf, releaseUnderCountBoardScanEscape]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

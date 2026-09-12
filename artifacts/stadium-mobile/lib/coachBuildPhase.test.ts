@@ -12,6 +12,7 @@ import {
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
   emptyTicketDeadEndMessage,
+  stallIncompleteScanStillInFlight,
 } from "./coachBuildPhase.ts";
 
 test("empty cards + stash picks stay on board-scan (not stream/score grade limbo)", () => {
@@ -163,7 +164,8 @@ test("late joins always end board-scan attempt ownership when drained", () => {
   assert.equal(shouldEndBoardScanAttemptAfterLateJoins({ lateJoinsRemaining: 2 }), false);
 });
 
-test("forceShow escape prevents keep-busy from re-locking at 93%", () => {
+test("forceShow alone does not drop keep-busy while bubble still empty", () => {
+  // Escape may latch forceShow before paint succeeds — must keep busy until cards show.
   assert.equal(
     shouldKeepBusyForIncompleteBoardScan({
       isParlayBuild: true,
@@ -174,7 +176,20 @@ test("forceShow escape prevents keep-busy from re-locking at 93%", () => {
       boardScanPending: true,
       forceShowIncomplete: true,
     }),
+    true,
+  );
+  assert.equal(
+    shouldKeepBusyForIncompleteBoardScan({
+      isParlayBuild: true,
+      legTarget: 9,
+      displayedPickCount: 4,
+      scanComplete: false,
+      hasScanStash: true,
+      boardScanPending: true,
+      forceShowIncomplete: true,
+    }),
     false,
+    "once cards are on screen, busy may clear",
   );
 });
 
@@ -223,5 +238,39 @@ test("dead-end copy only claims still-scoring while board-scan pending", () => {
   assert.doesNotMatch(
     emptyTicketDeadEndMessage({ boardScanPending: false, scanComplete: true }),
     /may still be scoring/i,
+  );
+});
+
+test("stall incomplete stays in-flight while scan pending / scored stash incomplete", () => {
+  assert.equal(
+    stallIncompleteScanStillInFlight({
+      forceShowIncomplete: true,
+      boardScanPending: false,
+      scanComplete: false,
+      stashPickCount: 4,
+      displayedPickCount: 0,
+    }),
+    true,
+  );
+  assert.equal(
+    stallIncompleteScanStillInFlight({
+      forceShowIncomplete: true,
+      boardScanPending: false,
+      scanComplete: false,
+      stashPickCount: 4,
+      displayedPickCount: 4,
+    }),
+    false,
+  );
+  // Completed shortfall must unlock — otherwise forceShow + failed paint = permanent 93%.
+  assert.equal(
+    stallIncompleteScanStillInFlight({
+      forceShowIncomplete: true,
+      boardScanPending: false,
+      scanComplete: true,
+      stashPickCount: 4,
+      displayedPickCount: 0,
+    }),
+    false,
   );
 });

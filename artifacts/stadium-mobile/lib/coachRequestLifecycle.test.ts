@@ -442,3 +442,36 @@ test("startCoachTicketRequest tracks previous request id", () => {
   });
   assert.equal(second.previousRequestId, first.requestId);
 });
+
+
+test("skipPrefixReject allows escape paint of under-count / prefix-shaped tickets", () => {
+  const larger = Array.from({ length: 8 }, (_, i) => ({
+    game: `G${i}`,
+    player: `P${i}`,
+    market: "spread",
+    side: "home",
+    line: -3.5,
+    odds: -110,
+  }));
+  // Seed last-delivered with a larger ticket so a 4-leg prefix would normally reject.
+  const first = finalizeCoachTicketForRequest(larger, {
+    requestedLegs: 8,
+    source: "seed-large",
+    recordDelivered: true,
+  });
+  assert.equal(first.ok, true);
+  const prefix = larger.slice(0, 4);
+  const blocked = finalizeCoachTicketForRequest(prefix, {
+    requestedLegs: 4,
+    source: "escape-blocked",
+    recordDelivered: false,
+  });
+  assert.equal(blocked.ok, false);
+  const allowed = finalizeCoachTicketForRequest(prefix, {
+    requestedLegs: 4,
+    source: "escape-allowed",
+    recordDelivered: false,
+    skipPrefixReject: true,
+  });
+  assert.equal(allowed.ok, true);
+});

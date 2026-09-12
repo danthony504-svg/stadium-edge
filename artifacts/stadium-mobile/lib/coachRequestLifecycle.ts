@@ -138,11 +138,17 @@ export function finalizeCoachTicketForRequest(
     cacheKey?: string;
     source: string;
     recordDelivered?: boolean;
+    /** Escape / recovery paint — never block under-count rescue on prefix memory. */
+    skipPrefixReject?: boolean;
   },
 ): CoachTicketDeliveryResult {
   if (!ticket.length) return { ok: false, reason: "empty" };
   const legTarget = opts.requestedLegs;
-  if (legTarget > 0 && rejectPrefixOfLastDelivered(ticket, legTarget)) {
+  if (
+    !opts.skipPrefixReject &&
+    legTarget > 0 &&
+    rejectPrefixOfLastDelivered(ticket, legTarget)
+  ) {
     traceCoachTicket("mobile-delivered", {
       requestedLegs: legTarget,
       pickIds: [...ticket],

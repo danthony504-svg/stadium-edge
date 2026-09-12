@@ -255,10 +255,20 @@ export function AnalysisProgress({
     if (item.label === "Final ticket ready") return legCount > 0;
     return effectiveIndex >= item.doneAt || scoredDone;
   });
-  let activeChecklist = checklistDoneFlags.findIndex((done) => !done);
+  // Never activate "Final ticket ready" while cards are still missing — scored
+  // stash alone used to leave Final spinning at 93% with an empty bubble.
+  let activeChecklist = checklistDoneFlags.findIndex((done, i) => {
+    if (done) return false;
+    if (
+      mode === "build" &&
+      legCount === 0 &&
+      checklist[i]?.label === "Final ticket ready"
+    ) {
+      return false;
+    }
+    return true;
+  });
   if (activeChecklist < 0 && mode === "build" && legCount === 0) {
-    // All pre-final rows scored-done but cards missing — stay on Correlation,
-    // never spin "Final ticket ready" with an empty bubble.
     activeChecklist = checklist.findIndex((c) => c.label === "Correlation scored");
   }
 

@@ -97,8 +97,9 @@ export function shouldKeepBusyForIncompleteBoardScan(opts: {
   if (!opts.isParlayBuild || opts.legTarget < 3) return false;
   if (opts.displayedPickCount > 0) return false;
   if (opts.ticketFrozen) return false;
-  // Escape latch: cards may still be painting; never re-lock at 93%.
-  if (opts.forceShowIncomplete) return false;
+  // forceShow alone must NOT drop busy — escape can latch forceShow then fail to
+  // paint, and clearing busy here left an empty bubble with dead-end suppressed.
+  // Only stop keeping busy once cards are actually on screen (checked above).
   if (opts.boardScanPending && opts.scanComplete !== true) return true;
   if (!opts.hasScanStash) return false;
   return opts.scanComplete !== true;
@@ -146,6 +147,30 @@ export function shouldEndBoardScanAttemptAfterLateJoins(opts: {
  * a same-request attempt is actually pending — otherwise that line is a lie and
  * trains users to wait on a finished empty build.
  */
+
+/**
+ * Stall unlock must treat a latched forceShow with an empty bubble as still
+ * in-flight when a scan is pending or an incomplete stash remains — otherwise
+ * escape latches forceShow, paint fails, and busy clears into a suppressed dead-end.
+ */
+export function stallIncompleteScanStillInFlight(opts: {
+  forceShowIncomplete: boolean;
+  boardScanPending: boolean;
+  scanComplete: boolean | null | undefined;
+  stashPickCount: number;
+  displayedPickCount: number;
+}): boolean {
+  if (opts.displayedPickCount > 0) return false;
+  // Completed scans must unlock — dead-end / forceShow retry paint the shortfall
+  // or show Try again. Treating complete+forceShow as in-flight left permanent 93%.
+  if (opts.scanComplete === true) return false;
+  if (opts.boardScanPending) return true;
+  if (opts.stashPickCount > 0) return true;
+  // forceShow alone with nothing left to paint is not in-flight.
+  void opts.forceShowIncomplete;
+  return false;
+}
+
 export function emptyTicketDeadEndMessage(opts: {
   boardScanPending: boolean;
   scanComplete?: boolean | null;
