@@ -399,7 +399,7 @@ export function pickGradeDisplayCaption(
   }
   if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
     return pick.isProp
-      ? "Sim + edge cleared — matchup and form still loading"
+      ? "Sim + edge cleared with positive EV vs the posted line"
       : "Sim-aligned with positive edge";
   }
   return "Did not pass AI recommendation thresholds";

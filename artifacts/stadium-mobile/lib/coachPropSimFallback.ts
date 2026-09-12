@@ -79,15 +79,19 @@ export async function enrichCoachPropSimHits(
   const playerHistory: Record<string, PlayerHistorySlice> = {};
   const pending: ParsedPick[] = [];
 
+  // Always pull player history for holistic matchup/form — not only when MC is
+  // null. Skipping history when MC already hit was shipping "still loading" cards.
+  const historyNeeded: typeof pending = [];
   for (const pick of batch) {
     const key = simKeyForPick(pick, pool);
     if (!key) continue;
     const row = out.get(key);
+    historyNeeded.push(pick);
     if (row?.hitProbability != null && Number.isFinite(row.hitProbability)) continue;
     pending.push(pick);
   }
 
-  if (!pending.length) return { hits: out, playerHistory };
+  if (!pending.length && !historyNeeded.length) return { hits: out, playerHistory };
 
   const historyCache = new Map<string, LocalHistorySlice>();
   const athleteIdCache = new Map<string, string | null>();
@@ -107,7 +111,7 @@ export async function enrichCoachPropSimHits(
   }
 
   await Promise.all(
-    pending.map(async (pick) => {
+    historyNeeded.map(async (pick) => {
       const athleteId = await athleteIdForPick(pick);
       if (!athleteId || !pick.player) return;
       const poolRow = poolRowForPick(pick, pool);

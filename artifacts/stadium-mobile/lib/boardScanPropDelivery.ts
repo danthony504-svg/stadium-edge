@@ -96,6 +96,19 @@ export function footballSkillPropRank(market: string | null | undefined): number
   return 0;
 }
 
+/** Bucket classic football skill markets so reserved slots diversify (not 4× rush). */
+export function footballSkillPropFamily(
+  market: string | null | undefined,
+): "sack" | "rush" | "pass" | "rec" | "td" | null {
+  const m = String(market ?? "").toLowerCase();
+  if (/sack/.test(m)) return "sack";
+  if (/rush|rushing/.test(m)) return "rush";
+  if (/pass|passing/.test(m) && !/completion/.test(m)) return "pass";
+  if (/receiv|reception|rec\b/.test(m)) return "rec";
+  if (/anytime|touchdown|\btd\b/.test(m)) return "td";
+  return null;
+}
+
 type PropFillPick = {
   isProp?: boolean;
   market?: string | null;
@@ -133,51 +146,67 @@ export function fillReservedPropSlots<T extends PropFillPick>(
   let propCount = out.filter((p) => !!p.isProp).length;
   if (propCount >= propSlots) return out;
 
-  const candidates = scored
-    .filter((leg) => {
+  const familyCounts = new Map<string, number>();
+  for (const p of out) {
+    const fam = footballSkillPropFamily(p.market);
+    if (fam) familyCounts.set(fam, (familyCounts.get(fam) ?? 0) + 1);
+  }
+
+  const remaining = () =>
+    scored.filter((leg) => {
       if (!leg.pick?.isProp) return false;
-      const fp = propFillFingerprint(leg.pick);
-      if (used.has(fp)) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      const skill =
-        footballSkillPropRank(b.pick.market) - footballSkillPropRank(a.pick.market);
-      if (skill !== 0) return skill;
+      return !used.has(propFillFingerprint(leg.pick));
+    });
+
+  const pickNext = () => {
+    const pool = remaining().sort((a, b) => {
+      const aSkill = footballSkillPropRank(a.pick.market);
+      const bSkill = footballSkillPropRank(b.pick.market);
+      // Skill props first, then diversify families (rush/pass/rec/sack), then rank.
+      const aSkillful = aSkill > 0 ? 1 : 0;
+      const bSkillful = bSkill > 0 ? 1 : 0;
+      if (aSkillful !== bSkillful) return bSkillful - aSkillful;
+      const aFam = footballSkillPropFamily(a.pick.market);
+      const bFam = footballSkillPropFamily(b.pick.market);
+      const aSeen = aFam ? (familyCounts.get(aFam) ?? 0) : 99;
+      const bSeen = bFam ? (familyCounts.get(bFam) ?? 0) : 99;
+      if (aSeen !== bSeen) return aSeen - bSeen;
+      if (aSkill !== bSkill) return bSkill - aSkill;
       const rank = (b.rankScore ?? 0) - (a.rankScore ?? 0);
       if (rank !== 0) return rank;
       return propFillComposite(b.pick) - propFillComposite(a.pick);
     });
+    return pool[0] ?? null;
+  };
 
-  for (const cand of candidates) {
-    if (propCount >= propSlots) break;
+  while (propCount < propSlots) {
+    const cand = pickNext();
+    if (!cand) break;
     const fp = propFillFingerprint(cand.pick);
-    if (used.has(fp)) continue;
+    const fam = footballSkillPropFamily(cand.pick.market);
 
     if (out.length < target) {
       out = [...out, cand.pick];
-      used.add(fp);
-      propCount += 1;
-      continue;
-    }
-
-    let worstIdx = -1;
-    let worstScore = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < out.length; i++) {
-      const p = out[i]!;
-      if (p.isProp) continue;
-      const score = propFillComposite(p);
-      if (score < worstScore) {
-        worstScore = score;
-        worstIdx = i;
+    } else {
+      let worstIdx = -1;
+      let worstScore = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < out.length; i++) {
+        const p = out[i]!;
+        if (p.isProp) continue;
+        const score = propFillComposite(p);
+        if (score < worstScore) {
+          worstScore = score;
+          worstIdx = i;
+        }
       }
+      if (worstIdx < 0) break;
+      const next = out.slice();
+      next[worstIdx] = cand.pick;
+      out = next;
     }
-    if (worstIdx < 0) break;
-    const next = out.slice();
-    next[worstIdx] = cand.pick;
-    out = next;
     used.add(fp);
     propCount += 1;
+    if (fam) familyCounts.set(fam, (familyCounts.get(fam) ?? 0) + 1);
   }
 
   return out.slice(0, target);
