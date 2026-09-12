@@ -21,6 +21,10 @@ import {
   tryReachFullBoardScan,
   type FullBoardScanResult,
 } from "@/lib/boardMarketScanner";
+import {
+  buildFinalCoachParlayNote,
+  selectFinalCoachParlayPicks,
+} from "@/lib/boardScanPropDelivery";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
@@ -217,38 +221,23 @@ export async function buildCoachParlay(opts: {
   }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
-  // Never publish a reserved / incomplete game-line-only ticket when we loaded
-  // props/alts but never finished scoring them into the card set.
-  const picks =
-    propPoolSize > 0 &&
-    countPropLike(rawPicks) === 0 &&
-    (propsStillPending(scan) || (timed.timedOut && !!scan?.awaitingPropSlots))
-      ? []
-      : rawPicks;
+  const picks = selectFinalCoachParlayPicks(rawPicks);
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
-  const propLike = countPropLike(picks);
-  const thinGameOnlyNote =
-    picks.length > 0 &&
-    picks.length < target &&
-    propLike === 0 &&
-    propPoolSize > 0
-      ? ` Scanned ${propPoolSize} posted props/alts — none cleared the AI quality bar with these game lines.`
-      : "";
-  const previewAbortedNote =
-    picks.length === 0 &&
-    propPoolSize > 0 &&
-    (propsStillPending(latest) || propsStillPending(scan) || timed.timedOut)
-      ? ` Loaded ${propPoolSize} posted props/alts but hit the delivery budget before prop scoring finished — try again.`
-      : "";
-  const note =
-    (scan?.note && scan.note.trim() && picks.length > 0 && propLike > 0 ? scan.note.trim() : "") ||
-    (shortfall ? `${shortfall}${thinGameOnlyNote}` : "") ||
-    previewAbortedNote ||
-    (timed.timedOut
-      ? `Stopped at the ${Math.round(budgetMs / 1000)}s delivery budget — showing every AI-backed pick that cleared so far.`
-      : picks.length
-        ? ""
-        : `No AI-backed picks cleared the quality bar for a ${target}-leg ticket.`);
+  const propsPending =
+    propsStillPending(scan) ||
+    propsStillPending(latest) ||
+    !!scan?.propPhaseIncomplete;
+  const note = buildFinalCoachParlayNote({
+    target,
+    picks,
+    propPoolSize,
+    propsPending,
+    shortfallLead: shortfall,
+    timedOut: timed.timedOut,
+    budgetMs,
+    scanMissing: !scan,
+    scanNote: scan?.note,
+  });
 
   return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };
 }
