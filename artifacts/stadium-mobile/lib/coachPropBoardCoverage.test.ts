@@ -51,6 +51,15 @@ test("named CFB ask stays ncaaf-only (does not fan out all prop sports)", () => 
   assert.deepEqual(coachBoardSportsForAsk("6 leg college football", 6, ALL), ["ncaaf"]);
 });
 
+test("mostly baseball board still considers football props (soft preference)", () => {
+  const sports = coachBoardSportsForAsk("10 leg mostly baseball", 10, ALL);
+  assert.ok(sports.includes("mlb"));
+  assert.ok(sports.includes("nfl"), `expected nfl in ${sports}`);
+  assert.ok(sports.includes("ncaaf"), `expected ncaaf in ${sports}`);
+  // Soft prefs also union the rest of the prop board (same as generic).
+  assert.ok(sports.includes("ncaab"));
+});
+
 test("expected main prop families cover combo / rush / points-style markets", () => {
   assert.ok(EXPECTED_MAIN_PROP_FAMILIES.mlb!.includes("batter_hits_runs_rbis"));
   assert.ok(EXPECTED_MAIN_PROP_FAMILIES.nfl!.includes("player_rush_yds"));
