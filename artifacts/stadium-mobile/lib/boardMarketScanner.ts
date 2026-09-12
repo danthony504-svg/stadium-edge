@@ -73,6 +73,7 @@ import {
 import {
   boardScanNonPropPreviewCap,
   boardScanPropSlotCount,
+  fillReservedPropSlots,
   shouldKeepAwaitingPropSlots,
 } from "./boardScanPropDelivery.ts";
 import {
@@ -603,6 +604,9 @@ export function buildScanResult(
     opts.target,
     opts.prioritySports,
   );
+  // When qualified props exist, fill ~50% reserved prop slots (rush/pass/rec/sack
+  // preferred) so gameLines-first combinators cannot ship ML/totals-only tickets.
+  picks = fillReservedPropSlots(picks, stagePool, opts.target);
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
   let propCount = picks.filter((p) => p.isProp).length;

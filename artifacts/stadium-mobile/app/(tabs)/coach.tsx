@@ -39,6 +39,10 @@ import {
   resetCoachAbsoluteClock,
   resolveCoachOutcome,
 } from "@/lib/coach/session";
+import {
+  resolveCoachTerminalPicks,
+  shouldPublishCoachTicketPicks,
+} from "@/lib/coachTicketHold";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 
@@ -72,6 +76,9 @@ export default function CoachScreen() {
   const [busy, setBusy] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const sendGenRef = useRef(0);
+  const pendingTicketPicksRef = useRef<ParsedPick[]>([]);
+  /** Active assistant bubble for the open session — used to flush held picks on stop. */
+  const activeAssistantIdRef = useRef<string | null>(null);
   const sessionRef = useRef(createCoachSession());
   const abortRef = useRef<AbortController | null>(null);
 
@@ -123,11 +130,31 @@ export default function CoachScreen() {
       if (!text) return;
 
       // Busy + open session: treat as stop. Busy + already latched: ignore.
+      // Holding cards mid-build means stop must flush the buffer or the ticket
+      // stays blank forever (building spinner with zero cards).
       if (busy) {
         if (sessionRef.current.outcome === "open") {
           abortRef.current?.abort();
-          latchCoachSession(sessionRef.current, "failed");
-          unlockComposer();
+          const assistantId = activeAssistantIdRef.current;
+          const legs = sessionRef.current.requestedLegs;
+          const picks = resolveCoachTerminalPicks({
+            bufferedPicks: pendingTicketPicksRef.current,
+            messagePicks: null,
+          });
+          pendingTicketPicksRef.current = [];
+          if (assistantId) {
+            finishSession(assistantId, {
+              picks,
+              text: picks.length
+                ? "Stopped — showing every pick that had cleared."
+                : "Stopped before the ticket finished.",
+              requestedLegs: legs,
+              failed: true,
+            });
+          } else {
+            latchCoachSession(sessionRef.current, "failed");
+            unlockComposer();
+          }
         }
         return;
       }
@@ -144,6 +171,7 @@ export default function CoachScreen() {
 
       const userMsg: CoachMessage = { id: uid("u"), role: "user", text };
       const assistantId = uid("a");
+      activeAssistantIdRef.current = assistantId;
       const assistantMsg: CoachMessage = {
         id: assistantId,
         role: "assistant",
@@ -154,6 +182,7 @@ export default function CoachScreen() {
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setDraft("");
+      pendingTicketPicksRef.current = [];
       setBusy(true);
 
       const fireAbsoluteTerminal = () => {
@@ -161,7 +190,10 @@ export default function CoachScreen() {
         abort.abort();
         setMessages((prev) => {
           const cur = prev.find((m) => m.id === assistantId);
-          const picks = cur?.picks ?? [];
+          const picks = resolveCoachTerminalPicks({
+            bufferedPicks: pendingTicketPicksRef.current,
+            messagePicks: cur?.picks,
+          });
           finishSession(assistantId, {
             picks,
             text:
@@ -196,7 +228,11 @@ export default function CoachScreen() {
             },
             onPartialPicks: (picks) => {
               if (sendGenRef.current !== sendGen) return;
-              patchAssistant(assistantId, { picks: [...picks] });
+              // Buffer only — do not paint cards mid-build (trickle). Status still updates.
+              pendingTicketPicksRef.current = [...picks];
+              if (shouldPublishCoachTicketPicks("building")) {
+                patchAssistant(assistantId, { picks: [...picks] });
+              }
             },
             onReadyToScan: () => {
               if (sendGenRef.current !== sendGen) return;
@@ -214,8 +250,18 @@ export default function CoachScreen() {
           }
           if (sendGenRef.current !== sendGen) return;
           if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
+          // Prefer the finished ticket; if it somehow lands empty, flush the
+          // buffer so holding cards mid-build can never hang as a blank ticket.
+          const picks =
+            result.picks.length > 0
+              ? result.picks
+              : resolveCoachTerminalPicks({
+                  bufferedPicks: pendingTicketPicksRef.current,
+                  messagePicks: null,
+                });
+          pendingTicketPicksRef.current = [];
           finishSession(assistantId, {
-            picks: result.picks,
+            picks,
             text: result.note,
             requestedLegs,
           });
@@ -262,13 +308,19 @@ export default function CoachScreen() {
         });
       } catch (err) {
         if (sendGenRef.current !== sendGen) return;
+        // Stop already flushed held picks via finishSession — do not blank them.
         if (abort.signal.aborted && sessionRef.current.outcome !== "open") return;
         const message =
           err instanceof Error && err.message
             ? err.message
             : "Something went wrong building that reply.";
+        const picks = resolveCoachTerminalPicks({
+          bufferedPicks: pendingTicketPicksRef.current,
+          messagePicks: null,
+        });
+        pendingTicketPicksRef.current = [];
         finishSession(assistantId, {
-          picks: [],
+          picks,
           text: message,
           requestedLegs,
           failed: true,
