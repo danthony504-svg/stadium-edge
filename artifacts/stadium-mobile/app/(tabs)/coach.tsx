@@ -1973,6 +1973,8 @@ export default function CoachScreen() {
       if (opts?.pinScroll !== false) scrollToEnd(false);
       return true;
     },
+    [clearBuildStallWatchdog, scrollToEnd],
+  );
 
   /**
    * Session hard terminal — latch outcome so keepBusy can never re-arm, strip
