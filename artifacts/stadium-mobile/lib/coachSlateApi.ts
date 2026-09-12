@@ -1,4 +1,3 @@
-import { getJson } from "./api.ts";
 import type { SlateParlayLegCount, SlatePreAnalysisSnapshot } from "./slatePreAnalysisCache.ts";
 
 export type CoachServerSlateResponse = {
@@ -22,18 +21,12 @@ export type CoachSlateFetchOpts = {
   signal?: AbortSignal;
 };
 
-/** Fetch the latest server-precomputed Coach slate (24/7 background job). */
+/**
+ * Server precomputed slate fetch — stubbed in greenfield Coach rebuild.
+ * The new Coach builds via live board scan; slate warm-cache can return later.
+ */
 export async function fetchCoachServerSlate(
-  opts?: CoachSlateFetchOpts,
+  _opts?: CoachSlateFetchOpts,
 ): Promise<CoachServerSlateResponse | null> {
-  try {
-    const params = new URLSearchParams();
-    if (opts?.legs != null && opts.legs >= 3) params.set("legs", String(opts.legs));
-    if (opts?.sport) params.set("sport", opts.sport);
-    const qs = params.toString();
-    const path = qs ? `/coach/slate?${qs}` : "/coach/slate";
-    return await getJson<CoachServerSlateResponse>(path, opts?.signal, 12_000);
-  } catch {
-    return null;
-  }
+  return null;
 }
