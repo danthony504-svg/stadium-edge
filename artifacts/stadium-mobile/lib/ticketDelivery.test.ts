@@ -13,6 +13,8 @@ import {
   ticketResolvePhase,
   ticketShouldArmEscapeDeadline,
   ticketShouldEscapeUnderCount,
+  ticketShouldForcePropSlotHardTerminal,
+  ticketShouldArmPropSlotHardTerminal,
   ticketShouldKeepBusy,
   ticketShouldReArmStallPoke,
   ticketShouldSuppressEmptyDeadEnd,
@@ -207,4 +209,82 @@ test("past-deadline helper", () => {
     }),
     true,
   );
+});
+
+
+test("hard terminal forces reserved preview after prop-slot wait", () => {
+  assert.equal(
+    ticketShouldForcePropSlotHardTerminal({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: false,
+      waitElapsedMs: ticketAwaitingPropSlotsMaxWaitMs(6),
+      requestedLegs: 6,
+    }),
+    true,
+  );
+  assert.equal(
+    ticketShouldForcePropSlotHardTerminal({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: false,
+      waitElapsedMs: 0,
+      requestedLegs: 6,
+    }),
+    false,
+  );
+  assert.equal(
+    ticketShouldForcePropSlotHardTerminal({
+      stashPickCount: 3,
+      displayedPickCount: 3,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: false,
+      waitElapsedMs: ticketAwaitingPropSlotsMaxWaitMs(6),
+      requestedLegs: 6,
+    }),
+    false,
+  );
+});
+
+test("hard terminal arms only for reserved 0-prop previews", () => {
+  assert.equal(
+    ticketShouldArmPropSlotHardTerminal({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: false,
+    }),
+    true,
+  );
+  assert.equal(
+    ticketShouldArmPropSlotHardTerminal({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 2,
+      scanComplete: false,
+    }),
+    false,
+  );
+  assert.equal(
+    ticketShouldArmPropSlotHardTerminal({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: true,
+    }),
+    false,
+  );
+});
+
+test("6-leg prop-slot UI wait is shorter than prior 60s limbo", () => {
+  assert.equal(ticketAwaitingPropSlotsMaxWaitMs(6), 25_000);
+  assert.ok(ticketAwaitingPropSlotsMaxWaitMs(6) < 60_000);
 });

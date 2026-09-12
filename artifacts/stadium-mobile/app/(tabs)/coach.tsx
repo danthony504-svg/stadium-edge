@@ -1441,13 +1441,23 @@ export default function CoachScreen() {
               requestedLegs: legTarget,
             })
           : terminalStash;
-      latestBoardScanRef.current = toPaint;
-      patchInstantBoardScanTicket(toPaint, undefined, {
+      // Escape paint is the honest shortfall — never leave "scan continues" copy
+      // or a live spinner after cards are on screen (2-of-6 limbo).
+      const terminalPaint = {
+        ...toPaint,
+        scanComplete: true as const,
+        awaitingPropSlots: undefined,
+      };
+      latestBoardScanRef.current = terminalPaint;
+      const shownCount = terminalPaint.picks.length;
+      const shortfallNote =
+        legTarget > 0 && shownCount < legTarget
+          ? `You asked for **${legTarget}** — these **${shownCount}** are every AI-backed pick that cleared the board.`
+          : undefined;
+      patchInstantBoardScanTicket(terminalPaint, undefined, {
         allowIncompletePicks: true,
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-        legNote: boardScanIsComplete(toPaint)
-          ? undefined
-          : `Still finishing the full-board scan — showing **${toPaint.picks.length}** of **${legTarget || toPaint.picks.length}** legs scored so far.`,
+        legNote: shortfallNote,
       });
       // Only real on-screen cards count — never trust a bare patchInstant true
       // (empty complete freeze used to fake escape success and clear busy).
@@ -1461,12 +1471,28 @@ export default function CoachScreen() {
         ticketDeliverySessionRef.current,
         "shown-shortfall",
       );
+      setMessages((prev) => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === "assistant") {
+            copy[i] = {
+              ...copy[i],
+              boardScanComplete: true,
+              ticketLegTarget: legTarget > 0 ? legTarget : copy[i].ticketLegTarget,
+              ...(shortfallNote ? { legNote: shortfallNote } : {}),
+            };
+            break;
+          }
+        }
+        return copy;
+      });
       boardScanAttemptActiveRef.current = false;
       setStreaming(false);
       setWaiting(false);
       setBuildFinishing(false);
       setCoachBuildBusy(false);
       setParlayBuildPhase("idle");
+      setBuildProgressExpired(true);
       return true;
     },
     [patchInstantBoardScanTicket],
@@ -1954,7 +1980,7 @@ export default function CoachScreen() {
    * Prop MC may still upgrade cards later; it cannot re-freeze the UI.
    */
   const forceTicketDeliveryTerminal = useCallback(
-    (sendGen: number, userText: string, kind: "shown-shortfall" | "empty-complete" | "failed-retry" = "shown-shortfall") => {
+    (sendGen: number, userText: string, kind: "shown-mixed" | "shown-shortfall" | "empty-complete" | "failed-retry" = "shown-shortfall") => {
       if (sendGenerationRef.current !== sendGen) return;
       const session = ticketDeliverySessionRef.current;
       latchTicketDeliveryTerminal(session, kind);
@@ -1984,13 +2010,35 @@ export default function CoachScreen() {
                 requestedLegs: legTarget,
               })
             : toPaint;
-        latestBoardScanRef.current = adopted;
-        patchInstantBoardScanTicket(adopted, undefined, {
+        latestBoardScanRef.current = {
+          ...adopted,
+          // Terminal paint is the honest shortfall — stop "scan continues" copy.
+          scanComplete: true,
+          awaitingPropSlots: undefined,
+        };
+        patchInstantBoardScanTicket(latestBoardScanRef.current, undefined, {
           allowIncompletePicks: true,
           ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-          legNote: boardScanIsComplete(adopted)
-            ? undefined
-            : `Still finishing the full-board scan — showing **${adopted.picks.length}** of **${legTarget || adopted.picks.length}** legs scored so far.`,
+          legNote:
+            (latestBoardScanRef.current.picks?.length ?? 0) >= legTarget
+              ? undefined
+              : `You asked for **${legTarget}** — these **${latestBoardScanRef.current.picks.length}** are every AI-backed pick that cleared the board.`,
+        });
+        // Flip the bubble to boardScanComplete so CoachTicketHeader drops
+        // "while the full-board scan continues" and shows the honest shortfall.
+        setMessages((prev) => {
+          const copy = [...prev];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i].role === "assistant") {
+              copy[i] = {
+                ...copy[i],
+                boardScanComplete: true,
+                ticketLegTarget: legTarget > 0 ? legTarget : copy[i].ticketLegTarget,
+              };
+              break;
+            }
+          }
+          return copy;
         });
       }
       // ALWAYS leave limbo — terminal latch means finally/keepBusy cannot re-busy.
@@ -2047,17 +2095,20 @@ export default function CoachScreen() {
           session.absoluteTerminalTimer = null;
           if (ticketDeliverySessionIsTerminal(session)) return;
           if (sendGenerationRef.current !== sendGen) return;
-          if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) {
-            latchTicketDeliveryTerminal(session, "shown-mixed");
+          const shown = boardTicketSnapshotRef.current?.length ?? 0;
+          const stashed = latestBoardScanRef.current?.picks?.length ?? 0;
+          // Cards already on screen (e.g. 2 of 6 "scan continues") — still must
+          // latch + unlock. Prior bug: latched shown-mixed and returned while
+          // waiting/spinner stayed on forever.
+          if (shown > 0 || stashed > 0) {
+            forceTicketDeliveryTerminal(
+              sendGen,
+              userText,
+              shown > 0 ? "shown-mixed" : "shown-shortfall",
+            );
             return;
           }
-          forceTicketDeliveryTerminal(
-            sendGen,
-            userText,
-            (latestBoardScanRef.current?.picks?.length ?? 0) > 0
-              ? "shown-shortfall"
-              : "failed-retry",
-          );
+          forceTicketDeliveryTerminal(sendGen, userText, "failed-retry");
         }, absMs);
       }
     },
@@ -2280,6 +2331,9 @@ export default function CoachScreen() {
           ticketDeliveryClockRef.current.awaitingPropSlotsStartedAtMs =
             awaitingPropSlotsStartedAtRef.current;
         }
+        if (awaitingProps) {
+          armTicketDeliveryHardTerminal(sendGen, userText);
+        }
         // Reserved 0-prop previews arm the prop-slot deadline (not infinite wait).
         // Other under-count stashes arm the normal escape window.
         if (
@@ -2429,7 +2483,7 @@ export default function CoachScreen() {
         scrollToEnd(false);
       }, stallMs);
     },
-    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape, tryInstantSlateSeedDelivery],
+    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape, tryInstantSlateSeedDelivery, armTicketDeliveryHardTerminal],
   );
   armBuildStallWatchdogRef.current = armBuildStallWatchdog;
 
@@ -2538,13 +2592,33 @@ export default function CoachScreen() {
       });
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
+        // Past deadline with cards already painted (e.g. 2 of 6) — latch + unlock
+        // immediately. Leaving boardScanComplete false kept "scan continues" and
+        // the send spinner on forever while the hung scan never finished.
+        if (
+          pastDeadline &&
+          (boardTicketSnapshotRef.current?.length ?? 0) > 0 &&
+          !ticketDeliverySessionIsTerminal(session)
+        ) {
+          forceTicketDeliveryTerminal(
+            sendGenerationRef.current,
+            ask,
+            "shown-mixed",
+          );
+          return;
+        }
         if (awaitingProps) {
           armTicketDeliveryHardTerminal(sendGenerationRef.current, ask);
         }
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog, armTicketDeliveryHardTerminal],
+    [
+      patchInstantBoardScanTicket,
+      armBuildStallWatchdog,
+      armTicketDeliveryHardTerminal,
+      forceTicketDeliveryTerminal,
+    ],
   );
 
   const kickoffEarlyReachBoardScan = useCallback(
@@ -2727,6 +2801,35 @@ export default function CoachScreen() {
       });
       // Sync legacy clock with session clock (escape helpers still read it).
       ticketDeliveryClockRef.current = ticketDeliverySessionRef.current.clock;
+      // Absolute UI budget for EVERY send — not only reserved prop previews.
+      // Covers 2/6 "scan continues" hangs where awaitingPropSlots never arms.
+      {
+        const session = ticketDeliverySessionRef.current;
+        const askText = trimmed;
+        if (!session.absoluteTerminalTimer) {
+          const started = session.clock.sendStartedAtMs ?? Date.now();
+          const absMs = Math.max(
+            0,
+            started + ticketAbsoluteUiBudgetMs(session.requestedLegs || earlyLegTargetPreview || 6) - Date.now(),
+          );
+          session.absoluteTerminalTimer = setTimeout(() => {
+            session.absoluteTerminalTimer = null;
+            if (ticketDeliverySessionIsTerminal(session)) return;
+            if (sendGenerationRef.current !== sendGen) return;
+            const shown = boardTicketSnapshotRef.current?.length ?? 0;
+            const stashed = latestBoardScanRef.current?.picks?.length ?? 0;
+            if (shown > 0 || stashed > 0) {
+              forceTicketDeliveryTerminal(
+                sendGen,
+                askText,
+                shown > 0 ? "shown-mixed" : "shown-shortfall",
+              );
+              return;
+            }
+            forceTicketDeliveryTerminal(sendGen, askText, "failed-retry");
+          }, absMs);
+        }
+      }
       earlyReachBoardScanRef.current = null;
       boardScanAttemptActiveRef.current = false;
       boardScanLateJoinsRef.current = 0;
@@ -3633,9 +3736,37 @@ export default function CoachScreen() {
                 if (boardScanIsComplete(scanForDelivery)) {
                   deliverBoardScanTicket(scanForDelivery, scanEnrich);
                 } else if (scanForDelivery.picks?.length) {
-                  patchInstantBoardScanTicket(scanForDelivery, scanEnrich, {
-                    ticketLegTarget: reachTargetPreScan,
-                  });
+                  const stashPropCount =
+                    scanForDelivery.picks.filter((p) => p.isProp).length;
+                  const awaitingProps =
+                    scanForDelivery.awaitingPropSlots === true &&
+                    stashPropCount <= 0;
+                  if (awaitingProps) {
+                    armTicketDeliveryHardTerminal(sendGenerationRef.current, trimmed);
+                  }
+                  const pastPropDeadline =
+                    awaitingPropSlotsPastDeadlineFromClock({
+                      clock: ticketDeliveryClockRef.current,
+                      awaitingPropSlots: awaitingProps,
+                      stashPropCount,
+                      scanComplete: scanForDelivery.scanComplete,
+                      requestedLegs: reachTargetPreScan || 6,
+                    });
+                  if (pastPropDeadline || forceShowIncompleteBoardScanRef.current) {
+                    forceShowIncompleteBoardScanRef.current = true;
+                    const terminal = ticketStashForTerminalPaint(scanForDelivery, {
+                      pastPropSlotDeadline: true,
+                    });
+                    latestBoardScanRef.current = terminal;
+                    patchInstantBoardScanTicket(terminal, scanEnrich, {
+                      ticketLegTarget: reachTargetPreScan,
+                      allowIncompletePicks: true,
+                    });
+                  } else {
+                    patchInstantBoardScanTicket(scanForDelivery, scanEnrich, {
+                      ticketLegTarget: reachTargetPreScan,
+                    });
+                  }
                 }
               }
               if (!boardScanIsComplete(preBoardScan)) {
@@ -4143,6 +4274,33 @@ export default function CoachScreen() {
                 reachBoardScan = ref;
               }
             }
+            // Null/budget race with a scored reserved preview: arm hard terminal so
+            // Coach cannot sit at 84% if prop MC never returns; force paint if past wait.
+            {
+              const stashed = latestBoardScanRef.current;
+              const stashPropCount =
+                stashed?.picks?.filter((p) => p.isProp).length ?? 0;
+              const awaitingProps =
+                stashed?.awaitingPropSlots === true && stashPropCount <= 0;
+              if (awaitingProps && (stashed?.picks?.length ?? 0) > 0) {
+                armTicketDeliveryHardTerminal(sendGenerationRef.current, trimmed);
+                const pastPropDeadline =
+                  awaitingPropSlotsPastDeadlineFromClock({
+                    clock: ticketDeliveryClockRef.current,
+                    awaitingPropSlots: true,
+                    stashPropCount: 0,
+                    scanComplete: stashed?.scanComplete,
+                    requestedLegs:
+                      Math.min(legTarget, MAX_LEGS) || 6,
+                  });
+                if (pastPropDeadline) {
+                  forceTicketDeliveryTerminal(
+                    sendGenerationRef.current,
+                    trimmed,
+                  );
+                }
+              }
+            }
             // Budget race returns null without cancelling the scan. If we only have
             // an incomplete partial on screen, keep joining the floating promise so a
             // late scanComplete:true (e.g. 4 → 5) still replaces "scan continues".
@@ -4644,9 +4802,42 @@ export default function CoachScreen() {
               liveScanDeliveredRef.current = delivered.picks.length > 0;
             } else if (inlineScan.picks.length) {
               picks = inlineScan.picks;
+              const stashPropCount =
+                inlineScan.picks.filter((p) => p.isProp).length;
+              const awaitingProps =
+                inlineScan.awaitingPropSlots === true && stashPropCount <= 0;
+              if (awaitingProps) {
+                latestBoardScanRef.current = inlineScan;
+                armTicketDeliveryHardTerminal(sendGenerationRef.current, trimmed);
+                const pastPropDeadline =
+                  awaitingPropSlotsPastDeadlineFromClock({
+                    clock: ticketDeliveryClockRef.current,
+                    awaitingPropSlots: true,
+                    stashPropCount: 0,
+                    scanComplete: inlineScan.scanComplete,
+                    requestedLegs: ticketTarget || 6,
+                  });
+                if (pastPropDeadline) {
+                  forceTicketDeliveryTerminal(
+                    sendGenerationRef.current,
+                    trimmed,
+                  );
+                }
+              }
             }
             boardBuilt = picks.length > 0;
             diversityNote = inlineScan.note;
+          } else if (latestBoardScanRef.current?.picks?.length) {
+            // Budget race returned null with a scored stash — arm hard terminal.
+            const stashed = latestBoardScanRef.current;
+            const stashPropCount =
+              stashed.picks.filter((p) => p.isProp).length;
+            if (
+              stashed.awaitingPropSlots === true &&
+              stashPropCount <= 0
+            ) {
+              armTicketDeliveryHardTerminal(sendGenerationRef.current, trimmed);
+            }
           }
           if (!boardScanIsComplete(inlineScan)) {
             const joinGen = sendGenerationRef.current;
@@ -7477,6 +7668,7 @@ export default function CoachScreen() {
             const parlayScanInProgress =
               i === messages.length - 1 &&
               parlayBuildIntent &&
+              !ticketDeliverySessionIsTerminal(ticketDeliverySessionRef.current) &&
               coachTicketShowsScanInProgress({
                 picksShortOfTarget,
                 buildIdle,

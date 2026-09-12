@@ -57,7 +57,8 @@ export function ticketPropSlotTarget(requestedLegs: number): number {
 /**
  * UI hard-stop for reserved 0-prop previews. Kept BELOW the scanner prop-phase
  * wall and BELOW ticketAbsoluteUiBudgetMs so Coach paints an honest shortfall
- * instead of sitting at 84% while prop MC hangs.
+ * instead of sitting at 84% while prop MC hangs. Background scan may still
+ * upgrade props after paint.
  */
 export function ticketAwaitingPropSlotsMaxWaitMs(requestedLegs: number): number {
   if (requestedLegs >= 15) return 40_000;
@@ -123,6 +124,46 @@ export function ticketAwaitingPropSlotsPastDeadline(opts: {
   if (opts.scanComplete === true) return false;
   if (!opts.awaitingPropSlots || (opts.stashPropCount ?? 0) > 0) return false;
   return opts.waitElapsedMs >= ticketAwaitingPropSlotsMaxWaitMs(opts.requestedLegs);
+}
+
+/**
+ * Hard terminal for reserved 0-prop previews: after the UI wait, always leave
+ * awaiting-props limbo — paint the honest shortfall (or unlock) even if prop MC
+ * never returns and stall re-arms keep resetting soft timers.
+ */
+export function ticketShouldForcePropSlotHardTerminal(opts: {
+  stashPickCount: number;
+  displayedPickCount: number;
+  awaitingPropSlots?: boolean;
+  stashPropCount?: number;
+  scanComplete?: boolean | null;
+  waitElapsedMs: number;
+  requestedLegs: number;
+}): boolean {
+  if (opts.displayedPickCount > 0) return false;
+  if (opts.stashPickCount <= 0) return false;
+  if (opts.scanComplete === true) return true;
+  return ticketAwaitingPropSlotsPastDeadline({
+    awaitingPropSlots: opts.awaitingPropSlots,
+    stashPropCount: opts.stashPropCount,
+    scanComplete: opts.scanComplete,
+    requestedLegs: opts.requestedLegs,
+    waitElapsedMs: opts.waitElapsedMs,
+  });
+}
+
+/** True when a reserved preview should arm the one-shot hard-terminal timer. */
+export function ticketShouldArmPropSlotHardTerminal(opts: {
+  stashPickCount: number;
+  displayedPickCount: number;
+  awaitingPropSlots?: boolean;
+  stashPropCount?: number;
+  scanComplete?: boolean | null;
+}): boolean {
+  if (opts.displayedPickCount > 0) return false;
+  if (opts.stashPickCount <= 0) return false;
+  if (opts.scanComplete === true) return false;
+  return opts.awaitingPropSlots === true && (opts.stashPropCount ?? 0) <= 0;
 }
 
 export function ticketNoteAwaitingPropSlots(opts: {

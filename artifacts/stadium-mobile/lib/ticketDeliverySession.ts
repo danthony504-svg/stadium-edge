@@ -114,6 +114,10 @@ export function latchTicketDeliveryTerminal(
   now = Date.now(),
 ): void {
   clearTicketDeliveryHardTerminal(session);
+  if (session.absoluteTerminalTimer) {
+    clearTimeout(session.absoluteTerminalTimer);
+    session.absoluteTerminalTimer = null;
+  }
   session.forceShow = true;
   if (session.outcome === "open") {
     session.outcome = kind;

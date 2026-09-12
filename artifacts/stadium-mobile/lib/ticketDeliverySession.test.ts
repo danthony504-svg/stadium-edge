@@ -221,3 +221,33 @@ test("beginSend resets terminal latch", () => {
   assert.equal(session.forceShow, false);
   assert.equal(session.sendGen, 2);
 });
+
+test("latch clears absolute terminal timer so under-count cannot re-fire busy", () => {
+  const session = createTicketDeliverySession(1, 6, 1_000);
+  let fired = 0;
+  session.absoluteTerminalTimer = setTimeout(() => {
+    fired += 1;
+  }, 60_000);
+  latchTicketDeliveryTerminal(session, "shown-mixed", 2_000);
+  assert.equal(session.absoluteTerminalTimer, null);
+  assert.equal(session.outcome, "shown-mixed");
+  assert.equal(session.forceShow, true);
+  assert.equal(fired, 0);
+});
+
+test("keepBusy is false when under-count cards are already displayed", () => {
+  const session = createTicketDeliverySession(1, 6, 1_000);
+  assert.equal(
+    ticketDeliveryShouldKeepBusy(session, {
+      isParlayBuild: true,
+      displayedPickCount: 2,
+      scanComplete: false,
+      hasScanStash: true,
+      boardScanPending: true,
+      awaitingPropSlots: false,
+      stashPropCount: 0,
+      now: 1_500,
+    }),
+    false,
+  );
+});
