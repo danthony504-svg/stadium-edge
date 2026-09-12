@@ -70,7 +70,7 @@ export const MARKETS_BY_SPORT: Record<string, string[]> = {
 //   NCAAF: _q1 + _h1 for pass/rush/reception yds
 //   NCAAB: no QH markets are supported by the Odds API today — omit entirely
 // If you add a new key here you MUST probe it on a live event first.
-const QH_MARKETS_BY_SPORT: Record<string, string[]> = {
+export const QH_MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: [
     "player_points_q1", "player_rebounds_q1", "player_assists_q1",
   ],
@@ -98,7 +98,7 @@ const QH_MARKETS_BY_SPORT: Record<string, string[]> = {
 // bucket as the main line — giving the AI a real cushion/value ladder instead
 // of only the single posted number. Keys here are the documented Odds API
 // alternate keys; probe any new key on a live event before adding it.
-const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
+export const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate", "player_threes_alternate"],
   wnba: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate", "player_threes_alternate"],
   ncaab: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate"],

@@ -29,10 +29,8 @@ import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
-import {
-  coachBuildSports,
-  prioritySportsForAsk,
-} from "@/lib/chatContextPriority";
+import { prioritySportsForAsk } from "@/lib/chatContextPriority";
+import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { filterBettableOddsGames } from "@/lib/slate";
 
@@ -86,10 +84,9 @@ async function loadScanInputs(
   sports: string[];
   prioritySports: readonly string[];
 }> {
-  // Named league(s) in the ask (incl. "Collage Football" → ncaaf) scope the
-  // board — greenfield previously always scanned DEFAULT_SPORTS, so a CFB ask
-  // could still return NFL Rodgers / MLB props on the wrong tickets.
-  const sports = coachBuildSports(askText, requestedLegs, [...DEFAULT_SPORTS]);
+  // Named league(s) scope the board (CFB stays CFB). Generic asks union every
+  // player-prop league (incl. ncaab) so mains+alts across sports enter the pool.
+  const sports = coachBoardSportsForAsk(askText, requestedLegs, DEFAULT_SPORTS);
   const prioritySports = prioritySportsForAsk(askText);
   onStatus?.(
     sports.length === 1
