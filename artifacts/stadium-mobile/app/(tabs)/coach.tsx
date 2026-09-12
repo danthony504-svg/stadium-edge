@@ -7,7 +7,6 @@
  */
 
 import Feather from "@expo/vector-icons/Feather";
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -73,7 +72,6 @@ function coachNoteForDisplay(text: string): string {
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
@@ -462,40 +460,6 @@ export default function CoachScreen() {
                     <PickCard pick={pick} />
                   </View>
                 ))}
-                {!item.building && (item.picks?.length ?? 0) > 0 ? (
-                  <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
-                    <Pressable
-                      onPress={() => router.push("/coach-scan-debug")}
-                      accessibilityRole="link"
-                      accessibilityLabel="Open Coach scan details"
-                      style={({ pressed }) => ({
-                        alignSelf: "flex-start",
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 6,
-                        paddingVertical: 8,
-                        paddingHorizontal: 12,
-                        borderRadius: 10,
-                        backgroundColor: colors.card,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        opacity: pressed ? 0.8 : 1,
-                      })}
-                    >
-                      <Feather name="list" size={16} color={colors.primary} />
-                      <Text
-                        style={{
-                          color: colors.primary,
-                          fontFamily: FONT.medium,
-                          fontSize: 14,
-                        }}
-                      >
-                        Scan details
-                      </Text>
-                      <Feather name="chevron-right" size={16} color={colors.primary} />
-                    </Pressable>
-                  </View>
-                ) : null}
               </View>
             );
           }}

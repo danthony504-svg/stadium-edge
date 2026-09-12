@@ -144,9 +144,10 @@ function CoachScanDebugScreenInner() {
             lineHeight: 19,
           }}
         >
-          Read-only view of the last Coach board scan: which legs landed on the
-          ticket, which candidates were rejected, and why. Does not change Coach
-          hold, scoring, or delivery.
+          Private diagnostics (Menu → Coach Scan Diagnostics in dev builds).
+          Read-only view of the last Coach board scan: which legs landed, which
+          candidates were rejected, and why. Does not change Coach hold,
+          scoring, or delivery.
         </Text>
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
