@@ -1,0 +1,49 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  filterPropsForGameTeams,
+  propBelongsToGameTeams,
+} from "./propGameTeamGate.ts";
+
+const ATL = "1";
+const PIT = "23";
+const NYJ = "20";
+
+test("fail closed: null playerTeamId dropped when game ids known", () => {
+  assert.equal(propBelongsToGameTeams(null, PIT, ATL), false);
+  assert.equal(propBelongsToGameTeams(undefined, PIT, ATL), false);
+  assert.equal(propBelongsToGameTeams("", PIT, ATL), false);
+});
+
+test("Rodgers-like foreign team id must not label under Falcons@Steelers", () => {
+  // Screenshot regression: player prop stamped on ATL @ PIT while playerTeamId
+  // is a different club (or unresolved). Must not belong.
+  assert.equal(propBelongsToGameTeams(NYJ, PIT, ATL), false);
+  assert.equal(propBelongsToGameTeams(null, PIT, ATL), false);
+});
+
+test("player on home or away team id is kept", () => {
+  assert.equal(propBelongsToGameTeams(PIT, PIT, ATL), true);
+  assert.equal(propBelongsToGameTeams(ATL, PIT, ATL), true);
+});
+
+test("open when game team ids unavailable (cannot verify)", () => {
+  assert.equal(propBelongsToGameTeams(null, null, null), true);
+  assert.equal(propBelongsToGameTeams(NYJ, "", ""), true);
+  assert.equal(propBelongsToGameTeams(null, undefined, undefined), true);
+});
+
+test("filterPropsForGameTeams drops orphans from a labeled event pool", () => {
+  const rows = [
+    { player: "Aaron Rodgers", playerTeamId: null as string | null },
+    { player: "Najee Harris", playerTeamId: PIT },
+    { player: "Bijan Robinson", playerTeamId: ATL },
+    { player: "Garrett Wilson", playerTeamId: NYJ },
+  ];
+  const kept = filterPropsForGameTeams(rows, PIT, ATL);
+  assert.deepEqual(
+    kept.map((r) => r.player),
+    ["Najee Harris", "Bijan Robinson"],
+  );
+});

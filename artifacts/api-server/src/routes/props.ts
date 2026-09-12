@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { resolveOddsEvent, type OddsEventRow } from "../lib/oddsEventResolve.js";
+import { propBelongsToGameTeams } from "../lib/propGameTeamGate.js";
 
 const router: IRouter = Router();
 
@@ -700,17 +701,21 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       }
     }
 
-    const props = aggregatedRows.map((p) => {
-      const r = rosterMap?.get(normalizeName(p.player));
-      const w = wcMap?.get(nameTokenKey(p.player));
-      return {
-        ...p,
-        headshot: w?.headshot ?? r?.headshot ?? null,
-        athleteId: w?.athleteId ?? r?.athleteId ?? null,
-        playerTeamId: w?.teamId ?? r?.teamId ?? null,
-        teamLogo: w?.teamLogo ?? null,
-      };
-    });
+    const props = aggregatedRows
+      .map((p) => {
+        const r = rosterMap?.get(normalizeName(p.player));
+        const w = wcMap?.get(nameTokenKey(p.player));
+        return {
+          ...p,
+          headshot: w?.headshot ?? r?.headshot ?? null,
+          athleteId: w?.athleteId ?? r?.athleteId ?? null,
+          playerTeamId: w?.teamId ?? r?.teamId ?? null,
+          teamLogo: w?.teamLogo ?? null,
+        };
+      })
+      // Mirror PrizePicks: when ESPN home/away ids are known, drop orphans and
+      // foreign-team players so clients never stamp this event's matchup onto them.
+      .filter((p) => propBelongsToGameTeams(p.playerTeamId, homeTeamId, awayTeamId));
 
     if (props.length === 0 && homeName && awayName) {
       const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
