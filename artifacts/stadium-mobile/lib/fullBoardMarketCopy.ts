@@ -1,6 +1,4 @@
 // User-facing list of every market family the full-board parlay scan covers.
-// Long laundry-list blurbs are kept off the Coach chat — detail lives on the
-// Coach Scan Diagnostics screen. Scan / scoring / delivery are unchanged.
 
 export type TicketStagingBreakdown = {
   mainQualified: number;
@@ -12,31 +10,12 @@ export type TicketStagingBreakdown = {
 export const FULL_BOARD_MARKET_FAMILIES =
   "live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to markets, first 5 innings, innings, first half, second half, first quarter, second quarter, third quarter, first period, second period, third period, player props, alternate player props, combo props, and any other sportsbook-posted markets";
 
-/**
- * True when text is the old long "Scanned every posted line…" Coach blurb.
- * Used to hide legacy notes in the chat UI without touching scan logic.
- */
-export function isCoachBoardScanBlurb(text: string | null | undefined): boolean {
-  const t = String(text ?? "").trim();
-  if (!t) return false;
-  return (
-    /scanned every posted line on the board/i.test(t) ||
-    /scanned the entire board/i.test(t) ||
-    (t.includes(FULL_BOARD_MARKET_FAMILIES) && /10k sim each/i.test(t))
-  );
-}
-
-/**
- * Success path: no long essay in chat. Diagnostics screen has the funnel.
- * Returning "" leaves pick cards as the only Coach surface after a full ticket.
- */
-export function fullBoardScanSuccessNote(_totalScanned: number, _pickCount: number): string {
-  return "";
+export function fullBoardScanSuccessNote(totalScanned: number, pickCount: number): string {
+  return `_Scanned every posted line on the board — ${FULL_BOARD_MARKET_FAMILIES} (**${totalScanned}** lines, 10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). These **${pickCount}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade._`;
 }
 
 import { COACH_NO_FILLER_SHORTFALL } from "./coachScanPolicy.ts";
 
-/** Shortfall: keep honest shortfall copy only — no market-family laundry list. */
 export function fullBoardScanShortfallNote(
   totalScanned: number,
   totalQualified: number,
@@ -52,7 +31,7 @@ export function fullBoardScanShortfallNote(
   const altPool = staging?.altQualified ?? 0;
   const mainPool = staging?.mainQualified ?? totalQualified;
   if (staging && staging.altOnTicket > 0) {
-    return `Board scan found **${totalScanned}** posted lines; **${mainPool}** main and **${altPool}** alt cleared quality — stepped to alts where mains ran out.${staged} Showing **${pickCount}**. ${COACH_NO_FILLER_SHORTFALL}`;
+    return `_Scanned the entire board — **${totalScanned}** posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). **${mainPool}** main lines and **${altPool}** alt lines cleared the quality bar — stepped to alternate rungs where mains ran out.${staged} These **${pickCount}** are the highest-rated sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
   }
-  return `Board scan found **${totalScanned}** posted lines; **${mainPool}** main and **${altPool}** alt cleared quality.${staged} Showing **${pickCount}**. ${COACH_NO_FILLER_SHORTFALL}`;
+  return `_Scanned the entire board — **${totalScanned}** posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). **${mainPool}** main lines and **${altPool}** alt lines cleared the quality bar (sim + positive edge + positive EV + grade ≥ C+ + confidence ≥ 52%).${staged} These **${pickCount}** are the top sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
 }
