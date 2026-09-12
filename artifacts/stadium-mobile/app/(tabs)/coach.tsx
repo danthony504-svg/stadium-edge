@@ -188,6 +188,7 @@ export default function CoachScreen() {
 
           const result = await buildCoachParlay({
             requestedLegs,
+            askText: text,
             signal: abort.signal,
             onStatus: (status) => {
               if (sendGenRef.current !== sendGen) return;

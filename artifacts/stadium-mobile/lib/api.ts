@@ -1,4 +1,5 @@
 import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
+import { filterPropsForGameTeams } from "./propGameTeamGate";
 import {
   logStealFeedClient,
   stealFeedFullUrl,
@@ -3572,9 +3573,15 @@ async function buildLightParlayContext(
   const propPool: PropPoolEntry[] = [];
   const ALT_RUNGS_PER_PROP = 8;
 
-  const mergePropsResponse = (g: OddsGame, r: PropsResponse) => {
+  const mergePropsResponse = (
+    g: OddsGame,
+    r: PropsResponse,
+    ids: PropTeamIds | null,
+  ) => {
     const game = `${g.awayTeam} @ ${g.homeTeam}`;
-    const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+    const priced = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+    // Drop orphans / foreign-team players before stamping this event's matchup.
+    const usable = filterPropsForGameTeams(priced, ids?.homeTeamId, ids?.awayTeamId);
     const altRungs = new Map<string, number>();
     for (const altPass of [false, true]) {
       for (const p of usable) {
@@ -3647,7 +3654,9 @@ async function buildLightParlayContext(
     }
   };
 
-  const fetchPropsForGame = async (g: OddsGame): Promise<PropsResponse | null> => {
+  const fetchPropsForGame = async (
+    g: OddsGame,
+  ): Promise<{ r: PropsResponse; ids: PropTeamIds | null } | null> => {
     const idMap = buildPropIdMap(gamesBySport.get(g.sport) ?? []);
     const ids = idMap.get(`${nickname(g.awayTeam!)}|${nickname(g.homeTeam!)}`.toLowerCase()) ?? null;
     const args = {
@@ -3660,9 +3669,11 @@ async function buildLightParlayContext(
       startsAt: g.commenceTime,
     };
     try {
-      return g.sport === "soccer"
-        ? await getPropsWithPrizePicksFallback(args, signal)
-        : await getProps(args, signal);
+      const r =
+        g.sport === "soccer"
+          ? await getPropsWithPrizePicksFallback(args, signal)
+          : await getProps(args, signal);
+      return { r, ids };
     } catch {
       return null;
     }
@@ -3677,15 +3688,15 @@ async function buildLightParlayContext(
 
   if (opts.parallelPropFetch && propCandidates.length > 0) {
     const rows = await Promise.all(
-      propCandidates.map(async (g) => ({ g, r: await fetchPropsForGame(g) })),
+      propCandidates.map(async (g) => ({ g, fetched: await fetchPropsForGame(g) })),
     );
-    for (const { g, r } of rows) {
-      if (r) mergePropsResponse(g, r);
+    for (const { g, fetched } of rows) {
+      if (fetched) mergePropsResponse(g, fetched.r, fetched.ids);
     }
   } else {
     for (const g of propCandidates) {
-      const r = await fetchPropsForGame(g);
-      if (r) mergePropsResponse(g, r);
+      const fetched = await fetchPropsForGame(g);
+      if (fetched) mergePropsResponse(g, fetched.r, fetched.ids);
     }
   }
 
@@ -4246,7 +4257,10 @@ export async function buildChatContext(
           signal,
         );
         const game = `${g.awayTeam} @ ${g.homeTeam}`;
-        const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+        const priced = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+        // Fail closed: only keep players whose playerTeamId is home or away for
+        // this event before labeling the row with this matchup string.
+        const usable = filterPropsForGameTeams(priced, ids?.homeTeamId, ids?.awayTeamId);
         // Two passes so MAIN lines are pushed before ALT ladder rungs: the
         // breadth-balanced context cap (balancePropsByGame) keeps the earlier
         // rows, so mains must come first. Alt rungs are real bookmaker ladder
@@ -4710,6 +4724,24 @@ export async function fetchFullBoardPropPool(
     gamesBySport.set(g.sport, arr);
   }
 
+  const teamMetaById = new Map<string, { abbr: string | null; logo: string | null }>();
+  for (const games of gamesBySport.values()) {
+    for (const g of games) {
+      if (g.homeTeamId) {
+        teamMetaById.set(String(g.homeTeamId), {
+          abbr: g.homeAbbr ?? null,
+          logo: g.homeLogo ?? null,
+        });
+      }
+      if (g.awayTeamId) {
+        teamMetaById.set(String(g.awayTeamId), {
+          abbr: g.awayAbbr ?? null,
+          logo: g.awayLogo ?? null,
+        });
+      }
+    }
+  }
+
   const candidates = oddsGames.filter(
     (g) => PROPS_SPORTS.includes(g.sport) && g.homeTeam && g.awayTeam,
   );
@@ -4732,9 +4764,11 @@ export async function fetchFullBoardPropPool(
           startsAt: g.commenceTime,
         };
         try {
-          return g.sport === "soccer"
-            ? await getPropsWithPrizePicksFallback(args, signal)
-            : await getProps(args, signal);
+          const r =
+            g.sport === "soccer"
+              ? await getPropsWithPrizePicksFallback(args, signal)
+              : await getProps(args, signal);
+          return { r, ids };
         } catch {
           return null;
         }
@@ -4743,13 +4777,20 @@ export async function fetchFullBoardPropPool(
 
     for (let j = 0; j < batch.length; j++) {
       const g = batch[j]!;
-      const r = responses[j];
-      if (!r) continue;
+      const fetched = responses[j];
+      if (!fetched) continue;
+      const { r, ids } = fetched;
       const game = `${g.awayTeam} @ ${g.homeTeam}`;
-      const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+      const priced = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+      // Source of Coach board prop↔game labels: never stamp Away @ Home onto a
+      // player who is not on either ESPN team id for this event.
+      const usable = filterPropsForGameTeams(priced, ids?.homeTeamId, ids?.awayTeamId);
       for (const p of usable) {
         const marketLabel = propMarketLabel(p.market);
         const athleteId = p.athleteId ?? null;
+        const teamAbbr = p.playerTeamId
+          ? (teamMetaById.get(String(p.playerTeamId))?.abbr ?? null)
+          : null;
         const base = {
           sport: g.sport,
           game,
@@ -4760,6 +4801,8 @@ export async function fetchFullBoardPropPool(
           marketKey: p.market,
           startsAt: g.commenceTime,
           alt: !!p.alt,
+          headshot: p.headshot ?? null,
+          teamAbbr,
         };
         if (p.overPrice != null) {
           const row: PropPoolEntry = {

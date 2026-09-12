@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { resolveOddsEvent, type OddsEventRow } from "../lib/oddsEventResolve.js";
+import { propBelongsToGameTeams } from "../lib/propGameTeamGate.js";
 
 const router: IRouter = Router();
 
@@ -658,8 +659,23 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           fetchRosterMap(espnPath, tid).catch(() => new Map<string, RosterEntry>()),
         ),
       );
+      // Merge home+away rosters, but FAIL CLOSED on cross-team name collisions
+      // (same normalizeName on both clubs). Last-write-wins previously assigned
+      // the wrong playerTeamId so the team gate kept mislabeled props.
       rosterMap = new Map<string, RosterEntry>();
-      for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
+      const ambiguous = new Set<string>();
+      for (const m of maps) {
+        for (const [k, v] of m) {
+          if (ambiguous.has(k)) continue;
+          const existing = rosterMap.get(k);
+          if (existing && existing.teamId !== v.teamId) {
+            rosterMap.delete(k);
+            ambiguous.add(k);
+            continue;
+          }
+          rosterMap.set(k, v);
+        }
+      }
     }
 
     // World Cup soccer: attach the national-team crest (+ a real headshot when
@@ -700,17 +716,21 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       }
     }
 
-    const props = aggregatedRows.map((p) => {
-      const r = rosterMap?.get(normalizeName(p.player));
-      const w = wcMap?.get(nameTokenKey(p.player));
-      return {
-        ...p,
-        headshot: w?.headshot ?? r?.headshot ?? null,
-        athleteId: w?.athleteId ?? r?.athleteId ?? null,
-        playerTeamId: w?.teamId ?? r?.teamId ?? null,
-        teamLogo: w?.teamLogo ?? null,
-      };
-    });
+    const props = aggregatedRows
+      .map((p) => {
+        const r = rosterMap?.get(normalizeName(p.player));
+        const w = wcMap?.get(nameTokenKey(p.player));
+        return {
+          ...p,
+          headshot: w?.headshot ?? r?.headshot ?? null,
+          athleteId: w?.athleteId ?? r?.athleteId ?? null,
+          playerTeamId: w?.teamId ?? r?.teamId ?? null,
+          teamLogo: w?.teamLogo ?? null,
+        };
+      })
+      // Mirror PrizePicks: when ESPN home/away ids are known, drop orphans and
+      // foreign-team players so clients never stamp this event's matchup onto them.
+      .filter((p) => propBelongsToGameTeams(p.playerTeamId, homeTeamId, awayTeamId));
 
     if (props.length === 0 && homeName && awayName) {
       const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
@@ -915,7 +935,20 @@ async function fetchPrizePicksPropsForGame(
       ),
     );
     rosterMap = new Map<string, RosterEntry>();
-    for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
+    // Fail closed on cross-team normalizeName collisions (mirror Odds path).
+    const ambiguous = new Set<string>();
+    for (const m of maps) {
+      for (const [k, v] of m) {
+        if (ambiguous.has(k)) continue;
+        const existing = rosterMap.get(k);
+        if (existing && existing.teamId !== v.teamId) {
+          rosterMap.delete(k);
+          ambiguous.add(k);
+          continue;
+        }
+        rosterMap.set(k, v);
+      }
+    }
   }
 
   const props: Array<{
