@@ -9,6 +9,7 @@ import {
   shouldEndBoardScanAttemptAfterLateJoins,
   shouldKeepBusyForIncompleteBoardScan,
   shouldReleaseUnderCountBoardScanAtEscape,
+  shouldArmUnderCountEscapeDeadline,
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
   underCountHeldBoardScanEscapeMsForStash,
@@ -291,5 +292,52 @@ test("game-line-only stash waits longer before under-count escape", () => {
       stashPropCount: 2,
     }),
     underCountHeldBoardScanEscapeMs(6),
+  );
+});
+
+
+test("awaitingPropSlots blocks under-count escape until props or scan complete", () => {
+  assert.equal(
+    shouldReleaseUnderCountBoardScanAtEscape({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: false,
+    }),
+    false,
+    "reserved 0-prop preview must not escape as a real 3-of-6 ticket",
+  );
+  assert.equal(
+    shouldArmUnderCountEscapeDeadline({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldReleaseUnderCountBoardScanAtEscape({
+      stashPickCount: 4,
+      displayedPickCount: 0,
+      awaitingPropSlots: false,
+      stashPropCount: 2,
+      scanComplete: false,
+    }),
+    true,
+    "real under-count with props may escape",
+  );
+  assert.equal(
+    shouldReleaseUnderCountBoardScanAtEscape({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: true,
+    }),
+    true,
+    "completed scan may paint honest shortfall",
   );
 });

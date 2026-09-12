@@ -169,6 +169,7 @@ import {
   shouldEndBoardScanAttemptAfterLateJoins,
   shouldKeepBusyForIncompleteBoardScan,
   shouldReleaseUnderCountBoardScanAtEscape,
+  shouldArmUnderCountEscapeDeadline,
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
   underCountHeldBoardScanEscapeMsForStash,
@@ -1351,6 +1352,9 @@ export default function CoachScreen() {
         !shouldReleaseUnderCountBoardScanAtEscape({
           stashPickCount: stashed.picks?.length ?? 0,
           displayedPickCount: displayed,
+          awaitingPropSlots: stashed.awaitingPropSlots === true,
+          stashPropCount: stashed.picks?.filter((p) => p.isProp).length ?? 0,
+          scanComplete: stashed.scanComplete,
         })
       ) {
         return false;
@@ -2067,16 +2071,32 @@ export default function CoachScreen() {
         underCountEscapeDeadlineRef.current = null;
         stallMs = buildStallBudgetMs(legs);
       } else if (stashCount > 0) {
+        const stashed = latestBoardScanRef.current;
         const stashPropCount =
-          latestBoardScanRef.current?.picks?.filter((p) => p.isProp).length ?? 0;
-        const windowMs = underCountHeldBoardScanEscapeMsForStash({
-          requestedLegs: legsEffective,
-          stashPropCount,
-        });
-        if (underCountEscapeDeadlineRef.current == null) {
-          underCountEscapeDeadlineRef.current = Date.now() + windowMs;
+          stashed?.picks?.filter((p) => p.isProp).length ?? 0;
+        // Reserved 0-prop preview (awaitingPropSlots) is not escapable yet —
+        // keep the deep empty-card budget until props land or scan completes.
+        if (
+          !shouldArmUnderCountEscapeDeadline({
+            stashPickCount: stashCount,
+            displayedPickCount: displayedCount,
+            awaitingPropSlots: stashed?.awaitingPropSlots === true,
+            stashPropCount,
+            scanComplete: stashed?.scanComplete,
+          })
+        ) {
+          underCountEscapeDeadlineRef.current = null;
+          stallMs = emptyCardBoardScanStallMs(legsEffective);
+        } else {
+          const windowMs = underCountHeldBoardScanEscapeMsForStash({
+            requestedLegs: legsEffective,
+            stashPropCount,
+          });
+          if (underCountEscapeDeadlineRef.current == null) {
+            underCountEscapeDeadlineRef.current = Date.now() + windowMs;
+          }
+          stallMs = Math.max(0, underCountEscapeDeadlineRef.current - Date.now());
         }
-        stallMs = Math.max(0, underCountEscapeDeadlineRef.current - Date.now());
       } else if (underCountEscapeDeadlineRef.current != null) {
         // Re-arm short poke (failed escape / empty settle) — do NOT expand back
         // to the full empty-card budget or 93% hangs for minutes again.
@@ -2100,6 +2120,9 @@ export default function CoachScreen() {
             shouldReleaseUnderCountBoardScanAtEscape({
               stashPickCount: stashed.picks.length,
               displayedPickCount: displayed,
+              awaitingPropSlots: stashed.awaitingPropSlots === true,
+              stashPropCount: stashed.picks.filter((p) => p.isProp).length,
+              scanComplete: stashed.scanComplete,
             })
           ) {
             // Durable latch — render gate must keep seeing forceShow or cards
