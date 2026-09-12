@@ -217,33 +217,38 @@ export async function buildCoachParlay(opts: {
   }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
-  // Never publish a reserved / incomplete game-line-only ticket when we loaded
-  // props/alts but never finished scoring them into the card set.
-  const picks =
-    propPoolSize > 0 &&
-    countPropLike(rawPicks) === 0 &&
-    (propsStillPending(scan) || (timed.timedOut && !!scan?.awaitingPropSlots))
-      ? []
-      : rawPicks;
+  // Keep every AI-backed pick that cleared. Wiping game lines to [] when props
+  // were incomplete caused the post-#469 "instant 0 of 7" tickets.
+  const picks = rawPicks;
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
   const propLike = countPropLike(picks);
+  const propsPending =
+    propsStillPending(scan) ||
+    propsStillPending(latest) ||
+    !!scan?.propPhaseIncomplete;
   const thinGameOnlyNote =
     picks.length > 0 &&
     picks.length < target &&
     propLike === 0 &&
-    propPoolSize > 0
+    propPoolSize > 0 &&
+    !propsPending
       ? ` Scanned ${propPoolSize} posted props/alts — none cleared the AI quality bar with these game lines.`
       : "";
-  const previewAbortedNote =
-    picks.length === 0 &&
-    propPoolSize > 0 &&
-    (propsStillPending(latest) || propsStillPending(scan) || timed.timedOut)
-      ? ` Loaded ${propPoolSize} posted props/alts but hit the delivery budget before prop scoring finished — try again.`
+  const propsIncompleteNote =
+    propPoolSize > 0 && propLike === 0 && propsPending
+      ? picks.length > 0
+        ? ` Player props did not finish scoring — showing ${picks.length} game-line pick${picks.length === 1 ? "" : "s"} that cleared. Try again for a full props mix.`
+        : ` Loaded ${propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+      : "";
+  const emptyBoardNote =
+    picks.length === 0 && !scan && !timed.timedOut
+      ? ` Board scan did not return picks — try again.`
       : "";
   const note =
     (scan?.note && scan.note.trim() && picks.length > 0 && propLike > 0 ? scan.note.trim() : "") ||
-    (shortfall ? `${shortfall}${thinGameOnlyNote}` : "") ||
-    previewAbortedNote ||
+    (shortfall ? `${shortfall}${thinGameOnlyNote}${propsIncompleteNote}` : "") ||
+    propsIncompleteNote ||
+    emptyBoardNote ||
     (timed.timedOut
       ? `Stopped at the ${Math.round(budgetMs / 1000)}s delivery budget — showing every AI-backed pick that cleared so far.`
       : picks.length

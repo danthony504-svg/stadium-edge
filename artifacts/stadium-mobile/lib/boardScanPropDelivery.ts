@@ -16,9 +16,12 @@ export function boardScanNonPropPreviewCap(targetLegs: number): number {
 }
 
 /**
- * Final game-line-only tickets must keep awaitingPropSlots when prop scoring
- * was cut short — otherwise reserved F5-only previews (2 of 5 / 3 of 7) publish
- * as "every market scanned".
+ * Preview-only gate: while game lines are scoring and no props have landed yet,
+ * hold reserved prop slots open so we do not paint F5-only previews as the ticket.
+ *
+ * Never set this on a final result — that wiped cleared game lines to a 0-leg
+ * "instant empty" ticket when prop scoring threw or timed out (#469 regression).
+ * Final prop shortfalls use `propPhaseIncomplete` + honest notes instead.
  */
 export function shouldKeepAwaitingPropSlots(opts: {
   preview?: boolean;
@@ -28,9 +31,7 @@ export function shouldKeepAwaitingPropSlots(opts: {
   propPhaseIncomplete?: boolean;
 }): boolean {
   if (opts.propsOnly || opts.targetLegs < 3) return false;
-  if (opts.preview) {
-    const propSlots = boardScanPropSlotCount(opts.targetLegs);
-    return opts.propCount < propSlots && opts.propCount === 0;
-  }
-  return !!opts.propPhaseIncomplete && opts.propCount === 0;
+  if (!opts.preview) return false;
+  const propSlots = boardScanPropSlotCount(opts.targetLegs);
+  return opts.propCount < propSlots && opts.propCount === 0;
 }

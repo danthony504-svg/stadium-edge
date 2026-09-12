@@ -566,9 +566,8 @@ export function buildScanResult(
       propCount = picks.filter((p) => p.isProp).length;
     }
   }
-  // Final ticket with a loaded prop board that never finished scoring props —
-  // keep awaitingPropSlots so callers do not publish game-line-only shortfalls
-  // as "every market scanned" (7-leg → exactly 3 F5 lines).
+  // Preview-only awaiting flag. Finals use propPhaseIncomplete + notes so we
+  // never wipe cleared game lines to an instant empty ticket.
   const awaitingPropSlots = shouldKeepAwaitingPropSlots({
     preview: opts.preview,
     propsOnly: opts.propsOnly,
