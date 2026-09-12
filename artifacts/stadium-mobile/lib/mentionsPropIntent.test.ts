@@ -216,3 +216,8 @@ test("filterBettablePicks drops far-future legs from a mixed ticket", () => {
   assert.equal(kept.length, 1);
   assert.equal(kept[0]?.sport, "wnba");
 });
+
+test("wantsPropsOnly: rushing and receiving yards only is props-only", () => {
+  assert.equal(wantsPropsOnly("5 leg NFL rushing and receiving yards only"), true);
+  assert.equal(mentionsPropIntent("5 leg NFL rushing and receiving yards only"), true);
+});

@@ -490,6 +490,8 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (!mentionsPropIntent(text)) return false;
   const t = String(text || "").toLowerCase();
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
+  // "rushing and receiving yards only" — all legs must be those prop markets.
+  if (/\byards?\s+only\b/.test(t)) return true;
   if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+parlay\b/.test(t)) return true;
   if (/\bparlay\s+(?:of\s+)?(?:player\s+)?props?\b/.test(t)) return true;
