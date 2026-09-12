@@ -99,8 +99,10 @@ export default function CoachScreen() {
         failed: opts.failed,
       });
       latchCoachSession(sessionRef.current, outcome);
+      // Prefer the build note when present — it carries prop-pool context.
+      // Only synthesize a generic shortfall when the build returned no text.
       const shortfall =
-        outcome === "shortfall" || outcome === "empty"
+        !opts.text.trim() && (outcome === "shortfall" || outcome === "empty")
           ? coachShortfallNote(opts.requestedLegs, opts.picks.length)
           : "";
       patchAssistant(assistantId, {

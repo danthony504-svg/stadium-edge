@@ -47,3 +47,12 @@ test("5-leg reserved prop slots leave exactly 2 game-line preview capacity", () 
   assert.equal(propSlots, 3);
   assert.equal(nonPropCap, 2);
 });
+
+
+test("7-leg reserved prop slots leave exactly 3 game-line preview capacity", () => {
+  const target = 7;
+  const propSlots = Math.max(1, Math.round(target * 0.5));
+  const nonPropCap = Math.max(0, target - propSlots);
+  assert.equal(propSlots, 4);
+  assert.equal(nonPropCap, 3);
+});

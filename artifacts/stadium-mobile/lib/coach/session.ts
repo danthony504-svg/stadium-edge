@@ -139,5 +139,7 @@ export function coachShortfallNote(requestedLegs: number, pickCount: number): st
   if (pickCount <= 0) {
     return `You asked for **${requestedLegs}** legs — no AI-backed picks cleared the quality bar after the board scan.`;
   }
-  return `You asked for **${requestedLegs}** legs — only **${pickCount}** cleared the AI quality bar after every posted market was scanned. No ungraded filler was added.`;
+  // Do not claim "every posted market was scanned" — that lied when prop scoring
+  // was starved and only reserved game-line slots (2 of 5 / 3 of 7) published.
+  return `You asked for **${requestedLegs}** legs — only **${pickCount}** cleared the AI quality bar. No ungraded filler was added.`;
 }

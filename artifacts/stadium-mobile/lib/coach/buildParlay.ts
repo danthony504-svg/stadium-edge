@@ -181,14 +181,18 @@ export async function buildCoachParlay(opts: {
   ]);
 
   let scan = timed.scan ?? latest ?? null;
-  // Budget hit during reserved game-line preview — give prop scoring a grace window
-  // when the pool was already loaded (the "2 totals forever" failure mode).
+  const propsStillPending = (s: FullBoardScanResult | null | undefined) =>
+    !!s &&
+    countPropLike(s.picks ?? []) === 0 &&
+    (!!s.awaitingPropSlots || !!s.propPhaseIncomplete);
+
+  // Budget hit while props were still pending — grace window when the pool was
+  // already loaded (5-leg→2 totals / 7-leg→3 F5 lines failure modes).
   if (
     timed.timedOut &&
     !opts.signal.aborted &&
     propPoolSize > 0 &&
-    scan?.awaitingPropSlots &&
-    countPropLike(scan.picks ?? []) === 0
+    propsStillPending(scan)
   ) {
     opts.onStatus?.(`Finishing prop/alt scoring (${propPoolSize} posted)…`);
     const graceMs = Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25)));
@@ -213,13 +217,12 @@ export async function buildCoachParlay(opts: {
   }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
-  // Never publish a reserved game-line-only preview as the final ticket when we
-  // loaded props/alts but never scored them into the card set.
+  // Never publish a reserved / incomplete game-line-only ticket when we loaded
+  // props/alts but never finished scoring them into the card set.
   const picks =
-    timed.timedOut &&
-    scan?.awaitingPropSlots &&
+    propPoolSize > 0 &&
     countPropLike(rawPicks) === 0 &&
-    propPoolSize > 0
+    (propsStillPending(scan) || (timed.timedOut && !!scan?.awaitingPropSlots))
       ? []
       : rawPicks;
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
@@ -234,12 +237,11 @@ export async function buildCoachParlay(opts: {
   const previewAbortedNote =
     picks.length === 0 &&
     propPoolSize > 0 &&
-    timed.timedOut &&
-    (latest?.awaitingPropSlots || scan?.awaitingPropSlots)
+    (propsStillPending(latest) || propsStillPending(scan) || timed.timedOut)
       ? ` Loaded ${propPoolSize} posted props/alts but hit the delivery budget before prop scoring finished — try again.`
       : "";
   const note =
-    (scan?.note && scan.note.trim() && picks.length > 0 ? scan.note.trim() : "") ||
+    (scan?.note && scan.note.trim() && picks.length > 0 && propLike > 0 ? scan.note.trim() : "") ||
     (shortfall ? `${shortfall}${thinGameOnlyNote}` : "") ||
     previewAbortedNote ||
     (timed.timedOut
