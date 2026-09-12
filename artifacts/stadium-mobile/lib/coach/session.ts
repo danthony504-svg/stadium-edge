@@ -20,13 +20,32 @@ export type CoachSession = {
   absoluteTimer: ReturnType<typeof setTimeout> | null;
 };
 
-/** Absolute UI budget from send start — must unlock even if scan hangs. */
+/**
+ * Scoring budget after the prop board is loaded. Sized so game-line sims and
+ * prop/alt scoring can finish — empty propPool + short budget was locking
+ * "2 game totals" as a shortfall before props ever ran.
+ */
 export function coachAbsoluteBudgetMs(requestedLegs: number): number {
   if (requestedLegs >= 15) return 90_000;
   if (requestedLegs >= 9) return 75_000;
-  if (requestedLegs >= 6) return 45_000;
-  if (requestedLegs >= 3) return 40_000;
-  return 35_000;
+  if (requestedLegs >= 6) return 70_000;
+  if (requestedLegs >= 3) return 65_000;
+  return 45_000;
+}
+
+/** Failsafe while prefetching the posted prop/alt board before scoring starts. */
+export function coachPropLoadFailsafeMs(): number {
+  return 75_000;
+}
+
+/** Restart the absolute clock (e.g. when scoring starts after prop prefetch). */
+export function resetCoachAbsoluteClock(session: CoachSession, now = Date.now()): void {
+  if (session.absoluteTimer) {
+    clearTimeout(session.absoluteTimer);
+    session.absoluteTimer = null;
+  }
+  if (session.outcome !== "open") return;
+  session.startedAtMs = now;
 }
 
 export function createCoachSession(
