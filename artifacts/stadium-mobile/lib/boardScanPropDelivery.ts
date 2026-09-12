@@ -35,3 +35,66 @@ export function shouldKeepAwaitingPropSlots(opts: {
   const propSlots = boardScanPropSlotCount(opts.targetLegs);
   return opts.propCount < propSlots && opts.propCount === 0;
 }
+
+function countPropLikePicks(picks: { isProp?: boolean; market?: string }[]): number {
+  return picks.filter((p) => p.isProp || /alt/i.test(p.market || "")).length;
+}
+
+/**
+ * Final ticket picks after a board scan. Never wipe cleared legs when props are
+ * incomplete — that was the post-#469 instant 0-of-7 failure (phone screenshot).
+ *
+ * Old buggy formula (must stay dead):
+ *   propPoolSize > 0 && propLike === 0 && awaitingPropSlots → []
+ */
+export function selectFinalCoachParlayPicks<T extends { isProp?: boolean; market?: string }>(
+  rawPicks: T[],
+): T[] {
+  return rawPicks;
+}
+
+/** Honest delivery note for fixed-leg shortfalls / incomplete prop scoring. */
+export function buildFinalCoachParlayNote(opts: {
+  target: number;
+  picks: { isProp?: boolean; market?: string }[];
+  propPoolSize: number;
+  propsPending: boolean;
+  shortfallLead: string;
+  timedOut?: boolean;
+  budgetMs?: number;
+  scanMissing?: boolean;
+  scanNote?: string;
+}): string {
+  const propLike = countPropLikePicks(opts.picks);
+  const thinGameOnlyNote =
+    opts.picks.length > 0 &&
+    opts.picks.length < opts.target &&
+    propLike === 0 &&
+    opts.propPoolSize > 0 &&
+    !opts.propsPending
+      ? ` Scanned ${opts.propPoolSize} posted props/alts — none cleared the AI quality bar with these game lines.`
+      : "";
+  const propsIncompleteNote =
+    opts.propPoolSize > 0 && propLike === 0 && opts.propsPending
+      ? opts.picks.length > 0
+        ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared. Try again for a full props mix.`
+        : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+      : "";
+  const emptyBoardNote =
+    opts.picks.length === 0 && opts.scanMissing && !opts.timedOut
+      ? ` Board scan did not return picks — try again.`
+      : "";
+  return (
+    (opts.scanNote?.trim() && opts.picks.length > 0 && propLike > 0 ? opts.scanNote.trim() : "") ||
+    (opts.shortfallLead
+      ? `${opts.shortfallLead}${thinGameOnlyNote}${propsIncompleteNote}`
+      : "") ||
+    propsIncompleteNote ||
+    emptyBoardNote ||
+    (opts.timedOut
+      ? `Stopped at the ${Math.round((opts.budgetMs ?? 0) / 1000)}s delivery budget — showing every AI-backed pick that cleared so far.`
+      : opts.picks.length
+        ? ""
+        : `No AI-backed picks cleared the quality bar for a ${opts.target}-leg ticket.`)
+  );
+}
