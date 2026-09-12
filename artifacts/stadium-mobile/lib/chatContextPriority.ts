@@ -18,8 +18,10 @@ export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   ufc: ["ufc", "mma"],
   tennis: ["tennis", "atp", "wta"],
   nfl: ["nfl"],
-  ncaaf: ["ncaaf", "cfb", "college football"],
-  ncaab: ["ncaab", "cbb", "college basketball"],
+  // "collage football" is a common phone typo for college football (screenshot:
+  // "6 leg Collage Football" must resolve to ncaaf, not the full multi-sport board).
+  ncaaf: ["ncaaf", "cfb", "college football", "collage football"],
+  ncaab: ["ncaab", "cbb", "college basketball", "collage basketball"],
 };
 
 function escapeRegExp(s: string): string {
@@ -438,6 +440,19 @@ export function coachBuildSports(
     }
   }
   return sports.filter((s) => !excluded.has(s));
+}
+
+/**
+ * Priority inject must stay inside named leagues.
+ * A "college football" ask must never inject NFL legs.
+ */
+export function prioritySportsForAsk(
+  askText: string | null | undefined,
+  prioritySports: readonly string[] = ["nfl", "ncaaf"],
+): readonly string[] {
+  const focal = focalSportsFromText(askText);
+  if (focal.size === 0) return prioritySports;
+  return prioritySports.filter((s) => focal.has(s));
 }
 
 /** When resolved legs share one sport, focus salvage/top-up pools on that league. */

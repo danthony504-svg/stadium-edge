@@ -583,6 +583,8 @@ export function buildScanResult(
     /** Prop scoring was cut short before any prop legs landed. */
     propPhaseIncomplete?: boolean;
     failureDiagnostics?: FullBoardScanResult["failureDiagnostics"];
+    /** Limit NFL/NCAAF priority inject to leagues named in the ask. */
+    prioritySports?: readonly string[];
   },
 ): FullBoardScanResult {
   const stagePool = opts.propsOnly ? scored.filter((leg) => !!leg.pick.isProp) : scored;
@@ -595,7 +597,12 @@ export function buildScanResult(
       ticketStyle: opts.ticketStyle,
     },
   );
-  let picks = injectPrioritySportsIntoTicket(staged.picks, stagePool, opts.target);
+  let picks = injectPrioritySportsIntoTicket(
+    staged.picks,
+    stagePool,
+    opts.target,
+    opts.prioritySports,
+  );
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
   let propCount = picks.filter((p) => p.isProp).length;
@@ -714,6 +721,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
    * Fixes greenfield "2 game totals" tickets that latched before props loaded.
    */
   skipPropPoolExpand?: boolean;
+  /** Limit priority-sport inject to leagues named in the user ask. */
+  prioritySports?: readonly string[];
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -790,6 +799,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
       propsOnly: opts.propsOnly,
+      prioritySports: opts.prioritySports,
     });
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
   };
@@ -978,6 +988,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     propsOnly: opts.propsOnly,
     propPhaseIncomplete,
     failureDiagnostics,
+    prioritySports: opts.prioritySports,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;

@@ -659,8 +659,23 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           fetchRosterMap(espnPath, tid).catch(() => new Map<string, RosterEntry>()),
         ),
       );
+      // Merge home+away rosters, but FAIL CLOSED on cross-team name collisions
+      // (same normalizeName on both clubs). Last-write-wins previously assigned
+      // the wrong playerTeamId so the team gate kept mislabeled props.
       rosterMap = new Map<string, RosterEntry>();
-      for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
+      const ambiguous = new Set<string>();
+      for (const m of maps) {
+        for (const [k, v] of m) {
+          if (ambiguous.has(k)) continue;
+          const existing = rosterMap.get(k);
+          if (existing && existing.teamId !== v.teamId) {
+            rosterMap.delete(k);
+            ambiguous.add(k);
+            continue;
+          }
+          rosterMap.set(k, v);
+        }
+      }
     }
 
     // World Cup soccer: attach the national-team crest (+ a real headshot when
@@ -920,7 +935,20 @@ async function fetchPrizePicksPropsForGame(
       ),
     );
     rosterMap = new Map<string, RosterEntry>();
-    for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
+    // Fail closed on cross-team normalizeName collisions (mirror Odds path).
+    const ambiguous = new Set<string>();
+    for (const m of maps) {
+      for (const [k, v] of m) {
+        if (ambiguous.has(k)) continue;
+        const existing = rosterMap.get(k);
+        if (existing && existing.teamId !== v.teamId) {
+          rosterMap.delete(k);
+          ambiguous.add(k);
+          continue;
+        }
+        rosterMap.set(k, v);
+      }
+    }
   }
 
   const props: Array<{

@@ -29,8 +29,13 @@ import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
+import {
+  coachBuildSports,
+  prioritySportsForAsk,
+} from "@/lib/chatContextPriority";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { filterBettableOddsGames } from "@/lib/slate";
+
 
 export type CoachParlayBuildResult = {
   picks: ParsedPick[];
@@ -69,6 +74,8 @@ function countPropLike(picks: ParsedPick[]): number {
 
 async function loadScanInputs(
   signal: AbortSignal,
+  requestedLegs: number,
+  askText: string | null | undefined,
   onStatus?: (status: string) => void,
 ): Promise<{
   espnGames: EspnGame[];
@@ -76,9 +83,19 @@ async function loadScanInputs(
   propPool: PropPoolEntry[];
   realOdds: RealOddsEntry[];
   liveOdds: RealOddsEntry[];
+  sports: string[];
+  prioritySports: readonly string[];
 }> {
-  const sports = DEFAULT_SPORTS;
-  onStatus?.("Loading tonight's board…");
+  // Named league(s) in the ask (incl. "Collage Football" → ncaaf) scope the
+  // board — greenfield previously always scanned DEFAULT_SPORTS, so a CFB ask
+  // could still return NFL Rodgers / MLB props on the wrong tickets.
+  const sports = coachBuildSports(askText, requestedLegs, [...DEFAULT_SPORTS]);
+  const prioritySports = prioritySportsForAsk(askText);
+  onStatus?.(
+    sports.length === 1
+      ? `Loading ${sports[0]!.toUpperCase()} board…`
+      : "Loading tonight's board…",
+  );
   const [espnGames, oddsRaw, liveFeed] = await Promise.all([
     Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))).then((rows) =>
       rows.flat(),
@@ -101,11 +118,15 @@ async function loadScanInputs(
     propPool,
     realOdds: realOddsFromOddsGames(oddsGames),
     liveOdds: liveFeed.odds ?? [],
+    sports,
+    prioritySports,
   };
 }
 
 export async function buildCoachParlay(opts: {
   requestedLegs: number;
+  /** User ask — scopes sports (college football) and priority inject. */
+  askText?: string | null;
   signal: AbortSignal;
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
@@ -115,7 +136,12 @@ export async function buildCoachParlay(opts: {
   const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
   const budgetMs = coachAbsoluteBudgetMs(target);
 
-  const inputs = await loadScanInputs(opts.signal, opts.onStatus);
+  const inputs = await loadScanInputs(
+    opts.signal,
+    target,
+    opts.askText,
+    opts.onStatus,
+  );
   if (opts.signal.aborted) {
     return { picks: [], note: "", scan: null, timedOut: false, propPoolSize: 0 };
   }
@@ -143,6 +169,7 @@ export async function buildCoachParlay(opts: {
     teamIdMap,
     signal: opts.signal,
     skipPropPoolExpand: skipPropExpand,
+    prioritySports: inputs.prioritySports,
     varietySeed: `greenfield-${target}-${Date.now()}`,
     onPartial: (partial) => {
       latest = partial;

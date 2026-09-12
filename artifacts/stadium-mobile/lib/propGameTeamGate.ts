@@ -7,9 +7,10 @@
  * Rush Yds can land on Atlanta Falcons @ Pittsburgh Steelers when he is not
  * on either roster id for that request.
  *
- * Fail closed when game team ids are known: missing or non-matching
- * playerTeamId → drop. When neither home nor away id is known, keep the row
- * (cannot verify).
+ * Fail closed always for labeled Coach board props:
+ * - missing / non-matching playerTeamId → drop
+ * - missing home+away ESPN ids → drop (cannot prove membership; fail-open
+ *   previously stamped orphan Odds rows with Away @ Home)
  */
 
 export function propBelongsToGameTeams(
@@ -19,7 +20,7 @@ export function propBelongsToGameTeams(
 ): boolean {
   const home = String(homeTeamId ?? "").trim();
   const away = String(awayTeamId ?? "").trim();
-  if (!home && !away) return true;
+  if (!home && !away) return false;
   const pt = String(playerTeamId ?? "").trim();
   if (!pt) return false;
   return pt === home || pt === away;

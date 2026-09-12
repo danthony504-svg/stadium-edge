@@ -11,7 +11,8 @@ export function propBelongsToGameTeams(
 ): boolean {
   const home = String(homeTeamId ?? "").trim();
   const away = String(awayTeamId ?? "").trim();
-  if (!home && !away) return true;
+  // Fail closed without ESPN ids — never stamp an unverified player onto a matchup.
+  if (!home && !away) return false;
   const pt = String(playerTeamId ?? "").trim();
   if (!pt) return false;
   return pt === home || pt === away;

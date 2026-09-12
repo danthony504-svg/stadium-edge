@@ -28,10 +28,11 @@ test("player on home or away team id is kept", () => {
   assert.equal(propBelongsToGameTeams(ATL, PIT, ATL), true);
 });
 
-test("open when game team ids unavailable (cannot verify)", () => {
-  assert.equal(propBelongsToGameTeams(null, null, null), true);
-  assert.equal(propBelongsToGameTeams(NYJ, "", ""), true);
-  assert.equal(propBelongsToGameTeams(null, undefined, undefined), true);
+test("fail closed when game team ids unavailable (cannot verify membership)", () => {
+  // Fail-open previously stamped orphan Odds rows with Away @ Home.
+  assert.equal(propBelongsToGameTeams(null, null, null), false);
+  assert.equal(propBelongsToGameTeams(NYJ, "", ""), false);
+  assert.equal(propBelongsToGameTeams(null, undefined, undefined), false);
 });
 
 test("filterPropsForGameTeams drops orphans from a labeled event pool", () => {
