@@ -1890,7 +1890,39 @@ function resolvePropSimTeamIds(
     const hit = map.get(nick);
     if (hit) return hit;
   }
+  const seen = new Set<string>();
+  for (const ids of map.values()) {
+    if (!ids.awayTeam || !ids.homeTeam) continue;
+    const key = `${ids.awayTeamId}|${ids.homeTeamId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const espnLabel = `${ids.awayTeam} @ ${ids.homeTeam}`;
+    if (propGameLabelsMatch(gameLabel, espnLabel)) return ids;
+  }
   return null;
+}
+
+/** Lightweight Away @ Home fuzzy match for prop sim team ids (avoids pulling optimizer graph). */
+function propGameLabelsMatch(a: string, b: string): boolean {
+  const pa = String(a ?? "").split(" @ ");
+  const pb = String(b ?? "").split(" @ ");
+  if (pa.length !== 2 || pb.length !== 2) {
+    return a.trim().toLowerCase() === b.trim().toLowerCase();
+  }
+  const teamMatch = (x: string, y: string) => {
+    const nx = x.trim().toLowerCase();
+    const ny = y.trim().toLowerCase();
+    if (!nx || !ny) return false;
+    if (nx.includes(ny) || ny.includes(nx)) return true;
+    const nick = (s: string) => {
+      const t = s.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      return t[t.length - 1] ?? "";
+    };
+    const na = nick(x);
+    const nb = nick(y);
+    return na.length > 2 && na === nb;
+  };
+  return teamMatch(pa[0]!, pb[0]!) && teamMatch(pa[1]!, pb[1]!);
 }
 
 /** Run Monte Carlo on resolved prop picks (server-side, tiered + cached). */

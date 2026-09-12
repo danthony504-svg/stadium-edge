@@ -4,6 +4,13 @@
  * loading the full scanner module graph.
  */
 
+import {
+  deriveCoachScanFailureReason,
+  formatCoachScanFailureTrace,
+  type CoachScanFailureReason,
+  type CoachScanFailureDiagnostics,
+} from "./coachScanFailureReason.ts";
+
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
 export function boardScanPropSlotCount(targetLegs: number): number {
   if (targetLegs < 3) return 0;
@@ -64,6 +71,8 @@ export function buildFinalCoachParlayNote(opts: {
   budgetMs?: number;
   scanMissing?: boolean;
   scanNote?: string;
+  failureReason?: CoachScanFailureReason | null;
+  failureDiagnostics?: CoachScanFailureDiagnostics;
 }): string {
   const propLike = countPropLikePicks(opts.picks);
   const thinGameOnlyNote =
@@ -84,7 +93,7 @@ export function buildFinalCoachParlayNote(opts: {
     opts.picks.length === 0 && opts.scanMissing && !opts.timedOut
       ? ` Board scan did not return picks — try again.`
       : "";
-  return (
+  const base =
     (opts.scanNote?.trim() && opts.picks.length > 0 && propLike > 0 ? opts.scanNote.trim() : "") ||
     (opts.shortfallLead
       ? `${opts.shortfallLead}${thinGameOnlyNote}${propsIncompleteNote}`
@@ -95,6 +104,21 @@ export function buildFinalCoachParlayNote(opts: {
       ? `Stopped at the ${Math.round((opts.budgetMs ?? 0) / 1000)}s delivery budget — showing every AI-backed pick that cleared so far.`
       : opts.picks.length
         ? ""
-        : `No AI-backed picks cleared the quality bar for a ${opts.target}-leg ticket.`)
-  );
+        : `No AI-backed picks cleared the quality bar for a ${opts.target}-leg ticket.`);
+
+  // Empty tickets must carry a machine-readable reason so phone empties are diagnosable.
+  if (opts.picks.length > 0) return base;
+  const reason =
+    opts.failureReason ??
+    deriveCoachScanFailureReason({
+      ...(opts.failureDiagnostics ?? {}),
+      scanMissing: opts.scanMissing,
+      timedOut: opts.timedOut,
+      stagedPickCount: opts.picks.length,
+      propPoolSize: opts.failureDiagnostics?.propPoolSize ?? opts.propPoolSize,
+      propPhaseIncomplete: opts.propsPending || opts.failureDiagnostics?.propPhaseIncomplete,
+    });
+  if (!reason) return base;
+  if (base.includes(`[${reason.code}:`)) return base;
+  return `${base}${formatCoachScanFailureTrace(reason)}`;
 }
