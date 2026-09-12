@@ -74,6 +74,39 @@ export function underCountHeldBoardScanEscapeMsForStash(opts: {
   return Math.max(base, 35_000);
 }
 
+
+/**
+ * Hard wait for reserved 0-prop previews before UI may escape as an honest
+ * shortfall. Sized above the scanner prop-phase deadline so scanComplete
+ * normally wins; the UI deadline is the belt if the scanner never finalizes.
+ */
+export function awaitingPropSlotsMaxWaitMs(requestedLegs: number): number {
+  if (requestedLegs >= 15) return 90_000;
+  if (requestedLegs >= 9) return 75_000;
+  if (requestedLegs >= 6) return 60_000;
+  return 50_000;
+}
+
+/** Stall window for a reserved 0-prop preview (or normal under-count stash). */
+export function underCountEscapeWindowMsForStash(opts: {
+  requestedLegs: number;
+  stashPropCount: number;
+  awaitingPropSlots?: boolean;
+  scanComplete?: boolean | null;
+}): number {
+  if (
+    opts.awaitingPropSlots &&
+    opts.stashPropCount <= 0 &&
+    opts.scanComplete !== true
+  ) {
+    return awaitingPropSlotsMaxWaitMs(opts.requestedLegs);
+  }
+  return underCountHeldBoardScanEscapeMsForStash({
+    requestedLegs: opts.requestedLegs,
+    stashPropCount: opts.stashPropCount,
+  });
+}
+
 /**
  * Pick stall timeout from paint state:
  * - cards visible → deep budget
@@ -86,9 +119,15 @@ export function boardScanStallMsForPaintState(opts: {
   requestedLegs: number;
   deepStallMs: number;
   stashPropCount?: number;
+  awaitingPropSlots?: boolean;
+  scanComplete?: boolean | null;
 }): number {
   if (opts.displayedPickCount > 0) return opts.deepStallMs;
   if (opts.stashPickCount > 0) {
+    // Reserved 0-prop preview: wait the prop-slot budget, not the short escape.
+    if (opts.awaitingPropSlots && (opts.stashPropCount ?? 0) <= 0) {
+      return awaitingPropSlotsMaxWaitMs(opts.requestedLegs);
+    }
     // Unknown prop count → keep the short escape (legacy). Explicit 0 props
     // waits longer for prop waves.
     if (opts.stashPropCount == null) {
@@ -119,6 +158,11 @@ export function shouldKeepBusyForIncompleteBoardScan(opts: {
   boardScanPending?: boolean;
   /** Stall/join escape already released under-count cards — do not re-arm busy. */
   forceShowIncomplete?: boolean;
+  /**
+   * Reserved prop-slot preview waited past its hard deadline — stop keeping
+   * busy forever; escape / dead-end must be allowed to unlock.
+   */
+  awaitingPropSlotsPastDeadline?: boolean;
 }): boolean {
   if (!opts.isParlayBuild || opts.legTarget < 3) return false;
   if (opts.displayedPickCount > 0) return false;
@@ -126,6 +170,7 @@ export function shouldKeepBusyForIncompleteBoardScan(opts: {
   // forceShow alone must NOT drop busy — escape can latch forceShow then fail to
   // paint, and clearing busy here left an empty bubble with dead-end suppressed.
   // Only stop keeping busy once cards are actually on screen (checked above).
+  if (opts.awaitingPropSlotsPastDeadline) return false;
   if (opts.boardScanPending && opts.scanComplete !== true) return true;
   if (!opts.hasScanStash) return false;
   return opts.scanComplete !== true;
@@ -139,7 +184,9 @@ export function shouldSuppressEmptyTicketDeadEnd(opts: {
   boardScanPending: boolean;
   scanComplete: boolean | null | undefined;
   hasScanStash: boolean;
+  awaitingPropSlotsPastDeadline?: boolean;
 }): boolean {
+  if (opts.awaitingPropSlotsPastDeadline) return false;
   if (opts.boardScanPending && opts.scanComplete !== true) return true;
   if (opts.hasScanStash && opts.scanComplete !== true) return true;
   return false;
@@ -161,6 +208,9 @@ export function shouldReleaseUnderCountBoardScanAtEscape(opts: {
   awaitingPropSlots?: boolean;
   stashPropCount?: number;
   scanComplete?: boolean | null;
+  /** Elapsed ms since the reserved preview first appeared (or since send). */
+  awaitingPropSlotsWaitElapsedMs?: number;
+  requestedLegs?: number;
 }): boolean {
   if (opts.stashPickCount <= 0 || opts.displayedPickCount > 0) return false;
   if (
@@ -168,14 +218,17 @@ export function shouldReleaseUnderCountBoardScanAtEscape(opts: {
     (opts.stashPropCount ?? 0) <= 0 &&
     opts.scanComplete !== true
   ) {
-    return false;
+    const maxWait = awaitingPropSlotsMaxWaitMs(opts.requestedLegs ?? 6);
+    const elapsed = opts.awaitingPropSlotsWaitElapsedMs ?? 0;
+    if (elapsed < maxWait) return false;
   }
   return true;
 }
 
 /**
- * Arm the under-count escape clock only when the stash is a real paint candidate.
- * Reserved 0-prop previews must wait for the first prop wave (or scan complete).
+ * Arm the under-count escape clock when the stash is a paint candidate.
+ * Reserved 0-prop previews arm the longer awaitingPropSlots budget (not the
+ * short under-count escape) so props get a real window — then escape fires.
  */
 export function shouldArmUnderCountEscapeDeadline(opts: {
   stashPickCount: number;
@@ -184,6 +237,15 @@ export function shouldArmUnderCountEscapeDeadline(opts: {
   stashPropCount?: number;
   scanComplete?: boolean | null;
 }): boolean {
+  if (opts.stashPickCount <= 0 || opts.displayedPickCount > 0) return false;
+  // Reserved preview: still arm a deadline (the long prop-slot wait).
+  if (
+    opts.awaitingPropSlots &&
+    (opts.stashPropCount ?? 0) <= 0 &&
+    opts.scanComplete !== true
+  ) {
+    return true;
+  }
   return shouldReleaseUnderCountBoardScanAtEscape(opts);
 }
 
@@ -215,16 +277,55 @@ export function stallIncompleteScanStillInFlight(opts: {
   scanComplete: boolean | null | undefined;
   stashPickCount: number;
   displayedPickCount: number;
+  awaitingPropSlotsPastDeadline?: boolean;
 }): boolean {
   if (opts.displayedPickCount > 0) return false;
   // Completed scans must unlock — dead-end / forceShow retry paint the shortfall
   // or show Try again. Treating complete+forceShow as in-flight left permanent 93%.
   if (opts.scanComplete === true) return false;
+  // Past prop-slot deadline: do not claim still in-flight forever.
+  if (opts.awaitingPropSlotsPastDeadline) return false;
   if (opts.boardScanPending) return true;
   if (opts.stashPickCount > 0) return true;
   // forceShow alone with nothing left to paint is not in-flight.
   void opts.forceShowIncomplete;
   return false;
+}
+
+/**
+ * Do not re-arm the +8s stall poke forever. Once the absolute budget is
+ * exhausted (or prop-slot wait has passed), unlock / dead-end instead.
+ */
+export function shouldReArmBoardScanStallPoke(opts: {
+  displayedPickCount: number;
+  awaitingPropSlotsPastDeadline?: boolean;
+  absoluteStallBudgetExhausted?: boolean;
+}): boolean {
+  if (opts.displayedPickCount > 0) return false;
+  if (opts.awaitingPropSlotsPastDeadline) return false;
+  if (opts.absoluteStallBudgetExhausted) return false;
+  return true;
+}
+
+/** Honest progress copy while reserved prop slots are still scoring. */
+export function coachBoardScanProgressCopy(opts: {
+  scoredLegCount: number;
+  requestedLegs: number;
+  awaitingPropSlots?: boolean;
+  stashPropCount?: number;
+}): string | null {
+  if (opts.scoredLegCount <= 0) return null;
+  if (
+    opts.awaitingPropSlots &&
+    (opts.stashPropCount ?? 0) <= 0 &&
+    opts.requestedLegs > 0
+  ) {
+    return `Scoring player props for your ${opts.requestedLegs}-leg ticket…`;
+  }
+  if (opts.requestedLegs > 0) {
+    return `Scored ${opts.scoredLegCount} of ${opts.requestedLegs} legs — finishing your ticket…`;
+  }
+  return `Scored ${opts.scoredLegCount} legs — finishing your ticket…`;
 }
 
 export function emptyTicketDeadEndMessage(opts: {

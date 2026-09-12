@@ -5,6 +5,10 @@ import {
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
+  boardPropSlotTarget,
+  countStagedPropLegs,
+  shouldStopPropSimForTicketMix,
+  selectBoardPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -98,4 +102,96 @@ test("countQualifiedBoardLegs collapses duplicate ladder rungs before counting f
   }
   assert.equal(scored.length, 10, "ten qualifying rungs before ladder collapse");
   assert.equal(countQualifiedBoardLegs(scored, 9), 5, "only one rung per player/market ladder counts");
+});
+
+
+test("prop-slot target is ~50% of legs", () => {
+  assert.equal(boardPropSlotTarget(6), 3);
+  assert.equal(boardPropSlotTarget(5), 3);
+  assert.equal(boardPropSlotTarget(2), 0);
+});
+
+test("prop sim does not stop on game-line-only full ticket", () => {
+  const gameOnly = [];
+  for (let i = 0; i < 6; i++) {
+    gameOnly.push({
+      pick: {
+        game: `A${i} @ B${i}`,
+        market: "Spread",
+        pick: `A${i} -3.5`,
+        odds: -110,
+        isProp: false,
+        sport: "nfl",
+        finalAiScore: qualScore,
+      },
+      evPct: 3,
+      edgePct: 2,
+      confidencePct: 55,
+      impliedProbPct: 45,
+      lineShoppingScore: 1,
+      grade: "C+",
+      simHit: 0.55,
+      composite: 7,
+      rankScore: 90 - i,
+    });
+  }
+  assert.equal(
+    shouldStopPropSimForTicketMix({ scored: gameOnly, target: 6 }),
+    false,
+    "full game-line ticket must keep scoring props",
+  );
+});
+
+test("prop sim stops once mix fills prop slots", () => {
+  const scored = [];
+  for (let i = 0; i < 3; i++) {
+    scored.push({
+      pick: {
+        game: `G${i} @ H${i}`,
+        market: "Spread",
+        pick: `G${i} -2.5`,
+        odds: -110,
+        isProp: false,
+        sport: "nfl",
+        finalAiScore: qualScore,
+      },
+      evPct: 3,
+      edgePct: 2,
+      confidencePct: 55,
+      impliedProbPct: 45,
+      lineShoppingScore: 1,
+      grade: "C+",
+      simHit: 0.55,
+      composite: 7,
+      rankScore: 90 - i,
+    });
+  }
+  for (let i = 0; i < 3; i++) {
+    scored.push(propLeg(`Player${i}`, 1.5 + i, 120 + i, false, 80 - i));
+  }
+  assert.equal(
+    shouldStopPropSimForTicketMix({ scored, target: 6 }),
+    true,
+  );
+});
+
+test("selectBoardPropSimCandidates caps and ladder-dedupes", () => {
+  const ranked = [];
+  for (let i = 0; i < 10; i++) {
+    ranked.push({
+      game: "NYY @ WSH",
+      market: "Total Bases",
+      pick: `Grisham Over ${1.5 + (i % 2)} Total Bases`,
+      odds: 130 + i,
+      isProp: true,
+      sport: "mlb",
+      player: "Grisham",
+      propLine: 1.5 + (i % 2),
+      propSide: "Over",
+      propIsAlt: i % 2 === 1,
+    });
+  }
+  const { selected, skippedCount } = selectBoardPropSimCandidates(ranked, 3);
+  assert.equal(selected.length, 3);
+  assert.equal(skippedCount, 7);
 });

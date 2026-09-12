@@ -62,15 +62,24 @@ import {
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
+  selectBoardPropSimCandidates,
+  shouldStopPropSimForTicketMix,
 } from "./boardPropSimExpansion.ts";
+import {
+  boardScanMaxPropsToSim,
+  boardScanPropPhaseDeadlineMs,
+  boardScanPropSimBatchTimeoutMs,
+} from "./boardScanScope.ts";
 export {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
+  selectBoardPropSimCandidates,
+  shouldStopPropSimForTicketMix,
 } from "./boardPropSimExpansion.ts";
 
-const PROP_SIM_BATCH_TIMEOUT_MS = 60_000;
+const PROP_SIM_BATCH_TIMEOUT_MS = boardScanPropSimBatchTimeoutMs();
 
 function propSimKeyForPick(pick: ParsedPick, poolRow?: { marketKey?: string | null }): string | null {
   return propSimLookupKey(pick, poolRow);
@@ -391,12 +400,16 @@ async function simPropPoolUntilQualified(
     onPropBatch?: (size: number, timedOut: boolean, batch?: ParsedPick[]) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
+    propsOnly?: boolean;
+    phaseStartedAtMs?: number;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
+  const phaseStartedAt = opts.phaseStartedAtMs ?? Date.now();
+  const phaseDeadlineMs = boardScanPropPhaseDeadlineMs(opts.target);
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
     realOdds: mergedOdds,
@@ -408,9 +421,11 @@ async function simPropPoolUntilQualified(
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
   });
-  const rankedProps = [...prescorePool]
+  const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
     .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
+  const maxToSim = boardScanMaxPropsToSim(opts.target, rankedAll.length);
+  const { selected: rankedProps } = selectBoardPropSimCandidates(rankedAll, maxToSim);
 
   const scoreOpts = {
     pool,
@@ -436,6 +451,7 @@ async function simPropPoolUntilQualified(
 
   while (simIndex < rankedProps.length) {
     if (signal?.aborted) break;
+    if (Date.now() - phaseStartedAt >= phaseDeadlineMs) break;
 
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
@@ -461,6 +477,16 @@ async function simPropPoolUntilQualified(
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
 
+    if (
+      shouldStopPropSimForTicketMix({
+        scored: combinedScored(),
+        target: opts.target,
+        propsOnly: opts.propsOnly,
+      })
+    ) {
+      break;
+    }
+
     if (simIndex >= rankedProps.length) break;
 
     batchSize = boardPropSimExpansionBatchSize(opts.target);
@@ -468,6 +494,7 @@ async function simPropPoolUntilQualified(
 
   return { propScored, propHits, simEvaluated: simIndex };
 }
+
 
 export function buildScanResult(
   scored: BoardScoredLeg[],
@@ -722,29 +749,36 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     calibration: opts.calibration,
   };
 
-  const { propScored } = await simPropPoolUntilQualified(
-    pool,
-    mergedOdds,
-    scored,
-    {
-      target: opts.target,
-      ...propScoreOpts,
-      teamIdsByGame: opts.teamIdMap,
-      onWave: (combined) => {
-        emitBoardScanPartial(combined);
+  const propPhaseStartedAt = Date.now();
+  try {
+    const { propScored } = await simPropPoolUntilQualified(
+      pool,
+      mergedOdds,
+      scored,
+      {
+        target: opts.target,
+        ...propScoreOpts,
+        teamIdsByGame: opts.teamIdMap,
+        propsOnly: opts.propsOnly,
+        phaseStartedAtMs: propPhaseStartedAt,
+        onWave: (combined) => {
+          emitBoardScanPartial(combined);
+        },
+        onPropBatch: (size, timedOut, batch) => {
+          // Fail-safe: batch football counters must never abort the prop sim loop.
+          safeCoachManifestInstrument("onPropBatch-manifest", () => {
+            manifestRecorder.recordPropSimBatch(size, timedOut, batch);
+          });
+        },
+        manifestRecorder,
       },
-      onPropBatch: (size, timedOut, batch) => {
-        // Fail-safe: batch football counters must never abort the prop sim loop.
-        safeCoachManifestInstrument("onPropBatch-manifest", () => {
-          manifestRecorder.recordPropSimBatch(size, timedOut, batch);
-        });
-      },
-      manifestRecorder,
-    },
-    opts.signal,
-  );
-
-  scored.push(...propScored);
+      opts.signal,
+    );
+    scored.push(...propScored);
+  } catch {
+    // Prop phase must never skip the final ticket — fall through with game
+    // (+ any partial prop) legs already scored.
+  }
 
   totalScanned += pool.length;
   const collapsed = collapseScoredLegsByMarketLadder(scored);

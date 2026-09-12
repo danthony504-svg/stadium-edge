@@ -91,6 +91,7 @@ export function AnalysisProgress({
   scoredLegCount = 0,
   requestedLegs = 0,
   buildPhase,
+  awaitingPropSlots = false,
 }: {
   mode?: "build" | "analyze" | "ask";
   /** When > 0, progress finalizes to 100% / Final ticket ready (cards on screen). */
@@ -99,6 +100,8 @@ export function AnalysisProgress({
   scoredLegCount?: number;
   requestedLegs?: number;
   buildPhase?: ParlayBuildPhase;
+  /** Preview is holding game lines while player props are still scoring. */
+  awaitingPropSlots?: boolean;
 }) {
   const colors = useColors();
   const [autoIndex, setAutoIndex] = useState(0);
@@ -143,18 +146,24 @@ export function AnalysisProgress({
   const phaseStage =
     mode === "build" &&
     buildPhase === "board-scan" &&
+    awaitingPropSlots &&
     scoredLegCount > 0 &&
     requestedLegs > 0
-      ? `Scored ${scoredLegCount} of ${requestedLegs} legs — finishing your ticket…`
-      : mode === "build" && buildPhase === "board-scan" && scoredLegCount > 0
-        ? `Scored ${scoredLegCount} legs — finishing your ticket…`
-        : mode === "build" && buildPhase === "board-scan"
-          ? "Scanning every posted market on the live board…"
-          : mode === "build" && buildPhase === "context"
-            ? "Pulling live odds and props…"
-            : mode === "build" && buildPhase === "score" && legCount > 0
-              ? "Finalizing your ticket…"
-              : null;
+      ? `Scoring player props for your ${requestedLegs}-leg ticket…`
+      : mode === "build" &&
+          buildPhase === "board-scan" &&
+          scoredLegCount > 0 &&
+          requestedLegs > 0
+        ? `Scored ${scoredLegCount} of ${requestedLegs} legs — finishing your ticket…`
+        : mode === "build" && buildPhase === "board-scan" && scoredLegCount > 0
+          ? `Scored ${scoredLegCount} legs — finishing your ticket…`
+          : mode === "build" && buildPhase === "board-scan"
+            ? "Scanning every posted market on the live board…"
+            : mode === "build" && buildPhase === "context"
+              ? "Pulling live odds and props…"
+              : mode === "build" && buildPhase === "score" && legCount > 0
+                ? "Finalizing your ticket…"
+                : null;
   const displayStage = phaseStage ?? stageList[effectiveIndex];
 
   // Board-scan waits can last a minute — advance stages quickly so the bar does

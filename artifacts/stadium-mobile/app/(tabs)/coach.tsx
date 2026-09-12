@@ -175,6 +175,10 @@ import {
   underCountHeldBoardScanEscapeMsForStash,
   emptyTicketDeadEndMessage,
   stallIncompleteScanStillInFlight,
+  underCountEscapeWindowMsForStash,
+  awaitingPropSlotsMaxWaitMs,
+  shouldReArmBoardScanStallPoke,
+  coachBoardScanProgressCopy,
 } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
@@ -1312,6 +1316,8 @@ export default function CoachScreen() {
   >(null);
   /** Absolute deadline for under-count stash → paint escape (not reset by every partial). */
   const underCountEscapeDeadlineRef = useRef<number | null>(null);
+  /** Wall-clock when reserved 0-prop preview first appeared for this send. */
+  const awaitingPropSlotsStartedAtRef = useRef<number | null>(null);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
   /**
    * This send still owns a board-scan attempt (feeds / scan / late-join), including
@@ -2069,13 +2075,22 @@ export default function CoachScreen() {
       let stallMs: number;
       if (displayedCount > 0) {
         underCountEscapeDeadlineRef.current = null;
+        awaitingPropSlotsStartedAtRef.current = null;
         stallMs = buildStallBudgetMs(legs);
       } else if (stashCount > 0) {
         const stashed = latestBoardScanRef.current;
         const stashPropCount =
           stashed?.picks?.filter((p) => p.isProp).length ?? 0;
-        // Reserved 0-prop preview (awaitingPropSlots) is not escapable yet —
-        // keep the deep empty-card budget until props land or scan completes.
+        const awaitingProps =
+          stashed?.awaitingPropSlots === true && stashPropCount <= 0;
+        if (awaitingProps && awaitingPropSlotsStartedAtRef.current == null) {
+          awaitingPropSlotsStartedAtRef.current = Date.now();
+        }
+        if (!awaitingProps) {
+          awaitingPropSlotsStartedAtRef.current = null;
+        }
+        // Reserved 0-prop previews arm the prop-slot deadline (not infinite wait).
+        // Other under-count stashes arm the normal escape window.
         if (
           !shouldArmUnderCountEscapeDeadline({
             stashPickCount: stashCount,
@@ -2088,9 +2103,11 @@ export default function CoachScreen() {
           underCountEscapeDeadlineRef.current = null;
           stallMs = emptyCardBoardScanStallMs(legsEffective);
         } else {
-          const windowMs = underCountHeldBoardScanEscapeMsForStash({
+          const windowMs = underCountEscapeWindowMsForStash({
             requestedLegs: legsEffective,
             stashPropCount,
+            awaitingPropSlots: stashed?.awaitingPropSlots === true,
+            scanComplete: stashed?.scanComplete,
           });
           if (underCountEscapeDeadlineRef.current == null) {
             underCountEscapeDeadlineRef.current = Date.now() + windowMs;
@@ -2123,6 +2140,11 @@ export default function CoachScreen() {
               awaitingPropSlots: stashed.awaitingPropSlots === true,
               stashPropCount: stashed.picks.filter((p) => p.isProp).length,
               scanComplete: stashed.scanComplete,
+              awaitingPropSlotsWaitElapsedMs:
+                awaitingPropSlotsStartedAtRef.current != null
+                  ? Date.now() - awaitingPropSlotsStartedAtRef.current
+                  : undefined,
+              requestedLegs: legTarget,
             })
           ) {
             // Durable latch — render gate must keep seeing forceShow or cards
@@ -2161,11 +2183,36 @@ export default function CoachScreen() {
           setCoachBuildBusy(false);
           setParlayBuildPhase("idle");
         } else if (!(boardTicketSnapshotRef.current?.length)) {
-          // One-shot stall used to leave Coach at 93% forever when escape paint
-          // failed or the scan was still pending with an empty bubble. Re-arm a
-          // short poke so under-count escape / seed settle keep trying.
-          underCountEscapeDeadlineRef.current = Date.now() + 8_000;
-          armBuildStallWatchdog(sendGen, userText);
+          const awaitingPastDeadline =
+            stashed?.awaitingPropSlots === true &&
+            (stashed.picks?.filter((p) => p.isProp).length ?? 0) <= 0 &&
+            awaitingPropSlotsStartedAtRef.current != null &&
+            Date.now() - awaitingPropSlotsStartedAtRef.current >=
+              awaitingPropSlotsMaxWaitMs(legTarget || legsEffective);
+          const absoluteExhausted =
+            underCountEscapeDeadlineRef.current != null &&
+            Date.now() >= underCountEscapeDeadlineRef.current + 30_000;
+          if (
+            shouldReArmBoardScanStallPoke({
+              displayedPickCount: displayedAfter,
+              awaitingPropSlotsPastDeadline: awaitingPastDeadline,
+              absoluteStallBudgetExhausted: absoluteExhausted,
+            })
+          ) {
+            // Short poke so under-count escape / seed settle keep trying —
+            // but not forever past the prop-slot / absolute budget.
+            underCountEscapeDeadlineRef.current = Date.now() + 8_000;
+            armBuildStallWatchdog(sendGen, userText);
+          } else {
+            // Absolute stop — unlock so Coach cannot sit at 84% forever.
+            underCountEscapeDeadlineRef.current = null;
+            awaitingPropSlotsStartedAtRef.current = null;
+            setStreaming(false);
+            setWaiting(false);
+            setBuildFinishing(false);
+            setCoachBuildBusy(false);
+            setParlayBuildPhase("idle");
+          }
         }
         setMessages((prev) => {
           const copy = [...prev];
@@ -6350,6 +6397,19 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         releaseOtaBlock();
+                const stashNow = latestBoardScanRef.current;
+        const stashPropNow = stashNow?.picks?.filter((p) => p.isProp).length ?? 0;
+        const awaitingPropSlotsPastDeadline =
+          stashNow?.awaitingPropSlots === true &&
+          stashPropNow <= 0 &&
+          awaitingPropSlotsStartedAtRef.current != null &&
+          Date.now() - awaitingPropSlotsStartedAtRef.current >=
+            awaitingPropSlotsMaxWaitMs(
+              activeRequestLegTargetRef.current ||
+                requestedLegCount(trimmed) ||
+                effectiveBuildLegCount(trimmed) ||
+                6,
+            );
         const keepBusy = shouldKeepBusyForIncompleteBoardScan({
           isParlayBuild: isParlayBuildAsk(trimmed),
           legTarget:
@@ -6363,6 +6423,7 @@ export default function CoachScreen() {
           ticketFrozen: boardScanTicketFrozenRef.current,
           boardScanPending: boardScanPendingForActiveSend(),
           forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+          awaitingPropSlotsPastDeadline,
         });
         if (keepBusy) {
           // Late board-scan join still running — do not clear busy or the
@@ -7374,6 +7435,10 @@ export default function CoachScreen() {
                     scoredLegCount={scoredLegCount}
                     requestedLegs={ticketLegTarget > 0 ? ticketLegTarget : undefined}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+                    awaitingPropSlots={
+                      latestBoardScanRef.current?.awaitingPropSlots === true &&
+                      (latestBoardScanRef.current?.picks?.filter((p) => p.isProp).length ?? 0) <= 0
+                    }
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
@@ -7533,6 +7598,10 @@ export default function CoachScreen() {
                 undefined
               }
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+              awaitingPropSlots={
+                latestBoardScanRef.current?.awaitingPropSlots === true &&
+                (latestBoardScanRef.current?.picks?.filter((p) => p.isProp).length ?? 0) <= 0
+              }
             />
           ) : null}
 
