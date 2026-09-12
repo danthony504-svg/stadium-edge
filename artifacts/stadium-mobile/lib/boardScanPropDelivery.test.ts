@@ -6,6 +6,7 @@ import {
   boardScanPropSlotCount,
   buildFinalCoachParlayNote,
   fillReservedPropSlots,
+  footballSkillPropFamily,
   footballSkillPropRank,
   selectFinalCoachParlayPicks,
   shouldKeepAwaitingPropSlots,
@@ -237,4 +238,67 @@ test("fillReservedPropSlots does not invent props when none scored", () => {
   const out = fillReservedPropSlots(games, games.map((pick) => ({ pick, rankScore: 1 })), 8);
   assert.equal(out.filter((p) => p.isProp).length, 0);
   assert.equal(out.length, 2);
+});
+
+
+test("footballSkillPropRank ranks alt rush/pass/rec/sack markets", () => {
+  assert.ok(footballSkillPropRank("player_rush_yds_alternate") > 0);
+  assert.ok(footballSkillPropRank("player_pass_yds_alternate") > 0);
+  assert.ok(footballSkillPropRank("player_reception_yds_alternate") > 0);
+  assert.ok(footballSkillPropRank("player_sacks_alternate") >= footballSkillPropRank("player_rush_yds"));
+  assert.equal(footballSkillPropFamily("player_pass_yds_alternate"), "pass");
+  assert.equal(footballSkillPropFamily("player_rush_yds"), "rush");
+  assert.equal(footballSkillPropFamily("player_sacks"), "sack");
+  assert.equal(footballSkillPropFamily("moneyline"), null);
+});
+
+test("fillReservedPropSlots diversifies rush/pass/rec/sack and keeps alt skill props over ML-only", () => {
+  const target = 8;
+  const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    market: i % 2 === 0 ? "moneyline" : "alternate_spreads",
+    game: `G${i}`,
+    player: null as string | null,
+    pick: `Team${i}`,
+    side: null as string | null,
+    scores: { composite: 95 - i },
+  }));
+  const skill = [
+    ["player_rush_yds", "Barkley", "rush"],
+    ["player_pass_yds_alternate", "Allen", "pass"],
+    ["player_reception_yds", "Kittle", "rec"],
+    ["player_sacks", "Garrett", "sack"],
+    ["player_rush_yds_alternate", "Henry", "rush2"],
+  ] as const;
+  const scored = [
+    ...gameHeavy.map((pick, i) => ({ pick, rankScore: 95 - i })),
+    ...skill.map(([market, player], i) => ({
+      pick: {
+        isProp: true,
+        market,
+        game: `F${i} @ H${i}`,
+        player,
+        pick: `Over ${i + 1}.5`,
+        side: "Over",
+        scores: { composite: 60 + i },
+      },
+      rankScore: 70 + i,
+    })),
+  ];
+  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const props = out.filter((p) => p.isProp);
+  assert.equal(props.length, boardScanPropSlotCount(8));
+  assert.ok(out.some((p) => !p.isProp), "still keeps some game lines");
+  assert.ok(props.some((p) => /rush/i.test(p.market || "")), "includes rush yards");
+  assert.ok(props.some((p) => /pass/i.test(p.market || "")), "includes passing yards");
+  assert.ok(props.some((p) => /receiv|reception/i.test(p.market || "")), "includes receiving yards");
+  assert.ok(props.some((p) => /sack/i.test(p.market || "")), "includes sacks");
+  assert.ok(
+    props.some((p) => /alternate|alt/i.test(p.market || "")),
+    "includes alt skill props when posted",
+  );
+  const families = new Set(
+    props.map((p) => footballSkillPropFamily(p.market)).filter(Boolean),
+  );
+  assert.ok(families.size >= 3, `expected diverse skill families, got ${[...families]}`);
 });
