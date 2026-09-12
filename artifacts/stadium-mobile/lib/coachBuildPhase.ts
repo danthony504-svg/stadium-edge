@@ -149,12 +149,42 @@ export function shouldSuppressEmptyTicketDeadEnd(opts: {
  * Stall / late-join escape: if the scan stash already has scored legs but the
  * bubble is still empty (fixed-leg hold), release under-count cards and clear
  * busy. Keeps mid-scan 2→5 drip blocked until this escape fires.
+ *
+ * Do NOT escape a preview that only looks short because prop slots were
+ * reserved (awaitingPropSlots + 0 props). That published "3 of 6 game lines"
+ * before prop sims started and never upgraded.
  */
 export function shouldReleaseUnderCountBoardScanAtEscape(opts: {
   stashPickCount: number;
   displayedPickCount: number;
+  /** Preview truncated to leave room for props that have not scored yet. */
+  awaitingPropSlots?: boolean;
+  stashPropCount?: number;
+  scanComplete?: boolean | null;
 }): boolean {
-  return opts.stashPickCount > 0 && opts.displayedPickCount <= 0;
+  if (opts.stashPickCount <= 0 || opts.displayedPickCount > 0) return false;
+  if (
+    opts.awaitingPropSlots &&
+    (opts.stashPropCount ?? 0) <= 0 &&
+    opts.scanComplete !== true
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Arm the under-count escape clock only when the stash is a real paint candidate.
+ * Reserved 0-prop previews must wait for the first prop wave (or scan complete).
+ */
+export function shouldArmUnderCountEscapeDeadline(opts: {
+  stashPickCount: number;
+  displayedPickCount: number;
+  awaitingPropSlots?: boolean;
+  stashPropCount?: number;
+  scanComplete?: boolean | null;
+}): boolean {
+  return shouldReleaseUnderCountBoardScanAtEscape(opts);
 }
 
 /**

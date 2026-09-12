@@ -143,6 +143,12 @@ export type FullBoardScanResult = {
   requestId?: string;
   /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
   scanComplete?: boolean;
+  /**
+   * Preview truncated to leave room for ~50% prop slots that are not filled yet.
+   * Must not be forceShow-escaped as a real under-count ticket — that published
+   * "3 of 6 game lines" before prop sims started.
+   */
+  awaitingPropSlots?: boolean;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
 };
@@ -494,6 +500,7 @@ export function buildScanResult(
   let picks = injectPrioritySportsIntoTicket(staged.picks, stagePool, opts.target);
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
+  let awaitingPropSlots = false;
   if (opts.preview && !opts.propsOnly && opts.target >= 3) {
     const propCount = picks.filter((p) => p.isProp).length;
     const propSlots = Math.max(1, Math.round(opts.target * 0.5));
@@ -502,6 +509,7 @@ export function buildScanResult(
       const nonProps = picks.filter((p) => !p.isProp);
       const nonPropCap = Math.max(0, opts.target - propSlots);
       picks = [...props, ...nonProps.slice(0, nonPropCap)].slice(0, opts.target);
+      awaitingPropSlots = propCount === 0;
     }
   }
   const breakdown = staged.breakdown;
@@ -549,6 +557,7 @@ export function buildScanResult(
     scanComplete,
     requestedLegs: opts.target,
     requestId: opts.requestId,
+    ...(awaitingPropSlots ? { awaitingPropSlots: true } : {}),
     manifest,
   };
 }
