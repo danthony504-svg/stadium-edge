@@ -430,11 +430,16 @@ async function simPropPoolUntilQualified(
     phaseStartedAtMs?: number;
   },
   signal?: AbortSignal,
-): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
+): Promise<{
+  propScored: BoardScoredLeg[];
+  propHits: Map<string, { hitProbability: number | null }>;
+  simEvaluated: number;
+  /** True when abort/deadline stopped scoring before the candidate pool was exhausted. */
+  incomplete: boolean;
+}> {
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
-  const phaseStartedAt = opts.phaseStartedAtMs ?? Date.now();
   const phaseDeadlineMs = boardScanPropPhaseDeadlineMs(opts.target);
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
@@ -469,15 +474,27 @@ async function simPropPoolUntilQualified(
   const combinedScored = () => [...gameScored, ...propScored];
 
   if (rankedProps.length === 0) {
-    return { propScored, propHits, simEvaluated: 0 };
+    return { propScored, propHits, simEvaluated: 0, incomplete: false };
   }
+
+  // Start the prop MC clock AFTER sync ranking. attachPickScores used to burn the
+  // entire deadline before the first sim batch — Coach then finalized 0 props as
+  // a "complete" empty ticket.
+  const phaseStartedAt = Date.now();
 
   let simIndex = 0;
   let batchSize = boardPropSimInitialBatchSize(opts.target);
+  let stoppedEarly = false;
 
   while (simIndex < rankedProps.length) {
-    if (signal?.aborted) break;
-    if (Date.now() - phaseStartedAt >= phaseDeadlineMs) break;
+    if (signal?.aborted) {
+      stoppedEarly = true;
+      break;
+    }
+    if (Date.now() - phaseStartedAt >= phaseDeadlineMs) {
+      stoppedEarly = true;
+      break;
+    }
 
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
@@ -518,7 +535,12 @@ async function simPropPoolUntilQualified(
     batchSize = boardPropSimExpansionBatchSize(opts.target);
   }
 
-  return { propScored, propHits, simEvaluated: simIndex };
+  return {
+    propScored,
+    propHits,
+    simEvaluated: simIndex,
+    incomplete: stoppedEarly && simIndex < rankedProps.length,
+  };
 }
 
 
@@ -817,6 +839,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     propScored: BoardScoredLeg[];
     propHits: Map<string, { hitProbability: number | null }>;
     simEvaluated: number;
+    incomplete: boolean;
   } | null> | null = null;
   if (overlapProps) {
     propPhaseP = runPropPhase(pool)
@@ -833,13 +856,20 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     if (opts.signal?.aborted) break;
     if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) break;
     const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
-    const batchSims = await fetchSlateGameSimulations(
-      new Map(batch),
-      opts.teamIdMap,
-      opts.signal,
-    );
-    for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
-    scoreGamesAndMaybePartial(batch.map(([game]) => game));
+    try {
+      const batchSims = await fetchSlateGameSimulations(
+        new Map(batch),
+        opts.teamIdMap,
+        opts.signal,
+      );
+      for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
+      scoreGamesAndMaybePartial(batch.map(([game]) => game));
+    } catch {
+      // Keep scanning remaining games + props. A thrown slate batch used to
+      // abort buildTopLegsFromFullBoardScan → tryReachFullBoardScan(null) →
+      // instant 0-of-N on phone.
+      continue;
+    }
   }
 
   const expandedPool = await poolExpandP;
@@ -849,13 +879,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     try {
       const propResult = await runPropPhase(pool);
       propScoredAcc = propResult.propScored;
+      if (propResult.incomplete) propPhaseIncomplete = true;
     } catch {
       propPhaseIncomplete = true;
     }
   } else {
     const propResult = await propPhaseP;
-    if (propResult) propScoredAcc = propResult.propScored;
-    else propPhaseIncomplete = true;
+    if (propResult) {
+      propScoredAcc = propResult.propScored;
+      if (propResult.incomplete) propPhaseIncomplete = true;
+    } else {
+      propPhaseIncomplete = true;
+    }
   }
   scored.push(...propScoredAcc);
   if (
