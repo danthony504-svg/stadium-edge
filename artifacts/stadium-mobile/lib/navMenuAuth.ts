@@ -17,8 +17,3 @@ export function accountMenuItem(isSignedIn: boolean): {
 export function shouldShowOtaDiagnosticsMenuItem(isDev: boolean): boolean {
   return isDev;
 }
-
-/** Coach pick considered/rejected diagnostics — __DEV__ menu only. */
-export function shouldShowCoachScanDiagnosticsMenuItem(isDev: boolean): boolean {
-  return isDev;
-}

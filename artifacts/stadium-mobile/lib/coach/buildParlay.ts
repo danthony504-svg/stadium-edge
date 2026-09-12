@@ -33,7 +33,6 @@ import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { filterBettableOddsGames } from "@/lib/slate";
-import { recordCoachScanDiagnostics } from "@/lib/coachScanDiagnosticsStore";
 
 
 export type CoachParlayBuildResult = {
@@ -264,18 +263,6 @@ export async function buildCoachParlay(opts: {
     scanNote: scan?.note,
     failureReason: scan?.failureReason,
     failureDiagnostics: scan?.failureDiagnostics,
-  });
-
-  // Side-effect only: stash last scan for Menu → Coach Scan Diagnostics.
-  // Does not change picks, note, hold, or delivery timing.
-  recordCoachScanDiagnostics({
-    askText: opts.askText,
-    requestedLegs: target,
-    picks,
-    note,
-    timedOut: timed.timedOut,
-    propPoolSize,
-    manifest: scan?.manifest ?? null,
   });
 
   return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };
