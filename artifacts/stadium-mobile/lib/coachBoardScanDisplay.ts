@@ -128,7 +128,30 @@ export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
   incomingScanComplete?: boolean | null;
   incomingPickCount: number;
   legTarget: number;
+  /** Stall / late-join escape — accept under-count paint. */
+  allowIncompletePicks?: boolean;
+  forceShowIncomplete?: boolean;
 }): boolean {
+  // Escape latch must win over fixed-leg full-count gating. Without this,
+  // releaseUnderCountBoardScanEscape sets forceShow then patchInstant still
+  // rejects under-count tickets and returns a fake success with zero cards.
+  if (
+    (opts.allowIncompletePicks || opts.forceShowIncomplete) &&
+    opts.incomingPickCount > 0
+  ) {
+    // Still protect a frozen finished on-screen ticket from reshape.
+    if (
+      shouldFreezeDisplayedCoachTicket({
+        displayedScanComplete: opts.displayedScanComplete,
+        displayedPickCount: opts.displayedPickCount,
+        legTarget: opts.legTarget,
+      }) &&
+      opts.displayedPickCount > 0
+    ) {
+      return false;
+    }
+    return true;
+  }
   if (
     shouldFreezeDisplayedCoachTicket({
       displayedScanComplete: opts.displayedScanComplete,

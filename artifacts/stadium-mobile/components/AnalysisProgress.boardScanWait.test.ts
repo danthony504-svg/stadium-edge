@@ -3,8 +3,7 @@ import test from "node:test";
 
 /**
  * Mirrors AnalysisProgress active-checklist selection for build mode.
- * During board-scan wait (93% cap, no legs yet) "Final ticket ready" must
- * remain the active spinning step — never a dead empty circle.
+ * Never spin "Final ticket ready" while cards are still missing.
  */
 function checklistDoneFlags(opts: {
   effectiveIndex: number;
@@ -42,21 +41,23 @@ function activeChecklistIndex(opts: {
   requestedLegs?: number;
   checklist: { label: string; doneAt: number }[];
 }): number {
+  const legCount = opts.legCount ?? 0;
   const flags = checklistDoneFlags({
     effectiveIndex: opts.effectiveIndex,
-    legCount: opts.legCount ?? 0,
+    legCount,
     scoredLegCount: opts.scoredLegCount ?? 0,
     requestedLegs: opts.requestedLegs ?? 0,
     checklist: opts.checklist,
   });
-  let idx = flags.findIndex((done) => !done);
-  if (
-    idx < 0 &&
-    (opts.legCount ?? 0) === 0 &&
-    (opts.requestedLegs ?? 0) > 0 &&
-    (opts.scoredLegCount ?? 0) >= (opts.requestedLegs ?? 0)
-  ) {
-    idx = opts.checklist.findIndex((c) => c.label === "Final ticket ready");
+  let idx = flags.findIndex((done, i) => {
+    if (done) return false;
+    if (legCount === 0 && opts.checklist[i]?.label === "Final ticket ready") {
+      return false;
+    }
+    return true;
+  });
+  if (idx < 0 && legCount === 0) {
+    idx = opts.checklist.findIndex((c) => c.label === "Correlation scored");
   }
   return idx;
 }
@@ -69,14 +70,21 @@ const CHECKLIST = [
   { label: "Final ticket ready", doneAt: 9 },
 ] as const;
 
-test("board-scan wait at 93% keeps Final ticket ready as the spinning step", () => {
-  // maxAuto 8 → TARGETS[8] === 93 while legCount === 0
-  const idx = activeChecklistIndex({ effectiveIndex: 8, checklist: [...CHECKLIST] });
-  assert.equal(idx, 4);
-  assert.equal(CHECKLIST[idx].label, "Final ticket ready");
+test("board-scan wait never spins Final ticket ready without cards", () => {
+  // maxAuto 7 / scored full-count both used to land on Final with an empty bubble.
+  const idxEmpty = activeChecklistIndex({ effectiveIndex: 7, checklist: [...CHECKLIST] });
+  assert.equal(CHECKLIST[idxEmpty].label, "Correlation scored");
+  const idxScored = activeChecklistIndex({
+    effectiveIndex: 5,
+    legCount: 0,
+    scoredLegCount: 6,
+    requestedLegs: 6,
+    checklist: [...CHECKLIST],
+  });
+  assert.equal(CHECKLIST[idxScored].label, "Correlation scored");
 });
 
-test("scored 6 of 6 with mid effectiveIndex still spins Final ticket ready", () => {
+test("scored 6 of 6 with mid effectiveIndex stays on Correlation until cards land", () => {
   const idx = activeChecklistIndex({
     effectiveIndex: 5,
     legCount: 0,
@@ -84,7 +92,7 @@ test("scored 6 of 6 with mid effectiveIndex still spins Final ticket ready", () 
     requestedLegs: 6,
     checklist: [...CHECKLIST],
   });
-  assert.equal(CHECKLIST[idx].label, "Final ticket ready");
+  assert.equal(CHECKLIST[idx].label, "Correlation scored");
 });
 
 test("earlier stages still activate before scored full count", () => {

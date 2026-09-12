@@ -138,11 +138,17 @@ export function finalizeCoachTicketForRequest(
     cacheKey?: string;
     source: string;
     recordDelivered?: boolean;
+    /** Escape / recovery paint — never block under-count rescue on prefix memory. */
+    skipPrefixReject?: boolean;
   },
 ): CoachTicketDeliveryResult {
   if (!ticket.length) return { ok: false, reason: "empty" };
   const legTarget = opts.requestedLegs;
-  if (legTarget > 0 && rejectPrefixOfLastDelivered(ticket, legTarget)) {
+  if (
+    !opts.skipPrefixReject &&
+    legTarget > 0 &&
+    rejectPrefixOfLastDelivered(ticket, legTarget)
+  ) {
     traceCoachTicket("mobile-delivered", {
       requestedLegs: legTarget,
       pickIds: [...ticket],
@@ -217,6 +223,22 @@ export function boardScanAppliesToRequest(
   // both reject — including non-empty completed leftovers from a prior ask.
   if (!boardScanMatchesRequestId(scan, activeRequestId)) return false;
   return boardScanMatchesLegTarget(scan, legTarget);
+}
+
+/**
+ * Stamp a cached/preview scan onto the active Coach request so paint/escape
+ * gates can accept it. Slate seeds are serialized without requestId; without
+ * this adopt, patchInstant always rejects and keep-busy + dead-end suppress
+ * leave a permanent empty 93% hang.
+ */
+export function adoptBoardScanForActiveRequest<
+  T extends { requestId?: string; requestedLegs?: number },
+>(scan: T, opts: { requestId: string; requestedLegs: number }): T {
+  return {
+    ...scan,
+    requestId: opts.requestId,
+    ...(opts.requestedLegs > 0 ? { requestedLegs: opts.requestedLegs } : {}),
+  };
 }
 
 /**

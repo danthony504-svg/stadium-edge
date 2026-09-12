@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
+  adoptBoardScanForActiveRequest,
   boardScanAppliesToRequest,
   boardScanMatchesRequestId,
   boardScanRecoverableForRequest,
@@ -441,4 +442,61 @@ test("startCoachTicketRequest tracks previous request id", () => {
     varietySeed: "seed-4",
   });
   assert.equal(second.previousRequestId, first.requestId);
+});
+
+
+test("skipPrefixReject allows escape paint of under-count / prefix-shaped tickets", () => {
+  const larger = Array.from({ length: 8 }, (_, i) => ({
+    game: `G${i}`,
+    player: `P${i}`,
+    market: "spread",
+    side: "home",
+    line: -3.5,
+    odds: -110,
+  }));
+  // Seed last-delivered with a larger ticket so a 4-leg prefix would normally reject.
+  const first = finalizeCoachTicketForRequest(larger, {
+    requestedLegs: 8,
+    source: "seed-large",
+    recordDelivered: true,
+  });
+  assert.equal(first.ok, true);
+  const prefix = larger.slice(0, 4);
+  const blocked = finalizeCoachTicketForRequest(prefix, {
+    requestedLegs: 4,
+    source: "escape-blocked",
+    recordDelivered: false,
+  });
+  assert.equal(blocked.ok, false);
+  const allowed = finalizeCoachTicketForRequest(prefix, {
+    requestedLegs: 4,
+    source: "escape-allowed",
+    recordDelivered: false,
+    skipPrefixReject: true,
+  });
+  assert.equal(allowed.ok, true);
+});
+
+
+test("adoptBoardScanForActiveRequest stamps requestId so seed paint passes identity gate", () => {
+  const seed = {
+    picks: [{ length: 4 } as never],
+    requestedLegs: 6,
+    scanComplete: false as boolean | undefined,
+  };
+  // Cached seeds have no requestId — identity gate must reject them raw.
+  assert.equal(
+    boardScanAppliesToRequest(seed as never, 6, 1, 1, "req-active"),
+    false,
+  );
+  const adopted = adoptBoardScanForActiveRequest(seed, {
+    requestId: "req-active",
+    requestedLegs: 6,
+  });
+  assert.equal(adopted.requestId, "req-active");
+  assert.equal(adopted.requestedLegs, 6);
+  assert.equal(
+    boardScanAppliesToRequest(adopted as never, 6, 1, 1, "req-active"),
+    true,
+  );
 });

@@ -228,3 +228,60 @@ test("coach.tsx wires freeze accept gate and post-freeze sim block", () => {
   assert.match(src, /footerScoredLegCount/);
   assert.match(src, /freezeNow/);
 });
+
+
+test("coach.tsx passes forceShowIncomplete into accept gate (escape paint)", () => {
+  const src = readFileSync(new URL("../app/(tabs)/coach.tsx", import.meta.url), "utf8");
+  // Accept-gate callsites used by patchInstant must thread escape flags —
+  // otherwise releaseUnderCountBoardScanEscape paints nothing.
+  assert.match(
+    src,
+    /shouldAcceptSameRequestBoardScanTicketUpdate\(\{[\s\S]*?forceShowIncomplete:\s*forceShowIncompleteBoardScanRef\.current/,
+  );
+  assert.match(
+    src,
+    /allowIncompletePicks:\s*opts\?\.allowIncompletePicks/,
+  );
+  // Failed accept on empty bubble must return false (not fake success).
+  assert.match(
+    src,
+    /return \(boardTicketSnapshotRef\.current\?\.length \?\? 0\) > 0/,
+  );
+  // Escape must not unlock busy when paint failed.
+  assert.match(
+    src,
+    /Keep busy \+ forceShow latched so stall\/retry can try again/,
+  );
+  // Stream-end must not wipe escape-painted cards.
+  assert.match(
+    src,
+    /!forceShowIncompleteBoardScanRef\.current/,
+  );
+  // Stream-end empty bubble with scored stash must forceShow-escape.
+  assert.match(
+    src,
+    /Stream-end left an empty bubble with a scored stash/,
+  );
+  // keepBusy must require real stash picks (not empty {}).
+  assert.match(
+    src,
+    /hasScanStash:\s*\(.*picks\?\.length \?\? 0\) > 0/,
+  );
+  // Stream-end finalize must skip prefix reject on escape paint.
+  assert.match(
+    src,
+    /skipPrefixReject:\s*escapePaint/,
+  );
+});
+
+test("coach.tsx adopts seed/escape scans onto active requestId", () => {
+  const src = readFileSync(new URL("../app/(tabs)/coach.tsx", import.meta.url), "utf8");
+  assert.match(src, /adoptBoardScanForActiveRequest\(/);
+  // Escape success requires on-screen cards, not bare patchInstant true.
+  assert.match(
+    src,
+    /Only real on-screen cards count|never trust a bare patchInstant true|Only real on-screen cards/,
+  );
+  // finally unlock clears attempt ownership.
+  assert.match(src, /boardScanAttemptActiveRef\.current = false/);
+});
