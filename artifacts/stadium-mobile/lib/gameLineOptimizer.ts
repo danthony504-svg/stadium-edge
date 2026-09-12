@@ -23,6 +23,7 @@ import {
   qualifiesCoachSimEvalLine,
 } from "./gameSimQualityGates.ts";
 import { pickIsAiRecommended } from "./pickRecommendation.ts";
+import { mergeOddsEntries as mergeOddsEntrySources, oddsEntryKey, type OddsMergeEntry } from "./oddsMerge.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -117,17 +118,11 @@ function isEvaluableGameMarket(market: string): boolean {
   return /moneyline|spread|run line|puck line|game handicap|total|team total|alt/.test(m);
 }
 
-const oddsEntryKey = (e: RealOddsEntry) =>
-  `${e.game}|${e.market.toLowerCase()}|${e.pick}`;
-
 /** Union odds rows; later sources win so eval ladder lines carry edge/no-vig for alts. */
 export function mergeOddsEntries(...sources: RealOddsEntry[][]): RealOddsEntry[] {
-  const map = new Map<string, RealOddsEntry>();
-  for (const list of sources) {
-    for (const e of list) map.set(oddsEntryKey(e), e);
-  }
-  return [...map.values()];
+  return mergeOddsEntrySources(...(sources as OddsMergeEntry[][])) as RealOddsEntry[];
 }
+
 
 function pickTeamName(pick: string): string | null {
   const p = String(pick ?? "");
