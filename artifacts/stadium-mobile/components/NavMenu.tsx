@@ -11,7 +11,6 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   accountMenuItem,
-  shouldShowCoachScanDiagnosticsMenuItem,
   shouldShowOtaDiagnosticsMenuItem,
 } from "@/lib/navMenuAuth";
 
@@ -46,7 +45,6 @@ export function NavMenu() {
   // Signed-out users always get Sign in at the bottom; signed-in keep Account.
   const account = accountMenuItem(!!isSignedIn);
   const showOtaDiagnostics = shouldShowOtaDiagnosticsMenuItem(__DEV__);
-  const showCoachScanDiagnostics = shouldShowCoachScanDiagnosticsMenuItem(__DEV__);
 
   const toggle = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -238,41 +236,6 @@ export function NavMenu() {
                     }}
                   >
                     Notifications
-                  </Text>
-                </Pressable>
-              ) : null}
-              {showCoachScanDiagnostics ? (
-                <Pressable
-                  onPress={() => go("/coach-scan-debug")}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 12,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    backgroundColor: pressed ? colors.background : "transparent",
-                  })}
-                >
-                  <Feather
-                    name="list"
-                    size={18}
-                    color={
-                      isActive(pathname, "/coach-scan-debug")
-                        ? colors.primary
-                        : colors.mutedForeground
-                    }
-                  />
-                  <Text
-                    style={{
-                      flex: 1,
-                      color: isActive(pathname, "/coach-scan-debug")
-                        ? colors.foreground
-                        : colors.mutedForeground,
-                      fontFamily: FONT.medium,
-                      fontSize: 15,
-                    }}
-                  >
-                    Coach Scan Diagnostics
                   </Text>
                 </Pressable>
               ) : null}
