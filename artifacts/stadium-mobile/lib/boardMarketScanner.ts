@@ -307,7 +307,21 @@ async function simPropBatch(
   } catch {
     timedOut = true;
   }
-  const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
+  // Bound local history enrich — unbounded ESPN lookups were the hang that left
+  // boardScanPending true forever while Coach sat at 84% Scoring player props.
+  const PROP_ENRICH_TIMEOUT_MS = 12_000;
+  let enriched: Awaited<ReturnType<typeof enrichCoachPropSimHits>>;
+  try {
+    enriched = await Promise.race([
+      enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("prop-enrich-timeout")), PROP_ENRICH_TIMEOUT_MS),
+      ),
+    ]);
+  } catch {
+    timedOut = true;
+    enriched = { hits: out, playerHistory: {} };
+  }
   return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory };
 }
 
