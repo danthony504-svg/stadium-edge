@@ -117,14 +117,20 @@ export function AnalysisProgress({
   // Allow progress through 93% so the bar doesn't look frozen at 84% while sims run.
   const boardScanWaiting =
     mode === "build" && buildPhase === "board-scan" && legCount === 0;
+  // Hold below "Final ticket ready" / 93% until real scored stash legs exist.
+  // Soft timers alone used to park on Final ticket ready with an empty bubble.
   const maxAuto =
     mode === "build"
       ? legCount > 0
         ? stageList.length - 1
         : boardScanWaiting
-          ? 8
-          : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
+          ? scoredLegCount > 0
             ? 8
+            : 7
+          : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
+            ? scoredLegCount > 0
+              ? 8
+              : 7
             : 6
       : stageList.length - 1;
   const effectiveIndex =

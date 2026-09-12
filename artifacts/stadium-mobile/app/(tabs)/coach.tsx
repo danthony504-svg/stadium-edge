@@ -170,6 +170,8 @@ import {
   shouldKeepBusyForIncompleteBoardScan,
   shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
+  underCountHeldBoardScanEscapeMs,
+  emptyTicketDeadEndMessage,
 } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
@@ -1301,6 +1303,8 @@ export default function CoachScreen() {
   const boardScanTicketFrozenRef = useRef(false);
   /** After stall/progress expiry, allow incomplete stash to render (no empty 81% forever). */
   const forceShowIncompleteBoardScanRef = useRef(false);
+  /** Absolute deadline for under-count stash → paint escape (not reset by every partial). */
+  const underCountEscapeDeadlineRef = useRef<number | null>(null);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
   /**
    * This send still owns a board-scan attempt (feeds / scan / late-join), including
@@ -1351,6 +1355,7 @@ export default function CoachScreen() {
         effectiveBuildLegCount(userText);
       // Latch until cards land or a new send — render gate must see this flag.
       forceShowIncompleteBoardScanRef.current = true;
+      underCountEscapeDeadlineRef.current = null;
       patchInstantBoardScanTicket(stashed, undefined, {
         allowIncompletePicks: true,
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
@@ -1553,11 +1558,10 @@ export default function CoachScreen() {
         coachDetailNote = delivered.coachDetailNote;
         // Completion handoff: scored N of N + scanComplete must not strand an
         // empty bubble at 93% — fail-soft to staged stash before freezing empty.
-        if (
-          legTarget >= 3 &&
-          !ticket.length &&
-          (partial.picks?.length ?? 0) >= legTarget
-        ) {
+        // Fail-soft on ANY complete stash with staged picks — not only full N.
+        // Shortfalls (e.g. 4 of 6) were zeroed by enrich gates and skipped this
+        // path, then the bubble died on "finished without pick cards".
+        if (legTarget >= 3 && !ticket.length && (partial.picks?.length ?? 0) > 0) {
           ticket = boardScanToCoachTicket(partial, enrichWithScan, legTarget);
         }
         if (legTarget > 0 && ticket.length < legTarget) {
@@ -1942,8 +1946,11 @@ export default function CoachScreen() {
         enrich,
         legTarget,
       });
+      // Full count OR honest shortfall — never require exact N before painting a
+      // completed scan (exact-N-only left 4-of-6 builds on the empty dead-end).
       if (
-        ticket.length === legTarget &&
+        ticket.length > 0 &&
+        boardScanIsComplete(scan) &&
         deliverCoachTicket(ticket, legNote, { coachDetailNote })
       ) {
         return true;
@@ -1988,13 +1995,25 @@ export default function CoachScreen() {
     (sendGen: number, userText: string) => {
       clearBuildStallWatchdog();
       const legs = requestedLegCount(userText);
-      // Empty-card / empty-stash board-scan: unlock sooner than the deep 240s budget.
-      const emptyCard =
-        !(boardTicketSnapshotRef.current?.length) &&
-        !(latestBoardScanRef.current?.picks?.length);
-      const stallMs = emptyCard
-        ? emptyCardBoardScanStallMs(legs || effectiveBuildLegCount(userText))
-        : buildStallBudgetMs(legs);
+      // Under-count stash held off-screen must escape in seconds — NOT the deep
+      // 240s budget (that left Final ticket ready spinning at 93% forever).
+      const displayedCount = boardTicketSnapshotRef.current?.length ?? 0;
+      const stashCount = latestBoardScanRef.current?.picks?.length ?? 0;
+      const legsEffective = legs || effectiveBuildLegCount(userText);
+      let stallMs: number;
+      if (displayedCount > 0) {
+        underCountEscapeDeadlineRef.current = null;
+        stallMs = buildStallBudgetMs(legs);
+      } else if (stashCount > 0) {
+        const windowMs = underCountHeldBoardScanEscapeMs(legsEffective);
+        if (underCountEscapeDeadlineRef.current == null) {
+          underCountEscapeDeadlineRef.current = Date.now() + windowMs;
+        }
+        stallMs = Math.max(0, underCountEscapeDeadlineRef.current - Date.now());
+      } else {
+        underCountEscapeDeadlineRef.current = null;
+        stallMs = emptyCardBoardScanStallMs(legsEffective);
+      }
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
         // Release display hold so a scored-but-incomplete stash can leave the
@@ -2029,9 +2048,17 @@ export default function CoachScreen() {
               !(stashed && boardScanIsComplete(stashed)),
           })
         ) {
-          // No cards after stall (empty stash or failed force-show) — unlock
-          // composer instead of leaving "Scanning…" @ 93% with a locked send.
-          // Do not abort the in-flight scan; late complete may still deliver.
+          // Last chance before empty dead-end: complete stash → manifest/cards,
+          // else slate seed. Then unlock so composer is not stuck at 93%.
+          let painted = displayedAfter > 0;
+          if (!painted && stashed && boardScanIsComplete(stashed)) {
+            painted = !!patchInstantBoardScanTicket(stashed, undefined, {
+              ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+            });
+          }
+          if (!painted && legTarget > 0) {
+            painted = !!tryInstantSlateSeedDelivery(legTarget);
+          }
           setStreaming(false);
           setWaiting(false);
           setBuildFinishing(false);
@@ -2062,7 +2089,7 @@ export default function CoachScreen() {
         scrollToEnd(false);
       }, stallMs);
     },
-    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape],
+    [clearBuildStallWatchdog, scrollToEnd, patchInstantBoardScanTicket, boardScanPendingForActiveSend, releaseUnderCountBoardScanEscape, tryInstantSlateSeedDelivery],
   );
 
   const flashBoardScanResult = useCallback(
@@ -2312,6 +2339,7 @@ export default function CoachScreen() {
       boardScanTicketFrozenRef.current = false;
       latestBoardScanRef.current = null;
       forceShowIncompleteBoardScanRef.current = false;
+      underCountEscapeDeadlineRef.current = null;
       earlyReachBoardScanRef.current = null;
       boardScanAttemptActiveRef.current = false;
       boardScanLateJoinsRef.current = 0;
@@ -6509,8 +6537,8 @@ export default function CoachScreen() {
   // Displayed cards only → 100%. Stash/scored count alone must not finalize
   // progress (avoids false 100% while fixed-leg UI holds at "Scored N of N" @ 93%).
   const footerDisplayedLegCount = boardTicketSnapshotRef.current?.length ?? 0;
+  // Stash / displayed only — soft progress must not finalize Final ticket @ 93%.
   const footerScoredLegCount = Math.max(
-    boardScanPartialLegs,
     latestBoardScanRef.current?.picks?.length ?? 0,
     footerDisplayedLegCount,
   );
@@ -6772,8 +6800,10 @@ export default function CoachScreen() {
         if (copy[idx]?.role !== "assistant") return prev;
         copy[idx] = {
           ...copy[idx],
-          content:
-            "This build finished without pick cards — the board scan may still be scoring. Tap below to try again.",
+          content: emptyTicketDeadEndMessage({
+            boardScanPending: boardScanPendingForActiveSend(),
+            scanComplete: latestBoardScanRef.current?.scanComplete,
+          }),
           retry: retryText,
         };
         return copy;
@@ -6969,8 +6999,8 @@ export default function CoachScreen() {
             // Progress finalizes only when pick cards are actually on the message —
             // never from stash alone (avoids "Final ticket ready" with an empty bubble).
             const progressLegCount = showTicketPicks ? displayPicks.length : 0;
+            // Stash / on-screen only — soft partial legs must not drive Final ticket @ 93%.
             const scoredLegCount = Math.max(
-              boardScanPartialLegs,
               latestBoardScanRef.current?.picks?.length ?? 0,
               showTicketPicks ? displayPicks.length : 0,
             );
