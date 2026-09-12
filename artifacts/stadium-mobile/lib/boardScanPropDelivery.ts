@@ -60,6 +60,129 @@ export function selectFinalCoachParlayPicks<T extends { isProp?: boolean; market
   return rawPicks;
 }
 
+function propFillFingerprint(pick: {
+  game?: string | null;
+  player?: string | null;
+  market?: string | null;
+  pick?: string | null;
+  side?: string | null;
+}): string {
+  return [
+    String(pick.game ?? ""),
+    String(pick.player ?? ""),
+    String(pick.market ?? ""),
+    String(pick.pick ?? ""),
+    String(pick.side ?? ""),
+  ]
+    .join("|")
+    .toLowerCase();
+}
+
+function propFillComposite(pick: {
+  finalAiScore?: { composite?: number } | null;
+  scores?: { composite?: number } | null;
+}): number {
+  return pick.finalAiScore?.composite ?? pick.scores?.composite ?? 0;
+}
+
+/** Prefer classic football skill props when filling reserved slots. */
+export function footballSkillPropRank(market: string | null | undefined): number {
+  const m = String(market ?? "").toLowerCase();
+  if (/sack/.test(m)) return 5;
+  if (/rush|rushing/.test(m)) return 4;
+  if (/pass|passing/.test(m) && !/completion/.test(m)) return 3;
+  if (/receiv|reception|rec\b/.test(m)) return 3;
+  if (/anytime|touchdown|\btd\b/.test(m)) return 2;
+  return 0;
+}
+
+type PropFillPick = {
+  isProp?: boolean;
+  market?: string | null;
+  game?: string | null;
+  player?: string | null;
+  pick?: string | null;
+  side?: string | null;
+  sport?: string | null;
+  finalAiScore?: { composite?: number } | null;
+  scores?: { composite?: number } | null;
+};
+
+type PropFillLeg<T extends PropFillPick> = {
+  pick: T;
+  rankScore?: number;
+};
+
+/**
+ * Enforce ~50% player-prop slots on a staged ticket when qualified props exist.
+ * GameLines-first combinators were shipping ML/totals-only tickets even after
+ * rush/pass/rec/sack props had cleared scoring — this swaps/backfills props into
+ * reserved slots without inventing legs.
+ */
+export function fillReservedPropSlots<T extends PropFillPick>(
+  picks: T[],
+  scored: PropFillLeg<T>[],
+  target: number,
+): T[] {
+  if (target < 3) return picks.slice(0, Math.max(0, target));
+  const propSlots = boardScanPropSlotCount(target);
+  if (propSlots <= 0) return picks.slice(0, target);
+
+  let out = picks.slice(0, target);
+  const used = new Set(out.map(propFillFingerprint));
+  let propCount = out.filter((p) => !!p.isProp).length;
+  if (propCount >= propSlots) return out;
+
+  const candidates = scored
+    .filter((leg) => {
+      if (!leg.pick?.isProp) return false;
+      const fp = propFillFingerprint(leg.pick);
+      if (used.has(fp)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const skill =
+        footballSkillPropRank(b.pick.market) - footballSkillPropRank(a.pick.market);
+      if (skill !== 0) return skill;
+      const rank = (b.rankScore ?? 0) - (a.rankScore ?? 0);
+      if (rank !== 0) return rank;
+      return propFillComposite(b.pick) - propFillComposite(a.pick);
+    });
+
+  for (const cand of candidates) {
+    if (propCount >= propSlots) break;
+    const fp = propFillFingerprint(cand.pick);
+    if (used.has(fp)) continue;
+
+    if (out.length < target) {
+      out = [...out, cand.pick];
+      used.add(fp);
+      propCount += 1;
+      continue;
+    }
+
+    let worstIdx = -1;
+    let worstScore = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < out.length; i++) {
+      const p = out[i]!;
+      if (p.isProp) continue;
+      const score = propFillComposite(p);
+      if (score < worstScore) {
+        worstScore = score;
+        worstIdx = i;
+      }
+    }
+    if (worstIdx < 0) break;
+    const next = out.slice();
+    next[worstIdx] = cand.pick;
+    out = next;
+    used.add(fp);
+    propCount += 1;
+  }
+
+  return out.slice(0, target);
+}
+
 /** Honest delivery note for fixed-leg shortfalls / incomplete prop scoring. */
 export function buildFinalCoachParlayNote(opts: {
   target: number;

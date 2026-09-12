@@ -5,6 +5,8 @@ import {
   boardScanNonPropPreviewCap,
   boardScanPropSlotCount,
   buildFinalCoachParlayNote,
+  fillReservedPropSlots,
+  footballSkillPropRank,
   selectFinalCoachParlayPicks,
   shouldKeepAwaitingPropSlots,
 } from "./boardScanPropDelivery.ts";
@@ -146,4 +148,93 @@ test("empty final with incomplete props does not claim every market scanned", ()
   assert.match(note, /no AI-backed picks/i);
   assert.match(note, /prop scoring did not finish/i);
   assert.doesNotMatch(note, /every posted market/i);
+});
+
+
+
+test("footballSkillPropRank prefers rush/pass/rec/sack over generic props", () => {
+  assert.ok(footballSkillPropRank("player_rush_yds") > footballSkillPropRank("player_points"));
+  assert.ok(footballSkillPropRank("player_sacks") >= footballSkillPropRank("player_rush_yds"));
+  assert.ok(footballSkillPropRank("player_reception_yds") > 0);
+  assert.ok(footballSkillPropRank("player_pass_yds") > 0);
+});
+
+test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix", () => {
+  const target = 8;
+  const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    market: "moneyline",
+    game: `G${i}`,
+    player: null as string | null,
+    pick: `Team${i}`,
+    side: null as string | null,
+    scores: { composite: 90 - i },
+  }));
+  const scored = [
+    ...gameHeavy.map((pick, i) => ({ pick, rankScore: 90 - i })),
+    {
+      pick: {
+        isProp: true,
+        market: "player_rush_yds",
+        game: "DAL @ PHI",
+        player: "Saquon Barkley",
+        pick: "Over 75.5",
+        side: "Over",
+        scores: { composite: 70 },
+      },
+      rankScore: 80,
+    },
+    {
+      pick: {
+        isProp: true,
+        market: "player_pass_yds",
+        game: "KC @ BUF",
+        player: "Josh Allen",
+        pick: "Over 265.5",
+        side: "Over",
+        scores: { composite: 68 },
+      },
+      rankScore: 78,
+    },
+    {
+      pick: {
+        isProp: true,
+        market: "player_reception_yds",
+        game: "SF @ SEA",
+        player: "George Kittle",
+        pick: "Over 45.5",
+        side: "Over",
+        scores: { composite: 66 },
+      },
+      rankScore: 76,
+    },
+    {
+      pick: {
+        isProp: true,
+        market: "player_sacks",
+        game: "BAL @ CIN",
+        player: "Myles Garrett",
+        pick: "Over 0.5",
+        side: "Over",
+        scores: { composite: 64 },
+      },
+      rankScore: 74,
+    },
+  ];
+  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const propCount = out.filter((p) => p.isProp).length;
+  assert.equal(propCount, boardScanPropSlotCount(8)); // 4 of 8
+  assert.ok(out.some((p) => /rush/i.test(p.market || "")));
+  assert.ok(out.some((p) => /pass/i.test(p.market || "")));
+  assert.ok(out.some((p) => /sack|receiv|reception/i.test(p.market || "")));
+});
+
+test("fillReservedPropSlots does not invent props when none scored", () => {
+  const games = [
+    { isProp: false, market: "total", game: "A @ B", pick: "Over 45.5", scores: { composite: 80 } },
+    { isProp: false, market: "moneyline", game: "C @ D", pick: "C", scores: { composite: 78 } },
+  ];
+  const out = fillReservedPropSlots(games, games.map((pick) => ({ pick, rankScore: 1 })), 8);
+  assert.equal(out.filter((p) => p.isProp).length, 0);
+  assert.equal(out.length, 2);
 });
