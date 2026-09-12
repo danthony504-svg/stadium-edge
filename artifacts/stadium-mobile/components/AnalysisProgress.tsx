@@ -119,19 +119,19 @@ export function AnalysisProgress({
     mode === "build" && buildPhase === "board-scan" && legCount === 0;
   // Hold below "Final ticket ready" / 93% until real scored stash legs exist.
   // Soft timers alone used to park on Final ticket ready with an empty bubble.
+  // Never enter "Final ticket ready" (stage 8 / 93% checklist) until cards are
+  // actually on screen. Scored stash alone used to spin Final forever at 93%
+  // while fixed-leg hold / broken escape left the bubble empty.
   const maxAuto =
     mode === "build"
       ? legCount > 0
         ? stageList.length - 1
-        : boardScanWaiting
-          ? scoredLegCount > 0
-            ? 8
-            : 7
-          : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
-            ? scoredLegCount > 0
-              ? 8
-              : 7
-            : 6
+        : boardScanWaiting ||
+            buildPhase === "board-scan" ||
+            buildPhase === "stream" ||
+            buildPhase === "score"
+          ? 7
+          : 6
       : stageList.length - 1;
   const effectiveIndex =
     mode === "build" && legCount > 0
@@ -256,13 +256,10 @@ export function AnalysisProgress({
     return effectiveIndex >= item.doneAt || scoredDone;
   });
   let activeChecklist = checklistDoneFlags.findIndex((done) => !done);
-  if (
-    activeChecklist < 0 &&
-    mode === "build" &&
-    legCount === 0 &&
-    scoredRatioForChecklist >= 1
-  ) {
-    activeChecklist = checklist.findIndex((c) => c.label === "Final ticket ready");
+  if (activeChecklist < 0 && mode === "build" && legCount === 0) {
+    // All pre-final rows scored-done but cards missing — stay on Correlation,
+    // never spin "Final ticket ready" with an empty bubble.
+    activeChecklist = checklist.findIndex((c) => c.label === "Correlation scored");
   }
 
   return (

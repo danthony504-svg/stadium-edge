@@ -228,3 +228,33 @@ test("coach.tsx wires freeze accept gate and post-freeze sim block", () => {
   assert.match(src, /footerScoredLegCount/);
   assert.match(src, /freezeNow/);
 });
+
+
+test("coach.tsx passes forceShowIncomplete into accept gate (escape paint)", () => {
+  const src = readFileSync(new URL("../app/(tabs)/coach.tsx", import.meta.url), "utf8");
+  // Accept-gate callsites used by patchInstant must thread escape flags —
+  // otherwise releaseUnderCountBoardScanEscape paints nothing.
+  assert.match(
+    src,
+    /shouldAcceptSameRequestBoardScanTicketUpdate\(\{[\s\S]*?forceShowIncomplete:\s*forceShowIncompleteBoardScanRef\.current/,
+  );
+  assert.match(
+    src,
+    /allowIncompletePicks:\s*opts\?\.allowIncompletePicks/,
+  );
+  // Failed accept on empty bubble must return false (not fake success).
+  assert.match(
+    src,
+    /return \(boardTicketSnapshotRef\.current\?\.length \?\? 0\) > 0/,
+  );
+  // Escape must not unlock busy when paint failed.
+  assert.match(
+    src,
+    /Keep busy \+ forceShow latched so stall\/retry can try again/,
+  );
+  // Stream-end must not wipe escape-painted cards.
+  assert.match(
+    src,
+    /!forceShowIncompleteBoardScanRef\.current/,
+  );
+});

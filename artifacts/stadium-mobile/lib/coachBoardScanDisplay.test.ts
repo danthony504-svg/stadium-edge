@@ -388,3 +388,55 @@ test("Try Again / new request still creates a fresh ticket", () => {
     true,
   );
 });
+
+
+test("forceShowIncomplete accepts under-count paint (escape must not fake-succeed empty)", () => {
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: false,
+      displayedPickCount: 0,
+      incomingScanComplete: false,
+      incomingPickCount: 4,
+      legTarget: 6,
+      forceShowIncomplete: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: false,
+      displayedPickCount: 0,
+      incomingScanComplete: false,
+      incomingPickCount: 4,
+      legTarget: 6,
+    }),
+    false,
+    "without forceShow, under-count must stay held",
+  );
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: false,
+      displayedPickCount: 0,
+      incomingScanComplete: false,
+      incomingPickCount: 0,
+      legTarget: 6,
+      forceShowIncomplete: true,
+    }),
+    false,
+    "forceShow with zero incoming picks still rejects",
+  );
+});
+
+test("forceShowIncomplete does not reshape a frozen finished on-screen ticket", () => {
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: true,
+      displayedPickCount: 6,
+      incomingScanComplete: false,
+      incomingPickCount: 4,
+      legTarget: 6,
+      forceShowIncomplete: true,
+    }),
+    false,
+  );
+});

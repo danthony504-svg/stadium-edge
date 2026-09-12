@@ -1356,13 +1356,19 @@ export default function CoachScreen() {
       // Latch until cards land or a new send — render gate must see this flag.
       forceShowIncompleteBoardScanRef.current = true;
       underCountEscapeDeadlineRef.current = null;
-      patchInstantBoardScanTicket(stashed, undefined, {
+      const painted = patchInstantBoardScanTicket(stashed, undefined, {
         allowIncompletePicks: true,
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
         legNote: boardScanIsComplete(stashed)
           ? undefined
           : `Still finishing the full-board scan — showing **${stashed.picks.length}** of **${legTarget || stashed.picks.length}** legs scored so far.`,
       });
+      const hasCards = painted || (boardTicketSnapshotRef.current?.length ?? 0) > 0;
+      if (!hasCards) {
+        // Keep busy + forceShow latched so stall/retry can try again — do not
+        // unlock into the empty dead-end after a failed escape paint.
+        return false;
+      }
       boardScanAttemptActiveRef.current = false;
       setStreaming(false);
       setWaiting(false);
@@ -1635,10 +1641,15 @@ export default function CoachScreen() {
         // Stash already hit the requested count but gated progress is short/empty —
         // always fail-soft to the full staged ticket. Using short progress here made
         // canShowFixedLegBoardScanPicks reject and freeze on "Scored 6 of 6" @ 93%.
+        // Escape / allowIncomplete must also fail-soft under-count stashes — otherwise
+        // enrich-zeroed progress leaves releaseUnderCount with nothing to paint.
+        const escapePaint =
+          !!opts?.allowIncompletePicks || forceShowIncompleteBoardScanRef.current;
         if (
           legTarget >= 3 &&
-          (partial.picks?.length ?? 0) >= legTarget &&
-          ticket.length < legTarget
+          (partial.picks?.length ?? 0) > 0 &&
+          ticket.length < legTarget &&
+          (escapePaint || (partial.picks?.length ?? 0) >= legTarget)
         ) {
           ticket = boardScanToCoachTicket(partial, enrichWithScan, legTarget);
         }
@@ -1708,6 +1719,8 @@ export default function CoachScreen() {
           incomingScanComplete: isFinal,
           incomingPickCount: ticket.length,
           legTarget,
+          allowIncompletePicks: opts?.allowIncompletePicks,
+          forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
         })
       ) {
         latestBoardScanRef.current = partial;
@@ -1717,7 +1730,9 @@ export default function CoachScreen() {
           );
         }
         if (opts?.pinScroll !== false) scrollToEnd(false);
-        return true;
+        // Existing on-screen ticket preserved — success. Empty bubble means paint
+        // failed (escape must not clear busy on a fake true).
+        return (boardTicketSnapshotRef.current?.length ?? 0) > 0;
       }
       if (
         !canShowFixedLegBoardScanPicks({
@@ -2064,6 +2079,12 @@ export default function CoachScreen() {
           setBuildFinishing(false);
           setCoachBuildBusy(false);
           setParlayBuildPhase("idle");
+        } else if (!(boardTicketSnapshotRef.current?.length)) {
+          // One-shot stall used to leave Coach at 93% forever when escape paint
+          // failed or the scan was still pending with an empty bubble. Re-arm a
+          // short poke so under-count escape / seed settle keep trying.
+          underCountEscapeDeadlineRef.current = Date.now() + 8_000;
+          armBuildStallWatchdog(sendGen, userText);
         }
         setMessages((prev) => {
           const copy = [...prev];
@@ -5750,6 +5771,8 @@ export default function CoachScreen() {
               incomingScanComplete: scanDone,
               incomingPickCount: resolved.length,
               legTarget,
+              allowIncompletePicks: forceShowIncompleteBoardScanRef.current,
+              forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
             })
           ) {
             return displayedCount > 0 ? (boardTicketSnapshotRef.current ?? []) : [];
@@ -5759,8 +5782,17 @@ export default function CoachScreen() {
               legTarget,
               pickCount: resolved.length,
               scanComplete: scanDone,
+              allowIncompletePicks: forceShowIncompleteBoardScanRef.current,
+              forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
             })
           ) {
+            // Escape already painted under-count cards — keep them.
+            if (
+              forceShowIncompleteBoardScanRef.current &&
+              displayedCount > 0
+            ) {
+              return boardTicketSnapshotRef.current ?? [];
+            }
             return [];
           }
           const finalized = finalizeCoachTicketForRequest(resolved, {
@@ -5844,15 +5876,32 @@ export default function CoachScreen() {
           legTarget >= 3 &&
           latestBoardScanRef.current &&
           !boardScanIsComplete(latestBoardScanRef.current) &&
-          !boardScanTicketFrozenRef.current
+          !boardScanTicketFrozenRef.current &&
+          !forceShowIncompleteBoardScanRef.current &&
+          !(boardTicketSnapshotRef.current?.length)
         ) {
           // Mid-scan stream-end: keep progress only — do not paint reshapeable cards.
+          // Skip wipe when escape already painted under-count cards.
           setBoardScanPartialLegs(latestBoardScanRef.current.picks?.length ?? 0);
           setParlayBuildPhase("board-scan");
           setBuildFinishing(true);
           setWaiting(true);
           setAiPicks([]);
           boardTicketSnapshotRef.current = null;
+        } else if (
+          isParlayBuild &&
+          forceShowIncompleteBoardScanRef.current &&
+          (boardTicketSnapshotRef.current?.length ?? 0) > 0
+        ) {
+          // Escape cards already on screen — finalize busy clear, keep picks.
+          const kept = boardTicketSnapshotRef.current!;
+          setAiPicks(kept);
+          setStreaming(false);
+          setWaiting(false);
+          setBuildFinishing(false);
+          setBuildProgressExpired(false);
+          setParlayBuildPhase("idle");
+          setCoachBuildBusy(false);
         } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
           setStreaming(false);
           setWaiting(false);
