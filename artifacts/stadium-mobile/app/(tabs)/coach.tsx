@@ -7,6 +7,7 @@
  */
 
 import Feather from "@expo/vector-icons/Feather";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -43,6 +44,7 @@ import {
   resolveCoachTerminalPicks,
   shouldPublishCoachTicketPicks,
 } from "@/lib/coachTicketHold";
+import { isCoachBoardScanBlurb } from "@/lib/fullBoardMarketCopy";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 
@@ -62,9 +64,16 @@ function uid(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function coachNoteForDisplay(text: string): string {
+  // Hide the old long "Scanned every posted line…" essay; details live on diagnostics.
+  if (isCoachBoardScanBlurb(text)) return "";
+  return text.replace(/\*\*/g, "").trim();
+}
+
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
@@ -108,15 +117,17 @@ export default function CoachScreen() {
       latchCoachSession(sessionRef.current, outcome);
       // Prefer the build note when present — it carries prop-pool context.
       // Only synthesize a generic shortfall when the build returned no text.
+      // Long full-board scan essays are stripped (see Coach Scan Diagnostics).
+      const note = isCoachBoardScanBlurb(opts.text) ? "" : opts.text.trim();
       const shortfall =
-        !opts.text.trim() && (outcome === "shortfall" || outcome === "empty")
+        !note && (outcome === "shortfall" || outcome === "empty")
           ? coachShortfallNote(opts.requestedLegs, opts.picks.length)
           : "";
       patchAssistant(assistantId, {
         building: false,
         buildStatus: undefined,
         picks: opts.picks,
-        text: [shortfall, opts.text].filter(Boolean).join("\n\n"),
+        text: [shortfall, note].filter(Boolean).join("\n\n"),
         requestedLegs: opts.requestedLegs || undefined,
       });
       unlockComposer();
@@ -429,25 +440,62 @@ export default function CoachScreen() {
                     </View>
                   </View>
                 ) : null}
-                {item.text.trim() ? (
-                  <View style={{ paddingHorizontal: 16 }}>
-                    <Text
-                      style={{
-                        color: colors.foreground,
-                        fontFamily: FONT.body,
-                        fontSize: 15,
-                        lineHeight: 22,
-                      }}
-                    >
-                      {item.text.trim()}
-                    </Text>
-                  </View>
-                ) : null}
+                {(() => {
+                  const visible = coachNoteForDisplay(item.text);
+                  return visible ? (
+                    <View style={{ paddingHorizontal: 16 }}>
+                      <Text
+                        style={{
+                          color: colors.foreground,
+                          fontFamily: FONT.body,
+                          fontSize: 15,
+                          lineHeight: 22,
+                        }}
+                      >
+                        {visible}
+                      </Text>
+                    </View>
+                  ) : null;
+                })()}
                 {item.picks?.map((pick, idx) => (
                   <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
                     <PickCard pick={pick} />
                   </View>
                 ))}
+                {!item.building && (item.picks?.length ?? 0) > 0 ? (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
+                    <Pressable
+                      onPress={() => router.push("/coach-scan-debug")}
+                      accessibilityRole="link"
+                      accessibilityLabel="Open Coach scan details"
+                      style={({ pressed }) => ({
+                        alignSelf: "flex-start",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        paddingVertical: 8,
+                        paddingHorizontal: 12,
+                        borderRadius: 10,
+                        backgroundColor: colors.card,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        opacity: pressed ? 0.8 : 1,
+                      })}
+                    >
+                      <Feather name="list" size={16} color={colors.primary} />
+                      <Text
+                        style={{
+                          color: colors.primary,
+                          fontFamily: FONT.medium,
+                          fontSize: 14,
+                        }}
+                      >
+                        Scan details
+                      </Text>
+                      <Feather name="chevron-right" size={16} color={colors.primary} />
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             );
           }}
