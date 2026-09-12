@@ -179,6 +179,12 @@ import {
   awaitingPropSlotsMaxWaitMs,
   shouldReArmBoardScanStallPoke,
   coachBoardScanProgressCopy,
+  createTicketDeliveryClock,
+  resetTicketDeliveryClock,
+  ticketNoteAwaitingPropSlots,
+  ticketStashForTerminalPaint,
+  ticketAwaitingPropSlotsElapsedMs,
+  awaitingPropSlotsPastDeadlineFromClock,
 } from "@/lib/coachBuildPhase";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
@@ -1318,6 +1324,8 @@ export default function CoachScreen() {
   const underCountEscapeDeadlineRef = useRef<number | null>(null);
   /** Wall-clock when reserved 0-prop preview first appeared for this send. */
   const awaitingPropSlotsStartedAtRef = useRef<number | null>(null);
+  /** Single delivery clock for this send — escape/busy/terminal authority. */
+  const ticketDeliveryClockRef = useRef(createTicketDeliveryClock());
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
   /**
    * This send still owns a board-scan attempt (feeds / scan / late-join), including
@@ -1354,34 +1362,68 @@ export default function CoachScreen() {
   const releaseUnderCountBoardScanEscape = useCallback(
     (stashed: FullBoardScanResult, userText: string) => {
       const displayed = boardTicketSnapshotRef.current?.length ?? 0;
+      const legTarget =
+        activeRequestLegTargetRef.current ||
+        requestedLegCount(userText) ||
+        effectiveBuildLegCount(userText);
+      const stashPropCount =
+        stashed.picks?.filter((p) => p.isProp).length ?? 0;
+      // Sync delivery clock from legacy ref (stall path may have stamped it).
+      if (
+        stashed.awaitingPropSlots === true &&
+        stashPropCount <= 0 &&
+        ticketDeliveryClockRef.current.awaitingPropSlotsStartedAtMs == null &&
+        awaitingPropSlotsStartedAtRef.current != null
+      ) {
+        ticketDeliveryClockRef.current.awaitingPropSlotsStartedAtMs =
+          awaitingPropSlotsStartedAtRef.current;
+      }
+      ticketNoteAwaitingPropSlots({
+        clock: ticketDeliveryClockRef.current,
+        awaitingPropSlots: stashed.awaitingPropSlots === true,
+        stashPropCount,
+      });
+      const waitElapsedMs = ticketAwaitingPropSlotsElapsedMs(
+        ticketDeliveryClockRef.current,
+      );
       if (
         !shouldReleaseUnderCountBoardScanAtEscape({
           stashPickCount: stashed.picks?.length ?? 0,
           displayedPickCount: displayed,
           awaitingPropSlots: stashed.awaitingPropSlots === true,
-          stashPropCount: stashed.picks?.filter((p) => p.isProp).length ?? 0,
+          stashPropCount,
           scanComplete: stashed.scanComplete,
+          awaitingPropSlotsWaitElapsedMs: waitElapsedMs,
+          requestedLegs: legTarget,
         })
       ) {
         return false;
       }
-      const legTarget =
-        activeRequestLegTargetRef.current ||
-        requestedLegCount(userText) ||
-        effectiveBuildLegCount(userText);
       // Latch until cards land or a new send — render gate must see this flag.
       forceShowIncompleteBoardScanRef.current = true;
       underCountEscapeDeadlineRef.current = null;
+      // Past prop-slot deadline / scanComplete: strip awaitingPropSlots so the
+      // stash is an honest shortfall, never a permanent "still scoring props".
+      const pastDeadline = awaitingPropSlotsPastDeadlineFromClock({
+        clock: ticketDeliveryClockRef.current,
+        awaitingPropSlots: stashed.awaitingPropSlots === true,
+        stashPropCount,
+        scanComplete: stashed.scanComplete,
+        requestedLegs: legTarget || 6,
+      });
+      const terminalStash = ticketStashForTerminalPaint(stashed, {
+        pastPropSlotDeadline: pastDeadline || stashed.scanComplete === true,
+      });
       // Cached/preview stashes often lack requestId — adopt onto the active
       // request or patchInstant rejects and we hang at empty 93%.
       const ctx = coachRequestContextRef.current;
       const toPaint =
         ctx?.requestId
-          ? adoptBoardScanForActiveRequest(stashed, {
+          ? adoptBoardScanForActiveRequest(terminalStash, {
               requestId: ctx.requestId,
               requestedLegs: legTarget,
             })
-          : stashed;
+          : terminalStash;
       latestBoardScanRef.current = toPaint;
       patchInstantBoardScanTicket(toPaint, undefined, {
         allowIncompletePicks: true,
@@ -2089,6 +2131,19 @@ export default function CoachScreen() {
         if (!awaitingProps) {
           awaitingPropSlotsStartedAtRef.current = null;
         }
+        ticketNoteAwaitingPropSlots({
+          clock: ticketDeliveryClockRef.current,
+          awaitingPropSlots: awaitingProps,
+          stashPropCount,
+        });
+        if (
+          awaitingProps &&
+          ticketDeliveryClockRef.current.awaitingPropSlotsStartedAtMs == null &&
+          awaitingPropSlotsStartedAtRef.current != null
+        ) {
+          ticketDeliveryClockRef.current.awaitingPropSlotsStartedAtMs =
+            awaitingPropSlotsStartedAtRef.current;
+        }
         // Reserved 0-prop previews arm the prop-slot deadline (not infinite wait).
         // Other under-count stashes arm the normal escape window.
         if (
@@ -2491,6 +2546,8 @@ export default function CoachScreen() {
       latestBoardScanRef.current = null;
       forceShowIncompleteBoardScanRef.current = false;
       underCountEscapeDeadlineRef.current = null;
+      awaitingPropSlotsStartedAtRef.current = null;
+      resetTicketDeliveryClock(ticketDeliveryClockRef.current);
       earlyReachBoardScanRef.current = null;
       boardScanAttemptActiveRef.current = false;
       boardScanLateJoinsRef.current = 0;
@@ -6972,14 +7029,34 @@ export default function CoachScreen() {
     }
     // Incomplete same-request scan still scoring — never claim the build finished.
     // Only treat stash with real picks as suppressible (empty {} refs must not block Try again).
-    if (
-      shouldSuppressEmptyTicketDeadEnd({
-        boardScanPending: boardScanPendingForActiveSend(),
+    {
+      const inFlightProps =
+        inFlight?.picks?.filter((p) => p.isProp).length ?? 0;
+      ticketNoteAwaitingPropSlots({
+        clock: ticketDeliveryClockRef.current,
+        awaitingPropSlots: inFlight?.awaitingPropSlots === true,
+        stashPropCount: inFlightProps,
+      });
+      const pastPropDeadline = awaitingPropSlotsPastDeadlineFromClock({
+        clock: ticketDeliveryClockRef.current,
+        awaitingPropSlots: inFlight?.awaitingPropSlots === true,
+        stashPropCount: inFlightProps,
         scanComplete: inFlight?.scanComplete,
-        hasScanStash: (inFlight?.picks?.length ?? 0) > 0,
-      })
-    ) {
-      return;
+        requestedLegs:
+          activeRequestLegTargetRef.current ||
+          requestedLegCount(priorUser?.content ?? "") ||
+          6,
+      });
+      if (
+        shouldSuppressEmptyTicketDeadEnd({
+          boardScanPending: boardScanPendingForActiveSend(),
+          scanComplete: inFlight?.scanComplete,
+          hasScanStash: (inFlight?.picks?.length ?? 0) > 0,
+          awaitingPropSlotsPastDeadline: pastPropDeadline,
+        })
+      ) {
+        return;
+      }
     }
     const content = (last.content ?? "").trim();
     const genericFailure =
