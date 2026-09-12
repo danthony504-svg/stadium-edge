@@ -15,6 +15,10 @@ import {
   underCountHeldBoardScanEscapeMsForStash,
   emptyTicketDeadEndMessage,
   stallIncompleteScanStillInFlight,
+  awaitingPropSlotsMaxWaitMs,
+  underCountEscapeWindowMsForStash,
+  shouldReArmBoardScanStallPoke,
+  coachBoardScanProgressCopy,
 } from "./coachBuildPhase.ts";
 
 test("empty cards + stash picks stay on board-scan (not stream/score grade limbo)", () => {
@@ -296,7 +300,7 @@ test("game-line-only stash waits longer before under-count escape", () => {
 });
 
 
-test("awaitingPropSlots blocks under-count escape until props or scan complete", () => {
+test("awaitingPropSlots blocks under-count escape until props, scan complete, or deadline", () => {
   assert.equal(
     shouldReleaseUnderCountBoardScanAtEscape({
       stashPickCount: 3,
@@ -316,7 +320,8 @@ test("awaitingPropSlots blocks under-count escape until props or scan complete",
       stashPropCount: 0,
       scanComplete: false,
     }),
-    false,
+    true,
+    "reserved preview still arms the prop-slot deadline",
   );
   assert.equal(
     shouldReleaseUnderCountBoardScanAtEscape({
@@ -339,5 +344,95 @@ test("awaitingPropSlots blocks under-count escape until props or scan complete",
     }),
     true,
     "completed scan may paint honest shortfall",
+  );
+  assert.equal(
+    shouldReleaseUnderCountBoardScanAtEscape({
+      stashPickCount: 3,
+      displayedPickCount: 0,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+      scanComplete: false,
+      requestedLegs: 6,
+      awaitingPropSlotsWaitElapsedMs: awaitingPropSlotsMaxWaitMs(6),
+    }),
+    true,
+    "past prop-slot deadline may paint honest shortfall",
+  );
+});
+
+test("stall poke does not re-arm forever past prop-slot deadline", () => {
+  assert.equal(
+    shouldReArmBoardScanStallPoke({
+      displayedPickCount: 0,
+      awaitingPropSlotsPastDeadline: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldReArmBoardScanStallPoke({
+      displayedPickCount: 0,
+      absoluteStallBudgetExhausted: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldReArmBoardScanStallPoke({ displayedPickCount: 0 }),
+    true,
+  );
+});
+
+test("progress copy is honest while awaiting prop slots", () => {
+  assert.match(
+    coachBoardScanProgressCopy({
+      scoredLegCount: 3,
+      requestedLegs: 6,
+      awaitingPropSlots: true,
+      stashPropCount: 0,
+    }) ?? "",
+    /player props/i,
+  );
+  assert.match(
+    coachBoardScanProgressCopy({
+      scoredLegCount: 4,
+      requestedLegs: 6,
+      awaitingPropSlots: false,
+      stashPropCount: 2,
+    }) ?? "",
+    /Scored 4 of 6/,
+  );
+});
+
+test("keep-busy drops after awaitingPropSlots deadline", () => {
+  assert.equal(
+    shouldKeepBusyForIncompleteBoardScan({
+      isParlayBuild: true,
+      legTarget: 6,
+      displayedPickCount: 0,
+      scanComplete: false,
+      hasScanStash: true,
+      boardScanPending: true,
+      awaitingPropSlotsPastDeadline: true,
+    }),
+    false,
+  );
+});
+
+test("reserved preview uses prop-slot escape window", () => {
+  assert.equal(
+    underCountEscapeWindowMsForStash({
+      requestedLegs: 6,
+      stashPropCount: 0,
+      awaitingPropSlots: true,
+      scanComplete: false,
+    }),
+    awaitingPropSlotsMaxWaitMs(6),
+  );
+  assert.ok(
+    underCountEscapeWindowMsForStash({
+      requestedLegs: 6,
+      stashPropCount: 0,
+      awaitingPropSlots: true,
+      scanComplete: false,
+    }) > underCountHeldBoardScanEscapeMs(6),
   );
 });
