@@ -11,6 +11,7 @@ import {
   shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
+  underCountHeldBoardScanEscapeMsForStash,
   emptyTicketDeadEndMessage,
   stallIncompleteScanStillInFlight,
 } from "./coachBuildPhase.ts";
@@ -272,5 +273,23 @@ test("stall incomplete stays in-flight while scan pending / scored stash incompl
       displayedPickCount: 0,
     }),
     false,
+  );
+});
+
+
+test("game-line-only stash waits longer before under-count escape", () => {
+  assert.ok(
+    underCountHeldBoardScanEscapeMsForStash({
+      requestedLegs: 6,
+      stashPropCount: 0,
+    }) >
+      underCountHeldBoardScanEscapeMs(6),
+  );
+  assert.equal(
+    underCountHeldBoardScanEscapeMsForStash({
+      requestedLegs: 6,
+      stashPropCount: 2,
+    }),
+    underCountHeldBoardScanEscapeMs(6),
   );
 });

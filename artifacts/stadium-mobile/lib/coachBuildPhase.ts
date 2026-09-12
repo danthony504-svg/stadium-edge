@@ -58,6 +58,23 @@ export function underCountHeldBoardScanEscapeMs(requestedLegs: number): number {
 }
 
 /**
+ * Game-line-only stashes need longer before escape — prop waves start after
+ * slate game sims. Escaping at 20s painted 5 AI game lines and never waited
+ * for ~50% player props.
+ */
+export function underCountHeldBoardScanEscapeMsForStash(opts: {
+  requestedLegs: number;
+  stashPropCount: number;
+}): number {
+  const base = underCountHeldBoardScanEscapeMs(opts.requestedLegs);
+  if (opts.stashPropCount > 0) return base;
+  // Wait through first prop sim waves before force-showing a game-line ticket.
+  if (opts.requestedLegs >= 9) return Math.max(base, 55_000);
+  if (opts.requestedLegs >= 6) return Math.max(base, 45_000);
+  return Math.max(base, 35_000);
+}
+
+/**
  * Pick stall timeout from paint state:
  * - cards visible → deep budget
  * - stash scored, bubble empty → short under-count escape
@@ -68,10 +85,19 @@ export function boardScanStallMsForPaintState(opts: {
   stashPickCount: number;
   requestedLegs: number;
   deepStallMs: number;
+  stashPropCount?: number;
 }): number {
   if (opts.displayedPickCount > 0) return opts.deepStallMs;
   if (opts.stashPickCount > 0) {
-    return underCountHeldBoardScanEscapeMs(opts.requestedLegs);
+    // Unknown prop count → keep the short escape (legacy). Explicit 0 props
+    // waits longer for prop waves.
+    if (opts.stashPropCount == null) {
+      return underCountHeldBoardScanEscapeMs(opts.requestedLegs);
+    }
+    return underCountHeldBoardScanEscapeMsForStash({
+      requestedLegs: opts.requestedLegs,
+      stashPropCount: opts.stashPropCount,
+    });
   }
   return emptyCardBoardScanStallMs(opts.requestedLegs);
 }

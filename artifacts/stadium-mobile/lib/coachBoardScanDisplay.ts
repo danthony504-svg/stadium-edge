@@ -106,7 +106,20 @@ export function shouldFreezeDisplayedCoachTicket(opts: {
   displayedScanComplete?: boolean | null;
   displayedPickCount: number;
   legTarget: number;
+  /** Player props currently on the displayed ticket. */
+  displayedPropCount?: number;
 }): boolean {
+  // Mid-scan N-of-N that is *known* to be 100% game lines must NOT freeze —
+  // prop waves still need to replace legs. Only when callers pass an explicit
+  // displayedPropCount === 0 (unknown/undefined keeps legacy N-of-N freeze).
+  if (
+    opts.legTarget >= 3 &&
+    opts.displayedPickCount >= opts.legTarget &&
+    opts.displayedScanComplete !== true &&
+    opts.displayedPropCount === 0
+  ) {
+    return false;
+  }
   if (opts.legTarget >= 3 && opts.displayedPickCount >= opts.legTarget) {
     return true;
   }
@@ -131,7 +144,23 @@ export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
   /** Stall / late-join escape — accept under-count paint. */
   allowIncompletePicks?: boolean;
   forceShowIncomplete?: boolean;
+  displayedPropCount?: number;
+  incomingPropCount?: number;
 }): boolean {
+  const displayedProps = opts.displayedPropCount;
+  const incomingProps = opts.incomingPropCount;
+  // Prop-mix upgrade: game-line-only tickets must accept later prop waves even
+  // after escape paint / N-of-N freeze, or Coach stays on 5 AI game lines forever.
+  // Requires explicit counts so legacy call sites are unchanged.
+  const propMixUpgrade =
+    opts.legTarget >= 3 &&
+    displayedProps != null &&
+    incomingProps != null &&
+    incomingProps > displayedProps &&
+    opts.incomingPickCount > 0;
+  if (propMixUpgrade) {
+    return true;
+  }
   // Escape latch must win over fixed-leg full-count gating. Without this,
   // releaseUnderCountBoardScanEscape sets forceShow then patchInstant still
   // rejects under-count tickets and returns a fake success with zero cards.
@@ -139,12 +168,14 @@ export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
     (opts.allowIncompletePicks || opts.forceShowIncomplete) &&
     opts.incomingPickCount > 0
   ) {
-    // Still protect a frozen finished on-screen ticket from reshape.
+    // Still protect a frozen finished on-screen ticket from reshape — unless
+    // the incoming ticket improves prop mix (handled above).
     if (
       shouldFreezeDisplayedCoachTicket({
         displayedScanComplete: opts.displayedScanComplete,
         displayedPickCount: opts.displayedPickCount,
         legTarget: opts.legTarget,
+        displayedPropCount: displayedProps,
       }) &&
       opts.displayedPickCount > 0
     ) {
@@ -157,6 +188,7 @@ export function shouldAcceptSameRequestBoardScanTicketUpdate(opts: {
       displayedScanComplete: opts.displayedScanComplete,
       displayedPickCount: opts.displayedPickCount,
       legTarget: opts.legTarget,
+      displayedPropCount: displayedProps,
     })
   ) {
     // Visible finished ticket stays frozen. Empty frozen may recover to a

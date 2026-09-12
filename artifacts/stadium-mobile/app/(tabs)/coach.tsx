@@ -171,6 +171,7 @@ import {
   shouldReleaseUnderCountBoardScanAtEscape,
   shouldSuppressEmptyTicketDeadEnd,
   underCountHeldBoardScanEscapeMs,
+  underCountHeldBoardScanEscapeMsForStash,
   emptyTicketDeadEndMessage,
   stallIncompleteScanStillInFlight,
 } from "@/lib/coachBuildPhase";
@@ -1746,6 +1747,9 @@ export default function CoachScreen() {
           legTarget,
           allowIncompletePicks: opts?.allowIncompletePicks,
           forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+          displayedPropCount:
+            boardTicketSnapshotRef.current?.filter((p) => p.isProp).length ?? 0,
+          incomingPropCount: ticket.filter((p) => p.isProp).length,
         })
       ) {
         latestBoardScanRef.current = partial;
@@ -1819,6 +1823,7 @@ export default function CoachScreen() {
         displayedScanComplete: isFinal,
         displayedPickCount: ticket.length,
         legTarget,
+        displayedPropCount: ticket.filter((p) => p.isProp).length,
       });
       if (freezeNow) {
         liveScanDeliveredRef.current = true;
@@ -2062,7 +2067,12 @@ export default function CoachScreen() {
         underCountEscapeDeadlineRef.current = null;
         stallMs = buildStallBudgetMs(legs);
       } else if (stashCount > 0) {
-        const windowMs = underCountHeldBoardScanEscapeMs(legsEffective);
+        const stashPropCount =
+          latestBoardScanRef.current?.picks?.filter((p) => p.isProp).length ?? 0;
+        const windowMs = underCountHeldBoardScanEscapeMsForStash({
+          requestedLegs: legsEffective,
+          stashPropCount,
+        });
         if (underCountEscapeDeadlineRef.current == null) {
           underCountEscapeDeadlineRef.current = Date.now() + windowMs;
         }
@@ -5808,6 +5818,8 @@ export default function CoachScreen() {
               displayedScanComplete: frozen,
               displayedPickCount: displayedCount,
               legTarget,
+              displayedPropCount:
+                boardTicketSnapshotRef.current?.filter((p) => p.isProp).length ?? 0,
             })
           ) {
             return boardTicketSnapshotRef.current ?? resolved;
@@ -5831,6 +5843,9 @@ export default function CoachScreen() {
               legTarget,
               allowIncompletePicks: forceShowIncompleteBoardScanRef.current,
               forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+              displayedPropCount:
+                boardTicketSnapshotRef.current?.filter((p) => p.isProp).length ?? 0,
+              incomingPropCount: resolved.filter((p) => p.isProp).length,
             })
           ) {
             return displayedCount > 0 ? (boardTicketSnapshotRef.current ?? []) : [];
