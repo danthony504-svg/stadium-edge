@@ -219,20 +219,26 @@ export async function fetchSlateGameSimulations(
     }
     if (!coverQueries.length) return;
 
-    const result = await fetchGameOutcomeSimulation(
-      {
-        sport: ids.sport || sport || "mlb",
-        homeTeamId: ids.homeTeamId,
-        awayTeamId: ids.awayTeamId,
-        homeTeam: ids.homeTeam,
-        awayTeam: ids.awayTeam,
-        simulations: COACH_GAME_SIMS,
-        coverQueries,
-        retainOutcomes: true,
-      },
-      signal,
-    );
-    if (result) out.set(gameLabel, result as CoachGameSimEntry);
+    // One game timeout/network failure must not abort the whole slate —
+    // that collapsed Coach to an instant 0-leg ticket (phone 7-leg empty).
+    try {
+      const result = await fetchGameOutcomeSimulation(
+        {
+          sport: ids.sport || sport || "mlb",
+          homeTeamId: ids.homeTeamId,
+          awayTeamId: ids.awayTeamId,
+          homeTeam: ids.homeTeam,
+          awayTeam: ids.awayTeam,
+          simulations: COACH_GAME_SIMS,
+          coverQueries,
+          retainOutcomes: true,
+        },
+        signal,
+      );
+      if (result) out.set(gameLabel, result as CoachGameSimEntry);
+    } catch {
+      // Skip this game; siblings in the concurrent batch keep scoring.
+    }
   }
 
   for (let i = 0; i < entries.length; i += SLATE_SIM_CONCURRENCY) {

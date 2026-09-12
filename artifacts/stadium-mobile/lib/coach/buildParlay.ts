@@ -77,7 +77,7 @@ async function loadScanInputs(
   realOdds: RealOddsEntry[];
   liveOdds: RealOddsEntry[];
 }> {
-  const sports = DEFAULT_SPORTS.slice(0, 8);
+  const sports = DEFAULT_SPORTS;
   onStatus?.("Loading tonight's board…");
   const [espnGames, oddsRaw, liveFeed] = await Promise.all([
     Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))).then((rows) =>

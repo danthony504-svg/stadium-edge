@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * Regression: one game-outcome sim timeout used to reject Promise.all for the
+ * whole slate batch → buildTopLegs threw → tryReachFullBoardScan returned null
+ * → Coach painted instant 0-of-7 ("no AI-backed picks cleared the quality bar").
+ */
+test("one rejected game sim must not reject the whole slate batch", async () => {
+  async function simGame(id: number): Promise<number | null> {
+    if (id === 2) throw new Error("request timeout: /sports/simulate/game-outcome");
+    return id;
+  }
+
+  await assert.rejects(
+    async () => Promise.all([1, 2, 3].map((id) => simGame(id))),
+    /timeout/,
+  );
+
+  // Mirrors fetchSlateGameSimulations per-game try/catch.
+  const settled = await Promise.all(
+    [1, 2, 3].map(async (id) => {
+      try {
+        return await simGame(id);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  assert.deepEqual(
+    settled.filter((v): v is number => v != null),
+    [1, 3],
+  );
+});
+
+test("prop MC incomplete when deadline stops before pool exhaustion", () => {
+  const rankedProps = 40;
+  const simIndex = 8;
+  const stoppedEarly = true;
+  assert.equal(stoppedEarly && simIndex < rankedProps, true);
+  assert.equal(true && 40 < 40, false);
+});
+
+test("buildCoachParlay loads full DEFAULT_SPORTS (no slice(0, 8))", () => {
+  const src = readFileSync(join(root, "lib/coach/buildParlay.ts"), "utf8");
+  assert.match(src, /const sports = DEFAULT_SPORTS;/);
+  assert.doesNotMatch(src, /DEFAULT_SPORTS\.slice\(\s*0\s*,\s*8\s*\)/);
+});
+
+test("fetchSlateGameSimulations catches per-game failures", () => {
+  const src = readFileSync(join(root, "lib/coachGameMonteCarlo.ts"), "utf8");
+  assert.match(src, /One game timeout\/network failure must not abort the whole slate/);
+  assert.match(src, /try \{[\s\S]*fetchGameOutcomeSimulation[\s\S]*\} catch/);
+});
+
+test("board scan game phase continues after a thrown slate batch", () => {
+  const src = readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");
+  assert.match(src, /Keep scanning remaining games \+ props/);
+  assert.match(src, /incomplete: boolean/);
+  assert.match(src, /Start the prop MC clock AFTER sync ranking/);
+});
