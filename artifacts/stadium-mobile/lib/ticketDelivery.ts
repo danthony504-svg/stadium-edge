@@ -54,11 +54,16 @@ export function ticketPropSlotTarget(requestedLegs: number): number {
   return Math.max(1, Math.round(requestedLegs * 0.5));
 }
 
+/**
+ * UI hard-stop for reserved 0-prop previews. Kept BELOW the scanner prop-phase
+ * wall and BELOW ticketAbsoluteUiBudgetMs so Coach paints an honest shortfall
+ * instead of sitting at 84% while prop MC hangs.
+ */
 export function ticketAwaitingPropSlotsMaxWaitMs(requestedLegs: number): number {
-  if (requestedLegs >= 15) return 90_000;
-  if (requestedLegs >= 9) return 75_000;
-  if (requestedLegs >= 6) return 60_000;
-  return 50_000;
+  if (requestedLegs >= 15) return 40_000;
+  if (requestedLegs >= 9) return 30_000;
+  if (requestedLegs >= 6) return 25_000;
+  return 18_000;
 }
 
 export function ticketUnderCountEscapeMs(requestedLegs: number): number {

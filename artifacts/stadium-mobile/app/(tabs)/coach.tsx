@@ -186,6 +186,21 @@ import {
   ticketAwaitingPropSlotsElapsedMs,
   awaitingPropSlotsPastDeadlineFromClock,
 } from "@/lib/coachBuildPhase";
+import {
+  beginTicketDeliverySession,
+  createTicketDeliverySession,
+  latchTicketDeliveryTerminal,
+  ticketDeliveryAbsolutePastDeadline,
+  ticketDeliveryArmHardTerminal,
+  ticketDeliveryNotePartial,
+  ticketDeliveryPropSlotPastDeadline,
+  ticketDeliveryShouldArmHardTerminal,
+  ticketDeliveryShouldKeepBusy,
+  ticketDeliveryStashForPaint,
+  ticketDeliverySessionIsTerminal,
+  clearTicketDeliveryHardTerminal,
+  ticketAbsoluteUiBudgetMs,
+} from "@/lib/ticketDeliverySession";
 import { shouldUnlockCoachComposer } from "@/lib/coachComposerUnlock";
 import { awaitLateBoardScanAfterBudget } from "@/lib/coachBoardScanBudgetHandoff";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
@@ -1326,6 +1341,8 @@ export default function CoachScreen() {
   const awaitingPropSlotsStartedAtRef = useRef<number | null>(null);
   /** Single delivery clock for this send — escape/busy/terminal authority. */
   const ticketDeliveryClockRef = useRef(createTicketDeliveryClock());
+  /** Single delivery session per send — terminal latch beats late-join keepBusy. */
+  const ticketDeliverySessionRef = useRef(createTicketDeliverySession(0, 0));
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
   /**
    * This send still owns a board-scan attempt (feeds / scan / late-join), including
@@ -1440,6 +1457,10 @@ export default function CoachScreen() {
         // unlock into the empty dead-end after a failed escape paint.
         return false;
       }
+      latchTicketDeliveryTerminal(
+        ticketDeliverySessionRef.current,
+        "shown-shortfall",
+      );
       boardScanAttemptActiveRef.current = false;
       setStreaming(false);
       setWaiting(false);
@@ -1671,7 +1692,7 @@ export default function CoachScreen() {
             legTarget,
             readyPickCount: ready,
             allowIncompletePicks: opts?.allowIncompletePicks,
-            forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+            forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
           })
         ) {
           latestBoardScanRef.current = partial;
@@ -1798,7 +1819,7 @@ export default function CoachScreen() {
           incomingPickCount: ticket.length,
           legTarget,
           allowIncompletePicks: opts?.allowIncompletePicks,
-          forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+          forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
           displayedPropCount:
             boardTicketSnapshotRef.current?.filter((p) => p.isProp).length ?? 0,
           incomingPropCount: ticket.filter((p) => p.isProp).length,
@@ -1821,7 +1842,7 @@ export default function CoachScreen() {
           pickCount: ticket.length,
           scanComplete: isFinal,
           allowIncompletePicks: opts?.allowIncompletePicks,
-          forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+          forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
         })
       ) {
         latestBoardScanRef.current = partial;
@@ -1926,8 +1947,123 @@ export default function CoachScreen() {
       if (opts?.pinScroll !== false) scrollToEnd(false);
       return true;
     },
-    [clearBuildStallWatchdog, scrollToEnd],
+
+  /**
+   * Session hard terminal — latch outcome so keepBusy can never re-arm, strip
+   * awaitingPropSlots, force-paint shortfall, and ALWAYS unlock the composer.
+   * Prop MC may still upgrade cards later; it cannot re-freeze the UI.
+   */
+  const forceTicketDeliveryTerminal = useCallback(
+    (sendGen: number, userText: string, kind: "shown-shortfall" | "empty-complete" | "failed-retry" = "shown-shortfall") => {
+      if (sendGenerationRef.current !== sendGen) return;
+      const session = ticketDeliverySessionRef.current;
+      latchTicketDeliveryTerminal(session, kind);
+      forceShowIncompleteBoardScanRef.current = true;
+      underCountEscapeDeadlineRef.current = null;
+      // Keep legacy clock in sync with session (shared after beginSend).
+      ticketDeliveryClockRef.current = session.clock;
+
+      const stashed = latestBoardScanRef.current;
+      const legTarget =
+        activeRequestLegTargetRef.current ||
+        requestedLegCount(userText) ||
+        effectiveBuildLegCount(userText) ||
+        6;
+      const stashPropCount =
+        stashed?.picks?.filter((p) => p.isProp).length ?? 0;
+      if (stashed?.picks?.length) {
+        const toPaint = ticketDeliveryStashForPaint(session, stashed, {
+          awaitingPropSlots: stashed.awaitingPropSlots === true,
+          stashPropCount,
+        });
+        const ctx = coachRequestContextRef.current;
+        const adopted =
+          ctx?.requestId
+            ? adoptBoardScanForActiveRequest(toPaint, {
+                requestId: ctx.requestId,
+                requestedLegs: legTarget,
+              })
+            : toPaint;
+        latestBoardScanRef.current = adopted;
+        patchInstantBoardScanTicket(adopted, undefined, {
+          allowIncompletePicks: true,
+          ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+          legNote: boardScanIsComplete(adopted)
+            ? undefined
+            : `Still finishing the full-board scan — showing **${adopted.picks.length}** of **${legTarget || adopted.picks.length}** legs scored so far.`,
+        });
+      }
+      // ALWAYS leave limbo — terminal latch means finally/keepBusy cannot re-busy.
+      boardScanAttemptActiveRef.current = false;
+      awaitingPropSlotsStartedAtRef.current = null;
+      setStreaming(false);
+      setWaiting(false);
+      setBuildFinishing(false);
+      setCoachBuildBusy(false);
+      setParlayBuildPhase("idle");
+      setBuildProgressExpired(true);
+      clearBuildStallWatchdog();
+    },
+    [patchInstantBoardScanTicket, clearBuildStallWatchdog],
   );
+
+  const armTicketDeliveryHardTerminal = useCallback(
+    (sendGen: number, userText: string) => {
+      if (sendGenerationRef.current !== sendGen) return;
+      const session = ticketDeliverySessionRef.current;
+      const stashed = latestBoardScanRef.current;
+      const stashPropCount =
+        stashed?.picks?.filter((p) => p.isProp).length ?? 0;
+      if (
+        !ticketDeliveryShouldArmHardTerminal(session, {
+          stashPickCount: stashed?.picks?.length ?? 0,
+          displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
+          awaitingPropSlots: stashed?.awaitingPropSlots === true,
+          stashPropCount,
+          scanComplete: stashed?.scanComplete,
+        })
+      ) {
+        return;
+      }
+      ticketDeliveryNotePartial(session, {
+        awaitingPropSlots: true,
+        stashPropCount: 0,
+      });
+      if (awaitingPropSlotsStartedAtRef.current == null) {
+        awaitingPropSlotsStartedAtRef.current =
+          session.clock.awaitingPropSlotsStartedAtMs;
+      }
+      ticketDeliveryArmHardTerminal(session, {
+        onFire: () => forceTicketDeliveryTerminal(sendGen, userText, "shown-shortfall"),
+      });
+      // Also arm absolute UI budget once (covers non-awaiting hangs).
+      if (!session.absoluteTerminalTimer) {
+        const started = session.clock.sendStartedAtMs ?? Date.now();
+        const absMs = Math.max(
+          0,
+          started + ticketAbsoluteUiBudgetMs(session.requestedLegs || 6) - Date.now(),
+        );
+        session.absoluteTerminalTimer = setTimeout(() => {
+          session.absoluteTerminalTimer = null;
+          if (ticketDeliverySessionIsTerminal(session)) return;
+          if (sendGenerationRef.current !== sendGen) return;
+          if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) {
+            latchTicketDeliveryTerminal(session, "shown-mixed");
+            return;
+          }
+          forceTicketDeliveryTerminal(
+            sendGen,
+            userText,
+            (latestBoardScanRef.current?.picks?.length ?? 0) > 0
+              ? "shown-shortfall"
+              : "failed-retry",
+          );
+        }, absMs);
+      }
+    },
+    [forceTicketDeliveryTerminal],
+  );
+
 
   const rehydrateVisibleBoardTicket = useCallback(() => {
     const enrich = flashEnrichRef.current;
@@ -2213,7 +2349,7 @@ export default function CoachScreen() {
             hadStashPicks: !!(stashed?.picks?.length),
             displayedPickCountAfter: displayedAfter,
             incompleteScanInFlight: stallIncompleteScanStillInFlight({
-              forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+              forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
               boardScanPending: boardScanPendingForActiveSend(),
               scanComplete: stashed?.scanComplete,
               stashPickCount: stashed?.picks?.length ?? 0,
@@ -2342,12 +2478,44 @@ export default function CoachScreen() {
         return;
       }
       latestBoardScanRef.current = partial;
-      if (partial.picks.length) {
-        setBoardScanPartialLegs(partial.picks.length);
+      const session = ticketDeliverySessionRef.current;
+      const stashPropCount = partial.picks.filter((p) => p.isProp).length;
+      const awaitingProps =
+        partial.awaitingPropSlots === true && stashPropCount <= 0;
+      // Terminal sessions ignore awaiting re-entry — upgrades only.
+      ticketDeliveryNotePartial(session, {
+        awaitingPropSlots: awaitingProps,
+        stashPropCount,
+      });
+      if (awaitingProps && awaitingPropSlotsStartedAtRef.current == null) {
+        awaitingPropSlotsStartedAtRef.current =
+          session.clock.awaitingPropSlotsStartedAtMs ?? Date.now();
+      }
+      ticketDeliveryClockRef.current = session.clock;
+      const pastDeadline =
+        ticketDeliverySessionIsTerminal(session) ||
+        ticketDeliveryAbsolutePastDeadline(session) ||
+        ticketDeliveryPropSlotPastDeadline(session, {
+          awaitingPropSlots: awaitingProps,
+          stashPropCount,
+          scanComplete: partial.scanComplete,
+        });
+      if (pastDeadline) {
+        forceShowIncompleteBoardScanRef.current = true;
+      }
+      const toPaint = ticketDeliveryStashForPaint(session, partial, {
+        awaitingPropSlots: awaitingProps,
+        stashPropCount,
+      });
+      if (pastDeadline) {
+        latestBoardScanRef.current = toPaint;
+      }
+      if (toPaint.picks.length) {
+        setBoardScanPartialLegs(toPaint.picks.length);
         setParlayBuildPhase(
           coachPhaseWhileAwaitingTicketCards({
             displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
-            stashPickCount: partial.picks.length,
+            stashPickCount: toPaint.picks.length,
           }),
         );
       } else {
@@ -2363,15 +2531,20 @@ export default function CoachScreen() {
           setParlayBuildPhase("board-scan");
         }
       }
-      patchInstantBoardScanTicket(partial, undefined, {
+      patchInstantBoardScanTicket(toPaint, undefined, {
         ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+        allowIncompletePicks:
+          pastDeadline || forceShowIncompleteBoardScanRef.current,
       });
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
+        if (awaitingProps) {
+          armTicketDeliveryHardTerminal(sendGenerationRef.current, ask);
+        }
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog, armTicketDeliveryHardTerminal],
   );
 
   const kickoffEarlyReachBoardScan = useCallback(
@@ -2548,6 +2721,12 @@ export default function CoachScreen() {
       underCountEscapeDeadlineRef.current = null;
       awaitingPropSlotsStartedAtRef.current = null;
       resetTicketDeliveryClock(ticketDeliveryClockRef.current);
+      beginTicketDeliverySession(ticketDeliverySessionRef.current, {
+        sendGen,
+        requestedLegs: earlyLegTargetPreview || 0,
+      });
+      // Sync legacy clock with session clock (escape helpers still read it).
+      ticketDeliveryClockRef.current = ticketDeliverySessionRef.current.clock;
       earlyReachBoardScanRef.current = null;
       boardScanAttemptActiveRef.current = false;
       boardScanLateJoinsRef.current = 0;
@@ -5969,7 +6148,7 @@ export default function CoachScreen() {
               incomingPickCount: resolved.length,
               legTarget,
               allowIncompletePicks: forceShowIncompleteBoardScanRef.current,
-              forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+              forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
               displayedPropCount:
                 boardTicketSnapshotRef.current?.filter((p) => p.isProp).length ?? 0,
               incomingPropCount: resolved.filter((p) => p.isProp).length,
@@ -5983,7 +6162,7 @@ export default function CoachScreen() {
               pickCount: resolved.length,
               scanComplete: scanDone,
               allowIncompletePicks: forceShowIncompleteBoardScanRef.current,
-              forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+              forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
             })
           ) {
             // Escape already painted under-count cards — keep them.
@@ -6456,31 +6635,32 @@ export default function CoachScreen() {
         releaseOtaBlock();
                 const stashNow = latestBoardScanRef.current;
         const stashPropNow = stashNow?.picks?.filter((p) => p.isProp).length ?? 0;
-        const awaitingPropSlotsPastDeadline =
-          stashNow?.awaitingPropSlots === true &&
-          stashPropNow <= 0 &&
-          awaitingPropSlotsStartedAtRef.current != null &&
-          Date.now() - awaitingPropSlotsStartedAtRef.current >=
-            awaitingPropSlotsMaxWaitMs(
-              activeRequestLegTargetRef.current ||
-                requestedLegCount(trimmed) ||
-                effectiveBuildLegCount(trimmed) ||
-                6,
-            );
-        const keepBusy = shouldKeepBusyForIncompleteBoardScan({
+        const session = ticketDeliverySessionRef.current;
+        // Absolute / prop-slot / terminal latch — boardScanPending cannot veto.
+        if (
+          !ticketDeliverySessionIsTerminal(session) &&
+          (ticketDeliveryAbsolutePastDeadline(session) ||
+            ticketDeliveryPropSlotPastDeadline(session, {
+              awaitingPropSlots: stashNow?.awaitingPropSlots === true,
+              stashPropCount: stashPropNow,
+              scanComplete: stashNow?.scanComplete,
+            }))
+        ) {
+          forceTicketDeliveryTerminal(
+            sendGen,
+            trimmed,
+            (stashNow?.picks?.length ?? 0) > 0 ? "shown-shortfall" : "failed-retry",
+          );
+        }
+        const keepBusy = ticketDeliveryShouldKeepBusy(session, {
           isParlayBuild: isParlayBuildAsk(trimmed),
-          legTarget:
-            activeRequestLegTargetRef.current ||
-            requestedLegCount(trimmed) ||
-            effectiveBuildLegCount(trimmed),
           displayedPickCount: boardTicketSnapshotRef.current?.length ?? 0,
           scanComplete: latestBoardScanRef.current?.scanComplete,
-          // Empty {} / zero-pick stash must not hold busy forever at 93%.
           hasScanStash: (latestBoardScanRef.current?.picks?.length ?? 0) > 0,
           ticketFrozen: boardScanTicketFrozenRef.current,
           boardScanPending: boardScanPendingForActiveSend(),
-          forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
-          awaitingPropSlotsPastDeadline,
+          awaitingPropSlots: stashNow?.awaitingPropSlots === true,
+          stashPropCount: stashPropNow,
         });
         if (keepBusy) {
           // Late board-scan join still running — do not clear busy or the
@@ -6532,6 +6712,7 @@ export default function CoachScreen() {
       modelStrengths,
       marketPerf,
       releaseUnderCountBoardScanEscape,
+      forceTicketDeliveryTerminal,
     ],
   );
 
@@ -6925,7 +7106,7 @@ export default function CoachScreen() {
         scanComplete: partial.scanComplete,
         legTarget,
         readyPickCount: partial.picks?.length ?? 0,
-        forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+        forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
       })
     ) {
       return;
@@ -6960,7 +7141,7 @@ export default function CoachScreen() {
           scanComplete: partialRetry.scanComplete,
           legTarget,
           readyPickCount: partialRetry.picks?.length ?? 0,
-          forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+          forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
         })
       ) {
         return;
@@ -7260,7 +7441,7 @@ export default function CoachScreen() {
                       legTarget: renderLegTarget,
                       pickCount: candidate.length,
                       scanComplete: m.boardScanComplete,
-                      forceShowIncomplete: forceShowIncompleteBoardScanRef.current,
+                      forceShowIncomplete: forceShowIncompleteBoardScanRef.current || ticketDeliverySessionRef.current.forceShow,
                     })
                   ) {
                     return [];
@@ -7513,6 +7694,8 @@ export default function CoachScreen() {
                     requestedLegs={ticketLegTarget > 0 ? ticketLegTarget : undefined}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
                     awaitingPropSlots={
+                      !ticketDeliverySessionIsTerminal(ticketDeliverySessionRef.current) &&
+                      !ticketDeliveryAbsolutePastDeadline(ticketDeliverySessionRef.current) &&
                       latestBoardScanRef.current?.awaitingPropSlots === true &&
                       (latestBoardScanRef.current?.picks?.filter((p) => p.isProp).length ?? 0) <= 0
                     }
@@ -7676,6 +7859,8 @@ export default function CoachScreen() {
               }
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
               awaitingPropSlots={
+                !ticketDeliverySessionIsTerminal(ticketDeliverySessionRef.current) &&
+                !ticketDeliveryAbsolutePastDeadline(ticketDeliverySessionRef.current) &&
                 latestBoardScanRef.current?.awaitingPropSlots === true &&
                 (latestBoardScanRef.current?.picks?.filter((p) => p.isProp).length ?? 0) <= 0
               }
