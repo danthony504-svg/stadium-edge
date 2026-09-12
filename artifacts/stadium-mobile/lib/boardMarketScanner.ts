@@ -491,7 +491,19 @@ export function buildScanResult(
       ticketStyle: opts.ticketStyle,
     },
   );
-  const picks = injectPrioritySportsIntoTicket(staged.picks, stagePool, opts.target);
+  let picks = injectPrioritySportsIntoTicket(staged.picks, stagePool, opts.target);
+  // Preview waves score game lines first. Do not fill reserved prop slots with
+  // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
+  if (opts.preview && !opts.propsOnly && opts.target >= 3) {
+    const propCount = picks.filter((p) => p.isProp).length;
+    const propSlots = Math.max(1, Math.round(opts.target * 0.5));
+    if (propCount < propSlots) {
+      const props = picks.filter((p) => p.isProp);
+      const nonProps = picks.filter((p) => !p.isProp);
+      const nonPropCap = Math.max(0, opts.target - propSlots);
+      picks = [...props, ...nonProps.slice(0, nonPropCap)].slice(0, opts.target);
+    }
+  }
   const breakdown = staged.breakdown;
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;

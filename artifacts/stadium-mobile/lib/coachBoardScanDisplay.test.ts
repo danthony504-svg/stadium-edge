@@ -440,3 +440,54 @@ test("forceShowIncomplete does not reshape a frozen finished on-screen ticket", 
     false,
   );
 });
+
+
+test("mid-scan N-of-N with 0 props does not freeze (prop waves must still land)", () => {
+  assert.equal(
+    shouldFreezeDisplayedCoachTicket({
+      displayedScanComplete: false,
+      displayedPickCount: 6,
+      legTarget: 6,
+      displayedPropCount: 0,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldFreezeDisplayedCoachTicket({
+      displayedScanComplete: false,
+      displayedPickCount: 6,
+      legTarget: 6,
+      displayedPropCount: 3,
+    }),
+    true,
+  );
+});
+
+test("prop-mix upgrade accepts later prop waves over game-line-only ticket", () => {
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: false,
+      displayedPickCount: 5,
+      incomingScanComplete: false,
+      incomingPickCount: 6,
+      legTarget: 6,
+      displayedPropCount: 0,
+      incomingPropCount: 3,
+    }),
+    true,
+  );
+  // Frozen full-count game-line ticket still upgrades when props arrive.
+  assert.equal(
+    shouldAcceptSameRequestBoardScanTicketUpdate({
+      displayedScanComplete: true,
+      displayedPickCount: 6,
+      incomingScanComplete: true,
+      incomingPickCount: 6,
+      legTarget: 6,
+      displayedPropCount: 0,
+      incomingPropCount: 3,
+      forceShowIncomplete: true,
+    }),
+    true,
+  );
+});

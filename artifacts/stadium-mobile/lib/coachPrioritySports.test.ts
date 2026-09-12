@@ -98,3 +98,34 @@ test("does not invent football when no qualifying NFL/NCAAF legs exist", () => {
     ["mlb", "mlb", "mlb"],
   );
 });
+
+
+test("prefers NFL player prop over leaving a game-line-only NFL seat", () => {
+  const ticket = [
+    makePick({ sport: "mlb", game: "A @ B", pick: "A +1.5", composite: 8 }),
+    makePick({ sport: "mlb", game: "C @ D", pick: "C +1.5", composite: 7.5 }),
+    makePick({ sport: "mlb", game: "E @ F", pick: "E +1.5", composite: 7 }),
+    makePick({ sport: "mlb", game: "G @ H", pick: "G +1.5", composite: 6.5 }),
+    makePick({ sport: "mlb", game: "I @ J", pick: "I +1.5", composite: 6 }),
+    makePick({
+      sport: "nfl",
+      game: "Packers @ Vikings",
+      pick: "Over 46.5",
+      composite: 7.2,
+    }),
+  ];
+  const nflProp = makePick({
+    sport: "nfl",
+    game: "Packers @ Vikings",
+    pick: "J. Love Over 224.5 Pass Yds",
+    composite: 7.0,
+    isProp: true,
+  });
+  const pool = [
+    ...ticket.map((p, i) => scored(p, 90 - i)),
+    scored(nflProp, 85),
+  ];
+  const out = injectPrioritySportsIntoTicket(ticket, pool, 6);
+  const nflLegs = out.filter((p) => p.sport === "nfl");
+  assert.ok(nflLegs.some((p) => p.isProp), "expected NFL player prop on ticket");
+});

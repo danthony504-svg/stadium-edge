@@ -1,7 +1,7 @@
 /**
  * Soft multi-sport mix for generic Coach board-scan tickets.
  * Does not change qualification thresholds — only swaps in already-qualified
- * NFL / NCAAF legs when the staged ticket omitted them.
+ * NFL / NCAAF legs when the staged ticket omitted them (or only has game lines).
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -20,8 +20,8 @@ function pickComposite(pick: ParsedPick): number {
 }
 
 /**
- * If the ticket is missing NFL or NCAAF but the scored pool has a qualifying
- * leg for that sport, swap out the weakest non-priority leg.
+ * Ensure NFL/NCAAF appear on generic tickets. Prefer already-qualified player
+ * props over game lines so a Packers total alone does not "satisfy" football.
  */
 export function injectPrioritySportsIntoTicket(
   picks: ParsedPick[],
@@ -34,7 +34,9 @@ export function injectPrioritySportsIntoTicket(
   const used = new Set(out.map(pickLegFingerprint));
 
   for (const sport of prioritySports) {
-    if (out.some((p) => sportId(p) === sport)) continue;
+    // Already have a player prop for this sport — done. Game-line-only NFL
+    // must still attempt prop injection.
+    if (out.some((p) => sportId(p) === sport && !!p.isProp)) continue;
 
     const candidates = scored
       .filter((leg) => {
@@ -42,20 +44,45 @@ export function injectPrioritySportsIntoTicket(
         if (used.has(pickLegFingerprint(leg.pick))) return false;
         return boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null;
       })
-      .sort((a, b) => b.rankScore - a.rankScore);
+      .sort((a, b) => {
+        const propDelta = Number(!!b.pick.isProp) - Number(!!a.pick.isProp);
+        if (propDelta !== 0) return propDelta;
+        return b.rankScore - a.rankScore;
+      });
 
     const best = candidates[0];
     if (!best) continue;
 
+    const sportAlreadyOnTicket = out.some((p) => sportId(p) === sport);
+    // Sport only as game line → only upgrade when we have a real prop.
+    if (sportAlreadyOnTicket && !best.pick.isProp) continue;
+
     let worstIdx = -1;
     let worstScore = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < out.length; i++) {
-      const p = out[i]!;
-      if (prioritySports.includes(sportId(p) as (typeof prioritySports)[number])) continue;
-      const score = pickComposite(p);
-      if (score < worstScore) {
-        worstScore = score;
-        worstIdx = i;
+
+    if (best.pick.isProp) {
+      for (let i = 0; i < out.length; i++) {
+        const p = out[i]!;
+        if (sportId(p) !== sport || p.isProp) continue;
+        const score = pickComposite(p);
+        if (score < worstScore) {
+          worstScore = score;
+          worstIdx = i;
+        }
+      }
+    }
+    if (worstIdx < 0) {
+      worstScore = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < out.length; i++) {
+        const p = out[i]!;
+        if (prioritySports.includes(sportId(p) as (typeof prioritySports)[number])) {
+          continue;
+        }
+        const score = pickComposite(p);
+        if (score < worstScore) {
+          worstScore = score;
+          worstIdx = i;
+        }
       }
     }
     if (worstIdx < 0) continue;
