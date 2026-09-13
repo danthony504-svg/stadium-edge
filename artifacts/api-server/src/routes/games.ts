@@ -8,7 +8,12 @@ import {
   resolveEspnCompetitorSides,
   type EspnTeamCompetitor,
 } from "../lib/espnCompetitors.js";
-import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
+import {
+  ESPN_SOCCER_SCOREBOARD_PATHS,
+  ESPN_SPORT_PATHS,
+  cachedJson,
+  rateLimit,
+} from "../lib/sports";
 import { loadTennisGames } from "../lib/tennis.js";
 import { loadOddsSlateGames, ODDS_SLATE_SPORT_IDS } from "../lib/oddsSlateGames.js";
 import { loadUfcSlateGames } from "../lib/ufcGames.js";
@@ -204,17 +209,14 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
     return;
   }
-  // The generic ESPN soccer path only covers ONE club league (Champions
-  // League). During the FIFA World Cup that league is in its off-season, so the
-  // soccer scoreboard comes back essentially empty even though the betting feed
-  // (the-odds-api) is full of WC fixtures. That left the AI coach with WC
-  // goalscorer prices on the prop board but NO corresponding game in
-  // realGames/matchupHistory, so it honestly refused to build legs ("those
-  // matches aren't on the live game slate"). Pull ESPN's FIFA World Cup
-  // scoreboard too and merge it in so national-team fixtures appear on the slate
-  // alongside the club league. Harmless year-round: whichever competition is
-  // off-season simply returns no events. Real ESPN data only.
-  const extraPaths = sportId === "soccer" ? ["soccer/fifa.world"] : [];
+  // Soccer odds fan out across several league keys (UCL, WC, Ligue 1, Brazil,
+  // J League, Serie B, Segunda). ESPN's primary path is only UCL — pull every
+  // matching scoreboard so Coach can bind Odds labels → ESPN team ids. Empty
+  // off-season leagues are harmless. Real ESPN data only.
+  const extraPaths =
+    sportId === "soccer"
+      ? ESPN_SOCCER_SCOREBOARD_PATHS.filter((p) => p !== path)
+      : [];
   const allPaths = [path, ...extraPaths].filter((p, i, a) => a.indexOf(p) === i);
 
   // ESPN's scoreboard endpoint defaults to *today's UTC date only*, which gives
