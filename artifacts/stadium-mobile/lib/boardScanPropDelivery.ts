@@ -144,7 +144,6 @@ export function fillReservedPropSlots<T extends PropFillPick>(
   let out = picks.slice(0, target);
   const used = new Set(out.map(propFillFingerprint));
   let propCount = out.filter((p) => !!p.isProp).length;
-  if (propCount >= propSlots) return out;
 
   const familyCounts = new Map<string, number>();
   for (const p of out) {
@@ -207,6 +206,53 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     used.add(fp);
     propCount += 1;
     if (fam) familyCounts.set(fam, (familyCounts.get(fam) ?? 0) + 1);
+  }
+
+  // Even when prop slots are already full, swap concentrated football families
+  // (e.g. 4× rush) for underrepresented skill props (pass/rec/sack/TD) when available.
+  const maxPerFamily = Math.max(1, Math.ceil(propSlots / 3));
+  let swaps = 0;
+  while (swaps < propSlots) {
+    let excessIdx = -1;
+    let excessFam: string | null = null;
+    for (let i = 0; i < out.length; i++) {
+      const p = out[i]!;
+      if (!p.isProp) continue;
+      const fam = footballSkillPropFamily(p.market);
+      if (!fam) continue;
+      if ((familyCounts.get(fam) ?? 0) > maxPerFamily) {
+        excessIdx = i;
+        excessFam = fam;
+        break;
+      }
+    }
+    if (excessIdx < 0 || !excessFam) break;
+
+    const cand = remaining()
+      .filter((leg) => {
+        const fam = footballSkillPropFamily(leg.pick.market);
+        if (!fam || fam === excessFam) return false;
+        return (familyCounts.get(fam) ?? 0) < maxPerFamily;
+      })
+      .sort((a, b) => {
+        const aSkill = footballSkillPropRank(a.pick.market);
+        const bSkill = footballSkillPropRank(b.pick.market);
+        if (aSkill !== bSkill) return bSkill - aSkill;
+        return (b.rankScore ?? 0) - (a.rankScore ?? 0);
+      })[0];
+    if (!cand) break;
+
+    const old = out[excessIdx]!;
+    const oldFam = footballSkillPropFamily(old.market);
+    const newFam = footballSkillPropFamily(cand.pick.market);
+    const next = out.slice();
+    next[excessIdx] = cand.pick;
+    out = next;
+    used.delete(propFillFingerprint(old));
+    used.add(propFillFingerprint(cand.pick));
+    if (oldFam) familyCounts.set(oldFam, Math.max(0, (familyCounts.get(oldFam) ?? 1) - 1));
+    if (newFam) familyCounts.set(newFam, (familyCounts.get(newFam) ?? 0) + 1);
+    swaps += 1;
   }
 
   return out.slice(0, target);
