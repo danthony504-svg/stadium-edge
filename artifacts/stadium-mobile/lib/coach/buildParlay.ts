@@ -169,7 +169,12 @@ export async function buildCoachParlay(opts: {
   );
 
   const teamIdMap = buildGameTeamIdMap(inputs.espnGames);
-  const skipPropExpand = shouldSkipScannerPropExpand(propPoolSize);
+  // Allowlisted / props-only pools must not re-expand to the full board
+  // (filtered yards pools are often < 40 and would otherwise undo the allowlist).
+  const skipPropExpand =
+    propsOnly ||
+    marketConstraint.allowedMarketKeys != null ||
+    shouldSkipScannerPropExpand(propPoolSize);
 
   let latest: FullBoardScanResult | null = null;
   const scanPromise = tryReachFullBoardScan({

@@ -900,7 +900,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     simEvaluated: number;
     incomplete: boolean;
   } | null> | null = null;
-  if (overlapProps) {
+  if (opts.propsOnly) {
+    // Yards / props-only asks: spend the budget on props — do not sim the
+    // multi-sport game slate first (that left short tickets after game lines
+    // were stripped by the allowlist).
+    propPhaseP = runPropPhase(pool)
+      .then((r) => r)
+      .catch(() => {
+        propPhaseIncomplete = true;
+        return null;
+      });
+  } else if (overlapProps) {
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
@@ -909,6 +919,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       });
   }
 
+  if (!opts.propsOnly) {
   const gamePhaseBudgetMs = overlapProps ? boardScanGamePhaseBudgetMs(opts.target) : null;
   const gamePhaseStartedAt = Date.now();
   for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
@@ -929,6 +940,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       // instant 0-of-N on phone.
       continue;
     }
+  }
+
   }
 
   const expandedPool = await poolExpandP;
