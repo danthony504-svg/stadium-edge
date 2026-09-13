@@ -134,3 +134,15 @@ test("rushing, passing, and receiving yards allowlists all three", () => {
     "player_rush_yds",
   ]);
 });
+
+test("passing TDs and receiving yards does not allowlist pass yards", () => {
+  const c = parseCoachAskMarketConstraint("passing TDs and receiving yards");
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), ["player_reception_yds"]);
+});
+
+test("rush attempts and receiving yards does not allowlist rush yards", () => {
+  const c = parseCoachAskMarketConstraint("rush attempts and receiving yards");
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), ["player_reception_yds"]);
+});
