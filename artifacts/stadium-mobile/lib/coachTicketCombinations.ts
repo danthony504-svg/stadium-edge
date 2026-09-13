@@ -4,6 +4,7 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   BALANCED_BACKFILL_ORDER,
   balancedMixSlots,
+  FOOTBALL_BALANCED_MIX_FRACTIONS,
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import {
@@ -523,6 +524,21 @@ export function tieredBackfillStagedTicket(
   return current.slice(0, target);
 }
 
+
+const FOOTBALL_SPORTS = new Set(["nfl", "ncaaf"]);
+
+function isFootballHeavyScoredPool(scored: BoardScoredLeg[]): boolean {
+  let football = 0;
+  let total = 0;
+  for (const leg of scored) {
+    const s = String(leg.pick.sport ?? "").toLowerCase();
+    if (!s) continue;
+    total += 1;
+    if (FOOTBALL_SPORTS.has(s)) football += 1;
+  }
+  return total > 0 && football / total >= 0.6;
+}
+
 function assembleBalancedDiverseTicket(
   qualifying: BoardScoredLeg[],
   allScored: BoardScoredLeg[],
@@ -537,11 +553,22 @@ function assembleBalancedDiverseTicket(
     teamTotals: rotateLegPoolForSize(pools.teamTotals, config.poolRotate + 4),
     alternateLines: rotateLegPoolForSize(pools.alternateLines, config.poolRotate + 1),
   };
-  const slots = balancedMixSlots(target);
+  const footballHeavy = isFootballHeavyScoredPool(qualifying);
+  const slots = balancedMixSlots(
+    target,
+    footballHeavy ? FOOTBALL_BALANCED_MIX_FRACTIONS : undefined,
+  );
   const ticket: ParsedPick[] = [];
   const used = new Set<string>();
 
-  for (const cat of config.categoryOrder) {
+  // Football mixes: prefer a gameLines-leading category order so sides are
+  // selected before prop fill pressure — display interleave still runs later.
+  const categoryOrder =
+    footballHeavy && config.categoryOrder[0] === "props"
+      ? (["gameLines", "alternateLines", "props", "teamTotals"] as const)
+      : config.categoryOrder;
+
+  for (const cat of categoryOrder) {
     appendFromCategory(
       ticket,
       used,

@@ -382,3 +382,19 @@ test("interleaveSidesWithProps leads with a side so Overs are not the whole firs
   assert.equal(out.length, 7);
   assert.equal(out.filter((p) => p.isProp).length, 4);
 });
+
+
+test("interleaveSidesWithProps puts spread ahead of Over props (LIVE card-order contract)", () => {
+  const picks = [
+    { isProp: true, pick: "Darren Waller Over 1.5 Receptions" },
+    { isProp: true, pick: "Aaron Rodgers Over 0.5 Rush Yds" },
+    { isProp: true, pick: "Patrick Mahomes Over 0.5 Pass INTs" },
+    { isProp: true, pick: "Cade Otton Over 3.5 Receptions" },
+    { isProp: false, pick: "Falcons +6" },
+    { isProp: false, pick: "Over 48" },
+    { isProp: false, pick: "Colts +2.5" },
+  ];
+  const out = interleaveSidesWithProps(picks);
+  assert.equal(out[0]!.pick, "Falcons +6");
+  assert.ok(out.slice(0, 3).some((p) => !p.isProp), "first viewport must include a side");
+});
