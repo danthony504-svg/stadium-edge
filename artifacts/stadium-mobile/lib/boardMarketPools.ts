@@ -210,3 +210,36 @@ export function partitionPropPoolPreferringSideBalance(pool: BoardScoredLeg[]): 
   }
   return { unders, overs, other };
 }
+
+/**
+ * Re-order a staged ticket so the first viewport is not a wall of Over props.
+ * Keeps the same legs; puts a side first then alternates prop/side clumps.
+ */
+export function interleaveSidesWithProps<T extends { isProp?: boolean }>(picks: T[]): T[] {
+  if (picks.length < 3) return picks;
+  const props: T[] = [];
+  const sides: T[] = [];
+  for (const p of picks) {
+    if (p.isProp) props.push(p);
+    else sides.push(p);
+  }
+  if (!props.length || !props.length) return picks;
+
+  const out: T[] = [];
+  let pi = 0;
+  let si = 0;
+  // Lead with a side when available so "7 leg nfl" does not open on four Overs.
+  out.push(sides[si++]!);
+  while (out.length < picks.length && (pi < props.length || si < sides.length)) {
+    // Two props per side when props are the majority (~50–60% mix).
+    if (pi < props.length) out.push(props[pi++]!);
+    if (out.length >= picks.length) break;
+    if (pi < props.length) out.push(props[pi++]!);
+    if (out.length >= picks.length) break;
+    if (si < sides.length) out.push(sides[si++]!);
+  }
+  // Append any leftovers (should be rare).
+  while (pi < props.length && out.length < picks.length) out.push(props[pi++]!);
+  while (si < sides.length && out.length < picks.length) out.push(sides[si++]!);
+  return out;
+}

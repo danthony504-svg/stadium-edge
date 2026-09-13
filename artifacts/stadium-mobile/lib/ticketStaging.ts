@@ -6,6 +6,7 @@ import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   type PartitionedBoardPools,
   partitionPoolPreferringSides,
+  interleaveSidesWithProps,
   partitionPropPoolPreferringSideBalance,
   partitionScoredLegsByCategory,
   sidePriorityTiers,
@@ -13,6 +14,7 @@ import {
 import {
   BALANCED_BACKFILL_ORDER,
   balancedMixSlots,
+  FOOTBALL_BALANCED_MIX_FRACTIONS,
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
@@ -372,6 +374,21 @@ function applyBalancedCapAndBackfill(
 }
 
 /** Balanced ticket: ~50% props, ~25% game lines, ~5% team totals, ~20% alts. */
+
+const FOOTBALL_SPORTS = new Set(["nfl", "ncaaf"]);
+
+function isFootballHeavyScoredPool(scored: BoardScoredLeg[]): boolean {
+  let football = 0;
+  let total = 0;
+  for (const leg of scored) {
+    const s = String(leg.pick.sport ?? "").toLowerCase();
+    if (!s) continue;
+    total += 1;
+    if (FOOTBALL_SPORTS.has(s)) football += 1;
+  }
+  return total > 0 && football / total >= 0.6;
+}
+
 export function buildBalancedStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
@@ -380,7 +397,10 @@ export function buildBalancedStagedTicketFromScan(
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const pools = partitionScoredLegsByCategory(qualifying);
-  const slots = balancedMixSlots(target);
+  const slots = balancedMixSlots(
+    target,
+    isFootballHeavyScoredPool(qualifying) ? FOOTBALL_BALANCED_MIX_FRACTIONS : undefined,
+  );
   const used = new Set<string>();
   const out: ParsedPick[] = [];
 
@@ -407,14 +427,16 @@ export function buildBalancedStagedTicketFromScan(
     true,
   );
 
-  const finalPicks = applyBalancedCapAndBackfill(
-    out,
-    target,
-    pools,
-    varietySeed,
-    scored,
-    ticketStyle,
-  ).slice(0, target);
+  const finalPicks = interleaveSidesWithProps(
+    applyBalancedCapAndBackfill(
+      out,
+      target,
+      pools,
+      varietySeed,
+      scored,
+      ticketStyle,
+    ).slice(0, target),
+  );
   const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
   const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
 

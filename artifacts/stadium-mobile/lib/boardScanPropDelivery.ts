@@ -13,9 +13,27 @@ import {
 import { COACH_PRIORITY_SPORTS } from "./coachPrioritySports.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
-export function boardScanPropSlotCount(targetLegs: number): number {
+export function boardScanPropSlotCount(
+  targetLegs: number,
+  propFraction = 0.5,
+): number {
   if (targetLegs < 3) return 0;
-  return Math.max(1, Math.round(targetLegs * 0.5));
+  return Math.max(1, Math.round(targetLegs * propFraction));
+}
+
+/** True when staged picks are mostly NFL/NCAAF — use a lower prop-seat floor. */
+export function isFootballHeavyPickList(
+  picks: { sport?: string | null }[],
+): boolean {
+  let football = 0;
+  let total = 0;
+  for (const p of picks) {
+    const s = String(p.sport ?? "").toLowerCase();
+    if (!s) continue;
+    total += 1;
+    if (s === "nfl" || s === "ncaaf") football += 1;
+  }
+  return total > 0 && football / total >= 0.6;
 }
 
 /** Game-line preview capacity while prop slots are still reserved. */
@@ -139,7 +157,11 @@ export function fillReservedPropSlots<T extends PropFillPick>(
   target: number,
 ): T[] {
   if (target < 3) return picks.slice(0, Math.max(0, target));
-  const propSlots = boardScanPropSlotCount(target);
+  // Football mix tickets intentionally reserve more side seats (~40% props).
+  const propSlots = boardScanPropSlotCount(
+    target,
+    isFootballHeavyPickList(picks) ? 0.4 : 0.5,
+  );
   if (propSlots <= 0) return picks.slice(0, target);
 
   let out = picks.slice(0, target);
