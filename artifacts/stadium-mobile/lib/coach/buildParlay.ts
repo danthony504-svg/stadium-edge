@@ -31,6 +31,12 @@ import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
+import {
+  askNamesTeamGame,
+  coachAskTeamScope,
+  filterOddsGamesForAskTeam,
+  filterPicksForAskTeam,
+} from "@/lib/coachAskTeamScope";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { filterBettableOddsGames } from "@/lib/slate";
 import {
@@ -98,7 +104,7 @@ async function loadScanInputs(
       ? `Loading ${sports[0]!.toUpperCase()} board…`
       : "Loading tonight's board…",
   );
-  const [espnGames, oddsRaw, liveFeed] = await Promise.all([
+  const [espnGamesRaw, oddsRaw, liveFeed] = await Promise.all([
     Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))).then((rows) =>
       rows.flat(),
     ),
@@ -108,7 +114,11 @@ async function loadScanInputs(
     getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] })),
   ]);
 
-  const oddsGames = oddsRaw;
+  // "7 leg saints game" → keep only the Saints matchup once the board is NFL.
+  // Sport scoping alone still allowed other NFL games to fill a team ask.
+  const teamScope = askNamesTeamGame(askText) ? coachAskTeamScope(askText) : null;
+  const oddsGames = filterOddsGamesForAskTeam(oddsRaw, teamScope);
+  const espnGames = filterOddsGamesForAskTeam(espnGamesRaw, teamScope);
   onStatus?.("Loading player props and alt lines across the board…");
   const propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
     () => [] as PropPoolEntry[],
@@ -274,9 +284,13 @@ export async function buildCoachParlay(opts: {
   }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
-  const picks = filterPicksByAskMarketConstraint(
-    selectFinalCoachParlayPicks(rawPicks),
-    marketConstraint,
+  const teamScope = askNamesTeamGame(opts.askText) ? coachAskTeamScope(opts.askText) : null;
+  const picks = filterPicksForAskTeam(
+    filterPicksByAskMarketConstraint(
+      selectFinalCoachParlayPicks(rawPicks),
+      marketConstraint,
+    ),
+    teamScope,
   );
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
   const propsPending =
