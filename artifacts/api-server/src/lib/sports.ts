@@ -102,6 +102,22 @@ export const ESPN_SPORT_PATHS: Record<string, string> = {
   ufc: "mma/ufc",
 };
 
+/**
+ * ESPN scoreboard paths for every league merged under the soccer odds tab.
+ * Odds has no single "all soccer" key — if ESPN only loads UCL + WC, Coach
+ * binds 0 team ids for Ligue 1 / Brazil / J League / Serie B / Segunda games
+ * and phones empty with TEAM_IDS_UNRESOLVED.
+ */
+export const ESPN_SOCCER_SCOREBOARD_PATHS: readonly string[] = [
+  "soccer/uefa.champions",
+  "soccer/fifa.world",
+  "soccer/fra.1",
+  "soccer/bra.1",
+  "soccer/jpn.1",
+  "soccer/ita.2",
+  "soccer/esp.2",
+];
+
 // Cache is backed by the shared store (in-memory by default; Redis when
 // REDIS_URL is set so multiple instances share one cache). cachedJson keeps the
 // fetch-on-miss contract callers already rely on.
