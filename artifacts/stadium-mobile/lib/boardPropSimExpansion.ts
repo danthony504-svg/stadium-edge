@@ -67,10 +67,14 @@ export function shouldStopPropSimForTicketMix(opts: {
   return countStagedPropLegs(opts.scored, opts.target) >= propSlots;
 }
 
+/** How many posted lines per player/market to deep-sim (main + alt numbers). */
+export const BOARD_PROP_SIM_RUNGS_PER_LADDER = 3;
+
 /**
- * Pre-rank + ladder-dedupe before deep MC. Keeps the best-ranked rung per market
- * ladder first, then fills remaining slots. Does not change qualification
- * thresholds — only which rows reach deep sim.
+ * Pre-rank + soft ladder-dedupe before deep MC. Keeps up to
+ * BOARD_PROP_SIM_RUNGS_PER_LADDER posted lines per player/market so alt
+ * yard/attempt/completion numbers (150 / 175 / …) still get simulated, then
+ * fills remaining slots from deferred rungs. Qualification thresholds unchanged.
  */
 export function selectBoardPropSimCandidates<T extends ParsedPick>(
   rankedProps: readonly T[],
@@ -84,13 +88,14 @@ export function selectBoardPropSimCandidates<T extends ParsedPick>(
   }
 
   const selected: T[] = [];
-  const seenLadder = new Set<string>();
+  const ladderCounts = new Map<string, number>();
   const deferred: T[] = [];
 
   for (const pick of rankedProps) {
     const ladder = marketLadderKey(pick);
-    if (!seenLadder.has(ladder)) {
-      seenLadder.add(ladder);
+    const used = ladderCounts.get(ladder) ?? 0;
+    if (used < BOARD_PROP_SIM_RUNGS_PER_LADDER) {
+      ladderCounts.set(ladder, used + 1);
       selected.push(pick);
       if (selected.length >= maxToSim) {
         return { selected, skippedCount: rankedProps.length - selected.length };
