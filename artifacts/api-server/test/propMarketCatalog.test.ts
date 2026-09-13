@@ -36,11 +36,14 @@ test("props route main catalog covers every prop league + combo/stat diversity",
 
 test("props route also fetches alternate ladders and quarter/half markets", () => {
   const alt = blockAfter("export const ALT_MARKETS_BY_SPORT");
+  const altExt = blockAfter("export const ALT_MARKETS_EXTENDED_BY_SPORT");
   const qh = blockAfter("export const QH_MARKETS_BY_SPORT");
   assert.ok(alt.includes("mlb:"));
   assert.ok(alt.includes("nfl:"));
   assert.ok(alt.includes("nba:"));
   assert.ok(alt.includes("_alternate"));
+  assert.ok(altExt.includes("ncaaf:"));
+  assert.ok(altExt.includes("player_pass_tds_alternate"));
   assert.ok(qh.includes("nfl:"));
   assert.ok(qh.includes("nba:"));
   assert.ok(qh.includes("_q1") || qh.includes("_h1"));
@@ -49,5 +52,7 @@ test("props route also fetches alternate ladders and quarter/half markets", () =
 test("handler fans out base + QH + alt Odds fetches (all prop types)", () => {
   assert.ok(propsSrc.includes("QH_MARKETS_BY_SPORT[sport]"));
   assert.ok(propsSrc.includes("ALT_MARKETS_BY_SPORT[sport]"));
+  assert.ok(propsSrc.includes("ALT_MARKETS_EXTENDED_BY_SPORT[sport]"));
+  assert.ok(propsSrc.includes("altExtendedData"));
   assert.ok(propsSrc.includes("Promise.all"));
 });

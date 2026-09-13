@@ -64,6 +64,9 @@ test("expected main prop families cover combo / rush / points-style markets", ()
   assert.ok(EXPECTED_MAIN_PROP_FAMILIES.mlb!.includes("batter_hits_runs_rbis"));
   assert.ok(EXPECTED_MAIN_PROP_FAMILIES.nfl!.includes("player_rush_yds"));
   assert.ok(EXPECTED_MAIN_PROP_FAMILIES.nfl!.includes("player_sacks"));
+  assert.ok(EXPECTED_MAIN_PROP_FAMILIES.nfl!.includes("player_pass_tds"));
+  assert.ok(EXPECTED_MAIN_PROP_FAMILIES.ncaaf!.includes("player_anytime_td"));
+  assert.ok(EXPECTED_MAIN_PROP_FAMILIES.ncaaf!.includes("player_pass_tds"));
   assert.ok(EXPECTED_MAIN_PROP_FAMILIES.nba!.includes("player_points"));
   assert.ok(EXPECTED_MAIN_PROP_FAMILIES.ncaab!.includes("player_points"));
 });
