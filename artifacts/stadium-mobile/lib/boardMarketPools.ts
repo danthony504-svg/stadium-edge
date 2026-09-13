@@ -1,7 +1,7 @@
 // Partition board-scored legs into separate ranked pools for balanced ticket assembly.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { isAltBoardPick, isMainLineGameLeg, marketFamily } from "./altLinePool.ts";
+import { isAltBoardPick, isMainLineGameLeg, isPeriodMainMarket, marketFamily } from "./altLinePool.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import type { BoardMarketCategory } from "./balancedTicketMix.ts";
@@ -16,6 +16,9 @@ export function boardMarketCategory(pick: ParsedPick): BoardMarketCategory {
   if (pick.isProp) return "props";
   if (!isGameLinePick(pick)) return "gameLines";
   if (isTeamTotalMarket(pick.market)) return "teamTotals";
+  // Period mains stay "main" for badges, but staging treats them as alts so
+  // reserved game-line slots prefer full-game spread/ML over Q1–Q4 / 1H sides.
+  if (isPeriodMainMarket(pick.market)) return "alternateLines";
   if (isMainLineGameLeg(pick) && !isAltBoardPick(pick)) return "gameLines";
   return "alternateLines";
 }
@@ -89,29 +92,121 @@ export function gameLineFamily(pick: {
   return "other";
 }
 
+/** Heavy minus juice — still postable for discovery, but mix slots prefer near-even sides. */
+export const HEAVY_SIDE_JUICE_ODDS = -250;
+
+export function isHeavySideJuice(odds: number | null | undefined): boolean {
+  return typeof odds === "number" && Number.isFinite(odds) && odds <= HEAVY_SIDE_JUICE_ODDS;
+}
+
+export function isFullGameSideMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "");
+  if (!m.trim()) return false;
+  if (isPeriodMainMarket(m)) return false;
+  const fam = gameLineFamily({ market: m });
+  return fam === "spread" || fam === "moneyline";
+}
+
 /**
  * Re-order a game-line / alt pool so sides (spread, then ML) are considered
- * before totals when filling reserved slots. Rank within each family is preserved.
+ * before totals when filling reserved slots. Full-game sides beat period sides;
+ * reasonable juice beats heavy favorites. Rank within each bucket is preserved.
  */
 export function orderLegsPreferringSides(pool: BoardScoredLeg[]): BoardScoredLeg[] {
   const { sides, rest } = partitionPoolPreferringSides(pool);
-  const spreads = sides.filter((leg) => gameLineFamily(leg.pick) === "spread");
-  const moneylines = sides.filter((leg) => gameLineFamily(leg.pick) === "moneyline");
-  return [...spreads, ...moneylines, ...rest];
+  return [...sides, ...rest];
 }
 
-/** Split sides (spread / ML) from totals & other — used for sides-first slot fill. */
+function isPeriodSideMarket(market: string): boolean {
+  if (isPeriodMainMarket(market)) return true;
+  return /(?:\b|\s)(q[1-4]|1h|2h|f5)\b/i.test(market);
+}
+
+function bySpreadThenMl(legs: BoardScoredLeg[]): BoardScoredLeg[] {
+  const spreads = legs.filter((leg) => gameLineFamily(leg.pick) === "spread");
+  const moneylines = legs.filter((leg) => gameLineFamily(leg.pick) === "moneyline");
+  const other = legs.filter((leg) => {
+    const fam = gameLineFamily(leg.pick);
+    return fam !== "spread" && fam !== "moneyline";
+  });
+  return [...spreads, ...moneylines, ...other];
+}
+
+/**
+ * Ordered side tiers for slot fill. Kept separate so rank re-sort inside a tier
+ * cannot let Q4 / -415 alts beat full-game fair spreads across tiers.
+ */
+export function sidePriorityTiers(pool: BoardScoredLeg[]): BoardScoredLeg[][] {
+  const fgFair: BoardScoredLeg[] = [];
+  const periodFair: BoardScoredLeg[] = [];
+  const fgHeavy: BoardScoredLeg[] = [];
+  const periodHeavy: BoardScoredLeg[] = [];
+  for (const leg of pool) {
+    const fam = gameLineFamily(leg.pick);
+    if (fam !== "spread" && fam !== "moneyline") continue;
+    const period = isPeriodSideMarket(String(leg.pick.market ?? ""));
+    const heavy = isHeavySideJuice(leg.pick.odds);
+    if (!period && !heavy) fgFair.push(leg);
+    else if (period && !heavy) periodFair.push(leg);
+    else if (!period && heavy) fgHeavy.push(leg);
+    else periodHeavy.push(leg);
+  }
+  return [
+    bySpreadThenMl(fgFair),
+    bySpreadThenMl(periodFair),
+    bySpreadThenMl(fgHeavy),
+    bySpreadThenMl(periodHeavy),
+  ].filter((tier) => tier.length > 0);
+}
+
+/** Split sides (spread / ML) from totals & other — FG / fair juice first for slot fill. */
 export function partitionPoolPreferringSides(pool: BoardScoredLeg[]): {
   sides: BoardScoredLeg[];
   rest: BoardScoredLeg[];
 } {
-  const sides: BoardScoredLeg[] = [];
   const rest: BoardScoredLeg[] = [];
   for (const leg of pool) {
     const fam = gameLineFamily(leg.pick);
-    if (fam === "spread" || fam === "moneyline") sides.push(leg);
-    else rest.push(leg);
+    if (fam !== "spread" && fam !== "moneyline") rest.push(leg);
   }
+  const sides = sidePriorityTiers(pool).flat();
   return { sides, rest };
 }
 
+/** Over / Under / other for soft prop-side diversity on mix tickets. */
+export type PropOuSide = "over" | "under" | "other";
+
+export function propOuSide(pick: {
+  pick?: string | null;
+  propSide?: string | null;
+  side?: string | null;
+}): PropOuSide {
+  const explicit = String(pick.propSide ?? pick.side ?? "").toLowerCase();
+  if (explicit === "under") return "under";
+  if (explicit === "over") return "over";
+  const label = String(pick.pick ?? "");
+  if (/\bunder\b/i.test(label)) return "under";
+  if (/\bover\b/i.test(label)) return "over";
+  return "other";
+}
+
+/**
+ * Soft Over/Under balance among already-qualified props: reserve up to half the
+ * prop slots for Unders when they exist so tickets are not all "Over 0.5 …".
+ */
+export function partitionPropPoolPreferringSideBalance(pool: BoardScoredLeg[]): {
+  unders: BoardScoredLeg[];
+  overs: BoardScoredLeg[];
+  other: BoardScoredLeg[];
+} {
+  const unders: BoardScoredLeg[] = [];
+  const overs: BoardScoredLeg[] = [];
+  const other: BoardScoredLeg[] = [];
+  for (const leg of pool) {
+    const side = propOuSide(leg.pick);
+    if (side === "under") unders.push(leg);
+    else if (side === "over") overs.push(leg);
+    else other.push(leg);
+  }
+  return { unders, overs, other };
+}
