@@ -5,6 +5,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry } from "./api.ts";
+import { sportsFromAskTeamNicknames } from "./coachAskTeamScope.ts";
 
 // Sport keywords used to focus the chat realOdds context on the league(s) the
 // user named. Only unambiguous terms — "football" is omitted because it spans
@@ -49,6 +50,11 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
         break;
       }
     }
+  }
+  // "7 leg saints game" never said "NFL" — franchise nicknames must still
+  // lock the board to that sport or MLB fills a Saints ask (phone screenshot).
+  for (const sport of sportsFromAskTeamNicknames(t)) {
+    if (!isNegatedSportKeyword(t, sport)) out.add(sport);
   }
   return out;
 }

@@ -109,3 +109,13 @@ test("boardMarketScanner passes propsOnly into shortfall note (no ML essay)", ()
   const copy = readFileSync(join(root, "lib/fullBoardMarketCopy.ts"), "utf8");
   assert.match(copy, /if \(opts\?\.propsOnly\) return ""/);
 });
+
+test("buildParlay scopes saints-game asks via team nickname filter", () => {
+  const src = readFileSync(join(root, "lib/coach/buildParlay.ts"), "utf8");
+  assert.match(src, /askNamesTeamGame/);
+  assert.match(src, /coachAskTeamScope/);
+  assert.match(src, /filterOddsGamesForAskTeam/);
+  assert.match(src, /filterPicksForAskTeam/);
+  const priority = readFileSync(join(root, "lib/chatContextPriority.ts"), "utf8");
+  assert.match(priority, /sportsFromAskTeamNicknames/);
+});
