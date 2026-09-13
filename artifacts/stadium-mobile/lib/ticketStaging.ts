@@ -6,7 +6,9 @@ import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   type PartitionedBoardPools,
   partitionPoolPreferringSides,
+  partitionPropPoolPreferringSideBalance,
   partitionScoredLegsByCategory,
+  sidePriorityTiers,
 } from "./boardMarketPools.ts";
 import {
   BALANCED_BACKFILL_ORDER,
@@ -264,6 +266,7 @@ function appendPicksFromPool(
   target: number,
   varietySeed?: string,
   preferSides = false,
+  balancePropSides = false,
 ): number {
   if (want <= 0) return 0;
   const remaining = pool.filter((row) => !used.has(pickLegFingerprint(row.pick)));
@@ -276,20 +279,34 @@ function appendPicksFromPool(
 
   // Sides-first: fill reserved game-line / alt slots from spreads & ML before
   // FG/F5/alt totals so rank re-sort inside selectTopBoardLegs cannot flood O/U.
+  // Tiered FG → period → heavy-juice so re-sort cannot promote Q4/-415 over FG.
   let picks: ParsedPick[];
   if (preferSides) {
-    const { sides, rest } = partitionPoolPreferringSides(remaining);
-    const fromSides = pickFrom(sides, Math.min(want, sides.length));
-    const usedLocal = new Set(fromSides.map(pickLegFingerprint));
-    const need = want - fromSides.length;
-    const fromRest =
-      need > 0
-        ? pickFrom(
-            rest.filter((row) => !usedLocal.has(pickLegFingerprint(row.pick))),
-            need,
-          )
-        : [];
-    picks = [...fromSides, ...fromRest];
+    const { rest } = partitionPoolPreferringSides(remaining);
+    const picked: ParsedPick[] = [];
+    const usedLocal = new Set<string>();
+    for (const tier of [...sidePriorityTiers(remaining), rest]) {
+      const need = want - picked.length;
+      if (need <= 0) break;
+      const avail = tier.filter((row) => !usedLocal.has(pickLegFingerprint(row.pick)));
+      const batch = pickFrom(avail, need);
+      for (const p of batch) {
+        usedLocal.add(pickLegFingerprint(p));
+        picked.push(p);
+      }
+    }
+    picks = picked;
+  } else if (balancePropSides && want >= 2) {
+    // Soft Under reservation among qualified props — does not invent Unders.
+    const { unders, overs, other } = partitionPropPoolPreferringSideBalance(remaining);
+    const underWant = Math.min(unders.length, Math.floor(want / 2));
+    const fromUnders = pickFrom(unders, underWant);
+    const usedLocal = new Set(fromUnders.map(pickLegFingerprint));
+    const need = want - fromUnders.length;
+    const restPool = [...overs, ...other].filter(
+      (row) => !usedLocal.has(pickLegFingerprint(row.pick)),
+    );
+    picks = [...fromUnders, ...pickFrom(restPool, need)];
   } else {
     picks = pickFrom(remaining, want);
   }
@@ -325,8 +342,8 @@ function applyBalancedCapAndBackfill(
     const orderedPools =
       cat === "gameLines" || cat === "alternateLines"
         ? (() => {
-            const { sides, rest } = partitionPoolPreferringSides(pools[cat]);
-            return [sides, rest];
+            const { rest } = partitionPoolPreferringSides(pools[cat]);
+            return [...sidePriorityTiers(pools[cat]), rest];
           })()
         : [pools[cat]];
     for (const sub of orderedPools) {
@@ -369,7 +386,7 @@ export function buildBalancedStagedTicketFromScan(
 
   // Prefer spreads/ML ahead of FG/F5 totals inside game-line + alt pools so
   // mix tickets are not flooded with Over/Under totals when sides also qualify.
-  appendPicksFromPool(out, used, pools.props, slots.props, target, varietySeed);
+  appendPicksFromPool(out, used, pools.props, slots.props, target, varietySeed, false, true);
   appendPicksFromPool(
     out,
     used,

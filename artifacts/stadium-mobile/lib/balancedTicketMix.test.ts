@@ -7,6 +7,8 @@ import {
   gameLineFamily,
   orderLegsPreferringSides,
   partitionScoredLegsByCategory,
+  propOuSide,
+  sidePriorityTiers,
   ticketCategoryMix,
 } from "./boardMarketPools.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -232,4 +234,126 @@ test("partitionScoredLegsByCategory keeps independent rank orders", () => {
   assert.equal(pools.props.length, 1);
   assert.equal(pools.gameLines.length, 1);
   assert.ok(pools.props[0]!.rankScore > pools.gameLines[0]!.rankScore);
+});
+
+
+test("boardMarketCategory routes period mains to alternateLines so FG owns gameLines", () => {
+  assert.equal(
+    boardMarketCategory({ game: "A @ B", market: "Q4 Spread", pick: "A +2.5", odds: -105 }),
+    "alternateLines",
+  );
+  assert.equal(
+    boardMarketCategory({ game: "A @ B", market: "Spread", pick: "A +3.5", odds: -110 }),
+    "gameLines",
+  );
+  assert.equal(
+    boardMarketCategory({ game: "A @ B", market: "Q1 Alt Spread", pick: "A +6.5", odds: -415 }),
+    "alternateLines",
+  );
+});
+
+test("sidePriorityTiers prefers FG fair juice before period and heavy alts", () => {
+  const tiers = sidePriorityTiers([
+    leg({ game: "A @ B", market: "Q1 Alt Spread", pick: "A +6.5", odds: -415 }, 99, qualifiedScore),
+    leg({ game: "C @ D", market: "Q4 Spread", pick: "C +2.5", odds: -105 }, 95, qualifiedScore),
+    leg({ game: "E @ F", market: "Spread", pick: "E -3.5", odds: -110 }, 40, qualifiedScore),
+    leg({ game: "G @ H", market: "Total", pick: "Over 45.5", odds: -110 }, 100, qualifiedScore),
+  ]);
+  assert.equal(tiers[0]![0]!.pick.market, "Spread");
+  assert.equal(tiers[1]![0]!.pick.market, "Q4 Spread");
+  assert.equal(tiers[2]![0]!.pick.market, "Q1 Alt Spread");
+});
+
+test("buildBalancedStagedTicketFromScan prefers FG spread over higher-ranked Q4 spread", () => {
+  const props: BoardScoredLeg[] = Array.from({ length: 4 }, (_, i) =>
+    leg(
+      {
+        game: `P${i} @ Q${i}`,
+        market: "Receptions",
+        pick: `Player${i} Over 1.5`,
+        odds: -110,
+        isProp: true,
+        player: `Player${i}`,
+        propLine: 1.5,
+        propSide: "Over",
+      },
+      80 - i,
+      qualifiedScore,
+    ),
+  );
+  const q4 = leg(
+    { game: "ATL @ PIT", market: "Q4 Spread", pick: "Falcons +2.5", odds: -105 },
+    99,
+    qualifiedScore,
+  );
+  const fg = leg(
+    { game: "BAL @ IND", market: "Spread", pick: "Colts +3.5", odds: -110 },
+    40,
+    qualifiedScore,
+  );
+  const juice = leg(
+    { game: "BAL @ IND", market: "Q1 Alt Spread", pick: "Colts +6.5", odds: -415 },
+    98,
+    qualifiedScore,
+  );
+  const { picks } = buildBalancedStagedTicketFromScan([...props, q4, fg, juice], 7);
+  const markets = picks.map((p) => p.market);
+  assert.ok(markets.includes("Spread"), `expected FG spread on ticket, got ${markets}`);
+  assert.ok(!markets.includes("Q1 Alt Spread") || markets.indexOf("Spread") < markets.indexOf("Q1 Alt Spread"));
+  const gameLines = picks.filter((p) => boardMarketCategory(p) === "gameLines");
+  assert.ok(
+    gameLines.every((p) => p.market === "Spread" || p.market === "Moneyline"),
+    `gameLines should be FG sides, got ${gameLines.map((p) => p.market)}`,
+  );
+});
+
+test("buildBalancedStagedTicketFromScan reserves Unders among prop slots when available", () => {
+  const overs: BoardScoredLeg[] = Array.from({ length: 6 }, (_, i) =>
+    leg(
+      {
+        game: `O${i} @ X${i}`,
+        market: "Receptions",
+        pick: `OverGuy${i} Over 1.5`,
+        odds: -110,
+        isProp: true,
+        player: `OverGuy${i}`,
+        propLine: 1.5,
+        propSide: "Over",
+      },
+      90 - i,
+      qualifiedScore,
+    ),
+  );
+  const unders: BoardScoredLeg[] = Array.from({ length: 3 }, (_, i) =>
+    leg(
+      {
+        game: `U${i} @ Y${i}`,
+        market: "Pass Yds",
+        pick: `UnderGuy${i} Under 225.5`,
+        odds: -110,
+        isProp: true,
+        player: `UnderGuy${i}`,
+        propLine: 225.5,
+        propSide: "Under",
+      },
+      50 - i,
+      qualifiedScore,
+    ),
+  );
+  const sides: BoardScoredLeg[] = Array.from({ length: 4 }, (_, i) =>
+    leg(
+      {
+        game: `S${i} @ H${i}`,
+        market: "Spread",
+        pick: `S${i} -3.5`,
+        odds: -110,
+      },
+      70 - i,
+      qualifiedScore,
+    ),
+  );
+  const { picks } = buildBalancedStagedTicketFromScan([...overs, ...unders, ...sides], 8);
+  const propPicks = picks.filter((p) => p.isProp);
+  const underCount = propPicks.filter((p) => propOuSide(p) === "under").length;
+  assert.ok(underCount >= 1, `expected reserved Under props, got ${propPicks.map((p) => p.pick)}`);
 });

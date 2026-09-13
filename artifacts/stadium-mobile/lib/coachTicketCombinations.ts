@@ -6,7 +6,11 @@ import {
   balancedMixSlots,
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
-import { partitionPoolPreferringSides, partitionScoredLegsByCategory } from "./boardMarketPools.ts";
+import {
+  partitionPoolPreferringSides,
+  partitionScoredLegsByCategory,
+  sidePriorityTiers,
+} from "./boardMarketPools.ts";
 import { compareBoardLegsForRank, sortBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
@@ -354,13 +358,14 @@ function appendFromCategory(
     ticket.push(...picked);
     return;
   }
-  const { sides, rest } = partitionPoolPreferringSides(pool);
-  const fromSides = pickDiverseLegsFromPool(sides, ticket, want, target, used, config);
-  ticket.push(...fromSides);
-  const need = want - fromSides.length;
-  if (need > 0) {
-    const fromRest = pickDiverseLegsFromPool(rest, ticket, need, target, used, config);
-    ticket.push(...fromRest);
+  const { rest } = partitionPoolPreferringSides(pool);
+  let filled = 0;
+  for (const tier of [...sidePriorityTiers(pool), rest]) {
+    const need = want - filled;
+    if (need <= 0) break;
+    const batch = pickDiverseLegsFromPool(tier, ticket, need, target, used, config);
+    ticket.push(...batch);
+    filled += batch.length;
   }
 }
 
@@ -426,8 +431,8 @@ function backfillDiverseTicket(
     const subPools =
       cat === "gameLines" || cat === "alternateLines"
         ? (() => {
-            const { sides, rest } = partitionPoolPreferringSides(pools[cat]);
-            return [sides, rest];
+            const { rest } = partitionPoolPreferringSides(pools[cat]);
+            return [...sidePriorityTiers(pools[cat]), rest];
           })()
         : [pools[cat]];
     for (const sub of subPools) {
@@ -470,8 +475,8 @@ function backfillAtQualityTier(
     const subPools =
       cat === "gameLines" || cat === "alternateLines"
         ? (() => {
-            const { sides, rest } = partitionPoolPreferringSides(pools[cat]);
-            return [sides, rest];
+            const { rest } = partitionPoolPreferringSides(pools[cat]);
+            return [...sidePriorityTiers(pools[cat]), rest];
           })()
         : [pools[cat]];
     for (const sub of subPools) {
