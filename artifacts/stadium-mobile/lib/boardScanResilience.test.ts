@@ -46,10 +46,20 @@ test("prop MC incomplete when deadline stops before pool exhaustion", () => {
   assert.equal(true && 40 < 40, false);
 });
 
-test("buildCoachParlay loads full DEFAULT_SPORTS (no slice(0, 8))", () => {
+test("buildCoachParlay loads full DEFAULT_SPORTS via coachBoardSportsForAsk", () => {
   const src = readFileSync(join(root, "lib/coach/buildParlay.ts"), "utf8");
-  assert.match(src, /const sports = DEFAULT_SPORTS;/);
+  assert.match(src, /coachBoardSportsForAsk\(askText, requestedLegs, DEFAULT_SPORTS\)/);
   assert.doesNotMatch(src, /DEFAULT_SPORTS\.slice\(\s*0\s*,\s*8\s*\)/);
+});
+
+test("buildCoachParlay wires yards market allowlist without changing hold/delivery", () => {
+  const src = readFileSync(join(root, "lib/coach/buildParlay.ts"), "utf8");
+  assert.match(src, /parseCoachAskMarketConstraint/);
+  assert.match(src, /filterPropPoolByAskMarkets/);
+  assert.match(src, /filterPicksByAskMarketConstraint/);
+  assert.match(src, /propsOnly,/);
+  // Hold / session / UI delivery must stay out of this path.
+  assert.doesNotMatch(src, /coachHold|holdUntil|trickleDeliver/);
 });
 
 test("fetchSlateGameSimulations catches per-game failures", () => {

@@ -33,6 +33,11 @@ import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { filterBettableOddsGames } from "@/lib/slate";
+import {
+  filterPicksByAskMarketConstraint,
+  filterPropPoolByAskMarkets,
+  parseCoachAskMarketConstraint,
+} from "@/lib/coachAskMarketFilter";
 
 
 export type CoachParlayBuildResult = {
@@ -143,12 +148,24 @@ export async function buildCoachParlay(opts: {
     return { picks: [], note: "", scan: null, timedOut: false, propPoolSize: 0 };
   }
 
-  const propPoolSize = inputs.propPool.length;
+  // Yards asks ("rushing and passing yards") → props-only + market allowlist.
+  // Does not change hold/delivery — only which markets enter the scan pool.
+  const marketConstraint = parseCoachAskMarketConstraint(opts.askText);
+  const scanPropPool = filterPropPoolByAskMarkets(
+    inputs.propPool,
+    marketConstraint.allowedMarketKeys,
+  );
+  const propPoolSize = scanPropPool.length;
+  const propsOnly = marketConstraint.propsOnly;
   opts.onReadyToScan?.({ propPoolSize });
   opts.onStatus?.(
     propPoolSize > 0
-      ? `Scanning ${propPoolSize} posted props/alts plus game lines for a ${target}-leg ticket…`
-      : `Scanning posted game lines for a ${target}-leg ticket…`,
+      ? propsOnly
+        ? `Scanning ${propPoolSize} posted yards props/alts for a ${target}-leg ticket…`
+        : `Scanning ${propPoolSize} posted props/alts plus game lines for a ${target}-leg ticket…`
+      : propsOnly
+        ? `No matching yards props posted for a ${target}-leg ticket…`
+        : `Scanning posted game lines for a ${target}-leg ticket…`,
   );
 
   const teamIdMap = buildGameTeamIdMap(inputs.espnGames);
@@ -158,7 +175,7 @@ export async function buildCoachParlay(opts: {
   const scanPromise = tryReachFullBoardScan({
     target,
     oddsGames: inputs.oddsGames,
-    propPool: inputs.propPool,
+    propPool: scanPropPool,
     realOdds: inputs.realOdds,
     liveOdds: inputs.liveOdds,
     espnGames: inputs.espnGames,
@@ -167,6 +184,7 @@ export async function buildCoachParlay(opts: {
     signal: opts.signal,
     skipPropPoolExpand: skipPropExpand,
     prioritySports: inputs.prioritySports,
+    propsOnly,
     varietySeed: `greenfield-${target}-${Date.now()}`,
     onPartial: (partial) => {
       latest = partial;
@@ -174,6 +192,8 @@ export async function buildCoachParlay(opts: {
       if (partial.awaitingPropSlots && propLike === 0) {
         // Reserved game-line preview (often exactly 2 on a 5/6-leg) must not paint
         // as the ticket before props/alts have had a chance to score.
+        // When propsOnly, skip this game-line preview path entirely.
+        if (propsOnly) return;
         opts.onStatus?.(
           propPoolSize > 0
             ? `Scoring game lines… props/alts next (${propPoolSize} posted)`
@@ -187,7 +207,11 @@ export async function buildCoachParlay(opts: {
             ? `Scoring ticket… ${partial.picks.length} legs (${propLike} props/alts)`
             : `Scoring game lines… ${partial.picks.length} so far — props next`,
         );
-        opts.onPartialPicks?.(partial.picks);
+        opts.onPartialPicks?.(
+          propsOnly
+            ? filterPicksByAskMarketConstraint(partial.picks, marketConstraint)
+            : partial.picks,
+        );
       }
     },
     requestId: `greenfield-${Date.now()}`,
@@ -245,7 +269,10 @@ export async function buildCoachParlay(opts: {
   }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
-  const picks = selectFinalCoachParlayPicks(rawPicks);
+  const picks = filterPicksByAskMarketConstraint(
+    selectFinalCoachParlayPicks(rawPicks),
+    marketConstraint,
+  );
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
   const propsPending =
     propsStillPending(scan) ||
