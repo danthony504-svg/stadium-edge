@@ -49,5 +49,17 @@ test("props route also fetches alternate ladders and quarter/half markets", () =
 test("handler fans out base + QH + alt Odds fetches (all prop types)", () => {
   assert.ok(propsSrc.includes("QH_MARKETS_BY_SPORT[sport]"));
   assert.ok(propsSrc.includes("ALT_MARKETS_BY_SPORT[sport]"));
+  assert.ok(propsSrc.includes("ALT_MARKETS_EXTENDED_BY_SPORT[sport]"));
+  assert.ok(propsSrc.includes("altExtendedData"));
   assert.ok(propsSrc.includes("Promise.all"));
+});
+
+test("NCAAF extended alt batch is separate from verified yard alts", () => {
+  const alt = blockAfter("export const ALT_MARKETS_BY_SPORT");
+  const ext = blockAfter("export const ALT_MARKETS_EXTENDED_BY_SPORT");
+  assert.ok(alt.includes("ncaaf:"));
+  assert.ok(alt.includes("player_pass_yds_alternate"));
+  assert.ok(ext.includes("ncaaf:"));
+  assert.ok(ext.includes("player_pass_tds_alternate"));
+  assert.ok(ext.includes("player_receptions_alternate"));
 });

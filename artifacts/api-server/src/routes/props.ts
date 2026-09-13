@@ -108,6 +108,24 @@ export const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
   nhl: ["player_points_alternate", "player_assists_alternate", "player_shots_on_goal_alternate"],
 };
 
+/**
+ * Extra NCAAF alt batch — fetched separately so one bad key cannot wipe the
+ * verified yard alt ladder (Odds API alt batches are all-or-nothing on 422).
+ */
+export const ALT_MARKETS_EXTENDED_BY_SPORT: Record<string, string[]> = {
+  ncaaf: [
+    "player_pass_attempts_alternate",
+    "player_pass_completions_alternate",
+    "player_pass_tds_alternate",
+    "player_pass_interceptions_alternate",
+    "player_pass_longest_completion_alternate",
+    "player_rush_attempts_alternate",
+    "player_rush_longest_alternate",
+    "player_receptions_alternate",
+    "player_reception_longest_alternate",
+  ],
+};
+
 type RawEventOdds = {
   home_team?: string;
   away_team?: string;
@@ -421,7 +439,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
 
     const qhMarkets = QH_MARKETS_BY_SPORT[sport] ?? [];
     const altMarkets = ALT_MARKETS_BY_SPORT[sport] ?? [];
-    const [data, qhData, altData] = await Promise.all([
+    const altExtendedMarkets = ALT_MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
+    const [data, qhData, altData, altExtendedData] = await Promise.all([
       loadBaseOdds(),
       qhMarkets.length
         ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
@@ -437,6 +456,15 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
             // window) returns null and the base + QH props stand on their own.
             try { return await fetchOdds(altMarkets); } catch { return null; }
+          })
+        : Promise.resolve(null),
+      altExtendedMarkets.length
+        ? cachedJson<RawEventOdds | null>(`props-alt-ext:${oddsKey}:${effectiveEventId}:v1`, 5 * 60 * 1000, async () => {
+            try {
+              return await fetchOdds(altExtendedMarkets);
+            } catch {
+              return null;
+            }
           })
         : Promise.resolve(null),
     ]);
@@ -538,6 +566,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     ingest(data, false);
     ingest(qhData, false);
     ingest(altData, true);
+    ingest(altExtendedData, true);
 
     // Trim alternate rungs: the raw ladder can run 3.5 → 49.5 with deep-ITM and
     // longshot rungs that would bloat the chat context + UI list (capped

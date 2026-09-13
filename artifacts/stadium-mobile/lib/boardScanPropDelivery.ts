@@ -85,27 +85,123 @@ function propFillComposite(pick: {
   return pick.finalAiScore?.composite ?? pick.scores?.composite ?? 0;
 }
 
-/** Prefer classic football skill props when filling reserved slots. */
-export function footballSkillPropRank(market: string | null | undefined): number {
+/**
+ * Prefer classic skill props across leagues when filling reserved slots.
+ * Covers NFL/NCAAF, MLB, NBA/WNBA/NCAAB, NHL, and soccer — not football-only.
+ */
+export function skillPropRank(market: string | null | undefined): number {
   const m = String(market ?? "").toLowerCase();
+  // Football
   if (/sack/.test(m)) return 5;
-  if (/rush|rushing/.test(m)) return 4;
-  if (/pass|passing/.test(m) && !/completion/.test(m)) return 3;
-  if (/receiv|reception|rec\b/.test(m)) return 3;
-  if (/anytime|touchdown|\btd\b/.test(m)) return 2;
+  if (/rush_yds|rushing|rush_attempt/.test(m)) return 5;
+  if (/pass_yds|pass_td|passing/.test(m) && !/completion/.test(m)) return 4;
+  if (/reception|rec_yds|receiving/.test(m)) return 4;
+  if (/anytime_td|anytime touchdown|player_anytime_td/.test(m)) return 2;
+  // MLB
+  if (/pitcher_strikeout/.test(m)) return 5;
+  if (/batter_home_runs|home_runs/.test(m)) return 5;
+  if (/hits_runs_rbis/.test(m)) return 4;
+  if (/total_bases/.test(m)) return 4;
+  if (/batter_hits/.test(m)) return 3;
+  if (/stolen_bases/.test(m)) return 3;
+  // Basketball
+  if (/points_rebounds_assists/.test(m)) return 4;
+  if (/player_points/.test(m)) return 3;
+  if (/player_rebounds|rebounds/.test(m)) return 3;
+  if (/player_assists/.test(m)) return 3;
+  if (/player_threes|threes/.test(m)) return 3;
+  if (/player_steals|player_blocks|blocks_steals/.test(m)) return 2;
+  // Hockey
+  if (/player_goals/.test(m)) return 4;
+  if (/shots_on_goal/.test(m)) return 3;
+  if (/player_points/.test(m)) return 3;
+  if (/player_assists/.test(m)) return 3;
+  // Soccer
+  if (/goal_scorer_anytime|anytime_goal/.test(m)) return 5;
+  if (/shots_on_target/.test(m)) return 3;
+  if (/player_shots/.test(m)) return 2;
   return 0;
 }
 
-/** Bucket classic football skill markets so reserved slots diversify (not 4× rush). */
+/** @deprecated Prefer skillPropRank — kept for existing football call sites/tests. */
+export function footballSkillPropRank(market: string | null | undefined): number {
+  return skillPropRank(market);
+}
+
+export type SkillPropFamily =
+  | "sack"
+  | "rush"
+  | "pass"
+  | "rec"
+  | "td"
+  | "hits"
+  | "hr"
+  | "hrrbi"
+  | "tb"
+  | "sb"
+  | "k"
+  | "points"
+  | "reb"
+  | "ast"
+  | "threes"
+  | "pra"
+  | "stocks"
+  | "goals"
+  | "assists"
+  | "sog"
+  | "skater_pts"
+  | "anytime_goal"
+  | "shots"
+  | "sot";
+
+/**
+ * Bucket skill markets so reserved slots diversify across leagues
+ * (not 4× rush, 4× points, or 4× hits).
+ */
+export function skillPropFamily(market: string | null | undefined): SkillPropFamily | null {
+  const m = String(market ?? "").toLowerCase();
+  // Football
+  if (/sack/.test(m)) return "sack";
+  if (/rush_yds|rushing|rush_attempt|rush_longest/.test(m)) return "rush";
+  if (/pass_yds|pass_td|pass_attempt|pass_intercept|passing/.test(m) && !/completion/.test(m)) {
+    return "pass";
+  }
+  if (/reception|rec_yds|receiving|rec_longest/.test(m)) return "rec";
+  if (/anytime_td|anytime touchdown|player_anytime_td/.test(m)) return "td";
+  // MLB
+  if (/pitcher_strikeout/.test(m)) return "k";
+  if (/batter_home_runs|home_runs/.test(m)) return "hr";
+  if (/hits_runs_rbis/.test(m)) return "hrrbi";
+  if (/total_bases/.test(m)) return "tb";
+  if (/stolen_bases/.test(m)) return "sb";
+  if (/batter_hits/.test(m)) return "hits";
+  // Basketball (check combos / threes before bare points)
+  if (/points_rebounds_assists/.test(m)) return "pra";
+  if (/player_threes|threes/.test(m)) return "threes";
+  if (/player_rebounds|rebounds/.test(m)) return "reb";
+  if (/player_assists/.test(m)) return "ast";
+  if (/player_steals|player_blocks|blocks_steals/.test(m)) return "stocks";
+  if (/player_points/.test(m)) return "points";
+  // Hockey — goals/SOG/assists before generic points key collisions are unlikely
+  // because Odds keys are player_goals / player_shots_on_goal / player_points.
+  if (/shots_on_goal/.test(m)) return "sog";
+  if (/player_goals/.test(m)) return "goals";
+  if (/player_assists/.test(m)) return "assists";
+  // Soccer
+  if (/goal_scorer_anytime/.test(m)) return "anytime_goal";
+  if (/shots_on_target/.test(m)) return "sot";
+  if (/player_shots/.test(m)) return "shots";
+  return null;
+}
+
+/** @deprecated Prefer skillPropFamily — kept for existing football call sites/tests. */
 export function footballSkillPropFamily(
   market: string | null | undefined,
 ): "sack" | "rush" | "pass" | "rec" | "td" | null {
-  const m = String(market ?? "").toLowerCase();
-  if (/sack/.test(m)) return "sack";
-  if (/rush|rushing/.test(m)) return "rush";
-  if (/pass|passing/.test(m) && !/completion/.test(m)) return "pass";
-  if (/receiv|reception|rec\b/.test(m)) return "rec";
-  if (/anytime|touchdown|\btd\b/.test(m)) return "td";
+  const fam = skillPropFamily(market);
+  if (fam === "sack" || fam === "rush" || fam === "pass" || fam === "rec" || fam === "td") {
+    return fam;
+  }
   return null;
 }
 
@@ -147,7 +243,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
 
   const familyCounts = new Map<string, number>();
   for (const p of out) {
-    const fam = footballSkillPropFamily(p.market);
+    const fam = skillPropFamily(p.market);
     if (fam) familyCounts.set(fam, (familyCounts.get(fam) ?? 0) + 1);
   }
 
@@ -159,14 +255,14 @@ export function fillReservedPropSlots<T extends PropFillPick>(
 
   const pickNext = () => {
     const pool = remaining().sort((a, b) => {
-      const aSkill = footballSkillPropRank(a.pick.market);
-      const bSkill = footballSkillPropRank(b.pick.market);
-      // Skill props first, then diversify families (rush/pass/rec/sack), then rank.
+      const aSkill = skillPropRank(a.pick.market);
+      const bSkill = skillPropRank(b.pick.market);
+      // Skill props first, then diversify families across leagues, then rank.
       const aSkillful = aSkill > 0 ? 1 : 0;
       const bSkillful = bSkill > 0 ? 1 : 0;
       if (aSkillful !== bSkillful) return bSkillful - aSkillful;
-      const aFam = footballSkillPropFamily(a.pick.market);
-      const bFam = footballSkillPropFamily(b.pick.market);
+      const aFam = skillPropFamily(a.pick.market);
+      const bFam = skillPropFamily(b.pick.market);
       const aSeen = aFam ? (familyCounts.get(aFam) ?? 0) : 99;
       const bSeen = bFam ? (familyCounts.get(bFam) ?? 0) : 99;
       if (aSeen !== bSeen) return aSeen - bSeen;
@@ -182,7 +278,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     const cand = pickNext();
     if (!cand) break;
     const fp = propFillFingerprint(cand.pick);
-    const fam = footballSkillPropFamily(cand.pick.market);
+    const fam = skillPropFamily(cand.pick.market);
 
     if (out.length < target) {
       out = [...out, cand.pick];
@@ -208,8 +304,8 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     if (fam) familyCounts.set(fam, (familyCounts.get(fam) ?? 0) + 1);
   }
 
-  // Even when prop slots are already full, swap concentrated football families
-  // (e.g. 4× rush) for underrepresented skill props (pass/rec/sack/TD) when available.
+  // Even when prop slots are already full, swap concentrated skill families
+  // (e.g. 4× rush or 4× hits) for underrepresented families when available.
   const maxPerFamily = Math.max(1, Math.ceil(propSlots / 3));
   let swaps = 0;
   while (swaps < propSlots) {
@@ -218,7 +314,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     for (let i = 0; i < out.length; i++) {
       const p = out[i]!;
       if (!p.isProp) continue;
-      const fam = footballSkillPropFamily(p.market);
+      const fam = skillPropFamily(p.market);
       if (!fam) continue;
       if ((familyCounts.get(fam) ?? 0) > maxPerFamily) {
         excessIdx = i;
@@ -230,21 +326,21 @@ export function fillReservedPropSlots<T extends PropFillPick>(
 
     const cand = remaining()
       .filter((leg) => {
-        const fam = footballSkillPropFamily(leg.pick.market);
+        const fam = skillPropFamily(leg.pick.market);
         if (!fam || fam === excessFam) return false;
         return (familyCounts.get(fam) ?? 0) < maxPerFamily;
       })
       .sort((a, b) => {
-        const aSkill = footballSkillPropRank(a.pick.market);
-        const bSkill = footballSkillPropRank(b.pick.market);
+        const aSkill = skillPropRank(a.pick.market);
+        const bSkill = skillPropRank(b.pick.market);
         if (aSkill !== bSkill) return bSkill - aSkill;
         return (b.rankScore ?? 0) - (a.rankScore ?? 0);
       })[0];
     if (!cand) break;
 
     const old = out[excessIdx]!;
-    const oldFam = footballSkillPropFamily(old.market);
-    const newFam = footballSkillPropFamily(cand.pick.market);
+    const oldFam = skillPropFamily(old.market);
+    const newFam = skillPropFamily(cand.pick.market);
     const next = out.slice();
     next[excessIdx] = cand.pick;
     out = next;
