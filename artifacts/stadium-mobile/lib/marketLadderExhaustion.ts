@@ -47,6 +47,33 @@ function ladderSortRank(leg: BoardScoredLeg): number {
   return 1;
 }
 
+function isYardsPropMarketLabel(market: string | null | undefined): boolean {
+  const m = norm(market ?? "");
+  return (
+    /\brush yds\b/.test(m) ||
+    /\bpass yds\b/.test(m) ||
+    /\brec yds\b/.test(m) ||
+    /\breceiving yards\b/.test(m) ||
+    /\brushing yards\b/.test(m) ||
+    /\bpassing yards\b/.test(m)
+  );
+}
+
+/** Near-tie on yards ladders: prefer higher posted milestone numbers. */
+const YARDS_LADDER_SCORE_TIE_EPS = 0.5;
+
+function comparePropLadderRungs(a: BoardScoredLeg, b: BoardScoredLeg): number {
+  const scoreDiff = b.rankScore - a.rankScore;
+  if (Math.abs(scoreDiff) > YARDS_LADDER_SCORE_TIE_EPS) return scoreDiff;
+  if (isYardsPropMarketLabel(a.pick.market)) {
+    const lineA = a.pick.propLine ?? 0;
+    const lineB = b.pick.propLine ?? 0;
+    if (lineB !== lineA) return lineB - lineA;
+  }
+  if (scoreDiff !== 0) return scoreDiff;
+  return ladderSortRank(a) - ladderSortRank(b);
+}
+
 /**
  * Within each market ladder, keep the first qualifying rung.
  * - Game lines: mains first, then alts by rank (unchanged).
@@ -68,9 +95,7 @@ export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): Boar
     const propLadder = ladder.some((leg) => !!leg.pick.isProp);
     ladder.sort((a, b) => {
       if (propLadder) {
-        // Best-scoring posted line (main or alt number) wins for props.
-        if (b.rankScore !== a.rankScore) return b.rankScore - a.rankScore;
-        return ladderSortRank(a) - ladderSortRank(b);
+        return comparePropLadderRungs(a, b);
       }
       const tierA = ladderSortRank(a);
       const tierB = ladderSortRank(b);
