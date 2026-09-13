@@ -1,10 +1,17 @@
 /** Greenfield ask parsing — leg targets and build intent only. */
 
-const PARLAY_BUILD_RE =
-  /\b((?:\d{1,3})\s*[-\s]?\s*legs?\b|\b(?:build|make|create|give me|need|want)\b.{0,40}\bparlay\b|\bparlay\b)/i;
+/** Accept "leg(s)" and common typos like "lag" / "lags" so board scan still runs. */
+const LEG_WORD = String.raw`l(?:eg|ag)s?`;
+
+const PARLAY_BUILD_RE = new RegExp(
+  String.raw`\b((?:\d{1,3})\s*[-\s]?\s*${LEG_WORD}\b|\b(?:build|make|create|give me|need|want)\b.{0,40}\bparlay\b|\bparlay\b)`,
+  "i",
+);
 
 export function parseRequestedLegs(text: string): number {
-  const m = String(text || "").match(/\b(\d{1,3})\s*[-\s]?\s*legs?\b/i);
+  const m = String(text || "").match(
+    new RegExp(String.raw`\b(\d{1,3})\s*[-\s]?\s*${LEG_WORD}\b`, "i"),
+  );
   if (!m) return 0;
   const n = parseInt(m[1], 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
