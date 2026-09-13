@@ -10,6 +10,7 @@ import {
   type CoachScanFailureReason,
   type CoachScanFailureDiagnostics,
 } from "./coachScanFailureReason.ts";
+import { COACH_PRIORITY_SPORTS } from "./coachPrioritySports.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
 export function boardScanPropSlotCount(targetLegs: number): number {
@@ -193,6 +194,14 @@ export function fillReservedPropSlots<T extends PropFillPick>(
       for (let i = 0; i < out.length; i++) {
         const p = out[i]!;
         if (p.isProp) continue;
+        // Keep the only NFL/NCAAF seat — prop fill was wiping soft football injects.
+        const sid = String(p.sport ?? "").toLowerCase();
+        if (
+          (COACH_PRIORITY_SPORTS as readonly string[]).includes(sid) &&
+          out.filter((x) => String(x.sport ?? "").toLowerCase() === sid).length <= 1
+        ) {
+          continue;
+        }
         const score = propFillComposite(p);
         if (score < worstScore) {
           worstScore = score;
