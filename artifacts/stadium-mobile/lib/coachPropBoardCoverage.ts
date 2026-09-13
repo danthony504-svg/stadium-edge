@@ -87,9 +87,9 @@ export const EXPECTED_MAIN_PROP_FAMILIES: Record<string, string[]> = {
   mlb: ["batter_hits", "batter_hits_runs_rbis", "batter_home_runs", "pitcher_strikeouts"],
   nba: ["player_points", "player_rebounds", "player_assists", "player_threes"],
   nfl: ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_sacks", "player_anytime_td"],
-  ncaaf: ["player_pass_yds", "player_rush_yds", "player_reception_yds"],
+  ncaaf: ["player_pass_yds", "player_rush_yds", "player_reception_yds", "player_anytime_td", "player_pass_tds"],
   ncaab: ["player_points", "player_rebounds", "player_assists"],
-  nhl: ["player_points", "player_goals", "player_shots_on_goal"],
-  wnba: ["player_points", "player_rebounds", "player_assists"],
+  nhl: ["player_points", "player_goals", "player_shots_on_goal", "player_assists"],
+  wnba: ["player_points", "player_rebounds", "player_assists", "player_threes"],
   soccer: ["player_goal_scorer_anytime", "player_shots_on_target", "player_shots"],
 };

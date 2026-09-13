@@ -34,18 +34,25 @@ export function balancedMixSlots(target: number): BalancedMixSlots {
   let props = Math.max(1, Math.round(target * BALANCED_MIX_FRACTIONS.props));
   let gameLines = Math.max(0, Math.round(target * BALANCED_MIX_FRACTIONS.gameLines));
   let teamTotals = Math.max(0, Math.round(target * BALANCED_MIX_FRACTIONS.teamTotals));
-  let alternateLines = Math.max(0, target - props - gameLines - teamTotals);
+  // Round the alt share (don't leave it as pure remainder) so 6–7 leg tickets
+  // still reserve alt-spread/total slots instead of collapsing to 0.
+  let alternateLines = Math.max(0, Math.round(target * BALANCED_MIX_FRACTIONS.alternateLines));
+  // 6+ legs: at least one alt slot when books post competitive Alt Spreads.
+  if (target >= 6 && alternateLines < 1) alternateLines = 1;
 
   let sum = props + gameLines + teamTotals + alternateLines;
   while (sum > target) {
-    if (gameLines > 0) {
+    // Trim main game lines before alt slots so mix keeps alt-spread diversity.
+    if (gameLines > 1) {
       gameLines -= 1;
-    } else if (alternateLines > 0) {
-      alternateLines -= 1;
     } else if (teamTotals > 0) {
       teamTotals -= 1;
     } else if (props > 1) {
       props -= 1;
+    } else if (alternateLines > 0) {
+      alternateLines -= 1;
+    } else if (gameLines > 0) {
+      gameLines -= 1;
     } else {
       break;
     }

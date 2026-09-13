@@ -1,8 +1,7 @@
 // Per-market ladder exhaustion — one qualifying rung per ladder.
-// Game lines: prefer the main posted line, then alt rungs by rank.
-// Player props: prefer the best-scoring posted line (main or alt number) so
-// rush/pass yards, attempts, and completions can land on 150 / 175 / etc. when
-// that rung outranks the main O/U — without changing Coach hold/delivery.
+// Game lines + player props: prefer the best-scoring posted line (main or alt)
+// so competitive NFL/CFB Alt Spreads and alt yard numbers can beat a weaker
+// main when they outscore — without changing Coach hold/delivery.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { isAltPropPick, isMainBoardPick, isMainLineGameLeg, marketFamily } from "./altLinePool.ts";
@@ -31,7 +30,9 @@ export function marketLadderKey(pick: ParsedPick): string {
   if (pick.isProp) {
     const player = norm(pick.player ?? pick.pick.split(/\s+/)[0] ?? "");
     const market = norm(pick.market);
-    const side = pick.propSide ?? (/\bover\b/i.test(pick.pick) ? "Over" : /\bunder\b/i.test(pick.pick) ? "Under" : "");
+    const side =
+      pick.propSide ??
+      (/\bover\b/i.test(pick.pick) ? "Over" : /\bunder\b/i.test(pick.pick) ? "Under" : "");
     return `${norm(pick.game)}|prop|${player}|${market}|${side}`.toLowerCase();
   }
   return `${norm(pick.game)}|${marketFamily(pick.market)}|${pickSideKey(pick.pick)}`.toLowerCase();
@@ -49,10 +50,9 @@ function ladderSortRank(leg: BoardScoredLeg): number {
 
 /**
  * Within each market ladder, keep the first qualifying rung.
- * - Game lines: mains first, then alts by rank (unchanged).
- * - Player props: best rankScore wins among qualifying rungs so posted alt
- *   yard/attempt/completion numbers (150, 175, …) can beat the main O/U when
- *   they score higher — without putting two rungs of the same ladder on a ticket.
+ * Best rankScore wins among qualifying rungs (main or alt) so a stronger
+ * Alt Spread / alt yard number can beat the main when it outscores — without
+ * putting two rungs of the same ladder on a ticket or changing Coach hold/delivery.
  */
 export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): BoardScoredLeg[] {
   const byLadder = new Map<string, BoardScoredLeg[]>();
@@ -65,17 +65,9 @@ export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): Boar
 
   const out: BoardScoredLeg[] = [];
   for (const ladder of byLadder.values()) {
-    const propLadder = ladder.some((leg) => !!leg.pick.isProp);
     ladder.sort((a, b) => {
-      if (propLadder) {
-        // Best-scoring posted line (main or alt number) wins for props.
-        if (b.rankScore !== a.rankScore) return b.rankScore - a.rankScore;
-        return ladderSortRank(a) - ladderSortRank(b);
-      }
-      const tierA = ladderSortRank(a);
-      const tierB = ladderSortRank(b);
-      if (tierA !== tierB) return tierA - tierB;
-      return b.rankScore - a.rankScore;
+      if (b.rankScore !== a.rankScore) return b.rankScore - a.rankScore;
+      return ladderSortRank(a) - ladderSortRank(b);
     });
     for (const leg of ladder) {
       const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);

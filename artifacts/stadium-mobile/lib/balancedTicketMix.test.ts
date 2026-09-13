@@ -54,6 +54,17 @@ test("balancedMixSlots targets ~50% props on a 10-leg ticket", () => {
   assert.equal(slots.gameLines + slots.teamTotals + slots.alternateLines, 5);
 });
 
+test("balancedMixSlots reserves at least one alt slot on 6+ leg tickets", () => {
+  for (const n of [6, 7, 8, 10]) {
+    const slots = balancedMixSlots(n);
+    assert.ok(slots.alternateLines >= 1, `${n}-leg should reserve alt lines, got ${JSON.stringify(slots)}`);
+    assert.equal(
+      slots.props + slots.gameLines + slots.teamTotals + slots.alternateLines,
+      n,
+    );
+  }
+});
+
 test("boardMarketCategory separates props, game lines, team totals, and alts", () => {
   assert.equal(
     boardMarketCategory({
