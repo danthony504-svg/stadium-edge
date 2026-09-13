@@ -109,6 +109,94 @@ test("generic parlay ask has no market constraint", () => {
   assert.equal(c.allowedMarketKeys, null);
 });
 
+test("screenshot ask: nfl rushing receiving and passing props → props-only skill families", () => {
+  const c = parseCoachAskMarketConstraint(
+    "9 leg nfl rushing receiving and passing props",
+  );
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), [
+    "player_pass_attempts",
+    "player_pass_completions",
+    "player_pass_interceptions",
+    "player_pass_tds",
+    "player_pass_yds",
+    "player_reception_tds",
+    "player_reception_yds",
+    "player_receptions",
+    "player_rush_attempts",
+    "player_rush_tds",
+    "player_rush_yds",
+  ]);
+});
+
+test("skill props ask drops spreads/totals from ticket (screenshot lead-spread leak)", () => {
+  const c = parseCoachAskMarketConstraint(
+    "9 leg nfl rushing receiving and passing props",
+  );
+  const picks = [
+    {
+      isProp: false,
+      market: "SPREAD",
+      pick: "Falcons +6",
+    },
+    {
+      isProp: false,
+      market: "TOTAL",
+      pick: "Over 47.5",
+    },
+    {
+      isProp: true,
+      market: "PASS TDS",
+      propMarketKey: "player_pass_tds",
+      pick: "Aaron Rodgers Under 1.5 Pass TDs",
+    },
+    {
+      isProp: true,
+      market: "PASS INTS",
+      propMarketKey: "player_pass_interceptions",
+      pick: "Patrick Mahomes Over 0.5 Pass INTs",
+    },
+    {
+      isProp: true,
+      market: "RUSH ATTEMPTS",
+      propMarketKey: "player_rush_attempts",
+      pick: "Lamar Jackson Under 6.5 Rush Attempts",
+    },
+    {
+      isProp: true,
+      market: "RECEPTIONS",
+      propMarketKey: "player_receptions",
+      pick: "Cade Otton Over 3.5 Receptions",
+    },
+    {
+      isProp: true,
+      market: "ANYTIME TD",
+      propMarketKey: "player_anytime_td",
+      pick: "Someone Anytime TD",
+    },
+  ];
+  const out = filterPicksByAskMarketConstraint(picks, c);
+  assert.equal(out.length, 4);
+  assert.ok(out.every((p) => p.isProp));
+  assert.ok(!out.some((p) => /spread|total/i.test(String(p.market))));
+  assert.ok(!out.some((p) => p.propMarketKey === "player_anytime_td"));
+});
+
+test("rushing props alone allowlists rush family only", () => {
+  const c = parseCoachAskMarketConstraint("6 leg NFL rushing props");
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), [
+    "player_rush_attempts",
+    "player_rush_tds",
+    "player_rush_yds",
+  ]);
+});
+
+test("props without skill words does not constrain markets", () => {
+  const c = parseCoachAskMarketConstraint("9 leg nfl props");
+  assert.equal(c.propsOnly, false);
+  assert.equal(c.allowedMarketKeys, null);
+});
 
 test("rushing yards and passing TDs does not allowlist pass yards", () => {
   const c = parseCoachAskMarketConstraint("rushing yards and passing TDs");
