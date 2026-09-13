@@ -5,6 +5,7 @@ import { isAltBoardPick, isAltPropPick, isMainBoardPick, ticketRoleForPick } fro
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   type PartitionedBoardPools,
+  partitionPoolPreferringSides,
   partitionScoredLegsByCategory,
 } from "./boardMarketPools.ts";
 import {
@@ -262,13 +263,37 @@ function appendPicksFromPool(
   want: number,
   target: number,
   varietySeed?: string,
+  preferSides = false,
 ): number {
   if (want <= 0) return 0;
   const remaining = pool.filter((row) => !used.has(pickLegFingerprint(row.pick)));
-  const picks =
-    target >= 3
-      ? selectTopBoardLegs(remaining, want, varietySeed)
-      : selectGreedyBoardLegs(remaining, want, varietySeed);
+  const pickFrom = (candidates: BoardScoredLeg[], n: number): ParsedPick[] => {
+    if (n <= 0 || !candidates.length) return [];
+    return target >= 3
+      ? selectTopBoardLegs(candidates, n, varietySeed)
+      : selectGreedyBoardLegs(candidates, n, varietySeed);
+  };
+
+  // Sides-first: fill reserved game-line / alt slots from spreads & ML before
+  // FG/F5/alt totals so rank re-sort inside selectTopBoardLegs cannot flood O/U.
+  let picks: ParsedPick[];
+  if (preferSides) {
+    const { sides, rest } = partitionPoolPreferringSides(remaining);
+    const fromSides = pickFrom(sides, Math.min(want, sides.length));
+    const usedLocal = new Set(fromSides.map(pickLegFingerprint));
+    const need = want - fromSides.length;
+    const fromRest =
+      need > 0
+        ? pickFrom(
+            rest.filter((row) => !usedLocal.has(pickLegFingerprint(row.pick))),
+            need,
+          )
+        : [];
+    picks = [...fromSides, ...fromRest];
+  } else {
+    picks = pickFrom(remaining, want);
+  }
+
   let added = 0;
   for (const p of picks) {
     const fp = pickLegFingerprint(p);
@@ -297,20 +322,29 @@ function applyBalancedCapAndBackfill(
   const used = new Set(current.map(pickLegFingerprint));
   for (const cat of BALANCED_BACKFILL_ORDER) {
     if (current.length >= target) break;
-    const ranked = [...pools[cat]].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
-    for (const row of ranked) {
-      if (current.length >= target) break;
-      const fp = pickLegFingerprint(row.pick);
-      if (used.has(fp)) continue;
-      const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
-      if (!role) continue;
-      const trial = capThinStatMarketsOnTicket(
-        [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
-        target,
-      );
-      if (trial.length > current.length) {
-        current = trial;
-        used.add(fp);
+    const orderedPools =
+      cat === "gameLines" || cat === "alternateLines"
+        ? (() => {
+            const { sides, rest } = partitionPoolPreferringSides(pools[cat]);
+            return [sides, rest];
+          })()
+        : [pools[cat]];
+    for (const sub of orderedPools) {
+      const ranked = [...sub].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+      for (const row of ranked) {
+        if (current.length >= target) break;
+        const fp = pickLegFingerprint(row.pick);
+        if (used.has(fp)) continue;
+        const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
+        if (!role) continue;
+        const trial = capThinStatMarketsOnTicket(
+          [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
+          target,
+        );
+        if (trial.length > current.length) {
+          current = trial;
+          used.add(fp);
+        }
       }
     }
   }
@@ -320,7 +354,7 @@ function applyBalancedCapAndBackfill(
   return current;
 }
 
-/** Balanced ticket: ~50% props, ~25% game lines, ~12.5% team totals, ~12.5% alts. */
+/** Balanced ticket: ~50% props, ~25% game lines, ~5% team totals, ~20% alts. */
 export function buildBalancedStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
@@ -333,10 +367,28 @@ export function buildBalancedStagedTicketFromScan(
   const used = new Set<string>();
   const out: ParsedPick[] = [];
 
+  // Prefer spreads/ML ahead of FG/F5 totals inside game-line + alt pools so
+  // mix tickets are not flooded with Over/Under totals when sides also qualify.
   appendPicksFromPool(out, used, pools.props, slots.props, target, varietySeed);
-  appendPicksFromPool(out, used, pools.gameLines, slots.gameLines, target, varietySeed);
+  appendPicksFromPool(
+    out,
+    used,
+    pools.gameLines,
+    slots.gameLines,
+    target,
+    varietySeed,
+    true,
+  );
   appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target, varietySeed);
-  appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target, varietySeed);
+  appendPicksFromPool(
+    out,
+    used,
+    pools.alternateLines,
+    slots.alternateLines,
+    target,
+    varietySeed,
+    true,
+  );
 
   const finalPicks = applyBalancedCapAndBackfill(
     out,

@@ -6,7 +6,7 @@ import {
   balancedMixSlots,
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
-import { partitionScoredLegsByCategory } from "./boardMarketPools.ts";
+import { partitionPoolPreferringSides, partitionScoredLegsByCategory } from "./boardMarketPools.ts";
 import { compareBoardLegsForRank, sortBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
@@ -347,9 +347,21 @@ function appendFromCategory(
   want: number,
   target: number,
   config: AssemblyConfig,
+  preferSides = false,
 ): void {
-  const picked = pickDiverseLegsFromPool(pool, ticket, want, target, used, config);
-  ticket.push(...picked);
+  if (!preferSides) {
+    const picked = pickDiverseLegsFromPool(pool, ticket, want, target, used, config);
+    ticket.push(...picked);
+    return;
+  }
+  const { sides, rest } = partitionPoolPreferringSides(pool);
+  const fromSides = pickDiverseLegsFromPool(sides, ticket, want, target, used, config);
+  ticket.push(...fromSides);
+  const need = want - fromSides.length;
+  if (need > 0) {
+    const fromRest = pickDiverseLegsFromPool(rest, ticket, need, target, used, config);
+    ticket.push(...fromRest);
+  }
 }
 
 function stagedPickFromRow(
@@ -411,17 +423,26 @@ function backfillDiverseTicket(
   const used = new Set(current.map(pickLegFingerprint));
   for (const cat of BALANCED_BACKFILL_ORDER) {
     if (current.length >= target) break;
-    const ranked = sortBoardLegsForRank(pools[cat], config.seed);
-    for (const row of ranked) {
-      if (current.length >= target) break;
-      const fp = pickLegFingerprint(row.pick);
-      if (used.has(fp)) continue;
-      const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
-      if (!role) continue;
-      const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config);
-      if (trial) {
-        current = trial;
-        used.add(fp);
+    const subPools =
+      cat === "gameLines" || cat === "alternateLines"
+        ? (() => {
+            const { sides, rest } = partitionPoolPreferringSides(pools[cat]);
+            return [sides, rest];
+          })()
+        : [pools[cat]];
+    for (const sub of subPools) {
+      const ranked = sortBoardLegsForRank(sub, config.seed);
+      for (const row of ranked) {
+        if (current.length >= target) break;
+        const fp = pickLegFingerprint(row.pick);
+        if (used.has(fp)) continue;
+        const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
+        if (!role) continue;
+        const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config);
+        if (trial) {
+          current = trial;
+          used.add(fp);
+        }
       }
     }
   }
@@ -446,17 +467,26 @@ function backfillAtQualityTier(
 
   for (const cat of BALANCED_BACKFILL_ORDER) {
     if (current.length >= target) break;
-    const ranked = sortBoardLegsForRank(pools[cat], config.seed);
-    for (const row of ranked) {
-      if (current.length >= target) break;
-      const fp = pickLegFingerprint(row.pick);
-      if (used.has(fp)) continue;
-      const role = poolRoleAtMinGrade(row.pick, row.pick.finalAiScore, minGrade);
-      if (!role) continue;
-      const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config, minGrade);
-      if (trial) {
-        current = trial;
-        used.add(fp);
+    const subPools =
+      cat === "gameLines" || cat === "alternateLines"
+        ? (() => {
+            const { sides, rest } = partitionPoolPreferringSides(pools[cat]);
+            return [sides, rest];
+          })()
+        : [pools[cat]];
+    for (const sub of subPools) {
+      const ranked = sortBoardLegsForRank(sub, config.seed);
+      for (const row of ranked) {
+        if (current.length >= target) break;
+        const fp = pickLegFingerprint(row.pick);
+        if (used.has(fp)) continue;
+        const role = poolRoleAtMinGrade(row.pick, row.pick.finalAiScore, minGrade);
+        if (!role) continue;
+        const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config, minGrade);
+        if (trial) {
+          current = trial;
+          used.add(fp);
+        }
       }
     }
   }
@@ -507,7 +537,15 @@ function assembleBalancedDiverseTicket(
   const used = new Set<string>();
 
   for (const cat of config.categoryOrder) {
-    appendFromCategory(ticket, used, rotatedPools[cat], slots[cat], target, config);
+    appendFromCategory(
+      ticket,
+      used,
+      rotatedPools[cat],
+      slots[cat],
+      target,
+      config,
+      cat === "gameLines" || cat === "alternateLines",
+    );
   }
 
   const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
