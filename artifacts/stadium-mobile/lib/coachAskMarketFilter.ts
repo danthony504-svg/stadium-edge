@@ -22,6 +22,25 @@ const RUSH_YARDS_KEYS = ["player_rush_yds"] as const;
 const REC_YARDS_KEYS = ["player_reception_yds"] as const;
 const PASS_YARDS_KEYS = ["player_pass_yds"] as const;
 
+/** Broader skill-prop families when the ask says "props" (not yards-only). */
+const RUSH_PROP_KEYS = [
+  "player_rush_yds",
+  "player_rush_attempts",
+  "player_rush_tds",
+] as const;
+const REC_PROP_KEYS = [
+  "player_reception_yds",
+  "player_receptions",
+  "player_reception_tds",
+] as const;
+const PASS_PROP_KEYS = [
+  "player_pass_yds",
+  "player_pass_tds",
+  "player_pass_interceptions",
+  "player_pass_attempts",
+  "player_pass_completions",
+] as const;
+
 /** Strip alternate / period suffixes so allowlist checks stay stable. */
 export function canonicalPropMarketKey(marketKey: string | null | undefined): string {
   let k = String(marketKey ?? "").trim().toLowerCase();
@@ -125,9 +144,28 @@ function hasPassYardsAsk(t: string): boolean {
 }
 
 /**
+ * "rushing receiving and passing props" / "pass + rush props" — skill families
+ * named with an explicit props ask. Does not fire on generic "5 leg NFL parlay".
+ */
+function skillPropFamilyFlags(t: string): {
+  rush: boolean;
+  pass: boolean;
+  rec: boolean;
+} | null {
+  if (!/\bprops?\b/i.test(t)) return null;
+  const rush = /\brush(?:ing)?\b/i.test(t);
+  const pass = /\bpass(?:ing)?\b/i.test(t);
+  const rec = /\breceiv(?:ing|e|er)?\b|\breceptions?\b/i.test(t);
+  if (!rush && !pass && !rec) return null;
+  return { rush, pass, rec };
+}
+
+/**
  * Market allowlist + props-only flag for a Coach ask.
  * Example: "10 lag rushing and passing yards"
  * → propsOnly + player_rush_yds + player_pass_yds (alts included via canonical key).
+ * Example: "9 leg nfl rushing receiving and passing props"
+ * → propsOnly + rush/rec/pass skill prop families (no spreads/totals).
  */
 export function parseCoachAskMarketConstraint(
   text: string | null | undefined,
@@ -146,6 +184,18 @@ export function parseCoachAskMarketConstraint(
     if (passYds) keys.push(...PASS_YARDS_KEYS);
     // Naming yards families means a yards-prop ticket — keep game lines out so
     // F5/TOTAL/ALT SPREAD cannot fill legs the user asked for as yards.
+    return {
+      propsOnly: true,
+      allowedMarketKeys: keys,
+    };
+  }
+
+  const skillProps = skillPropFamilyFlags(t);
+  if (skillProps) {
+    const keys: string[] = [];
+    if (skillProps.rush) keys.push(...RUSH_PROP_KEYS);
+    if (skillProps.rec) keys.push(...REC_PROP_KEYS);
+    if (skillProps.pass) keys.push(...PASS_PROP_KEYS);
     return {
       propsOnly: true,
       allowedMarketKeys: keys,

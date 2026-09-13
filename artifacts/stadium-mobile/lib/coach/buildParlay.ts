@@ -161,10 +161,10 @@ export async function buildCoachParlay(opts: {
   opts.onStatus?.(
     propPoolSize > 0
       ? propsOnly
-        ? `Scanning ${propPoolSize} posted yards props/alts for a ${target}-leg ticket…`
+        ? `Scanning ${propPoolSize} posted props/alts for a ${target}-leg ticket…`
         : `Scanning ${propPoolSize} posted props/alts plus game lines for a ${target}-leg ticket…`
       : propsOnly
-        ? `No matching yards props posted for a ${target}-leg ticket…`
+        ? `No matching props posted for a ${target}-leg ticket…`
         : `Scanning posted game lines for a ${target}-leg ticket…`,
   );
 
