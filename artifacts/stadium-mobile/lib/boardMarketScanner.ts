@@ -920,28 +920,27 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   }
 
   if (!opts.propsOnly) {
-  const gamePhaseBudgetMs = overlapProps ? boardScanGamePhaseBudgetMs(opts.target) : null;
-  const gamePhaseStartedAt = Date.now();
-  for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
-    if (opts.signal?.aborted) break;
-    if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) break;
-    const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
-    try {
-      const batchSims = await fetchSlateGameSimulations(
-        new Map(batch),
-        opts.teamIdMap,
-        opts.signal,
-      );
-      for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
-      scoreGamesAndMaybePartial(batch.map(([game]) => game));
-    } catch {
-      // Keep scanning remaining games + props. A thrown slate batch used to
-      // abort buildTopLegsFromFullBoardScan → tryReachFullBoardScan(null) →
-      // instant 0-of-N on phone.
-      continue;
+    const gamePhaseBudgetMs = overlapProps ? boardScanGamePhaseBudgetMs(opts.target) : null;
+    const gamePhaseStartedAt = Date.now();
+    for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
+      if (opts.signal?.aborted) break;
+      if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) break;
+      const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
+      try {
+        const batchSims = await fetchSlateGameSimulations(
+          new Map(batch),
+          opts.teamIdMap,
+          opts.signal,
+        );
+        for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
+        scoreGamesAndMaybePartial(batch.map(([game]) => game));
+      } catch {
+        // Keep scanning remaining games + props. A thrown slate batch used to
+        // abort buildTopLegsFromFullBoardScan → tryReachFullBoardScan(null) →
+        // instant 0-of-N on phone.
+        continue;
+      }
     }
-  }
-
   }
 
   const expandedPool = await poolExpandP;
