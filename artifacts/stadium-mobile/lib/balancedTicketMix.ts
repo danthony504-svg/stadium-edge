@@ -18,10 +18,21 @@ export const BALANCED_MIX_FRACTIONS = {
   alternateLines: 0.2,
 } as const;
 
+/** NFL/NCAAF mix asks: fewer prop seats, more FG/alt sides so tickets are not Over-prop walls. */
+export const FOOTBALL_BALANCED_MIX_FRACTIONS = {
+  props: 0.4,
+  gameLines: 0.3,
+  teamTotals: 0.05,
+  alternateLines: 0.25,
+} as const;
+
 export type BalancedMixSlots = Record<BoardMarketCategory, number>;
 
 /** Slot budget per category for a fixed-leg ask — never exceeds target. */
-export function balancedMixSlots(target: number): BalancedMixSlots {
+export function balancedMixSlots(
+  target: number,
+  fractions: typeof BALANCED_MIX_FRACTIONS = BALANCED_MIX_FRACTIONS,
+): BalancedMixSlots {
   if (target <= 0) {
     return { props: 0, gameLines: 0, teamTotals: 0, alternateLines: 0 };
   }
@@ -32,12 +43,12 @@ export function balancedMixSlots(target: number): BalancedMixSlots {
     return { props: 1, gameLines: 1, teamTotals: 0, alternateLines: 0 };
   }
 
-  let props = Math.max(1, Math.round(target * BALANCED_MIX_FRACTIONS.props));
-  let gameLines = Math.max(0, Math.round(target * BALANCED_MIX_FRACTIONS.gameLines));
-  let teamTotals = Math.max(0, Math.round(target * BALANCED_MIX_FRACTIONS.teamTotals));
+  let props = Math.max(1, Math.round(target * fractions.props));
+  let gameLines = Math.max(0, Math.round(target * fractions.gameLines));
+  let teamTotals = Math.max(0, Math.round(target * fractions.teamTotals));
   // Round alt share (don't leave as pure remainder) so 6–7 legs still get
   // alt spread/run-line slots instead of collapsing to 0.
-  let alternateLines = Math.max(0, Math.round(target * BALANCED_MIX_FRACTIONS.alternateLines));
+  let alternateLines = Math.max(0, Math.round(target * fractions.alternateLines));
   if (target >= 6 && alternateLines < 1) alternateLines = 1;
 
   let sum = props + gameLines + teamTotals + alternateLines;

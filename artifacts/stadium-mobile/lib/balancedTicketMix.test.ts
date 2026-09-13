@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { balancedMixSlots, BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
+import { balancedMixSlots, BALANCED_MIX_FRACTIONS, FOOTBALL_BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
 import { buildBalancedStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
 import {
   boardMarketCategory,
@@ -10,6 +10,7 @@ import {
   propOuSide,
   sidePriorityTiers,
   ticketCategoryMix,
+  interleaveSidesWithProps,
 } from "./boardMarketPools.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
@@ -356,4 +357,46 @@ test("buildBalancedStagedTicketFromScan reserves Unders among prop slots when av
   const propPicks = picks.filter((p) => p.isProp);
   const underCount = propPicks.filter((p) => propOuSide(p) === "under").length;
   assert.ok(underCount >= 1, `expected reserved Under props, got ${propPicks.map((p) => p.pick)}`);
+});
+
+
+test("football mix slots reserve more sides on a 7-leg ticket", () => {
+  const slots = balancedMixSlots(7, FOOTBALL_BALANCED_MIX_FRACTIONS);
+  assert.ok(slots.props <= 3, `expected ≤3 props, got ${JSON.stringify(slots)}`);
+  assert.ok(slots.gameLines + slots.alternateLines >= 3, `expected ≥3 side/alt seats, got ${JSON.stringify(slots)}`);
+  assert.equal(slots.props + slots.gameLines + slots.teamTotals + slots.alternateLines, 7);
+});
+
+test("interleaveSidesWithProps leads with a side so Overs are not the whole first screen", () => {
+  const picks = [
+    { isProp: true, pick: "A Over 1.5" },
+    { isProp: true, pick: "B Over 2.5" },
+    { isProp: true, pick: "C Over 0.5" },
+    { isProp: true, pick: "D Over 3.5" },
+    { isProp: false, pick: "Falcons +6" },
+    { isProp: false, pick: "Over 48" },
+    { isProp: false, pick: "Colts +2.5" },
+  ];
+  const out = interleaveSidesWithProps(picks);
+  assert.equal(out[0]!.isProp, false, `expected side first, got ${out[0]!.pick}`);
+  assert.equal(out.length, 7);
+  assert.equal(out.filter((p) => p.isProp).length, 4);
+});
+
+
+test("interleaveSidesWithProps puts spread ahead of Over props (LIVE card-order contract)", () => {
+  const picks = [
+    { isProp: true, pick: "Darren Waller Over 1.5 Receptions", market: "Receptions" },
+    { isProp: true, pick: "Aaron Rodgers Over 0.5 Rush Yds", market: "Rush Yds" },
+    { isProp: true, pick: "Patrick Mahomes Over 0.5 Pass INTs", market: "Pass INTs" },
+    { isProp: true, pick: "Cade Otton Over 3.5 Receptions", market: "Receptions" },
+    // Total listed before spread — lead must still be Falcons +6, not Over 48.
+    { isProp: false, pick: "Over 48", market: "Total" },
+    { isProp: false, pick: "Falcons +6", market: "Spread" },
+    { isProp: false, pick: "Colts +2.5", market: "Alt Spread" },
+  ];
+  const out = interleaveSidesWithProps(picks);
+  assert.equal(out[0]!.pick, "Falcons +6");
+  assert.notEqual(out[0]!.pick, "Over 48");
+  assert.ok(out.slice(0, 3).some((p) => !p.isProp), "first viewport must include a side");
 });

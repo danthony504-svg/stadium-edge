@@ -210,3 +210,57 @@ export function partitionPropPoolPreferringSideBalance(pool: BoardScoredLeg[]): 
   }
   return { unders, overs, other };
 }
+
+/**
+ * Prefer spread/ML ahead of totals among non-prop legs so the lead card is not
+ * another Over (e.g. Over 48) when a qualifying Falcons +6 exists.
+ */
+function orderSidesPreferringSpreadMl<
+  T extends { market?: string | null; pick?: string | null; isProp?: boolean },
+>(sides: T[]): T[] {
+  const spreads: T[] = [];
+  const moneylines: T[] = [];
+  const rest: T[] = [];
+  for (const s of sides) {
+    const fam = gameLineFamily(s);
+    if (fam === "spread") spreads.push(s);
+    else if (fam === "moneyline") moneylines.push(s);
+    else rest.push(s);
+  }
+  return [...spreads, ...moneylines, ...rest];
+}
+
+/**
+ * Re-order a staged ticket so the first viewport is not a wall of Over props.
+ * Keeps the same legs; prefers spread/ML for the lead card, then alternates.
+ */
+export function interleaveSidesWithProps<
+  T extends { isProp?: boolean; market?: string | null; pick?: string | null },
+>(picks: T[]): T[] {
+  if (picks.length < 3) return picks;
+  const props: T[] = [];
+  const sidesRaw: T[] = [];
+  for (const p of picks) {
+    if (p.isProp) props.push(p);
+    else sidesRaw.push(p);
+  }
+  if (!props.length || !sidesRaw.length) return picks;
+
+  const sides = orderSidesPreferringSpreadMl(sidesRaw);
+  const out: T[] = [];
+  let pi = 0;
+  let si = 0;
+  // Lead with spread/ML when available so "7 leg nfl" does not open on Overs.
+  out.push(sides[si++]!);
+  while (out.length < picks.length && (pi < props.length || si < sides.length)) {
+    // Two props per side when props are the majority (~50–60% mix).
+    if (pi < props.length) out.push(props[pi++]!);
+    if (out.length >= picks.length) break;
+    if (pi < props.length) out.push(props[pi++]!);
+    if (out.length >= picks.length) break;
+    if (si < sides.length) out.push(sides[si++]!);
+  }
+  while (pi < props.length && out.length < picks.length) out.push(props[pi++]!);
+  while (si < sides.length && out.length < picks.length) out.push(sides[si++]!);
+  return out;
+}
