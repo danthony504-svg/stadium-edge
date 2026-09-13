@@ -667,7 +667,13 @@ export function buildScanResult(
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
       : picks.length > 0 && opts.preview
         ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
-        : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+        : fullBoardScanShortfallNote(
+            opts.totalScanned,
+            totalQualified,
+            picks.length,
+            breakdown,
+            { propsOnly: opts.propsOnly },
+          );
   // Final display order: lead with a side when props+sides both exist so
   // LIVE "7 leg nfl" does not open as a wall of Over props. Must run AFTER
   // prop-slot fill / multi-sport floor (those mutate membership).

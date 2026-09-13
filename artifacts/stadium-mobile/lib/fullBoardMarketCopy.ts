@@ -17,12 +17,22 @@ export function fullBoardScanSuccessNote(_totalScanned: number, _pickCount: numb
 
 import { COACH_NO_FILLER_SHORTFALL } from "./coachScanPolicy.ts";
 
+/**
+ * Shortfall chat note after a full-board (or props-only) scan.
+ * Props/yards asks never sim moneylines/spreads/F5 — returning the full-board
+ * essay there lied on phone (screenshot: props ask + "scanned … moneylines").
+ * Empty string → `buildFinalCoachParlayNote` falls through to the honest
+ * fixed-leg shortfall lead (same surface as hidden success notes).
+ */
 export function fullBoardScanShortfallNote(
   totalScanned: number,
   totalQualified: number,
   pickCount: number,
   staging?: TicketStagingBreakdown,
+  opts?: { propsOnly?: boolean },
 ): string {
+  if (opts?.propsOnly) return "";
+
   const staged =
     staging && (staging.mainOnTicket > 0 || staging.altOnTicket > 0)
       ? staging.altOnTicket > 0
