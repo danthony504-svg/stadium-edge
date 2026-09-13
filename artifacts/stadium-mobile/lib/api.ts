@@ -968,6 +968,8 @@ export type GetPropsArgs = {
   homeTeamId?: string | null;
   awayTeamId?: string | null;
   startsAt?: string | null;
+  /** Coach full-board scan — include milestone alt yard/attempt rungs server-side. */
+  fullBoard?: boolean;
 };
 
 // Per-event player props. Pass home/away names so the server can resolve the
@@ -984,6 +986,7 @@ export async function getProps(args: GetPropsArgs, signal?: AbortSignal): Promis
   if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
   if (args.startsAt) q.set("startsAt", args.startsAt);
+  if (args.fullBoard) q.set("fullBoard", "1");
   // Props fan out 3 Odds API calls + roster lookups — cold hosts often exceed 12s.
   try {
     return await getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
@@ -4762,6 +4765,7 @@ export async function fetchFullBoardPropPool(
           homeTeamId: ids?.homeTeamId,
           awayTeamId: ids?.awayTeamId,
           startsAt: g.commenceTime,
+          fullBoard: true,
         };
         try {
           const r =

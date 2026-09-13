@@ -153,6 +153,44 @@ test("prop ladder keeps higher-scoring alt yard number over main O/U", () => {
   assert.equal(out[0]!.pick.propIsAlt, true);
 });
 
+test("prop ladder near-tie prefers higher yard milestone over main O/U", () => {
+  const scored = [
+    leg(
+      {
+        game: "DEN @ KC",
+        market: "Rush Yds",
+        pick: "Barkley Over 67.5 Rush Yds",
+        odds: -110,
+        isProp: true,
+        propIsAlt: false,
+        player: "Barkley",
+        propSide: "Over",
+      },
+      70,
+      mainScore,
+    ),
+    leg(
+      {
+        game: "DEN @ KC",
+        market: "Rush Yds",
+        pick: "Barkley Over 149.5 Rush Yds",
+        odds: 250,
+        isProp: true,
+        propIsAlt: true,
+        player: "Barkley",
+        propSide: "Over",
+      },
+      69.8,
+      altScore,
+    ),
+  ];
+  scored[0]!.pick.propLine = 67.5;
+  scored[1]!.pick.propLine = 149.5;
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.match(out[0]!.pick.pick, /149\.5/);
+});
+
 test("prop ladder still keeps main when it outranks alt yard numbers", () => {
   const scored = [
     leg(

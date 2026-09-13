@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { resolveOddsEvent, type OddsEventRow } from "../lib/oddsEventResolve.js";
 import { propBelongsToGameTeams } from "../lib/propGameTeamGate.js";
+import { aggregatePropRowsWithAltTrim } from "../lib/propAltTrim.js";
 
 const router: IRouter = Router();
 
@@ -266,6 +267,9 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   const homeName = String(req.query["home"] || "").trim();
   const awayName = String(req.query["away"] || "").trim();
   const startsAt = String(req.query["startsAt"] || "").trim();
+  const fullBoard = ["1", "true", "yes"].includes(
+    String(req.query["fullBoard"] ?? "").toLowerCase(),
+  );
   if (!sport || !eventId) {
     res.status(400).json({ error: "sport and eventId are required" });
     return;
@@ -539,43 +543,12 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     ingest(qhData, false);
     ingest(altData, true);
 
-    // Trim alternate rungs: the raw ladder can run 3.5 → 49.5 with deep-ITM and
-    // longshot rungs that would bloat the chat context + UI list (capped
-    // downstream). Per (player, stat) keep only rungs within a sane bettable
-    // price band and nearest the MAIN line — enough for a cushion rung and a
-    // value rung on each side. Mains are always kept and emitted first so the
-    // downstream slice caps drop alt rungs before any main line.
-    const inBand = (p: number | null) => p != null && p >= -600 && p <= 600;
+    // Trim alternate rungs: default keeps nearest cushion/value rungs per player.
+    // fullBoard=1 (Coach scan only) also keeps milestone yard/attempt numbers
+    // too far from main for the default cap (150 / 175 / …).
     const allRows = Array.from(byKey.values());
-    const mainLineByPM = new Map<string, number>();
-    for (const r of allRows) {
-      if (!r.alt && r.line != null) {
-        const pm = `${r.player}|${r.market}`;
-        if (!mainLineByPM.has(pm)) mainLineByPM.set(pm, r.line);
-      }
-    }
+    const aggregatedRows = aggregatePropRowsWithAltTrim(allRows, { fullBoard });
     const mains = allRows.filter((r) => !r.alt);
-    const altByPM = new Map<string, PropRow[]>();
-    for (const r of allRows) {
-      if (!r.alt) continue;
-      if (!inBand(r.overPrice) && !inBand(r.underPrice)) continue;
-      const pm = `${r.player}|${r.market}`;
-      const list = altByPM.get(pm) ?? [];
-      list.push(r);
-      altByPM.set(pm, list);
-    }
-    const ALT_CAP_PER_PM = 12;
-    const trimmedAlts: PropRow[] = [];
-    for (const [pm, list] of altByPM) {
-      const mainLine = mainLineByPM.get(pm);
-      list.sort((a, b) => {
-        const da = a.line != null ? Math.abs(a.line - (mainLine ?? 0)) : Infinity;
-        const db = b.line != null ? Math.abs(b.line - (mainLine ?? 0)) : Infinity;
-        return da - db;
-      });
-      for (const r of list.slice(0, ALT_CAP_PER_PM)) trimmedAlts.push(r);
-    }
-    const aggregatedRows = [...mains, ...trimmedAlts];
 
     // ---- Cross-book +EV ("mispriced prop") detection (MAIN lines only) -------
     // For each main line we de-vig EVERY book that posted BOTH sides
