@@ -22,8 +22,23 @@ const YARDS_FAMILY = new Set([
   "player_reception_yds",
 ]);
 
+/** NFL/NCAAF numeric props where fullBoard should keep far alt rungs for Coach. */
 const FULL_BOARD_NUMERIC_FAMILY = new Set([
   ...YARDS_FAMILY,
+  "player_pass_attempts",
+  "player_pass_completions",
+  "player_rush_attempts",
+  "player_pass_tds",
+  "player_receptions",
+  "player_sacks",
+  "player_pass_interceptions",
+]);
+
+const COUNT_ALT_FAMILY = new Set([
+  "player_pass_tds",
+  "player_receptions",
+  "player_sacks",
+  "player_pass_interceptions",
   "player_pass_attempts",
   "player_pass_completions",
   "player_rush_attempts",
@@ -42,7 +57,12 @@ function inPriceBand(overPrice: number | null, underPrice: number | null): boole
   return inBand(overPrice) || inBand(underPrice);
 }
 
-/** Common milestone alt numbers books post (99.5, 124.5, 149.5, 174.5, …). */
+function isHalfPointLine(line: number): boolean {
+  const whole = Math.round(line);
+  return Math.abs(line - whole) <= 0.6 && Math.abs(line - whole) > 0.1;
+}
+
+/** Common milestone yard alt numbers books post (99.5, 124.5, 149.5, 174.5, …). */
 export function isMilestonePropLine(line: number, market: string): boolean {
   if (!Number.isFinite(line)) return false;
   const canon = canonicalPropMarket(market);
@@ -53,6 +73,23 @@ export function isMilestonePropLine(line: number, market: string): boolean {
   if (YARDS_FAMILY.has(canon)) return whole >= 75;
   if (canon === "player_pass_attempts" || canon === "player_pass_completions") return whole >= 20;
   if (canon === "player_rush_attempts") return whole >= 10;
+  return false;
+}
+
+/** Higher count alts for sacks / pass TDs / receptions (1.5, 2.5, …). */
+export function isHigherCountAltLine(line: number, market: string, mainLine: number | undefined): boolean {
+  if (!Number.isFinite(line) || !isHalfPointLine(line)) return false;
+  const canon = canonicalPropMarket(market);
+  if (!COUNT_ALT_FAMILY.has(canon)) return false;
+  const whole = Math.round(line);
+  const mainWhole = Math.round(mainLine ?? 0);
+  if (whole <= mainWhole) return false;
+  if (canon === "player_pass_tds") return whole >= 1 && whole <= 5;
+  if (canon === "player_sacks") return whole >= 1 && whole <= 3;
+  if (canon === "player_receptions") return whole >= 2 && whole <= 12;
+  if (canon === "player_pass_interceptions") return whole >= 1 && whole <= 2;
+  if (canon === "player_pass_attempts" || canon === "player_pass_completions") return whole >= mainWhole + 3;
+  if (canon === "player_rush_attempts") return whole >= mainWhole + 2;
   return false;
 }
 
@@ -68,10 +105,50 @@ function sortAltsByMainDistance<T extends PropAltRow>(list: T[], mainLine: numbe
   });
 }
 
+function pickFullBoardAlts<T extends PropAltRow>(
+  sorted: T[],
+  mainLine: number | undefined,
+  market: string,
+): T[] {
+  const picked = new Map<number, T>();
+  const canon = canonicalPropMarket(market);
+
+  for (const r of sorted.slice(0, ALT_CAP_FULL_BOARD_NEAREST)) {
+    if (r.line != null) picked.set(r.line, r);
+  }
+
+  if (YARDS_FAMILY.has(canon)) {
+    for (const r of sorted) {
+      if (r.line != null && isMilestonePropLine(r.line, market)) {
+        picked.set(r.line, r);
+      }
+    }
+    const high = sorted
+      .filter((r) => r.line != null && r.line >= (mainLine ?? 0) + 35)
+      .sort((a, b) => (b.line ?? 0) - (a.line ?? 0))
+      .slice(0, ALT_CAP_FULL_BOARD_HIGH);
+    for (const r of high) {
+      if (r.line != null) picked.set(r.line, r);
+    }
+  } else if (COUNT_ALT_FAMILY.has(canon)) {
+    for (const r of sorted) {
+      if (r.line != null && isHigherCountAltLine(r.line, market, mainLine)) {
+        picked.set(r.line, r);
+      }
+    }
+  } else {
+    for (const r of sorted.slice(0, ALT_CAP_FULL_BOARD_NEAREST)) {
+      if (r.line != null) picked.set(r.line, r);
+    }
+  }
+
+  return [...picked.values()];
+}
+
 /**
  * Per (player, market) keep bettable alt rungs near the main line.
  * fullBoard mode (Coach scan only) also keeps milestone yard/attempt numbers
- * that are too far from main for the default 12-nearest cap (150 / 175 / …).
+ * and higher count alts (pass TDs, sacks, receptions) too far for the default cap.
  */
 export function trimAlternatePropRungs<T extends PropAltRow>(
   allRows: T[],
@@ -107,23 +184,7 @@ export function trimAlternatePropRungs<T extends PropAltRow>(
       continue;
     }
 
-    const picked = new Map<number, T>();
-    for (const r of sorted.slice(0, ALT_CAP_FULL_BOARD_NEAREST)) {
-      if (r.line != null) picked.set(r.line, r);
-    }
-    for (const r of sorted) {
-      if (r.line != null && isMilestonePropLine(r.line, market)) {
-        picked.set(r.line, r);
-      }
-    }
-    const high = sorted
-      .filter((r) => r.line != null && r.line >= (mainLine ?? 0) + 35)
-      .sort((a, b) => (b.line ?? 0) - (a.line ?? 0))
-      .slice(0, ALT_CAP_FULL_BOARD_HIGH);
-    for (const r of high) {
-      if (r.line != null) picked.set(r.line, r);
-    }
-    trimmedAlts.push(...picked.values());
+    trimmedAlts.push(...pickFullBoardAlts(sorted, mainLine, market));
   }
   return trimmedAlts;
 }

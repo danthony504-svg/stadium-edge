@@ -72,3 +72,32 @@ test("aggregatePropRowsWithAltTrim keeps mains before alts", () => {
   assert.equal(out[0]!.alt, false);
   assert.equal(out[out.length - 1]!.alt, true);
 });
+
+test("fullBoard trim keeps higher pass TD and sack count alts", () => {
+  const rows: Row[] = [
+    row("Allen", "player_pass_tds", 1.5, false),
+    row("Allen", "player_pass_tds", 0.5, true),
+    row("Allen", "player_pass_tds", 2.5, true, 180),
+    row("Allen", "player_pass_tds", 3.5, true, 350),
+    row("Garrett", "player_sacks", 0.5, false),
+    row("Garrett", "player_sacks", 1.5, true, 140),
+    row("Garrett", "player_sacks", 2.5, true, 320),
+  ];
+  const trimmed = trimAlternatePropRungs(rows, { fullBoard: true });
+  const allen = trimmed.filter((r) => r.player === "Allen").map((r) => r.line);
+  const garrett = trimmed.filter((r) => r.player === "Garrett").map((r) => r.line);
+  assert.ok(allen.includes(2.5));
+  assert.ok(allen.includes(3.5));
+  assert.ok(garrett.includes(1.5));
+  assert.ok(garrett.includes(2.5));
+});
+
+test("default trim drops far pass TD alts", () => {
+  const rows: Row[] = [row("Allen", "player_pass_tds", 1.5, false)];
+  for (let line = 0.5; line <= 20.5; line += 1) {
+    if (Math.abs(line - 1.5) < 0.1) continue;
+    rows.push(row("Allen", "player_pass_tds", line, true));
+  }
+  const trimmed = trimAlternatePropRungs(rows);
+  assert.equal(trimmed.some((r) => r.line === 20.5), false);
+});
