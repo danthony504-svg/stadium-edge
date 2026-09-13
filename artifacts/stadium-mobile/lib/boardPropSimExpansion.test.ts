@@ -195,3 +195,43 @@ test("selectBoardPropSimCandidates caps and ladder-dedupes", () => {
   assert.equal(selected.length, 3);
   assert.equal(skippedCount, 7);
 });
+
+test("selectBoardPropSimCandidates keeps multiple alt yard rungs per player ladder", () => {
+  const ranked = [];
+  for (const line of [67.5, 99.5, 124.5, 149.5, 174.5]) {
+    ranked.push({
+      game: "DEN @ KC",
+      market: "Rush Yds",
+      pick: `Barkley Over ${line} Rush Yds`,
+      odds: -110,
+      isProp: true,
+      sport: "nfl",
+      player: "Barkley",
+      propLine: line,
+      propSide: "Over",
+      propIsAlt: line !== 67.5,
+    });
+  }
+  // Other players so deferred fill is not required
+  for (let i = 0; i < 5; i++) {
+    ranked.push({
+      game: "DEN @ KC",
+      market: "Pass Yds",
+      pick: `QB${i} Over 250.5 Pass Yds`,
+      odds: -110,
+      isProp: true,
+      sport: "nfl",
+      player: `QB${i}`,
+      propLine: 250.5,
+      propSide: "Over",
+      propIsAlt: false,
+    });
+  }
+  const { selected } = selectBoardPropSimCandidates(ranked, 8);
+  const barkley = selected.filter((p) => p.player === "Barkley");
+  assert.equal(barkley.length, 3, "main + two alt yard numbers reach deep sim");
+  assert.deepEqual(
+    barkley.map((p) => p.propLine),
+    [67.5, 99.5, 124.5],
+  );
+});

@@ -115,3 +115,77 @@ test("collapseScoredLegsByMarketLadder drops ladder when no rung qualifies", () 
   ];
   assert.equal(collapseScoredLegsByMarketLadder(scored).length, 0);
 });
+
+test("prop ladder keeps higher-scoring alt yard number over main O/U", () => {
+  const scored = [
+    leg(
+      {
+        game: "DEN @ KC",
+        market: "Rush Yds",
+        pick: "Barkley Over 67.5 Rush Yds",
+        odds: -110,
+        isProp: true,
+        propIsAlt: false,
+        player: "Barkley",
+        propSide: "Over",
+      },
+      70,
+      mainScore,
+    ),
+    leg(
+      {
+        game: "DEN @ KC",
+        market: "Rush Yds",
+        pick: "Barkley Over 149.5 Rush Yds",
+        odds: 250,
+        isProp: true,
+        propIsAlt: true,
+        player: "Barkley",
+        propSide: "Over",
+      },
+      95,
+      altScore,
+    ),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.match(out[0]!.pick.pick, /149\.5/);
+  assert.equal(out[0]!.pick.propIsAlt, true);
+});
+
+test("prop ladder still keeps main when it outranks alt yard numbers", () => {
+  const scored = [
+    leg(
+      {
+        game: "DEN @ KC",
+        market: "Pass Yds",
+        pick: "Mahomes Over 265.5 Pass Yds",
+        odds: -110,
+        isProp: true,
+        propIsAlt: false,
+        player: "Mahomes",
+        propSide: "Over",
+      },
+      100,
+      mainScore,
+    ),
+    leg(
+      {
+        game: "DEN @ KC",
+        market: "Pass Yds",
+        pick: "Mahomes Over 299.5 Pass Yds",
+        odds: 180,
+        isProp: true,
+        propIsAlt: true,
+        player: "Mahomes",
+        propSide: "Over",
+      },
+      80,
+      altScore,
+    ),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.match(out[0]!.pick.pick, /265\.5/);
+  assert.equal(out[0]!.pick.propIsAlt, false);
+});
