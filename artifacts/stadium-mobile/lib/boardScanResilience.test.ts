@@ -101,3 +101,11 @@ test("boardMarketScanner skips game slate when propsOnly", () => {
   assert.match(src, /if \(!opts\.propsOnly\)/);
   assert.match(src, /opts\.propsOnly/);
 });
+
+test("boardMarketScanner passes propsOnly into shortfall note (no ML essay)", () => {
+  const src = readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");
+  assert.match(src, /fullBoardScanShortfallNote\(/);
+  assert.match(src, /propsOnly:\s*opts\.propsOnly/);
+  const copy = readFileSync(join(root, "lib/fullBoardMarketCopy.ts"), "utf8");
+  assert.match(copy, /if \(opts\?\.propsOnly\) return ""/);
+});
