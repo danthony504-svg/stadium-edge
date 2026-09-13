@@ -39,13 +39,15 @@ export function canonicalPropMarketKey(marketKey: string | null | undefined): st
 function yardsScopesBothSidesOfAnd(t: string, left: RegExp, right: RegExp): boolean {
   const L = left.source;
   const R = right.source;
-  // "rushing and passing yards" / "passing and receiving yards"
+  // Shared trailing yards: first skill must be bare or already yards-bound.
+  // Rejects "passing TDs and receiving yards" (first skill is a non-yards market).
+  // Matches "rushing and passing yards" / "passing and receiving yards".
   const shared = new RegExp(
-    `(?:${L})(?:\\s+\\w+){0,2}\\s+and\\s+(?:${R})(?:\\s+\\w+){0,2}\\s+yards?\\b`,
+    `(?:${L})(?:\\s+yards?)?\\s+and\\s+(?:${R})\\s+yards?\\b`,
     "i",
   );
   const sharedRev = new RegExp(
-    `(?:${R})(?:\\s+\\w+){0,2}\\s+and\\s+(?:${L})(?:\\s+\\w+){0,2}\\s+yards?\\b`,
+    `(?:${R})(?:\\s+yards?)?\\s+and\\s+(?:${L})\\s+yards?\\b`,
     "i",
   );
   // "rushing yards and passing yards"
