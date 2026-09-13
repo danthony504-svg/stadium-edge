@@ -108,3 +108,29 @@ test("generic parlay ask has no market constraint", () => {
   assert.equal(c.propsOnly, false);
   assert.equal(c.allowedMarketKeys, null);
 });
+
+
+test("rushing yards and passing TDs does not allowlist pass yards", () => {
+  const c = parseCoachAskMarketConstraint("rushing yards and passing TDs");
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), ["player_rush_yds"]);
+});
+
+test("passing and receiving yards allowlists both pass and reception yards", () => {
+  const c = parseCoachAskMarketConstraint("passing and receiving yards");
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), [
+    "player_pass_yds",
+    "player_reception_yds",
+  ]);
+});
+
+test("rushing, passing, and receiving yards allowlists all three", () => {
+  const c = parseCoachAskMarketConstraint("rushing, passing, and receiving yards");
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), [
+    "player_pass_yds",
+    "player_reception_yds",
+    "player_rush_yds",
+  ]);
+});

@@ -88,3 +88,16 @@ test("board scan passes liveOdds as one mergeOddsEntries source (SCAN_THREW)", (
     /mergeOddsEntries\(\s*opts\.realOdds,\s*opts\.liveOdds \?\? \[\]/,
   );
 });
+
+test("buildParlay forces skipPropExpand for yards allowlist / propsOnly", () => {
+  const src = readFileSync(join(root, "lib/coach/buildParlay.ts"), "utf8");
+  assert.match(src, /allowedMarketKeys\s*!=\s*null/);
+  assert.match(src, /propsOnly/);
+  assert.match(src, /skipPropExpand/);
+});
+
+test("boardMarketScanner skips game slate when propsOnly", () => {
+  const src = readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");
+  assert.match(src, /if \(!opts\.propsOnly\)/);
+  assert.match(src, /opts\.propsOnly/);
+});

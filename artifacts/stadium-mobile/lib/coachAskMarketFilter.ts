@@ -31,18 +31,51 @@ export function canonicalPropMarketKey(marketKey: string | null | undefined): st
   return k;
 }
 
-/** "rushing and receiving yards" / "rushing and passing yards" — yards scopes both sides. */
+/**
+ * Pair skill words that share a trailing "yards" (or each name yards).
+ * Does NOT treat "rushing yards and passing TDs" as pass-yards — yards must
+ * bind to the skill word, not merely appear somewhere in the ask.
+ */
 function yardsScopesBothSidesOfAnd(t: string, left: RegExp, right: RegExp): boolean {
-  if (!/\byards?\b/i.test(t)) return false;
-  const leftAndRight = new RegExp(
-    left.source + String.raw`[\s\S]{0,48}\band\b[\s\S]{0,24}` + right.source,
+  const L = left.source;
+  const R = right.source;
+  // "rushing and passing yards" / "passing and receiving yards"
+  const shared = new RegExp(
+    `(?:${L})(?:\\s+\\w+){0,2}\\s+and\\s+(?:${R})(?:\\s+\\w+){0,2}\\s+yards?\\b`,
     "i",
   );
-  const rightAndLeft = new RegExp(
-    right.source + String.raw`[\s\S]{0,48}\band\b[\s\S]{0,24}` + left.source,
+  const sharedRev = new RegExp(
+    `(?:${R})(?:\\s+\\w+){0,2}\\s+and\\s+(?:${L})(?:\\s+\\w+){0,2}\\s+yards?\\b`,
     "i",
   );
-  return leftAndRight.test(t) || rightAndLeft.test(t);
+  // "rushing yards and passing yards"
+  const both = new RegExp(
+    `(?:${L})\\s+yards?\\b[\\s\\S]{0,32}\\band\\b[\\s\\S]{0,32}(?:${R})\\s+yards?\\b`,
+    "i",
+  );
+  const bothRev = new RegExp(
+    `(?:${R})\\s+yards?\\b[\\s\\S]{0,32}\\band\\b[\\s\\S]{0,32}(?:${L})\\s+yards?\\b`,
+    "i",
+  );
+  return shared.test(t) || sharedRev.test(t) || both.test(t) || bothRev.test(t);
+}
+
+/** "rushing, passing, and receiving yards" list form. */
+function yardsFamilyListFlags(t: string): {
+  rush: boolean;
+  pass: boolean;
+  rec: boolean;
+} | null {
+  const m = t.match(
+    /\b((?:rush(?:ing)?|pass(?:ing)?|receiv\w*)(?:\s*,\s*(?:rush(?:ing)?|pass(?:ing)?|receiv\w*))+(?:\s*,?\s*and\s+(?:rush(?:ing)?|pass(?:ing)?|receiv\w*))?)\s+yards?\b/i,
+  );
+  if (!m) return null;
+  const chunk = m[1].toLowerCase();
+  return {
+    rush: /rush/.test(chunk),
+    pass: /pass/.test(chunk),
+    rec: /receiv/.test(chunk),
+  };
 }
 
 function hasRushYardsAsk(t: string): boolean {
@@ -52,8 +85,10 @@ function hasRushYardsAsk(t: string): boolean {
   ) {
     return true;
   }
+  const list = yardsFamilyListFlags(t);
+  if (list?.rush) return true;
   return (
-    yardsScopesBothSidesOfAnd(t, /\brush(?:ing)?\b/i, /\breceiv/i) ||
+    yardsScopesBothSidesOfAnd(t, /\brush(?:ing)?\b/i, /\breceiv(?:ing|e|er)?\b/i) ||
     yardsScopesBothSidesOfAnd(t, /\brush(?:ing)?\b/i, /\bpass(?:ing)?\b/i)
   );
 }
@@ -66,7 +101,12 @@ function hasRecYardsAsk(t: string): boolean {
   ) {
     return true;
   }
-  return yardsScopesBothSidesOfAnd(t, /\brush(?:ing)?\b/i, /\breceiv/i);
+  const list = yardsFamilyListFlags(t);
+  if (list?.rec) return true;
+  return (
+    yardsScopesBothSidesOfAnd(t, /\brush(?:ing)?\b/i, /\breceiv(?:ing|e|er)?\b/i) ||
+    yardsScopesBothSidesOfAnd(t, /\bpass(?:ing)?\b/i, /\breceiv(?:ing|e|er)?\b/i)
+  );
 }
 
 function hasPassYardsAsk(t: string): boolean {
@@ -76,7 +116,12 @@ function hasPassYardsAsk(t: string): boolean {
   ) {
     return true;
   }
-  return yardsScopesBothSidesOfAnd(t, /\brush(?:ing)?\b/i, /\bpass(?:ing)?\b/i);
+  const list = yardsFamilyListFlags(t);
+  if (list?.pass) return true;
+  return (
+    yardsScopesBothSidesOfAnd(t, /\brush(?:ing)?\b/i, /\bpass(?:ing)?\b/i) ||
+    yardsScopesBothSidesOfAnd(t, /\bpass(?:ing)?\b/i, /\breceiv(?:ing|e|er)?\b/i)
+  );
 }
 
 /**
