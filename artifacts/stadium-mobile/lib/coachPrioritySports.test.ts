@@ -4,7 +4,9 @@ import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   COACH_PRIORITY_SPORTS,
+  enforceMultiSportFloorOnTicket,
   injectPrioritySportsIntoTicket,
+  reservedCrossSportSeats,
 } from "./coachPrioritySports.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -128,4 +130,75 @@ test("prefers NFL player prop over leaving a game-line-only NFL seat", () => {
   const out = injectPrioritySportsIntoTicket(ticket, pool, 6);
   const nflLegs = out.filter((p) => p.sport === "nfl");
   assert.ok(nflLegs.some((p) => p.isProp), "expected NFL player prop on ticket");
+});
+
+
+test("reservedCrossSportSeats reserves ~25% seats on 9-leg mixes", () => {
+  assert.equal(reservedCrossSportSeats(5, 2), 0);
+  assert.equal(reservedCrossSportSeats(6, 2), 2);
+  assert.equal(reservedCrossSportSeats(9, 2), 3);
+  assert.equal(reservedCrossSportSeats(9, 0), 0);
+});
+
+test("enforceMultiSportFloorOnTicket breaks all-MLB 9-leg when NFL/NCAAF qualify", () => {
+  const mlb = Array.from({ length: 9 }, (_, i) =>
+    makePick({
+      sport: "mlb",
+      game: `M${i} @ N${i}`,
+      pick: `M${i} Over 1.5 Total Bases`,
+      composite: 9 - i * 0.1,
+      isProp: true,
+    }),
+  );
+  const nfl = makePick({
+    sport: "nfl",
+    game: "Chiefs @ Bills",
+    pick: "Mahomes Over 1.5 Pass TDs",
+    composite: 7.2,
+    isProp: true,
+  });
+  const ncaaf = makePick({
+    sport: "ncaaf",
+    game: "Alabama @ Georgia",
+    pick: "Alabama +7.5",
+    composite: 7.0,
+  });
+  const nba = makePick({
+    sport: "nba",
+    game: "Lakers @ Celtics",
+    pick: "Lakers +3.5",
+    composite: 6.8,
+  });
+  const pool = [
+    ...mlb.map((p, i) => scored(p, 90 - i)),
+    scored(nfl, 80),
+    scored(ncaaf, 79),
+    scored(nba, 78),
+  ];
+  const out = enforceMultiSportFloorOnTicket(mlb, pool, 9);
+  const sports = new Set(out.map((p) => p.sport));
+  assert.ok(sports.has("nfl") || sports.has("ncaaf") || sports.has("nba"), `expected cross-sport legs, got ${[...sports]}`);
+  const mlbCount = out.filter((p) => p.sport === "mlb").length;
+  assert.ok(mlbCount <= 6, `expected ≤6 MLB on 9-leg mix, got ${mlbCount} mlb / sports=${[...sports]}`);
+  assert.equal(out.length, 9);
+});
+
+test("enforceMultiSportFloorOnTicket does not invent sports absent from the pool", () => {
+  const mlb = Array.from({ length: 9 }, (_, i) =>
+    makePick({
+      sport: "mlb",
+      game: `A${i} @ B${i}`,
+      pick: `A${i} ML`,
+      composite: 8 - i * 0.1,
+    }),
+  );
+  const out = enforceMultiSportFloorOnTicket(
+    mlb,
+    mlb.map((p, i) => scored(p, 90 - i)),
+    9,
+  );
+  assert.deepEqual(
+    [...new Set(out.map((p) => p.sport))],
+    ["mlb"],
+  );
 });

@@ -38,7 +38,10 @@ import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
-import { injectPrioritySportsIntoTicket } from "./coachPrioritySports.ts";
+import {
+  enforceMultiSportFloorOnTicket,
+  injectPrioritySportsIntoTicket,
+} from "./coachPrioritySports.ts";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
 import { marketConfidenceDelta } from "./marketWeighting.ts";
@@ -607,6 +610,13 @@ export function buildScanResult(
   // When qualified props exist, fill ~50% reserved prop slots (rush/pass/rec/sack
   // preferred) so gameLines-first combinators cannot ship ML/totals-only tickets.
   picks = fillReservedPropSlots(picks, stagePool, opts.target);
+  // Prop-slot fill can evict soft football injects; restore multi-sport floor after.
+  picks = enforceMultiSportFloorOnTicket(
+    picks,
+    stagePool,
+    opts.target,
+    opts.prioritySports ?? undefined,
+  );
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
   let propCount = picks.filter((p) => p.isProp).length;
