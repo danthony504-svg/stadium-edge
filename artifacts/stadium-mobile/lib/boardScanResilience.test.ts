@@ -110,12 +110,17 @@ test("boardMarketScanner passes propsOnly into shortfall note (no ML essay)", ()
   assert.match(copy, /if \(opts\?\.propsOnly\) return ""/);
 });
 
-test("buildParlay scopes saints-game asks via team nickname filter", () => {
+test("buildParlay scopes named-team asks via team nickname filter (no game word required)", () => {
   const src = readFileSync(join(root, "lib/coach/buildParlay.ts"), "utf8");
-  assert.match(src, /askNamesTeamGame/);
   assert.match(src, /coachAskTeamScope/);
   assert.match(src, /filterOddsGamesForAskTeam/);
   assert.match(src, /filterPicksForAskTeam/);
+  assert.match(src, /coachAskTeamMissNote/);
+  // Must not gate matchup filter on askNamesTeamGame (required "game" / SGP).
+  assert.doesNotMatch(src, /askNamesTeamGame\(/);
   const priority = readFileSync(join(root, "lib/chatContextPriority.ts"), "utf8");
   assert.match(priority, /sportsFromAskTeamNicknames/);
+  const team = readFileSync(join(root, "lib/coachAskTeamScope.ts"), "utf8");
+  assert.match(team, /won't fill with other games/);
+  assert.doesNotMatch(team, /keep the sport-scoped slate/);
 });
