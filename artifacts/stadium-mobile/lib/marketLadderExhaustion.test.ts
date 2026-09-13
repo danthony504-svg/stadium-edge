@@ -88,7 +88,7 @@ test("marketLadderKey groups alt spreads with main spread on the same side", () 
   assert.equal(main, alt);
 });
 
-test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
+test("collapseScoredLegsByMarketLadder keeps main when it qualifies and outranks alt", () => {
   const scored = [
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, mainScore),
     leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 90, altScore),
@@ -96,6 +96,18 @@ test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
   const out = collapseScoredLegsByMarketLadder(scored);
   assert.equal(out.length, 1);
   assert.equal(out[0]!.pick.market, "Spread");
+});
+
+test("collapseScoredLegsByMarketLadder prefers higher-scoring Alt Spread over main", () => {
+  const scored = [
+    leg({ game: "KC @ BUF", market: "Spread", pick: "KC -3", odds: -110 }, 70, mainScore),
+    // Plus-money alt so sim edge clears the alt quality bar (same as promote-on-fail fixture).
+    leg({ game: "KC @ BUF", market: "Alt Spread", pick: "KC +6.5", odds: 120 }, 95, altScore),
+  ];
+  const out = collapseScoredLegsByMarketLadder(scored);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick.market, "Alt Spread");
+  assert.match(out[0]!.pick.pick, /\+6\.5/);
 });
 
 test("collapseScoredLegsByMarketLadder promotes alt when main fails quality bar", () => {
