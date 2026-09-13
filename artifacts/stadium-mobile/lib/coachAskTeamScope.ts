@@ -189,39 +189,46 @@ function labelMatchesTeamTokens(
   return tokens.some((tok) => g.includes(tok));
 }
 
-/** Keep only odds games that include the named franchise. */
+/** Keep only odds games that include the named franchise. Strict: empty > wrong games. */
 export function filterOddsGamesForAskTeam<
   T extends { homeTeam?: string; awayTeam?: string; sport?: string },
 >(games: T[], scope: CoachAskTeamScope | null): T[] {
   if (!scope || !games.length) return games;
-  const hit = games.filter((g) => {
+  return games.filter((g) => {
     if (g.sport && g.sport !== scope.sport) return false;
     const label = `${g.awayTeam ?? ""} @ ${g.homeTeam ?? ""}`;
     return labelMatchesTeamTokens(label, scope.matchTokens);
   });
-  // If the franchise isn't on today's board, keep the sport-scoped slate
-  // rather than returning empty (Coach would paint a false quality-bar empty).
-  return hit.length > 0 ? hit : games;
 }
 
-/** Final ticket defense: drop legs outside the named franchise's game. */
+/** Final ticket defense: drop legs outside the named franchise's game. Strict. */
 export function filterPicksForAskTeam<
   T extends { game?: string | null; sport?: string | null },
 >(picks: T[], scope: CoachAskTeamScope | null): T[] {
   if (!scope || !picks.length) return picks;
-  const hit = picks.filter((p) => {
+  return picks.filter((p) => {
     if (p.sport && p.sport !== scope.sport) return false;
     return labelMatchesTeamTokens(String(p.game ?? ""), scope.matchTokens);
   });
-  return hit.length > 0 ? hit : picks;
 }
 
-/** "saints game" / "chiefs sg" style — named franchise + game intent. */
+/**
+ * Honest copy when a named franchise was asked for but is not on tonight's board.
+ * Prefer empty over filling with Falcons / other NFL games.
+ */
+export function coachAskTeamMissNote(
+  scope: CoachAskTeamScope | null,
+  matchedGameCount: number,
+): string {
+  if (!scope || matchedGameCount > 0) return "";
+  const nick = scope.matchTokens[0] ?? "that team";
+  return `No ${nick} matchup is on tonight's ${scope.sport.toUpperCase()} board — won't fill with other games.`;
+}
+
+/**
+ * True when the ask names a franchise we can scope to (with or without "game").
+ * "6 leg Saints" and "7 leg saints game" both qualify.
+ */
 export function askNamesTeamGame(text: string | null | undefined): boolean {
-  const scope = coachAskTeamScope(text);
-  if (!scope) return false;
-  const t = String(text ?? "");
-  if (/\b(same[\s-]?game|sgp)\b/i.test(t)) return true;
-  if (/\bgame\b/i.test(t)) return true;
-  return false;
+  return coachAskTeamScope(text) != null;
 }

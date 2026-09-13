@@ -32,7 +32,7 @@ import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
 import {
-  askNamesTeamGame,
+  coachAskTeamMissNote,
   coachAskTeamScope,
   filterOddsGamesForAskTeam,
   filterPicksForAskTeam,
@@ -94,6 +94,7 @@ async function loadScanInputs(
   liveOdds: RealOddsEntry[];
   sports: string[];
   prioritySports: readonly string[];
+  teamScope: ReturnType<typeof coachAskTeamScope>;
 }> {
   // Named league(s) scope the board (CFB stays CFB). Generic asks union every
   // player-prop league (incl. ncaab) so mains+alts across sports enter the pool.
@@ -114,9 +115,9 @@ async function loadScanInputs(
     getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] })),
   ]);
 
-  // "7 leg saints game" → keep only the Saints matchup once the board is NFL.
+  // "6 leg Saints" / "7 leg saints game" → keep only that franchise's matchup.
   // Sport scoping alone still allowed other NFL games to fill a team ask.
-  const teamScope = askNamesTeamGame(askText) ? coachAskTeamScope(askText) : null;
+  const teamScope = coachAskTeamScope(askText);
   const oddsGames = filterOddsGamesForAskTeam(oddsRaw, teamScope);
   const espnGames = filterOddsGamesForAskTeam(espnGamesRaw, teamScope);
   onStatus?.("Loading player props and alt lines across the board…");
@@ -132,6 +133,7 @@ async function loadScanInputs(
     liveOdds: liveFeed.odds ?? [],
     sports,
     prioritySports,
+    teamScope,
   };
 }
 
@@ -284,7 +286,7 @@ export async function buildCoachParlay(opts: {
   }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
-  const teamScope = askNamesTeamGame(opts.askText) ? coachAskTeamScope(opts.askText) : null;
+  const teamScope = inputs.teamScope;
   const picks = filterPicksForAskTeam(
     filterPicksByAskMarketConstraint(
       selectFinalCoachParlayPicks(rawPicks),
@@ -292,6 +294,7 @@ export async function buildCoachParlay(opts: {
     ),
     teamScope,
   );
+  const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
   const propsPending =
     propsStillPending(scan) ||
@@ -302,7 +305,7 @@ export async function buildCoachParlay(opts: {
     picks,
     propPoolSize,
     propsPending,
-    shortfallLead: shortfall,
+    shortfallLead: teamMiss || shortfall,
     timedOut: timed.timedOut,
     budgetMs,
     scanMissing: !scan,
