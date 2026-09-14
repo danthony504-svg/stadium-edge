@@ -25,6 +25,7 @@ import { DeferredOtaRuntime } from "@/components/DeferredOtaRuntime";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
+import { FantasyRosterProvider } from "@/context/FantasyRosterContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
 import {
   addNotificationResponseListener,
@@ -135,6 +136,10 @@ function RootLayoutNav() {
       <Stack.Screen name="(auth)" options={{ presentation: "card" }} />
       <Stack.Screen name="account" options={{ presentation: "card" }} />
       <Stack.Screen name="notifications" options={{ presentation: "card" }} />
+      <Stack.Screen name="fantasy-team" options={{ presentation: "card" }} />
+      <Stack.Screen name="fantasy-trade" options={{ presentation: "card" }} />
+      <Stack.Screen name="fantasy-start-sit" options={{ presentation: "card" }} />
+      <Stack.Screen name="fantasy-lineup" options={{ presentation: "card" }} />
       <Stack.Screen name="ota-debug" options={{ presentation: "card" }} />
     </Stack>
   );
@@ -153,6 +158,7 @@ function AppShell() {
       <PushNotificationsBridge />
       <BetSlipProvider>
         <PickTrackerProvider>
+          <FantasyRosterProvider>
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
             <KeyboardProvider>
               <StatusBar style="light" />
@@ -160,6 +166,7 @@ function AppShell() {
               <DeferredOtaRuntime />
             </KeyboardProvider>
           </GestureHandlerRootView>
+        </FantasyRosterProvider>
         </PickTrackerProvider>
       </BetSlipProvider>
     </QueryClientProvider>
