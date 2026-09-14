@@ -47,6 +47,15 @@ export const FOOTBALL_PROP_MARKET_KEYS = [
   "player_receptions",
   "player_reception_longest",
   "player_anytime_td",
+  "player_first_td",
+  "player_field_goals",
+  "player_pass_rush_yds",
+  "player_rush_reception_yds",
+  "player_rush_reception_tds",
+  "player_pass_rush_reception_yds",
+  "player_pass_rush_reception_tds",
+  "player_rush_tds",
+  "player_reception_tds",
   "player_sacks",
 ] as const;
 

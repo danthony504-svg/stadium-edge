@@ -44,12 +44,44 @@ const PASS_PROP_KEYS = [
 /** MLB home-run prop family (mains + alts via canonical key). */
 const HOME_RUN_PROP_KEYS = ["batter_home_runs"] as const;
 
+/** First-TD / anytime-TD / FG / combo asks. */
+const TD_PROP_KEYS = ["player_anytime_td", "player_first_td", "player_rush_tds", "player_reception_tds"] as const;
+const FIRST_TD_PROP_KEYS = ["player_first_td"] as const;
+const FG_PROP_KEYS = ["player_field_goals"] as const;
+const FOOTBALL_COMBO_PROP_KEYS = [
+  "player_pass_rush_yds",
+  "player_rush_reception_yds",
+  "player_rush_reception_tds",
+  "player_pass_rush_reception_yds",
+  "player_pass_rush_reception_tds",
+] as const;
+const MLB_BATTER_STAT_KEYS = [
+  "batter_hits",
+  "batter_total_bases",
+  "batter_home_runs",
+  "batter_rbis",
+  "batter_runs",
+  "batter_stolen_bases",
+  "batter_hits_runs_rbis",
+] as const;
+const MLB_PITCHER_STAT_KEYS = ["pitcher_strikeouts", "pitcher_outs"] as const;
+const NBA_COMBO_PROP_KEYS = [
+  "player_points_rebounds_assists",
+  "player_points_rebounds",
+  "player_points_assists",
+  "player_rebounds_assists",
+  "player_double_double",
+] as const;
+const SOCCER_SPECIAL_LINE_KEYS = ["btts", "draw_no_bet", "double_chance"] as const;
+
 /** Strip alternate / period suffixes so allowlist checks stay stable. */
 export function canonicalPropMarketKey(marketKey: string | null | undefined): string {
   let k = String(marketKey ?? "").trim().toLowerCase();
   if (!k) return "";
   if (k.endsWith("_alternate")) k = k.slice(0, -"_alternate".length);
   k = k.replace(/_(q1|q2|q3|q4|h1|h2|1h|2h|f5)$/i, "");
+  if (k === "batter_runs_scored") return "batter_runs";
+  if (k === "player_1st_td") return "player_first_td";
   return k;
 }
 
@@ -175,6 +207,45 @@ function hasHomeRunPropAsk(t: string): boolean {
   return false;
 }
 
+function hasFirstTdAsk(t: string): boolean {
+  return /\b(?:first|1st)\s+(?:td|touchdown)\b/i.test(t);
+}
+
+function hasAnytimeTdAsk(t: string): boolean {
+  return /\banytime\s+(?:td|touchdown)\b/i.test(t) || /\batd\b/i.test(t);
+}
+
+function hasFieldGoalPropAsk(t: string): boolean {
+  return /\bfield\s*goals?\b/i.test(t) || /\bfgs?\b/i.test(t);
+}
+
+function hasFootballComboPropAsk(t: string): boolean {
+  return (
+    /\bpass(?:ing)?\s*\+\s*rush/i.test(t) ||
+    /\brush(?:ing)?\s*\+\s*rec/i.test(t) ||
+    /\b(?:pass|rush|rec(?:eiving)?).{0,12}(?:combo|combined)\b/i.test(t) ||
+    /\bcombo\s+props?\b/i.test(t)
+  );
+}
+
+function hasDoubleDoubleAsk(t: string): boolean {
+  return /\bdouble[-\s]?doubles?\b/i.test(t) || /\bdds?\b/i.test(t);
+}
+
+function hasPraAsk(t: string): boolean {
+  return /\bpra\b/i.test(t) || /\bpoints?\s*\+\s*reb(?:ounds?)?\s*\+\s*ast/i.test(t);
+}
+
+function hasSoccerSpecialAsk(t: string): boolean {
+  return (
+    /\bbtts\b/i.test(t) ||
+    /\bboth\s+teams?\s+to\s+score\b/i.test(t) ||
+    /\bdraw\s*no\s*bet\b/i.test(t) ||
+    /\bdnb\b/i.test(t) ||
+    /\bdouble\s+chance\b/i.test(t)
+  );
+}
+
 /**
  * Market allowlist + props-only flag for a Coach ask.
  * Example: "10 lag rushing and passing yards"
@@ -212,6 +283,26 @@ export function parseCoachAskMarketConstraint(
       propsOnly: true,
       allowedMarketKeys: [...HOME_RUN_PROP_KEYS],
     };
+  }
+
+  if (hasFirstTdAsk(t)) {
+    return { propsOnly: true, allowedMarketKeys: [...FIRST_TD_PROP_KEYS] };
+  }
+  if (hasAnytimeTdAsk(t)) {
+    return { propsOnly: true, allowedMarketKeys: [...TD_PROP_KEYS] };
+  }
+  if (hasFieldGoalPropAsk(t)) {
+    return { propsOnly: true, allowedMarketKeys: [...FG_PROP_KEYS] };
+  }
+  if (hasFootballComboPropAsk(t)) {
+    return { propsOnly: true, allowedMarketKeys: [...FOOTBALL_COMBO_PROP_KEYS] };
+  }
+  if (hasDoubleDoubleAsk(t) || hasPraAsk(t)) {
+    return { propsOnly: true, allowedMarketKeys: [...NBA_COMBO_PROP_KEYS] };
+  }
+  if (hasSoccerSpecialAsk(t)) {
+    // Soccer specials are game lines (not player props).
+    return { propsOnly: false, allowedMarketKeys: [...SOCCER_SPECIAL_LINE_KEYS] };
   }
 
   const skillProps = skillPropFamilyFlags(t);

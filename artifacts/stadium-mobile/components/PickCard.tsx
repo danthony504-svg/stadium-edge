@@ -1259,8 +1259,11 @@ const CUSHION_FLOOR = -550;
 const YES_NO_PROP_MARKETS = new Set([
   "batter_home_runs",
   "player_anytime_td",
+  "player_first_td",
+  "player_double_double",
   "player_goals",
   "player_goal_scorer_anytime",
+  "player_first_goal_scorer",
 ]);
 
 function matchProp(
@@ -1278,7 +1281,7 @@ function matchProp(
   // "Yes" side maps to the feed's Over leg.
   const selN = norm(selection);
   const selYesNo =
-    /\bto hit a hr\b|\banytime (?:td|touchdown|goal)\b|\banytime scorer\b|\bto score (?:a )?(?:td|touchdown|goal)\b/.test(
+    /\bto hit a hr\b|\banytime (?:td|touchdown|goal)\b|\bfirst (?:td|touchdown|goal)\b|\bdouble[-\s]?double\b|\banytime scorer\b|\bto score (?:a )?(?:td|touchdown|goal)\b/.test(
       selN,
     );
   let best: PropPoolEntry | null = null;

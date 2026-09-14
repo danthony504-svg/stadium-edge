@@ -158,12 +158,40 @@ export function coachCompositeRankScore(leg: BoardScoredLeg): number {
     wSum += w;
     acc += w * score;
   }
+  let raw: number;
   if (wSum <= 0) {
     const ev = leg.evPct ?? 0;
     const edge = leg.edgePct ?? 0;
     const sim = (leg.simHit ?? 0) * 10;
-    return Math.round((ev * 3.5 + edge * 2.5 + sim * 2.5) * 10) / 10;
+    raw = Math.round((ev * 3.5 + edge * 2.5 + sim * 2.5) * 10) / 10;
+  } else {
+    // Penalize thin context: multiply by wSum so legs missing matchup/form rank lower.
+    raw = Math.round(acc * wSum * 100) / 10;
   }
-  // Penalize thin context: multiply by wSum so legs missing matchup/form rank lower.
-  return Math.round(acc * wSum * 100) / 10;
+  return Math.round(raw * highVarianceMarketMultiplier(leg) * 1000) / 1000;
+}
+
+/**
+ * First-TD (and first-goal) markets are higher variance than anytime scorers —
+ * haircut the composite so Coach does not treat them like safer ATD legs.
+ */
+export function highVarianceMarketMultiplier(leg: {
+  pick?: { propMarketKey?: string | null; market?: string | null } | null;
+  propMarketKey?: string | null;
+}): number {
+  const key = String(
+    leg.propMarketKey ?? leg.pick?.propMarketKey ?? leg.pick?.market ?? "",
+  ).toLowerCase();
+  if (
+    key === "player_first_td" ||
+    key === "player_1st_td" ||
+    key.includes("first_td") ||
+    key.includes("1st_td") ||
+    /\bfirst\s+td\b/.test(key) ||
+    key === "player_first_goal_scorer" ||
+    key.includes("first_goal")
+  ) {
+    return 0.82;
+  }
+  return 1;
 }
