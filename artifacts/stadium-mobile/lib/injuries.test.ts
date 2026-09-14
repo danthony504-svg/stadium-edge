@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   friendlyInjury,
   injuryImpact,
+  materialInjuryEntries,
   positionGroup,
   summarizeTeamInjuries,
   injuryEdge,
@@ -90,6 +91,27 @@ test("summarizeTeamInjuries counts high-impact injuries and position groups", ()
   assert.equal(s.highCount, 2);
   assert.equal(s.groups.find((g) => g.group === "SP")?.count, 2);
   assert.equal(s.groups.find((g) => g.group === "RP")?.count, 1);
+});
+
+test("summarizeTeamInjuries and materialInjuryEntries ignore Active roster noise", () => {
+  const noisy: InjuryTeam = {
+    team: "Atlanta Falcons",
+    teamAbbr: "ATL",
+    entries: [
+      entry("Michael Penix Jr.", "QB", "Out"),
+      entry("Healthy Guy", "WR", "Active"),
+      entry("Another Active", "CB", "Active"),
+      entry("Cameron Williams", "OL", "Injured Reserve"),
+    ],
+  };
+  assert.equal(materialInjuryEntries(noisy.entries).length, 2);
+  const s = summarizeTeamInjuries("nfl", noisy);
+  assert.equal(
+    s.groups.reduce((n, g) => n + g.count, 0),
+    2,
+    "group totals must exclude Active rows",
+  );
+  assert.ok(s.highCount >= 1);
 });
 
 test("injuryEdge awards the edge to the less-injured team", () => {
