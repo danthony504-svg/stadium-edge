@@ -1078,8 +1078,6 @@ function HomeSportFeed({
 
         {/* Today's Performance card hidden — keep /pick-performance route for View all deep links. */}
 
-        {/* LIVE NOW — always above Upcoming so live games aren't buried under a long slate. */}
-
         {/* Hot Picks Today — disabled for now; graded prop rail preserved below. */}
         {false && featuredEnabled && (hotLoading || topHot.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
