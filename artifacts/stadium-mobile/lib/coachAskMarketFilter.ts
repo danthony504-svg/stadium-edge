@@ -41,6 +41,9 @@ const PASS_PROP_KEYS = [
   "player_pass_completions",
 ] as const;
 
+/** MLB home-run prop family (mains + alts via canonical key). */
+const HOME_RUN_PROP_KEYS = ["batter_home_runs"] as const;
+
 /** Strip alternate / period suffixes so allowlist checks stay stable. */
 export function canonicalPropMarketKey(marketKey: string | null | undefined): string {
   let k = String(marketKey ?? "").trim().toLowerCase();
@@ -161,11 +164,25 @@ function skillPropFamilyFlags(t: string): {
 }
 
 /**
+ * "3 leg home run" / "6 home run hitters" / "HR props" — MLB HR prop ticket.
+ * Must not fill with spreads, strikeouts, or other prop families.
+ */
+function hasHomeRunPropAsk(t: string): boolean {
+  if (/\bhome\s*runs?\b/i.test(t)) return true;
+  if (/\bhomers?\b/i.test(t)) return true;
+  // Standalone HR token ("3 leg hr", "hr props") — not "throw" / "three".
+  if (/\bhrs?\b/i.test(t)) return true;
+  return false;
+}
+
+/**
  * Market allowlist + props-only flag for a Coach ask.
  * Example: "10 lag rushing and passing yards"
  * → propsOnly + player_rush_yds + player_pass_yds (alts included via canonical key).
  * Example: "9 leg nfl rushing receiving and passing props"
  * → propsOnly + rush/rec/pass skill prop families (no spreads/totals).
+ * Example: "3 leg home run"
+ * → propsOnly + batter_home_runs (no spreads / strikeouts).
  */
 export function parseCoachAskMarketConstraint(
   text: string | null | undefined,
@@ -187,6 +204,13 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       allowedMarketKeys: keys,
+    };
+  }
+
+  if (hasHomeRunPropAsk(t)) {
+    return {
+      propsOnly: true,
+      allowedMarketKeys: [...HOME_RUN_PROP_KEYS],
     };
   }
 

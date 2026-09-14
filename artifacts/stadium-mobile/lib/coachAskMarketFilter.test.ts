@@ -222,3 +222,60 @@ test("rushing, passing, and receiving yards allowlists all three", () => {
     "player_rush_yds",
   ]);
 });
+
+test("screenshot ask: 3 leg home run → props-only HR markets", () => {
+  const c = parseCoachAskMarketConstraint("3 leg home run");
+  assert.equal(c.propsOnly, true);
+  assert.deepEqual(c.allowedMarketKeys, ["batter_home_runs"]);
+});
+
+test("home run ask drops spreads and strikeouts (screenshot leak)", () => {
+  const c = parseCoachAskMarketConstraint("3 leg home run");
+  const picks = [
+    {
+      isProp: false,
+      market: "ALT SPREAD",
+      pick: "Jays +1.5",
+    },
+    {
+      isProp: true,
+      market: "STRIKEOUTS",
+      propMarketKey: "pitcher_strikeouts",
+      pick: "Kade Anderson Under 5.5 Strikeouts",
+    },
+    {
+      isProp: true,
+      market: "HOME RUNS",
+      propMarketKey: "batter_home_runs",
+      pick: "Vladimir Guerrero Jr. Over 0.5 Home Runs",
+    },
+    {
+      isProp: true,
+      market: "HOME RUNS",
+      propMarketKey: "batter_home_runs_alternate",
+      pick: "Shohei Ohtani Over 0.5 Home Runs",
+    },
+    {
+      isProp: true,
+      market: "HITS",
+      propMarketKey: "batter_hits",
+      pick: "Someone Over 1.5 Hits",
+    },
+  ];
+  const out = filterPicksByAskMarketConstraint(picks, c);
+  assert.equal(out.length, 2);
+  assert.ok(out.every((p) => p.isProp));
+  assert.ok(
+    out.every((p) =>
+      canonicalPropMarketKey(p.propMarketKey) === "batter_home_runs",
+    ),
+  );
+});
+
+test("hr / homer shorthand also locks home-run props", () => {
+  assert.equal(parseCoachAskMarketConstraint("6 leg hr").propsOnly, true);
+  assert.deepEqual(parseCoachAskMarketConstraint("6 leg hr").allowedMarketKeys, [
+    "batter_home_runs",
+  ]);
+  assert.equal(parseCoachAskMarketConstraint("4 leg homers tonight").propsOnly, true);
+});
