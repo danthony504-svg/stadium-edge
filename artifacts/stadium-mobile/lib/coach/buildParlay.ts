@@ -44,6 +44,8 @@ import {
   filterPropPoolByAskMarkets,
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
+import { isBatterHomeRunMarket } from "@/lib/coachHrRank";
+import { loadMlbScanContext } from "@/lib/mlbScanContext";
 
 
 export type CoachParlayBuildResult = {
@@ -169,6 +171,26 @@ export async function buildCoachParlay(opts: {
   );
   const propPoolSize = scanPropPool.length;
   const propsOnly = marketConstraint.propsOnly;
+  const hrBoardAsk =
+    propsOnly &&
+    (marketConstraint.allowedMarketKeys ?? []).some((k) => isBatterHomeRunMarket(k));
+  let mlbPlatoon: Record<string, unknown> | undefined;
+  let mlbGameEnv: Record<string, unknown> | undefined;
+  if (hrBoardAsk && scanPropPool.length > 0) {
+    opts.onStatus?.("Loading MLB matchup and park context for HR ranking…");
+    try {
+      const mlb = await loadMlbScanContext({
+        propPool: scanPropPool,
+        espnGames: inputs.espnGames,
+        hrOnly: true,
+        signal: opts.signal,
+      });
+      mlbPlatoon = Object.keys(mlb.mlbPlatoon).length ? mlb.mlbPlatoon : undefined;
+      mlbGameEnv = Object.keys(mlb.mlbGameEnv).length ? mlb.mlbGameEnv : undefined;
+    } catch {
+      /* honest — rank without MLB maps when feeds miss */
+    }
+  }
   opts.onReadyToScan?.({ propPoolSize });
   opts.onStatus?.(
     propPoolSize > 0
@@ -202,6 +224,9 @@ export async function buildCoachParlay(opts: {
     skipPropPoolExpand: skipPropExpand,
     prioritySports: inputs.prioritySports,
     propsOnly,
+    exhaustPropBoard: hrBoardAsk,
+    mlbPlatoon,
+    mlbGameEnv,
     varietySeed: `greenfield-${target}-${Date.now()}`,
     onPartial: (partial) => {
       latest = partial;
