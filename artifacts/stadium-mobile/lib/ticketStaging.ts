@@ -34,6 +34,7 @@ import {
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
+import { isHrOnlyScoredPool, selectTopHrQualifiedLegs } from "./coachHrRank.ts";
 
 function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
@@ -463,6 +464,29 @@ export function buildStagedTicketFromScan(
   varietyContext?: CoachTicketStagingContext,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
+
+  // Home-run-only boards: evaluate full ranked pool, take top-N distinct hitters
+  // by HRScore. Same-game stacks only when they independently rank in the top N.
+  // Quality bar unchanged — shortfall returns fewer legs (no filler).
+  if (isHrOnlyScoredPool(scored)) {
+    const picks = selectTopHrQualifiedLegs(scored, target);
+    const mainQualified = scored.filter(
+      (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore) === "main",
+    ).length;
+    const altQualified = scored.filter(
+      (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore) === "alt",
+    ).length;
+    return {
+      picks,
+      breakdown: {
+        mainQualified,
+        altQualified,
+        mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
+        altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+      },
+    };
+  }
+
   if (target >= 3 && varietySeed) {
     return buildIndependentCoachTicket(scored, target, {
       varietySeed,

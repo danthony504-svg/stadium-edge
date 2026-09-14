@@ -3,8 +3,19 @@
 // final rank penalizes missing context (partial weight sum).
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import {
+  buildCoachHrRankComponents,
+  coachHrRankScore,
+  isBatterHomeRunPick,
+  type CoachHrRankComponents,
+} from "./coachHrRank.ts";
 import type { PropHolisticScore } from "./propHolisticRecommendation.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
+
+/** Optional HR diagnostics attached during board scoring (HR markets only). */
+export type BoardScoredLegHrMeta = {
+  hrRank?: CoachHrRankComponents | null;
+};
 
 /** Ticket ranking weights — must sum to 1. */
 export const COACH_COMPOSITE_RANK_WEIGHTS = {
@@ -123,6 +134,20 @@ export function combineCoachRankFactors(
 
 /** Sort key for board-scan staging — scales composite for stable greedy selection. */
 export function coachCompositeRankScore(leg: BoardScoredLeg): number {
+  // Home-run props use a dedicated HRScore blend (sim + matchup first, then EV).
+  if (isBatterHomeRunPick(leg.pick)) {
+    const attached = (leg as BoardScoredLeg & BoardScoredLegHrMeta).hrRank;
+    if (attached) return coachHrRankScore(leg, attached);
+    return coachHrRankScore(
+      leg,
+      buildCoachHrRankComponents({
+        pick: leg.pick,
+        simHit: leg.simHit,
+        evPct: leg.evPct,
+      }),
+    );
+  }
+
   const factors = coachRankFactorScores(leg);
   let acc = 0;
   let wSum = 0;

@@ -62,7 +62,14 @@ import { safeCoachManifestInstrument } from "./coachFootballPropFunnel.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
-import { coachCompositeRankScore } from "./coachCompositeRank.ts";
+import { coachCompositeRankScore, type BoardScoredLegHrMeta } from "./coachCompositeRank.ts";
+import {
+  buildCoachHrRankComponents,
+  hrSelectionDiagnostics,
+  isBatterHomeRunPick,
+  isHrOnlyScoredPool,
+} from "./coachHrRank.ts";
+import type { MlbGameEnvSlice, MlbPlatoonSlice } from "./propHolisticRecommendation.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -197,6 +204,8 @@ export type FullBoardScanResult = {
     propPhaseIncomplete: boolean;
     scoredBeforeStage: number;
   };
+  /** HR board ranking diagnostics — selected vs next-best components. */
+  hrRankDiagnostics?: ReturnType<typeof hrSelectionDiagnostics>;
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -402,8 +411,41 @@ function appendPropScoredLegs(
     const fp = pickLegFingerprint(pick);
     if (seenFp.has(fp)) continue;
     const simHit = pick.finalAiScore?.simHit ?? null;
-    const leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
+    let leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
     if (!leg) continue;
+    if (isBatterHomeRunPick(pick)) {
+      const rawPlatoon =
+        (pick.player &&
+          pick.athleteId &&
+          opts.mlbPlatoon?.[`${pick.player}#${pick.athleteId}`]) ||
+        (pick.athleteId &&
+          opts.mlbPlatoon &&
+          Object.entries(opts.mlbPlatoon).find(([k]) => k.endsWith(`#${pick.athleteId}`))?.[1]) ||
+        (pick.player &&
+          opts.mlbPlatoon &&
+          Object.entries(opts.mlbPlatoon).find(([k]) => k.startsWith(`${pick.player}#`))?.[1]) ||
+        null;
+      const rawEnv = opts.mlbGameEnv?.[pick.game] ?? null;
+      const hrRank = buildCoachHrRankComponents({
+        pick,
+        simHit: leg.simHit,
+        evPct: leg.evPct,
+        platoon: (rawPlatoon as MlbPlatoonSlice | null) ?? null,
+        gameEnv: (rawEnv as MlbGameEnvSlice | null) ?? null,
+        playerHistory:
+          (opts.playerHistory &&
+            ((pick.player &&
+              pick.athleteId &&
+              opts.playerHistory[`${pick.player}#${pick.athleteId}`]) ||
+              Object.entries(opts.playerHistory).find(([k]) =>
+                pick.athleteId ? k.endsWith(`#${pick.athleteId}`) : pick.player ? k.startsWith(`${pick.player}#`) : false,
+              )?.[1])) ||
+          null,
+      });
+      const withHr = { ...leg, hrRank } as typeof leg & BoardScoredLegHrMeta;
+      withHr.rankScore = unifiedRankScore(withHr);
+      leg = withHr;
+    }
     seenFp.add(fp);
     propScored.push(leg);
   }
@@ -452,6 +494,8 @@ async function simPropPoolUntilQualified(
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
     propsOnly?: boolean;
+  /** Score every eligible prop (HR boards) — do not stop after N qualify. */
+  exhaustPropBoard?: boolean;
     phaseStartedAtMs?: number;
   },
   signal?: AbortSignal,
@@ -550,6 +594,7 @@ async function simPropPoolUntilQualified(
         scored: combinedScored(),
         target: opts.target,
         propsOnly: opts.propsOnly,
+        exhaustPropBoard: opts.exhaustPropBoard,
       })
     ) {
       break;
@@ -699,6 +744,27 @@ export function buildScanResult(
       ? `${note}${formatCoachScanFailureTrace(failureReason)}`
       : note;
 
+  let hrRankDiagnostics: ReturnType<typeof hrSelectionDiagnostics> | undefined;
+  if (isHrOnlyScoredPool(scored)) {
+    const componentsByFp = new Map<
+      string,
+      NonNullable<ReturnType<typeof buildCoachHrRankComponents>>
+    >();
+    for (const leg of scored) {
+      if (!isBatterHomeRunPick(leg.pick)) continue;
+      const attached = (leg as BoardScoredLeg & BoardScoredLegHrMeta).hrRank;
+      const components =
+        attached ??
+        buildCoachHrRankComponents({
+          pick: leg.pick,
+          simHit: leg.simHit,
+          evPct: leg.evPct,
+        });
+      componentsByFp.set(pickLegFingerprint(leg.pick), components);
+    }
+    hrRankDiagnostics = hrSelectionDiagnostics(scored, picks, componentsByFp);
+  }
+
   return {
     picks,
     evalLinesByGame: opts.evalLinesByGame,
@@ -715,6 +781,7 @@ export function buildScanResult(
     manifest,
     ...(failureReason ? { failureReason } : {}),
     ...(opts.failureDiagnostics ? { failureDiagnostics: opts.failureDiagnostics } : {}),
+    ...(hrRankDiagnostics ? { hrRankDiagnostics } : {}),
   };
 }
 
@@ -742,6 +809,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
   propsOnly?: boolean;
+  /** Simulate every eligible prop (HR boards) — do not stop after N qualify. */
+  exhaustPropBoard?: boolean;
   /**
    * When the caller already prefetched the full posted prop board, skip a
    * second fan-out so prop scoring can start right after game-line sims.
@@ -899,6 +968,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         ...propScoreOpts,
         teamIdsByGame: opts.teamIdMap,
         propsOnly: opts.propsOnly,
+        exhaustPropBoard: opts.exhaustPropBoard,
         phaseStartedAtMs: propPhaseStartedAt,
         onWave: (combined) => {
           emitBoardScanPartial(combined);

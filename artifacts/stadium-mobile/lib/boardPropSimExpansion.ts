@@ -58,7 +58,13 @@ export function shouldStopPropSimForTicketMix(opts: {
   scored: BoardScoredLeg[];
   target: number;
   propsOnly?: boolean;
+  /**
+   * When true (e.g. home-run board asks), keep simulating every eligible
+   * candidate — do not stop after the first N qualify.
+   */
+  exhaustPropBoard?: boolean;
 }): boolean {
+  if (opts.exhaustPropBoard) return false;
   const qualified = countQualifiedBoardLegs(opts.scored, opts.target);
   if (qualified < opts.target) return false;
   if (opts.propsOnly) return true;
