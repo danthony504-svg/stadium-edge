@@ -5,6 +5,7 @@ import {
   coachCompositeRankScore,
   combineCoachRankFactors,
   evPctToRankScore,
+  highVarianceMarketMultiplier,
   simConfidenceToRankScore,
 } from "./coachCompositeRank.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
@@ -171,4 +172,16 @@ test("coachCompositeRankScore penalizes missing contextual factors", () => {
     },
   };
   assert.ok(coachCompositeRankScore(rich) > coachCompositeRankScore(thin));
+});
+
+
+test("highVarianceMarketMultiplier haircuts first TD / first goal", () => {
+  assert.equal(highVarianceMarketMultiplier({ propMarketKey: "player_first_td" }), 0.82);
+  assert.equal(highVarianceMarketMultiplier({ propMarketKey: "player_1st_td" }), 0.82);
+  assert.equal(
+    highVarianceMarketMultiplier({ propMarketKey: "player_first_goal_scorer" }),
+    0.82,
+  );
+  assert.equal(highVarianceMarketMultiplier({ propMarketKey: "player_anytime_td" }), 1);
+  assert.equal(highVarianceMarketMultiplier({ propMarketKey: "player_pass_yds" }), 1);
 });

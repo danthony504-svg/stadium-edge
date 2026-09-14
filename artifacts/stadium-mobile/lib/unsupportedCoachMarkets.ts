@@ -49,7 +49,29 @@ export function unsupportedSoccerDisciplineReply(text: string): string {
   const gameLead = matchup ? `For **${matchup}**, ` : "For that match, ";
   return [
     "Stadium Edge doesn't carry **yellow-card / booking** props or per-player card-rate stats, so I can't rank who's most likely to be booked from real feeds.",
-    `${gameLead}the soccer player props we **do** have posted (when books list them) are **shots**, **shots on target**, and **anytime goal scorer** — those come from the live board. Card markets aren't on it.`,
+    `${gameLead}the soccer player props we **do** have posted (when books list them) are **shots**, **shots on target**, and **anytime / first goal scorer** — those come from the live board. Card markets aren't on it.`,
     "If you're betting foul trouble manually, check the confirmed starting XIs and the referee assignment. I won't name players without historical card data in the feed.",
+  ].join("\n\n");
+}
+
+const UFC_METHOD_ROUND_RE =
+  /\b(?:method of (?:victory|win)|ko\/tko|submission win|fight (?:goes?|to go) the distance|go the distance|winning round|round betting|round \d+\s*(?:winner|win)|by (?:ko|tko|decision|submission))\b/i;
+
+/** UFC method / round / distance markets — Odds API only posts fight winner (h2h). */
+export function isUnsupportedUfcMethodRoundAsk(text?: string | null): boolean {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (!UFC_METHOD_ROUND_RE.test(t)) return false;
+  // Only intercept when the ask is clearly UFC/MMA-scoped.
+  if (!/\b(?:ufc|mma|fight(?:er)?s?)\b/i.test(t)) return false;
+  return true;
+}
+
+export function unsupportedUfcMethodRoundReply(text: string): string {
+  const matchup = extractMatchupHint(text);
+  const fightLead = matchup ? `For **${matchup}**, ` : "For that fight, ";
+  return [
+    "Stadium Edge's UFC board is **moneyline-only** from the Odds API — we don't get method-of-victory, go-the-distance, or round-winner markets from the feed, so Coach won't invent those legs.",
+    `${fightLead}I can still grade **fight winner** moneylines using real posted prices and fighter context. Method / round props aren't on the board.`,
   ].join("\n\n");
 }

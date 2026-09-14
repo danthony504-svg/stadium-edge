@@ -222,15 +222,30 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       "alternate_spreads_q2", "alternate_totals_q2",
       "alternate_spreads_q3", "alternate_totals_q3",
       "alternate_spreads_q4", "alternate_totals_q4",
-      "team_totals",
+      "team_totals", "alternate_team_totals",
     ];
     const PERIOD_MARKETS_BASEBALL = [
       "alternate_spreads", "alternate_totals",
       "h2h_1st_5_innings", "spreads_1st_5_innings", "totals_1st_5_innings",
       "totals_1st_1_innings",
+      "team_totals", "alternate_team_totals",
     ];
-    const periodMarketsFor = (sportKey: string) =>
-      sportKey.startsWith("baseball") ? PERIOD_MARKETS_BASEBALL : PERIOD_MARKETS_DEFAULT;
+    // Soccer: halves exist; quarters do not. Pull BTTS / DNB / double chance
+    // from the Odds API when books post them (US region coverage varies).
+    const PERIOD_MARKETS_SOCCER = [
+      "alternate_spreads", "alternate_totals",
+      "spreads_h1", "totals_h1", "h2h_h1",
+      "spreads_h2", "totals_h2", "h2h_h2",
+      "alternate_spreads_h1", "alternate_totals_h1",
+      "alternate_spreads_h2", "alternate_totals_h2",
+      "team_totals", "alternate_team_totals",
+      "btts", "draw_no_bet", "double_chance",
+    ];
+    const periodMarketsFor = (sportKey: string) => {
+      if (sportKey.startsWith("baseball")) return PERIOD_MARKETS_BASEBALL;
+      if (sportKey.startsWith("soccer")) return PERIOD_MARKETS_SOCCER;
+      return PERIOD_MARKETS_DEFAULT;
+    };
     type Outcome = { name: string; price: number; point: number | null };
     const altByEvent = new Map<string, Map<string, Map<string, Outcome>>>();
     await Promise.all(
@@ -243,7 +258,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             // the correct endpoint and cache bucket. v3: baseball now requests
             // innings markets instead of the (empty) quarter/half set, so the
             // cache bucket is bumped to avoid serving stale empty v2 entries.
-            `odds:${g.sport_key}:alt:${g.id}:v4`,
+            `odds:${g.sport_key}:alt:${g.id}:v5`,
             10 * 60 * 1000,
             async () => {
               const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;

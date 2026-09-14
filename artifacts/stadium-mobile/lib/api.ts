@@ -1770,28 +1770,107 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
   pushTotal("Total", totals?.outcomes);
   pushTotal("Alt Total", altTotals?.outcomes);
 
-  // Implied team totals from main spread + game total (sim-scored; no fabricated edge).
-  const homeSpread = spreads?.outcomes?.find((o) => teamLabel(o.name) === teamLabel(g.homeTeam));
-  const gameTotal = totals?.outcomes?.find((o) => /\bover\b/i.test(o.name));
-  if (homeSpread?.point != null && gameTotal?.point != null) {
-    const roundHalf = (n: number) => Math.round(n * 2) / 2;
-    const homeLine = roundHalf((gameTotal.point - homeSpread.point) / 2);
-    const awayLine = roundHalf(gameTotal.point - homeLine);
-    for (const [team, line] of [
-      [g.homeTeam, homeLine],
-      [g.awayTeam, awayLine],
-    ] as const) {
-      for (const dir of ["Over", "Under"] as const) {
-        out.push({
-          ...base,
-          market: "Team Total",
-          pick: `${teamLabel(team)} ${dir} ${line}`,
-          odds: -110,
-          edge: null,
-          noVigFair: null,
-          bookSpread: null,
-        });
+  // Prefer posted team totals from the Odds API when present; otherwise fall
+  // back to implied team totals from main spread + game total (still real
+  // lines — no fabricated edge).
+  const teamTotals = g.markets.find((m) => m.key === "team_totals");
+  const altTeamTotals = g.markets.find((m) => m.key === "alternate_team_totals");
+  if (teamTotals?.outcomes?.length) {
+    for (const o of teamTotals.outcomes) {
+      if (o.price == null || o.price <= EVAL_ALT_MAX_JUICE) continue;
+      // Odds API team_totals outcomes are usually "{Team}" + Over/Under name + point.
+      const side = /\bunder\b/i.test(o.name) ? "Under" : /\bover\b/i.test(o.name) ? "Over" : o.name;
+      const team = teamLabel(o.name.replace(/\s*(over|under)\s*/i, " ").trim()) || teamLabel(o.name);
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      const pick =
+        side === "Over" || side === "Under"
+          ? `${team} ${side}${pt}`
+          : `${teamLabel(o.name)}${pt}`.trim();
+      out.push({
+        ...base,
+        market: "Team Total",
+        pick,
+        odds: o.price,
+        ...scoreInputs(o),
+      });
+    }
+  } else {
+    const homeSpread = spreads?.outcomes?.find((o) => teamLabel(o.name) === teamLabel(g.homeTeam));
+    const gameTotal = totals?.outcomes?.find((o) => /\bover\b/i.test(o.name));
+    if (homeSpread?.point != null && gameTotal?.point != null) {
+      const roundHalf = (n: number) => Math.round(n * 2) / 2;
+      const homeLine = roundHalf((gameTotal.point - homeSpread.point) / 2);
+      const awayLine = roundHalf(gameTotal.point - homeLine);
+      for (const [team, line] of [
+        [g.homeTeam, homeLine],
+        [g.awayTeam, awayLine],
+      ] as const) {
+        for (const dir of ["Over", "Under"] as const) {
+          out.push({
+            ...base,
+            market: "Team Total",
+            pick: `${teamLabel(team)} ${dir} ${line}`,
+            odds: -110,
+            edge: null,
+            noVigFair: null,
+            bookSpread: null,
+          });
+        }
       }
+    }
+  }
+  if (altTeamTotals?.outcomes?.length) {
+    for (const o of altTeamTotals.outcomes) {
+      if (o.price == null || o.price <= EVAL_ALT_MAX_JUICE) continue;
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      out.push({
+        ...base,
+        market: "Alt Team Total",
+        pick: `${teamLabel(o.name)}${pt}`.trim(),
+        odds: o.price,
+        ...scoreInputs(o),
+      });
+    }
+  }
+
+  // Soccer specials (BTTS / draw-no-bet / double chance) when books post them.
+  const btts = g.markets.find((m) => m.key === "btts");
+  if (btts?.outcomes?.length) {
+    for (const o of btts.outcomes) {
+      if (o.price == null || o.price <= EVAL_ALT_MAX_JUICE) continue;
+      out.push({
+        ...base,
+        market: "Both Teams to Score",
+        pick: o.name,
+        odds: o.price,
+        ...scoreInputs(o),
+      });
+    }
+  }
+  const dnb = g.markets.find((m) => m.key === "draw_no_bet");
+  if (dnb?.outcomes?.length) {
+    for (const o of dnb.outcomes) {
+      if (o.price == null || o.price <= EVAL_ALT_MAX_JUICE) continue;
+      out.push({
+        ...base,
+        market: "Draw No Bet",
+        pick: `${teamLabel(o.name)} DNB`,
+        odds: o.price,
+        ...scoreInputs(o),
+      });
+    }
+  }
+  const dc = g.markets.find((m) => m.key === "double_chance");
+  if (dc?.outcomes?.length) {
+    for (const o of dc.outcomes) {
+      if (o.price == null || o.price <= EVAL_ALT_MAX_JUICE) continue;
+      out.push({
+        ...base,
+        market: "Double Chance",
+        pick: o.name,
+        odds: o.price,
+        ...scoreInputs(o),
+      });
     }
   }
 

@@ -14,6 +14,9 @@ const MARKET_COMBO: Record<string, string[]> = {
   player_rebounds_assists: ["REB", "AST"],
   player_blocks_steals: ["BLK", "STL"],
   batter_hits_runs_rbis: ["H", "R", "RBI"],
+  player_pass_rush_yds: ["passingYards", "rushingYards"],
+  player_rush_reception_yds: ["rushingYards", "receivingYards"],
+  player_pass_rush_reception_yds: ["passingYards", "rushingYards", "receivingYards"],
 };
 
 // Markets that map to a single ESPN stat column. The array is a fallback list —
@@ -30,12 +33,17 @@ const MARKET_SINGLE: Record<string, string[]> = {
   batter_hits: ["H"],
   batter_home_runs: ["HR"],
   batter_stolen_bases: ["SB"],
+  batter_rbis: ["RBI"],
+  batter_runs: ["R"],
+  batter_runs_scored: ["R"],
   player_sacks: ["SACK", "SACKS"],
   pitcher_strikeouts: ["K", "SO"],
+  pitcher_outs: ["OUTS", "IP"],
   player_goals: ["G"],
   player_shots_on_goal: ["S", "SOG", "SHOTS"],
   // Soccer (StatMuse fc grid columns).
   player_goal_scorer_anytime: ["G"],
+  player_first_goal_scorer: ["G"],
   player_shots: ["SH"],
   player_shots_on_target: ["SOT"],
   // Football display labels repeat YDS, TD, and LNG between stat families.
@@ -49,9 +57,12 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_rush_yds: ["rushingYards"],
   player_rush_attempts: ["rushingAttempts"],
   player_rush_longest: ["longRushing"],
+  player_rush_tds: ["rushingTouchdowns"],
   player_reception_yds: ["receivingYards"],
   player_receptions: ["receptions"],
   player_reception_longest: ["longReception"],
+  player_reception_tds: ["receivingTouchdowns"],
+  player_field_goals: ["fieldGoalsMade", "FG"],
 };
 
 // Markets whose ESPN gamelog column is a "made-attempted" string rather than a
@@ -111,6 +122,54 @@ export function gameValueForMarket(
     const hr = num(stats, "HR");
     if (h == null || d == null || t == null || hr == null) return null;
     return h + d + 2 * t + 3 * hr;
+  }
+
+  // Double-double is Yes/No — 1 when a player hits 10+ in two of PTS/REB/AST/STL/BLK.
+  if (market === "player_double_double") {
+    const cats = ["PTS", "REB", "AST", "STL", "BLK"];
+    let doubles = 0;
+    for (const lab of cats) {
+      if (ambiguous.has(lab)) return null;
+      const n = num(stats, lab);
+      if (n == null) return null;
+      if (n >= 10) doubles += 1;
+    }
+    return doubles >= 2 ? 1 : 0;
+  }
+
+  // Pitcher outs: prefer OUTS column; else convert IP ("6.2" = 6 inn + 2 outs).
+  if (market === "pitcher_outs") {
+    if (!ambiguous.has("OUTS")) {
+      const outs = num(stats, "OUTS");
+      if (outs != null) return outs;
+    }
+    if (!ambiguous.has("IP")) {
+      const raw = stats["IP"];
+      if (raw != null && String(raw).trim() !== "") {
+        const m = String(raw).trim().match(/^(\d+)(?:\.(\d))?$/);
+        if (m) {
+          const inn = Number(m[1]);
+          const frac = m[2] != null ? Number(m[2]) : 0;
+          if (frac >= 0 && frac <= 2) return inn * 3 + frac;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Rush+rec TDs / pass+rush+rec TDs — exact sums of real TD columns.
+  if (market === "player_rush_reception_tds") {
+    const rush = num(stats, "rushingTouchdowns");
+    const rec = num(stats, "receivingTouchdowns");
+    if (rush == null || rec == null) return null;
+    return rush + rec;
+  }
+  if (market === "player_pass_rush_reception_tds") {
+    const pass = num(stats, "passingTouchdowns");
+    const rush = num(stats, "rushingTouchdowns");
+    const rec = num(stats, "receivingTouchdowns");
+    if (pass == null || rush == null || rec == null) return null;
+    return pass + rush + rec;
   }
 
   const combo = MARKET_COMBO[market];

@@ -65,6 +65,10 @@ export function simModelForMarket(
     return "period";
   }
   if (/moneyline|spread|run line|puck line|total|alt spread|alt total/.test(m)) return "fullGame";
+  // Soccer specials grade as full-game sides when posted (BTTS / DNB / double chance).
+  if (/both teams to score|\bbtts\b|draw no bet|\bdnb\b|double chance/.test(m)) {
+    return "fullGame";
+  }
   return "unsupported";
 }
 

@@ -4,6 +4,8 @@ import {
   isUnsupportedSoccerDisciplineAsk,
   extractMatchupHint,
   unsupportedSoccerDisciplineReply,
+  isUnsupportedUfcMethodRoundAsk,
+  unsupportedUfcMethodRoundReply,
 } from "./unsupportedCoachMarkets.ts";
 
 test("isUnsupportedSoccerDisciplineAsk detects yellow-card asks", () => {
@@ -47,4 +49,22 @@ test("unsupportedSoccerDisciplineReply is honest and names supported soccer prop
   assert.match(reply, /france vs morocco/i);
   assert.match(reply, /shots on target/i);
   assert.doesNotMatch(reply, /Tchouaméni|Amrabat|Hakimi/i);
+});
+
+test("isUnsupportedUfcMethodRoundAsk detects method / round asks", () => {
+  assert.equal(
+    isUnsupportedUfcMethodRoundAsk("UFC method of victory for Jones vs Aspinall"),
+    true,
+  );
+  assert.equal(isUnsupportedUfcMethodRoundAsk("will the fight go the distance UFC"), true);
+  assert.equal(isUnsupportedUfcMethodRoundAsk("Chiefs moneyline tonight"), false);
+});
+
+test("unsupportedUfcMethodRoundReply stays moneyline-honest", () => {
+  const reply = unsupportedUfcMethodRoundReply(
+    "UFC method of victory for Jones vs Aspinall",
+  );
+  assert.match(reply, /moneyline/i);
+  assert.match(reply, /method/i);
+  assert.doesNotMatch(reply, /I project a KO/i);
 });

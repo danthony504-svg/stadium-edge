@@ -43,19 +43,75 @@ async function fetchOddsApi(url: string, attempts = 4): Promise<Response> {
 router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 120, name: "props" }));
 
 export const MARKETS_BY_SPORT: Record<string, string[]> = {
-  nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
-  wnba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
-  ncaab: ["player_points", "player_rebounds", "player_assists"],
-  nfl: ["player_pass_yds", "player_pass_attempts", "player_pass_completions", "player_pass_tds", "player_pass_interceptions", "player_pass_longest_completion", "player_rush_yds", "player_rush_attempts", "player_rush_longest", "player_reception_yds", "player_receptions", "player_reception_longest", "player_anytime_td", "player_sacks"],
-  ncaaf: ["player_pass_yds", "player_pass_attempts", "player_pass_completions", "player_pass_tds", "player_pass_interceptions", "player_pass_longest_completion", "player_rush_yds", "player_rush_attempts", "player_rush_longest", "player_reception_yds", "player_receptions", "player_reception_longest", "player_anytime_td"],
-  mlb: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts", "batter_stolen_bases", "batter_hits_runs_rbis"],
+  nba: [
+    "player_points", "player_rebounds", "player_assists", "player_threes",
+    "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists",
+    "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals",
+    "player_turnovers", "player_double_double",
+  ],
+  wnba: [
+    "player_points", "player_rebounds", "player_assists", "player_threes",
+    "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists",
+    "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals",
+    "player_turnovers", "player_double_double",
+  ],
+  ncaab: ["player_points", "player_rebounds", "player_assists", "player_double_double"],
+  nfl: [
+    "player_pass_yds", "player_pass_attempts", "player_pass_completions", "player_pass_tds",
+    "player_pass_interceptions", "player_pass_longest_completion", "player_rush_yds",
+    "player_rush_attempts", "player_rush_longest", "player_reception_yds", "player_receptions",
+    "player_reception_longest", "player_anytime_td", "player_sacks",
+  ],
+  ncaaf: [
+    "player_pass_yds", "player_pass_attempts", "player_pass_completions", "player_pass_tds",
+    "player_pass_interceptions", "player_pass_longest_completion", "player_rush_yds",
+    "player_rush_attempts", "player_rush_longest", "player_reception_yds", "player_receptions",
+    "player_reception_longest", "player_anytime_td",
+  ],
+  mlb: [
+    "batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts",
+    "batter_stolen_bases", "batter_hits_runs_rbis", "batter_rbis", "batter_runs_scored",
+    "pitcher_outs",
+  ],
   nhl: ["player_points", "player_goals", "player_assists", "player_shots_on_goal"],
   // Soccer: only the FIFA World Cup currently carries player props on our feed
   // (anytime goalscorer is a YES/NO market like anytime TD; shots / shots on
   // target are over/under). Club leagues post no player props in any region, so
   // those events simply return [] honestly. Soccer is MULTI-KEY, so the handler
   // resolves the event's real league before fetching (see below).
-  soccer: ["player_goal_scorer_anytime", "player_shots_on_target", "player_shots"],
+  soccer: [
+    "player_goal_scorer_anytime", "player_first_goal_scorer", "player_shots_on_target",
+    "player_shots",
+  ],
+};
+
+/**
+ * Extra MAIN prop batches — fetched separately so one unsupported key cannot
+ * 422 the verified core catalog (Odds API batches are all-or-nothing).
+ * NFL/NCAAF: first TD, FG, and skill combo props from the Odds API docs.
+ */
+export const MARKETS_EXTENDED_BY_SPORT: Record<string, string[]> = {
+  nfl: [
+    "player_1st_td",
+    "player_field_goals",
+    "player_pass_rush_yds",
+    "player_rush_reception_yds",
+    "player_rush_reception_tds",
+    "player_pass_rush_reception_yds",
+    "player_pass_rush_reception_tds",
+    "player_rush_tds",
+    "player_reception_tds",
+  ],
+  ncaaf: [
+    "player_1st_td",
+    "player_field_goals",
+    "player_pass_rush_yds",
+    "player_rush_reception_yds",
+    "player_rush_reception_tds",
+    "player_pass_rush_reception_yds",
+    "player_rush_tds",
+    "player_reception_tds",
+  ],
 };
 
 // Quarter / half player markets — fetched as a SEPARATE Odds API call so a
@@ -105,13 +161,16 @@ export const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
   ncaab: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate"],
   nfl: ["player_pass_yds_alternate", "player_pass_attempts_alternate", "player_pass_completions_alternate", "player_pass_tds_alternate", "player_pass_interceptions_alternate", "player_pass_longest_completion_alternate", "player_rush_yds_alternate", "player_rush_attempts_alternate", "player_rush_longest_alternate", "player_reception_yds_alternate", "player_receptions_alternate", "player_reception_longest_alternate"],
   ncaaf: ["player_pass_yds_alternate", "player_rush_yds_alternate", "player_reception_yds_alternate"],
-  mlb: ["batter_hits_alternate", "batter_total_bases_alternate", "batter_home_runs_alternate", "pitcher_strikeouts_alternate", "batter_hits_runs_rbis_alternate"],
+  mlb: [
+    "batter_hits_alternate", "batter_total_bases_alternate", "batter_home_runs_alternate",
+    "pitcher_strikeouts_alternate", "batter_hits_runs_rbis_alternate",
+  ],
   nhl: ["player_points_alternate", "player_assists_alternate", "player_shots_on_goal_alternate"],
 };
 
 /**
- * Extra NCAAF alt batches — fetched separately so one bad key cannot wipe the
- * verified yard alt ladder (Odds API alt batches are all-or-nothing on 422).
+ * Extra alt batches — fetched separately so one bad key cannot wipe the
+ * verified yard/core alt ladder (Odds API alt batches are all-or-nothing on 422).
  */
 export const ALT_MARKETS_EXTENDED_BY_SPORT: Record<string, string[]> = {
   ncaaf: [
@@ -125,7 +184,33 @@ export const ALT_MARKETS_EXTENDED_BY_SPORT: Record<string, string[]> = {
     "player_receptions_alternate",
     "player_reception_longest_alternate",
   ],
+  nfl: [
+    "player_field_goals_alternate",
+    "player_pass_rush_yds_alternate",
+    "player_rush_reception_yds_alternate",
+    "player_rush_reception_tds_alternate",
+    "player_pass_rush_reception_yds_alternate",
+    "player_pass_rush_reception_tds_alternate",
+    "player_rush_tds_alternate",
+    "player_reception_tds_alternate",
+  ],
+  mlb: [
+    "batter_rbis_alternate",
+    "batter_runs_scored_alternate",
+    "pitcher_outs_alternate",
+  ],
 };
+
+/** Normalize Odds API keys to stable client keys (UI / ask filters). */
+export function canonicalizePropMarketKey(rawKey: string): string {
+  const k = String(rawKey ?? "").trim();
+  if (k === "batter_runs_scored" || k === "batter_runs_scored_alternate") {
+    return k.replace("batter_runs_scored", "batter_runs");
+  }
+  // Odds API uses player_1st_td; Coach asks / funnel tests use player_first_td.
+  if (k === "player_1st_td") return "player_first_td";
+  return k;
+}
 
 type RawEventOdds = {
   home_team?: string;
@@ -444,7 +529,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     const qhMarkets = QH_MARKETS_BY_SPORT[sport] ?? [];
     const altMarkets = ALT_MARKETS_BY_SPORT[sport] ?? [];
     const altExtendedMarkets = ALT_MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
-    const [data, qhData, altData, altExtendedData] = await Promise.all([
+    const extendedMainMarkets = MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
+    const [data, qhData, altData, altExtendedData, extendedMainData] = await Promise.all([
       loadBaseOdds(),
       qhMarkets.length
         ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
@@ -464,11 +550,24 @@ router.get("/sports/props", async (req, res): Promise<void> => {
         : Promise.resolve(null),
       altExtendedMarkets.length
         ? cachedJson<RawEventOdds | null>(
-            `props-alt-ext:${oddsKey}:${effectiveEventId}:v1`,
+            `props-alt-ext:${oddsKey}:${effectiveEventId}:v2`,
             5 * 60 * 1000,
             async () => {
               try {
                 return await fetchOdds(altExtendedMarkets);
+              } catch {
+                return null;
+              }
+            },
+          )
+        : Promise.resolve(null),
+      extendedMainMarkets.length
+        ? cachedJson<RawEventOdds | null>(
+            `props-ext:${oddsKey}:${effectiveEventId}:v1`,
+            5 * 60 * 1000,
+            async () => {
+              try {
+                return await fetchOdds(extendedMainMarkets);
               } catch {
                 return null;
               }
@@ -532,7 +631,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       if (!src) return;
       for (const book of src.bookmakers ?? []) {
         for (const m of book.markets ?? []) {
-          const marketKey = isAlt ? m.key.replace(/_alternate$/, "") : m.key;
+          const rawKey = isAlt ? m.key.replace(/_alternate$/, "") : m.key;
+          const marketKey = canonicalizePropMarketKey(rawKey);
           for (const o of m.outcomes ?? []) {
             const player = o.description ?? "—";
             const line = o.point ?? null;
@@ -572,6 +672,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     };
     // Mains first (so a shared line stays main), then alternate ladders.
     ingest(data, false);
+    ingest(extendedMainData, false);
     ingest(qhData, false);
     ingest(altData, true);
     ingest(altExtendedData, true);

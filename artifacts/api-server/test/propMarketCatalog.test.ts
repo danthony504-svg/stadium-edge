@@ -32,18 +32,26 @@ test("props route main catalog covers every prop league + combo/stat diversity",
   assert.ok(block.includes("player_anytime_td"));
   assert.ok(block.includes("player_points"));
   assert.ok(block.includes("player_goal_scorer_anytime"));
+  assert.ok(block.includes("batter_rbis"));
+  assert.ok(block.includes("batter_runs_scored"));
+  assert.ok(block.includes("pitcher_outs"));
+  assert.ok(block.includes("player_double_double"));
 });
 
 test("props route also fetches alternate ladders and quarter/half markets", () => {
   const alt = blockAfter("export const ALT_MARKETS_BY_SPORT");
   const altExt = blockAfter("export const ALT_MARKETS_EXTENDED_BY_SPORT");
   const qh = blockAfter("export const QH_MARKETS_BY_SPORT");
+  const mainExt = blockAfter("export const MARKETS_EXTENDED_BY_SPORT");
   assert.ok(alt.includes("mlb:"));
   assert.ok(alt.includes("nfl:"));
   assert.ok(alt.includes("nba:"));
   assert.ok(alt.includes("_alternate"));
   assert.ok(altExt.includes("ncaaf:"));
   assert.ok(altExt.includes("player_pass_tds_alternate"));
+  assert.ok(altExt.includes("player_field_goals_alternate"));
+  assert.ok(mainExt.includes("player_1st_td"));
+  assert.ok(mainExt.includes("player_pass_rush_yds"));
   assert.ok(qh.includes("nfl:"));
   assert.ok(qh.includes("nba:"));
   assert.ok(qh.includes("_q1") || qh.includes("_h1"));
@@ -53,6 +61,16 @@ test("handler fans out base + QH + alt Odds fetches (all prop types)", () => {
   assert.ok(propsSrc.includes("QH_MARKETS_BY_SPORT[sport]"));
   assert.ok(propsSrc.includes("ALT_MARKETS_BY_SPORT[sport]"));
   assert.ok(propsSrc.includes("ALT_MARKETS_EXTENDED_BY_SPORT[sport]"));
+  assert.ok(propsSrc.includes("MARKETS_EXTENDED_BY_SPORT[sport]"));
   assert.ok(propsSrc.includes("altExtendedData"));
+  assert.ok(propsSrc.includes("extendedMainData"));
   assert.ok(propsSrc.includes("Promise.all"));
+});
+
+test("canonicalizePropMarketKey aliases Odds API keys to client keys", () => {
+  assert.ok(propsSrc.includes("export function canonicalizePropMarketKey"));
+  assert.ok(propsSrc.includes("batter_runs_scored"));
+  assert.ok(propsSrc.includes('"batter_runs"'));
+  assert.ok(propsSrc.includes("player_1st_td"));
+  assert.ok(propsSrc.includes('"player_first_td"'));
 });
