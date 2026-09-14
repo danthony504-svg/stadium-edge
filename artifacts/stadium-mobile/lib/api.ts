@@ -298,7 +298,12 @@ async function authedFetch(
 // Whitelisted namespaces on the server (routes/sync.ts). "coachBuild" is
 // written server-side (a parlay finished in the background after the user left)
 // and only READ here on return — never PUT from the client.
-export type SyncNamespace = "savedSlips" | "tracker" | "results" | "coachBuild";
+export type SyncNamespace =
+  | "savedSlips"
+  | "tracker"
+  | "results"
+  | "coachBuild"
+  | "fantasyRosters";
 
 // A parlay build the server finished after the phone disconnected. Stashed
 // under the signed-in user's account so the app can rebuild the exact same pick
@@ -1120,6 +1125,8 @@ export type PlayerSearchResult = {
   sport: string;
   league: string;
   team: string | null;
+  /** Present when the search feed supplies it; otherwise unavailable. */
+  position?: string | null;
   headshot: string | null;
   isActive: boolean;
 };
@@ -1328,6 +1335,28 @@ export function getInjuries(
 ): Promise<InjuryTeam[]> {
   return getJson<InjuryTeam[]>(
     `/sports/injuries?sport=${encodeURIComponent(sport)}`,
+    signal,
+  );
+}
+
+// ---------- Fantasy NFL game logs (category-preserving; never used by bet models) ----------
+
+export type FantasyNflGameLog = {
+  eventId: string;
+  date: string | null;
+  opponent: string | null;
+  isHome: boolean | null;
+  /** ESPN's position-specific canonical stat names (not duplicate display labels). */
+  stats: Record<string, string>;
+};
+
+/** Category-preserving ESPN NFL logs for Fantasy only; never used by bet models. */
+export function getFantasyNflPlayerHistory(
+  athleteId: string,
+  signal?: AbortSignal,
+): Promise<{ athleteId: string; source: string; games: FantasyNflGameLog[] }> {
+  return getJson(
+    `/sports/fantasy/nfl-player-history?athleteId=${encodeURIComponent(athleteId)}`,
     signal,
   );
 }
