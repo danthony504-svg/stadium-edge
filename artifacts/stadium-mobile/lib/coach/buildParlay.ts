@@ -44,7 +44,7 @@ import {
   filterPropPoolByAskMarkets,
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
-import { isBatterHomeRunMarket } from "@/lib/coachHrRank";
+import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "@/lib/coachHrRank";
 import { loadMlbScanContext } from "@/lib/mlbScanContext";
 
 
@@ -169,18 +169,22 @@ export async function buildCoachParlay(opts: {
     inputs.propPool,
     marketConstraint.allowedMarketKeys,
   );
-  const propPoolSize = scanPropPool.length;
   const propsOnly = marketConstraint.propsOnly;
   const hrBoardAsk =
     propsOnly &&
     (marketConstraint.allowedMarketKeys ?? []).some((k) => isBatterHomeRunMarket(k));
   let mlbPlatoon: Record<string, unknown> | undefined;
   let mlbGameEnv: Record<string, unknown> | undefined;
-  if (hrBoardAsk && scanPropPool.length > 0) {
+  // Home-run asks want scorers — drop Under/No so MC budget hits Over 0.5.
+  const activePropPool = hrBoardAsk
+    ? filterHrScorerPoolEntries(scanPropPool)
+    : scanPropPool;
+  const propPoolSize = activePropPool.length;
+  if (hrBoardAsk && activePropPool.length > 0) {
     opts.onStatus?.("Loading MLB matchup and park context for HR ranking…");
     try {
       const mlb = await loadMlbScanContext({
-        propPool: scanPropPool,
+        propPool: activePropPool,
         espnGames: inputs.espnGames,
         hrOnly: true,
         signal: opts.signal,
@@ -214,7 +218,7 @@ export async function buildCoachParlay(opts: {
   const scanPromise = tryReachFullBoardScan({
     target,
     oddsGames: inputs.oddsGames,
-    propPool: scanPropPool,
+    propPool: activePropPool,
     realOdds: inputs.realOdds,
     liveOdds: inputs.liveOdds,
     espnGames: inputs.espnGames,
