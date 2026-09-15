@@ -5,10 +5,14 @@ import {
   batterPowerFromRealData,
   buildCoachHrRankComponents,
   coachHrRankScore,
+  filterHrScorerPoolEntries,
+  hrBoardPrescoreRank,
   hrSelectionDiagnostics,
   isBatterHomeRunMarket,
   isBatterHomeRunPick,
+  isHrAnytimeLine,
   isHrOnlyScoredPool,
+  isHrScorerSide,
   selectTopHrQualifiedLegs,
 } from "./coachHrRank.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -176,4 +180,28 @@ test("hrSelectionDiagnostics explains next-best gap", () => {
 test("isHrOnlyScoredPool", () => {
   const a = scored(hrPick({ player: "A", game: "NYY @ BOS", odds: 300 }), 80);
   assert.equal(isHrOnlyScoredPool([a]), true);
+});
+
+test("HR scorer filters drop Unders and prefer anytime Over 0.5", () => {
+  const over = hrPick({ player: "A", game: "NYY @ BOS", odds: 400 });
+  const under: ParsedPick = {
+    ...over,
+    player: "B",
+    athleteId: "b",
+    propSide: "Under",
+    pick: "B Under 0.5",
+  };
+  const multi: ParsedPick = {
+    ...over,
+    player: "C",
+    athleteId: "c",
+    propLine: 1.5,
+    pick: "C Over 1.5",
+  };
+  assert.equal(isHrScorerSide(over), true);
+  assert.equal(isHrScorerSide(under), false);
+  assert.equal(isHrAnytimeLine(over), true);
+  assert.equal(isHrAnytimeLine(multi), false);
+  assert.equal(filterHrScorerPoolEntries([{ side: "Over" }, { side: "Under" }]).length, 1);
+  assert.ok(hrBoardPrescoreRank(over) > hrBoardPrescoreRank(multi));
 });

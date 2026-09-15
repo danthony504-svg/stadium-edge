@@ -65,6 +65,7 @@ import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore, type BoardScoredLegHrMeta } from "./coachCompositeRank.ts";
 import {
   buildCoachHrRankComponents,
+  hrBoardPrescoreRank,
   hrSelectionDiagnostics,
   isBatterHomeRunPick,
   isHrOnlyScoredPool,
@@ -451,7 +452,10 @@ function appendPropScoredLegs(
   }
 }
 
-function prescorePropRank(pick: ParsedPick): number {
+function prescorePropRank(pick: ParsedPick, opts?: { hrBoard?: boolean }): number {
+  if (opts?.hrBoard || isBatterHomeRunPick(pick)) {
+    return hrBoardPrescoreRank(pick);
+  }
   const leg: BoardScoredLeg = {
     pick,
     evPct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
@@ -509,7 +513,9 @@ async function simPropPoolUntilQualified(
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
-  const phaseDeadlineMs = boardScanPropPhaseDeadlineMs(opts.target);
+  const phaseDeadlineMs = boardScanPropPhaseDeadlineMs(opts.target, {
+    exhaustPropBoard: opts.exhaustPropBoard,
+  });
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
     realOdds: mergedOdds,
@@ -521,9 +527,16 @@ async function simPropPoolUntilQualified(
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
   });
+  const hrBoard =
+    !!opts.exhaustPropBoard ||
+    (prescorePool.length > 0 &&
+      prescorePool.every((p) => isBatterHomeRunPick(p)));
   const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
-    .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
+    .sort(
+      (a, b) =>
+        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard }),
+    );
   const maxToSim = boardScanMaxPropsToSim(opts.target, rankedAll.length);
   const { selected: rankedProps } = selectBoardPropSimCandidates(rankedAll, maxToSim);
 

@@ -393,3 +393,51 @@ export function hrSelectionDiagnostics(
 
   return { selected: selectedRows, nextBest };
 }
+
+/** Home-run asks want scorers — Under / No sides waste MC budget. */
+export function isHrScorerSide(pick: {
+  propSide?: string | null;
+  pick?: string | null;
+}): boolean {
+  const side = String(pick.propSide ?? "").toLowerCase();
+  if (side === "under" || side === "no") return false;
+  if (side === "over" || side === "yes") return true;
+  const text = String(pick.pick ?? "").toLowerCase();
+  if (/\bunder\b|\bno\b/.test(text)) return false;
+  return true;
+}
+
+/**
+ * Anytime-HR rung (Over 0.5 / null-line Yes). Multi-HR Overs (1.5+) are
+ * lottery tickets that almost never clear the quality bar — deprioritize them.
+ */
+export function isHrAnytimeLine(pick: {
+  propLine?: number | null;
+  propSide?: string | null;
+}): boolean {
+  if (!isHrScorerSide(pick)) return false;
+  if (pick.propLine == null) return true;
+  return Number(pick.propLine) <= 0.5;
+}
+
+/**
+ * Prescore HR candidates by matchup/power (sim optional). EV-heavy composite
+ * ranks longshots last and starves MC of the hitters most likely to clear.
+ */
+export function hrBoardPrescoreRank(pick: ParsedPick): number {
+  const anytimeBoost = isHrAnytimeLine(pick) ? 25 : 0;
+  const sideBoost = isHrScorerSide(pick) ? 10 : -50;
+  const components = buildCoachHrRankComponents({ pick, simHit: null });
+  return components.rankScore + anytimeBoost + sideBoost;
+}
+
+/** Filter a prop pool to HR scorer sides (Over/Yes) for home-run asks. */
+export function filterHrScorerPoolEntries<T extends { side?: string | null }>(
+  pool: T[],
+): T[] {
+  return pool.filter((row) => {
+    const side = String(row.side ?? "").toLowerCase();
+    if (side === "under" || side === "no") return false;
+    return true;
+  });
+}

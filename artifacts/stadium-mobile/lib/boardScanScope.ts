@@ -27,7 +27,17 @@ export function boardScanPropSimBatchTimeoutMs(): number {
  * When the prop pool is prefetched, this phase overlaps game-line sims so the
  * absolute Coach budget cannot starve player props (7-leg → 3 F5 game lines).
  */
-export function boardScanPropPhaseDeadlineMs(targetLegs: number): number {
+export function boardScanPropPhaseDeadlineMs(
+  targetLegs: number,
+  opts?: { exhaustPropBoard?: boolean },
+): number {
+  // HR full-board exhaust needs more wall time so matchup-strong hitters
+  // beyond the first EV-sorted wave still get MC before Coach finalizes.
+  if (opts?.exhaustPropBoard) {
+    if (targetLegs >= 9) return 75_000;
+    if (targetLegs >= 6) return 60_000;
+    return 50_000;
+  }
   if (targetLegs >= 15) return 75_000;
   if (targetLegs >= 9) return 60_000;
   if (targetLegs >= 6) return 45_000;
