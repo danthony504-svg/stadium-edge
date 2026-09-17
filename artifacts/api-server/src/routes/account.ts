@@ -6,6 +6,7 @@ import {
   userSyncTable,
   pushTokensTable,
   notifLogTable,
+  promoRedemptionsTable,
 } from "@workspace/db";
 import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
@@ -50,6 +51,9 @@ router.delete("/account", deleteLimiter, async (req, res) => {
     await db.delete(userSyncTable).where(eq(userSyncTable.userId, userId));
     await db.delete(pushTokensTable).where(eq(pushTokensTable.userId, userId));
     await db.delete(notifLogTable).where(eq(notifLogTable.userId, userId));
+    await db
+      .delete(promoRedemptionsTable)
+      .where(eq(promoRedemptionsTable.userId, userId));
 
     // 2. Delete the user from the authentication system. This also removes any
     //    linked Google / Apple / password identities, so it covers all sign-in
