@@ -63,6 +63,7 @@ export const SOFT_PRO_FEATURE_LABELS = [
   "+500 Steals",
   "Simulator",
   "Model Report",
+  "AI Grade & Edge",
 ] as const;
 
 export type SoftProFeatureLabel = (typeof SOFT_PRO_FEATURE_LABELS)[number] | string;
@@ -75,7 +76,8 @@ export type PremiumFeatureId =
   | "edge_lock"
   | "steals"
   | "simulator"
-  | "model_report";
+  | "model_report"
+  | "coach_ai_metrics";
 
 export const PREMIUM_FEATURES: Record<
   PremiumFeatureId,
@@ -85,6 +87,8 @@ export const PREMIUM_FEATURES: Record<
   steals: { label: "+500 Steals", routes: ["/steals"] },
   simulator: { label: "Simulator", routes: ["/simulator"] },
   model_report: { label: "Model Report", routes: ["/report"] },
+  // No dedicated route — soft-locked tiles on Coach / pick cards.
+  coach_ai_metrics: { label: "AI Grade & Edge", routes: [] },
 };
 
 export function premiumFeatureForRoute(route: string): PremiumFeatureId | null {

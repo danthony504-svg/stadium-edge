@@ -31,6 +31,7 @@ import {
   pickGradeDisplayLabel,
 } from "@/lib/pickRecommendation";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
+import { LockedAiMetricsTeaser, useAiMetricsLocked } from "@/components/LockedAiMetrics";
 import { FONT } from "@/components/ui";
 
 export type AltRungOption = {

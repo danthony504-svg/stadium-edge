@@ -171,6 +171,8 @@ test("premium routes map to gated features; Coach stays free", () => {
   assert.equal(premiumFeatureForRoute("/props"), null);
   assert.equal(canAccessPremiumFeature("edge_lock", false), false);
   assert.equal(canAccessPremiumFeature("edge_lock", true), true);
+  assert.equal(canAccessPremiumFeature("coach_ai_metrics", false), false);
+  assert.equal(canAccessPremiumFeature("coach_ai_metrics", true), true);
 });
 
 test("promo catalog redeem lifetime and timed codes", () => {

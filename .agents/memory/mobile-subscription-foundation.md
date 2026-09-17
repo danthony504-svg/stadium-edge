@@ -17,8 +17,9 @@ without a native rebuild.
 Discover, Coach, Props, Slip, Weather, Fantasy — never hard-walled.
 
 ## Soft-gated after trial (needs plan / admin / promo)
-Edge Lock, +500 Steals, Simulator, Model Report — `PremiumFeatureGate` + NavMenu
-soft paywall. Not Coach/OTA.
+Edge Lock, +500 Steals, Simulator, Model Report — full screens.
+**AI Grade / Confidence / Edge tiles** on Coach (and other) pick cards — pick
+text + odds + Add to slip stay free; metrics show a Pro unlock teaser.
 
 ## Admin unlock
 Signed-in email matching `EXPO_PUBLIC_ADMIN_EMAILS` (comma-separated) gets full
