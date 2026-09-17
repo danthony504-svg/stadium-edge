@@ -12,8 +12,8 @@ without a native rebuild.
 - `lib/entitlements.ts` — pure plan/trial/isPro helpers (Node-testable).
 - `context/SubscriptionContext.tsx` — AsyncStorage persistence, 7-day local trial,
   `requirePro` soft gate, dismissible `SoftPaywallModal`.
-- `app/plans.tsx` — Free / Go ($19.99 wk) / Pro ($49.99 mo) preview picker (mirrors
-  web DEMO catalog). Selecting a plan updates local entitlement only — **no charge**.
+- `app/plans.tsx` — Free trial (7 days) / Go ($9.99 wk) / Pro ($29.99 mo) preview
+  picker. Selecting a plan updates local entitlement only — **no charge**.
 - Account card + NavMenu **Plans** entry. Guests can open Plans (App Store 5.1.1(v)).
 
 ## Hard rules

@@ -25,16 +25,16 @@ export type PlanDefinition = {
 export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
   {
     id: "free",
-    name: "Free",
+    name: "Free trial",
     priceLabel: "$0",
-    periodLabel: "after trial",
-    note: "Browse + Coach stay open. Soft upgrade prompts only.",
+    periodLabel: "for 7 days",
+    note: "Everything unlocked for 7 days. Browse + Coach stay open after.",
     paid: false,
   },
   {
     id: "go",
     name: "Stadium Edge Go",
-    priceLabel: "$19.99",
+    priceLabel: "$9.99",
     periodLabel: "a week",
     note: "Weekly plan (preview — billing ships with a native StoreKit build).",
     paid: true,
@@ -42,7 +42,7 @@ export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
   {
     id: "pro",
     name: "Stadium Edge Pro",
-    priceLabel: "$49.99",
+    priceLabel: "$29.99",
     periodLabel: "per month",
     note: "Monthly plan (preview — billing ships with a native StoreKit build).",
     paid: true,

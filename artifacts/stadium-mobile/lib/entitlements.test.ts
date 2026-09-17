@@ -107,3 +107,12 @@ test("planById falls back safely", () => {
   assert.equal(planById("free").paid, false);
   assert.equal(planById("pro").paid, true);
 });
+
+test("catalog prices match Free 7-day / Go $9.99 wk / Pro $29.99 mo", () => {
+  assert.equal(planById("free").name, "Free trial");
+  assert.equal(planById("free").periodLabel, "for 7 days");
+  assert.equal(planById("go").priceLabel, "$9.99");
+  assert.equal(planById("go").periodLabel, "a week");
+  assert.equal(planById("pro").priceLabel, "$29.99");
+  assert.equal(planById("pro").periodLabel, "per month");
+});
