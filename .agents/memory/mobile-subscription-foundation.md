@@ -26,8 +26,9 @@ Pro. Set in `eas.json` production env + OTA publish scripts. Default owner email
 is included; add more emails as needed.
 
 ## Promo codes / links
-Catalog in `lib/entitlements.ts` (`STADIUMVIP` lifetime, `EDGE7` / `EDGE30` /
-`FREEMONTH` timed). Redeem on Plans or Account, or open:
+Catalog in `lib/entitlements.ts` (random codes; rotate anytime via OTA):
+`7VXHVPOR` lifetime, `KFXD4X2B` 7 days, `KK48IZSN` / `8VZV43WK` 30 days.
+Redeem on Plans or Account, or open:
 `https://<domain>/plans?promo=CODE`
 
 ## Hard rules

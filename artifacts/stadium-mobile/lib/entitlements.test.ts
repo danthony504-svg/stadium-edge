@@ -70,7 +70,7 @@ test("hasProAccess: paid, trial, promo, and admin unlock", () => {
   assert.equal(
     hasProAccess(
       baseState({
-        redeemedPromoCode: "STADIUMVIP",
+        redeemedPromoCode: "7VXHVPOR",
         promoLifetime: true,
       }),
       start + 100 * DAY,
@@ -100,7 +100,7 @@ test("buildEntitlementView labels admin / promo / trial / free", () => {
   const promo = buildEntitlementView(
     baseState({
       trialStartedAtMs: start,
-      redeemedPromoCode: "EDGE7",
+      redeemedPromoCode: "KFXD4X2B",
       promoLifetime: false,
       promoExpiresAtMs: start + 20 * DAY,
     }),
@@ -132,7 +132,10 @@ test("sanitizeSubscriptionState rejects corrupt storage", () => {
     promoExpiresAtMs: null,
     promoLifetime: false,
   });
-  assert.equal(sanitizeSubscriptionState({ planId: "go", redeemedPromoCode: " edge7 " }).redeemedPromoCode, "EDGE7");
+  assert.equal(
+    sanitizeSubscriptionState({ planId: "go", redeemedPromoCode: " kfxd4x2b " }).redeemedPromoCode,
+    "KFXD4X2B",
+  );
 });
 
 test("ensureTrialStarted stamps first launch only", () => {
@@ -171,14 +174,14 @@ test("premium routes map to gated features; Coach stays free", () => {
 
 test("promo catalog redeem lifetime and timed codes", () => {
   const now = 1_700_000_000_000;
-  assert.equal(findPromoDefinition("stadiumvip")?.kind, "lifetime");
-  const vip = redeemPromoCode(baseState(), "STADIUMVIP", now);
+  assert.equal(findPromoDefinition("7vxhvpor")?.kind, "lifetime");
+  const vip = redeemPromoCode(baseState(), "7VXHVPOR", now);
   assert.equal(vip.ok, true);
   if (vip.ok) {
     assert.equal(vip.state.promoLifetime, true);
     assert.equal(isPromoUnlockActive(vip.state, now + 400 * DAY), true);
   }
-  const week = redeemPromoCode(baseState(), "EDGE7", now);
+  const week = redeemPromoCode(baseState(), "KFXD4X2B", now);
   assert.equal(week.ok, true);
   if (week.ok) {
     assert.equal(week.state.promoLifetime, false);
@@ -198,11 +201,11 @@ test("admin email allowlist parsing", () => {
 
 test("promo link + query extract", () => {
   assert.equal(
-    buildPromoLink("EDGE7", "stadium-edge.onrender.com"),
-    "https://stadium-edge.onrender.com/plans?promo=EDGE7",
+    buildPromoLink("KFXD4X2B", "stadium-edge.onrender.com"),
+    "https://stadium-edge.onrender.com/plans?promo=KFXD4X2B",
   );
   assert.equal(buildPromoLink("NOPE", "stadium-edge.onrender.com"), null);
-  assert.equal(extractPromoFromQuery({ promo: "edge30" }), "EDGE30");
-  assert.equal(extractPromoFromQuery({ code: ["FREEMONTH"] }), "FREEMONTH");
+  assert.equal(extractPromoFromQuery({ promo: "kk48izsn" }), "KK48IZSN");
+  assert.equal(extractPromoFromQuery({ code: ["8VZV43WK"] }), "8VZV43WK");
   assert.equal(extractPromoFromQuery({}), null);
 });

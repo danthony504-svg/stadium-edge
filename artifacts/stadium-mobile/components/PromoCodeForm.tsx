@@ -59,7 +59,7 @@ export function PromoCodeForm({ initialCode, autoRedeem }: PromoCodeFormProps) {
       <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, lineHeight: 18 }}>
         Have a free unlock code or link? Enter it here. Links look like{" "}
         <Text style={{ fontFamily: FONT.medium, color: colors.foreground }}>
-          …/plans?promo=EDGE7
+          …/plans?promo=KFXD4X2B
         </Text>
         .
       </Text>
@@ -69,7 +69,7 @@ export function PromoCodeForm({ initialCode, autoRedeem }: PromoCodeFormProps) {
           onChangeText={setCode}
           autoCapitalize="characters"
           autoCorrect={false}
-          placeholder="e.g. EDGE7"
+          placeholder="e.g. KFXD4X2B"
           placeholderTextColor={colors.mutedForeground}
           style={{
             flex: 1,

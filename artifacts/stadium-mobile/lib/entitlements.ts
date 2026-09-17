@@ -113,24 +113,24 @@ export type PromoDefinition = {
  */
 export const PROMO_CATALOG: readonly PromoDefinition[] = [
   {
-    code: "STADIUMVIP",
+    code: "7VXHVPOR",
     kind: "lifetime",
     label: "VIP — lifetime Pro unlock",
   },
   {
-    code: "EDGE7",
+    code: "KFXD4X2B",
     kind: "days",
     days: 7,
     label: "7 days of Pro",
   },
   {
-    code: "EDGE30",
+    code: "KK48IZSN",
     kind: "days",
     days: 30,
     label: "30 days of Pro",
   },
   {
-    code: "FREEMONTH",
+    code: "8VZV43WK",
     kind: "days",
     days: 30,
     label: "Free month of Pro",
