@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { PromoCodeForm } from "@/components/PromoCodeForm";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -273,10 +274,13 @@ export default function AccountScreen() {
               color: colors.mutedForeground,
             }}
           >
-            Preview entitlements — App Store billing ships with a native rebuild. Coach and
-            OTA are unchanged.
+            {entitlement.isAdmin
+              ? "Signed in as admin — full access on this account."
+              : "Preview entitlements — App Store billing ships with a native rebuild. Coach and OTA are unchanged."}
           </Text>
         </View>
+
+        <PromoCodeForm />
 
         {referralLink ? (
           <View

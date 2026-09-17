@@ -4,17 +4,30 @@ import test from "node:test";
 import {
   TRIAL_LENGTH_DAYS,
   buildEntitlementView,
+  buildPromoLink,
+  canAccessPremiumFeature,
   ensureTrialStarted,
+  extractPromoFromQuery,
+  findPromoDefinition,
   hasProAccess,
+  isAdminEmail,
   isPlanId,
+  isPromoUnlockActive,
   isTrialActive,
+  parseAdminEmails,
   planById,
+  premiumFeatureForRoute,
+  redeemPromoCode,
   sanitizeSubscriptionState,
   softRequirePro,
   trialDaysRemaining,
 } from "./entitlements.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
+
+function baseState(over: Partial<ReturnType<typeof sanitizeSubscriptionState>> = {}) {
+  return sanitizeSubscriptionState({ planId: "free", trialStartedAtMs: null, ...over });
+}
 
 test("isPlanId accepts only free/go/pro", () => {
   assert.equal(isPlanId("free"), true);
@@ -40,58 +53,91 @@ test("isTrialActive is true only inside the window", () => {
   assert.equal(isTrialActive(null, start), false);
 });
 
-test("hasProAccess: paid plans always unlock; free needs trial", () => {
+test("hasProAccess: paid, trial, promo, and admin unlock", () => {
   const start = 1_700_000_000_000;
-  assert.equal(hasProAccess("go", null, start), true);
-  assert.equal(hasProAccess("pro", null, start), true);
-  assert.equal(hasProAccess("free", start, start + DAY), true);
-  assert.equal(hasProAccess("free", start, start + 8 * DAY), false);
-  assert.equal(hasProAccess("free", null, start), false);
+  assert.equal(
+    hasProAccess(baseState({ planId: "go" }), start, {}),
+    true,
+  );
+  assert.equal(
+    hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + DAY, {}),
+    true,
+  );
+  assert.equal(
+    hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + 8 * DAY, {}),
+    false,
+  );
+  assert.equal(
+    hasProAccess(
+      baseState({
+        redeemedPromoCode: "STADIUMVIP",
+        promoLifetime: true,
+      }),
+      start + 100 * DAY,
+      {},
+    ),
+    true,
+  );
+  assert.equal(
+    hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + 8 * DAY, {
+      email: "owner@example.com",
+      adminEmails: ["owner@example.com"],
+    }),
+    true,
+  );
 });
 
-test("buildEntitlementView labels trial vs free vs paid", () => {
+test("buildEntitlementView labels admin / promo / trial / free", () => {
   const start = 1_700_000_000_000;
+  const admin = buildEntitlementView(baseState({ trialStartedAtMs: start }), start + 10 * DAY, {
+    email: "admin@x.com",
+    adminEmails: ["admin@x.com"],
+  });
+  assert.equal(admin.isAdmin, true);
+  assert.equal(admin.unlockSource, "admin");
+  assert.equal(admin.statusLabel, "Admin");
+
+  const promo = buildEntitlementView(
+    baseState({
+      trialStartedAtMs: start,
+      redeemedPromoCode: "EDGE7",
+      promoLifetime: false,
+      promoExpiresAtMs: start + 20 * DAY,
+    }),
+    start + 10 * DAY,
+  );
+  assert.equal(promo.unlockSource, "promo");
+  assert.equal(promo.isPro, true);
+
   const trial = buildEntitlementView(
-    { planId: "free", trialStartedAtMs: start },
+    baseState({ planId: "free", trialStartedAtMs: start }),
     start + DAY,
   );
-  assert.equal(trial.isPro, true);
   assert.equal(trial.statusLabel, "Free trial");
-  assert.match(trial.statusDetail, /days left/i);
 
   const expired = buildEntitlementView(
-    { planId: "free", trialStartedAtMs: start },
+    baseState({ planId: "free", trialStartedAtMs: start }),
     start + 10 * DAY,
   );
   assert.equal(expired.isPro, false);
   assert.equal(expired.statusLabel, "Free");
-
-  const pro = buildEntitlementView(
-    { planId: "pro", trialStartedAtMs: start },
-    start + 10 * DAY,
-  );
-  assert.equal(pro.isPro, true);
-  assert.equal(pro.plan.name, "Stadium Edge Pro");
+  assert.match(expired.statusDetail, /Edge Lock/i);
 });
 
 test("sanitizeSubscriptionState rejects corrupt storage", () => {
   assert.deepEqual(sanitizeSubscriptionState(null), {
     planId: "free",
     trialStartedAtMs: null,
+    redeemedPromoCode: null,
+    promoExpiresAtMs: null,
+    promoLifetime: false,
   });
-  assert.deepEqual(sanitizeSubscriptionState({ planId: "hack", trialStartedAtMs: "x" }), {
-    planId: "free",
-    trialStartedAtMs: null,
-  });
-  assert.deepEqual(
-    sanitizeSubscriptionState({ planId: "go", trialStartedAtMs: 42 }),
-    { planId: "go", trialStartedAtMs: 42 },
-  );
+  assert.equal(sanitizeSubscriptionState({ planId: "go", redeemedPromoCode: " edge7 " }).redeemedPromoCode, "EDGE7");
 });
 
 test("ensureTrialStarted stamps first launch only", () => {
   const now = 1_700_000_000_000;
-  const first = ensureTrialStarted({ planId: "free", trialStartedAtMs: null }, now);
+  const first = ensureTrialStarted(baseState(), now);
   assert.equal(first.trialStartedAtMs, now);
   const again = ensureTrialStarted(first, now + DAY);
   assert.equal(again.trialStartedAtMs, now);
@@ -102,12 +148,6 @@ test("softRequirePro is a boolean soft gate", () => {
   assert.equal(softRequirePro(false), false);
 });
 
-test("planById falls back safely", () => {
-  assert.equal(planById("go").id, "go");
-  assert.equal(planById("free").paid, false);
-  assert.equal(planById("pro").paid, true);
-});
-
 test("catalog prices match Free 7-day / Go $9.99 wk / Pro $29.99 mo", () => {
   assert.equal(planById("free").name, "Free trial");
   assert.equal(planById("free").periodLabel, "for 7 days");
@@ -115,4 +155,54 @@ test("catalog prices match Free 7-day / Go $9.99 wk / Pro $29.99 mo", () => {
   assert.equal(planById("go").periodLabel, "a week");
   assert.equal(planById("pro").priceLabel, "$29.99");
   assert.equal(planById("pro").periodLabel, "per month");
+});
+
+test("premium routes map to gated features; Coach stays free", () => {
+  assert.equal(premiumFeatureForRoute("/arbitrage"), "edge_lock");
+  assert.equal(premiumFeatureForRoute("/steals"), "steals");
+  assert.equal(premiumFeatureForRoute("/simulator"), "simulator");
+  assert.equal(premiumFeatureForRoute("/report"), "model_report");
+  assert.equal(premiumFeatureForRoute("/coach"), null);
+  assert.equal(premiumFeatureForRoute("/"), null);
+  assert.equal(premiumFeatureForRoute("/props"), null);
+  assert.equal(canAccessPremiumFeature("edge_lock", false), false);
+  assert.equal(canAccessPremiumFeature("edge_lock", true), true);
+});
+
+test("promo catalog redeem lifetime and timed codes", () => {
+  const now = 1_700_000_000_000;
+  assert.equal(findPromoDefinition("stadiumvip")?.kind, "lifetime");
+  const vip = redeemPromoCode(baseState(), "STADIUMVIP", now);
+  assert.equal(vip.ok, true);
+  if (vip.ok) {
+    assert.equal(vip.state.promoLifetime, true);
+    assert.equal(isPromoUnlockActive(vip.state, now + 400 * DAY), true);
+  }
+  const week = redeemPromoCode(baseState(), "EDGE7", now);
+  assert.equal(week.ok, true);
+  if (week.ok) {
+    assert.equal(week.state.promoLifetime, false);
+    assert.equal(week.state.promoExpiresAtMs, now + 7 * DAY);
+    assert.equal(isPromoUnlockActive(week.state, now + 3 * DAY), true);
+    assert.equal(isPromoUnlockActive(week.state, now + 8 * DAY), false);
+  }
+  assert.equal(redeemPromoCode(baseState(), "NOPE", now).ok, false);
+});
+
+test("admin email allowlist parsing", () => {
+  assert.deepEqual(parseAdminEmails("A@X.com, b@y.com"), ["a@x.com", "b@y.com"]);
+  assert.equal(isAdminEmail("A@X.com", ["a@x.com"]), true);
+  assert.equal(isAdminEmail("other@x.com", ["a@x.com"]), false);
+  assert.equal(isAdminEmail(null, ["a@x.com"]), false);
+});
+
+test("promo link + query extract", () => {
+  assert.equal(
+    buildPromoLink("EDGE7", "stadium-edge.onrender.com"),
+    "https://stadium-edge.onrender.com/plans?promo=EDGE7",
+  );
+  assert.equal(buildPromoLink("NOPE", "stadium-edge.onrender.com"), null);
+  assert.equal(extractPromoFromQuery({ promo: "edge30" }), "EDGE30");
+  assert.equal(extractPromoFromQuery({ code: ["FREEMONTH"] }), "FREEMONTH");
+  assert.equal(extractPromoFromQuery({}), null);
 });

@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth, useUser } from "@clerk/expo";
+import { useRouter } from "expo-router";
 import React, {
   createContext,
   useCallback,
@@ -8,7 +10,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useRouter } from "expo-router";
 
 import { SoftPaywallModal } from "@/components/SoftPaywallModal";
 import {
@@ -19,9 +20,16 @@ import {
   type SubscriptionPersistedState,
   buildEntitlementView,
   ensureTrialStarted,
+  normalizePromoCode,
+  parseAdminEmails,
+  redeemPromoCode,
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
+
+type RedeemResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
 
 type SubscriptionContextValue = {
   hydrated: boolean;
@@ -32,11 +40,16 @@ type SubscriptionContextValue = {
   requirePro: (featureLabel?: SoftProFeatureLabel) => boolean;
   openSoftPaywall: (featureLabel?: SoftProFeatureLabel) => void;
   closeSoftPaywall: () => void;
+  /** Redeem a local promo code (or from ?promo= link). */
+  redeemPromo: (code: string) => RedeemResult;
 };
 
 const DEFAULT_STATE: SubscriptionPersistedState = {
   planId: "free",
   trialStartedAtMs: null,
+  redeemedPromoCode: null,
+  promoExpiresAtMs: null,
+  promoLifetime: false,
 };
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -45,14 +58,26 @@ function nowMs() {
   return Date.now();
 }
 
+function readAdminEmails(): string[] {
+  return parseAdminEmails(process.env.EXPO_PUBLIC_ADMIN_EMAILS);
+}
+
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { isSignedIn } = useAuth();
+  const { user } = useUser();
   const [state, setState] = useState<SubscriptionPersistedState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [gatedFeature, setGatedFeature] = useState("");
   const [tick, setTick] = useState(0);
   const loaded = useRef(false);
+
+  const email =
+    user?.primaryEmailAddress?.emailAddress ??
+    user?.emailAddresses?.[0]?.emailAddress ??
+    null;
+  const adminEmails = useMemo(() => readAdminEmails(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,22 +106,42 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     AsyncStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(state)).catch(() => {});
   }, [state]);
 
-  // Refresh trial countdown roughly once an hour while mounted.
+  // Refresh trial/promo countdown roughly once an hour while mounted.
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 60 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
 
   const entitlement = useMemo(
-    () => buildEntitlementView(state, nowMs()),
+    () =>
+      buildEntitlementView(state, nowMs(), {
+        email: isSignedIn ? email : null,
+        adminEmails,
+      }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick],
+    [state, tick, isSignedIn, email, adminEmails],
   );
 
   const selectPlan = useCallback((planId: PlanId) => {
     setState((prev) => ({ ...prev, planId }));
   }, []);
+
+  const redeemPromo = useCallback((code: string): RedeemResult => {
+    const normalized = normalizePromoCode(code);
+    if (!normalized) {
+      return { ok: false, message: "Enter a promo code." };
+    }
+    const result = redeemPromoCode(state, normalized, nowMs());
+    if (!result.ok) {
+      return { ok: false, message: "That promo code isn’t valid." };
+    }
+    setState(result.state);
+    return {
+      ok: true,
+      message: result.definition.label,
+    };
+  }, [state]);
 
   const openSoftPaywall = useCallback((featureLabel: SoftProFeatureLabel = "Upgrade") => {
     setGatedFeature(String(featureLabel));
@@ -123,7 +168,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [closeSoftPaywall, router]);
 
   const onContinueTrial = useCallback(() => {
-    // Trial already started on first hydrate; just dismiss. If somehow missing, stamp it.
     setState((prev) => ensureTrialStarted(prev, nowMs()));
     closeSoftPaywall();
   }, [closeSoftPaywall]);
@@ -136,8 +180,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       requirePro,
       openSoftPaywall,
       closeSoftPaywall,
+      redeemPromo,
     }),
-    [hydrated, entitlement, selectPlan, requirePro, openSoftPaywall, closeSoftPaywall],
+    [
+      hydrated,
+      entitlement,
+      selectPlan,
+      requirePro,
+      openSoftPaywall,
+      closeSoftPaywall,
+      redeemPromo,
+    ],
   );
 
   return (

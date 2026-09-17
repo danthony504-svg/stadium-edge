@@ -2,10 +2,10 @@
  * Soft subscription entitlements for stadium-mobile.
  *
  * Design rules (App Store + OTA-safe):
- * - Guest browsing and Coach stay fully usable — never hard-wall core surfaces.
- * - Soft paywall only prompts (Account / Plans / optional CTAs); dismissible.
- * - No StoreKit / RevenueCat / native IAP packages here — those need a native
- *   rebuild + runtimeVersion bump and must not ride an OTA.
+ * - Guest browsing + Coach stay freely usable (App Store 5.1.1(v)).
+ * - Secondary tools may soft-gate after trial (Edge Lock, Steals, Simulator, Report).
+ * - Admin emails + promo codes/links unlock everything without StoreKit.
+ * - No StoreKit / RevenueCat here — native rebuild + runtimeVersion for real IAP.
  * - Pure helpers stay Node-testable (no React / AsyncStorage imports).
  */
 
@@ -21,7 +21,7 @@ export type PlanDefinition = {
   paid: boolean;
 };
 
-/** Mirrors the web DEMO catalog in ParlayBuilder (preview pricing only). */
+/** Preview catalog — display prices only until StoreKit ships. */
 export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
   {
     id: "free",
@@ -59,26 +59,115 @@ export const SOFT_PRO_FEATURE_LABELS = [
   "Plans",
   "Ticket image download",
   "Cloud sync extras",
+  "Edge Lock",
+  "+500 Steals",
+  "Simulator",
+  "Model Report",
 ] as const;
 
 export type SoftProFeatureLabel = (typeof SOFT_PRO_FEATURE_LABELS)[number] | string;
+
+/**
+ * Premium secondary surfaces — soft-gated after trial unless subscribed / admin / promo.
+ * Discover, Coach, Props, Slip, Weather, Fantasy stay free for guests.
+ */
+export type PremiumFeatureId =
+  | "edge_lock"
+  | "steals"
+  | "simulator"
+  | "model_report";
+
+export const PREMIUM_FEATURES: Record<
+  PremiumFeatureId,
+  { label: SoftProFeatureLabel; routes: readonly string[] }
+> = {
+  edge_lock: { label: "Edge Lock", routes: ["/arbitrage"] },
+  steals: { label: "+500 Steals", routes: ["/steals"] },
+  simulator: { label: "Simulator", routes: ["/simulator"] },
+  model_report: { label: "Model Report", routes: ["/report"] },
+};
+
+export function premiumFeatureForRoute(route: string): PremiumFeatureId | null {
+  const path = route.split("?")[0] ?? route;
+  for (const [id, meta] of Object.entries(PREMIUM_FEATURES) as [
+    PremiumFeatureId,
+    (typeof PREMIUM_FEATURES)[PremiumFeatureId],
+  ][]) {
+    if (meta.routes.some((r) => path === r || path.startsWith(`${r}/`))) return id;
+  }
+  return null;
+}
+
+export type PromoKind = "lifetime" | "days";
+
+export type PromoDefinition = {
+  code: string;
+  kind: PromoKind;
+  days?: number;
+  label: string;
+};
+
+/**
+ * Local promo catalog (OTA-updatable). Codes are case-insensitive.
+ * Share as `https://<domain>/plans?promo=CODE` or redeem on Plans/Account.
+ */
+export const PROMO_CATALOG: readonly PromoDefinition[] = [
+  {
+    code: "STADIUMVIP",
+    kind: "lifetime",
+    label: "VIP — lifetime Pro unlock",
+  },
+  {
+    code: "EDGE7",
+    kind: "days",
+    days: 7,
+    label: "7 days of Pro",
+  },
+  {
+    code: "EDGE30",
+    kind: "days",
+    days: 30,
+    label: "30 days of Pro",
+  },
+  {
+    code: "FREEMONTH",
+    kind: "days",
+    days: 30,
+    label: "Free month of Pro",
+  },
+] as const;
 
 export type SubscriptionPersistedState = {
   planId: PlanId;
   /** Epoch ms when the device-local trial started. Null = not started yet. */
   trialStartedAtMs: number | null;
+  /** Last successfully redeemed promo (normalized uppercase). */
+  redeemedPromoCode: string | null;
+  /** When a timed promo ends. Null with a code usually means lifetime. */
+  promoExpiresAtMs: number | null;
+  /** True when redeemed promo never expires. */
+  promoLifetime: boolean;
 };
+
+export type UnlockSource = "paid" | "trial" | "promo" | "admin" | "none";
 
 export type EntitlementView = {
   planId: PlanId;
   plan: PlanDefinition;
   trialActive: boolean;
   trialDaysLeft: number;
-  /** Paid plan OR active trial — soft Pro access for optional CTAs. */
+  /** Paid / trial / promo / admin — soft Pro for gated secondary features. */
   isPro: boolean;
+  unlockSource: UnlockSource;
+  isAdmin: boolean;
+  redeemedPromoCode: string | null;
   statusLabel: string;
   statusDetail: string;
 };
+
+export type RedeemPromoResult =
+  | { ok: true; definition: PromoDefinition; state: SubscriptionPersistedState }
+  | { ok: false; reason: "invalid" | "expired_noop" };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -113,35 +202,123 @@ export function isTrialActive(
   return trialDaysRemaining(trialStartedAtMs, nowMs, trialLengthDays) > 0;
 }
 
+export function normalizePromoCode(raw: string | null | undefined): string {
+  return (raw ?? "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+export function findPromoDefinition(code: string): PromoDefinition | null {
+  const normalized = normalizePromoCode(code);
+  if (!normalized) return null;
+  return PROMO_CATALOG.find((p) => p.code === normalized) ?? null;
+}
+
+export function isPromoUnlockActive(
+  state: Pick<SubscriptionPersistedState, "redeemedPromoCode" | "promoExpiresAtMs" | "promoLifetime">,
+  nowMs: number,
+): boolean {
+  if (!state.redeemedPromoCode) return false;
+  if (state.promoLifetime) return true;
+  if (state.promoExpiresAtMs == null) return false;
+  return state.promoExpiresAtMs > nowMs;
+}
+
 /**
- * Soft Pro access: paid catalog plan OR an active local trial.
- * Free + expired trial → not Pro (app remains fully browsable).
+ * Parse EXPO_PUBLIC_ADMIN_EMAILS (comma/space separated).
+ * Example: "you@stadiumedge.com,owner@gmail.com"
  */
-export function hasProAccess(
-  planId: PlanId,
-  trialStartedAtMs: number | null,
+export function parseAdminEmails(envValue: string | null | undefined): string[] {
+  if (!envValue || typeof envValue !== "string") return [];
+  return envValue
+    .split(/[,;\s]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+}
+
+export function isAdminEmail(
+  email: string | null | undefined,
+  allowlist: readonly string[],
+): boolean {
+  const normalized = (email ?? "").trim().toLowerCase();
+  if (!normalized || allowlist.length === 0) return false;
+  return allowlist.includes(normalized);
+}
+
+export function hasPromoOrPlanAccess(
+  state: SubscriptionPersistedState,
   nowMs: number,
   trialLengthDays: number = TRIAL_LENGTH_DAYS,
 ): boolean {
-  if (planById(planId).paid) return true;
-  return isTrialActive(trialStartedAtMs, nowMs, trialLengthDays);
+  if (planById(state.planId).paid) return true;
+  if (isPromoUnlockActive(state, nowMs)) return true;
+  return isTrialActive(state.trialStartedAtMs, nowMs, trialLengthDays);
+}
+
+/**
+ * Soft Pro access: paid plan, active trial, active promo, or admin email.
+ * Free + expired trial → not Pro (core browse/Coach still open).
+ */
+export function hasProAccess(
+  state: SubscriptionPersistedState,
+  nowMs: number,
+  opts: { email?: string | null; adminEmails?: readonly string[] } = {},
+  trialLengthDays: number = TRIAL_LENGTH_DAYS,
+): boolean {
+  if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
+  return hasPromoOrPlanAccess(state, nowMs, trialLengthDays);
+}
+
+export function resolveUnlockSource(
+  state: SubscriptionPersistedState,
+  nowMs: number,
+  opts: { email?: string | null; adminEmails?: readonly string[] } = {},
+): UnlockSource {
+  if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
+  if (planById(state.planId).paid) return "paid";
+  if (isPromoUnlockActive(state, nowMs)) return "promo";
+  if (isTrialActive(state.trialStartedAtMs, nowMs)) return "trial";
+  return "none";
+}
+
+/** Whether a premium secondary feature is allowed. */
+export function canAccessPremiumFeature(
+  _featureId: PremiumFeatureId,
+  isPro: boolean,
+): boolean {
+  return isPro;
 }
 
 export function buildEntitlementView(
   state: SubscriptionPersistedState,
   nowMs: number,
+  opts: { email?: string | null; adminEmails?: readonly string[] } = {},
 ): EntitlementView {
   const planId = isPlanId(state.planId) ? state.planId : "free";
   const plan = planById(planId);
   const trialDaysLeft = trialDaysRemaining(state.trialStartedAtMs, nowMs);
   const trialActive = trialDaysLeft > 0;
-  const isPro = hasProAccess(planId, state.trialStartedAtMs, nowMs);
+  const isAdmin = isAdminEmail(opts.email, opts.adminEmails ?? []);
+  const unlockSource = resolveUnlockSource(state, nowMs, opts);
+  const isPro = unlockSource !== "none";
 
   let statusLabel: string;
   let statusDetail: string;
-  if (plan.paid) {
+  if (isAdmin) {
+    statusLabel = "Admin";
+    statusDetail = "Full access · admin account";
+  } else if (unlockSource === "paid") {
     statusLabel = plan.name;
     statusDetail = `${plan.priceLabel} ${plan.periodLabel} · preview entitlement`;
+  } else if (unlockSource === "promo") {
+    const def = findPromoDefinition(state.redeemedPromoCode ?? "");
+    statusLabel = def?.label ?? "Promo unlock";
+    if (state.promoLifetime) {
+      statusDetail = `Code ${state.redeemedPromoCode} · lifetime`;
+    } else if (state.promoExpiresAtMs != null) {
+      const days = Math.max(1, Math.ceil((state.promoExpiresAtMs - nowMs) / MS_PER_DAY));
+      statusDetail = `Code ${state.redeemedPromoCode} · ${days} day${days === 1 ? "" : "s"} left`;
+    } else {
+      statusDetail = `Code ${state.redeemedPromoCode}`;
+    }
   } else if (trialActive) {
     statusLabel = "Free trial";
     statusDetail =
@@ -150,7 +327,8 @@ export function buildEntitlementView(
         : `${trialDaysLeft} days left · everything unlocked for this preview`;
   } else {
     statusLabel = "Free";
-    statusDetail = "Browse + Coach stay open · upgrade anytime";
+    statusDetail =
+      "Browse + Coach stay open · Edge Lock, Steals, Simulator & Report need a plan";
   }
 
   return {
@@ -159,15 +337,86 @@ export function buildEntitlementView(
     trialActive,
     trialDaysLeft,
     isPro,
+    unlockSource,
+    isAdmin,
+    redeemedPromoCode: state.redeemedPromoCode,
     statusLabel,
     statusDetail,
   };
 }
 
+export function redeemPromoCode(
+  state: SubscriptionPersistedState,
+  code: string,
+  nowMs: number,
+): RedeemPromoResult {
+  const definition = findPromoDefinition(code);
+  if (!definition) return { ok: false, reason: "invalid" };
+
+  if (definition.kind === "lifetime") {
+    return {
+      ok: true,
+      definition,
+      state: {
+        ...state,
+        redeemedPromoCode: definition.code,
+        promoLifetime: true,
+        promoExpiresAtMs: null,
+      },
+    };
+  }
+
+  const days = definition.days ?? 7;
+  const base =
+    state.promoExpiresAtMs != null && state.promoExpiresAtMs > nowMs
+      ? state.promoExpiresAtMs
+      : nowMs;
+  return {
+    ok: true,
+    definition,
+    state: {
+      ...state,
+      redeemedPromoCode: definition.code,
+      promoLifetime: false,
+      promoExpiresAtMs: base + days * MS_PER_DAY,
+    },
+  };
+}
+
+/** Shareable promo link — same host pattern as referral links. */
+export function buildPromoLink(
+  code: string,
+  domain: string | null | undefined,
+): string | null {
+  const normalized = normalizePromoCode(code);
+  if (!findPromoDefinition(normalized)) return null;
+  const host = (domain ?? "").trim();
+  if (!host) return null;
+  const base = /^https?:\/\//i.test(host)
+    ? host.replace(/\/+$/, "")
+    : `https://${host.replace(/\/+$/, "")}`;
+  return `${base}/plans?promo=${encodeURIComponent(normalized)}`;
+}
+
+export function extractPromoFromQuery(
+  params: Record<string, string | string[] | undefined> | null | undefined,
+): string | null {
+  if (!params) return null;
+  const raw = params.promo ?? params.code;
+  if (Array.isArray(raw)) return normalizePromoCode(raw[0] ?? "") || null;
+  return normalizePromoCode(raw ?? "") || null;
+}
+
 /** Sanitize AsyncStorage JSON into a safe persisted shape. */
 export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedState {
   if (!raw || typeof raw !== "object") {
-    return { planId: "free", trialStartedAtMs: null };
+    return {
+      planId: "free",
+      trialStartedAtMs: null,
+      redeemedPromoCode: null,
+      promoExpiresAtMs: null,
+      promoLifetime: false,
+    };
   }
   const obj = raw as Record<string, unknown>;
   const planId = isPlanId(obj.planId) ? obj.planId : "free";
@@ -176,7 +425,23 @@ export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedSt
     typeof trialRaw === "number" && Number.isFinite(trialRaw) && trialRaw > 0
       ? trialRaw
       : null;
-  return { planId, trialStartedAtMs };
+  const redeemedPromoCode =
+    typeof obj.redeemedPromoCode === "string" && obj.redeemedPromoCode.trim()
+      ? normalizePromoCode(obj.redeemedPromoCode)
+      : null;
+  const promoExpiresRaw = obj.promoExpiresAtMs;
+  const promoExpiresAtMs =
+    typeof promoExpiresRaw === "number" && Number.isFinite(promoExpiresRaw) && promoExpiresRaw > 0
+      ? promoExpiresRaw
+      : null;
+  const promoLifetime = obj.promoLifetime === true;
+  return {
+    planId,
+    trialStartedAtMs,
+    redeemedPromoCode,
+    promoExpiresAtMs,
+    promoLifetime,
+  };
 }
 
 /**

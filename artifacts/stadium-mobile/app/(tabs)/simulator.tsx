@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type {
@@ -307,7 +308,7 @@ function formatPropSimConf(
   return String(Math.round(score));
 }
 
-export default function SimulatorScreen() {
+function SimulatorScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -1763,6 +1764,14 @@ export default function SimulatorScreen() {
         </Pressable>
       </Modal>
     </View>
+  );
+}
+
+export default function SimulatorScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="simulator">
+      <SimulatorScreen />
+    </PremiumFeatureGate>
   );
 }
 

@@ -3,6 +3,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { EmptyState, FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -165,7 +166,7 @@ function BreakdownSection({
   );
 }
 
-export default function ReportScreen() {
+function ReportScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { results } = useBetSlip();
@@ -295,5 +296,13 @@ export default function ReportScreen() {
         )}
       </ScrollView>
     </View>
+  );
+}
+
+export default function ReportScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="model_report">
+      <ReportScreen />
+    </PremiumFeatureGate>
   );
 }

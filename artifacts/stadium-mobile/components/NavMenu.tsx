@@ -8,7 +8,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
+import {
+  PREMIUM_FEATURES,
+  premiumFeatureForRoute,
+} from "@/lib/entitlements";
 import {
   accountMenuItem,
   plansMenuItem,
@@ -42,6 +47,7 @@ export function NavMenu() {
   const pathname = usePathname();
   const { legs } = useBetSlip();
   const { isSignedIn } = useAuth();
+  const { entitlement, requirePro } = useSubscription();
   const [open, setOpen] = useState(false);
 
   // Signed-out users always get Sign in at the bottom; signed-in keep Account.
@@ -57,6 +63,12 @@ export function NavMenu() {
   const go = (route: string) => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
+    const premiumId = premiumFeatureForRoute(route);
+    // Navigate into the tab; PremiumFeatureGate shows unlock UI when locked.
+    // Also nudge the soft sheet so upgrade is one tap away.
+    if (premiumId && !entitlement.isPro) {
+      requirePro(PREMIUM_FEATURES[premiumId].label);
+    }
     if (!isActive(pathname, route)) {
       router.navigate(route as any);
     }

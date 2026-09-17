@@ -1,16 +1,21 @@
 import Feather from "@expo/vector-icons/Feather";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { PromoCodeForm } from "@/components/PromoCodeForm";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
-import { SUBSCRIPTION_PLANS, type PlanId } from "@/lib/entitlements";
+import {
+  SUBSCRIPTION_PLANS,
+  extractPromoFromQuery,
+  type PlanId,
+} from "@/lib/entitlements";
 
 /**
- * Preview Plans screen — local entitlement selection only.
+ * Preview Plans screen — local entitlement selection + promo redeem.
  * Real StoreKit / RevenueCat billing requires a native rebuild + runtimeVersion
  * bump and is intentionally out of scope for OTA-safe subscription foundation.
  */
@@ -18,6 +23,8 @@ export default function PlansScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ promo?: string | string[]; code?: string | string[] }>();
+  const promoFromLink = extractPromoFromQuery(params);
   const { entitlement, selectPlan } = useSubscription();
   const [draft, setDraft] = React.useState<PlanId>(entitlement.planId);
 
@@ -71,6 +78,7 @@ export default function PlansScreen() {
           paddingBottom: insets.bottom + 28,
           gap: 14,
         }}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={{ alignItems: "center", gap: 10, marginBottom: 8, marginTop: 4 }}>
           <View
@@ -106,8 +114,9 @@ export default function PlansScreen() {
               textAlign: "center",
             }}
           >
-            Preview entitlements only — nothing is charged. Coach, browse, and OTA
-            keep working on every plan.
+            Free trial unlocks everything for 7 days. After that, Discover + Coach + Props +
+            Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan, admin,
+            or promo.
           </Text>
         </View>
 
@@ -183,6 +192,8 @@ export default function PlansScreen() {
             </Pressable>
           );
         })}
+
+        <PromoCodeForm initialCode={promoFromLink} autoRedeem={!!promoFromLink} />
 
         <Pressable
           onPress={onContinue}
