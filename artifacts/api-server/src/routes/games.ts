@@ -17,6 +17,10 @@ import {
 import { loadTennisGames } from "../lib/tennis.js";
 import { loadOddsSlateGames, ODDS_SLATE_SPORT_IDS } from "../lib/oddsSlateGames.js";
 import { loadUfcSlateGames } from "../lib/ufcGames.js";
+import {
+  espnScoreboardDayKeys,
+  mergeEspnEventsById,
+} from "../lib/espnScoreboardWindow.js";
 
 const router: IRouter = Router();
 
@@ -219,23 +223,16 @@ router.get("/sports/games", async (req, res): Promise<void> => {
       : [];
   const allPaths = [path, ...extraPaths].filter((p, i, a) => a.indexOf(p) === i);
 
-  // ESPN's scoreboard endpoint defaults to *today's UTC date only*, which gives
-  // ~1 NBA/NHL game and ~13 MLB games — making the app feel stale. Pulling a
-  // wider window surfaces actual upcoming matchups (e.g. 100 MLB, 8 NHL).
-  // IMPORTANT: start from YESTERDAY (UTC), not today — a game that began at
-  // 2026-05-26T22:35Z is still LIVE at 2026-05-27T02:00Z, but a `?dates=2026
-  // 0527-...` query excludes it (ESPN filters by event start-date, not by
-  // live status), and the Pick Live tab ends up empty.
-  const fmt = (d: Date) =>
-    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+  // ESPN's scoreboard no longer accepts hyphenated `dates=YYYYMMDD-YYYYMMDD`
+  // (HTTP 400 "Failed to get events endpoint" for CFB/NFL/MLB/NBA). Single-day
+  // `?dates=YYYYMMDD` still works — fetch yesterday..+7d per day and merge.
+  // IMPORTANT: include YESTERDAY so late-night games still live after UTC midnight.
   const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const dateRange = `${fmt(yesterday)}-${fmt(weekOut)}`;
+  const dayKeys = espnScoreboardDayKeys(now.getTime());
 
   try {
     const data = await cachedJson(
-      `games:${allPaths.join("+")}:${dateRange}`,
+      `games:${allPaths.join("+")}:days:${dayKeys[0]}-${dayKeys[dayKeys.length - 1]}`,
       60 * 1000,
       async () => {
         const fetchEspn = async (p: string, qs: string) => {
@@ -245,13 +242,25 @@ router.get("/sports/games", async (req, res): Promise<void> => {
           return (await r.json()) as { events?: EspnEvent[] };
         };
         const loadPath = async (p: string): Promise<EspnEvent[]> => {
-          // Primary: 7-day window (in-season leagues — NBA playoffs, MLB, NHL).
-          const ranged = await fetchEspn(p, `?dates=${dateRange}&limit=200`);
-          if ((ranged.events?.length ?? 0) > 0) return ranged.events ?? [];
-          // Fallback: ESPN's default response (gives the next scheduled batch
-          // for off-season leagues — e.g. NFL preseason/season opener).
-          const def = await fetchEspn(p, "");
-          return def.events ?? [];
+          const batches = await Promise.all(
+            dayKeys.map(async (day) => {
+              try {
+                const data = await fetchEspn(p, `?dates=${day}`);
+                return data.events ?? [];
+              } catch {
+                return [] as EspnEvent[];
+              }
+            }),
+          );
+          const merged = mergeEspnEventsById(batches);
+          if (merged.length > 0) return merged;
+          // Fallback: ESPN's default response (next scheduled batch).
+          try {
+            const def = await fetchEspn(p, "");
+            return def.events ?? [];
+          } catch {
+            return [];
+          }
         };
         // The configured league keeps the original throw-on-error semantics (a
         // transient ESPN hiccup → outer catch → []). Extra paths (World Cup) are
@@ -260,15 +269,7 @@ router.get("/sports/games", async (req, res): Promise<void> => {
         const extra = (
           await Promise.all(extraPaths.map((p) => loadPath(p).catch(() => [] as EspnEvent[])))
         ).flat();
-        const seen = new Set<string>();
-        const events: EspnEvent[] = [];
-        for (const e of [...primary, ...extra]) {
-          if (e?.id && !seen.has(e.id)) {
-            seen.add(e.id);
-            events.push(e);
-          }
-        }
-        return { events };
+        return { events: mergeEspnEventsById([primary, extra]) };
       },
     );
 
