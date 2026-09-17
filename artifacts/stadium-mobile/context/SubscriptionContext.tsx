@@ -23,6 +23,7 @@ import {
   normalizePromoCode,
   parseAdminEmails,
   redeemPromoCode,
+  redeemPromoFailureMessage,
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
@@ -50,6 +51,7 @@ const DEFAULT_STATE: SubscriptionPersistedState = {
   redeemedPromoCode: null,
   promoExpiresAtMs: null,
   promoLifetime: false,
+  promoRedeemCounts: {},
 };
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -134,7 +136,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
     const result = redeemPromoCode(state, normalized, nowMs());
     if (!result.ok) {
-      return { ok: false, message: "That promo code isn’t valid." };
+      return { ok: false, message: redeemPromoFailureMessage(result.reason) };
     }
     setState(result.state);
     return {

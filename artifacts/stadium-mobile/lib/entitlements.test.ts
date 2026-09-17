@@ -131,6 +131,7 @@ test("sanitizeSubscriptionState rejects corrupt storage", () => {
     redeemedPromoCode: null,
     promoExpiresAtMs: null,
     promoLifetime: false,
+    promoRedeemCounts: {},
   });
   assert.equal(
     sanitizeSubscriptionState({ planId: "go", redeemedPromoCode: " kfxd4x2b " }).redeemedPromoCode,
@@ -180,6 +181,7 @@ test("promo catalog redeem lifetime and timed codes", () => {
   if (vip.ok) {
     assert.equal(vip.state.promoLifetime, true);
     assert.equal(isPromoUnlockActive(vip.state, now + 400 * DAY), true);
+    assert.equal(vip.state.promoRedeemCounts["7VXHVPOR"], 1);
   }
   const week = redeemPromoCode(baseState(), "KFXD4X2B", now);
   assert.equal(week.ok, true);
@@ -190,6 +192,42 @@ test("promo catalog redeem lifetime and timed codes", () => {
     assert.equal(isPromoUnlockActive(week.state, now + 8 * DAY), false);
   }
   assert.equal(redeemPromoCode(baseState(), "NOPE", now).ok, false);
+});
+
+test("promo redeem window and fixed unlock-until date", () => {
+  const flashOpen = 1_789_700_000_000; // inside Sep 17 – Oct 17 2026
+  const flashClosed = 1_792_300_000_000; // after Oct 17 2026
+  const flashEarly = 1_789_500_000_000; // before Sep 17 2026
+
+  const early = redeemPromoCode(baseState(), "6EUSDWFI", flashEarly);
+  assert.equal(early.ok, false);
+  if (!early.ok) assert.equal(early.reason, "not_yet");
+
+  const mid = redeemPromoCode(baseState(), "6EUSDWFI", flashOpen);
+  assert.equal(mid.ok, true);
+
+  const closed = redeemPromoCode(baseState(), "6EUSDWFI", flashClosed);
+  assert.equal(closed.ok, false);
+  if (!closed.ok) assert.equal(closed.reason, "redeem_expired");
+
+  const season = redeemPromoCode(baseState(), "8VZV43WK", flashOpen);
+  assert.equal(season.ok, true);
+  if (season.ok) {
+    assert.equal(season.state.promoExpiresAtMs, 1_798_761_600_000);
+    assert.equal(isPromoUnlockActive(season.state, 1_798_761_600_000), false);
+  }
+
+  // Per-device limit: after flash expires, cannot redeem again.
+  if (mid.ok) {
+    const expiredState = {
+      ...mid.state,
+      promoExpiresAtMs: flashOpen - DAY,
+      promoLifetime: false,
+    };
+    const again = redeemPromoCode(expiredState, "6EUSDWFI", flashOpen);
+    assert.equal(again.ok, false);
+    if (!again.ok) assert.equal(again.reason, "limit_reached");
+  }
 });
 
 test("admin email allowlist parsing", () => {

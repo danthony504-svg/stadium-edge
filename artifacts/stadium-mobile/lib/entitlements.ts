@@ -98,18 +98,36 @@ export function premiumFeatureForRoute(route: string): PremiumFeatureId | null {
   return null;
 }
 
-export type PromoKind = "lifetime" | "days";
+export type PromoKind = "lifetime" | "days" | "until";
 
 export type PromoDefinition = {
   code: string;
   kind: PromoKind;
+  /** For kind "days" — unlock length after redeem. */
   days?: number;
+  /** For kind "until" — hard calendar end of access (epoch ms). */
+  unlockUntilMs?: number;
   label: string;
+  /** Earliest time this code can be redeemed (inclusive). Omit = anytime. */
+  redeemFromMs?: number;
+  /** Latest time this code can be redeemed (exclusive). Omit = no deadline. */
+  redeemUntilMs?: number;
+  /**
+   * Max successful redeems on this device. Default 1.
+   * Global multi-user caps need a server — not enforceable in an OTA-only catalog.
+   */
+  maxRedeemsPerDevice?: number;
 };
 
 /**
  * Local promo catalog (OTA-updatable). Codes are case-insensitive.
  * Share as `https://<domain>/plans?promo=CODE` or redeem on Plans/Account.
+ *
+ * Timing knobs per code:
+ * - redeemFromMs / redeemUntilMs → when the code may be entered
+ * - kind "days" → access length after redeem
+ * - kind "until" → access ends on a fixed calendar date
+ * - kind "lifetime" → never expires after redeem
  */
 export const PROMO_CATALOG: readonly PromoDefinition[] = [
   {
@@ -130,10 +148,21 @@ export const PROMO_CATALOG: readonly PromoDefinition[] = [
     label: "30 days of Pro",
   },
   {
+    // Unlock ends on a fixed calendar date (end of 2026 season).
     code: "8VZV43WK",
+    kind: "until",
+    unlockUntilMs: 1_798_761_600_000, // 2027-01-01 UTC
+    label: "Pro through end of 2026",
+  },
+  {
+    // Flash: only redeemable Sep 17 – Oct 17 2026 UTC; then 7 days of access.
+    code: "6EUSDWFI",
     kind: "days",
-    days: 30,
-    label: "Free month of Pro",
+    days: 7,
+    redeemFromMs: 1_789_603_200_000, // 2026-09-17 UTC
+    redeemUntilMs: 1_792_281_600_000, // 2026-10-18 UTC
+    maxRedeemsPerDevice: 1,
+    label: "Flash — 7 days Pro (redeem by Oct 17)",
   },
 ] as const;
 
@@ -147,6 +176,8 @@ export type SubscriptionPersistedState = {
   promoExpiresAtMs: number | null;
   /** True when redeemed promo never expires. */
   promoLifetime: boolean;
+  /** Per-device successful redeem counts keyed by normalized code. */
+  promoRedeemCounts: Record<string, number>;
 };
 
 export type UnlockSource = "paid" | "trial" | "promo" | "admin" | "none";
@@ -165,9 +196,16 @@ export type EntitlementView = {
   statusDetail: string;
 };
 
+export type RedeemPromoFailReason =
+  | "invalid"
+  | "not_yet"
+  | "redeem_expired"
+  | "limit_reached"
+  | "unlock_ended";
+
 export type RedeemPromoResult =
   | { ok: true; definition: PromoDefinition; state: SubscriptionPersistedState }
-  | { ok: false; reason: "invalid" | "expired_noop" };
+  | { ok: false; reason: RedeemPromoFailReason };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -212,6 +250,36 @@ export function findPromoDefinition(code: string): PromoDefinition | null {
   return PROMO_CATALOG.find((p) => p.code === normalized) ?? null;
 }
 
+export function isPromoRedeemWindowOpen(
+  definition: PromoDefinition,
+  nowMs: number,
+): RedeemPromoFailReason | null {
+  if (definition.redeemFromMs != null && nowMs < definition.redeemFromMs) {
+    return "not_yet";
+  }
+  if (definition.redeemUntilMs != null && nowMs >= definition.redeemUntilMs) {
+    return "redeem_expired";
+  }
+  if (
+    definition.kind === "until" &&
+    definition.unlockUntilMs != null &&
+    nowMs >= definition.unlockUntilMs
+  ) {
+    return "unlock_ended";
+  }
+  return null;
+}
+
+export function deviceRedeemCount(
+  state: Pick<SubscriptionPersistedState, "promoRedeemCounts">,
+  code: string,
+): number {
+  const key = normalizePromoCode(code);
+  if (!key) return 0;
+  const n = state.promoRedeemCounts?.[key];
+  return typeof n === "number" && n > 0 ? n : 0;
+}
+
 export function isPromoUnlockActive(
   state: Pick<SubscriptionPersistedState, "redeemedPromoCode" | "promoExpiresAtMs" | "promoLifetime">,
   nowMs: number,
@@ -220,6 +288,22 @@ export function isPromoUnlockActive(
   if (state.promoLifetime) return true;
   if (state.promoExpiresAtMs == null) return false;
   return state.promoExpiresAtMs > nowMs;
+}
+
+export function redeemPromoFailureMessage(reason: RedeemPromoFailReason): string {
+  switch (reason) {
+    case "not_yet":
+      return "That promo isn’t active yet.";
+    case "redeem_expired":
+      return "That promo code has expired.";
+    case "limit_reached":
+      return "That promo was already used on this device.";
+    case "unlock_ended":
+      return "That promo’s access window has ended.";
+    case "invalid":
+    default:
+      return "That promo code isn’t valid.";
+  }
 }
 
 /**
@@ -353,6 +437,23 @@ export function redeemPromoCode(
   const definition = findPromoDefinition(code);
   if (!definition) return { ok: false, reason: "invalid" };
 
+  const windowFail = isPromoRedeemWindowOpen(definition, nowMs);
+  if (windowFail) return { ok: false, reason: windowFail };
+
+  const max = definition.maxRedeemsPerDevice ?? 1;
+  const used = deviceRedeemCount(state, definition.code);
+  // Re-applying the same still-active unlock is a no-op success (doesn't burn another use).
+  const sameActive =
+    state.redeemedPromoCode === definition.code && isPromoUnlockActive(state, nowMs);
+  if (!sameActive && used >= max) {
+    return { ok: false, reason: "limit_reached" };
+  }
+
+  const counts = { ...(state.promoRedeemCounts ?? {}) };
+  if (!sameActive) {
+    counts[definition.code] = used + 1;
+  }
+
   if (definition.kind === "lifetime") {
     return {
       ok: true,
@@ -362,6 +463,25 @@ export function redeemPromoCode(
         redeemedPromoCode: definition.code,
         promoLifetime: true,
         promoExpiresAtMs: null,
+        promoRedeemCounts: counts,
+      },
+    };
+  }
+
+  if (definition.kind === "until") {
+    const until = definition.unlockUntilMs;
+    if (until == null || until <= nowMs) {
+      return { ok: false, reason: "unlock_ended" };
+    }
+    return {
+      ok: true,
+      definition,
+      state: {
+        ...state,
+        redeemedPromoCode: definition.code,
+        promoLifetime: false,
+        promoExpiresAtMs: until,
+        promoRedeemCounts: counts,
       },
     };
   }
@@ -379,6 +499,7 @@ export function redeemPromoCode(
       redeemedPromoCode: definition.code,
       promoLifetime: false,
       promoExpiresAtMs: base + days * MS_PER_DAY,
+      promoRedeemCounts: counts,
     },
   };
 }
@@ -416,6 +537,7 @@ export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedSt
       redeemedPromoCode: null,
       promoExpiresAtMs: null,
       promoLifetime: false,
+      promoRedeemCounts: {},
     };
   }
   const obj = raw as Record<string, unknown>;
@@ -435,12 +557,22 @@ export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedSt
       ? promoExpiresRaw
       : null;
   const promoLifetime = obj.promoLifetime === true;
+  const promoRedeemCounts: Record<string, number> = {};
+  if (obj.promoRedeemCounts && typeof obj.promoRedeemCounts === "object") {
+    for (const [k, v] of Object.entries(obj.promoRedeemCounts as Record<string, unknown>)) {
+      const code = normalizePromoCode(k);
+      if (code && typeof v === "number" && Number.isFinite(v) && v > 0) {
+        promoRedeemCounts[code] = Math.floor(v);
+      }
+    }
+  }
   return {
     planId,
     trialStartedAtMs,
     redeemedPromoCode,
     promoExpiresAtMs,
     promoLifetime,
+    promoRedeemCounts,
   };
 }
 

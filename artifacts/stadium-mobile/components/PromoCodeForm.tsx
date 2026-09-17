@@ -57,7 +57,8 @@ export function PromoCodeForm({ initialCode, autoRedeem }: PromoCodeFormProps) {
         </Text>
       </View>
       <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, lineHeight: 18 }}>
-        Have a free unlock code or link? Enter it here. Links look like{" "}
+        Have a free unlock code or link? Some codes only work during a date window or for a
+        limited time after redeem. Links look like{" "}
         <Text style={{ fontFamily: FONT.medium, color: colors.foreground }}>
           …/plans?promo=KFXD4X2B
         </Text>

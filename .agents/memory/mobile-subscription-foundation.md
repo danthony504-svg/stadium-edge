@@ -22,14 +22,26 @@ soft paywall. Not Coach/OTA.
 
 ## Admin unlock
 Signed-in email matching `EXPO_PUBLIC_ADMIN_EMAILS` (comma-separated) gets full
-Pro. Set in `eas.json` production env + OTA publish scripts. Default owner email
-is included; add more emails as needed.
+Pro. Set in `eas.json` production env + OTA publish scripts.
 
-## Promo codes / links
-Catalog in `lib/entitlements.ts` (random codes; rotate anytime via OTA):
-`7VXHVPOR` lifetime, `KFXD4X2B` 7 days, `KK48IZSN` / `8VZV43WK` 30 days.
-Redeem on Plans or Account, or open:
-`https://<domain>/plans?promo=CODE`
+## Promo codes / links / timing
+Catalog in `lib/entitlements.ts`. Redeem on Plans/Account or
+`https://<domain>/plans?promo=CODE`.
+
+Per-code timing:
+- `redeemFromMs` / `redeemUntilMs` — when the code may be **entered**
+- `kind: "days"` — access lasts N days **after** redeem
+- `kind: "until"` — access ends on a **fixed calendar date**
+- `kind: "lifetime"` — never expires after redeem
+- `maxRedeemsPerDevice` — local use cap (default 1). **Global** limited-use
+  codes need a server; OTA-only cannot enforce cross-device caps.
+
+Current codes:
+- `7VXHVPOR` lifetime
+- `KFXD4X2B` 7 days after redeem
+- `KK48IZSN` 30 days after redeem
+- `8VZV43WK` Pro until 2027-01-01 UTC
+- `6EUSDWFI` flash: redeem only Sep 17–Oct 17 2026 UTC, then 7 days access
 
 ## Hard rules
 - **Do not** hard-wall Coach / Discover / guest browse.
