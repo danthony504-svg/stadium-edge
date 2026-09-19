@@ -1,0 +1,21 @@
+{
+  "name": "@workspace/coach-cache",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@workspace/coach-rank": "workspace:*",
+    "@workspace/coach-ticket": "workspace:*",
+    "@workspace/coach-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}
