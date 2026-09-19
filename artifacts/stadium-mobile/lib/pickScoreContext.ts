@@ -368,14 +368,26 @@ function propInjuryScore(
         ? away
         : null;
   if (!opp) return null;
-  const report = matchupInjuries?.[game];
+  const report =
+    matchupInjuries?.[game] ??
+    (matchupInjuries
+      ? Object.entries(matchupInjuries).find(([k]) => {
+          const { away: ka, home: kh } = splitLabel(k);
+          return (
+            (teamNameMatches(ka, away) && teamNameMatches(kh, home)) ||
+            (teamNameMatches(ka, home) && teamNameMatches(kh, away))
+          );
+        })?.[1]
+      : undefined);
   if (report) {
     const oppSide = report.sides.find((s) => teamNameMatches(s.team, opp));
     const highCount = oppSide?.keyPlayers.filter((k) => k.impact === "high").length ?? 0;
     return scoreInjury(injuryFavorProp(highCount, side));
   }
   if (injuryTeams?.length) {
-    const oppTeam = injuryTeams.find((t) => teamNameMatches(t.team, opp));
+    const oppTeam = injuryTeams.find(
+      (t) => teamNameMatches(t.team, opp) || (t.teamAbbr && teamNameMatches(t.teamAbbr, opp)),
+    );
     if (oppTeam) {
       return scoreInjury(injuryFavorProp(summarizeTeamInjuries(sport ?? "nba", oppTeam).highCount, side));
     }
@@ -463,7 +475,19 @@ function mlbPlatoonFor(
 
 function mlbGameEnvFor(game: string, map?: Record<string, unknown>): MlbGameEnvSlice | null {
   if (!map) return null;
-  return (map[game] as MlbGameEnvSlice) ?? null;
+  const direct = map[game] as MlbGameEnvSlice | undefined;
+  if (direct) return direct;
+  const { away, home } = splitLabel(game);
+  for (const [k, v] of Object.entries(map)) {
+    const { away: ka, home: kh } = splitLabel(k);
+    if (
+      (teamNameMatches(ka, away) && teamNameMatches(kh, home)) ||
+      (teamNameMatches(ka, home) && teamNameMatches(kh, away))
+    ) {
+      return v as MlbGameEnvSlice;
+    }
+  }
+  return null;
 }
 
 function playerTeamIsHome(game: string, playerTeam: string | null): boolean | null {
