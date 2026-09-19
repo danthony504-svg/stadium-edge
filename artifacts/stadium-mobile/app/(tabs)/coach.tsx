@@ -21,7 +21,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
 import { CoachBuildProgress } from "@/components/coach/CoachBuildProgress";
-import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
+import {
+  PickCard,
+  gameSideFromPick,
+  gameTotalFromPick,
+  parsePicks,
+  type ParsedPick,
+} from "@/components/PickCard";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { buildChatContext, streamChat } from "@/lib/api";
@@ -45,6 +51,7 @@ import {
 } from "@/lib/coachTicketHold";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { DEFAULT_SPORTS } from "@/lib/sports";
+import { useRouter } from "expo-router";
 
 type Role = "user" | "assistant";
 
@@ -65,6 +72,7 @@ function uid(prefix: string): string {
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
