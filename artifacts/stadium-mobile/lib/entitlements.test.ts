@@ -21,6 +21,7 @@ import {
   sanitizeSubscriptionState,
   softRequirePro,
   trialDaysRemaining,
+  applyStoreKitSnapshot,
 } from "./entitlements.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -132,6 +133,9 @@ test("sanitizeSubscriptionState rejects corrupt storage", () => {
     promoExpiresAtMs: null,
     promoLifetime: false,
     promoRedeemCounts: {},
+    storeKitActive: false,
+    storeKitProductId: null,
+    storeKitManagementUrl: null,
   });
   assert.equal(
     sanitizeSubscriptionState({ planId: "go", redeemedPromoCode: " kfxd4x2b " }).redeemedPromoCode,
@@ -248,4 +252,32 @@ test("promo link + query extract", () => {
   assert.equal(extractPromoFromQuery({ promo: "kk48izsn" }), "KK48IZSN");
   assert.equal(extractPromoFromQuery({ code: ["8VZV43WK"] }), "8VZV43WK");
   assert.equal(extractPromoFromQuery({}), null);
+});
+
+test("applyStoreKitSnapshot activates and clears Apple plans", () => {
+  const start = baseState();
+  const active = applyStoreKitSnapshot(start, {
+    planId: "go",
+    activeProductIds: ["com.stadiumedge.app.go.weekly"],
+    managementUrl: "https://apps.apple.com/account/subscriptions",
+  });
+  assert.equal(active.planId, "go");
+  assert.equal(active.storeKitActive, true);
+  assert.equal(active.storeKitProductId, "com.stadiumedge.app.go.weekly");
+  assert.equal(
+    buildEntitlementView(active, 1_700_000_000_000, {}).unlockSource,
+    "storekit",
+  );
+
+  const cleared = applyStoreKitSnapshot(active, { planId: null });
+  assert.equal(cleared.planId, "free");
+  assert.equal(cleared.storeKitActive, false);
+  assert.equal(cleared.storeKitProductId, null);
+});
+
+test("sanitizeSubscriptionState defaults storeKit fields", () => {
+  const s = sanitizeSubscriptionState({ planId: "pro" });
+  assert.equal(s.storeKitActive, false);
+  assert.equal(s.storeKitProductId, null);
+  assert.equal(s.storeKitManagementUrl, null);
 });

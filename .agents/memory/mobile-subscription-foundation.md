@@ -46,5 +46,6 @@ Current codes:
 
 ## Hard rules
 - **Do not** hard-wall Coach / Discover / guest browse.
-- **Do not** add RevenueCat/StoreKit to an OTA (native rebuild + runtimeVersion).
+- **Do not** ship RevenueCat/StoreKit via OTA alone — needs native rebuild +
+  `runtimeVersion` bump (see [apple-storekit-subscriptions.md](apple-storekit-subscriptions.md)).
 - **Do not** touch `DeferredOtaRuntime` for billing work.
