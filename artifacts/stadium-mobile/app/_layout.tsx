@@ -26,6 +26,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { FantasyRosterProvider } from "@/context/FantasyRosterContext";
+import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
 import {
   addNotificationResponseListener,
@@ -135,6 +136,7 @@ function RootLayoutNav() {
       <Stack.Screen name="upcoming" options={{ presentation: "card" }} />
       <Stack.Screen name="(auth)" options={{ presentation: "card" }} />
       <Stack.Screen name="account" options={{ presentation: "card" }} />
+      <Stack.Screen name="plans" options={{ presentation: "card" }} />
       <Stack.Screen name="notifications" options={{ presentation: "card" }} />
       <Stack.Screen name="fantasy-team" options={{ presentation: "card" }} />
       <Stack.Screen name="fantasy-trade" options={{ presentation: "card" }} />
@@ -156,19 +158,21 @@ function AppShell() {
     <QueryClientProvider client={queryClient}>
       <AuthTokenBridge />
       <PushNotificationsBridge />
-      <BetSlipProvider>
-        <PickTrackerProvider>
-          <FantasyRosterProvider>
-          <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-            <KeyboardProvider>
-              <StatusBar style="light" />
-              <RootLayoutNav />
-              <DeferredOtaRuntime />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
-        </FantasyRosterProvider>
-        </PickTrackerProvider>
-      </BetSlipProvider>
+      <SubscriptionProvider>
+        <BetSlipProvider>
+          <PickTrackerProvider>
+            <FantasyRosterProvider>
+              <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+                <KeyboardProvider>
+                  <StatusBar style="light" />
+                  <RootLayoutNav />
+                  <DeferredOtaRuntime />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </FantasyRosterProvider>
+          </PickTrackerProvider>
+        </BetSlipProvider>
+      </SubscriptionProvider>
     </QueryClientProvider>
   );
 }

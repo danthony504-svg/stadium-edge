@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   accountMenuItem,
+  plansMenuItem,
   shouldShowOtaDiagnosticsMenuItem,
 } from "./navMenuAuth.ts";
 
@@ -19,6 +20,14 @@ test("signed-in users get Account at /account", () => {
     route: "/account",
     label: "Account",
     icon: "user-check",
+  });
+});
+
+test("Plans menu item is always available for soft subscription", () => {
+  assert.deepEqual(plansMenuItem(), {
+    route: "/plans",
+    label: "Plans",
+    icon: "zap",
   });
 });
 

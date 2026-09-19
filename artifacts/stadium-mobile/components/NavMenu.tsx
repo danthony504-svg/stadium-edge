@@ -8,9 +8,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import {
+  PREMIUM_FEATURES,
+  premiumFeatureForRoute,
+} from "@/lib/entitlements";
+import {
   accountMenuItem,
+  plansMenuItem,
   shouldShowOtaDiagnosticsMenuItem,
 } from "@/lib/navMenuAuth";
 
@@ -41,10 +47,12 @@ export function NavMenu() {
   const pathname = usePathname();
   const { legs } = useBetSlip();
   const { isSignedIn } = useAuth();
+  const { entitlement, requirePro } = useSubscription();
   const [open, setOpen] = useState(false);
 
   // Signed-out users always get Sign in at the bottom; signed-in keep Account.
   const account = accountMenuItem(!!isSignedIn);
+  const plans = plansMenuItem();
   const showOtaDiagnostics = shouldShowOtaDiagnosticsMenuItem(__DEV__);
 
   const toggle = () => {
@@ -55,6 +63,12 @@ export function NavMenu() {
   const go = (route: string) => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
+    const premiumId = premiumFeatureForRoute(route);
+    // Navigate into the tab; PremiumFeatureGate shows unlock UI when locked.
+    // Also nudge the soft sheet so upgrade is one tap away.
+    if (premiumId && !entitlement.isPro) {
+      requirePro(PREMIUM_FEATURES[premiumId].label);
+    }
     if (!isActive(pathname, route)) {
       router.navigate(route as any);
     }
@@ -207,6 +221,36 @@ export function NavMenu() {
                   marginHorizontal: 12,
                 }}
               />
+              <Pressable
+                onPress={() => go(plans.route)}
+                accessibilityLabel={plans.label}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  backgroundColor: pressed ? colors.background : "transparent",
+                })}
+              >
+                <Feather
+                  name={plans.icon}
+                  size={18}
+                  color={isActive(pathname, plans.route) ? colors.primary : colors.mutedForeground}
+                />
+                <Text
+                  style={{
+                    flex: 1,
+                    color: isActive(pathname, plans.route)
+                      ? colors.foreground
+                      : colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 15,
+                  }}
+                >
+                  {plans.label}
+                </Text>
+              </Pressable>
               {isSignedIn ? (
                 <Pressable
                   onPress={() => go("/notifications")}

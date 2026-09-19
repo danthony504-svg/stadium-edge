@@ -16,6 +16,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { PromoCodeForm } from "@/components/PromoCodeForm";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import {
   clearBiometricLogin,
@@ -31,6 +33,7 @@ export default function AccountScreen() {
   const router = useRouter();
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
+  const { entitlement, openSoftPaywall } = useSubscription();
 
   const [bioLoginEmail, setBioLoginEmail] = React.useState<string | null>(null);
   const [bioCap, setBioCap] = React.useState({
@@ -198,6 +201,86 @@ export default function AccountScreen() {
             </Text>
           </View>
         </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: colors.radius,
+            padding: 16,
+            gap: 12,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Feather name="zap" size={18} color={colors.primary} />
+            <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
+              Subscription
+            </Text>
+          </View>
+          <View>
+            <Text
+              style={{ fontFamily: FONT.semibold, fontSize: 16, color: colors.foreground }}
+            >
+              {entitlement.statusLabel}
+            </Text>
+            <Text
+              style={{
+                fontFamily: FONT.body,
+                fontSize: 13,
+                color: colors.mutedForeground,
+                marginTop: 4,
+                lineHeight: 18,
+              }}
+            >
+              {entitlement.statusDetail}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              if (entitlement.isPro) {
+                router.push("/plans");
+                return;
+              }
+              openSoftPaywall("Upgrade");
+            }}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              backgroundColor: colors.primary,
+              borderRadius: 10,
+              paddingVertical: 12,
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Feather name="zap" size={16} color={colors.primaryForeground} />
+            <Text
+              style={{
+                fontFamily: FONT.bold,
+                fontSize: 14,
+                color: colors.primaryForeground,
+              }}
+            >
+              {entitlement.isPro ? "Manage plan" : "See plans"}
+            </Text>
+          </Pressable>
+          <Text
+            style={{
+              fontFamily: FONT.body,
+              fontSize: 11,
+              lineHeight: 16,
+              color: colors.mutedForeground,
+            }}
+          >
+            {entitlement.isAdmin
+              ? "Signed in as admin — full access on this account."
+              : "Preview entitlements — App Store billing ships with a native rebuild. Coach and OTA are unchanged."}
+          </Text>
+        </View>
+
+        <PromoCodeForm />
 
         {referralLink ? (
           <View

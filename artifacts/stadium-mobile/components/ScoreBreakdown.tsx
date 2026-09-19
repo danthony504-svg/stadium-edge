@@ -2,6 +2,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
+import { LockedAiMetricsTeaser, useAiMetricsLocked } from "@/components/LockedAiMetrics";
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
@@ -355,7 +356,7 @@ export function ScoreBreakdown({
   pick?: ParsedPick;
 }) {
   const colors = useColors();
-  const scoreColor = useScoreColor();
+  const metricsLocked = useAiMetricsLocked();
   const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
   const isPropCard = !!(pick?.isProp || pick?.player);
   const holisticDisplay =
@@ -370,13 +371,17 @@ export function ScoreBreakdown({
     if (data.composite == null && isPropCard && !holisticDisplay) return null;
     return (
       <View style={{ gap: 8 }}>
-        <HeaderTiles
-          data={data}
-          gradeLabel={gradeLabel}
-          gradeCaption={gradeCaption}
-          simGradePending={simGradePending}
-        />
-        {simulationPending && !simGradePending ? (
+        {metricsLocked ? (
+          <LockedAiMetricsTeaser dense />
+        ) : (
+          <HeaderTiles
+            data={data}
+            gradeLabel={gradeLabel}
+            gradeCaption={gradeCaption}
+            simGradePending={simGradePending}
+          />
+        )}
+        {simulationPending && !simGradePending && !metricsLocked ? (
           <Text
             style={{
               color: colors.mutedForeground,
@@ -388,7 +393,7 @@ export function ScoreBreakdown({
             Simulation updating…
           </Text>
         ) : null}
-        {holisticDisplay ? <HolisticFactorStrip holistic={holisticDisplay} /> : null}
+        {holisticDisplay && !metricsLocked ? <HolisticFactorStrip holistic={holisticDisplay} /> : null}
       </View>
     );
   }
@@ -416,13 +421,17 @@ export function ScoreBreakdown({
       >
         {title ?? "Pick Score"}
       </Text>
-      <HeaderTiles
-        data={data}
-        gradeLabel={gradeLabel}
-        gradeCaption={gradeCaption}
-        simGradePending={simGradePending}
-      />
-      {simulationPending && !simGradePending ? (
+      {metricsLocked ? (
+        <LockedAiMetricsTeaser />
+      ) : (
+        <HeaderTiles
+          data={data}
+          gradeLabel={gradeLabel}
+          gradeCaption={gradeCaption}
+          simGradePending={simGradePending}
+        />
+      )}
+      {simulationPending && !simGradePending && !metricsLocked ? (
         <Text
           style={{
             color: colors.mutedForeground,
@@ -434,17 +443,21 @@ export function ScoreBreakdown({
           Simulation updating…
         </Text>
       ) : null}
-      <View style={{ marginTop: 2 }}>
-        {FACTORS.map((f) => (
-          <FactorBar key={f.key} icon={f.icon} label={f.label} score={data.scores[f.key]} />
-        ))}
-      </View>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10.5, lineHeight: 15 }}>
-        {note ??
-          (present === FACTORS.length
-            ? "Grade blends all five signals from real feed data."
-            : `Grade blends the ${present} signal${present === 1 ? "" : "s"} we could ground from real data; the rest are shown as no-data.`)}
-      </Text>
+      {metricsLocked ? null : (
+        <View style={{ marginTop: 2 }}>
+          {FACTORS.map((f) => (
+            <FactorBar key={f.key} icon={f.icon} label={f.label} score={data.scores[f.key]} />
+          ))}
+        </View>
+      )}
+      {!metricsLocked ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10.5, lineHeight: 15 }}>
+          {note ??
+            (present === FACTORS.length
+              ? "Grade blends all five signals from real feed data."
+              : `Grade blends the ${present} signal${present === 1 ? "" : "s"} we could ground from real data; the rest are shown as no-data.`)}
+        </Text>
+      ) : null}
     </View>
   );
 }

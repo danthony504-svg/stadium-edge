@@ -16,6 +16,7 @@ import Svg, { Circle } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getLiveSteals, fetchLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
@@ -642,7 +643,7 @@ function StealCard({ steal }: { steal: LiveSteal }) {
   );
 }
 
-export default function StealsScreen() {
+function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -948,5 +949,13 @@ export default function StealsScreen() {
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+export default function StealsScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="steals">
+      <StealsScreen />
+    </PremiumFeatureGate>
   );
 }

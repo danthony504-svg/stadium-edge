@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getOdds, getProps, propMarketLabel, PROPS_SPORTS } from "@/lib/api";
@@ -412,7 +413,7 @@ function ValueCard({ vb, total }: { vb: ValueBet; total: number }) {
   );
 }
 
-export default function ArbitrageScreen() {
+function ArbitrageScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [stakeText, setStakeText] = useState("100");
@@ -704,5 +705,13 @@ export default function ArbitrageScreen() {
         )}
       </ScrollView>
     </View>
+  );
+}
+
+export default function ArbitrageScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="edge_lock">
+      <ArbitrageScreen />
+    </PremiumFeatureGate>
   );
 }
