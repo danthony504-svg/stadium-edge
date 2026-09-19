@@ -5,8 +5,9 @@
  * - Guest browsing + Coach stay freely usable (App Store 5.1.1(v)).
  * - Secondary tools may soft-gate after trial (Edge Lock, Steals, Simulator, Report).
  * - Admin emails + promo codes/links unlock everything without StoreKit.
- * - No StoreKit / RevenueCat here — native rebuild + runtimeVersion for real IAP.
- * - Pure helpers stay Node-testable (no React / AsyncStorage imports).
+ * - Apple StoreKit (via RevenueCat) unlocks paid Go/Pro and appears in
+ *   iOS Settings → Subscriptions after a native rebuild + runtimeVersion bump.
+ * - Pure helpers stay Node-testable (no React / AsyncStorage / Purchases imports).
  */
 
 export type PlanId = "free" | "go" | "pro";
@@ -21,7 +22,7 @@ export type PlanDefinition = {
   paid: boolean;
 };
 
-/** Preview catalog — display prices only until StoreKit ships. */
+/** Catalog — Go/Pro bill through Apple StoreKit on native builds. */
 export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
   {
     id: "free",
@@ -36,7 +37,7 @@ export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
     name: "Stadium Edge Go",
     priceLabel: "$9.99",
     periodLabel: "a week",
-    note: "Weekly plan (preview — billing ships with a native StoreKit build).",
+    note: "Weekly auto-renewable via Apple. Manage in Settings → Subscriptions.",
     paid: true,
   },
   {
@@ -44,7 +45,7 @@ export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
     name: "Stadium Edge Pro",
     priceLabel: "$29.99",
     periodLabel: "per month",
-    note: "Monthly plan (preview — billing ships with a native StoreKit build).",
+    note: "Monthly auto-renewable via Apple. Manage in Settings → Subscriptions.",
     paid: true,
   },
 ] as const;
@@ -182,9 +183,18 @@ export type SubscriptionPersistedState = {
   promoLifetime: boolean;
   /** Per-device successful redeem counts keyed by normalized code. */
   promoRedeemCounts: Record<string, number>;
+  /**
+   * True when planId was granted by an active Apple StoreKit / RevenueCat
+   * subscription (shows under iOS Settings → Subscriptions).
+   */
+  storeKitActive: boolean;
+  /** Last known App Store product id (e.g. com.stadiumedge.app.go.weekly). */
+  storeKitProductId: string | null;
+  /** Apple / RevenueCat subscription management URL when available. */
+  storeKitManagementUrl: string | null;
 };
 
-export type UnlockSource = "paid" | "trial" | "promo" | "admin" | "none";
+export type UnlockSource = "storekit" | "paid" | "trial" | "promo" | "admin" | "none";
 
 export type EntitlementView = {
   planId: PlanId;
@@ -336,6 +346,7 @@ export function hasPromoOrPlanAccess(
   nowMs: number,
   trialLengthDays: number = TRIAL_LENGTH_DAYS,
 ): boolean {
+  if (state.storeKitActive && planById(state.planId).paid) return true;
   if (planById(state.planId).paid) return true;
   if (isPromoUnlockActive(state, nowMs)) return true;
   return isTrialActive(state.trialStartedAtMs, nowMs, trialLengthDays);
@@ -361,10 +372,51 @@ export function resolveUnlockSource(
   opts: { email?: string | null; adminEmails?: readonly string[] } = {},
 ): UnlockSource {
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
+  if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (planById(state.planId).paid) return "paid";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
   if (isTrialActive(state.trialStartedAtMs, nowMs)) return "trial";
   return "none";
+}
+
+/**
+ * Apply a StoreKit / RevenueCat customer snapshot onto persisted state.
+ * Clears the paid plan when Apple reports no active subscription.
+ */
+export function applyStoreKitSnapshot(
+  state: SubscriptionPersistedState,
+  snapshot: {
+    planId: PlanId | null;
+    activeProductIds?: readonly string[];
+    managementUrl?: string | null;
+  },
+): SubscriptionPersistedState {
+  if (snapshot.planId && planById(snapshot.planId).paid) {
+    const productId =
+      snapshot.activeProductIds?.find((id) => id.length > 0) ??
+      state.storeKitProductId;
+    return {
+      ...state,
+      planId: snapshot.planId,
+      storeKitActive: true,
+      storeKitProductId: productId ?? null,
+      storeKitManagementUrl: snapshot.managementUrl ?? state.storeKitManagementUrl,
+    };
+  }
+  // Apple says inactive — drop StoreKit-backed paid plan, keep promo/trial.
+  if (state.storeKitActive) {
+    return {
+      ...state,
+      planId: "free",
+      storeKitActive: false,
+      storeKitProductId: null,
+      storeKitManagementUrl: snapshot.managementUrl ?? null,
+    };
+  }
+  return {
+    ...state,
+    storeKitManagementUrl: snapshot.managementUrl ?? state.storeKitManagementUrl,
+  };
 }
 
 /** Whether a premium secondary feature is allowed. */
@@ -393,9 +445,12 @@ export function buildEntitlementView(
   if (isAdmin) {
     statusLabel = "Admin";
     statusDetail = "Full access · admin account";
+  } else if (unlockSource === "storekit") {
+    statusLabel = plan.name;
+    statusDetail = `${plan.priceLabel} ${plan.periodLabel} · Apple subscription`;
   } else if (unlockSource === "paid") {
     statusLabel = plan.name;
-    statusDetail = `${plan.priceLabel} ${plan.periodLabel} · preview entitlement`;
+    statusDetail = `${plan.priceLabel} ${plan.periodLabel} · local entitlement`;
   } else if (unlockSource === "promo") {
     const def = findPromoDefinition(state.redeemedPromoCode ?? "");
     statusLabel = def?.label ?? "Promo unlock";
@@ -542,6 +597,9 @@ export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedSt
       promoExpiresAtMs: null,
       promoLifetime: false,
       promoRedeemCounts: {},
+      storeKitActive: false,
+      storeKitProductId: null,
+      storeKitManagementUrl: null,
     };
   }
   const obj = raw as Record<string, unknown>;
@@ -570,6 +628,15 @@ export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedSt
       }
     }
   }
+  const storeKitActive = obj.storeKitActive === true;
+  const storeKitProductId =
+    typeof obj.storeKitProductId === "string" && obj.storeKitProductId.trim()
+      ? obj.storeKitProductId.trim()
+      : null;
+  const storeKitManagementUrl =
+    typeof obj.storeKitManagementUrl === "string" && obj.storeKitManagementUrl.trim()
+      ? obj.storeKitManagementUrl.trim()
+      : null;
   return {
     planId,
     trialStartedAtMs,
@@ -577,6 +644,9 @@ export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedSt
     promoExpiresAtMs,
     promoLifetime,
     promoRedeemCounts,
+    storeKitActive,
+    storeKitProductId,
+    storeKitManagementUrl,
   };
 }
 
