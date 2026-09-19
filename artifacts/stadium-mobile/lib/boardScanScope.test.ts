@@ -19,3 +19,9 @@ test("game-phase budget leaves room for prop-phase deadline inside Coach wall", 
   assert.equal(boardScanPropPhaseDeadlineMs(7), 45_000);
   assert.ok(boardScanGamePhaseBudgetMs(7) + boardScanPropPhaseDeadlineMs(7) > 60_000);
 });
+
+test("HR exhaust boards get a longer prop-phase deadline", () => {
+  assert.equal(boardScanPropPhaseDeadlineMs(3), 35_000);
+  assert.equal(boardScanPropPhaseDeadlineMs(3, { exhaustPropBoard: true }), 50_000);
+  assert.equal(boardScanPropPhaseDeadlineMs(6, { exhaustPropBoard: true }), 60_000);
+});
