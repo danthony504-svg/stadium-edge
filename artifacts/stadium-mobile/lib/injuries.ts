@@ -202,11 +202,24 @@ export type TeamInjurySummary = {
 };
 // Roll one team's real injuries up into a total impact score, a high-impact
 // count, and per-position-group counts (sorted by count desc for a stable view).
+// Active / Probable / available rows are excluded so ESPN roster dumps don't
+// inflate "Falcons · 25" style totals.
+
+/** True when ESPN lists a real absence (not Active / Probable / available). */
+export function isMaterialInjury(entry: InjuryEntry): boolean {
+  return friendlyInjury(entry.status).severity > 0;
+}
+
+/** Drop Active/available noise so roster dumps don't inflate injury counts. */
+export function materialInjuryEntries(entries: InjuryEntry[]): InjuryEntry[] {
+  return entries.filter(isMaterialInjury);
+}
+
 export function summarizeTeamInjuries(sport: string, t: InjuryTeam): TeamInjurySummary {
   let totalScore = 0;
   let highCount = 0;
   const groupMap = new Map<string, number>();
-  for (const e of t.entries) {
+  for (const e of materialInjuryEntries(t.entries)) {
     const { tier, score } = injuryImpact(sport, e);
     totalScore += score;
     if (tier === "high") highCount += 1;
