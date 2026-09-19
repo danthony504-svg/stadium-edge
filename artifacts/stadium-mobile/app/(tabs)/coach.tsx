@@ -94,6 +94,84 @@ export default function CoachScreen() {
     setBusy(false);
   }, []);
 
+  /**
+   * Tap a Coach pick card → real stats sheet (prop game log / team matchup).
+   * Fail-closed: no handler when we can't ground a sheet. Does not touch
+   * build/selection — navigation only.
+   */
+  const statsHandlerFor = useCallback(
+    (p: ParsedPick): (() => void) | undefined => {
+      if (p.isProp) {
+        if (!p.player && !p.athleteId) return undefined;
+        return () => {
+          router.push({
+            pathname: "/prop/[id]",
+            params: {
+              id: p.athleteId ?? p.player ?? "prop",
+              player: p.player ?? "",
+              marketKey: p.propMarketKey ?? "",
+              marketLabel: p.market,
+              line: p.propLine != null ? String(p.propLine) : "",
+              side: p.propSide ?? "",
+              odds: String(p.odds),
+              game: p.game,
+              sport: p.sport ?? "",
+              athleteId: p.athleteId ?? "",
+              headshot: p.headshot ?? "",
+              startsAt: p.startsAt ?? "",
+              pick: p.pick,
+            },
+          });
+        };
+      }
+      if (!p.sport) return undefined;
+      const total = gameTotalFromPick(p);
+      if (total) {
+        return () => {
+          router.push({
+            pathname: "/team-pick/[id]",
+            params: {
+              id: `${total.away}-${total.home}-total`,
+              kind: "total",
+              team: total.away,
+              opp: total.home,
+              isHome: "0",
+              sport: p.sport ?? "",
+              market: p.market,
+              line: total.line != null ? String(total.line) : "",
+              odds: String(p.odds),
+              game: p.game,
+              startsAt: p.startsAt ?? "",
+              pick: p.pick,
+              side: total.side,
+            },
+          });
+        };
+      }
+      const side = gameSideFromPick(p);
+      if (!side) return undefined;
+      return () => {
+        router.push({
+          pathname: "/team-pick/[id]",
+          params: {
+            id: side.name,
+            team: side.name,
+            opp: side.opp,
+            isHome: side.isHome ? "1" : "0",
+            sport: p.sport ?? "",
+            market: p.market,
+            line: side.line != null ? String(side.line) : "",
+            odds: String(p.odds),
+            game: p.game,
+            startsAt: p.startsAt ?? "",
+            pick: p.pick,
+          },
+        });
+      };
+    },
+    [router],
+  );
+
   const patchAssistant = useCallback((id: string, patch: Partial<CoachMessage>) => {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   }, []);
@@ -453,7 +531,7 @@ export default function CoachScreen() {
                 ) : null}
                 {item.picks?.map((pick, idx) => (
                   <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
-                    <PickCard pick={pick} />
+                    <PickCard pick={pick} onPress={statsHandlerFor(pick)} />
                   </View>
                 ))}
               </View>
