@@ -383,6 +383,7 @@ function appendPropScoredLegs(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
+    injuryTeams?: import("./api.ts").InjuryTeam[];
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
@@ -402,6 +403,7 @@ function appendPropScoredLegs(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    injuryTeams: opts.injuryTeams,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
     propSimulations: propHits,
@@ -489,6 +491,7 @@ async function simPropPoolUntilQualified(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
+    injuryTeams?: import("./api.ts").InjuryTeam[];
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
@@ -523,6 +526,7 @@ async function simPropPoolUntilQualified(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    injuryTeams: opts.injuryTeams,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
@@ -546,6 +550,7 @@ async function simPropPoolUntilQualified(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: { ...(opts.playerHistory ?? {}) },
+    injuryTeams: opts.injuryTeams,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
@@ -811,6 +816,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   matchupHistory?: Record<string, MatchupHistoryEntry>;
   matchupInjuries?: Record<string, GameInjuryReport>;
   playerHistory?: Record<string, PlayerHistorySlice>;
+  injuryTeams?: import("./api.ts").InjuryTeam[];
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
   perfByFamily?: Map<string, MarketPerf>;
@@ -966,6 +972,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
       playerHistory: opts.playerHistory,
+      injuryTeams: opts.injuryTeams,
       mlbPlatoon: opts.mlbPlatoon,
       mlbGameEnv: opts.mlbGameEnv,
       perfByFamily: opts.perfByFamily,

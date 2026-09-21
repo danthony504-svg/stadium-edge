@@ -46,6 +46,11 @@ import {
 } from "@/lib/coachAskMarketFilter";
 import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "@/lib/coachHrRank";
 import { loadMlbScanContext } from "@/lib/mlbScanContext";
+import {
+  attachMatchupInjuries,
+  loadBoardInjuries,
+  prefetchPropPlayerHistory,
+} from "@/lib/coachBoardContext";
 
 
 export type CoachParlayBuildResult = {
@@ -180,21 +185,56 @@ export async function buildCoachParlay(opts: {
     ? filterHrScorerPoolEntries(scanPropPool)
     : scanPropPool;
   const propPoolSize = activePropPool.length;
-  if (hrBoardAsk && activePropPool.length > 0) {
-    opts.onStatus?.("Loading MLB matchup and park context for HR ranking…");
-    try {
-      const mlb = await loadMlbScanContext({
-        propPool: activePropPool,
-        espnGames: inputs.espnGames,
-        hrOnly: true,
-        signal: opts.signal,
-      });
-      mlbPlatoon = Object.keys(mlb.mlbPlatoon).length ? mlb.mlbPlatoon : undefined;
-      mlbGameEnv = Object.keys(mlb.mlbGameEnv).length ? mlb.mlbGameEnv : undefined;
-    } catch {
-      /* honest — rank without MLB maps when feeds miss */
-    }
-  }
+
+  // Injuries for every board sport + (HR) MLB platoon/park + early Form history.
+  // All in parallel so we don't add sequential wall time before scoring.
+  opts.onStatus?.(
+    hrBoardAsk && activePropPool.length > 0
+      ? "Loading matchup, injuries, and recent form…"
+      : "Loading injury context…",
+  );
+  const boardSports = [
+    ...new Set(
+      [
+        ...inputs.sports,
+        ...activePropPool.map((e) => String(e.sport ?? "").toLowerCase()),
+        ...inputs.espnGames.map((g) => String(g.sport ?? "").toLowerCase()),
+      ].filter(Boolean),
+    ),
+  ];
+  const contextPromise = Promise.all([
+    loadBoardInjuries(boardSports, opts.signal).catch(() => ({
+      injuriesBySport: {} as Record<string, import("@/lib/api").InjuryTeam[]>,
+      matchupInjuries: {} as Record<string, import("@/lib/injuries").GameInjuryReport>,
+      injuryTeams: [] as import("@/lib/api").InjuryTeam[],
+    })),
+    hrBoardAsk && activePropPool.length > 0
+      ? loadMlbScanContext({
+          propPool: activePropPool,
+          espnGames: inputs.espnGames,
+          hrOnly: true,
+          signal: opts.signal,
+        }).catch(() => ({ mlbPlatoon: {}, mlbGameEnv: {} }))
+      : Promise.resolve({ mlbPlatoon: {}, mlbGameEnv: {} }),
+    hrBoardAsk && activePropPool.length > 0
+      ? prefetchPropPlayerHistory(activePropPool, {
+          signal: opts.signal,
+          maxPlayers: 24,
+          concurrency: 6,
+        }).catch(() => ({}))
+      : Promise.resolve({} as Record<string, import("@/lib/pickScoreContext").PlayerHistorySlice>),
+  ]);
+
+  const [injuryPack, mlb, earlyHistory] = await contextPromise;
+  const matchupInjuries = attachMatchupInjuries(
+    inputs.espnGames,
+    injuryPack.injuriesBySport,
+  );
+  const injuryTeams = injuryPack.injuryTeams;
+  mlbPlatoon = Object.keys(mlb.mlbPlatoon).length ? mlb.mlbPlatoon : undefined;
+  mlbGameEnv = Object.keys(mlb.mlbGameEnv).length ? mlb.mlbGameEnv : undefined;
+  const playerHistory = Object.keys(earlyHistory).length ? earlyHistory : undefined;
+
   opts.onReadyToScan?.({ propPoolSize });
   opts.onStatus?.(
     propPoolSize > 0
@@ -231,6 +271,9 @@ export async function buildCoachParlay(opts: {
     exhaustPropBoard: hrBoardAsk,
     mlbPlatoon,
     mlbGameEnv,
+    matchupInjuries: Object.keys(matchupInjuries).length ? matchupInjuries : undefined,
+    injuryTeams: injuryTeams.length ? injuryTeams : undefined,
+    playerHistory,
     varietySeed: `greenfield-${target}-${Date.now()}`,
     onPartial: (partial) => {
       latest = partial;

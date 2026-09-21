@@ -11,6 +11,7 @@ import {
   type PropPoolEntry,
 } from "./api.ts";
 import { isBatterHomeRunMarket } from "./coachHrRank.ts";
+import { teamNameMatches } from "./injuries.ts";
 
 function normAbbr(s: string | null | undefined): string {
   return String(s ?? "")
@@ -22,37 +23,70 @@ function gameKey(away: string, home: string): string {
   return `${away} @ ${home}`;
 }
 
+/** Soft match prop game labels to ESPN (abbr or full name). */
 function resolveGameIds(
   gameLabel: string,
   espnGames: EspnGame[],
-): { homeTeamId: string | null; awayTeamId: string | null; homeAbbr: string | null; awayAbbr: string | null } | null {
+): {
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  homeAbbr: string | null;
+  awayAbbr: string | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+} | null {
   const parts = gameLabel.split(" @ ");
   if (parts.length !== 2) return null;
   const away = parts[0]!.trim();
   const home = parts[1]!.trim();
-  const hit = espnGames.find(
-    (g) =>
-      String(g.awayTeam ?? "").trim() === away && String(g.homeTeam ?? "").trim() === home,
-  );
+  const hit =
+    espnGames.find(
+      (g) =>
+        String(g.awayTeam ?? "").trim() === away &&
+        String(g.homeTeam ?? "").trim() === home,
+    ) ??
+    espnGames.find((g) => {
+      const ga = String(g.awayTeam ?? "");
+      const gh = String(g.homeTeam ?? "");
+      const aa = String(g.awayAbbr ?? "");
+      const ha = String(g.homeAbbr ?? "");
+      const awayOk =
+        teamNameMatches(ga, away) ||
+        (aa.length > 0 && normAbbr(aa) === normAbbr(away)) ||
+        (aa.length > 0 && teamNameMatches(aa, away));
+      const homeOk =
+        teamNameMatches(gh, home) ||
+        (ha.length > 0 && normAbbr(ha) === normAbbr(home)) ||
+        (ha.length > 0 && teamNameMatches(ha, home));
+      return awayOk && homeOk;
+    });
   if (!hit) return null;
   return {
     homeTeamId: hit.homeTeamId ? String(hit.homeTeamId) : null,
     awayTeamId: hit.awayTeamId ? String(hit.awayTeamId) : null,
     homeAbbr: hit.homeAbbr ?? null,
     awayAbbr: hit.awayAbbr ?? null,
+    homeTeam: hit.homeTeam ?? null,
+    awayTeam: hit.awayTeam ?? null,
   };
 }
 
 function playerIsHome(
   teamAbbr: string | null | undefined,
-  ids: { homeAbbr: string | null; awayAbbr: string | null },
+  ids: {
+    homeAbbr: string | null;
+    awayAbbr: string | null;
+    homeTeam: string | null;
+    awayTeam: string | null;
+  },
 ): boolean | null {
-  const t = normAbbr(teamAbbr);
+  const t = String(teamAbbr ?? "").trim();
   if (!t) return null;
-  const home = normAbbr(ids.homeAbbr);
-  const away = normAbbr(ids.awayAbbr);
-  if (home && t === home) return true;
-  if (away && t === away) return false;
+  const tn = normAbbr(t);
+  if (ids.homeAbbr && normAbbr(ids.homeAbbr) === tn) return true;
+  if (ids.awayAbbr && normAbbr(ids.awayAbbr) === tn) return false;
+  if (ids.homeTeam && teamNameMatches(ids.homeTeam, t)) return true;
+  if (ids.awayTeam && teamNameMatches(ids.awayTeam, t)) return false;
   return null;
 }
 
@@ -102,7 +136,7 @@ export async function loadMlbScanContext(
     const away = g.awayTeamId ? (probables[g.awayTeamId] ?? null) : null;
     if (!env && !home && !away) continue;
     const dome = env?.park?.dome === true;
-    mlbGameEnv[gameKey(g.awayTeam, g.homeTeam)] = {
+    const slice = {
       venue: env?.venue ?? g.venue ?? null,
       park: env?.park ?? null,
       weather: dome ? null : (env?.weather ?? null),
@@ -114,6 +148,10 @@ export async function loadMlbScanContext(
         ? { name: away.name ?? null, throws: away.throws ?? null, tendency: away.tendency ?? null }
         : null,
     };
+    mlbGameEnv[gameKey(g.awayTeam, g.homeTeam)] = slice;
+    if (g.awayAbbr && g.homeAbbr) {
+      mlbGameEnv[gameKey(g.awayAbbr, g.homeAbbr)] = slice;
+    }
   }
 
   const unique = new Map<string, PropPoolEntry>();
@@ -131,39 +169,54 @@ export async function loadMlbScanContext(
     await Promise.all(
       batch.map(async (t) => {
         const athleteId = String(t.athleteId);
+        const idsResolved = resolveGameIds(t.game, espnMlb);
+        const isHome = idsResolved
+          ? playerIsHome(t.teamAbbr ?? null, idsResolved)
+          : null;
+        const oppTeamId =
+          isHome === true
+            ? idsResolved?.awayTeamId ?? null
+            : isHome === false
+              ? idsResolved?.homeTeamId ?? null
+              : null;
+        const oppPitcher = oppTeamId ? probables[oppTeamId] ?? null : null;
+        const oppThrows = oppPitcher?.throws || null;
+        const tendency = (oppPitcher?.tendency ?? null) as MlbPitcherTendency | null;
+
+        let bats: string | null = null;
+        let vsLeft: Awaited<ReturnType<typeof getMlbBatterSplits>>["vsLeft"] = null;
+        let vsRight: Awaited<ReturnType<typeof getMlbBatterSplits>>["vsRight"] = null;
         try {
           const data = await getMlbBatterSplits(athleteId, opts.signal);
-          const bats = data?.bats || null;
-          const idsResolved = resolveGameIds(t.game, espnMlb);
-          const isHome = idsResolved ? playerIsHome(t.teamAbbr ?? null, idsResolved) : null;
-          const oppTeamId =
-            isHome === true
-              ? idsResolved?.awayTeamId ?? null
-              : isHome === false
-                ? idsResolved?.homeTeamId ?? null
-                : null;
-          const oppPitcher = oppTeamId ? probables[oppTeamId] ?? null : null;
-          const oppThrows = oppPitcher?.throws || null;
-          let platoon: string | null = null;
-          if (bats === "Switch") platoon = "switch";
-          else if (bats && oppThrows) platoon = bats !== oppThrows ? "advantage" : "disadvantage";
-          const vsThatHand =
-            oppThrows === "Left" ? data?.vsLeft : oppThrows === "Right" ? data?.vsRight : null;
-          if (!bats && !oppThrows && !data?.vsLeft && !data?.vsRight) return;
-          const tendency = (oppPitcher?.tendency ?? null) as MlbPitcherTendency | null;
-          mlbPlatoon[`${t.player}#${athleteId}`] = {
-            player: t.player,
-            bats,
-            opposingPitcherName: oppPitcher?.name || null,
-            opposingPitcherThrows: oppThrows,
-            opposingPitcherTendency: tendency,
-            platoon,
-            vsThatHand: vsThatHand || null,
-            vsLeft: data?.vsLeft || null,
-            vsRight: data?.vsRight || null,
-          };
+          bats = data?.bats || null;
+          vsLeft = data?.vsLeft || null;
+          vsRight = data?.vsRight || null;
         } catch {
-          /* honest no-platoon */
+          /* splits optional — still attach pitcher tendency below */
+        }
+
+        let platoon: string | null = null;
+        if (bats === "Switch") platoon = "switch";
+        else if (bats && oppThrows) platoon = bats !== oppThrows ? "advantage" : "disadvantage";
+        const vsThatHand =
+          oppThrows === "Left" ? vsLeft : oppThrows === "Right" ? vsRight : null;
+
+        if (!bats && !oppThrows && !vsLeft && !vsRight && !tendency) return;
+
+        const entry = {
+          player: t.player,
+          bats,
+          opposingPitcherName: oppPitcher?.name || null,
+          opposingPitcherThrows: oppThrows,
+          opposingPitcherTendency: tendency,
+          platoon,
+          vsThatHand: vsThatHand || null,
+          vsLeft: vsLeft || null,
+          vsRight: vsRight || null,
+        };
+        mlbPlatoon[`${t.player}#${athleteId}`] = entry;
+        if (t.player && !mlbPlatoon[`${t.player}#`]) {
+          mlbPlatoon[`${t.player}#`] = entry;
         }
       }),
     );
