@@ -1,7 +1,15 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
@@ -15,9 +23,9 @@ import {
 } from "@/lib/entitlements";
 
 /**
- * Preview Plans screen — local entitlement selection + promo redeem.
- * Real StoreKit / RevenueCat billing requires a native rebuild + runtimeVersion
- * bump and is intentionally out of scope for OTA-safe subscription foundation.
+ * Plans screen — Free trial locally; Go/Pro purchase via Apple StoreKit
+ * (RevenueCat) so the subscription appears under iOS Settings → Subscriptions.
+ * Native rebuild + runtimeVersion bump required for real billing.
  */
 export default function PlansScreen() {
   const colors = useColors();
@@ -25,18 +33,62 @@ export default function PlansScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ promo?: string | string[]; code?: string | string[] }>();
   const promoFromLink = extractPromoFromQuery(params);
-  const { entitlement, selectPlan } = useSubscription();
+  const {
+    entitlement,
+    selectPlan,
+    restorePurchasesAction,
+    storeKitReady,
+    storeKitBlockedReason,
+    billingBusy,
+  } = useSubscription();
   const [draft, setDraft] = React.useState<PlanId>(entitlement.planId);
 
   React.useEffect(() => {
     setDraft(entitlement.planId);
   }, [entitlement.planId]);
 
-  const onContinue = () => {
-    selectPlan(draft);
+  const onContinue = async () => {
+    const result = await selectPlan(draft);
+    if (!result.ok) {
+      if (result.cancelled) return;
+      Alert.alert("Couldn’t continue", result.message);
+      return;
+    }
+    if (draft !== "free" && !storeKitReady) {
+      Alert.alert("Preview unlock", result.message);
+    }
     if (router.canGoBack()) router.back();
     else router.replace("/");
   };
+
+  const onRestore = async () => {
+    const result = await restorePurchasesAction();
+    if (!result.ok) {
+      Alert.alert("Restore failed", result.message);
+      return;
+    }
+    Alert.alert("Restore", result.message);
+  };
+
+  const onManage = () => {
+    const url =
+      entitlement.unlockSource === "storekit"
+        ? "https://apps.apple.com/account/subscriptions"
+        : "https://apps.apple.com/account/subscriptions";
+    Linking.openURL(url).catch(() => {
+      Alert.alert(
+        "Subscriptions",
+        "Open Settings → [your name] → Subscriptions on this iPhone to manage Stadium Edge.",
+      );
+    });
+  };
+
+  const continueLabel =
+    draft === "free"
+      ? "Continue with free trial"
+      : storeKitReady
+        ? `Subscribe · ${SUBSCRIPTION_PLANS.find((p) => p.id === draft)?.priceLabel ?? ""}`
+        : "Continue (preview)";
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -116,7 +168,7 @@ export default function PlansScreen() {
           >
             Free trial unlocks everything for 7 days. After that, Discover + Coach + Props +
             Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan, admin,
-            or promo.
+            or promo. Paid plans bill through Apple and show under Settings → Subscriptions.
           </Text>
         </View>
 
@@ -128,6 +180,7 @@ export default function PlansScreen() {
               onPress={() => setDraft(plan.id)}
               accessibilityRole="radio"
               accessibilityState={{ selected }}
+              disabled={billingBusy}
               style={({ pressed }) => ({
                 borderWidth: 1,
                 borderColor: selected ? colors.primary : colors.border,
@@ -137,7 +190,7 @@ export default function PlansScreen() {
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 14,
-                opacity: pressed ? 0.9 : 1,
+                opacity: pressed || billingBusy ? 0.9 : 1,
               })}
             >
               <View style={{ flex: 1, gap: 4 }}>
@@ -197,6 +250,7 @@ export default function PlansScreen() {
 
         <Pressable
           onPress={onContinue}
+          disabled={billingBusy}
           style={({ pressed }) => ({
             marginTop: 8,
             alignItems: "center",
@@ -204,19 +258,76 @@ export default function PlansScreen() {
             backgroundColor: colors.primary,
             borderRadius: 12,
             paddingVertical: 15,
-            opacity: pressed ? 0.85 : 1,
+            opacity: pressed || billingBusy ? 0.85 : 1,
+            minHeight: 52,
           })}
         >
-          <Text
-            style={{
-              fontFamily: FONT.bold,
-              fontSize: 15,
-              color: colors.primaryForeground,
-            }}
-          >
-            Continue
-          </Text>
+          {billingBusy ? (
+            <ActivityIndicator color={colors.primaryForeground} />
+          ) : (
+            <Text
+              style={{
+                fontFamily: FONT.bold,
+                fontSize: 15,
+                color: colors.primaryForeground,
+              }}
+            >
+              {continueLabel}
+            </Text>
+          )}
         </Pressable>
+
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 2 }}>
+          <Pressable
+            onPress={onRestore}
+            disabled={billingBusy}
+            style={({ pressed }) => ({
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 12,
+              paddingVertical: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card,
+              opacity: pressed || billingBusy ? 0.85 : 1,
+            })}
+          >
+            <Text
+              style={{
+                fontFamily: FONT.semibold,
+                fontSize: 13,
+                color: colors.foreground,
+              }}
+            >
+              Restore purchases
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={onManage}
+            style={({ pressed }) => ({
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 12,
+              paddingVertical: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card,
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Text
+              style={{
+                fontFamily: FONT.semibold,
+                fontSize: 13,
+                color: colors.foreground,
+              }}
+            >
+              Manage in Apple
+            </Text>
+          </Pressable>
+        </View>
 
         <Text
           style={{
@@ -225,11 +336,12 @@ export default function PlansScreen() {
             lineHeight: 16,
             color: colors.mutedForeground,
             textAlign: "center",
-            textTransform: "uppercase",
-            letterSpacing: 0.6,
+            letterSpacing: 0.3,
           }}
         >
-          Demo plans · no real billing · 21+ · Hypothetical analysis only
+          {storeKitReady
+            ? "Billed by Apple · Cancel anytime in Settings → Subscriptions · 21+ · Hypothetical analysis only"
+            : `${storeKitBlockedReason ?? "Apple billing unlocks after a StoreKit-enabled iOS rebuild."} · 21+ · Hypothetical analysis only`}
         </Text>
       </ScrollView>
     </View>

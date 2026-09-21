@@ -18,6 +18,7 @@ import {
   type PlanId,
   type SoftProFeatureLabel,
   type SubscriptionPersistedState,
+  applyStoreKitSnapshot,
   buildEntitlementView,
   ensureTrialStarted,
   normalizePromoCode,
@@ -27,16 +28,43 @@ import {
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
+import {
+  addCustomerInfoListener,
+  configurePurchases,
+  isStoreKitAvailable,
+  purchasePlan,
+  refreshCustomerSnapshot,
+  restorePurchases,
+  storeKitUnavailableReason,
+  type StoreKitCustomerSnapshot,
+} from "@/lib/purchases";
+import { syncSubscriptionToServer } from "@/lib/subscriptionApi";
 
 type RedeemResult =
   | { ok: true; message: string }
   | { ok: false; message: string };
 
+type PurchaseActionResult =
+  | { ok: true; message: string }
+  | { ok: false; cancelled?: boolean; message: string };
+
 type SubscriptionContextValue = {
   hydrated: boolean;
   entitlement: EntitlementView;
-  /** Local preview plan selection — no StoreKit charge. */
-  selectPlan: (planId: PlanId) => void;
+  /** True when this native build can open Apple StoreKit billing. */
+  storeKitReady: boolean;
+  /** Why StoreKit is unavailable (null when ready). */
+  storeKitBlockedReason: string | null;
+  /** Busy while a purchase or restore is in flight. */
+  billingBusy: boolean;
+  /**
+   * Select free trial locally, or purchase Go/Pro via Apple StoreKit when
+   * available. Falls back to a local entitlement only when StoreKit is offline
+   * (dev / missing key) so QA can still exercise gates.
+   */
+  selectPlan: (planId: PlanId) => Promise<PurchaseActionResult>;
+  /** Restore App Store purchases (also listed under Settings → Subscriptions). */
+  restorePurchasesAction: () => Promise<PurchaseActionResult>;
   /** Soft gate: true if allowed; false opens dismissible paywall. */
   requirePro: (featureLabel?: SoftProFeatureLabel) => boolean;
   openSoftPaywall: (featureLabel?: SoftProFeatureLabel) => void;
@@ -52,6 +80,9 @@ const DEFAULT_STATE: SubscriptionPersistedState = {
   promoExpiresAtMs: null,
   promoLifetime: false,
   promoRedeemCounts: {},
+  storeKitActive: false,
+  storeKitProductId: null,
+  storeKitManagementUrl: null,
 };
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -66,13 +97,15 @@ function readAdminEmails(): string[] {
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
   const { user } = useUser();
   const [state, setState] = useState<SubscriptionPersistedState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [gatedFeature, setGatedFeature] = useState("");
   const [tick, setTick] = useState(0);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [storeKitReady, setStoreKitReady] = useState(false);
   const loaded = useRef(false);
 
   const email =
@@ -80,6 +113,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     user?.emailAddresses?.[0]?.emailAddress ??
     null;
   const adminEmails = useMemo(() => readAdminEmails(), []);
+  const storeKitBlockedReason = storeKitUnavailableReason();
+
+  const applySnapshot = useCallback((snapshot: StoreKitCustomerSnapshot) => {
+    setState((prev) => applyStoreKitSnapshot(prev, snapshot));
+    void syncSubscriptionToServer(snapshot);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +147,30 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     AsyncStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(state)).catch(() => {});
   }, [state]);
 
+  // Configure RevenueCat / StoreKit once hydrated; re-login when Clerk user changes.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    (async () => {
+      const ready = await configurePurchases(isSignedIn ? userId : null);
+      if (cancelled) return;
+      setStoreKitReady(ready && isStoreKitAvailable());
+      if (!ready) return;
+      const snapshot = await refreshCustomerSnapshot();
+      if (!cancelled && snapshot) applySnapshot(snapshot);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, isSignedIn, userId, applySnapshot]);
+
+  useEffect(() => {
+    if (!hydrated || !storeKitReady) return;
+    return addCustomerInfoListener((snapshot) => {
+      applySnapshot(snapshot);
+    });
+  }, [hydrated, storeKitReady, applySnapshot]);
+
   // Refresh trial/promo countdown roughly once an hour while mounted.
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 60 * 60 * 1000);
@@ -125,9 +188,93 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     [state, tick, isSignedIn, email, adminEmails],
   );
 
-  const selectPlan = useCallback((planId: PlanId) => {
-    setState((prev) => ({ ...prev, planId }));
-  }, []);
+  const selectPlan = useCallback(
+    async (planId: PlanId): Promise<PurchaseActionResult> => {
+      if (planId === "free") {
+        if (storeKitReady) {
+          const snapshot = await refreshCustomerSnapshot();
+          if (snapshot?.planId) {
+            applySnapshot(snapshot);
+            return {
+              ok: true,
+              message:
+                "You still have an active Apple subscription. Manage it in Settings → Subscriptions.",
+            };
+          }
+        }
+        setState((prev) => ({
+          ...prev,
+          planId: "free",
+          storeKitActive: false,
+          storeKitProductId: null,
+        }));
+        return { ok: true, message: "Free trial selected." };
+      }
+
+      if (!storeKitReady) {
+        // Dev / Expo Go fallback — local unlock only (not in Apple Subscriptions list).
+        setState((prev) => ({
+          ...prev,
+          planId,
+          storeKitActive: false,
+          storeKitProductId: null,
+        }));
+        return {
+          ok: true,
+          message:
+            storeKitBlockedReason ??
+            "Local preview unlock (Apple billing needs a StoreKit-enabled iOS build).",
+        };
+      }
+
+      setBillingBusy(true);
+      try {
+        const result = await purchasePlan(planId);
+        if (!result.ok) {
+          return {
+            ok: false,
+            cancelled: result.cancelled,
+            message: result.message,
+          };
+        }
+        applySnapshot(result.snapshot);
+        const name = planId === "pro" ? "Stadium Edge Pro" : "Stadium Edge Go";
+        return {
+          ok: true,
+          message: `${name} is active via Apple. It appears under Settings → Subscriptions.`,
+        };
+      } finally {
+        setBillingBusy(false);
+      }
+    },
+    [storeKitReady, storeKitBlockedReason, applySnapshot],
+  );
+
+  const restorePurchasesAction = useCallback(async (): Promise<PurchaseActionResult> => {
+    if (!storeKitReady) {
+      return {
+        ok: false,
+        message:
+          storeKitBlockedReason ??
+          "Restore requires an iOS build with Apple StoreKit enabled.",
+      };
+    }
+    setBillingBusy(true);
+    try {
+      const result = await restorePurchases();
+      if (!result.ok) return { ok: false, message: result.message };
+      applySnapshot(result.snapshot);
+      if (!result.restored) {
+        return { ok: true, message: "No active Apple subscriptions found for this Apple ID." };
+      }
+      return {
+        ok: true,
+        message: "Purchases restored. Manage renewals in Settings → Subscriptions.",
+      };
+    } finally {
+      setBillingBusy(false);
+    }
+  }, [storeKitReady, storeKitBlockedReason, applySnapshot]);
 
   const redeemPromo = useCallback((code: string): RedeemResult => {
     const normalized = normalizePromoCode(code);
@@ -178,7 +325,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     () => ({
       hydrated,
       entitlement,
+      storeKitReady,
+      storeKitBlockedReason,
+      billingBusy,
       selectPlan,
+      restorePurchasesAction,
       requirePro,
       openSoftPaywall,
       closeSoftPaywall,
@@ -187,7 +338,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     [
       hydrated,
       entitlement,
+      storeKitReady,
+      storeKitBlockedReason,
+      billingBusy,
       selectPlan,
+      restorePurchasesAction,
       requirePro,
       openSoftPaywall,
       closeSoftPaywall,
