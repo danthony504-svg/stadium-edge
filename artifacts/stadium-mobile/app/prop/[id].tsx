@@ -22,7 +22,9 @@ import {
   getProps,
   getTeamDefense,
   fetchPropSimulations,
+  propMarketKeyForLabel,
   PROPS_SPORTS,
+  searchPlayer,
   searchTeam,
   type TeamDefense,
 } from "@/lib/api";
@@ -36,6 +38,7 @@ import { formatAmerican, formatGameTime } from "@/lib/format";
 import { FactorGrid } from "@/components/FactorCards";
 import { InjuryReport } from "@/components/InjuryReport";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
+import { pickPlayerSearchResult } from "@/lib/playerSearchPick";
 import {
   combinePickScore,
   injuryFavorProp,
@@ -97,11 +100,13 @@ export default function PropDetailScreen() {
   }>() ?? {};
 
   const player = String(p.player ?? "");
-  const marketKey = String(p.marketKey ?? "");
   const marketLabel = String(p.marketLabel ?? "Prop");
+  const marketKeyParam = String(p.marketKey ?? "");
+  const marketKey =
+    marketKeyParam || propMarketKeyForLabel(marketLabel) || "";
   const sport = String(p.sport ?? "");
-  const athleteId = p.athleteId ? String(p.athleteId) : "";
-  const headshot = p.headshot ? String(p.headshot) : "";
+  const athleteIdParam = p.athleteId ? String(p.athleteId) : "";
+  const headshotParam = p.headshot ? String(p.headshot) : "";
   const game = String(p.game ?? "");
   const startsAt = p.startsAt ? String(p.startsAt) : "";
   const odds = Number(p.odds);
@@ -114,7 +119,31 @@ export default function PropDetailScreen() {
 
   const sportLabel = SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase();
   const isSoccer = sport === "soccer";
+
+  // Coach (and some slip paths) may open this sheet without athleteId. Resolve
+  // via ESPN player search so the real game-log / hit-rate stats can load —
+  // same fail-closed sport match as slip openLeg.
+  const resolveAthleteQ = useQuery({
+    queryKey: ["prop-resolve-athlete", sport, player],
+    enabled: !!sport && !!player && !athleteIdParam && !isSoccer,
+    staleTime: 30 * 60_000,
+    queryFn: async ({ signal }) => {
+      const r = await searchPlayer(player, signal);
+      const hit = pickPlayerSearchResult(r.results ?? [], player, sport);
+      if (!hit) return null;
+      const full = (r.results ?? []).find((x) => x.athleteId === hit.athleteId);
+      return {
+        athleteId: hit.athleteId,
+        headshot: full?.headshot ?? null,
+      };
+    },
+  });
+
+  const athleteId = athleteIdParam || resolveAthleteQ.data?.athleteId || "";
+  const headshot = headshotParam || resolveAthleteQ.data?.headshot || "";
   const enabled = !!sport && (!!athleteId || (isSoccer && !!player));
+  const resolvingAthlete =
+    !athleteIdParam && !isSoccer && !!player && !!sport && resolveAthleteQ.isLoading;
 
   const historyQ = useQuery({
     queryKey: ["player-history", sport, athleteId, isSoccer ? player : null],
@@ -874,7 +903,9 @@ export default function PropDetailScreen() {
           </View>
         ) : null}
 
-        {!enabled ? (
+        {resolvingAthlete ? (
+          <Loading label="Finding player for real game log…" />
+        ) : !enabled ? (
           <EmptyNote
             text={`No game log feed is available for ${player || "this player"} in ${sportLabel}, so we can't show real numbers here. The line and price above are live.`}
           />
