@@ -21,8 +21,7 @@
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
-        "EXPO_PUBLIC_ADMIN_EMAILS": "danthony504@gmail.com",
-        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": ""
+        "EXPO_PUBLIC_ADMIN_EMAILS": "danthony504@gmail.com"
       }
     },
     "production": {
@@ -36,8 +35,7 @@
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
         "EXPO_PUBLIC_APP_REVIEW_MODE": "false",
         "EXPO_PUBLIC_OTA_BOOTSTRAP": "true",
-        "EXPO_PUBLIC_ADMIN_EMAILS": "danthony504@gmail.com",
-        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": ""
+        "EXPO_PUBLIC_ADMIN_EMAILS": "danthony504@gmail.com"
       }
     }
   },

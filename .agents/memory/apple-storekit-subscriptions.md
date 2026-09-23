@@ -31,11 +31,18 @@ ChatGPT / Claude / Replit). Custom promo codes never show there.
 ## Ship checklist
 1. Create products in App Store Connect (auto-renewable).
 2. Configure RevenueCat products + entitlements + webhook.
-3. Set `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` in EAS (not empty).
+3. Set `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` in **EAS project env / secrets**
+   (Expo dashboard → Project → Environment variables, or
+   `eas env:create --name EXPO_PUBLIC_REVENUECAT_IOS_API_KEY --value appl_... --environment production`).
+   **Never** put an empty string in `eas.json` — EAS rejects empty env values
+   and blocks both `eas build` and `eas channel:edit` / OTA publish.
 4. Set `REVENUECAT_WEBHOOK_SECRET` on api-server.
 5. `pnpm --filter @workspace/db run push` for new tables.
 6. **EAS production iOS build** — `runtimeVersion` is `1.1.0` (native module).
+   From `artifacts/stadium-mobile` (with EXPO_TOKEN + non-empty RC key in EAS):
+   `EAS_NO_VCS=1 EAS_SKIP_AUTO_FINGERPRINT=1 eas build --platform ios --profile production --auto-submit --non-interactive --no-wait`
 7. OTA alone cannot add StoreKit; do not bump runtimeVersion for JS-only OTA.
+   Keep `.ota-production-freeze` until TestFlight verifies the native build.
 
 ## Soft rules (unchanged)
 Discover / Coach / Props / Slip / Weather / Fantasy stay free.

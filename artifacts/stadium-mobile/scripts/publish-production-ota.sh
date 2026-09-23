@@ -4,6 +4,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Repo root is two levels above stadium-mobile (…/artifacts/stadium-mobile → …/).
+REPO_ROOT="$(cd ../.. && pwd)"
+if [[ -f "$REPO_ROOT/.ota-production-freeze" ]]; then
+  echo "PRODUCTION OTA FROZEN (.ota-production-freeze present)."
+  echo "Do not publish until a new TestFlight build is verified on device."
+  echo "Subscriptions / StoreKit require a native EAS build (runtimeVersion 1.1.0), not OTA."
+  exit 1
+fi
+
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required. Create one at https://expo.dev/settings/access-tokens"
   exit 1
