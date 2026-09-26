@@ -9,7 +9,7 @@ if [[ -z "${EXPO_TOKEN:-}" ]]; then
   exit 1
 fi
 
-RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
+RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.3}"
 MESSAGE="${1:-Rollback to embedded bundle — fix corrupt OTA}"
 
 export EAS_NO_VCS=1

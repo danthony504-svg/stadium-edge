@@ -113,7 +113,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     user?.emailAddresses?.[0]?.emailAddress ??
     null;
   const adminEmails = useMemo(() => readAdminEmails(), []);
-  const storeKitBlockedReason = storeKitUnavailableReason();
+  // Do not probe Purchases during first render — NativeModules read is sync/safe;
+  // memoize so we never accidentally re-enter require paths.
+  const storeKitBlockedReason = useMemo(() => storeKitUnavailableReason(), []);
 
   const applySnapshot = useCallback((snapshot: StoreKitCustomerSnapshot) => {
     setState((prev) => applyStoreKitSnapshot(prev, snapshot));

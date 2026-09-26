@@ -44,4 +44,6 @@ pnpm exec eas update \
   --message "$MESSAGE" \
   --non-interactive
 
-echo "OTA published. App Store + TestFlight users on runtime 1.0.0 pick it up on next open."
+echo "OTA published. Devices on this runtimeVersion pick it up on next open."
+echo "NOTE: runtime 1.0.3 binaries do NOT include RNPurchases — purchases.ts must"
+echo "guard NativeModules.RNPurchases before require (see lib/purchases.ts)."
