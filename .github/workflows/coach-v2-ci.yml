@@ -5,12 +5,36 @@ on:
     branches: [main]
     paths:
       - "lib/coach-types/**"
+      - "lib/coach-data/**"
+      - "lib/coach-sim-cache/**"
+      - "lib/coach-sim/**"
+      - "lib/coach-gates/**"
+      - "lib/coach-grade/**"
+      - "lib/coach-scan/**"
+      - "lib/coach-learn/**"
+      - "lib/coach-rank/**"
+      - "lib/coach-alts/**"
+      - "lib/coach-ticket/**"
+      - "lib/coach-cache/**"
+      - "lib/coach-background/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
   pull_request:
     paths:
       - "lib/coach-types/**"
+      - "lib/coach-data/**"
+      - "lib/coach-sim-cache/**"
+      - "lib/coach-sim/**"
+      - "lib/coach-gates/**"
+      - "lib/coach-grade/**"
+      - "lib/coach-scan/**"
+      - "lib/coach-learn/**"
+      - "lib/coach-rank/**"
+      - "lib/coach-alts/**"
+      - "lib/coach-ticket/**"
+      - "lib/coach-cache/**"
+      - "lib/coach-background/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
@@ -20,19 +44,179 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-types run typecheck
+      - run: pnpm --filter @workspace/coach-types run test
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+  coach-data:
+    runs-on: ubuntu-latest
+    needs: coach-types
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-data run typecheck
+      - run: pnpm --filter @workspace/coach-data run test
 
-      - name: Typecheck coach-types
-        run: pnpm --filter @workspace/coach-types run typecheck
+  coach-sim-cache:
+    runs-on: ubuntu-latest
+    needs: coach-types
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-sim-cache run typecheck
+      - run: pnpm --filter @workspace/coach-sim-cache run test
 
-      - name: Test coach-types
-        run: pnpm --filter @workspace/coach-types run test
+  coach-sim:
+    runs-on: ubuntu-latest
+    needs: [coach-data, coach-sim-cache]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-sim run typecheck
+      - run: pnpm --filter @workspace/coach-sim run test
+
+  coach-gates:
+    runs-on: ubuntu-latest
+    needs: [coach-data, coach-sim]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-gates run typecheck
+      - run: pnpm --filter @workspace/coach-gates run test
+
+  coach-grade:
+    runs-on: ubuntu-latest
+    needs: coach-gates
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-grade run typecheck
+      - run: pnpm --filter @workspace/coach-grade run test
+
+  coach-scan:
+    runs-on: ubuntu-latest
+    needs: coach-grade
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-scan run typecheck
+      - run: pnpm --filter @workspace/coach-scan run test
+
+  coach-learn:
+    runs-on: ubuntu-latest
+    needs: coach-types
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-learn run typecheck
+      - run: pnpm --filter @workspace/coach-learn run test
+
+  coach-rank:
+    runs-on: ubuntu-latest
+    needs: [coach-learn, coach-scan]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-rank run typecheck
+      - run: pnpm --filter @workspace/coach-rank run test
+
+  coach-alts:
+    runs-on: ubuntu-latest
+    needs: coach-rank
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-alts run typecheck
+      - run: pnpm --filter @workspace/coach-alts run test
+
+  coach-ticket:
+    runs-on: ubuntu-latest
+    needs: coach-alts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-ticket run typecheck
+      - run: pnpm --filter @workspace/coach-ticket run test
+
+  coach-cache:
+    runs-on: ubuntu-latest
+    needs: coach-ticket
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-cache run typecheck
+      - run: pnpm --filter @workspace/coach-cache run test
+
+  coach-background:
+    runs-on: ubuntu-latest
+    needs: coach-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-background run typecheck
+      - run: pnpm --filter @workspace/coach-background run test
