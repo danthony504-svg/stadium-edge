@@ -279,23 +279,21 @@ export default function CoachScreen() {
 
       const fireAbsoluteTerminal = () => {
         if (sendGenRef.current !== sendGen) return;
+        if (coachSessionIsTerminal(sessionRef.current)) return;
         abort.abort();
-        setMessages((prev) => {
-          const cur = prev.find((m) => m.id === assistantId);
-          const picks = resolveCoachTerminalPicks({
-            bufferedPicks: pendingTicketPicksRef.current,
-            messagePicks: cur?.picks,
-          });
-          finishSession(assistantId, {
-            picks,
-            text:
-              cur?.text?.trim() ||
-              (picks.length
-                ? ""
-                : "Hit the delivery budget before the board finished — composer unlocked."),
-            requestedLegs,
-          });
-          return prev;
+        // Do NOT call finishSession/setMessages inside a setMessages updater —
+        // React can drop the nested update, leaving building:true forever while
+        // the composer unlocks (stuck "Scoring ticket… N legs" card).
+        const picks = resolveCoachTerminalPicks({
+          bufferedPicks: pendingTicketPicksRef.current,
+          messagePicks: null,
+        });
+        finishSession(assistantId, {
+          picks,
+          text: picks.length
+            ? ""
+            : "Hit the delivery budget before the board finished — composer unlocked.",
+          requestedLegs,
         });
       };
 
@@ -322,6 +320,13 @@ export default function CoachScreen() {
               if (sendGenRef.current !== sendGen) return;
               // Buffer only — do not paint cards mid-build (trickle). Status still updates.
               pendingTicketPicksRef.current = [...picks];
+              // Belts: if scoring started without onReadyToScan, still arm the wall clock.
+              if (
+                sessionRef.current.outcome === "open" &&
+                !sessionRef.current.absoluteTimer
+              ) {
+                armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+              }
               if (shouldPublishCoachTicketPicks("building")) {
                 patchAssistant(assistantId, { picks: [...picks] });
               }

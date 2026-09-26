@@ -1040,11 +1040,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) break;
       const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
       try {
-        const batchSims = await fetchSlateGameSimulations(
-          new Map(batch),
-          opts.teamIdMap,
-          opts.signal,
-        );
+        const batchSims = await Promise.race([
+          fetchSlateGameSimulations(
+            new Map(batch),
+            opts.teamIdMap,
+            opts.signal,
+          ),
+          new Promise<Map<string, CoachGameSimEntry>>((_, reject) =>
+            setTimeout(() => reject(new Error("game-sim-batch-timeout")), 20_000),
+          ),
+        ]);
         for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
         scoreGamesAndMaybePartial(batch.map(([game]) => game));
       } catch {
@@ -1056,7 +1061,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     }
   }
 
-  const expandedPool = await poolExpandP;
+  const expandedPool = await Promise.race([
+    poolExpandP ?? Promise.resolve(null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 25_000)),
+  ]);
   if (expandedPool?.length) pool = expandedPool;
 
   if (!propPhaseP) {

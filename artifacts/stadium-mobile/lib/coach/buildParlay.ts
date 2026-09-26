@@ -360,7 +360,13 @@ export async function buildCoachParlay(opts: {
     if (grace.scan) scan = grace.scan;
     else scan = latest ?? scan;
   } else if (!scan) {
-    scan = await scanPromise.catch(() => null);
+    // Never await a hung scan forever after the delivery budget — that left
+    // Coach on "Scoring ticket… 1 legs" with no terminal latch.
+    scan = await Promise.race([
+      scanPromise.catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_500)),
+    ]);
+    if (!scan) scan = latest;
   }
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
