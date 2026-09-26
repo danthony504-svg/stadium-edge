@@ -16,12 +16,12 @@ import {
   upgradeCoachSessionOutcome,
 } from "./session.ts";
 
-test("6-leg absolute budget is 70s (room for props + alts)", () => {
-  assert.equal(coachAbsoluteBudgetMs(6), 70_000);
+test("6-leg absolute budget is 80s (room for props + alts)", () => {
+  assert.equal(coachAbsoluteBudgetMs(6), 80_000);
 });
 
 test("prop load failsafe covers board prefetch without scoring", () => {
-  assert.equal(coachPropLoadFailsafeMs(6), 90_000);
+  assert.equal(coachPropLoadFailsafeMs(6), 95_000);
   assert.ok(coachPropLoadFailsafeMs(8) >= coachAbsoluteBudgetMs(8) + 15_000);
 });
 
@@ -64,7 +64,7 @@ test("resolveCoachOutcome maps pick counts", () => {
 });
 
 test("8-leg scoring budget is longer than 6-leg", () => {
-  assert.equal(coachAbsoluteBudgetMs(8), 80_000);
+  assert.equal(coachAbsoluteBudgetMs(8), 95_000);
   assert.ok(coachAbsoluteBudgetMs(8) > coachAbsoluteBudgetMs(6));
 });
 
@@ -99,7 +99,7 @@ test("late picks do not reopen a full shown ticket", () => {
 });
 
 test("absolute terminal arm fires once then clears", async () => {
-  const session = createCoachSession(1, 6, Date.now() - 69_500);
+  const session = createCoachSession(1, 6, Date.now() - 79_500);
   let fired = 0;
   armCoachAbsoluteTerminal(session, () => {
     latchCoachSession(session, "shortfall");
