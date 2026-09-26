@@ -8,9 +8,9 @@ on:
         required: false
         default: "Emergency rollback to embedded bundle"
       runtime_version:
-        description: Runtime version (must match installed app)
+        description: Runtime version (must match installed app — production phones are 1.0.3)
         required: false
-        default: "1.0.0"
+        default: "1.0.3"
   push:
     branches: [main]
     paths:
@@ -41,5 +41,6 @@ jobs:
       - name: Roll back production to embedded bundle
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          RUNTIME_VERSION: ${{ github.event.inputs.runtime_version }}
-        run: bash scripts/rollback-production-ota.sh "${{ github.event.inputs.message }}"
+          # Push trigger has no inputs — default to the production App Store runtime.
+          RUNTIME_VERSION: ${{ github.event.inputs.runtime_version || '1.0.3' }}
+        run: bash scripts/rollback-production-ota.sh "${{ github.event.inputs.message || 'Emergency rollback to embedded — clear StoreKit OTA crash on 1.0.3' }}"

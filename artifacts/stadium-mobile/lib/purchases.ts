@@ -1,12 +1,17 @@
 /**
  * RevenueCat / StoreKit client wrapper.
  *
- * Uses react-native-purchases (native module). On web, Expo Go, or when
- * EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is missing, every call no-ops safely so
- * the soft local entitlement layer still works.
+ * Uses react-native-purchases (native module). On web, Expo Go, older binaries
+ * without RNPurchases, or when EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is missing,
+ * every call no-ops safely so the soft local entitlement layer still works.
+ *
+ * CRITICAL: never `require("react-native-purchases")` unless NativeModules.RNPurchases
+ * exists. Requiring the JS package on a binary without the native module constructs
+ * `new NativeEventEmitter(undefined)` and hard-crashes launch (OTA #460/#461 onto
+ * runtime 1.0.3).
  */
 
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
 
 import type { PlanId } from "./entitlements";
 import {
@@ -44,9 +49,23 @@ function iosApiKey(): string {
   return (process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ?? "").trim();
 }
 
+/** True only when this native binary actually linked RevenueCat. */
+export function hasPurchasesNativeModule(): boolean {
+  try {
+    return Platform.OS !== "web" && !!NativeModules.RNPurchases;
+  } catch {
+    return false;
+  }
+}
+
 function loadPurchases(): PurchasesModule | null {
   if (purchasesMod !== undefined) return purchasesMod;
   if (Platform.OS === "web") {
+    purchasesMod = null;
+    return null;
+  }
+  // Fail closed BEFORE require — package init crashes without RNPurchases.
+  if (!hasPurchasesNativeModule()) {
     purchasesMod = null;
     return null;
   }
@@ -65,6 +84,7 @@ function loadPurchases(): PurchasesModule | null {
 export function isStoreKitAvailable(): boolean {
   if (Platform.OS !== "ios" && Platform.OS !== "android") return false;
   if (!iosApiKey()) return false;
+  if (!hasPurchasesNativeModule()) return false;
   return loadPurchases() != null;
 }
 
@@ -74,6 +94,9 @@ export function storeKitUnavailableReason(): string | null {
   }
   if (!iosApiKey()) {
     return "StoreKit is not configured on this build yet (missing RevenueCat API key).";
+  }
+  if (!hasPurchasesNativeModule()) {
+    return "StoreKit needs a native rebuild — this JS update alone cannot open Apple billing.";
   }
   if (loadPurchases() == null) {
     return "StoreKit needs a native rebuild — this JS update alone cannot open Apple billing.";
