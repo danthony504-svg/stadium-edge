@@ -53,23 +53,15 @@ import {
   type CachedPropEntry,
 } from "@/lib/discoverSessionCache";
 import { oddsGameFromEspnShell } from "@/lib/gameResolve";
-import { isRenderableOddsGame, safeMarkets } from "@/lib/sportFeed";
+import {
+  isCurrentSportFeedReady,
+  isRenderableOddsGame,
+  safeMarkets,
+  type SportFeedPayload,
+} from "@/lib/sportFeed";
 import { buildUfcFeedPhotoMap, withUfcFightPhotos } from "@/lib/ufcFighterPhotos";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
-
-type SportFeedPayload<T> = { gen: number; league: string; rows: T[] };
-
-function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
-  return (
-    !!v &&
-    typeof v === "object" &&
-    !Array.isArray(v) &&
-    typeof (v as SportFeedPayload<T>).gen === "number" &&
-    typeof (v as SportFeedPayload<T>).league === "string" &&
-    Array.isArray((v as SportFeedPayload<T>).rows)
-  );
-}
 
 // Top Value Props rail: a prop is "value" when the best posted price beats the
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
@@ -77,6 +69,8 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 const HOME_MIN_VALUE_EV = 1.5;
 const HOME_SPORTS = buildHomeSports(SPORTS);
 const UPCOMING_PREVIEW_COUNT = 8;
+/** Hard cap so Upset Watch cannot spin forever on a hung matchup-history fan-out. */
+const HOME_UPSETS_TIMEOUT_MS = 28_000;
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
   const map = new Map<string, GameMeta>();
@@ -473,34 +467,30 @@ function HomeSportFeed({
   });
 
   const gamesForSport = useMemo(() => {
-    const payload = gamesQ.data;
-    if (
-      !isSportFeedPayload<EspnGame>(payload) ||
-      payload.league !== sport ||
-      payload.gen !== sportFetchGenRef.current ||
-      gamesQ.isPlaceholderData ||
-      gamesQ.isFetching ||
-      !gamesQ.isSuccess
-    ) {
-      return [];
-    }
+    const ready = isCurrentSportFeedReady<EspnGame>({
+      data: gamesQ.data,
+      sport,
+      gen: sportFetchGenRef.current,
+      isSuccess: gamesQ.isSuccess,
+      isPlaceholderData: gamesQ.isPlaceholderData,
+    });
+    if (!ready) return [];
+    const payload = gamesQ.data as SportFeedPayload<EspnGame>;
     return payload.rows.filter((g) => g.sport === sport);
-  }, [gamesQ.data, gamesQ.isPlaceholderData, gamesQ.isFetching, gamesQ.isSuccess, sport]);
+  }, [gamesQ.data, gamesQ.isPlaceholderData, gamesQ.isSuccess, sport]);
 
   const oddsForSport = useMemo(() => {
-    const payload = oddsQ.data;
-    if (
-      !isSportFeedPayload<OddsGame>(payload) ||
-      payload.league !== sport ||
-      payload.gen !== sportFetchGenRef.current ||
-      oddsQ.isPlaceholderData ||
-      oddsQ.isFetching ||
-      !oddsQ.isSuccess
-    ) {
-      return [];
-    }
+    const ready = isCurrentSportFeedReady<OddsGame>({
+      data: oddsQ.data,
+      sport,
+      gen: sportFetchGenRef.current,
+      isSuccess: oddsQ.isSuccess,
+      isPlaceholderData: oddsQ.isPlaceholderData,
+    });
+    if (!ready) return [];
+    const payload = oddsQ.data as SportFeedPayload<OddsGame>;
     return payload.rows.filter((g) => g.sport === sport && isRenderableOddsGame(g));
-  }, [oddsQ.data, oddsQ.isPlaceholderData, oddsQ.isFetching, oddsQ.isSuccess, sport]);
+  }, [oddsQ.data, oddsQ.isPlaceholderData, oddsQ.isSuccess, sport]);
 
   const metaMap = useMemo(() => buildMetaMap(gamesForSport), [gamesForSport]);
 
@@ -591,14 +581,20 @@ function HomeSportFeed({
   const canExpandUpcoming = displayUpcoming.length > UPCOMING_PREVIEW_COUNT;
 
   const sportFeedLoading =
-    oddsQ.isFetching ||
-    gamesQ.isFetching ||
-    !oddsQ.isSuccess ||
-    !gamesQ.isSuccess ||
-    !isSportFeedPayload(oddsQ.data) ||
-    !isSportFeedPayload(gamesQ.data) ||
-    oddsQ.data.gen !== sportFetchGenRef.current ||
-    gamesQ.data.gen !== sportFetchGenRef.current;
+    !isCurrentSportFeedReady({
+      data: oddsQ.data,
+      sport,
+      gen: sportFetchGenRef.current,
+      isSuccess: oddsQ.isSuccess,
+      isPlaceholderData: oddsQ.isPlaceholderData,
+    }) ||
+    !isCurrentSportFeedReady({
+      data: gamesQ.data,
+      sport,
+      gen: sportFetchGenRef.current,
+      isSuccess: gamesQ.isSuccess,
+      isPlaceholderData: gamesQ.isPlaceholderData,
+    });
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -905,7 +901,28 @@ function HomeSportFeed({
     queryKey: ["home-upsets", sport],
     queryFn: async ({ signal }) => {
       try {
-        return await fetchUpsetSpots([sport], signal);
+        return await new Promise<UpsetSpot[]>((resolve, reject) => {
+          const t = setTimeout(
+            () => reject(new Error("home-upsets timeout")),
+            HOME_UPSETS_TIMEOUT_MS,
+          );
+          const onAbort = () => {
+            clearTimeout(t);
+            reject(new Error("aborted"));
+          };
+          signal?.addEventListener("abort", onAbort, { once: true });
+          fetchUpsetSpots([sport], signal)
+            .then((v) => {
+              clearTimeout(t);
+              signal?.removeEventListener("abort", onAbort);
+              resolve(v);
+            })
+            .catch((e) => {
+              clearTimeout(t);
+              signal?.removeEventListener("abort", onAbort);
+              reject(e);
+            });
+        });
       } catch {
         return [];
       }

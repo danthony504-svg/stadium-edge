@@ -20,6 +20,32 @@ export function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
   );
 }
 
+/**
+ * True when Home can paint this league's odds/games from a settled success
+ * payload for the active sport-switch generation.
+ *
+ * Do NOT gate on react-query `isFetching`: focus/refetch invalidations used to
+ * clear Upcoming to [] and leave "Loading live odds…" up for the whole refetch,
+ * which looked like a hung Home even when the network was fine.
+ */
+export function isCurrentSportFeedReady<T>(opts: {
+  data: unknown;
+  sport: string;
+  gen: number;
+  isSuccess: boolean;
+  isPlaceholderData?: boolean;
+}): opts is {
+  data: SportFeedPayload<T>;
+  sport: string;
+  gen: number;
+  isSuccess: true;
+  isPlaceholderData?: boolean;
+} {
+  if (!opts.isSuccess || opts.isPlaceholderData) return false;
+  if (!isSportFeedPayload<T>(opts.data)) return false;
+  return opts.data.league === opts.sport && opts.data.gen === opts.gen;
+}
+
 /** Normalize react-query cache data from Home (payload) or Upcoming (plain array). */
 export function oddsRowsFromQuery(data: unknown, sport: string): OddsGame[] {
   if (data == null) return [];

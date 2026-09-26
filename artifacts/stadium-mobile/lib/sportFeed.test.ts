@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { OddsGame } from "./api.ts";
-import { isRenderableOddsGame, oddsRowsFromQuery, oddsPayloadFromQuery, safeMarkets } from "./sportFeed.ts";
+import {
+  isCurrentSportFeedReady,
+  isRenderableOddsGame,
+  oddsRowsFromQuery,
+  oddsPayloadFromQuery,
+  safeMarkets,
+} from "./sportFeed.ts";
 
 test("oddsRowsFromQuery reads Home generation-tagged payload", () => {
   const rows: OddsGame[] = [
@@ -70,6 +76,48 @@ test("oddsRowsFromQuery reads WNBA Home cache payload", () => {
 test("oddsRowsFromQuery returns empty for null/undefined cache", () => {
   assert.deepEqual(oddsRowsFromQuery(null, "wnba"), []);
   assert.deepEqual(oddsRowsFromQuery(undefined, "wnba"), []);
+});
+
+test("isCurrentSportFeedReady ignores in-flight refetch when success payload matches", () => {
+  const payload = { gen: 1, league: "mlb", rows: [] as OddsGame[] };
+  assert.equal(
+    isCurrentSportFeedReady({
+      data: payload,
+      sport: "mlb",
+      gen: 1,
+      isSuccess: true,
+      isPlaceholderData: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isCurrentSportFeedReady({
+      data: payload,
+      sport: "mlb",
+      gen: 2,
+      isSuccess: true,
+    }),
+    false,
+    "stale sport-switch generation must not paint",
+  );
+  assert.equal(
+    isCurrentSportFeedReady({
+      data: payload,
+      sport: "nfl",
+      gen: 1,
+      isSuccess: true,
+    }),
+    false,
+  );
+  assert.equal(
+    isCurrentSportFeedReady({
+      data: payload,
+      sport: "mlb",
+      gen: 1,
+      isSuccess: false,
+    }),
+    false,
+  );
 });
 
 test("oddsPayloadFromQuery normalizes legacy plain-array cache", () => {
