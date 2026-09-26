@@ -6,12 +6,14 @@ import {
   coachAbsoluteBudgetMs,
   coachPropLoadFailsafeMs,
   coachSessionIsTerminal,
+  coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
   coachShortfallNote,
   createCoachSession,
   latchCoachSession,
   resetCoachAbsoluteClock,
   resolveCoachOutcome,
+  upgradeCoachSessionOutcome,
 } from "./session.ts";
 
 test("6-leg absolute budget is 70s (room for props + alts)", () => {
@@ -19,7 +21,8 @@ test("6-leg absolute budget is 70s (room for props + alts)", () => {
 });
 
 test("prop load failsafe covers board prefetch without scoring", () => {
-  assert.equal(coachPropLoadFailsafeMs(), 75_000);
+  assert.equal(coachPropLoadFailsafeMs(6), 90_000);
+  assert.ok(coachPropLoadFailsafeMs(8) >= coachAbsoluteBudgetMs(8) + 15_000);
 });
 
 test("resetCoachAbsoluteClock clears timer and restarts budget window", () => {
@@ -58,6 +61,41 @@ test("resolveCoachOutcome maps pick counts", () => {
   assert.equal(resolveCoachOutcome({ pickCount: 2, requestedLegs: 6 }), "shortfall");
   assert.equal(resolveCoachOutcome({ pickCount: 0, requestedLegs: 6 }), "empty");
   assert.equal(resolveCoachOutcome({ pickCount: 0, requestedLegs: 6, failed: true }), "failed");
+});
+
+test("8-leg scoring budget is longer than 6-leg", () => {
+  assert.equal(coachAbsoluteBudgetMs(8), 80_000);
+  assert.ok(coachAbsoluteBudgetMs(8) > coachAbsoluteBudgetMs(6));
+});
+
+test("late picks upgrade empty budget latch without re-busying", () => {
+  const session = createCoachSession(1, 8, 1_000);
+  latchCoachSession(session, "empty");
+  assert.equal(coachSessionShouldKeepBusy(session), false);
+  assert.equal(
+    coachSessionMayAcceptLatePicks(session, { latePickCount: 8, shownPickCount: 0 }),
+    true,
+  );
+  upgradeCoachSessionOutcome(session, "shown");
+  assert.equal(session.outcome, "shown");
+  assert.equal(coachSessionShouldKeepBusy(session), false);
+  assert.equal(
+    coachSessionMayAcceptLatePicks(session, { latePickCount: 8, shownPickCount: 8 }),
+    false,
+  );
+});
+
+test("late picks do not reopen a full shown ticket", () => {
+  const session = createCoachSession(1, 6, 1_000);
+  latchCoachSession(session, "shown");
+  assert.equal(
+    coachSessionMayAcceptLatePicks(session, { latePickCount: 6, shownPickCount: 6 }),
+    false,
+  );
+  assert.equal(
+    coachSessionMayAcceptLatePicks(session, { latePickCount: 7, shownPickCount: 6 }),
+    false,
+  );
 });
 
 test("absolute terminal arm fires once then clears", async () => {
