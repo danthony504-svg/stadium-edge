@@ -132,6 +132,33 @@ export function selectGreedyBoardLegs(
   return dedupeSameTeamGameLegsLite(out).slice(0, target);
 }
 
+/**
+ * When combinators leave a short ticket despite more AI-qualified legs on the
+ * board, top up greedily from those cleared legs. Never invents ungraded filler.
+ */
+export function topUpTicketFromQualifiedScored(
+  picks: ParsedPick[],
+  scored: BoardScoredLeg[],
+  target: number,
+  varietySeed?: string,
+): ParsedPick[] {
+  if (target < 3 || picks.length >= target) return picks.slice(0, Math.max(0, target));
+  const used = new Set(picks.map(pickLegFingerprint));
+  const leftover: BoardScoredLeg[] = [];
+  for (const leg of scored) {
+    const fp = pickLegFingerprint(leg.pick);
+    if (used.has(fp)) continue;
+    if (boardLegPoolRole(leg.pick, leg.pick.finalAiScore) == null) continue;
+    leftover.push(leg);
+  }
+  if (!leftover.length) return picks.slice(0, target);
+  const extra = selectGreedyBoardLegs(leftover, target - picks.length, varietySeed);
+  if (!extra.length) return picks.slice(0, target);
+  return tagTicketRoles(
+    dedupeSameTeamGameLegsLite([...picks, ...extra]).slice(0, target),
+  );
+}
+
 /** Hard cap on niche stat markets so SB stacks cannot dominate a ticket. */
 export function capThinStatMarketsOnTicket(picks: ParsedPick[], target: number): ParsedPick[] {
   const maxThin = maxLegsPerThinStatMarket(target);

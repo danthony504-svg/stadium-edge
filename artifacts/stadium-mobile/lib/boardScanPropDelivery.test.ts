@@ -48,7 +48,7 @@ test("prefetched prop pools overlap prop scoring with game lines", () => {
 
 test("game-phase budget leaves room for prop-phase deadline inside Coach wall", () => {
   assert.equal(boardScanGamePhaseBudgetMs(7), 28_000);
-  assert.equal(boardScanPropPhaseDeadlineMs(7), 45_000);
+  assert.equal(boardScanPropPhaseDeadlineMs(7), 65_000);
   assert.ok(boardScanGamePhaseBudgetMs(7) + boardScanPropPhaseDeadlineMs(7) > 60_000);
 });
 

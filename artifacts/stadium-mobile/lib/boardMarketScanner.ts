@@ -56,6 +56,7 @@ import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   boardLegPoolRole,
   buildStagedTicketFromScan,
+  topUpTicketFromQualifiedScored,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 import { safeCoachManifestInstrument } from "./coachFootballPropFunnel.ts";
@@ -681,6 +682,16 @@ export function buildScanResult(
     opts.target,
     opts.prioritySports ?? undefined,
   );
+  // Final tickets: if combinators left seats empty while more AI-qualified legs
+  // already cleared scoring, top up from those — never invent ungraded filler.
+  if (!opts.preview && picks.length < opts.target) {
+    picks = topUpTicketFromQualifiedScored(
+      picks,
+      stagePool,
+      opts.target,
+      opts.varietySeed,
+    );
+  }
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
   let propCount = picks.filter((p) => p.isProp).length;

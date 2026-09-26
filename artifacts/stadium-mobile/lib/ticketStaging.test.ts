@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildStagedTicketFromScan, capThinStatMarketsOnTicket, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
+import {
+  buildStagedTicketFromScan,
+  capThinStatMarketsOnTicket,
+  tagTicketRoles,
+  topUpTicketFromQualifiedScored,
+  type BoardScoredLeg,
+} from "./ticketStaging.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function leg(
@@ -312,4 +318,65 @@ test("buildStagedTicketFromScan example: 10 main + 5 alt for 15-leg ask", () => 
   assert.equal(picks.length, 15);
   assert.equal(breakdown.mainOnTicket, 10);
   assert.equal(breakdown.altOnTicket, 5);
+});
+
+test("topUpTicketFromQualifiedScored fills shortfall from AI-qualified leftovers only", () => {
+  const short: ParsedPick[] = [
+    leg({ game: "A @ B", market: "Moneyline", pick: "B ML", odds: -140 }, 100, mainScore).pick,
+    leg({ game: "C @ D", market: "Spread", pick: "C +1.5", odds: -110 }, 95, mainScore).pick,
+    leg({ game: "E @ F", market: "Total", pick: "Over 8.5", odds: -105 }, 90, mainScore).pick,
+    leg({ game: "G @ H", market: "Moneyline", pick: "G ML", odds: -120 }, 85, mainScore).pick,
+  ];
+  const scored: BoardScoredLeg[] = [
+    ...short.map((pick, i) => ({
+      pick,
+      evPct: 2,
+      edgePct: 3,
+      confidencePct: 55,
+      impliedProbPct: 50,
+      lineShoppingScore: 1,
+      grade: "B",
+      simHit: 0.55,
+      composite: 7,
+      rankScore: 100 - i,
+    })),
+    leg({ game: "I @ J", market: "Spread", pick: "J -1.5", odds: -105 }, 80, mainScore),
+    leg({ game: "K @ L", market: "Total", pick: "Under 9.5", odds: -105 }, 75, mainScore),
+    leg({ game: "M @ N", market: "Moneyline", pick: "N ML", odds: -105 }, 70, mainScore),
+    leg({ game: "O @ P", market: "Spread", pick: "O +2.5", odds: -105 }, 65, mainScore),
+    // Ungraded / non-recommending — must not be used as filler
+    leg(
+      { game: "Q @ R", market: "Moneyline", pick: "Q ML", odds: 200 },
+      99,
+      {
+        ...altScore,
+        recommends: false,
+        edgePct: 0.2,
+        confidencePct: 40,
+        simHit: 0.4,
+        grade: "D",
+        simAligned: false,
+      },
+    ),
+  ];
+  const topped = topUpTicketFromQualifiedScored(short, scored, 8);
+  assert.equal(topped.length, 8);
+  assert.ok(topped.every((p) => p.game !== "Q @ R"), "rejects ungraded filler");
+  assert.ok(
+    topped.some((p) => p.game === "I @ J") && topped.some((p) => p.game === "O @ P"),
+    "pulls leftover AI-qualified legs",
+  );
+});
+
+test("topUpTicketFromQualifiedScored is a no-op when already full or no leftovers", () => {
+  const full = Array.from({ length: 6 }, (_, i) =>
+    leg({ game: `A${i} @ B${i}`, market: "Moneyline", pick: `T${i}`, odds: -110 }, 90 - i, mainScore)
+      .pick,
+  );
+  assert.equal(topUpTicketFromQualifiedScored(full, [], 6).length, 6);
+  const short = full.slice(0, 4);
+  const onlyUsed = short.map((pick, i) =>
+    leg({ game: pick.game!, market: "Moneyline", pick: pick.pick!, odds: -110 }, 90 - i, mainScore),
+  );
+  assert.equal(topUpTicketFromQualifiedScored(short, onlyUsed, 8).length, 4);
 });

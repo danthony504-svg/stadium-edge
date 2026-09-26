@@ -14,9 +14,12 @@ export function boardScanMaxPropsToSim(targetLegs: number, poolSize: number): nu
   return Math.min(poolSize, cap);
 }
 
-/** Per-batch deep prop-sim wall timeout (ms). */
+/** Per-batch deep prop-sim wall timeout (ms).
+ * Must stay well under the prop-phase deadline so one hung batch cannot
+ * consume the whole window (8-leg → only ~1 batch → 4-of-8 shortfall).
+ */
 export function boardScanPropSimBatchTimeoutMs(): number {
-  return 45_000;
+  return 18_000;
 }
 
 /**
@@ -34,14 +37,16 @@ export function boardScanPropPhaseDeadlineMs(
   // HR full-board exhaust needs more wall time so matchup-strong hitters
   // beyond the first EV-sorted wave still get MC before Coach finalizes.
   if (opts?.exhaustPropBoard) {
-    if (targetLegs >= 9) return 75_000;
-    if (targetLegs >= 6) return 60_000;
-    return 50_000;
+    if (targetLegs >= 9) return 90_000;
+    if (targetLegs >= 6) return 75_000;
+    return 55_000;
   }
-  if (targetLegs >= 15) return 75_000;
-  if (targetLegs >= 9) return 60_000;
-  if (targetLegs >= 6) return 45_000;
-  return 35_000;
+  // Deep fixed-leg tickets need multiple prop batches on busy MLB/NFL boards.
+  if (targetLegs >= 15) return 90_000;
+  if (targetLegs >= 9) return 80_000;
+  if (targetLegs >= 8) return 75_000;
+  if (targetLegs >= 6) return 65_000;
+  return 40_000;
 }
 
 /**
