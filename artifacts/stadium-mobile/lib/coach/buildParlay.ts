@@ -288,6 +288,12 @@ export async function buildCoachParlay(opts: {
             ? `Scoring game lines… props/alts next (${propPoolSize} posted)`
             : `Scoring game lines… ${partial.picks?.length ?? 0} so far`,
         );
+        // Still buffer reserved game lines for the absolute-budget hang guard —
+        // UI publish policy keeps cards hidden until terminal, but an empty
+        // buffer was latching "delivery budget… composer unlocked" with 0 cards.
+        if (partial.picks?.length) {
+          opts.onPartialPicks?.(partial.picks);
+        }
         return;
       }
       if (partial.picks?.length) {

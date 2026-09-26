@@ -38,12 +38,14 @@ import {
   beginCoachSession,
   coachPropLoadFailsafeMs,
   coachSessionIsTerminal,
+  coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
   coachShortfallNote,
   createCoachSession,
   latchCoachSession,
   resetCoachAbsoluteClock,
   resolveCoachOutcome,
+  upgradeCoachSessionOutcome,
 } from "@/lib/coach/session";
 import {
   resolveCoachTerminalPicks,
@@ -85,6 +87,8 @@ export default function CoachScreen() {
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const sendGenRef = useRef(0);
   const pendingTicketPicksRef = useRef<ParsedPick[]>([]);
+  /** Pick count committed at last terminal latch — used for late budget upgrades. */
+  const terminalShownPickCountRef = useRef(0);
   /** Active assistant bubble for the open session — used to flush held picks on stop. */
   const activeAssistantIdRef = useRef<string | null>(null);
   const sessionRef = useRef(createCoachSession());
@@ -192,6 +196,7 @@ export default function CoachScreen() {
         failed: opts.failed,
       });
       latchCoachSession(sessionRef.current, outcome);
+      terminalShownPickCountRef.current = opts.picks.length;
       // Prefer the build note when present — it carries prop-pool context.
       // Only synthesize a generic shortfall when the build returned no text.
       const shortfall =
@@ -269,6 +274,7 @@ export default function CoachScreen() {
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setDraft("");
       pendingTicketPicksRef.current = [];
+      terminalShownPickCountRef.current = 0;
       setBusy(true);
 
       const fireAbsoluteTerminal = () => {
@@ -302,7 +308,7 @@ export default function CoachScreen() {
             if (sendGenRef.current !== sendGen) return;
             if (coachSessionIsTerminal(sessionRef.current)) return;
             fireAbsoluteTerminal();
-          }, coachPropLoadFailsafeMs());
+          }, coachPropLoadFailsafeMs(requestedLegs));
 
           const result = await buildCoachParlay({
             requestedLegs,
@@ -335,7 +341,6 @@ export default function CoachScreen() {
             loadTimer = null;
           }
           if (sendGenRef.current !== sendGen) return;
-          if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
           // buffer so holding cards mid-build can never hang as a blank ticket.
           const picks =
@@ -346,6 +351,35 @@ export default function CoachScreen() {
                   messagePicks: null,
                 });
           pendingTicketPicksRef.current = [];
+
+          // Budget may have already latched empty/shortfall while the scan was
+          // still finishing. Accept a better late ticket without re-busying.
+          if (!coachSessionShouldKeepBusy(sessionRef.current)) {
+            if (
+              coachSessionMayAcceptLatePicks(sessionRef.current, {
+                latePickCount: picks.length,
+                shownPickCount: terminalShownPickCountRef.current,
+              })
+            ) {
+              const outcome = resolveCoachOutcome({
+                pickCount: picks.length,
+                requestedLegs,
+              });
+              upgradeCoachSessionOutcome(sessionRef.current, outcome);
+              terminalShownPickCountRef.current = picks.length;
+              patchAssistant(assistantId, {
+                building: false,
+                buildStatus: undefined,
+                picks,
+                // Clear the empty-budget copy once a real ticket lands.
+                text: result.note.trim(),
+                requestedLegs: requestedLegs || undefined,
+              });
+              unlockComposer();
+            }
+            return;
+          }
+
           finishSession(assistantId, {
             picks,
             text: result.note,
