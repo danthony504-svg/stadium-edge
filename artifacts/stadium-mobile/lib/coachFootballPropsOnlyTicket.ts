@@ -1,12 +1,12 @@
 /**
  * Greenfield NFL / NCAAF props-only ticket builder.
  *
- * After #540 phone still emptied (propLegsScored=0). Rebuild:
- * 1. Prefetch candidate game logs with normalized ESPN sport keys (no coach abort)
- * 2. Grade sync from history + parallel server MC boost
- * 3. Soft-clip TD 0/1
- * 4. Build scored legs directly (no attachPickScores / thin-context wipe)
- * 5. Stage via props-only odds gate (hit > implied) — not the multi-signal conf bar
+ * Rebuild after #541 phone empties (8-leg NFL props → quality bar, propLegsScored=0):
+ * 1. Normalize null-line anytime TD → 0.5 so candidacy + history keys work
+ * 2. Prefetch candidate game logs with normalized ESPN sport keys
+ * 3. Grade sync from history + parallel server MC boost
+ * 4. Soft-clip TD 0/1; collapse Over/Under to history best-EV side
+ * 5. Stage via props-only odds gate (hit ≥ implied) — no attachPickScores wipe
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -16,12 +16,17 @@ import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
 import {
   FOOTBALL_PROPS_ONLY_BATCH,
   selectFootballPropsOnlyFromPicks,
+  stageFootballPropsOnlyLegs,
 } from "./coachFootballPropsOnly.ts";
 import {
+  collapsePropsOnlyToBestEvSides,
   gradeFootballPropsOnlyFromHistory,
   lookupPropsOnlyHit,
   normalizeHistorySport,
+  normalizePropsOnlyPick,
+  propsOnlyEvPct,
   propsOnlyLegClearsOdds,
+  propsOnlyPickHasGrade,
   propsOnlyPoolRowForPick,
   softClipPropsOnlyHits,
   type PropsOnlyHistorySlice,
@@ -48,14 +53,20 @@ export {
   FOOTBALL_PROPS_ONLY_BATCH,
   footballPropsOnlyFamilyCounts,
   footballPropsOnlyMaxCandidates,
+  isFootballPropsOnlyCandidate,
   selectFootballPropsOnlyFromPicks,
   shouldBuildFootballPropsOnlyTicket,
+  stageFootballPropsOnlyLegs,
 } from "./coachFootballPropsOnly.ts";
 
 export {
+  collapsePropsOnlyToBestEvSides,
   gradeFootballPropFromHistory,
   gradeFootballPropsOnlyFromHistory,
   normalizeHistorySport,
+  normalizePropsOnlyPick,
+  pickBestEvPropsOnlySide,
+  propsOnlyEffectiveLine,
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
   softClipPropsOnlyHits,
@@ -65,7 +76,10 @@ export function selectFootballPropsOnlyCandidates(
   pool: PropPoolEntry[],
   targetLegs: number,
 ): ParsedPick[] {
-  return selectFootballPropsOnlyFromPicks(pool.map(parsedPickFromPoolEntry), targetLegs);
+  return selectFootballPropsOnlyFromPicks(
+    pool.map((e) => normalizePropsOnlyPick(parsedPickFromPoolEntry(e))),
+    targetLegs,
+  );
 }
 
 function scoredLegFromHit(
@@ -73,22 +87,23 @@ function scoredLegFromHit(
   rawHit: number | null,
   poolRow?: PropPoolEntry | null,
 ): BoardScoredLeg | null {
-  const clipped = clipPropSimHitForGrade(pick, rawHit);
+  const norm = normalizePropsOnlyPick(pick);
+  const clipped = clipPropSimHitForGrade(norm, rawHit);
   const hit = sanitizeSimHitForGrade(clipped, {
-    market: pick.market,
-    sport: pick.sport,
+    market: norm.market,
+    sport: norm.sport,
     isProp: true,
-    period: parseMarketPeriod(pick.market ?? ""),
-    line: pick.propLine ?? null,
-    odds: pick.odds ?? null,
+    period: parseMarketPeriod(norm.market ?? ""),
+    line: norm.propLine ?? null,
+    odds: norm.odds ?? null,
     simulationStatKey: "player_prop",
     expectedStatKey: "player_prop",
   });
-  if (!propsOnlyLegClearsOdds(pick, hit)) return null;
+  if (!propsOnlyLegClearsOdds(norm, hit)) return null;
 
   const edgePct =
-    hit != null && pick.odds != null
-      ? Math.round((hit - impliedProb(pick.odds)) * 1000) / 10
+    hit != null && norm.odds != null
+      ? Math.round((hit - impliedProb(norm.odds)) * 1000) / 10
       : poolRow?.edge ?? null;
   const rubricScores: PickSubScores = {
     matchup: null,
@@ -99,10 +114,10 @@ function scoredLegFromHit(
     simulation: scoreSimulation(hit),
   };
   const finalAiScore = buildFinalAiScore({
-    pick,
+    pick: norm,
     rubricScores,
     edgePct,
-    odds: pick.odds,
+    odds: norm.odds,
     propSimHit: hit,
   });
   const score = {
@@ -112,15 +127,15 @@ function scoredLegFromHit(
     edgePct: edgePct ?? finalAiScore.edgePct,
     simHit: hit,
   };
-  const ev = hit != null && pick.odds != null ? simEvPct(hit, pick.odds) : null;
+  const ev = hit != null && norm.odds != null ? simEvPct(hit, norm.odds) : null;
   const implied =
-    pick.odds != null ? Math.round(impliedProb(pick.odds) * 1000) / 10 : null;
+    norm.odds != null ? Math.round(impliedProb(norm.odds) * 1000) / 10 : null;
   const composite = score.composite;
   return {
     pick: {
-      ...pick,
+      ...norm,
       finalAiScore: score,
-      ticketRole: pick.propIsAlt ? "alt" : "main",
+      ticketRole: norm.propIsAlt ? "alt" : "main",
     },
     evPct: ev,
     edgePct: score.edgePct,
@@ -132,32 +147,6 @@ function scoredLegFromHit(
     composite,
     rankScore: (composite ?? 0) + (ev ?? 0) * 0.01,
   };
-}
-
-export function stageFootballPropsOnlyLegs(
-  scored: BoardScoredLeg[],
-  target: number,
-): ParsedPick[] {
-  const picks: ParsedPick[] = [];
-  const usedPlayerMarket = new Set<string>();
-  const usedGames = new Map<string, number>();
-  for (const leg of scored) {
-    if (picks.length >= target) break;
-    const p = leg.pick;
-    if (!propsOnlyLegClearsOdds(p, leg.simHit)) continue;
-    const pm = `${p.player}|${p.propMarketKey ?? p.market}`.toLowerCase();
-    if (usedPlayerMarket.has(pm)) continue;
-    const gameCount = usedGames.get(p.game) ?? 0;
-    if (gameCount >= 3) continue;
-    usedPlayerMarket.add(pm);
-    usedGames.set(p.game, gameCount + 1);
-    picks.push({
-      ...p,
-      ticketRole: p.propIsAlt ? "alt" : "main",
-      finalAiScore: p.finalAiScore,
-    });
-  }
-  return picks;
 }
 
 async function prefetchCandidateHistory(
@@ -191,7 +180,6 @@ async function prefetchCandidateHistory(
     await Promise.all(
       batch.map(async (r) => {
         try {
-          // Dedicated timeout — do not share Coach abort (that was zeroing history mid-flight).
           const ac = new AbortController();
           const t = setTimeout(() => ac.abort(), 12_000);
           try {
@@ -345,14 +333,28 @@ export async function buildFootballPropsOnlyTicket(
     }
   }
 
+  // Count graded BEFORE odds filter — phone empties were scoring 0 because
+  // wrong-side / null-line never produced a gradeable key.
+  const gradedCandidates = candidates.filter((p) =>
+    propsOnlyPickHasGrade(p, propHits, opts.pool),
+  );
+  const propLegsScored = gradedCandidates.length;
+
+  // Collapse Over/Under to history best-EV side, then stage through odds gate.
+  const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool);
   const propScored: BoardScoredLeg[] = [];
-  for (const pick of candidates) {
+  for (const pick of bestSides) {
     const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
     const leg = scoredLegFromHit(pick, raw, row);
     if (leg) propScored.push(leg);
   }
-  propScored.sort((a, b) => (b.rankScore ?? 0) - (a.rankScore ?? 0));
+  propScored.sort((a, b) => {
+    const evA = a.evPct ?? propsOnlyEvPct(a.pick, a.simHit) ?? -999;
+    const evB = b.evPct ?? propsOnlyEvPct(b.pick, b.simHit) ?? -999;
+    if (evB !== evA) return evB - evA;
+    return (b.rankScore ?? 0) - (a.rankScore ?? 0);
+  });
 
   const picks = stageFootballPropsOnlyLegs(propScored, opts.target);
   if (picks.length) opts.onPartialPicks?.(picks);
@@ -360,7 +362,6 @@ export async function buildFootballPropsOnlyTicket(
     opts.onStatus?.(`Scoring props… ${picks.length} of ${opts.target} cleared`);
   }
 
-  const propLegsScored = propScored.length;
   let note = "";
   if (picks.length === 0) {
     note =

@@ -6,34 +6,45 @@ import {
   FOOTBALL_PROPS_ONLY_BATCH,
   footballPropsOnlyFamilyCounts,
   footballPropsOnlyMaxCandidates,
+  isFootballPropsOnlyCandidate,
   selectFootballPropsOnlyFromPicks,
   shouldBuildFootballPropsOnlyTicket,
+  stageFootballPropsOnlyLegs,
 } from "./coachFootballPropsOnly.ts";
 import {
+  collapsePropsOnlyToBestEvSides,
   gradeFootballPropFromHistory,
   gradeFootballPropsOnlyFromHistory,
   normalizeHistorySport,
+  normalizePropsOnlyPick,
+  propsOnlyEffectiveLine,
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
 } from "./coachFootballPropsOnlyGrade.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
+import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 function pick(
   market: string,
   player: string,
-  line: number,
-  opts?: { athleteId?: string | null },
+  line: number | null,
+  opts?: {
+    athleteId?: string | null;
+    side?: "Over" | "Under";
+    odds?: number;
+  },
 ): ParsedPick {
+  const side = opts?.side ?? "Over";
   return {
     game: "Away @ Home",
     market,
     propMarketKey: market,
-    pick: `${player} Over ${line}`,
-    odds: -110,
+    pick: line != null ? `${player} ${side} ${line}` : `${player} Anytime TD`,
+    odds: opts?.odds ?? -110,
     isProp: true,
     player,
     propLine: line,
-    propSide: "Over",
+    propSide: side,
     sport: "nfl",
     athleteId: opts?.athleteId === null ? null : (opts?.athleteId ?? `ath-${player}`),
   } as ParsedPick;
@@ -96,9 +107,19 @@ test("binary TD 0/1 soft-clip clears sim grade admission", () => {
   assert.equal(pickHasSimGrade(p, clipPropSimHitForGrade(p, 1)), true);
 });
 
+test("#541 empty: null-line anytime TD normalizes to 0.5 and is a candidate", () => {
+  const nullTd = pick("player_anytime_td", "Kelce", null, { athleteId: "15847" });
+  assert.equal(propsOnlyEffectiveLine(nullTd), 0.5);
+  const norm = normalizePropsOnlyPick(nullTd);
+  assert.equal(norm.propLine, 0.5);
+  assert.equal(norm.propSide, "Over");
+  assert.equal(isFootballPropsOnlyCandidate(nullTd), true);
+  const selected = selectFootballPropsOnlyFromPicks([nullTd], 8);
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].propLine, 0.5);
+});
+
 test("phone empty after #539: prefetched history grades yards + TD without network", () => {
-  // Rebuild contract: once game logs are in hand, grading is sync and must clear
-  // pickHasSimGrade — the #539 path still died at propLegsScored=0.
   const pass = pick("player_pass_yds", "Mahomes", 250.5, { athleteId: "3139477" });
   const td = pick("player_anytime_td", "Kelce", 0.5, { athleteId: "15847" });
   const rush = pick("player_rush_yds", "Hunt", 55.5, { athleteId: "3043078" });
@@ -134,16 +155,34 @@ test("phone empty after #539: prefetched history grades yards + TD without netwo
   assert.ok(tdHit.hitProbability != null && tdHit.hitProbability > 0 && tdHit.hitProbability < 1);
 });
 
+test("null-line TD grades from history after normalize (phone #541 path)", () => {
+  const td = pick("player_anytime_td", "Kelce", null, { athleteId: "15847" });
+  const hist = {
+    recent: Array.from({ length: 8 }, (_, i) => ({
+      stats: {
+        rushingTouchdowns: "0",
+        receivingTouchdowns: i % 2 === 0 ? "1" : "0",
+        passingTouchdowns: "0",
+      },
+    })),
+  };
+  const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
+  assert.ok(graded.hitProbability != null, "null-line TD must grade at 0.5");
+  assert.equal(propsOnlyLegClearsOdds(normalizePropsOnlyPick(td), graded.hitProbability), true);
+});
+
 test("normalizeHistorySport maps Odds API keys to ESPN history ids", () => {
   assert.equal(normalizeHistorySport("americanfootball_nfl"), "nfl");
   assert.equal(normalizeHistorySport("americanfootball_ncaaf"), "ncaaf");
   assert.equal(normalizeHistorySport("NFL"), "nfl");
 });
 
-test("props-only odds gate: hit above implied clears; at/below does not", () => {
+test("props-only odds gate: hit near/above implied clears; deep underdogs do not", () => {
   const p = pick("player_pass_yds", "Mahomes", 250.5);
   assert.equal(propsOnlyLegClearsOdds(p, 0.60), true);
-  assert.equal(propsOnlyLegClearsOdds(p, 0.50), false);
+  // -110 implied ≈ 0.5238 — 50% with 2pp slack clears (short TD sample)
+  assert.equal(propsOnlyLegClearsOdds(p, 0.50), true);
+  assert.equal(propsOnlyLegClearsOdds(p, 0.48), false);
   assert.equal(propsOnlyLegClearsOdds(p, null), false);
 });
 
@@ -160,4 +199,106 @@ test("soft line + real history clears odds gate for staging", () => {
   const hit = [...hits.values()][0]?.hitProbability ?? null;
   assert.ok(hit != null && hit > 0.9, `expected high over-hit, got ${hit}`);
   assert.equal(propsOnlyLegClearsOdds(pass, hit), true);
+});
+
+test("wrong Over flips to history-backed Under (EV side rebuild)", () => {
+  // Line sits above recent yards — Over fails odds gate; Under clears.
+  const over = pick("player_pass_yds", "Mahomes", 275.5, {
+    athleteId: "3139477",
+    side: "Over",
+  });
+  const under = pick("player_pass_yds", "Mahomes", 275.5, {
+    athleteId: "3139477",
+    side: "Under",
+  });
+  const histories = {
+    "Mahomes#3139477": {
+      recent: Array.from({ length: 8 }, () => ({
+        stats: { passingYards: "240" },
+      })),
+    },
+  };
+  const hits = gradeFootballPropsOnlyFromHistory([over, under], histories);
+  const overHit = gradeFootballPropFromHistory(over, histories["Mahomes#3139477"]);
+  const underHit = gradeFootballPropFromHistory(under, histories["Mahomes#3139477"]);
+  assert.equal(propsOnlyLegClearsOdds(over, overHit.hitProbability), false);
+  assert.equal(propsOnlyLegClearsOdds(under, underHit.hitProbability), true);
+  const collapsed = collapsePropsOnlyToBestEvSides([over, under], hits);
+  assert.equal(collapsed.length, 1);
+  assert.equal(collapsed[0].propSide, "Under");
+  assert.equal(propsOnlyLegClearsOdds(collapsed[0], underHit.hitProbability), true);
+});
+
+test("8-leg props-only stages from graded best-EV sides (no empty quality bar)", () => {
+  const candidates: ParsedPick[] = [];
+  const histories: Record<string, { recent: { stats: Record<string, string> }[] }> = {};
+
+  for (let i = 0; i < 8; i++) {
+    const name = `Pass${i}`;
+    const id = `pass-${i}`;
+    const game = `Away${i} @ Home${i}`;
+    const over = {
+      ...pick("player_pass_yds", name, 220.5, { athleteId: id, side: "Over" }),
+      game,
+    };
+    const under = {
+      ...pick("player_pass_yds", name, 220.5, { athleteId: id, side: "Under" }),
+      game,
+    };
+    candidates.push(over, under);
+    histories[`${name}#${id}`] = {
+      recent: Array.from({ length: 8 }, () => ({
+        stats: { passingYards: "260" },
+      })),
+    };
+  }
+  for (let i = 0; i < 4; i++) {
+    const name = `Td${i}`;
+    const id = `td-${i}`;
+    const game = `TdAway${i} @ TdHome${i}`;
+    candidates.push({
+      ...pick("player_anytime_td", name, null, { athleteId: id, odds: 150 }),
+      game,
+    });
+    histories[`${name}#${id}`] = {
+      recent: Array.from({ length: 8 }, (_, g) => ({
+        stats: {
+          rushingTouchdowns: "0",
+          receivingTouchdowns: g % 2 === 0 ? "1" : "0",
+          passingTouchdowns: "0",
+        },
+      })),
+    };
+  }
+
+  const hits = gradeFootballPropsOnlyFromHistory(candidates, histories);
+  const best = collapsePropsOnlyToBestEvSides(candidates, hits);
+  assert.ok(best.length >= 8, `expected ≥8 best-EV sides, got ${best.length}`);
+
+  const scored: BoardScoredLeg[] = best
+    .map((p) => {
+      const hit = gradeFootballPropFromHistory(
+        p,
+        histories[`${p.player}#${p.athleteId}`],
+      ).hitProbability;
+      if (!propsOnlyLegClearsOdds(p, hit)) return null;
+      return {
+        pick: p,
+        evPct: ((hit ?? 0) - 0.52) * 100,
+        edgePct: ((hit ?? 0) - 0.52) * 100,
+        confidencePct: 60,
+        impliedProbPct: 52.4,
+        lineShoppingScore: null,
+        grade: "B",
+        simHit: hit,
+        composite: 7,
+        rankScore: 7 + ((hit ?? 0) - 0.52),
+      } as BoardScoredLeg;
+    })
+    .filter((x): x is BoardScoredLeg => !!x);
+
+  assert.ok(scored.length >= 8, `expected ≥8 scored clearing odds, got ${scored.length}`);
+  const staged = stageFootballPropsOnlyLegs(scored, 8);
+  assert.equal(staged.length, 8, "8-leg NFL props must stage — not empty quality bar");
+  assert.ok(staged.every((p) => p.propLine != null));
 });
