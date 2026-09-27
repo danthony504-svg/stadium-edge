@@ -16,7 +16,7 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
-import { pickHasSimGrade, sanitizeSimHitForGrade, parseMarketPeriod } from "./simMarketSupport.ts";
+import { pickHasSimGrade, sanitizeSimHitForGrade, parseMarketPeriod, clipPropSimHitForGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import {
   buildPropHolisticScore,
@@ -111,7 +111,8 @@ export function simHitForPick(
 ): number | null {
   if (pick.isProp) {
     if (propSimHit == null || !Number.isFinite(propSimHit)) return null;
-    return sanitizeSimHitForGrade(propSimHit, {
+    const clipped = clipPropSimHitForGrade(pick, propSimHit);
+    return sanitizeSimHitForGrade(clipped, {
       market: pick.market,
       sport: pick.sport,
       isProp: true,

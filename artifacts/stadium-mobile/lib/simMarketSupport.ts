@@ -342,7 +342,8 @@ export function logExtremeSimHit(ctx: SimHitSanityContext): void {
 /**
  * Sanitize a sim hit for grading.
  * Exact 0/1 and non-finite values are unusable for continuous markets.
- * Callers should soft-clip binary yes/no prop rates before invoking this.
+ * Callers should soft-clip binary yes/no prop rates before invoking this
+ * (see clipPropSimHitForGrade).
  * Extreme hits are logged always and rejected only when integrity evidence shows a mismatch.
  */
 export function sanitizeSimHitForGrade(
@@ -363,6 +364,35 @@ export function sanitizeSimHitForGrade(
     });
   }
   return decision.accept ? simHit : null;
+}
+
+/**
+ * Soft-clip binary yes/no prop rates (Anytime TD Over 0.5, etc.) so exact 0/1
+ * empirical hits remain gradeable. sanitizeSimHitForGrade rejects those as
+ * unusable for continuous markets — phone PROP_ALL_NO_SIM_GRADE when TD spam
+ * filled the deep-sim set with only 0/1 hits.
+ */
+export function clipPropSimHitForGrade(
+  pick: {
+    propLine?: number | null;
+    propMarketKey?: string | null;
+    market?: string | null;
+  },
+  simHit: number | null | undefined,
+): number | null {
+  if (simHit == null || !Number.isFinite(simHit)) return null;
+  const line = pick.propLine;
+  const isBinaryLine = line != null && line > 0 && line <= 0.5;
+  if (
+    isBinaryLine ||
+    /\btd\b|touchdown|goal\s*scorer|anytime/.test(
+      String(pick.propMarketKey ?? pick.market ?? "").toLowerCase(),
+    )
+  ) {
+    if (simHit <= 0) return 0.02;
+    if (simHit >= 1) return 0.98;
+  }
+  return simHit;
 }
 
 /**
