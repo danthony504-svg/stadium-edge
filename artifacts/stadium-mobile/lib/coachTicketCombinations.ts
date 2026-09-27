@@ -16,8 +16,10 @@ import { compareBoardLegsForRank, sortBoardLegsForRank } from "./coachBoardRankV
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import {
   isThinPropStatMarket,
+  maxLegsPerGame,
   maxLegsPerThinStatMarket,
   parlayCorrelationPenalty,
+  wouldExceedMaxLegsPerGame,
 } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
@@ -284,11 +286,13 @@ function pickDiverseLegsFromPool(
   while (selected.length < want && poolCopy.length) {
     let bestIdx = -1;
     let bestScore = -Infinity;
+    const maxPerGame = maxLegsPerGame(target);
     for (let i = 0; i < poolCopy.length; i++) {
       const row = poolCopy[i]!;
       const fp = pickLegFingerprint(row.pick);
       if (used.has(fp)) continue;
       if (selected.some((p) => pickLegFingerprint(p) === fp)) continue;
+      if (wouldExceedMaxLegsPerGame(row.pick, [...ticket, ...selected], maxPerGame)) continue;
 
       const corr = parlayCorrelationPenalty(row.pick, [...ticket, ...selected]);
       let effective =
@@ -311,6 +315,7 @@ function pickDiverseLegsFromPool(
       if (i === bestIdx) continue;
       const alt = poolCopy[i]!;
       if (!legsNearlyEqualEdge(chosen, alt)) continue;
+      if (wouldExceedMaxLegsPerGame(alt.pick, [...ticket, ...selected], maxPerGame)) continue;
       const corrChosen = parlayCorrelationPenalty(chosen.pick, [...ticket, ...selected]);
       const corrAlt = parlayCorrelationPenalty(alt.pick, [...ticket, ...selected]);
       const repeatChosen = samePlayerRepeatPenalty(chosen, poolCopy, ticket, selected);
@@ -402,6 +407,9 @@ function tryAppendBackfillLeg(
     isThinPropStatMarket(row.pick.market) &&
     thinOnTicket >= maxThin
   ) {
+    return null;
+  }
+  if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) {
     return null;
   }
   const corr = parlayCorrelationPenalty(row.pick, current);

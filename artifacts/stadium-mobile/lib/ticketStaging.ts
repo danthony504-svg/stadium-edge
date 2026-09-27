@@ -18,7 +18,7 @@ import {
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
-import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
+import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket, maxLegsPerGame, wouldExceedMaxLegsPerGame } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
@@ -113,18 +113,24 @@ export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
   return picks.map((p) => ({ ...p, ticketRole: ticketRoleForPick(p) }));
 }
 
-/** Greedy top-N by rank — no correlation penalty (used to fill alt gaps to reach N). */
+/** Greedy top-N by rank — no correlation penalty (used to fill alt gaps to reach N).
+ * Still respects max-legs-per-game so top-up cannot re-concentrate on 2 matchups.
+ */
 export function selectGreedyBoardLegs(
   ranked: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  existing: ParsedPick[] = [],
+  ticketTarget?: number,
 ): ParsedPick[] {
-  const seen = new Set<string>();
+  const seen = new Set(existing.map(pickLegFingerprint));
   const out: ParsedPick[] = [];
+  const maxPerGame = maxLegsPerGame(ticketTarget ?? Math.max(target, existing.length + target));
   const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
   for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
     if (seen.has(fp)) continue;
+    if (wouldExceedMaxLegsPerGame(row.pick, [...existing, ...out], maxPerGame)) continue;
     seen.add(fp);
     out.push(row.pick);
     if (out.length >= target) break;
@@ -152,11 +158,26 @@ export function topUpTicketFromQualifiedScored(
     leftover.push(leg);
   }
   if (!leftover.length) return picks.slice(0, target);
-  const extra = selectGreedyBoardLegs(leftover, target - picks.length, varietySeed);
-  if (!extra.length) return picks.slice(0, target);
-  return tagTicketRoles(
-    dedupeSameTeamGameLegsLite([...picks, ...extra]).slice(0, target),
+  const extra = selectGreedyBoardLegs(
+    leftover,
+    target - picks.length,
+    varietySeed,
+    picks,
+    target,
   );
+  if (!extra.length) return picks.slice(0, target);
+  const usedFp = new Set(picks.map(pickLegFingerprint));
+  const merged = [...picks];
+  for (const p of extra) {
+    const fp = pickLegFingerprint(p);
+    if (usedFp.has(fp)) continue;
+    usedFp.add(fp);
+    merged.push(p);
+    if (merged.length >= target) break;
+  }
+  // Do not re-run same-team period collapse on the whole ticket — that would
+  // wipe Q1+1H seats the per-game cap intentionally allows (max 2).
+  return tagTicketRoles(merged.slice(0, target));
 }
 
 /** Hard cap on niche stat markets so SB stacks cannot dominate a ticket. */
@@ -192,7 +213,10 @@ export function selectTopBoardLegs(
     const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
     if (!remaining.length) break;
 
-    const next = selectCorrelationAwareBoardLegs(remaining, 1);
+    const next = selectCorrelationAwareBoardLegs(remaining, 1, {
+      ticketTarget: target,
+      existing: out,
+    });
     if (!next.length) break;
 
     const pick = next[0]!;
@@ -210,7 +234,13 @@ export function selectTopBoardLegs(
   if (out.length < target) {
     const usedFpFinal = new Set(out.map(pickLegFingerprint));
     const remaining = sorted.filter((r) => !usedFpFinal.has(pickLegFingerprint(r.pick)));
-    const greedy = selectGreedyBoardLegs(remaining, target - out.length, varietySeed);
+    const greedy = selectGreedyBoardLegs(
+      remaining,
+      target - out.length,
+      varietySeed,
+      out,
+      target,
+    );
     if (greedy.length) {
       return dedupeSameTeamGameLegsLite([...out, ...greedy]).slice(0, target);
     }
@@ -244,6 +274,7 @@ function applyCapAndBackfillToTarget(
     if (used.has(fp)) continue;
     const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
     if (!role) continue;
+    if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) continue;
     const trial = capThinStatMarketsOnTicket(
       [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
       target,
@@ -263,12 +294,14 @@ function applyCapAndBackfillToTarget(
       if (thinOnTicket >= maxThin && row.pick.isProp && isThinPropStatMarket(row.pick.market)) {
         return false;
       }
+      if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) return false;
       return boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
     });
     for (const row of nonThin) {
       if (current.length >= target) break;
       const fp = pickLegFingerprint(row.pick);
       if (used.has(fp)) continue;
+      if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) continue;
       const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
       const trial = capThinStatMarketsOnTicket(
         [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
