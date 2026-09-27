@@ -9,6 +9,11 @@ import {
   selectFootballPropsOnlyFromPicks,
   shouldBuildFootballPropsOnlyTicket,
 } from "./coachFootballPropsOnly.ts";
+import {
+  gradeFootballPropFromHistory,
+  gradeFootballPropsOnlyFromHistory,
+  propsOnlyPickHasGrade,
+} from "./coachFootballPropsOnlyGrade.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 
 function pick(
@@ -87,4 +92,42 @@ test("binary TD 0/1 soft-clip clears sim grade admission", () => {
   assert.equal(pickHasSimGrade(p, 0), false);
   assert.equal(pickHasSimGrade(p, clipPropSimHitForGrade(p, 0)), true);
   assert.equal(pickHasSimGrade(p, clipPropSimHitForGrade(p, 1)), true);
+});
+
+test("phone empty after #539: prefetched history grades yards + TD without network", () => {
+  // Rebuild contract: once game logs are in hand, grading is sync and must clear
+  // pickHasSimGrade — the #539 path still died at propLegsScored=0.
+  const pass = pick("player_pass_yds", "Mahomes", 250.5, { athleteId: "3139477" });
+  const td = pick("player_anytime_td", "Kelce", 0.5, { athleteId: "15847" });
+  const rush = pick("player_rush_yds", "Hunt", 55.5, { athleteId: "3043078" });
+
+  const histories = {
+    "Mahomes#3139477": {
+      recent: Array.from({ length: 8 }, (_, i) => ({
+        stats: { passingYards: String(260 + (i % 3) * 20) },
+      })),
+    },
+    "Kelce#15847": {
+      recent: Array.from({ length: 8 }, (_, i) => ({
+        stats: {
+          rushingTouchdowns: "0",
+          receivingTouchdowns: i % 2 === 0 ? "1" : "0",
+          passingTouchdowns: "0",
+        },
+      })),
+    },
+    "Hunt#3043078": {
+      recent: Array.from({ length: 8 }, (_, i) => ({
+        stats: { rushingYards: String(40 + i * 5) },
+      })),
+    },
+  };
+
+  const hits = gradeFootballPropsOnlyFromHistory([pass, td, rush], histories);
+  assert.ok(propsOnlyPickHasGrade(pass, hits), "pass yards must clear sim grade from history");
+  assert.ok(propsOnlyPickHasGrade(td, hits), "anytime TD must clear after soft-clip");
+  assert.ok(propsOnlyPickHasGrade(rush, hits), "rush yards must clear sim grade from history");
+
+  const tdHit = gradeFootballPropFromHistory(td, histories["Kelce#15847"]);
+  assert.ok(tdHit.hitProbability != null && tdHit.hitProbability > 0 && tdHit.hitProbability < 1);
 });
