@@ -51,8 +51,8 @@ test("askRequiresFootballPropMix: bare NFL/NCAAF asks need a prop mix", () => {
   assert.equal(askRequiresFootballPropMix("6 leg nba"), false);
 });
 
-test("phone screenshot: final football mix with 0 props refuses GL-only board", () => {
-  // Rebuild: never publish "6 game-line picks" when props did not finish.
+test("phone screenshot: final football mix delivers scored GLs when props miss", () => {
+  // Rebuild: never wipe 9 scored game lines into SCORED_BUT_NOT_STAGED empty.
   assert.equal(
     shouldReservePropSeats({
       targetLegs: 10,
@@ -61,7 +61,7 @@ test("phone screenshot: final football mix with 0 props refuses GL-only board", 
     }),
     true,
   );
-  const gameHeavy = Array.from({ length: 10 }, (_, i) => ({
+  const gameHeavy = Array.from({ length: 9 }, (_, i) => ({
     isProp: false,
     sport: "nfl",
     market: "Spread",
@@ -72,7 +72,8 @@ test("phone screenshot: final football mix with 0 props refuses GL-only board", 
   assert.equal(preview.filter((p) => p.isProp).length, 0);
 
   const final = finalizeFootballPropMixPicks(gameHeavy, 10);
-  assert.equal(final.length, 0, "final must refuse spreads-only when mix required");
+  assert.equal(final.length, 9, "must deliver cleared game lines when props miss");
+  assert.equal(final.filter((p) => p.isProp).length, 0);
 });
 
 test("final football ticket with scored props keeps them and still caps GL fill", () => {
@@ -113,6 +114,20 @@ test("final football ticket with scored props keeps them and still caps GL fill"
   assert.ok(capped.length > 0, "mixed ticket with props must publish");
 });
 
+test("football mix note when GLs deliver after props miss is honest", () => {
+  const note = buildFinalCoachParlayNote({
+    target: 10,
+    picks: Array.from({ length: 9 }, () => ({ isProp: false, market: "Spread" })),
+    propPoolSize: 200,
+    propsPending: false,
+    requirePropMix: true,
+    shortfallLead: buildFixedLegCountShortfallLead(10, 9),
+  });
+  assert.match(note, /game-line pick/i);
+  assert.doesNotMatch(note, /no game-line filler was added/i);
+  assert.doesNotMatch(note, /SCORED_BUT_NOT_STAGED/);
+});
+
 test("football mix note never says showing N game-line picks", () => {
   const note = buildFinalCoachParlayNote({
     target: 10,
@@ -122,8 +137,8 @@ test("football mix note never says showing N game-line picks", () => {
     requirePropMix: true,
     shortfallLead: buildFixedLegCountShortfallLead(10, 0),
   });
-  assert.match(note, /no game-line filler was added/i);
-  assert.doesNotMatch(note, /showing \d+ game-line/i);
+  assert.match(note, /prop scoring did not finish/i);
+  assert.doesNotMatch(note, /showing \d+ game-line/);
 });
 
 test("7-leg reserved prop slots leave exactly 3 game-line preview capacity", () => {
