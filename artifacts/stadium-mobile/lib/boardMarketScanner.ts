@@ -13,7 +13,7 @@ import {
 } from "./coachBoardScanManifest.ts";
 import { filterBettableOddsGames, filterBettablePropPool } from "./slate.ts";
 import { bindOddsLabelsToTeamIdMap } from "./coachTeamIdResolve.ts";
-import { fetchSlateGameSimulations, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
+import { fetchSlateGameSimulationsWithStatus, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import {
   buildEvalLinesForAllGames,
   evaluateGameLines,
@@ -209,6 +209,12 @@ export type FullBoardScanResult = {
     scoredBeforeStage: number;
     /** When true, gameSimsLoaded=0 is expected (game slate skipped). */
     propsOnly?: boolean;
+    requirePropMix?: boolean;
+    gameSimsAttempted?: boolean;
+    oddsLabelsBound?: number;
+    oddsLabelsUnresolved?: number;
+    gameSimsFetchNull?: number;
+    gameSimsTimedOut?: number;
   };
   /** HR board ranking diagnostics — selected vs next-best components. */
   hrRankDiagnostics?: ReturnType<typeof hrSelectionDiagnostics>;
@@ -806,6 +812,7 @@ export function buildScanResult(
           stagedPickCount: picks.length,
           propPhaseIncomplete: opts.propPhaseIncomplete,
           propsOnly: opts.propsOnly ?? opts.failureDiagnostics.propsOnly,
+          requirePropMix: opts.requirePropMix ?? opts.failureDiagnostics.requirePropMix,
         })
       : null;
   const noteWithTrace =
@@ -907,9 +914,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
 
-  // Pre-bind odds labels → ESPN ids so slate sims hit direct keys (rebuild:
-  // fuzzy resolve under time pressure left 0/15 sims bound with a healthy map).
-  bindOddsLabelsToTeamIdMap(
+  // Pre-bind odds labels → ESPN ids so slate sims hit direct keys. Capture
+  // bind counts — map.size alone overstates health (many keys per game).
+  const oddsBind = bindOddsLabelsToTeamIdMap(
     opts.teamIdMap as unknown as Map<
       string,
       import("./coachTeamIdResolve.ts").CoachGameTeamIds
@@ -1081,7 +1088,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   // Prefetched prop boards score in PARALLEL with game lines so the absolute
   // Coach budget cannot starve either path. Serial props-first (#529) burned
   // the wall clock on props then aborted before game sims — phone empty ticket
-  // with fake TEAM_IDS_UNRESOLVED. Football mix still KEEDS reserved prop seats
+  // with fake TEAM_IDS_UNRESOLVED. Football mix still KEEPS reserved prop seats
   // open on the final ticket (applyReservedPropSeatCap) so spreads cannot pad.
   let propPhaseP: Promise<{
     propScored: BoardScoredLeg[];
@@ -1109,32 +1116,43 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   }
 
   let gameSimsAttempted = false;
+  let gameSimsFetchNull = 0;
+  let gameSimsTimedOut = 0;
+  let slateUnresolved = 0;
   if (!opts.propsOnly) {
     gameSimsAttempted = gameEntries.length > 0;
+    // Football mix: give the slate enough wall clock that a slow first batch
+    // cannot zero every sim (old 20s batch race + 32s phase → 0/15 bound).
     const gamePhaseBudgetMs =
-      overlapProps || opts.requirePropMix ? boardScanGamePhaseBudgetMs(opts.target) : null;
+      overlapProps || opts.requirePropMix
+        ? Math.max(boardScanGamePhaseBudgetMs(opts.target), 48_000)
+        : null;
     const gamePhaseStartedAt = Date.now();
-    for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
+    // Larger batches under a shared budget — per-game try/catch inside
+    // fetchSlateGameSimulationsWithStatus; no whole-batch Promise.race discard.
+    const SLATE_SIM_BATCH_REBUILD = opts.requirePropMix ? 4 : SLATE_SIM_BATCH;
+    for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH_REBUILD) {
       if (opts.signal?.aborted) break;
-      if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) break;
-      const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
+      if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) {
+        gameSimsTimedOut += gameEntries.length - i;
+        break;
+      }
+      const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH_REBUILD);
       try {
-        const batchSims = await Promise.race([
-          fetchSlateGameSimulations(
-            new Map(batch),
-            opts.teamIdMap,
-            opts.signal,
-          ),
-          new Promise<Map<string, CoachGameSimEntry>>((_, reject) =>
-            setTimeout(() => reject(new Error("game-sim-batch-timeout")), 20_000),
-          ),
-        ]);
-        for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
+        const batchResult = await fetchSlateGameSimulationsWithStatus(
+          new Map(batch),
+          opts.teamIdMap,
+          opts.signal,
+        );
+        for (const [label, sim] of batchResult.sims) gameSimulations.set(label, sim);
+        gameSimsFetchNull += batchResult.fetchNull.length;
+        slateUnresolved += batchResult.unresolved.length;
         scoreGamesAndMaybePartial(batch.map(([game]) => game));
       } catch {
         // Keep scanning remaining games + props. A thrown slate batch used to
         // abort buildTopLegsFromFullBoardScan → tryReachFullBoardScan(null) →
         // instant 0-of-N on phone.
+        gameSimsFetchNull += batch.length;
         continue;
       }
     }
@@ -1207,6 +1225,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     propsOnly: !!opts.propsOnly,
     requirePropMix: !!opts.requirePropMix,
     gameSimsAttempted,
+    oddsLabelsBound: oddsBind.bound,
+    oddsLabelsUnresolved: Math.max(oddsBind.unresolved.length, slateUnresolved),
+    gameSimsFetchNull,
+    gameSimsTimedOut,
   };
   const result = buildScanResult(collapsed, {
     target: opts.target,

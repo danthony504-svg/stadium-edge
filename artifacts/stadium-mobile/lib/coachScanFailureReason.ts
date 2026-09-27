@@ -1,9 +1,10 @@
 /**
  * Traceable Coach empty-ticket reasons.
  *
- * Phone kept showing a generic "quality bar" empty after #470/#471 while the
- * real failure was upstream (team ids / sims / scan abort). Surface a stable
- * code + detail so we can diagnose without guessing.
+ * Rebuild (post-#530): TEAM_IDS_UNRESOLVED must mean labels actually failed to
+ * bind — never a stand-in for prop-phase starvation, game-sim timeouts, or
+ * football prop-mix empties. "10 leg NFL" is requirePropMix: empty tickets are
+ * PROP_* (or honest GAME_SIMS_*), never fake TEAM_IDS with a healthy map size.
  */
 
 export type CoachScanFailureCode =
@@ -11,6 +12,8 @@ export type CoachScanFailureCode =
   | "NO_ODDS_GAMES"
   | "TEAM_ID_MAP_EMPTY"
   | "TEAM_IDS_UNRESOLVED"
+  | "GAME_SIMS_TIMED_OUT"
+  | "GAME_SIMS_FETCH_EMPTY"
   | "GAME_SIMS_ALL_NULL"
   | "GAME_LINES_NO_SIM_GRADE"
   | "PROP_POOL_EMPTY"
@@ -38,17 +41,23 @@ export type CoachScanFailureDiagnostics = {
   propLegsScored?: number;
   propPhaseIncomplete?: boolean;
   scoredBeforeStage?: number;
-  stagedPickCount?: number;
   /**
    * Props-only asks skip game-line Monte Carlo entirely. Football prop-mix
    * asks (requirePropMix) still run game sims, but props are the primary
-   * delivery path — do not misread gameSimsLoaded=0 as TEAM_IDS_UNRESOLVED
-   * when a prop pool existed and props failed / incomplete.
+   * delivery path — never misread gameSimsLoaded=0 as TEAM_IDS_UNRESOLVED.
    */
   propsOnly?: boolean;
   requirePropMix?: boolean;
   /** True when the scan actually entered the game-slate sim loop. */
   gameSimsAttempted?: boolean;
+  /** Odds labels that failed ESPN id bind after pre-bind + fuzzy resolve. */
+  oddsLabelsUnresolved?: number;
+  /** Odds labels that successfully bound to ESPN ids before slate fetch. */
+  oddsLabelsBound?: number;
+  /** Games whose ids resolved but fetch returned null / threw. */
+  gameSimsFetchNull?: number;
+  /** Games skipped because the game-phase wall clock / batch budget expired. */
+  gameSimsTimedOut?: number;
 };
 
 /** Prefer the earliest structural failure over a generic quality-bar empty. */
@@ -80,12 +89,17 @@ export function deriveCoachScanFailureReason(
   const propPoolCount = d.propPoolSize ?? 0;
   const propScoredCount = d.propLegsScored ?? 0;
   const scoredCount = d.scoredBeforeStage ?? gameScoredCount + propScoredCount;
-  // Game-line sim codes only when we actually attempted the game-slate phase
-  // and props are not the primary delivery path.
+  const unresolvedLabels = d.oddsLabelsUnresolved ?? 0;
+  const boundLabels = d.oddsLabelsBound ?? 0;
+  const fetchNull = d.gameSimsFetchNull ?? 0;
+  const timedOutSims = d.gameSimsTimedOut ?? 0;
+  // Football prop-mix + props-only: props are the delivery contract. Never
+  // blame TEAM_IDS when the ask was props-primary (screenshot: 15/60/0).
+  const propsPrimary = !!d.propsOnly || !!d.requirePropMix;
+  // Game-line sim codes only when we attempted the game slate and props are
+  // not the primary delivery path.
   const gameSimsMatter =
-    !d.propsOnly &&
-    !(d.requirePropMix && propPoolCount > 0) &&
-    d.gameSimsAttempted !== false;
+    !propsPrimary && d.gameSimsAttempted !== false;
 
   if (oddsCount <= 0 && gameCount <= 0) {
     return { code: "NO_ODDS_GAMES", detail: "no bettable odds games on the loaded board" };
@@ -99,16 +113,67 @@ export function deriveCoachScanFailureReason(
         " game(s) but ESPN team-id map was empty — game sims never ran",
     };
   }
-  if (gameSimsMatter && teamIdCount > 0 && gameCount > 0 && simCount <= 0) {
+
+  // Honest TEAM_IDS: only when nearly every odds label failed bind AND we
+  // cared about game sims. Map size alone proves nothing (one game → many keys).
+  if (
+    gameSimsMatter &&
+    teamIdCount > 0 &&
+    gameCount > 0 &&
+    simCount <= 0 &&
+    unresolvedLabels > 0 &&
+    unresolvedLabels >= Math.max(1, gameCount - boundLabels)
+  ) {
     return {
       code: "TEAM_IDS_UNRESOLVED",
+      detail:
+        unresolvedLabels +
+        " of " +
+        gameCount +
+        " odds game label(s) failed ESPN id bind (" +
+        teamIdCount +
+        " map keys)",
+    };
+  }
+
+  if (gameSimsMatter && gameCount > 0 && simCount <= 0 && timedOutSims > 0) {
+    return {
+      code: "GAME_SIMS_TIMED_OUT",
+      detail:
+        timedOutSims +
+        " of " +
+        gameCount +
+        " game sim(s) hit the phase budget before a draw returned",
+    };
+  }
+
+  if (
+    gameSimsMatter &&
+    gameCount > 0 &&
+    simCount <= 0 &&
+    (fetchNull > 0 || boundLabels > 0)
+  ) {
+    return {
+      code: "GAME_SIMS_FETCH_EMPTY",
+      detail:
+        (boundLabels || gameCount) +
+        " game(s) had ESPN ids but 0 Monte Carlo draws returned usable grades",
+    };
+  }
+
+  // Legacy: 0 sims with a map, no bind counters (older callers) — still not
+  // TEAM_IDS when props-primary.
+  if (gameSimsMatter && teamIdCount > 0 && gameCount > 0 && simCount <= 0) {
+    return {
+      code: "GAME_SIMS_FETCH_EMPTY",
       detail:
         gameCount +
         " odds game(s) on board, " +
         teamIdCount +
-        " ESPN id entries, 0 game sims bound — labels did not resolve",
+        " map keys, 0 game sims loaded — bind/fetch produced nothing",
     };
   }
+
   if (gameSimsMatter && simCount > 0 && gameScoredCount <= 0 && droppedNoSimCount > 0) {
     return {
       code: "GAME_LINES_NO_SIM_GRADE",
@@ -128,7 +193,9 @@ export function deriveCoachScanFailureReason(
   if (propPoolCount <= 0 && gameScoredCount <= 0) {
     return {
       code: "PROP_POOL_EMPTY",
-      detail: "prop/alt pool was empty and no game lines cleared",
+      detail: propsPrimary
+        ? "football/prop ask had an empty prop pool and no game lines cleared"
+        : "prop/alt pool was empty and no game lines cleared",
     };
   }
   if (propPoolCount > 0 && propScoredCount <= 0 && d.propPhaseIncomplete) {

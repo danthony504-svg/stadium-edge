@@ -66,6 +66,7 @@ test("fetchSlateGameSimulations catches per-game failures", () => {
   const src = readFileSync(join(root, "lib/coachGameMonteCarlo.ts"), "utf8");
   assert.match(src, /One game timeout\/network failure must not abort the whole slate/);
   assert.match(src, /try \{[\s\S]*fetchGameOutcomeSimulation[\s\S]*\} catch/);
+  assert.match(src, /fetchSlateGameSimulationsWithStatus/);
 });
 
 test("board scan game phase continues after a thrown slate batch", () => {
@@ -73,8 +74,10 @@ test("board scan game phase continues after a thrown slate batch", () => {
   assert.match(src, /Keep scanning remaining games \+ props/);
   assert.match(src, /incomplete: boolean/);
   assert.match(src, /Start the prop MC clock AFTER sync ranking/);
+  // Rebuild: no whole-batch 20s race that discarded every sim as TEAM_IDS.
+  assert.match(src, /fetchSlateGameSimulationsWithStatus/);
+  assert.doesNotMatch(src, /game-sim-batch-timeout/);
 });
-
 
 test("board scan passes liveOdds as one mergeOddsEntries source (SCAN_THREW)", () => {
   const src = readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");

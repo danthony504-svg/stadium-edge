@@ -44,9 +44,13 @@ function teamAlias(s: string): string {
   if (n === "usa" || n === "us" || n === "united states of america") return "united states";
   if (n === "korea republic" || n === "south korea" || n === "korea") return "korea";
   if (n === "ivory coast" || n === "cote d ivoire" || n === "cote divoire") return "cote divoire";
-  // NFL city / brand drift
+  // NFL city / brand drift (Odds abbrs ↔ ESPN full names)
   if (n === "la" || n === "los angeles") return "los angeles";
+  if (n === "la rams" || n === "los angeles rams") return "los angeles rams";
+  if (n === "la chargers" || n === "los angeles chargers") return "los angeles chargers";
   if (n === "ny" || n === "new york") return "new york";
+  if (n === "ny giants" || n === "new york giants") return "new york giants";
+  if (n === "ny jets" || n === "new york jets") return "new york jets";
   if (n === "tb" || n === "tampa" || n === "tampa bay") return "tampa bay";
   if (n === "ne" || n === "new england") return "new england";
   if (n === "gb" || n === "green bay") return "green bay";
@@ -54,7 +58,15 @@ function teamAlias(s: string): string {
   if (n === "sf" || n === "san francisco") return "san francisco";
   if (n === "lv" || n === "las vegas") return "las vegas";
   if (n === "jax" || n === "jacksonville") return "jacksonville";
-  if (n === "wsh" || n === "was" || n === "washington") return "washington";
+  if (
+    n === "wsh" ||
+    n === "was" ||
+    n === "washington" ||
+    n === "washington commanders" ||
+    n === "washington football team"
+  ) {
+    return "washington";
+  }
   return n;
 }
 
@@ -89,9 +101,23 @@ export function coachTeamNickname(team: string): string {
   return (parts[parts.length - 1] ?? team).toLowerCase();
 }
 
+function sportFamily(s: string): string {
+  const n = String(s ?? "")
+    .toLowerCase()
+    .trim();
+  if (!n) return "";
+  if (n === "nfl" || n === "football" || n.includes("americanfootball_nfl")) return "nfl";
+  if (n === "ncaaf" || n === "cfb" || n.includes("americanfootball_ncaaf")) return "ncaaf";
+  if (n.startsWith("soccer") || n.includes("soccer_")) return "soccer";
+  return n;
+}
+
 function sameSportFamily(ask: string | undefined, mapped: string): boolean {
   if (!ask || !mapped) return true;
   if (ask === mapped) return true;
+  const a = sportFamily(ask);
+  const b = sportFamily(mapped);
+  if (a && b && a === b) return true;
   if (ask.startsWith("soccer") && mapped.startsWith("soccer")) return true;
   return false;
 }

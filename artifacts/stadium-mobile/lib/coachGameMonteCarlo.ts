@@ -168,24 +168,83 @@ export async function fetchCoachGameSimulationsForPicks(
   return out;
 }
 
+/** Per-game outcome of a slate Monte Carlo attempt. */
+export type SlateGameSimStatus = {
+  gameLabel: string;
+  /** ESPN ids resolved for this odds label. */
+  resolved: boolean;
+  /** Monte Carlo draw landed in the output map. */
+  loaded: boolean;
+  /** Ids resolved but API returned null or threw. */
+  fetchNull: boolean;
+};
+
+export type SlateGameSimBatchResult = {
+  sims: Map<string, CoachGameSimEntry>;
+  /** Labels that failed ESPN id resolve. */
+  unresolved: string[];
+  /** Labels that resolved ids. */
+  resolved: string[];
+  /** Resolved but fetch returned nothing / threw. */
+  fetchNull: string[];
+  statuses: SlateGameSimStatus[];
+};
+
 /** 10k sim for every game on the slate — all eval-ladder rungs scored in one draw per game. */
 export async function fetchSlateGameSimulations(
   evalLinesByGame: Map<string, RealOddsEntry[]>,
   teamIdsByGame: Map<string, GameTeamIds>,
   signal?: AbortSignal,
 ): Promise<Map<string, CoachGameSimEntry>> {
+  const batch = await fetchSlateGameSimulationsWithStatus(
+    evalLinesByGame,
+    teamIdsByGame,
+    signal,
+  );
+  return batch.sims;
+}
+
+/**
+ * Rebuild of slate fetch: per-game bind/fetch status so Coach never collapses
+ * "API null / timeout / unresolved" into a single fake TEAM_IDS_UNRESOLVED.
+ */
+export async function fetchSlateGameSimulationsWithStatus(
+  evalLinesByGame: Map<string, RealOddsEntry[]>,
+  teamIdsByGame: Map<string, GameTeamIds>,
+  signal?: AbortSignal,
+): Promise<SlateGameSimBatchResult> {
   const out = new Map<string, CoachGameSimEntry>();
+  const unresolved: string[] = [];
+  const resolved: string[] = [];
+  const fetchNull: string[] = [];
+  const statuses: SlateGameSimStatus[] = [];
   const entries = [...evalLinesByGame.entries()];
   const SLATE_SIM_CONCURRENCY = 4;
 
   async function simGame([gameLabel, lines]: [string, RealOddsEntry[]]) {
-    if (!lines.length) return;
+    if (!lines.length) {
+      unresolved.push(gameLabel);
+      statuses.push({
+        gameLabel,
+        resolved: false,
+        loaded: false,
+        fetchNull: false,
+      });
+      return;
+    }
     const sport = lines[0]?.sport;
     const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
     if (!ids) {
-      // No ESPN ids for this odds label — cannot run game MC (was silent empty ticket).
+      unresolved.push(gameLabel);
+      statuses.push({
+        gameLabel,
+        resolved: false,
+        loaded: false,
+        fetchNull: false,
+      });
       return;
     }
+    resolved.push(gameLabel);
 
     const seen = new Set<string>();
     const coverQueries: GameCoverQuery[] = [];
@@ -202,7 +261,16 @@ export async function fetchSlateGameSimulations(
       seen.add(q.id);
       coverQueries.push(q);
     }
-    if (!coverQueries.length) return;
+    if (!coverQueries.length) {
+      fetchNull.push(gameLabel);
+      statuses.push({
+        gameLabel,
+        resolved: true,
+        loaded: false,
+        fetchNull: true,
+      });
+      return;
+    }
 
     // One game timeout/network failure must not abort the whole slate —
     // that collapsed Coach to an instant 0-leg ticket (phone 7-leg empty).
@@ -220,9 +288,31 @@ export async function fetchSlateGameSimulations(
         },
         signal,
       );
-      if (result) out.set(gameLabel, result as CoachGameSimEntry);
+      if (result) {
+        out.set(gameLabel, result as CoachGameSimEntry);
+        statuses.push({
+          gameLabel,
+          resolved: true,
+          loaded: true,
+          fetchNull: false,
+        });
+      } else {
+        fetchNull.push(gameLabel);
+        statuses.push({
+          gameLabel,
+          resolved: true,
+          loaded: false,
+          fetchNull: true,
+        });
+      }
     } catch {
-      // Skip this game; siblings in the concurrent batch keep scoring.
+      fetchNull.push(gameLabel);
+      statuses.push({
+        gameLabel,
+        resolved: true,
+        loaded: false,
+        fetchNull: true,
+      });
     }
   }
 
@@ -231,7 +321,7 @@ export async function fetchSlateGameSimulations(
     await Promise.all(entries.slice(i, i + SLATE_SIM_CONCURRENCY).map(simGame));
   }
 
-  return out;
+  return { sims: out, unresolved, resolved, fetchNull, statuses };
 }
 
 /** Fetch 10k sim for game-line legs whose games are missing from an existing map. */
