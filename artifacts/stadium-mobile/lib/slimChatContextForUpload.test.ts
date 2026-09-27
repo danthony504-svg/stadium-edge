@@ -103,6 +103,18 @@ test("slimChatContextForUpload drops heavy upload-only fields", () => {
   assert.equal(slim.matchupHistory?.["Away Team @ Home Team"]?.home, null);
 });
 
+test("slimChatContextForUpload preserves mlbTeamPlatoon and opponentDefense", () => {
+  const game = "Away Team @ Home Team";
+  const ctx = heavyContext();
+  ctx.mlbTeamPlatoon = { [game]: { game, offenseLean: "away" } };
+  ctx.opponentDefense = { "mlb#99": { teamName: "Opp", defensive: {} } };
+  ctx.teamPeriodStats = { "nba#1": { sampleSize: 10, periodAverages: { q1: { scored: 28, allowed: 26 } } } };
+  const slim = slimChatContextForUpload(ctx);
+  assert.equal(slim.mlbTeamPlatoon?.[game]?.offenseLean, "away");
+  assert.equal(slim.opponentDefense?.["mlb#99"]?.teamName, "Opp");
+  assert.equal(slim.teamPeriodStats?.["nba#1"]?.sampleSize, 10);
+});
+
 test("slimChatContextForUpload preserves pre-build selection signals on props", () => {
   const ctx = heavyContext();
   ctx.realProps[0] = {

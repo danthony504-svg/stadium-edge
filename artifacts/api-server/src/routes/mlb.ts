@@ -2,6 +2,11 @@ import { Router, type IRouter } from "express";
 import { cachedJson } from "../lib/sports";
 import { getPitcherStatcastMap, lookupPitcherStatcast } from "../lib/statcast";
 import { MLB_PARKS } from "../lib/parks";
+import {
+  buildMlbGamePlatoonCompare,
+  compactGamePlatoonForUpload,
+  fetchTeamBattingSplits,
+} from "../lib/mlbTeamPlatoon";
 
 const router: IRouter = Router();
 
@@ -306,6 +311,70 @@ router.get("/sports/mlb-probables", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "Failed to fetch mlb probables");
     res.json({ probables: {} });
+  }
+});
+
+// GET /sports/mlb-team-batting-splits?team=Yankees
+router.get("/sports/mlb-team-batting-splits", async (req, res): Promise<void> => {
+  const team = String(req.query.team || "").trim();
+  if (!team) {
+    res.status(400).json({ error: "team required" });
+    return;
+  }
+  try {
+    const key = `mlb-team-batting-splits:${team.toLowerCase()}`;
+    const out = await cachedJson(key, 60 * 60 * 1000, () => fetchTeamBattingSplits(team));
+    res.json(out);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch mlb team batting splits");
+    res.json({ team, vsLeft: null, vsRight: null });
+  }
+});
+
+// GET /sports/mlb-game-platoon-compare?awayTeam=&homeTeam=&awayTeamId=&homeTeamId=&game=
+router.get("/sports/mlb-game-platoon-compare", async (req, res): Promise<void> => {
+  const awayTeam = String(req.query.awayTeam || "").trim();
+  const homeTeam = String(req.query.homeTeam || "").trim();
+  const game = String(req.query.game || `${awayTeam} @ ${homeTeam}`).trim();
+  const awayTeamId = String(req.query.awayTeamId || "");
+  const homeTeamId = String(req.query.homeTeamId || "");
+  if (!awayTeam || !homeTeam) {
+    res.status(400).json({ error: "awayTeam and homeTeam required" });
+    return;
+  }
+  try {
+    const key = `mlb-game-platoon:${game.toLowerCase()}`;
+    const out = await cachedJson(key, 30 * 60 * 1000, async () => {
+      const pdata = await cachedJson<{
+        probables?: Record<string, { name?: string; throws?: string | null; tendency?: PitcherTendency | null }>;
+      }>("mlb-probables", 30 * 60 * 1000, async () => ({ probables: {} }));
+      const probables = pdata?.probables ?? {};
+      const homeStarter = homeTeamId && probables[homeTeamId]
+        ? {
+            name: probables[homeTeamId]!.name ?? null,
+            throws: (probables[homeTeamId]!.throws as "Left" | "Right" | null) ?? null,
+            tendency: probables[homeTeamId]!.tendency ?? null,
+          }
+        : null;
+      const awayStarter = awayTeamId && probables[awayTeamId]
+        ? {
+            name: probables[awayTeamId]!.name ?? null,
+            throws: (probables[awayTeamId]!.throws as "Left" | "Right" | null) ?? null,
+            tendency: probables[awayTeamId]!.tendency ?? null,
+          }
+        : null;
+      return buildMlbGamePlatoonCompare({
+        game,
+        awayTeam,
+        homeTeam,
+        homePitcher: homeStarter,
+        awayPitcher: awayStarter,
+      });
+    });
+    res.json(out ? { ...out, compact: compactGamePlatoonForUpload(out) } : null);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch mlb game platoon compare");
+    res.json(null);
   }
 });
 
