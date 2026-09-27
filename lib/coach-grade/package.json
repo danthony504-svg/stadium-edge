@@ -1,0 +1,20 @@
+{
+  "name": "@workspace/coach-grade",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@workspace/coach-gates": "workspace:*",
+    "@workspace/coach-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}
