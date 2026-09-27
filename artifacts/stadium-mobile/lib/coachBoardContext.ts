@@ -13,6 +13,7 @@ import {
 } from "./api.ts";
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
+import { normalizeHistorySport } from "./coachFootballPropsOnlyGrade.ts";
 
 function gameLabel(away: string, home: string): string {
   return `${away} @ ${home}`;
@@ -113,7 +114,7 @@ export async function prefetchPropPlayerHistory(
     await Promise.all(
       batch.map(async (e) => {
         const athleteId = String(e.athleteId);
-        const sport = String(e.sport ?? "").toLowerCase();
+        const sport = normalizeHistorySport(e.sport);
         if (!sport) return;
         try {
           const h = await getPlayerHistory(

@@ -12,6 +12,8 @@ import {
 import {
   gradeFootballPropFromHistory,
   gradeFootballPropsOnlyFromHistory,
+  normalizeHistorySport,
+  propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
 } from "./coachFootballPropsOnlyGrade.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
@@ -130,4 +132,32 @@ test("phone empty after #539: prefetched history grades yards + TD without netwo
 
   const tdHit = gradeFootballPropFromHistory(td, histories["Kelce#15847"]);
   assert.ok(tdHit.hitProbability != null && tdHit.hitProbability > 0 && tdHit.hitProbability < 1);
+});
+
+test("normalizeHistorySport maps Odds API keys to ESPN history ids", () => {
+  assert.equal(normalizeHistorySport("americanfootball_nfl"), "nfl");
+  assert.equal(normalizeHistorySport("americanfootball_ncaaf"), "ncaaf");
+  assert.equal(normalizeHistorySport("NFL"), "nfl");
+});
+
+test("props-only odds gate: hit above implied clears; at/below does not", () => {
+  const p = pick("player_pass_yds", "Mahomes", 250.5);
+  assert.equal(propsOnlyLegClearsOdds(p, 0.60), true);
+  assert.equal(propsOnlyLegClearsOdds(p, 0.50), false);
+  assert.equal(propsOnlyLegClearsOdds(p, null), false);
+});
+
+test("soft line + real history clears odds gate for staging", () => {
+  const pass = pick("player_pass_yds", "Mahomes", 220.5, { athleteId: "3139477" });
+  const histories = {
+    "Mahomes#3139477": {
+      recent: Array.from({ length: 8 }, () => ({
+        stats: { passingYards: "275" },
+      })),
+    },
+  };
+  const hits = gradeFootballPropsOnlyFromHistory([pass], histories);
+  const hit = [...hits.values()][0]?.hitProbability ?? null;
+  assert.ok(hit != null && hit > 0.9, `expected high over-hit, got ${hit}`);
+  assert.equal(propsOnlyLegClearsOdds(pass, hit), true);
 });

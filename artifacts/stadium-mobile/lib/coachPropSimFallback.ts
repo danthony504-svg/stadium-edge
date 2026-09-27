@@ -10,6 +10,7 @@ import type { PlayerHistorySlice } from "./pickScoreContext.ts";
 import { propSimLookupKey } from "./propSelection.ts";
 import { localPropSimulation, type LocalHistorySlice } from "./simulatorLocalSim.ts";
 import { clipPropSimHitForGrade } from "./simMarketSupport.ts";
+import { normalizeHistorySport } from "./coachFootballPropsOnlyGrade.ts";
 
 export type PropSimHit = { hitProbability: number | null; nullReason?: string | null };
 
@@ -113,7 +114,7 @@ export async function enrichCoachPropSimHits(
     if (direct) return String(direct);
     const player = pick.player;
     if (!player) return null;
-    const sport = (pick.sport ?? poolRow?.sport ?? "nba").toLowerCase();
+    const sport = normalizeHistorySport(pick.sport ?? poolRow?.sport) || "nba";
     const cacheKey = `${sport}:${player}`;
     if (athleteIdCache.has(cacheKey)) return athleteIdCache.get(cacheKey) ?? null;
     const resolved = await resolveAthleteId(player, sport, signal);
@@ -126,7 +127,7 @@ export async function enrichCoachPropSimHits(
       const athleteId = await athleteIdForPick(pick);
       if (!athleteId || !pick.player) return;
       const poolRow = poolRowForPick(pick, pool);
-      const sport = (pick.sport ?? poolRow?.sport ?? "nba").toLowerCase();
+      const sport = normalizeHistorySport(pick.sport ?? poolRow?.sport) || "nba";
       const cacheKey = `${sport}:${athleteId}`;
       if (historyCache.has(cacheKey)) return;
       try {
@@ -154,7 +155,7 @@ export async function enrichCoachPropSimHits(
       }
       continue;
     }
-    const sport = (pick.sport ?? poolRow?.sport ?? "nba").toLowerCase();
+    const sport = normalizeHistorySport(pick.sport ?? poolRow?.sport) || "nba";
     const hist = historyCache.get(`${sport}:${athleteId}`);
     const market = pick.propMarketKey ?? poolRow?.marketKey;
     const side = pick.propSide === "Under" ? "Under" : "Over";
