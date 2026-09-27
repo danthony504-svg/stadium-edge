@@ -10,6 +10,7 @@ import {
   selectFootballPropsOnlyFromPicks,
   shouldBuildFootballPropsOnlyTicket,
   stageFootballPropsOnlyLegs,
+  propsOnlyPerGameCeiling,
 } from "./coachFootballPropsOnly.ts";
 import {
   collapsePropsOnlyToBestEvSides,
@@ -509,4 +510,38 @@ test("phone 3-of-8 rebuild: WNBA points props stage 8 legs via history EV (not c
     8,
     "8-leg player prop must fill from history EV — not stall at 3 via confidence bar",
   );
+});
+
+test("phone 7-leg thin slate: 1 game with 7 odds-cleared props stages all 7", () => {
+  // Phone: PROPS_ONLY_STAGED_SHORT oddsOk=23 staged=3/7 — hard ≤3/game on Thursday.
+  const scored: BoardScoredLeg[] = [];
+  for (let i = 0; i < 7; i++) {
+    const p = {
+      ...pick("player_anytime_td", `RB${i}`, null, { athleteId: `rb-${i}`, odds: 200 + i * 10 }),
+      game: "Los Angeles Rams @ Denver Broncos",
+      propsOnlyTicket: true,
+    };
+    scored.push({
+      pick: p,
+      evPct: 20 + i,
+      edgePct: 20 + i,
+      confidencePct: 52,
+      impliedProbPct: 30,
+      lineShoppingScore: null,
+      grade: "B",
+      simHit: 0.45,
+      composite: 7,
+      rankScore: 7 + i,
+    } as BoardScoredLeg);
+  }
+  assert.equal(propsOnlyPerGameCeiling(7, 1), 7);
+  const staged = stageFootballPropsOnlyLegs(scored, 7);
+  assert.equal(staged.length, 7, "thin 1-game slate must fill 7 props-only legs");
+  assert.ok(staged.every((p) => p.propsOnlyTicket === true));
+});
+
+test("propsOnlyPerGameCeiling: 2 games → ceil(target/2)", () => {
+  assert.equal(propsOnlyPerGameCeiling(7, 2), 4);
+  assert.equal(propsOnlyPerGameCeiling(10, 2), 5);
+  assert.equal(propsOnlyPerGameCeiling(6, 3), 2);
 });

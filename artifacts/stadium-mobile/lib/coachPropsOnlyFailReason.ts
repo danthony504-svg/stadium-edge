@@ -25,6 +25,8 @@ export type PropsOnlyFailDiag = {
   bestEvSides: number;
   oddsCleared: number;
   staged: number;
+  /** Distinct games among odds-cleared legs (thin-slate diagnosis). */
+  uniqueGames?: number;
   /** nullReason → count from history/MC misses */
   nullReasons: Record<string, number>;
   /** Top sports in the pool (e.g. nfl:12 wnba:80) */
@@ -65,6 +67,7 @@ export function formatPropsOnlyFailTrace(d: PropsOnlyFailDiag): string {
     `oddsOk=${d.oddsCleared}`,
     `staged=${d.staged}/${d.target}`,
   ];
+  if (d.uniqueGames != null) parts.push(`games=${d.uniqueGames}`);
   const nulls = topEntries(d.nullReasons);
   if (nulls) parts.push(`nulls=${nulls}`);
   const sports = d.sports ? topEntries(d.sports) : "";
@@ -82,6 +85,7 @@ export function buildPropsOnlyFailDiag(opts: {
   bestEvSides: number;
   oddsCleared: number;
   staged: number;
+  uniqueGames?: number;
   nullReasons?: Record<string, number>;
   sports?: Record<string, number>;
 }): PropsOnlyFailDiag {
@@ -95,6 +99,7 @@ export function buildPropsOnlyFailDiag(opts: {
     bestEvSides: opts.bestEvSides,
     oddsCleared: opts.oddsCleared,
     staged: opts.staged,
+    uniqueGames: opts.uniqueGames,
     nullReasons: opts.nullReasons ?? {},
     sports: opts.sports,
   };
