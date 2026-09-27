@@ -7,14 +7,13 @@
  *
  * Absolute-budget hang guard: always publish whatever cleared when the session
  * ends — never latch an empty ticket if buffered picks exist.
- * Football mix asks: never publish a full game-line-only buffer — keep reserved
- * prop seats open (same contract as board-scan finals).
+ * Football mix asks: never publish a spreads-only buffer — refuse GL filler
+ * when no player props cleared (same contract as board-scan finals).
  */
 
 import {
   askRequiresFootballPropMix,
-  applyReservedPropSeatCap,
-  shouldReservePropSeats,
+  finalizeFootballPropMixPicks,
 } from "./boardScanPropDelivery.ts";
 
 export type CoachTicketPublishPhase = "building" | "terminal";
@@ -27,8 +26,8 @@ export function shouldPublishCoachTicketPicks(phase: CoachTicketPublishPhase): b
 /**
  * Picks to show when the absolute delivery budget fires.
  * Prefer the latest buffered scan picks; fall back to anything already on the message.
- * Football prop-mix asks trim a game-line-only buffer to the non-prop seat budget
- * so wall-clock flush cannot ship a fake full-N spread/total ticket.
+ * Football prop-mix asks refuse a game-line-only buffer — wall-clock flush cannot
+ * ship a spreads board when the ask required skill props.
  */
 export function resolveCoachTerminalPicks<T extends { isProp?: boolean }>(opts: {
   bufferedPicks: readonly T[] | null | undefined;
@@ -49,15 +48,5 @@ export function resolveCoachTerminalPicks<T extends { isProp?: boolean }>(opts: 
   const requirePropMix = askRequiresFootballPropMix(opts.askText);
   if (!requirePropMix || target < 3) return picks;
 
-  const propCount = picks.filter((p) => !!p.isProp).length;
-  if (
-    !shouldReservePropSeats({
-      requirePropMix: true,
-      targetLegs: target,
-      propCount,
-    })
-  ) {
-    return picks;
-  }
-  return applyReservedPropSeatCap(picks, target, 0.4);
+  return finalizeFootballPropMixPicks(picks, target);
 }

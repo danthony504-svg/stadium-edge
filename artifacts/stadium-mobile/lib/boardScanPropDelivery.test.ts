@@ -6,6 +6,7 @@ import {
   boardScanPropSlotCount,
   buildFinalCoachParlayNote,
   fillReservedPropSlots,
+  finalizeFootballPropMixPicks,
   footballSkillPropFamily,
   footballSkillPropRank,
   selectFinalCoachParlayPicks,
@@ -18,6 +19,8 @@ import {
 } from "./boardScanPropDelivery.ts";
 import {
   boardScanGamePhaseBudgetMs,
+  boardScanMixGamePhaseBudgetMs,
+  boardScanMaxPropsToSimForMix,
   boardScanPropPhaseDeadlineMs,
   shouldOverlapPropPhaseWithGames,
 } from "./boardScanScope.ts";
@@ -48,8 +51,8 @@ test("askRequiresFootballPropMix: bare NFL/NCAAF asks need a prop mix", () => {
   assert.equal(askRequiresFootballPropMix("6 leg nba"), false);
 });
 
-test("final football ticket does NOT pad reserved prop seats with spreads", () => {
-  // Phone regression: finals used to ship 10 spreads when props were late.
+test("phone screenshot: final football mix with 0 props refuses GL-only board", () => {
+  // Rebuild: never publish "6 game-line picks" when props did not finish.
   assert.equal(
     shouldReservePropSeats({
       targetLegs: 10,
@@ -64,11 +67,12 @@ test("final football ticket does NOT pad reserved prop seats with spreads", () =
     market: "Spread",
     pick: `Team${i} +3.5`,
   }));
-  const capped = applyReservedPropSeatCap(gameHeavy, 10, 0.4);
-  // 10 * 0.4 → 4 prop seats reserved → at most 6 game lines
-  assert.equal(capped.length, boardScanNonPropPreviewCap(10, 0.4));
-  assert.equal(capped.filter((p) => p.isProp).length, 0);
-  assert.ok(capped.length < 10, "must not ship a full game-line ticket");
+  const preview = finalizeFootballPropMixPicks(gameHeavy, 10, { preview: true });
+  assert.equal(preview.length, boardScanNonPropPreviewCap(10, 0.4));
+  assert.equal(preview.filter((p) => p.isProp).length, 0);
+
+  const final = finalizeFootballPropMixPicks(gameHeavy, 10);
+  assert.equal(final.length, 0, "final must refuse spreads-only when mix required");
 });
 
 test("final football ticket with scored props keeps them and still caps GL fill", () => {
@@ -100,12 +104,26 @@ test("final football ticket with scored props keeps them and still caps GL fill"
     }),
     true, // 2 < 4 reserved seats
   );
-  const capped = applyReservedPropSeatCap(picks, 10, 0.4);
+  const capped = finalizeFootballPropMixPicks(picks, 10);
   assert.equal(capped.filter((p) => p.isProp).length, 2);
   assert.ok(capped.length <= 10);
   assert.ok(
     capped.filter((p) => !p.isProp).length <= boardScanNonPropPreviewCap(10, 0.4),
   );
+  assert.ok(capped.length > 0, "mixed ticket with props must publish");
+});
+
+test("football mix note never says showing N game-line picks", () => {
+  const note = buildFinalCoachParlayNote({
+    target: 10,
+    picks: [],
+    propPoolSize: 200,
+    propsPending: true,
+    requirePropMix: true,
+    shortfallLead: buildFixedLegCountShortfallLead(10, 0),
+  });
+  assert.match(note, /no game-line filler was added/i);
+  assert.doesNotMatch(note, /showing \d+ game-line/i);
 });
 
 test("7-leg reserved prop slots leave exactly 3 game-line preview capacity", () => {
@@ -118,6 +136,18 @@ test("prefetched prop pools overlap prop scoring with game lines", () => {
   assert.equal(shouldOverlapPropPhaseWithGames(true, 0), false);
   assert.equal(shouldOverlapPropPhaseWithGames(false, 120), false);
   assert.equal(shouldOverlapPropPhaseWithGames(true, 120, true), false);
+});
+
+test("football mix budgets favor props-first then short game phase", () => {
+  assert.equal(boardScanPropPhaseDeadlineMs(10, { requirePropMix: true }), 55_000);
+  assert.equal(boardScanMixGamePhaseBudgetMs(10), 28_000);
+  assert.ok(
+    boardScanPropPhaseDeadlineMs(10, { requirePropMix: true }) +
+      boardScanMixGamePhaseBudgetMs(10) <
+      95_000,
+  );
+  assert.ok(boardScanMaxPropsToSimForMix(10, 800) <= 220);
+  assert.ok(boardScanMaxPropsToSimForMix(10, 800) >= 120);
 });
 
 test("game-phase budget leaves room for prop-phase deadline inside Coach wall", () => {

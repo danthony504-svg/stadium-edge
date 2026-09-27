@@ -69,9 +69,8 @@ export function boardScanNonPropPreviewCap(
 /**
  * Hold reserved prop seats open so game lines cannot paint the full ticket.
  *
- * Preview always reserved seats. Finals used to fill those seats with
- * spreads/totals when props were late → phone "10 leg nfl" all-GL tickets.
- * Football prop-mix asks keep seats reserved on finals too.
+ * Preview always reserved seats. Football prop-mix finals use
+ * finalizeFootballPropMixPicks (refuse GL-only) instead of padding.
  */
 export function shouldReservePropSeats(opts: {
   preview?: boolean;
@@ -111,6 +110,29 @@ export function applyReservedPropSeatCap<T extends { isProp?: boolean }>(
   const nonProps = picks.filter((p) => !p.isProp);
   const nonPropCap = Math.max(0, targetLegs - propSlots);
   return [...props, ...nonProps.slice(0, nonPropCap)].slice(0, targetLegs);
+}
+
+/**
+ * Rebuild contract for football mix asks ("10 leg nfl"):
+ * - Preview: keep GL under the non-prop seat cap while props score.
+ * - Final with 0 player props: refuse — never publish a spreads-only board.
+ * - Final with props: keep props + GL only up to the reserved mix seats.
+ *
+ * Replaces the old "cap to 6 spreads when props late" phone failure.
+ */
+export function finalizeFootballPropMixPicks<T extends { isProp?: boolean }>(
+  picks: T[],
+  targetLegs: number,
+  opts?: { preview?: boolean },
+): T[] {
+  if (targetLegs < 3) return picks.slice(0, Math.max(0, targetLegs));
+  const propFraction = 0.4;
+  if (opts?.preview) {
+    return applyReservedPropSeatCap(picks, targetLegs, propFraction);
+  }
+  const props = picks.filter((p) => !!p.isProp);
+  if (props.length === 0) return [];
+  return applyReservedPropSeatCap(picks, targetLegs, propFraction);
 }
 
 /**
@@ -498,10 +520,16 @@ export function buildFinalCoachParlayNote(opts: {
   failureDiagnostics?: CoachScanFailureDiagnostics;
   /** When true, never describe a game-line fallback (props-only asks). */
   propsOnly?: boolean;
+  /**
+   * Football mix asks ("10 leg nfl"): never claim we are "showing N game-line
+   * picks" — GL-only finals are refused; note must say no filler was added.
+   */
+  requirePropMix?: boolean;
 }): string {
   const propLike = countPropLikePicks(opts.picks);
   const thinGameOnlyNote =
     !opts.propsOnly &&
+    !opts.requirePropMix &&
     opts.picks.length > 0 &&
     opts.picks.length < opts.target &&
     propLike === 0 &&
@@ -515,9 +543,20 @@ export function buildFinalCoachParlayNote(opts: {
         ? opts.picks.length > 0
           ? ` Player props did not finish scoring — showing ${opts.picks.length} prop${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for the full props ticket.`
           : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — try again for a props-only ticket (no game lines).`
-        : opts.picks.length > 0
-          ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared. Try again for a full props mix.`
-          : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+        : opts.requirePropMix
+          ? opts.picks.length > 0
+            ? ` Player props did not finish scoring — no game-line filler was added. Try again for a full props mix.`
+            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — no game-line filler was added. Try again for a props mix.`
+          : opts.picks.length > 0
+            ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared. Try again for a full props mix.`
+            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+      : "";
+  const mixRefusedNote =
+    opts.requirePropMix &&
+    opts.picks.length === 0 &&
+    opts.propPoolSize > 0 &&
+    !opts.propsPending
+      ? ` Football mix requires player props — no AI-backed props cleared, so no game-line filler was added.`
       : "";
   const emptyBoardNote =
     opts.picks.length === 0 && opts.scanMissing && !opts.timedOut
@@ -526,9 +565,10 @@ export function buildFinalCoachParlayNote(opts: {
   const base =
     (opts.scanNote?.trim() && opts.picks.length > 0 && propLike > 0 ? opts.scanNote.trim() : "") ||
     (opts.shortfallLead
-      ? `${opts.shortfallLead}${thinGameOnlyNote}${propsIncompleteNote}`
+      ? `${opts.shortfallLead}${thinGameOnlyNote}${propsIncompleteNote}${mixRefusedNote}`
       : "") ||
     propsIncompleteNote ||
+    mixRefusedNote ||
     emptyBoardNote ||
     (opts.timedOut
       ? `Stopped at the ${Math.round((opts.budgetMs ?? 0) / 1000)}s delivery budget — showing every AI-backed pick that cleared so far.`

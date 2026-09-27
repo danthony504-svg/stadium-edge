@@ -44,7 +44,7 @@ test("stop / error terminal also prefers buffer over blank ticket", () => {
   );
 });
 
-test("football absolute flush trims a full game-line-only buffer", () => {
+test("football absolute flush refuses a full game-line-only buffer", () => {
   const buffered = Array.from({ length: 10 }, (_, i) => ({
     isProp: false,
     id: `gl-${i}`,
@@ -55,9 +55,24 @@ test("football absolute flush trims a full game-line-only buffer", () => {
     askText: "10 leg nfl",
     requestedLegs: 10,
   });
-  assert.ok(out.length < 10, `expected reserved prop seats open, got ${out.length}`);
-  assert.equal(out.filter((p) => p.isProp).length, 0);
-  assert.ok(out.length <= 6);
+  assert.equal(out.length, 0, "must not publish spreads-only when mix required");
+});
+
+test("football absolute flush keeps props and caps game lines", () => {
+  const buffered = [
+    ...Array.from({ length: 8 }, (_, i) => ({ isProp: false, id: `gl-${i}` })),
+    { isProp: true, id: "td-1" },
+    { isProp: true, id: "pass-1" },
+  ];
+  const out = resolveCoachTerminalPicks({
+    bufferedPicks: buffered,
+    messagePicks: null,
+    askText: "10 leg nfl",
+    requestedLegs: 10,
+  });
+  assert.equal(out.filter((p) => p.isProp).length, 2);
+  assert.ok(out.length <= 10);
+  assert.ok(out.filter((p) => !p.isProp).length <= 6);
 });
 
 test("non-football absolute flush keeps full game-line buffer", () => {
