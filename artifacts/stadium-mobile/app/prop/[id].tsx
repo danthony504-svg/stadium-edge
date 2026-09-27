@@ -53,6 +53,7 @@ import { computeHrScore, hrScoreBand, type HrScore } from "@/lib/hrScore";
 import { computeHrFlags, type HrFlags } from "@/lib/hrFlags";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
+import { localPropSimulation, mergePropSimWithLocal } from "@/lib/simulatorLocalSim";
 import { SPORTS } from "@/lib/sports";
 
 // How many of the most-recent real games we read for the projection / hit-rate.
@@ -229,7 +230,24 @@ export default function PropDetailScreen() {
     },
   });
 
-  const simData = simDeepQ.data ?? simQuickQ.data;
+  // Early-season 2-game logs: server MC often returns null. Fall back to the
+  // same real game-log hit/median the props-only ticket already graded on.
+  const localSim = useMemo(() => {
+    if (line == null || (side !== "Over" && side !== "Under") || !marketKey) return null;
+    return localPropSimulation(historyQ.data, {
+      player,
+      market: marketKey,
+      line,
+      side: side as "Over" | "Under",
+    });
+  }, [historyQ.data, player, marketKey, line, side]);
+
+  const serverSim = simDeepQ.data ?? simQuickQ.data;
+  const simData = useMemo(
+    () => mergePropSimWithLocal(serverSim, localSim),
+    [serverSim, localSim],
+  );
+  const simHitFromServer = serverSim?.hitProbability != null;
   const simulationPending =
     simQuickQ.isFetching || simDeepQ.isFetching || (simQuickQ.isSuccess && !simDeepQ.isFetched);
 
@@ -936,7 +954,7 @@ export default function PropDetailScreen() {
                     ? `${Math.round(simData.hitProbability * 100)}%`
                     : "—"
                 }
-                caption="10k Monte Carlo"
+                caption={simHitFromServer ? "10k Monte Carlo" : "recent form vs line"}
                 tint={colors.primary}
               />
               <MetricTile
@@ -967,7 +985,7 @@ export default function PropDetailScreen() {
                     ? `${simData.confidenceScore}`
                     : "—"
                 }
-                caption="model conviction"
+                caption={simHitFromServer ? "model conviction" : "sample conviction"}
                 tint={colors.foreground}
               />
               <MetricTile
