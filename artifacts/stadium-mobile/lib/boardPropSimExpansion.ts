@@ -110,9 +110,10 @@ export function footballMixSimFamily(pick: {
 }
 
 /**
- * Football mix rebuild: deep-sim with family quotas so TD spam cannot consume
- * the entire cap before pass/rec/rush yards get Monte Carlo.
- * Order within each family follows the caller's ranking.
+ * Football mix / props-only NFL rebuild: deep-sim with family quotas so TD spam
+ * cannot consume the entire cap before pass/rec/rush yards get Monte Carlo.
+ * Prefer athleteId rows — missing ids drove phone PROP_ALL_NO_SIM_GRADE
+ * (500 deep-simmed, 0 grades) when local fallback could not resolve history.
  */
 export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
   rankedProps: readonly T[],
@@ -145,6 +146,14 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
   };
   for (const pick of rankedProps) {
     buckets[footballMixSimFamily(pick)].push(pick);
+  }
+  // AthleteId-first inside each family so enrich/local MC can grade.
+  for (const fam of Object.keys(buckets) as FootballMixSimFamily[]) {
+    buckets[fam].sort((a, b) => {
+      const aId = a.athleteId ? 1 : 0;
+      const bId = b.athleteId ? 1 : 0;
+      return bId - aId;
+    });
   }
 
   const selected: T[] = [];
@@ -190,6 +199,29 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
     skippedCount: rankedProps.length - selected.length,
     familyCounts,
   };
+}
+
+/**
+ * True when Coach should use the finishable football skill deep-sim path.
+ * Covers "10 leg nfl" mix AND "9 leg NFL player props" (props-only) — the
+ * generic 500-row board path was PROP_ALL_NO_SIM_GRADE on phone.
+ */
+export function shouldUseFootballSkillPropSim(opts: {
+  requirePropMix?: boolean;
+  propsOnly?: boolean;
+  pool: readonly { sport?: string | null }[];
+}): boolean {
+  if (opts.requirePropMix) return true;
+  if (!opts.propsOnly || opts.pool.length === 0) return false;
+  let football = 0;
+  let total = 0;
+  for (const p of opts.pool) {
+    const s = String(p.sport ?? "").toLowerCase();
+    if (!s) continue;
+    total += 1;
+    if (s === "nfl" || s === "ncaaf") football += 1;
+  }
+  return total > 0 && football / total >= 0.5;
 }
 
 /**

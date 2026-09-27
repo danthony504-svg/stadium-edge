@@ -84,10 +84,12 @@ import {
   selectBoardPropSimCandidates,
   selectFootballMixPropSimCandidates,
   shouldStopPropSimForTicketMix,
+  shouldUseFootballSkillPropSim,
 } from "./boardPropSimExpansion.ts";
 import {
   fillReservedPropSlots,
   finalizeFootballPropMixPicks,
+  footballSkillPropRank,
   isFootballHeavyPickList,
   shouldKeepAwaitingPropSlots,
   shouldReservePropSeats,
@@ -112,6 +114,7 @@ export {
   selectBoardPropSimCandidates,
   selectFootballMixPropSimCandidates,
   shouldStopPropSimForTicketMix,
+  shouldUseFootballSkillPropSim,
 } from "./boardPropSimExpansion.ts";
 
 const PROP_SIM_BATCH_TIMEOUT_MS = boardScanPropSimBatchTimeoutMs();
@@ -369,6 +372,7 @@ async function simPropBatch(
   pool: PropPoolEntry[],
   teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
+  batchOpts?: { enrichTimeoutMs?: number },
 ): Promise<{
   hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
   timedOut: boolean;
@@ -397,7 +401,9 @@ async function simPropBatch(
   }
   // Bound local history enrich — unbounded ESPN lookups were the hang that left
   // boardScanPending true forever while Coach sat at 84% Scoring player props.
-  const PROP_ENRICH_TIMEOUT_MS = 12_000;
+  // Football skill path uses a longer enrich window so athleteId history can
+  // land grades (phone PROP_ALL_NO_SIM_GRADE: 500 deep-simmed, 0 cleared).
+  const PROP_ENRICH_TIMEOUT_MS = batchOpts?.enrichTimeoutMs ?? 12_000;
   let enriched: Awaited<ReturnType<typeof enrichCoachPropSimHits>>;
   try {
     enriched = await Promise.race([
@@ -559,9 +565,15 @@ async function simPropPoolUntilQualified(
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
+  const footballSkill = shouldUseFootballSkillPropSim({
+    requirePropMix: opts.requirePropMix,
+    propsOnly: opts.propsOnly,
+    pool,
+  });
   const phaseDeadlineMs = boardScanPropPhaseDeadlineMs(opts.target, {
     exhaustPropBoard: opts.exhaustPropBoard,
-    requirePropMix: opts.requirePropMix,
+    // Props-only NFL gets the finishable deadline (not generic 500-row path).
+    requirePropMix: footballSkill || opts.requirePropMix,
   });
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
@@ -581,16 +593,25 @@ async function simPropPoolUntilQualified(
       prescorePool.every((p) => isBatterHomeRunPick(p)));
   const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
-    .sort(
-      (a, b) =>
-        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard }),
-    );
-  const maxToSim = opts.requirePropMix
+    .sort((a, b) => {
+      if (footballSkill) {
+        const skill =
+          footballSkillPropRank(b.propMarketKey ?? b.market) -
+          footballSkillPropRank(a.propMarketKey ?? a.market);
+        if (skill !== 0) return skill;
+        const id = (b.athleteId ? 1 : 0) - (a.athleteId ? 1 : 0);
+        if (id !== 0) return id;
+      }
+      return (
+        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard })
+      );
+    });
+  const maxToSim = footballSkill
     ? boardScanMaxPropsToSimForMix(opts.target, rankedAll.length)
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
-  // Football mix: family quotas (yards ~45%, TD ~25%) on a finishable ~80-row
-  // set — 360-row deep-sim never finished → PROP incomplete + seat-held GLs.
-  const { selected: rankedProps } = opts.requirePropMix
+  // Football skill (mix OR props-only NFL): finishable yards/TD quota set.
+  // Generic 500-row board path → phone PROP_ALL_NO_SIM_GRADE (0 grades).
+  const { selected: rankedProps } = footballSkill
     ? selectFootballMixPropSimCandidates(rankedAll, maxToSim)
     : selectBoardPropSimCandidates(rankedAll, maxToSim);
 
@@ -620,10 +641,11 @@ async function simPropPoolUntilQualified(
   const phaseStartedAt = Date.now();
 
   let simIndex = 0;
-  let batchSize = opts.requirePropMix
+  let batchSize = footballSkill
     ? boardPropSimMixBatchSize(opts.target)
     : boardPropSimInitialBatchSize(opts.target);
   let stoppedEarly = false;
+  const enrichTimeoutMs = footballSkill ? 22_000 : 12_000;
 
   while (simIndex < rankedProps.length) {
     if (signal?.aborted) {
@@ -637,7 +659,9 @@ async function simPropPoolUntilQualified(
 
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
-    const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal);
+    const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal, {
+      enrichTimeoutMs,
+    });
     for (const [k, v] of wave.hits) propHits.set(k, v);
     for (const [k, v] of Object.entries(wave.playerHistory)) {
       scoreOpts.playerHistory[k] = v;
@@ -672,7 +696,7 @@ async function simPropPoolUntilQualified(
 
     if (simIndex >= rankedProps.length) break;
 
-    batchSize = opts.requirePropMix
+    batchSize = footballSkill
       ? boardPropSimMixBatchSize(opts.target)
       : boardPropSimExpansionBatchSize(opts.target);
   }
