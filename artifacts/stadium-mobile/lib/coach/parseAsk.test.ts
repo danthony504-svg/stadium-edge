@@ -32,22 +32,40 @@ test("phone spreads-not-props: lag + player prop ask mismatch note", () => {
     askText: "9 lag NFL player prop",
     propsOnly: false,
     picks: [
-      { isProp: false },
-      { isProp: false },
-      { isProp: false },
+      { isProp: false, market: "1H ALT SPREAD" },
+      { isProp: false, market: "Q2 SPREAD" },
+      { isProp: false, market: "TOTAL" },
     ],
   });
+  assert.match(note, /You asked for player props/);
+  assert.match(note, /team game lines/);
   assert.match(note, /PROPS_ASK_GOT_GAME_LINES/);
   assert.match(note, /propsOnly=false/);
   assert.match(note, /gameLines=3/);
+  assert.match(note, /1H ALT SPREAD/);
   assert.equal(
     coachPropsAskGameLineMismatchNote({
       askText: "9 lag NFL player prop",
       propsOnly: true,
-      picks: [{ isProp: true }, { isProp: true }],
+      picks: [{ isProp: true, market: "PASSING YARDS" }, { isProp: true, market: "RUSHING YARDS" }],
     }),
     "",
   );
+});
+
+test("phone: player prop + teams still gets why when spreads stage", () => {
+  const note = coachPropsAskGameLineMismatchNote({
+    askText: "player props for bears and broncos",
+    propsOnly: false,
+    picks: [
+      { isProp: true, market: "1H ALT TOTAL" }, // mis-flagged — market still counts as game line
+      { isProp: false, market: "Q1 ALT SPREAD" },
+    ],
+  });
+  assert.match(note, /You asked for player props/);
+  assert.match(note, /PROPS_ASK_GOT_GAME_LINES/);
+  assert.match(note, /gameLines=2/);
+  assert.match(note, /1H ALT TOTAL|Q1 ALT SPREAD/);
 });
 
 test("isParlayBuildAsk detects build intent", () => {

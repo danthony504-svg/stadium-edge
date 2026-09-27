@@ -505,6 +505,9 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (/\bjust\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+parlay\b/.test(t)) return true;
   if (/\bparlay\s+(?:of\s+)?(?:player\s+)?props?\b/.test(t)) return true;
+  // Bare "player prop(s)" (phone: asked for player props, got team lines).
+  // "with player props" already returned false above — mixed board stays mix.
+  if (/\bplayer\s+props?\b/.test(t)) return true;
   // "6 leg player props" / "10 leg NFL player props" / "6-leg player prop"
   // — allow an optional sport token between leg count and "player props".
   // Also "9 lag …" after typo normalize above.

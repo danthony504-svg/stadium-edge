@@ -300,22 +300,24 @@ export async function buildCoachParlay(opts: {
     );
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
     const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
-    const note =
-      (built.note.trim() ||
-        buildFinalCoachParlayNote({
-          target,
-          picks,
-          propPoolSize,
-          propsPending: false,
-          shortfallLead: teamMiss || shortfall,
-          propsOnly: true,
-          requirePropMix: false,
-        })) +
-      coachPropsAskGameLineMismatchNote({
-        askText: opts.askText,
-        propsOnly: true,
+    const mismatchLead = coachPropsAskGameLineMismatchNote({
+      askText: opts.askText,
+      propsOnly: true,
+      picks,
+    });
+    const body =
+      built.note.trim() ||
+      buildFinalCoachParlayNote({
+        target,
         picks,
+        propPoolSize,
+        propsPending: false,
+        shortfallLead: teamMiss || shortfall,
+        propsOnly: true,
+        requirePropMix: false,
       });
+    // Mismatch lead first — phone shows it above pick cards when game lines leak.
+    const note = [mismatchLead, body].filter((s) => s.trim()).join("\n\n");
     // If post-filters wiped a non-empty ticket, append why so the phone shows it.
     if (built.picks.length > 0 && picks.length === 0) {
       return {
@@ -493,27 +495,28 @@ export async function buildCoachParlay(opts: {
   }
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
-  const note =
-    buildFinalCoachParlayNote({
-      target,
-      picks,
-      propPoolSize,
-      propsPending,
-      shortfallLead: teamMiss || shortfall,
-      timedOut: timed.timedOut,
-      budgetMs,
-      scanMissing: !scan,
-      scanNote: scan?.note,
-      failureReason: scan?.failureReason,
-      failureDiagnostics: scan?.failureDiagnostics,
-      propsOnly,
-      requirePropMix,
-    }) +
-    coachPropsAskGameLineMismatchNote({
-      askText: opts.askText,
-      propsOnly,
-      picks,
-    });
+  const mismatchLead = coachPropsAskGameLineMismatchNote({
+    askText: opts.askText,
+    propsOnly,
+    picks,
+  });
+  const body = buildFinalCoachParlayNote({
+    target,
+    picks,
+    propPoolSize,
+    propsPending,
+    shortfallLead: teamMiss || shortfall,
+    timedOut: timed.timedOut,
+    budgetMs,
+    scanMissing: !scan,
+    scanNote: scan?.note,
+    failureReason: scan?.failureReason,
+    failureDiagnostics: scan?.failureDiagnostics,
+    propsOnly,
+    requirePropMix,
+  });
+  // Mismatch lead first — phone shows it above pick cards when game lines leak.
+  const note = [mismatchLead, body].filter((s) => s.trim()).join("\n\n");
 
   return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };
 }

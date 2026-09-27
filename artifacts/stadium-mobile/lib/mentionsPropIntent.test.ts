@@ -47,6 +47,9 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   // Phone regression: lag typo must still mean props-only (was staging spreads).
   assert.equal(wantsPropsOnly("9 lag NFL player prop"), true);
   assert.equal(wantsPropsOnly("9 lag nfl player props"), true);
+  // Bare "player props" (+ teams) — not mixed "with player props".
+  assert.equal(wantsPropsOnly("player props for bears and broncos"), true);
+  assert.equal(wantsPropsOnly("player prop bears broncos"), true);
   // Mixed phrasing still stays on the board-scan / reach path.
   assert.equal(wantsPropsOnly("6 leg with player props"), false);
   assert.equal(wantsPropsOnly("10 leg nfl with no player props"), false);

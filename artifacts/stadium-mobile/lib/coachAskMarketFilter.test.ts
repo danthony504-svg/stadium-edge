@@ -212,6 +212,9 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
     // Phone: "9 lag NFL player prop" skipped propsOnly → spreads/totals.
     "9 lag NFL player prop",
     "9 lag nfl player props",
+    // Phone: asked for player props + teams → still propsOnly (no game-line fill).
+    "player props for bears and broncos",
+    "player prop bears broncos",
   ]) {
     const c = parseCoachAskMarketConstraint(ask);
     assert.equal(c.propsOnly, true, ask);

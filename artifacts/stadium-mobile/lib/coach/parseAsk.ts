@@ -40,31 +40,71 @@ export function resolveBuildLegTarget(text: string): number {
   return 0;
 }
 
+/** True when a staged pick is a team/game line (spread/total/ML), not a player prop. */
+export function coachPickLooksLikeGameLine(p: {
+  isProp?: boolean;
+  market?: string | null;
+}): boolean {
+  const m = String(p.market ?? "").toUpperCase();
+  // Phone screenshots: "1H ALT SPREAD", "Q2 SPREAD", "TOTAL", "2H ALT TOTAL".
+  if (
+    /\b(SPREAD|TOTAL|MONEYLINE|MONEY\s*LINE)\b/.test(m) ||
+    /(?:^|[\s/])(ML)(?:$|[\s/])/.test(m)
+  ) {
+    return true;
+  }
+  return !p.isProp;
+}
+
+function coachAskedForPlayerProps(text: string): boolean {
+  const t = normalizeCoachLegTypos(text).toLowerCase();
+  if (/\bno\s+(?:player\s+)?props?\b/.test(t) || /\bwithout\s+(?:player\s+)?props?\b/.test(t)) {
+    return false;
+  }
+  if (/\bplayer\s+props?\b/.test(t)) return true;
+  if (/\b\d{1,3}\s*leg\b[\s\w]{0,40}\bprops?\b/.test(t)) return true;
+  return false;
+}
+
 /**
- * Phone-visible reason when the user asked for player props but the ticket is
- * game lines (spreads/totals). Used when lag-typo / routing misses propsOnly.
+ * Phone-visible lead when the user asked for player props but the ticket is
+ * game lines (spreads/totals). Lead copy sits above pick cards so a leak is
+ * diagnosable on-device (lag typo / propsOnly miss / team-scoped fill).
  */
 export function coachPropsAskGameLineMismatchNote(opts: {
   askText?: string | null;
   propsOnly: boolean;
-  picks: readonly { isProp?: boolean }[];
+  picks: readonly { isProp?: boolean; market?: string | null }[];
 }): string {
   const raw = String(opts.askText ?? "");
-  const t = normalizeCoachLegTypos(raw).toLowerCase();
-  if (!/\bplayer\s+props?\b/.test(t) && !/\b\d{1,3}\s*leg\b[\s\w]{0,30}\bprops?\b/.test(t)) {
-    return "";
-  }
-  const propCount = opts.picks.filter((p) => !!p.isProp).length;
-  const gameLineCount = opts.picks.length - propCount;
+  if (!coachAskedForPlayerProps(raw)) return "";
+  const gameLinePicks = opts.picks.filter((p) => coachPickLooksLikeGameLine(p));
+  const propCount = opts.picks.length - gameLinePicks.length;
+  const gameLineCount = gameLinePicks.length;
   if (opts.picks.length === 0 || gameLineCount <= 0) return "";
-  if (propCount > 0 && gameLineCount === 0) return "";
+  const markets = [
+    ...new Set(
+      gameLinePicks
+        .map((p) => String(p.market ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 6),
+    ),
+  ];
+  const marketBit = markets.length ? ` markets=${markets.join("|")}` : "";
+  const askBit = JSON.stringify(normalizeCoachLegTypos(raw).slice(0, 80));
   if (opts.propsOnly) {
-    return ` [PROPS_ONLY_LEAKED_GAME_LINES: props=${propCount} gameLines=${gameLineCount}]`;
+    return (
+      `You asked for player props — props-only still staged team game lines ` +
+      `(spreads/totals). ` +
+      `[PROPS_ONLY_LEAKED_GAME_LINES: props=${propCount} gameLines=${gameLineCount}${marketBit}]`
+    );
   }
   const legs = parseRequestedLegs(raw);
   return (
-    ` [PROPS_ASK_GOT_GAME_LINES: propsOnly=false legs=${legs}` +
-    ` props=${propCount} gameLines=${gameLineCount}` +
-    ` ask=${JSON.stringify(normalizeCoachLegTypos(raw).slice(0, 80))}]`
+    `You asked for player props — this ticket staged team game lines ` +
+    `(spreads/totals) instead of player props. ` +
+    `[PROPS_ASK_GOT_GAME_LINES: propsOnly=false legs=${legs}` +
+    ` props=${propCount} gameLines=${gameLineCount}${marketBit}` +
+    ` ask=${askBit}]`
   );
 }
