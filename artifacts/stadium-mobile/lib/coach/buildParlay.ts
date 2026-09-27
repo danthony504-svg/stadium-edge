@@ -27,6 +27,8 @@ import {
   askRequiresFootballPropMix,
   finalizeFootballPropMixPicks,
 } from "@/lib/boardScanPropDelivery";
+import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
+import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
@@ -264,6 +266,57 @@ export async function buildCoachParlay(opts: {
   );
 
   const teamIdMap = buildGameTeamIdMap(inputs.espnGames);
+
+  // Greenfield NFL/NCAAF props-only rebuild — dedicated local-first pipeline.
+  // Generic board scan was deep-simming 72 skill rows then enrich-timing-out to
+  // PROP_ALL_NO_SIM_GRADE empties on phone ("9 leg NFL player props").
+  if (
+    propsOnly &&
+    !hrBoardAsk &&
+    shouldBuildFootballPropsOnlyTicket({ propsOnly: true, pool: activePropPool })
+  ) {
+    const built = await buildFootballPropsOnlyTicket({
+      target,
+      pool: activePropPool,
+      realOdds: inputs.realOdds,
+      teamIdMap,
+      signal: opts.signal,
+      onStatus: opts.onStatus,
+      onPartialPicks: (picks) => {
+        opts.onPartialPicks?.(
+          filterPicksByAskMarketConstraint(picks, marketConstraint),
+        );
+      },
+    });
+    let picks = filterPicksForAskTeam(
+      filterPicksByAskMarketConstraint(
+        selectFinalCoachParlayPicks(built.picks),
+        marketConstraint,
+      ),
+      inputs.teamScope,
+    );
+    const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
+    const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
+    const note =
+      built.note.trim() ||
+      buildFinalCoachParlayNote({
+        target,
+        picks,
+        propPoolSize,
+        propsPending: false,
+        shortfallLead: teamMiss || shortfall,
+        propsOnly: true,
+        requirePropMix: false,
+      });
+    return {
+      picks,
+      note,
+      scan: null,
+      timedOut: false,
+      propPoolSize,
+    };
+  }
+
   // Allowlisted / props-only pools must not re-expand to the full board
   // (filtered yards pools are often < 40 and would otherwise undo the allowlist).
   const skipPropExpand =
