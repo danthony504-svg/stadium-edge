@@ -107,37 +107,119 @@ function propFillComposite(pick: {
   return pick.finalAiScore?.composite ?? pick.scores?.composite ?? 0;
 }
 
-/** Prefer classic football skill props when filling reserved slots.
- * TD + pass/rec/rush yards (incl alt milestones) outrank sacks / misc.
- */
-export function footballSkillPropRank(market: string | null | undefined): number {
-  const m = String(market ?? "")
+function normalizePropMarket(market: string | null | undefined): string {
+  return String(market ?? "")
     .toLowerCase()
     .replace(/_/g, " ");
-  // Anytime / first / rush-rec-pass TDs — user asks for these first.
+}
+
+export type SkillPropFamily =
+  | "sack"
+  | "rush"
+  | "pass"
+  | "rec"
+  | "td"
+  | "hr"
+  | "hits"
+  | "rbi"
+  | "runs"
+  | "strikeouts"
+  | "outs"
+  | "points"
+  | "rebounds"
+  | "assists"
+  | "threes"
+  | "pra"
+  | "double_double"
+  | "goals"
+  | "sog"
+  | "shots"
+  | null;
+
+/**
+ * Prefer classic skill props across sports when filling reserved slots.
+ * Football: TD + pass/rec/rush yards (incl alt milestones) outrank sacks / misc.
+ * MLB: HR / hits / K; NBA/NCAAB: points / reb / ast; NHL/soccer: goals / sog.
+ */
+export function skillPropRank(market: string | null | undefined): number {
+  const m = normalizePropMarket(market);
+  if (!m) return 0;
+
+  // —— Football (NFL / NCAAF) ——
   if (/\btd\b|touchdown|\btds\b/.test(m)) return 6;
-  // Yardage skill props (main + alternate ladders).
   if (/\bpass\b/.test(m) && /yd|yard/.test(m) && !/completion|attempt|int/.test(m)) return 5;
   if (/\breception|\breceiving|\brec\b/.test(m) && /yd|yard/.test(m)) return 5;
   if (/\brush\b|\brushing\b/.test(m) && /yd|yard/.test(m)) return 5;
   if (/\bsack/.test(m)) return 3;
   if (/\brush\b|\bpass\b|\breception|\breceiv/.test(m)) return 2;
+  if (/\bfield\s*goals?\b|\bfgs?\b/.test(m)) return 2;
+
+  // —— MLB ——
+  if (/home\s*runs?|homer|\bhr\b/.test(m)) return 6;
+  if (/hits\s*runs\s*rbis?|batter\s*hits\s*runs/.test(m)) return 5;
+  if (/batter\s*hits|\bhitter\s*hits|\bhits\b/.test(m) && /batter|hitter/.test(m)) return 5;
+  if (/\brbis?\b/.test(m)) return 5;
+  if (/batter\s*runs|\brun\s*scored/.test(m)) return 5;
+  if (/strikeouts?|\bpitcher\s*k\b/.test(m)) return 5;
+  if (/pitcher\s*outs|\bouts\b/.test(m) && /pitcher/.test(m)) return 3;
+
+  // —— Basketball (NBA / NCAAB / WNBA) ——
+  if (/points\s*rebounds\s*assists|\bpra\b/.test(m)) return 5;
+  if (/double\s*double/.test(m)) return 4;
+  if (/\bthrees?\b|3\s*pt|three\s*point/.test(m)) return 5;
+  if (/rebounds?/.test(m)) return 5;
+  if (/assists?/.test(m)) return 5;
+  if (/player\s*points|\bpoints\b/.test(m) && !/rebounds|assists|goal/.test(m)) return 6;
+
+  // —— NHL ——
+  if (/player\s*goals|\bgoals?\b/.test(m) && !/field|scorer|shot/.test(m)) return 6;
+  if (/shots\s*on\s*goal/.test(m)) return 4;
+  if (/player\s*points/.test(m)) return 5;
+
+  // —— Soccer ——
+  if (/goal\s*scorer|anytime\s*goal|first\s*goal/.test(m)) return 6;
+  if (/shots\s*on\s*target/.test(m)) return 4;
+  if (/\bshots\b/.test(m) && !/goal/.test(m)) return 3;
+
   return 0;
 }
 
-/** Bucket classic football skill markets so reserved slots diversify (not 4× rush). */
-export function footballSkillPropFamily(
-  market: string | null | undefined,
-): "sack" | "rush" | "pass" | "rec" | "td" | null {
-  const m = String(market ?? "")
-    .toLowerCase()
-    .replace(/_/g, " ");
-  // TD before rush/pass/rec so player_rush_tds is "td", not "rush".
+/** Bucket skill markets so reserved slots diversify across families (not 4× one type). */
+export function skillPropFamily(market: string | null | undefined): SkillPropFamily {
+  const m = normalizePropMarket(market);
+  if (!m) return null;
+
+  // Football — TD before rush/pass/rec so player_rush_tds is "td", not "rush".
   if (/\btd\b|touchdown|\btds\b/.test(m)) return "td";
   if (/\bsack/.test(m)) return "sack";
   if (/\brush\b|\brushing\b/.test(m)) return "rush";
   if (/\bpass\b|\bpassing\b/.test(m) && !/completion/.test(m)) return "pass";
   if (/\breception|\breceiving|\brec\b/.test(m)) return "rec";
+
+  // MLB
+  if (/home\s*runs?|homer|\bhr\b/.test(m)) return "hr";
+  if (/strikeouts?/.test(m)) return "strikeouts";
+  if (/hits\s*runs\s*rbis?/.test(m)) return "hits";
+  if (/batter\s*hits|\bhitter\s*hits/.test(m)) return "hits";
+  if (/\brbis?\b/.test(m)) return "rbi";
+  if (/batter\s*runs/.test(m)) return "runs";
+  if (/pitcher\s*outs/.test(m)) return "outs";
+
+  // Basketball
+  if (/points\s*rebounds\s*assists|\bpra\b/.test(m)) return "pra";
+  if (/double\s*double/.test(m)) return "double_double";
+  if (/\bthrees?\b|3\s*pt|three\s*point/.test(m)) return "threes";
+  if (/rebounds?/.test(m)) return "rebounds";
+  if (/assists?/.test(m)) return "assists";
+  if (/player\s*points|\bpoints\b/.test(m) && !/goal|scorer/.test(m)) return "points";
+
+  // NHL / soccer
+  if (/goal\s*scorer|anytime\s*goal|first\s*goal|player\s*goals|\bgoals?\b/.test(m) && !/field/.test(m)) {
+    return "goals";
+  }
+  if (/shots\s*on\s*goal|shots\s*on\s*target/.test(m)) return "sog";
+  if (/\bshots\b/.test(m)) return "shots";
+
   return null;
 }
 
@@ -147,7 +229,7 @@ export function footballRushMilestoneBonus(pick: {
   propLine?: number | null;
   pick?: string | null;
 }): number {
-  if (footballSkillPropFamily(pick.market) !== "rush") return 0;
+  if (skillPropFamily(pick.market) !== "rush") return 0;
   let line = pick.propLine;
   if (line == null || !Number.isFinite(line)) {
     const m = String(pick.pick ?? "").match(/(\d+(?:\.\d+)?)/);
@@ -158,6 +240,49 @@ export function footballRushMilestoneBonus(pick: {
   if (milestones.some((x) => Math.abs((line as number) - x) < 0.01)) return 2;
   if (line >= 20 && line <= 110) return 1;
   return 0;
+}
+
+/** Soft prefer classic skill milestones across sports (rush alts, HR 0.5/1.5, etc.). */
+export function skillPropMilestoneBonus(pick: {
+  market?: string | null;
+  propLine?: number | null;
+  pick?: string | null;
+}): number {
+  const rush = footballRushMilestoneBonus(pick);
+  if (rush > 0) return rush;
+  const fam = skillPropFamily(pick.market);
+  let line = pick.propLine;
+  if (line == null || !Number.isFinite(line)) {
+    const m = String(pick.pick ?? "").match(/(\d+(?:\.\d+)?)/);
+    line = m ? Number(m[1]) : null;
+  }
+  if (line == null || !Number.isFinite(line)) return 0;
+  if (fam === "hr" && (Math.abs(line - 0.5) < 0.01 || Math.abs(line - 1.5) < 0.01)) return 2;
+  if (fam === "strikeouts") {
+    const kMiles = [4.5, 5.5, 6.5, 7.5, 8.5];
+    if (kMiles.some((x) => Math.abs((line as number) - x) < 0.01)) return 1;
+  }
+  if (fam === "points" || fam === "rebounds" || fam === "assists") {
+    // Common half-lines stay preferred over odd decimals when ranking ties.
+    if (Math.abs(line - Math.floor(line) - 0.5) < 0.01) return 1;
+  }
+  return 0;
+}
+
+/** @deprecated Prefer skillPropRank — kept for existing football-focused tests. */
+export function footballSkillPropRank(market: string | null | undefined): number {
+  return skillPropRank(market);
+}
+
+/** @deprecated Prefer skillPropFamily — kept for existing football-focused tests. */
+export function footballSkillPropFamily(
+  market: string | null | undefined,
+): "sack" | "rush" | "pass" | "rec" | "td" | null {
+  const fam = skillPropFamily(market);
+  if (fam === "sack" || fam === "rush" || fam === "pass" || fam === "rec" || fam === "td") {
+    return fam;
+  }
+  return null;
 }
 
 type PropFillPick = {
@@ -206,7 +331,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
 
   const familyCounts = new Map<string, number>();
   for (const p of out) {
-    const fam = footballSkillPropFamily(p.market);
+    const fam = skillPropFamily(p.market);
     if (fam) familyCounts.set(fam, (familyCounts.get(fam) ?? 0) + 1);
   }
 
@@ -220,14 +345,14 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     const pool = remaining().sort((a, b) => {
       const aKey = a.pick.propMarketKey || a.pick.market;
       const bKey = b.pick.propMarketKey || b.pick.market;
-      const aSkill = footballSkillPropRank(aKey) + footballRushMilestoneBonus(a.pick);
-      const bSkill = footballSkillPropRank(bKey) + footballRushMilestoneBonus(b.pick);
-      // Skill props first, then diversify families (td/pass/rec/rush), then rank.
+      const aSkill = skillPropRank(aKey) + skillPropMilestoneBonus(a.pick);
+      const bSkill = skillPropRank(bKey) + skillPropMilestoneBonus(b.pick);
+      // Skill props first, then diversify families (td/hr/points/…), then rank.
       const aSkillful = aSkill > 0 ? 1 : 0;
       const bSkillful = bSkill > 0 ? 1 : 0;
       if (aSkillful !== bSkillful) return bSkillful - aSkillful;
-      const aFam = footballSkillPropFamily(aKey);
-      const bFam = footballSkillPropFamily(bKey);
+      const aFam = skillPropFamily(aKey);
+      const bFam = skillPropFamily(bKey);
       const aSeen = aFam ? (familyCounts.get(aFam) ?? 0) : 99;
       const bSeen = bFam ? (familyCounts.get(bFam) ?? 0) : 99;
       if (aSeen !== bSeen) return aSeen - bSeen;
@@ -243,7 +368,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     const cand = pickNext();
     if (!cand) break;
     const fp = propFillFingerprint(cand.pick);
-    const fam = footballSkillPropFamily(cand.pick.propMarketKey || cand.pick.market);
+    const fam = skillPropFamily(cand.pick.propMarketKey || cand.pick.market);
     const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
 
     if (out.length < target) {
