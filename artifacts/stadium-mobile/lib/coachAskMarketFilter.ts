@@ -8,6 +8,7 @@
  */
 
 import { wantsPropsOnly } from "./slate.ts";
+import { normalizeCoachLegTypos } from "./coach/parseAsk.ts";
 
 export type CoachAskMarketConstraint = {
   /** Stage props only — no ML / spread / total game lines. */
@@ -270,7 +271,7 @@ function hasSoccerSpecialAsk(t: string): boolean {
 export function parseCoachAskMarketConstraint(
   text: string | null | undefined,
 ): CoachAskMarketConstraint {
-  const t = String(text ?? "").trim();
+  const t = normalizeCoachLegTypos(String(text ?? "").trim());
   if (!t) {
     return { propsOnly: false, gameLinesOnly: false, maxGames: null, allowedMarketKeys: null };
   }

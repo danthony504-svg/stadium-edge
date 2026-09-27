@@ -1,12 +1,21 @@
 /** Greenfield ask parsing — leg targets and build intent only. */
 
 /** Accept "leg(s)" and common typos like "lag" / "lags" so board scan still runs. */
-const LEG_WORD = String.raw`l(?:eg|ag)s?`;
+export const LEG_WORD = String.raw`l(?:eg|ag)s?`;
 
 const PARLAY_BUILD_RE = new RegExp(
   String.raw`\b((?:\d{1,3})\s*[-\s]?\s*${LEG_WORD}\b|\b(?:build|make|create|give me|need|want)\b.{0,40}\bparlay\b|\bparlay\b)`,
   "i",
 );
+
+/**
+ * Normalize "9 lag" → "9 leg" so props-only / market parsers that still say
+ * `legs?` honor the same typo as parseRequestedLegs (phone: "9 lag NFL player
+ * prop" was skipping propsOnly and staging spreads).
+ */
+export function normalizeCoachLegTypos(text: string | null | undefined): string {
+  return String(text ?? "").replace(/\b(\d{1,3})\s*[-\s]?\s*lags?\b/gi, "$1 leg");
+}
 
 export function parseRequestedLegs(text: string): number {
   const m = String(text || "").match(
@@ -29,4 +38,73 @@ export function resolveBuildLegTarget(text: string): number {
   if (explicit > 0) return Math.min(explicit, 25);
   if (isParlayBuildAsk(text)) return 6;
   return 0;
+}
+
+/** True when a staged pick is a team/game line (spread/total/ML), not a player prop. */
+export function coachPickLooksLikeGameLine(p: {
+  isProp?: boolean;
+  market?: string | null;
+}): boolean {
+  const m = String(p.market ?? "").toUpperCase();
+  // Phone screenshots: "1H ALT SPREAD", "Q2 SPREAD", "TOTAL", "2H ALT TOTAL".
+  if (
+    /\b(SPREAD|TOTAL|MONEYLINE|MONEY\s*LINE)\b/.test(m) ||
+    /(?:^|[\s/])(ML)(?:$|[\s/])/.test(m)
+  ) {
+    return true;
+  }
+  return !p.isProp;
+}
+
+function coachAskedForPlayerProps(text: string): boolean {
+  const t = normalizeCoachLegTypos(text).toLowerCase();
+  if (/\bno\s+(?:player\s+)?props?\b/.test(t) || /\bwithout\s+(?:player\s+)?props?\b/.test(t)) {
+    return false;
+  }
+  if (/\bplayer\s+props?\b/.test(t)) return true;
+  if (/\b\d{1,3}\s*leg\b[\s\w]{0,40}\bprops?\b/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Phone-visible lead when the user asked for player props but the ticket is
+ * game lines (spreads/totals). Lead copy sits above pick cards so a leak is
+ * diagnosable on-device (lag typo / propsOnly miss / team-scoped fill).
+ */
+export function coachPropsAskGameLineMismatchNote(opts: {
+  askText?: string | null;
+  propsOnly: boolean;
+  picks: readonly { isProp?: boolean; market?: string | null }[];
+}): string {
+  const raw = String(opts.askText ?? "");
+  if (!coachAskedForPlayerProps(raw)) return "";
+  const gameLinePicks = opts.picks.filter((p) => coachPickLooksLikeGameLine(p));
+  const propCount = opts.picks.length - gameLinePicks.length;
+  const gameLineCount = gameLinePicks.length;
+  if (opts.picks.length === 0 || gameLineCount <= 0) return "";
+  const markets = [
+    ...new Set(
+      gameLinePicks
+        .map((p) => String(p.market ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 6),
+    ),
+  ];
+  const marketBit = markets.length ? ` markets=${markets.join("|")}` : "";
+  const askBit = JSON.stringify(normalizeCoachLegTypos(raw).slice(0, 80));
+  if (opts.propsOnly) {
+    return (
+      `You asked for player props — props-only still staged team game lines ` +
+      `(spreads/totals). ` +
+      `[PROPS_ONLY_LEAKED_GAME_LINES: props=${propCount} gameLines=${gameLineCount}${marketBit}]`
+    );
+  }
+  const legs = parseRequestedLegs(raw);
+  return (
+    `You asked for player props — this ticket staged team game lines ` +
+    `(spreads/totals) instead of player props. ` +
+    `[PROPS_ASK_GOT_GAME_LINES: propsOnly=false legs=${legs}` +
+    ` props=${propCount} gameLines=${gameLineCount}${marketBit}` +
+    ` ask=${askBit}]`
+  );
 }
