@@ -48,6 +48,7 @@ import {
   filterPropPoolByAskMarkets,
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
+import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
 import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
 import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "@/lib/coachHrRank";
 import { loadMlbScanContext } from "@/lib/mlbScanContext";
@@ -299,22 +300,39 @@ export async function buildCoachParlay(opts: {
     );
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
     const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
-    let note =
-      built.note.trim() ||
-      buildFinalCoachParlayNote({
-        target,
-        picks,
-        propPoolSize,
-        propsPending: false,
-        shortfallLead: teamMiss || shortfall,
+    const note =
+      (built.note.trim() ||
+        buildFinalCoachParlayNote({
+          target,
+          picks,
+          propPoolSize,
+          propsPending: false,
+          shortfallLead: teamMiss || shortfall,
+          propsOnly: true,
+          requirePropMix: false,
+        })) +
+      coachPropsAskGameLineMismatchNote({
+        askText: opts.askText,
         propsOnly: true,
-        requirePropMix: false,
+        picks,
       });
     // If post-filters wiped a non-empty ticket, append why so the phone shows it.
     if (built.picks.length > 0 && picks.length === 0) {
-      note = `${note} [POST_FILTER_EMPTY: built=${built.picks.length} afterTeamOrMarketFilter=0]`;
+      return {
+        picks,
+        note: `${note} [POST_FILTER_EMPTY: built=${built.picks.length} afterTeamOrMarketFilter=0]`,
+        scan: null,
+        timedOut: false,
+        propPoolSize,
+      };
     } else if (teamMiss && picks.length === 0 && !note.includes("[")) {
-      note = `${note} [${teamMiss}]`;
+      return {
+        picks,
+        note: `${note} [${teamMiss}]`,
+        scan: null,
+        timedOut: false,
+        propPoolSize,
+      };
     }
     return {
       picks,
@@ -475,21 +493,27 @@ export async function buildCoachParlay(opts: {
   }
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
-  const note = buildFinalCoachParlayNote({
-    target,
-    picks,
-    propPoolSize,
-    propsPending,
-    shortfallLead: teamMiss || shortfall,
-    timedOut: timed.timedOut,
-    budgetMs,
-    scanMissing: !scan,
-    scanNote: scan?.note,
-    failureReason: scan?.failureReason,
-    failureDiagnostics: scan?.failureDiagnostics,
-    propsOnly,
-    requirePropMix,
-  });
+  const note =
+    buildFinalCoachParlayNote({
+      target,
+      picks,
+      propPoolSize,
+      propsPending,
+      shortfallLead: teamMiss || shortfall,
+      timedOut: timed.timedOut,
+      budgetMs,
+      scanMissing: !scan,
+      scanNote: scan?.note,
+      failureReason: scan?.failureReason,
+      failureDiagnostics: scan?.failureDiagnostics,
+      propsOnly,
+      requirePropMix,
+    }) +
+    coachPropsAskGameLineMismatchNote({
+      askText: opts.askText,
+      propsOnly,
+      picks,
+    });
 
   return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };
 }

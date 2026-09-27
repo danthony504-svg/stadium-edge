@@ -488,7 +488,10 @@ export function mentionsPropIntent(text?: string | null): boolean {
 // still fill the requested count.
 export function wantsPropsOnly(text?: string | null): boolean {
   if (!mentionsPropIntent(text)) return false;
-  const t = String(text || "").toLowerCase();
+  // "9 lag NFL player prop" — honor lag typo the same as parseRequestedLegs.
+  const t = String(text || "")
+    .toLowerCase()
+    .replace(/\b(\d{1,3})\s*[-\s]?\s*lags?\b/g, "$1 leg");
   // Explicit no-prop / game-lines asks never mean props-only.
   if (/\bno\s+player\s+props?\b/.test(t)) return false;
   if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
@@ -504,6 +507,7 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (/\bparlay\s+(?:of\s+)?(?:player\s+)?props?\b/.test(t)) return true;
   // "6 leg player props" / "10 leg NFL player props" / "6-leg player prop"
   // — allow an optional sport token between leg count and "player props".
+  // Also "9 lag …" after typo normalize above.
   if (/\b\d{1,3}\s*[-\s]?\s*legs?\b[\s\w]{0,40}\bplayer\s+props?\b/.test(t)) return true;
   if (/\bplayer\s+props?\s+\d{1,3}\s*[-\s]?\s*legs?\b/.test(t)) return true;
   // "9 leg nfl props" / "10 leg props" — all-prop ticket (not "with props").
@@ -517,9 +521,9 @@ export function wantsPropsOnly(text?: string | null): boolean {
   return false;
 }
 
-/** Explicit N-leg count from user text, or 0 when omitted. */
+/** Explicit N-leg count from user text, or 0 when omitted. Accepts lag typo. */
 export function parseRequestedLegCount(text: string): number {
-  const m = String(text || "").match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
+  const m = String(text || "").match(/\b(\d{1,3})\s*[-\s]?\s*l(?:eg|ag)s?\b/i);
   if (!m) return 0;
   const n = parseInt(m[1], 10);
   return Number.isFinite(n) ? n : 0;
