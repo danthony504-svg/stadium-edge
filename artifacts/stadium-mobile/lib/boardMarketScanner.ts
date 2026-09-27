@@ -50,7 +50,7 @@ import { scoreLineShopping } from "./pickScore.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
-import { marketSupportsSimulation, parseMarketPeriod, pickHasSimGrade, sanitizeSimHitForGrade } from "./simMarketSupport.ts";
+import { marketSupportsSimulation, parseMarketPeriod, pickHasSimGrade, sanitizeSimHitForGrade, clipPropSimHitForGrade } from "./simMarketSupport.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
@@ -138,8 +138,8 @@ function propPickHasSimHit(
   pool: PropPoolEntry[],
   hits: Map<string, { hitProbability: number | null }>,
 ): boolean {
-  const hit = hits.get(propSimKeyForPick(pick, poolRowForPropPick(pick, pool)) ?? "")?.hitProbability ?? null;
-  return pickHasSimGrade(pick, hit);
+  const raw = hits.get(propSimKeyForPick(pick, poolRowForPropPick(pick, pool)) ?? "")?.hitProbability ?? null;
+  return propHasSimGrade(pick, raw);
 }
 
 function aliasPropSimHitsForBatch(
@@ -261,29 +261,9 @@ function gameLineHasSimGrade(row: EvaluatedGameLine, simHit: number | null): boo
 }
 
 function propHasSimGrade(pick: ParsedPick, simHit: number | null): boolean {
-  if (!pickHasSimGrade(pick, simHit)) return false;
+  const clipped = clipPropSimHitForGrade(pick, simHit);
+  if (!pickHasSimGrade(pick, clipped)) return false;
   return marketSupportsSimulation(pick.market ?? "", pick);
-}
-
-/**
- * Binary yes/no props (Anytime TD Over 0.5) often land empirical hit rates of
- * exactly 0 or 1 from short samples — sanitizeSimHitForGrade rejects those.
- * Soft-clip so gradeable skill props are not wiped before yards/TD mix staging.
- */
-function clipPropSimHitForGrade(
-  pick: ParsedPick,
-  simHit: number | null | undefined,
-): number | null {
-  if (simHit == null || !Number.isFinite(simHit)) return null;
-  const line = pick.propLine;
-  const isBinaryLine = line != null && line > 0 && line <= 0.5;
-  if (isBinaryLine || /\btd\b|touchdown|goal\s*scorer|anytime/.test(
-    String(pick.propMarketKey ?? pick.market ?? "").toLowerCase(),
-  )) {
-    if (simHit <= 0) return 0.02;
-    if (simHit >= 1) return 0.98;
-  }
-  return simHit;
 }
 
 function scoredFromEvalRow(

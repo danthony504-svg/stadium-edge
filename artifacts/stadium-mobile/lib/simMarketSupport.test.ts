@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   assessSimMarketIntegrity,
+  clipPropSimHitForGrade,
   isExtremeSimHit,
   marketSupportsSimulation,
   normalizeMarketKey,
@@ -149,5 +150,38 @@ test("normalizeMarketKey is stable for integrity logs", () => {
   assert.equal(
     normalizeMarketKey("Team Total", { sport: "nfl" }),
     "teamTotal|fg|team total",
+  );
+});
+
+test("clipPropSimHitForGrade soft-clips binary TD 0/1 so sanitize can grade", () => {
+  const td = { propMarketKey: "player_anytime_td", propLine: 0.5, market: "Anytime TD" };
+  assert.equal(clipPropSimHitForGrade(td, 0), 0.02);
+  assert.equal(clipPropSimHitForGrade(td, 1), 0.98);
+  const clipCtx = {
+    market: "Anytime TD",
+    sport: "nfl",
+    isProp: true,
+    simulationStatKey: "player_prop",
+    expectedStatKey: "player_prop",
+  };
+  assert.equal(sanitizeSimHitForGrade(clipPropSimHitForGrade(td, 0), clipCtx), 0.02);
+  assert.equal(sanitizeSimHitForGrade(clipPropSimHitForGrade(td, 1), clipCtx), 0.98);
+  assert.equal(
+    pickHasSimGrade({ market: "Anytime TD", isProp: true, sport: "nfl" }, clipPropSimHitForGrade(td, 0)),
+    true,
+  );
+  // Continuous yards keep raw mid-range hits; exact 0/1 still rejected by sanitize.
+  const yards = { propMarketKey: "player_pass_yds", propLine: 250.5, market: "Passing Yards" };
+  assert.equal(clipPropSimHitForGrade(yards, 0.55), 0.55);
+  assert.equal(clipPropSimHitForGrade(yards, 0), 0);
+  assert.equal(
+    sanitizeSimHitForGrade(clipPropSimHitForGrade(yards, 0), {
+      market: "Passing Yards",
+      sport: "nfl",
+      isProp: true,
+      simulationStatKey: "player_prop",
+      expectedStatKey: "player_prop",
+    }),
+    null,
   );
 });
