@@ -138,16 +138,11 @@ test("prefetched prop pools overlap prop scoring with game lines", () => {
   assert.equal(shouldOverlapPropPhaseWithGames(true, 120, true), false);
 });
 
-test("football mix budgets favor props-first then short game phase", () => {
-  assert.equal(boardScanPropPhaseDeadlineMs(10, { requirePropMix: true }), 55_000);
+test("football mix budgets favor props then room for parallel game phase", () => {
+  assert.equal(boardScanPropPhaseDeadlineMs(10, { requirePropMix: true }), 65_000);
   assert.equal(boardScanMixGamePhaseBudgetMs(10), 28_000);
-  assert.ok(
-    boardScanPropPhaseDeadlineMs(10, { requirePropMix: true }) +
-      boardScanMixGamePhaseBudgetMs(10) <
-      95_000,
-  );
-  assert.ok(boardScanMaxPropsToSimForMix(10, 800) <= 220);
-  assert.ok(boardScanMaxPropsToSimForMix(10, 800) >= 120);
+  assert.ok(boardScanMaxPropsToSimForMix(10, 800) <= 360);
+  assert.ok(boardScanMaxPropsToSimForMix(10, 800) >= 200);
 });
 
 test("game-phase budget leaves room for prop-phase deadline inside Coach wall", () => {

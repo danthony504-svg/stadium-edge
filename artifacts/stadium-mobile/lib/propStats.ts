@@ -171,6 +171,17 @@ export function gameValueForMarket(
     if (pass == null || rush == null || rec == null) return null;
     return pass + rush + rec;
   }
+  // Anytime / first TD — sum of real rush+rec+pass TD columns (first-TD books
+  // still need a grounded per-game scorer rate for local MC fallback).
+  if (market === "player_anytime_td" || market === "player_first_td") {
+    const pass = num(stats, "passingTouchdowns");
+    const rush = num(stats, "rushingTouchdowns");
+    const rec = num(stats, "receivingTouchdowns");
+    // Prefer skill-position columns; treat missing pass TD as 0 when rush/rec present
+    // (WR/RB logs often omit passingTouchdowns entirely).
+    if (rush == null && rec == null && pass == null) return null;
+    return (pass ?? 0) + (rush ?? 0) + (rec ?? 0);
+  }
 
   const combo = MARKET_COMBO[market];
   if (combo) {

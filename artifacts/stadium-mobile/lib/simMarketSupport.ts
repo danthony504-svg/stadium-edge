@@ -341,7 +341,8 @@ export function logExtremeSimHit(ctx: SimHitSanityContext): void {
 
 /**
  * Sanitize a sim hit for grading.
- * Exact 0/1 and non-finite values are unusable.
+ * Exact 0/1 and non-finite values are unusable for continuous markets.
+ * Callers should soft-clip binary yes/no prop rates before invoking this.
  * Extreme hits are logged always and rejected only when integrity evidence shows a mismatch.
  */
 export function sanitizeSimHitForGrade(

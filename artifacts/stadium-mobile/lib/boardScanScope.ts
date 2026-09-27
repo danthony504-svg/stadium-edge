@@ -45,11 +45,12 @@ export function boardScanPropPhaseDeadlineMs(
     return 55_000;
   }
   // Football mix: props-first rebuild — leave ~25–30s for game lines after.
+  // Kept for mix-aware deadlines; mix path runs props∥games in parallel now.
   if (opts?.requirePropMix) {
-    if (targetLegs >= 15) return 70_000;
-    if (targetLegs >= 9) return 55_000;
-    if (targetLegs >= 6) return 48_000;
-    return 36_000;
+    if (targetLegs >= 15) return 75_000;
+    if (targetLegs >= 9) return 65_000;
+    if (targetLegs >= 6) return 55_000;
+    return 40_000;
   }
   // Deep fixed-leg tickets need multiple prop batches on busy MLB/NFL boards.
   if (targetLegs >= 15) return 90_000;
@@ -80,15 +81,15 @@ export function boardScanMixGamePhaseBudgetMs(targetLegs: number): number {
 }
 
 /**
- * Football mix: deep-sim a tighter skill-prop-first set so TD / yards clear
- * before the phase wall — 500+ misc props was starving the first batches.
+ * Football mix: deep-sim a skill-prop set with room for yards + TD quotas.
+ * Old 180 TD-first cap left zero yards on large NFL boards.
  */
 export function boardScanMaxPropsToSimForMix(
   targetLegs: number,
   poolSize: number,
 ): number {
-  const scaled = Math.max(targetLegs * 18, 120);
-  const cap = Math.min(scaled, 220);
+  const scaled = Math.max(targetLegs * 28, 200);
+  const cap = Math.min(scaled, 360);
   return Math.min(poolSize, cap);
 }
 
