@@ -29,10 +29,13 @@ export function boardScanPropSimBatchTimeoutMs(): number {
  *
  * When the prop pool is prefetched, this phase overlaps game-line sims so the
  * absolute Coach budget cannot starve player props (7-leg → 3 F5 game lines).
+ *
+ * Football mix asks get a dedicated longer window — props must clear before
+ * we spend wall clock on game-line sims (rebuild: parallel starved NFL props).
  */
 export function boardScanPropPhaseDeadlineMs(
   targetLegs: number,
-  opts?: { exhaustPropBoard?: boolean },
+  opts?: { exhaustPropBoard?: boolean; requirePropMix?: boolean },
 ): number {
   // HR full-board exhaust needs more wall time so matchup-strong hitters
   // beyond the first EV-sorted wave still get MC before Coach finalizes.
@@ -40,6 +43,13 @@ export function boardScanPropPhaseDeadlineMs(
     if (targetLegs >= 9) return 90_000;
     if (targetLegs >= 6) return 75_000;
     return 55_000;
+  }
+  // Football mix: props-first rebuild — leave ~25–30s for game lines after.
+  if (opts?.requirePropMix) {
+    if (targetLegs >= 15) return 70_000;
+    if (targetLegs >= 9) return 55_000;
+    if (targetLegs >= 6) return 48_000;
+    return 36_000;
   }
   // Deep fixed-leg tickets need multiple prop batches on busy MLB/NFL boards.
   if (targetLegs >= 15) return 90_000;
@@ -57,6 +67,29 @@ export function boardScanGamePhaseBudgetMs(targetLegs: number): number {
   if (targetLegs >= 9) return 32_000;
   if (targetLegs >= 6) return 28_000;
   return 24_000;
+}
+
+/**
+ * After props-first for football mix, leftover wall for game-line sims.
+ * Kept short so absolute budget is not burned on spreads after props.
+ */
+export function boardScanMixGamePhaseBudgetMs(targetLegs: number): number {
+  if (targetLegs >= 9) return 28_000;
+  if (targetLegs >= 6) return 24_000;
+  return 20_000;
+}
+
+/**
+ * Football mix: deep-sim a tighter skill-prop-first set so TD / yards clear
+ * before the phase wall — 500+ misc props was starving the first batches.
+ */
+export function boardScanMaxPropsToSimForMix(
+  targetLegs: number,
+  poolSize: number,
+): number {
+  const scaled = Math.max(targetLegs * 18, 120);
+  const cap = Math.min(scaled, 220);
+  return Math.min(poolSize, cap);
 }
 
 /** Prefetched pools should overlap prop scoring with game lines. */

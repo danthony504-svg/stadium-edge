@@ -74,11 +74,12 @@ test("board scan game phase continues after a thrown slate batch", () => {
   assert.match(src, /Keep scanning remaining games \+ props/);
   assert.match(src, /incomplete: boolean/);
   assert.match(src, /Start the prop MC clock AFTER sync ranking/);
-  // Rebuild: no whole-batch 20s race that discarded every sim as TEAM_IDS.
+  // Rebuild: football mix is props-first; no whole-batch 20s race discard.
   assert.match(src, /fetchSlateGameSimulationsWithStatus/);
+  assert.match(src, /footballMixPath/);
+  assert.match(src, /finalizeFootballPropMixPicks/);
   assert.doesNotMatch(src, /game-sim-batch-timeout/);
 });
-
 test("board scan passes liveOdds as one mergeOddsEntries source (SCAN_THREW)", () => {
   const src = readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");
   // Must NOT spread live odds into mergeOddsEntries(...sources).

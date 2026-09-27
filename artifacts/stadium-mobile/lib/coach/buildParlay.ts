@@ -25,6 +25,7 @@ import {
   buildFinalCoachParlayNote,
   selectFinalCoachParlayPicks,
   askRequiresFootballPropMix,
+  finalizeFootballPropMixPicks,
 } from "@/lib/boardScanPropDelivery";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
@@ -354,6 +355,7 @@ export async function buildCoachParlay(opts: {
 
   // Budget hit while props were still pending — grace window when the pool was
   // already loaded (5-leg→2 totals / 7-leg→3 F5 lines failure modes).
+  // Football mix gets a longer grace so skill props can finish before we refuse.
   if (
     timed.timedOut &&
     !opts.signal.aborted &&
@@ -361,7 +363,9 @@ export async function buildCoachParlay(opts: {
     propsStillPending(scan)
   ) {
     opts.onStatus?.(`Finishing prop/alt scoring (${propPoolSize} posted)…`);
-    const graceMs = Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25)));
+    const graceMs = requirePropMix
+      ? Math.min(35_000, Math.max(15_000, Math.round(budgetMs * 0.35)))
+      : Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25)));
     const grace = await Promise.race([
       scanPromise.then((s) => ({ scan: s })),
       new Promise<{ scan: null }>((resolve) => {
@@ -390,13 +394,18 @@ export async function buildCoachParlay(opts: {
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;
-  const picks = filterPicksForAskTeam(
+  let picks = filterPicksForAskTeam(
     filterPicksByAskMarketConstraint(
       selectFinalCoachParlayPicks(rawPicks),
       marketConstraint,
     ),
     teamScope,
   );
+  // Belt-and-suspenders: football mix never ships spreads-only even if an older
+  // partial slipped past buildScanResult finalize.
+  if (requirePropMix) {
+    picks = finalizeFootballPropMixPicks(picks, target);
+  }
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
   const propsPending =
@@ -416,6 +425,7 @@ export async function buildCoachParlay(opts: {
     failureReason: scan?.failureReason,
     failureDiagnostics: scan?.failureDiagnostics,
     propsOnly,
+    requirePropMix,
   });
 
   return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };

@@ -85,15 +85,19 @@ import {
 } from "./boardPropSimExpansion.ts";
 import {
   fillReservedPropSlots,
+  finalizeFootballPropMixPicks,
   isFootballHeavyPickList,
   shouldKeepAwaitingPropSlots,
   shouldReservePropSeats,
   applyReservedPropSeatCap,
+  skillPropRank,
 } from "./boardScanPropDelivery.ts";
 import { interleaveSidesWithProps } from "./boardMarketPools.ts";
 import {
   boardScanGamePhaseBudgetMs,
   boardScanMaxPropsToSim,
+  boardScanMaxPropsToSimForMix,
+  boardScanMixGamePhaseBudgetMs,
   boardScanPropPhaseDeadlineMs,
   boardScanPropSimBatchTimeoutMs,
   shouldOverlapPropPhaseWithGames,
@@ -512,6 +516,8 @@ async function simPropPoolUntilQualified(
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
     propsOnly?: boolean;
+    /** Football mix — skill-prop-first ranking + mix deadline. */
+    requirePropMix?: boolean;
   /** Score every eligible prop (HR boards) — do not stop after N qualify. */
   exhaustPropBoard?: boolean;
     phaseStartedAtMs?: number;
@@ -529,6 +535,7 @@ async function simPropPoolUntilQualified(
   const seenFp = new Set<string>();
   const phaseDeadlineMs = boardScanPropPhaseDeadlineMs(opts.target, {
     exhaustPropBoard: opts.exhaustPropBoard,
+    requirePropMix: opts.requirePropMix,
   });
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
@@ -548,11 +555,22 @@ async function simPropPoolUntilQualified(
       prescorePool.every((p) => isBatterHomeRunPick(p)));
   const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
-    .sort(
-      (a, b) =>
-        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard }),
-    );
-  const maxToSim = boardScanMaxPropsToSim(opts.target, rankedAll.length);
+    .sort((a, b) => {
+      // Football mix: TD / pass / rec / rush yards first so early batches clear
+      // skill props before misc markets burn the phase wall.
+      if (opts.requirePropMix) {
+        const sk =
+          skillPropRank(b.propMarketKey ?? b.market) -
+          skillPropRank(a.propMarketKey ?? a.market);
+        if (sk !== 0) return sk;
+      }
+      return (
+        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard })
+      );
+    });
+  const maxToSim = opts.requirePropMix
+    ? boardScanMaxPropsToSimForMix(opts.target, rankedAll.length)
+    : boardScanMaxPropsToSim(opts.target, rankedAll.length);
   const { selected: rankedProps } = selectBoardPropSimCandidates(rankedAll, maxToSim);
 
   const scoreOpts = {
@@ -729,12 +747,18 @@ export function buildScanResult(
       picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
     }
   }
-  // Reserve prop seats on preview AND on football finals / incomplete prop phases.
-  // Previously finals padded those seats with spreads → "10 leg nfl" all-GL tickets.
+  // Reserve prop seats on preview. Football finals: refuse GL-only via
+  // finalizeFootballPropMixPicks (rebuild — never publish 6 spreads when props
+  // were asked and none cleared).
   let propCount = picks.filter((p) => p.isProp).length;
   const propFraction =
     opts.requirePropMix || isFootballHeavyPickList(picks) ? 0.4 : 0.5;
-  if (
+  if (opts.requirePropMix && !opts.propsOnly && !opts.gameLinesOnly) {
+    picks = finalizeFootballPropMixPicks(picks, opts.target, {
+      preview: opts.preview,
+    });
+    propCount = picks.filter((p) => p.isProp).length;
+  } else if (
     shouldReservePropSeats({
       preview: opts.preview,
       propsOnly: opts.propsOnly,
@@ -1068,6 +1092,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         ...propScoreOpts,
         teamIdsByGame: opts.teamIdMap,
         propsOnly: opts.propsOnly,
+        requirePropMix: opts.requirePropMix,
         exhaustPropBoard: opts.exhaustPropBoard,
         phaseStartedAtMs: propPhaseStartedAt,
         onWave: (combined) => {
@@ -1085,11 +1110,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     );
   };
 
-  // Prefetched prop boards score in PARALLEL with game lines so the absolute
-  // Coach budget cannot starve either path. Serial props-first (#529) burned
-  // the wall clock on props then aborted before game sims — phone empty ticket
-  // with fake TEAM_IDS_UNRESOLVED. Football mix still KEEPS reserved prop seats
-  // open on the final ticket (applyReservedPropSeatCap) so spreads cannot pad.
+  // Football mix rebuild: props-FIRST (skill-ranked, dedicated deadline), then
+  // game lines in leftover budget. Parallel props+games let spreads clear while
+  // props starved → phone "showing 6 game-line picks". Props-only still skips
+  // the slate; non-mix overlap keeps parallel.
   let propPhaseP: Promise<{
     propScored: BoardScoredLeg[];
     propHits: Map<string, { hitProbability: number | null }>;
@@ -1097,16 +1121,25 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     incomplete: boolean;
   } | null> | null = null;
   const propsOnlyPath = !!opts.propsOnly;
+  const footballMixPath = !!opts.requirePropMix && !propsOnlyPath;
+
   if (propsOnlyPath) {
-    // True props-only: spend the budget on props — no game slate.
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
         propPhaseIncomplete = true;
         return null;
       });
-  } else if (overlapProps || opts.requirePropMix) {
-    // Football mix + prefetched pools: start props immediately alongside games.
+  } else if (footballMixPath) {
+    // Await props before any game slate — reserved seats only matter if props land.
+    try {
+      const propResult = await runPropPhase(pool);
+      propScoredAcc = propResult.propScored;
+      if (propResult.incomplete) propPhaseIncomplete = true;
+    } catch {
+      propPhaseIncomplete = true;
+    }
+  } else if (overlapProps) {
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
@@ -1121,16 +1154,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let slateUnresolved = 0;
   if (!opts.propsOnly) {
     gameSimsAttempted = gameEntries.length > 0;
-    // Football mix: give the slate enough wall clock that a slow first batch
-    // cannot zero every sim (old 20s batch race + 32s phase → 0/15 bound).
-    const gamePhaseBudgetMs =
-      overlapProps || opts.requirePropMix
+    const gamePhaseBudgetMs = footballMixPath
+      ? boardScanMixGamePhaseBudgetMs(opts.target)
+      : overlapProps
         ? Math.max(boardScanGamePhaseBudgetMs(opts.target), 48_000)
         : null;
     const gamePhaseStartedAt = Date.now();
-    // Larger batches under a shared budget — per-game try/catch inside
-    // fetchSlateGameSimulationsWithStatus; no whole-batch Promise.race discard.
-    const SLATE_SIM_BATCH_REBUILD = opts.requirePropMix ? 4 : SLATE_SIM_BATCH;
+    const SLATE_SIM_BATCH_REBUILD = footballMixPath || opts.requirePropMix ? 4 : SLATE_SIM_BATCH;
     for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH_REBUILD) {
       if (opts.signal?.aborted) break;
       if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) {
@@ -1164,7 +1194,18 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ]);
   if (expandedPool?.length) pool = expandedPool;
 
-  if (!propPhaseP) {
+  if (footballMixPath) {
+    // Props already ran; rescore if expand grew the pool and still empty.
+    if (propScoredAcc.length === 0 && pool.length > 0 && expandedPool?.length) {
+      try {
+        const propResult = await runPropPhase(pool);
+        propScoredAcc = propResult.propScored;
+        if (propResult.incomplete) propPhaseIncomplete = true;
+      } catch {
+        propPhaseIncomplete = true;
+      }
+    }
+  } else if (!propPhaseP) {
     try {
       const propResult = await runPropPhase(pool);
       propScoredAcc = propResult.propScored;
@@ -1181,8 +1222,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       propPhaseIncomplete = true;
     }
   }
-  // If expand grew the pool after an early empty props-only/mix wave, rescore.
+  // If expand grew the pool after an early empty props-only wave, rescore.
   if (
+    !footballMixPath &&
     propScoredAcc.length === 0 &&
     pool.length > 0 &&
     (opts.propsOnly || opts.requirePropMix) &&
