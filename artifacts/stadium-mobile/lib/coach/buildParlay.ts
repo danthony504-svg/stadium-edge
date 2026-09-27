@@ -282,6 +282,7 @@ export async function buildCoachParlay(opts: {
       teamIdMap,
       signal: opts.signal,
       onStatus: opts.onStatus,
+      playerHistory,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
           filterPicksByAskMarketConstraint(picks, marketConstraint),

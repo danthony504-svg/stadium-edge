@@ -1,31 +1,34 @@
 /**
  * Greenfield NFL / NCAAF props-only ticket builder.
  *
- * Replaces the generic board-scan path for asks like "9 leg NFL player props".
- * That path deep-simmed finishable skill rows (72) then wiped every batch when
- * enrich timed out → PROP_ALL_NO_SIM_GRADE with 0 cards on phone.
- *
- * Contract:
- * 1. AthleteId-required skill set (yards / TD / volume quotas), finishable size
- * 2. Tiny batches — local history grades first, server MC optional boost
- * 3. Soft-clip binary TD 0/1 so sanitize can admit grades
- * 4. Stage every prop that clears sim grade + ticket gates — never invent odds
- * 5. Never wipe local hits when the server race times out
+ * Rebuild after #539 phone empty: selection worked, but per-batch enrich/server
+ * race still left propLegsScored=0. New contract:
+ * 1. AthleteId-required finishable skill set
+ * 2. Prefetch game logs for ALL candidates first
+ * 3. Grade synchronously from history (no enrich race)
+ * 4. Soft-clip binary TD 0/1
+ * 5. Optional short server MC boost only for still-null rows — never wipe locals
+ * 6. Stage graded props — never invent odds
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchPropSimulations } from "./api.ts";
-import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
+import { prefetchPropPlayerHistory } from "./coachBoardContext.ts";
 import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
 import {
   FOOTBALL_PROPS_ONLY_BATCH,
   selectFootballPropsOnlyFromPicks,
 } from "./coachFootballPropsOnly.ts";
-import { impliedProb } from "./format.ts";
+import {
+  gradeFootballPropsOnlyFromHistory,
+  propsOnlyPickHasGrade,
+  softClipPropsOnlyHits,
+  type PropsOnlyHistorySlice,
+} from "./coachFootballPropsOnlyGrade.ts";
 import { attachPickScores } from "./pickScoreContext.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
-import { parsedPickFromPoolEntry, propSimLookupKey } from "./propSelection.ts";
+import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import {
   clipPropSimHitForGrade,
   pickHasSimGrade,
@@ -33,6 +36,7 @@ import {
   parseMarketPeriod,
 } from "./simMarketSupport.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
+import { impliedProb } from "./format.ts";
 import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
@@ -48,61 +52,18 @@ export {
   shouldBuildFootballPropsOnlyTicket,
 } from "./coachFootballPropsOnly.ts";
 
+export {
+  gradeFootballPropFromHistory,
+  gradeFootballPropsOnlyFromHistory,
+  propsOnlyPickHasGrade,
+  softClipPropsOnlyHits,
+} from "./coachFootballPropsOnlyGrade.ts";
+
 export function selectFootballPropsOnlyCandidates(
   pool: PropPoolEntry[],
   targetLegs: number,
 ): ParsedPick[] {
   return selectFootballPropsOnlyFromPicks(pool.map(parsedPickFromPoolEntry), targetLegs);
-}
-
-type PropHit = { hitProbability: number | null; nullReason?: string | null };
-
-function poolRowForPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEntry | undefined {
-  const side = pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
-  if (!side || pick.propLine == null) return undefined;
-  return (
-    pool.find(
-      (e) =>
-        e.player === pick.player &&
-        e.side === side &&
-        e.line === pick.propLine &&
-        (pick.game ? e.game === pick.game : true),
-    ) ?? pool.find((e) => e.player === pick.player && e.side === side)
-  );
-}
-
-function aliasHits(batch: ParsedPick[], hits: Map<string, PropHit>): Map<string, PropHit> {
-  const out = new Map(hits);
-  for (const pick of batch) {
-    const key = propSimLookupKey(pick, poolRowForPick(pick, []));
-    if (!key || out.has(key)) continue;
-    const side = pick.propSide === "Under" ? "Under" : "Over";
-    if (pick.propLine == null || !pick.player) continue;
-    const suffix = `|${pick.propLine}|${side}`;
-    for (const [serverKey, row] of hits) {
-      if (serverKey.startsWith(`${pick.player}|`) && serverKey.endsWith(suffix)) {
-        out.set(key, row);
-        break;
-      }
-    }
-  }
-  return out;
-}
-
-function applySoftClips(
-  batch: ParsedPick[],
-  pool: PropPoolEntry[],
-  hits: Map<string, PropHit>,
-): void {
-  for (const pick of batch) {
-    const key = propSimLookupKey(pick, poolRowForPick(pick, pool));
-    if (!key) continue;
-    const raw = hits.get(key)?.hitProbability;
-    const clipped = clipPropSimHitForGrade(pick, raw);
-    if (clipped != null && clipped !== raw) {
-      hits.set(key, { hitProbability: clipped });
-    }
-  }
 }
 
 function legFromScoredPick(pick: ParsedPick): BoardScoredLeg | null {
@@ -138,6 +99,18 @@ function legFromScoredPick(pick: ParsedPick): BoardScoredLeg | null {
   };
 }
 
+function toLocalHistory(
+  slice: PlayerHistorySlice | undefined,
+): PropsOnlyHistorySlice | undefined {
+  if (!slice?.recent?.length) return undefined;
+  return {
+    player: slice.player,
+    recent: slice.recent.map((g) => ({
+      stats: (g.stats ?? {}) as Record<string, string>,
+    })),
+  };
+}
+
 export type FootballPropsOnlyBuildOpts = {
   target: number;
   pool: PropPoolEntry[];
@@ -146,6 +119,8 @@ export type FootballPropsOnlyBuildOpts = {
   signal?: AbortSignal;
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
+  /** Optional prefetched history (Player#athleteId) — skips duplicate network. */
+  playerHistory?: Record<string, PlayerHistorySlice>;
   requestId?: string;
 };
 
@@ -160,8 +135,6 @@ export type FootballPropsOnlyResult = {
 
 /**
  * Build an NFL/NCAAF props-only ticket from posted odds + real player history.
- * Local-first grading in tiny batches — does not share the generic board-scan
- * enrich race that zeroed phone props-only tickets.
  */
 export async function buildFootballPropsOnlyTicket(
   opts: FootballPropsOnlyBuildOpts,
@@ -180,94 +153,125 @@ export async function buildFootballPropsOnlyTicket(
   }
 
   opts.onStatus?.(
-    `Grading ${candidates.length} NFL skill props (local history first)…`,
+    `Loading game logs for ${candidates.length} NFL skill props…`,
   );
 
-  const propHits = new Map<string, PropHit>();
-  const playerHistory: Record<string, PlayerHistorySlice> = {};
-  const propScored: BoardScoredLeg[] = [];
-  const seenFp = new Set<string>();
-  let propSimEvaluated = 0;
-
-  for (let i = 0; i < candidates.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
-    if (opts.signal?.aborted) break;
-    const batch = candidates.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
-    propSimEvaluated += batch.length;
-
-    // Local-first: enrich with empty server hits so history grades run immediately.
-    let hits = new Map<string, PropHit>();
-    try {
-      const local = await enrichCoachPropSimHits(batch, opts.pool, hits, opts.signal);
-      hits = local.hits;
-      Object.assign(playerHistory, local.playerHistory);
-    } catch {
-      /* keep empty — try server below */
+  // Prefetch histories for the finishable candidate set (not the whole board).
+  const candidatePoolRows: PropPoolEntry[] = [];
+  for (const p of candidates) {
+    const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
+    if (!side || !p.player || !p.athleteId) continue;
+    const found = opts.pool.find(
+      (e) =>
+        e.player === p.player &&
+        e.side === side &&
+        e.line === p.propLine &&
+        String(e.athleteId ?? "") === String(p.athleteId),
+    );
+    if (found) {
+      candidatePoolRows.push(found);
+      continue;
     }
+    candidatePoolRows.push({
+      player: p.player,
+      side,
+      line: p.propLine ?? null,
+      game: p.game,
+      sport: p.sport ?? "nfl",
+      marketLabel: p.market ?? "",
+      marketKey: p.propMarketKey ?? null,
+      odds: p.odds ?? 0,
+      athleteId: String(p.athleteId),
+    } as PropPoolEntry);
+  }
 
-    // Optional server boost (short race) — never wipe local hits on timeout.
-    try {
-      const serverRows = await Promise.race([
-        fetchPropSimulations(
-          batch,
-          opts.pool,
-          {
-            tier: "deep",
-            teamIdsByGame: opts.teamIdMap as Map<string, PropSimTeamIds>,
-          },
-          opts.signal,
-        ),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
-      ]);
-      if (serverRows) {
+  const seededHistory = { ...(opts.playerHistory ?? {}) };
+  let fetched: Record<string, PlayerHistorySlice> = {};
+  try {
+    fetched = await prefetchPropPlayerHistory(candidatePoolRows, {
+      signal: opts.signal,
+      maxPlayers: Math.min(candidates.length, 48),
+      concurrency: 8,
+    });
+  } catch {
+    fetched = {};
+  }
+  Object.assign(seededHistory, fetched);
+
+  const localHistories: Record<string, PropsOnlyHistorySlice | undefined> = {};
+  for (const [k, v] of Object.entries(seededHistory)) {
+    localHistories[k] = toLocalHistory(v);
+  }
+
+  opts.onStatus?.(`Grading ${candidates.length} NFL skill props from real history…`);
+
+  // Synchronous local grade — no enrich race that can wipe the map.
+  const propHits = gradeFootballPropsOnlyFromHistory(
+    candidates,
+    localHistories,
+    opts.pool,
+  );
+  softClipPropsOnlyHits(candidates, propHits, opts.pool);
+
+  // Optional short server boost for rows still null — never overwrite local grades.
+  const stillNull = candidates.filter((p) => !propsOnlyPickHasGrade(p, propHits, opts.pool));
+  if (stillNull.length && !opts.signal?.aborted) {
+    opts.onStatus?.(
+      `Local grades ready — boosting ${stillNull.length} remaining via deep sim…`,
+    );
+    for (let i = 0; i < stillNull.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
+      if (opts.signal?.aborted) break;
+      const batch = stillNull.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
+      try {
+        const serverRows = await Promise.race([
+          fetchPropSimulations(
+            batch,
+            opts.pool,
+            {
+              tier: "deep",
+              teamIdsByGame: opts.teamIdMap as Map<string, PropSimTeamIds>,
+            },
+            opts.signal,
+          ),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
+        ]);
+        if (!serverRows) continue;
         for (const [k, v] of serverRows) {
           if (v.hitProbability != null && Number.isFinite(v.hitProbability)) {
-            hits.set(k, {
-              hitProbability: v.hitProbability,
-              nullReason: v.nullReason ?? null,
-            });
-          } else if (!hits.has(k)) {
-            hits.set(k, {
+            const existing = propHits.get(k)?.hitProbability;
+            if (existing == null || !Number.isFinite(existing)) {
+              propHits.set(k, {
+                hitProbability: v.hitProbability,
+                nullReason: v.nullReason ?? null,
+              });
+            }
+          } else if (!propHits.has(k)) {
+            propHits.set(k, {
               hitProbability: null,
               nullReason: v.nullReason ?? null,
             });
           }
         }
-        // Re-enrich only rows still null after server.
-        const stillNull = batch.filter((p) => {
-          const key = propSimLookupKey(p, poolRowForPick(p, opts.pool));
-          const h = key ? hits.get(key)?.hitProbability : null;
-          return h == null || !Number.isFinite(h);
-        });
-        if (stillNull.length) {
-          const again = await enrichCoachPropSimHits(
-            stillNull,
-            opts.pool,
-            aliasHits(stillNull, hits),
-            opts.signal,
-          );
-          for (const [k, v] of again.hits) hits.set(k, v);
-          Object.assign(playerHistory, again.playerHistory);
-        }
+        softClipPropsOnlyHits(batch, propHits, opts.pool);
+      } catch {
+        /* keep local grades */
       }
-    } catch {
-      /* local hits already applied */
     }
+  }
 
-    applySoftClips(batch, opts.pool, hits);
-    for (const [k, v] of hits) propHits.set(k, v);
+  const propSimEvaluated = candidates.length;
+  const pending = candidates.filter((p) => propsOnlyPickHasGrade(p, propHits, opts.pool));
+  const propScored: BoardScoredLeg[] = [];
+  const seenFp = new Set<string>();
 
-    const pending = batch.filter((p) => {
-      const key = propSimLookupKey(p, poolRowForPick(p, opts.pool));
-      const raw = key ? (propHits.get(key)?.hitProbability ?? null) : null;
-      const clipped = clipPropSimHitForGrade(p, raw);
-      return pickHasSimGrade(p, clipped) && !seenFp.has(pickLegFingerprint(p));
-    });
-
-    if (pending.length) {
-      const scoredPicks = attachPickScores(pending, {
+  if (pending.length) {
+    for (let i = 0; i < pending.length; i += FOOTBALL_PROPS_ONLY_BATCH) {
+      if (opts.signal?.aborted) break;
+      const batch = pending.slice(i, i + FOOTBALL_PROPS_ONLY_BATCH);
+      const scoredPicks = attachPickScores(batch, {
         realOdds: opts.realOdds,
         propPool: opts.pool,
-        playerHistory,
+        playerHistory: seededHistory,
         propSimulations: propHits,
       });
       for (const pick of scoredPicks) {
@@ -278,20 +282,15 @@ export async function buildFootballPropsOnlyTicket(
         seenFp.add(fp);
         propScored.push(leg);
       }
-    }
-
-    if (propScored.length > 0) {
-      const collapsed = collapseScoredLegsByMarketLadder(propScored);
-      const { picks: partial } = buildStagedTicketFromScan(collapsed, opts.target);
-      if (partial.length) opts.onPartialPicks?.(partial);
-      opts.onStatus?.(
-        `Scoring props… ${partial.length} of ${opts.target} cleared (${propScored.length} graded)`,
-      );
-      if (partial.length >= opts.target) break;
-    } else {
-      opts.onStatus?.(
-        `Grading skill props… ${Math.min(i + batch.length, candidates.length)}/${candidates.length}`,
-      );
+      if (propScored.length > 0) {
+        const collapsed = collapseScoredLegsByMarketLadder(propScored);
+        const { picks: partial } = buildStagedTicketFromScan(collapsed, opts.target);
+        if (partial.length) opts.onPartialPicks?.(partial);
+        opts.onStatus?.(
+          `Scoring props… ${partial.length} of ${opts.target} cleared (${propScored.length} graded)`,
+        );
+        if (partial.length >= opts.target) break;
+      }
     }
   }
 
@@ -300,7 +299,6 @@ export async function buildFootballPropsOnlyTicket(
   const { picks } = buildStagedTicketFromScan(collapsed, opts.target);
   const propLegsScored = propScored.length;
 
-  // User-facing notes only — no raw PROP_ALL_NO_SIM_GRADE debug dumps.
   let note = "";
   if (picks.length === 0) {
     note =
