@@ -681,8 +681,9 @@ export function buildScanResult(
     opts.target,
     opts.prioritySports,
   );
-  // When qualified props exist, fill ~50% reserved prop slots (rush/pass/rec/sack
-  // preferred) so gameLines-first combinators cannot ship ML/totals-only tickets.
+  // When qualified props exist, fill ~40–50% reserved prop slots (TD / pass /
+  // rec / rush yards preferred) so gameLines-first combinators cannot ship
+  // ML/totals-only tickets.
   if (!opts.gameLinesOnly && !opts.propsOnly) {
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
@@ -693,8 +694,13 @@ export function buildScanResult(
     opts.target,
     opts.prioritySports ?? undefined,
   );
+  // Multi-sport floor can displace props — restore the reserved prop mix.
+  if (!opts.gameLinesOnly && !opts.propsOnly) {
+    picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+  }
   // Final tickets: if combinators left seats empty while more AI-qualified legs
   // already cleared scoring, top up from those — never invent ungraded filler.
+  // Props-first inside topUp; game-line relax only after prop seats get a shot.
   if (!opts.preview && picks.length < opts.target) {
     picks = topUpTicketFromQualifiedScored(
       picks,
@@ -703,6 +709,10 @@ export function buildScanResult(
       opts.varietySeed,
       opts.legsPerGameCap,
     );
+    // Top-up may have added game lines first on short tickets — enforce prop mix again.
+    if (!opts.gameLinesOnly && !opts.propsOnly) {
+      picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+    }
   }
   // Preview waves score game lines first. Do not fill reserved prop slots with
   // more game lines — that painted "5 AI game lines / 0 props" before prop sims.

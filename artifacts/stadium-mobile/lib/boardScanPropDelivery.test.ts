@@ -153,11 +153,13 @@ test("empty final with incomplete props does not claim every market scanned", ()
 
 
 
-test("footballSkillPropRank prefers rush/pass/rec/sack over generic props", () => {
-  assert.ok(footballSkillPropRank("player_rush_yds") > footballSkillPropRank("player_points"));
-  assert.ok(footballSkillPropRank("player_sacks") >= footballSkillPropRank("player_rush_yds"));
+test("footballSkillPropRank prefers TD / pass / rec / rush yards over sack and misc", () => {
+  assert.ok(footballSkillPropRank("player_anytime_td") > footballSkillPropRank("player_sacks"));
+  assert.ok(footballSkillPropRank("player_rush_tds") > footballSkillPropRank("player_sacks"));
+  assert.ok(footballSkillPropRank("player_pass_yds") > footballSkillPropRank("player_points"));
   assert.ok(footballSkillPropRank("player_reception_yds") > 0);
-  assert.ok(footballSkillPropRank("player_pass_yds") > 0);
+  assert.ok(footballSkillPropRank("player_rush_yds") > 0);
+  assert.ok(footballSkillPropRank("player_first_td") >= footballSkillPropRank("player_pass_yds"));
 });
 
 test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix", () => {
@@ -241,18 +243,20 @@ test("fillReservedPropSlots does not invent props when none scored", () => {
 });
 
 
-test("footballSkillPropRank ranks alt rush/pass/rec/sack markets", () => {
+test("footballSkillPropRank ranks alt rush/pass/rec and TD markets", () => {
   assert.ok(footballSkillPropRank("player_rush_yds_alternate") > 0);
   assert.ok(footballSkillPropRank("player_pass_yds_alternate") > 0);
   assert.ok(footballSkillPropRank("player_reception_yds_alternate") > 0);
-  assert.ok(footballSkillPropRank("player_sacks_alternate") >= footballSkillPropRank("player_rush_yds"));
+  assert.ok(footballSkillPropRank("player_anytime_td") > footballSkillPropRank("player_sacks_alternate"));
   assert.equal(footballSkillPropFamily("player_pass_yds_alternate"), "pass");
   assert.equal(footballSkillPropFamily("player_rush_yds"), "rush");
+  assert.equal(footballSkillPropFamily("player_rush_tds"), "td");
+  assert.equal(footballSkillPropFamily("player_anytime_td"), "td");
   assert.equal(footballSkillPropFamily("player_sacks"), "sack");
   assert.equal(footballSkillPropFamily("moneyline"), null);
 });
 
-test("fillReservedPropSlots diversifies rush/pass/rec/sack and keeps alt skill props over ML-only", () => {
+test("fillReservedPropSlots diversifies TD / pass / rec / rush alts over ML-only", () => {
   const target = 8;
   const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
     isProp: false,
@@ -264,21 +268,23 @@ test("fillReservedPropSlots diversifies rush/pass/rec/sack and keeps alt skill p
     scores: { composite: 95 - i },
   }));
   const skill = [
-    ["player_rush_yds", "Barkley", "rush"],
-    ["player_pass_yds_alternate", "Allen", "pass"],
-    ["player_reception_yds", "Kittle", "rec"],
-    ["player_sacks", "Garrett", "sack"],
-    ["player_rush_yds_alternate", "Henry", "rush2"],
+    ["player_anytime_td", "Hill", 0.5],
+    ["player_pass_yds", "Allen", 265.5],
+    ["player_reception_yds", "Kittle", 45.5],
+    ["player_rush_yds_alternate", "Henry", 50.5],
+    ["player_sacks", "Garrett", 0.5],
   ] as const;
   const scored = [
     ...gameHeavy.map((pick, i) => ({ pick, rankScore: 95 - i })),
-    ...skill.map(([market, player], i) => ({
+    ...skill.map(([market, player, line], i) => ({
       pick: {
         isProp: true,
         market,
+        propMarketKey: market,
+        propLine: line,
         game: `F${i} @ H${i}`,
         player,
-        pick: `Over ${i + 1}.5`,
+        pick: `Over ${line}`,
         side: "Over",
         scores: { composite: 60 + i },
       },
@@ -289,16 +295,70 @@ test("fillReservedPropSlots diversifies rush/pass/rec/sack and keeps alt skill p
   const props = out.filter((p) => p.isProp);
   assert.equal(props.length, boardScanPropSlotCount(8));
   assert.ok(out.some((p) => !p.isProp), "still keeps some game lines");
-  assert.ok(props.some((p) => /rush/i.test(p.market || "")), "includes rush yards");
+  assert.ok(props.some((p) => footballSkillPropFamily(p.market) === "td"), "includes TD props");
   assert.ok(props.some((p) => /pass/i.test(p.market || "")), "includes passing yards");
   assert.ok(props.some((p) => /receiv|reception/i.test(p.market || "")), "includes receiving yards");
-  assert.ok(props.some((p) => /sack/i.test(p.market || "")), "includes sacks");
-  assert.ok(
-    props.some((p) => /alternate|alt/i.test(p.market || "")),
-    "includes alt skill props when posted",
-  );
+  assert.ok(props.some((p) => /rush/i.test(p.market || "")), "includes rush yards / alts");
   const families = new Set(
-    props.map((p) => footballSkillPropFamily(p.market)).filter(Boolean),
+    props.map((p) => footballSkillPropFamily(p.propMarketKey || p.market)).filter(Boolean),
   );
   assert.ok(families.size >= 3, `expected diverse skill families, got ${[...families]}`);
+});
+
+test("fillReservedPropSlots swaps a full 10-leg NFL spread/total ticket for skill props", () => {
+  const target = 10;
+  const gameHeavy = Array.from({ length: 10 }, (_, i) => ({
+    isProp: false,
+    sport: "nfl",
+    market: i % 3 === 0 ? "Spread" : i % 3 === 1 ? "Total" : "Moneyline",
+    game: `Away${i} @ Home${i}`,
+    player: null as string | null,
+    pick: i % 3 === 1 ? `Over ${40 + i}.5` : `Team${i} +3.5`,
+    side: null as string | null,
+    scores: { composite: 40 },
+  }));
+  const skill = [
+    { market: "player_anytime_td", player: "A", line: 0.5 },
+    { market: "player_pass_yds", player: "B", line: 250.5 },
+    { market: "player_reception_yds", player: "C", line: 60.5 },
+    { market: "player_rush_yds_alternate", player: "D", line: 49.5 },
+    { market: "player_pass_yds_alternate", player: "E", line: 299.5 },
+    { market: "player_rush_yds", player: "F", line: 75.5 },
+  ];
+  const scored = [
+    ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
+    ...skill.map((s, i) => ({
+      pick: {
+        isProp: true,
+        sport: "nfl",
+        market: s.market,
+        propMarketKey: s.market,
+        propLine: s.line,
+        game: `PropAway${i} @ PropHome${i}`,
+        player: s.player,
+        pick: `Over ${s.line}`,
+        side: "Over",
+        scores: { composite: 80 },
+        finalAiScore: {
+          composite: 8,
+          grade: "B+",
+          confidencePct: 58,
+          edgePct: 4,
+          simHit: 0.56,
+          simAligned: true,
+          highRiskValuePlay: false,
+          recommends: true,
+          factors: [],
+          rubric: { composite: 8, grade: "B+", confidencePct: 58, edgePct: 4, scores: {} as never },
+        },
+      },
+      rankScore: 90 - i,
+    })),
+  ];
+  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const props = out.filter((p) => p.isProp);
+  assert.ok(props.length >= boardScanPropSlotCount(10, 0.4), `expected ≥4 props, got ${props.length}`);
+  assert.ok(props.some((p) => footballSkillPropFamily(p.market) === "td"));
+  assert.ok(props.some((p) => /pass/i.test(p.market || "")));
+  assert.ok(props.some((p) => /rush/i.test(p.market || "")));
 });
