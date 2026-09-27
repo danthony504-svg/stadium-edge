@@ -299,7 +299,7 @@ export async function buildCoachParlay(opts: {
     );
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
     const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
-    const note =
+    let note =
       built.note.trim() ||
       buildFinalCoachParlayNote({
         target,
@@ -310,6 +310,12 @@ export async function buildCoachParlay(opts: {
         propsOnly: true,
         requirePropMix: false,
       });
+    // If post-filters wiped a non-empty ticket, append why so the phone shows it.
+    if (built.picks.length > 0 && picks.length === 0) {
+      note = `${note} [POST_FILTER_EMPTY: built=${built.picks.length} afterTeamOrMarketFilter=0]`;
+    } else if (teamMiss && picks.length === 0 && !note.includes("[")) {
+      note = `${note} [${teamMiss}]`;
+    }
     return {
       picks,
       note,

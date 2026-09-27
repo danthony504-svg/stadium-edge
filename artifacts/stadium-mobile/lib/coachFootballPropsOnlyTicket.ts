@@ -25,9 +25,15 @@ import {
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
   propsOnlyPoolRowForPick,
+  propsOnlySimLookupKey,
   softClipPropsOnlyHits,
   type PropsOnlyHistorySlice,
 } from "./coachFootballPropsOnlyGrade.ts";
+import {
+  buildPropsOnlyFailDiag,
+  propsOnlyFailNote,
+  type PropsOnlyFailDiag,
+} from "./coachPropsOnlyFailReason.ts";
 import {
   scoreLineShopping,
   scoreLineValue,
@@ -68,6 +74,50 @@ export {
   propsOnlyPickHasGrade,
   softClipPropsOnlyHits,
 } from "./coachFootballPropsOnlyGrade.ts";
+
+export {
+  buildPropsOnlyFailDiag,
+  formatPropsOnlyFailTrace,
+  propsOnlyFailNote,
+} from "./coachPropsOnlyFailReason.ts";
+
+function countPoolSports(pool: PropPoolEntry[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const e of pool) {
+    const s = String(e.sport ?? "unknown").toLowerCase() || "unknown";
+    out[s] = (out[s] ?? 0) + 1;
+  }
+  return out;
+}
+
+function countAthleteLinked(pool: PropPoolEntry[]): number {
+  let n = 0;
+  for (const e of pool) {
+    if (e.athleteId) n += 1;
+  }
+  return n;
+}
+
+function collectNullReasons(
+  candidates: ParsedPick[],
+  hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>,
+  pool: PropPoolEntry[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const pick of candidates) {
+    const row = propsOnlyPoolRowForPick(pick, pool);
+    const key = propsOnlySimLookupKey(pick, row);
+    if (!key) {
+      out.no_lookup_key = (out.no_lookup_key ?? 0) + 1;
+      continue;
+    }
+    const hit = hits.get(key);
+    if (hit?.hitProbability != null && Number.isFinite(hit.hitProbability)) continue;
+    const reason = hit?.nullReason || "ungraded";
+    out[reason] = (out[reason] ?? 0) + 1;
+  }
+  return out;
+}
 
 export function selectFootballPropsOnlyCandidates(
   pool: PropPoolEntry[],
@@ -241,21 +291,46 @@ export type FootballPropsOnlyResult = {
   propSimEvaluated: number;
   propLegsScored: number;
   scanComplete: boolean;
+  /** Present when the ticket is empty or short — phone-visible why. */
+  failDiag?: PropsOnlyFailDiag;
 };
 
 export async function buildFootballPropsOnlyTicket(
   opts: FootballPropsOnlyBuildOpts,
 ): Promise<FootballPropsOnlyResult> {
   const propPoolSize = opts.pool.length;
+  const athleteLinked = countAthleteLinked(opts.pool);
+  const sports = countPoolSports(opts.pool);
   const candidates = selectFootballPropsOnlyCandidates(opts.pool, opts.target);
+
   if (!candidates.length) {
+    const failDiag = buildPropsOnlyFailDiag({
+      target: opts.target,
+      pool: propPoolSize,
+      athleteLinked,
+      candidates: 0,
+      historyLoaded: 0,
+      graded: 0,
+      bestEvSides: 0,
+      oddsCleared: 0,
+      staged: 0,
+      sports,
+      nullReasons: {
+        no_candidates: 1,
+        ...(athleteLinked <= 0 ? { missing_athlete_id: propPoolSize } : {}),
+      },
+    });
     return {
       picks: [],
-      note: "No athlete-linked player props were posted that we can grade from real history.",
+      note: propsOnlyFailNote(
+        "No athlete-linked player props were posted that we can grade from real history.",
+        failDiag,
+      ),
       propPoolSize,
       propSimEvaluated: 0,
       propLegsScored: 0,
       scanComplete: true,
+      failDiag,
     };
   }
 
@@ -271,6 +346,9 @@ export async function buildFootballPropsOnlyTicket(
   for (const [k, v] of Object.entries(seededHistory)) {
     localHistories[k] = toLocalHistory(v);
   }
+  const historyLoaded = Object.values(localHistories).filter(
+    (h) => (h?.recent?.length ?? 0) > 0,
+  ).length;
 
   opts.onStatus?.(`Grading ${candidates.length} player props from real history…`);
 
@@ -331,6 +409,8 @@ export async function buildFootballPropsOnlyTicket(
     }
   }
 
+  const nullReasons = collectNullReasons(candidates, propHits, opts.pool);
+
   // Count graded BEFORE odds filter — phone empties were scoring 0 because
   // wrong-side / null-line never produced a gradeable key.
   const gradedCandidates = candidates.filter((p) =>
@@ -360,14 +440,32 @@ export async function buildFootballPropsOnlyTicket(
     opts.onStatus?.(`Scoring props… ${picks.length} of ${opts.target} cleared`);
   }
 
+  const failDiag = buildPropsOnlyFailDiag({
+    target: opts.target,
+    pool: propPoolSize,
+    athleteLinked,
+    candidates: candidates.length,
+    historyLoaded,
+    graded: propLegsScored,
+    bestEvSides: bestSides.length,
+    oddsCleared: propScored.length,
+    staged: picks.length,
+    nullReasons,
+    sports,
+  });
+
   let note = "";
   if (picks.length === 0) {
-    note =
+    const lead =
       propLegsScored > 0
         ? `Graded ${propLegsScored} props but none cleared the ticket quality bar. No ungraded filler was added.`
         : `You asked for **${opts.target}** legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.`;
+    note = propsOnlyFailNote(lead, failDiag);
   } else if (picks.length < opts.target) {
-    note = `You asked for **${opts.target}** legs — only **${picks.length}** player props cleared the AI quality bar. No ungraded filler was added.`;
+    note = propsOnlyFailNote(
+      `You asked for **${opts.target}** legs — only **${picks.length}** player props cleared the AI quality bar. No ungraded filler was added.`,
+      failDiag,
+    );
   }
 
   return {
@@ -377,5 +475,6 @@ export async function buildFootballPropsOnlyTicket(
     propSimEvaluated: candidates.length,
     propLegsScored,
     scanComplete: true,
+    ...(picks.length < opts.target ? { failDiag } : {}),
   };
 }
