@@ -87,6 +87,8 @@ export default function CoachScreen() {
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const sendGenRef = useRef(0);
   const pendingTicketPicksRef = useRef<ParsedPick[]>([]);
+  /** Ask text for the open session — terminal flush uses it for football prop-mix caps. */
+  const sessionAskTextRef = useRef("");
   /** Pick count committed at last terminal latch — used for late budget upgrades. */
   const terminalShownPickCountRef = useRef(0);
   /** Active assistant bubble for the open session — used to flush held picks on stop. */
@@ -231,6 +233,8 @@ export default function CoachScreen() {
           const picks = resolveCoachTerminalPicks({
             bufferedPicks: pendingTicketPicksRef.current,
             messagePicks: null,
+            askText: sessionAskTextRef.current,
+            requestedLegs: legs,
           });
           pendingTicketPicksRef.current = [];
           if (assistantId) {
@@ -252,6 +256,7 @@ export default function CoachScreen() {
 
       const sendGen = ++sendGenRef.current;
       const requestedLegs = resolveBuildLegTarget(text);
+      sessionAskTextRef.current = text;
       beginCoachSession(sessionRef.current, {
         sendGen,
         requestedLegs,
@@ -287,6 +292,8 @@ export default function CoachScreen() {
         const picks = resolveCoachTerminalPicks({
           bufferedPicks: pendingTicketPicksRef.current,
           messagePicks: null,
+          askText: sessionAskTextRef.current || text,
+          requestedLegs,
         });
         finishSession(assistantId, {
           picks,
@@ -354,6 +361,8 @@ export default function CoachScreen() {
               : resolveCoachTerminalPicks({
                   bufferedPicks: pendingTicketPicksRef.current,
                   messagePicks: null,
+                  askText: sessionAskTextRef.current || text,
+                  requestedLegs,
                 });
           pendingTicketPicksRef.current = [];
 
@@ -442,6 +451,8 @@ export default function CoachScreen() {
         const picks = resolveCoachTerminalPicks({
           bufferedPicks: pendingTicketPicksRef.current,
           messagePicks: null,
+          askText: sessionAskTextRef.current || text,
+          requestedLegs,
         });
         pendingTicketPicksRef.current = [];
         finishSession(assistantId, {

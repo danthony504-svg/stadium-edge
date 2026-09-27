@@ -43,3 +43,33 @@ test("stop / error terminal also prefers buffer over blank ticket", () => {
     [{ id: "held-ml" }, { id: "held-prop" }],
   );
 });
+
+test("football absolute flush trims a full game-line-only buffer", () => {
+  const buffered = Array.from({ length: 10 }, (_, i) => ({
+    isProp: false,
+    id: `gl-${i}`,
+  }));
+  const out = resolveCoachTerminalPicks({
+    bufferedPicks: buffered,
+    messagePicks: null,
+    askText: "10 leg nfl",
+    requestedLegs: 10,
+  });
+  assert.ok(out.length < 10, `expected reserved prop seats open, got ${out.length}`);
+  assert.equal(out.filter((p) => p.isProp).length, 0);
+  assert.ok(out.length <= 6);
+});
+
+test("non-football absolute flush keeps full game-line buffer", () => {
+  const buffered = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    id: `gl-${i}`,
+  }));
+  const out = resolveCoachTerminalPicks({
+    bufferedPicks: buffered,
+    messagePicks: null,
+    askText: "8 leg mlb",
+    requestedLegs: 8,
+  });
+  assert.equal(out.length, 8);
+});
