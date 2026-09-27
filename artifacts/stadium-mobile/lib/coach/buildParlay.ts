@@ -86,7 +86,7 @@ function realOddsFromOddsGames(oddsGames: OddsGame[]): RealOddsEntry[] {
 }
 
 function countPropLike(picks: ParsedPick[]): number {
-  return picks.filter((p) => p.isProp || /alt/i.test(p.market || "")).length;
+  return picks.filter((p) => !!p.isProp).length;
 }
 
 async function loadScanInputs(

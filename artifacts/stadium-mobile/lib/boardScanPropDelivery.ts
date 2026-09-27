@@ -64,7 +64,9 @@ export function shouldKeepAwaitingPropSlots(opts: {
 }
 
 function countPropLikePicks(picks: { isProp?: boolean; market?: string }[]): number {
-  return picks.filter((p) => p.isProp || /alt/i.test(p.market || "")).length;
+  // Alt Spreads are NOT player props — counting /alt/i faked "props done" and
+  // skipped the grace window meant to finish real prop scoring.
+  return picks.filter((p) => !!p.isProp).length;
 }
 
 /**
@@ -105,14 +107,21 @@ function propFillComposite(pick: {
   return pick.finalAiScore?.composite ?? pick.scores?.composite ?? 0;
 }
 
-/** Prefer classic football skill props when filling reserved slots. */
+/** Prefer classic football skill props when filling reserved slots.
+ * TD + pass/rec/rush yards (incl alt milestones) outrank sacks / misc.
+ */
 export function footballSkillPropRank(market: string | null | undefined): number {
-  const m = String(market ?? "").toLowerCase();
-  if (/sack/.test(m)) return 5;
-  if (/rush|rushing/.test(m)) return 4;
-  if (/pass|passing/.test(m) && !/completion/.test(m)) return 3;
-  if (/receiv|reception|rec\b/.test(m)) return 3;
-  if (/anytime|touchdown|\btd\b/.test(m)) return 2;
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  // Anytime / first / rush-rec-pass TDs — user asks for these first.
+  if (/\btd\b|touchdown|\btds\b/.test(m)) return 6;
+  // Yardage skill props (main + alternate ladders).
+  if (/\bpass\b/.test(m) && /yd|yard/.test(m) && !/completion|attempt|int/.test(m)) return 5;
+  if (/\breception|\breceiving|\brec\b/.test(m) && /yd|yard/.test(m)) return 5;
+  if (/\brush\b|\brushing\b/.test(m) && /yd|yard/.test(m)) return 5;
+  if (/\bsack/.test(m)) return 3;
+  if (/\brush\b|\bpass\b|\breception|\breceiv/.test(m)) return 2;
   return 0;
 }
 
@@ -120,13 +129,35 @@ export function footballSkillPropRank(market: string | null | undefined): number
 export function footballSkillPropFamily(
   market: string | null | undefined,
 ): "sack" | "rush" | "pass" | "rec" | "td" | null {
-  const m = String(market ?? "").toLowerCase();
-  if (/sack/.test(m)) return "sack";
-  if (/rush|rushing/.test(m)) return "rush";
-  if (/pass|passing/.test(m) && !/completion/.test(m)) return "pass";
-  if (/receiv|reception|rec\b/.test(m)) return "rec";
-  if (/anytime|touchdown|\btd\b/.test(m)) return "td";
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  // TD before rush/pass/rec so player_rush_tds is "td", not "rush".
+  if (/\btd\b|touchdown|\btds\b/.test(m)) return "td";
+  if (/\bsack/.test(m)) return "sack";
+  if (/\brush\b|\brushing\b/.test(m)) return "rush";
+  if (/\bpass\b|\bpassing\b/.test(m) && !/completion/.test(m)) return "pass";
+  if (/\breception|\breceiving|\brec\b/.test(m)) return "rec";
   return null;
+}
+
+/** Soft prefer classic alt rush milestones (25+ / 50+ / 75+ / 100+). */
+export function footballRushMilestoneBonus(pick: {
+  market?: string | null;
+  propLine?: number | null;
+  pick?: string | null;
+}): number {
+  if (footballSkillPropFamily(pick.market) !== "rush") return 0;
+  let line = pick.propLine;
+  if (line == null || !Number.isFinite(line)) {
+    const m = String(pick.pick ?? "").match(/(\d+(?:\.\d+)?)/);
+    line = m ? Number(m[1]) : null;
+  }
+  if (line == null || !Number.isFinite(line)) return 0;
+  const milestones = [24.5, 25, 25.5, 49.5, 50, 50.5, 74.5, 75, 75.5, 99.5, 100, 100.5];
+  if (milestones.some((x) => Math.abs((line as number) - x) < 0.01)) return 2;
+  if (line >= 20 && line <= 110) return 1;
+  return 0;
 }
 
 type PropFillPick = {
@@ -137,6 +168,8 @@ type PropFillPick = {
   pick?: string | null;
   side?: string | null;
   sport?: string | null;
+  propLine?: number | null;
+  propMarketKey?: string | null;
   finalAiScore?: { composite?: number } | null;
   scores?: { composite?: number } | null;
 };
@@ -185,14 +218,16 @@ export function fillReservedPropSlots<T extends PropFillPick>(
 
   const pickNext = () => {
     const pool = remaining().sort((a, b) => {
-      const aSkill = footballSkillPropRank(a.pick.market);
-      const bSkill = footballSkillPropRank(b.pick.market);
-      // Skill props first, then diversify families (rush/pass/rec/sack), then rank.
+      const aKey = a.pick.propMarketKey || a.pick.market;
+      const bKey = b.pick.propMarketKey || b.pick.market;
+      const aSkill = footballSkillPropRank(aKey) + footballRushMilestoneBonus(a.pick);
+      const bSkill = footballSkillPropRank(bKey) + footballRushMilestoneBonus(b.pick);
+      // Skill props first, then diversify families (td/pass/rec/rush), then rank.
       const aSkillful = aSkill > 0 ? 1 : 0;
       const bSkillful = bSkill > 0 ? 1 : 0;
       if (aSkillful !== bSkillful) return bSkillful - aSkillful;
-      const aFam = footballSkillPropFamily(a.pick.market);
-      const bFam = footballSkillPropFamily(b.pick.market);
+      const aFam = footballSkillPropFamily(aKey);
+      const bFam = footballSkillPropFamily(bKey);
       const aSeen = aFam ? (familyCounts.get(aFam) ?? 0) : 99;
       const bSeen = bFam ? (familyCounts.get(bFam) ?? 0) : 99;
       if (aSeen !== bSeen) return aSeen - bSeen;
@@ -208,7 +243,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     const cand = pickNext();
     if (!cand) break;
     const fp = propFillFingerprint(cand.pick);
-    const fam = footballSkillPropFamily(cand.pick.market);
+    const fam = footballSkillPropFamily(cand.pick.propMarketKey || cand.pick.market);
     const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
 
     if (out.length < target) {

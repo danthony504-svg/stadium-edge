@@ -42,6 +42,10 @@ import {
 } from "./pickRecommendation.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 import { isHrOnlyScoredPool, selectTopHrQualifiedLegs } from "./coachHrRank.ts";
+import {
+  boardScanPropSlotCount,
+  isFootballHeavyPickList,
+} from "./boardScanPropDelivery.ts";
 
 function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
@@ -156,10 +160,10 @@ export function selectGreedyBoardLegs(
  * When combinators leave a short ticket despite more AI-qualified legs on the
  * board, top up greedily from those cleared legs. Never invents ungraded filler.
  *
- * Call after fillReservedPropSlots so props already hold seats. If the default
- * max-2 game-line cap still leaves a shortfall on a thin slate (e.g. 2 early
- * NFL games), progressively raise the per-game game-line budget and pull more
- * already-qualified period/alt rungs — still no ungraded filler.
+ * Order matters for football: (1) fill reserved prop seats from leftover props,
+ * (2) mixed top-up under the default per-game game-line cap, (3) only then
+ * progressively raise the game-line cap for period/alts. Never use #524
+ * period-fill to skip past qualified props that still owe seats.
  */
 export function topUpTicketFromQualifiedScored(
   picks: ParsedPick[],
@@ -182,11 +186,15 @@ export function topUpTicketFromQualifiedScored(
   const appendExtras = (
     current: ParsedPick[],
     cap: number | null | undefined,
+    poolFilter?: (leg: BoardScoredLeg) => boolean,
   ): ParsedPick[] => {
     const need = target - current.length;
     if (need <= 0) return current;
     const usedNow = new Set(current.map(pickLegFingerprint));
-    const pool = leftover.filter((leg) => !usedNow.has(pickLegFingerprint(leg.pick)));
+    const pool = leftover.filter((leg) => {
+      if (usedNow.has(pickLegFingerprint(leg.pick))) return false;
+      return poolFilter ? poolFilter(leg) : true;
+    });
     if (!pool.length) return current;
     const extra = selectGreedyBoardLegs(pool, need, varietySeed, current, target, cap);
     if (!extra.length) return current;
@@ -202,9 +210,23 @@ export function topUpTicketFromQualifiedScored(
     return merged;
   };
 
-  let merged = appendExtras(picks, legsPerGameCap);
-  // Props-first path already ran; if seats remain and leftovers exist only on
-  // the same thin matchup set, relax the game-line cap so period/alts can fill.
+  // (1) Props-first when qualified props remain and ticket is under the mix floor.
+  const propFraction = isFootballHeavyPickList(picks) || isFootballHeavyScoredPool(leftover)
+    ? 0.4
+    : 0.5;
+  const propFloor = boardScanPropSlotCount(target, propFraction);
+  let merged = picks.slice();
+  if (
+    merged.filter((p) => p.isProp).length < propFloor &&
+    leftover.some((l) => l.pick.isProp)
+  ) {
+    merged = appendExtras(merged, legsPerGameCap, (leg) => !!leg.pick.isProp);
+  }
+
+  // (2) Mixed top-up under the default diversity cap.
+  merged = appendExtras(merged, legsPerGameCap);
+
+  // (3) Thin-slate game-line relax — only after props had their chance.
   if (merged.length < target) {
     for (const raised of progressiveLegsPerGameRelaxation(target, legsPerGameCap)) {
       const next = appendExtras(merged, raised);
