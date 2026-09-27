@@ -144,19 +144,30 @@ export function footballPropsOnlyFamilyCounts(picks: ParsedPick[]): Record<strin
   return counts;
 }
 
-/** Stage best-EV scored legs — EV-first, one player/market, ≤3 per game. */
-export function stageFootballPropsOnlyLegs(
-  scored: BoardScoredLeg[],
+/**
+ * Per-game ceiling for props-only thin slates.
+ * Phone: "7 leg NFL player props" → oddsOk=23 staged=3 because a hard ≤3/game
+ * cap met a 1-game Thursday board. Player props correlate less than stacking
+ * game lines — raise the ceiling from the games we actually have so a fixed
+ * leg ask can fill without inventing filler.
+ */
+export function propsOnlyPerGameCeiling(
   target: number,
+  uniqueGamesInPool: number,
+): number {
+  const games = Math.max(1, uniqueGamesInPool);
+  // Enough to reach target from the games present (1 game → all legs from it).
+  return Math.min(target, Math.ceil(target / Math.min(games, 3)));
+}
+
+function stageFootballPropsOnlyLegsWithCap(
+  ordered: BoardScoredLeg[],
+  target: number,
+  maxPerGame: number,
 ): ParsedPick[] {
   const picks: ParsedPick[] = [];
   const usedPlayerMarket = new Set<string>();
   const usedGames = new Map<string, number>();
-  const ordered = [...scored].sort((a, b) => {
-    const evDiff = (b.evPct ?? -999) - (a.evPct ?? -999);
-    if (evDiff !== 0) return evDiff;
-    return (b.rankScore ?? 0) - (a.rankScore ?? 0);
-  });
   for (const leg of ordered) {
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
@@ -164,16 +175,42 @@ export function stageFootballPropsOnlyLegs(
     const pm = `${p.player}|${p.propMarketKey ?? p.market}`.toLowerCase();
     if (usedPlayerMarket.has(pm)) continue;
     const gameCount = usedGames.get(p.game) ?? 0;
-    if (gameCount >= 3) continue;
+    if (gameCount >= maxPerGame) continue;
     usedPlayerMarket.add(pm);
     usedGames.set(p.game, gameCount + 1);
     picks.push({
       ...p,
+      // Mark props-only delivery so PickCard shows the letter grade (not Not Rec.)
+      // when history/EV cleared but holistic confidence sits at 50–51.
+      propsOnlyTicket: true,
       ticketRole: p.propIsAlt ? "alt" : "main",
       finalAiScore: p.finalAiScore,
     });
   }
   return picks;
+}
+
+/** Stage best-EV scored legs — EV-first, one player/market, thin-slate per-game raise. */
+export function stageFootballPropsOnlyLegs(
+  scored: BoardScoredLeg[],
+  target: number,
+): ParsedPick[] {
+  const ordered = [...scored].sort((a, b) => {
+    const evDiff = (b.evPct ?? -999) - (a.evPct ?? -999);
+    if (evDiff !== 0) return evDiff;
+    return (b.rankScore ?? 0) - (a.rankScore ?? 0);
+  });
+  const uniqueGames = new Set(
+    ordered.map((l) => String(l.pick.game ?? "")).filter(Boolean),
+  ).size;
+  const ceiling = propsOnlyPerGameCeiling(target, uniqueGames || 1);
+  // Start at 3 (historic props-only default); raise to ceiling when short.
+  let best: ParsedPick[] = [];
+  for (let cap = Math.min(3, ceiling); cap <= ceiling; cap++) {
+    best = stageFootballPropsOnlyLegsWithCap(ordered, target, cap);
+    if (best.length >= target) return best;
+  }
+  return best;
 }
 
 export const stagePropsOnlyLegs = stageFootballPropsOnlyLegs;

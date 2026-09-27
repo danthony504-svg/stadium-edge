@@ -14,6 +14,8 @@ import {
   filterTicketPicksPreservingTicket,
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
+  pickGradeDisplayCaption,
+  propsOnlyTicketCleared,
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
   filterCoachDeliveredPicks,
@@ -905,4 +907,31 @@ test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tic
   assert.equal(finalizeBoardBuiltCoachTicket([leg], enrich).picks.length, 1);
   const topped = topUpBoardBuiltTicket([], 2, [leg, leg], enrich);
   assert.equal(topped.length, 1);
+});
+
+test("phone props-only Not Rec: propsOnlyTicket + positive EV shows letter grade", () => {
+  // Phone: RJ Harvey Anytime TD +370 Conf 42 / Not Rec. while note said cleared quality bar.
+  const pick = {
+    market: "Anytime TD",
+    propMarketKey: "player_anytime_td",
+    isProp: true,
+    sport: "nfl",
+    odds: 370,
+    propsOnlyTicket: true,
+    ticketRole: "main" as const,
+  };
+  const score = {
+    grade: "B",
+    confidencePct: 42,
+    edgePct: 28.7,
+    simHit: 0.5,
+    simAligned: true,
+    recommends: true,
+    composite: 6,
+    highRiskValuePlay: false,
+  } as any;
+  assert.equal(propsOnlyTicketCleared(pick, score), true);
+  assert.notEqual(pickGradeDisplayLabel(pick, score), "Not AI Recommended");
+  assert.equal(pickGradeDisplayLabel(pick, score), "B");
+  assert.match(pickGradeDisplayCaption(pick, score), /props-only history vs odds/i);
 });

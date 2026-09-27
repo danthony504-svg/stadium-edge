@@ -155,6 +155,8 @@ export type RecommendablePick = {
   sport?: string;
   odds?: number | null;
   ticketRole?: "main" | "alt";
+  /** Props-only history/EV ticket — display/gate must not mark these Not Rec. */
+  propsOnlyTicket?: boolean;
 };
 
 const GRADE_RANK: Record<string, number> = {
@@ -402,7 +404,27 @@ export function pickGradeDisplayCaption(
       ? "Sim + edge cleared with positive EV vs the posted line"
       : "Sim-aligned with positive edge";
   }
+  if (propsOnlyTicketCleared(pick, score ?? undefined)) {
+    return "Cleared props-only history vs odds (positive EV)";
+  }
   return "Did not pass AI recommendation thresholds";
+}
+
+/** Props-only ticket legs that already cleared history/EV at stage time. */
+export function propsOnlyTicketCleared(
+  pick: RecommendablePick,
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (!pick.propsOnlyTicket || !pick.isProp || !score) return false;
+  if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if ((score.edgePct ?? 0) <= 0) return false;
+  if (score.simHit != null && pick.odds != null) {
+    const implied = impliedProb(pick.odds);
+    if (score.simHit <= implied) return false;
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+  return true;
 }
 
 /** Main legs use the strict gate; staged alt legs use the alt ladder gate (same grade/confidence bar). */
@@ -410,6 +432,7 @@ export function pickPassesTicketGate(
   pick: RecommendablePick & { ticketRole?: "main" | "alt" },
   score: FinalAiScore | null | undefined,
 ): boolean {
+  if (propsOnlyTicketCleared(pick, score)) return true;
   if (propSimEdgeStagingQualifies(pick, score)) return true;
   if (pick.ticketRole === "alt") {
     return qualifiesAltPick(pick, score);

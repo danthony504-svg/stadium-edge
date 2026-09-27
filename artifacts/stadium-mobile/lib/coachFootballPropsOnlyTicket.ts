@@ -50,7 +50,7 @@ import {
   parseMarketPeriod,
 } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
-import { simEvPct } from "./gameSimQualityGates.ts";
+import { COACH_SIM_MIN_CONFIDENCE, simEvPct } from "./gameSimQualityGates.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
@@ -175,12 +175,21 @@ function scoredLegFromHit(
     odds: norm.odds,
     propSimHit: hit,
   });
+  // Phone: Anytime TD +370 showed Conf 42 / Not Rec. because sim~50% floors
+  // confidence at 50 (<52) even with +28% edge. Props-only already cleared
+  // history vs odds — lift to the ticket confidence floor so the card grade
+  // matches "cleared the AI quality bar".
+  const confidencePct = Math.max(
+    finalAiScore.confidencePct ?? 0,
+    COACH_SIM_MIN_CONFIDENCE,
+  );
   const score = {
     ...finalAiScore,
     recommends: true,
     simAligned: true,
     edgePct: edgePct ?? finalAiScore.edgePct,
     simHit: hit,
+    confidencePct,
   };
   const ev = hit != null && norm.odds != null ? simEvPct(hit, norm.odds) : null;
   const implied =
@@ -189,6 +198,7 @@ function scoredLegFromHit(
   return {
     pick: {
       ...norm,
+      propsOnlyTicket: true,
       finalAiScore: score,
       ticketRole: norm.propIsAlt ? "alt" : "main",
     },
@@ -476,6 +486,9 @@ export async function buildFootballPropsOnlyTicket(
     opts.onStatus?.(`Scoring props… ${picks.length} of ${opts.target} cleared`);
   }
 
+  const uniqueGames = new Set(
+    propScored.map((l) => String(l.pick.game ?? "")).filter(Boolean),
+  ).size;
   const failDiag = buildPropsOnlyFailDiag({
     target: opts.target,
     pool: propPoolSize,
@@ -486,6 +499,7 @@ export async function buildFootballPropsOnlyTicket(
     bestEvSides: bestSides.length,
     oddsCleared: propScored.length,
     staged: picks.length,
+    uniqueGames,
     nullReasons,
     sports,
   });
@@ -498,10 +512,12 @@ export async function buildFootballPropsOnlyTicket(
         : `You asked for **${opts.target}** legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.`;
     note = propsOnlyFailNote(lead, failDiag);
   } else if (picks.length < opts.target) {
-    note = propsOnlyFailNote(
-      `You asked for **${opts.target}** legs — only **${picks.length}** player props cleared the AI quality bar. No ungraded filler was added.`,
-      failDiag,
-    );
+    // Phone: oddsOk=23 staged=3 — diversity/thin slate, not a quality wipe.
+    const lead =
+      propScored.length > picks.length && uniqueGames > 0
+        ? `You asked for **${opts.target}** legs — only **${picks.length}** player props fit after thin-slate fill (${uniqueGames} game${uniqueGames === 1 ? "" : "s"}, ${propScored.length} cleared odds). No ungraded filler was added.`
+        : `You asked for **${opts.target}** legs — only **${picks.length}** player props cleared the AI quality bar. No ungraded filler was added.`;
+    note = propsOnlyFailNote(lead, failDiag);
   }
 
   return {

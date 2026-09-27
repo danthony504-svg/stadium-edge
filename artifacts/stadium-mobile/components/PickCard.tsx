@@ -120,6 +120,11 @@ export type ParsedPick = {
   ticketRole?: "main" | "alt";
   /** Quality tier used when this leg filled a fixed-leg ticket below strict AI gates. */
   coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
+  /**
+   * Staged by the props-only history/EV ticket builder. Cards must show the
+   * letter grade (not Not Rec.) even when holistic confidence sits at 50–51.
+   */
+  propsOnlyTicket?: boolean;
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
 };
