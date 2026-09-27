@@ -7,8 +7,8 @@
  *
  * Absolute-budget hang guard: always publish whatever cleared when the session
  * ends — never latch an empty ticket if buffered picks exist.
- * Football mix asks: never publish a spreads-only buffer — refuse GL filler
- * when no player props cleared (same contract as board-scan finals).
+ * Football mix: prefer props; when props miss, still deliver cleared game lines
+ * (never wipe scored legs into an empty ticket).
  */
 
 import {
@@ -26,8 +26,8 @@ export function shouldPublishCoachTicketPicks(phase: CoachTicketPublishPhase): b
 /**
  * Picks to show when the absolute delivery budget fires.
  * Prefer the latest buffered scan picks; fall back to anything already on the message.
- * Football prop-mix asks refuse a game-line-only buffer — wall-clock flush cannot
- * ship a spreads board when the ask required skill props.
+ * Football prop-mix keeps prop seats when props exist; otherwise delivers cleared
+ * game lines rather than wiping to empty (phone SCORED_BUT_NOT_STAGED).
  */
 export function resolveCoachTerminalPicks<T extends { isProp?: boolean }>(opts: {
   bufferedPicks: readonly T[] | null | undefined;

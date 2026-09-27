@@ -44,8 +44,8 @@ test("stop / error terminal also prefers buffer over blank ticket", () => {
   );
 });
 
-test("football absolute flush refuses a full game-line-only buffer", () => {
-  const buffered = Array.from({ length: 10 }, (_, i) => ({
+test("football absolute flush delivers scored game-line buffer when props miss", () => {
+  const buffered = Array.from({ length: 9 }, (_, i) => ({
     isProp: false,
     id: `gl-${i}`,
   }));
@@ -55,7 +55,7 @@ test("football absolute flush refuses a full game-line-only buffer", () => {
     askText: "10 leg nfl",
     requestedLegs: 10,
   });
-  assert.equal(out.length, 0, "must not publish spreads-only when mix required");
+  assert.equal(out.length, 9, "must not wipe scored GLs into empty ticket");
 });
 
 test("football absolute flush keeps props and caps game lines", () => {

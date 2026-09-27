@@ -115,10 +115,10 @@ export function applyReservedPropSeatCap<T extends { isProp?: boolean }>(
 /**
  * Rebuild contract for football mix asks ("10 leg nfl"):
  * - Preview: keep GL under the non-prop seat cap while props score.
- * - Final with 0 player props: refuse — never publish a spreads-only board.
- * - Final with props: keep props + GL only up to the reserved mix seats.
- *
- * Replaces the old "cap to 6 spreads when props late" phone failure.
+ * - Final with player props: keep props + GL under the reserved mix seats.
+ * - Final with 0 props but cleared game lines: DELIVER those GLs (honest
+ *   shortfall). Never wipe scored legs into SCORED_BUT_NOT_STAGED empties —
+ *   that was the phone regression after #532/#533 (9 scored → 0 staged).
  */
 export function finalizeFootballPropMixPicks<T extends { isProp?: boolean }>(
   picks: T[],
@@ -131,7 +131,10 @@ export function finalizeFootballPropMixPicks<T extends { isProp?: boolean }>(
     return applyReservedPropSeatCap(picks, targetLegs, propFraction);
   }
   const props = picks.filter((p) => !!p.isProp);
-  if (props.length === 0) return [];
+  if (props.length === 0) {
+    // Props exhausted with nothing cleared — ship the game lines that did.
+    return picks.slice(0, targetLegs);
+  }
   return applyReservedPropSeatCap(picks, targetLegs, propFraction);
 }
 
@@ -529,13 +532,14 @@ export function buildFinalCoachParlayNote(opts: {
   const propLike = countPropLikePicks(opts.picks);
   const thinGameOnlyNote =
     !opts.propsOnly &&
-    !opts.requirePropMix &&
     opts.picks.length > 0 &&
     opts.picks.length < opts.target &&
     propLike === 0 &&
     opts.propPoolSize > 0 &&
     !opts.propsPending
-      ? ` Scanned ${opts.propPoolSize} posted props/alts — none cleared the AI quality bar with these game lines.`
+      ? opts.requirePropMix
+        ? ` Player props did not clear the AI quality bar — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that did. No ungraded filler was added.`
+        : ` Scanned ${opts.propPoolSize} posted props/alts — none cleared the AI quality bar with these game lines.`
       : "";
   const propsIncompleteNote =
     opts.propPoolSize > 0 && propLike === 0 && opts.propsPending
@@ -543,20 +547,16 @@ export function buildFinalCoachParlayNote(opts: {
         ? opts.picks.length > 0
           ? ` Player props did not finish scoring — showing ${opts.picks.length} prop${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for the full props ticket.`
           : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — try again for a props-only ticket (no game lines).`
-        : opts.requirePropMix
-          ? opts.picks.length > 0
-            ? ` Player props did not finish scoring — no game-line filler was added. Try again for a full props mix.`
-            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — no game-line filler was added. Try again for a props mix.`
-          : opts.picks.length > 0
-            ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared. Try again for a full props mix.`
-            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+        : opts.picks.length > 0
+          ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for a full props mix.`
+          : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
       : "";
   const mixRefusedNote =
     opts.requirePropMix &&
     opts.picks.length === 0 &&
     opts.propPoolSize > 0 &&
     !opts.propsPending
-      ? ` Football mix requires player props — no AI-backed props cleared, so no game-line filler was added.`
+      ? ` Football mix found no AI-backed props or game lines that cleared.`
       : "";
   const emptyBoardNote =
     opts.picks.length === 0 && opts.scanMissing && !opts.timedOut
