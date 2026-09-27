@@ -58,6 +58,8 @@ export type CoachTicketBuildOpts = {
   varietySeed: string;
   /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
   ticketStyle?: CoachTicketStyle;
+  /** Override max game-line legs per matchup (game-lines-only / N-game asks). */
+  legsPerGameCap?: number | null;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -78,6 +80,7 @@ type AssemblyConfig = {
   recentLeadPlayers?: readonly string[];
   recentPlayerCounts?: ReadonlyMap<string, number>;
   lineShoppingBias: number;
+  legsPerGameCap?: number | null;
 };
 
 /** Per-leg-count optimization — different pools, weights, and assembly for each size. */
@@ -286,7 +289,7 @@ function pickDiverseLegsFromPool(
   while (selected.length < want && poolCopy.length) {
     let bestIdx = -1;
     let bestScore = -Infinity;
-    const maxPerGame = maxLegsPerGame(target);
+    const maxPerGame = maxLegsPerGame(target, config.legsPerGameCap);
     for (let i = 0; i < poolCopy.length; i++) {
       const row = poolCopy[i]!;
       const fp = pickLegFingerprint(row.pick);
@@ -409,7 +412,7 @@ function tryAppendBackfillLeg(
   ) {
     return null;
   }
-  if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) {
+  if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target, config.legsPerGameCap))) {
     return null;
   }
   const corr = parlayCorrelationPenalty(row.pick, current);
@@ -514,6 +517,7 @@ export function tieredBackfillStagedTicket(
   allScored: BoardScoredLeg[],
   ticketStyle: CoachTicketStyle,
   seed?: string,
+  legsPerGameCap?: number | null,
 ): ParsedPick[] {
   if (ticket.length >= target) return ticket.slice(0, target);
   const config: AssemblyConfig = {
@@ -523,6 +527,7 @@ export function tieredBackfillStagedTicket(
     categoryOrder: BALANCED_BACKFILL_ORDER,
     poolRotate: 0,
     lineShoppingBias: 1,
+    legsPerGameCap,
   };
   let current = ticket;
   for (const tier of qualityTiersForStyle(ticketStyle)) {
@@ -780,6 +785,7 @@ function generateTicketCandidates(
       recentLeadPlayers: opts.recentLeadPlayers,
       recentPlayerCounts: opts.recentPlayerCounts,
       lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
+      legsPerGameCap: opts.legsPerGameCap,
     };
     const picks = assembleBalancedDiverseTicket(
       qualifying,

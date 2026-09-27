@@ -106,6 +106,8 @@ test("filterPicksByAskMarketConstraint blocks totals and non-yards props (screen
 test("generic parlay ask has no market constraint", () => {
   const c = parseCoachAskMarketConstraint("5 leg NFL parlay");
   assert.equal(c.propsOnly, false);
+  assert.equal(c.gameLinesOnly, false);
+  assert.equal(c.maxGames, null);
   assert.equal(c.allowedMarketKeys, null);
 });
 
@@ -278,4 +280,43 @@ test("hr / homer shorthand also locks home-run props", () => {
     "batter_home_runs",
   ]);
   assert.equal(parseCoachAskMarketConstraint("4 leg homers tonight").propsOnly, true);
+});
+
+test("no player props / game lines only → gameLinesOnly", () => {
+  const a = parseCoachAskMarketConstraint("10 leg nfl with no player props");
+  assert.equal(a.gameLinesOnly, true);
+  assert.equal(a.propsOnly, false);
+  const b = parseCoachAskMarketConstraint("8 leg without props");
+  assert.equal(b.gameLinesOnly, true);
+  const c = parseCoachAskMarketConstraint("game lines only 6 leg");
+  assert.equal(c.gameLinesOnly, true);
+  const stacked = parseCoachAskMarketConstraint(
+    "10 leg with no player props only from 2 games",
+  );
+  assert.equal(stacked.gameLinesOnly, true);
+  assert.equal(stacked.maxGames, 2);
+  // Genuine props-only asks are not gameLinesOnly.
+  assert.equal(parseCoachAskMarketConstraint("player props only parlay").gameLinesOnly, false);
+  assert.equal(parseCoachAskMarketConstraint("6 leg player props only").gameLinesOnly, false);
+});
+
+test("only from 2 games raises maxGames", () => {
+  const c = parseCoachAskMarketConstraint("10 leg but only from 2 games");
+  assert.equal(c.maxGames, 2);
+  assert.equal(parseCoachAskMarketConstraint("6 leg from 3 games").maxGames, 3);
+});
+
+test("filterPicksByAskMarketConstraint drops props when gameLinesOnly", () => {
+  const picks = [
+    { isProp: false, market: "Total", pick: "Over 42.5" },
+    { isProp: true, market: "player_rush_yds", pick: "Over 65.5", propMarketKey: "player_rush_yds" },
+  ];
+  const out = filterPicksByAskMarketConstraint(picks, {
+    propsOnly: false,
+    gameLinesOnly: true,
+    maxGames: null,
+    allowedMarketKeys: null,
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.isProp, false);
 });

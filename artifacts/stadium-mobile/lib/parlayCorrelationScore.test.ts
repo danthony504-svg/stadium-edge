@@ -47,6 +47,24 @@ test("maxLegsPerGame is 2 for deep fixed-leg asks", () => {
   assert.equal(maxLegsPerGame(5), 2);
   assert.equal(maxLegsPerGame(3), 3);
   assert.equal(maxLegsPerGame(1), 99);
+  assert.equal(maxLegsPerGame(10, 5), 5);
+});
+
+test("props do not consume the per-game hard cap", () => {
+  const g1 = "Los Angeles Chargers @ Buffalo Bills";
+  const ticket = [
+    leg(g1, "Total", "Over 50"),
+    leg(g1, "Spread", "Chargers +3.5"),
+  ];
+  assert.equal(wouldExceedMaxLegsPerGame(leg(g1, "Q1 Spread", "Chargers +3"), ticket, 2), true);
+  assert.equal(
+    wouldExceedMaxLegsPerGame(
+      leg(g1, "player_rush_yds", "Over 65.5", true, "Dobbins"),
+      ticket,
+      2,
+    ),
+    false,
+  );
 });
 
 test("10-leg NFL period stack cannot take more than 2 legs per game", () => {

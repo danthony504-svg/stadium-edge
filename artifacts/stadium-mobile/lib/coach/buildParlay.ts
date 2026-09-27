@@ -44,6 +44,7 @@ import {
   filterPropPoolByAskMarkets,
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
+import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
 import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "@/lib/coachHrRank";
 import { loadMlbScanContext } from "@/lib/mlbScanContext";
 import {
@@ -175,6 +176,13 @@ export async function buildCoachParlay(opts: {
     marketConstraint.allowedMarketKeys,
   );
   const propsOnly = marketConstraint.propsOnly;
+  const gameLinesOnly = marketConstraint.gameLinesOnly && !propsOnly;
+  const legsPerGameCap = legsPerGameCapForAsk(target, {
+    gameLinesOnly,
+    maxGames: marketConstraint.maxGames,
+  });
+  // Game-lines-only asks skip the prop board entirely.
+  const constrainedPropPool = gameLinesOnly ? [] : scanPropPool;
   const hrBoardAsk =
     propsOnly &&
     (marketConstraint.allowedMarketKeys ?? []).some((k) => isBatterHomeRunMarket(k));
@@ -182,8 +190,8 @@ export async function buildCoachParlay(opts: {
   let mlbGameEnv: Record<string, unknown> | undefined;
   // Home-run asks want scorers — drop Under/No so MC budget hits Over 0.5.
   const activePropPool = hrBoardAsk
-    ? filterHrScorerPoolEntries(scanPropPool)
-    : scanPropPool;
+    ? filterHrScorerPoolEntries(constrainedPropPool)
+    : constrainedPropPool;
   const propPoolSize = activePropPool.length;
 
   // Injuries for every board sport + (HR) MLB platoon/park + early Form history.
@@ -269,6 +277,8 @@ export async function buildCoachParlay(opts: {
     prioritySports: inputs.prioritySports,
     propsOnly,
     exhaustPropBoard: hrBoardAsk,
+    legsPerGameCap: legsPerGameCap ?? undefined,
+    gameLinesOnly,
     mlbPlatoon,
     mlbGameEnv,
     matchupInjuries: Object.keys(matchupInjuries).length ? matchupInjuries : undefined,

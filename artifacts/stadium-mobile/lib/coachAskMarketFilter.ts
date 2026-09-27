@@ -11,6 +11,16 @@ export type CoachAskMarketConstraint = {
   /** Stage props only — no ML / spread / total game lines. */
   propsOnly: boolean;
   /**
+   * Stage game lines / alts / periods only — drop player props.
+   * Opposite of propsOnly. Used for "no player props" / "game lines only".
+   */
+  gameLinesOnly: boolean;
+  /**
+   * When the ask names a game count ("only from 2 games"), prefer filling
+   * within that many matchups (raises per-game leg cap). null = unset.
+   */
+  maxGames: number | null;
+  /**
    * Allowed Odds API market keys (canonical, without `_alternate` / period suffix).
    * Empty array = no market allowlist (all props OK when propsOnly).
    * null = no market constraint at all.
@@ -259,7 +269,12 @@ export function parseCoachAskMarketConstraint(
   text: string | null | undefined,
 ): CoachAskMarketConstraint {
   const t = String(text ?? "").trim();
-  if (!t) return { propsOnly: false, allowedMarketKeys: null };
+  if (!t) {
+    return { propsOnly: false, gameLinesOnly: false, maxGames: null, allowedMarketKeys: null };
+  }
+
+  const maxGames = parseMaxGamesFromAsk(t);
+  const gameLinesOnly = wantsGameLinesOnlyAsk(t);
 
   const rushYds = hasRushYardsAsk(t);
   const recYds = hasRecYardsAsk(t);
@@ -274,6 +289,8 @@ export function parseCoachAskMarketConstraint(
     // F5/TOTAL/ALT SPREAD cannot fill legs the user asked for as yards.
     return {
       propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
       allowedMarketKeys: keys,
     };
   }
@@ -281,28 +298,60 @@ export function parseCoachAskMarketConstraint(
   if (hasHomeRunPropAsk(t)) {
     return {
       propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
       allowedMarketKeys: [...HOME_RUN_PROP_KEYS],
     };
   }
 
   if (hasFirstTdAsk(t)) {
-    return { propsOnly: true, allowedMarketKeys: [...FIRST_TD_PROP_KEYS] };
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
+      allowedMarketKeys: [...FIRST_TD_PROP_KEYS],
+    };
   }
   if (hasAnytimeTdAsk(t)) {
-    return { propsOnly: true, allowedMarketKeys: [...TD_PROP_KEYS] };
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
+      allowedMarketKeys: [...TD_PROP_KEYS],
+    };
   }
   if (hasFieldGoalPropAsk(t)) {
-    return { propsOnly: true, allowedMarketKeys: [...FG_PROP_KEYS] };
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
+      allowedMarketKeys: [...FG_PROP_KEYS],
+    };
   }
   if (hasFootballComboPropAsk(t)) {
-    return { propsOnly: true, allowedMarketKeys: [...FOOTBALL_COMBO_PROP_KEYS] };
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
+      allowedMarketKeys: [...FOOTBALL_COMBO_PROP_KEYS],
+    };
   }
   if (hasDoubleDoubleAsk(t) || hasPraAsk(t)) {
-    return { propsOnly: true, allowedMarketKeys: [...NBA_COMBO_PROP_KEYS] };
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
+      allowedMarketKeys: [...NBA_COMBO_PROP_KEYS],
+    };
   }
   if (hasSoccerSpecialAsk(t)) {
     // Soccer specials are game lines (not player props).
-    return { propsOnly: false, allowedMarketKeys: [...SOCCER_SPECIAL_LINE_KEYS] };
+    return {
+      propsOnly: false,
+      gameLinesOnly: true,
+      maxGames,
+      allowedMarketKeys: [...SOCCER_SPECIAL_LINE_KEYS],
+    };
   }
 
   const skillProps = skillPropFamilyFlags(t);
@@ -313,11 +362,48 @@ export function parseCoachAskMarketConstraint(
     if (skillProps.pass) keys.push(...PASS_PROP_KEYS);
     return {
       propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
       allowedMarketKeys: keys,
     };
   }
 
-  return { propsOnly: false, allowedMarketKeys: null };
+  return {
+    propsOnly: false,
+    gameLinesOnly,
+    maxGames,
+    allowedMarketKeys: null,
+  };
+}
+
+/** "no player props" / "without props" / "game lines only" — not "props only". */
+export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return false;
+  // Explicit no-prop phrasing wins even when "props only" appears later in the
+  // same ask ("no player props only from 2 games").
+  if (/\bno\s+player\s+props?\b/.test(t)) return true;
+  if (/\bwithout\s+player\s+props?\b/.test(t)) return true;
+  if (/\bno\s+props?\b/.test(t)) return true;
+  if (/\bwithout\s+props?\b/.test(t)) return true;
+  if (/\bgame\s*lines?\s+only\b/.test(t)) return true;
+  if (/\bsides?\s+only\b/.test(t)) return true;
+  return false;
+}
+
+/** "only from 2 games" / "from 2 games" / "2-game parlay". */
+export function parseMaxGamesFromAsk(text: string | null | undefined): number | null {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return null;
+  const m =
+    t.match(/\bonly\s+from\s+(\d{1,2})\s+games?\b/) ||
+    t.match(/\bfrom\s+(?:just\s+)?(\d{1,2})\s+games?\b/) ||
+    t.match(/\b(\d{1,2})[-\s]?games?\s+(?:parlay|sgp|ticket)\b/) ||
+    t.match(/\b(\d{1,2})\s+game\s+parlay\b/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1 || n > 20) return null;
+  return n;
 }
 
 export function propMarketKeyAllowed(
@@ -350,6 +436,9 @@ export function filterPicksByAskMarketConstraint<
   let out = picks;
   if (constraint.propsOnly) {
     out = out.filter((p) => !!p.isProp);
+  }
+  if (constraint.gameLinesOnly) {
+    out = out.filter((p) => !p.isProp);
   }
   if (constraint.allowedMarketKeys && constraint.allowedMarketKeys.length > 0) {
     out = out.filter((p) =>

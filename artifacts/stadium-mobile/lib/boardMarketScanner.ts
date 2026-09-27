@@ -649,6 +649,10 @@ export function buildScanResult(
     requestId?: string;
     /** Stage only player-prop legs (props-only asks). Qual gates unchanged. */
     propsOnly?: boolean;
+    /** Drop props from staging (game-lines-only asks). */
+    gameLinesOnly?: boolean;
+    /** Override max game-line legs per matchup. */
+    legsPerGameCap?: number;
     /** Prop scoring was cut short before any prop legs landed. */
     propPhaseIncomplete?: boolean;
     failureDiagnostics?: FullBoardScanResult["failureDiagnostics"];
@@ -656,7 +660,11 @@ export function buildScanResult(
     prioritySports?: readonly string[];
   },
 ): FullBoardScanResult {
-  const stagePool = opts.propsOnly ? scored.filter((leg) => !!leg.pick.isProp) : scored;
+  const stagePool = opts.propsOnly
+    ? scored.filter((leg) => !!leg.pick.isProp)
+    : opts.gameLinesOnly
+      ? scored.filter((leg) => !leg.pick.isProp)
+      : scored;
   const staged = buildStagedTicketFromScan(
     stagePool,
     opts.target,
@@ -664,6 +672,7 @@ export function buildScanResult(
     {
       ...opts.varietyContext,
       ticketStyle: opts.ticketStyle,
+      legsPerGameCap: opts.legsPerGameCap,
     },
   );
   let picks = injectPrioritySportsIntoTicket(
@@ -674,7 +683,9 @@ export function buildScanResult(
   );
   // When qualified props exist, fill ~50% reserved prop slots (rush/pass/rec/sack
   // preferred) so gameLines-first combinators cannot ship ML/totals-only tickets.
-  picks = fillReservedPropSlots(picks, stagePool, opts.target);
+  if (!opts.gameLinesOnly && !opts.propsOnly) {
+    picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+  }
   // Prop-slot fill can evict soft football injects; restore multi-sport floor after.
   picks = enforceMultiSportFloorOnTicket(
     picks,
@@ -690,6 +701,7 @@ export function buildScanResult(
       stagePool,
       opts.target,
       opts.varietySeed,
+      opts.legsPerGameCap,
     );
   }
   // Preview waves score game lines first. Do not fill reserved prop slots with
@@ -841,6 +853,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   propsOnly?: boolean;
   /** Simulate every eligible prop (HR boards) — do not stop after N qualify. */
   exhaustPropBoard?: boolean;
+  /** When set, overrides default max legs per game (game-lines-only / N-game asks). */
+  legsPerGameCap?: number;
+  /** Drop player props from staging (game lines / alts / periods only). */
+  gameLinesOnly?: boolean;
   /**
    * When the caller already prefetched the full posted prop board, skip a
    * second fan-out so prop scoring can start right after game-line sims.
@@ -925,6 +941,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
       propsOnly: opts.propsOnly,
+      gameLinesOnly: opts.gameLinesOnly,
+      legsPerGameCap: opts.legsPerGameCap,
       prioritySports: opts.prioritySports,
     });
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
@@ -1134,6 +1152,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
     propsOnly: opts.propsOnly,
+    gameLinesOnly: opts.gameLinesOnly,
+    legsPerGameCap: opts.legsPerGameCap,
     propPhaseIncomplete,
     failureDiagnostics,
     prioritySports: opts.prioritySports,
