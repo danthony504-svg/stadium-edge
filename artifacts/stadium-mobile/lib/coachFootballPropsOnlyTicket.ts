@@ -1,12 +1,9 @@
 /**
- * Greenfield NFL / NCAAF props-only ticket builder.
+ * Greenfield props-only ticket builder (all sports).
  *
- * Rebuild after #541 phone empties (8-leg NFL props → quality bar, propLegsScored=0):
- * 1. Normalize null-line anytime TD → 0.5 so candidacy + history keys work
- * 2. Prefetch candidate game logs with normalized ESPN sport keys
- * 3. Grade sync from history + parallel server MC boost
- * 4. Soft-clip TD 0/1; collapse Over/Under to history best-EV side
- * 5. Stage via props-only odds gate (hit ≥ implied) — no attachPickScores wipe
+ * Rebuild after phone "8 leg player prop" → 3 WNBA legs / "7 leg NFL" empty:
+ * Generic board-scan fill (confidence≥52 + Match/Form/Inj) is never used for
+ * props-only. History hit vs odds + best-EV side stages the ticket.
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -79,6 +76,7 @@ export function selectFootballPropsOnlyCandidates(
   return selectFootballPropsOnlyFromPicks(
     pool.map((e) => normalizePropsOnlyPick(parsedPickFromPoolEntry(e))),
     targetLegs,
+    pool,
   );
 }
 
@@ -253,7 +251,7 @@ export async function buildFootballPropsOnlyTicket(
   if (!candidates.length) {
     return {
       picks: [],
-      note: "No athlete-linked NFL skill props were posted that we can grade from real history.",
+      note: "No athlete-linked player props were posted that we can grade from real history.",
       propPoolSize,
       propSimEvaluated: 0,
       propLegsScored: 0,
@@ -261,7 +259,7 @@ export async function buildFootballPropsOnlyTicket(
     };
   }
 
-  opts.onStatus?.(`Loading game logs for ${candidates.length} NFL skill props…`);
+  opts.onStatus?.(`Loading game logs for ${candidates.length} player props…`);
 
   const seededHistory = await prefetchCandidateHistory(
     candidates,
@@ -274,7 +272,7 @@ export async function buildFootballPropsOnlyTicket(
     localHistories[k] = toLocalHistory(v);
   }
 
-  opts.onStatus?.(`Grading ${candidates.length} NFL skill props from real history…`);
+  opts.onStatus?.(`Grading ${candidates.length} player props from real history…`);
 
   const propHits = gradeFootballPropsOnlyFromHistory(
     candidates,
