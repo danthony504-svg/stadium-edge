@@ -114,25 +114,25 @@ export function applyReservedPropSeatCap<T extends { isProp?: boolean }>(
 
 /**
  * Rebuild contract for football mix asks ("10 leg nfl"):
- * - Preview: keep GL under the non-prop seat cap while props score.
+ * - Preview / props still scoring: keep GL under the non-prop seat cap.
  * - Final with player props: keep props + GL under the reserved mix seats.
- * - Final with 0 props but cleared game lines: DELIVER those GLs (honest
- *   shortfall). Never wipe scored legs into SCORED_BUT_NOT_STAGED empties —
- *   that was the phone regression after #532/#533 (9 scored → 0 staged).
+ * - Final after props exhausted with 0 props: deliver cleared GLs (honest
+ *   shortfall). Never wipe into SCORED_BUT_NOT_STAGED empty.
+ * - Never fill all N seats with spreads while props are still incomplete.
  */
 export function finalizeFootballPropMixPicks<T extends { isProp?: boolean }>(
   picks: T[],
   targetLegs: number,
-  opts?: { preview?: boolean },
+  opts?: { preview?: boolean; propPhaseIncomplete?: boolean },
 ): T[] {
   if (targetLegs < 3) return picks.slice(0, Math.max(0, targetLegs));
   const propFraction = 0.4;
-  if (opts?.preview) {
+  if (opts?.preview || opts?.propPhaseIncomplete) {
     return applyReservedPropSeatCap(picks, targetLegs, propFraction);
   }
   const props = picks.filter((p) => !!p.isProp);
   if (props.length === 0) {
-    // Props exhausted with nothing cleared — ship the game lines that did.
+    // Props finished with nothing cleared — ship the game lines that did.
     return picks.slice(0, targetLegs);
   }
   return applyReservedPropSeatCap(picks, targetLegs, propFraction);
@@ -547,9 +547,13 @@ export function buildFinalCoachParlayNote(opts: {
         ? opts.picks.length > 0
           ? ` Player props did not finish scoring — showing ${opts.picks.length} prop${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for the full props ticket.`
           : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — try again for a props-only ticket (no game lines).`
-        : opts.picks.length > 0
-          ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for a full props mix.`
-          : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+        : opts.requirePropMix
+          ? opts.picks.length > 0
+            ? ` Player props did not finish scoring — holding reserved prop seats (${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} cleared so far). Try again for a full props mix.`
+            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — reserved prop seats stayed open (no full game-line fill). Try again.`
+          : opts.picks.length > 0
+            ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for a full props mix.`
+            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
       : "";
   const mixRefusedNote =
     opts.requirePropMix &&

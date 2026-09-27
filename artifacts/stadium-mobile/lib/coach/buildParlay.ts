@@ -401,17 +401,19 @@ export async function buildCoachParlay(opts: {
     ),
     teamScope,
   );
-  // Belt-and-suspenders: football mix never ships spreads-only even if an older
-  // partial slipped past buildScanResult finalize.
-  if (requirePropMix) {
-    picks = finalizeFootballPropMixPicks(picks, target);
-  }
-  const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
-  const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
   const propsPending =
     propsStillPending(scan) ||
     propsStillPending(latest) ||
     !!scan?.propPhaseIncomplete;
+  // Football mix: hold prop seats while props incomplete; after props finish
+  // with 0 clears, deliver scored game lines (never wipe to empty).
+  if (requirePropMix) {
+    picks = finalizeFootballPropMixPicks(picks, target, {
+      propPhaseIncomplete: propsPending,
+    });
+  }
+  const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
+  const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
   const note = buildFinalCoachParlayNote({
     target,
     picks,

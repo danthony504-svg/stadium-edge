@@ -58,6 +58,37 @@ test("football absolute flush delivers scored game-line buffer when props miss",
   assert.equal(out.length, 9, "must not wipe scored GLs into empty ticket");
 });
 
+test("football absolute flush while props incomplete holds ≤6 game-line seats", () => {
+  const buffered = Array.from({ length: 10 }, (_, i) => ({
+    isProp: false,
+    id: `gl-${i}`,
+  }));
+  const out = resolveCoachTerminalPicks({
+    bufferedPicks: buffered,
+    messagePicks: null,
+    askText: "10 leg nfl",
+    requestedLegs: 10,
+    propPhaseIncomplete: true,
+  });
+  assert.equal(out.length, 6);
+  assert.equal(out.filter((p) => p.isProp).length, 0);
+});
+
+test("football absolute flush after props finish delivers full GL buffer", () => {
+  const buffered = Array.from({ length: 10 }, (_, i) => ({
+    isProp: false,
+    id: `gl-${i}`,
+  }));
+  const out = resolveCoachTerminalPicks({
+    bufferedPicks: buffered,
+    messagePicks: null,
+    askText: "10 leg nfl",
+    requestedLegs: 10,
+    propPhaseIncomplete: false,
+  });
+  assert.equal(out.length, 10);
+});
+
 test("football absolute flush keeps props and caps game lines", () => {
   const buffered = [
     ...Array.from({ length: 8 }, (_, i) => ({ isProp: false, id: `gl-${i}` })),
