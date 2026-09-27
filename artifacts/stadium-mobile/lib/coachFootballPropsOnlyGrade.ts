@@ -1,15 +1,13 @@
 /**
  * Pure local grading for NFL/NCAAF props-only tickets.
- * Kept free of api.ts so node:test can prove history → sim hit without the
- * network import graph.
- *
- * Phone empties after #539: candidates selected, but enrich/server race still
- * produced 0 propLegsScored. This module grades from already-fetched game logs.
+ * Kept free of api.ts so node:test can prove history → sim hit.
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
+import { impliedProb } from "./format.ts";
+import { simEvPct } from "./gameSimQualityGates.ts";
 
 export type PropsOnlyHit = { hitProbability: number | null; nullReason?: string | null };
 
@@ -25,7 +23,27 @@ type PoolRow = {
   line: number | null;
   game?: string;
   marketKey?: string | null;
+  bookSpread?: number | null;
+  edge?: number | null;
+  odds?: number;
 };
+
+/** Map Odds API / feed sport keys to ESPN player-history sport ids. */
+export function normalizeHistorySport(sport: string | null | undefined): string {
+  const n = String(sport ?? "")
+    .toLowerCase()
+    .trim();
+  if (!n) return "";
+  if (n === "nfl" || n === "football" || n.includes("americanfootball_nfl")) return "nfl";
+  if (n === "ncaaf" || n === "cfb" || n.includes("americanfootball_ncaaf")) return "ncaaf";
+  if (n === "nba" || n.includes("basketball_nba")) return "nba";
+  if (n === "wnba" || n.includes("basketball_wnba")) return "wnba";
+  if (n === "mlb" || n.includes("baseball_mlb")) return "mlb";
+  if (n === "nhl" || n.includes("icehockey_nhl")) return "nhl";
+  if (n === "ncaab" || n.includes("basketball_ncaab")) return "ncaab";
+  if (n.startsWith("soccer") || n.includes("soccer_")) return "soccer";
+  return n;
+}
 
 function propSimKey(
   player: string,
@@ -53,7 +71,7 @@ export function propsOnlySimLookupKey(
   return propSimKey(pick.player, market, pick.propLine, side);
 }
 
-function lookupHit(
+export function lookupPropsOnlyHit(
   pick: Parameters<typeof propsOnlySimLookupKey>[0],
   poolRow: Parameters<typeof propsOnlySimLookupKey>[1],
   hits: Map<string, PropsOnlyHit>,
@@ -88,7 +106,7 @@ function historyForPick(
   return byName ?? null;
 }
 
-function poolRowForPick(pick: ParsedPick, pool: PoolRow[]): PoolRow | undefined {
+export function propsOnlyPoolRowForPick(pick: ParsedPick, pool: PoolRow[]): PoolRow | undefined {
   const side = pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
   if (!side || pick.propLine == null) return undefined;
   return (
@@ -102,7 +120,6 @@ function poolRowForPick(pick: ParsedPick, pool: PoolRow[]): PoolRow | undefined 
   );
 }
 
-/** Same hit-rate math as simulatorLocalSim — inlined to stay api-free for tests. */
 function localHitFromHistory(
   history: PropsOnlyHistorySlice | null | undefined,
   args: { market: string; line: number; side: "Over" | "Under" },
@@ -120,7 +137,6 @@ function localHitFromHistory(
   return hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
 }
 
-/** Grade one pick from real ESPN game-log history. Soft-clips binary TD 0/1. */
 export function gradeFootballPropFromHistory(
   pick: ParsedPick,
   hist: PropsOnlyHistorySlice | null | undefined,
@@ -157,7 +173,7 @@ export function gradeFootballPropsOnlyFromHistory(
 ): Map<string, PropsOnlyHit> {
   const hits = new Map<string, PropsOnlyHit>();
   for (const pick of picks) {
-    const row = poolRowForPick(pick, pool);
+    const row = propsOnlyPoolRowForPick(pick, pool);
     const key = propsOnlySimLookupKey(pick, row);
     if (!key) continue;
     const hist = historyForPick(pick, histories);
@@ -172,7 +188,7 @@ export function softClipPropsOnlyHits(
   pool: PoolRow[] = [],
 ): void {
   for (const pick of picks) {
-    const row = poolRowForPick(pick, pool);
+    const row = propsOnlyPoolRowForPick(pick, pool);
     const key = propsOnlySimLookupKey(pick, row);
     if (!key) continue;
     const raw = hits.get(key)?.hitProbability;
@@ -188,8 +204,22 @@ export function propsOnlyPickHasGrade(
   hits: Map<string, PropsOnlyHit>,
   pool: PoolRow[] = [],
 ): boolean {
-  const row = poolRowForPick(pick, pool);
-  const raw = lookupHit(pick, row, hits);
+  const row = propsOnlyPoolRowForPick(pick, pool);
+  const raw = lookupPropsOnlyHit(pick, row, hits);
   const clipped = clipPropSimHitForGrade(pick, raw);
   return pickHasSimGrade(pick, clipped);
+}
+
+/**
+ * Props-only delivery gate: real history/MC hit rate vs posted odds.
+ * Skips the multi-signal confidence breadth bar that wiped sim-only legs.
+ */
+export function propsOnlyLegClearsOdds(pick: ParsedPick, simHit: number | null): boolean {
+  if (pick.odds == null || !Number.isFinite(pick.odds)) return false;
+  const clipped = clipPropSimHitForGrade(pick, simHit);
+  if (!pickHasSimGrade(pick, clipped) || clipped == null) return false;
+  const implied = impliedProb(pick.odds);
+  if (!(clipped > implied)) return false;
+  const ev = simEvPct(clipped, pick.odds);
+  return ev == null || ev > 0;
 }
