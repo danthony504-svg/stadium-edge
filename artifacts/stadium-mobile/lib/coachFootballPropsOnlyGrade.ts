@@ -2,10 +2,12 @@
  * Pure local grading for NFL/NCAAF props-only tickets.
  * Kept free of api.ts so node:test can prove history → sim hit.
  *
- * Rebuild after #541 phone empties ("8 leg NFL player props" → quality bar):
- * - Odds API anytime_td often posts Yes/No with line:null — treat as 0.5
- * - Grade both Over/Under when posted; keep the history-supported EV side
- * - Odds gate uses hit ≥ implied (float-safe) so fair -110 can stage
+ * Phone #544 diag: PROPS_ONLY_NO_GRADE nulls=insufficient_game_log:54
+ * Early 2026 NFL season only has ~2–3 ESPN games; the old min sample of 3
+ * + current-season-only fetch zeroed every grade. Rebuild:
+ * - Prior-season backfill when current log is thin
+ * - Merge same-date category splits (pass/rush/rec rows) before grading
+ * - Min sample 2 for props-only early-season windows
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -16,11 +18,23 @@ import { simEvPct } from "./gameSimQualityGates.ts";
 
 export type PropsOnlyHit = { hitProbability: number | null; nullReason?: string | null };
 
+export type PropsOnlyHistoryGame = {
+  date?: string | null;
+  opp?: string | null;
+  stats?: Record<string, string>;
+};
+
 export type PropsOnlyHistorySlice = {
   player?: string;
   labels?: string[];
-  recent?: { stats?: Record<string, string> }[];
+  recent?: PropsOnlyHistoryGame[];
 };
+
+/** Early-season floor — 3 left every NFL prop ungraded in week 3–4 of 2026. */
+export const PROPS_ONLY_MIN_SAMPLE = 2;
+/** Prefetch prior season when current recent is below this. */
+export const PROPS_ONLY_HISTORY_BACKFILL_BELOW = 8;
+export const PROPS_ONLY_HISTORY_TARGET = 10;
 
 type PoolRow = {
   player: string;
@@ -63,6 +77,73 @@ export function isBinaryNullLineMarket(market: string | null | undefined): boole
     .trim();
   if (BINARY_NULL_LINE_MARKETS.has(m)) return true;
   return /\banytime_td\b|\bfirst_td\b|\banytime\s*td\b|\btouchdown\b/.test(m);
+}
+
+/** Prior ESPN season year for thin current logs (NFL 2026 week 3 → 2025). */
+export function propsOnlyPriorSeasonYear(
+  availableSeasons?: string[] | null,
+  now = new Date(),
+): string {
+  const years = (availableSeasons ?? [])
+    .map((s) => String(s).trim())
+    .filter((s) => /^\d{4}$/.test(s))
+    .sort((a, b) => Number(b) - Number(a));
+  if (years.length >= 2) return years[1]!;
+  if (years.length === 1) {
+    const y = Number(years[0]);
+    return String(y - 1);
+  }
+  return String(now.getFullYear() - 1);
+}
+
+/**
+ * ESPN football gamelogs emit one row per category (pass / rush / rec) for the
+ * same game. Merge same-date rows so anytime TD / combo markets see all columns.
+ */
+export function mergePropsOnlyHistoryGames(
+  games: PropsOnlyHistoryGame[] | null | undefined,
+): PropsOnlyHistoryGame[] {
+  if (!games?.length) return [];
+  const byKey = new Map<string, PropsOnlyHistoryGame>();
+  const order: string[] = [];
+  for (const g of games) {
+    const date = String(g.date ?? "").trim();
+    const opp = String(g.opp ?? "").trim().toLowerCase();
+    const key = date || opp ? `${date}|${opp}` : `anon:${order.length}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, {
+        date: g.date ?? null,
+        opp: g.opp ?? null,
+        stats: { ...(g.stats ?? {}) },
+      });
+      order.push(key);
+      continue;
+    }
+    existing.stats = { ...(existing.stats ?? {}), ...(g.stats ?? {}) };
+    if (!existing.date && g.date) existing.date = g.date;
+    if (!existing.opp && g.opp) existing.opp = g.opp;
+  }
+  return order.map((k) => byKey.get(k)!);
+}
+
+/** Current-season games first, then prior-season fill up to target (deduped). */
+export function mergePropsOnlySeasonLogs(
+  current: PropsOnlyHistoryGame[] | null | undefined,
+  prior: PropsOnlyHistoryGame[] | null | undefined,
+  target = PROPS_ONLY_HISTORY_TARGET,
+): PropsOnlyHistoryGame[] {
+  const merged = mergePropsOnlyHistoryGames([...(current ?? []), ...(prior ?? [])]);
+  // Prefer current dates: current was listed first so merge kept those stats;
+  // re-order by date desc when dates exist.
+  const dated = merged.filter((g) => g.date);
+  const undated = merged.filter((g) => !g.date);
+  dated.sort((a, b) => {
+    const ad = a.date ? new Date(a.date).getTime() : 0;
+    const bd = b.date ? new Date(b.date).getTime() : 0;
+    return bd - ad;
+  });
+  return [...dated, ...undated].slice(0, target);
 }
 
 /**
@@ -211,14 +292,14 @@ function localHitFromHistory(
   history: PropsOnlyHistorySlice | null | undefined,
   args: { market: string; line: number; side: "Over" | "Under" },
 ): number | null {
-  const recent = history?.recent ?? [];
+  const recent = mergePropsOnlyHistoryGames(history?.recent ?? []);
   if (!recent.length) return null;
   const ambiguous = computeAmbiguous(history?.labels);
   const vals = recent
     .map((g) => gameValueForMarket(args.market, g.stats ?? {}, ambiguous))
     .filter((v): v is number => v != null)
     .slice(0, 10);
-  if (vals.length < 3) return null;
+  if (vals.length < PROPS_ONLY_MIN_SAMPLE) return null;
   const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
   const hitProbRaw = hits / vals.length;
   return hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
@@ -241,10 +322,11 @@ export function gradeFootballPropFromHistory(
   if (!market || line == null || !side || !norm.player) {
     return { hitProbability: null, nullReason: "incomplete_prop" };
   }
-  if (!hist?.recent?.length) {
+  const mergedRecent = mergePropsOnlyHistoryGames(hist?.recent ?? []);
+  if (!mergedRecent.length) {
     return { hitProbability: null, nullReason: "no_player_history" };
   }
-  const hitProb = localHitFromHistory(hist, {
+  const hitProb = localHitFromHistory({ ...hist, recent: mergedRecent }, {
     market,
     line,
     side,
@@ -253,7 +335,9 @@ export function gradeFootballPropFromHistory(
     return {
       hitProbability: null,
       nullReason:
-        (hist.recent?.length ?? 0) >= 3 ? "insufficient_mapped_stats" : "insufficient_game_log",
+        mergedRecent.length >= PROPS_ONLY_MIN_SAMPLE
+          ? "insufficient_mapped_stats"
+          : "insufficient_game_log",
     };
   }
   const clipped = clipPropSimHitForGrade({ ...norm, propLine: line }, hitProb);

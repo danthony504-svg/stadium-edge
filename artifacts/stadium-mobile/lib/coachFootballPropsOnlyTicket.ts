@@ -19,14 +19,17 @@ import {
   collapsePropsOnlyToBestEvSides,
   gradeFootballPropsOnlyFromHistory,
   lookupPropsOnlyHit,
+  mergePropsOnlySeasonLogs,
   normalizeHistorySport,
   normalizePropsOnlyPick,
   propsOnlyEvPct,
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
   propsOnlyPoolRowForPick,
+  propsOnlyPriorSeasonYear,
   propsOnlySimLookupKey,
   softClipPropsOnlyHits,
+  PROPS_ONLY_HISTORY_BACKFILL_BELOW,
   type PropsOnlyHistorySlice,
 } from "./coachFootballPropsOnlyGrade.ts";
 import {
@@ -66,13 +69,17 @@ export {
   collapsePropsOnlyToBestEvSides,
   gradeFootballPropFromHistory,
   gradeFootballPropsOnlyFromHistory,
+  mergePropsOnlyHistoryGames,
+  mergePropsOnlySeasonLogs,
   normalizeHistorySport,
   normalizePropsOnlyPick,
   pickBestEvPropsOnlySide,
   propsOnlyEffectiveLine,
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
+  propsOnlyPriorSeasonYear,
   softClipPropsOnlyHits,
+  PROPS_ONLY_MIN_SAMPLE,
 } from "./coachFootballPropsOnlyGrade.ts";
 
 export {
@@ -209,7 +216,9 @@ async function prefetchCandidateHistory(
     const id = p.athleteId ? String(p.athleteId) : "";
     if (!id || !p.player) continue;
     const key = `${p.player}#${id}`;
-    if (out[key]?.recent?.length || seen.has(key)) continue;
+    if ((out[key]?.recent?.length ?? 0) >= PROPS_ONLY_HISTORY_BACKFILL_BELOW || seen.has(key)) {
+      continue;
+    }
     seen.add(key);
     const fromPool = pool.find(
       (e) => e.player === p.player && String(e.athleteId ?? "") === id,
@@ -222,6 +231,15 @@ async function prefetchCandidateHistory(
     if (rows.length >= 48) break;
   }
 
+  const mapRecent = (
+    games: { date?: string | null; opponentName?: string | null; opp?: string | null; stats?: Record<string, string> }[],
+  ) =>
+    games.slice(0, 10).map((g) => ({
+      date: g.date ?? null,
+      opp: g.opponentName ?? g.opp ?? null,
+      stats: g.stats ?? {},
+    }));
+
   const concurrency = 8;
   for (let i = 0; i < rows.length; i += concurrency) {
     const batch = rows.slice(i, i + concurrency);
@@ -229,21 +247,39 @@ async function prefetchCandidateHistory(
       batch.map(async (r) => {
         try {
           const ac = new AbortController();
-          const t = setTimeout(() => ac.abort(), 12_000);
+          const t = setTimeout(() => ac.abort(), 14_000);
           try {
             const h = await getPlayerHistory(
               { sport: r.sport, athleteId: r.athleteId, name: r.player },
               ac.signal,
             );
-            if (!h?.recent?.length) return;
+            let recent = mapRecent(h?.recent ?? []);
+            // Phone diag: early NFL season had 0–3 current games → insufficient_game_log.
+            // Backfill prior season so grading has a real sample without inventing stats.
+            if (recent.length < PROPS_ONLY_HISTORY_BACKFILL_BELOW) {
+              const priorYear = propsOnlyPriorSeasonYear(h?.availableSeasons);
+              try {
+                const prior = await getPlayerHistory(
+                  {
+                    sport: r.sport,
+                    athleteId: r.athleteId,
+                    name: r.player,
+                    season: priorYear,
+                  },
+                  ac.signal,
+                );
+                recent = mergePropsOnlySeasonLogs(recent, mapRecent(prior?.recent ?? []));
+              } catch {
+                /* keep current */
+              }
+            }
+            if (!recent.length) return;
+            const existing = out[`${r.player}#${r.athleteId}`];
+            if ((existing?.recent?.length ?? 0) >= recent.length) return;
             out[`${r.player}#${r.athleteId}`] = {
               player: r.player,
-              recent: h.recent.slice(0, 10).map((g) => ({
-                date: g.date,
-                opp: g.opponentName,
-                stats: g.stats,
-              })),
-              vsOpponent: (h.vsOpponent ?? []).slice(0, 5).map((g) => ({
+              recent,
+              vsOpponent: (h?.vsOpponent ?? []).slice(0, 5).map((g) => ({
                 date: g.date,
                 stats: g.stats,
               })),

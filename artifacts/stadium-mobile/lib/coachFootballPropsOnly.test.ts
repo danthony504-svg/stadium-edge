@@ -15,11 +15,14 @@ import {
   collapsePropsOnlyToBestEvSides,
   gradeFootballPropFromHistory,
   gradeFootballPropsOnlyFromHistory,
+  mergePropsOnlyHistoryGames,
+  mergePropsOnlySeasonLogs,
   normalizeHistorySport,
   normalizePropsOnlyPick,
   propsOnlyEffectiveLine,
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
+  propsOnlyPriorSeasonYear,
 } from "./coachFootballPropsOnlyGrade.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
@@ -324,6 +327,110 @@ test("8-leg props-only stages from graded best-EV sides (no empty quality bar)",
   const staged = stageFootballPropsOnlyLegs(scored, 8);
   assert.equal(staged.length, 8, "8-leg NFL props must stage — not empty quality bar");
   assert.ok(staged.every((p) => p.propLine != null));
+});
+
+test("phone insufficient_game_log rebuild: 2-game early-season sample grades", () => {
+  // 2026 week ~3: ESPN current season often has only 2–3 games. Old min=3 wiped all.
+  const td = pick("player_anytime_td", "Kelce", null, { athleteId: "15847" });
+  const hist = {
+    recent: [
+      {
+        date: "2026-09-20",
+        stats: {
+          rushingTouchdowns: "0",
+          receivingTouchdowns: "1",
+          passingTouchdowns: "0",
+        },
+      },
+      {
+        date: "2026-09-13",
+        stats: {
+          rushingTouchdowns: "0",
+          receivingTouchdowns: "0",
+          passingTouchdowns: "0",
+        },
+      },
+    ],
+  };
+  const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
+  assert.ok(graded.hitProbability != null, `expected grade from 2 games, got ${graded.nullReason}`);
+  assert.equal(graded.nullReason, null);
+});
+
+test("merge prior-season logs fills thin current season (phone hist=19 graded=0)", () => {
+  const current = [
+    {
+      date: "2026-09-20",
+      opp: "Bal",
+      stats: { receivingYards: "59", receivingTouchdowns: "1" },
+    },
+  ];
+  const prior = [
+    {
+      date: "2025-12-15",
+      opp: "Den",
+      stats: { receivingYards: "80", receivingTouchdowns: "1" },
+    },
+    {
+      date: "2025-12-08",
+      opp: "Hou",
+      stats: { receivingYards: "70", receivingTouchdowns: "0" },
+    },
+    {
+      date: "2025-12-01",
+      opp: "Lv",
+      stats: { receivingYards: "55", receivingTouchdowns: "1" },
+    },
+  ];
+  const merged = mergePropsOnlySeasonLogs(current, prior);
+  assert.ok(merged.length >= 4, `expected current+prior games, got ${merged.length}`);
+  const yards = pick("player_reception_yds", "Kelce", 60.5, { athleteId: "15847" });
+  const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(yards), {
+    recent: merged,
+  });
+  assert.ok(
+    graded.hitProbability != null,
+    `prior-season backfill must grade, got ${graded.nullReason}`,
+  );
+});
+
+test("same-date pass/rush/rec category rows merge before TD grade", () => {
+  const hist = {
+    recent: [
+      {
+        date: "2026-09-20",
+        opp: "Mia",
+        stats: { passingTouchdowns: "2", passingYards: "250" },
+      },
+      {
+        date: "2026-09-20",
+        opp: "Mia",
+        stats: { rushingTouchdowns: "0", rushingYards: "12" },
+      },
+      {
+        date: "2026-09-13",
+        opp: "Phi",
+        stats: { passingTouchdowns: "1", passingYards: "220" },
+      },
+      {
+        date: "2026-09-13",
+        opp: "Phi",
+        stats: { rushingTouchdowns: "1", rushingYards: "20" },
+      },
+    ],
+  };
+  const merged = mergePropsOnlyHistoryGames(hist.recent);
+  assert.equal(merged.length, 2, "same-date category splits must collapse to one game");
+  assert.equal(merged[0]?.stats?.passingTouchdowns, "2");
+  assert.equal(merged[0]?.stats?.rushingTouchdowns, "0");
+  const td = pick("player_anytime_td", "Mahomes", 0.5, { athleteId: "3139477" });
+  const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
+  assert.ok(graded.hitProbability != null, `merged TD grade failed: ${graded.nullReason}`);
+});
+
+test("propsOnlyPriorSeasonYear prefers second available season", () => {
+  assert.equal(propsOnlyPriorSeasonYear(["2026", "2025", "2024"]), "2025");
+  assert.equal(propsOnlyPriorSeasonYear(["2026"]), "2025");
 });
 
 test("phone 3-of-8 rebuild: WNBA points props stage 8 legs via history EV (not confidence bar)", () => {
