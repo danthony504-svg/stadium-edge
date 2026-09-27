@@ -151,6 +151,19 @@ test("empty final with incomplete props does not claim every market scanned", ()
   assert.doesNotMatch(note, /every posted market/i);
 });
 
+test("props-only incomplete note never claims game-line fallback", () => {
+  const note = buildFinalCoachParlayNote({
+    target: 10,
+    picks: [],
+    propPoolSize: 180,
+    propsPending: true,
+    propsOnly: true,
+    shortfallLead: buildFixedLegCountShortfallLead(10, 0),
+  });
+  assert.match(note, /props-only ticket/i);
+  assert.doesNotMatch(note, /game-line/i);
+});
+
 
 
 test("footballSkillPropRank prefers TD / pass / rec / rush yards over sack and misc", () => {

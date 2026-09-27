@@ -303,9 +303,12 @@ export function buildFinalCoachParlayNote(opts: {
   scanNote?: string;
   failureReason?: CoachScanFailureReason | null;
   failureDiagnostics?: CoachScanFailureDiagnostics;
+  /** When true, never describe a game-line fallback (props-only asks). */
+  propsOnly?: boolean;
 }): string {
   const propLike = countPropLikePicks(opts.picks);
   const thinGameOnlyNote =
+    !opts.propsOnly &&
     opts.picks.length > 0 &&
     opts.picks.length < opts.target &&
     propLike === 0 &&
@@ -315,9 +318,13 @@ export function buildFinalCoachParlayNote(opts: {
       : "";
   const propsIncompleteNote =
     opts.propPoolSize > 0 && propLike === 0 && opts.propsPending
-      ? opts.picks.length > 0
-        ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared. Try again for a full props mix.`
-        : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+      ? opts.propsOnly
+        ? opts.picks.length > 0
+          ? ` Player props did not finish scoring — showing ${opts.picks.length} prop${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for the full props ticket.`
+          : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — try again for a props-only ticket (no game lines).`
+        : opts.picks.length > 0
+          ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared. Try again for a full props mix.`
+          : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
       : "";
   const emptyBoardNote =
     opts.picks.length === 0 && opts.scanMissing && !opts.timedOut

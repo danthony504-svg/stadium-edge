@@ -489,14 +489,25 @@ export function mentionsPropIntent(text?: string | null): boolean {
 export function wantsPropsOnly(text?: string | null): boolean {
   if (!mentionsPropIntent(text)) return false;
   const t = String(text || "").toLowerCase();
+  // Explicit no-prop / game-lines asks never mean props-only.
+  if (/\bno\s+player\s+props?\b/.test(t)) return false;
+  if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
+  if (/\bno\s+props?\b/.test(t)) return false;
+  if (/\bwithout\s+props?\b/.test(t)) return false;
+  // Mixed "with (player) props" stays on the board-scan mix path.
+  if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return false;
+
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
   if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
+  if (/\bjust\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+parlay\b/.test(t)) return true;
   if (/\bparlay\s+(?:of\s+)?(?:player\s+)?props?\b/.test(t)) return true;
-  // "6 leg player props" / "6-leg player prop" — all legs are props, not a
-  // mixed "with player props" board-scan ticket. Keep "with player props" out.
-  if (/\b\d{1,3}\s*[-\s]?\s*legs?\s+player\s+props?\b/.test(t)) return true;
+  // "6 leg player props" / "10 leg NFL player props" / "6-leg player prop"
+  // — allow an optional sport token between leg count and "player props".
+  if (/\b\d{1,3}\s*[-\s]?\s*legs?\b[\s\w]{0,40}\bplayer\s+props?\b/.test(t)) return true;
   if (/\bplayer\s+props?\s+\d{1,3}\s*[-\s]?\s*legs?\b/.test(t)) return true;
+  // "9 leg nfl props" / "10 leg props" — all-prop ticket (not "with props").
+  if (/\b\d{1,3}\s*[-\s]?\s*legs?\b[\s\w]{0,30}\bprops?\b/.test(t)) return true;
   if (
     /\bparlay\b/.test(t) &&
     /\b(strikeouts?|k'?s|home runs?|hrs?|anytime td|receptions?|hits?|total bases?)\b/.test(t)

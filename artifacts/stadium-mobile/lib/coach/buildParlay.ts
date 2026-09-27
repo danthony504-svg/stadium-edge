@@ -406,6 +406,7 @@ export async function buildCoachParlay(opts: {
     scanNote: scan?.note,
     failureReason: scan?.failureReason,
     failureDiagnostics: scan?.failureDiagnostics,
+    propsOnly,
   });
 
   return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };

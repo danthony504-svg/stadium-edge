@@ -7,6 +7,8 @@
  * and survive final ticket selection.
  */
 
+import { wantsPropsOnly } from "./slate.ts";
+
 export type CoachAskMarketConstraint = {
   /** Stage props only — no ML / spread / total game lines. */
   propsOnly: boolean;
@@ -365,6 +367,18 @@ export function parseCoachAskMarketConstraint(
       gameLinesOnly: false,
       maxGames,
       allowedMarketKeys: keys,
+    };
+  }
+
+  // "10 leg NFL player props" / "player props only" / "just player props" —
+  // all-prop ticket. No market allowlist (any posted prop OK); never fill with
+  // ML / spread / total when props scoring is slow or incomplete.
+  if (!gameLinesOnly && wantsPropsOnly(t)) {
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      maxGames,
+      allowedMarketKeys: null,
     };
   }
 

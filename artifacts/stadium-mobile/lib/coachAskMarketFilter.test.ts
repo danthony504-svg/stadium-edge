@@ -196,8 +196,32 @@ test("rushing props alone allowlists rush family only", () => {
 
 test("props without skill words does not constrain markets", () => {
   const c = parseCoachAskMarketConstraint("9 leg nfl props");
-  assert.equal(c.propsOnly, false);
+  // Still props-only (no ML/spread/total fill) — just no market-key allowlist.
+  assert.equal(c.propsOnly, true);
   assert.equal(c.allowedMarketKeys, null);
+});
+
+test("N leg NFL player props / just player props → propsOnly (no game-line fill)", () => {
+  for (const ask of [
+    "10 leg NFL player props",
+    "10-leg nfl player props",
+    "6 leg player props",
+    "player props only",
+    "just player props",
+    "10 leg props",
+  ]) {
+    const c = parseCoachAskMarketConstraint(ask);
+    assert.equal(c.propsOnly, true, ask);
+    assert.equal(c.gameLinesOnly, false, ask);
+    assert.equal(c.allowedMarketKeys, null, ask);
+  }
+  // Mixed "with player props" stays on the board-scan mix path.
+  const mixed = parseCoachAskMarketConstraint("10 leg with player props");
+  assert.equal(mixed.propsOnly, false);
+  // Explicit no-props stays game-lines-only.
+  const none = parseCoachAskMarketConstraint("10 leg nfl with no player props");
+  assert.equal(none.propsOnly, false);
+  assert.equal(none.gameLinesOnly, true);
 });
 
 test("rushing yards and passing TDs does not allowlist pass yards", () => {
