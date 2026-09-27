@@ -380,3 +380,30 @@ test("topUpTicketFromQualifiedScored is a no-op when already full or no leftover
   );
   assert.equal(topUpTicketFromQualifiedScored(short, onlyUsed, 8).length, 4);
 });
+
+test("topUpTicketFromQualifiedScored respects max 2 legs per game on 10-leg asks", () => {
+  const g1 = "Los Angeles Chargers @ Buffalo Bills";
+  const g2 = "Carolina Panthers @ Cleveland Browns";
+  const short = [
+    leg({ game: g1, market: "Q1 Spread", pick: "Chargers +3", odds: -105 }, 100, mainScore).pick,
+    leg({ game: g1, market: "1H Spread", pick: "Chargers +4.5", odds: -105 }, 95, mainScore).pick,
+    leg({ game: g2, market: "Spread", pick: "Panthers +2.5", odds: -105 }, 90, mainScore).pick,
+    leg({ game: g2, market: "Total", pick: "Over 42.5", odds: -105 }, 85, mainScore).pick,
+  ];
+  const scored: BoardScoredLeg[] = [
+    ...short.map((pick, i) => leg({ game: pick.game!, market: pick.market!, pick: pick.pick!, odds: -105 }, 100 - i, mainScore)),
+    leg({ game: g1, market: "Q2 Spread", pick: "Chargers +3.5", odds: -105 }, 99, mainScore),
+    leg({ game: g1, market: "2H Spread", pick: "Chargers +3.5", odds: -105 }, 98, mainScore),
+    leg({ game: g2, market: "Q4 Spread", pick: "Panthers +0.5", odds: -105 }, 97, mainScore),
+    ...Array.from({ length: 8 }, (_, i) =>
+      leg({ game: `Away${i} @ Home${i}`, market: "Spread", pick: `Away${i} +3.5`, odds: -105 }, 80 - i, mainScore),
+    ),
+  ];
+  const topped = topUpTicketFromQualifiedScored(short, scored, 10);
+  assert.equal(topped.length, 10);
+  const byGame = new Map<string, number>();
+  for (const p of topped) byGame.set(p.game!, (byGame.get(p.game!) ?? 0) + 1);
+  assert.ok((byGame.get(g1) ?? 0) <= 2, `g1 stacked ${byGame.get(g1)}`);
+  assert.ok((byGame.get(g2) ?? 0) <= 2, `g2 stacked ${byGame.get(g2)}`);
+  assert.ok(byGame.size >= 5, `expected ≥5 games, got ${byGame.size}`);
+});
