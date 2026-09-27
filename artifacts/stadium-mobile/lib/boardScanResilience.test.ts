@@ -77,6 +77,7 @@ test("board scan game phase continues after a thrown slate batch", () => {
   // Rebuild: football mix runs finishable skill props FIRST, then games.
   assert.match(src, /fetchSlateGameSimulationsWithStatus/);
   assert.match(src, /selectFootballMixPropSimCandidates/);
+  assert.match(src, /shouldUseFootballSkillPropSim/);
   assert.match(src, /finalizeFootballPropMixPicks/);
   assert.match(src, /footballMixPath && pool\.length > 0/);
   assert.match(src, /boardPropSimMixBatchSize/);
