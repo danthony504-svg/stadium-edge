@@ -205,6 +205,8 @@ export type FullBoardScanResult = {
     propLegsScored: number;
     propPhaseIncomplete: boolean;
     scoredBeforeStage: number;
+    /** When true, gameSimsLoaded=0 is expected (game slate skipped). */
+    propsOnly?: boolean;
   };
   /** HR board ranking diagnostics — selected vs next-best components. */
   hrRankDiagnostics?: ReturnType<typeof hrSelectionDiagnostics>;
@@ -788,6 +790,7 @@ export function buildScanResult(
           ...opts.failureDiagnostics,
           stagedPickCount: picks.length,
           propPhaseIncomplete: opts.propPhaseIncomplete,
+          propsOnly: opts.propsOnly ?? opts.failureDiagnostics.propsOnly,
         })
       : null;
   const noteWithTrace =
@@ -1149,6 +1152,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     propLegsScored,
     propPhaseIncomplete,
     scoredBeforeStage: collapsed.length,
+    propsOnly: !!opts.propsOnly,
   };
   const result = buildScanResult(collapsed, {
     target: opts.target,
