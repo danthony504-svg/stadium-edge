@@ -12,6 +12,7 @@ import {
   type CoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
 import { filterBettableOddsGames, filterBettablePropPool } from "./slate.ts";
+import { bindOddsLabelsToTeamIdMap } from "./coachTeamIdResolve.ts";
 import { fetchSlateGameSimulations, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import {
   buildEvalLinesForAllGames,
@@ -906,6 +907,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
 
+  // Pre-bind odds labels → ESPN ids so slate sims hit direct keys (rebuild:
+  // fuzzy resolve under time pressure left 0/15 sims bound with a healthy map).
+  bindOddsLabelsToTeamIdMap(
+    opts.teamIdMap as unknown as Map<
+      string,
+      import("./coachTeamIdResolve.ts").CoachGameTeamIds
+    >,
+    oddsGames,
+  );
+
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
     const label = `${og.awayTeam} @ ${og.homeTeam}`;
@@ -1067,26 +1078,28 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     );
   };
 
-  // Prefetched prop boards score in parallel with game lines so the absolute
-  // Coach budget cannot burn out on F5 MLs before player props ever run.
-  // Football mix asks ("10 leg nfl") score props FIRST — parallel still let
-  // game lines finish and latch a full GL ticket before props cleared.
+  // Prefetched prop boards score in PARALLEL with game lines so the absolute
+  // Coach budget cannot starve either path. Serial props-first (#529) burned
+  // the wall clock on props then aborted before game sims — phone empty ticket
+  // with fake TEAM_IDS_UNRESOLVED. Football mix still KEEDS reserved prop seats
+  // open on the final ticket (applyReservedPropSeatCap) so spreads cannot pad.
   let propPhaseP: Promise<{
     propScored: BoardScoredLeg[];
     propHits: Map<string, { hitProbability: number | null }>;
     simEvaluated: number;
     incomplete: boolean;
   } | null> | null = null;
-  const propsFirst = !!opts.propsOnly || !!opts.requirePropMix;
-  if (propsFirst) {
-    // Props-first: spend budget on props before the multi-sport game slate.
+  const propsOnlyPath = !!opts.propsOnly;
+  if (propsOnlyPath) {
+    // True props-only: spend the budget on props — no game slate.
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
         propPhaseIncomplete = true;
         return null;
       });
-  } else if (overlapProps) {
+  } else if (overlapProps || opts.requirePropMix) {
+    // Football mix + prefetched pools: start props immediately alongside games.
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
@@ -1095,22 +1108,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       });
   }
 
-  // Await props-first phase before game lines so reserved seats can fill.
-  if (propsFirst && propPhaseP) {
-    const propResult = await propPhaseP;
-    if (propResult) {
-      propScoredAcc = propResult.propScored;
-      if (propResult.incomplete) propPhaseIncomplete = true;
-    } else {
-      propPhaseIncomplete = true;
-    }
-    scored.push(...propScoredAcc);
-    propPhaseP = null; // already consumed
-  }
-
+  let gameSimsAttempted = false;
   if (!opts.propsOnly) {
+    gameSimsAttempted = gameEntries.length > 0;
     const gamePhaseBudgetMs =
-      overlapProps && !opts.requirePropMix ? boardScanGamePhaseBudgetMs(opts.target) : null;
+      overlapProps || opts.requirePropMix ? boardScanGamePhaseBudgetMs(opts.target) : null;
     const gamePhaseStartedAt = Date.now();
     for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
       if (opts.signal?.aborted) break;
@@ -1145,29 +1147,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   if (expandedPool?.length) pool = expandedPool;
 
   if (!propPhaseP) {
-    if (propsFirst) {
-      // Already awaited above. If expand grew an empty pool, score props once more.
-      if (propScoredAcc.length === 0 && pool.length > 0) {
-        try {
-          const propResult = await runPropPhase(pool);
-          propScoredAcc = propResult.propScored;
-          if (propResult.incomplete) propPhaseIncomplete = true;
-          const withoutOldProps = scored.filter((l) => !l.pick.isProp);
-          scored.length = 0;
-          scored.push(...withoutOldProps, ...propScoredAcc);
-        } catch {
-          propPhaseIncomplete = true;
-        }
-      }
-    } else {
-      try {
-        const propResult = await runPropPhase(pool);
-        propScoredAcc = propResult.propScored;
-        if (propResult.incomplete) propPhaseIncomplete = true;
-        scored.push(...propScoredAcc);
-      } catch {
-        propPhaseIncomplete = true;
-      }
+    try {
+      const propResult = await runPropPhase(pool);
+      propScoredAcc = propResult.propScored;
+      if (propResult.incomplete) propPhaseIncomplete = true;
+    } catch {
+      propPhaseIncomplete = true;
     }
   } else {
     const propResult = await propPhaseP;
@@ -1177,8 +1162,23 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     } else {
       propPhaseIncomplete = true;
     }
-    scored.push(...propScoredAcc);
   }
+  // If expand grew the pool after an early empty props-only/mix wave, rescore.
+  if (
+    propScoredAcc.length === 0 &&
+    pool.length > 0 &&
+    (opts.propsOnly || opts.requirePropMix) &&
+    expandedPool?.length
+  ) {
+    try {
+      const propResult = await runPropPhase(pool);
+      propScoredAcc = propResult.propScored;
+      if (propResult.incomplete) propPhaseIncomplete = true;
+    } catch {
+      propPhaseIncomplete = true;
+    }
+  }
+  scored.push(...propScoredAcc);
   if (
     pool.length > 0 &&
     !opts.propsOnly &&
@@ -1205,6 +1205,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     propPhaseIncomplete,
     scoredBeforeStage: collapsed.length,
     propsOnly: !!opts.propsOnly,
+    requirePropMix: !!opts.requirePropMix,
+    gameSimsAttempted,
   };
   const result = buildScanResult(collapsed, {
     target: opts.target,

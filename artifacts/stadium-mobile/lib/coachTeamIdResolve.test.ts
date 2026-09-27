@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildCoachGameTeamIdMap,
   resolveCoachGameTeamIds,
+  bindOddsLabelsToTeamIdMap,
 } from "./coachTeamIdResolve.ts";
 import {
   deriveCoachScanFailureReason,
@@ -128,8 +129,49 @@ test("empty diagnostics produce TEAM_IDS_UNRESOLVED trace for phone triage", () 
     gameEntryCount: 10,
     gameSimsLoaded: 0,
     gameLegsScored: 0,
-    propPoolSize: 120,
+    propPoolSize: 0,
   });
   assert.equal(reason?.code, "TEAM_IDS_UNRESOLVED");
   assert.match(formatCoachScanFailureTrace(reason!), /0 game sims bound/);
+});
+
+test("NFL abbr + bindOddsLabels covers Odds labels before slate sims", () => {
+  const map = buildCoachGameTeamIdMap([
+    {
+      sport: "nfl",
+      homeTeam: "San Francisco 49ers",
+      awayTeam: "Arizona Cardinals",
+      homeAbbr: "SF",
+      awayAbbr: "ARI",
+      homeTeamId: "25",
+      awayTeamId: "22",
+    },
+  ]);
+  assert.ok(map.get("ari @ sf"));
+  const { bound, unresolved } = bindOddsLabelsToTeamIdMap(map, [
+    { awayTeam: "Arizona Cardinals", homeTeam: "San Francisco 49ers", sport: "nfl" },
+    { awayTeam: "Cardinals", homeTeam: "49ers", sport: "nfl" },
+  ]);
+  assert.equal(bound, 2);
+  assert.equal(unresolved.length, 0);
+  assert.ok(map.get("arizona cardinals @ san francisco 49ers"));
+  assert.ok(map.get("cardinals @ 49ers"));
+});
+
+test("phone 10-leg NFL empty is not TEAM_IDS_UNRESOLVED under requirePropMix", () => {
+  // Screenshot after #529: props-first starved game sims → fake TEAM_IDS_UNRESOLVED.
+  const reason = deriveCoachScanFailureReason({
+    stagedPickCount: 0,
+    oddsGameCount: 15,
+    teamIdMapSize: 60,
+    gameEntryCount: 15,
+    gameSimsLoaded: 0,
+    gameLegsScored: 0,
+    propPoolSize: 200,
+    propLegsScored: 0,
+    propPhaseIncomplete: true,
+    requirePropMix: true,
+  });
+  assert.equal(reason?.code, "PROP_PHASE_INCOMPLETE");
+  assert.doesNotMatch(formatCoachScanFailureTrace(reason!), /TEAM_IDS_UNRESOLVED/);
 });
