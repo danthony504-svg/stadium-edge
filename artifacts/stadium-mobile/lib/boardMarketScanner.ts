@@ -78,6 +78,7 @@ import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
+  boardPropSimMixBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
   selectBoardPropSimCandidates,
@@ -105,6 +106,7 @@ import {
 export {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
+  boardPropSimMixBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
   selectBoardPropSimCandidates,
@@ -586,8 +588,8 @@ async function simPropPoolUntilQualified(
   const maxToSim = opts.requirePropMix
     ? boardScanMaxPropsToSimForMix(opts.target, rankedAll.length)
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
-  // Football mix: family quotas (yards ~45%, TD ~25%) — TD-first sort+cap starved
-  // yards on 11k-row NFL boards → PROP_ALL_NO_SIM_GRADE with 0 clears.
+  // Football mix: family quotas (yards ~45%, TD ~25%) on a finishable ~80-row
+  // set — 360-row deep-sim never finished → PROP incomplete + seat-held GLs.
   const { selected: rankedProps } = opts.requirePropMix
     ? selectFootballMixPropSimCandidates(rankedAll, maxToSim)
     : selectBoardPropSimCandidates(rankedAll, maxToSim);
@@ -618,7 +620,9 @@ async function simPropPoolUntilQualified(
   const phaseStartedAt = Date.now();
 
   let simIndex = 0;
-  let batchSize = boardPropSimInitialBatchSize(opts.target);
+  let batchSize = opts.requirePropMix
+    ? boardPropSimMixBatchSize(opts.target)
+    : boardPropSimInitialBatchSize(opts.target);
   let stoppedEarly = false;
 
   while (simIndex < rankedProps.length) {
@@ -668,7 +672,9 @@ async function simPropPoolUntilQualified(
 
     if (simIndex >= rankedProps.length) break;
 
-    batchSize = boardPropSimExpansionBatchSize(opts.target);
+    batchSize = opts.requirePropMix
+      ? boardPropSimMixBatchSize(opts.target)
+      : boardPropSimExpansionBatchSize(opts.target);
   }
 
   return {
@@ -1130,10 +1136,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     );
   };
 
-  // Football mix rebuild: PARALLEL props + games again (#530). Serial props-first
-  // (#532) starved slate sims → gameLines empty + PROP_ALL_NO_SIM_GRADE. Props use
-  // family-quota candidacy (yards first) so TD spam cannot consume the deep-sim budget.
-  // Finals still refuse GL-only via finalizeFootballPropMixPicks when 0 props clear.
+  // Football mix rebuild: PROPS-FIRST on a finishable skill set (~80 rows with
+  // yards/TD quotas), THEN game lines. Parallel props∥games (#530/#533) let GLs
+  // clear while the 360-row deep-sim timed out → phone "holding reserved prop
+  // seats" with 0 skill props. Serial on a huge cap (#532) never finished either.
   let propPhaseP: Promise<{
     propScored: BoardScoredLeg[];
     propHits: Map<string, { hitProbability: number | null }>;
@@ -1143,15 +1149,24 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const propsOnlyPath = !!opts.propsOnly;
   const footballMixPath = !!opts.requirePropMix && !propsOnlyPath;
 
-  if (propsOnlyPath) {
+  if (footballMixPath && pool.length > 0) {
+    try {
+      const propResult = await runPropPhase(pool);
+      propScoredAcc = propResult.propScored;
+      propSimEvaluatedAcc += propResult.simEvaluated;
+      if (propResult.incomplete) propPhaseIncomplete = true;
+    } catch {
+      propPhaseIncomplete = true;
+    }
+  } else if (propsOnlyPath) {
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
         propPhaseIncomplete = true;
         return null;
       });
-  } else if (footballMixPath || overlapProps) {
-    // Start props immediately alongside games (mix + prefetched overlap).
+  } else if (overlapProps) {
+    // Prefetched non-football pools still overlap props with games.
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
@@ -1210,7 +1225,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ]);
   if (expandedPool?.length) pool = expandedPool;
 
-  if (!propPhaseP) {
+  if (footballMixPath) {
+    // Props already ran first; only rescore if expand grew an empty skill wave.
+    if (propScoredAcc.length === 0 && pool.length > 0 && expandedPool?.length) {
+      try {
+        const propResult = await runPropPhase(pool);
+        propScoredAcc = propResult.propScored;
+        propSimEvaluatedAcc += propResult.simEvaluated;
+        if (propResult.incomplete) propPhaseIncomplete = true;
+      } catch {
+        propPhaseIncomplete = true;
+      }
+    }
+  } else if (!propPhaseP) {
     try {
       const propResult = await runPropPhase(pool);
       propScoredAcc = propResult.propScored;
@@ -1229,11 +1256,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       propPhaseIncomplete = true;
     }
   }
-  // If expand grew the pool after an early empty props-only/mix wave, rescore.
+  // Props-only: expand may have grown the pool after an early empty wave.
   if (
+    !footballMixPath &&
     propScoredAcc.length === 0 &&
     pool.length > 0 &&
-    (opts.propsOnly || opts.requirePropMix) &&
+    opts.propsOnly &&
     expandedPool?.length
   ) {
     try {

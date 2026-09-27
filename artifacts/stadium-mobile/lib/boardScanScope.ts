@@ -44,13 +44,13 @@ export function boardScanPropPhaseDeadlineMs(
     if (targetLegs >= 6) return 75_000;
     return 55_000;
   }
-  // Football mix: props-first rebuild — leave ~25–30s for game lines after.
-  // Kept for mix-aware deadlines; mix path runs props∥games in parallel now.
+  // Football mix: finishable skill-prop wave (≤96 rows) must complete before
+  // game lines — phone "holding reserved seats" was an unfinished 360-row deep sim.
   if (opts?.requirePropMix) {
-    if (targetLegs >= 15) return 75_000;
-    if (targetLegs >= 9) return 65_000;
-    if (targetLegs >= 6) return 55_000;
-    return 40_000;
+    if (targetLegs >= 15) return 85_000;
+    if (targetLegs >= 9) return 75_000;
+    if (targetLegs >= 6) return 60_000;
+    return 45_000;
   }
   // Deep fixed-leg tickets need multiple prop batches on busy MLB/NFL boards.
   if (targetLegs >= 15) return 90_000;
@@ -81,15 +81,16 @@ export function boardScanMixGamePhaseBudgetMs(targetLegs: number): number {
 }
 
 /**
- * Football mix: deep-sim a skill-prop set with room for yards + TD quotas.
- * Old 180 TD-first cap left zero yards on large NFL boards.
+ * Football mix: deep-sim a finishable skill-prop set (yards + TD quotas).
+ * Caps of 200–360 never finished under the Coach wall → 0 props + seat hold.
+ * ~80 rows (≤96) completes in a few batches so skill props can land.
  */
 export function boardScanMaxPropsToSimForMix(
   targetLegs: number,
   poolSize: number,
 ): number {
-  const scaled = Math.max(targetLegs * 28, 200);
-  const cap = Math.min(scaled, 360);
+  const scaled = Math.max(targetLegs * 8, 56);
+  const cap = Math.min(scaled, 96);
   return Math.min(poolSize, cap);
 }
 
