@@ -9,6 +9,7 @@ import { pickPlayerSearchResult } from "./playerSearchPick.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
 import { propSimLookupKey } from "./propSelection.ts";
 import { localPropSimulation, type LocalHistorySlice } from "./simulatorLocalSim.ts";
+import { clipPropSimHitForGrade } from "./simMarketSupport.ts";
 
 export type PropSimHit = { hitProbability: number | null; nullReason?: string | null };
 
@@ -87,7 +88,17 @@ export async function enrichCoachPropSimHits(
     if (!key) continue;
     const row = out.get(key);
     historyNeeded.push(pick);
-    if (row?.hitProbability != null && Number.isFinite(row.hitProbability)) continue;
+    // Exact 0/1 on binary TD markets is not a usable grade — soft-clip in place
+    // (or fall through to local history) instead of treating as "already simulated".
+    if (row?.hitProbability != null && Number.isFinite(row.hitProbability)) {
+      const clipped = clipPropSimHitForGrade(pick, row.hitProbability);
+      if (clipped != null && clipped !== row.hitProbability) {
+        out.set(key, { hitProbability: clipped, nullReason: null });
+        continue;
+      }
+      if (row.hitProbability > 0 && row.hitProbability < 1) continue;
+      // Unclipped extreme 0/1 on non-binary markets: try local fallback.
+    }
     pending.push(pick);
   }
 
