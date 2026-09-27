@@ -39,6 +39,12 @@ export type CoachScanFailureDiagnostics = {
   propPhaseIncomplete?: boolean;
   scoredBeforeStage?: number;
   stagedPickCount?: number;
+  /**
+   * Props-only asks skip game-line Monte Carlo entirely. Without this flag,
+   * gameSimsLoaded=0 is misread as TEAM_IDS_UNRESOLVED even when the ESPN
+   * team-id map is healthy (phone: "10 leg nfl player props" empty ticket).
+   */
+  propsOnly?: boolean;
 };
 
 /** Prefer the earliest structural failure over a generic quality-bar empty. */
@@ -70,6 +76,8 @@ export function deriveCoachScanFailureReason(
   const propPoolCount = d.propPoolSize ?? 0;
   const propScoredCount = d.propLegsScored ?? 0;
   const scoredCount = d.scoredBeforeStage ?? gameScoredCount + propScoredCount;
+  // Game-line sim codes only apply when we actually run the game-slate phase.
+  const gameSimsMatter = !d.propsOnly;
 
   if (oddsCount <= 0 && gameCount <= 0) {
     return { code: "NO_ODDS_GAMES", detail: "no bettable odds games on the loaded board" };
@@ -83,7 +91,7 @@ export function deriveCoachScanFailureReason(
         " game(s) but ESPN team-id map was empty — game sims never ran",
     };
   }
-  if (teamIdCount > 0 && gameCount > 0 && simCount <= 0) {
+  if (gameSimsMatter && teamIdCount > 0 && gameCount > 0 && simCount <= 0) {
     return {
       code: "TEAM_IDS_UNRESOLVED",
       detail:
@@ -93,7 +101,7 @@ export function deriveCoachScanFailureReason(
         " ESPN id entries, 0 game sims bound — labels did not resolve",
     };
   }
-  if (simCount > 0 && gameScoredCount <= 0 && droppedNoSimCount > 0) {
+  if (gameSimsMatter && simCount > 0 && gameScoredCount <= 0 && droppedNoSimCount > 0) {
     return {
       code: "GAME_LINES_NO_SIM_GRADE",
       detail:
@@ -103,7 +111,7 @@ export function deriveCoachScanFailureReason(
         " evaluated line(s) dropped without a sim grade",
     };
   }
-  if (simCount > 0 && gameScoredCount <= 0) {
+  if (gameSimsMatter && simCount > 0 && gameScoredCount <= 0) {
     return {
       code: "GAME_SIMS_ALL_NULL",
       detail: simCount + " game sim fetch(es) returned no usable grade for posted lines",

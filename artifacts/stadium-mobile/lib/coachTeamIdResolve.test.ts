@@ -67,6 +67,43 @@ test("soccer home/away flip still binds team ids (TEAM_IDS_UNRESOLVED screenshot
   assert.equal(ids!.awayTeam, "Brazil");
 });
 
+test("NFL home/away flip binds prop game labels the same as game sims", () => {
+  const map = buildCoachGameTeamIdMap([
+    {
+      sport: "nfl",
+      homeTeam: "San Francisco 49ers",
+      awayTeam: "Arizona Cardinals",
+      homeTeamId: "25",
+      awayTeamId: "22",
+    },
+  ]);
+  // Odds sometimes lists Home @ Away while ESPN stores Away @ Home.
+  const ids = resolveCoachGameTeamIds(
+    "San Francisco 49ers @ Arizona Cardinals",
+    "nfl",
+    map,
+  );
+  assert.ok(ids, "venue-flipped NFL labels must resolve for prop sims");
+  assert.equal(ids!.homeTeamId, "22");
+  assert.equal(ids!.awayTeamId, "25");
+});
+
+test("NFL nickname Odds label resolves ESPN full names", () => {
+  const map = buildCoachGameTeamIdMap([
+    {
+      sport: "nfl",
+      homeTeam: "San Francisco 49ers",
+      awayTeam: "Arizona Cardinals",
+      homeTeamId: "25",
+      awayTeamId: "22",
+    },
+  ]);
+  const ids = resolveCoachGameTeamIds("Cardinals @ 49ers", "nfl", map);
+  assert.ok(ids);
+  assert.equal(ids!.homeTeamId, "25");
+  assert.equal(ids!.awayTeamId, "22");
+});
+
 test("soccer Inter Miami CF strips club suffix against ESPN Inter Miami", () => {
   const map = buildCoachGameTeamIdMap([
     {

@@ -57,6 +57,41 @@ test("prop phase incomplete preferred over generic quality bar", () => {
   assert.notEqual(reason!.code, "QUALITY_BAR_EMPTY");
 });
 
+test("props-only empty ticket is not TEAM_IDS_UNRESOLVED when game sims were skipped", () => {
+  // Phone: "10 leg nfl player props" → propsOnly skips game slate, so
+  // gameSimsLoaded stays 0 even with a healthy ESPN id map.
+  const reason = deriveCoachScanFailureReason({
+    stagedPickCount: 0,
+    oddsGameCount: 15,
+    teamIdMapSize: 60,
+    gameEntryCount: 15,
+    gameSimsLoaded: 0,
+    gameLegsScored: 0,
+    propPoolSize: 180,
+    propLegsScored: 0,
+    propPhaseIncomplete: true,
+    propsOnly: true,
+  });
+  assert.equal(reason?.code, "PROP_PHASE_INCOMPLETE");
+  assert.doesNotMatch(formatCoachScanFailureTrace(reason!), /TEAM_IDS_UNRESOLVED/);
+});
+
+test("props-only with scored-none props reports PROP_ALL_NO_SIM_GRADE", () => {
+  const reason = deriveCoachScanFailureReason({
+    stagedPickCount: 0,
+    oddsGameCount: 15,
+    teamIdMapSize: 60,
+    gameEntryCount: 15,
+    gameSimsLoaded: 0,
+    gameLegsScored: 0,
+    propPoolSize: 120,
+    propLegsScored: 0,
+    propPhaseIncomplete: false,
+    propsOnly: true,
+  });
+  assert.equal(reason?.code, "PROP_ALL_NO_SIM_GRADE");
+});
+
 test("non-empty ticket has no failure reason", () => {
   assert.equal(
     deriveCoachScanFailureReason({ stagedPickCount: 3, gameLegsScored: 3 }),
