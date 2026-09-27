@@ -47,6 +47,7 @@ import {
   resolveCoachOutcome,
   upgradeCoachSessionOutcome,
 } from "@/lib/coach/session";
+import { askRequiresFootballPropMix } from "@/lib/boardScanPropDelivery";
 import {
   resolveCoachTerminalPicks,
   shouldPublishCoachTicketPicks,
@@ -87,6 +88,9 @@ export default function CoachScreen() {
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const sendGenRef = useRef(0);
   const pendingTicketPicksRef = useRef<ParsedPick[]>([]);
+  /** Mid-scan flush: football mix treats 0-prop buffers as props still pending. */
+  const propsIncompleteForFlush = (ask: string | null | undefined, picks: ParsedPick[]) =>
+    askRequiresFootballPropMix(ask) && !picks.some((p) => !!p.isProp);
   /** Ask text for the open session — terminal flush uses it for football prop-mix caps. */
   const sessionAskTextRef = useRef("");
   /** Pick count committed at last terminal latch — used for late budget upgrades. */
@@ -230,11 +234,16 @@ export default function CoachScreen() {
           abortRef.current?.abort();
           const assistantId = activeAssistantIdRef.current;
           const legs = sessionRef.current.requestedLegs;
+          const buffered = pendingTicketPicksRef.current;
           const picks = resolveCoachTerminalPicks({
-            bufferedPicks: pendingTicketPicksRef.current,
+            bufferedPicks: buffered,
             messagePicks: null,
             askText: sessionAskTextRef.current,
             requestedLegs: legs,
+            propPhaseIncomplete: propsIncompleteForFlush(
+              sessionAskTextRef.current,
+              buffered,
+            ),
           });
           pendingTicketPicksRef.current = [];
           if (assistantId) {
@@ -289,11 +298,14 @@ export default function CoachScreen() {
         // Do NOT call finishSession/setMessages inside a setMessages updater —
         // React can drop the nested update, leaving building:true forever while
         // the composer unlocks (stuck "Scoring ticket… N legs" card).
+        const buffered = pendingTicketPicksRef.current;
+        const ask = sessionAskTextRef.current || text;
         const picks = resolveCoachTerminalPicks({
-          bufferedPicks: pendingTicketPicksRef.current,
+          bufferedPicks: buffered,
           messagePicks: null,
-          askText: sessionAskTextRef.current || text,
+          askText: ask,
           requestedLegs,
+          propPhaseIncomplete: propsIncompleteForFlush(ask, buffered),
         });
         finishSession(assistantId, {
           picks,
@@ -355,14 +367,18 @@ export default function CoachScreen() {
           if (sendGenRef.current !== sendGen) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
           // buffer so holding cards mid-build can never hang as a blank ticket.
+          const ask = sessionAskTextRef.current || text;
+          const buffered = pendingTicketPicksRef.current;
           const picks =
             result.picks.length > 0
               ? result.picks
               : resolveCoachTerminalPicks({
-                  bufferedPicks: pendingTicketPicksRef.current,
+                  bufferedPicks: buffered,
                   messagePicks: null,
-                  askText: sessionAskTextRef.current || text,
+                  askText: ask,
                   requestedLegs,
+                  // Empty result mid-flight: hold seats if buffer has no props yet.
+                  propPhaseIncomplete: propsIncompleteForFlush(ask, buffered),
                 });
           pendingTicketPicksRef.current = [];
 
@@ -448,11 +464,14 @@ export default function CoachScreen() {
           err instanceof Error && err.message
             ? err.message
             : "Something went wrong building that reply.";
+        const ask = sessionAskTextRef.current || text;
+        const buffered = pendingTicketPicksRef.current;
         const picks = resolveCoachTerminalPicks({
-          bufferedPicks: pendingTicketPicksRef.current,
+          bufferedPicks: buffered,
           messagePicks: null,
-          askText: sessionAskTextRef.current || text,
+          askText: ask,
           requestedLegs,
+          propPhaseIncomplete: propsIncompleteForFlush(ask, buffered),
         });
         pendingTicketPicksRef.current = [];
         finishSession(assistantId, {

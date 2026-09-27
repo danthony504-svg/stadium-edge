@@ -26,8 +26,8 @@ export function shouldPublishCoachTicketPicks(phase: CoachTicketPublishPhase): b
 /**
  * Picks to show when the absolute delivery budget fires.
  * Prefer the latest buffered scan picks; fall back to anything already on the message.
- * Football prop-mix keeps prop seats when props exist; otherwise delivers cleared
- * game lines rather than wiping to empty (phone SCORED_BUT_NOT_STAGED).
+ * Football prop-mix: hold reserved seats while props are still pending; after
+ * props finish with 0 clears, deliver scored game lines (never wipe to empty).
  */
 export function resolveCoachTerminalPicks<T extends { isProp?: boolean }>(opts: {
   bufferedPicks: readonly T[] | null | undefined;
@@ -35,6 +35,8 @@ export function resolveCoachTerminalPicks<T extends { isProp?: boolean }>(opts: 
   /** User ask text — used to detect football prop-mix. */
   askText?: string | null;
   requestedLegs?: number;
+  /** True when prop scoring was cut short / still pending at flush. */
+  propPhaseIncomplete?: boolean;
 }): T[] {
   let picks: T[] = [];
   if (opts.bufferedPicks && opts.bufferedPicks.length > 0) {
@@ -48,5 +50,7 @@ export function resolveCoachTerminalPicks<T extends { isProp?: boolean }>(opts: 
   const requirePropMix = askRequiresFootballPropMix(opts.askText);
   if (!requirePropMix || target < 3) return picks;
 
-  return finalizeFootballPropMixPicks(picks, target);
+  return finalizeFootballPropMixPicks(picks, target, {
+    propPhaseIncomplete: opts.propPhaseIncomplete,
+  });
 }

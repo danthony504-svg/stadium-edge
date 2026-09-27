@@ -76,6 +76,46 @@ test("phone screenshot: final football mix delivers scored GLs when props miss",
   assert.equal(final.filter((p) => p.isProp).length, 0);
 });
 
+test("incomplete props hold reserved seats — never fill all 10 with game lines", () => {
+  // Phone #534 regression: propsPending + 10 GLs + "did not finish scoring".
+  const gameHeavy = Array.from({ length: 10 }, (_, i) => ({
+    isProp: false,
+    sport: "nfl",
+    market: "Spread",
+    pick: `Team${i} +3.5`,
+  }));
+  const held = finalizeFootballPropMixPicks(gameHeavy, 10, {
+    propPhaseIncomplete: true,
+  });
+  assert.equal(held.length, boardScanNonPropPreviewCap(10, 0.4));
+  assert.equal(held.filter((p) => p.isProp).length, 0);
+  assert.ok(held.length <= 6, "must not paint a full 10-leg GL ticket while props pending");
+
+  const note = buildFinalCoachParlayNote({
+    target: 10,
+    picks: held,
+    propPoolSize: 800,
+    propsPending: true,
+    requirePropMix: true,
+    shortfallLead: buildFixedLegCountShortfallLead(10, held.length),
+  });
+  assert.match(note, /holding reserved prop seats/i);
+  assert.doesNotMatch(note, /showing \d+ game-line/);
+});
+
+test("props finished with 0 clears — deliver full scored game-line ticket", () => {
+  const gameHeavy = Array.from({ length: 10 }, (_, i) => ({
+    isProp: false,
+    sport: "nfl",
+    market: "Total",
+    pick: `Over ${40 + i}.5`,
+  }));
+  const delivered = finalizeFootballPropMixPicks(gameHeavy, 10, {
+    propPhaseIncomplete: false,
+  });
+  assert.equal(delivered.length, 10, "exhausted props → ship the GLs that cleared");
+});
+
 test("final football ticket with scored props keeps them and still caps GL fill", () => {
   const picks = [
     ...Array.from({ length: 8 }, (_, i) => ({

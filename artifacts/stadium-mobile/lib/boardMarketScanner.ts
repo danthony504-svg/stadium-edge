@@ -766,15 +766,15 @@ export function buildScanResult(
       picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
     }
   }
-  // Reserve prop seats on preview. Football finals: refuse GL-only via
-  // finalizeFootballPropMixPicks (rebuild — never publish 6 spreads when props
-  // were asked and none cleared).
+  // Football mix finals: hold reserved prop seats while props are incomplete;
+  // deliver cleared GLs only after the prop phase finished with 0 props.
   let propCount = picks.filter((p) => p.isProp).length;
   const propFraction =
     opts.requirePropMix || isFootballHeavyPickList(picks) ? 0.4 : 0.5;
   if (opts.requirePropMix && !opts.propsOnly && !opts.gameLinesOnly) {
     picks = finalizeFootballPropMixPicks(picks, opts.target, {
       preview: opts.preview,
+      propPhaseIncomplete: opts.propPhaseIncomplete,
     });
     propCount = picks.filter((p) => p.isProp).length;
   } else if (
