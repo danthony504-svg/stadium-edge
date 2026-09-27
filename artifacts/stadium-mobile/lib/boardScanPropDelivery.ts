@@ -156,6 +156,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
   picks: T[],
   scored: PropFillLeg<T>[],
   target: number,
+  legsPerGameCap?: number | null,
 ): T[] {
   if (target < 3) return picks.slice(0, Math.max(0, target));
   // Football mix tickets intentionally reserve more side seats (~40% props).
@@ -208,7 +209,7 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     if (!cand) break;
     const fp = propFillFingerprint(cand.pick);
     const fam = footballSkillPropFamily(cand.pick.market);
-    const maxPerGame = maxLegsPerGame(target);
+    const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
 
     if (out.length < target) {
       if (wouldExceedMaxLegsPerGame(cand.pick, out, maxPerGame)) {

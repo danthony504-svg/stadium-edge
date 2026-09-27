@@ -122,10 +122,14 @@ export function selectGreedyBoardLegs(
   varietySeed?: string,
   existing: ParsedPick[] = [],
   ticketTarget?: number,
+  legsPerGameCap?: number | null,
 ): ParsedPick[] {
   const seen = new Set(existing.map(pickLegFingerprint));
   const out: ParsedPick[] = [];
-  const maxPerGame = maxLegsPerGame(ticketTarget ?? Math.max(target, existing.length + target));
+  const maxPerGame = maxLegsPerGame(
+    ticketTarget ?? Math.max(target, existing.length + target),
+    legsPerGameCap,
+  );
   const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
   for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
@@ -147,6 +151,7 @@ export function topUpTicketFromQualifiedScored(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  legsPerGameCap?: number | null,
 ): ParsedPick[] {
   if (target < 3 || picks.length >= target) return picks.slice(0, Math.max(0, target));
   const used = new Set(picks.map(pickLegFingerprint));
@@ -164,6 +169,7 @@ export function topUpTicketFromQualifiedScored(
     varietySeed,
     picks,
     target,
+    legsPerGameCap,
   );
   if (!extra.length) return picks.slice(0, target);
   const usedFp = new Set(picks.map(pickLegFingerprint));
@@ -202,8 +208,9 @@ export function selectTopBoardLegs(
   ranked: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  legsPerGameCap?: number | null,
 ): ParsedPick[] {
-  if (target < 3) return selectGreedyBoardLegs(ranked, target, varietySeed);
+  if (target < 3) return selectGreedyBoardLegs(ranked, target, varietySeed, [], target, legsPerGameCap);
 
   const out: ParsedPick[] = [];
   const usedFp = new Set<string>();
@@ -216,6 +223,7 @@ export function selectTopBoardLegs(
     const next = selectCorrelationAwareBoardLegs(remaining, 1, {
       ticketTarget: target,
       existing: out,
+      legsPerGameCap,
     });
     if (!next.length) break;
 
@@ -240,6 +248,7 @@ export function selectTopBoardLegs(
       varietySeed,
       out,
       target,
+      legsPerGameCap,
     );
     if (greedy.length) {
       return dedupeSameTeamGameLegsLite([...out, ...greedy]).slice(0, target);
@@ -254,6 +263,7 @@ function applyCapAndBackfillToTarget(
   picks: ParsedPick[],
   target: number,
   pool: BoardScoredLeg[],
+  legsPerGameCap?: number | null,
 ): ParsedPick[] {
   let current = capThinStatMarketsOnTicket(picks, target);
   if (current.length >= target) return current.slice(0, target);
@@ -261,6 +271,7 @@ function applyCapAndBackfillToTarget(
   const used = new Set(current.map(pickLegFingerprint));
   const thinOnTicket = current.filter((p) => p.isProp && isThinPropStatMarket(p.market)).length;
   const maxThin = maxLegsPerThinStatMarket(target);
+  const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
   const ranked = [...pool].sort((a, b) => {
     const aThin = a.pick.isProp && isThinPropStatMarket(a.pick.market) ? 1 : 0;
     const bThin = b.pick.isProp && isThinPropStatMarket(b.pick.market) ? 1 : 0;
@@ -274,7 +285,7 @@ function applyCapAndBackfillToTarget(
     if (used.has(fp)) continue;
     const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
     if (!role) continue;
-    if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) continue;
+    if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
     const trial = capThinStatMarketsOnTicket(
       [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
       target,
@@ -294,14 +305,14 @@ function applyCapAndBackfillToTarget(
       if (thinOnTicket >= maxThin && row.pick.isProp && isThinPropStatMarket(row.pick.market)) {
         return false;
       }
-      if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) return false;
+      if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) return false;
       return boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
     });
     for (const row of nonThin) {
       if (current.length >= target) break;
       const fp = pickLegFingerprint(row.pick);
       if (used.has(fp)) continue;
-      if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) continue;
+      if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
       const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
       const trial = capThinStatMarketsOnTicket(
         [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
@@ -514,6 +525,7 @@ export function buildBalancedStagedTicketFromScan(
 
 export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
+  legsPerGameCap?: number | null;
 };
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */

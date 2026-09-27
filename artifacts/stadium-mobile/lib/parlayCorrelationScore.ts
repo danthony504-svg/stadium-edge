@@ -41,24 +41,47 @@ export function maxLegsPerThinStatMarket(target: number): number {
 }
 
 /**
- * Hard cap on legs from one matchup (period + FG + props count together).
- * Soft correlation alone cannot stop high-rank Q1/Q2/1H stacks from 2 games
- * filling a 10-leg ask. Short tickets / SGP stay uncapped here.
+ * Hard cap on **game-line** legs from one matchup (period + FG + alts).
+ * Player props do not consume this budget — otherwise a 2-game NFL early
+ * slate fills both seats with totals/spreads and ships zero props.
+ * Soft correlation still penalizes same-game prop stacks.
+ *
+ * Pass `override` when the ask is game-lines-only / few-game stack so
+ * period/alt rungs can fill a deep ticket without inventing filler.
  */
-export function maxLegsPerGame(target: number): number {
+export function maxLegsPerGame(target: number, override?: number | null): number {
+  if (override != null && override > 0) return override;
   if (target >= 8) return 2;
   if (target >= 5) return 2;
   if (target >= 3) return 3;
   return 99;
 }
 
+/** Compute per-game cap from ask intent (no props / from N games). */
+export function legsPerGameCapForAsk(
+  target: number,
+  opts?: { gameLinesOnly?: boolean; maxGames?: number | null },
+): number | null {
+  if (!opts?.gameLinesOnly && (opts?.maxGames == null || opts.maxGames <= 0)) {
+    return null;
+  }
+  const games = Math.max(1, opts?.maxGames ?? 2);
+  return Math.max(maxLegsPerGame(target), Math.ceil(target / games));
+}
+
 export function countLegsForGame(
   ticket: readonly CorrelationPick[],
   game: string,
+  opts?: { includeProps?: boolean },
 ): number {
   const g = normGame(game);
   if (!g) return 0;
-  return ticket.filter((l) => normGame(l.game) === g).length;
+  return ticket.filter((l) => {
+    if (normGame(l.game) !== g) return false;
+    // Default: only game-side legs count toward the hard diversity cap.
+    if (!opts?.includeProps && l.isProp) return false;
+    return true;
+  }).length;
 }
 
 export function wouldExceedMaxLegsPerGame(
@@ -67,6 +90,8 @@ export function wouldExceedMaxLegsPerGame(
   maxPerGame: number,
 ): boolean {
   if (maxPerGame >= 99) return false;
+  // Props never consume the hard game-line seat budget.
+  if (candidate.isProp) return false;
   return countLegsForGame(ticket, candidate.game) >= maxPerGame;
 }
 
@@ -129,10 +154,10 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
 export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
   ranked: Array<{ pick: T; rankScore: number }>,
   target: number,
-  opts?: { ticketTarget?: number; existing?: readonly T[] },
+  opts?: { ticketTarget?: number; existing?: readonly T[]; legsPerGameCap?: number | null },
 ): T[] {
   const ticketTarget = opts?.ticketTarget ?? target;
-  const maxPerGame = maxLegsPerGame(ticketTarget);
+  const maxPerGame = maxLegsPerGame(ticketTarget, opts?.legsPerGameCap);
   const existing = opts?.existing ?? [];
   const added: T[] = [];
   const pool = [...ranked];
