@@ -39,8 +39,14 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("6 leg player props"), true);
   assert.equal(wantsPropsOnly("6 leg player prop"), true);
   assert.equal(wantsPropsOnly("6-leg player props"), true);
+  // Sport between leg count and "player props" still means props-only.
+  assert.equal(wantsPropsOnly("10 leg NFL player props"), true);
+  assert.equal(wantsPropsOnly("10-leg nba player props"), true);
+  assert.equal(wantsPropsOnly("just player props"), true);
+  assert.equal(wantsPropsOnly("9 leg nfl props"), true);
   // Mixed phrasing still stays on the board-scan / reach path.
   assert.equal(wantsPropsOnly("6 leg with player props"), false);
+  assert.equal(wantsPropsOnly("10 leg nfl with no player props"), false);
 });
 
 test("effectiveBuildLegCount defaults bare parlay asks onto the compact path", () => {
