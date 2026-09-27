@@ -7,6 +7,7 @@ import {
   topUpTicketFromQualifiedScored,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
+import { fillReservedPropSlots } from "./boardScanPropDelivery.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function leg(
@@ -406,4 +407,107 @@ test("topUpTicketFromQualifiedScored respects max 2 legs per game on 10-leg asks
   assert.ok((byGame.get(g1) ?? 0) <= 2, `g1 stacked ${byGame.get(g1)}`);
   assert.ok((byGame.get(g2) ?? 0) <= 2, `g2 stacked ${byGame.get(g2)}`);
   assert.ok(byGame.size >= 5, `expected ≥5 games, got ${byGame.size}`);
+});
+
+test("topUp relaxes per-game game-line cap on thin 2-game slate after props seats", () => {
+  // Phone: Chargers@Bills + Panthers@Browns only — 4 game lines stuck under max-2,
+  // with more period/alt mains already cleared. Props fill first; then relax.
+  const g1 = "Los Angeles Chargers @ Buffalo Bills";
+  const g2 = "Carolina Panthers @ Cleveland Browns";
+  const short = [
+    leg({ game: g1, market: "Spread", pick: "Chargers +7.5", odds: -110 }, 100, mainScore).pick,
+    leg({ game: g1, market: "Total", pick: "Over 50", odds: -107 }, 98, mainScore).pick,
+    leg({ game: g2, market: "Total", pick: "Over 42.5", odds: -106 }, 99, mainScore).pick,
+    leg({ game: g2, market: "Alt Spread", pick: "Panthers +2.5", odds: -167 }, 85, mainScore).pick,
+  ];
+  const propPool: BoardScoredLeg[] = [
+    leg(
+      {
+        game: g1,
+        market: "player_rush_yds",
+        pick: "Over 65.5",
+        odds: -110,
+        isProp: true,
+        player: "J.K. Dobbins",
+      },
+      92,
+      mainScore,
+    ),
+    leg(
+      {
+        game: g2,
+        market: "player_pass_yds",
+        pick: "Over 220.5",
+        odds: -110,
+        isProp: true,
+        player: "Bryce Young",
+      },
+      90,
+      mainScore,
+    ),
+  ];
+  const periodAlts: BoardScoredLeg[] = [
+    leg({ game: g1, market: "1H Spread", pick: "Chargers +4.5", odds: -110 }, 88, mainScore),
+    leg({ game: g1, market: "Q1 Spread", pick: "Chargers +3", odds: -120 }, 86, mainScore),
+    leg({ game: g1, market: "Moneyline", pick: "Chargers", odds: 220 }, 84, mainScore),
+    leg({ game: g1, market: "Alt Spread", pick: "Chargers +13.5", odds: -227 }, 82, mainScore),
+    leg({ game: g2, market: "1H Total", pick: "Over 20.5", odds: -110 }, 87, mainScore),
+    leg({ game: g2, market: "Q2 Spread", pick: "Panthers +1.5", odds: -115 }, 83, mainScore),
+    leg({ game: g2, market: "Moneyline", pick: "Panthers", odds: 150 }, 81, mainScore),
+    leg({ game: g2, market: "1H Spread", pick: "Panthers +1.5", odds: -110 }, 79, mainScore),
+  ];
+  const scored: BoardScoredLeg[] = [
+    ...short.map((pick, i) =>
+      leg(
+        {
+          game: pick.game!,
+          market: pick.market!,
+          pick: pick.pick!,
+          odds: pick.odds ?? -110,
+          isProp: pick.isProp,
+        },
+        100 - i,
+        mainScore,
+      ),
+    ),
+    ...propPool,
+    ...periodAlts,
+  ];
+  // Props first (mirrors buildScanResult order), then top-up with relax.
+  const withProps = fillReservedPropSlots(short, scored, 10);
+  assert.ok(withProps.filter((p) => p.isProp).length >= 2, "props get seats before relax");
+  const topped = topUpTicketFromQualifiedScored(withProps, scored, 10);
+  assert.ok(topped.length >= 8, `expected thin-slate fill ≥8, got ${topped.length}`);
+  assert.ok(topped.filter((p) => p.isProp).length >= 2, "props retained after game-line relax");
+  assert.ok(
+    topped.some((p) => /1H|Q1|Q2|Alt|Moneyline/i.test(p.market)),
+    "period/alt/ML rungs fill remaining seats",
+  );
+});
+
+test("topUp relaxes game-line cap when no props qualify on 2-game board", () => {
+  const g1 = "Los Angeles Chargers @ Buffalo Bills";
+  const g2 = "Carolina Panthers @ Cleveland Browns";
+  const short = [
+    leg({ game: g1, market: "Spread", pick: "Chargers +7.5", odds: -110 }, 100, mainScore).pick,
+    leg({ game: g1, market: "Total", pick: "Over 50", odds: -107 }, 98, mainScore).pick,
+    leg({ game: g2, market: "Total", pick: "Over 42.5", odds: -106 }, 99, mainScore).pick,
+    leg({ game: g2, market: "Spread", pick: "Panthers +3.5", odds: -110 }, 97, mainScore).pick,
+  ];
+  const scored: BoardScoredLeg[] = [
+    ...short.map((pick, i) =>
+      leg({ game: pick.game!, market: pick.market!, pick: pick.pick!, odds: -110 }, 100 - i, mainScore),
+    ),
+    leg({ game: g1, market: "1H Spread", pick: "Chargers +4.5", odds: -110 }, 88, mainScore),
+    leg({ game: g1, market: "Q1 Spread", pick: "Chargers +3", odds: -120 }, 86, mainScore),
+    leg({ game: g1, market: "Moneyline", pick: "Chargers", odds: 220 }, 84, mainScore),
+    leg({ game: g1, market: "Alt Spread", pick: "Chargers +13.5", odds: -227 }, 82, mainScore),
+    leg({ game: g2, market: "1H Total", pick: "Over 20.5", odds: -110 }, 87, mainScore),
+    leg({ game: g2, market: "Q2 Spread", pick: "Panthers +1.5", odds: -115 }, 83, mainScore),
+    leg({ game: g2, market: "Moneyline", pick: "Panthers", odds: 150 }, 81, mainScore),
+    leg({ game: g2, market: "1H Spread", pick: "Panthers +1.5", odds: -110 }, 79, mainScore),
+  ];
+  const topped = topUpTicketFromQualifiedScored(short, scored, 10);
+  assert.ok(topped.length >= 8, `expected ≥8 from period/alt relax, got ${topped.length}`);
+  assert.equal(topped.filter((p) => p.isProp).length, 0);
 });
