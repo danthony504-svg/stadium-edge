@@ -37,18 +37,85 @@ export function isFootballHeavyPickList(
   return total > 0 && football / total >= 0.6;
 }
 
-/** Game-line preview capacity while prop slots are still reserved. */
-export function boardScanNonPropPreviewCap(targetLegs: number): number {
-  return Math.max(0, targetLegs - boardScanPropSlotCount(targetLegs));
+/**
+ * Bare "10 leg nfl" / "ncaaf" / "college football" asks expect a skill-prop mix.
+ * Not props-only (spreads can remain) and not "with no player props".
+ */
+export function askRequiresFootballPropMix(text?: string | null): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return false;
+  if (/\bno\s+player\s+props?\b/.test(t)) return false;
+  if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
+  if (/\bno\s+props?\b/.test(t)) return false;
+  if (/\bgame\s*lines?\s+only\b/.test(t)) return false;
+  if (/\bsides?\s+only\b/.test(t)) return false;
+  return (
+    /\bnfl\b/.test(t) ||
+    /\bncaaf\b/.test(t) ||
+    /\bcfb\b/.test(t) ||
+    /\bcollege\s+football\b/.test(t) ||
+    (/\bfootball\b/.test(t) && !/\bsoccer|nba|mlb|nhl|wnba|ncaab\b/.test(t))
+  );
+}
+
+/** Game-line capacity while reserved prop seats stay open. */
+export function boardScanNonPropPreviewCap(
+  targetLegs: number,
+  propFraction = 0.5,
+): number {
+  return Math.max(0, targetLegs - boardScanPropSlotCount(targetLegs, propFraction));
 }
 
 /**
- * Preview-only gate: while game lines are scoring and no props have landed yet,
- * hold reserved prop slots open so we do not paint F5-only previews as the ticket.
+ * Hold reserved prop seats open so game lines cannot paint the full ticket.
  *
- * Never set this on a final result — that wiped cleared game lines to a 0-leg
- * "instant empty" ticket when prop scoring threw or timed out (#469 regression).
- * Final prop shortfalls use `propPhaseIncomplete` + honest notes instead.
+ * Preview always reserved seats. Finals used to fill those seats with
+ * spreads/totals when props were late → phone "10 leg nfl" all-GL tickets.
+ * Football prop-mix asks keep seats reserved on finals too.
+ */
+export function shouldReservePropSeats(opts: {
+  preview?: boolean;
+  propsOnly?: boolean;
+  gameLinesOnly?: boolean;
+  targetLegs: number;
+  propCount: number;
+  propPhaseIncomplete?: boolean;
+  /** Football ask — never pad prop seats with game lines on the final ticket. */
+  requirePropMix?: boolean;
+}): boolean {
+  if (opts.propsOnly || opts.gameLinesOnly || opts.targetLegs < 3) return false;
+  const propSlots = boardScanPropSlotCount(
+    opts.targetLegs,
+    opts.requirePropMix ? 0.4 : 0.5,
+  );
+  if (propSlots <= 0 || opts.propCount >= propSlots) return false;
+  if (opts.preview) return true;
+  if (opts.requirePropMix) return true;
+  if (opts.propPhaseIncomplete) return true;
+  return false;
+}
+
+/**
+ * Trim game lines to the non-prop seat budget so reserved prop slots stay open.
+ * Does not invent props — short tickets are honest when props have not cleared.
+ */
+export function applyReservedPropSeatCap<T extends { isProp?: boolean }>(
+  picks: T[],
+  targetLegs: number,
+  propFraction = 0.5,
+): T[] {
+  if (targetLegs < 3) return picks.slice(0, Math.max(0, targetLegs));
+  const propSlots = boardScanPropSlotCount(targetLegs, propFraction);
+  if (propSlots <= 0) return picks.slice(0, targetLegs);
+  const props = picks.filter((p) => !!p.isProp);
+  const nonProps = picks.filter((p) => !p.isProp);
+  const nonPropCap = Math.max(0, targetLegs - propSlots);
+  return [...props, ...nonProps.slice(0, nonPropCap)].slice(0, targetLegs);
+}
+
+/**
+ * Preview-only gate (legacy name). Prefer shouldReservePropSeats for new call sites.
+ * Kept so existing tests / callers keep working — finals no longer wipe to empty.
  */
 export function shouldKeepAwaitingPropSlots(opts: {
   preview?: boolean;
@@ -56,11 +123,12 @@ export function shouldKeepAwaitingPropSlots(opts: {
   targetLegs: number;
   propCount: number;
   propPhaseIncomplete?: boolean;
+  requirePropMix?: boolean;
+  gameLinesOnly?: boolean;
 }): boolean {
-  if (opts.propsOnly || opts.targetLegs < 3) return false;
+  // Awaiting UI latch stays preview-only (never wipe finals to 0 legs).
   if (!opts.preview) return false;
-  const propSlots = boardScanPropSlotCount(opts.targetLegs);
-  return opts.propCount < propSlots && opts.propCount === 0;
+  return shouldReservePropSeats(opts) && opts.propCount === 0;
 }
 
 function countPropLikePicks(picks: { isProp?: boolean; market?: string }[]): number {
