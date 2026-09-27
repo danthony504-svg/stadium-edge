@@ -22,12 +22,12 @@ import {
 test("6-leg ask resolves to board-scan build target", () => {
   assert.equal(isParlayBuildAsk("Build me a 6-leg parlay"), true);
   assert.equal(resolveBuildLegTarget("Build me a 6-leg parlay"), 6);
-  assert.equal(coachAbsoluteBudgetMs(6), 70_000);
+  assert.equal(coachAbsoluteBudgetMs(6), 90_000);
 });
 
 test("84% limbo: absolute budget latch unlocks even with zero cards", async () => {
-  const session = createCoachSession(1, 6, Date.now() - 69_500);
-  beginCoachSession(session, { sendGen: 1, requestedLegs: 6, now: Date.now() - 69_500 });
+  const session = createCoachSession(1, 6, Date.now() - 89_500);
+  beginCoachSession(session, { sendGen: 1, requestedLegs: 6, now: Date.now() - 89_500 });
   assert.equal(coachSessionShouldKeepBusy(session), true);
 
   let unlocked = false;

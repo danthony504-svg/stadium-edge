@@ -35,6 +35,14 @@ export function boardPropSimExpansionBatchSize(target: number): number {
   return Math.max(BOARD_PROP_SIM_BATCH, Math.min(84, target * 4));
 }
 
+/**
+ * Football mix batches — fewer round-trips so the priority skill set finishes
+ * inside the mix deadline (wide batches, still under the per-batch timeout).
+ */
+export function boardPropSimMixBatchSize(target: number): number {
+  return Math.max(32, Math.min(64, target * 5));
+}
+
 
 /** ~50% of N-leg tickets reserved for player props (matches preview reserve). */
 export function boardPropSlotTarget(target: number): number {
@@ -124,9 +132,10 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
     };
   }
 
-  const yardsQuota = Math.max(48, Math.round(maxToSim * 0.45));
-  const tdQuota = Math.max(24, Math.round(maxToSim * 0.25));
-  const volumeQuota = Math.max(16, Math.round(maxToSim * 0.15));
+  // Floors scale with the finishable mix cap (was hard 48/24/16 for a 360 set).
+  const yardsQuota = Math.max(12, Math.round(maxToSim * 0.45));
+  const tdQuota = Math.max(8, Math.round(maxToSim * 0.25));
+  const volumeQuota = Math.max(6, Math.round(maxToSim * 0.15));
 
   const buckets: Record<FootballMixSimFamily, T[]> = {
     yards: [],

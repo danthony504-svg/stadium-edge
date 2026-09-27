@@ -74,11 +74,12 @@ test("board scan game phase continues after a thrown slate batch", () => {
   assert.match(src, /Keep scanning remaining games \+ props/);
   assert.match(src, /incomplete: boolean/);
   assert.match(src, /Start the prop MC clock AFTER sync ranking/);
-  // Rebuild: football mix runs props∥games with family-quota candidacy.
+  // Rebuild: football mix runs finishable skill props FIRST, then games.
   assert.match(src, /fetchSlateGameSimulationsWithStatus/);
   assert.match(src, /selectFootballMixPropSimCandidates/);
   assert.match(src, /finalizeFootballPropMixPicks/);
-  assert.match(src, /footballMixPath \|\| overlapProps/);
+  assert.match(src, /footballMixPath && pool\.length > 0/);
+  assert.match(src, /boardPropSimMixBatchSize/);
   assert.doesNotMatch(src, /game-sim-batch-timeout/);
 });test("board scan passes liveOdds as one mergeOddsEntries source (SCAN_THREW)", () => {
   const src = readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");

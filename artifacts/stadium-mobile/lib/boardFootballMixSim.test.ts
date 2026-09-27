@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
+  boardPropSimMixBatchSize,
   footballMixSimFamily,
   selectFootballMixPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
@@ -55,13 +56,14 @@ test("phone PROP_ALL_NO_SIM_GRADE rebuild: mix candidacy forces yards into deep-
   );
   const ranked = [...tds, ...yards];
   const maxToSim = boardScanMaxPropsToSimForMix(10, ranked.length);
+  assert.ok(maxToSim <= 96, "mix deep-sim set must stay finishable");
   const { selected, familyCounts } = selectFootballMixPropSimCandidates(
     ranked,
     maxToSim,
   );
   assert.ok(selected.length <= maxToSim);
   assert.ok(
-    familyCounts.yards >= 48,
+    familyCounts.yards >= 12,
     `expected yards quota, got ${familyCounts.yards}`,
   );
   assert.ok(familyCounts.td > 0, "TD still represented");
@@ -69,6 +71,14 @@ test("phone PROP_ALL_NO_SIM_GRADE rebuild: mix candidacy forces yards into deep-
     selected.some((p) => /pass_yds|rush_yds|reception_yds/.test(p.propMarketKey ?? "")),
     "yards markets must appear in deep-sim set",
   );
+});
+
+test("finishable mix set fits a few wide batches under the mix deadline", () => {
+  const maxToSim = boardScanMaxPropsToSimForMix(10, 11_840);
+  const batch = boardPropSimMixBatchSize(10);
+  const batchesNeeded = Math.ceil(maxToSim / batch);
+  assert.ok(batchesNeeded <= 3, `expected ≤3 batches for ${maxToSim} rows @ ${batch}, got ${batchesNeeded}`);
+  assert.ok(batchesNeeded * 18_000 < 75_000, "worst-case batch timeouts must fit mix deadline");
 });
 
 test("player_anytime_td / first_td map to real rush+rec+pass TD columns", () => {

@@ -28,11 +28,12 @@ export type CoachSession = {
  * empty before the board finished.
  */
 export function coachAbsoluteBudgetMs(requestedLegs: number): number {
-  if (requestedLegs >= 15) return 110_000;
-  if (requestedLegs >= 10) return 100_000;
-  if (requestedLegs >= 8) return 95_000;
-  if (requestedLegs >= 6) return 80_000;
-  if (requestedLegs >= 3) return 70_000;
+  // Sized for football mix props-first (~75s skill wave) then game lines.
+  if (requestedLegs >= 15) return 130_000;
+  if (requestedLegs >= 10) return 120_000;
+  if (requestedLegs >= 8) return 110_000;
+  if (requestedLegs >= 6) return 90_000;
+  if (requestedLegs >= 3) return 75_000;
   return 45_000;
 }
 
