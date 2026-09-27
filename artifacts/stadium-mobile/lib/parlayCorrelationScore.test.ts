@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   maxLegsPerGame,
   parlayCorrelationPenalty,
+  progressiveLegsPerGameRelaxation,
   selectCorrelationAwareBoardLegs,
   wouldExceedMaxLegsPerGame,
 } from "./parlayCorrelationScore.ts";
@@ -48,6 +49,13 @@ test("maxLegsPerGame is 2 for deep fixed-leg asks", () => {
   assert.equal(maxLegsPerGame(3), 3);
   assert.equal(maxLegsPerGame(1), 99);
   assert.equal(maxLegsPerGame(10, 5), 5);
+});
+
+test("progressiveLegsPerGameRelaxation climbs to ceil(target/2)", () => {
+  assert.deepEqual(progressiveLegsPerGameRelaxation(10), [3, 4, 5]);
+  assert.deepEqual(progressiveLegsPerGameRelaxation(8), [3, 4]);
+  assert.deepEqual(progressiveLegsPerGameRelaxation(10, 5), []);
+  assert.deepEqual(progressiveLegsPerGameRelaxation(3), []);
 });
 
 test("props do not consume the per-game hard cap", () => {

@@ -18,7 +18,14 @@ import {
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
-import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket, maxLegsPerGame, wouldExceedMaxLegsPerGame } from "./parlayCorrelationScore.ts";
+import {
+  selectCorrelationAwareBoardLegs,
+  maxLegsPerThinStatMarket,
+  isThinPropStatMarket,
+  maxLegsPerGame,
+  wouldExceedMaxLegsPerGame,
+  progressiveLegsPerGameRelaxation,
+} from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
@@ -115,6 +122,8 @@ export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
 
 /** Greedy top-N by rank — no correlation penalty (used to fill alt gaps to reach N).
  * Still respects max-legs-per-game so top-up cannot re-concentrate on 2 matchups.
+ * When `existing` is set (qualified top-up), skip same-team period collapse so
+ * Q1+1H+FG seats the raised per-game cap allows are not wiped back to one side.
  */
 export function selectGreedyBoardLegs(
   ranked: BoardScoredLeg[],
@@ -139,12 +148,18 @@ export function selectGreedyBoardLegs(
     out.push(row.pick);
     if (out.length >= target) break;
   }
+  if (existing.length > 0) return out.slice(0, target);
   return dedupeSameTeamGameLegsLite(out).slice(0, target);
 }
 
 /**
  * When combinators leave a short ticket despite more AI-qualified legs on the
  * board, top up greedily from those cleared legs. Never invents ungraded filler.
+ *
+ * Call after fillReservedPropSlots so props already hold seats. If the default
+ * max-2 game-line cap still leaves a shortfall on a thin slate (e.g. 2 early
+ * NFL games), progressively raise the per-game game-line budget and pull more
+ * already-qualified period/alt rungs — still no ungraded filler.
  */
 export function topUpTicketFromQualifiedScored(
   picks: ParsedPick[],
@@ -163,26 +178,43 @@ export function topUpTicketFromQualifiedScored(
     leftover.push(leg);
   }
   if (!leftover.length) return picks.slice(0, target);
-  const extra = selectGreedyBoardLegs(
-    leftover,
-    target - picks.length,
-    varietySeed,
-    picks,
-    target,
-    legsPerGameCap,
-  );
-  if (!extra.length) return picks.slice(0, target);
-  const usedFp = new Set(picks.map(pickLegFingerprint));
-  const merged = [...picks];
-  for (const p of extra) {
-    const fp = pickLegFingerprint(p);
-    if (usedFp.has(fp)) continue;
-    usedFp.add(fp);
-    merged.push(p);
-    if (merged.length >= target) break;
+
+  const appendExtras = (
+    current: ParsedPick[],
+    cap: number | null | undefined,
+  ): ParsedPick[] => {
+    const need = target - current.length;
+    if (need <= 0) return current;
+    const usedNow = new Set(current.map(pickLegFingerprint));
+    const pool = leftover.filter((leg) => !usedNow.has(pickLegFingerprint(leg.pick)));
+    if (!pool.length) return current;
+    const extra = selectGreedyBoardLegs(pool, need, varietySeed, current, target, cap);
+    if (!extra.length) return current;
+    const merged = [...current];
+    const usedFp = new Set(current.map(pickLegFingerprint));
+    for (const p of extra) {
+      const fp = pickLegFingerprint(p);
+      if (usedFp.has(fp)) continue;
+      usedFp.add(fp);
+      merged.push(p);
+      if (merged.length >= target) break;
+    }
+    return merged;
+  };
+
+  let merged = appendExtras(picks, legsPerGameCap);
+  // Props-first path already ran; if seats remain and leftovers exist only on
+  // the same thin matchup set, relax the game-line cap so period/alts can fill.
+  if (merged.length < target) {
+    for (const raised of progressiveLegsPerGameRelaxation(target, legsPerGameCap)) {
+      const next = appendExtras(merged, raised);
+      if (next.length <= merged.length) continue;
+      merged = next;
+      if (merged.length >= target) break;
+    }
   }
   // Do not re-run same-team period collapse on the whole ticket — that would
-  // wipe Q1+1H seats the per-game cap intentionally allows (max 2).
+  // wipe Q1+1H seats the per-game cap intentionally allows.
   return tagTicketRoles(merged.slice(0, target));
 }
 

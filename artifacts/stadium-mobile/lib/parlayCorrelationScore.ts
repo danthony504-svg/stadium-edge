@@ -69,6 +69,29 @@ export function legsPerGameCapForAsk(
   return Math.max(maxLegsPerGame(target), Math.ceil(target / games));
 }
 
+/**
+ * When a thin slate cannot reach the fixed-leg target under the default
+ * game-line diversity cap, raise the per-matchup budget step-by-step so
+ * already-qualified period/alt rungs can fill seats. Never invents legs —
+ * callers still only pull from the AI-qualified pool.
+ *
+ * Ceiling is ceil(target / 2): enough for a 2-game early NFL window without
+ * turning a deep ask into a single-game SGP dump.
+ */
+export function progressiveLegsPerGameRelaxation(
+  target: number,
+  currentCap?: number | null,
+): number[] {
+  if (target < 5) return [];
+  const base = maxLegsPerGame(target, currentCap);
+  // Enough for a 2-game early NFL window without a single-game SGP dump.
+  const ceiling = Math.min(target, Math.ceil(target / 2));
+  if (base >= ceiling) return [];
+  const out: number[] = [];
+  for (let c = base + 1; c <= ceiling; c++) out.push(c);
+  return out;
+}
+
 export function countLegsForGame(
   ticket: readonly CorrelationPick[],
   game: string,
