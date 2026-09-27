@@ -255,7 +255,7 @@ export async function buildCoachParlay(opts: {
       ? propsOnly
         ? `Scanning ${propPoolSize} posted props/alts for a ${target}-leg ticket…`
         : requirePropMix
-          ? `Scoring player props first (${propPoolSize} posted), then game lines…`
+          ? `Scanning ${propPoolSize} posted props/alts with game lines (prop seats reserved)…`
           : `Scanning ${propPoolSize} posted props/alts plus game lines for a ${target}-leg ticket…`
       : propsOnly
         ? `No matching props posted for a ${target}-leg ticket…`

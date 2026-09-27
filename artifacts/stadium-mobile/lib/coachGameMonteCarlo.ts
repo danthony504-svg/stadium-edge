@@ -20,6 +20,7 @@ import {
 import { gameLabelsMatch } from "./gameLineOptimizer.ts";
 import {
   resolveCoachGameTeamIds,
+  buildCoachGameTeamIdMap,
   type CoachGameTeamIds,
 } from "./coachTeamIdResolve.ts";
 import type { RealOddsEntry } from "./api.ts";
@@ -35,35 +36,9 @@ export type GameTeamIds = {
   awayTeam: string;
 };
 
-const nickname = (team: string) => {
-  const t = String(team ?? "").trim().split(/\s+/);
-  return (t[t.length - 1] ?? team).toLowerCase();
-};
-
 /** Map "Away @ Home" labels to ESPN team ids from a games fetch. */
 export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> {
-  const map = new Map<string, GameTeamIds>();
-  for (const g of games) {
-    const home = g.homeTeam || g.homeAbbr || "";
-    const away = g.awayTeam || g.awayAbbr || "";
-    if (!home || !away || !g.homeTeamId || !g.awayTeamId) continue;
-    const label = `${away} @ ${home}`;
-    map.set(label.toLowerCase(), {
-      sport: g.sport,
-      homeTeamId: g.homeTeamId,
-      awayTeamId: g.awayTeamId,
-      homeTeam: home,
-      awayTeam: away,
-    });
-    map.set(`${nickname(away)}|${nickname(home)}`, {
-      sport: g.sport,
-      homeTeamId: g.homeTeamId,
-      awayTeamId: g.awayTeamId,
-      homeTeam: home,
-      awayTeam: away,
-    });
-  }
-  return map;
+  return buildCoachGameTeamIdMap(games) as Map<string, GameTeamIds>;
 }
 
 /**

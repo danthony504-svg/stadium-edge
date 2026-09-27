@@ -40,11 +40,15 @@ export type CoachScanFailureDiagnostics = {
   scoredBeforeStage?: number;
   stagedPickCount?: number;
   /**
-   * Props-only asks skip game-line Monte Carlo entirely. Without this flag,
-   * gameSimsLoaded=0 is misread as TEAM_IDS_UNRESOLVED even when the ESPN
-   * team-id map is healthy (phone: "10 leg nfl player props" empty ticket).
+   * Props-only asks skip game-line Monte Carlo entirely. Football prop-mix
+   * asks (requirePropMix) still run game sims, but props are the primary
+   * delivery path — do not misread gameSimsLoaded=0 as TEAM_IDS_UNRESOLVED
+   * when a prop pool existed and props failed / incomplete.
    */
   propsOnly?: boolean;
+  requirePropMix?: boolean;
+  /** True when the scan actually entered the game-slate sim loop. */
+  gameSimsAttempted?: boolean;
 };
 
 /** Prefer the earliest structural failure over a generic quality-bar empty. */
@@ -76,13 +80,17 @@ export function deriveCoachScanFailureReason(
   const propPoolCount = d.propPoolSize ?? 0;
   const propScoredCount = d.propLegsScored ?? 0;
   const scoredCount = d.scoredBeforeStage ?? gameScoredCount + propScoredCount;
-  // Game-line sim codes only apply when we actually run the game-slate phase.
-  const gameSimsMatter = !d.propsOnly;
+  // Game-line sim codes only when we actually attempted the game-slate phase
+  // and props are not the primary delivery path.
+  const gameSimsMatter =
+    !d.propsOnly &&
+    !(d.requirePropMix && propPoolCount > 0) &&
+    d.gameSimsAttempted !== false;
 
   if (oddsCount <= 0 && gameCount <= 0) {
     return { code: "NO_ODDS_GAMES", detail: "no bettable odds games on the loaded board" };
   }
-  if (teamIdCount <= 0 && oddsCount > 0) {
+  if (teamIdCount <= 0 && oddsCount > 0 && gameSimsMatter) {
     return {
       code: "TEAM_ID_MAP_EMPTY",
       detail:

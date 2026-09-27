@@ -92,6 +92,23 @@ test("props-only with scored-none props reports PROP_ALL_NO_SIM_GRADE", () => {
   assert.equal(reason?.code, "PROP_ALL_NO_SIM_GRADE");
 });
 
+test("football requirePropMix empty prefers PROP_* over TEAM_IDS_UNRESOLVED", () => {
+  const reason = deriveCoachScanFailureReason({
+    stagedPickCount: 0,
+    oddsGameCount: 15,
+    teamIdMapSize: 60,
+    gameEntryCount: 15,
+    gameSimsLoaded: 0,
+    gameLegsScored: 0,
+    propPoolSize: 180,
+    propLegsScored: 0,
+    propPhaseIncomplete: true,
+    requirePropMix: true,
+    gameSimsAttempted: true,
+  });
+  assert.equal(reason?.code, "PROP_PHASE_INCOMPLETE");
+});
+
 test("non-empty ticket has no failure reason", () => {
   assert.equal(
     deriveCoachScanFailureReason({ stagedPickCount: 3, gameLegsScored: 3 }),
