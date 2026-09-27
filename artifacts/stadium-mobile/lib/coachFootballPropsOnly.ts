@@ -1,15 +1,22 @@
 /**
- * Greenfield NFL / NCAAF props-only selection — pure, no api.ts.
+ * Greenfield props-only selection — pure, no api.ts.
  *
- * Rebuild after #541: Odds API anytime_td often has line:null. Generic
- * isRealisticBoardPropCandidate dropped those rows → propLegsScored=0.
- * Props-only candidacy normalizes binary null→0.5 and still requires athleteId.
+ * Phone root cause (not a gate tweak):
+ * "8 leg player prop" on a WNBA-heavy afternoon board skipped the dedicated
+ * ticket builder because shouldUseFootballSkillPropSim required ≥50% NFL/NCAAF,
+ * then fell through to generic board scan (confidence≥52 + Match/Form/Inj
+ * holistic) and staged only 3 legs. "7 leg NFL player prop" emptied on the
+ * same broken generic path whenever the football gate missed.
+ *
+ * Rebuild: EVERY props-only ask (any sport) uses this candidacy + the history/EV
+ * ticket builder — never the multi-signal board-scan fill path.
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { footballSkillPropRank } from "./boardScanPropDelivery.ts";
+import { footballSkillPropRank, skillPropRank } from "./boardScanPropDelivery.ts";
 import {
   footballMixSimFamily,
+  selectBoardPropSimCandidates,
   selectFootballMixPropSimCandidates,
   shouldUseFootballSkillPropSim,
 } from "./boardPropSimExpansion.ts";
@@ -24,6 +31,8 @@ import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
 export const FOOTBALL_PROPS_ONLY_BATCH = 8;
+/** @deprecated alias — batches are sport-agnostic now. */
+export const PROPS_ONLY_BATCH = FOOTBALL_PROPS_ONLY_BATCH;
 
 /** Cap candidates — finishable under Coach absolute budget with local-first grading. */
 export function footballPropsOnlyMaxCandidates(targetLegs: number, poolSize: number): number {
@@ -31,14 +40,43 @@ export function footballPropsOnlyMaxCandidates(targetLegs: number, poolSize: num
   return Math.min(mixCap, Math.max(targetLegs * 6, 40));
 }
 
+export const propsOnlyMaxCandidates = footballPropsOnlyMaxCandidates;
+
+function poolIsFootballHeavy(pool: readonly { sport?: string | null }[]): boolean {
+  let football = 0;
+  let total = 0;
+  for (const p of pool) {
+    const s = String(p.sport ?? "").toLowerCase();
+    if (!s) continue;
+    total += 1;
+    if (s === "nfl" || s === "ncaaf") football += 1;
+  }
+  return total > 0 && football / total >= 0.5;
+}
+
+/**
+ * Props-only ticket builder entry — ANY sport with a posted prop pool.
+ * Previously football-gated (≥50% NFL/NCAAF); that sent "8 leg player prop"
+ * into the generic board scan that only clears ~3 legs.
+ */
 export function shouldBuildFootballPropsOnlyTicket(opts: {
   propsOnly?: boolean;
   pool: readonly { sport?: string | null }[];
 }): boolean {
-  return shouldUseFootballSkillPropSim({
-    propsOnly: opts.propsOnly,
-    pool: opts.pool,
-  });
+  if (!opts.propsOnly || opts.pool.length === 0) return false;
+  return true;
+}
+
+/** @deprecated Prefer shouldBuildFootballPropsOnlyTicket — same contract. */
+export const shouldBuildPropsOnlyTicket = shouldBuildFootballPropsOnlyTicket;
+
+/** Football mix deep-sim path (non-props-only "10 leg nfl") — unchanged. */
+export function shouldUseFootballPropsOnlySkillMix(opts: {
+  requirePropMix?: boolean;
+  propsOnly?: boolean;
+  pool: readonly { sport?: string | null }[];
+}): boolean {
+  return shouldUseFootballSkillPropSim(opts);
 }
 
 /**
@@ -56,13 +94,17 @@ export function isFootballPropsOnlyCandidate(pick: ParsedPick): boolean {
   return marketSupportsSimulation(norm.market ?? "", norm);
 }
 
+export const isPropsOnlyCandidate = isFootballPropsOnlyCandidate;
+
 /**
- * AthleteId-required skill candidacy. Null-line TDs normalize to 0.5 first
- * so they are not dropped before the finishable skill mix.
+ * AthleteId-required skill candidacy. Football-heavy pools keep yards/TD
+ * family quotas; multi-sport / WNBA / NBA boards use ladder-deduped skill rank
+ * so points/rebounds are not starved by empty football buckets.
  */
 export function selectFootballPropsOnlyFromPicks(
   picks: ParsedPick[],
   targetLegs: number,
+  poolSports?: readonly { sport?: string | null }[],
 ): ParsedPick[] {
   const ranked = picks
     .map(normalizePropsOnlyPick)
@@ -70,15 +112,27 @@ export function selectFootballPropsOnlyFromPicks(
     .filter((p) => !!p.athleteId)
     .sort((a, b) => {
       const skill =
-        footballSkillPropRank(b.propMarketKey ?? b.market) -
-        footballSkillPropRank(a.propMarketKey ?? a.market);
+        skillPropRank(b.propMarketKey ?? b.market) -
+        skillPropRank(a.propMarketKey ?? a.market);
       if (skill !== 0) return skill;
-      return 0;
+      // Prefer football skill rank as a soft tiebreak when both are football.
+      return (
+        footballSkillPropRank(b.propMarketKey ?? b.market) -
+        footballSkillPropRank(a.propMarketKey ?? a.market)
+      );
     });
   const max = footballPropsOnlyMaxCandidates(targetLegs, ranked.length);
-  const { selected } = selectFootballMixPropSimCandidates(ranked, max);
+  const footballHeavy =
+    poolSports != null ? poolIsFootballHeavy(poolSports) : poolIsFootballHeavy(ranked);
+  if (footballHeavy) {
+    const { selected } = selectFootballMixPropSimCandidates(ranked, max);
+    return selected;
+  }
+  const { selected } = selectBoardPropSimCandidates(ranked, max);
   return selected;
 }
+
+export const selectPropsOnlyFromPicks = selectFootballPropsOnlyFromPicks;
 
 /** Family mix on athleteId-only selection. */
 export function footballPropsOnlyFamilyCounts(picks: ParsedPick[]): Record<string, number> {
@@ -121,3 +175,5 @@ export function stageFootballPropsOnlyLegs(
   }
   return picks;
 }
+
+export const stagePropsOnlyLegs = stageFootballPropsOnlyLegs;

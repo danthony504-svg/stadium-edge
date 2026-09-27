@@ -63,6 +63,29 @@ test("props-only NFL ask uses dedicated football props-only rebuild path", () =>
       propsOnly: true,
       pool: Array.from({ length: 30 }, () => ({ sport: "mlb" })),
     }),
+    true,
+  );
+});
+
+test("phone 3-of-8: WNBA-heavy props-only still uses dedicated path (not generic board scan)", () => {
+  // Afternoon board is mostly WNBA — old ≥50% football gate skipped the rebuild
+  // and staged only 3 legs via confidence/holistic wipe.
+  const pool = [
+    ...Array.from({ length: 80 }, () => ({ sport: "wnba" })),
+    ...Array.from({ length: 10 }, () => ({ sport: "nfl" })),
+    ...Array.from({ length: 5 }, () => ({ sport: "mlb" })),
+  ];
+  assert.equal(
+    shouldBuildFootballPropsOnlyTicket({ propsOnly: true, pool }),
+    true,
+    "props-only must never fall through to generic board scan",
+  );
+  assert.equal(
+    shouldBuildFootballPropsOnlyTicket({ propsOnly: false, pool }),
+    false,
+  );
+  assert.equal(
+    shouldBuildFootballPropsOnlyTicket({ propsOnly: true, pool: [] }),
     false,
   );
 });
@@ -301,4 +324,82 @@ test("8-leg props-only stages from graded best-EV sides (no empty quality bar)",
   const staged = stageFootballPropsOnlyLegs(scored, 8);
   assert.equal(staged.length, 8, "8-leg NFL props must stage — not empty quality bar");
   assert.ok(staged.every((p) => p.propLine != null));
+});
+
+test("phone 3-of-8 rebuild: WNBA points props stage 8 legs via history EV (not confidence bar)", () => {
+  const candidates: ParsedPick[] = [];
+  const histories: Record<string, { recent: { stats: Record<string, string> }[] }> = {};
+
+  for (let i = 0; i < 10; i++) {
+    const name = `Scorer${i}`;
+    const id = `wnba-${i}`;
+    const game = `Away${i % 4} @ Home${i % 4}`;
+    candidates.push({
+      ...pick("player_points", name, 16.5, {
+        athleteId: id,
+        side: "Over",
+        odds: 115,
+      }),
+      game,
+      sport: "wnba",
+      market: "Points",
+    });
+    candidates.push({
+      ...pick("player_points", name, 16.5, {
+        athleteId: id,
+        side: "Under",
+        odds: -135,
+      }),
+      game,
+      sport: "wnba",
+      market: "Points",
+    });
+    histories[`${name}#${id}`] = {
+      recent: Array.from({ length: 8 }, () => ({
+        stats: { PTS: "22" },
+      })),
+    };
+  }
+
+  // Selection must accept WNBA points (not football-family only).
+  const selected = selectFootballPropsOnlyFromPicks(
+    candidates,
+    8,
+    candidates.map(() => ({ sport: "wnba" })),
+  );
+  assert.ok(selected.length >= 8, `expected ≥8 WNBA candidates, got ${selected.length}`);
+  assert.ok(selected.every((p) => p.propMarketKey === "player_points"));
+
+  const hits = gradeFootballPropsOnlyFromHistory(selected, histories);
+  const best = collapsePropsOnlyToBestEvSides(selected, hits);
+  const scored: BoardScoredLeg[] = best
+    .map((p) => {
+      const hit = gradeFootballPropFromHistory(
+        p,
+        histories[`${p.player}#${p.athleteId}`],
+      ).hitProbability;
+      if (!propsOnlyLegClearsOdds(p, hit)) return null;
+      // Simulate thin context (43% grounded / conf 45) — history EV path still stages.
+      return {
+        pick: { ...p, finalAiScore: { confidencePct: 45 } as never },
+        evPct: ((hit ?? 0) - 0.465) * 100,
+        edgePct: ((hit ?? 0) - 0.465) * 100,
+        confidencePct: 45,
+        impliedProbPct: 46.5,
+        lineShoppingScore: null,
+        grade: "B",
+        simHit: hit,
+        composite: 7,
+        rankScore: 7,
+      } as BoardScoredLeg;
+    })
+    .filter((x): x is BoardScoredLeg => !!x);
+
+  assert.ok(scored.length >= 8, `expected ≥8 WNBA legs clearing EV gate, got ${scored.length}`);
+  const staged = stageFootballPropsOnlyLegs(scored, 8);
+  assert.equal(
+    staged.length,
+    8,
+    "8-leg player prop must fill from history EV — not stall at 3 via confidence bar",
+  );
 });

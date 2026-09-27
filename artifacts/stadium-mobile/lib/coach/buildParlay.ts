@@ -267,9 +267,10 @@ export async function buildCoachParlay(opts: {
 
   const teamIdMap = buildGameTeamIdMap(inputs.espnGames);
 
-  // Greenfield NFL/NCAAF props-only rebuild — dedicated local-first pipeline.
-  // Generic board scan was deep-simming 72 skill rows then enrich-timing-out to
-  // PROP_ALL_NO_SIM_GRADE empties on phone ("9 leg NFL player props").
+  // Greenfield props-only rebuild — dedicated local-first history/EV pipeline
+  // for EVERY props-only ask (NFL, WNBA, multi-sport). The football-only ≥50%
+  // gate used to skip this path on afternoon WNBA boards → generic board scan
+  // staged ~3/8 with "4 signals missing" confidence wipe.
   if (
     propsOnly &&
     !hrBoardAsk &&
