@@ -81,6 +81,7 @@ import {
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
   selectBoardPropSimCandidates,
+  selectFootballMixPropSimCandidates,
   shouldStopPropSimForTicketMix,
 } from "./boardPropSimExpansion.ts";
 import {
@@ -90,7 +91,6 @@ import {
   shouldKeepAwaitingPropSlots,
   shouldReservePropSeats,
   applyReservedPropSeatCap,
-  skillPropRank,
 } from "./boardScanPropDelivery.ts";
 import { interleaveSidesWithProps } from "./boardMarketPools.ts";
 import {
@@ -108,6 +108,7 @@ export {
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
   selectBoardPropSimCandidates,
+  selectFootballMixPropSimCandidates,
   shouldStopPropSimForTicketMix,
 } from "./boardPropSimExpansion.ts";
 
@@ -219,6 +220,7 @@ export type FullBoardScanResult = {
     oddsLabelsUnresolved?: number;
     gameSimsFetchNull?: number;
     gameSimsTimedOut?: number;
+    propSimEvaluated?: number;
   };
   /** HR board ranking diagnostics — selected vs next-best components. */
   hrRankDiagnostics?: ReturnType<typeof hrSelectionDiagnostics>;
@@ -256,6 +258,27 @@ function gameLineHasSimGrade(row: EvaluatedGameLine, simHit: number | null): boo
 function propHasSimGrade(pick: ParsedPick, simHit: number | null): boolean {
   if (!pickHasSimGrade(pick, simHit)) return false;
   return marketSupportsSimulation(pick.market ?? "", pick);
+}
+
+/**
+ * Binary yes/no props (Anytime TD Over 0.5) often land empirical hit rates of
+ * exactly 0 or 1 from short samples — sanitizeSimHitForGrade rejects those.
+ * Soft-clip so gradeable skill props are not wiped before yards/TD mix staging.
+ */
+function clipPropSimHitForGrade(
+  pick: ParsedPick,
+  simHit: number | null | undefined,
+): number | null {
+  if (simHit == null || !Number.isFinite(simHit)) return null;
+  const line = pick.propLine;
+  const isBinaryLine = line != null && line > 0 && line <= 0.5;
+  if (isBinaryLine || /\btd\b|touchdown|goal\s*scorer|anytime/.test(
+    String(pick.propMarketKey ?? pick.market ?? "").toLowerCase(),
+  )) {
+    if (simHit <= 0) return 0.02;
+    if (simHit >= 1) return 0.98;
+  }
+  return simHit;
 }
 
 function scoredFromEvalRow(
@@ -304,7 +327,8 @@ function scoredFromPropPick(
   perfByFamily?: Map<string, MarketPerf>,
   calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
-  const hit = sanitizeSimHitForGrade(simHit, {
+  const clipped = clipPropSimHitForGrade(pick, simHit);
+  const hit = sanitizeSimHitForGrade(clipped, {
     market: pick.market,
     sport: pick.sport,
     isProp: true,
@@ -555,23 +579,18 @@ async function simPropPoolUntilQualified(
       prescorePool.every((p) => isBatterHomeRunPick(p)));
   const rankedAll = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
-    .sort((a, b) => {
-      // Football mix: TD / pass / rec / rush yards first so early batches clear
-      // skill props before misc markets burn the phase wall.
-      if (opts.requirePropMix) {
-        const sk =
-          skillPropRank(b.propMarketKey ?? b.market) -
-          skillPropRank(a.propMarketKey ?? a.market);
-        if (sk !== 0) return sk;
-      }
-      return (
-        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard })
-      );
-    });
+    .sort(
+      (a, b) =>
+        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard }),
+    );
   const maxToSim = opts.requirePropMix
     ? boardScanMaxPropsToSimForMix(opts.target, rankedAll.length)
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
-  const { selected: rankedProps } = selectBoardPropSimCandidates(rankedAll, maxToSim);
+  // Football mix: family quotas (yards ~45%, TD ~25%) — TD-first sort+cap starved
+  // yards on 11k-row NFL boards → PROP_ALL_NO_SIM_GRADE with 0 clears.
+  const { selected: rankedProps } = opts.requirePropMix
+    ? selectFootballMixPropSimCandidates(rankedAll, maxToSim)
+    : selectBoardPropSimCandidates(rankedAll, maxToSim);
 
   const scoreOpts = {
     pool,
@@ -1065,6 +1084,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
   let propPhaseIncomplete = false;
   let propScoredAcc: BoardScoredLeg[] = [];
+  let propSimEvaluatedAcc = 0;
 
   const runPropPhase = (activePool: PropPoolEntry[]) => {
     for (const entry of activePool) {
@@ -1110,10 +1130,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     );
   };
 
-  // Football mix rebuild: props-FIRST (skill-ranked, dedicated deadline), then
-  // game lines in leftover budget. Parallel props+games let spreads clear while
-  // props starved → phone "showing 6 game-line picks". Props-only still skips
-  // the slate; non-mix overlap keeps parallel.
+  // Football mix rebuild: PARALLEL props + games again (#530). Serial props-first
+  // (#532) starved slate sims → gameLines empty + PROP_ALL_NO_SIM_GRADE. Props use
+  // family-quota candidacy (yards first) so TD spam cannot consume the deep-sim budget.
+  // Finals still refuse GL-only via finalizeFootballPropMixPicks when 0 props clear.
   let propPhaseP: Promise<{
     propScored: BoardScoredLeg[];
     propHits: Map<string, { hitProbability: number | null }>;
@@ -1130,16 +1150,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         propPhaseIncomplete = true;
         return null;
       });
-  } else if (footballMixPath) {
-    // Await props before any game slate — reserved seats only matter if props land.
-    try {
-      const propResult = await runPropPhase(pool);
-      propScoredAcc = propResult.propScored;
-      if (propResult.incomplete) propPhaseIncomplete = true;
-    } catch {
-      propPhaseIncomplete = true;
-    }
-  } else if (overlapProps) {
+  } else if (footballMixPath || overlapProps) {
+    // Start props immediately alongside games (mix + prefetched overlap).
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
@@ -1154,10 +1166,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let slateUnresolved = 0;
   if (!opts.propsOnly) {
     gameSimsAttempted = gameEntries.length > 0;
-    const gamePhaseBudgetMs = footballMixPath
-      ? boardScanMixGamePhaseBudgetMs(opts.target)
-      : overlapProps
-        ? Math.max(boardScanGamePhaseBudgetMs(opts.target), 48_000)
+    const gamePhaseBudgetMs =
+      footballMixPath || overlapProps
+        ? Math.max(
+            footballMixPath
+              ? boardScanMixGamePhaseBudgetMs(opts.target)
+              : boardScanGamePhaseBudgetMs(opts.target),
+            footballMixPath ? 36_000 : 48_000,
+          )
         : null;
     const gamePhaseStartedAt = Date.now();
     const SLATE_SIM_BATCH_REBUILD = footballMixPath || opts.requirePropMix ? 4 : SLATE_SIM_BATCH;
@@ -1194,21 +1210,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ]);
   if (expandedPool?.length) pool = expandedPool;
 
-  if (footballMixPath) {
-    // Props already ran; rescore if expand grew the pool and still empty.
-    if (propScoredAcc.length === 0 && pool.length > 0 && expandedPool?.length) {
-      try {
-        const propResult = await runPropPhase(pool);
-        propScoredAcc = propResult.propScored;
-        if (propResult.incomplete) propPhaseIncomplete = true;
-      } catch {
-        propPhaseIncomplete = true;
-      }
-    }
-  } else if (!propPhaseP) {
+  if (!propPhaseP) {
     try {
       const propResult = await runPropPhase(pool);
       propScoredAcc = propResult.propScored;
+      propSimEvaluatedAcc += propResult.simEvaluated;
       if (propResult.incomplete) propPhaseIncomplete = true;
     } catch {
       propPhaseIncomplete = true;
@@ -1217,14 +1223,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     const propResult = await propPhaseP;
     if (propResult) {
       propScoredAcc = propResult.propScored;
+      propSimEvaluatedAcc += propResult.simEvaluated;
       if (propResult.incomplete) propPhaseIncomplete = true;
     } else {
       propPhaseIncomplete = true;
     }
   }
-  // If expand grew the pool after an early empty props-only wave, rescore.
+  // If expand grew the pool after an early empty props-only/mix wave, rescore.
   if (
-    !footballMixPath &&
     propScoredAcc.length === 0 &&
     pool.length > 0 &&
     (opts.propsOnly || opts.requirePropMix) &&
@@ -1233,6 +1239,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     try {
       const propResult = await runPropPhase(pool);
       propScoredAcc = propResult.propScored;
+      propSimEvaluatedAcc += propResult.simEvaluated;
       if (propResult.incomplete) propPhaseIncomplete = true;
     } catch {
       propPhaseIncomplete = true;
@@ -1271,6 +1278,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     oddsLabelsUnresolved: Math.max(oddsBind.unresolved.length, slateUnresolved),
     gameSimsFetchNull,
     gameSimsTimedOut,
+    propSimEvaluated: propSimEvaluatedAcc,
   };
   const result = buildScanResult(collapsed, {
     target: opts.target,

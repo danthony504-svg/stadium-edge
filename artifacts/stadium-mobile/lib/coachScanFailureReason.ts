@@ -58,6 +58,8 @@ export type CoachScanFailureDiagnostics = {
   gameSimsFetchNull?: number;
   /** Games skipped because the game-phase wall clock / batch budget expired. */
   gameSimsTimedOut?: number;
+  /** How many prop rows actually entered deep MC (not the full pool size). */
+  propSimEvaluated?: number;
 };
 
 /** Prefer the earliest structural failure over a generic quality-bar empty. */
@@ -208,12 +210,19 @@ export function deriveCoachScanFailureReason(
     };
   }
   if (propPoolCount > 0 && propScoredCount <= 0 && gameScoredCount <= 0) {
+    const simEval = d.propSimEvaluated;
     return {
       code: "PROP_ALL_NO_SIM_GRADE",
       detail:
-        "scanned " +
-        propPoolCount +
-        " props/alts — none cleared sim grade; game lines also empty",
+        simEval != null
+          ? "deep-simmed " +
+            simEval +
+            " of " +
+            propPoolCount +
+            " props/alts — none cleared sim grade; game lines also empty"
+          : "scanned " +
+            propPoolCount +
+            " props/alts — none cleared sim grade; game lines also empty",
     };
   }
   if (scoredCount > 0 && staged <= 0) {
