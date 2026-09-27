@@ -10,6 +10,8 @@ import {
   footballSkillPropRank,
   selectFinalCoachParlayPicks,
   shouldKeepAwaitingPropSlots,
+  skillPropFamily,
+  skillPropRank,
 } from "./boardScanPropDelivery.ts";
 import {
   boardScanGamePhaseBudgetMs,
@@ -169,7 +171,7 @@ test("props-only incomplete note never claims game-line fallback", () => {
 test("footballSkillPropRank prefers TD / pass / rec / rush yards over sack and misc", () => {
   assert.ok(footballSkillPropRank("player_anytime_td") > footballSkillPropRank("player_sacks"));
   assert.ok(footballSkillPropRank("player_rush_tds") > footballSkillPropRank("player_sacks"));
-  assert.ok(footballSkillPropRank("player_pass_yds") > footballSkillPropRank("player_points"));
+  assert.ok(footballSkillPropRank("player_pass_yds") > footballSkillPropRank("player_tackles"));
   assert.ok(footballSkillPropRank("player_reception_yds") > 0);
   assert.ok(footballSkillPropRank("player_rush_yds") > 0);
   assert.ok(footballSkillPropRank("player_first_td") >= footballSkillPropRank("player_pass_yds"));
@@ -374,4 +376,170 @@ test("fillReservedPropSlots swaps a full 10-leg NFL spread/total ticket for skil
   assert.ok(props.some((p) => footballSkillPropFamily(p.market) === "td"));
   assert.ok(props.some((p) => /pass/i.test(p.market || "")));
   assert.ok(props.some((p) => /rush/i.test(p.market || "")));
+});
+
+test("skillPropRank covers MLB / NBA / NHL / soccer families (not football-only)", () => {
+  assert.ok(skillPropRank("batter_home_runs") > skillPropRank("pitcher_outs"));
+  assert.ok(skillPropRank("batter_hits") > 0);
+  assert.ok(skillPropRank("pitcher_strikeouts") > 0);
+  assert.ok(skillPropRank("player_points") > skillPropRank("player_double_double"));
+  assert.ok(skillPropRank("player_rebounds") > 0);
+  assert.ok(skillPropRank("player_assists") > 0);
+  assert.ok(skillPropRank("player_goals") > 0);
+  assert.ok(skillPropRank("player_goal_scorer_anytime") > 0);
+  assert.equal(skillPropFamily("batter_home_runs"), "hr");
+  assert.equal(skillPropFamily("pitcher_strikeouts"), "strikeouts");
+  assert.equal(skillPropFamily("batter_hits"), "hits");
+  assert.equal(skillPropFamily("player_points"), "points");
+  assert.equal(skillPropFamily("player_rebounds"), "rebounds");
+  assert.equal(skillPropFamily("player_assists"), "assists");
+  assert.equal(skillPropFamily("player_goals"), "goals");
+  assert.equal(skillPropFamily("player_goal_scorer_anytime"), "goals");
+  // NCAAF reuses football families
+  assert.equal(skillPropFamily("player_anytime_td"), "td");
+  assert.equal(skillPropFamily("player_pass_yds"), "pass");
+  assert.ok(skillPropRank("player_pass_yds") > 0);
+});
+
+test("fillReservedPropSlots swaps college football game lines for TD / yards props", () => {
+  const target = 8;
+  const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    sport: "ncaaf",
+    market: i % 2 === 0 ? "Spread" : "Total",
+    game: `CFBAway${i} @ CFBHome${i}`,
+    player: null as string | null,
+    pick: i % 2 === 0 ? `Team${i} -3.5` : `Over ${48 + i}.5`,
+    side: null as string | null,
+    scores: { composite: 40 },
+  }));
+  const skill = [
+    { market: "player_anytime_td", player: "Hunter", line: 0.5 },
+    { market: "player_pass_yds", player: "Nix", line: 245.5 },
+    { market: "player_reception_yds", player: "Worthy", line: 55.5 },
+    { market: "player_rush_yds_alternate", player: "Jeanty", line: 99.5 },
+  ];
+  const scored = [
+    ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
+    ...skill.map((s, i) => ({
+      pick: {
+        isProp: true,
+        sport: "ncaaf",
+        market: s.market,
+        propMarketKey: s.market,
+        propLine: s.line,
+        game: `CFBProp${i} @ CFBOpp${i}`,
+        player: s.player,
+        pick: `Over ${s.line}`,
+        side: "Over",
+        scores: { composite: 80 },
+      },
+      rankScore: 90 - i,
+    })),
+  ];
+  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const props = out.filter((p) => p.isProp);
+  assert.ok(props.length >= boardScanPropSlotCount(8, 0.4), `expected ≥3 NCAAF props, got ${props.length}`);
+  assert.ok(props.some((p) => skillPropFamily(p.market) === "td"), "includes CFB TD props");
+  assert.ok(props.some((p) => /pass/i.test(p.market || "")), "includes CFB pass yards");
+  assert.ok(props.some((p) => /rush/i.test(p.market || "")), "includes CFB rush alts");
+  const families = new Set(props.map((p) => skillPropFamily(p.market)).filter(Boolean));
+  assert.ok(families.size >= 2, `expected diverse CFB families, got ${[...families]}`);
+});
+
+test("fillReservedPropSlots swaps MLB game lines for HR / hits / K props", () => {
+  const target = 8;
+  const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    sport: "mlb",
+    market: i % 2 === 0 ? "moneyline" : "totals",
+    game: `MLBAway${i} @ MLBHome${i}`,
+    player: null as string | null,
+    pick: i % 2 === 0 ? `Team${i}` : `Over ${8.5 + (i % 3)}`,
+    side: null as string | null,
+    scores: { composite: 40 },
+  }));
+  const skill = [
+    { market: "batter_home_runs", player: "Judge", line: 0.5 },
+    { market: "batter_hits", player: "Soto", line: 1.5 },
+    { market: "pitcher_strikeouts", player: "Cole", line: 6.5 },
+    { market: "batter_rbis", player: "Alvarez", line: 0.5 },
+    { market: "batter_hits_runs_rbis", player: "Ohtani", line: 2.5 },
+  ];
+  const scored = [
+    ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
+    ...skill.map((s, i) => ({
+      pick: {
+        isProp: true,
+        sport: "mlb",
+        market: s.market,
+        propMarketKey: s.market,
+        propLine: s.line,
+        game: `MLBProp${i} @ MLBOpp${i}`,
+        player: s.player,
+        pick: `Over ${s.line}`,
+        side: "Over",
+        scores: { composite: 80 },
+      },
+      rankScore: 90 - i,
+    })),
+  ];
+  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const props = out.filter((p) => p.isProp);
+  assert.equal(props.length, boardScanPropSlotCount(8)); // 4 of 8 (~50%)
+  assert.ok(props.some((p) => skillPropFamily(p.market) === "hr"), "includes HR props");
+  assert.ok(props.some((p) => skillPropFamily(p.market) === "strikeouts"), "includes K props");
+  assert.ok(
+    props.some((p) => skillPropFamily(p.market) === "hits" || skillPropFamily(p.market) === "rbi"),
+    "includes hits or RBI props",
+  );
+  const families = new Set(props.map((p) => skillPropFamily(p.market)).filter(Boolean));
+  assert.ok(families.size >= 3, `expected diverse MLB families, got ${[...families]}`);
+});
+
+test("fillReservedPropSlots swaps NBA game lines for points / reb / ast props", () => {
+  const target = 8;
+  const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    sport: "nba",
+    market: i % 2 === 0 ? "Spread" : "Total",
+    game: `NBAAway${i} @ NBAHome${i}`,
+    player: null as string | null,
+    pick: i % 2 === 0 ? `Team${i} -4.5` : `Over ${220 + i}.5`,
+    side: null as string | null,
+    scores: { composite: 40 },
+  }));
+  const skill = [
+    { market: "player_points", player: "Jokic", line: 27.5 },
+    { market: "player_rebounds", player: "Gobert", line: 11.5 },
+    { market: "player_assists", player: "Haliburton", line: 9.5 },
+    { market: "player_threes", player: "Curry", line: 4.5 },
+    { market: "player_points_rebounds_assists", player: "Tatum", line: 42.5 },
+  ];
+  const scored = [
+    ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
+    ...skill.map((s, i) => ({
+      pick: {
+        isProp: true,
+        sport: "nba",
+        market: s.market,
+        propMarketKey: s.market,
+        propLine: s.line,
+        game: `NBAProp${i} @ NBAOpp${i}`,
+        player: s.player,
+        pick: `Over ${s.line}`,
+        side: "Over",
+        scores: { composite: 80 },
+      },
+      rankScore: 90 - i,
+    })),
+  ];
+  const out = fillReservedPropSlots(gameHeavy, scored, target);
+  const props = out.filter((p) => p.isProp);
+  assert.equal(props.length, boardScanPropSlotCount(8));
+  assert.ok(props.some((p) => skillPropFamily(p.market) === "points"), "includes points props");
+  assert.ok(props.some((p) => skillPropFamily(p.market) === "rebounds"), "includes rebound props");
+  assert.ok(props.some((p) => skillPropFamily(p.market) === "assists"), "includes assist props");
+  const families = new Set(props.map((p) => skillPropFamily(p.market)).filter(Boolean));
+  assert.ok(families.size >= 3, `expected diverse NBA families, got ${[...families]}`);
 });
