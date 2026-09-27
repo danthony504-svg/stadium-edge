@@ -7,7 +7,15 @@
  *
  * Absolute-budget hang guard: always publish whatever cleared when the session
  * ends — never latch an empty ticket if buffered picks exist.
+ * Football mix asks: never publish a full game-line-only buffer — keep reserved
+ * prop seats open (same contract as board-scan finals).
  */
+
+import {
+  askRequiresFootballPropMix,
+  applyReservedPropSeatCap,
+  shouldReservePropSeats,
+} from "./boardScanPropDelivery.ts";
 
 export type CoachTicketPublishPhase = "building" | "terminal";
 
@@ -19,16 +27,37 @@ export function shouldPublishCoachTicketPicks(phase: CoachTicketPublishPhase): b
 /**
  * Picks to show when the absolute delivery budget fires.
  * Prefer the latest buffered scan picks; fall back to anything already on the message.
+ * Football prop-mix asks trim a game-line-only buffer to the non-prop seat budget
+ * so wall-clock flush cannot ship a fake full-N spread/total ticket.
  */
-export function resolveCoachTerminalPicks<T>(opts: {
+export function resolveCoachTerminalPicks<T extends { isProp?: boolean }>(opts: {
   bufferedPicks: readonly T[] | null | undefined;
   messagePicks: readonly T[] | null | undefined;
+  /** User ask text — used to detect football prop-mix. */
+  askText?: string | null;
+  requestedLegs?: number;
 }): T[] {
+  let picks: T[] = [];
   if (opts.bufferedPicks && opts.bufferedPicks.length > 0) {
-    return [...opts.bufferedPicks];
+    picks = [...opts.bufferedPicks];
+  } else if (opts.messagePicks && opts.messagePicks.length > 0) {
+    picks = [...opts.messagePicks];
   }
-  if (opts.messagePicks && opts.messagePicks.length > 0) {
-    return [...opts.messagePicks];
+  if (!picks.length) return picks;
+
+  const target = opts.requestedLegs ?? picks.length;
+  const requirePropMix = askRequiresFootballPropMix(opts.askText);
+  if (!requirePropMix || target < 3) return picks;
+
+  const propCount = picks.filter((p) => !!p.isProp).length;
+  if (
+    !shouldReservePropSeats({
+      requirePropMix: true,
+      targetLegs: target,
+      propCount,
+    })
+  ) {
+    return picks;
   }
-  return [];
+  return applyReservedPropSeatCap(picks, target, 0.4);
 }

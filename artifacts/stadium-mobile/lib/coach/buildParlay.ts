@@ -24,6 +24,7 @@ import {
 import {
   buildFinalCoachParlayNote,
   selectFinalCoachParlayPicks,
+  askRequiresFootballPropMix,
 } from "@/lib/boardScanPropDelivery";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
@@ -177,6 +178,11 @@ export async function buildCoachParlay(opts: {
   );
   const propsOnly = marketConstraint.propsOnly;
   const gameLinesOnly = marketConstraint.gameLinesOnly && !propsOnly;
+  // "10 leg nfl" — not props-only, but props must be scored first and seats reserved.
+  const requirePropMix =
+    !propsOnly &&
+    !gameLinesOnly &&
+    askRequiresFootballPropMix(opts.askText);
   const legsPerGameCap = legsPerGameCapForAsk(target, {
     gameLinesOnly,
     maxGames: marketConstraint.maxGames,
@@ -248,7 +254,9 @@ export async function buildCoachParlay(opts: {
     propPoolSize > 0
       ? propsOnly
         ? `Scanning ${propPoolSize} posted props/alts for a ${target}-leg ticket…`
-        : `Scanning ${propPoolSize} posted props/alts plus game lines for a ${target}-leg ticket…`
+        : requirePropMix
+          ? `Scoring player props first (${propPoolSize} posted), then game lines…`
+          : `Scanning ${propPoolSize} posted props/alts plus game lines for a ${target}-leg ticket…`
       : propsOnly
         ? `No matching props posted for a ${target}-leg ticket…`
         : `Scanning posted game lines for a ${target}-leg ticket…`,
@@ -279,6 +287,7 @@ export async function buildCoachParlay(opts: {
     exhaustPropBoard: hrBoardAsk,
     legsPerGameCap: legsPerGameCap ?? undefined,
     gameLinesOnly,
+    requirePropMix,
     mlbPlatoon,
     mlbGameEnv,
     matchupInjuries: Object.keys(matchupInjuries).length ? matchupInjuries : undefined,

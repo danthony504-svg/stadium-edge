@@ -83,10 +83,11 @@ import {
   shouldStopPropSimForTicketMix,
 } from "./boardPropSimExpansion.ts";
 import {
-  boardScanNonPropPreviewCap,
-  boardScanPropSlotCount,
   fillReservedPropSlots,
+  isFootballHeavyPickList,
   shouldKeepAwaitingPropSlots,
+  shouldReservePropSeats,
+  applyReservedPropSeatCap,
 } from "./boardScanPropDelivery.ts";
 import { interleaveSidesWithProps } from "./boardMarketPools.ts";
 import {
@@ -657,6 +658,11 @@ export function buildScanResult(
     legsPerGameCap?: number;
     /** Prop scoring was cut short before any prop legs landed. */
     propPhaseIncomplete?: boolean;
+    /**
+     * Football mix asks ("10 leg nfl"): keep reserved prop seats open on the
+     * FINAL ticket — never pad them with spreads/totals when props are late.
+     */
+    requirePropMix?: boolean;
     failureDiagnostics?: FullBoardScanResult["failureDiagnostics"];
     /** Limit NFL/NCAAF priority inject to leagues named in the ask. */
     prioritySports?: readonly string[];
@@ -716,27 +722,35 @@ export function buildScanResult(
       picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
     }
   }
-  // Preview waves score game lines first. Do not fill reserved prop slots with
-  // more game lines — that painted "5 AI game lines / 0 props" before prop sims.
+  // Reserve prop seats on preview AND on football finals / incomplete prop phases.
+  // Previously finals padded those seats with spreads → "10 leg nfl" all-GL tickets.
   let propCount = picks.filter((p) => p.isProp).length;
-  if (opts.preview && !opts.propsOnly && opts.target >= 3) {
-    const propSlots = boardScanPropSlotCount(opts.target);
-    if (propCount < propSlots) {
-      const props = picks.filter((p) => p.isProp);
-      const nonProps = picks.filter((p) => !p.isProp);
-      const nonPropCap = boardScanNonPropPreviewCap(opts.target);
-      picks = [...props, ...nonProps.slice(0, nonPropCap)].slice(0, opts.target);
-      propCount = picks.filter((p) => p.isProp).length;
-    }
+  const propFraction =
+    opts.requirePropMix || isFootballHeavyPickList(picks) ? 0.4 : 0.5;
+  if (
+    shouldReservePropSeats({
+      preview: opts.preview,
+      propsOnly: opts.propsOnly,
+      gameLinesOnly: opts.gameLinesOnly,
+      targetLegs: opts.target,
+      propCount,
+      propPhaseIncomplete: opts.propPhaseIncomplete,
+      requirePropMix: opts.requirePropMix,
+    })
+  ) {
+    picks = applyReservedPropSeatCap(picks, opts.target, propFraction);
+    propCount = picks.filter((p) => p.isProp).length;
   }
-  // Preview-only awaiting flag. Finals use propPhaseIncomplete + notes so we
-  // never wipe cleared game lines to an instant empty ticket.
+  // Preview-only awaiting flag. Finals keep reserved seats via applyReservedPropSeatCap
+  // above — never wipe cleared game lines to an instant empty ticket.
   const awaitingPropSlots = shouldKeepAwaitingPropSlots({
     preview: opts.preview,
     propsOnly: opts.propsOnly,
+    gameLinesOnly: opts.gameLinesOnly,
     targetLegs: opts.target,
     propCount,
     propPhaseIncomplete: opts.propPhaseIncomplete,
+    requirePropMix: opts.requirePropMix,
   });
   const breakdown = staged.breakdown;
 
@@ -871,6 +885,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   /** Drop player props from staging (game lines / alts / periods only). */
   gameLinesOnly?: boolean;
   /**
+   * Football mix asks: score props before game lines, and keep reserved prop
+   * seats open on the final ticket so spreads cannot pad a full GL board.
+   */
+  requirePropMix?: boolean;
+  /**
    * When the caller already prefetched the full posted prop board, skip a
    * second fan-out so prop scoring can start right after game-line sims.
    * Fixes greenfield "2 game totals" tickets that latched before props loaded.
@@ -956,6 +975,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       propsOnly: opts.propsOnly,
       gameLinesOnly: opts.gameLinesOnly,
       legsPerGameCap: opts.legsPerGameCap,
+      requirePropMix: opts.requirePropMix,
       prioritySports: opts.prioritySports,
     });
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
@@ -1049,16 +1069,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   // Prefetched prop boards score in parallel with game lines so the absolute
   // Coach budget cannot burn out on F5 MLs before player props ever run.
+  // Football mix asks ("10 leg nfl") score props FIRST — parallel still let
+  // game lines finish and latch a full GL ticket before props cleared.
   let propPhaseP: Promise<{
     propScored: BoardScoredLeg[];
     propHits: Map<string, { hitProbability: number | null }>;
     simEvaluated: number;
     incomplete: boolean;
   } | null> | null = null;
-  if (opts.propsOnly) {
-    // Yards / props-only asks: spend the budget on props — do not sim the
-    // multi-sport game slate first (that left short tickets after game lines
-    // were stripped by the allowlist).
+  const propsFirst = !!opts.propsOnly || !!opts.requirePropMix;
+  if (propsFirst) {
+    // Props-first: spend budget on props before the multi-sport game slate.
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
@@ -1074,8 +1095,22 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       });
   }
 
+  // Await props-first phase before game lines so reserved seats can fill.
+  if (propsFirst && propPhaseP) {
+    const propResult = await propPhaseP;
+    if (propResult) {
+      propScoredAcc = propResult.propScored;
+      if (propResult.incomplete) propPhaseIncomplete = true;
+    } else {
+      propPhaseIncomplete = true;
+    }
+    scored.push(...propScoredAcc);
+    propPhaseP = null; // already consumed
+  }
+
   if (!opts.propsOnly) {
-    const gamePhaseBudgetMs = overlapProps ? boardScanGamePhaseBudgetMs(opts.target) : null;
+    const gamePhaseBudgetMs =
+      overlapProps && !opts.requirePropMix ? boardScanGamePhaseBudgetMs(opts.target) : null;
     const gamePhaseStartedAt = Date.now();
     for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
       if (opts.signal?.aborted) break;
@@ -1110,12 +1145,29 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   if (expandedPool?.length) pool = expandedPool;
 
   if (!propPhaseP) {
-    try {
-      const propResult = await runPropPhase(pool);
-      propScoredAcc = propResult.propScored;
-      if (propResult.incomplete) propPhaseIncomplete = true;
-    } catch {
-      propPhaseIncomplete = true;
+    if (propsFirst) {
+      // Already awaited above. If expand grew an empty pool, score props once more.
+      if (propScoredAcc.length === 0 && pool.length > 0) {
+        try {
+          const propResult = await runPropPhase(pool);
+          propScoredAcc = propResult.propScored;
+          if (propResult.incomplete) propPhaseIncomplete = true;
+          const withoutOldProps = scored.filter((l) => !l.pick.isProp);
+          scored.length = 0;
+          scored.push(...withoutOldProps, ...propScoredAcc);
+        } catch {
+          propPhaseIncomplete = true;
+        }
+      }
+    } else {
+      try {
+        const propResult = await runPropPhase(pool);
+        propScoredAcc = propResult.propScored;
+        if (propResult.incomplete) propPhaseIncomplete = true;
+        scored.push(...propScoredAcc);
+      } catch {
+        propPhaseIncomplete = true;
+      }
     }
   } else {
     const propResult = await propPhaseP;
@@ -1125,8 +1177,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     } else {
       propPhaseIncomplete = true;
     }
+    scored.push(...propScoredAcc);
   }
-  scored.push(...propScoredAcc);
   if (
     pool.length > 0 &&
     !opts.propsOnly &&
@@ -1169,6 +1221,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     gameLinesOnly: opts.gameLinesOnly,
     legsPerGameCap: opts.legsPerGameCap,
     propPhaseIncomplete,
+    requirePropMix: opts.requirePropMix,
     failureDiagnostics,
     prioritySports: opts.prioritySports,
   });

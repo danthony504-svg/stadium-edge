@@ -10,6 +10,9 @@ import {
   footballSkillPropRank,
   selectFinalCoachParlayPicks,
   shouldKeepAwaitingPropSlots,
+  shouldReservePropSeats,
+  applyReservedPropSeatCap,
+  askRequiresFootballPropMix,
   skillPropFamily,
   skillPropRank,
 } from "./boardScanPropDelivery.ts";
@@ -34,6 +37,75 @@ function buggyWipeOnAwaitingPropSlots<T extends { isProp?: boolean }>(
 test("5-leg reserved prop slots leave exactly 2 game-line preview capacity", () => {
   assert.equal(boardScanPropSlotCount(5), 3);
   assert.equal(boardScanNonPropPreviewCap(5), 2);
+});
+
+test("askRequiresFootballPropMix: bare NFL/NCAAF asks need a prop mix", () => {
+  assert.equal(askRequiresFootballPropMix("10 leg nfl"), true);
+  assert.equal(askRequiresFootballPropMix("10-leg NCAAF"), true);
+  assert.equal(askRequiresFootballPropMix("8 leg college football"), true);
+  assert.equal(askRequiresFootballPropMix("10 leg nfl with no player props"), false);
+  assert.equal(askRequiresFootballPropMix("10 leg mlb"), false);
+  assert.equal(askRequiresFootballPropMix("6 leg nba"), false);
+});
+
+test("final football ticket does NOT pad reserved prop seats with spreads", () => {
+  // Phone regression: finals used to ship 10 spreads when props were late.
+  assert.equal(
+    shouldReservePropSeats({
+      targetLegs: 10,
+      propCount: 0,
+      requirePropMix: true,
+    }),
+    true,
+  );
+  const gameHeavy = Array.from({ length: 10 }, (_, i) => ({
+    isProp: false,
+    sport: "nfl",
+    market: "Spread",
+    pick: `Team${i} +3.5`,
+  }));
+  const capped = applyReservedPropSeatCap(gameHeavy, 10, 0.4);
+  // 10 * 0.4 → 4 prop seats reserved → at most 6 game lines
+  assert.equal(capped.length, boardScanNonPropPreviewCap(10, 0.4));
+  assert.equal(capped.filter((p) => p.isProp).length, 0);
+  assert.ok(capped.length < 10, "must not ship a full game-line ticket");
+});
+
+test("final football ticket with scored props keeps them and still caps GL fill", () => {
+  const picks = [
+    ...Array.from({ length: 8 }, (_, i) => ({
+      isProp: false,
+      sport: "nfl",
+      market: "Total",
+      pick: `Over ${40 + i}.5`,
+    })),
+    {
+      isProp: true,
+      sport: "nfl",
+      market: "player_anytime_td",
+      pick: "Hill Over 0.5",
+    },
+    {
+      isProp: true,
+      sport: "nfl",
+      market: "player_pass_yds",
+      pick: "Allen Over 250.5",
+    },
+  ];
+  assert.equal(
+    shouldReservePropSeats({
+      targetLegs: 10,
+      propCount: 2,
+      requirePropMix: true,
+    }),
+    true, // 2 < 4 reserved seats
+  );
+  const capped = applyReservedPropSeatCap(picks, 10, 0.4);
+  assert.equal(capped.filter((p) => p.isProp).length, 2);
+  assert.ok(capped.length <= 10);
+  assert.ok(
+    capped.filter((p) => !p.isProp).length <= boardScanNonPropPreviewCap(10, 0.4),
+  );
 });
 
 test("7-leg reserved prop slots leave exactly 3 game-line preview capacity", () => {
