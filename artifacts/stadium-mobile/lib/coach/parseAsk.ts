@@ -63,6 +63,17 @@ function coachAskedForPlayerProps(text: string): boolean {
   }
   if (/\bplayer\s+props?\b/.test(t)) return true;
   if (/\b\d{1,3}\s*leg\b[\s\w]{0,40}\bprops?\b/.test(t)) return true;
+  // Slate-only N-leg ("5 leg for tomorrow") is props-only — still show why if
+  // game lines leak past that gate.
+  if (
+    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
+    /\b(today|tonight|tomorrow)\b/.test(t) &&
+    !/\bparlay\b/.test(t) &&
+    !/\b(nfl|nba|mlb|nhl|wnba|ncaaf|ncaab|cfb|soccer|football)\b/.test(t) &&
+    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t)
+  ) {
+    return true;
+  }
   return false;
 }
 

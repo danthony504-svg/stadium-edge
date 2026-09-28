@@ -215,6 +215,8 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
     // Phone: asked for player props + teams → still propsOnly (no game-line fill).
     "player props for bears and broncos",
     "player prop bears broncos",
+    // Phone: bare slate ask staged Q1/NHL spreads — must be propsOnly.
+    "5 leg for tomorrow",
   ]) {
     const c = parseCoachAskMarketConstraint(ask);
     assert.equal(c.propsOnly, true, ask);
@@ -349,4 +351,11 @@ test("filterPicksByAskMarketConstraint drops props when gameLinesOnly", () => {
   });
   assert.equal(out.length, 1);
   assert.equal(out[0]!.isProp, false);
+});
+
+test("thread prior props-only inherits onto refinement ask", () => {
+  const c = parseCoachAskMarketConstraint("make it 5 for tomorrow", [
+    "7 leg NFL player props",
+  ]);
+  assert.equal(c.propsOnly, true);
 });

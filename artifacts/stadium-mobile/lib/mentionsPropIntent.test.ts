@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks, preferBettableQualifiedPicks } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, threadWantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks, preferBettableQualifiedPicks } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -53,6 +53,27 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   // Mixed phrasing still stays on the board-scan / reach path.
   assert.equal(wantsPropsOnly("6 leg with player props"), false);
   assert.equal(wantsPropsOnly("10 leg nfl with no player props"), false);
+  // Phone: "5 leg for tomorrow" staged spreads — slate-only N-leg → props-only.
+  assert.equal(wantsPropsOnly("5 leg for tomorrow"), true);
+  assert.equal(wantsPropsOnly("8 legs tonight"), true);
+  assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
+  assert.equal(wantsPropsOnly("5 leg nfl for tomorrow"), false);
+});
+
+test("threadWantsPropsOnly inherits prior player-prop ask onto slate refinement", () => {
+  assert.equal(
+    threadWantsPropsOnly("5 leg for tomorrow", ["7 leg NFL player props"]),
+    true,
+  );
+  assert.equal(
+    threadWantsPropsOnly("5 leg for tomorrow", []),
+    true,
+    "slate-only N-leg is props-only even without prior",
+  );
+  assert.equal(
+    threadWantsPropsOnly("5 leg with no player props", ["7 leg NFL player props"]),
+    false,
+  );
 });
 
 test("effectiveBuildLegCount defaults bare parlay asks onto the compact path", () => {

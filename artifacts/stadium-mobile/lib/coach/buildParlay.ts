@@ -154,6 +154,8 @@ export async function buildCoachParlay(opts: {
   requestedLegs: number;
   /** User ask — scopes sports (college football) and priority inject. */
   askText?: string | null;
+  /** Prior user turns — inherit props-only like tonight/tomorrow slate. */
+  priorUserTexts?: string[];
   signal: AbortSignal;
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
@@ -175,7 +177,10 @@ export async function buildCoachParlay(opts: {
 
   // Yards asks ("rushing and passing yards") → props-only + market allowlist.
   // Does not change hold/delivery — only which markets enter the scan pool.
-  const marketConstraint = parseCoachAskMarketConstraint(opts.askText);
+  const marketConstraint = parseCoachAskMarketConstraint(
+    opts.askText,
+    opts.priorUserTexts ?? [],
+  );
   const scanPropPool = filterPropPoolByAskMarkets(
     inputs.propPool,
     marketConstraint.allowedMarketKeys,
