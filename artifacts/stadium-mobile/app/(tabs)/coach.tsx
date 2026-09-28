@@ -86,6 +86,8 @@ export default function CoachScreen() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const sendGenRef = useRef(0);
   const pendingTicketPicksRef = useRef<ParsedPick[]>([]);
   /** Mid-scan flush: football mix treats 0-prop buffers as props still pending. */
@@ -327,9 +329,14 @@ export default function CoachScreen() {
             fireAbsoluteTerminal();
           }, coachPropLoadFailsafeMs(requestedLegs));
 
+          const priorUserTexts = messagesRef.current
+            .filter((m) => m.role === "user")
+            .map((m) => m.text)
+            .filter(Boolean);
           const result = await buildCoachParlay({
             requestedLegs,
             askText: text,
+            priorUserTexts,
             signal: abort.signal,
             onStatus: (status) => {
               if (sendGenRef.current !== sendGen) return;

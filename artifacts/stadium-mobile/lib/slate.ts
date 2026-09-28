@@ -487,7 +487,6 @@ export function mentionsPropIntent(text?: string | null): boolean {
 // ticket, where player props should be included first but team/game props can
 // still fill the requested count.
 export function wantsPropsOnly(text?: string | null): boolean {
-  if (!mentionsPropIntent(text)) return false;
   // "9 lag NFL player prop" — honor lag typo the same as parseRequestedLegs.
   const t = String(text || "")
     .toLowerCase()
@@ -499,6 +498,23 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (/\bwithout\s+props?\b/.test(t)) return false;
   // Mixed "with (player) props" stays on the board-scan mix path.
   if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return false;
+
+  // Phone: "5 leg for tomorrow" staged Q1 ALT SPREAD + NHL spreads — user expected
+  // player props. Slate-day + N-leg with NO sport and NO side/spread cue → props-only.
+  // Keep "6-leg parlay for tonight" and "10 leg nfl" on the mix path.
+  // Checked before mentionsPropIntent so bare slate asks (no "prop" word) still hit.
+  if (
+    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
+    /\b(today|tonight|tomorrow)\b/.test(t) &&
+    !/\bparlay\b/.test(t) &&
+    !/\b(nfl|nba|mlb|nhl|wnba|ncaaf|ncaab|cfb|soccer|football)\b/.test(t) &&
+    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t) &&
+    !/(?:^|[\s/])ml(?:$|[\s/])/.test(t)
+  ) {
+    return true;
+  }
+
+  if (!mentionsPropIntent(text)) return false;
 
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
   if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
@@ -520,6 +536,29 @@ export function wantsPropsOnly(text?: string | null): boolean {
     /\b(strikeouts?|k'?s|home runs?|hrs?|anytime td|receptions?|hits?|total bases?)\b/.test(t)
   ) {
     return true;
+  }
+  return false;
+}
+
+/**
+ * Inherit props-only from a prior user turn (same pattern as tonight/tomorrow slate).
+ * "5 leg for tomorrow" after "7 leg NFL player props" must stay props-only.
+ */
+export function threadWantsPropsOnly(
+  current: string | null | undefined,
+  priorUserTexts: string[] = [],
+): boolean {
+  if (wantsPropsOnly(current)) return true;
+  const cur = String(current ?? "").toLowerCase();
+  // Explicit game-line / mix phrasing on THIS turn clears the inheritance.
+  if (/\bno\s+(?:player\s+)?props?\b/.test(cur)) return false;
+  if (/\bwithout\s+(?:player\s+)?props?\b/.test(cur)) return false;
+  if (/\bwith\s+(?:player\s+)?props?\b/.test(cur)) return false;
+  if (/\bgame\s*lines?\s+only\b/.test(cur)) return false;
+  if (/\bsides?\s+only\b/.test(cur)) return false;
+  if (/\b(spread|total|moneyline)\b/.test(cur)) return false;
+  for (let i = priorUserTexts.length - 1; i >= 0; i--) {
+    if (wantsPropsOnly(priorUserTexts[i])) return true;
   }
   return false;
 }

@@ -7,7 +7,7 @@
  * and survive final ticket selection.
  */
 
-import { wantsPropsOnly } from "./slate.ts";
+import { threadWantsPropsOnly } from "./slate.ts";
 import { normalizeCoachLegTypos } from "./coach/parseAsk.ts";
 
 export type CoachAskMarketConstraint = {
@@ -270,6 +270,7 @@ function hasSoccerSpecialAsk(t: string): boolean {
  */
 export function parseCoachAskMarketConstraint(
   text: string | null | undefined,
+  priorUserTexts: string[] = [],
 ): CoachAskMarketConstraint {
   const t = normalizeCoachLegTypos(String(text ?? "").trim());
   if (!t) {
@@ -371,10 +372,10 @@ export function parseCoachAskMarketConstraint(
     };
   }
 
-  // "10 leg NFL player props" / "player props only" / "just player props" —
-  // all-prop ticket. No market allowlist (any posted prop OK); never fill with
-  // ML / spread / total when props scoring is slow or incomplete.
-  if (!gameLinesOnly && wantsPropsOnly(t)) {
+  // "10 leg NFL player props" / "player props only" / "just player props" /
+  // "5 leg for tomorrow" (slate-only) / prior-turn props inheritance —
+  // all-prop ticket. No market allowlist; never fill with ML / spread / total.
+  if (!gameLinesOnly && threadWantsPropsOnly(t, priorUserTexts)) {
     return {
       propsOnly: true,
       gameLinesOnly: false,
