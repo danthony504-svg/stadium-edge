@@ -74,6 +74,16 @@ function coachAskedForPlayerProps(text: string): boolean {
   ) {
     return true;
   }
+  // Phone: "5 leg soccer" → Asian spread shortfall — sport N-leg is props-only.
+  if (
+    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
+    !/\bparlay\b/.test(t) &&
+    /\b(soccer|nba|mlb|nhl|wnba|ncaab)\b/.test(t) &&
+    !/\b(nfl|ncaaf|cfb|football)\b/.test(t) &&
+    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t)
+  ) {
+    return true;
+  }
   return false;
 }
 

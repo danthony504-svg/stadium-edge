@@ -514,6 +514,21 @@ export function wantsPropsOnly(text?: string | null): boolean {
     return true;
   }
 
+  // Phone: "5 leg soccer" → 1 Asian handicap spread, shortfall 1/5. Soccer (and
+  // other non-football prop boards) N-leg without "parlay"/side cues → props-only
+  // (goal scorers / shots / points). Football stays on askRequiresFootballPropMix.
+  // "7 leg soccer parlay for today" stays mix (existing test).
+  if (
+    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
+    !/\bparlay\b/.test(t) &&
+    /\b(soccer|nba|mlb|nhl|wnba|ncaab)\b/.test(t) &&
+    !/\b(nfl|ncaaf|cfb|football)\b/.test(t) &&
+    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t) &&
+    !/(?:^|[\s/])ml(?:$|[\s/])/.test(t)
+  ) {
+    return true;
+  }
+
   if (!mentionsPropIntent(text)) return false;
 
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
