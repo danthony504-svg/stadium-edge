@@ -17,6 +17,7 @@ import {
 import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
 import {
   footballRushDefenseTilt,
+  multiSportOppDefenseTilt,
   type RushDefenseSlice,
 } from "./footballRushDefense.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
@@ -275,6 +276,29 @@ function scoreOpponentTendency(
       market: key,
       side,
       defense: ctx.rushDefense,
+      pack: ctx.footballOppDefense,
+    });
+    if (tilt.tilt !== 0 || tilt.display) {
+      return {
+        score: scoreTrend(clamp(tilt.tilt / 0.8, -1, 1)),
+        display: tilt.display ?? undefined,
+      };
+    }
+  }
+
+  // Basketball / NHL / soccer — soft feed-field tilts only (no invented splits).
+  if (
+    (sport === "nba" ||
+      sport === "wnba" ||
+      sport === "ncaab" ||
+      sport === "nhl" ||
+      sport === "soccer") &&
+    ctx.footballOppDefense
+  ) {
+    const tilt = multiSportOppDefenseTilt({
+      sport,
+      market: key,
+      side,
       pack: ctx.footballOppDefense,
     });
     if (tilt.tilt !== 0 || tilt.display) {

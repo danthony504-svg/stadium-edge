@@ -28,6 +28,16 @@ export type FootballOppDefenseSlice = {
   pointsAgainst?: number | null;
   sacks?: number | null;
   interceptions?: number | null;
+  /** Basketball feed fields (honest, not positional allows). */
+  steals?: number | null;
+  blocks?: number | null;
+  defRebounds?: number | null;
+  /** NHL goaltending feed fields. */
+  goalsAgainstAvg?: number | null;
+  savePct?: number | null;
+  /** Soccer feed fields. */
+  goalsConceded?: number | null;
+  cleanSheets?: number | null;
 };
 
 export type RushDefenseTilt = {
@@ -207,6 +217,92 @@ export function shouldBlockRushOverVsDefense(opts: {
   return footballRushDefenseTilt(opts).blockOver;
 }
 
-/** Alias — blocks any skill-yard OVER vs hard stingy matching D. */
-export const shouldBlockSkillOverVsDefense = shouldBlockRushOverVsDefense;
-export const footballOppDefenseTilt = footballRushDefenseTilt;
+/** Soft tilt from honest feed fields for non-football sports (never invents). */
+export function multiSportOppDefenseTilt(opts: {
+  sport?: string | null;
+  market?: string | null;
+  side?: string | null;
+  pack?: FootballOppDefenseSlice | null;
+}): RushDefenseTilt {
+  const empty: RushDefenseTilt = { tilt: 0, blockOver: false, display: null };
+  const sport = String(opts.sport ?? "").toLowerCase();
+  const key = String(opts.market ?? "").toLowerCase();
+  const side = String(opts.side ?? "").toLowerCase();
+  const isOver = side === "over";
+  const isUnder = side === "under";
+  if (!isOver && !isUnder) return empty;
+  const pack = opts.pack;
+  if (!pack) return empty;
+  const who = pack.teamName ? `${pack.teamName} ` : "";
+
+  if (sport === "nba" || sport === "wnba" || sport === "ncaab") {
+    const pa = pack.pointsAgainst;
+    if (pa == null) return empty;
+    // Soft bands only — ESPN pointsAgainst is team-wide, not positional.
+    const stingy = sport === "ncaab" ? pa <= 65 : pa <= 108;
+    const leaky = sport === "ncaab" ? pa >= 78 : pa >= 118;
+    let tilt = 0;
+    if (stingy) tilt = isOver ? -0.35 : 0.25;
+    else if (leaky) tilt = isOver ? 0.3 : -0.2;
+    else return empty;
+    const bits = [`${pa} pts allowed/g`];
+    if (pack.blocks != null && /point|pts|three|3/.test(key)) {
+      bits.push(`${pack.blocks} blk/g`);
+    }
+    return {
+      tilt: Math.max(-0.8, Math.min(0.8, tilt)),
+      blockOver: false,
+      display: `${who}${bits.join(", ")}`,
+    };
+  }
+
+  if (sport === "nhl") {
+    const gaa = pack.goalsAgainstAvg;
+    const sv = pack.savePct != null ? (pack.savePct > 1 ? pack.savePct / 100 : pack.savePct) : null;
+    if (gaa == null && sv == null) return empty;
+    let tilt = 0;
+    const bits: string[] = [];
+    if (sv != null) {
+      bits.push(`${(sv * 100).toFixed(1)} SV%`);
+      if (sv >= 0.915) tilt += isOver ? -0.3 : 0.2;
+      else if (sv <= 0.895) tilt += isOver ? 0.25 : -0.15;
+    }
+    if (gaa != null) {
+      bits.push(`${gaa.toFixed(2)} GAA`);
+      if (gaa <= 2.6) tilt += isOver ? -0.2 : 0.15;
+      else if (gaa >= 3.4) tilt += isOver ? 0.2 : -0.12;
+    }
+    if (tilt === 0) return empty;
+    return {
+      tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
+      blockOver: false,
+      display: `${who}${bits.join(", ")}`,
+    };
+  }
+
+  if (sport === "soccer") {
+    const gc = pack.goalsConceded;
+    const cs = pack.cleanSheets;
+    if (gc == null && cs == null && pack.pointsAgainst == null) return empty;
+    let tilt = 0;
+    const bits: string[] = [];
+    if (gc != null) {
+      bits.push(`${gc} goals conceded`);
+      // Season totals — soft descriptive nudge only when extreme.
+      if (gc <= 8) tilt += isOver ? -0.25 : 0.2;
+      else if (gc >= 20) tilt += isOver ? 0.2 : -0.12;
+    }
+    if (cs != null && cs >= 6) {
+      bits.push(`${cs} clean sheets`);
+      tilt += isOver ? -0.15 : 0.1;
+    }
+    if (tilt === 0) return empty;
+    return {
+      tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
+      blockOver: false,
+      display: `${who}${bits.join(", ")}`,
+    };
+  }
+
+  return empty;
+}

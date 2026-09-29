@@ -42,7 +42,7 @@ export function opponentTeamIdForProp(opts: {
   teamIdMap?: Map<string, OppTeamIdMapEntry> | null;
 }): string | null {
   const sport = String(opts.sport ?? "").toLowerCase();
-  if (sport !== "nfl" && sport !== "ncaaf") return null;
+  if (!sport) return null;
   const ab = String(opts.teamAbbr ?? "")
     .trim()
     .toUpperCase();

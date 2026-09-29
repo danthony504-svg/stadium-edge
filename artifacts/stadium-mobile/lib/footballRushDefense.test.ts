@@ -166,6 +166,19 @@ test("opponentTeamIdForProp resolves CHI → PHI for Bears @ Eagles", () => {
   );
 });
 
+test("multiSportOppDefenseTilt soft-demotes NBA Over vs stingy pts allowed", async () => {
+  const { multiSportOppDefenseTilt } = await import("./footballRushDefense.ts");
+  const tilt = multiSportOppDefenseTilt({
+    sport: "nba",
+    market: "player_points",
+    side: "Over",
+    pack: { pointsAgainst: 104, teamName: "Celtics", blocks: 6.2 },
+  });
+  assert.ok(tilt.tilt < 0);
+  assert.equal(tilt.blockOver, false);
+  assert.ok(tilt.display?.includes("104"));
+});
+
 test("prop holistic opponentTendency uses rush defense for NFL rush Over", () => {
   const score = buildPropHolisticScore({
     sport: "nfl",

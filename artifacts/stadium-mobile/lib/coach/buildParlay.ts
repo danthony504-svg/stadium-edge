@@ -247,7 +247,9 @@ export async function buildCoachParlay(opts: {
           concurrency: 6,
         }).catch(() => ({}))
       : Promise.resolve({} as Record<string, import("@/lib/pickScoreContext").PlayerHistorySlice>),
-    boardSports.some((s) => s === "nfl" || s === "ncaaf")
+    boardSports.some((s) =>
+      ["nfl", "ncaaf", "nba", "wnba", "ncaab", "nhl", "soccer", "mlb"].includes(s),
+    )
       ? loadFootballOppRushDefense({
           espnGames: inputs.espnGames,
           signal: opts.signal,
