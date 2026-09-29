@@ -17,15 +17,15 @@ import { PromoCodeForm } from "@/components/PromoCodeForm";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import {
-  SUBSCRIPTION_PLANS,
+  PAID_SUBSCRIPTION_PLANS,
   extractPromoFromQuery,
   type PlanId,
 } from "@/lib/entitlements";
 
 /**
- * Plans screen — Free trial locally; Go/Pro purchase via Apple StoreKit
- * (RevenueCat) so the subscription appears under iOS Settings → Subscriptions.
- * Native rebuild + runtimeVersion bump required for real billing.
+ * Plans screen — Go/Pro via Apple StoreKit (auto-renewable) with a 7-day
+ * introductory free trial on each product. Appears under Settings → Subscriptions.
+ * Native rebuild + RevenueCat key required for real billing.
  */
 export default function PlansScreen() {
   const colors = useColors();
@@ -41,20 +41,25 @@ export default function PlansScreen() {
     storeKitBlockedReason,
     billingBusy,
   } = useSubscription();
-  const [draft, setDraft] = React.useState<PlanId>(entitlement.planId);
+  const defaultPaid: PlanId =
+    entitlement.planId === "pro" || entitlement.planId === "go" ? entitlement.planId : "go";
+  const [draft, setDraft] = React.useState<PlanId>(defaultPaid);
 
   React.useEffect(() => {
-    setDraft(entitlement.planId);
+    if (entitlement.planId === "go" || entitlement.planId === "pro") {
+      setDraft(entitlement.planId);
+    }
   }, [entitlement.planId]);
 
   const onContinue = async () => {
-    const result = await selectPlan(draft);
+    const planId: PlanId = draft === "pro" ? "pro" : "go";
+    const result = await selectPlan(planId);
     if (!result.ok) {
       if (result.cancelled) return;
       Alert.alert("Couldn’t continue", result.message);
       return;
     }
-    if (draft !== "free" && !storeKitReady) {
+    if (!storeKitReady) {
       Alert.alert("Preview unlock", result.message);
     }
     if (router.canGoBack()) router.back();
@@ -72,7 +77,7 @@ export default function PlansScreen() {
 
   const onManage = () => {
     const url =
-      entitlement.unlockSource === "storekit"
+      entitlement.unlockSource === "storekit" && entitlement.statusDetail
         ? "https://apps.apple.com/account/subscriptions"
         : "https://apps.apple.com/account/subscriptions";
     Linking.openURL(url).catch(() => {
@@ -83,12 +88,10 @@ export default function PlansScreen() {
     });
   };
 
-  const continueLabel =
-    draft === "free"
-      ? "Continue with free trial"
-      : storeKitReady
-        ? `Subscribe · ${SUBSCRIPTION_PLANS.find((p) => p.id === draft)?.priceLabel ?? ""}`
-        : "Continue (preview)";
+  const selectedPlan = PAID_SUBSCRIPTION_PLANS.find((p) => p.id === draft);
+  const continueLabel = storeKitReady
+    ? `Subscribe · ${selectedPlan?.priceLabel ?? ""}`
+    : "Continue (preview)";
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -166,13 +169,13 @@ export default function PlansScreen() {
               textAlign: "center",
             }}
           >
-            Free trial unlocks everything for 7 days. After that, Discover + Coach + Props +
-            Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan, admin,
-            or promo. Paid plans bill through Apple and show under Settings → Subscriptions.
+            Both plans include a 7-day free trial. Discover + Coach + Props + Slip stay free after;
+            Edge Lock, Steals, Simulator, and Model Report need a plan, admin, or promo. Billed
+            through Apple — manage under Settings → Subscriptions.
           </Text>
         </View>
 
-        {SUBSCRIPTION_PLANS.map((plan) => {
+        {PAID_SUBSCRIPTION_PLANS.map((plan) => {
           const selected = draft === plan.id;
           return (
             <Pressable
@@ -210,7 +213,7 @@ export default function PlansScreen() {
                     color: colors.mutedForeground,
                   }}
                 >
-                  {plan.priceLabel} {plan.periodLabel}
+                  {[plan.priceLabel, plan.periodLabel].filter(Boolean).join(" ")}
                 </Text>
                 {plan.note ? (
                   <Text

@@ -22,33 +22,40 @@ export type PlanDefinition = {
   paid: boolean;
 };
 
-/** Catalog — Go/Pro bill through Apple StoreKit on native builds. */
+/** Catalog — Go/Pro bill through Apple StoreKit on native builds.
+ *  The free trial is an Apple introductory offer on those products (ASC),
+ *  not a separate selectable plan card on the paywall. */
 export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
   {
     id: "free",
-    name: "Free trial",
+    name: "Free",
     priceLabel: "$0",
-    periodLabel: "for 7 days",
-    note: "Everything unlocked for 7 days. Browse + Coach stay open after.",
+    periodLabel: "",
+    note: "Browse + Coach stay open. Secondary tools need a plan after trial.",
     paid: false,
   },
   {
     id: "go",
     name: "Stadium Edge Go",
-    priceLabel: "$9.99",
-    periodLabel: "a week",
-    note: "Weekly auto-renewable via Apple. Manage in Settings → Subscriptions.",
+    priceLabel: "$9.99/week",
+    periodLabel: "",
+    note: "7-day free trial, then $9.99/week",
     paid: true,
   },
   {
     id: "pro",
     name: "Stadium Edge Pro",
-    priceLabel: "$29.99",
-    periodLabel: "per month",
-    note: "Monthly auto-renewable via Apple. Manage in Settings → Subscriptions.",
+    priceLabel: "$29.99/month",
+    periodLabel: "",
+    note: "7-day free trial, then $29.99/month",
     paid: true,
   },
 ] as const;
+
+/** Paid plans shown on the Plans paywall (no standalone free-trial card). */
+export const PAID_SUBSCRIPTION_PLANS: readonly PlanDefinition[] = SUBSCRIPTION_PLANS.filter(
+  (p) => p.paid,
+);
 
 export const TRIAL_LENGTH_DAYS = 7;
 
@@ -447,10 +454,10 @@ export function buildEntitlementView(
     statusDetail = "Full access · admin account";
   } else if (unlockSource === "storekit") {
     statusLabel = plan.name;
-    statusDetail = `${plan.priceLabel} ${plan.periodLabel} · Apple subscription`;
+    statusDetail = `${plan.note || plan.priceLabel} · Apple subscription`;
   } else if (unlockSource === "paid") {
     statusLabel = plan.name;
-    statusDetail = `${plan.priceLabel} ${plan.periodLabel} · local entitlement`;
+    statusDetail = `${plan.note || plan.priceLabel} · local entitlement`;
   } else if (unlockSource === "promo") {
     const def = findPromoDefinition(state.redeemedPromoCode ?? "");
     statusLabel = def?.label ?? "Promo unlock";

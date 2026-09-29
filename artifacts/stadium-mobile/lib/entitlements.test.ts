@@ -156,13 +156,14 @@ test("softRequirePro is a boolean soft gate", () => {
   assert.equal(softRequirePro(false), false);
 });
 
-test("catalog prices match Free 7-day / Go $9.99 wk / Pro $29.99 mo", () => {
-  assert.equal(planById("free").name, "Free trial");
-  assert.equal(planById("free").periodLabel, "for 7 days");
-  assert.equal(planById("go").priceLabel, "$9.99");
-  assert.equal(planById("go").periodLabel, "a week");
-  assert.equal(planById("pro").priceLabel, "$29.99");
-  assert.equal(planById("pro").periodLabel, "per month");
+test("catalog shows Go/Pro with intro trial copy (no free-trial plan card)", () => {
+  assert.equal(planById("free").paid, false);
+  assert.equal(planById("go").priceLabel, "$9.99/week");
+  assert.equal(planById("go").note, "7-day free trial, then $9.99/week");
+  assert.equal(planById("pro").priceLabel, "$29.99/month");
+  assert.equal(planById("pro").note, "7-day free trial, then $29.99/month");
+  assert.equal(planById("go").paid, true);
+  assert.equal(planById("pro").paid, true);
 });
 
 test("premium routes map to gated features; Coach stays free", () => {
