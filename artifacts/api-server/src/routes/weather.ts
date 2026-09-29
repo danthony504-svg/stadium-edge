@@ -11,6 +11,11 @@ import {
   degToCompass,
   computeWeatherImpact,
 } from "../lib/parks";
+import {
+  footballStadiumsForSport,
+  resolveFootballStadium,
+  type FootballStadium,
+} from "../lib/footballStadiums";
 
 const router: IRouter = Router();
 
@@ -137,6 +142,8 @@ type ParkWeatherReport = {
   city: string;
   commenceTime: string;
   climateControlled: boolean;
+  /** NFL/NCAAF playing surface when known; omitted for MLB. */
+  surface?: "turf" | "grass" | null;
   current: ParkWeatherCurrent;
   impact: { rating: string; summary: string };
   forecast: ParkWeatherDay[];
@@ -242,8 +249,10 @@ function buildForecast(fc: OWMForecast): ParkWeatherDay[] {
   return days;
 }
 
-async function fetchParkReport(
-  abbr: string,
+async function fetchStadiumWeatherReport(
+  lat: number,
+  lon: number,
+  climateControlled: boolean,
   apiKey: string,
 ): Promise<{
   climateControlled: boolean;
@@ -251,9 +260,6 @@ async function fetchParkReport(
   impact: { rating: string; summary: string };
   forecast: ParkWeatherDay[];
 } | null> {
-  const park = MLB_PARKS[abbr];
-  if (!park) return null;
-  const { lat, lon } = park;
   const key = `wx:report:${lat.toFixed(2)}:${lon.toFixed(2)}`;
   return cachedJson(key, 12 * 60 * 1000, async () => {
     const base = "https://api.openweathermap.org/data/2.5";
@@ -313,22 +319,103 @@ async function fetchParkReport(
     };
 
     const impact = computeWeatherImpact({
-      climateControlled: park.dome,
+      climateControlled,
       tempF,
       precipChancePct,
       windMph,
       windDir,
     });
 
-    return { climateControlled: park.dome, current, impact, forecast };
+    return { climateControlled, current, impact, forecast };
   });
+}
+
+async function fetchParkReport(
+  abbr: string,
+  apiKey: string,
+): Promise<{
+  climateControlled: boolean;
+  current: ParkWeatherCurrent;
+  impact: { rating: string; summary: string };
+  forecast: ParkWeatherDay[];
+} | null> {
+  const park = MLB_PARKS[abbr];
+  if (!park) return null;
+  return fetchStadiumWeatherReport(park.lat, park.lon, park.dome, apiKey);
+}
+
+const ESPN_SCOREBOARD: Record<string, string> = {
+  mlb: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
+  nfl: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+  ncaaf:
+    "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
+};
+
+async function buildFootballParkReports(
+  sport: "nfl" | "ncaaf",
+  apiKey: string,
+): Promise<ParkWeatherReport[]> {
+  const scoreboardUrl = ESPN_SCOREBOARD[sport];
+  if (!scoreboardUrl) return [];
+  const r = await fetch(scoreboardUrl);
+  if (!r.ok) throw new Error(`ESPN scoreboard ${r.status}`);
+  const data = (await r.json()) as ScoreboardResp;
+  const out: ParkWeatherReport[] = [];
+  // Cap concurrent OWM lookups so one Coach scan cannot stampede the weather API.
+  const events = data.events ?? [];
+  const concurrency = 4;
+  for (let i = 0; i < events.length; i += concurrency) {
+    const batch = events.slice(i, i + concurrency);
+    const built = await Promise.all(
+      batch.map(async (ev) => {
+        const comp = ev.competitions?.[0];
+        if (!comp) return null;
+        const home = comp.competitors?.find((c) => c.homeAway === "home");
+        const away = comp.competitors?.find((c) => c.homeAway === "away");
+        const homeAbbr = home?.team?.abbreviation ?? null;
+        const awayAbbr = away?.team?.abbreviation ?? null;
+        const stadium: FootballStadium | null = resolveFootballStadium(sport, homeAbbr);
+        if (!homeAbbr || !stadium) return null;
+        const report = await fetchStadiumWeatherReport(
+          stadium.lat,
+          stadium.lon,
+          stadium.dome,
+          apiKey,
+        );
+        if (!report) return null;
+        return {
+          gameId: String(ev.id ?? `${awayAbbr}@${homeAbbr}`),
+          homeAbbr,
+          awayAbbr: awayAbbr ?? "",
+          homeTeam:
+            home?.team?.displayName ?? home?.team?.shortDisplayName ?? homeAbbr,
+          awayTeam:
+            away?.team?.displayName ??
+            away?.team?.shortDisplayName ??
+            awayAbbr ??
+            "",
+          parkName: stadium.name || comp.venue?.fullName || homeAbbr,
+          city: stadium.city,
+          commenceTime: ev.date ?? "",
+          climateControlled: report.climateControlled,
+          surface: stadium.surface,
+          current: report.current,
+          impact: report.impact,
+          forecast: report.forecast,
+        } satisfies ParkWeatherReport;
+      }),
+    );
+    for (const row of built) {
+      if (row) out.push(row);
+    }
+  }
+  return out;
 }
 
 router.get("/weather/parks", async (req, res): Promise<void> => {
   const sport = String(req.query["sport"] ?? "mlb").toLowerCase();
-  if (sport !== "mlb") {
-    // Park weather reports are MLB-only for now (open-air ballparks). Returning
-    // an empty list keeps the contract honest rather than faking other sports.
+  if (sport !== "mlb" && sport !== "nfl" && sport !== "ncaaf") {
+    // Honest empty list for unsupported sports — never invent stadium weather.
     res.json([]);
     return;
   }
@@ -339,13 +426,26 @@ router.get("/weather/parks", async (req, res): Promise<void> => {
   }
 
   try {
+    if (sport === "nfl" || sport === "ncaaf") {
+      // Fail closed if we somehow lack stadium tables.
+      if (!footballStadiumsForSport(sport)) {
+        res.json([]);
+        return;
+      }
+      const reports = await cachedJson(
+        `wx:parks:${sport}:v1`,
+        10 * 60 * 1000,
+        () => buildFootballParkReports(sport, apiKey),
+      );
+      res.json(GetParkWeatherResponse.parse(reports));
+      return;
+    }
+
     const reports = await cachedJson(
       "wx:parks:mlb",
       10 * 60 * 1000,
       async (): Promise<ParkWeatherReport[]> => {
-        const r = await fetch(
-          "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
-        );
+        const r = await fetch(ESPN_SCOREBOARD.mlb!);
         if (!r.ok) throw new Error(`ESPN scoreboard ${r.status}`);
         const data = (await r.json()) as ScoreboardResp;
 
