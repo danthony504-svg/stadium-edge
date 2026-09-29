@@ -105,6 +105,8 @@ export async function loadMlbScanContext(
     espnGames: EspnGame[];
     /** When true, only load context for batter_home_runs rows. */
     hrOnly?: boolean;
+    /** Cap unique batter-split fetches (default 16 non-HR / 32 HR). */
+    maxBatters?: number;
     signal?: AbortSignal;
   },
 ): Promise<MlbScanContext> {
@@ -161,8 +163,10 @@ export async function loadMlbScanContext(
     if (!unique.has(id)) unique.set(id, row);
   }
 
+  // Cap batter-split fetches so non-HR MLB props don't inflate Coach wall time.
+  const maxBatters = Math.max(1, Math.min(opts.maxBatters ?? (opts.hrOnly ? 32 : 16), 40));
   const CONCURRENCY = 8;
-  const ids = [...unique.values()];
+  const ids = [...unique.values()].slice(0, maxBatters);
   for (let i = 0; i < ids.length; i += CONCURRENCY) {
     if (opts.signal?.aborted) break;
     const batch = ids.slice(i, i + CONCURRENCY);

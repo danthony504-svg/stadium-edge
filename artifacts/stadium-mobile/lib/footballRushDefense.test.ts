@@ -251,3 +251,39 @@ test("pickDefenseAwareAlt: Under first, then softer Over alt", () => {
   assert.equal(pickDefenseAwareAlt(over40, [over40, over24]), over24);
   assert.equal(pickDefenseAwareAlt(over40, [over40]), null);
 });
+
+test("multiSport market-aware: assists use steals, rebounds use dreb", async () => {
+  const { multiSportOppDefenseTilt } = await import("./footballRushDefense.ts");
+  const ast = multiSportOppDefenseTilt({
+    sport: "nba",
+    market: "player_assists",
+    side: "Over",
+    pack: { steals: 9.2, pointsAgainst: 112, teamName: "Thunder" },
+  });
+  assert.ok(ast.tilt < 0);
+  assert.ok(ast.display?.includes("stl"));
+
+  const reb = multiSportOppDefenseTilt({
+    sport: "nba",
+    market: "player_rebounds",
+    side: "Over",
+    pack: { defRebounds: 36, pointsAgainst: 112 },
+  });
+  assert.ok(reb.tilt < 0);
+
+  const sog = multiSportOppDefenseTilt({
+    sport: "nhl",
+    market: "player_shots_on_goal",
+    side: "Over",
+    pack: { shotsAgainst: 34, savePct: 0.91 },
+  });
+  assert.ok(sog.tilt > 0);
+
+  const mlbHit = multiSportOppDefenseTilt({
+    sport: "mlb",
+    market: "batter_hits",
+    side: "Over",
+    pack: { era: 3.1, whip: 1.05, teamName: "Braves" },
+  });
+  assert.ok(mlbHit.tilt < 0);
+});

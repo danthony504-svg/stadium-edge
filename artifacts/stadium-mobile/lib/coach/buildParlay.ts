@@ -210,10 +210,12 @@ export async function buildCoachParlay(opts: {
     : constrainedPropPool;
   const propPoolSize = activePropPool.length;
 
-  // Injuries for every board sport + (HR) MLB platoon/park + early Form history.
-  // All in parallel so we don't add sequential wall time before scoring.
+  const hasMlbProps = activePropPool.some(
+    (e) => String(e.sport ?? "").toLowerCase() === "mlb",
+  );
+  // Injuries + opp-D + (any MLB props) platoon/park — all parallel.
   opts.onStatus?.(
-    hrBoardAsk && activePropPool.length > 0
+    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
       ? "Loading matchup, injuries, and recent form…"
       : "Loading injury context…",
   );
@@ -232,18 +234,19 @@ export async function buildCoachParlay(opts: {
       matchupInjuries: {} as Record<string, import("@/lib/injuries").GameInjuryReport>,
       injuryTeams: [] as import("@/lib/api").InjuryTeam[],
     })),
-    hrBoardAsk && activePropPool.length > 0
+    hasMlbProps && activePropPool.length > 0
       ? loadMlbScanContext({
           propPool: activePropPool,
           espnGames: inputs.espnGames,
-          hrOnly: true,
+          hrOnly: hrBoardAsk,
+          maxBatters: hrBoardAsk ? 32 : 16,
           signal: opts.signal,
         }).catch(() => ({ mlbPlatoon: {}, mlbGameEnv: {} }))
       : Promise.resolve({ mlbPlatoon: {}, mlbGameEnv: {} }),
-    hrBoardAsk && activePropPool.length > 0
+    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
       ? prefetchPropPlayerHistory(activePropPool, {
           signal: opts.signal,
-          maxPlayers: 24,
+          maxPlayers: hrBoardAsk ? 24 : 16,
           concurrency: 6,
         }).catch(() => ({}))
       : Promise.resolve({} as Record<string, import("@/lib/pickScoreContext").PlayerHistorySlice>),
@@ -301,6 +304,8 @@ export async function buildCoachParlay(opts: {
       playerHistory,
       oppRushDefense,
       espnGames: inputs.espnGames,
+      mlbPlatoon,
+      mlbGameEnv,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
           filterPicksByAskMarketConstraint(picks, marketConstraint),

@@ -28,16 +28,30 @@ export type FootballOppDefenseSlice = {
   pointsAgainst?: number | null;
   sacks?: number | null;
   interceptions?: number | null;
+  passesDefended?: number | null;
+  stuffs?: number | null;
   /** Basketball feed fields (honest, not positional allows). */
   steals?: number | null;
   blocks?: number | null;
   defRebounds?: number | null;
-  /** NHL goaltending feed fields. */
+  /** Opp offensive profile (creates rebound/assist opportunities). */
+  oppTurnovers?: number | null;
+  oppFgPct?: number | null;
+  oppThreePct?: number | null;
+  /** NHL goaltending / shot suppression feed fields. */
   goalsAgainstAvg?: number | null;
   savePct?: number | null;
+  shotsAgainst?: number | null;
+  blockedShots?: number | null;
+  takeaways?: number | null;
   /** Soccer feed fields. */
   goalsConceded?: number | null;
   cleanSheets?: number | null;
+  tackles?: number | null;
+  /** MLB team pitching allowlist (coarse — prefer pitcher tendency when present). */
+  era?: number | null;
+  whip?: number | null;
+  battingAverageAgainst?: number | null;
 };
 
 export type RushDefenseTilt = {
@@ -188,8 +202,10 @@ export function footballRushDefenseTilt(opts: {
       isOver,
       isUnder,
     });
-    // Soft pressure nudge from season sacks when present (descriptive only).
+    // Soft pressure nudge from season sacks / passes defended when present.
     if (pack?.sacks != null && pack.sacks >= 20 && isOver) tilt -= 0.1;
+    if (pack?.interceptions != null && pack.interceptions >= 10 && isOver) tilt -= 0.08;
+    if (pack?.passesDefended != null && pack.passesDefended >= 50 && isOver) tilt -= 0.08;
     if (ypa != null && ypa <= 5.8) tilt += isOver ? -0.12 : 0.08;
     else if (ypa != null && ypa >= 7.4) tilt += isOver ? 0.1 : -0.08;
     tilt = Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100));
@@ -244,7 +260,9 @@ export function multiSportOppDefenseTilt(opts: {
 }): RushDefenseTilt {
   const empty: RushDefenseTilt = { tilt: 0, blockOver: false, display: null };
   const sport = String(opts.sport ?? "").toLowerCase();
-  const key = String(opts.market ?? "").toLowerCase();
+  const key = String(opts.market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
   const side = String(opts.side ?? "").toLowerCase();
   const isOver = side === "over";
   const isUnder = side === "under";
@@ -254,43 +272,73 @@ export function multiSportOppDefenseTilt(opts: {
   const who = pack.teamName ? `${pack.teamName} ` : "";
 
   if (sport === "nba" || sport === "wnba" || sport === "ncaab") {
-    const pa = pack.pointsAgainst;
-    if (pa == null) return empty;
-    // Soft bands only — ESPN pointsAgainst is team-wide, not positional.
-    const stingy = sport === "ncaab" ? pa <= 65 : pa <= 108;
-    const leaky = sport === "ncaab" ? pa >= 78 : pa >= 118;
+    const isPts = /point|pts|three|3.?pt|threes|field goal/.test(key);
+    const isAst = /assist|\bast\b/.test(key);
+    const isReb = /rebound|\breb\b/.test(key);
     let tilt = 0;
-    if (stingy) tilt = isOver ? -0.35 : 0.25;
-    else if (leaky) tilt = isOver ? 0.3 : -0.2;
-    else return empty;
-    const bits = [`${pa} pts allowed/g`];
-    if (pack.blocks != null && /point|pts|three|3/.test(key)) {
-      bits.push(`${pack.blocks} blk/g`);
+    const bits: string[] = [];
+    const pa = pack.pointsAgainst;
+    if (pa != null && (isPts || (!isAst && !isReb))) {
+      const stingy = sport === "ncaab" ? pa <= 65 : pa <= 108;
+      const leaky = sport === "ncaab" ? pa >= 78 : pa >= 118;
+      bits.push(`${pa} pts allowed/g`);
+      if (stingy) tilt += isOver ? -0.35 : 0.25;
+      else if (leaky) tilt += isOver ? 0.3 : -0.2;
     }
+    if (isAst && pack.steals != null) {
+      bits.push(`${pack.steals.toFixed(1)} stl/g`);
+      if (pack.steals >= 8.5) tilt += isOver ? -0.25 : 0.18;
+      else if (pack.steals <= 6.5) tilt += isOver ? 0.2 : -0.12;
+    }
+    if (isReb && pack.defRebounds != null) {
+      bits.push(`${pack.defRebounds.toFixed(1)} dreb/g`);
+      if (pack.defRebounds >= 35) tilt += isOver ? -0.25 : 0.18;
+      else if (pack.defRebounds <= 31) tilt += isOver ? 0.22 : -0.12;
+    }
+    if (isPts && pack.blocks != null && pack.blocks >= 5.5) {
+      bits.push(`${pack.blocks.toFixed(1)} blk/g`);
+      tilt += isOver ? -0.12 : 0.08;
+    }
+    if (isReb && pack.oppFgPct != null && pack.oppFgPct <= 0.44) {
+      bits.push(`opp FG% ${(pack.oppFgPct * 100).toFixed(0)}`);
+      tilt += isOver ? 0.15 : -0.1;
+    }
+    if (tilt === 0 || !bits.length) return empty;
     return {
-      tilt: Math.max(-0.8, Math.min(0.8, tilt)),
+      tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
       blockOver: false,
       display: `${who}${bits.join(", ")}`,
     };
   }
 
   if (sport === "nhl") {
-    const gaa = pack.goalsAgainstAvg;
-    const sv = pack.savePct != null ? (pack.savePct > 1 ? pack.savePct / 100 : pack.savePct) : null;
-    if (gaa == null && sv == null) return empty;
+    const isShots = /shot|sog/.test(key);
+    const isGoals = /goal|point|pts|scorer/.test(key) || !isShots;
     let tilt = 0;
     const bits: string[] = [];
-    if (sv != null) {
+    const gaa = pack.goalsAgainstAvg;
+    const sv = pack.savePct != null ? (pack.savePct > 1 ? pack.savePct / 100 : pack.savePct) : null;
+    if (sv != null && isGoals) {
       bits.push(`${(sv * 100).toFixed(1)} SV%`);
       if (sv >= 0.915) tilt += isOver ? -0.3 : 0.2;
       else if (sv <= 0.895) tilt += isOver ? 0.25 : -0.15;
     }
-    if (gaa != null) {
+    if (gaa != null && isGoals) {
       bits.push(`${gaa.toFixed(2)} GAA`);
       if (gaa <= 2.6) tilt += isOver ? -0.2 : 0.15;
       else if (gaa >= 3.4) tilt += isOver ? 0.2 : -0.12;
     }
-    if (tilt === 0) return empty;
+    if (isShots && pack.shotsAgainst != null) {
+      bits.push(`${pack.shotsAgainst.toFixed(0)} SA`);
+      // High shots against → more SOG opportunities for skaters.
+      if (pack.shotsAgainst >= 32) tilt += isOver ? 0.25 : -0.15;
+      else if (pack.shotsAgainst <= 26) tilt += isOver ? -0.22 : 0.15;
+    }
+    if (pack.blockedShots != null && pack.blockedShots >= 15 && isShots) {
+      bits.push(`${pack.blockedShots} blk`);
+      tilt += isOver ? -0.1 : 0.06;
+    }
+    if (tilt === 0 || !bits.length) return empty;
     return {
       tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
       blockOver: false,
@@ -299,22 +347,50 @@ export function multiSportOppDefenseTilt(opts: {
   }
 
   if (sport === "soccer") {
-    const gc = pack.goalsConceded;
-    const cs = pack.cleanSheets;
-    if (gc == null && cs == null && pack.pointsAgainst == null) return empty;
     let tilt = 0;
     const bits: string[] = [];
-    if (gc != null) {
-      bits.push(`${gc} goals conceded`);
-      // Season totals — soft descriptive nudge only when extreme.
-      if (gc <= 8) tilt += isOver ? -0.25 : 0.2;
-      else if (gc >= 20) tilt += isOver ? 0.2 : -0.12;
+    if (pack.goalsConceded != null) {
+      bits.push(`${pack.goalsConceded} goals conceded`);
+      if (pack.goalsConceded <= 8) tilt += isOver ? -0.25 : 0.2;
+      else if (pack.goalsConceded >= 20) tilt += isOver ? 0.2 : -0.12;
     }
-    if (cs != null && cs >= 6) {
-      bits.push(`${cs} clean sheets`);
+    if (pack.cleanSheets != null && pack.cleanSheets >= 6) {
+      bits.push(`${pack.cleanSheets} clean sheets`);
       tilt += isOver ? -0.15 : 0.1;
     }
-    if (tilt === 0) return empty;
+    if (pack.tackles != null && pack.tackles >= 18 && /shot|goal/.test(key)) {
+      bits.push(`${pack.tackles} tackles`);
+      tilt += isOver ? -0.08 : 0.05;
+    }
+    if (tilt === 0 || !bits.length) return empty;
+    return {
+      tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
+      blockOver: false,
+      display: `${who}${bits.join(", ")}`,
+    };
+  }
+
+  if (sport === "mlb") {
+    // Coarse team pitching only — prefer opposingPitcherTendency when present in holistic.
+    let tilt = 0;
+    const bits: string[] = [];
+    const isHit = /hit|total bas|\btb\b|home.?run|\bhr\b|rbi|run/.test(key);
+    const isK = /strikeout|\bk\b/.test(key);
+    if (isHit && pack.era != null) {
+      bits.push(`${pack.era.toFixed(2)} ERA`);
+      if (pack.era <= 3.4) tilt += isOver ? -0.3 : 0.2;
+      else if (pack.era >= 4.6) tilt += isOver ? 0.28 : -0.18;
+    }
+    if (isHit && pack.whip != null) {
+      bits.push(`${pack.whip.toFixed(2)} WHIP`);
+      if (pack.whip <= 1.15) tilt += isOver ? -0.15 : 0.1;
+      else if (pack.whip >= 1.4) tilt += isOver ? 0.15 : -0.1;
+    }
+    if (isK && pack.era != null && pack.era <= 3.2) {
+      bits.push("stingy staff");
+      tilt += isOver ? 0.2 : -0.12; // K overs lean up vs stingy staffs
+    }
+    if (tilt === 0 || !bits.length) return empty;
     return {
       tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
       blockOver: false,
