@@ -3,10 +3,11 @@
  *
  * Design rules (App Store + OTA-safe):
  * - Guest browsing + Coach stay freely usable (App Store 5.1.1(v)).
- * - Secondary tools may soft-gate after trial (Edge Lock, Steals, Simulator, Report).
+ * - Secondary tools may soft-gate without an Apple/promo/admin unlock
+ *   (Edge Lock, Steals, Simulator, Report).
  * - Admin emails + promo codes/links unlock everything without StoreKit.
- * - Apple StoreKit (via RevenueCat) unlocks paid Go/Pro and appears in
- *   iOS Settings → Subscriptions after a native rebuild + runtimeVersion bump.
+ * - Paid Go/Pro (including any free trial) come exclusively from Apple
+ *   StoreKit auto-renewables via RevenueCat — no local device trial clock.
  * - Pure helpers stay Node-testable (no React / AsyncStorage / Purchases imports).
  */
 
@@ -18,39 +19,50 @@ export type PlanDefinition = {
   priceLabel: string;
   periodLabel: string;
   note: string;
-  /** Paid catalog entry (Go / Pro). Free is the post-trial default. */
+  /** Paid catalog entry (Go / Pro). Free is the default without Apple/promo/admin. */
   paid: boolean;
 };
 
-/** Catalog — Go/Pro bill through Apple StoreKit on native builds. */
+/** Catalog — Go/Pro bill through Apple StoreKit on native builds.
+ *  The free trial is an Apple introductory offer on those products (ASC),
+ *  not a local device entitlement. */
 export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
   {
     id: "free",
-    name: "Free trial",
+    name: "Free",
     priceLabel: "$0",
-    periodLabel: "for 7 days",
-    note: "Everything unlocked for 7 days. Browse + Coach stay open after.",
+    periodLabel: "",
+    note: "Browse + Coach stay open. Secondary tools need a plan.",
     paid: false,
   },
   {
     id: "go",
     name: "Stadium Edge Go",
-    priceLabel: "$9.99",
-    periodLabel: "a week",
-    note: "Weekly auto-renewable via Apple. Manage in Settings → Subscriptions.",
+    priceLabel: "$9.99/week",
+    periodLabel: "",
+    note: "7-day free trial, then $9.99/week",
     paid: true,
   },
   {
     id: "pro",
     name: "Stadium Edge Pro",
-    priceLabel: "$29.99",
-    periodLabel: "per month",
-    note: "Monthly auto-renewable via Apple. Manage in Settings → Subscriptions.",
+    priceLabel: "$29.99/month",
+    periodLabel: "",
+    note: "7-day free trial, then $29.99/month",
     paid: true,
   },
 ] as const;
 
-export const TRIAL_LENGTH_DAYS = 7;
+/** Paid plans shown on the Plans paywall (no standalone free-trial card). */
+export const PAID_SUBSCRIPTION_PLANS: readonly PlanDefinition[] = SUBSCRIPTION_PLANS.filter(
+  (p) => p.paid,
+);
+
+/** Display-only: Apple introductory offer length advertised on Go/Pro. */
+export const APPLE_INTRO_TRIAL_DAYS = 7;
+
+/** @deprecated Local device trials removed — use APPLE_INTRO_TRIAL_DAYS for copy only. */
+export const TRIAL_LENGTH_DAYS = APPLE_INTRO_TRIAL_DAYS;
 
 export const SUBSCRIPTION_STORAGE_KEY = "stadium-edge:subscription:v1";
 
@@ -173,7 +185,10 @@ export const PROMO_CATALOG: readonly PromoDefinition[] = [
 
 export type SubscriptionPersistedState = {
   planId: PlanId;
-  /** Epoch ms when the device-local trial started. Null = not started yet. */
+  /**
+   * Legacy field — previously a local 7-day device trial clock.
+   * No longer grants access; cleared on hydrate. Kept for storage shape compat.
+   */
   trialStartedAtMs: number | null;
   /** Last successfully redeemed promo (normalized uppercase). */
   redeemedPromoCode: string | null;
@@ -194,14 +209,16 @@ export type SubscriptionPersistedState = {
   storeKitManagementUrl: string | null;
 };
 
-export type UnlockSource = "storekit" | "paid" | "trial" | "promo" | "admin" | "none";
+export type UnlockSource = "storekit" | "paid" | "promo" | "admin" | "none";
 
 export type EntitlementView = {
   planId: PlanId;
   plan: PlanDefinition;
+  /** Always false — local trials removed; Apple intro offers are StoreKit-only. */
   trialActive: boolean;
+  /** Always 0 — local trials removed. */
   trialDaysLeft: number;
-  /** Paid / trial / promo / admin — soft Pro for gated secondary features. */
+  /** Paid / promo / admin / active Apple sub — soft Pro for gated secondary features. */
   isPro: boolean;
   unlockSource: UnlockSource;
   isAdmin: boolean;
@@ -232,26 +249,22 @@ export function planById(id: PlanId): PlanDefinition {
   return found ?? SUBSCRIPTION_PLANS[0]!;
 }
 
-/** Whole days remaining in the trial window (0 when expired / missing). */
+/** @deprecated Local trials removed — always returns 0. */
 export function trialDaysRemaining(
-  trialStartedAtMs: number | null,
-  nowMs: number,
-  trialLengthDays: number = TRIAL_LENGTH_DAYS,
+  _trialStartedAtMs: number | null,
+  _nowMs: number,
+  _trialLengthDays: number = APPLE_INTRO_TRIAL_DAYS,
 ): number {
-  if (trialStartedAtMs == null || !Number.isFinite(trialStartedAtMs)) return 0;
-  if (!Number.isFinite(nowMs) || nowMs < trialStartedAtMs) return 0;
-  const elapsed = nowMs - trialStartedAtMs;
-  const left = trialLengthDays - elapsed / MS_PER_DAY;
-  if (left <= 0) return 0;
-  return Math.ceil(left);
+  return 0;
 }
 
+/** @deprecated Local trials removed — always returns false. */
 export function isTrialActive(
-  trialStartedAtMs: number | null,
-  nowMs: number,
-  trialLengthDays: number = TRIAL_LENGTH_DAYS,
+  _trialStartedAtMs: number | null,
+  _nowMs: number,
+  _trialLengthDays: number = APPLE_INTRO_TRIAL_DAYS,
 ): boolean {
-  return trialDaysRemaining(trialStartedAtMs, nowMs, trialLengthDays) > 0;
+  return false;
 }
 
 export function normalizePromoCode(raw: string | null | undefined): string {
@@ -344,26 +357,24 @@ export function isAdminEmail(
 export function hasPromoOrPlanAccess(
   state: SubscriptionPersistedState,
   nowMs: number,
-  trialLengthDays: number = TRIAL_LENGTH_DAYS,
 ): boolean {
   if (state.storeKitActive && planById(state.planId).paid) return true;
   if (planById(state.planId).paid) return true;
   if (isPromoUnlockActive(state, nowMs)) return true;
-  return isTrialActive(state.trialStartedAtMs, nowMs, trialLengthDays);
+  return false;
 }
 
 /**
- * Soft Pro access: paid plan, active trial, active promo, or admin email.
- * Free + expired trial → not Pro (core browse/Coach still open).
+ * Soft Pro access: Apple StoreKit paid plan, active promo, or admin email.
+ * Local device trials do not unlock Pro.
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
   nowMs: number,
   opts: { email?: string | null; adminEmails?: readonly string[] } = {},
-  trialLengthDays: number = TRIAL_LENGTH_DAYS,
 ): boolean {
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
-  return hasPromoOrPlanAccess(state, nowMs, trialLengthDays);
+  return hasPromoOrPlanAccess(state, nowMs);
 }
 
 export function resolveUnlockSource(
@@ -375,7 +386,6 @@ export function resolveUnlockSource(
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (planById(state.planId).paid) return "paid";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
-  if (isTrialActive(state.trialStartedAtMs, nowMs)) return "trial";
   return "none";
 }
 
@@ -403,7 +413,7 @@ export function applyStoreKitSnapshot(
       storeKitManagementUrl: snapshot.managementUrl ?? state.storeKitManagementUrl,
     };
   }
-  // Apple says inactive — drop StoreKit-backed paid plan, keep promo/trial.
+  // Apple says inactive — drop StoreKit-backed paid plan, keep promo/admin.
   if (state.storeKitActive) {
     return {
       ...state,
@@ -434,8 +444,6 @@ export function buildEntitlementView(
 ): EntitlementView {
   const planId = isPlanId(state.planId) ? state.planId : "free";
   const plan = planById(planId);
-  const trialDaysLeft = trialDaysRemaining(state.trialStartedAtMs, nowMs);
-  const trialActive = trialDaysLeft > 0;
   const isAdmin = isAdminEmail(opts.email, opts.adminEmails ?? []);
   const unlockSource = resolveUnlockSource(state, nowMs, opts);
   const isPro = unlockSource !== "none";
@@ -447,10 +455,10 @@ export function buildEntitlementView(
     statusDetail = "Full access · admin account";
   } else if (unlockSource === "storekit") {
     statusLabel = plan.name;
-    statusDetail = `${plan.priceLabel} ${plan.periodLabel} · Apple subscription`;
+    statusDetail = `${plan.note || plan.priceLabel} · Apple subscription`;
   } else if (unlockSource === "paid") {
     statusLabel = plan.name;
-    statusDetail = `${plan.priceLabel} ${plan.periodLabel} · local entitlement`;
+    statusDetail = `${plan.note || plan.priceLabel} · local entitlement`;
   } else if (unlockSource === "promo") {
     const def = findPromoDefinition(state.redeemedPromoCode ?? "");
     statusLabel = def?.label ?? "Promo unlock";
@@ -462,12 +470,6 @@ export function buildEntitlementView(
     } else {
       statusDetail = `Code ${state.redeemedPromoCode}`;
     }
-  } else if (trialActive) {
-    statusLabel = "Free trial";
-    statusDetail =
-      trialDaysLeft === 1
-        ? "1 day left · everything unlocked for this preview"
-        : `${trialDaysLeft} days left · everything unlocked for this preview`;
   } else {
     statusLabel = "Free";
     statusDetail =
@@ -477,8 +479,8 @@ export function buildEntitlementView(
   return {
     planId,
     plan,
-    trialActive,
-    trialDaysLeft,
+    trialActive: false,
+    trialDaysLeft: 0,
     isPro,
     unlockSource,
     isAdmin,
@@ -651,15 +653,22 @@ export function sanitizeSubscriptionState(raw: unknown): SubscriptionPersistedSt
 }
 
 /**
- * First launch: start the trial clock. Later launches keep the stored start.
- * Never auto-selects a paid plan.
+ * Clear any legacy local device-trial stamp. Free trials are Apple StoreKit
+ * introductory offers only — this never starts a local unlock clock.
  */
+export function clearLocalTrialEntitlement(
+  state: SubscriptionPersistedState,
+): SubscriptionPersistedState {
+  if (state.trialStartedAtMs == null) return state;
+  return { ...state, trialStartedAtMs: null };
+}
+
+/** @deprecated Use clearLocalTrialEntitlement — local trials no longer start. */
 export function ensureTrialStarted(
   state: SubscriptionPersistedState,
-  nowMs: number,
+  _nowMs?: number,
 ): SubscriptionPersistedState {
-  if (state.trialStartedAtMs != null) return state;
-  return { ...state, trialStartedAtMs: nowMs };
+  return clearLocalTrialEntitlement(state);
 }
 
 /**

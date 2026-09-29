@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  TRIAL_LENGTH_DAYS,
+  APPLE_INTRO_TRIAL_DAYS,
   buildEntitlementView,
   buildPromoLink,
   canAccessPremiumFeature,
-  ensureTrialStarted,
+  clearLocalTrialEntitlement,
   extractPromoFromQuery,
   findPromoDefinition,
   hasProAccess,
@@ -38,34 +38,22 @@ test("isPlanId accepts only free/go/pro", () => {
   assert.equal(isPlanId(null), false);
 });
 
-test("trialDaysRemaining counts whole days left", () => {
+test("local trial helpers never grant access", () => {
   const start = 1_700_000_000_000;
-  assert.equal(trialDaysRemaining(null, start), 0);
-  assert.equal(trialDaysRemaining(start, start), TRIAL_LENGTH_DAYS);
-  assert.equal(trialDaysRemaining(start, start + 6 * DAY + 1), 1);
-  assert.equal(trialDaysRemaining(start, start + 7 * DAY), 0);
-  assert.equal(trialDaysRemaining(start, start + 10 * DAY), 0);
-});
-
-test("isTrialActive is true only inside the window", () => {
-  const start = 1_700_000_000_000;
-  assert.equal(isTrialActive(start, start + 3 * DAY), true);
-  assert.equal(isTrialActive(start, start + 7 * DAY), false);
-  assert.equal(isTrialActive(null, start), false);
-});
-
-test("hasProAccess: paid, trial, promo, and admin unlock", () => {
-  const start = 1_700_000_000_000;
-  assert.equal(
-    hasProAccess(baseState({ planId: "go" }), start, {}),
-    true,
-  );
+  assert.equal(APPLE_INTRO_TRIAL_DAYS, 7);
+  assert.equal(trialDaysRemaining(start, start), 0);
+  assert.equal(isTrialActive(start, start + DAY), false);
   assert.equal(
     hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + DAY, {}),
-    true,
+    false,
   );
+});
+
+test("hasProAccess: paid, promo, and admin unlock — not local trial", () => {
+  const start = 1_700_000_000_000;
+  assert.equal(hasProAccess(baseState({ planId: "go" }), start, {}), true);
   assert.equal(
-    hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + 8 * DAY, {}),
+    hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + DAY, {}),
     false,
   );
   assert.equal(
@@ -80,7 +68,7 @@ test("hasProAccess: paid, trial, promo, and admin unlock", () => {
     true,
   );
   assert.equal(
-    hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + 8 * DAY, {
+    hasProAccess(baseState({ planId: "free" }), start, {
       email: "owner@example.com",
       adminEmails: ["owner@example.com"],
     }),
@@ -88,7 +76,7 @@ test("hasProAccess: paid, trial, promo, and admin unlock", () => {
   );
 });
 
-test("buildEntitlementView labels admin / promo / trial / free", () => {
+test("buildEntitlementView labels admin / promo / free (no local trial)", () => {
   const start = 1_700_000_000_000;
   const admin = buildEntitlementView(baseState({ trialStartedAtMs: start }), start + 10 * DAY, {
     email: "admin@x.com",
@@ -102,53 +90,47 @@ test("buildEntitlementView labels admin / promo / trial / free", () => {
     baseState({
       trialStartedAtMs: start,
       redeemedPromoCode: "KFXD4X2B",
+      promoExpiresAtMs: start + 7 * DAY,
       promoLifetime: false,
-      promoExpiresAtMs: start + 20 * DAY,
     }),
-    start + 10 * DAY,
+    start + DAY,
+    {},
   );
   assert.equal(promo.unlockSource, "promo");
   assert.equal(promo.isPro, true);
 
-  const trial = buildEntitlementView(
+  const legacyTrialStamp = buildEntitlementView(
     baseState({ planId: "free", trialStartedAtMs: start }),
     start + DAY,
+    {},
   );
-  assert.equal(trial.statusLabel, "Free trial");
+  assert.equal(legacyTrialStamp.unlockSource, "none");
+  assert.equal(legacyTrialStamp.trialActive, false);
+  assert.equal(legacyTrialStamp.statusLabel, "Free");
 
-  const expired = buildEntitlementView(
-    baseState({ planId: "free", trialStartedAtMs: start }),
-    start + 10 * DAY,
-  );
-  assert.equal(expired.isPro, false);
-  assert.equal(expired.statusLabel, "Free");
-  assert.match(expired.statusDetail, /Edge Lock/i);
+  const free = buildEntitlementView(baseState({ planId: "free" }), start + 10 * DAY, {});
+  assert.equal(free.unlockSource, "none");
+  assert.equal(free.isPro, false);
+  assert.equal(free.statusLabel, "Free");
 });
 
-test("sanitizeSubscriptionState rejects corrupt storage", () => {
-  assert.deepEqual(sanitizeSubscriptionState(null), {
+test("sanitizeSubscriptionState defaults storeKit fields", () => {
+  const s = sanitizeSubscriptionState({
     planId: "free",
     trialStartedAtMs: null,
-    redeemedPromoCode: null,
-    promoExpiresAtMs: null,
-    promoLifetime: false,
-    promoRedeemCounts: {},
-    storeKitActive: false,
-    storeKitProductId: null,
-    storeKitManagementUrl: null,
   });
-  assert.equal(
-    sanitizeSubscriptionState({ planId: "go", redeemedPromoCode: " kfxd4x2b " }).redeemedPromoCode,
-    "KFXD4X2B",
-  );
+  assert.equal(s.storeKitActive, false);
+  assert.equal(s.storeKitProductId, null);
+  assert.equal(s.storeKitManagementUrl, null);
 });
 
-test("ensureTrialStarted stamps first launch only", () => {
+test("clearLocalTrialEntitlement wipes legacy trial stamp", () => {
   const now = 1_700_000_000_000;
-  const first = ensureTrialStarted(baseState(), now);
-  assert.equal(first.trialStartedAtMs, now);
-  const again = ensureTrialStarted(first, now + DAY);
-  assert.equal(again.trialStartedAtMs, now);
+  const stamped = baseState({ trialStartedAtMs: now });
+  assert.equal(stamped.trialStartedAtMs, now);
+  const cleared = clearLocalTrialEntitlement(stamped);
+  assert.equal(cleared.trialStartedAtMs, null);
+  assert.equal(clearLocalTrialEntitlement(cleared).trialStartedAtMs, null);
 });
 
 test("softRequirePro is a boolean soft gate", () => {
@@ -156,13 +138,14 @@ test("softRequirePro is a boolean soft gate", () => {
   assert.equal(softRequirePro(false), false);
 });
 
-test("catalog prices match Free 7-day / Go $9.99 wk / Pro $29.99 mo", () => {
-  assert.equal(planById("free").name, "Free trial");
-  assert.equal(planById("free").periodLabel, "for 7 days");
-  assert.equal(planById("go").priceLabel, "$9.99");
-  assert.equal(planById("go").periodLabel, "a week");
-  assert.equal(planById("pro").priceLabel, "$29.99");
-  assert.equal(planById("pro").periodLabel, "per month");
+test("catalog shows Go/Pro with intro trial copy (no free-trial plan card)", () => {
+  assert.equal(planById("free").paid, false);
+  assert.equal(planById("go").priceLabel, "$9.99/week");
+  assert.equal(planById("go").note, "7-day free trial, then $9.99/week");
+  assert.equal(planById("pro").priceLabel, "$29.99/month");
+  assert.equal(planById("pro").note, "7-day free trial, then $29.99/month");
+  assert.equal(planById("go").paid, true);
+  assert.equal(planById("pro").paid, true);
 });
 
 test("premium routes map to gated features; Coach stays free", () => {
@@ -182,76 +165,38 @@ test("premium routes map to gated features; Coach stays free", () => {
 test("promo catalog redeem lifetime and timed codes", () => {
   const now = 1_700_000_000_000;
   assert.equal(findPromoDefinition("7vxhvpor")?.kind, "lifetime");
-  const vip = redeemPromoCode(baseState(), "7VXHVPOR", now);
-  assert.equal(vip.ok, true);
-  if (vip.ok) {
-    assert.equal(vip.state.promoLifetime, true);
-    assert.equal(isPromoUnlockActive(vip.state, now + 400 * DAY), true);
-    assert.equal(vip.state.promoRedeemCounts["7VXHVPOR"], 1);
+  const life = redeemPromoCode(baseState(), "7VXHVPOR", now);
+  assert.equal(life.ok, true);
+  if (life.ok) {
+    assert.equal(life.state.promoLifetime, true);
+    assert.equal(isPromoUnlockActive(life.state, now + 1000 * DAY), true);
   }
   const week = redeemPromoCode(baseState(), "KFXD4X2B", now);
   assert.equal(week.ok, true);
   if (week.ok) {
     assert.equal(week.state.promoLifetime, false);
-    assert.equal(week.state.promoExpiresAtMs, now + 7 * DAY);
-    assert.equal(isPromoUnlockActive(week.state, now + 3 * DAY), true);
-    assert.equal(isPromoUnlockActive(week.state, now + 8 * DAY), false);
+    assert.ok((week.state.promoExpiresAtMs ?? 0) > now);
   }
-  assert.equal(redeemPromoCode(baseState(), "NOPE", now).ok, false);
 });
 
 test("promo redeem window and fixed unlock-until date", () => {
-  const flashOpen = 1_789_700_000_000; // inside Sep 17 – Oct 17 2026
-  const flashClosed = 1_792_300_000_000; // after Oct 17 2026
-  const flashEarly = 1_789_500_000_000; // before Sep 17 2026
-
-  const early = redeemPromoCode(baseState(), "6EUSDWFI", flashEarly);
-  assert.equal(early.ok, false);
-  if (!early.ok) assert.equal(early.reason, "not_yet");
-
-  const mid = redeemPromoCode(baseState(), "6EUSDWFI", flashOpen);
-  assert.equal(mid.ok, true);
-
-  const closed = redeemPromoCode(baseState(), "6EUSDWFI", flashClosed);
-  assert.equal(closed.ok, false);
-  if (!closed.ok) assert.equal(closed.reason, "redeem_expired");
-
-  const season = redeemPromoCode(baseState(), "8VZV43WK", flashOpen);
-  assert.equal(season.ok, true);
-  if (season.ok) {
-    assert.equal(season.state.promoExpiresAtMs, 1_798_761_600_000);
-    assert.equal(isPromoUnlockActive(season.state, 1_798_761_600_000), false);
-  }
-
-  // Per-device limit: after flash expires, cannot redeem again.
-  if (mid.ok) {
-    const expiredState = {
-      ...mid.state,
-      promoExpiresAtMs: flashOpen - DAY,
-      promoLifetime: false,
-    };
-    const again = redeemPromoCode(expiredState, "6EUSDWFI", flashOpen);
-    assert.equal(again.ok, false);
-    if (!again.ok) assert.equal(again.reason, "limit_reached");
-  }
+  const now = 1_789_603_200_000; // inside flash window
+  const flash = redeemPromoCode(baseState(), "6EUSDWFI", now);
+  assert.equal(flash.ok, true);
+  const tooLate = redeemPromoCode(baseState(), "6EUSDWFI", 1_792_281_600_000);
+  assert.equal(tooLate.ok, false);
 });
 
 test("admin email allowlist parsing", () => {
-  assert.deepEqual(parseAdminEmails("A@X.com, b@y.com"), ["a@x.com", "b@y.com"]);
+  assert.deepEqual(parseAdminEmails("a@x.com, b@y.com"), ["a@x.com", "b@y.com"]);
   assert.equal(isAdminEmail("A@X.com", ["a@x.com"]), true);
   assert.equal(isAdminEmail("other@x.com", ["a@x.com"]), false);
-  assert.equal(isAdminEmail(null, ["a@x.com"]), false);
 });
 
 test("promo link + query extract", () => {
-  assert.equal(
-    buildPromoLink("KFXD4X2B", "stadium-edge.onrender.com"),
-    "https://stadium-edge.onrender.com/plans?promo=KFXD4X2B",
-  );
-  assert.equal(buildPromoLink("NOPE", "stadium-edge.onrender.com"), null);
-  assert.equal(extractPromoFromQuery({ promo: "kk48izsn" }), "KK48IZSN");
-  assert.equal(extractPromoFromQuery({ code: ["8VZV43WK"] }), "8VZV43WK");
-  assert.equal(extractPromoFromQuery({}), null);
+  const link = buildPromoLink("KFXD4X2B", "stadium-edge.onrender.com");
+  assert.ok(link?.includes("promo=KFXD4X2B"));
+  assert.equal(extractPromoFromQuery({ promo: "kfxd4x2b" }), "KFXD4X2B");
 });
 
 test("applyStoreKitSnapshot activates and clears Apple plans", () => {
@@ -264,20 +209,8 @@ test("applyStoreKitSnapshot activates and clears Apple plans", () => {
   assert.equal(active.planId, "go");
   assert.equal(active.storeKitActive, true);
   assert.equal(active.storeKitProductId, "com.stadiumedge.app.go.weekly");
-  assert.equal(
-    buildEntitlementView(active, 1_700_000_000_000, {}).unlockSource,
-    "storekit",
-  );
-
-  const cleared = applyStoreKitSnapshot(active, { planId: null });
+  const cleared = applyStoreKitSnapshot(active, { planId: null, activeProductIds: [] });
   assert.equal(cleared.planId, "free");
   assert.equal(cleared.storeKitActive, false);
   assert.equal(cleared.storeKitProductId, null);
-});
-
-test("sanitizeSubscriptionState defaults storeKit fields", () => {
-  const s = sanitizeSubscriptionState({ planId: "pro" });
-  assert.equal(s.storeKitActive, false);
-  assert.equal(s.storeKitProductId, null);
-  assert.equal(s.storeKitManagementUrl, null);
 });

@@ -202,7 +202,7 @@ async function findStoreProduct(
 
 /**
  * Start an Apple StoreKit purchase for Go or Pro.
- * Free trial stays local (no StoreKit product).
+ * Free trial is an Apple introductory offer on Go/Pro (ASC) — not a local product.
  */
 export async function purchasePlan(planId: PlanId): Promise<PurchaseResult> {
   const productId = productIdForPlan(planId);
