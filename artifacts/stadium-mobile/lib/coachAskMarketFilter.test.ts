@@ -217,6 +217,9 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
     "player prop bears broncos",
     // Phone: bare slate ask staged Q1/NHL spreads — must be propsOnly.
     "5 leg for tomorrow",
+    // Phone: "5 leg soccer" staged 1 Asian spread — must be propsOnly.
+    "5 leg soccer",
+    "6 leg nba",
   ]) {
     const c = parseCoachAskMarketConstraint(ask);
     assert.equal(c.propsOnly, true, ask);
