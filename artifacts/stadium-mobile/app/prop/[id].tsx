@@ -485,7 +485,7 @@ export default function PropDetailScreen() {
   // line vs that starter's hand, and the home ballpark + live weather. All real
   // ESPN data, resolved fail-closed (team-id misses leave a card generic).
   const mlbQ = useQuery({
-    queryKey: ["mlb-prop-signals", athleteId, awayName, homeName],
+    queryKey: ["mlb-prop-signals", athleteId, awayName, homeName, startsAt],
     enabled: sport === "mlb" && !!athleteId && !!awayName && !!homeName,
     staleTime: 15 * 60_000,
     queryFn: async ({ signal }) => {
@@ -494,10 +494,14 @@ export default function PropDetailScreen() {
         const hits = r.results.filter((t) => (t.sport ?? "") === "mlb");
         return hits.find((t) => teamNameMatches(t.name, name))?.teamId ?? null;
       };
+      const { mlbBoardDayKeys } = await import("@/lib/mlbParks");
+      const dayKeys = mlbBoardDayKeys([{ sport: "mlb", startsAt: startsAt || null }]);
       const [awayId, homeId, probRes, splits] = await Promise.all([
         resolveTeamId(awayName),
         resolveTeamId(homeName),
-        getMlbProbables(signal).catch(() => ({ probables: {} } as Awaited<ReturnType<typeof getMlbProbables>>)),
+        getMlbProbables(signal, dayKeys.length ? dayKeys : undefined).catch(
+          () => ({ probables: {} } as Awaited<ReturnType<typeof getMlbProbables>>),
+        ),
         getMlbBatterSplits(athleteId, signal).catch(() => null),
       ]);
       return { awayId, homeId, probRes, splits };

@@ -1,4 +1,9 @@
 import { Router, type IRouter } from "express";
+import {
+  defaultMlbProbableDayKeys,
+  mergeEspnEventsById,
+  parseEspnDateQuery,
+} from "../lib/espnScoreboardWindow";
 import { cachedJson } from "../lib/sports";
 import { getPitcherStatcastMap, lookupPitcherStatcast } from "../lib/statcast";
 import { MLB_PARKS } from "../lib/parks";
@@ -213,63 +218,158 @@ async function fetchParkWeather(lat: number, lon: number): Promise<ParkWeather> 
   }
 }
 
-type ScoreboardResp = {
-  events?: Array<{
-    competitions?: Array<{
-      venue?: { fullName?: string };
-      competitors?: Array<{
-        homeAway?: string;
-        team?: { id?: string; abbreviation?: string };
-        probables?: Array<{ athlete?: { id?: string; displayName?: string } }>;
-      }>;
+type ScoreboardEvent = {
+  id?: string;
+  competitions?: Array<{
+    venue?: { fullName?: string };
+    competitors?: Array<{
+      homeAway?: string;
+      team?: { id?: string; abbreviation?: string };
+      probables?: Array<{ athlete?: { id?: string; displayName?: string } }>;
     }>;
   }>;
 };
 
-// GET /sports/mlb-probables -> { probables: { "<teamId>": { name, athleteId, throws } } }
-// Today's probable starting pitchers per team, with throwing hand resolved
-// from each pitcher's bio (the scoreboard payload omits handedness). Cached
-// 30min so repeat sends in the same window are cheap.
+type ScoreboardResp = { events?: ScoreboardEvent[] };
+
+type ProbableRow = {
+  name: string;
+  athleteId: string;
+  throws: string | null;
+  tendency: PitcherTendency | null;
+};
+
+type GameEnvRow = {
+  homeAbbr: string | null;
+  venue: string | null;
+  park: { hrIndex: number; altitudeFt: number; dome: boolean } | null;
+  weather: ParkWeather;
+};
+
+async function fetchMlbScoreboardDay(day: string): Promise<ScoreboardEvent[]> {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${MLB}/scoreboard?dates=${day}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`ESPN scoreboard ${r.status} day=${day}`);
+  const data = (await r.json()) as ScoreboardResp;
+  return data.events ?? [];
+}
+
+/**
+ * Merge ESPN scoreboard events for the given YYYYMMDD keys (single-day fetches —
+ * ESPN rejects hyphen/comma ranges). Falls back to the undated default board
+ * only when every dated fetch is empty.
+ */
+async function loadMlbProbableEvents(dayKeys: string[]): Promise<ScoreboardEvent[]> {
+  const batches = await Promise.all(
+    dayKeys.map(async (day) => {
+      try {
+        return await fetchMlbScoreboardDay(day);
+      } catch {
+        return [] as ScoreboardEvent[];
+      }
+    }),
+  );
+  const merged = mergeEspnEventsById(batches);
+  if (merged.length > 0) return merged;
+  try {
+    const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${MLB}/scoreboard`);
+    if (!r.ok) return [];
+    const data = (await r.json()) as ScoreboardResp;
+    return data.events ?? [];
+  } catch {
+    return [];
+  }
+}
+
+// GET /sports/mlb-probables[?date=YYYYMMDD|&dates=YYYYMMDD,YYYYMMDD]
+// Probable starters + park/weather per home team for the requested scoreboard
+// days. Default window is yesterday..tomorrow so "tomorrow" Coach props still
+// get Match (pitcher/platoon/park) without a client date list. Cached 30min
+// per day-key set.
 router.get("/sports/mlb-probables", async (req, res): Promise<void> => {
   try {
-    const out = await cachedJson("mlb-probables", 30 * 60 * 1000, async () => {
-      const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${MLB}/scoreboard`);
-      if (!r.ok) throw new Error(`ESPN scoreboard ${r.status}`);
-      const data = (await r.json()) as ScoreboardResp;
-      const byTeam: Record<string, { name: string; athleteId: string; throws: string | null; tendency: PitcherTendency | null }> = {};
-      // Per-game environment keyed by the home team's ESPN id: venue + static
-      // park factor + REAL ballpark weather (skipped for domes).
-      const games: Record<string, { homeAbbr: string | null; venue: string | null; park: { hrIndex: number; altitudeFt: number; dome: boolean } | null; weather: ParkWeather }> = {};
-      for (const ev of data.events ?? []) {
+    const requested = parseEspnDateQuery(
+      req.query.dates as string | string[] | undefined,
+      req.query.date as string | string[] | undefined,
+    );
+    const dayKeys = requested.length > 0 ? requested : defaultMlbProbableDayKeys();
+    const cacheKey = `mlb-probables:${dayKeys.join(",")}`;
+    const out = await cachedJson(cacheKey, 30 * 60 * 1000, async () => {
+      const events = await loadMlbProbableEvents(dayKeys);
+      const byTeam: Record<string, ProbableRow> = {};
+      // Collect park shells first, then weather in parallel (domes skip I/O).
+      const gameShells: Array<{
+        homeId: string;
+        homeAbbr: string | null;
+        venue: string | null;
+        park: { hrIndex: number; altitudeFt: number; dome: boolean; lat: number; lon: number } | null;
+      }> = [];
+      for (const ev of events) {
         const comp = ev.competitions?.[0];
         for (const c of comp?.competitors ?? []) {
           const teamId = c.team?.id;
           const p = c.probables?.[0]?.athlete;
           if (teamId && p?.id) {
-            byTeam[teamId] = { name: p.displayName ?? "", athleteId: String(p.id), throws: null, tendency: null };
+            byTeam[teamId] = {
+              name: p.displayName ?? "",
+              athleteId: String(p.id),
+              throws: null,
+              tendency: null,
+            };
           }
         }
         const home = comp?.competitors?.find((c) => c.homeAway === "home");
         const homeId = home?.team?.id;
         const homeAbbr = home?.team?.abbreviation ?? null;
-        if (homeId) {
-          const park = homeAbbr ? MLB_PARKS[homeAbbr] ?? null : null;
-          games[homeId] = {
-            homeAbbr,
-            venue: comp?.venue?.fullName ?? null,
-            park: park ? { hrIndex: park.hrIndex, altitudeFt: park.altitudeFt, dome: park.dome } : null,
-            weather: park && !park.dome ? await fetchParkWeather(park.lat, park.lon) : null,
-          };
-        }
+        if (!homeId) continue;
+        const fullPark = homeAbbr ? MLB_PARKS[homeAbbr] ?? null : null;
+        gameShells.push({
+          homeId,
+          homeAbbr,
+          venue: comp?.venue?.fullName ?? null,
+          park: fullPark
+            ? {
+                hrIndex: fullPark.hrIndex,
+                altitudeFt: fullPark.altitudeFt,
+                dome: fullPark.dome,
+                lat: fullPark.lat,
+                lon: fullPark.lon,
+              }
+            : null,
+        });
       }
+      const games: Record<string, GameEnvRow> = {};
+      await Promise.all(
+        gameShells.map(async (shell) => {
+          const park = shell.park;
+          const weather =
+            park && !park.dome ? await fetchParkWeather(park.lat, park.lon) : null;
+          games[shell.homeId] = {
+            homeAbbr: shell.homeAbbr,
+            venue: shell.venue,
+            park: park
+              ? { hrIndex: park.hrIndex, altitudeFt: park.altitudeFt, dome: park.dome }
+              : null,
+            weather,
+          };
+        }),
+      );
       // Resolve each unique pitcher's throwing hand + season tendency once.
       const uniqueIds = Array.from(new Set(Object.values(byTeam).map((p) => p.athleteId)));
       const throwsById: Record<string, string | null> = {};
       const tendencyById: Record<string, PitcherTendency | null> = {};
       await Promise.all(
         uniqueIds.map(async (id) => {
-          try { throwsById[id] = (await fetchBatsThrows(id)).throws; } catch { throwsById[id] = null; }
-          try { tendencyById[id] = await fetchPitcherTendency(id); } catch { tendencyById[id] = null; }
+          try {
+            throwsById[id] = (await fetchBatsThrows(id)).throws;
+          } catch {
+            throwsById[id] = null;
+          }
+          try {
+            tendencyById[id] = await fetchPitcherTendency(id);
+          } catch {
+            tendencyById[id] = null;
+          }
         }),
       );
       // Join the REAL Statcast (Savant) barrel% / hard-hit% ALLOWED onto each
@@ -286,9 +386,18 @@ router.get("/sports/mlb-probables", async (req, res): Promise<void> => {
           // minimal tendency so the real barrel/hard-hit numbers aren't dropped.
           if (!tend) {
             tend = {
-              era: null, whip: null, ip: null, kPer9: null, hrAllowed: null,
-              hrPer9: null, flyBallPct: null, groundFlyRatio: null, oppOPS: null,
-              barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null,
+              era: null,
+              whip: null,
+              ip: null,
+              kPer9: null,
+              hrAllowed: null,
+              hrPer9: null,
+              flyBallPct: null,
+              groundFlyRatio: null,
+              oppOPS: null,
+              barrelPctAllowed: null,
+              hardHitPctAllowed: null,
+              battedBallEvents: null,
             };
           }
           tend = {

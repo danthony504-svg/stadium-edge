@@ -8068,7 +8068,25 @@ export function ParlayBuilderContent({
     const mlbTargets = phTargets.filter((t) => t.sport === "mlb");
     if (mlbTargets.length > 0) {
       try {
-        const pr = await fetch(`/api/sports/mlb-probables`);
+        // Date-scope probables to the board's MLB days (yesterday..tomorrow
+        // default on the server still covers common slates; explicit dates
+        // catch +2d+ boards). ESPN rejects hyphen ranges — comma singles OK
+        // for our API which fans out to per-day scoreboard fetches.
+        const dayKeys = new Set();
+        for (const g of realGames) {
+          if (g.sport !== "mlb" || !g.startsAt) continue;
+          const ms = Date.parse(g.startsAt);
+          if (!Number.isFinite(ms)) continue;
+          const d = new Date(ms);
+          dayKeys.add(
+            `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`,
+          );
+        }
+        const qs =
+          dayKeys.size > 0
+            ? `?dates=${encodeURIComponent([...dayKeys].sort().join(","))}`
+            : "";
+        const pr = await fetch(`/api/sports/mlb-probables${qs}`);
         if (pr.ok) {
           const pdata = await pr.json();
           probables = pdata?.probables || {};

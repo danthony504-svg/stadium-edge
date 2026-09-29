@@ -118,6 +118,10 @@ export function gameValueForMarket(
   stats: Record<string, string>,
   ambiguous: Set<string>,
 ): number | null {
+  // Alt lines share the same ESPN columns as the main market.
+  if (market.endsWith("_alternate")) {
+    return gameValueForMarket(market.slice(0, -"_alternate".length), stats, ambiguous);
+  }
   // Total bases isn't a single ESPN column — it's an exact identity from real
   // columns: TB = H + 2B + 2*(3B) + 3*(HR). All four are unambiguous in the MLB
   // batting log, so this is a real computation, not an estimate.

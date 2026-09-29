@@ -90,6 +90,7 @@ export function attachMatchupInjuries(
 /**
  * Prefetch recent game logs for prop candidates so Form can score before
  * the first MC enrich wave. Cap + concurrency keep this off the critical path.
+ * Prefers HR / hits / skill-market athletes so Form lands on staged Coach cards.
  */
 export async function prefetchPropPlayerHistory(
   entries: PropPoolEntry[],
@@ -98,8 +99,17 @@ export async function prefetchPropPlayerHistory(
   const maxPlayers = opts?.maxPlayers ?? 24;
   const concurrency = opts?.concurrency ?? 6;
   const signal = opts?.signal;
+  const formPriority = (e: PropPoolEntry): number => {
+    const m = String(e.marketKey ?? "").toLowerCase();
+    if (m.includes("home_run") || m.includes("anytime_td") || m.includes("goal_scorer")) return 0;
+    if (m.includes("hits") || m.includes("total_bases") || m.includes("rush_yds") || m.includes("pass_yds") || m.includes("reception"))
+      return 1;
+    if (m.includes("points") || m.includes("rebounds") || m.includes("assists") || m.includes("threes")) return 2;
+    return 3;
+  };
+  const sorted = [...entries].sort((a, b) => formPriority(a) - formPriority(b));
   const unique = new Map<string, PropPoolEntry>();
-  for (const e of entries) {
+  for (const e of sorted) {
     const id = e.athleteId ? String(e.athleteId) : "";
     if (!id || !e.player) continue;
     const key = `${e.player}#${id}`;

@@ -12,6 +12,9 @@ import {
 } from "./api.ts";
 import { isBatterHomeRunMarket } from "./coachHrRank.ts";
 import { teamNameMatches } from "./injuries.ts";
+import { mlbBoardDayKeys, mlbParkForAbbr } from "./mlbParks.ts";
+
+export { mlbBoardDayKeys } from "./mlbParks.ts";
 
 function normAbbr(s: string | null | undefined): string {
   return String(s ?? "")
@@ -98,6 +101,8 @@ export type MlbScanContext = {
 /**
  * Build mlbPlatoon / mlbGameEnv for HR (and other MLB) prop candidates on the board.
  * Caps batter-split fetches to unique athleteIds in the pool.
+ * Fetches date-scoped /mlb-probables for the board's game days so tomorrow
+ * slates still get pitcher + park Match signals.
  */
 export async function loadMlbScanContext(
   opts: {
@@ -120,11 +125,12 @@ export async function loadMlbScanContext(
   if (!targets.length) return { mlbPlatoon, mlbGameEnv };
 
   const espnMlb = opts.espnGames.filter((g) => String(g.sport ?? "").toLowerCase() === "mlb");
+  const dayKeys = mlbBoardDayKeys(espnMlb);
 
   let probables: Awaited<ReturnType<typeof getMlbProbables>>["probables"] = {};
   let probGames: NonNullable<Awaited<ReturnType<typeof getMlbProbables>>["games"]> = {};
   try {
-    const pdata = await getMlbProbables(opts.signal);
+    const pdata = await getMlbProbables(opts.signal, dayKeys.length ? dayKeys : undefined);
     probables = pdata?.probables ?? {};
     probGames = pdata?.games ?? {};
   } catch {
@@ -136,11 +142,23 @@ export async function loadMlbScanContext(
     const env = probGames[g.homeTeamId] ?? null;
     const home = probables[g.homeTeamId] ?? null;
     const away = g.awayTeamId ? (probables[g.awayTeamId] ?? null) : null;
-    if (!env && !home && !away) continue;
-    const dome = env?.park?.dome === true;
+    // Static park fallback when probables miss this home (pitchers not posted yet
+    // or date window miss) — never invent weather / pitcher tendency.
+    const fallbackPark = !env?.park ? mlbParkForAbbr(g.homeAbbr) : null;
+    const park =
+      env?.park ??
+      (fallbackPark
+        ? {
+            hrIndex: fallbackPark.hrIndex,
+            altitudeFt: fallbackPark.altitudeFt,
+            dome: fallbackPark.dome,
+          }
+        : null);
+    if (!env && !home && !away && !park) continue;
+    const dome = park?.dome === true;
     const slice = {
       venue: env?.venue ?? g.venue ?? null,
-      park: env?.park ?? null,
+      park,
       weather: dome ? null : (env?.weather ?? null),
       ...(dome ? { climateControlled: true } : {}),
       homePitcher: home
@@ -166,7 +184,18 @@ export async function loadMlbScanContext(
   // Cap batter-split fetches so non-HR MLB props don't inflate Coach wall time.
   const maxBatters = Math.max(1, Math.min(opts.maxBatters ?? (opts.hrOnly ? 32 : 16), 40));
   const CONCURRENCY = 8;
-  const ids = [...unique.values()].slice(0, maxBatters);
+  // Prefer HR / hits / TB batters so Match (platoon) lands on the staged cards.
+  const ids = [...unique.values()]
+    .sort((a, b) => {
+      const rank = (e: PropPoolEntry) => {
+        const m = String(e.marketKey ?? "").toLowerCase();
+        if (isBatterHomeRunMarket(m)) return 0;
+        if (m.includes("hits") || m.includes("total_bases") || m.includes("runs")) return 1;
+        return 2;
+      };
+      return rank(a) - rank(b);
+    })
+    .slice(0, maxBatters);
   for (let i = 0; i < ids.length; i += CONCURRENCY) {
     if (opts.signal?.aborted) break;
     const batch = ids.slice(i, i + CONCURRENCY);
