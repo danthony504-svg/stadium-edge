@@ -20,7 +20,7 @@ import {
   type SubscriptionPersistedState,
   applyStoreKitSnapshot,
   buildEntitlementView,
-  ensureTrialStarted,
+  clearLocalTrialEntitlement,
   normalizePromoCode,
   parseAdminEmails,
   redeemPromoCode,
@@ -128,11 +128,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       try {
         const raw = await AsyncStorage.getItem(SUBSCRIPTION_STORAGE_KEY);
         const parsed = raw ? sanitizeSubscriptionState(JSON.parse(raw)) : DEFAULT_STATE;
-        const withTrial = ensureTrialStarted(parsed, nowMs());
-        if (!cancelled) setState(withTrial);
+        // Drop any legacy local device-trial unlock — trials are Apple-only.
+        const cleaned = clearLocalTrialEntitlement(parsed);
+        if (!cancelled) setState(cleaned);
       } catch {
         if (!cancelled) {
-          setState(ensureTrialStarted(DEFAULT_STATE, nowMs()));
+          setState(clearLocalTrialEntitlement(DEFAULT_STATE));
         }
       } finally {
         loaded.current = true;
@@ -210,7 +211,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           storeKitActive: false,
           storeKitProductId: null,
         }));
-        return { ok: true, message: "Free trial selected." };
+        return { ok: true, message: "Free plan selected." };
       }
 
       if (!storeKitReady) {
@@ -318,11 +319,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     router.push("/plans" as never);
   }, [closeSoftPaywall, router]);
 
-  const onContinueTrial = useCallback(() => {
-    setState((prev) => ensureTrialStarted(prev, nowMs()));
-    closeSoftPaywall();
-  }, [closeSoftPaywall]);
-
   const value = useMemo<SubscriptionContextValue>(
     () => ({
       hydrated,
@@ -360,8 +356,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         featureLabel={gatedFeature}
         onClose={closeSoftPaywall}
         onSeePlans={onSeePlans}
-        onContinueTrial={entitlement.trialActive ? onContinueTrial : undefined}
-        trialAvailable={entitlement.trialActive}
       />
     </SubscriptionContext.Provider>
   );

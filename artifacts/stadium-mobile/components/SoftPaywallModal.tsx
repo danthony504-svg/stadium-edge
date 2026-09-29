@@ -11,21 +11,18 @@ type SoftPaywallModalProps = {
   featureLabel: string;
   onClose: () => void;
   onSeePlans: () => void;
-  onContinueTrial?: () => void;
-  trialAvailable: boolean;
 };
 
 /**
  * Dismissible upgrade sheet. Never blocks navigation underneath permanently —
  * closing returns the user to whatever they were doing (Coach/browse intact).
+ * Free trials are Apple StoreKit introductory offers on Go/Pro only.
  */
 export function SoftPaywallModal({
   visible,
   featureLabel,
   onClose,
   onSeePlans,
-  onContinueTrial,
-  trialAvailable,
 }: SoftPaywallModalProps) {
   const colors = useColors();
   const title = featureLabel.trim() ? featureLabel : "Stadium Edge Pro";
@@ -99,54 +96,28 @@ export function SoftPaywallModal({
               color: colors.mutedForeground,
             }}
           >
-            Preview subscription unlock. Browse, Coach, and OTA updates keep working
-            either way — this sheet is optional. Real App Store billing arrives with a
-            native rebuild (not an OTA).
+            Unlock with Stadium Edge Go or Pro — billed through Apple, with a 7-day free
+            trial on first subscribe. Browse and Coach keep working either way; this sheet
+            is optional.
           </Text>
 
           <View style={{ gap: 10, marginTop: 4 }}>
-            {trialAvailable && onContinueTrial ? (
-              <Pressable
-                onPress={onContinueTrial}
-                style={({ pressed }) => ({
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: colors.primary,
-                  borderRadius: 12,
-                  paddingVertical: 14,
-                  opacity: pressed ? 0.85 : 1,
-                })}
-              >
-                <Text
-                  style={{
-                    fontFamily: FONT.bold,
-                    fontSize: 15,
-                    color: colors.primaryForeground,
-                  }}
-                >
-                  Continue with free trial
-                </Text>
-              </Pressable>
-            ) : null}
-
             <Pressable
               onPress={onSeePlans}
               style={({ pressed }) => ({
                 alignItems: "center",
                 justifyContent: "center",
-                borderWidth: 1,
-                borderColor: colors.border,
+                backgroundColor: colors.primary,
                 borderRadius: 12,
                 paddingVertical: 14,
-                backgroundColor: colors.background,
                 opacity: pressed ? 0.85 : 1,
               })}
             >
               <Text
                 style={{
-                  fontFamily: FONT.semibold,
+                  fontFamily: FONT.bold,
                   fontSize: 15,
-                  color: colors.foreground,
+                  color: colors.primaryForeground,
                 }}
               >
                 See plans
@@ -179,7 +150,7 @@ export function SoftPaywallModal({
   );
 }
 
-/** Navigate to the preview Plans screen. */
+/** Navigate to the Plans screen. */
 export function useOpenPlans() {
   const router = useRouter();
   return React.useCallback(() => {
