@@ -42,10 +42,10 @@ import {
 import type { GameTeamIds } from "@/lib/coachGameMonteCarlo";
 import {
   opponentTeamIdForProp,
-  rushDefenseForOpponent,
+  oppDefensePackForOpponent,
   type FootballOppDefenseMap,
 } from "@/lib/footballOppDefenseContext";
-import type { RushDefenseSlice } from "@/lib/footballRushDefense";
+import type { FootballOppDefenseSlice, RushDefenseSlice } from "@/lib/footballRushDefense";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import {
@@ -507,6 +507,18 @@ function rushDefenseForProp(
     teamIdMap?: Map<string, GameTeamIds>;
   },
 ): RushDefenseSlice | null {
+  return footballOppPackForProp(pick, entry, opts)?.rush ?? null;
+}
+
+function footballOppPackForProp(
+  pick: ParsedPick,
+  entry: PropPoolEntry | undefined,
+  opts?: {
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
+  },
+): FootballOppDefenseSlice | null {
   if (!opts?.oppRushDefense) return null;
   const sport = pick.sport ?? entry?.sport;
   const oppId = opponentTeamIdForProp({
@@ -516,7 +528,7 @@ function rushDefenseForProp(
     espnGames: opts.espnGames,
     teamIdMap: opts.teamIdMap,
   });
-  return rushDefenseForOpponent({
+  return oppDefensePackForOpponent({
     sport,
     opponentTeamId: oppId,
     map: opts.oppRushDefense,
@@ -778,7 +790,10 @@ export function attachPickScores(
         ? mlbPlatoonFor(p.player, propEntry?.athleteId ?? p.athleteId, opts.mlbPlatoon)
         : null;
     const mlbGameEnv = p.isProp ? mlbGameEnvFor(p.game, opts.mlbGameEnv) : null;
-    const rushDefense = p.isProp ? rushDefenseForProp(p, propEntry, rushOpts) : null;
+    const footballOppDefense = p.isProp
+      ? footballOppPackForProp(p, propEntry, rushOpts)
+      : null;
+    const rushDefense = footballOppDefense?.rush ?? null;
     const finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
@@ -807,6 +822,7 @@ export function attachPickScores(
               : null,
             mlbGameEnv,
             rushDefense,
+            footballOppDefense,
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,

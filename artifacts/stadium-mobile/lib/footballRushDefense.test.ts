@@ -10,6 +10,33 @@ import { opponentTeamIdForProp } from "./footballOppTeamId.ts";
 import { buildCoachGameTeamIdMap } from "./coachTeamIdResolve.ts";
 import { buildPropHolisticScore } from "./propHolisticRecommendation.ts";
 
+test("stingy pass D hard-blocks pass OVER and demotes recv OVER", () => {
+  const pack = {
+    pass: {
+      passingYardsAllowedPerGame: 165,
+      yardsPerPassAllowed: 5.5,
+      sampleSize: 4,
+      teamName: "Eagles",
+    },
+    teamName: "Eagles",
+  };
+  assert.equal(
+    shouldBlockRushOverVsDefense({
+      market: "player_pass_yds",
+      side: "Over",
+      pack,
+    }),
+    true,
+  );
+  const recv = footballRushDefenseTilt({
+    market: "player_reception_yds",
+    side: "Over",
+    pack,
+  });
+  assert.equal(recv.blockOver, true);
+  assert.ok(recv.tilt < 0);
+});
+
 test("isFootballRushYardsMarket matches rush yards keys", () => {
   assert.equal(isFootballRushYardsMarket("player_rush_yds"), true);
   assert.equal(isFootballRushYardsMarket("Player Rush Yds"), true);

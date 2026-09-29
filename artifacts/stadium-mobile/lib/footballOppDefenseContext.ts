@@ -1,12 +1,17 @@
 /**
- * Prefetch opponent rush-defense packs for NFL/NCAAF games on the Coach board.
- * Capped + concurrent so delivery budget stays intact.
+ * Prefetch opponent rush+pass defense packs for NFL/NCAAF games on the Coach board.
+ * Capped + concurrent so delivery budget stays intact. One team-defense call
+ * returns both rush and pass yards allowed (same box-score batch on the server).
  */
 
 import { getTeamDefense, type EspnGame, type TeamDefense } from "./api.ts";
-import type { RushDefenseSlice } from "./footballRushDefense.ts";
+import type {
+  FootballOppDefenseSlice,
+  PassDefenseSlice,
+  RushDefenseSlice,
+} from "./footballRushDefense.ts";
 
-export type FootballOppDefenseMap = Record<string, RushDefenseSlice>;
+export type FootballOppDefenseMap = Record<string, FootballOppDefenseSlice>;
 export { opponentTeamIdForProp } from "./footballOppTeamId.ts";
 export type { OppTeamIdEspnGame } from "./footballOppTeamId.ts";
 
@@ -18,7 +23,7 @@ function teamKey(sport: string, teamId: string): string {
 }
 
 /**
- * Load rush-defense for unique home/away team ids on football board games.
+ * Load rush+pass defense for unique home/away team ids on football board games.
  * Caps at MAX_TEAMS (prioritize games that appear first). Failures omit entries.
  */
 export async function loadFootballOppRushDefense(opts: {
@@ -55,16 +60,38 @@ export async function loadFootballOppRushDefense(opts: {
         try {
           const def: TeamDefense = await getTeamDefense(w.sport, w.teamId, opts.signal);
           const rd = def.rushDefense;
-          if (!rd || rd.sampleSize < 1) return null;
+          const pd = def.passDefense;
+          const hasRush = rd && rd.sampleSize >= 1;
+          const hasPass = pd && pd.sampleSize >= 1;
+          if (!hasRush && !hasPass) return null;
+          const teamName = def.teamName ?? w.teamName;
+          const rush: RushDefenseSlice | null = hasRush
+            ? {
+                rushingYardsAllowedPerGame: rd!.rushingYardsAllowedPerGame,
+                yardsPerRushAllowed: rd!.yardsPerRushAllowed,
+                sampleSize: rd!.sampleSize,
+                stuffs: def.defensive?.stuffs?.value ?? null,
+                teamName,
+              }
+            : null;
+          const pass: PassDefenseSlice | null = hasPass
+            ? {
+                passingYardsAllowedPerGame: pd!.passingYardsAllowedPerGame,
+                yardsPerPassAllowed: pd!.yardsPerPassAllowed,
+                sampleSize: pd!.sampleSize,
+                teamName,
+              }
+            : null;
           return {
             key: teamKey(w.sport, w.teamId),
             slice: {
-              rushingYardsAllowedPerGame: rd.rushingYardsAllowedPerGame,
-              yardsPerRushAllowed: rd.yardsPerRushAllowed,
-              sampleSize: rd.sampleSize,
-              stuffs: def.defensive?.stuffs?.value ?? null,
-              teamName: def.teamName ?? w.teamName,
-            } satisfies RushDefenseSlice,
+              rush,
+              pass,
+              teamName,
+              pointsAgainst: def.avgPointsAgainst,
+              sacks: def.defensive?.sacks?.value ?? null,
+              interceptions: def.defensive?.interceptions?.value ?? null,
+            } satisfies FootballOppDefenseSlice,
           };
         } catch {
           return null;
@@ -83,6 +110,14 @@ export function rushDefenseForOpponent(opts: {
   opponentTeamId?: string | null;
   map?: FootballOppDefenseMap | null;
 }): RushDefenseSlice | null {
+  return oppDefensePackForOpponent(opts)?.rush ?? null;
+}
+
+export function oppDefensePackForOpponent(opts: {
+  sport?: string | null;
+  opponentTeamId?: string | null;
+  map?: FootballOppDefenseMap | null;
+}): FootballOppDefenseSlice | null {
   const sport = String(opts.sport ?? "").toLowerCase();
   const id = opts.opponentTeamId != null ? String(opts.opponentTeamId) : "";
   if (!sport || !id || !opts.map) return null;

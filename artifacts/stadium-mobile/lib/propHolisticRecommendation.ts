@@ -141,8 +141,10 @@ export type PropHolisticContext = {
   vsOpponentGames?: number;
   mlbPlatoon?: MlbPlatoonSlice | null;
   mlbGameEnv?: MlbGameEnvSlice | null;
-  /** NFL/NCAAF — real opponent rush yards allowed (box-score avg). */
+  /** NFL/NCAAF — real opponent rush/pass yards allowed (box-score avg). */
   rushDefense?: RushDefenseSlice | null;
+  /** Full football opp-D pack (rush + pass). Preferred over rushDefense alone. */
+  footballOppDefense?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -267,12 +269,13 @@ function scoreOpponentTendency(
   const over = isOverSide(side);
   const under = isUnderSide(side);
 
-  // NFL/NCAAF rush yards — real opponent rush-D allowed (never invented).
-  if ((sport === "nfl" || sport === "ncaaf") && ctx.rushDefense) {
+  // NFL/NCAAF skill yards — real opponent rush/pass D allowed (never invented).
+  if ((sport === "nfl" || sport === "ncaaf") && (ctx.footballOppDefense || ctx.rushDefense)) {
     const tilt = footballRushDefenseTilt({
       market: key,
       side,
       defense: ctx.rushDefense,
+      pack: ctx.footballOppDefense,
     });
     if (tilt.tilt !== 0 || tilt.display) {
       return {

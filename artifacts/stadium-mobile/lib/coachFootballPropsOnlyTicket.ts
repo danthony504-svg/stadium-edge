@@ -46,7 +46,7 @@ import {
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import {
   opponentTeamIdForProp,
-  rushDefenseForOpponent,
+  oppDefensePackForOpponent,
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
 import {
@@ -177,7 +177,7 @@ function scoredLegFromHit(
     espnGames: rushCtx?.espnGames,
     teamIdMap: rushCtx?.teamIdMap,
   });
-  const rushDefense = rushDefenseForOpponent({
+  const pack = oppDefensePackForOpponent({
     sport: norm.sport ?? poolRow?.sport,
     opponentTeamId: oppId,
     map: rushCtx?.oppRushDefense,
@@ -186,7 +186,8 @@ function scoredLegFromHit(
     shouldBlockRushOverVsDefense({
       market: norm.propMarketKey ?? norm.market,
       side: norm.propSide,
-      defense: rushDefense,
+      defense: pack?.rush ?? null,
+      pack,
     })
   ) {
     return null;
@@ -194,7 +195,8 @@ function scoredLegFromHit(
   const rushTilt = footballRushDefenseTilt({
     market: norm.propMarketKey ?? norm.market,
     side: norm.propSide,
-    defense: rushDefense,
+    defense: pack?.rush ?? null,
+    pack,
   });
 
   const edgePct =
@@ -215,12 +217,13 @@ function scoredLegFromHit(
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
-    propHolisticContext: rushDefense
+    propHolisticContext: pack
       ? {
           sport: norm.sport ?? poolRow?.sport,
           marketKey: norm.propMarketKey ?? norm.market,
           propSide: norm.propSide,
-          rushDefense,
+          rushDefense: pack.rush ?? null,
+          footballOppDefense: pack,
         }
       : undefined,
   });
@@ -518,8 +521,9 @@ export async function buildFootballPropsOnlyTicket(
   const propLegsScored = gradedCandidates.length;
 
   // Collapse Over/Under to history best-EV side, then stage through odds gate.
-  // When best EV is a rush OVER vs a hard stingy run D (e.g. Monangai vs PHI),
-  // prefer the Under if graded — otherwise drop the Over entirely.
+  // When best EV is a skill-yard OVER vs a hard stingy D (rush/pass/recv),
+  // prefer the Under — including alt Under rungs for the same player/market —
+  // so Coach still fills the seat without locking a bad Over.
   const rushCtx = {
     oppRushDefense: opts.oppRushDefense,
     espnGames: opts.espnGames,
@@ -528,7 +532,7 @@ export async function buildFootballPropsOnlyTicket(
   const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool).flatMap(
     (pick) => {
       const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
-      const defense = rushDefenseForOpponent({
+      const pack = oppDefensePackForOpponent({
         sport: pick.sport ?? row?.sport,
         opponentTeamId: opponentTeamIdForProp({
           sport: pick.sport ?? row?.sport,
@@ -543,19 +547,33 @@ export async function buildFootballPropsOnlyTicket(
         !shouldBlockRushOverVsDefense({
           market: pick.propMarketKey ?? pick.market,
           side: pick.propSide,
-          defense,
+          defense: pack?.rush ?? null,
+          pack,
         })
       ) {
         return [pick];
       }
-      // Try the opposite side from candidates for the same player/market/line.
-      const mk = `${pick.game}|${pick.player}|${pick.propMarketKey ?? pick.market}|${pick.propLine}`.toLowerCase();
-      const alt = candidates.find((c) => {
+      // Prefer graded Under — same line first, then any alt Under for this player/market.
+      const marketKey = String(pick.propMarketKey ?? pick.market ?? "").toLowerCase();
+      const samePlayerMarket = (c: ParsedPick) => {
         const n = normalizePropsOnlyPick(c);
-        const key = `${n.game}|${n.player}|${n.propMarketKey ?? n.market}|${n.propLine}`.toLowerCase();
-        return key === mk && n.propSide === "Under";
+        return (
+          n.game === pick.game &&
+          n.player === pick.player &&
+          String(n.propMarketKey ?? n.market ?? "").toLowerCase() === marketKey &&
+          n.propSide === "Under"
+        );
+      };
+      const sameLineUnder = candidates.find((c) => {
+        const n = normalizePropsOnlyPick(c);
+        return samePlayerMarket(n) && n.propLine === pick.propLine;
       });
-      return alt ? [normalizePropsOnlyPick(alt)] : [];
+      if (sameLineUnder) return [normalizePropsOnlyPick(sameLineUnder)];
+      const altUnder = candidates
+        .map((c) => normalizePropsOnlyPick(c))
+        .filter(samePlayerMarket)
+        .sort((a, b) => (b.propLine ?? 0) - (a.propLine ?? 0));
+      return altUnder.length ? [altUnder[0]] : [];
     },
   );
   const propScored: BoardScoredLeg[] = [];

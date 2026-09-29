@@ -38,7 +38,7 @@ import {
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import {
   opponentTeamIdForProp,
-  rushDefenseForOpponent,
+  oppDefensePackForOpponent,
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
 import { shouldBlockRushOverVsDefense } from "./footballRushDefense.ts";
@@ -458,7 +458,7 @@ function appendPropScoredLegs(
         e.player === pick.player &&
         e.side === pick.propSide,
     );
-    const defense = rushDefenseForOpponent({
+    const pack = oppDefensePackForOpponent({
       sport: pick.sport ?? poolRow?.sport,
       opponentTeamId: opponentTeamIdForProp({
         sport: pick.sport ?? poolRow?.sport,
@@ -473,7 +473,8 @@ function appendPropScoredLegs(
       shouldBlockRushOverVsDefense({
         market: pick.propMarketKey ?? pick.market,
         side: pick.propSide,
-        defense,
+        defense: pack?.rush ?? null,
+        pack,
       })
     ) {
       continue;

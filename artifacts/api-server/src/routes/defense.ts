@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
-import { computeRushDefenseAllowed } from "../lib/rushDefenseAllowed";
+import { computeFootballDefenseAllowed } from "../lib/rushDefenseAllowed";
 
 const router: IRouter = Router();
 
@@ -155,25 +155,30 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
       const defensive = extract(SPORT_DEFENSIVE_STATS[sportId] ?? []);
       const offensive = extract(SPORT_OFFENSIVE_STATS[sportId] ?? []);
 
-      // NFL/NCAAF: real rushing yards allowed from recent opponent box scores.
-      // ESPN's team-stats feed does not expose opponent rush yards allowed.
+      // NFL/NCAAF: real rush + pass yards allowed from recent opponent box scores.
+      // ESPN's team-stats feed does not expose opponent yards allowed.
       let rushDefense: {
         rushingYardsAllowedPerGame: number | null;
         yardsPerRushAllowed: number | null;
         sampleSize: number;
       } | null = null;
+      let passDefense: {
+        passingYardsAllowedPerGame: number | null;
+        yardsPerPassAllowed: number | null;
+        sampleSize: number;
+      } | null = null;
       if (sportId === "nfl" || sportId === "ncaaf") {
-        const rd = await computeRushDefenseAllowed(sportId, teamId, { maxGames: 5 });
-        const stuffs = defensive.stuffs?.value ?? null;
+        const pack = await computeFootballDefenseAllowed(sportId, teamId, { maxGames: 5 });
         rushDefense = {
-          rushingYardsAllowedPerGame: rd.rushingYardsAllowedPerGame,
-          yardsPerRushAllowed: rd.yardsPerRushAllowed,
-          sampleSize: rd.sampleSize,
+          rushingYardsAllowedPerGame: pack.rush.rushingYardsAllowedPerGame,
+          yardsPerRushAllowed: pack.rush.yardsPerRushAllowed,
+          sampleSize: pack.rush.sampleSize,
         };
-        if (stuffs != null && defensive.stuffs) {
-          // keep stuffs on defensive map; also mirror sample for clients
-          void stuffs;
-        }
+        passDefense = {
+          passingYardsAllowedPerGame: pack.pass.passingYardsAllowedPerGame,
+          yardsPerPassAllowed: pack.pass.yardsPerPassAllowed,
+          sampleSize: pack.pass.sampleSize,
+        };
       }
 
       return {
@@ -186,6 +191,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
         defensive,
         offensive,
         rushDefense,
+        passDefense,
       };
     });
     res.json(out);
@@ -201,6 +207,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
       defensive: {},
       offensive: {},
       rushDefense: null,
+      passDefense: null,
     });
   }
 });

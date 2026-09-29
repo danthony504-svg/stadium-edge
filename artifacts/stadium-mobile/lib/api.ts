@@ -1385,6 +1385,15 @@ export type TeamDefense = {
     yardsPerRushAllowed: number | null;
     sampleSize: number;
   } | null;
+  /**
+   * NFL/NCAAF only — real opponent passing yards allowed from the same box
+   * scores as rushDefense (no extra network). null when sample empty.
+   */
+  passDefense?: {
+    passingYardsAllowedPerGame: number | null;
+    yardsPerPassAllowed: number | null;
+    sampleSize: number;
+  } | null;
 };
 
 export function getTeamDefense(
