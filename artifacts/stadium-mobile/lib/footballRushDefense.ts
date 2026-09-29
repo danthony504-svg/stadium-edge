@@ -306,3 +306,7 @@ export function multiSportOppDefenseTilt(opts: {
 
   return empty;
 }
+
+/** Alias — blocks any skill-yard OVER vs hard stingy matching D. */
+export const shouldBlockSkillOverVsDefense = shouldBlockRushOverVsDefense;
+export const footballOppDefenseTilt = footballRushDefenseTilt;
