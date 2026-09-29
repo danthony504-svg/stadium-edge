@@ -59,3 +59,23 @@ test("seven football mains are discrete count markets", () => {
   assert.equal(isDiscreteCountMarket("player_points"), false);
   assert.equal(isDiscreteCountMarket("player_pass_yds"), false);
 });
+
+test("D/ST props map to ESPN defensive / kicking fields", () => {
+  assert.equal(gameValueForMarket("player_tackles_assists", { totalTackles: "8" }, NONE), 8);
+  assert.equal(gameValueForMarket("player_solo_tackles", { soloTackles: "5" }, NONE), 5);
+  assert.equal(
+    gameValueForMarket("player_defensive_interceptions", { interceptions: "2" }, NONE),
+    2,
+  );
+  assert.equal(gameValueForMarket("player_kicking_points", { kickingPoints: "10" }, NONE), 10);
+  assert.equal(
+    gameValueForMarket(
+      "player_kicking_points",
+      { fieldGoalsMade: "3", extraPointsMade: "1" },
+      NONE,
+    ),
+    10,
+  );
+  assert.equal(isDiscreteCountMarket("player_tackles_assists"), true);
+  assert.equal(isDiscreteCountMarket("player_kicking_points"), true);
+});

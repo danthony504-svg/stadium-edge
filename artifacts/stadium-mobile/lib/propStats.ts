@@ -37,6 +37,12 @@ const MARKET_SINGLE: Record<string, string[]> = {
   batter_runs: ["R"],
   batter_runs_scored: ["R"],
   player_sacks: ["SACK", "SACKS"],
+  player_tackles_assists: ["totalTackles", "TOT"],
+  player_solo_tackles: ["soloTackles", "SOLO"],
+  // Defensive INTs share ESPN's "interceptions" machine field (on defensive
+  // player logs). QB pass-INT props use the same field on passer logs.
+  player_defensive_interceptions: ["interceptions"],
+  player_kicking_points: ["kickingPoints", "totalKickingPoints"],
   pitcher_strikeouts: ["K", "SO"],
   pitcher_outs: ["OUTS", "IP"],
   player_goals: ["G"],
@@ -181,6 +187,27 @@ export function gameValueForMarket(
     // (WR/RB logs often omit passingTouchdowns entirely).
     if (rush == null && rec == null && pass == null) return null;
     return (pass ?? 0) + (rush ?? 0) + (rec ?? 0);
+  }
+
+  // Kicking points: prefer ESPN machine field; else exact FG×3 + XP identity.
+  if (market === "player_kicking_points") {
+    for (const lab of ["kickingPoints", "totalKickingPoints"]) {
+      if (ambiguous.has(lab)) continue;
+      const n = num(stats, lab);
+      if (n != null) return n;
+    }
+    const fg = !ambiguous.has("fieldGoalsMade")
+      ? num(stats, "fieldGoalsMade")
+      : !ambiguous.has("FG")
+        ? num(stats, "FG")
+        : null;
+    const xp = !ambiguous.has("extraPointsMade")
+      ? num(stats, "extraPointsMade")
+      : !ambiguous.has("XP")
+        ? num(stats, "XP")
+        : null;
+    if (fg != null && xp != null) return fg * 3 + xp;
+    return null;
   }
 
   const combo = MARKET_COMBO[market];

@@ -52,6 +52,7 @@ import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
 import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
 import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "@/lib/coachHrRank";
 import { loadMlbScanContext } from "@/lib/mlbScanContext";
+import { loadFootballScanContext } from "@/lib/footballScanContext";
 import {
   attachMatchupInjuries,
   loadBoardInjuries,
@@ -213,12 +214,6 @@ export async function buildCoachParlay(opts: {
   const hasMlbProps = activePropPool.some(
     (e) => String(e.sport ?? "").toLowerCase() === "mlb",
   );
-  // Injuries + opp-D + (any MLB props) platoon/park — all parallel.
-  opts.onStatus?.(
-    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
-      ? "Loading matchup, injuries, and recent form…"
-      : "Loading injury context…",
-  );
   const boardSports = [
     ...new Set(
       [
@@ -228,6 +223,16 @@ export async function buildCoachParlay(opts: {
       ].filter(Boolean),
     ),
   ];
+  const needFootballWx = boardSports.some((s) => s === "nfl" || s === "ncaaf");
+  // Injuries + football weather/coaches + opp-D + (any MLB props) platoon —
+  // all in parallel so we don't add sequential wall time before scoring.
+  opts.onStatus?.(
+    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
+      ? "Loading matchup, injuries, and recent form…"
+      : needFootballWx
+        ? "Loading injuries, weather, and coach context…"
+        : "Loading injury context…",
+  );
   const contextPromise = Promise.all([
     loadBoardInjuries(boardSports, opts.signal).catch(() => ({
       injuriesBySport: {} as Record<string, import("@/lib/api").InjuryTeam[]>,
@@ -258,16 +263,27 @@ export async function buildCoachParlay(opts: {
           signal: opts.signal,
         }).catch(() => ({}))
       : Promise.resolve({} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap),
+    needFootballWx
+      ? loadFootballScanContext({
+          espnGames: inputs.espnGames,
+          sports: boardSports,
+          signal: opts.signal,
+        }).catch(() => ({ footballGameEnv: {} }))
+      : Promise.resolve({ footballGameEnv: {} }),
   ]);
 
-  const [injuryPack, mlb, earlyHistory, oppRushDefense] = await contextPromise;
+  const [injuryPack, mlb, earlyHistory, oppRushDefense, football] = await contextPromise;
   const matchupInjuries = attachMatchupInjuries(
     inputs.espnGames,
     injuryPack.injuriesBySport,
   );
   const injuryTeams = injuryPack.injuryTeams;
   mlbPlatoon = Object.keys(mlb.mlbPlatoon).length ? mlb.mlbPlatoon : undefined;
-  mlbGameEnv = Object.keys(mlb.mlbGameEnv).length ? mlb.mlbGameEnv : undefined;
+  const mergedEnv = {
+    ...(mlb.mlbGameEnv ?? {}),
+    ...(football.footballGameEnv ?? {}),
+  };
+  mlbGameEnv = Object.keys(mergedEnv).length ? mergedEnv : undefined;
   const playerHistory = Object.keys(earlyHistory).length ? earlyHistory : undefined;
 
   opts.onReadyToScan?.({ propPoolSize });

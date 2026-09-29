@@ -118,11 +118,20 @@ export type MlbPlatoonSlice = {
 };
 
 export type MlbGameEnvSlice = {
-  park?: { hrIndex?: number | null; dome?: boolean } | null;
-  weather?: { tempF?: number | null; windMph?: number | null; condition?: string | null } | null;
+  park?: { hrIndex?: number | null; dome?: boolean; surface?: "turf" | "grass" | null } | null;
+  weather?: {
+    tempF?: number | null;
+    windMph?: number | null;
+    condition?: string | null;
+    precipChancePct?: number | null;
+  } | null;
   climateControlled?: boolean;
   homePitcher?: { name?: string | null; throws?: string | null; tendency?: PitcherTendencySlice | null } | null;
   awayPitcher?: { name?: string | null; throws?: string | null; tendency?: PitcherTendencySlice | null } | null;
+  coaches?: {
+    home?: { name: string; aggressive: number; favLean: number } | null;
+    away?: { name: string; aggressive: number; favLean: number } | null;
+  };
 };
 
 export type PropHolisticContext = {
@@ -223,15 +232,24 @@ function scoreWeather(
   env: MlbGameEnvSlice | null | undefined,
   marketKey: string,
   side: string | null | undefined,
+  sport?: string | null,
 ): { score: number | null; display?: string } {
   if (!env) return { score: null };
   const dome = env.climateControlled === true || env.park?.dome === true;
   if (dome) {
-    return { score: 5.5, display: "Dome — weather neutral" };
+    const surface = env.park?.surface;
+    return {
+      score: 5.5,
+      display: surface ? `Dome — weather neutral (${surface})` : "Dome — weather neutral",
+    };
   }
   const w = env.weather;
   const hrIndex = env.park?.hrIndex;
-  const isHr = /home ?run|\bhr\b|to hit a hr/.test(marketKey.toLowerCase());
+  const mk = marketKey.toLowerCase();
+  const isHr = /home ?run|\bhr\b|to hit a hr/.test(mk);
+  const isFootball = sport === "nfl" || sport === "ncaaf";
+  const isPass = /pass|passing/.test(mk);
+  const isRush = /rush|rushing/.test(mk);
   const over = isOverSide(side);
   const under = isUnderSide(side);
   if (!over && !under && !isHr) return { score: null };
@@ -243,12 +261,27 @@ function scoreWeather(
     bits.push(`HR index ${hrIndex}`);
   }
   if (w?.tempF != null) {
-    favor += favorFrom01(lin01(w.tempF, 55, 85), over || isHr) * 0.4;
+    // Cold suppresses offense (passing/totals more than pure rush).
+    const tempWeight = isFootball && isPass ? 0.55 : isFootball ? 0.45 : 0.4;
+    favor += favorFrom01(lin01(w.tempF, 45, 80), over || isHr) * tempWeight;
     bits.push(`${w.tempF}°F`);
   }
   if (w?.windMph != null && w.windMph >= 8) {
-    favor += favorFrom01(lin01(w.windMph, 8, 18), over || isHr) * 0.35;
+    // High wind is a pass/over suppressor for football; MLB still temp-amplifier only.
+    if (isFootball && (isPass || (!isRush && !isHr))) {
+      favor += favorFrom01(1 - lin01(w.windMph, 8, 22), over) * 0.4;
+    } else if (!isFootball) {
+      favor += favorFrom01(lin01(w.windMph, 8, 18), over || isHr) * 0.35;
+    }
     bits.push(`wind ${w.windMph} mph`);
+  }
+  if (isFootball && w?.precipChancePct != null && w.precipChancePct >= 40) {
+    // Real precip chance — wet fields suppress passing overs / support unders.
+    favor += favorFrom01(1 - lin01(w.precipChancePct, 40, 90), over) * 0.35;
+    bits.push(`precip ${w.precipChancePct}%`);
+  }
+  if (env.park?.surface) {
+    bits.push(env.park.surface);
   }
   if (!bits.length) return { score: null };
   if (under && !isHr) favor = -favor;
@@ -400,7 +433,7 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
     (ctx.edgePct != null ? scoreLineValue(ctx.edgePct) : null);
   const playing = scorePlayingTime(ctx.minutesTrend, ctx.propSide);
   const weather = weatherApplicable(sport)
-    ? scoreWeather(ctx.mlbGameEnv, marketKey, ctx.propSide)
+    ? scoreWeather(ctx.mlbGameEnv, marketKey, ctx.propSide, sport)
     : { score: null as number | null };
   const opponent = scoreOpponentTendency(ctx);
   const matchup = scoreMatchupHistory(rubric?.matchup, ctx.vsOpponentGames);

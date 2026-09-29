@@ -246,6 +246,15 @@ export function skillPropRank(market: string | null | undefined): number {
   if (/\bsack/.test(m)) return 3;
   if (/\brush\b|\bpass\b|\breception|\breceiv/.test(m)) return 2;
   if (/\bfield\s*goals?\b|\bfgs?\b/.test(m)) return 2;
+  // D/ST (tackles / kicking / defensive INTs) — below skill yards & sacks so they
+  // only fill after classic props; must precede basketball "assists" match.
+  if (
+    /\btackles?\b/.test(m) ||
+    /kicking\s*points/.test(m) ||
+    /defensive\s*interceptions?/.test(m)
+  ) {
+    return 1;
+  }
 
   // —— MLB ——
   if (/home\s*runs?|homer|\bhr\b/.test(m)) return 6;
@@ -285,6 +294,14 @@ export function skillPropFamily(market: string | null | undefined): SkillPropFam
   // Football — TD before rush/pass/rec so player_rush_tds is "td", not "rush".
   if (/\btd\b|touchdown|\btds\b/.test(m)) return "td";
   if (/\bsack/.test(m)) return "sack";
+  // D/ST before basketball assists (player_tackles_assists contains "assists").
+  if (
+    /\btackles?\b/.test(m) ||
+    /kicking\s*points/.test(m) ||
+    /defensive\s*interceptions?/.test(m)
+  ) {
+    return null;
+  }
   if (/\brush\b|\brushing\b/.test(m)) return "rush";
   if (/\bpass\b|\bpassing\b/.test(m) && !/completion/.test(m)) return "pass";
   if (/\breception|\breceiving|\brec\b/.test(m)) return "rec";

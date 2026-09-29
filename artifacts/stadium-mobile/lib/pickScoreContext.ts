@@ -60,7 +60,9 @@ import {
   type MlbGameEnvSlice,
   type MlbPlatoonSlice,
   resolveMlbPitcherTendency,
+  gradeFromComposite,
 } from "@/lib/propHolisticRecommendation";
+import { footballCoachSoftTilt } from "@/lib/footballCoachTendencies";
 
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
@@ -789,12 +791,13 @@ export function attachPickScores(
       p.isProp && p.player
         ? mlbPlatoonFor(p.player, propEntry?.athleteId ?? p.athleteId, opts.mlbPlatoon)
         : null;
-    const mlbGameEnv = p.isProp ? mlbGameEnvFor(p.game, opts.mlbGameEnv) : null;
+    // Football weather/coach env attaches to props AND game lines (same map).
+    const mlbGameEnv = mlbGameEnvFor(p.game, opts.mlbGameEnv);
     const footballOppDefense = p.isProp
       ? footballOppPackForProp(p, propEntry, rushOpts)
       : null;
     const rushDefense = footballOppDefense?.rush ?? null;
-    const finalAiScore = buildFinalAiScore({
+    let finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
       edgePct: scores.edgePct,
@@ -827,6 +830,36 @@ export function attachPickScores(
           }
         : undefined,
     });
+
+    // Soft coach tilt for NFL/NCAAF — bounded ±0.4, never invents when missing.
+    const sport = String(p.sport ?? propEntry?.sport ?? "").toLowerCase();
+    if (
+      (sport === "nfl" || sport === "ncaaf") &&
+      finalAiScore.composite != null &&
+      Number.isFinite(finalAiScore.composite)
+    ) {
+      const { away, home } = splitLabel(p.game);
+      const homeSide = teamNameMatches(String(p.pick ?? ""), home)
+        ? true
+        : teamNameMatches(String(p.pick ?? ""), away)
+          ? false
+          : null;
+      const tilt = footballCoachSoftTilt({
+        sport,
+        market: p.propMarketKey ?? p.market,
+        pick: p.pick,
+        coaches: mlbGameEnv?.coaches ?? null,
+        homeSide,
+      });
+      if (tilt !== 0) {
+        const composite = Math.max(1, Math.min(10, Math.round((finalAiScore.composite + tilt) * 10) / 10));
+        finalAiScore = {
+          ...finalAiScore,
+          composite,
+          grade: gradeFromComposite(composite) ?? finalAiScore.grade,
+        };
+      }
+    }
 
     return {
       ...p,
