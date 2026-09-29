@@ -131,6 +131,7 @@ export default function CoachScreen() {
               athleteId: p.athleteId ?? "",
               headshot: p.headshot ?? "",
               startsAt: p.startsAt ?? "",
+              teamAbbr: p.teamAbbr ?? "",
               pick: p.pick,
             },
           });

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  defaultMlbProbableDayKeys,
   espnScoreboardDayKeys,
   espnUtcDayKey,
   mergeEspnEventsById,
+  parseEspnDateQuery,
 } from "../src/lib/espnScoreboardWindow.ts";
 
 test("espnUtcDayKey formats YYYYMMDD in UTC", () => {
@@ -31,4 +33,17 @@ test("mergeEspnEventsById dedupes and keeps order", () => {
     merged.map((e) => e.id),
     ["a", "b", "c"],
   );
+});
+
+test("parseEspnDateQuery accepts singles, commas, and arrays", () => {
+  assert.deepEqual(parseEspnDateQuery("20260930"), ["20260930"]);
+  assert.deepEqual(parseEspnDateQuery("20260929,20260930"), ["20260929", "20260930"]);
+  assert.deepEqual(parseEspnDateQuery(["20260930", "20260929"]), ["20260929", "20260930"]);
+  assert.deepEqual(parseEspnDateQuery("20260929-20261005"), []); // hyphen ranges rejected
+  assert.deepEqual(parseEspnDateQuery(undefined, null, ""), []);
+});
+
+test("defaultMlbProbableDayKeys is yesterday..tomorrow", () => {
+  const keys = defaultMlbProbableDayKeys(Date.parse("2026-09-29T16:00:00Z"));
+  assert.deepEqual(keys, ["20260928", "20260929", "20260930"]);
 });

@@ -1292,10 +1292,19 @@ export type MlbProbablesResp = {
   games?: Record<string, MlbGameEnv>; // keyed by HOME team ESPN id
 };
 
-// Today's probable starters per team + per-game ballpark environment. Cached on
-// the server; returns empty buckets (never fabricated) on a miss.
-export function getMlbProbables(signal?: AbortSignal): Promise<MlbProbablesResp> {
-  return getJson<MlbProbablesResp>(`/sports/mlb-probables`, signal);
+// Probable starters + per-game ballpark environment for the given ESPN
+// scoreboard days (YYYYMMDD). Omit dates to use the server default window
+// (yesterday..tomorrow). Cached on the server; empty buckets on a miss.
+export function getMlbProbables(
+  signal?: AbortSignal,
+  dates?: string[] | null,
+): Promise<MlbProbablesResp> {
+  const days = (dates ?? []).map((d) => String(d).trim()).filter((d) => /^\d{8}$/.test(d));
+  const qs =
+    days.length > 0
+      ? `?dates=${encodeURIComponent([...new Set(days)].sort().join(","))}`
+      : "";
+  return getJson<MlbProbablesResp>(`/sports/mlb-probables${qs}`, signal);
 }
 
 // A batter's REAL platoon line (season-to-date vs LHP / vs RHP) + handedness,
@@ -1376,6 +1385,24 @@ export type TeamDefense = {
   pointDifferential: number | null;
   defensive: Record<string, { value: number | null; displayValue: string | null }>;
   offensive: Record<string, { value: number | null; displayValue: string | null }>;
+  /**
+   * NFL/NCAAF only — real opponent rushing yards allowed, averaged from recent
+   * completed box scores. null when sample is empty / sport unsupported.
+   */
+  rushDefense?: {
+    rushingYardsAllowedPerGame: number | null;
+    yardsPerRushAllowed: number | null;
+    sampleSize: number;
+  } | null;
+  /**
+   * NFL/NCAAF only — real opponent passing yards allowed from the same box
+   * scores as rushDefense (no extra network). null when sample empty.
+   */
+  passDefense?: {
+    passingYardsAllowedPerGame: number | null;
+    yardsPerPassAllowed: number | null;
+    sampleSize: number;
+  } | null;
 };
 
 export function getTeamDefense(
@@ -4641,25 +4668,23 @@ export async function buildChatContext(
   }
 
   // MLB platoon (batter hand vs opposing probable starter) + per-game ballpark
-  // environment. One /mlb-probables fetch (park + weather + each starter's real
-  // tendency) plus a per-batter vs-LHP/RHP split fetch. Same maps + keys as web.
+  // environment. Date-scoped /mlb-probables (board game days) plus a per-batter
+  // vs-LHP/RHP split fetch. Same maps + keys as web / Coach board scan.
   const mlbPlatoon: Record<string, unknown> = {};
   const mlbGameEnv: Record<string, unknown> = {};
   const mlbTargets = phTargets.filter((t) => t.sport === "mlb");
   if (mlbTargets.length > 0) {
-    type Probable = { name?: string; throws?: string | null; tendency?: unknown };
-    type ProbGame = {
-      venue?: string | null;
-      park?: { hrIndex?: number; altitudeFt?: number; dome?: boolean } | null;
-      weather?: unknown;
-    };
-    let probables: Record<string, Probable> = {};
-    let probablesGames: Record<string, ProbGame> = {};
+    const { mlbBoardDayKeys, mlbParkForAbbr } = await import("./mlbParks.ts");
+    const mlbEspnGames = sports.flatMap((s, i) =>
+      s === "mlb" ? gamesAll[i] ?? [] : [],
+    );
+    const dayKeys = mlbBoardDayKeys(
+      mlbEspnGames.map((g) => ({ sport: "mlb", startsAt: g.startsAt })),
+    );
+    let probables: MlbProbablesResp["probables"] = {};
+    let probablesGames: NonNullable<MlbProbablesResp["games"]> = {};
     try {
-      const pdata = await getJson<{ probables?: Record<string, Probable>; games?: Record<string, ProbGame> }>(
-        `/sports/mlb-probables`,
-        signal,
-      );
+      const pdata = await getMlbProbables(signal, dayKeys.length ? dayKeys : undefined);
       probables = pdata?.probables ?? {};
       probablesGames = pdata?.games ?? {};
     } catch {
@@ -4668,10 +4693,7 @@ export async function buildChatContext(
     await Promise.all(
       mlbTargets.map(async (t) => {
         try {
-          const data = await getJson<{ bats?: string | null; vsLeft?: unknown; vsRight?: unknown }>(
-            `/sports/mlb-batter-splits?athleteId=${encodeURIComponent(t.athleteId)}`,
-            signal,
-          );
+          const data = await getMlbBatterSplits(t.athleteId, signal);
           const bats = data?.bats || null;
           const oppPitcher = (t.opponentTeamId ? probables[t.opponentTeamId] : null) || null;
           const oppThrows = oppPitcher?.throws || null;
@@ -4679,7 +4701,7 @@ export async function buildChatContext(
           if (bats === "Switch") platoon = "switch";
           else if (bats && oppThrows) platoon = bats !== oppThrows ? "advantage" : "disadvantage";
           const vsThatHand = oppThrows === "Left" ? data?.vsLeft : oppThrows === "Right" ? data?.vsRight : null;
-          if (!bats && !oppThrows && !data?.vsLeft && !data?.vsRight) return;
+          if (!bats && !oppThrows && !data?.vsLeft && !data?.vsRight && !oppPitcher?.tendency) return;
           mlbPlatoon[`${t.player}#${t.athleteId}`] = {
             player: t.player,
             bats,
@@ -4706,15 +4728,29 @@ export async function buildChatContext(
         const env = probablesGames[g.homeTeamId] ?? null;
         const home = probables[g.homeTeamId] ?? null;
         const away = g.awayTeamId ? (probables[g.awayTeamId] ?? null) : null;
-        if (!env && !home && !away) continue;
-        const dome = env?.park?.dome === true;
+        const fallbackPark = !env?.park ? mlbParkForAbbr(g.homeAbbr) : null;
+        const park =
+          env?.park ??
+          (fallbackPark
+            ? {
+                hrIndex: fallbackPark.hrIndex,
+                altitudeFt: fallbackPark.altitudeFt,
+                dome: fallbackPark.dome,
+              }
+            : null);
+        if (!env && !home && !away && !park) continue;
+        const dome = park?.dome === true;
         mlbGameEnv[`${g.awayTeam} @ ${g.homeTeam}`] = {
           venue: env?.venue ?? g.venue ?? null,
-          park: env?.park ?? null,
+          park,
           weather: dome ? null : (env?.weather ?? null),
           ...(dome ? { climateControlled: true } : {}),
-          homePitcher: home ? { name: home.name ?? null, throws: home.throws ?? null, tendency: home.tendency ?? null } : null,
-          awayPitcher: away ? { name: away.name ?? null, throws: away.throws ?? null, tendency: away.tendency ?? null } : null,
+          homePitcher: home
+            ? { name: home.name ?? null, throws: home.throws ?? null, tendency: home.tendency ?? null }
+            : null,
+          awayPitcher: away
+            ? { name: away.name ?? null, throws: away.throws ?? null, tendency: away.tendency ?? null }
+            : null,
         };
       }
     }

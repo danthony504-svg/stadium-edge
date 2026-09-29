@@ -51,7 +51,9 @@ import {
 } from "@/lib/pickScore";
 import { computeHrScore, hrScoreBand, type HrScore } from "@/lib/hrScore";
 import { computeHrFlags, type HrFlags } from "@/lib/hrFlags";
+import { mlbParkForAbbr } from "@/lib/mlbParks";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
+import { resolvePropPlayerSides } from "@/lib/resolvePropPlayerSides";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { localPropSimulation, mergePropSimWithLocal } from "@/lib/simulatorLocalSim";
 import { SPORTS } from "@/lib/sports";
@@ -98,6 +100,7 @@ export default function PropDetailScreen() {
     headshot?: string;
     startsAt?: string;
     pick?: string;
+    teamAbbr?: string;
   }>() ?? {};
 
   const player = String(p.player ?? "");
@@ -108,6 +111,7 @@ export default function PropDetailScreen() {
   const sport = String(p.sport ?? "");
   const athleteIdParam = p.athleteId ? String(p.athleteId) : "";
   const headshotParam = p.headshot ? String(p.headshot) : "";
+  const teamAbbrParam = p.teamAbbr ? String(p.teamAbbr) : "";
   const game = String(p.game ?? "");
   const startsAt = p.startsAt ? String(p.startsAt) : "";
   const odds = Number(p.odds);
@@ -123,7 +127,10 @@ export default function PropDetailScreen() {
 
   // Coach (and some slip paths) may open this sheet without athleteId. Resolve
   // via ESPN player search so the real game-log / hit-rate stats can load —
-  // same fail-closed sport match as slip openLeg.
+  // same fail-closed sport match as slip openLeg. Also capture ESPN team name
+  // so Match (opposing pitcher) works when the player has no recent game log
+  // (e.g. new MLB import) — history-only side resolution used to leave oppName
+  // undefined and the pitcher/platoon cards fell back to generic CRITICAL tips.
   const resolveAthleteQ = useQuery({
     queryKey: ["prop-resolve-athlete", sport, player],
     enabled: !!sport && !!player && !athleteIdParam && !isSoccer,
@@ -136,12 +143,30 @@ export default function PropDetailScreen() {
       return {
         athleteId: hit.athleteId,
         headshot: full?.headshot ?? null,
+        team: full?.team ?? hit.team ?? null,
       };
+    },
+  });
+
+  // When athleteId is already known (Coach / props feed), still resolve the
+  // ESPN team name so pitcher Match doesn't depend on a thin game log.
+  const athleteTeamQ = useQuery({
+    queryKey: ["prop-athlete-team", sport, athleteIdParam || player],
+    enabled: !!sport && !!player && !!athleteIdParam && !isSoccer && !teamAbbrParam,
+    staleTime: 30 * 60_000,
+    queryFn: async ({ signal }) => {
+      const r = await searchPlayer(player, signal);
+      const hit =
+        (r.results ?? []).find((x) => x.athleteId === athleteIdParam) ??
+        pickPlayerSearchResult(r.results ?? [], player, sport);
+      return hit?.team ?? null;
     },
   });
 
   const athleteId = athleteIdParam || resolveAthleteQ.data?.athleteId || "";
   const headshot = headshotParam || resolveAthleteQ.data?.headshot || "";
+  const playerTeamFromSearch =
+    resolveAthleteQ.data?.team ?? athleteTeamQ.data ?? null;
   const enabled = !!sport && (!!athleteId || (isSoccer && !!player));
   const resolvingAthlete =
     !athleteIdParam && !isSoccer && !!player && !!sport && resolveAthleteQ.isLoading;
@@ -425,35 +450,36 @@ export default function PropDetailScreen() {
   });
   const defenseRows = useMemo(() => {
     const d = defenseQ.data;
-    return [d?.away, d?.home].filter(
+    const rows = [d?.away, d?.home].filter(
       (x): x is { name: string; def: TeamDefense } => !!x && x.def.avgPointsAgainst != null,
     );
-  }, [defenseQ.data]);
-
-  // Resolve which side of the matchup is the player's own team vs the opponent,
-  // using ONLY real data: a player never appears as their own opponent, so the
-  // team that shows up in their recent game-log opponents is the opponent and
-  // the other side is their team. Fail closed (undefined) if it's not certain,
-  // so the cards fall back to neutral wording rather than guessing.
-  const { teamName, oppName } = useMemo(() => {
-    const rows = historyQ.data?.recent ?? [];
-    const opps = rows
-      .map((r) => (r.opponentName ?? "").toLowerCase())
-      .filter(Boolean);
-    if (!awayName || !homeName || opps.length === 0) {
-      return { teamName: undefined as string | undefined, oppName: undefined as string | undefined };
+    // Prefer the opposing side only once we know which team the player is on.
+    if (oppName) {
+      const oppOnly = rows.filter(
+        (r) =>
+          teamNameMatches(r.name, oppName) ||
+          (r.def.teamName != null && teamNameMatches(r.def.teamName, oppName)),
+      );
+      if (oppOnly.length) return oppOnly;
     }
-    const nick = (n: string) => (n.toLowerCase().split(/\s+/).pop() ?? n.toLowerCase());
-    const seen = (n: string) => {
-      const k = nick(n);
-      return !!k && opps.some((o) => o.includes(k));
-    };
-    const awayIsOpp = seen(awayName);
-    const homeIsOpp = seen(homeName);
-    if (awayIsOpp && !homeIsOpp) return { teamName: homeName, oppName: awayName };
-    if (homeIsOpp && !awayIsOpp) return { teamName: awayName, oppName: homeName };
-    return { teamName: undefined as string | undefined, oppName: undefined as string | undefined };
-  }, [historyQ.data, awayName, homeName]);
+    return rows;
+  }, [defenseQ.data, oppName]);
+
+  // Resolve player's team vs opponent. Prefer props-feed teamAbbr / ESPN search
+  // team name so Match (opposing pitcher + platoon) works even when the player
+  // has no MLB game log yet (Murakami-style imports). Fall back to recent
+  // opponents via teamNameMatches. Fail closed when ambiguous.
+  const { teamName, oppName } = useMemo(
+    () =>
+      resolvePropPlayerSides({
+        awayName,
+        homeName,
+        teamAbbr: teamAbbrParam || null,
+        playerTeam: playerTeamFromSearch,
+        recentOpponents: (historyQ.data?.recent ?? []).map((r) => r.opponentName),
+      }),
+    [awayName, homeName, teamAbbrParam, playerTeamFromSearch, historyQ.data],
+  );
 
   // REAL home/away split of THIS market's value, straight from the game log we
   // already loaded. Needs at least one game on each side or we leave it null and
@@ -485,22 +511,35 @@ export default function PropDetailScreen() {
   // line vs that starter's hand, and the home ballpark + live weather. All real
   // ESPN data, resolved fail-closed (team-id misses leave a card generic).
   const mlbQ = useQuery({
-    queryKey: ["mlb-prop-signals", athleteId, awayName, homeName],
+    queryKey: ["mlb-prop-signals", athleteId, awayName, homeName, startsAt],
     enabled: sport === "mlb" && !!athleteId && !!awayName && !!homeName,
     staleTime: 15 * 60_000,
     queryFn: async ({ signal }) => {
-      const resolveTeamId = async (name: string): Promise<string | null> => {
+      const resolveTeam = async (
+        name: string,
+      ): Promise<{ teamId: string | null; abbrev: string | null }> => {
         const r = await searchTeam(name, signal);
         const hits = r.results.filter((t) => (t.sport ?? "") === "mlb");
-        return hits.find((t) => teamNameMatches(t.name, name))?.teamId ?? null;
+        const hit = hits.find((t) => teamNameMatches(t.name, name)) ?? null;
+        return { teamId: hit?.teamId ?? null, abbrev: hit?.abbrev ?? null };
       };
-      const [awayId, homeId, probRes, splits] = await Promise.all([
-        resolveTeamId(awayName),
-        resolveTeamId(homeName),
-        getMlbProbables(signal).catch(() => ({ probables: {} } as Awaited<ReturnType<typeof getMlbProbables>>)),
+      const { mlbBoardDayKeys } = await import("@/lib/mlbParks");
+      const dayKeys = mlbBoardDayKeys([{ sport: "mlb", startsAt: startsAt || null }]);
+      const [away, home, probRes, splits] = await Promise.all([
+        resolveTeam(awayName),
+        resolveTeam(homeName),
+        getMlbProbables(signal, dayKeys.length ? dayKeys : undefined).catch(
+          () => ({ probables: {} } as Awaited<ReturnType<typeof getMlbProbables>>),
+        ),
         getMlbBatterSplits(athleteId, signal).catch(() => null),
       ]);
-      return { awayId, homeId, probRes, splits };
+      return {
+        awayId: away.teamId,
+        homeId: home.teamId,
+        homeAbbr: home.abbrev,
+        probRes,
+        splits,
+      };
     },
   });
 
@@ -511,18 +550,22 @@ export default function PropDetailScreen() {
     if (sport !== "mlb") return null;
     const d = mlbQ.data;
     if (!d) return null;
-    const nick = (s: string) => s.toLowerCase().split(/\s+/).pop() ?? s.toLowerCase();
-    // The pitcher this batter faces is the OPPONENT team's probable starter.
-    // Map the (already fail-closed) opponent name back to its resolved team id,
-    // but require EXACTLY ONE side to match so a shared nickname (Red Sox vs
-    // White Sox) never mis-attributes the pitcher — fall back to generic.
+    // Opposing probable starter = the OTHER side's team id. Prefer resolved
+    // oppName (teamAbbr / search / history); fall back to teamName. Avoid the
+    // old last-word nick match ("sox") that collides Red Sox vs White Sox.
     let oppId: string | null = null;
     if (oppName) {
-      const on = nick(oppName);
-      const homeMatch = !!homeName && nick(homeName) === on;
-      const awayMatch = !!awayName && nick(awayName) === on;
-      if (homeMatch && !awayMatch) oppId = d.homeId;
-      else if (awayMatch && !homeMatch) oppId = d.awayId;
+      if (teamNameMatches(oppName, homeName) && !teamNameMatches(oppName, awayName)) {
+        oppId = d.homeId;
+      } else if (teamNameMatches(oppName, awayName) && !teamNameMatches(oppName, homeName)) {
+        oppId = d.awayId;
+      }
+    } else if (teamName) {
+      if (teamNameMatches(teamName, awayName) && !teamNameMatches(teamName, homeName)) {
+        oppId = d.homeId;
+      } else if (teamNameMatches(teamName, homeName) && !teamNameMatches(teamName, awayName)) {
+        oppId = d.awayId;
+      }
     }
     const praw = oppId ? d.probRes.probables[oppId] : null;
     const throws: "L" | "R" | null = praw?.throws === "Left" ? "L" : praw?.throws === "Right" ? "R" : null;
@@ -565,11 +608,24 @@ export default function PropDetailScreen() {
         windMph: env.weather?.windMph ?? null,
         condition: env.weather?.condition ?? null,
       };
+    } else {
+      // Static park factor when probables miss this home — never invent weather.
+      const park = mlbParkForAbbr(d.homeAbbr ?? env?.homeAbbr ?? null);
+      if (park) {
+        ballpark = {
+          venue: null,
+          hrIndex: park.hrIndex,
+          dome: park.dome,
+          tempF: null,
+          windMph: null,
+          condition: null,
+        };
+      }
     }
 
     if (!pitcher && !platoon && !ballpark) return null;
     return { pitcher, platoon, ballpark };
-  }, [sport, mlbQ.data, oppName, homeName, awayName]);
+  }, [sport, mlbQ.data, oppName, teamName, homeName, awayName]);
 
   // The OPPONENT's REAL team-wide defense (blocks/steals/sacks/INT/save% etc.),
   // pulled from the team-defense pack we already fetched. oppName is fail-closed
@@ -580,7 +636,17 @@ export default function PropDetailScreen() {
   const realOppDefense = useMemo<RealPropSignals["oppDefense"]>(() => {
     const d = defenseQ.data;
     if (!d || !oppName) return null;
-    const side = oppName === awayName ? d.away : oppName === homeName ? d.home : null;
+    const side =
+      (d.away &&
+        (teamNameMatches(d.away.name, oppName) ||
+          (d.away.def.teamName != null && teamNameMatches(d.away.def.teamName, oppName)))
+        ? d.away
+        : null) ??
+      (d.home &&
+        (teamNameMatches(d.home.name, oppName) ||
+          (d.home.def.teamName != null && teamNameMatches(d.home.def.teamName, oppName)))
+        ? d.home
+        : null);
     if (!side) return null;
     const def = side.def;
     const num = (k: string) => def.defensive[k]?.value ?? null;

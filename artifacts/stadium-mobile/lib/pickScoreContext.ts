@@ -9,6 +9,7 @@
 import type { ParsedPick } from "@/components/PickCard";
 import type {
   ChatContext,
+  EspnGame,
   GameMeta,
   InjuryTeam,
   FightAnalysis,
@@ -38,6 +39,13 @@ import {
   type CombinedPickScore,
   type PickSubScores,
 } from "@/lib/pickScore";
+import type { GameTeamIds } from "@/lib/coachGameMonteCarlo";
+import {
+  opponentTeamIdForProp,
+  oppDefensePackForOpponent,
+  type FootballOppDefenseMap,
+} from "@/lib/footballOppDefenseContext";
+import type { FootballOppDefenseSlice, RushDefenseSlice } from "@/lib/footballRushDefense";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import {
@@ -492,6 +500,43 @@ function mlbGameEnvFor(game: string, map?: Record<string, unknown>): MlbGameEnvS
   return null;
 }
 
+function rushDefenseForProp(
+  pick: ParsedPick,
+  entry: PropPoolEntry | undefined,
+  opts?: {
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
+  },
+): RushDefenseSlice | null {
+  return footballOppPackForProp(pick, entry, opts)?.rush ?? null;
+}
+
+function footballOppPackForProp(
+  pick: ParsedPick,
+  entry: PropPoolEntry | undefined,
+  opts?: {
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
+  },
+): FootballOppDefenseSlice | null {
+  if (!opts?.oppRushDefense) return null;
+  const sport = pick.sport ?? entry?.sport;
+  const oppId = opponentTeamIdForProp({
+    sport,
+    game: pick.game,
+    teamAbbr: entry?.teamAbbr,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdMap,
+  });
+  return oppDefensePackForOpponent({
+    sport,
+    opponentTeamId: oppId,
+    map: opts.oppRushDefense,
+  });
+}
+
 function playerTeamIsHome(game: string, playerTeam: string | null): boolean | null {
   if (!playerTeam) return null;
   const { away, home } = splitLabel(game);
@@ -675,6 +720,10 @@ export function attachPickScores(
     injuryTeams?: InjuryTeam[];
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
+    /** NFL/NCAAF opponent rush-D (box-score avg) keyed sport#teamId. */
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
   },
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
@@ -688,6 +737,11 @@ export function attachPickScores(
     injuryTeams: opts.injuryTeams,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
+  };
+  const rushOpts = {
+    oppRushDefense: opts.oppRushDefense,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdMap,
   };
   return picks.map((p) => {
     const gameSim = gameSims?.get(p.game) ?? null;
@@ -739,6 +793,10 @@ export function attachPickScores(
         : null;
     // Football weather/coach env attaches to props AND game lines (same map).
     const mlbGameEnv = mlbGameEnvFor(p.game, opts.mlbGameEnv);
+    const footballOppDefense = p.isProp
+      ? footballOppPackForProp(p, propEntry, rushOpts)
+      : null;
+    const rushDefense = footballOppDefense?.rush ?? null;
     let finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
@@ -766,6 +824,8 @@ export function attachPickScores(
                 }
               : null,
             mlbGameEnv,
+            rushDefense,
+            footballOppDefense,
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,
@@ -821,6 +881,9 @@ export type CoachFlashEnrich = {
   playerHistory?: Record<string, PlayerHistorySlice>;
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
+  oppRushDefense?: FootballOppDefenseMap;
+  espnGames?: EspnGame[];
+  teamIdMap?: Map<string, GameTeamIds>;
   propSimulations?: Map<string, { hitProbability: number | null }>;
   gameSimulations?: Map<string, CoachGameSimEntry>;
   perfByFamily?: Map<string, MarketPerf>;
@@ -887,6 +950,9 @@ export function rescoreCoachTicketPicks(
     playerHistory: enrich.playerHistory,
     mlbPlatoon: enrich.mlbPlatoon,
     mlbGameEnv: enrich.mlbGameEnv,
+    oppRushDefense: enrich.oppRushDefense,
+    espnGames: enrich.espnGames,
+    teamIdMap: enrich.teamIdMap,
     propSimulations,
     gameSimulations: enrich.gameSimulations,
     perfByFamily: enrich.perfByFamily,

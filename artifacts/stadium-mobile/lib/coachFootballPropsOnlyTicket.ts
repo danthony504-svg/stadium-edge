@@ -7,7 +7,7 @@
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
+import type { EspnGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchPropSimulations, getPlayerHistory } from "./api.ts";
 import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
 import {
@@ -44,6 +44,17 @@ import {
   type PickSubScores,
 } from "./pickScore.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
+import {
+  opponentTeamIdForProp,
+  oppDefensePackForOpponent,
+  type FootballOppDefenseMap,
+} from "./footballOppDefenseContext.ts";
+import {
+  pickDefenseAwareAlt,
+  propOppDefenseTilt,
+  shouldBlockRushOverVsDefense,
+  shouldPreferDefenseAltPick,
+} from "./footballRushDefense.ts";
 import {
   clipPropSimHitForGrade,
   sanitizeSimHitForGrade,
@@ -137,10 +148,38 @@ export function selectFootballPropsOnlyCandidates(
   );
 }
 
+function mlbPlatoonLookup(
+  player: string | undefined,
+  athleteId: string | null | undefined,
+  map?: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (!map) return null;
+  if (athleteId && player) {
+    const hit = map[`${player}#${athleteId}`];
+    if (hit && typeof hit === "object") return hit as Record<string, unknown>;
+  }
+  if (athleteId) {
+    const hit = Object.entries(map).find(([k]) => k.endsWith(`#${athleteId}`))?.[1];
+    if (hit && typeof hit === "object") return hit as Record<string, unknown>;
+  }
+  if (player) {
+    const hit = Object.entries(map).find(([k]) => k.startsWith(`${player}#`))?.[1];
+    if (hit && typeof hit === "object") return hit as Record<string, unknown>;
+  }
+  return null;
+}
+
 function scoredLegFromHit(
   pick: ParsedPick,
   rawHit: number | null,
   poolRow?: PropPoolEntry | null,
+  rushCtx?: {
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
+  },
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, rawHit);
@@ -156,6 +195,36 @@ function scoredLegFromHit(
   });
   if (!propsOnlyLegClearsOdds(norm, hit)) return null;
 
+  const oppId = opponentTeamIdForProp({
+    sport: norm.sport ?? poolRow?.sport,
+    game: norm.game,
+    teamAbbr: poolRow?.teamAbbr,
+    espnGames: rushCtx?.espnGames,
+    teamIdMap: rushCtx?.teamIdMap,
+  });
+  const pack = oppDefensePackForOpponent({
+    sport: norm.sport ?? poolRow?.sport,
+    opponentTeamId: oppId,
+    map: rushCtx?.oppRushDefense,
+  });
+  if (
+    shouldBlockRushOverVsDefense({
+      market: norm.propMarketKey ?? norm.market,
+      side: norm.propSide,
+      defense: pack?.rush ?? null,
+      pack,
+    })
+  ) {
+    return null;
+  }
+  const defTilt = propOppDefenseTilt({
+    sport: norm.sport ?? poolRow?.sport,
+    market: norm.propMarketKey ?? norm.market,
+    side: norm.propSide,
+    defense: pack?.rush ?? null,
+    pack,
+  });
+
   const edgePct =
     hit != null && norm.odds != null
       ? Math.round((hit - impliedProb(norm.odds)) * 1000) / 10
@@ -168,12 +237,30 @@ function scoredLegFromHit(
     lineShopping: scoreLineShopping(poolRow?.bookSpread ?? null),
     simulation: scoreSimulation(hit),
   };
+  const mlbPlatoon = mlbPlatoonLookup(
+    norm.player,
+    poolRow?.athleteId ?? norm.athleteId,
+    rushCtx?.mlbPlatoon,
+  );
+  const mlbGameEnv =
+    rushCtx?.mlbGameEnv && norm.game
+      ? ((rushCtx.mlbGameEnv[norm.game] as Record<string, unknown> | undefined) ?? null)
+      : null;
   const finalAiScore = buildFinalAiScore({
     pick: norm,
     rubricScores,
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
+    propHolisticContext: {
+      sport: norm.sport ?? poolRow?.sport,
+      marketKey: norm.propMarketKey ?? norm.market,
+      propSide: norm.propSide,
+      rushDefense: pack?.rush ?? null,
+      footballOppDefense: pack,
+      mlbPlatoon: mlbPlatoon as import("./propHolisticRecommendation.ts").MlbPlatoonSlice | null,
+      mlbGameEnv: mlbGameEnv as import("./propHolisticRecommendation.ts").MlbGameEnvSlice | null,
+    },
   });
   // Phone: Anytime TD +370 showed Conf 42 / Not Rec. because sim~50% floors
   // confidence at 50 (<52) even with +28% edge. Props-only already cleared
@@ -210,7 +297,8 @@ function scoredLegFromHit(
     grade: score.grade,
     simHit: hit,
     composite,
-    rankScore: (composite ?? 0) + (ev ?? 0) * 0.01,
+    // Opp-D tilt demotes Overs vs stingy fronts across sports (no extra network).
+    rankScore: (composite ?? 0) + (ev ?? 0) * 0.01 + defTilt.tilt,
   };
 }
 
@@ -327,6 +415,12 @@ export type FootballPropsOnlyBuildOpts = {
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
   playerHistory?: Record<string, PlayerHistorySlice>;
+  /** Opponent defense packs — blocks/demotes Overs vs stingy D across sports. */
+  oppRushDefense?: FootballOppDefenseMap;
+  espnGames?: EspnGame[];
+  /** MLB pitcher/platoon + park/weather for props-only holistic scoring. */
+  mlbPlatoon?: Record<string, unknown>;
+  mlbGameEnv?: Record<string, unknown>;
   requestId?: string;
 };
 
@@ -465,12 +559,51 @@ export async function buildFootballPropsOnlyTicket(
   const propLegsScored = gradedCandidates.length;
 
   // Collapse Over/Under to history best-EV side, then stage through odds gate.
-  const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool);
+  // BEFORE picking: if that side is defense-hostile (hard block OR soft stingy),
+  // swap to Under / softer alt Over so Coach still fills the seat without
+  // locking a bad main Over (Monangai Over 40 → Under or Over 24.5).
+  const rushCtx = {
+    oppRushDefense: opts.oppRushDefense,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdMap,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
+  };
+  const normalizedCandidates = candidates.map((c) => normalizePropsOnlyPick(c));
+  const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool).flatMap(
+    (pick) => {
+      const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
+      const pack = oppDefensePackForOpponent({
+        sport: pick.sport ?? row?.sport,
+        opponentTeamId: opponentTeamIdForProp({
+          sport: pick.sport ?? row?.sport,
+          game: pick.game,
+          teamAbbr: row?.teamAbbr,
+          espnGames: opts.espnGames,
+          teamIdMap: opts.teamIdMap,
+        }),
+        map: opts.oppRushDefense,
+      });
+      if (
+        !shouldPreferDefenseAltPick({
+          sport: pick.sport ?? row?.sport,
+          market: pick.propMarketKey ?? pick.market,
+          side: pick.propSide,
+          defense: pack?.rush ?? null,
+          pack,
+        })
+      ) {
+        return [pick];
+      }
+      const alt = pickDefenseAwareAlt(pick, normalizedCandidates);
+      return alt ? [alt] : [];
+    },
+  );
   const propScored: BoardScoredLeg[] = [];
   for (const pick of bestSides) {
     const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
-    const leg = scoredLegFromHit(pick, raw, row);
+    const leg = scoredLegFromHit(pick, raw, row, rushCtx);
     if (leg) propScored.push(leg);
   }
   propScored.sort((a, b) => {

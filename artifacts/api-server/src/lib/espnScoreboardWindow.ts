@@ -24,6 +24,37 @@ export function espnScoreboardDayKeys(
   return keys;
 }
 
+const YYYYMMDD = /^\d{8}$/;
+
+/**
+ * Parse `date` / `dates` query values into sorted unique YYYYMMDD keys.
+ * Accepts comma/space-separated singles (never hyphen ranges — ESPN rejects those).
+ */
+export function parseEspnDateQuery(
+  ...raw: Array<string | string[] | undefined | null>
+): string[] {
+  const keys = new Set<string>();
+  for (const chunk of raw) {
+    if (chunk == null) continue;
+    const parts = Array.isArray(chunk) ? chunk : [chunk];
+    for (const part of parts) {
+      for (const token of String(part).split(/[,\s]+/)) {
+        const t = token.trim();
+        if (YYYYMMDD.test(t)) keys.add(t);
+      }
+    }
+  }
+  return [...keys].sort();
+}
+
+/**
+ * Default MLB probables window: yesterday..tomorrow (UTC). Covers late-night
+ * leftovers and the common "tomorrow" Coach slate without a client date list.
+ */
+export function defaultMlbProbableDayKeys(nowMs = Date.now()): string[] {
+  return espnScoreboardDayKeys(nowMs, 1, 1);
+}
+
 export type EspnEventLike = { id?: string };
 
 /** Dedupe ESPN events by id, preserving first-seen order. */

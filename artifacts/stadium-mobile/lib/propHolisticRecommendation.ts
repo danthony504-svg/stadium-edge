@@ -15,6 +15,10 @@ import {
   scoreTrend,
 } from "./pickScore.ts";
 import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
+import {
+  propOppDefenseTilt,
+  type RushDefenseSlice,
+} from "./footballRushDefense.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
@@ -146,6 +150,10 @@ export type PropHolisticContext = {
   vsOpponentGames?: number;
   mlbPlatoon?: MlbPlatoonSlice | null;
   mlbGameEnv?: MlbGameEnvSlice | null;
+  /** NFL/NCAAF — real opponent rush/pass yards allowed (box-score avg). */
+  rushDefense?: RushDefenseSlice | null;
+  /** Full football opp-D pack (rush + pass). Preferred over rushDefense alone. */
+  footballOppDefense?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -293,6 +301,23 @@ function scoreOpponentTendency(
   const side = ctx.propSide;
   const over = isOverSide(side);
   const under = isUnderSide(side);
+
+  // All sports — unified opp-D tilt (football box-score yards + soft feed fields).
+  if (ctx.footballOppDefense || ctx.rushDefense) {
+    const tilt = propOppDefenseTilt({
+      sport,
+      market: key,
+      side,
+      defense: ctx.rushDefense,
+      pack: ctx.footballOppDefense,
+    });
+    if (tilt.tilt !== 0 || tilt.display) {
+      return {
+        score: scoreTrend(clamp(tilt.tilt / 0.8, -1, 1)),
+        display: tilt.display ?? undefined,
+      };
+    }
+  }
 
   if (sport === "mlb") {
     const tend = ctx.mlbPlatoon?.opposingPitcherTendency ?? null;

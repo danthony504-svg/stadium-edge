@@ -58,6 +58,7 @@ import {
   loadBoardInjuries,
   prefetchPropPlayerHistory,
 } from "@/lib/coachBoardContext";
+import { loadFootballOppRushDefense } from "@/lib/footballOppDefenseContext";
 
 
 export type CoachParlayBuildResult = {
@@ -210,8 +211,9 @@ export async function buildCoachParlay(opts: {
     : constrainedPropPool;
   const propPoolSize = activePropPool.length;
 
-  // Injuries + football weather/coaches + (HR) MLB platoon — all in parallel
-  // so we don't add sequential wall time before scoring.
+  const hasMlbProps = activePropPool.some(
+    (e) => String(e.sport ?? "").toLowerCase() === "mlb",
+  );
   const boardSports = [
     ...new Set(
       [
@@ -222,8 +224,10 @@ export async function buildCoachParlay(opts: {
     ),
   ];
   const needFootballWx = boardSports.some((s) => s === "nfl" || s === "ncaaf");
+  // Injuries + football weather/coaches + opp-D + (any MLB props) platoon —
+  // all in parallel so we don't add sequential wall time before scoring.
   opts.onStatus?.(
-    hrBoardAsk && activePropPool.length > 0
+    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
       ? "Loading matchup, injuries, and recent form…"
       : needFootballWx
         ? "Loading injuries, weather, and coach context…"
@@ -235,21 +239,30 @@ export async function buildCoachParlay(opts: {
       matchupInjuries: {} as Record<string, import("@/lib/injuries").GameInjuryReport>,
       injuryTeams: [] as import("@/lib/api").InjuryTeam[],
     })),
-    hrBoardAsk && activePropPool.length > 0
+    hasMlbProps && activePropPool.length > 0
       ? loadMlbScanContext({
           propPool: activePropPool,
           espnGames: inputs.espnGames,
-          hrOnly: true,
+          hrOnly: hrBoardAsk,
+          maxBatters: hrBoardAsk ? 32 : 16,
           signal: opts.signal,
         }).catch(() => ({ mlbPlatoon: {}, mlbGameEnv: {} }))
       : Promise.resolve({ mlbPlatoon: {}, mlbGameEnv: {} }),
-    hrBoardAsk && activePropPool.length > 0
+    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
       ? prefetchPropPlayerHistory(activePropPool, {
           signal: opts.signal,
-          maxPlayers: 24,
+          maxPlayers: hrBoardAsk ? 24 : 16,
           concurrency: 6,
         }).catch(() => ({}))
       : Promise.resolve({} as Record<string, import("@/lib/pickScoreContext").PlayerHistorySlice>),
+    boardSports.some((s) =>
+      ["nfl", "ncaaf", "nba", "wnba", "ncaab", "nhl", "soccer", "mlb"].includes(s),
+    )
+      ? loadFootballOppRushDefense({
+          espnGames: inputs.espnGames,
+          signal: opts.signal,
+        }).catch(() => ({}))
+      : Promise.resolve({} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap),
     needFootballWx
       ? loadFootballScanContext({
           espnGames: inputs.espnGames,
@@ -259,7 +272,7 @@ export async function buildCoachParlay(opts: {
       : Promise.resolve({ footballGameEnv: {} }),
   ]);
 
-  const [injuryPack, mlb, earlyHistory, football] = await contextPromise;
+  const [injuryPack, mlb, earlyHistory, oppRushDefense, football] = await contextPromise;
   const matchupInjuries = attachMatchupInjuries(
     inputs.espnGames,
     injuryPack.injuriesBySport,
@@ -305,6 +318,10 @@ export async function buildCoachParlay(opts: {
       signal: opts.signal,
       onStatus: opts.onStatus,
       playerHistory,
+      oppRushDefense,
+      espnGames: inputs.espnGames,
+      mlbPlatoon,
+      mlbGameEnv,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
           filterPicksByAskMarketConstraint(picks, marketConstraint),
@@ -392,6 +409,7 @@ export async function buildCoachParlay(opts: {
     requirePropMix,
     mlbPlatoon,
     mlbGameEnv,
+    oppRushDefense: Object.keys(oppRushDefense).length ? oppRushDefense : undefined,
     matchupInjuries: Object.keys(matchupInjuries).length ? matchupInjuries : undefined,
     injuryTeams: injuryTeams.length ? injuryTeams : undefined,
     playerHistory,

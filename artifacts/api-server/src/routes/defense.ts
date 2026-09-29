@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
+import { computeFootballDefenseAllowed } from "../lib/rushDefenseAllowed";
 
 const router: IRouter = Router();
 
@@ -113,7 +114,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `team-defense:${path}:${teamId}:v4`;
+    const key = `team-defense:${path}:${teamId}:v5`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),
@@ -153,6 +154,33 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
       };
       const defensive = extract(SPORT_DEFENSIVE_STATS[sportId] ?? []);
       const offensive = extract(SPORT_OFFENSIVE_STATS[sportId] ?? []);
+
+      // NFL/NCAAF: real rush + pass yards allowed from recent opponent box scores.
+      // ESPN's team-stats feed does not expose opponent yards allowed.
+      let rushDefense: {
+        rushingYardsAllowedPerGame: number | null;
+        yardsPerRushAllowed: number | null;
+        sampleSize: number;
+      } | null = null;
+      let passDefense: {
+        passingYardsAllowedPerGame: number | null;
+        yardsPerPassAllowed: number | null;
+        sampleSize: number;
+      } | null = null;
+      if (sportId === "nfl" || sportId === "ncaaf") {
+        const pack = await computeFootballDefenseAllowed(sportId, teamId, { maxGames: 5 });
+        rushDefense = {
+          rushingYardsAllowedPerGame: pack.rush.rushingYardsAllowedPerGame,
+          yardsPerRushAllowed: pack.rush.yardsPerRushAllowed,
+          sampleSize: pack.rush.sampleSize,
+        };
+        passDefense = {
+          passingYardsAllowedPerGame: pack.pass.passingYardsAllowedPerGame,
+          yardsPerPassAllowed: pack.pass.yardsPerPassAllowed,
+          sampleSize: pack.pass.sampleSize,
+        };
+      }
+
       return {
         sport: sportId,
         teamId,
@@ -162,12 +190,25 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
         pointDifferential: pointDiff != null ? Math.round(pointDiff * 10) / 10 : null,
         defensive,
         offensive,
+        rushDefense,
+        passDefense,
       };
     });
     res.json(out);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch team defense");
-    res.json({ sport: sportId, teamId, teamName: null, avgPointsAgainst: null, avgPointsFor: null, pointDifferential: null, defensive: {}, offensive: {} });
+    res.json({
+      sport: sportId,
+      teamId,
+      teamName: null,
+      avgPointsAgainst: null,
+      avgPointsFor: null,
+      pointDifferential: null,
+      defensive: {},
+      offensive: {},
+      rushDefense: null,
+      passDefense: null,
+    });
   }
 });
 

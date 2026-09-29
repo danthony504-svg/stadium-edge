@@ -112,3 +112,9 @@ test("D/ST props map to ESPN defensive / kicking fields", () => {
   assert.equal(gameValueForMarket("player_tackles_assists", {}, NONE), null);
   assert.equal(gameValueForMarket("player_kicking_points", { fieldGoalsMade: "2" }, NONE), null);
 });
+
+test("alternate markets share the same ESPN columns as the main market", () => {
+  assert.equal(gameValueForMarket("batter_home_runs_alternate", { HR: "1" }, NONE), 1);
+  assert.equal(gameValueForMarket("batter_hits_alternate", { H: "2" }, NONE), 2);
+  assert.equal(gameValueForMarket("player_rush_yds_alternate", { rushingYards: "55" }, NONE), 55);
+});
