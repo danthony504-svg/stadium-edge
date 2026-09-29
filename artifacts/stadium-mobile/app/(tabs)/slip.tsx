@@ -571,6 +571,7 @@ export default function SlipScreen() {
           athleteId: p.athleteId ?? "",
           headshot: p.headshot ?? "",
           startsAt: p.startsAt ?? "",
+          teamAbbr: p.teamAbbr ?? "",
           pick: p.pick,
         },
       });

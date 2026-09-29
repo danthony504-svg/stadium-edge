@@ -464,6 +464,7 @@ export default function PropsScreen() {
         athleteId: p.athleteId ?? "",
         headshot: p.headshot ?? "",
         startsAt: p.startsAt ?? "",
+        teamAbbr: p.teamAbbr ?? "",
         pick: p.pick,
       },
     });
