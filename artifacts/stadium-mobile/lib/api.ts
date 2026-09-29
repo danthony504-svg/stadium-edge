@@ -1376,6 +1376,15 @@ export type TeamDefense = {
   pointDifferential: number | null;
   defensive: Record<string, { value: number | null; displayValue: string | null }>;
   offensive: Record<string, { value: number | null; displayValue: string | null }>;
+  /**
+   * NFL/NCAAF only — real opponent rushing yards allowed, averaged from recent
+   * completed box scores. null when sample is empty / sport unsupported.
+   */
+  rushDefense?: {
+    rushingYardsAllowedPerGame: number | null;
+    yardsPerRushAllowed: number | null;
+    sampleSize: number;
+  } | null;
 };
 
 export function getTeamDefense(

@@ -36,6 +36,12 @@ import {
   type TicketStagingBreakdown,
 } from "./fullBoardMarketCopy.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
+import {
+  opponentTeamIdForProp,
+  rushDefenseForOpponent,
+  type FootballOppDefenseMap,
+} from "./footballOppDefenseContext.ts";
+import { shouldBlockRushOverVsDefense } from "./footballRushDefense.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
@@ -413,6 +419,9 @@ function appendPropScoredLegs(
     injuryTeams?: import("./api.ts").InjuryTeam[];
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
@@ -433,6 +442,9 @@ function appendPropScoredLegs(
     injuryTeams: opts.injuryTeams,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
+    oppRushDefense: opts.oppRushDefense,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdMap,
     propSimulations: propHits,
     perfByFamily: opts.perfByFamily,
   });
@@ -440,6 +452,32 @@ function appendPropScoredLegs(
   for (const pick of scoredPicks) {
     const fp = pickLegFingerprint(pick);
     if (seenFp.has(fp)) continue;
+    const poolRow = opts.pool.find(
+      (e) =>
+        e.game === pick.game &&
+        e.player === pick.player &&
+        e.side === pick.propSide,
+    );
+    const defense = rushDefenseForOpponent({
+      sport: pick.sport ?? poolRow?.sport,
+      opponentTeamId: opponentTeamIdForProp({
+        sport: pick.sport ?? poolRow?.sport,
+        game: pick.game,
+        teamAbbr: poolRow?.teamAbbr,
+        espnGames: opts.espnGames,
+        teamIdMap: opts.teamIdMap,
+      }),
+      map: opts.oppRushDefense,
+    });
+    if (
+      shouldBlockRushOverVsDefense({
+        market: pick.propMarketKey ?? pick.market,
+        side: pick.propSide,
+        defense,
+      })
+    ) {
+      continue;
+    }
     const simHit = pick.finalAiScore?.simHit ?? null;
     let leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
     if (!leg) continue;
@@ -521,6 +559,8 @@ async function simPropPoolUntilQualified(
     injuryTeams?: import("./api.ts").InjuryTeam[];
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
@@ -565,6 +605,9 @@ async function simPropPoolUntilQualified(
     injuryTeams: opts.injuryTeams,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
+    oppRushDefense: opts.oppRushDefense,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdsByGame,
     perfByFamily: opts.perfByFamily,
   });
   const hrBoard =
@@ -604,6 +647,9 @@ async function simPropPoolUntilQualified(
     injuryTeams: opts.injuryTeams,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
+    oppRushDefense: opts.oppRushDefense,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdsByGame,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
     manifestRecorder: opts.manifestRecorder,
@@ -930,6 +976,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   injuryTeams?: import("./api.ts").InjuryTeam[];
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
+  oppRushDefense?: FootballOppDefenseMap;
   perfByFamily?: Map<string, MarketPerf>;
   calibration?: Map<string, CalibrationBucket>;
   signal?: AbortSignal;
@@ -1109,6 +1156,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       injuryTeams: opts.injuryTeams,
       mlbPlatoon: opts.mlbPlatoon,
       mlbGameEnv: opts.mlbGameEnv,
+      oppRushDefense: opts.oppRushDefense,
+      espnGames: opts.espnGames,
       perfByFamily: opts.perfByFamily,
       calibration: opts.calibration,
     };

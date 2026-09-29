@@ -57,6 +57,7 @@ import {
   loadBoardInjuries,
   prefetchPropPlayerHistory,
 } from "@/lib/coachBoardContext";
+import { loadFootballOppRushDefense } from "@/lib/footballOppDefenseContext";
 
 
 export type CoachParlayBuildResult = {
@@ -246,9 +247,15 @@ export async function buildCoachParlay(opts: {
           concurrency: 6,
         }).catch(() => ({}))
       : Promise.resolve({} as Record<string, import("@/lib/pickScoreContext").PlayerHistorySlice>),
+    boardSports.some((s) => s === "nfl" || s === "ncaaf")
+      ? loadFootballOppRushDefense({
+          espnGames: inputs.espnGames,
+          signal: opts.signal,
+        }).catch(() => ({}))
+      : Promise.resolve({} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap),
   ]);
 
-  const [injuryPack, mlb, earlyHistory] = await contextPromise;
+  const [injuryPack, mlb, earlyHistory, oppRushDefense] = await contextPromise;
   const matchupInjuries = attachMatchupInjuries(
     inputs.espnGames,
     injuryPack.injuriesBySport,
@@ -290,6 +297,8 @@ export async function buildCoachParlay(opts: {
       signal: opts.signal,
       onStatus: opts.onStatus,
       playerHistory,
+      oppRushDefense,
+      espnGames: inputs.espnGames,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
           filterPicksByAskMarketConstraint(picks, marketConstraint),
@@ -377,6 +386,7 @@ export async function buildCoachParlay(opts: {
     requirePropMix,
     mlbPlatoon,
     mlbGameEnv,
+    oppRushDefense: Object.keys(oppRushDefense).length ? oppRushDefense : undefined,
     matchupInjuries: Object.keys(matchupInjuries).length ? matchupInjuries : undefined,
     injuryTeams: injuryTeams.length ? injuryTeams : undefined,
     playerHistory,

@@ -7,7 +7,7 @@
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
+import type { EspnGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchPropSimulations, getPlayerHistory } from "./api.ts";
 import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
 import {
@@ -44,6 +44,15 @@ import {
   type PickSubScores,
 } from "./pickScore.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
+import {
+  opponentTeamIdForProp,
+  rushDefenseForOpponent,
+  type FootballOppDefenseMap,
+} from "./footballOppDefenseContext.ts";
+import {
+  footballRushDefenseTilt,
+  shouldBlockRushOverVsDefense,
+} from "./footballRushDefense.ts";
 import {
   clipPropSimHitForGrade,
   sanitizeSimHitForGrade,
@@ -141,6 +150,11 @@ function scoredLegFromHit(
   pick: ParsedPick,
   rawHit: number | null,
   poolRow?: PropPoolEntry | null,
+  rushCtx?: {
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
+  },
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, rawHit);
@@ -155,6 +169,33 @@ function scoredLegFromHit(
     expectedStatKey: "player_prop",
   });
   if (!propsOnlyLegClearsOdds(norm, hit)) return null;
+
+  const oppId = opponentTeamIdForProp({
+    sport: norm.sport ?? poolRow?.sport,
+    game: norm.game,
+    teamAbbr: poolRow?.teamAbbr,
+    espnGames: rushCtx?.espnGames,
+    teamIdMap: rushCtx?.teamIdMap,
+  });
+  const rushDefense = rushDefenseForOpponent({
+    sport: norm.sport ?? poolRow?.sport,
+    opponentTeamId: oppId,
+    map: rushCtx?.oppRushDefense,
+  });
+  if (
+    shouldBlockRushOverVsDefense({
+      market: norm.propMarketKey ?? norm.market,
+      side: norm.propSide,
+      defense: rushDefense,
+    })
+  ) {
+    return null;
+  }
+  const rushTilt = footballRushDefenseTilt({
+    market: norm.propMarketKey ?? norm.market,
+    side: norm.propSide,
+    defense: rushDefense,
+  });
 
   const edgePct =
     hit != null && norm.odds != null
@@ -174,6 +215,14 @@ function scoredLegFromHit(
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
+    propHolisticContext: rushDefense
+      ? {
+          sport: norm.sport ?? poolRow?.sport,
+          marketKey: norm.propMarketKey ?? norm.market,
+          propSide: norm.propSide,
+          rushDefense,
+        }
+      : undefined,
   });
   // Phone: Anytime TD +370 showed Conf 42 / Not Rec. because sim~50% floors
   // confidence at 50 (<52) even with +28% edge. Props-only already cleared
@@ -210,7 +259,8 @@ function scoredLegFromHit(
     grade: score.grade,
     simHit: hit,
     composite,
-    rankScore: (composite ?? 0) + (ev ?? 0) * 0.01,
+    // Soft rush-D tilt demotes Overs vs stingy fronts (Monangai vs PHI).
+    rankScore: (composite ?? 0) + (ev ?? 0) * 0.01 + rushTilt.tilt,
   };
 }
 
@@ -327,6 +377,9 @@ export type FootballPropsOnlyBuildOpts = {
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
   playerHistory?: Record<string, PlayerHistorySlice>;
+  /** NFL/NCAAF opponent rush yards allowed — blocks/demotes rush Overs vs stingy D. */
+  oppRushDefense?: FootballOppDefenseMap;
+  espnGames?: EspnGame[];
   requestId?: string;
 };
 
@@ -465,12 +518,51 @@ export async function buildFootballPropsOnlyTicket(
   const propLegsScored = gradedCandidates.length;
 
   // Collapse Over/Under to history best-EV side, then stage through odds gate.
-  const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool);
+  // When best EV is a rush OVER vs a hard stingy run D (e.g. Monangai vs PHI),
+  // prefer the Under if graded — otherwise drop the Over entirely.
+  const rushCtx = {
+    oppRushDefense: opts.oppRushDefense,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdMap,
+  };
+  const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool).flatMap(
+    (pick) => {
+      const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
+      const defense = rushDefenseForOpponent({
+        sport: pick.sport ?? row?.sport,
+        opponentTeamId: opponentTeamIdForProp({
+          sport: pick.sport ?? row?.sport,
+          game: pick.game,
+          teamAbbr: row?.teamAbbr,
+          espnGames: opts.espnGames,
+          teamIdMap: opts.teamIdMap,
+        }),
+        map: opts.oppRushDefense,
+      });
+      if (
+        !shouldBlockRushOverVsDefense({
+          market: pick.propMarketKey ?? pick.market,
+          side: pick.propSide,
+          defense,
+        })
+      ) {
+        return [pick];
+      }
+      // Try the opposite side from candidates for the same player/market/line.
+      const mk = `${pick.game}|${pick.player}|${pick.propMarketKey ?? pick.market}|${pick.propLine}`.toLowerCase();
+      const alt = candidates.find((c) => {
+        const n = normalizePropsOnlyPick(c);
+        const key = `${n.game}|${n.player}|${n.propMarketKey ?? n.market}|${n.propLine}`.toLowerCase();
+        return key === mk && n.propSide === "Under";
+      });
+      return alt ? [normalizePropsOnlyPick(alt)] : [];
+    },
+  );
   const propScored: BoardScoredLeg[] = [];
   for (const pick of bestSides) {
     const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
-    const leg = scoredLegFromHit(pick, raw, row);
+    const leg = scoredLegFromHit(pick, raw, row, rushCtx);
     if (leg) propScored.push(leg);
   }
   propScored.sort((a, b) => {

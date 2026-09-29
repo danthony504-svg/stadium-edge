@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
+import { computeRushDefenseAllowed } from "../lib/rushDefenseAllowed";
 
 const router: IRouter = Router();
 
@@ -113,7 +114,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `team-defense:${path}:${teamId}:v4`;
+    const key = `team-defense:${path}:${teamId}:v5`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),
@@ -153,6 +154,28 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
       };
       const defensive = extract(SPORT_DEFENSIVE_STATS[sportId] ?? []);
       const offensive = extract(SPORT_OFFENSIVE_STATS[sportId] ?? []);
+
+      // NFL/NCAAF: real rushing yards allowed from recent opponent box scores.
+      // ESPN's team-stats feed does not expose opponent rush yards allowed.
+      let rushDefense: {
+        rushingYardsAllowedPerGame: number | null;
+        yardsPerRushAllowed: number | null;
+        sampleSize: number;
+      } | null = null;
+      if (sportId === "nfl" || sportId === "ncaaf") {
+        const rd = await computeRushDefenseAllowed(sportId, teamId, { maxGames: 5 });
+        const stuffs = defensive.stuffs?.value ?? null;
+        rushDefense = {
+          rushingYardsAllowedPerGame: rd.rushingYardsAllowedPerGame,
+          yardsPerRushAllowed: rd.yardsPerRushAllowed,
+          sampleSize: rd.sampleSize,
+        };
+        if (stuffs != null && defensive.stuffs) {
+          // keep stuffs on defensive map; also mirror sample for clients
+          void stuffs;
+        }
+      }
+
       return {
         sport: sportId,
         teamId,
@@ -162,12 +185,23 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
         pointDifferential: pointDiff != null ? Math.round(pointDiff * 10) / 10 : null,
         defensive,
         offensive,
+        rushDefense,
       };
     });
     res.json(out);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch team defense");
-    res.json({ sport: sportId, teamId, teamName: null, avgPointsAgainst: null, avgPointsFor: null, pointDifferential: null, defensive: {}, offensive: {} });
+    res.json({
+      sport: sportId,
+      teamId,
+      teamName: null,
+      avgPointsAgainst: null,
+      avgPointsFor: null,
+      pointDifferential: null,
+      defensive: {},
+      offensive: {},
+      rushDefense: null,
+    });
   }
 });
 
