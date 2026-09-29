@@ -4,6 +4,10 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import { collapseScoredLegsByMarketLadder, marketLadderKey } from "./marketLadderExhaustion.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
+import {
+  FOOTBALL_DST_PROP_SIM_CAP,
+  isFootballDstPropMarket,
+} from "./footballDstProps.ts";
 
 export const BOARD_PROP_SIM_BATCH = 21;
 
@@ -158,14 +162,18 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
 
   const selected: T[] = [];
   const ladderCounts = new Map<string, number>();
+  let dstTaken = 0;
   const takeFrom = (list: T[], limit: number) => {
     for (const pick of list) {
       if (selected.length >= maxToSim || limit <= 0) return;
+      const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
+      if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) continue;
       const ladder = marketLadderKey(pick);
       const used = ladderCounts.get(ladder) ?? 0;
       if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) continue;
       ladderCounts.set(ladder, used + 1);
       selected.push(pick);
+      if (dst) dstTaken += 1;
       limit -= 1;
     }
   };
@@ -180,12 +188,15 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
       for (const pick of buckets[fam]) {
         if (selected.length >= maxToSim) break;
         if (taken.has(pick)) continue;
+        const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
+        if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) continue;
         const ladder = marketLadderKey(pick);
         const used = ladderCounts.get(ladder) ?? 0;
         if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) continue;
         ladderCounts.set(ladder, used + 1);
         selected.push(pick);
         taken.add(pick);
+        if (dst) dstTaken += 1;
       }
     }
   }
@@ -229,6 +240,7 @@ export function shouldUseFootballSkillPropSim(opts: {
  * BOARD_PROP_SIM_RUNGS_PER_LADDER posted lines per player/market so alt
  * yard/attempt/completion numbers (150 / 175 / …) still get simulated, then
  * fills remaining slots from deferred rungs. Qualification thresholds unchanged.
+ * D/ST props are hard-capped so tackle/kicking volume cannot inflate the set.
  */
 export function selectBoardPropSimCandidates<T extends ParsedPick>(
   rankedProps: readonly T[],
@@ -237,20 +249,26 @@ export function selectBoardPropSimCandidates<T extends ParsedPick>(
   if (maxToSim <= 0 || rankedProps.length === 0) {
     return { selected: [], skippedCount: rankedProps.length };
   }
-  if (rankedProps.length <= maxToSim) {
-    return { selected: [...rankedProps], skippedCount: 0 };
-  }
 
   const selected: T[] = [];
   const ladderCounts = new Map<string, number>();
   const deferred: T[] = [];
+  let dstTaken = 0;
+
+  const tryTake = (pick: T, into: T[]): boolean => {
+    const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
+    if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) return false;
+    into.push(pick);
+    if (dst) dstTaken += 1;
+    return true;
+  };
 
   for (const pick of rankedProps) {
     const ladder = marketLadderKey(pick);
     const used = ladderCounts.get(ladder) ?? 0;
     if (used < BOARD_PROP_SIM_RUNGS_PER_LADDER) {
+      if (!tryTake(pick, selected)) continue;
       ladderCounts.set(ladder, used + 1);
-      selected.push(pick);
       if (selected.length >= maxToSim) {
         return { selected, skippedCount: rankedProps.length - selected.length };
       }
@@ -260,7 +278,7 @@ export function selectBoardPropSimCandidates<T extends ParsedPick>(
   }
 
   for (const pick of deferred) {
-    selected.push(pick);
+    if (!tryTake(pick, selected)) continue;
     if (selected.length >= maxToSim) break;
   }
 

@@ -49,6 +49,10 @@ const PROP_MARKET_LABELS: Record<string, string> = {
   batter_runs: "Runs",
   batter_runs_scored: "Runs",
   player_sacks: "Sacks",
+  player_kicking_points: "Kicking Points",
+  player_tackles_assists: "Tackles + Assists",
+  player_solo_tackles: "Solo Tackles",
+  player_defensive_interceptions: "Defensive INTs",
   pitcher_strikeouts: "Strikeouts",
   pitcher_outs: "Pitcher Outs",
 };

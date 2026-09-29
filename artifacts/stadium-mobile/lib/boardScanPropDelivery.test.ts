@@ -327,6 +327,14 @@ test("footballSkillPropRank prefers TD / pass / rec / rush yards over sack and m
   assert.ok(footballSkillPropRank("player_reception_yds") > 0);
   assert.ok(footballSkillPropRank("player_rush_yds") > 0);
   assert.ok(footballSkillPropRank("player_first_td") >= footballSkillPropRank("player_pass_yds"));
+  // D/ST below sacks / FG; tackles+assists must not inherit basketball assists rank.
+  assert.ok(footballSkillPropRank("player_sacks") > footballSkillPropRank("player_tackles_assists"));
+  assert.ok(footballSkillPropRank("player_field_goals") > footballSkillPropRank("player_kicking_points"));
+  assert.equal(footballSkillPropRank("player_tackles_assists"), 1);
+  assert.equal(footballSkillPropRank("player_solo_tackles"), 1);
+  assert.equal(footballSkillPropRank("player_defensive_interceptions"), 1);
+  assert.equal(footballSkillPropRank("player_kicking_points"), 1);
+  assert.equal(footballSkillPropFamily("player_tackles_assists"), null);
 });
 
 test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix", () => {

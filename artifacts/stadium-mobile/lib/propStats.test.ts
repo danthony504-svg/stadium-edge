@@ -82,3 +82,33 @@ test("football props fail closed when the unique ESPN field is unavailable", () 
   assert.equal(gameValueForMarket("player_pass_yds", { YDS: "278" }, ambiguousYards), null);
   assert.equal(gameValueForMarket("player_rush_yds", { YDS: "18" }, ambiguousYards), null);
 });
+
+test("D/ST props map to ESPN defensive / kicking fields", () => {
+  assert.equal(
+    gameValueForMarket("player_tackles_assists", { totalTackles: "9" }, NONE),
+    9,
+  );
+  assert.equal(
+    gameValueForMarket("player_solo_tackles", { soloTackles: "6" }, NONE),
+    6,
+  );
+  assert.equal(
+    gameValueForMarket("player_defensive_interceptions", { interceptions: "1" }, NONE),
+    1,
+  );
+  assert.equal(
+    gameValueForMarket("player_kicking_points", { kickingPoints: "11" }, NONE),
+    11,
+  );
+  // Exact FG×3 + XP identity when kickingPoints column is absent.
+  assert.equal(
+    gameValueForMarket(
+      "player_kicking_points",
+      { fieldGoalsMade: "2", extraPointsMade: "3" },
+      NONE,
+    ),
+    9,
+  );
+  assert.equal(gameValueForMarket("player_tackles_assists", {}, NONE), null);
+  assert.equal(gameValueForMarket("player_kicking_points", { fieldGoalsMade: "2" }, NONE), null);
+});
