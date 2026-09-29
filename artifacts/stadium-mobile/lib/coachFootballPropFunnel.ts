@@ -57,6 +57,10 @@ export const FOOTBALL_PROP_MARKET_KEYS = [
   "player_rush_tds",
   "player_reception_tds",
   "player_sacks",
+  "player_kicking_points",
+  "player_tackles_assists",
+  "player_solo_tackles",
+  "player_defensive_interceptions",
 ] as const;
 
 export type FootballPropStageRejectReason =

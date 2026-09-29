@@ -9,7 +9,12 @@ import {
   countStagedPropLegs,
   shouldStopPropSimForTicketMix,
   selectBoardPropSimCandidates,
+  selectFootballMixPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
+import {
+  FOOTBALL_DST_PROP_SIM_CAP,
+  isFootballDstPropMarket,
+} from "./footballDstProps.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 const qualScore = {
@@ -234,4 +239,81 @@ test("selectBoardPropSimCandidates keeps multiple alt yard rungs per player ladd
     barkley.map((p) => p.propLine),
     [67.5, 99.5, 124.5],
   );
+});
+
+test("selectBoardPropSimCandidates hard-caps D/ST props", () => {
+  assert.equal(isFootballDstPropMarket("player_tackles_assists"), true);
+  assert.equal(isFootballDstPropMarket("player_sacks"), false);
+  const ranked = [];
+  for (let i = 0; i < 40; i++) {
+    ranked.push({
+      game: "PHI @ CHI",
+      market: "Tackles + Assists",
+      propMarketKey: "player_tackles_assists",
+      pick: `LB${i} Over 6.5 Tackles + Assists`,
+      odds: -110,
+      isProp: true,
+      sport: "nfl",
+      player: `LB${i}`,
+      propLine: 6.5,
+      propSide: "Over" as const,
+      propIsAlt: false,
+    });
+  }
+  for (let i = 0; i < 20; i++) {
+    ranked.push({
+      game: "PHI @ CHI",
+      market: "Pass Yds",
+      propMarketKey: "player_pass_yds",
+      pick: `QB${i} Over 240.5 Pass Yds`,
+      odds: -110,
+      isProp: true,
+      sport: "nfl",
+      player: `QB${i}`,
+      propLine: 240.5,
+      propSide: "Over" as const,
+      propIsAlt: false,
+    });
+  }
+  const { selected } = selectBoardPropSimCandidates(ranked, 50);
+  const dst = selected.filter((p) => isFootballDstPropMarket(p.propMarketKey));
+  assert.ok(dst.length <= FOOTBALL_DST_PROP_SIM_CAP);
+  assert.ok(selected.some((p) => p.propMarketKey === "player_pass_yds"));
+});
+
+test("selectFootballMixPropSimCandidates hard-caps D/ST in other bucket", () => {
+  const ranked = [];
+  for (let i = 0; i < 30; i++) {
+    ranked.push({
+      game: "PHI @ CHI",
+      market: "Solo Tackles",
+      propMarketKey: "player_solo_tackles",
+      pick: `DB${i} Over 3.5 Solo Tackles`,
+      odds: -115,
+      isProp: true,
+      sport: "nfl",
+      player: `DB${i}`,
+      propLine: 3.5,
+      propSide: "Over" as const,
+      athleteId: `id-${i}`,
+    });
+  }
+  for (let i = 0; i < 20; i++) {
+    ranked.push({
+      game: "PHI @ CHI",
+      market: "Pass Yds",
+      propMarketKey: "player_pass_yds",
+      pick: `QB${i} Over 250.5 Pass Yds`,
+      odds: -110,
+      isProp: true,
+      sport: "nfl",
+      player: `QB${i}`,
+      propLine: 250.5,
+      propSide: "Over" as const,
+      athleteId: `qb-${i}`,
+    });
+  }
+  const { selected } = selectFootballMixPropSimCandidates(ranked, 48);
+  const dst = selected.filter((p) => isFootballDstPropMarket(p.propMarketKey));
+  assert.ok(dst.length <= FOOTBALL_DST_PROP_SIM_CAP);
 });

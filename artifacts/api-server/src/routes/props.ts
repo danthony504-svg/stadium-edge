@@ -114,6 +114,20 @@ export const MARKETS_EXTENDED_BY_SPORT: Record<string, string[]> = {
   ],
 };
 
+/**
+ * NFL D/ST player props (kicking / tackles / defensive INTs) — fetched as a
+ * separate Odds API batch so an unsupported key cannot 422 skill extended
+ * mains. Coach deep-sim hard-caps these so volume does not stretch delivery.
+ */
+export const MARKETS_DST_BY_SPORT: Record<string, string[]> = {
+  nfl: [
+    "player_kicking_points",
+    "player_tackles_assists",
+    "player_solo_tackles",
+    "player_defensive_interceptions",
+  ],
+};
+
 // Quarter / half player markets — fetched as a SEPARATE Odds API call so a
 // 422 on an unsupported market segment can't wipe out the base props above.
 // The result is merged into the same per-(player, market, line) aggregation
@@ -530,7 +544,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     const altMarkets = ALT_MARKETS_BY_SPORT[sport] ?? [];
     const altExtendedMarkets = ALT_MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
     const extendedMainMarkets = MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
-    const [data, qhData, altData, altExtendedData, extendedMainData] = await Promise.all([
+    const dstMarkets = MARKETS_DST_BY_SPORT[sport] ?? [];
+    const [data, qhData, altData, altExtendedData, extendedMainData, dstData] = await Promise.all([
       loadBaseOdds(),
       qhMarkets.length
         ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
@@ -568,6 +583,20 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             async () => {
               try {
                 return await fetchOdds(extendedMainMarkets);
+              } catch {
+                return null;
+              }
+            },
+          )
+        : Promise.resolve(null),
+      dstMarkets.length
+        ? cachedJson<RawEventOdds | null>(
+            `props-dst:${oddsKey}:${effectiveEventId}:v1`,
+            5 * 60 * 1000,
+            async () => {
+              // Isolated D/ST batch — 422 must not wipe skill extended mains.
+              try {
+                return await fetchOdds(dstMarkets);
               } catch {
                 return null;
               }
@@ -673,6 +702,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     // Mains first (so a shared line stays main), then alternate ladders.
     ingest(data, false);
     ingest(extendedMainData, false);
+    ingest(dstData, false);
     ingest(qhData, false);
     ingest(altData, true);
     ingest(altExtendedData, true);

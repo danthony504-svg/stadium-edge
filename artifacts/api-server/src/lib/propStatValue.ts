@@ -23,6 +23,10 @@ const MARKET_SINGLE: Record<string, string[]> = {
   batter_stolen_bases: ["SB"],
   batter_total_bases: ["TB"],
   player_sacks: ["SACK", "SACKS"],
+  player_tackles_assists: ["totalTackles", "TOT"],
+  player_solo_tackles: ["soloTackles", "SOLO"],
+  player_defensive_interceptions: ["interceptions"],
+  player_kicking_points: ["kickingPoints", "totalKickingPoints"],
   pitcher_strikeouts: ["K", "SO"],
   player_goals: ["G"],
   player_shots_on_goal: ["S", "SOG", "SHOTS"],
@@ -89,6 +93,27 @@ export function gameValueForMarket(
     return h + d + 2 * t + 3 * hr;
   }
 
+  // Kicking points: prefer ESPN machine field; else exact FG×3 + XP identity.
+  if (market === "player_kicking_points") {
+    for (const lab of ["kickingPoints", "totalKickingPoints"]) {
+      if (ambiguous.has(lab)) continue;
+      const n = num(stats, lab);
+      if (n != null) return n;
+    }
+    const fg = !ambiguous.has("fieldGoalsMade")
+      ? num(stats, "fieldGoalsMade")
+      : !ambiguous.has("FG")
+        ? num(stats, "FG")
+        : null;
+    const xp = !ambiguous.has("extraPointsMade")
+      ? num(stats, "extraPointsMade")
+      : !ambiguous.has("XP")
+        ? num(stats, "XP")
+        : null;
+    if (fg != null && xp != null) return fg * 3 + xp;
+    return null;
+  }
+
   const combo = MARKET_COMBO[market];
   if (combo) {
     let sum = 0;
@@ -124,7 +149,7 @@ export function gameValueForMarket(
 
 /** Markets whose outcomes are low-count integers (Poisson-friendly). */
 export function isDiscreteCountMarket(market: string): boolean {
-  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|anytime_td|goal_scorer|receptions|pass_attempts|pass_completions|pass_interceptions|pass_longest|rush_attempts|rush_longest|reception_longest/i.test(
+  return /threes|blocks|steals|home_runs|stolen_bases|sacks|pass_tds|anytime_td|goal_scorer|receptions|pass_attempts|pass_completions|pass_interceptions|pass_longest|rush_attempts|rush_longest|reception_longest|tackles|defensive_interceptions|kicking_points|field_goals/i.test(
     market,
   );
 }
