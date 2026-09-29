@@ -209,7 +209,7 @@ export type SubscriptionPersistedState = {
   storeKitManagementUrl: string | null;
 };
 
-export type UnlockSource = "storekit" | "paid" | "promo" | "admin" | "none";
+export type UnlockSource = "storekit" | "promo" | "admin" | "none";
 
 export type EntitlementView = {
   planId: PlanId;
@@ -358,15 +358,16 @@ export function hasPromoOrPlanAccess(
   state: SubscriptionPersistedState,
   nowMs: number,
 ): boolean {
+  // Paid Go/Pro only via verified Apple / RevenueCat (storeKitActive).
+  // Never grant Pro from a local planId alone (blocks "Continue (preview)" leftovers).
   if (state.storeKitActive && planById(state.planId).paid) return true;
-  if (planById(state.planId).paid) return true;
   if (isPromoUnlockActive(state, nowMs)) return true;
   return false;
 }
 
 /**
- * Soft Pro access: Apple StoreKit paid plan, active promo, or admin email.
- * Local device trials do not unlock Pro.
+ * Soft Pro access: verified Apple StoreKit plan, active promo, or admin email.
+ * Local / preview paid planId without StoreKit does not unlock Pro.
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
@@ -384,9 +385,24 @@ export function resolveUnlockSource(
 ): UnlockSource {
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
-  if (planById(state.planId).paid) return "paid";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
   return "none";
+}
+
+/**
+ * Drop a Go/Pro planId that was never verified by Apple/RevenueCat
+ * (legacy local "preview unlock"). Promo/admin untouched.
+ */
+export function clearUnverifiedPaidPlan(
+  state: SubscriptionPersistedState,
+): SubscriptionPersistedState {
+  if (!planById(state.planId).paid) return state;
+  if (state.storeKitActive) return state;
+  return {
+    ...state,
+    planId: "free",
+    storeKitProductId: null,
+  };
 }
 
 /**
@@ -456,9 +472,6 @@ export function buildEntitlementView(
   } else if (unlockSource === "storekit") {
     statusLabel = plan.name;
     statusDetail = `${plan.note || plan.priceLabel} · Apple subscription`;
-  } else if (unlockSource === "paid") {
-    statusLabel = plan.name;
-    statusDetail = `${plan.note || plan.priceLabel} · local entitlement`;
   } else if (unlockSource === "promo") {
     const def = findPromoDefinition(state.redeemedPromoCode ?? "");
     statusLabel = def?.label ?? "Promo unlock";

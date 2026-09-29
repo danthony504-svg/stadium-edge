@@ -3,7 +3,8 @@
  *
  * Uses react-native-purchases (native module). On web, Expo Go, older binaries
  * without RNPurchases, or when EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is missing,
- * every call no-ops safely so the soft local entitlement layer still works.
+ * every call no-ops safely — callers must treat StoreKit as unavailable and
+ * must not unlock Go/Pro via a local/preview fallback.
  *
  * CRITICAL: never `require("react-native-purchases")` unless NativeModules.RNPurchases
  * exists. Requiring the JS package on a binary without the native module constructs

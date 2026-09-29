@@ -59,9 +59,6 @@ export default function PlansScreen() {
       Alert.alert("Couldn’t continue", result.message);
       return;
     }
-    if (!storeKitReady) {
-      Alert.alert("Preview unlock", result.message);
-    }
     if (router.canGoBack()) router.back();
     else router.replace("/");
   };
@@ -89,9 +86,7 @@ export default function PlansScreen() {
   };
 
   const selectedPlan = PAID_SUBSCRIPTION_PLANS.find((p) => p.id === draft);
-  const continueLabel = storeKitReady
-    ? `Subscribe · ${selectedPlan?.priceLabel ?? ""}`
-    : "Continue (preview)";
+  const continueLabel = `Subscribe · ${selectedPlan?.priceLabel ?? ""}`;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
