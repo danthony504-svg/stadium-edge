@@ -13,11 +13,12 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   getInjuries,
+  getMatchupScoringForm,
   getTeamDefense,
-  getTeamHistory,
   searchTeam,
   type TeamForm,
 } from "@/lib/api";
+import { useTeamHistory } from "@/hooks/useTeamHistory";
 import {
   injuriesForMatchup,
   teamNameMatches,
@@ -92,6 +93,7 @@ function TeamPickView() {
   const p = useLocalSearchParams<{
     team?: string;
     opp?: string;
+    teamId?: string;
     isHome?: string;
     sport?: string;
     market?: string;
@@ -104,6 +106,7 @@ function TeamPickView() {
 
   const team = String(p.team ?? "");
   const opp = String(p.opp ?? "");
+  const teamIdParam = p.teamId ? String(p.teamId) : "";
   const isHome = String(p.isHome ?? "") === "1";
   const sport = String(p.sport ?? "");
   const market = String(p.market ?? "Pick");
@@ -115,34 +118,10 @@ function TeamPickView() {
 
   const sportLabel = SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase();
 
-  // Resolve the team to an ESPN id, then pull its real history. Two-step so the
-  // page works from the odds feed (which carries names, not ESPN ids).
-  const resolveQ = useQuery({
-    queryKey: ["team-resolve", sport, team],
-    enabled: !!sport && !!team,
-    staleTime: 30 * 60_000,
-    queryFn: async ({ signal }) => {
-      const r = await searchTeam(team, signal);
-      // Fail closed: only resolve a same-sport team whose name actually matches.
-      // Falling back to another sport's (or a non-matching) result would attribute
-      // this leg's stats to the wrong team.
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      const hit =
-        sportHits.find((t) => teamNameMatches(t.name, team)) ??
-        sportHits[0] ??
-        null;
-      return hit;
-    },
-  });
-  const resolved = resolveQ.data ?? null;
-
-  const historyQ = useQuery({
-    queryKey: ["team-history", sport, resolved?.teamId],
-    enabled: !!sport && !!resolved?.teamId,
-    staleTime: 10 * 60_000,
-    queryFn: ({ signal }) => getTeamHistory(sport, resolved!.teamId, signal),
-  });
-  const history = historyQ.data ?? null;
+  // One-hop resolve + real history (server does search → schedule).
+  const teamQ = useTeamHistory({ sport, name: team, teamId: teamIdParam || null });
+  const resolved = teamQ.resolved;
+  const history = teamQ.history;
 
   // The picked team "beats the number" when its real scoring margin clears the
   // spread. For a -4.5 favourite that's margin > 4.5; for +3.5 it's margin > -3.5;
@@ -214,8 +193,8 @@ function TeamPickView() {
     );
   };
 
-  const loading = resolveQ.isLoading || historyQ.isLoading;
-  const errored = resolveQ.isError || historyQ.isError;
+  const loading = teamQ.isLoading;
+  const errored = teamQ.isError;
   const noData = !loading && !errored && (!resolved || n === 0);
 
   // Back nav that never throws "GO_BACK was not handled": when opened cold
@@ -366,7 +345,7 @@ function TeamPickView() {
         {loading ? (
           <Loading label="Loading real team results…" />
         ) : errored ? (
-          <ErrorState onRetry={() => (resolved ? historyQ.refetch() : resolveQ.refetch())} />
+          <ErrorState onRetry={() => teamQ.refetch()} />
         ) : noData ? (
           <EmptyNote
             text={`We couldn't pull real recent results for ${team} in ${sportLabel} right now, so we're not estimating any numbers. The line and price above are live.`}
@@ -726,6 +705,8 @@ function TotalMatchupView() {
   const p = useLocalSearchParams<{
     away?: string;
     home?: string;
+    awayTeamId?: string;
+    homeTeamId?: string;
     totalSide?: string;
     sport?: string;
     market?: string;
@@ -769,6 +750,16 @@ function TotalMatchupView() {
   );
   const injEdge = useMemo(() => injuryEdge(injurySummaries), [injurySummaries]);
   const [injuryOpen, setInjuryOpen] = useState<Record<string, boolean>>({});
+
+  // Both teams' real scoring form in one server round trip (parallel resolve +
+  // schedule on the server — no client-side search → history waterfall).
+  const matchupQ = useQuery({
+    queryKey: ["matchup-scoring-form", sport, away, home],
+    enabled: !!sport && away.length >= 2 && home.length >= 2,
+    staleTime: 10 * 60_000,
+    retry: 1,
+    queryFn: ({ signal }) => getMatchupScoringForm(sport, away, home, signal),
+  });
 
   const added = hasLeg(game, market, pickStr);
   const onToggle = () => {
@@ -884,8 +875,24 @@ function TotalMatchupView() {
         </View>
 
         {/* Each side's REAL combined-scoring form vs the line */}
-        <TeamTotalBlock roleLabel="AWAY" name={away} sport={sport} line={line} />
-        <TeamTotalBlock roleLabel="HOME" name={home} sport={sport} line={line} />
+        <TeamTotalBlock
+          roleLabel="AWAY"
+          name={away}
+          sport={sport}
+          line={line}
+          data={matchupQ.data?.away ?? null}
+          loading={matchupQ.isLoading}
+          errored={matchupQ.isError}
+        />
+        <TeamTotalBlock
+          roleLabel="HOME"
+          name={home}
+          sport={sport}
+          line={line}
+          data={matchupQ.data?.home ?? null}
+          loading={matchupQ.isLoading}
+          errored={matchupQ.isError}
+        />
 
         {line != null ? (
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
@@ -1066,40 +1073,38 @@ function TotalMatchupView() {
 }
 
 // One team's REAL recent combined-scoring form (its own games' final totals) vs
-// the line. Self-contained (own resolve + history queries) so the matchup view
-// can render two of these. Fail-closed: no real games → an honest empty note.
+// the line. Parent can preload both sides via matchup-scoring-form; when data is
+// absent this block falls back to the one-hop team-history-by-name endpoint.
 function TeamTotalBlock({
   roleLabel,
   name,
   sport,
   line,
+  data: preloaded,
+  loading: parentLoading,
+  errored: parentErrored,
 }: {
   roleLabel: string;
   name: string;
   sport: string;
   line: number | null;
+  data?: import("@/lib/api").TeamHistoryResolved | null;
+  loading?: boolean;
+  errored?: boolean;
 }) {
   const colors = useColors();
 
-  const resolveQ = useQuery({
-    queryKey: ["team-resolve", sport, name],
-    enabled: !!sport && !!name,
-    staleTime: 30 * 60_000,
-    queryFn: async ({ signal }) => {
-      const r = await searchTeam(name, signal);
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      return sportHits.find((t) => teamNameMatches(t.name, name)) ?? sportHits[0] ?? null;
-    },
+  const hasParent = parentLoading != null;
+  const fallbackQ = useTeamHistory({
+    sport,
+    name,
+    teamId: preloaded?.teamId ?? null,
+    enabled: !hasParent,
   });
-  const resolved = resolveQ.data ?? null;
-
-  const historyQ = useQuery({
-    queryKey: ["team-history", sport, resolved?.teamId],
-    enabled: !!sport && !!resolved?.teamId,
-    staleTime: 10 * 60_000,
-    queryFn: ({ signal }) => getTeamHistory(sport, resolved!.teamId, signal),
-  });
-  const history = historyQ.data ?? null;
+  const history = hasParent ? preloaded : fallbackQ.history;
+  const resolved = hasParent ? (preloaded?.resolved ?? null) : fallbackQ.resolved;
+  const loading = hasParent ? !!parentLoading : fallbackQ.isLoading;
+  const errored = hasParent ? !!parentErrored : fallbackQ.isError;
 
   const games = useMemo(() => {
     return (history?.recent ?? [])
@@ -1124,8 +1129,6 @@ function TeamTotalBlock({
     [games, line],
   );
 
-  const loading = resolveQ.isLoading || historyQ.isLoading;
-  const errored = resolveQ.isError || historyQ.isError;
   const noData = !loading && !errored && (!resolved || n === 0);
 
   return (
