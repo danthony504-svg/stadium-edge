@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   footballRushDefenseTilt,
   isFootballRushYardsMarket,
+  pickDefenseAwareAlt,
   shouldBlockRushOverVsDefense,
+  shouldPreferDefenseAltPick,
 } from "./footballRushDefense.ts";
 import { opponentTeamIdForProp } from "./footballOppTeamId.ts";
 import { buildCoachGameTeamIdMap } from "./coachTeamIdResolve.ts";
@@ -205,4 +207,47 @@ test("prop holistic opponentTendency uses rush defense for NFL rush Over", () =>
   assert.ok(opp?.present);
   assert.ok((opp?.score ?? 10) < 5);
   assert.ok(opp?.display?.includes("Eagles"));
+});
+
+test("shouldPreferDefenseAltPick: soft stingy Over swaps even without hard block", () => {
+  assert.equal(
+    shouldPreferDefenseAltPick({
+      sport: "nfl",
+      market: "player_rush_yds",
+      side: "Over",
+      pack: {
+        rush: {
+          rushingYardsAllowedPerGame: 100,
+          yardsPerRushAllowed: 4.0,
+          sampleSize: 3,
+        },
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldPreferDefenseAltPick({
+      sport: "nba",
+      market: "player_points",
+      side: "Over",
+      pack: { pointsAgainst: 104 },
+    }),
+    false,
+  );
+});
+
+test("pickDefenseAwareAlt: Under first, then softer Over alt", () => {
+  const over40 = {
+    game: "CHI @ PHI",
+    player: "Kyle Monangai",
+    market: "player_rush_yds",
+    propMarketKey: "player_rush_yds",
+    propSide: "Over",
+    propLine: 40.5,
+  };
+  const under40 = { ...over40, propSide: "Under" as const };
+  const over24 = { ...over40, propLine: 24.5, propIsAlt: true };
+  assert.equal(pickDefenseAwareAlt(over40, [over40, under40, over24]), under40);
+  assert.equal(pickDefenseAwareAlt(over40, [over40, over24]), over24);
+  assert.equal(pickDefenseAwareAlt(over40, [over40]), null);
 });

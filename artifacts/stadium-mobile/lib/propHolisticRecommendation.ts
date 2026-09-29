@@ -16,8 +16,7 @@ import {
 } from "./pickScore.ts";
 import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
 import {
-  footballRushDefenseTilt,
-  multiSportOppDefenseTilt,
+  propOppDefenseTilt,
   type RushDefenseSlice,
 } from "./footballRushDefense.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
@@ -270,35 +269,13 @@ function scoreOpponentTendency(
   const over = isOverSide(side);
   const under = isUnderSide(side);
 
-  // NFL/NCAAF skill yards — real opponent rush/pass D allowed (never invented).
-  if ((sport === "nfl" || sport === "ncaaf") && (ctx.footballOppDefense || ctx.rushDefense)) {
-    const tilt = footballRushDefenseTilt({
-      market: key,
-      side,
-      defense: ctx.rushDefense,
-      pack: ctx.footballOppDefense,
-    });
-    if (tilt.tilt !== 0 || tilt.display) {
-      return {
-        score: scoreTrend(clamp(tilt.tilt / 0.8, -1, 1)),
-        display: tilt.display ?? undefined,
-      };
-    }
-  }
-
-  // Basketball / NHL / soccer — soft feed-field tilts only (no invented splits).
-  if (
-    (sport === "nba" ||
-      sport === "wnba" ||
-      sport === "ncaab" ||
-      sport === "nhl" ||
-      sport === "soccer") &&
-    ctx.footballOppDefense
-  ) {
-    const tilt = multiSportOppDefenseTilt({
+  // All sports — unified opp-D tilt (football box-score yards + soft feed fields).
+  if (ctx.footballOppDefense || ctx.rushDefense) {
+    const tilt = propOppDefenseTilt({
       sport,
       market: key,
       side,
+      defense: ctx.rushDefense,
       pack: ctx.footballOppDefense,
     });
     if (tilt.tilt !== 0 || tilt.display) {

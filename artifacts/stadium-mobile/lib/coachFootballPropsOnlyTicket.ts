@@ -50,8 +50,10 @@ import {
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
 import {
-  footballRushDefenseTilt,
+  pickDefenseAwareAlt,
+  propOppDefenseTilt,
   shouldBlockRushOverVsDefense,
+  shouldPreferDefenseAltPick,
 } from "./footballRushDefense.ts";
 import {
   clipPropSimHitForGrade,
@@ -192,7 +194,8 @@ function scoredLegFromHit(
   ) {
     return null;
   }
-  const rushTilt = footballRushDefenseTilt({
+  const defTilt = propOppDefenseTilt({
+    sport: norm.sport ?? poolRow?.sport,
     market: norm.propMarketKey ?? norm.market,
     side: norm.propSide,
     defense: pack?.rush ?? null,
@@ -262,8 +265,8 @@ function scoredLegFromHit(
     grade: score.grade,
     simHit: hit,
     composite,
-    // Soft rush-D tilt demotes Overs vs stingy fronts (Monangai vs PHI).
-    rankScore: (composite ?? 0) + (ev ?? 0) * 0.01 + rushTilt.tilt,
+    // Opp-D tilt demotes Overs vs stingy fronts across sports (no extra network).
+    rankScore: (composite ?? 0) + (ev ?? 0) * 0.01 + defTilt.tilt,
   };
 }
 
@@ -521,14 +524,15 @@ export async function buildFootballPropsOnlyTicket(
   const propLegsScored = gradedCandidates.length;
 
   // Collapse Over/Under to history best-EV side, then stage through odds gate.
-  // When best EV is a skill-yard OVER vs a hard stingy D (rush/pass/recv),
-  // prefer the Under — including alt Under rungs for the same player/market —
-  // so Coach still fills the seat without locking a bad Over.
+  // BEFORE picking: if that side is defense-hostile (hard block OR soft stingy),
+  // swap to Under / softer alt Over so Coach still fills the seat without
+  // locking a bad main Over (Monangai Over 40 → Under or Over 24.5).
   const rushCtx = {
     oppRushDefense: opts.oppRushDefense,
     espnGames: opts.espnGames,
     teamIdMap: opts.teamIdMap,
   };
+  const normalizedCandidates = candidates.map((c) => normalizePropsOnlyPick(c));
   const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool).flatMap(
     (pick) => {
       const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
@@ -544,7 +548,8 @@ export async function buildFootballPropsOnlyTicket(
         map: opts.oppRushDefense,
       });
       if (
-        !shouldBlockRushOverVsDefense({
+        !shouldPreferDefenseAltPick({
+          sport: pick.sport ?? row?.sport,
           market: pick.propMarketKey ?? pick.market,
           side: pick.propSide,
           defense: pack?.rush ?? null,
@@ -553,27 +558,8 @@ export async function buildFootballPropsOnlyTicket(
       ) {
         return [pick];
       }
-      // Prefer graded Under — same line first, then any alt Under for this player/market.
-      const marketKey = String(pick.propMarketKey ?? pick.market ?? "").toLowerCase();
-      const samePlayerMarket = (c: ParsedPick) => {
-        const n = normalizePropsOnlyPick(c);
-        return (
-          n.game === pick.game &&
-          n.player === pick.player &&
-          String(n.propMarketKey ?? n.market ?? "").toLowerCase() === marketKey &&
-          n.propSide === "Under"
-        );
-      };
-      const sameLineUnder = candidates.find((c) => {
-        const n = normalizePropsOnlyPick(c);
-        return samePlayerMarket(n) && n.propLine === pick.propLine;
-      });
-      if (sameLineUnder) return [normalizePropsOnlyPick(sameLineUnder)];
-      const altUnder = candidates
-        .map((c) => normalizePropsOnlyPick(c))
-        .filter(samePlayerMarket)
-        .sort((a, b) => (b.propLine ?? 0) - (a.propLine ?? 0));
-      return altUnder.length ? [altUnder[0]] : [];
+      const alt = pickDefenseAwareAlt(pick, normalizedCandidates);
+      return alt ? [alt] : [];
     },
   );
   const propScored: BoardScoredLeg[] = [];

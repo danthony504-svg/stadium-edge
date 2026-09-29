@@ -204,6 +204,24 @@ export function footballRushDefenseTilt(opts: {
     };
   }
 
+  // Anytime / rush / pass TD — soft points-allowed tilt only (no invented TD rates).
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (/td|touchdown/.test(m) && pack?.pointsAgainst != null) {
+    const pa = pack.pointsAgainst;
+    let tilt = 0;
+    if (pa <= 16) tilt = isOver ? -0.45 : 0.3;
+    else if (pa <= 18) tilt = isOver ? -0.3 : 0.2;
+    else if (pa >= 27) tilt = isOver ? 0.3 : -0.2;
+    else return empty;
+    return {
+      tilt,
+      blockOver: false,
+      display: `${who ? `${who} ` : ""}allows ${pa} pts/g`,
+    };
+  }
+
   return empty;
 }
 
@@ -305,6 +323,104 @@ export function multiSportOppDefenseTilt(opts: {
   }
 
   return empty;
+}
+
+/**
+ * Unified opp-D tilt for ANY prop sport. Football yards/TDs first, then
+ * multi-sport soft feed tilts. Fail closed when pack/sample missing.
+ */
+export function propOppDefenseTilt(opts: {
+  sport?: string | null;
+  market?: string | null;
+  side?: string | null;
+  defense?: RushDefenseSlice | null;
+  pack?: FootballOppDefenseSlice | null;
+}): RushDefenseTilt {
+  const sport = String(opts.sport ?? "").toLowerCase();
+  if (sport === "nfl" || sport === "ncaaf") {
+    const fb = footballRushDefenseTilt(opts);
+    if (fb.tilt !== 0 || fb.blockOver || fb.display) return fb;
+  }
+  return multiSportOppDefenseTilt({
+    sport: opts.sport,
+    market: opts.market,
+    side: opts.side,
+    pack: opts.pack,
+  });
+}
+
+/** Strong negative tilt — swap to Under / softer alt before staging. */
+export const DEFENSE_ALT_TILT_THRESHOLD = -0.4;
+
+/**
+ * True when this Over should not stay as the staged side — hard block OR
+ * soft stingy enough that we prefer an Under / alt instead.
+ */
+export function shouldPreferDefenseAltPick(opts: {
+  sport?: string | null;
+  market?: string | null;
+  side?: string | null;
+  defense?: RushDefenseSlice | null;
+  pack?: FootballOppDefenseSlice | null;
+}): boolean {
+  const side = String(opts.side ?? "").toLowerCase();
+  if (side !== "over") return false;
+  const tilt = propOppDefenseTilt(opts);
+  return tilt.blockOver || tilt.tilt <= DEFENSE_ALT_TILT_THRESHOLD;
+}
+
+export type DefenseAwarePickCandidate = {
+  game: string;
+  player: string;
+  market: string;
+  propMarketKey?: string | null;
+  propSide?: string | null;
+  propLine?: number | null;
+  propIsAlt?: boolean | null;
+};
+
+/**
+ * When the best-EV Over is defense-hostile, pick a safer posted alternative:
+ * 1) same-line Under
+ * 2) any Under for the player/market (prefer higher Under line)
+ * 3) a softer alt Over (lower line) for the same player/market
+ * Returns null when no alternative exists (caller drops the Over).
+ */
+export function pickDefenseAwareAlt<T extends DefenseAwarePickCandidate>(
+  hostileOver: T,
+  candidates: readonly T[],
+): T | null {
+  const marketKey = String(
+    hostileOver.propMarketKey ?? hostileOver.market ?? "",
+  ).toLowerCase();
+  const samePlayerMarket = (c: T) =>
+    c.game === hostileOver.game &&
+    c.player === hostileOver.player &&
+    String(c.propMarketKey ?? c.market ?? "").toLowerCase() === marketKey;
+
+  const unders = candidates
+    .filter((c) => samePlayerMarket(c) && String(c.propSide ?? "").toLowerCase() === "under")
+    .slice();
+  const sameLineUnder = unders.find((c) => c.propLine === hostileOver.propLine);
+  if (sameLineUnder) return sameLineUnder;
+  unders.sort((a, b) => (b.propLine ?? 0) - (a.propLine ?? 0));
+  if (unders.length) return unders[0];
+
+  // Softer Over: lower line vs stingy D (Over 40 → Over 24.5).
+  const mainLine = hostileOver.propLine;
+  if (mainLine == null || !Number.isFinite(mainLine)) return null;
+  const softerOvers = candidates
+    .filter(
+      (c) =>
+        samePlayerMarket(c) &&
+        String(c.propSide ?? "").toLowerCase() === "over" &&
+        c.propLine != null &&
+        Number.isFinite(c.propLine) &&
+        (c.propLine as number) < mainLine,
+    )
+    .slice()
+    .sort((a, b) => (b.propLine ?? 0) - (a.propLine ?? 0));
+  return softerOvers[0] ?? null;
 }
 
 /** Alias — blocks any skill-yard OVER vs hard stingy matching D. */
