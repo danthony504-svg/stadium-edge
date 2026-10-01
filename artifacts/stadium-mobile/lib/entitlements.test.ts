@@ -7,6 +7,7 @@ import {
   buildPromoLink,
   canAccessPremiumFeature,
   clearLocalTrialEntitlement,
+  clearUnverifiedPaidPlan,
   extractPromoFromQuery,
   findPromoDefinition,
   hasProAccess,
@@ -49,9 +50,16 @@ test("local trial helpers never grant access", () => {
   );
 });
 
-test("hasProAccess: paid, promo, and admin unlock — not local trial", () => {
+test("hasProAccess: paid requires storeKitActive; promo and admin unlock", () => {
   const start = 1_700_000_000_000;
-  assert.equal(hasProAccess(baseState({ planId: "go" }), start, {}), true);
+  assert.equal(
+    hasProAccess(baseState({ planId: "go", storeKitActive: true }), start, {}),
+    true,
+  );
+  assert.equal(
+    hasProAccess(baseState({ planId: "go", storeKitActive: false }), start, {}),
+    false,
+  );
   assert.equal(
     hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + DAY, {}),
     false,
@@ -131,6 +139,28 @@ test("clearLocalTrialEntitlement wipes legacy trial stamp", () => {
   const cleared = clearLocalTrialEntitlement(stamped);
   assert.equal(cleared.trialStartedAtMs, null);
   assert.equal(clearLocalTrialEntitlement(cleared).trialStartedAtMs, null);
+});
+
+test("clearUnverifiedPaidPlan drops local preview Go/Pro", () => {
+  const local = baseState({ planId: "go", storeKitActive: false, storeKitProductId: "x" });
+  const cleared = clearUnverifiedPaidPlan(local);
+  assert.equal(cleared.planId, "free");
+  assert.equal(cleared.storeKitProductId, null);
+  const verified = baseState({
+    planId: "pro",
+    storeKitActive: true,
+    storeKitProductId: "com.stadiumedge.app.pro.monthly",
+  });
+  assert.equal(clearUnverifiedPaidPlan(verified).planId, "pro");
+  assert.equal(clearUnverifiedPaidPlan(verified).storeKitActive, true);
+  // Promo-only state is untouched even without StoreKit.
+  const promo = baseState({
+    planId: "free",
+    redeemedPromoCode: "7VXHVPOR",
+    promoLifetime: true,
+  });
+  assert.equal(clearUnverifiedPaidPlan(promo).redeemedPromoCode, "7VXHVPOR");
+  assert.equal(clearUnverifiedPaidPlan(promo).promoLifetime, true);
 });
 
 test("softRequirePro is a boolean soft gate", () => {

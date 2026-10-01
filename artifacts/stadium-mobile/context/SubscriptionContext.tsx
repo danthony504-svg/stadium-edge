@@ -21,6 +21,7 @@ import {
   applyStoreKitSnapshot,
   buildEntitlementView,
   clearLocalTrialEntitlement,
+  clearUnverifiedPaidPlan,
   normalizePromoCode,
   parseAdminEmails,
   redeemPromoCode,
@@ -58,9 +59,9 @@ type SubscriptionContextValue = {
   /** Busy while a purchase or restore is in flight. */
   billingBusy: boolean;
   /**
-   * Select free trial locally, or purchase Go/Pro via Apple StoreKit when
-   * available. Falls back to a local entitlement only when StoreKit is offline
-   * (dev / missing key) so QA can still exercise gates.
+   * Purchase Go/Pro via Apple StoreKit / RevenueCat. Never grants paid access
+   * from a local or preview fallback — if StoreKit is unavailable, returns an
+   * error. Real access also comes from Restore Purchases or admin/promo.
    */
   selectPlan: (planId: PlanId) => Promise<PurchaseActionResult>;
   /** Restore App Store purchases (also listed under Settings → Subscriptions). */
@@ -128,12 +129,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       try {
         const raw = await AsyncStorage.getItem(SUBSCRIPTION_STORAGE_KEY);
         const parsed = raw ? sanitizeSubscriptionState(JSON.parse(raw)) : DEFAULT_STATE;
-        // Drop any legacy local device-trial unlock — trials are Apple-only.
-        const cleaned = clearLocalTrialEntitlement(parsed);
+        // Drop legacy local trial + unverified Go/Pro preview unlocks.
+        const cleaned = clearUnverifiedPaidPlan(clearLocalTrialEntitlement(parsed));
         if (!cancelled) setState(cleaned);
       } catch {
         if (!cancelled) {
-          setState(clearLocalTrialEntitlement(DEFAULT_STATE));
+          setState(clearUnverifiedPaidPlan(clearLocalTrialEntitlement(DEFAULT_STATE)));
         }
       } finally {
         loaded.current = true;
@@ -215,18 +216,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
 
       if (!storeKitReady) {
-        // Dev / Expo Go fallback — local unlock only (not in Apple Subscriptions list).
-        setState((prev) => ({
-          ...prev,
-          planId,
-          storeKitActive: false,
-          storeKitProductId: null,
-        }));
+        // Never grant Go/Pro from a local/preview fallback — Apple/RC only.
         return {
-          ok: true,
+          ok: false,
           message:
             storeKitBlockedReason ??
-            "Local preview unlock (Apple billing needs a StoreKit-enabled iOS build).",
+            "Apple billing is unavailable on this build. Paid plans require StoreKit / RevenueCat.",
         };
       }
 
