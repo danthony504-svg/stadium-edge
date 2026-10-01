@@ -389,7 +389,7 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
     }),
     false,
   );
-  // Anytime-goal style 0.5 Overs do not require pack.
+  // Anytime-goal style 0.5 Overs ALSO require pack (or vs-opponent) — Match must ground.
   assert.equal(
     shouldDropPropMissingOppDefense({
       sport: "nhl",
@@ -397,6 +397,39 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       side: "Over",
       line: 0.5,
       pack: null,
+    }),
+    true,
+  );
+  // Unders without opp context also drop — phone U 0.5 with Match grey.
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_points",
+      side: "Under",
+      line: 0.5,
+      pack: null,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_points",
+      side: "Under",
+      line: 0.5,
+      pack: hotGoalie,
+    }),
+    false,
+  );
+  // vs-opponent history can ground Match when goaltending pack missing.
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_points",
+      side: "Under",
+      line: 0.5,
+      pack: null,
+      vsOpponentGames: 3,
     }),
     false,
   );
@@ -408,6 +441,61 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       side: "Over",
       line: 2.5,
       pack: null,
+    }),
+    false,
+  );
+});
+
+test("NHL mid-tier goalie still grounds Match display (tilt may be 0)", async () => {
+  const { multiSportOppDefenseTilt, propOppDefenseTilt } = await import(
+    "./footballRushDefense.ts"
+  );
+  const mid = multiSportOppDefenseTilt({
+    sport: "nhl",
+    market: "player_points",
+    side: "Under",
+    pack: { savePct: 0.902, goalsAgainstAvg: 2.95, teamName: "Sabres" },
+  });
+  assert.ok(mid.display?.includes("SV%"));
+  assert.ok(mid.display?.includes("GAA"));
+  // Unified path must keep display so card Match is not grey.
+  const unified = propOppDefenseTilt({
+    sport: "nhl",
+    market: "player_points",
+    side: "Under",
+    pack: { savePct: 0.902, goalsAgainstAvg: 2.95, teamName: "Sabres" },
+  });
+  assert.ok(unified.display);
+});
+
+test("propTeamAbbrBelongsToGame drops foreign franchise on labeled game", async () => {
+  const { propTeamAbbrBelongsToGame } = await import("./footballOppTeamId.ts");
+  const games = [
+    {
+      sport: "nhl",
+      homeTeam: "Columbus Blue Jackets",
+      awayTeam: "Buffalo Sabres",
+      homeTeamId: "29",
+      awayTeamId: "1",
+      homeAbbr: "CBJ",
+      awayAbbr: "BUF",
+    },
+  ];
+  assert.equal(
+    propTeamAbbrBelongsToGame({
+      sport: "nhl",
+      game: "Buffalo Sabres @ Columbus Blue Jackets",
+      teamAbbr: "CBJ",
+      espnGames: games,
+    }),
+    true,
+  );
+  assert.equal(
+    propTeamAbbrBelongsToGame({
+      sport: "nhl",
+      game: "Buffalo Sabres @ Columbus Blue Jackets",
+      teamAbbr: "VAN",
+      espnGames: games,
     }),
     false,
   );

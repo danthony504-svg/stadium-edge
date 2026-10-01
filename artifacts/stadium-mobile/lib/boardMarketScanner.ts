@@ -472,6 +472,19 @@ function appendPropScoredLegs(
       }),
       map: opts.oppRushDefense,
     });
+    const propPh =
+      (opts.playerHistory &&
+        ((pick.player &&
+          pick.athleteId &&
+          opts.playerHistory[`${pick.player}#${pick.athleteId}`]) ||
+          Object.entries(opts.playerHistory).find(([k]) =>
+            pick.athleteId
+              ? k.endsWith(`#${pick.athleteId}`)
+              : pick.player
+                ? k.startsWith(`${pick.player}#`)
+                : false,
+          )?.[1])) ||
+      null;
     if (
       shouldDropPropMissingOppDefense({
         sport: pick.sport ?? poolRow?.sport,
@@ -479,6 +492,7 @@ function appendPropScoredLegs(
         side: pick.propSide,
         line: pick.propLine,
         pack,
+        vsOpponentGames: propPh?.vsOpponent?.length ?? 0,
       }) ||
       shouldBlockRushOverVsDefense({
         sport: pick.sport ?? poolRow?.sport,

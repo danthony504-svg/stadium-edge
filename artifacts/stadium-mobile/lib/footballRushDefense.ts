@@ -266,9 +266,9 @@ export function isNhlScoringMarket(market?: string | null): boolean {
 }
 
 /**
- * Rare NHL Goals/Points Overs (≥1.5) must have real opponent goaltending
- * context — same fail-closed posture as NFL rush Overs needing opp rush D.
- * Without a pack, EV-only longshots (e.g. Over 1.5 +9000) would stage blind.
+ * NHL Goals/Points props (any side) need real opponent goaltending — or at
+ * least vs-opponent history — before staging. Blind EV Unders (U 0.5 with
+ * Match greyed out) are the same failure mode as EV-only Overs.
  */
 export function shouldDropPropMissingOppDefense(opts: {
   sport?: string | null;
@@ -276,17 +276,19 @@ export function shouldDropPropMissingOppDefense(opts: {
   side?: string | null;
   line?: number | null;
   pack?: FootballOppDefenseSlice | null;
+  vsOpponentGames?: number | null;
 }): boolean {
   const sport = String(opts.sport ?? "").toLowerCase();
   if (sport !== "nhl") return false;
-  if (String(opts.side ?? "").toLowerCase() !== "over") return false;
   if (!isNhlScoringMarket(opts.market)) return false;
-  const line = opts.line;
-  if (line == null || !Number.isFinite(line) || line < 1.5) return false;
+  const side = String(opts.side ?? "").toLowerCase();
+  if (side !== "over" && side !== "under") return false;
   const pack = opts.pack;
-  if (!pack) return true;
-  // Need at least one honest goaltending field — empty packs don't count.
-  return pack.savePct == null && pack.goalsAgainstAvg == null;
+  const hasGoalie =
+    !!pack && (pack.savePct != null || pack.goalsAgainstAvg != null);
+  if (hasGoalie) return false;
+  if ((opts.vsOpponentGames ?? 0) > 0) return false;
+  return true;
 }
 
 /** Soft tilt from honest feed fields for non-football sports (never invents). */
@@ -341,7 +343,8 @@ export function multiSportOppDefenseTilt(opts: {
       bits.push(`opp FG% ${(pack.oppFgPct * 100).toFixed(0)}`);
       tilt += isOver ? 0.15 : -0.1;
     }
-    if (tilt === 0 || !bits.length) return empty;
+    // Present Match even for mid-tier D (tilt 0) — bits prove we compared the opponent.
+    if (!bits.length) return empty;
     return {
       tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
       blockOver: false,
@@ -392,7 +395,9 @@ export function multiSportOppDefenseTilt(opts: {
       bits.push(`${pack.blockedShots} blk`);
       tilt += isOver ? -0.1 : 0.06;
     }
-    if (tilt === 0 || !bits.length) return empty;
+    // Mid-tier goalies still ground Match (SV%/GAA bits) even when tilt is 0 —
+    // phone cards were grey Match because we discarded honest opp context.
+    if (!bits.length) return empty;
     return {
       tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
       blockOver,
@@ -416,7 +421,7 @@ export function multiSportOppDefenseTilt(opts: {
       bits.push(`${pack.tackles} tackles`);
       tilt += isOver ? -0.08 : 0.05;
     }
-    if (tilt === 0 || !bits.length) return empty;
+    if (!bits.length) return empty;
     return {
       tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
       blockOver: false,
@@ -444,7 +449,7 @@ export function multiSportOppDefenseTilt(opts: {
       bits.push("stingy staff");
       tilt += isOver ? 0.2 : -0.12; // K overs lean up vs stingy staffs
     }
-    if (tilt === 0 || !bits.length) return empty;
+    if (!bits.length) return empty;
     return {
       tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
       blockOver: false,

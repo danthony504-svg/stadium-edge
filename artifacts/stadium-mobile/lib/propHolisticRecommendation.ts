@@ -383,6 +383,13 @@ function scoreMatchupHistory(
       display: vsOppGames ? `Team lean + ${vsOppGames} H2H games` : undefined,
     };
   }
+  // Props-only often has vs-opponent logs without team mlLean — still ground Match.
+  if (vsOppGames != null && vsOppGames > 0) {
+    return {
+      score: 5.8,
+      display: `${vsOppGames} recent vs opponent`,
+    };
+  }
   return { score: null };
 }
 
