@@ -38,8 +38,9 @@ jobs:
       - name: Republish stable OTA to production channel
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          OTA_MESSAGE: ${{ github.event.inputs.message }}
         run: |
-          MSG="${{ github.event.inputs.message }}"
+          MSG="$OTA_MESSAGE"
           if [ -z "$MSG" ]; then
             MSG="ROLLBACK stable OTA b9f60bc32 $(date -u +%Y-%m-%dT%H:%MZ)"
           fi
