@@ -53,6 +53,7 @@ import {
 } from "./footballOppDefenseContext.ts";
 import { propTeamAbbrBelongsToGame } from "./footballOppTeamId.ts";
 import {
+  nhlScoringMissingOppContext,
   pickDefenseAwareAlt,
   propOppDefenseTilt,
   shouldBlockRushOverVsDefense,
@@ -391,14 +392,22 @@ function scoredLegFromHit(
     grade: score.grade,
     simHit: hit,
     composite,
-    // Opp-D tilt demotes Overs vs stingy fronts; grounded Match (display) ranks up
-    // so EV-only mid-tier Unders don't beat opponent-compared legs.
+    // Opp-D tilt + Match-grounded boost; demote NHL scoring without opp context
+    // so EV-only Unders don't beat legs that compared the netminder.
     rankScore:
       (composite ?? 0) +
       (ev ?? 0) * 0.01 +
       defTilt.tilt +
       (defTilt.display ? 0.45 : 0) +
-      (vsOpponentGames > 0 ? 0.2 : 0),
+      (vsOpponentGames > 0 ? 0.2 : 0) -
+      (nhlScoringMissingOppContext({
+        sport,
+        market: marketKey,
+        pack,
+        vsOpponentGames,
+      })
+        ? 1.25
+        : 0),
   };
 }
 
@@ -675,23 +684,30 @@ export async function buildFootballPropsOnlyTicket(
     (pick) => {
       const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
       const sport = pick.sport ?? row?.sport;
-      const pack = oppDefensePackForOpponent({
-        sport,
-        opponentTeamId: opponentTeamIdForProp({
-          sport,
-          game: pick.game,
-          teamAbbr: row?.teamAbbr ?? pick.teamAbbr,
-          espnGames: opts.espnGames,
-          teamIdMap: opts.teamIdMap,
-        }),
-        map: opts.oppRushDefense,
-      });
-      const ph = lookupPropsOnlyPlayerHistory(
-        pick.player,
-        row?.athleteId ?? pick.athleteId,
-        seededHistory,
-      );
-      const vsOpponentGames = ph?.vsOpponent?.length ?? 0;
+      const resolvePack = (p: ParsedPick) => {
+        const r = propsOnlyPoolRowForPick(p, opts.pool) as PropPoolEntry | undefined;
+        return {
+          row: r,
+          pack: oppDefensePackForOpponent({
+            sport: p.sport ?? r?.sport ?? sport,
+            opponentTeamId: opponentTeamIdForProp({
+              sport: p.sport ?? r?.sport ?? sport,
+              game: p.game,
+              teamAbbr: r?.teamAbbr ?? p.teamAbbr,
+              espnGames: opts.espnGames,
+              teamIdMap: opts.teamIdMap,
+            }),
+            map: opts.oppRushDefense,
+          }),
+          vsOpponentGames:
+            lookupPropsOnlyPlayerHistory(
+              p.player,
+              r?.athleteId ?? p.athleteId,
+              seededHistory,
+            )?.vsOpponent?.length ?? 0,
+        };
+      };
+      const { pack, vsOpponentGames } = resolvePack(pick);
       if (
         shouldDropPropMissingOppDefense({
           sport,
@@ -702,10 +718,24 @@ export async function buildFootballPropsOnlyTicket(
           vsOpponentGames,
         })
       ) {
-        // Missing Match context — Overs may still swap to Under; Unders drop.
+        // Rare Over ≥1.5 missing Match — try Under/softer alt, then re-validate.
         if (String(pick.propSide ?? "").toLowerCase() === "over") {
           const alt = pickDefenseAwareAlt(pick, normalizedCandidates);
-          return alt ? [alt] : [];
+          if (!alt) return [];
+          const altCtx = resolvePack(alt);
+          if (
+            shouldDropPropMissingOppDefense({
+              sport: alt.sport ?? altCtx.row?.sport ?? sport,
+              market: alt.propMarketKey ?? alt.market,
+              side: alt.propSide,
+              line: alt.propLine,
+              pack: altCtx.pack,
+              vsOpponentGames: altCtx.vsOpponentGames,
+            })
+          ) {
+            return [];
+          }
+          return [alt];
         }
         return [];
       }
@@ -721,7 +751,29 @@ export async function buildFootballPropsOnlyTicket(
         return [pick];
       }
       const alt = pickDefenseAwareAlt(pick, normalizedCandidates);
-      return alt ? [alt] : [];
+      if (!alt) return [];
+      // Re-check alt — phone bestEv=5 oddsOk=0 was Over→Under without pack still staging.
+      const altCtx = resolvePack(alt);
+      if (
+        shouldDropPropMissingOppDefense({
+          sport: alt.sport ?? altCtx.row?.sport ?? sport,
+          market: alt.propMarketKey ?? alt.market,
+          side: alt.propSide,
+          line: alt.propLine,
+          pack: altCtx.pack,
+          vsOpponentGames: altCtx.vsOpponentGames,
+        }) ||
+        shouldBlockRushOverVsDefense({
+          sport: alt.sport ?? altCtx.row?.sport ?? sport,
+          market: alt.propMarketKey ?? alt.market,
+          side: alt.propSide,
+          defense: altCtx.pack?.rush ?? null,
+          pack: altCtx.pack,
+        })
+      ) {
+        return [];
+      }
+      return [alt];
     },
   );
   const propScored: BoardScoredLeg[] = [];

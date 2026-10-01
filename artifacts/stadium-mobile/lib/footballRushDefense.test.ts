@@ -389,7 +389,7 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
     }),
     false,
   );
-  // Anytime-goal style 0.5 Overs ALSO require pack (or vs-opponent) — Match must ground.
+  // Anytime-goal Over 0.5 does NOT hard-drop (soft demote only) — recovers oddsOk.
   assert.equal(
     shouldDropPropMissingOppDefense({
       sport: "nhl",
@@ -398,9 +398,9 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       line: 0.5,
       pack: null,
     }),
-    true,
+    false,
   );
-  // Unders without opp context also drop — phone U 0.5 with Match grey.
+  // Unders never hard-drop for missing pack — demote via nhlScoringMissingOppContext.
   assert.equal(
     shouldDropPropMissingOppDefense({
       sport: "nhl",
@@ -409,25 +409,29 @@ test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async
       line: 0.5,
       pack: null,
     }),
+    false,
+  );
+  const { nhlScoringMissingOppContext } = await import("./footballRushDefense.ts");
+  assert.equal(
+    nhlScoringMissingOppContext({
+      sport: "nhl",
+      market: "player_points",
+      pack: null,
+    }),
     true,
   );
   assert.equal(
-    shouldDropPropMissingOppDefense({
+    nhlScoringMissingOppContext({
       sport: "nhl",
       market: "player_points",
-      side: "Under",
-      line: 0.5,
       pack: hotGoalie,
     }),
     false,
   );
-  // vs-opponent history can ground Match when goaltending pack missing.
   assert.equal(
-    shouldDropPropMissingOppDefense({
+    nhlScoringMissingOppContext({
       sport: "nhl",
       market: "player_points",
-      side: "Under",
-      line: 0.5,
       pack: null,
       vsOpponentGames: 3,
     }),
@@ -469,7 +473,9 @@ test("NHL mid-tier goalie still grounds Match display (tilt may be 0)", async ()
 });
 
 test("propTeamAbbrBelongsToGame drops foreign franchise on labeled game", async () => {
-  const { propTeamAbbrBelongsToGame } = await import("./footballOppTeamId.ts");
+  const { propTeamAbbrBelongsToGame, opponentTeamIdForProp } = await import(
+    "./footballOppTeamId.ts"
+  );
   const games = [
     {
       sport: "nhl",
@@ -498,5 +504,43 @@ test("propTeamAbbrBelongsToGame drops foreign franchise on labeled game", async 
       espnGames: games,
     }),
     false,
+  );
+
+  // Initials when ESPN abbrs missing — CBJ must not wipe oddsOk.
+  const noAbbr = [
+    {
+      sport: "nhl",
+      homeTeam: "Columbus Blue Jackets",
+      awayTeam: "Buffalo Sabres",
+      homeTeamId: "29",
+      awayTeamId: "1",
+    },
+  ];
+  assert.equal(
+    propTeamAbbrBelongsToGame({
+      sport: "nhl",
+      game: "Buffalo Sabres @ Columbus Blue Jackets",
+      teamAbbr: "CBJ",
+      espnGames: noAbbr,
+    }),
+    true,
+  );
+  assert.equal(
+    opponentTeamIdForProp({
+      sport: "nhl",
+      game: "Buffalo Sabres @ Columbus Blue Jackets",
+      teamAbbr: "CBJ",
+      espnGames: noAbbr,
+    }),
+    "1",
+  );
+  assert.equal(
+    opponentTeamIdForProp({
+      sport: "nhl",
+      game: "Buffalo Sabres @ Columbus Blue Jackets",
+      teamAbbr: "BUF",
+      espnGames: noAbbr,
+    }),
+    "29",
   );
 });

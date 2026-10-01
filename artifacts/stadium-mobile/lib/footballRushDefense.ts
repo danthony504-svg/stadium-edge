@@ -266,9 +266,10 @@ export function isNhlScoringMarket(market?: string | null): boolean {
 }
 
 /**
- * NHL Goals/Points props (any side) need real opponent goaltending — or at
- * least vs-opponent history — before staging. Blind EV Unders (U 0.5 with
- * Match greyed out) are the same failure mode as EV-only Overs.
+ * Hard-drop only rare NHL Goals/Points Overs (≥1.5) without opp goaltending
+ * or vs-opponent history. Unders / Over 0.5 still stage (Match preferred via
+ * rank) so phone "5 leg NHL" does not empty when packs are thin
+ * (bestEv=5 oddsOk=0 after #562).
  */
 export function shouldDropPropMissingOppDefense(opts: {
   sport?: string | null;
@@ -281,8 +282,27 @@ export function shouldDropPropMissingOppDefense(opts: {
   const sport = String(opts.sport ?? "").toLowerCase();
   if (sport !== "nhl") return false;
   if (!isNhlScoringMarket(opts.market)) return false;
-  const side = String(opts.side ?? "").toLowerCase();
-  if (side !== "over" && side !== "under") return false;
+  if (String(opts.side ?? "").toLowerCase() !== "over") return false;
+  const line = opts.line;
+  if (line == null || !Number.isFinite(line) || line < 1.5) return false;
+  const pack = opts.pack;
+  const hasGoalie =
+    !!pack && (pack.savePct != null || pack.goalsAgainstAvg != null);
+  if (hasGoalie) return false;
+  if ((opts.vsOpponentGames ?? 0) > 0) return false;
+  return true;
+}
+
+/** Soft: NHL scoring prop lacks opp goalie / vs-opponent — demote, don't wipe. */
+export function nhlScoringMissingOppContext(opts: {
+  sport?: string | null;
+  market?: string | null;
+  pack?: FootballOppDefenseSlice | null;
+  vsOpponentGames?: number | null;
+}): boolean {
+  const sport = String(opts.sport ?? "").toLowerCase();
+  if (sport !== "nhl") return false;
+  if (!isNhlScoringMarket(opts.market)) return false;
   const pack = opts.pack;
   const hasGoalie =
     !!pack && (pack.savePct != null || pack.goalsAgainstAvg != null);
