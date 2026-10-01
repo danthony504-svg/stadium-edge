@@ -289,6 +289,13 @@ function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: strin
   );
 }
 
+/**
+ * Apple SSO is temporarily hidden — Clerk rejects `oauth_apple`
+ * (`form_param_value_invalid`) until the provider is enabled/configured.
+ * Flip to true once Apple is live in the Clerk dashboard.
+ */
+export const APPLE_SIGN_IN_ENABLED = false;
+
 // Sign in with Apple button. Required by App Store Guideline 4.8 as an equivalent
 // privacy-focused login option whenever third-party/social sign-in is offered. Uses Clerk's
 // oauth_apple SSO flow (startSSOFlow signs up AND signs in). Styled per Apple's
@@ -366,6 +373,8 @@ export function AppleAuthButton() {
       setBusy(false);
     }
   }, [busy, finishSession, startSSOFlow]);
+
+  if (!APPLE_SIGN_IN_ENABLED) return null;
 
   return (
     <View style={{ gap: 8 }}>

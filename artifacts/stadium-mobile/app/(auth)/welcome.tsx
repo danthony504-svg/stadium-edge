@@ -7,7 +7,7 @@ import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppleAuthButton, AUTH_ACCENT } from "@/components/auth";
+import { APPLE_SIGN_IN_ENABLED, AppleAuthButton, AUTH_ACCENT } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
@@ -224,10 +224,12 @@ export default function WelcomeScreen() {
             </LinearGradient>
           </Pressable>
 
-          {/* Apple — required as an equivalent login option (App Store 4.8) */}
-          <View style={{ marginTop: 14 }}>
-            <AppleAuthButton />
-          </View>
+          {/* Apple SSO — hidden until Clerk oauth_apple is configured */}
+          {APPLE_SIGN_IN_ENABLED ? (
+            <View style={{ marginTop: 14 }}>
+              <AppleAuthButton />
+            </View>
+          ) : null}
 
           {/* Trust badges */}
           <View

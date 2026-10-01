@@ -6,6 +6,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
 import {
+  APPLE_SIGN_IN_ENABLED,
   AppleAuthButton,
   AUTH_ACCENT,
   AuthDivider,
@@ -530,8 +531,12 @@ export default function SignInScreen() {
         loading={fetchStatus === "fetching"}
       />
 
-      <AuthDivider />
-      <AppleAuthButton />
+      {APPLE_SIGN_IN_ENABLED ? (
+        <>
+          <AuthDivider />
+          <AppleAuthButton />
+        </>
+      ) : null}
 
       <View
         style={{
