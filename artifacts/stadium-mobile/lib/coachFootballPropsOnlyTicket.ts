@@ -51,6 +51,7 @@ import {
   oppDefensePackForOpponent,
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
+import { propTeamAbbrBelongsToGame } from "./footballOppTeamId.ts";
 import {
   pickDefenseAwareAlt,
   propOppDefenseTilt,
@@ -242,10 +243,25 @@ function scoredLegFromHit(
 
   const sport = norm.sport ?? poolRow?.sport;
   const marketKey = norm.propMarketKey ?? norm.market;
+  const teamAbbr = poolRow?.teamAbbr ?? norm.teamAbbr;
+  // Fail closed: player must belong to one side of the labeled game.
+  if (
+    teamAbbr &&
+    rushCtx?.espnGames?.length &&
+    !propTeamAbbrBelongsToGame({
+      sport,
+      game: norm.game,
+      teamAbbr,
+      espnGames: rushCtx.espnGames,
+      teamIdMap: rushCtx.teamIdMap,
+    })
+  ) {
+    return null;
+  }
   const oppId = opponentTeamIdForProp({
     sport,
     game: norm.game,
-    teamAbbr: poolRow?.teamAbbr,
+    teamAbbr,
     espnGames: rushCtx?.espnGames,
     teamIdMap: rushCtx?.teamIdMap,
   });
@@ -254,8 +270,14 @@ function scoredLegFromHit(
     opponentTeamId: oppId,
     map: rushCtx?.oppRushDefense,
   });
-  // Fail closed: rare NHL Goals/Points Overs need real opp goaltending — no
-  // EV-only longshot staging without comparing the netminder / team D.
+  const ph = lookupPropsOnlyPlayerHistory(
+    norm.player,
+    poolRow?.athleteId ?? norm.athleteId,
+    rushCtx?.playerHistory,
+  );
+  const vsOpponentGames = ph?.vsOpponent?.length ?? 0;
+  // Fail closed: NHL Goals/Points need opp goaltending or vs-opponent history —
+  // no EV-only Unders/Overs with Match greyed out.
   if (
     shouldDropPropMissingOppDefense({
       sport,
@@ -263,6 +285,7 @@ function scoredLegFromHit(
       side: norm.propSide,
       line: norm.propLine,
       pack,
+      vsOpponentGames,
     })
   ) {
     return null;
@@ -286,11 +309,6 @@ function scoredLegFromHit(
     pack,
   });
 
-  const ph = lookupPropsOnlyPlayerHistory(
-    norm.player,
-    poolRow?.athleteId ?? norm.athleteId,
-    rushCtx?.playerHistory,
-  );
   const trend = propsOnlyTrendFromHistory(
     ph,
     String(marketKey ?? ""),
@@ -331,7 +349,7 @@ function scoredLegFromHit(
       marketKey,
       propSide: norm.propSide,
       minutesTrend: ph?.minutesTrend ?? null,
-      vsOpponentGames: ph?.vsOpponent?.length ?? 0,
+      vsOpponentGames,
       rushDefense: pack?.rush ?? null,
       footballOppDefense: pack,
       mlbPlatoon: mlbPlatoon as import("./propHolisticRecommendation.ts").MlbPlatoonSlice | null,
@@ -373,8 +391,14 @@ function scoredLegFromHit(
     grade: score.grade,
     simHit: hit,
     composite,
-    // Opp-D tilt demotes Overs vs stingy fronts across sports (no extra network).
-    rankScore: (composite ?? 0) + (ev ?? 0) * 0.01 + defTilt.tilt,
+    // Opp-D tilt demotes Overs vs stingy fronts; grounded Match (display) ranks up
+    // so EV-only mid-tier Unders don't beat opponent-compared legs.
+    rankScore:
+      (composite ?? 0) +
+      (ev ?? 0) * 0.01 +
+      defTilt.tilt +
+      (defTilt.display ? 0.45 : 0) +
+      (vsOpponentGames > 0 ? 0.2 : 0),
   };
 }
 
@@ -650,34 +674,49 @@ export async function buildFootballPropsOnlyTicket(
   const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool).flatMap(
     (pick) => {
       const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
+      const sport = pick.sport ?? row?.sport;
       const pack = oppDefensePackForOpponent({
-        sport: pick.sport ?? row?.sport,
+        sport,
         opponentTeamId: opponentTeamIdForProp({
-          sport: pick.sport ?? row?.sport,
+          sport,
           game: pick.game,
-          teamAbbr: row?.teamAbbr,
+          teamAbbr: row?.teamAbbr ?? pick.teamAbbr,
           espnGames: opts.espnGames,
           teamIdMap: opts.teamIdMap,
         }),
         map: opts.oppRushDefense,
       });
+      const ph = lookupPropsOnlyPlayerHistory(
+        pick.player,
+        row?.athleteId ?? pick.athleteId,
+        seededHistory,
+      );
+      const vsOpponentGames = ph?.vsOpponent?.length ?? 0;
       if (
-        !(
-          shouldDropPropMissingOppDefense({
-            sport: pick.sport ?? row?.sport,
-            market: pick.propMarketKey ?? pick.market,
-            side: pick.propSide,
-            line: pick.propLine,
-            pack,
-          }) ||
-          shouldPreferDefenseAltPick({
-            sport: pick.sport ?? row?.sport,
-            market: pick.propMarketKey ?? pick.market,
-            side: pick.propSide,
-            defense: pack?.rush ?? null,
-            pack,
-          })
-        )
+        shouldDropPropMissingOppDefense({
+          sport,
+          market: pick.propMarketKey ?? pick.market,
+          side: pick.propSide,
+          line: pick.propLine,
+          pack,
+          vsOpponentGames,
+        })
+      ) {
+        // Missing Match context — Overs may still swap to Under; Unders drop.
+        if (String(pick.propSide ?? "").toLowerCase() === "over") {
+          const alt = pickDefenseAwareAlt(pick, normalizedCandidates);
+          return alt ? [alt] : [];
+        }
+        return [];
+      }
+      if (
+        !shouldPreferDefenseAltPick({
+          sport,
+          market: pick.propMarketKey ?? pick.market,
+          side: pick.propSide,
+          defense: pack?.rush ?? null,
+          pack,
+        })
       ) {
         return [pick];
       }

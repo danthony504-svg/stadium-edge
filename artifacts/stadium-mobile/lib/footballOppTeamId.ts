@@ -31,6 +31,62 @@ function gameLabelsMatch(a: string, b: string): boolean {
 }
 
 /**
+ * True when the player's teamAbbr is one of the two sides on the labeled game.
+ * Drops cross-event orphans that somehow inherit "Away @ Home" (Garland on
+ * BUF@CBJ while actually VAN).
+ */
+export function propTeamAbbrBelongsToGame(opts: {
+  sport?: string | null;
+  game: string;
+  teamAbbr?: string | null;
+  espnGames?: OppTeamIdEspnGame[] | null;
+  teamIdMap?: Map<string, OppTeamIdMapEntry> | null;
+}): boolean {
+  const ab = String(opts.teamAbbr ?? "")
+    .trim()
+    .toUpperCase();
+  if (!ab) return false;
+  const sport = String(opts.sport ?? "").toLowerCase();
+  const games = opts.espnGames ?? [];
+
+  if (opts.teamIdMap && sport) {
+    const ids = resolveCoachGameTeamIds(opts.game, sport, opts.teamIdMap);
+    if (ids) {
+      const hit = games.find(
+        (g) =>
+          String(g.sport ?? "").toLowerCase() === sport &&
+          String(g.homeTeamId ?? "") === ids.homeTeamId &&
+          String(g.awayTeamId ?? "") === ids.awayTeamId,
+      );
+      if (hit) {
+        const homeAb = String(hit.homeAbbr ?? "").toUpperCase();
+        const awayAb = String(hit.awayAbbr ?? "").toUpperCase();
+        if (homeAb === ab || awayAb === ab) return true;
+      }
+      // Name-token fallback when abbrs missing on espn row.
+      const home = String(ids.homeTeam ?? "").toUpperCase();
+      const away = String(ids.awayTeam ?? "").toUpperCase();
+      const tokenHit = (name: string) =>
+        name === ab ||
+        name.split(/[\s.@/\-]+/).some((t) => t === ab) ||
+        (ab.length >= 2 && name.startsWith(ab));
+      if (tokenHit(home) || tokenHit(away)) return true;
+      return false;
+    }
+  }
+
+  for (const g of games) {
+    if (sport && String(g.sport ?? "").toLowerCase() !== sport) continue;
+    const homeAb = String(g.homeAbbr ?? "").toUpperCase();
+    const awayAb = String(g.awayAbbr ?? "").toUpperCase();
+    if (homeAb !== ab && awayAb !== ab) continue;
+    const label = `${g.awayTeam ?? g.awayAbbr ?? ""} @ ${g.homeTeam ?? g.homeAbbr ?? ""}`;
+    if (gameLabelsMatch(opts.game, label) || homeAb === ab || awayAb === ab) return true;
+  }
+  return false;
+}
+
+/**
  * Resolve the opponent ESPN team id for a prop player (via pool teamAbbr).
  * Prefer espnGames abbrs; fall back to teamIdMap name tokens.
  */
