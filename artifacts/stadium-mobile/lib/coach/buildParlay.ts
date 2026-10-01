@@ -8,11 +8,13 @@
 
 import type { ParsedPick } from "@/components/PickCard";
 import {
+  fetchBoardMatchupHistory,
   fetchFullBoardPropPool,
   getGames,
   getLiveOdds,
   getOdds,
   type EspnGame,
+  type MatchupHistoryEntry,
   type OddsGame,
   type PropPoolEntry,
   type RealOddsEntry,
@@ -48,6 +50,11 @@ import {
   filterPropPoolByAskMarkets,
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
+import {
+  enforceMlLeanOnPicks,
+  mlLeanEnforcementNote,
+} from "@/lib/mlLeanEnforcement";
+import { marketFamily } from "@/components/PickCard";
 import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
 import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
 import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "@/lib/coachHrRank";
@@ -189,6 +196,14 @@ export async function buildCoachParlay(opts: {
   );
   const propsOnly = marketConstraint.propsOnly;
   const gameLinesOnly = marketConstraint.gameLinesOnly && !propsOnly;
+  const excludeTotals = marketConstraint.excludeTotals && !propsOnly;
+  // Drop Over/Under totals from the odds board when the book/user has no O/U.
+  const scanRealOdds = excludeTotals
+    ? inputs.realOdds.filter((r) => marketFamily(r.market) !== "total")
+    : inputs.realOdds;
+  const scanLiveOdds = excludeTotals
+    ? inputs.liveOdds.filter((r) => marketFamily(r.market) !== "total")
+    : inputs.liveOdds;
   // "10 leg nfl" — not props-only, but props must be scored first and seats reserved.
   const requirePropMix =
     !propsOnly &&
@@ -227,11 +242,13 @@ export async function buildCoachParlay(opts: {
   // Injuries + football weather/coaches + opp-D + (any MLB props) platoon —
   // all in parallel so we don't add sequential wall time before scoring.
   opts.onStatus?.(
-    (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
-      ? "Loading matchup, injuries, and recent form…"
-      : needFootballWx
-        ? "Loading injuries, weather, and coach context…"
-        : "Loading injury context…",
+    gameLinesOnly || !propsOnly
+      ? "Loading matchups, injuries, and opponent context…"
+      : (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
+        ? "Loading matchup, injuries, and recent form…"
+        : needFootballWx
+          ? "Loading injuries, weather, and coach context…"
+          : "Loading injury context…",
   );
   const contextPromise = Promise.all([
     loadBoardInjuries(boardSports, opts.signal).catch(() => ({
@@ -270,9 +287,20 @@ export async function buildCoachParlay(opts: {
           signal: opts.signal,
         }).catch(() => ({ footballGameEnv: {} }))
       : Promise.resolve({ footballGameEnv: {} }),
+    // Game-line / mixed tickets need mlLean opponent comparison (NFL parity).
+    !propsOnly || gameLinesOnly
+      ? fetchBoardMatchupHistory({
+          espnGames: inputs.espnGames,
+          realOdds: scanRealOdds,
+          signal: opts.signal,
+          focalText: opts.askText,
+          matchupCap: gameLinesOnly ? 20 : 12,
+        }).catch(() => ({} as Record<string, MatchupHistoryEntry>))
+      : Promise.resolve({} as Record<string, MatchupHistoryEntry>),
   ]);
 
-  const [injuryPack, mlb, earlyHistory, oppRushDefense, football] = await contextPromise;
+  const [injuryPack, mlb, earlyHistory, oppRushDefense, football, matchupHistoryRaw] =
+    await contextPromise;
   const matchupInjuries = attachMatchupInjuries(
     inputs.espnGames,
     injuryPack.injuriesBySport,
@@ -285,6 +313,9 @@ export async function buildCoachParlay(opts: {
   };
   mlbGameEnv = Object.keys(mergedEnv).length ? mergedEnv : undefined;
   const playerHistory = Object.keys(earlyHistory).length ? earlyHistory : undefined;
+  const matchupHistory = Object.keys(matchupHistoryRaw).length
+    ? matchupHistoryRaw
+    : undefined;
 
   opts.onReadyToScan?.({ propPoolSize });
   opts.onStatus?.(
@@ -394,8 +425,8 @@ export async function buildCoachParlay(opts: {
     target,
     oddsGames: inputs.oddsGames,
     propPool: activePropPool,
-    realOdds: inputs.realOdds,
-    liveOdds: inputs.liveOdds,
+    realOdds: scanRealOdds,
+    liveOdds: scanLiveOdds,
     espnGames: inputs.espnGames,
     gameMeta: [],
     teamIdMap,
@@ -413,6 +444,7 @@ export async function buildCoachParlay(opts: {
     matchupInjuries: Object.keys(matchupInjuries).length ? matchupInjuries : undefined,
     injuryTeams: injuryTeams.length ? injuryTeams : undefined,
     playerHistory,
+    matchupHistory,
     varietySeed: `greenfield-${target}-${Date.now()}`,
     onPartial: (partial) => {
       latest = partial;
@@ -520,6 +552,18 @@ export async function buildCoachParlay(opts: {
     ),
     teamScope,
   );
+  // Lock ML / puck-line / spread sides to real mlLean when present — opponent
+  // comparison like NFL, not freeform chat inventing home-ice one-liners.
+  let mlLeanNote = "";
+  if (!propsOnly && matchupHistory && picks.some((p) => !p.isProp)) {
+    const enforced = enforceMlLeanOnPicks(picks, {
+      matchupHistory,
+      realOdds: scanRealOdds,
+      gameMeta: [],
+    });
+    picks = filterPicksByAskMarketConstraint(enforced.picks, marketConstraint);
+    mlLeanNote = mlLeanEnforcementNote(enforced);
+  }
   const propsPending =
     propsStillPending(scan) ||
     propsStillPending(latest) ||
@@ -554,7 +598,7 @@ export async function buildCoachParlay(opts: {
     requirePropMix,
   });
   // Mismatch lead first — phone shows it above pick cards when game lines leak.
-  const note = [mismatchLead, body].filter((s) => s.trim()).join("\n\n");
+  const note = [mismatchLead, mlLeanNote, body].filter((s) => s.trim()).join("\n\n");
 
   return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };
 }

@@ -18,12 +18,31 @@ export function normalizeCoachLegTypos(text: string | null | undefined): string 
 }
 
 export function parseRequestedLegs(text: string): number {
-  const m = String(text || "").match(
+  const raw = String(text || "");
+  const m = raw.match(
     new RegExp(String.raw`\b(\d{1,3})\s*[-\s]?\s*${LEG_WORD}\b`, "i"),
   );
-  if (!m) return 0;
-  const n = parseInt(m[1], 10);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  if (m) {
+    const n = parseInt(m[1]!, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  // Phone: "give me 4 different ones" / "give me 4 NHL picks" — no "leg" word,
+  // but still a fixed-count ticket ask (was falling through to freeform chat).
+  const giveMe = raw.match(
+    /\b(?:give\s+me|get\s+me|need|want)\s+(\d{1,3})\s+(?:different\s+)?(?:ones?|picks?|bets?|plays?)\b/i,
+  );
+  if (giveMe) {
+    const n = parseInt(giveMe[1]!, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const sportPicks = raw.match(
+    /\b(\d{1,3})\s+(?:different\s+)?(?:nhl|nfl|nba|mlb|wnba|ncaaf|ncaab|cfb|soccer)\s+picks?\b/i,
+  );
+  if (sportPicks) {
+    const n = parseInt(sportPicks[1]!, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
 }
 
 export function isParlayBuildAsk(text: string): boolean {
@@ -48,7 +67,7 @@ export function coachPickLooksLikeGameLine(p: {
   const m = String(p.market ?? "").toUpperCase();
   // Phone screenshots: "1H ALT SPREAD", "Q2 SPREAD", "TOTAL", "2H ALT TOTAL".
   if (
-    /\b(SPREAD|TOTAL|MONEYLINE|MONEY\s*LINE)\b/.test(m) ||
+    /\b(SPREAD|TOTAL|MONEYLINE|MONEY\s*LINE|PUCK\s*LINE|RUN\s*LINE)\b/.test(m) ||
     /(?:^|[\s/])(ML)(?:$|[\s/])/.test(m)
   ) {
     return true;

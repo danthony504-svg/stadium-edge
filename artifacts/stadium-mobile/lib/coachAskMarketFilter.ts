@@ -19,6 +19,11 @@ export type CoachAskMarketConstraint = {
    */
   gameLinesOnly: boolean;
   /**
+   * Drop Over/Under game totals (keep ML / puck line / spread).
+   * Phone: "Bet365 doesn't have over or under for NHL".
+   */
+  excludeTotals: boolean;
+  /**
    * When the ask names a game count ("only from 2 games"), prefer filling
    * within that many matchups (raises per-game leg cap). null = unset.
    */
@@ -273,12 +278,19 @@ export function parseCoachAskMarketConstraint(
   priorUserTexts: string[] = [],
 ): CoachAskMarketConstraint {
   const t = normalizeCoachLegTypos(String(text ?? "").trim());
-  if (!t) {
-    return { propsOnly: false, gameLinesOnly: false, maxGames: null, allowedMarketKeys: null };
-  }
+  const empty: CoachAskMarketConstraint = {
+    propsOnly: false,
+    gameLinesOnly: false,
+    excludeTotals: false,
+    maxGames: null,
+    allowedMarketKeys: null,
+  };
+  if (!t) return empty;
 
   const maxGames = parseMaxGamesFromAsk(t);
-  const gameLinesOnly = wantsGameLinesOnlyAsk(t);
+  const excludeTotals = wantsNoTotalsAsk(t);
+  // No O/U / no totals → game lines only (ML / puck line / spread), never props fill.
+  const gameLinesOnly = wantsGameLinesOnlyAsk(t) || excludeTotals;
 
   const rushYds = hasRushYardsAsk(t);
   const recYds = hasRecYardsAsk(t);
@@ -289,11 +301,10 @@ export function parseCoachAskMarketConstraint(
     if (rushYds) keys.push(...RUSH_YARDS_KEYS);
     if (recYds) keys.push(...REC_YARDS_KEYS);
     if (passYds) keys.push(...PASS_YARDS_KEYS);
-    // Naming yards families means a yards-prop ticket — keep game lines out so
-    // F5/TOTAL/ALT SPREAD cannot fill legs the user asked for as yards.
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: keys,
     };
@@ -303,6 +314,7 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...HOME_RUN_PROP_KEYS],
     };
@@ -312,6 +324,7 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...FIRST_TD_PROP_KEYS],
     };
@@ -320,6 +333,7 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...TD_PROP_KEYS],
     };
@@ -328,6 +342,7 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...FG_PROP_KEYS],
     };
@@ -336,6 +351,7 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...FOOTBALL_COMBO_PROP_KEYS],
     };
@@ -344,15 +360,16 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: [...NBA_COMBO_PROP_KEYS],
     };
   }
   if (hasSoccerSpecialAsk(t)) {
-    // Soccer specials are game lines (not player props).
     return {
       propsOnly: false,
       gameLinesOnly: true,
+      excludeTotals,
       maxGames,
       allowedMarketKeys: [...SOCCER_SPECIAL_LINE_KEYS],
     };
@@ -367,18 +384,17 @@ export function parseCoachAskMarketConstraint(
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: keys,
     };
   }
 
-  // "10 leg NFL player props" / "player props only" / "just player props" /
-  // "5 leg for tomorrow" (slate-only) / prior-turn props inheritance —
-  // all-prop ticket. No market allowlist; never fill with ML / spread / total.
   if (!gameLinesOnly && threadWantsPropsOnly(t, priorUserTexts)) {
     return {
       propsOnly: true,
       gameLinesOnly: false,
+      excludeTotals: false,
       maxGames,
       allowedMarketKeys: null,
     };
@@ -387,15 +403,33 @@ export function parseCoachAskMarketConstraint(
   return {
     propsOnly: false,
     gameLinesOnly,
+    excludeTotals,
     maxGames,
     allowedMarketKeys: null,
   };
+}
+
+/** "doesn't have over/under" / "no totals" — ML & puck line / spread only. */
+export function wantsNoTotalsAsk(text: string | null | undefined): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return false;
+  if (/\bno\s+totals?\b/.test(t)) return true;
+  if (/\bwithout\s+totals?\b/.test(t)) return true;
+  if (/\bno\s+(?:over\s*(?:\/|or)\s*under|o\s*\/\s*u)\b/.test(t)) return true;
+  if (/\bwithout\s+(?:over\s*(?:\/|or)\s*under|o\s*\/\s*u)\b/.test(t)) return true;
+  if (/\bdoesn'?t\s+have\s+(?:over\s*(?:\/|or)\s*under|o\s*\/\s*u|totals?)\b/.test(t)) {
+    return true;
+  }
+  if (/\bno\s+over\s+or\s+under\b/.test(t)) return true;
+  if (/\bmoneylines?\s+(?:and|&|\+|\/)\s+puck\s*lines?\b/.test(t)) return true;
+  return false;
 }
 
 /** "no player props" / "without props" / "game lines only" — not "props only". */
 export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean {
   const t = String(text ?? "").toLowerCase();
   if (!t) return false;
+  if (wantsNoTotalsAsk(t)) return true;
   // Explicit no-prop phrasing wins even when "props only" appears later in the
   // same ask ("no player props only from 2 games").
   if (/\bno\s+player\s+props?\b/.test(t)) return true;
@@ -447,6 +481,7 @@ export function filterPicksByAskMarketConstraint<
     isProp?: boolean;
     propMarketKey?: string | null;
     market?: string | null;
+    pick?: string | null;
   },
 >(picks: T[], constraint: CoachAskMarketConstraint): T[] {
   let out = picks;
@@ -455,6 +490,18 @@ export function filterPicksByAskMarketConstraint<
   }
   if (constraint.gameLinesOnly) {
     out = out.filter((p) => !p.isProp);
+  }
+  if (constraint.excludeTotals) {
+    out = out.filter((p) => {
+      const m = String(p.market ?? "");
+      const pick = String(p.pick ?? "");
+      // Keep ML / puck line / spread — drop Over/Under totals (incl. team totals).
+      if (/\btotal\b/i.test(m)) return false;
+      if (/\b(over|under)\b/i.test(pick) && !/\b(puck|run|spread|handicap)\b/i.test(m)) {
+        return false;
+      }
+      return true;
+    });
   }
   if (constraint.allowedMarketKeys && constraint.allowedMarketKeys.length > 0) {
     out = out.filter((p) =>

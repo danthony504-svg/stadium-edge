@@ -3404,6 +3404,60 @@ async function buildMatchupHistoryAndUpsets(
   return { matchupHistory, upsetSpots };
 }
 
+/**
+ * Coach board matchup history (mlLean + L10/H2H/form) for game-line opponent
+ * comparison — same engine as chat context / Upset Watch.
+ */
+export async function fetchBoardMatchupHistory(opts: {
+  espnGames: Array<{
+    sport?: string | null;
+    state?: string | null;
+    startsAt?: string | null;
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    homeAbbr?: string | null;
+    awayAbbr?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+  }>;
+  realOdds: RealOddsEntry[];
+  signal?: AbortSignal;
+  focalText?: string | null;
+  matchupCap?: number;
+}): Promise<Record<string, MatchupHistoryEntry>> {
+  const targets: {
+    sport: string;
+    gameLabel: string;
+    homeTeamId: string;
+    awayTeamId: string;
+    startsAt?: string;
+  }[] = [];
+  for (const g of opts.espnGames) {
+    if (String(g.state ?? "") === "post") continue;
+    const sport = String(g.sport ?? "").toLowerCase();
+    const away = String(g.awayTeam || g.awayAbbr || "").trim();
+    const home = String(g.homeTeam || g.homeAbbr || "").trim();
+    const homeTeamId = g.homeTeamId != null ? String(g.homeTeamId) : "";
+    const awayTeamId = g.awayTeamId != null ? String(g.awayTeamId) : "";
+    if (!sport || !away || !home || !homeTeamId || !awayTeamId) continue;
+    targets.push({
+      sport,
+      gameLabel: `${away} @ ${home}`,
+      homeTeamId,
+      awayTeamId,
+      startsAt: g.startsAt ?? undefined,
+    });
+  }
+  const { matchupHistory } = await buildMatchupHistoryAndUpsets(
+    targets,
+    buildMlPriceByLabel(opts.realOdds),
+    opts.signal,
+    opts.focalText,
+    opts.matchupCap ?? 16,
+  );
+  return matchupHistory;
+}
+
 // Fetch matchup analytics for one game (simulator / detail surfaces).
 export async function fetchMatchupHistoryEntry(
   opts: {
