@@ -38,9 +38,11 @@ import {
   type PropsOnlyFailDiag,
 } from "./coachPropsOnlyFailReason.ts";
 import {
+  playerTrendMomentum,
   scoreLineShopping,
   scoreLineValue,
   scoreSimulation,
+  scoreTrend,
   type PickSubScores,
 } from "./pickScore.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
@@ -53,6 +55,7 @@ import {
   pickDefenseAwareAlt,
   propOppDefenseTilt,
   shouldBlockRushOverVsDefense,
+  shouldDropPropMissingOppDefense,
   shouldPreferDefenseAltPick,
 } from "./footballRushDefense.ts";
 import {
@@ -65,6 +68,7 @@ import { COACH_SIM_MIN_CONFIDENCE, simEvPct } from "./gameSimQualityGates.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
+import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 
 export {
   FOOTBALL_PROPS_ONLY_BATCH,
@@ -169,6 +173,46 @@ function mlbPlatoonLookup(
   return null;
 }
 
+function lookupPropsOnlyPlayerHistory(
+  player: string | undefined,
+  athleteId: string | null | undefined,
+  map?: Record<string, PlayerHistorySlice>,
+): PlayerHistorySlice | undefined {
+  if (!map) return undefined;
+  if (athleteId) {
+    const hit =
+      map[`${player}#${athleteId}`] ??
+      Object.entries(map).find(([k]) => k.endsWith(`#${athleteId}`))?.[1];
+    if (hit) return hit;
+  }
+  if (player) {
+    const hit = Object.entries(map).find(([k]) => k.startsWith(`${player}#`))?.[1];
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** Recent-form trend from real game logs — same rubric input board scan uses. */
+function propsOnlyTrendFromHistory(
+  ph: PlayerHistorySlice | undefined,
+  marketKey: string,
+  line: number | null | undefined,
+  side: string | null | undefined,
+): number | null {
+  if (!ph?.recent?.length || line == null) return null;
+  const ambiguous = computeAmbiguous(ph.labels);
+  const vals = ph.recent
+    .map((g) =>
+      gameValueForMarket(
+        marketKey,
+        (g.stats ?? {}) as Record<string, string>,
+        ambiguous,
+      ),
+    )
+    .filter((v): v is number => v != null);
+  return scoreTrend(playerTrendMomentum(vals, line, side));
+}
+
 function scoredLegFromHit(
   pick: ParsedPick,
   rawHit: number | null,
@@ -179,6 +223,7 @@ function scoredLegFromHit(
     teamIdMap?: Map<string, GameTeamIds>;
     mlbPlatoon?: Record<string, unknown>;
     mlbGameEnv?: Record<string, unknown>;
+    playerHistory?: Record<string, PlayerHistorySlice>;
   },
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
@@ -195,21 +240,37 @@ function scoredLegFromHit(
   });
   if (!propsOnlyLegClearsOdds(norm, hit)) return null;
 
+  const sport = norm.sport ?? poolRow?.sport;
+  const marketKey = norm.propMarketKey ?? norm.market;
   const oppId = opponentTeamIdForProp({
-    sport: norm.sport ?? poolRow?.sport,
+    sport,
     game: norm.game,
     teamAbbr: poolRow?.teamAbbr,
     espnGames: rushCtx?.espnGames,
     teamIdMap: rushCtx?.teamIdMap,
   });
   const pack = oppDefensePackForOpponent({
-    sport: norm.sport ?? poolRow?.sport,
+    sport,
     opponentTeamId: oppId,
     map: rushCtx?.oppRushDefense,
   });
+  // Fail closed: rare NHL Goals/Points Overs need real opp goaltending — no
+  // EV-only longshot staging without comparing the netminder / team D.
+  if (
+    shouldDropPropMissingOppDefense({
+      sport,
+      market: marketKey,
+      side: norm.propSide,
+      line: norm.propLine,
+      pack,
+    })
+  ) {
+    return null;
+  }
   if (
     shouldBlockRushOverVsDefense({
-      market: norm.propMarketKey ?? norm.market,
+      sport,
+      market: marketKey,
       side: norm.propSide,
       defense: pack?.rush ?? null,
       pack,
@@ -218,20 +279,33 @@ function scoredLegFromHit(
     return null;
   }
   const defTilt = propOppDefenseTilt({
-    sport: norm.sport ?? poolRow?.sport,
-    market: norm.propMarketKey ?? norm.market,
+    sport,
+    market: marketKey,
     side: norm.propSide,
     defense: pack?.rush ?? null,
     pack,
   });
+
+  const ph = lookupPropsOnlyPlayerHistory(
+    norm.player,
+    poolRow?.athleteId ?? norm.athleteId,
+    rushCtx?.playerHistory,
+  );
+  const trend = propsOnlyTrendFromHistory(
+    ph,
+    String(marketKey ?? ""),
+    norm.propLine,
+    norm.propSide,
+  );
 
   const edgePct =
     hit != null && norm.odds != null
       ? Math.round((hit - impliedProb(norm.odds)) * 1000) / 10
       : poolRow?.edge ?? null;
   const rubricScores: PickSubScores = {
+    // Matchup lean comes from holistic opponentTendency (opp D + vsOpponent).
     matchup: null,
-    trend: null,
+    trend,
     lineValue: scoreLineValue(edgePct),
     injury: null,
     lineShopping: scoreLineShopping(poolRow?.bookSpread ?? null),
@@ -253,9 +327,11 @@ function scoredLegFromHit(
     odds: norm.odds,
     propSimHit: hit,
     propHolisticContext: {
-      sport: norm.sport ?? poolRow?.sport,
-      marketKey: norm.propMarketKey ?? norm.market,
+      sport,
+      marketKey,
       propSide: norm.propSide,
+      minutesTrend: ph?.minutesTrend ?? null,
+      vsOpponentGames: ph?.vsOpponent?.length ?? 0,
       rushDefense: pack?.rush ?? null,
       footballOppDefense: pack,
       mlbPlatoon: mlbPlatoon as import("./propHolisticRecommendation.ts").MlbPlatoonSlice | null,
@@ -568,6 +644,7 @@ export async function buildFootballPropsOnlyTicket(
     teamIdMap: opts.teamIdMap,
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
+    playerHistory: seededHistory,
   };
   const normalizedCandidates = candidates.map((c) => normalizePropsOnlyPick(c));
   const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool).flatMap(
@@ -585,13 +662,22 @@ export async function buildFootballPropsOnlyTicket(
         map: opts.oppRushDefense,
       });
       if (
-        !shouldPreferDefenseAltPick({
-          sport: pick.sport ?? row?.sport,
-          market: pick.propMarketKey ?? pick.market,
-          side: pick.propSide,
-          defense: pack?.rush ?? null,
-          pack,
-        })
+        !(
+          shouldDropPropMissingOppDefense({
+            sport: pick.sport ?? row?.sport,
+            market: pick.propMarketKey ?? pick.market,
+            side: pick.propSide,
+            line: pick.propLine,
+            pack,
+          }) ||
+          shouldPreferDefenseAltPick({
+            sport: pick.sport ?? row?.sport,
+            market: pick.propMarketKey ?? pick.market,
+            side: pick.propSide,
+            defense: pack?.rush ?? null,
+            pack,
+          })
+        )
       ) {
         return [pick];
       }

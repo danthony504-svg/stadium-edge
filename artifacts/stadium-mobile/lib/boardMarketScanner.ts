@@ -41,7 +41,10 @@ import {
   oppDefensePackForOpponent,
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
-import { shouldBlockRushOverVsDefense } from "./footballRushDefense.ts";
+import {
+  shouldBlockRushOverVsDefense,
+  shouldDropPropMissingOppDefense,
+} from "./footballRushDefense.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
@@ -470,7 +473,15 @@ function appendPropScoredLegs(
       map: opts.oppRushDefense,
     });
     if (
+      shouldDropPropMissingOppDefense({
+        sport: pick.sport ?? poolRow?.sport,
+        market: pick.propMarketKey ?? pick.market,
+        side: pick.propSide,
+        line: pick.propLine,
+        pack,
+      }) ||
       shouldBlockRushOverVsDefense({
+        sport: pick.sport ?? poolRow?.sport,
         market: pick.propMarketKey ?? pick.market,
         side: pick.propSide,
         defense: pack?.rush ?? null,
