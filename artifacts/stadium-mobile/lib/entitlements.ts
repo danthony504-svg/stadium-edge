@@ -209,7 +209,7 @@ export type SubscriptionPersistedState = {
   storeKitManagementUrl: string | null;
 };
 
-export type UnlockSource = "storekit" | "promo" | "admin" | "none";
+export type UnlockSource = "storekit" | "promo" | "admin" | "review" | "none";
 
 export type EntitlementView = {
   planId: PlanId;
@@ -365,15 +365,27 @@ export function hasPromoOrPlanAccess(
   return false;
 }
 
+export type EntitlementAccessOpts = {
+  email?: string | null;
+  adminEmails?: readonly string[];
+  /**
+   * Temporary full unlock while Apple IAP / App Review is pending.
+   * Driven by EXPO_PUBLIC_APP_REVIEW_MODE=true — flip off after approval.
+   */
+  appReviewMode?: boolean;
+};
+
 /**
- * Soft Pro access: verified Apple StoreKit plan, active promo, or admin email.
- * Local / preview paid planId without StoreKit does not unlock Pro.
+ * Soft Pro access: verified Apple StoreKit plan, active promo, admin email,
+ * or temporary App Review unlock. Local / preview paid planId without StoreKit
+ * does not unlock Pro.
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
   nowMs: number,
-  opts: { email?: string | null; adminEmails?: readonly string[] } = {},
+  opts: EntitlementAccessOpts = {},
 ): boolean {
+  if (opts.appReviewMode) return true;
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
   return hasPromoOrPlanAccess(state, nowMs);
 }
@@ -381,8 +393,9 @@ export function hasProAccess(
 export function resolveUnlockSource(
   state: SubscriptionPersistedState,
   nowMs: number,
-  opts: { email?: string | null; adminEmails?: readonly string[] } = {},
+  opts: EntitlementAccessOpts = {},
 ): UnlockSource {
+  if (opts.appReviewMode) return "review";
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
@@ -456,7 +469,7 @@ export function canAccessPremiumFeature(
 export function buildEntitlementView(
   state: SubscriptionPersistedState,
   nowMs: number,
-  opts: { email?: string | null; adminEmails?: readonly string[] } = {},
+  opts: EntitlementAccessOpts = {},
 ): EntitlementView {
   const planId = isPlanId(state.planId) ? state.planId : "free";
   const plan = planById(planId);
@@ -466,7 +479,10 @@ export function buildEntitlementView(
 
   let statusLabel: string;
   let statusDetail: string;
-  if (isAdmin) {
+  if (unlockSource === "review") {
+    statusLabel = "Temporary unlock";
+    statusDetail = "Full access · pending App Store approval";
+  } else if (isAdmin) {
     statusLabel = "Admin";
     statusDetail = "Full access · admin account";
   } else if (unlockSource === "storekit") {

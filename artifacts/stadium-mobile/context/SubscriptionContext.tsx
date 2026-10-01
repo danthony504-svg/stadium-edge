@@ -114,6 +114,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     user?.emailAddresses?.[0]?.emailAddress ??
     null;
   const adminEmails = useMemo(() => readAdminEmails(), []);
+  /** Temporary full unlock until Apple approves StoreKit / the next build. */
+  const appReviewMode = useMemo(
+    () => (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
+    [],
+  );
   // Do not probe Purchases during first render — NativeModules read is sync/safe;
   // memoize so we never accidentally re-enter require paths.
   const storeKitBlockedReason = useMemo(() => storeKitUnavailableReason(), []);
@@ -186,10 +191,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       buildEntitlementView(state, nowMs(), {
         email: isSignedIn ? email : null,
         adminEmails,
+        appReviewMode,
       }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails],
+    [state, tick, isSignedIn, email, adminEmails, appReviewMode],
   );
 
   const selectPlan = useCallback(

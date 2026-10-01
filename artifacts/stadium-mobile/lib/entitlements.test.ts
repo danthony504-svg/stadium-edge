@@ -84,6 +84,20 @@ test("hasProAccess: paid requires storeKitActive; promo and admin unlock", () =>
   );
 });
 
+test("hasProAccess: app review mode unlocks everything temporarily", () => {
+  const start = 1_700_000_000_000;
+  assert.equal(
+    hasProAccess(baseState({ planId: "free" }), start, { appReviewMode: true }),
+    true,
+  );
+  const view = buildEntitlementView(baseState({ planId: "free" }), start, {
+    appReviewMode: true,
+  });
+  assert.equal(view.isPro, true);
+  assert.equal(view.unlockSource, "review");
+  assert.equal(view.statusLabel, "Temporary unlock");
+});
+
 test("buildEntitlementView labels admin / promo / free (no local trial)", () => {
   const start = 1_700_000_000_000;
   const admin = buildEntitlementView(baseState({ trialStartedAtMs: start }), start + 10 * DAY, {
