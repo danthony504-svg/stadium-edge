@@ -375,6 +375,29 @@ test("Bet365 no over/under NHL → gameLinesOnly + excludeTotals", () => {
   assert.ok(out.every((p) => !p.isProp && !/total/i.test(p.market)));
 });
 
+test("5 leg NHL team props → game lines (not player Under 0.5 stack)", () => {
+  const c = parseCoachAskMarketConstraint("5 leg NHL team props");
+  assert.equal(c.propsOnly, false, "team props must not be propsOnly");
+  assert.equal(c.gameLinesOnly, true);
+  assert.equal(c.excludeTotals, false, "team totals stay available");
+  const out = filterPicksByAskMarketConstraint(
+    [
+      { isProp: true, market: "Points", pick: "Zach Werenski Under 0.5" },
+      { isProp: false, market: "Moneyline", pick: "Blue Jackets" },
+      { isProp: false, market: "Total", pick: "Under 6.5" },
+      { isProp: false, market: "Puck Line", pick: "Sabres +1.5" },
+    ],
+    c,
+  );
+  assert.equal(out.length, 3);
+  assert.ok(out.every((p) => !p.isProp));
+  // Explicit player props still win.
+  assert.equal(
+    parseCoachAskMarketConstraint("5 leg NHL player props").propsOnly,
+    true,
+  );
+});
+
 test("thread prior props-only inherits onto refinement ask", () => {
   const c = parseCoachAskMarketConstraint("make it 5 for tomorrow", [
     "7 leg NFL player props",

@@ -63,6 +63,10 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("6 leg nba"), true);
   assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);
   assert.equal(wantsPropsOnly("10 leg nfl"), false);
+  // Phone: "5 leg NHL team props" → player Under 0.5 stack — team props ≠ player props.
+  assert.equal(wantsPropsOnly("5 leg NHL team props"), false);
+  assert.equal(wantsPropsOnly("6 leg team props tonight"), false);
+  assert.equal(wantsPropsOnly("5 leg NHL player props"), true);
 });
 
 test("threadWantsPropsOnly inherits prior player-prop ask onto slate refinement", () => {

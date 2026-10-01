@@ -540,6 +540,57 @@ test("phone 7-leg thin slate: 1 game with 7 odds-cleared props stages all 7", ()
   assert.ok(staged.every((p) => p.propsOnlyTicket === true));
 });
 
+test("multi-game board: do not stack the same market+side on one game first", () => {
+  // Phone: "5 leg NHL" → Werenski/Johnson/… Under 0.5 Points all from CBJ.
+  const scored: BoardScoredLeg[] = [];
+  const games = [
+    "Buffalo Sabres @ Columbus Blue Jackets",
+    "New Jersey Devils @ Pittsburgh Penguins",
+    "San Jose Sharks @ Edmonton Oilers",
+  ];
+  for (let g = 0; g < games.length; g++) {
+    for (let i = 0; i < 4; i++) {
+      const p = {
+        ...pick("player_points", `Skater${g}_${i}`, 0.5, {
+          athleteId: `sk-${g}-${i}`,
+          odds: -120,
+          side: "Under" as const,
+        }),
+        game: games[g]!,
+        propSide: "Under" as const,
+        propsOnlyTicket: true,
+      };
+      scored.push({
+        pick: p,
+        evPct: 30 - i - g,
+        edgePct: 30 - i - g,
+        confidencePct: 52,
+        impliedProbPct: 54,
+        lineShoppingScore: null,
+        grade: "B",
+        simHit: 0.7,
+        composite: 7,
+        rankScore: 7,
+      } as BoardScoredLeg);
+    }
+  }
+  // Target ≤ games: prefer one Under Points from each matchup.
+  const staged3 = stageFootballPropsOnlyLegs(scored, 3);
+  assert.equal(staged3.length, 3);
+  assert.equal(new Set(staged3.map((p) => p.game)).size, 3);
+  // Target > games: may take a 2nd of the same market+side, but never 4 from one game.
+  const staged5 = stageFootballPropsOnlyLegs(scored, 5);
+  assert.equal(staged5.length, 5);
+  const perGame = new Map<string, number>();
+  for (const p of staged5) {
+    const k = String(p.game ?? "");
+    perGame.set(k, (perGame.get(k) ?? 0) + 1);
+  }
+  for (const [, n] of perGame) {
+    assert.ok(n <= 2, `expected ≤2 same Under Points from one game, got ${n}`);
+  }
+});
+
 test("propsOnlyPerGameCeiling: 2 games → ceil(target/2)", () => {
   assert.equal(propsOnlyPerGameCeiling(7, 2), 4);
   assert.equal(propsOnlyPerGameCeiling(10, 2), 5);

@@ -164,20 +164,31 @@ function stageFootballPropsOnlyLegsWithCap(
   ordered: BoardScoredLeg[],
   target: number,
   maxPerGame: number,
+  maxSameGameMarketSide: number,
 ): ParsedPick[] {
   const picks: ParsedPick[] = [];
   const usedPlayerMarket = new Set<string>();
   const usedGames = new Map<string, number>();
+  // Cap identical market+side stacks per game (phone: CBJ Under 0.5 Points × roster).
+  const usedGameMarketSide = new Map<string, number>();
   for (const leg of ordered) {
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
     if (!propsOnlyLegClearsOdds(p, leg.simHit)) continue;
     const pm = `${p.player}|${p.propMarketKey ?? p.market}`.toLowerCase();
     if (usedPlayerMarket.has(pm)) continue;
-    const gameCount = usedGames.get(p.game) ?? 0;
+    const gameKey = String(p.game ?? "");
+    const gameCount = usedGames.get(gameKey) ?? 0;
     if (gameCount >= maxPerGame) continue;
+    const marketSide = `${String(p.propMarketKey ?? p.market ?? "")
+      .toLowerCase()
+      .replace(/_/g, " ")}|${String(p.propSide ?? "").toLowerCase()}`;
+    const gameMarketSide = `${gameKey}|${marketSide}`;
+    const gmsCount = usedGameMarketSide.get(gameMarketSide) ?? 0;
+    if (gmsCount >= maxSameGameMarketSide) continue;
     usedPlayerMarket.add(pm);
-    usedGames.set(p.game, gameCount + 1);
+    usedGames.set(gameKey, gameCount + 1);
+    usedGameMarketSide.set(gameMarketSide, gmsCount + 1);
     picks.push({
       ...p,
       // Mark props-only delivery so PickCard shows the letter grade (not Not Rec.)
@@ -204,11 +215,16 @@ export function stageFootballPropsOnlyLegs(
     ordered.map((l) => String(l.pick.game ?? "")).filter(Boolean),
   ).size;
   const ceiling = propsOnlyPerGameCeiling(target, uniqueGames || 1);
+  const thinSlate = uniqueGames <= 1;
   // Start at 3 (historic props-only default); raise to ceiling when short.
+  // Prefer 1× same market+side per game on multi-game boards; raise only to fill.
   let best: ParsedPick[] = [];
   for (let cap = Math.min(3, ceiling); cap <= ceiling; cap++) {
-    best = stageFootballPropsOnlyLegsWithCap(ordered, target, cap);
-    if (best.length >= target) return best;
+    const msStart = thinSlate ? cap : 1;
+    for (let msCap = msStart; msCap <= cap; msCap++) {
+      best = stageFootballPropsOnlyLegsWithCap(ordered, target, cap, msCap);
+      if (best.length >= target) return best;
+    }
   }
   return best;
 }
