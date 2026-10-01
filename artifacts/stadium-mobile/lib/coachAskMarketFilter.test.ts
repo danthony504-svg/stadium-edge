@@ -349,11 +349,30 @@ test("filterPicksByAskMarketConstraint drops props when gameLinesOnly", () => {
   const out = filterPicksByAskMarketConstraint(picks, {
     propsOnly: false,
     gameLinesOnly: true,
+    excludeTotals: false,
     maxGames: null,
     allowedMarketKeys: null,
   });
   assert.equal(out.length, 1);
   assert.equal(out[0]!.isProp, false);
+});
+
+test("Bet365 no over/under NHL → gameLinesOnly + excludeTotals", () => {
+  const c = parseCoachAskMarketConstraint(
+    "Bet 365 doesn't have over or under for NHL so give me 4 different ones.",
+  );
+  assert.equal(c.gameLinesOnly, true);
+  assert.equal(c.excludeTotals, true);
+  assert.equal(c.propsOnly, false);
+  const picks = [
+    { isProp: false, market: "Moneyline", pick: "Penguins" },
+    { isProp: false, market: "Puck Line", pick: "Oilers -1.5" },
+    { isProp: false, market: "Total", pick: "Over 6.5" },
+    { isProp: true, market: "Points", pick: "Under 0.5" },
+  ];
+  const out = filterPicksByAskMarketConstraint(picks, c);
+  assert.equal(out.length, 2);
+  assert.ok(out.every((p) => !p.isProp && !/total/i.test(p.market)));
 });
 
 test("thread prior props-only inherits onto refinement ask", () => {

@@ -74,6 +74,17 @@ test("isParlayBuildAsk detects build intent", () => {
   assert.equal(isParlayBuildAsk("who wins tonight"), false);
 });
 
+test("give me N different ones routes to board scan (not freeform chat)", () => {
+  const ask =
+    "Bet 365 doesn't have over or under for NHL so give me 4 different ones.";
+  assert.equal(parseRequestedLegs(ask), 4);
+  assert.equal(isParlayBuildAsk(ask), true);
+  assert.equal(resolveBuildLegTarget(ask), 4);
+  assert.equal(parseRequestedLegs("give me 5 NHL picks"), 5);
+  assert.equal(isParlayBuildAsk("4 nhl picks tonight"), true);
+  assert.equal(resolveBuildLegTarget("4 nhl picks tonight"), 4);
+});
+
 test("resolveBuildLegTarget defaults build asks to 6", () => {
   assert.equal(resolveBuildLegTarget("build a parlay"), 6);
   assert.equal(resolveBuildLegTarget("8 leg NBA"), 8);
