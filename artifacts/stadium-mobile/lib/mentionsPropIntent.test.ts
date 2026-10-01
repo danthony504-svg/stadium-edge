@@ -67,6 +67,11 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("5 leg NHL team props"), false);
   assert.equal(wantsPropsOnly("6 leg team props tonight"), false);
   assert.equal(wantsPropsOnly("5 leg NHL player props"), true);
+  // Phone: "9 leg tonight mixed sports" → PROPS_ONLY_STAGED_SHORT (4 HR / 1 game).
+  assert.equal(wantsPropsOnly("9 leg tonight mixed sports"), false);
+  assert.equal(wantsPropsOnly("8 leg multi-sport tonight"), false);
+  assert.equal(wantsPropsOnly("10 leg across sports"), false);
+  assert.equal(wantsPropsOnly("9 leg all sports tonight"), false);
 });
 
 test("threadWantsPropsOnly inherits prior player-prop ask onto slate refinement", () => {
@@ -82,6 +87,11 @@ test("threadWantsPropsOnly inherits prior player-prop ask onto slate refinement"
   assert.equal(
     threadWantsPropsOnly("5 leg with no player props", ["7 leg NFL player props"]),
     false,
+  );
+  assert.equal(
+    threadWantsPropsOnly("9 leg tonight mixed sports", ["7 leg NFL player props"]),
+    false,
+    "mixed sports clears prior props-only inheritance",
   );
 });
 
