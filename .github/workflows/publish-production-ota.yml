@@ -84,12 +84,14 @@ jobs:
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
           ROLLBACK_EMBEDDED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_embedded || '0' }}
+          # Pass via env — inline ${{ inputs.message }} breaks on quotes/arrows (exit 127).
+          OTA_MESSAGE: ${{ github.event.inputs.message }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "Add EXPO_TOKEN to repo secrets: https://github.com/${{ github.repository }}/settings/secrets/actions"
             exit 1
           fi
-          MSG="${{ github.event.inputs.message }}"
+          MSG="$OTA_MESSAGE"
           if [ -z "$MSG" ]; then
             MSG="DEPLOY-VERIFY $(git rev-parse HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
           fi

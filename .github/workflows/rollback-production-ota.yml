@@ -43,4 +43,5 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           # Push trigger has no inputs — default to the production App Store runtime.
           RUNTIME_VERSION: ${{ github.event.inputs.runtime_version || '1.0.3' }}
-        run: bash scripts/rollback-production-ota.sh "${{ github.event.inputs.message || 'Emergency rollback to embedded — clear StoreKit OTA crash on 1.0.3' }}"
+          OTA_MESSAGE: ${{ github.event.inputs.message || 'Emergency rollback to embedded — clear StoreKit OTA crash on 1.0.3' }}
+        run: bash scripts/rollback-production-ota.sh "$OTA_MESSAGE"
