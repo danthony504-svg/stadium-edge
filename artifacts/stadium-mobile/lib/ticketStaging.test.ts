@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildStagedTicketFromScan,
   capThinStatMarketsOnTicket,
+  collapseSameTeamGameLineSides,
   tagTicketRoles,
   topUpTicketFromQualifiedScored,
   type BoardScoredLeg,
@@ -380,6 +381,89 @@ test("topUpTicketFromQualifiedScored is a no-op when already full or no leftover
     leg({ game: pick.game!, market: "Moneyline", pick: pick.pick!, odds: -110 }, 90 - i, mainScore),
   );
   assert.equal(topUpTicketFromQualifiedScored(short, onlyUsed, 8).length, 4);
+});
+
+test("collapseSameTeamGameLineSides keeps one Browns side across FG + Q2", () => {
+  const g = "Pittsburgh Steelers @ Cleveland Browns";
+  const out = collapseSameTeamGameLineSides([
+    {
+      game: g,
+      market: "Spread",
+      pick: "Browns +1.5",
+      odds: 101,
+      isProp: false,
+      sport: "nfl",
+      finalAiScore: mainScore,
+    },
+    {
+      game: g,
+      market: "Q2 Spread",
+      pick: "Browns +1.5",
+      odds: -130,
+      isProp: false,
+      sport: "nfl",
+      finalAiScore: { ...mainScore, composite: 9 },
+    },
+    {
+      game: "A @ B",
+      market: "Moneyline",
+      pick: "B ML",
+      odds: -120,
+      isProp: false,
+      sport: "nfl",
+      finalAiScore: mainScore,
+    },
+  ]);
+  assert.equal(out.length, 2);
+  assert.equal(out.filter((p) => /browns/i.test(p.pick)).length, 1);
+  assert.match(out.find((p) => /browns/i.test(p.pick))!.market, /Q2/i);
+});
+
+test("gameLinesOnly top-up collapses FG + Q2 same-team spreads", () => {
+  // Phone: Browns +1.5 SPREAD and Browns +1.5 Q2 SPREAD on team-props ticket.
+  const g = "Pittsburgh Steelers @ Cleveland Browns";
+  const short = [
+    leg({ game: g, market: "Spread", pick: "Browns +1.5", odds: 101 }, 100, mainScore).pick,
+    leg({ game: "A @ B", market: "Moneyline", pick: "B ML", odds: -120 }, 90, mainScore).pick,
+    leg({ game: "C @ D", market: "Total", pick: "Under 45.5", odds: -110 }, 85, mainScore).pick,
+  ];
+  const scored: BoardScoredLeg[] = [
+    // Same fingerprints as short — not false leftovers.
+    ...short.map((pick, i) => ({
+      pick,
+      evPct: 2,
+      edgePct: 3,
+      confidencePct: 55,
+      impliedProbPct: 50,
+      lineShoppingScore: 1,
+      grade: "B",
+      simHit: 0.55,
+      composite: 7,
+      rankScore: 100 - i,
+    })),
+    // Same-team period stack must be skipped when collapsing.
+    leg({ game: g, market: "Q2 Spread", pick: "Browns +1.5", odds: -130 }, 99, {
+      ...mainScore,
+      recommends: true,
+    }),
+    leg({ game: "E @ F", market: "Spread", pick: "E +3.5", odds: -105 }, 80, mainScore),
+    leg({ game: "G @ H", market: "Moneyline", pick: "G ML", odds: -105 }, 75, mainScore),
+    leg({ game: "I @ J", market: "Spread", pick: "I +1.5", odds: -105 }, 70, mainScore),
+  ];
+  // Force Q2 into leftover by marking it recommended via score on the pick.
+  scored[3]!.pick = {
+    ...scored[3]!.pick,
+    finalAiScore: { ...mainScore, recommends: true },
+  };
+  const topped = topUpTicketFromQualifiedScored(short, scored, 5, undefined, null, {
+    collapseSameTeamSides: true,
+  });
+  const browns = topped.filter((p) => /browns/i.test(p.pick) && /steelers/i.test(p.game ?? ""));
+  assert.equal(browns.length, 1, `expected one Browns side, got ${browns.map((p) => `${p.market}:${p.pick}`)}`);
+  assert.ok(
+    topped.some((p) => p.game === "E @ F" || p.game === "G @ H" || p.game === "I @ J"),
+    `expected a new-team fill, got ${topped.map((p) => p.game).join(",")}`,
+  );
 });
 
 test("topUpTicketFromQualifiedScored respects max 2 legs per game on 10-leg asks", () => {

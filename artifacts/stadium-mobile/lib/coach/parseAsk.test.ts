@@ -27,6 +27,32 @@ test("normalizeCoachLegTypos maps 9 lag → 9 leg for props-only parsers", () =>
   assert.equal(normalizeCoachLegTypos("10 lags nfl props"), "10 leg nfl props");
 });
 
+test("phone: team prop ask does NOT claim player-props mismatch", () => {
+  // Phone: "4 leg NHL team prop" correctly staged spreads, but note said
+  // "You asked for player props".
+  assert.equal(
+    coachPropsAskGameLineMismatchNote({
+      askText: "4 leg NHL team prop",
+      propsOnly: false,
+      picks: [
+        { isProp: false, market: "Spread" },
+        { isProp: false, market: "Alt Spread" },
+        { isProp: false, market: "Puck Line" },
+        { isProp: false, market: "Moneyline" },
+      ],
+    }),
+    "",
+  );
+  assert.equal(
+    coachPropsAskGameLineMismatchNote({
+      askText: "5 leg NHL team props",
+      propsOnly: false,
+      picks: [{ isProp: false, market: "Spread" }],
+    }),
+    "",
+  );
+});
+
 test("phone spreads-not-props: lag + player prop ask mismatch note", () => {
   const note = coachPropsAskGameLineMismatchNote({
     askText: "9 lag NFL player prop",

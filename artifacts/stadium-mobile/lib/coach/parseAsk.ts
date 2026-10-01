@@ -80,6 +80,10 @@ function coachAskedForPlayerProps(text: string): boolean {
   if (/\bno\s+(?:player\s+)?props?\b/.test(t) || /\bwithout\s+(?:player\s+)?props?\b/.test(t)) {
     return false;
   }
+  // Phone: "4 leg NHL team prop" staged spreads correctly but this note claimed
+  // the user asked for player props. Team props / game-lines asks are intentional.
+  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
+  if (/\bgame\s*lines?\s+only\b/.test(t) || /\bsides?\s+only\b/.test(t)) return false;
   if (/\bplayer\s+props?\b/.test(t)) return true;
   if (/\b\d{1,3}\s*leg\b[\s\w]{0,40}\bprops?\b/.test(t)) return true;
   // Slate-only N-leg ("5 leg for tomorrow") is props-only — still show why if

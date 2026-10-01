@@ -52,7 +52,7 @@ function pickRank(p: ParsedPick): number {
 }
 
 /** Lightweight same-team game-line dedupe without React/PickCard runtime imports. */
-function dedupeSameTeamGameLegsLite(picks: ParsedPick[]): ParsedPick[] {
+export function collapseSameTeamGameLineSides(picks: ParsedPick[]): ParsedPick[] {
   const bucketIndex = new Map<string, number>();
   const out: ParsedPick[] = [];
   for (const p of picks) {
@@ -70,6 +70,11 @@ function dedupeSameTeamGameLegsLite(picks: ParsedPick[]): ParsedPick[] {
     if (pickRank(p) > pickRank(out[idx]!)) out[idx] = p;
   }
   return out;
+}
+
+/** @deprecated internal alias — prefer collapseSameTeamGameLineSides. */
+function dedupeSameTeamGameLegsLite(picks: ParsedPick[]): ParsedPick[] {
+  return collapseSameTeamGameLineSides(picks);
 }
 
 export type BoardScoredLeg = {
@@ -171,8 +176,10 @@ export function topUpTicketFromQualifiedScored(
   target: number,
   varietySeed?: string,
   legsPerGameCap?: number | null,
+  opts?: { collapseSameTeamSides?: boolean },
 ): ParsedPick[] {
   if (target < 3 || picks.length >= target) return picks.slice(0, Math.max(0, target));
+  const collapseSameTeam = !!opts?.collapseSameTeamSides;
   const used = new Set(picks.map(pickLegFingerprint));
   const leftover: BoardScoredLeg[] = [];
   for (const leg of scored) {
@@ -203,8 +210,17 @@ export function topUpTicketFromQualifiedScored(
     for (const p of extra) {
       const fp = pickLegFingerprint(p);
       if (usedFp.has(fp)) continue;
-      usedFp.add(fp);
-      merged.push(p);
+      // Skip period/same-team legs that would collapse away (keep seat for new teams).
+      if (collapseSameTeam) {
+        const trial = collapseSameTeamGameLineSides([...merged, p]);
+        if (trial.length <= merged.length) continue;
+        usedFp.add(fp);
+        merged.length = 0;
+        merged.push(...trial);
+      } else {
+        usedFp.add(fp);
+        merged.push(p);
+      }
       if (merged.length >= target) break;
     }
     return merged;
@@ -217,6 +233,7 @@ export function topUpTicketFromQualifiedScored(
   const propFloor = boardScanPropSlotCount(target, propFraction);
   let merged = picks.slice();
   if (
+    !collapseSameTeam &&
     merged.filter((p) => p.isProp).length < propFloor &&
     leftover.some((l) => l.pick.isProp)
   ) {
@@ -235,8 +252,9 @@ export function topUpTicketFromQualifiedScored(
       if (merged.length >= target) break;
     }
   }
-  // Do not re-run same-team period collapse on the whole ticket — that would
-  // wipe Q1+1H seats the per-game cap intentionally allows.
+  // Mix tickets: do not re-run same-team period collapse on the whole ticket —
+  // that would wipe Q1+1H seats the per-game cap intentionally allows.
+  // Game-lines-only already collapsed inside appendExtras.
   return tagTicketRoles(merged.slice(0, target));
 }
 
