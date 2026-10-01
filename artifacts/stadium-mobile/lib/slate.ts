@@ -501,6 +501,9 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
   // Mixed "with (player) props" stays on the board-scan mix path.
   if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return false;
+  // Phone: "9 leg tonight mixed sports" → PROPS_ONLY_STAGED_SHORT (4 HR from 1
+  // game). Explicit multi-sport / mix asks are board-scan mix, not props-only.
+  if (wantsMixedSportsAsk(t)) return false;
 
   // Phone: "5 leg for tomorrow" staged Q1 ALT SPREAD + NHL spreads — user expected
   // player props. Slate-day + N-leg with NO sport and NO side/spread cue → props-only.
@@ -558,6 +561,19 @@ export function wantsPropsOnly(text?: string | null): boolean {
   return false;
 }
 
+/** "mixed sports" / "multi-sport" / "across sports" — board-scan mix, not props-only. */
+export function wantsMixedSportsAsk(text?: string | null): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return false;
+  if (/\bmixed\s+sports?\b/.test(t)) return true;
+  if (/\bmulti[-\s]?sports?\b/.test(t)) return true;
+  if (/\bacross\s+(?:all\s+)?sports?\b/.test(t)) return true;
+  if (/\ball\s+sports?\b/.test(t) && /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t)) return true;
+  // "9 leg mixed tonight" / "mix of sports"
+  if (/\bmix(?:ed)?\b/.test(t) && /\bsports?\b/.test(t)) return true;
+  return false;
+}
+
 /**
  * Inherit props-only from a prior user turn (same pattern as tonight/tomorrow slate).
  * "5 leg for tomorrow" after "7 leg NFL player props" must stay props-only.
@@ -575,6 +591,7 @@ export function threadWantsPropsOnly(
   if (/\bgame\s*lines?\s+only\b/.test(cur)) return false;
   if (/\bsides?\s+only\b/.test(cur)) return false;
   if (/\bteam\s+props?\b/.test(cur) && !/\bplayer\s+props?\b/.test(cur)) return false;
+  if (wantsMixedSportsAsk(cur)) return false;
   if (/\b(spread|total|moneyline)\b/.test(cur)) return false;
   for (let i = priorUserTexts.length - 1; i >= 0; i--) {
     if (wantsPropsOnly(priorUserTexts[i])) return true;

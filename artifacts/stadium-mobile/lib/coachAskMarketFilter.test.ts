@@ -229,6 +229,15 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
   // Mixed "with player props" stays on the board-scan mix path.
   const mixed = parseCoachAskMarketConstraint("10 leg with player props");
   assert.equal(mixed.propsOnly, false);
+  // Phone: "9 leg tonight mixed sports" must not be propsOnly (was 4 HR / 1 game).
+  assert.equal(
+    parseCoachAskMarketConstraint("9 leg tonight mixed sports").propsOnly,
+    false,
+  );
+  assert.equal(
+    parseCoachAskMarketConstraint("8 leg multi-sport tonight").propsOnly,
+    false,
+  );
   // Explicit no-props stays game-lines-only.
   const none = parseCoachAskMarketConstraint("10 leg nfl with no player props");
   assert.equal(none.propsOnly, false);
