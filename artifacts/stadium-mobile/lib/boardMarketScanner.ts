@@ -66,6 +66,7 @@ import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   boardLegPoolRole,
   buildStagedTicketFromScan,
+  collapseSameTeamGameLineSides,
   topUpTicketFromQualifiedScored,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
@@ -832,6 +833,10 @@ export function buildScanResult(
   if (!opts.gameLinesOnly && !opts.propsOnly) {
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
+  // Team props / game-lines-only: one side per team before top-up (no FG+Q2 Browns).
+  if (opts.gameLinesOnly) {
+    picks = collapseSameTeamGameLineSides(picks);
+  }
   // Final tickets: if combinators left seats empty while more AI-qualified legs
   // already cleared scoring, top up from those — never invent ungraded filler.
   // Props-first inside topUp; game-line relax only after prop seats get a shot.
@@ -842,6 +847,7 @@ export function buildScanResult(
       opts.target,
       opts.varietySeed,
       opts.legsPerGameCap,
+      opts.gameLinesOnly ? { collapseSameTeamSides: true } : undefined,
     );
     // Top-up may have added game lines first on short tickets — enforce prop mix again.
     if (!opts.gameLinesOnly && !opts.propsOnly) {
