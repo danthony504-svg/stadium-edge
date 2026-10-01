@@ -31,9 +31,34 @@ function gameLabelsMatch(a: string, b: string): boolean {
 }
 
 /**
+ * Match pool teamAbbr to a full team name when ESPN abbrs are missing.
+ * Covers city prefix (BUF→Buffalo) and initials (CBJ→Columbus Blue Jackets).
+ */
+function teamNameMatchesAbbr(name: string, abbr: string): boolean {
+  const n = String(name ?? "")
+    .trim()
+    .toUpperCase();
+  const a = String(abbr ?? "")
+    .trim()
+    .toUpperCase();
+  if (!n || !a) return false;
+  if (n === a) return true;
+  const tokens = n.split(/[\s.@/\-]+/).filter(Boolean);
+  if (tokens.some((t) => t === a)) return true;
+  if (a.length >= 2 && n.startsWith(a)) return true;
+  // CBJ ← Columbus Blue Jackets, TBL ← Tampa Bay Lightning, etc.
+  if (tokens.map((t) => t[0]!).join("") === a) return true;
+  return false;
+}
+
+/**
  * True when the player's teamAbbr is one of the two sides on the labeled game.
  * Drops cross-event orphans that somehow inherit "Away @ Home" (Garland on
  * BUF@CBJ while actually VAN).
+ *
+ * Fail closed only when both side abbrs (or resolvable names) are known and
+ * neither matches — missing ESPN abbrs must not wipe a whole NHL ticket
+ * (phone: bestEv=5 oddsOk=0 after CBJ-style abbrs failed startsWith).
  */
 export function propTeamAbbrBelongsToGame(opts: {
   sport?: string | null;
@@ -62,16 +87,16 @@ export function propTeamAbbrBelongsToGame(opts: {
         const homeAb = String(hit.homeAbbr ?? "").toUpperCase();
         const awayAb = String(hit.awayAbbr ?? "").toUpperCase();
         if (homeAb === ab || awayAb === ab) return true;
+        if (homeAb && awayAb && homeAb !== ab && awayAb !== ab) {
+          // Both abbrs known and neither matches — orphan.
+          return false;
+        }
       }
-      // Name-token fallback when abbrs missing on espn row.
-      const home = String(ids.homeTeam ?? "").toUpperCase();
-      const away = String(ids.awayTeam ?? "").toUpperCase();
-      const tokenHit = (name: string) =>
-        name === ab ||
-        name.split(/[\s.@/\-]+/).some((t) => t === ab) ||
-        (ab.length >= 2 && name.startsWith(ab));
-      if (tokenHit(home) || tokenHit(away)) return true;
-      return false;
+      const home = String(ids.homeTeam ?? "");
+      const away = String(ids.awayTeam ?? "");
+      if (teamNameMatchesAbbr(home, ab) || teamNameMatchesAbbr(away, ab)) return true;
+      // Game resolved but abbr/name inconclusive — don't wipe the ticket.
+      return !(hit && String(hit.homeAbbr ?? "") && String(hit.awayAbbr ?? ""));
     }
   }
 
@@ -79,9 +104,24 @@ export function propTeamAbbrBelongsToGame(opts: {
     if (sport && String(g.sport ?? "").toLowerCase() !== sport) continue;
     const homeAb = String(g.homeAbbr ?? "").toUpperCase();
     const awayAb = String(g.awayAbbr ?? "").toUpperCase();
-    if (homeAb !== ab && awayAb !== ab) continue;
     const label = `${g.awayTeam ?? g.awayAbbr ?? ""} @ ${g.homeTeam ?? g.homeAbbr ?? ""}`;
-    if (gameLabelsMatch(opts.game, label) || homeAb === ab || awayAb === ab) return true;
+    if (!gameLabelsMatch(opts.game, label) && homeAb !== ab && awayAb !== ab) {
+      if (
+        !teamNameMatchesAbbr(String(g.homeTeam ?? ""), ab) &&
+        !teamNameMatchesAbbr(String(g.awayTeam ?? ""), ab)
+      ) {
+        continue;
+      }
+    }
+    if (homeAb === ab || awayAb === ab) return true;
+    if (
+      teamNameMatchesAbbr(String(g.homeTeam ?? ""), ab) ||
+      teamNameMatchesAbbr(String(g.awayTeam ?? ""), ab)
+    ) {
+      return true;
+    }
+    // Known abbrs on this game and neither matches → orphan for this row.
+    if (homeAb && awayAb) return false;
   }
   return false;
 }
@@ -138,20 +178,27 @@ export function opponentTeamIdForProp(opts: {
     const awayAb = String(hit.awayAbbr ?? "").toUpperCase();
     if (homeAb === ab && hit.awayTeamId) return String(hit.awayTeamId);
     if (awayAb === ab && hit.homeTeamId) return String(hit.homeTeamId);
+    // Abbrs missing — match full names (CBJ ↔ Columbus Blue Jackets).
+    if (
+      teamNameMatchesAbbr(String(hit.homeTeam ?? ""), ab) &&
+      hit.awayTeamId
+    ) {
+      return String(hit.awayTeamId);
+    }
+    if (
+      teamNameMatchesAbbr(String(hit.awayTeam ?? ""), ab) &&
+      hit.homeTeamId
+    ) {
+      return String(hit.homeTeamId);
+    }
   }
 
   // Fallback: team names on the id map contain the player's abbr token.
   if (opts.teamIdMap) {
     const ids = resolveCoachGameTeamIds(opts.game, sport, opts.teamIdMap);
     if (!ids) return null;
-    const home = String(ids.homeTeam ?? "").toUpperCase();
-    const away = String(ids.awayTeam ?? "").toUpperCase();
-    const tokenHit = (name: string) =>
-      name === ab ||
-      name.split(/[\s.@/\-]+/).some((t) => t === ab) ||
-      (ab.length >= 2 && name.startsWith(ab));
-    if (tokenHit(home)) return ids.awayTeamId;
-    if (tokenHit(away)) return ids.homeTeamId;
+    if (teamNameMatchesAbbr(String(ids.homeTeam ?? ""), ab)) return ids.awayTeamId;
+    if (teamNameMatchesAbbr(String(ids.awayTeam ?? ""), ab)) return ids.homeTeamId;
   }
   return null;
 }
