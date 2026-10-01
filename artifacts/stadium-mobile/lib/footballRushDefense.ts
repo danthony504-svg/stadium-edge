@@ -243,12 +243,50 @@ export function footballRushDefenseTilt(opts: {
 
 /** Prefer Under / drop Over when facing a hard stingy matching defense. */
 export function shouldBlockRushOverVsDefense(opts: {
+  sport?: string | null;
   market?: string | null;
   side?: string | null;
   defense?: RushDefenseSlice | null;
   pack?: FootballOppDefenseSlice | null;
 }): boolean {
-  return footballRushDefenseTilt(opts).blockOver;
+  // Unified across sports — NFL rush/pass + NHL goaltending + etc.
+  return propOppDefenseTilt(opts).blockOver;
+}
+
+/** NHL Goals / Points markets (not SOG / saves). */
+export function isNhlScoringMarket(market?: string | null): boolean {
+  const key = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (/shot|sog|save/.test(key)) return false;
+  return (
+    /player\s*goals|\bgoals?\b|goal\s*scorer|scorer/.test(key) ||
+    /player\s*points|\bpoints?\b|\bpts\b/.test(key)
+  );
+}
+
+/**
+ * Rare NHL Goals/Points Overs (≥1.5) must have real opponent goaltending
+ * context — same fail-closed posture as NFL rush Overs needing opp rush D.
+ * Without a pack, EV-only longshots (e.g. Over 1.5 +9000) would stage blind.
+ */
+export function shouldDropPropMissingOppDefense(opts: {
+  sport?: string | null;
+  market?: string | null;
+  side?: string | null;
+  line?: number | null;
+  pack?: FootballOppDefenseSlice | null;
+}): boolean {
+  const sport = String(opts.sport ?? "").toLowerCase();
+  if (sport !== "nhl") return false;
+  if (String(opts.side ?? "").toLowerCase() !== "over") return false;
+  if (!isNhlScoringMarket(opts.market)) return false;
+  const line = opts.line;
+  if (line == null || !Number.isFinite(line) || line < 1.5) return false;
+  const pack = opts.pack;
+  if (!pack) return true;
+  // Need at least one honest goaltending field — empty packs don't count.
+  return pack.savePct == null && pack.goalsAgainstAvg == null;
 }
 
 /** Soft tilt from honest feed fields for non-football sports (never invents). */
@@ -313,20 +351,36 @@ export function multiSportOppDefenseTilt(opts: {
 
   if (sport === "nhl") {
     const isShots = /shot|sog/.test(key);
-    const isGoals = /goal|point|pts|scorer/.test(key) || !isShots;
+    const isGoals =
+      /player\s*goals|\bgoals?\b|goal\s*scorer|scorer/.test(key) && !/shot|sog|save/.test(key);
+    const isPoints = /player\s*points|\bpoints?\b|\bpts\b/.test(key) && !isShots && !isGoals;
+    const scoringProp = isGoals || isPoints || (!isShots && /goal|point|pts|scorer/.test(key));
     let tilt = 0;
     const bits: string[] = [];
     const gaa = pack.goalsAgainstAvg;
     const sv = pack.savePct != null ? (pack.savePct > 1 ? pack.savePct / 100 : pack.savePct) : null;
-    if (sv != null && isGoals) {
+    // Elite goaltending hard-blocks Goals/Points Overs — same pattern as NFL
+    // stingy rush/pass D blocking yardage Overs (don't stage on EV alone).
+    let blockOver = false;
+    if (sv != null && scoringProp) {
       bits.push(`${(sv * 100).toFixed(1)} SV%`);
-      if (sv >= 0.915) tilt += isOver ? -0.3 : 0.2;
-      else if (sv <= 0.895) tilt += isOver ? 0.25 : -0.15;
+      if (sv >= 0.915) {
+        tilt += isOver ? -0.55 : 0.35;
+        if (isOver) blockOver = true;
+      } else if (sv >= 0.905) {
+        tilt += isOver ? -0.3 : 0.2;
+      } else if (sv <= 0.895) {
+        tilt += isOver ? 0.25 : -0.15;
+      }
     }
-    if (gaa != null && isGoals) {
+    if (gaa != null && scoringProp) {
       bits.push(`${gaa.toFixed(2)} GAA`);
-      if (gaa <= 2.6) tilt += isOver ? -0.2 : 0.15;
-      else if (gaa >= 3.4) tilt += isOver ? 0.2 : -0.12;
+      if (gaa <= 2.6) {
+        tilt += isOver ? -0.35 : 0.25;
+        if (isOver && gaa <= 2.45) blockOver = true;
+      } else if (gaa >= 3.4) {
+        tilt += isOver ? 0.2 : -0.12;
+      }
     }
     if (isShots && pack.shotsAgainst != null) {
       bits.push(`${pack.shotsAgainst.toFixed(0)} SA`);
@@ -341,7 +395,7 @@ export function multiSportOppDefenseTilt(opts: {
     if (tilt === 0 || !bits.length) return empty;
     return {
       tilt: Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100)),
-      blockOver: false,
+      blockOver,
       display: `${who}${bits.join(", ")}`,
     };
   }
@@ -413,7 +467,10 @@ export function propOppDefenseTilt(opts: {
   pack?: FootballOppDefenseSlice | null;
 }): RushDefenseTilt {
   const sport = String(opts.sport ?? "").toLowerCase();
-  if (sport === "nfl" || sport === "ncaaf") {
+  const hasFootballPack = !!(opts.defense || opts.pack?.rush || opts.pack?.pass);
+  // Football when sport says so, OR when rush/pass yards are present and sport
+  // was omitted (legacy callers / tests) — never invent football from NHL packs.
+  if (sport === "nfl" || sport === "ncaaf" || (hasFootballPack && !sport)) {
     const fb = footballRushDefenseTilt(opts);
     if (fb.tilt !== 0 || fb.blockOver || fb.display) return fb;
   }

@@ -17,7 +17,7 @@ export type FootballOppDefenseMap = Record<string, FootballOppDefenseSlice>;
 export { opponentTeamIdForProp } from "./footballOppTeamId.ts";
 export type { OppTeamIdEspnGame } from "./footballOppTeamId.ts";
 
-const MAX_TEAMS = 12;
+const MAX_TEAMS = 24;
 const CONCURRENCY = 4;
 
 /** Sports we will load team-defense for on the Coach board. */
@@ -37,10 +37,11 @@ function teamKey(sport: string, teamId: string): string {
 }
 
 function sportPriority(sport: string): number {
-  // Prefer football (box-score rush/pass) then basketball, then the rest.
+  // Prefer football (box-score rush/pass) then basketball/NHL (opp D gates), then the rest.
   if (sport === "nfl" || sport === "ncaaf") return 0;
   if (sport === "nba" || sport === "wnba" || sport === "ncaab") return 1;
-  if (sport === "nhl" || sport === "soccer") return 2;
+  if (sport === "nhl") return 1;
+  if (sport === "soccer") return 2;
   return 3;
 }
 

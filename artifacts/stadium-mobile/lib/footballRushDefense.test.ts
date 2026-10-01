@@ -287,3 +287,128 @@ test("multiSport market-aware: assists use steals, rebounds use dreb", async () 
   });
   assert.ok(mlbHit.tilt < 0);
 });
+
+test("NHL elite SV%/GAA hard-blocks Goals/Points Overs like NFL stingy D", async () => {
+  const {
+    shouldBlockRushOverVsDefense,
+    multiSportOppDefenseTilt,
+    shouldDropPropMissingOppDefense,
+    isNhlScoringMarket,
+  } = await import("./footballRushDefense.ts");
+
+  assert.equal(isNhlScoringMarket("player_goals"), true);
+  assert.equal(isNhlScoringMarket("player_points"), true);
+  assert.equal(isNhlScoringMarket("player_shots_on_goal"), false);
+
+  const hotGoalie = { savePct: 0.922, goalsAgainstAvg: 2.35, teamName: "Jets" };
+  assert.equal(
+    shouldBlockRushOverVsDefense({
+      sport: "nhl",
+      market: "player_goals",
+      side: "Over",
+      pack: hotGoalie,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlockRushOverVsDefense({
+      sport: "nhl",
+      market: "player_points",
+      side: "Over",
+      pack: hotGoalie,
+    }),
+    true,
+  );
+  // Under still allowed (and favored).
+  assert.equal(
+    shouldBlockRushOverVsDefense({
+      sport: "nhl",
+      market: "player_goals",
+      side: "Under",
+      pack: hotGoalie,
+    }),
+    false,
+  );
+  const underTilt = multiSportOppDefenseTilt({
+    sport: "nhl",
+    market: "player_goals",
+    side: "Under",
+    pack: hotGoalie,
+  });
+  assert.ok(underTilt.tilt > 0);
+
+  // Soft band demotes without hard block.
+  assert.equal(
+    shouldBlockRushOverVsDefense({
+      sport: "nhl",
+      market: "player_goals",
+      side: "Over",
+      pack: { savePct: 0.908, goalsAgainstAvg: 2.7 },
+    }),
+    false,
+  );
+
+  // Sport must be passed — without it NHL blocks never fire (parity bug).
+  assert.equal(
+    shouldBlockRushOverVsDefense({
+      market: "player_goals",
+      side: "Over",
+      pack: hotGoalie,
+    }),
+    false,
+  );
+
+  // Rare Goals Overs (≥1.5) require real opp goaltending — no blind EV stage.
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_goals",
+      side: "Over",
+      line: 1.5,
+      pack: null,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_goals",
+      side: "Over",
+      line: 2.5,
+      pack: { teamName: "Empty" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_goals",
+      side: "Over",
+      line: 1.5,
+      pack: hotGoalie,
+    }),
+    false,
+  );
+  // Anytime-goal style 0.5 Overs do not require pack.
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_goals",
+      side: "Over",
+      line: 0.5,
+      pack: null,
+    }),
+    false,
+  );
+  // SOG never requires scoring-pack gate.
+  assert.equal(
+    shouldDropPropMissingOppDefense({
+      sport: "nhl",
+      market: "player_shots_on_goal",
+      side: "Over",
+      line: 2.5,
+      pack: null,
+    }),
+    false,
+  );
+});
