@@ -16,11 +16,6 @@ import { NativeModules, Platform } from "react-native";
 
 import type { PlanId } from "./entitlements";
 import {
-  describePurchasesError,
-  rcDiagnosticAlert,
-  revenueCatKeyPrefixType,
-} from "./purchasesDiagnostics";
-import {
   ALL_STOREKIT_PRODUCT_IDS,
   planIdFromEntitlements,
   productIdForPlan,
@@ -183,98 +178,26 @@ export async function refreshCustomerSnapshot(): Promise<StoreKitCustomerSnapsho
 
 async function findStoreProduct(
   productId: StoreKitProductId,
-): Promise<{ product: PurchasesStoreProduct | null; diagnostic: string }> {
+): Promise<PurchasesStoreProduct | null> {
   const Purchases = loadPurchases();
-  if (!Purchases) {
-    return {
-      product: null,
-      diagnostic: rcDiagnosticAlert("Purchases module unavailable"),
-    };
-  }
-
-  let configuredFlag = false;
-  try {
-    configuredFlag = await Purchases.isConfigured();
-  } catch {
-    configuredFlag = false;
-  }
-
-  console.log("[RC diagnostic] findStoreProduct start", {
-    requestedProductId: productId,
-    platform: Platform.OS,
-    revenueCatConfigured: configuredFlag,
-    revenueCatKeyPrefix: revenueCatKeyPrefixType(iosApiKey()),
-  });
-
+  if (!Purchases) return null;
   try {
     const offerings = await Purchases.getOfferings();
     const current = offerings.current;
-    const allOfferings = Object.values(offerings.all ?? {});
-    const offeringSummaries = allOfferings.map((offering) => ({
-      identifier: offering.identifier,
-      packages: (offering.availablePackages ?? []).map((pkg) => ({
-        packageIdentifier: pkg.identifier,
-        productIdentifier: pkg.product?.identifier ?? null,
-      })),
-    }));
-    console.log("[RC diagnostic] getOfferings", {
-      currentOfferingIdentifier: current?.identifier ?? null,
-      allOfferingIdentifiers: allOfferings.map((o) => o.identifier),
-      offerings: offeringSummaries,
-    });
-
     if (current) {
       for (const pkg of current.availablePackages ?? []) {
-        if (pkg.product?.identifier === productId) {
-          return { product: pkg.product, diagnostic: "" };
-        }
+        if (pkg.product?.identifier === productId) return pkg.product;
       }
     }
-    for (const offering of allOfferings) {
+    for (const offering of Object.values(offerings.all ?? {})) {
       for (const pkg of offering.availablePackages ?? []) {
-        if (pkg.product?.identifier === productId) {
-          return { product: pkg.product, diagnostic: "" };
-        }
+        if (pkg.product?.identifier === productId) return pkg.product;
       }
     }
-
     const products = await Purchases.getProducts([...ALL_STOREKIT_PRODUCT_IDS]);
-    console.log("[RC diagnostic] getProducts", {
-      requestedIds: [...ALL_STOREKIT_PRODUCT_IDS],
-      count: products.length,
-      identifiers: products.map((p) => p.identifier),
-      products: products.map((p) => ({
-        identifier: p.identifier,
-        priceString: p.priceString ?? null,
-        subscriptionPeriod: p.subscriptionPeriod ?? null,
-      })),
-    });
-
-    const matched = products.find((p) => p.identifier === productId) ?? null;
-    if (matched) return { product: matched, diagnostic: "" };
-
-    const currentIds =
-      current?.availablePackages
-        ?.map((pkg) => pkg.product?.identifier)
-        .filter((id): id is string => !!id) ?? [];
-    const detail =
-      products.length === 0
-        ? `getProducts returned 0 products (current=${current?.identifier ?? "null"}; pkgs=${currentIds.join(",") || "none"})`
-        : `product ${productId} not in getProducts [${products.map((p) => p.identifier).join(",")}]`;
-    console.log("[RC diagnostic] findStoreProduct miss", { detail });
-    return { product: null, diagnostic: rcDiagnosticAlert(detail) };
-  } catch (err) {
-    const described = describePurchasesError(err);
-    console.log("[RC diagnostic] findStoreProduct error", {
-      code: described.code,
-      message: described.message,
-      underlying: described.underlying,
-      serialized: described.serialized,
-    });
-    return {
-      product: null,
-      diagnostic: rcDiagnosticAlert(described.short),
-    };
+    return products.find((p) => p.identifier === productId) ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -310,14 +233,13 @@ export async function purchasePlan(planId: PlanId): Promise<PurchaseResult> {
         };
       }
     }
-    const { product, diagnostic } = await findStoreProduct(productId);
+    const product = await findStoreProduct(productId);
     if (!product) {
       return {
         ok: false,
         cancelled: false,
         message:
-          diagnostic ||
-          rcDiagnosticAlert("product resolution failed with no detail"),
+          "That subscription is not available right now. Try again or Restore Purchases.",
       };
     }
     const { customerInfo } = await Purchases.purchaseStoreProduct(product);
