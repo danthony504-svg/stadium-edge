@@ -496,6 +496,9 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
   if (/\bno\s+props?\b/.test(t)) return false;
   if (/\bwithout\s+props?\b/.test(t)) return false;
+  // Phone: "5 leg NHL team props" → player Under 0.5 stack. "Team props" means
+  // team totals / ML / puck line — not player props.
+  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
   // Mixed "with (player) props" stays on the board-scan mix path.
   if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return false;
 
@@ -571,6 +574,7 @@ export function threadWantsPropsOnly(
   if (/\bwith\s+(?:player\s+)?props?\b/.test(cur)) return false;
   if (/\bgame\s*lines?\s+only\b/.test(cur)) return false;
   if (/\bsides?\s+only\b/.test(cur)) return false;
+  if (/\bteam\s+props?\b/.test(cur) && !/\bplayer\s+props?\b/.test(cur)) return false;
   if (/\b(spread|total|moneyline)\b/.test(cur)) return false;
   for (let i = priorUserTexts.length - 1; i >= 0; i--) {
     if (wantsPropsOnly(priorUserTexts[i])) return true;

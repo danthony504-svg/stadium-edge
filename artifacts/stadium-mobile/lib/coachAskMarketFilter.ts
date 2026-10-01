@@ -430,6 +430,8 @@ export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean 
   const t = String(text ?? "").toLowerCase();
   if (!t) return false;
   if (wantsNoTotalsAsk(t)) return true;
+  // "Team props" = team totals / ML / puck — never player Under 0.5 stacks.
+  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return true;
   // Explicit no-prop phrasing wins even when "props only" appears later in the
   // same ask ("no player props only from 2 games").
   if (/\bno\s+player\s+props?\b/.test(t)) return true;
