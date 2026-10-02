@@ -25,6 +25,7 @@ import { pickShowsAltBadge } from "@/lib/altLinePool";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
+import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import {
   NOT_AI_RECOMMENDED,
   pickGradeDisplayCaption,
@@ -194,13 +195,14 @@ function marketIcon(pick: ParsedPick): keyof typeof Feather.glyphMap {
 // spread — so the card badge should read "Game Handicap". This is a DISPLAY-ONLY
 // relabel: the underlying `market` value is never changed, so slip leg keys,
 // dedupe, and AI-pick resolution all keep using the real "Spread" / "Alt Spread"
-// market name.
+// market name. Also humanizes leaked Odds API keys ("spreads_q2" → "Q2 Spread").
 function marketDisplayLabel(market: string, sport?: string): string {
+  const human = humanizeOddsApiMarketKey(market);
   if (sport === "tennis") {
-    if (/^spread$/i.test(market)) return "Game Handicap";
-    if (/^alt spread$/i.test(market)) return "Alt Game Handicap";
+    if (/^spread$/i.test(human)) return "Game Handicap";
+    if (/^alt spread$/i.test(human)) return "Alt Game Handicap";
   }
-  return market;
+  return human || market;
 }
 
 // "Away @ Home" with the away side in blue and the home side in red so the
