@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
+import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import { oddsRowsFromQuery } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
 import { factorsForTeam } from "@/lib/teamFactors";
@@ -416,7 +417,7 @@ export function TeamPropsSheet({
                           {e.pick}
                         </Text>
                         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 }}>
-                          {e.market}
+                          {humanizeOddsApiMarketKey(e.market) || e.market}
                         </Text>
                       </View>
                       <View
