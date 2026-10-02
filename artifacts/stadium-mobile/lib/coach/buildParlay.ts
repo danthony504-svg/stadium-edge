@@ -211,11 +211,11 @@ export async function buildCoachParlay(opts: {
   const constrainedPropPool = gameLinesOnly ? [] : scanPropPool;
   // College books mostly post team markets — drop NCAAF player props unless
   // the ask named yards / TD / player props (mixed "soccer and college" still
-  // keeps soccer props; only CFB player rows are stripped).
-  const collegeTeamPropPool =
-    propsOnly || askAllowsNcaafPlayerProps(opts.askText)
-      ? constrainedPropPool
-      : filterNcaafPlayerPropsUnlessAsked(constrainedPropPool, opts.askText);
+  // keeps soccer props; only CFB player rows are stripped — even on props-only
+  // soccer paths that would otherwise pull CFB yards from the board).
+  const collegeTeamPropPool = askAllowsNcaafPlayerProps(opts.askText)
+    ? constrainedPropPool
+    : filterNcaafPlayerPropsUnlessAsked(constrainedPropPool, opts.askText);
   const hrBoardAsk =
     propsOnly &&
     (marketConstraint.allowedMarketKeys ?? []).some((k) => isBatterHomeRunMarket(k));
@@ -436,8 +436,7 @@ export async function buildCoachParlay(opts: {
     legsPerGameCap: legsPerGameCap ?? undefined,
     gameLinesOnly,
     requirePropMix,
-    excludeNcaafPlayerProps:
-      !propsOnly && !askAllowsNcaafPlayerProps(opts.askText),
+    excludeNcaafPlayerProps: !askAllowsNcaafPlayerProps(opts.askText),
     mlbPlatoon,
     mlbGameEnv,
     oppRushDefense: Object.keys(oppRushDefense).length ? oppRushDefense : undefined,
