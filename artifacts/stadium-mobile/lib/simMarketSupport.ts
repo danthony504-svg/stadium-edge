@@ -29,18 +29,23 @@ export type SimPeriodScope =
 const PERIOD_UNSUPPORTED_SPORTS = new Set(["tennis", "tabletennis", "cricket", "ufc", "mma", "soccer"]);
 
 export function parseMarketPeriod(market: string): SimPeriodScope {
-  const m = String(market ?? "").toLowerCase();
+  // Odds API keys (`spreads_q2`) need `_` → space so `\bq2\b` can match.
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (/\bq1\b|first quarter|1st quarter/.test(m)) return "q1";
   if (/\bq2\b|second quarter|2nd quarter/.test(m)) return "q2";
   if (/\bq3\b|third quarter|3rd quarter/.test(m)) return "q3";
   if (/\bq4\b|fourth quarter|4th quarter/.test(m)) return "q4";
-  if (/\b1h\b|first half|1st half/.test(m)) return "h1";
-  if (/\b2h\b|second half|2nd half/.test(m)) return "h2";
+  if (/\b(1h|h1)\b|first half|1st half/.test(m)) return "h1";
+  if (/\b(2h|h2)\b|second half|2nd half/.test(m)) return "h2";
   if (/\bf5\b|first 5|1st 5|five innings/.test(m)) return "f5";
-  if (/\b1st inning\b|first inning/.test(m)) return "i1";
-  if (/\b1p\b|first period|1st period/.test(m)) return "p1";
-  if (/\b2p\b|second period|2nd period/.test(m)) return "p2";
-  if (/\b3p\b|third period|3rd period/.test(m)) return "p3";
+  if (/\b1st 1 inning\b|\b1st inning\b|first inning/.test(m)) return "i1";
+  if (/\b(1p|p1)\b|first period|1st period/.test(m)) return "p1";
+  if (/\b(2p|p2)\b|second period|2nd period/.test(m)) return "p2";
+  if (/\b(3p|p3)\b|third period|3rd period/.test(m)) return "p3";
   return "fg";
 }
 

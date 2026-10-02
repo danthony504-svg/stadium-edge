@@ -66,6 +66,30 @@ test("isPeriodMainMarket accepts posted period mains but not alt ladder rungs", 
   assert.ok(!isPeriodMainMarket("Moneyline"));
 });
 
+test("isPeriodMainMarket recognizes Odds API underscore keys (phone SPREADS_Q2)", () => {
+  // `_` is a word char — `\bq2\b` alone misses spreads_q2; period demotion must still fire.
+  assert.ok(isPeriodMainMarket("spreads_q2"));
+  assert.ok(isPeriodMainMarket("SPREADS_Q1"));
+  assert.ok(isPeriodMainMarket("totals_h1"));
+  assert.ok(isPeriodMainMarket("h2h_q3"));
+  assert.ok(isPeriodMainMarket("spreads_1st_5_innings"));
+  assert.ok(!isPeriodMainMarket("spreads"));
+  assert.ok(!isPeriodMainMarket("SPREADS"));
+  assert.ok(!isPeriodMainMarket("h2h"));
+  assert.ok(!isPeriodMainMarket("alternate_spreads_q2")); // alt rung, not period main
+});
+
+test("Odds API FG keys classify as main game lines (not alts)", () => {
+  assert.ok(isMainLineGameLeg({ market: "spreads", pick: "Kansas Jayhawks" }));
+  assert.ok(isMainLineGameLeg({ market: "SPREADS", pick: "Notre Dame Fighting Irish" }));
+  assert.ok(isMainLineGameLeg({ market: "h2h", pick: "Houston Cougars" }));
+  assert.ok(isMainLineGameLeg({ market: "totals", pick: "Over 52.5" }));
+  assert.ok(!isAlternateOrPeriodMarket("spreads"));
+  // Period keys stay period-main (staging routes them to alternateLines pool).
+  assert.ok(isPeriodMainMarket("spreads_q2"));
+  assert.ok(isMainLineGameLeg({ market: "spreads_q2", pick: "Memphis Tigers" }));
+});
+
 test("period moneylines are main board picks — never ALT PICK badges", () => {
   const periodMl = {
     market: "1st Half Moneyline",

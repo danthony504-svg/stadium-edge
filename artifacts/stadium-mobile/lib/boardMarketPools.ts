@@ -6,6 +6,7 @@ import { isGameLinePick } from "./gameSimScoring.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import type { BoardMarketCategory } from "./balancedTicketMix.ts";
 import { BOARD_MARKET_CATEGORIES } from "./balancedTicketMix.ts";
+import { parseMarketPeriod } from "./simMarketSupport.ts";
 
 export function isTeamTotalMarket(market: string): boolean {
   return /team total/i.test(String(market ?? ""));
@@ -102,6 +103,8 @@ export function isHeavySideJuice(odds: number | null | undefined): boolean {
 export function isFullGameSideMarket(market: string | null | undefined): boolean {
   const m = String(market ?? "");
   if (!m.trim()) return false;
+  // Period segments (Q2 Spread / spreads_q2 / alternate_spreads_q1) are never FG.
+  if (parseMarketPeriod(m) !== "fg") return false;
   if (isPeriodMainMarket(m)) return false;
   const fam = gameLineFamily({ market: m });
   return fam === "spread" || fam === "moneyline";
@@ -118,8 +121,14 @@ export function orderLegsPreferringSides(pool: BoardScoredLeg[]): BoardScoredLeg
 }
 
 function isPeriodSideMarket(market: string): boolean {
+  // isPeriodMainMarket already recognizes Odds API keys (spreads_q2) and
+  // human labels (Q2 Spread) — do not re-match with `\bq2\b` alone (fails on `_`).
   if (isPeriodMainMarket(market)) return true;
-  return /(?:\b|\s)(q[1-4]|1h|2h|f5)\b/i.test(market);
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ");
+  return /(?:\b|\s)(q[1-4]|1h|2h|h1|h2|f5|p[1-3])\b/i.test(m);
 }
 
 function bySpreadThenMl(legs: BoardScoredLeg[]): BoardScoredLeg[] {
