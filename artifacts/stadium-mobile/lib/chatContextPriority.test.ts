@@ -95,6 +95,19 @@ test("focalSportsFromText recognizes World Cup / FIFA as soccer", () => {
   assert.ok(!focalSportsFromText("give me an NBA parlay").has("soccer"));
 });
 
+test("focalSportsFromText: bare college means NCAAF (soccer and college)", () => {
+  // Phone: "8 leg soccer and college" must load CFB + soccer — not soccer-only.
+  const mixed = focalSportsFromText("8 leg soccer and college");
+  assert.ok(mixed.has("soccer"), "expected soccer");
+  assert.ok(mixed.has("ncaaf"), "bare college → ncaaf");
+  assert.ok(!mixed.has("ncaab"), "bare college is not CBB");
+  assert.ok(focalSportsFromText("6 leg college").has("ncaaf"));
+  // Explicit CBB must not also force NCAAF via the bare-college rule.
+  const cbb = focalSportsFromText("8 leg college basketball");
+  assert.ok(cbb.has("ncaab"));
+  assert.ok(!cbb.has("ncaaf"), "college basketball must not add ncaaf");
+});
+
 test("parlayPoolHint focuses top-up on the sport already on the ticket", () => {
   assert.equal(
     parlayPoolHint("4 leg parlay", [{ sport: "wnba" }, { sport: "wnba" }]),

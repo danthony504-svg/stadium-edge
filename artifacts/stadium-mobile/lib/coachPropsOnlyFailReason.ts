@@ -106,7 +106,8 @@ export function buildPropsOnlyFailDiag(opts: {
   return { ...base, code: derivePropsOnlyFailCode(base) };
 }
 
-/** Human lead + machine trace for the Coach chat bubble. */
+/** Human lead for the Coach chat bubble — never append machine `[CODE: …]` traces. */
 export function propsOnlyFailNote(lead: string, diag: PropsOnlyFailDiag): string {
-  return `${lead.trim()}${formatPropsOnlyFailTrace(diag)}`;
+  void diag;
+  return lead.trim();
 }

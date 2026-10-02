@@ -114,6 +114,8 @@ test("phone empty note includes code + counters so OTA can diagnose", () => {
     diag,
   );
   assert.match(note, /quality bar/);
-  assert.match(note, /\[PROPS_ONLY_NO_HISTORY:/);
-  assert.match(note, /graded=0/);
+  assert.doesNotMatch(note, /\[PROPS_ONLY_NO_HISTORY:/);
+  assert.doesNotMatch(note, /graded=0/);
+  // Machine trace still available for logs — just not in the chat bubble.
+  assert.match(formatPropsOnlyFailTrace(diag), /PROPS_ONLY_NO_HISTORY/);
 });

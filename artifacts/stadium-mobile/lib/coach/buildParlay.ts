@@ -377,19 +377,12 @@ export async function buildCoachParlay(opts: {
       });
     // Mismatch lead first — phone shows it above pick cards when game lines leak.
     const note = [mismatchLead, body].filter((s) => s.trim()).join("\n\n");
-    // If post-filters wiped a non-empty ticket, append why so the phone shows it.
+    // If post-filters wiped a non-empty ticket, keep the honest empty lead —
+    // never append `[POST_FILTER_EMPTY: …]` into the Coach chat bubble.
     if (built.picks.length > 0 && picks.length === 0) {
       return {
         picks,
-        note: `${note} [POST_FILTER_EMPTY: built=${built.picks.length} afterTeamOrMarketFilter=0]`,
-        scan: null,
-        timedOut: false,
-        propPoolSize,
-      };
-    } else if (teamMiss && picks.length === 0 && !note.includes("[")) {
-      return {
-        picks,
-        note: `${note} [${teamMiss}]`,
+        note,
         scan: null,
         timedOut: false,
         propPoolSize,

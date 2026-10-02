@@ -5,8 +5,6 @@
  */
 
 import {
-  deriveCoachScanFailureReason,
-  formatCoachScanFailureTrace,
   type CoachScanFailureReason,
   type CoachScanFailureDiagnostics,
 } from "./coachScanFailureReason.ts";
@@ -614,19 +612,7 @@ export function buildFinalCoachParlayNote(opts: {
         ? ""
         : `No AI-backed picks cleared the quality bar for a ${opts.target}-leg ticket.`);
 
-  // Empty tickets must carry a machine-readable reason so phone empties are diagnosable.
-  if (opts.picks.length > 0) return base;
-  const reason =
-    opts.failureReason ??
-    deriveCoachScanFailureReason({
-      ...(opts.failureDiagnostics ?? {}),
-      scanMissing: opts.scanMissing,
-      timedOut: opts.timedOut,
-      stagedPickCount: opts.picks.length,
-      propPoolSize: opts.failureDiagnostics?.propPoolSize ?? opts.propPoolSize,
-      propPhaseIncomplete: opts.propsPending || opts.failureDiagnostics?.propPhaseIncomplete,
-    });
-  if (!reason) return base;
-  if (base.includes(`[${reason.code}:`)) return base;
-  return `${base}${formatCoachScanFailureTrace(reason)}`;
+  // Empty tickets keep failureReason on the scan result / failureDiagnostics —
+  // never append `[PROP_POOL_EMPTY: …]` (or any CODE:detail) into the Coach note.
+  return base;
 }

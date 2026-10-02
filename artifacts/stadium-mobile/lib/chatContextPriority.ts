@@ -56,6 +56,17 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   for (const sport of sportsFromAskTeamNicknames(t)) {
     if (!isNegatedSportKeyword(t, sport)) out.add(sport);
   }
+  // Bare "college" (e.g. "8 leg soccer and college") means college football.
+  // Do not steal "college basketball" / CBB aliases onto NCAAF.
+  if (
+    /\bcollege\b/i.test(t) &&
+    !/\bcollege\s+basketball\b/i.test(t) &&
+    !/\bcollage\s+basketball\b/i.test(t) &&
+    !/\bncaab\b|\bcbb\b/i.test(t) &&
+    !isNegatedSportKeyword(t, "college")
+  ) {
+    out.add("ncaaf");
+  }
   return out;
 }
 

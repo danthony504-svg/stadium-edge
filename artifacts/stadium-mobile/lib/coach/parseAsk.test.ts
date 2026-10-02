@@ -88,10 +88,8 @@ test("phone spreads-not-props: lag + player prop ask mismatch note", () => {
   });
   assert.match(note, /You asked for player props/);
   assert.match(note, /team game lines/);
-  assert.match(note, /PROPS_ASK_GOT_GAME_LINES/);
-  assert.match(note, /propsOnly=false/);
-  assert.match(note, /gameLines=3/);
-  assert.match(note, /1H ALT SPREAD/);
+  assert.doesNotMatch(note, /PROPS_ASK_GOT_GAME_LINES/);
+  assert.doesNotMatch(note, /\[/);
   assert.equal(
     coachPropsAskGameLineMismatchNote({
       askText: "9 lag NFL player prop",
@@ -112,9 +110,8 @@ test("phone: player prop + teams still gets why when spreads stage", () => {
     ],
   });
   assert.match(note, /You asked for player props/);
-  assert.match(note, /PROPS_ASK_GOT_GAME_LINES/);
-  assert.match(note, /gameLines=2/);
-  assert.match(note, /1H ALT TOTAL|Q1 ALT SPREAD/);
+  assert.doesNotMatch(note, /PROPS_ASK_GOT_GAME_LINES/);
+  assert.doesNotMatch(note, /\[/);
 });
 
 test("isParlayBuildAsk detects build intent", () => {
