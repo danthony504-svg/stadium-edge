@@ -14,6 +14,9 @@ import {
   shouldReservePropSeats,
   applyReservedPropSeatCap,
   askRequiresFootballPropMix,
+  askIsCollegeFootballOnly,
+  askAllowsNcaafPlayerProps,
+  filterNcaafPlayerPropsUnlessAsked,
   skillPropFamily,
   skillPropRank,
 } from "./boardScanPropDelivery.ts";
@@ -42,13 +45,48 @@ test("5-leg reserved prop slots leave exactly 2 game-line preview capacity", () 
   assert.equal(boardScanNonPropPreviewCap(5), 2);
 });
 
-test("askRequiresFootballPropMix: bare NFL/NCAAF asks need a prop mix", () => {
+test("askRequiresFootballPropMix: NFL mix yes; bare college stays team markets", () => {
   assert.equal(askRequiresFootballPropMix("10 leg nfl"), true);
-  assert.equal(askRequiresFootballPropMix("10-leg NCAAF"), true);
-  assert.equal(askRequiresFootballPropMix("8 leg college football"), true);
+  assert.equal(askRequiresFootballPropMix("10 leg football"), true);
+  // College books post team props — bare NCAAF/CFB must NOT force player-prop mix.
+  assert.equal(askRequiresFootballPropMix("10-leg NCAAF"), false);
+  assert.equal(askRequiresFootballPropMix("8 leg college football"), false);
+  assert.equal(askRequiresFootballPropMix("8 leg college"), false);
+  assert.equal(askRequiresFootballPropMix("6 leg cfb"), false);
+  assert.equal(askRequiresFootballPropMix("8 leg collage football"), false);
+  // Explicit CFB player-prop asks still use the football props path.
+  assert.equal(askRequiresFootballPropMix("8 leg college football player props"), true);
   assert.equal(askRequiresFootballPropMix("10 leg nfl with no player props"), false);
   assert.equal(askRequiresFootballPropMix("10 leg mlb"), false);
   assert.equal(askRequiresFootballPropMix("6 leg nba"), false);
+});
+
+test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props", () => {
+  assert.equal(askIsCollegeFootballOnly("8 leg college"), true);
+  assert.equal(askIsCollegeFootballOnly("10-leg NCAAF"), true);
+  assert.equal(askIsCollegeFootballOnly("8 leg soccer and college"), false);
+  assert.equal(askIsCollegeFootballOnly("10 leg nfl"), false);
+  assert.equal(askIsCollegeFootballOnly("10 leg football"), false);
+  assert.equal(askAllowsNcaafPlayerProps("8 leg college"), false);
+  assert.equal(askAllowsNcaafPlayerProps("8 leg college football player props"), true);
+  assert.equal(askAllowsNcaafPlayerProps("6 leg ncaaf rushing yards"), true);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg college team props"), false);
+});
+
+test("filterNcaafPlayerPropsUnlessAsked drops CFB player rows on bare college asks", () => {
+  const rows = [
+    { sport: "ncaaf", isProp: true, market: "player_reception_yds" },
+    { sport: "ncaaf", isProp: false, market: "Spread" },
+    { sport: "soccer", isProp: true, market: "player_shots" },
+    { sport: "nfl", isProp: true, market: "player_pass_yds" },
+  ];
+  const filtered = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg soccer and college");
+  assert.deepEqual(
+    filtered.map((r) => `${r.sport}:${r.market}`),
+    ["ncaaf:Spread", "soccer:player_shots", "nfl:player_pass_yds"],
+  );
+  const allowed = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg college player props");
+  assert.equal(allowed.length, 4);
 });
 
 test("phone screenshot: final football mix delivers scored GLs when props miss", () => {
@@ -582,7 +620,11 @@ test("skillPropRank covers MLB / NBA / NHL / soccer families (not football-only)
   assert.ok(skillPropRank("player_pass_yds") > 0);
 });
 
-test("fillReservedPropSlots swaps college football game lines for TD / yards props", () => {
+test("fillReservedPropSlots keeps college football game lines (no CFB player-prop swap)", () => {
+  // Phone: college books post team spreads / Q lines — not REC YDS / RUSH YDS.
+  // fillReservedPropSlots must not evict NCAAF game lines for player props when
+  // the scored pool still has them (mixed boards); college-only asks strip the
+  // pool earlier via filterNcaafPlayerPropsUnlessAsked / gameLinesOnly.
   const target = 8;
   const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
     isProp: false,
@@ -594,38 +636,12 @@ test("fillReservedPropSlots swaps college football game lines for TD / yards pro
     side: null as string | null,
     scores: { composite: 40 },
   }));
-  const skill = [
-    { market: "player_anytime_td", player: "Hunter", line: 0.5 },
-    { market: "player_pass_yds", player: "Nix", line: 245.5 },
-    { market: "player_reception_yds", player: "Worthy", line: 55.5 },
-    { market: "player_rush_yds_alternate", player: "Jeanty", line: 99.5 },
-  ];
-  const scored = [
-    ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
-    ...skill.map((s, i) => ({
-      pick: {
-        isProp: true,
-        sport: "ncaaf",
-        market: s.market,
-        propMarketKey: s.market,
-        propLine: s.line,
-        game: `CFBProp${i} @ CFBOpp${i}`,
-        player: s.player,
-        pick: `Over ${s.line}`,
-        side: "Over",
-        scores: { composite: 80 },
-      },
-      rankScore: 90 - i,
-    })),
-  ];
+  // Simulate college-only filter: NCAAF player props already stripped from scored.
+  const scored = gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i }));
   const out = fillReservedPropSlots(gameHeavy, scored, target);
-  const props = out.filter((p) => p.isProp);
-  assert.ok(props.length >= boardScanPropSlotCount(8, 0.4), `expected ≥3 NCAAF props, got ${props.length}`);
-  assert.ok(props.some((p) => skillPropFamily(p.market) === "td"), "includes CFB TD props");
-  assert.ok(props.some((p) => /pass/i.test(p.market || "")), "includes CFB pass yards");
-  assert.ok(props.some((p) => /rush/i.test(p.market || "")), "includes CFB rush alts");
-  const families = new Set(props.map((p) => skillPropFamily(p.market)).filter(Boolean));
-  assert.ok(families.size >= 2, `expected diverse CFB families, got ${[...families]}`);
+  assert.equal(out.filter((p) => p.isProp).length, 0, "no CFB player props invented");
+  assert.equal(out.length, 8);
+  assert.ok(out.every((p) => p.sport === "ncaaf" && !p.isProp));
 });
 
 test("fillReservedPropSlots swaps MLB game lines for HR / hits / K props", () => {

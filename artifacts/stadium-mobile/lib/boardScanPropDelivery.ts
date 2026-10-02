@@ -37,7 +37,91 @@ export function isFootballHeavyPickList(
 }
 
 /**
- * Bare "10 leg nfl" / "ncaaf" / "college football" asks expect a skill-prop mix.
+ * True when the ask is college-football-only (no NFL / other leagues).
+ * Phone: college books mostly post team markets, not player yards/TD boards.
+ */
+export function askIsCollegeFootballOnly(text?: string | null): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return false;
+  const hasCollege =
+    /\bncaaf\b/.test(t) ||
+    /\bcfb\b/.test(t) ||
+    /\bcollege\s+football\b/.test(t) ||
+    /\bcollage\s+football\b/.test(t) ||
+    (/\b(?:college|collage)\b/.test(t) &&
+      !/\b(?:college|collage)\s+basketball\b/.test(t) &&
+      !/\bncaab\b|\bcbb\b/.test(t));
+  if (!hasCollege) return false;
+  if (/\bnfl\b/.test(t)) return false;
+  if (/\b(nba|mlb|nhl|wnba|ncaab|soccer|futbol|ufc|tennis)\b/.test(t)) {
+    return false;
+  }
+  // Bare "football" alone fans NFL+NCAAF — not college-only.
+  if (
+    /\bfootball\b/.test(t) &&
+    !/\bcollege\s+football\b|\bcollage\s+football\b|\bncaaf\b|\bcfb\b/.test(t)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * True when the user explicitly asked for CFB player props / skill markets.
+ * Bare "8 leg college" stays on team spreads / totals / period lines.
+ */
+export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
+  const t = String(text ?? "")
+    .toLowerCase()
+    .replace(/\b(\d{1,3})\s*[-\s]?\s*lags?\b/g, "$1 leg");
+  if (!t) return false;
+  if (/\bno\s+player\s+props?\b/.test(t)) return false;
+  if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
+  if (/\bno\s+props?\b/.test(t)) return false;
+  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
+  if (/\bgame\s*lines?\s+only\b/.test(t)) return false;
+  if (/\bsides?\s+only\b/.test(t)) return false;
+  if (/\bplayer\s+props?\b/.test(t)) return true;
+  if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return true;
+  if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
+  if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
+  if (/\b(?:passing|rushing|receiving)\s+yards?\b/.test(t)) return true;
+  if (/\b(?:pass|rush|rec)\s+yds?\b/.test(t)) return true;
+  if (/\banytime\s+(?:td|touchdown)\b/.test(t)) return true;
+  if (/\b(?:first|1st)\s+(?:td|touchdown)\b/.test(t)) return true;
+  if (/\btouchdowns?\b/.test(t)) return true;
+  if (/\breceptions?\b/.test(t)) return true;
+  if (/\bsacks?\b/.test(t)) return true;
+  // "N leg … props" (not "team props") — honor explicit props asks on CFB.
+  if (
+    /\b\d{1,3}\s*[-\s]?\s*legs?\b[\s\w]{0,40}\bprops?\b/.test(t) &&
+    !/\bteam\s+props?\b/.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Drop NCAAF player-prop rows when the ask prefers college team markets. */
+export function filterNcaafPlayerPropsUnlessAsked<
+  T extends { sport?: string | null; isProp?: boolean },
+>(rows: T[], askText?: string | null): T[] {
+  if (askAllowsNcaafPlayerProps(askText)) return rows;
+  return rows.filter((row) => {
+    const sport = String(row.sport ?? "").toLowerCase();
+    if (sport !== "ncaaf" && sport !== "cfb") return true;
+    // Prop-pool entries are always player props; staged picks use isProp.
+    if (row.isProp === false) return true;
+    if (row.isProp === true) return false;
+    // Untagged pool rows (PropPoolEntry) for NCAAF are player props.
+    return false;
+  });
+}
+
+/**
+ * Bare "10 leg nfl" / "football" asks expect a skill-prop mix.
+ * Bare NCAAF / college football stays on team markets (spreads / totals /
+ * period lines) — college books rarely post player yards boards.
  * Not props-only (spreads can remain) and not "with no player props".
  */
 export function askRequiresFootballPropMix(text?: string | null): boolean {
@@ -48,12 +132,16 @@ export function askRequiresFootballPropMix(text?: string | null): boolean {
   if (/\bno\s+props?\b/.test(t)) return false;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return false;
   if (/\bsides?\s+only\b/.test(t)) return false;
+  // College-only without explicit player-prop ask → team markets, not prop mix.
+  if (askIsCollegeFootballOnly(t) && !askAllowsNcaafPlayerProps(t)) return false;
   return (
     /\bnfl\b/.test(t) ||
-    /\bncaaf\b/.test(t) ||
-    /\bcfb\b/.test(t) ||
-    /\bcollege\s+football\b/.test(t) ||
-    (/\bfootball\b/.test(t) && !/\bsoccer|nba|mlb|nhl|wnba|ncaab\b/.test(t))
+    // Explicit CFB player-prop asks still use the football mix / props path.
+    (askIsCollegeFootballOnly(t) && askAllowsNcaafPlayerProps(t)) ||
+    (/\bfootball\b/.test(t) &&
+      !/\bsoccer|nba|mlb|nhl|wnba|ncaab\b/.test(t) &&
+      // "college football" is handled above — don't treat it as NFL mix.
+      !/\bcollege\s+football\b|\bcollage\s+football\b|\bncaaf\b|\bcfb\b/.test(t))
   );
 }
 

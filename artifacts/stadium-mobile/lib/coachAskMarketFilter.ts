@@ -9,6 +9,10 @@
 
 import { threadWantsPropsOnly } from "./slate.ts";
 import { normalizeCoachLegTypos } from "./coach/parseAsk.ts";
+import {
+  askAllowsNcaafPlayerProps,
+  askIsCollegeFootballOnly,
+} from "./boardScanPropDelivery.ts";
 
 export type CoachAskMarketConstraint = {
   /** Stage props only — no ML / spread / total game lines. */
@@ -440,6 +444,10 @@ export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean 
   if (/\bwithout\s+props?\b/.test(t)) return true;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return true;
   if (/\bsides?\s+only\b/.test(t)) return true;
+  // Phone: college books post team spreads / totals / Q lines — not player
+  // yards. Bare "8 leg college" / NCAAF → game lines only unless the user
+  // named player props. Mixed "soccer and college" stays off this path.
+  if (askIsCollegeFootballOnly(t) && !askAllowsNcaafPlayerProps(t)) return true;
   return false;
 }
 
