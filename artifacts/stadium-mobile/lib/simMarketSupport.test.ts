@@ -19,6 +19,22 @@ test("parseMarketPeriod detects quarters and innings", () => {
   assert.equal(parseMarketPeriod("1st Inning Total"), "i1");
 });
 
+test("parseMarketPeriod detects Odds API underscore keys (spreads_q2)", () => {
+  assert.equal(parseMarketPeriod("spreads_q2"), "q2");
+  assert.equal(parseMarketPeriod("SPREADS_Q1"), "q1");
+  assert.equal(parseMarketPeriod("totals_h1"), "h1");
+  assert.equal(parseMarketPeriod("h2h_h2"), "h2");
+  assert.equal(parseMarketPeriod("totals_1st_5_innings"), "f5");
+  assert.equal(parseMarketPeriod("spreads"), "fg");
+  assert.equal(parseMarketPeriod("SPREADS"), "fg");
+});
+
+test("simModelForMarket treats Odds API period keys as period models", () => {
+  assert.equal(simModelForMarket("spreads_q2", { sport: "ncaaf" }), "period");
+  assert.equal(simModelForMarket("spreads", { sport: "ncaaf" }), "fullGame");
+  assert.equal(simModelForMarket("Q2 Spread", { sport: "ncaaf" }), "period");
+});
+
 test("simModelForMarket maps market families to models", () => {
   assert.equal(simModelForMarket("Spread", { sport: "nba" }), "fullGame");
   assert.equal(simModelForMarket("Q1 Total", { sport: "nba" }), "period");

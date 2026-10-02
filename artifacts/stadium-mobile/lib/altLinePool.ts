@@ -130,12 +130,26 @@ export function gameAltPoolForPick(pick: AltPoolPick, evalLines: RealOddsEntry[]
   );
 }
 
+/**
+ * Odds API keys use underscores (`spreads_q2`, `totals_h1`) — `_` is a word
+ * char, so `\bq2\b` never matches until underscores become spaces.
+ */
+function periodDetectText(market: string): string {
+  return String(market ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function hasPeriodSegment(market: string): boolean {
-  const m = market.trim().toLowerCase();
-  if (/\b(1h|2h|h1|h2|q1|q2|q3|q4|f5)\b/i.test(m)) return true;
+  const m = periodDetectText(market);
+  if (/\b(1h|2h|h1|h2|q1|q2|q3|q4|f5|p1|p2|p3)\b/i.test(m)) return true;
   if (/\b(1st|first)\s+(half|quarter|inning)\b/i.test(m)) return true;
   if (/\b(2nd|second)\s+half\b/i.test(m)) return true;
   if (/\b(3rd|third|4th|fourth)\s+quarter\b/i.test(m)) return true;
+  if (/\b(1st|first)\s+5\s+innings\b/i.test(m)) return true;
   if (/\bfirst\s+five\s+innings\b/i.test(m)) return true;
   return false;
 }
@@ -143,10 +157,13 @@ function hasPeriodSegment(market: string): boolean {
 /** True for alt spreads/totals, period markets, team totals, F5 run lines — not main ML/spread/total. */
 export function isAlternateOrPeriodMarket(market: string): boolean {
   const m = market.trim().toLowerCase();
+  // Human labels + Odds API base keys (phone used to stamp market: m.key).
   if (/^moneyline$|^ml$|^h2h$|money line/.test(m)) return false;
-  if (/^spread$/i.test(m)) return false;
-  if (/^total$/i.test(m)) return false;
-  if (/\balt\b/i.test(m)) return true;
+  if (/^spreads?$/i.test(m)) return false;
+  if (/^totals?$/i.test(m)) return false;
+  if (/\balt\b/i.test(m) || /^alternate[_ ]/.test(m) || /\balternate\b/.test(periodDetectText(m))) {
+    return true;
+  }
   if (/team total/i.test(m)) return true;
   if (hasPeriodSegment(m)) return true;
   if (/run line|puck line/i.test(m)) return true;
@@ -156,7 +173,9 @@ export function isAlternateOrPeriodMarket(market: string): boolean {
 /** Posted main line for a period segment (1H ML, F5 Total, etc.) — not an alt ladder rung. */
 export function isPeriodMainMarket(market: string): boolean {
   const m = market.trim().toLowerCase();
-  if (/\balt\b/i.test(m)) return false;
+  if (/\balt\b/i.test(m) || /^alternate[_ ]/.test(m) || /\balternate\b/.test(periodDetectText(m))) {
+    return false;
+  }
   if (/team total/i.test(m)) return false;
   if (!hasPeriodSegment(m)) return false;
   if (/money|h2h|\bml\b|money line/.test(m)) return true;
@@ -176,8 +195,9 @@ export function isMainLineGameLeg(pick: {
   if (isAlternateOrPeriodMarket(pick.market)) return false;
   const m = pick.market.trim().toLowerCase();
   if (/^moneyline$|^ml$|^h2h$|money line/.test(m)) return true;
-  if (/^spread$/i.test(m)) return true;
-  if (/^total$/i.test(m)) return true;
+  // "spreads" / "totals" = Odds API FG keys (pre-humanize stamp).
+  if (/^spreads?$/i.test(m)) return true;
+  if (/^totals?$/i.test(m)) return true;
   if (/\bml\b/i.test(pick.pick) && !/\balt\b/i.test(m)) return true;
   return false;
 }

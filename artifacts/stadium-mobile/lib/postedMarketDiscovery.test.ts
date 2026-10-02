@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverAllPostedGameLines, mergeEvalLadderWithDiscovered } from "./postedMarketDiscovery.ts";
+import {
+  discoverAllPostedGameLines,
+  humanizeOddsApiMarketKey,
+  mergeEvalLadderWithDiscovered,
+} from "./postedMarketDiscovery.ts";
 
 test("discoverAllPostedGameLines includes race-to and team total markets", () => {
   const g = {
@@ -43,4 +47,42 @@ test("mergeEvalLadderWithDiscovered keeps ladder row on collision", () => {
   assert.equal(merged.length, 1);
   assert.equal(merged[0]!.odds, -110);
   assert.equal(merged[0]!.bookSpread, 2.1);
+});
+
+test("humanizeOddsApiMarketKey: phone SPREADS / SPREADS_Q2 badges", () => {
+  assert.equal(humanizeOddsApiMarketKey("spreads"), "Spread");
+  assert.equal(humanizeOddsApiMarketKey("SPREADS"), "Spread");
+  assert.equal(humanizeOddsApiMarketKey("spreads_q2"), "Q2 Spread");
+  assert.equal(humanizeOddsApiMarketKey("SPREADS_Q2"), "Q2 Spread");
+  assert.equal(humanizeOddsApiMarketKey("spreads_q1"), "Q1 Spread");
+  assert.equal(humanizeOddsApiMarketKey("h2h"), "Moneyline");
+  assert.equal(humanizeOddsApiMarketKey("totals_h1"), "1H Total");
+  assert.equal(humanizeOddsApiMarketKey("alternate_spreads"), "Alt Spread");
+  // Already-friendly labels pass through.
+  assert.equal(humanizeOddsApiMarketKey("Q2 Spread"), "Q2 Spread");
+  assert.equal(humanizeOddsApiMarketKey("Spread"), "Spread");
+});
+
+test("discoverAllPostedGameLines pick includes spread point (not bare team name)", () => {
+  const g = {
+    id: "ev2",
+    sport: "ncaaf",
+    homeTeam: "Kansas Jayhawks",
+    awayTeam: "Middle Tennessee Blue Raiders",
+    commenceTime: "2026-10-03T16:00:00Z",
+    markets: [
+      {
+        key: "spreads",
+        outcomes: [
+          { name: "Kansas Jayhawks", price: -106, point: -24.5 },
+          { name: "Middle Tennessee Blue Raiders", price: -114, point: 24.5 },
+        ],
+      },
+    ],
+  };
+  const lines = discoverAllPostedGameLines(g);
+  const ku = lines.find((e) => /Jayhawks/i.test(e.pick));
+  assert.ok(ku);
+  assert.equal(ku!.market, "Spread");
+  assert.match(ku!.pick, /-24\.5/);
 });

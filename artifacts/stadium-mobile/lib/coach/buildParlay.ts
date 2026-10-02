@@ -19,6 +19,7 @@ import {
   type PropPoolEntry,
   type RealOddsEntry,
 } from "@/lib/api";
+import { discoverAllPostedGameLines } from "@/lib/postedMarketDiscovery";
 import {
   tryReachFullBoardScan,
   type FullBoardScanResult,
@@ -79,22 +80,12 @@ export type CoachParlayBuildResult = {
 export { shouldSkipScannerPropExpand } from "./propPoolPolicy";
 
 function realOddsFromOddsGames(oddsGames: OddsGame[]): RealOddsEntry[] {
+  // Use the same humanized market titles + pick strings as the full eval ladder
+  // ("Q2 Spread", "Jayhawks -7.5") — never raw Odds API keys like "spreads_q2"
+  // (phone badges were showing SPREADS / SPREADS_Q2).
   const out: RealOddsEntry[] = [];
   for (const g of oddsGames) {
-    const game = `${g.awayTeam} @ ${g.homeTeam}`;
-    for (const m of g.markets ?? []) {
-      for (const o of m.outcomes ?? []) {
-        if (typeof o.price !== "number" || !o.name) continue;
-        out.push({
-          sport: g.sport,
-          game,
-          market: m.key || "market",
-          pick: o.name,
-          odds: o.price,
-          startsAt: g.commenceTime,
-        });
-      }
-    }
+    out.push(...discoverAllPostedGameLines(g));
   }
   return out;
 }

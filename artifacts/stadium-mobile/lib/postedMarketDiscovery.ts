@@ -35,34 +35,37 @@ function evalPriceOk(price: number | null | undefined): boolean {
 
 function decodeMarketKey(key: string): Decoded | null {
   if (!key) return null;
-  if (key === "h2h" || key === "spreads" || key === "totals") {
-    return { base: key, period: "", alt: false, rawKey: key };
+  // Odds API keys are lowercase; display paths sometimes uppercase ("SPREADS_Q2").
+  const raw = String(key).trim();
+  const k = raw.toLowerCase();
+  if (k === "h2h" || k === "spreads" || k === "totals") {
+    return { base: k, period: "", alt: false, rawKey: k };
   }
-  if (key === "alternate_spreads") return { base: "spreads", period: "", alt: true, rawKey: key };
-  if (key === "alternate_totals") return { base: "totals", period: "", alt: true, rawKey: key };
+  if (k === "alternate_spreads") return { base: "spreads", period: "", alt: true, rawKey: k };
+  if (k === "alternate_totals") return { base: "totals", period: "", alt: true, rawKey: k };
 
-  let m = key.match(/^alternate_(spreads|totals)_(h1|h2|q1|q2|q3|q4|p1|p2|p3)$/);
+  let m = k.match(/^alternate_(spreads|totals)_(h1|h2|q1|q2|q3|q4|p1|p2|p3)$/);
   if (m) {
     return {
       base: m[1] as "spreads" | "totals",
       period: PERIOD_SUFFIX[m[2]!] ?? m[2]!.toUpperCase(),
       alt: true,
-      rawKey: key,
+      rawKey: k,
     };
   }
 
-  m = key.match(/^(h2h|spreads|totals)_(h1|h2|q1|q2|q3|q4|p1|p2|p3|1st_5_innings|1st_1_innings)$/);
+  m = k.match(/^(h2h|spreads|totals)_(h1|h2|q1|q2|q3|q4|p1|p2|p3|1st_5_innings|1st_1_innings)$/);
   if (m) {
     const suffix = m[2]!;
     const period =
       suffix === "1st_5_innings" ? "F5" : suffix === "1st_1_innings" ? "1st Inning" : PERIOD_SUFFIX[suffix] ?? suffix.toUpperCase();
-    return { base: m[1] as Decoded["base"], period, alt: false, rawKey: key };
+    return { base: m[1] as Decoded["base"], period, alt: false, rawKey: k };
   }
 
-  if (/^team_totals?$/i.test(key)) return { base: "totals", period: "", alt: false, rawKey: key };
-  if (/^race_to/i.test(key)) return { base: "other", period: "", alt: false, rawKey: key };
+  if (/^team_totals?$/i.test(k)) return { base: "totals", period: "", alt: false, rawKey: k };
+  if (/^race_to/i.test(k)) return { base: "other", period: "", alt: false, rawKey: k };
 
-  return { base: "other", period: "", alt: false, rawKey: key };
+  return { base: "other", period: "", alt: false, rawKey: k };
 }
 
 function humanizeUnknownKey(key: string): string {
@@ -102,6 +105,27 @@ function marketTitle(d: Decoded): string {
   if (d.period && d.base !== "h2h") return `${periodPrefix}${altPrefix}${baseLabel}`.replace(/\s+/g, " ").trim();
   if (d.period) return `${periodPrefix}${baseLabel}`.trim();
   return `${altPrefix}${baseLabel}`.trim();
+}
+
+/**
+ * Odds API key → card label ("spreads_q2" / "SPREADS_Q2" → "Q2 Spread").
+ * Already-human labels ("Q2 Spread", "Spread") pass through unchanged.
+ */
+export function humanizeOddsApiMarketKey(key: string | null | undefined): string {
+  const raw = String(key ?? "").trim();
+  if (!raw) return "";
+  // Already a friendly coach/slip label — don't re-decode.
+  if (/\b(spread|total|moneyline|run line|puck line|handicap)\b/i.test(raw) && !/^(h2h|spreads|totals)(_|$)/i.test(raw)) {
+    return raw;
+  }
+  const decoded = decodeMarketKey(raw);
+  if (!decoded) return raw;
+  // Unknown feed keys that aren't Odds API families — leave humanized unknowns.
+  if (decoded.base === "other" && !/^(h2h|spreads|totals|alternate_|team_total|race_to)/i.test(decoded.rawKey)) {
+    // If it already looks like a display label (spaces / Title Case), keep it.
+    if (/\s/.test(raw) || /[A-Z]/.test(raw.slice(1))) return raw;
+  }
+  return marketTitle(decoded);
 }
 
 function pickForOutcome(
