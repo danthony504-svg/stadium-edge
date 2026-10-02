@@ -909,3 +909,108 @@ test("holistic opponentTendency moves with O-line × pass-rush matchup", async (
   assert.ok((oppH?.score ?? 10) < (oppF?.score ?? 0));
   assert.ok((hostile.composite ?? 10) <= (friendly.composite ?? 0) + 0.01);
 });
+
+test("sack props never cross-fallback pack ↔ ownPack rates", async () => {
+  const { footballRushDefenseTilt } = await import("./footballRushDefense.ts");
+  // Porous OL is only on ownPack — must NOT grade as if opposing OL is porous.
+  const wrongFallback = footballRushDefenseTilt({
+    market: "player_sacks",
+    side: "Over",
+    pack: { sacks: 36, gamesPlayed: 12, teamName: "Bears" }, // defensive sacks only
+    ownPack: { sacksAllowed: 42, gamesPlayed: 12 }, // own OL — must be ignored for OL side
+  });
+  // Without pack.sacksAllowed, only ownPack.sacks could count as pass-rush —
+  // but ownPack has no sacks. Result must be empty / zero, not a false Over lean.
+  assert.equal(wrongFallback.tilt, 0);
+
+  // Correct wiring: pack=OL being rushed, own=rusher's defense.
+  const correct = footballRushDefenseTilt({
+    market: "player_sacks",
+    side: "Over",
+    pack: { sacksAllowed: 42, gamesPlayed: 12, teamName: "Bears" },
+    ownPack: { sacks: 36, gamesPlayed: 12 },
+  });
+  assert.ok(correct.tilt > 0);
+});
+
+test("longest reception under pressure leans Under, not checkdown Over", async () => {
+  const { footballRushDefenseTilt, isFootballRecvLongMarket } = await import(
+    "./footballRushDefense.ts"
+  );
+  assert.equal(isFootballRecvLongMarket("player_reception_longest"), true);
+
+  const pressurePack = {
+    sacks: 40,
+    gamesPlayed: 12,
+    pass: {
+      passingYardsAllowedPerGame: 220,
+      yardsPerPassAllowed: 6.8,
+      sampleSize: 4,
+    },
+    teamName: "Steelers",
+  };
+  const porous = { sacksAllowed: 38, gamesPlayed: 12 };
+
+  const longest = footballRushDefenseTilt({
+    market: "player_reception_longest",
+    side: "Over",
+    pack: pressurePack,
+    ownPack: porous,
+  });
+  const receptions = footballRushDefenseTilt({
+    market: "player_receptions",
+    side: "Over",
+    pack: pressurePack,
+    ownPack: porous,
+  });
+  // Checkdowns favor receptions Over; longest is explosive → Under lean vs pressure.
+  assert.ok(receptions.tilt > longest.tilt);
+  assert.ok(longest.tilt < receptions.tilt);
+  assert.ok(longest.tilt <= 0 || longest.tilt < receptions.tilt);
+});
+
+test("rush volume game script uses opponent pointsFor not pointsAgainst", async () => {
+  const { footballRushDefenseTilt } = await import("./footballRushDefense.ts");
+  // Own high-scoring offense vs opponent that also scores a lot (pointsFor high)
+  // but allows few points (pointsAgainst low). Script must use pointsFor:
+  // own 28 - opp 28 = 0 → no script lean. Wrong formula own 28 - oppAllowed 14 = +14
+  // would falsely favor rush-attempt Overs.
+  const base = {
+    rush: {
+      rushingYardsAllowedPerGame: 120,
+      yardsPerRushAllowed: 4.2,
+      sampleSize: 4,
+    },
+    teamName: "Mid",
+    stuffs: 12,
+    gamesPlayed: 12,
+  };
+  const withWrongTemptation = footballRushDefenseTilt({
+    market: "player_rush_attempts",
+    side: "Over",
+    pack: { ...base, pointsAgainst: 14, pointsFor: 28 },
+    ownPack: { ownRushYpc: 4.2, pointsFor: 28, gamesPlayed: 12 },
+  });
+  const evenScript = footballRushDefenseTilt({
+    market: "player_rush_attempts",
+    side: "Over",
+    pack: { ...base, pointsAgainst: 14, pointsFor: 28 },
+    ownPack: { ownRushYpc: 4.2, pointsFor: 28, gamesPlayed: 12 },
+  });
+  // Both use pointsFor: 28-28=0 — identical, no false +script from pointsAgainst.
+  assert.equal(withWrongTemptation.tilt, evenScript.tilt);
+
+  const leading = footballRushDefenseTilt({
+    market: "player_rush_attempts",
+    side: "Over",
+    pack: { ...base, pointsFor: 17, pointsAgainst: 14 },
+    ownPack: { ownRushYpc: 4.2, pointsFor: 28, gamesPlayed: 12 },
+  });
+  const trailing = footballRushDefenseTilt({
+    market: "player_rush_attempts",
+    side: "Over",
+    pack: { ...base, pointsFor: 35, pointsAgainst: 28 },
+    ownPack: { ownRushYpc: 4.2, pointsFor: 17, gamesPlayed: 12 },
+  });
+  assert.ok(leading.tilt > trailing.tilt);
+});

@@ -381,15 +381,11 @@ export function footballRushDefenseTilt(opts: {
 
   // --- Dedicated sack props: pass rusher vs opposing O-line ---
   if (isFootballSackMarket(market)) {
-    // For sack props the "pack" is the offense being rushed (opponent of the
-    // defender): use sacksAllowed. Pass-rush strength comes from ownPack.sacks
-    // when the rusher's team was loaded as own, OR from pack if caller swapped.
-    const olineAllowedPg =
-      perGameRate(pack?.sacksAllowed, pack?.gamesPlayed) ??
-      perGameRate(own?.sacksAllowed, own?.gamesPlayed);
-    const rusherSackPg =
-      perGameRate(own?.sacks, own?.gamesPlayed) ??
-      perGameRate(pack?.sacks, pack?.gamesPlayed);
+    // pack = offense being rushed (opponent of the defender) → sacksAllowed
+    // ownPack = rusher's defense → sacks forced. Never cross-fallback: a missing
+    // field must not borrow the other team's OL or pass-rush rate.
+    const olineAllowedPg = perGameRate(pack?.sacksAllowed, pack?.gamesPlayed);
+    const rusherSackPg = perGameRate(own?.sacks, own?.gamesPlayed);
     if (olineAllowedPg == null && rusherSackPg == null) return empty;
     let favorOver = 0;
     const bits: string[] = [];
@@ -494,12 +490,13 @@ export function footballRushDefenseTilt(opts: {
       tilt += isOver ? -0.1 : 0.07;
     }
     // Game script: trailing teams pass more → rush volume Unders; leading → rush Overs.
+    // Compare own scoring rate to opponent's scoring rate (pointsFor), not pointsAgainst.
     if (
-      pack?.pointsAgainst != null &&
+      pack?.pointsFor != null &&
       own?.pointsFor != null &&
       isFootballRushVolumeMarket(market)
     ) {
-      const script = own.pointsFor - pack.pointsAgainst;
+      const script = own.pointsFor - pack.pointsFor;
       if (script >= 7) tilt += isOver ? 0.08 : -0.05;
       else if (script <= -7) tilt += isOver ? -0.08 : 0.05;
     }
@@ -556,16 +553,25 @@ export function footballRushDefenseTilt(opts: {
     // Pressure effects — market-aware (not blanket Under):
     // pass yards/completions/longest: pressure suppresses efficiency → Under lean
     // pass attempts: pressure/trailing can raise volume → mild Over lean
-    // recv yards/receptions: checkdowns under pressure → mild Over for receptions
+    // receptions (count): checkdowns under pressure → mild Over
+    // recv yards / longest reception: pressure caps downfield → mild Under
     if (pressBits.length) {
       bits.push(...pressBits);
-      if (isPassVol && /attempt/.test(String(market ?? "").toLowerCase())) {
+      const mKey = String(market ?? "").toLowerCase();
+      if (isPassVol && /attempt/.test(mKey)) {
         tilt += sideTilt(pressure * 0.2, isOver, isUnder);
-      } else if (isRecv && /reception/.test(String(market ?? "").toLowerCase()) && !/yard|yd/.test(String(market ?? "").toLowerCase())) {
+      } else if (isFootballRecvLongMarket(market)) {
+        // Longest reception is explosive — pressure leans Under (not checkdown Over).
+        tilt += sideTilt(-pressure * 0.15, isOver, isUnder);
+      } else if (
+        isRecv &&
+        /reception/.test(mKey) &&
+        !/yard|yd|longest|long/.test(mKey)
+      ) {
         // Receptions (checkdowns) tick up under pressure
         tilt += sideTilt(pressure * 0.22, isOver, isUnder);
       } else if (isRecv) {
-        // Recv yards / longest: pressure caps downfield → mild Under
+        // Recv yards: pressure caps downfield → mild Under
         tilt += sideTilt(-pressure * 0.15, isOver, isUnder);
       } else {
         // Pass yards / completions / longest completion
