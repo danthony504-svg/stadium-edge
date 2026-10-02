@@ -15,7 +15,22 @@ export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   wnba: ["wnba", "wmba", "emba", "women's basketball"],
   nba: ["nba"],
   nhl: ["nhl", "hockey"],
-  soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl", "world cup", "fifa"],
+  soccer: [
+    "soccer",
+    "futbol",
+    "fútbol",
+    "epl",
+    "mls",
+    "la liga",
+    "bundesliga",
+    "serie a",
+    "ligue 1",
+    "premier league",
+    "champions league",
+    "ucl",
+    "world cup",
+    "fifa",
+  ],
   ufc: ["ufc", "mma"],
   tennis: ["tennis", "atp", "wta"],
   nfl: ["nfl"],
@@ -77,6 +92,29 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   ) {
     out.add("ncaaf");
     out.add("ncaab");
+  }
+  // Bare "basketball" / "hoops" → NBA. Do not steal WNBA / CBB asks.
+  if (
+    /\b(basketball|hoops)\b/i.test(t) &&
+    !/\bwomen'?s\s+basketball\b|\bwnba\b|\bwmba\b|\bemba\b/i.test(t) &&
+    !/\bcollege\s+basketball\b|\bcollage\s+basketball\b|\bncaab\b|\bcbb\b/i.test(t) &&
+    !isNegatedSportKeyword(t, "basketball") &&
+    !isNegatedSportKeyword(t, "hoops")
+  ) {
+    out.add("nba");
+  }
+  // US phone "football" / "american football" / "gridiron" → NFL + CFB.
+  // Skip when soccer/futbol is named (world football) or an explicit CFB ask
+  // already locked the board (don't also inject NFL).
+  if (
+    /\b(american\s+football|gridiron|football)\b/i.test(t) &&
+    !/\bsoccer|futbol|fútbol\b/i.test(t) &&
+    !/\bcollege\s+football\b|\bcollage\s+football\b|\bncaaf\b|\bcfb\b/i.test(t) &&
+    !isNegatedSportKeyword(t, "football") &&
+    !isNegatedSportKeyword(t, "gridiron")
+  ) {
+    out.add("nfl");
+    out.add("ncaaf");
   }
   return out;
 }

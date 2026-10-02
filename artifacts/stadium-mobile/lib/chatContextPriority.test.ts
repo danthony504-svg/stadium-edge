@@ -119,6 +119,32 @@ test("focalSportsFromText: bare ncaa covers both college boards", () => {
   assert.ok(!cfb.has("ncaab"));
 });
 
+test("focalSportsFromText: bare basketball/hoops/football/futbol aliases", () => {
+  assert.ok(focalSportsFromText("6 leg basketball").has("nba"));
+  assert.ok(focalSportsFromText("6 leg hoops").has("nba"));
+  assert.ok(!focalSportsFromText("6 leg women's basketball").has("nba"));
+  assert.ok(focalSportsFromText("6 leg women's basketball").has("wnba"));
+  assert.ok(!focalSportsFromText("6 leg college basketball").has("nba"));
+  assert.ok(focalSportsFromText("6 leg college basketball").has("ncaab"));
+
+  const fb = focalSportsFromText("6 leg football");
+  assert.ok(fb.has("nfl"), "bare football → nfl");
+  assert.ok(fb.has("ncaaf"), "bare football → ncaaf");
+  assert.ok(focalSportsFromText("6 leg american football").has("nfl"));
+  assert.ok(focalSportsFromText("6 leg gridiron").has("nfl"));
+  // Soccer + football must stay soccer-only (world football).
+  const soccerFb = focalSportsFromText("6 leg football soccer");
+  assert.ok(soccerFb.has("soccer"));
+  assert.ok(!soccerFb.has("nfl"));
+  assert.ok(!soccerFb.has("ncaaf"));
+  // Explicit CFB must not also inject NFL via bare-football rule.
+  const cfbOnly = focalSportsFromText("6 leg college football");
+  assert.ok(cfbOnly.has("ncaaf"));
+  assert.ok(!cfbOnly.has("nfl"));
+
+  assert.ok(focalSportsFromText("6 leg futbol").has("soccer"));
+});
+
 test("parlayPoolHint focuses top-up on the sport already on the ticket", () => {
   assert.equal(
     parlayPoolHint("4 leg parlay", [{ sport: "wnba" }, { sport: "wnba" }]),
