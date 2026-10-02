@@ -13,6 +13,7 @@ import {
 } from "./simMarketSupport.ts";
 import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeriodScoring.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
+import { parsePickLineNumber } from "./pickLineParse.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
 function gameMarketFamily(market: string): string {
@@ -102,10 +103,7 @@ function splitLabel(label: string): { away: string; home: string } {
 }
 
 function numLine(pick: string): number | null {
-  const m = String(pick).match(/([+-]?\d+(?:\.\d+)?)\s*$/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : null;
+  return parsePickLineNumber(pick);
 }
 
 function sideOfTeam(team: string, away: string, home: string): "home" | "away" | null {

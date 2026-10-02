@@ -26,6 +26,7 @@ import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
 import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
+import { compactPickLineLabel, parsePickLineNumber } from "@/lib/pickLineParse";
 import {
   NOT_AI_RECOMMENDED,
   pickGradeDisplayCaption,
@@ -170,15 +171,9 @@ function siblingLegKeys(parent: ParsedPick, keepPick: string): string[] {
 // A short line label for a tier chip: Over/Under + number for a total/prop
 // ("O 5.5"), or the signed handicap for a spread ("-3.5"). Moneyline and yes/no
 // markets carry no number, so they return null and the chip shows odds only.
+// Trailing-number parse — never the "49" in "49ers" (phone BEST LINE "+49" bug).
 function compactLine(pick: string): string | null {
-  const n = norm(pick);
-  const side = sideOf(pick);
-  const m = n.match(/[+-]?\d+(?:\.\d+)?/);
-  if (!m) return null;
-  if (side) return `${side === "Over" ? "O" : "U"} ${m[0].replace(/^\+/, "")}`;
-  const v = m[0];
-  if (v.startsWith("+") || v.startsWith("-")) return v;
-  return parseFloat(v) > 0 ? `+${v}` : v;
+  return compactPickLineLabel(pick, sideOf(pick));
 }
 
 // Decorative market icon for the card's market pill. Purely visual — never
@@ -1471,9 +1466,9 @@ function matchProp(
 
 // The numeric line of a pick string ("Knicks -3.5" -> -3.5, "Over 8.5" -> 8.5).
 // null when no number is present (moneyline / yes-no markets).
+// Trailing match only — "49ers +27.5" must yield 27.5, not 49.
 function numLine(pick: string): number | null {
-  const m = norm(pick).match(/[+-]?\d+(?:\.\d+)?/);
-  return m ? parseFloat(m[0]) : null;
+  return parsePickLineNumber(pick);
 }
 
 // Team-identity tokens of a game pick (non-generic alpha words) so two spread
