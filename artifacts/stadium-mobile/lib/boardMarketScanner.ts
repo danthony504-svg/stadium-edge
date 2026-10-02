@@ -25,6 +25,7 @@ import {
   deriveCoachScanFailureReason,
   type CoachScanFailureReason,
 } from "./coachScanFailureReason.ts";
+import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import {
   deriveGameSimLineMetrics,
   simEvPct,
@@ -962,7 +963,7 @@ export function buildScanResult(
       : null;
   // Empty tickets keep failureReason on the scan result for logs/manifest —
   // never append `[CODE: detail]` to the user-facing Coach note (phone leak).
-  const noteWithTrace = note;
+  const noteWithTrace = sanitizeCoachUserNote(note);
 
   let hrRankDiagnostics: ReturnType<typeof hrSelectionDiagnostics> | undefined;
   if (isHrOnlyScoredPool(scored)) {

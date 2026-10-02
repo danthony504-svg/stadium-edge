@@ -53,6 +53,7 @@ import {
   shouldPublishCoachTicketPicks,
 } from "@/lib/coachTicketHold";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { useRouter } from "expo-router";
 
@@ -208,6 +209,7 @@ export default function CoachScreen() {
       terminalShownPickCountRef.current = opts.picks.length;
       // Prefer the build note when present — it carries prop-pool context.
       // Only synthesize a generic shortfall when the build returned no text.
+      // Strip any leaked `[CODE: detail]` machine traces before the bubble paints.
       const shortfall =
         !opts.text.trim() && (outcome === "shortfall" || outcome === "empty")
           ? coachShortfallNote(opts.requestedLegs, opts.picks.length)
@@ -216,7 +218,9 @@ export default function CoachScreen() {
         building: false,
         buildStatus: undefined,
         picks: opts.picks,
-        text: [shortfall, opts.text].filter(Boolean).join("\n\n"),
+        text: sanitizeCoachUserNote(
+          [shortfall, opts.text].filter(Boolean).join("\n\n"),
+        ),
         requestedLegs: opts.requestedLegs || undefined,
       });
       unlockComposer();
@@ -410,7 +414,7 @@ export default function CoachScreen() {
                 buildStatus: undefined,
                 picks,
                 // Clear the empty-budget copy once a real ticket lands.
-                text: result.note.trim(),
+                text: sanitizeCoachUserNote(result.note),
                 requestedLegs: requestedLegs || undefined,
               });
               unlockComposer();
@@ -420,7 +424,7 @@ export default function CoachScreen() {
 
           finishSession(assistantId, {
             picks,
-            text: result.note,
+            text: sanitizeCoachUserNote(result.note),
             requestedLegs,
           });
           return;

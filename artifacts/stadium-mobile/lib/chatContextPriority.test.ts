@@ -102,10 +102,21 @@ test("focalSportsFromText: bare college means NCAAF (soccer and college)", () =>
   assert.ok(mixed.has("ncaaf"), "bare college → ncaaf");
   assert.ok(!mixed.has("ncaab"), "bare college is not CBB");
   assert.ok(focalSportsFromText("6 leg college").has("ncaaf"));
+  assert.ok(focalSportsFromText("6 leg collage").has("ncaaf"), "collage typo → ncaaf");
   // Explicit CBB must not also force NCAAF via the bare-college rule.
   const cbb = focalSportsFromText("8 leg college basketball");
   assert.ok(cbb.has("ncaab"));
   assert.ok(!cbb.has("ncaaf"), "college basketball must not add ncaaf");
+});
+
+test("focalSportsFromText: bare ncaa covers both college boards", () => {
+  const ncaa = focalSportsFromText("8 leg ncaa");
+  assert.ok(ncaa.has("ncaaf"));
+  assert.ok(ncaa.has("ncaab"));
+  // Explicit ncaaf ask must not also force ncaab via bare-ncaa rule.
+  const cfb = focalSportsFromText("8 leg ncaaf");
+  assert.ok(cfb.has("ncaaf"));
+  assert.ok(!cfb.has("ncaab"));
 });
 
 test("parlayPoolHint focuses top-up on the sport already on the ticket", () => {

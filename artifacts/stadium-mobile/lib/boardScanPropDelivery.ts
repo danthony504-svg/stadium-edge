@@ -8,6 +8,7 @@ import {
   type CoachScanFailureReason,
   type CoachScanFailureDiagnostics,
 } from "./coachScanFailureReason.ts";
+import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import { COACH_PRIORITY_SPORTS } from "./coachPrioritySports.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 
@@ -614,5 +615,5 @@ export function buildFinalCoachParlayNote(opts: {
 
   // Empty tickets keep failureReason on the scan result / failureDiagnostics —
   // never append `[PROP_POOL_EMPTY: …]` (or any CODE:detail) into the Coach note.
-  return base;
+  return sanitizeCoachUserNote(base);
 }

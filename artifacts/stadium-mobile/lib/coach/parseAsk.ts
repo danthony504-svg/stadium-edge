@@ -1,6 +1,7 @@
 /** Greenfield ask parsing — leg targets and build intent only. */
 
 import { wantsPropsOnly } from "../slate.ts";
+import { sanitizeCoachUserNote } from "../sanitizeCoachUserNote.ts";
 
 /** Accept "leg(s)" and common typos like "lag" / "lags" so board scan still runs. */
 export const LEG_WORD = String.raw`l(?:eg|ag)s?`;
@@ -101,13 +102,13 @@ export function coachPropsAskGameLineMismatchNote(opts: {
   const gameLineCount = gameLinePicks.length;
   if (opts.picks.length === 0 || gameLineCount <= 0) return "";
   if (opts.propsOnly) {
-    return (
+    return sanitizeCoachUserNote(
       `You asked for player props — props-only still staged team game lines ` +
-      `(spreads/totals).`
+        `(spreads/totals).`,
     );
   }
-  return (
+  return sanitizeCoachUserNote(
     `You asked for player props — this ticket staged team game lines ` +
-    `(spreads/totals) instead of player props.`
+      `(spreads/totals) instead of player props.`,
   );
 }

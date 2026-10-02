@@ -56,16 +56,27 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   for (const sport of sportsFromAskTeamNicknames(t)) {
     if (!isNegatedSportKeyword(t, sport)) out.add(sport);
   }
-  // Bare "college" (e.g. "8 leg soccer and college") means college football.
+  // Bare "college" / typo "collage" (e.g. "8 leg soccer and college") → CFB.
   // Do not steal "college basketball" / CBB aliases onto NCAAF.
   if (
-    /\bcollege\b/i.test(t) &&
-    !/\bcollege\s+basketball\b/i.test(t) &&
-    !/\bcollage\s+basketball\b/i.test(t) &&
+    /\b(college|collage)\b/i.test(t) &&
+    !/\b(college|collage)\s+basketball\b/i.test(t) &&
     !/\bncaab\b|\bcbb\b/i.test(t) &&
-    !isNegatedSportKeyword(t, "college")
+    !isNegatedSportKeyword(t, "college") &&
+    !isNegatedSportKeyword(t, "collage")
   ) {
     out.add("ncaaf");
+  }
+  // Bare "ncaa" without football/basketball qualifier → both college boards.
+  if (
+    /\bncaa\b/i.test(t) &&
+    !/\bncaaf\b|\bncaab\b|\bcfb\b|\bcbb\b/i.test(t) &&
+    !/\bcollege\s+football\b|\bcollage\s+football\b/i.test(t) &&
+    !/\bcollege\s+basketball\b|\bcollage\s+basketball\b/i.test(t) &&
+    !isNegatedSportKeyword(t, "ncaa")
+  ) {
+    out.add("ncaaf");
+    out.add("ncaab");
   }
   return out;
 }
