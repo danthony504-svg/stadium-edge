@@ -1,5 +1,7 @@
 /** Greenfield ask parsing — leg targets and build intent only. */
 
+import { wantsPropsOnly } from "../slate.ts";
+
 /** Accept "leg(s)" and common typos like "lag" / "lags" so board scan still runs. */
 export const LEG_WORD = String.raw`l(?:eg|ag)s?`;
 
@@ -66,6 +68,7 @@ export function coachPickLooksLikeGameLine(p: {
 }): boolean {
   const m = String(p.market ?? "").toUpperCase();
   // Phone screenshots: "1H ALT SPREAD", "Q2 SPREAD", "TOTAL", "2H ALT TOTAL".
+  // Also catches mis-flagged isProp legs whose market is clearly a game line.
   if (
     /\b(SPREAD|TOTAL|MONEYLINE|MONEY\s*LINE|PUCK\s*LINE|RUN\s*LINE)\b/.test(m) ||
     /(?:^|[\s/])(ML)(?:$|[\s/])/.test(m)
@@ -76,38 +79,10 @@ export function coachPickLooksLikeGameLine(p: {
 }
 
 function coachAskedForPlayerProps(text: string): boolean {
-  const t = normalizeCoachLegTypos(text).toLowerCase();
-  if (/\bno\s+(?:player\s+)?props?\b/.test(t) || /\bwithout\s+(?:player\s+)?props?\b/.test(t)) {
-    return false;
-  }
-  // Phone: "4 leg NHL team prop" staged spreads correctly but this note claimed
-  // the user asked for player props. Team props / game-lines asks are intentional.
-  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
-  if (/\bgame\s*lines?\s+only\b/.test(t) || /\bsides?\s+only\b/.test(t)) return false;
-  if (/\bplayer\s+props?\b/.test(t)) return true;
-  if (/\b\d{1,3}\s*leg\b[\s\w]{0,40}\bprops?\b/.test(t)) return true;
-  // Slate-only N-leg ("5 leg for tomorrow") is props-only — still show why if
-  // game lines leak past that gate.
-  if (
-    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
-    /\b(today|tonight|tomorrow)\b/.test(t) &&
-    !/\bparlay\b/.test(t) &&
-    !/\b(nfl|nba|mlb|nhl|wnba|ncaaf|ncaab|cfb|soccer|football)\b/.test(t) &&
-    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t)
-  ) {
-    return true;
-  }
-  // Phone: "5 leg soccer" → Asian spread shortfall — sport N-leg is props-only.
-  if (
-    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
-    !/\bparlay\b/.test(t) &&
-    /\b(soccer|nba|mlb|nhl|wnba|ncaab)\b/.test(t) &&
-    !/\b(nfl|ncaaf|cfb|football)\b/.test(t) &&
-    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t)
-  ) {
-    return true;
-  }
-  return false;
+  // Same gate as props-only routing — keeps mismatch copy in sync (phone:
+  // "9 leg tonight mixed sports" correctly mixed, but this note still fired
+  // via a duplicated slate-day rule that ignored mixed-sports phrasing).
+  return wantsPropsOnly(text);
 }
 
 /**

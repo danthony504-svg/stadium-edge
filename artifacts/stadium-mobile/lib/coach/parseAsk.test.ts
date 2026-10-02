@@ -53,6 +53,29 @@ test("phone: team prop ask does NOT claim player-props mismatch", () => {
   );
 });
 
+test("phone: mixed sports mix ticket does NOT claim player-props mismatch", () => {
+  // Phone: "9 leg tonight mixed sports" staged props+game lines (correct mix)
+  // but still showed PROPS_ASK_GOT_GAME_LINES.
+  assert.equal(
+    coachPropsAskGameLineMismatchNote({
+      askText: "9 leg tonight mixed sports",
+      propsOnly: false,
+      picks: [
+        { isProp: false, market: "Q2 Spread" },
+        { isProp: false, market: "Q4 Spread" },
+        { isProp: true, market: "Total Bases" },
+        { isProp: false, market: "F5 Run Line" },
+        { isProp: false, market: "Total" },
+        { isProp: true, market: "Home Runs" },
+        { isProp: true, market: "Points" },
+        { isProp: true, market: "Rec Yds" },
+        { isProp: false, market: "Spread" },
+      ],
+    }),
+    "",
+  );
+});
+
 test("phone spreads-not-props: lag + player prop ask mismatch note", () => {
   const note = coachPropsAskGameLineMismatchNote({
     askText: "9 lag NFL player prop",
