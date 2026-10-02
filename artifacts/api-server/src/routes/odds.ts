@@ -222,7 +222,14 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       "alternate_spreads_q2", "alternate_totals_q2",
       "alternate_spreads_q3", "alternate_totals_q3",
       "alternate_spreads_q4", "alternate_totals_q4",
+      // Team totals = team props (points). College books lean on these + period
+      // spreads — not player yards (FanDuel Team Yards are book-proprietary).
       "team_totals", "alternate_team_totals",
+      "team_totals_h1", "team_totals_h2",
+      "team_totals_q1", "team_totals_q2", "team_totals_q3", "team_totals_q4",
+      "alternate_team_totals_h1", "alternate_team_totals_h2",
+      "alternate_team_totals_q1", "alternate_team_totals_q2",
+      "alternate_team_totals_q3", "alternate_team_totals_q4",
     ];
     const PERIOD_MARKETS_BASEBALL = [
       "alternate_spreads", "alternate_totals",
@@ -258,7 +265,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             // the correct endpoint and cache bucket. v3: baseball now requests
             // innings markets instead of the (empty) quarter/half set, so the
             // cache bucket is bumped to avoid serving stale empty v2 entries.
-            `odds:${g.sport_key}:alt:${g.id}:v5`,
+            `odds:${g.sport_key}:alt:${g.id}:v6`,
             10 * 60 * 1000,
             async () => {
               const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;

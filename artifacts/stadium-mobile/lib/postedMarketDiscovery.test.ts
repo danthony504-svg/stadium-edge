@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   discoverAllPostedGameLines,
+  gameLineTeamLabel,
   humanizeOddsApiMarketKey,
   mergeEvalLadderWithDiscovered,
 } from "./postedMarketDiscovery.ts";
@@ -85,4 +86,69 @@ test("discoverAllPostedGameLines pick includes spread point (not bare team name)
   assert.ok(ku);
   assert.equal(ku!.market, "Spread");
   assert.match(ku!.pick, /-24\.5/);
+  // College keeps the school name — bare "Jayhawks" collides across boards.
+  assert.match(ku!.pick, /Kansas Jayhawks/i);
+});
+
+test("phone: college 49ers pick keeps Charlotte — not bare NFL-looking 49ers", () => {
+  assert.equal(gameLineTeamLabel("Charlotte 49ers", "ncaaf"), "Charlotte 49ers");
+  assert.equal(gameLineTeamLabel("San Francisco 49ers", "nfl"), "49ers");
+  assert.equal(gameLineTeamLabel("Alabama Crimson Tide", "ncaaf"), "Alabama Crimson Tide");
+  assert.equal(gameLineTeamLabel("Boston Celtics", "nba"), "Celtics");
+
+  const g = {
+    id: "ev-clt",
+    sport: "ncaaf",
+    homeTeam: "Charlotte 49ers",
+    awayTeam: "Memphis Tigers",
+    commenceTime: "2026-10-03T16:00:00Z",
+    markets: [
+      {
+        key: "alternate_spreads",
+        outcomes: [{ name: "Charlotte 49ers", price: -225, point: 27.5 }],
+      },
+    ],
+  };
+  const lines = discoverAllPostedGameLines(g);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]!.pick, "Charlotte 49ers +27.5");
+  assert.equal(lines[0]!.market, "Alt Spread");
+});
+
+test("college team props: team totals + Q2 team totals humanize (not player yards)", () => {
+  // FanDuel college boards post Team Yards (book-only) + spreads/team totals.
+  // Odds API team_totals / period team totals are the feed's team-prop surface.
+  assert.equal(humanizeOddsApiMarketKey("team_totals"), "Team Total");
+  assert.equal(humanizeOddsApiMarketKey("alternate_team_totals"), "Alt Team Total");
+  assert.equal(humanizeOddsApiMarketKey("team_totals_q2"), "Q2 Team Total");
+  assert.equal(humanizeOddsApiMarketKey("alternate_team_totals_q1"), "Q1 Alt Team Total");
+
+  const g = {
+    id: "ev-pitt-vt",
+    sport: "ncaaf",
+    homeTeam: "Virginia Tech Hokies",
+    awayTeam: "Pittsburgh Panthers",
+    commenceTime: "2026-10-02T23:00:00Z",
+    markets: [
+      {
+        key: "team_totals",
+        outcomes: [
+          { name: "Pittsburgh Panthers Over", price: -110, point: 24.5 },
+          { name: "Virginia Tech Hokies Under", price: -115, point: 27.5 },
+        ],
+      },
+      {
+        key: "team_totals_q2",
+        outcomes: [{ name: "Pittsburgh Panthers Over", price: -105, point: 6.5 }],
+      },
+      {
+        key: "alternate_team_totals",
+        outcomes: [{ name: "Virginia Tech Hokies Over", price: -120, point: 30.5 }],
+      },
+    ],
+  };
+  const lines = discoverAllPostedGameLines(g);
+  assert.ok(lines.some((e) => e.market === "Team Total" && /Pittsburgh Panthers Over 24\.5/.test(e.pick)));
+  assert.ok(lines.some((e) => e.market === "Q2 Team Total" && /Pittsburgh Panthers Over 6\.5/.test(e.pick)));
+  assert.ok(lines.some((e) => e.market === "Alt Team Total" && /Virginia Tech Hokies Over 30\.5/.test(e.pick)));
 });

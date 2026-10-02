@@ -75,7 +75,25 @@ function decodeMarketKey(key: string): Decoded | null {
     return { base: m[1] as Decoded["base"], period, alt: false, rawKey: key };
   }
 
-  if (/^team_totals?$/i.test(key)) return { base: "totals", period: "", alt: false, rawKey: key };
+  // Team totals = team props. College boards prefer these over player yards.
+  m = key.match(/^alternate_team_totals(?:_(h1|h2|q1|q2|q3|q4|p1|p2|p3))?$/);
+  if (m) {
+    return {
+      base: "totals",
+      period: m[1] ? PERIOD_SUFFIX[m[1]] ?? m[1].toUpperCase() : "",
+      alt: true,
+      rawKey: key,
+    };
+  }
+  m = key.match(/^team_totals(?:_(h1|h2|q1|q2|q3|q4|p1|p2|p3))?$/);
+  if (m) {
+    return {
+      base: "totals",
+      period: m[1] ? PERIOD_SUFFIX[m[1]] ?? m[1].toUpperCase() : "",
+      alt: false,
+      rawKey: key,
+    };
+  }
   if (/^race_to/i.test(key)) return { base: "other", period: "", alt: false, rawKey: key };
 
   return { base: "other", period: "", alt: false, rawKey: key };
@@ -96,7 +114,11 @@ function humanizeUnknownKey(key: string): string {
 
 function marketTitle(d: Decoded): string {
   if (d.base === "other") return humanizeUnknownKey(d.rawKey);
-  if (d.rawKey.includes("team_total")) return "Team Total";
+  if (d.rawKey.includes("team_total")) {
+    const altPrefix = d.alt ? "Alt " : "";
+    const periodPrefix = d.period ? `${d.period} ` : "";
+    return `${periodPrefix}${altPrefix}Team Total`.replace(/\s+/g, " ").trim();
+  }
   const baseLabel =
     d.base === "h2h"
       ? "Moneyline"
@@ -132,6 +154,14 @@ function pickForOutcome(
   if (d.base === "spreads" || (d.base === "other" && /spread|run_line|run line|handicap/i.test(d.rawKey))) {
     const pt = point == null ? "" : ` ${point > 0 ? "+" : ""}${point}`;
     return `${teamLabel(name)}${pt}`;
+  }
+  if (d.rawKey.includes("team_total")) {
+    const side = /\bunder\b/i.test(name) ? "Under" : /\bover\b/i.test(name) ? "Over" : null;
+    const teamRaw = name.replace(/\s*(over|under)\s*/i, " ").trim();
+    const team = teamLabel(teamRaw) || teamLabel(name);
+    const pt = point == null ? "" : ` ${point}`;
+    if (side && team) return `${team} ${side}${pt}`;
+    return `${teamLabel(name)}${pt}`.trim();
   }
   if (d.base === "totals" || d.base === "other") {
     const pt = point == null ? "" : ` ${point}`;

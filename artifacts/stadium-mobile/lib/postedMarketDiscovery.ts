@@ -8,6 +8,30 @@ const EVAL_ALT_MAX_JUICE = -1000;
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
+/** True when bare nicknames collide across schools / with pro teams. */
+function usesFullTeamLabel(sport: string | null | undefined): boolean {
+  const s = String(sport ?? "").toLowerCase();
+  return (
+    s === "ncaaf" ||
+    s === "ncaab" ||
+    s === "cfb" ||
+    s === "cbb" ||
+    s === "soccer"
+  );
+}
+
+/** Pro boards keep short nicknames; college / soccer keep disambiguating names. */
+export function gameLineTeamLabel(
+  fullName: string,
+  sport: string | null | undefined,
+): string {
+  const name = String(fullName ?? "").trim();
+  if (!name) return name;
+  if (usesFullTeamLabel(sport)) return name;
+  return nickname(name);
+}
+
+
 const PERIOD_SUFFIX: Record<string, string> = {
   h1: "1H",
   h2: "2H",
@@ -62,7 +86,26 @@ function decodeMarketKey(key: string): Decoded | null {
     return { base: m[1] as Decoded["base"], period, alt: false, rawKey: k };
   }
 
-  if (/^team_totals?$/i.test(k)) return { base: "totals", period: "", alt: false, rawKey: k };
+  // Team totals = team props (points O/U) — FanDuel-style college boards lean on
+  // these + period spreads, not player yards. Include alt + quarter/half keys.
+  m = k.match(/^alternate_team_totals(?:_(h1|h2|q1|q2|q3|q4|p1|p2|p3))?$/);
+  if (m) {
+    return {
+      base: "totals",
+      period: m[1] ? PERIOD_SUFFIX[m[1]] ?? m[1].toUpperCase() : "",
+      alt: true,
+      rawKey: k,
+    };
+  }
+  m = k.match(/^team_totals(?:_(h1|h2|q1|q2|q3|q4|p1|p2|p3))?$/);
+  if (m) {
+    return {
+      base: "totals",
+      period: m[1] ? PERIOD_SUFFIX[m[1]] ?? m[1].toUpperCase() : "",
+      alt: false,
+      rawKey: k,
+    };
+  }
   if (/^race_to/i.test(k)) return { base: "other", period: "", alt: false, rawKey: k };
 
   return { base: "other", period: "", alt: false, rawKey: k };
@@ -83,7 +126,12 @@ function humanizeUnknownKey(key: string): string {
 
 function marketTitle(d: Decoded): string {
   if (d.base === "other") return humanizeUnknownKey(d.rawKey);
-  if (d.rawKey.includes("team_total")) return "Team Total";
+  // Team totals are team props (not game totals) — keep "Team Total" in the label.
+  if (d.rawKey.includes("team_total")) {
+    const altPrefix = d.alt ? "Alt " : "";
+    const periodPrefix = d.period ? `${d.period} ` : "";
+    return `${periodPrefix}${altPrefix}Team Total`.replace(/\s+/g, " ").trim();
+  }
   const baseLabel =
     d.base === "h2h"
       ? "Moneyline"
@@ -141,6 +189,15 @@ function pickForOutcome(
     const pt = point == null ? "" : ` ${point > 0 ? "+" : ""}${point}`;
     return `${teamLabel(name)}${pt}`;
   }
+  // Team totals: keep school/team + Over/Under so college cards read as team props.
+  if (d.rawKey.includes("team_total")) {
+    const side = /\bunder\b/i.test(name) ? "Under" : /\bover\b/i.test(name) ? "Over" : null;
+    const teamRaw = name.replace(/\s*(over|under)\s*/i, " ").trim();
+    const team = teamLabel(teamRaw) || teamLabel(name);
+    const pt = point == null ? "" : ` ${point}`;
+    if (side && team) return `${team} ${side}${pt}`;
+    return `${teamLabel(name)}${pt}`.trim();
+  }
   if (d.base === "totals" || d.base === "other") {
     const pt = point == null ? "" : ` ${point}`;
     return `${name}${pt}`.trim();
@@ -162,8 +219,9 @@ export function discoverAllPostedGameLines(g: OddsGame): RealOddsEntry[] {
   if (!g?.markets?.length) return [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
   const base = { sport: g.sport, game, startsAt: g.commenceTime };
-  const isSoccer = g.sport === "soccer";
-  const teamLabel = (name: string) => (isSoccer ? name : nickname(name));
+  // College nicknames collide (Tigers/Bulldogs) and with pro boards (49ers).
+  // Phone: "7 leg college" showed bare "49ers +27.5" — looked like NFL SF.
+  const teamLabel = (name: string) => gameLineTeamLabel(name, g.sport);
   const out: RealOddsEntry[] = [];
   const seen = new Set<string>();
 
