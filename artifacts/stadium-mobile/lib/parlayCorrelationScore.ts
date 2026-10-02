@@ -60,13 +60,23 @@ export function maxLegsPerGame(target: number, override?: number | null): number
 /** Compute per-game cap from ask intent (no props / from N games). */
 export function legsPerGameCapForAsk(
   target: number,
-  opts?: { gameLinesOnly?: boolean; maxGames?: number | null },
+  opts?: {
+    gameLinesOnly?: boolean;
+    maxGames?: number | null;
+    /** College team markets: FG + Q2 + team totals may share a game. */
+    collegeTeamMarketStacks?: boolean;
+  },
 ): number | null {
   if (!opts?.gameLinesOnly && (opts?.maxGames == null || opts.maxGames <= 0)) {
     return null;
   }
   const games = Math.max(1, opts?.maxGames ?? 2);
-  return Math.max(maxLegsPerGame(target), Math.ceil(target / games));
+  const base = Math.max(maxLegsPerGame(target), Math.ceil(target / games));
+  if (opts?.collegeTeamMarketStacks) {
+    // Enough seats for spread + period spread + team total (+ alt) per game.
+    return Math.max(base, Math.min(target, 4));
+  }
+  return base;
 }
 
 /**
@@ -76,16 +86,20 @@ export function legsPerGameCapForAsk(
  * callers still only pull from the AI-qualified pool.
  *
  * Ceiling is ceil(target / 2): enough for a 2-game early NFL window without
- * turning a deep ask into a single-game SGP dump.
+ * turning a deep ask into a single-game SGP dump. College team-market fills
+ * may climb higher (up to min(target, 5)) so FG+Q2+team-total stacks can
+ * finish a deep ask from a thin Saturday slate.
  */
 export function progressiveLegsPerGameRelaxation(
   target: number,
   currentCap?: number | null,
+  opts?: { collegeTeamMarketStacks?: boolean },
 ): number[] {
   if (target < 5) return [];
   const base = maxLegsPerGame(target, currentCap);
-  // Enough for a 2-game early NFL window without a single-game SGP dump.
-  const ceiling = Math.min(target, Math.ceil(target / 2));
+  const ceiling = opts?.collegeTeamMarketStacks
+    ? Math.min(target, Math.max(Math.ceil(target / 2), 5))
+    : Math.min(target, Math.ceil(target / 2));
   if (base >= ceiling) return [];
   const out: number[] = [];
   for (let c = base + 1; c <= ceiling; c++) out.push(c);

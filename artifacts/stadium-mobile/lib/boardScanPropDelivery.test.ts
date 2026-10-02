@@ -16,6 +16,7 @@ import {
   askRequiresFootballPropMix,
   askIsCollegeFootballOnly,
   askAllowsNcaafPlayerProps,
+  askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
   skillPropFamily,
   skillPropRank,
@@ -71,6 +72,16 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
   assert.equal(askAllowsNcaafPlayerProps("8 leg college football player props"), true);
   assert.equal(askAllowsNcaafPlayerProps("6 leg ncaaf rushing yards"), true);
   assert.equal(askAllowsNcaafPlayerProps("5 leg college team props"), false);
+});
+
+test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", () => {
+  assert.equal(askAllowsCollegeTeamMarketStacks("7 leg college"), true);
+  assert.equal(askAllowsCollegeTeamMarketStacks("8 leg NCAAF"), true);
+  assert.equal(askAllowsCollegeTeamMarketStacks("7 leg college team props"), true);
+  assert.equal(askAllowsCollegeTeamMarketStacks("college player props"), false);
+  assert.equal(askAllowsCollegeTeamMarketStacks("8 leg soccer and college"), false);
+  assert.equal(askAllowsCollegeTeamMarketStacks("team props nhl"), false);
+  assert.equal(askAllowsCollegeTeamMarketStacks("no player props"), false);
 });
 
 test("filterNcaafPlayerPropsUnlessAsked drops CFB player rows on bare college asks", () => {

@@ -67,6 +67,16 @@ export function askIsCollegeFootballOnly(text?: string | null): boolean {
 }
 
 /**
+ * College books post FG spreads + Q2 / 1H + team totals as the team-prop surface.
+ * Allow those same-team period stacks under the raised per-game cap so a
+ * "7 leg college" ask can fill toward N from qualified team markets — unlike
+ * NHL "team props", which still collapses FG+Q2 to one side per team.
+ */
+export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean {
+  return askIsCollegeFootballOnly(text) && !askAllowsNcaafPlayerProps(text);
+}
+
+/**
  * True when the user explicitly asked for CFB player props / skill markets.
  * Bare "8 leg college" stays on team spreads / totals / period lines.
  */

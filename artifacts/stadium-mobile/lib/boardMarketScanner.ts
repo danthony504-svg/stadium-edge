@@ -797,6 +797,11 @@ export function buildScanResult(
     propsOnly?: boolean;
     /** Drop props from staging (game-lines-only asks). */
     gameLinesOnly?: boolean;
+    /**
+     * College team-market fills: keep FG + Q2 + team totals under the
+     * per-game cap instead of collapsing to one side per team.
+     */
+    collegeTeamMarketStacks?: boolean;
     /** Override max game-line legs per matchup. */
     legsPerGameCap?: number;
     /** Prop scoring was cut short before any prop legs landed. */
@@ -849,8 +854,10 @@ export function buildScanResult(
   if (!opts.gameLinesOnly && !opts.propsOnly) {
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
-  // Team props / game-lines-only: one side per team before top-up (no FG+Q2 Browns).
-  if (opts.gameLinesOnly) {
+  // Team props / game-lines-only: one side per team before top-up (no FG+Q2
+  // Browns). College team-market boards intentionally keep period + team-total
+  // stacks so "7 leg college" can fill toward N from qualified team markets.
+  if (opts.gameLinesOnly && !opts.collegeTeamMarketStacks) {
     picks = collapseSameTeamGameLineSides(picks);
   }
   // Final tickets: if combinators left seats empty while more AI-qualified legs
@@ -863,7 +870,12 @@ export function buildScanResult(
       opts.target,
       opts.varietySeed,
       opts.legsPerGameCap,
-      opts.gameLinesOnly ? { collapseSameTeamSides: true } : undefined,
+      opts.gameLinesOnly
+        ? {
+            collapseSameTeamSides: !opts.collegeTeamMarketStacks,
+            collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
+          }
+        : undefined,
     );
     // Top-up may have added game lines first on short tickets — enforce prop mix again.
     if (!opts.gameLinesOnly && !opts.propsOnly) {
@@ -1040,6 +1052,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   /** Drop player props from staging (game lines / alts / periods only). */
   gameLinesOnly?: boolean;
   /**
+   * College team-market fills: allow FG + Q2 + team totals under per-game caps
+   * instead of collapsing same-team period sides (NHL team props still collapse).
+   */
+  collegeTeamMarketStacks?: boolean;
+  /**
    * College books mostly post team markets — when true, strip NCAAF/CFB
    * player props from the scan pool (mixed "soccer and college" keeps soccer).
    */
@@ -1155,6 +1172,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       requestId: opts.requestId,
       propsOnly: opts.propsOnly,
       gameLinesOnly: opts.gameLinesOnly,
+      collegeTeamMarketStacks: opts.collegeTeamMarketStacks,
       legsPerGameCap: opts.legsPerGameCap,
       requirePropMix: opts.requirePropMix,
       prioritySports: opts.prioritySports,
@@ -1442,6 +1460,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     requestId: opts.requestId,
     propsOnly: opts.propsOnly,
     gameLinesOnly: opts.gameLinesOnly,
+    collegeTeamMarketStacks: opts.collegeTeamMarketStacks,
     legsPerGameCap: opts.legsPerGameCap,
     propPhaseIncomplete,
     requirePropMix: opts.requirePropMix,
