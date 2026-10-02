@@ -18,6 +18,7 @@ import {
   askAllowsNcaafPlayerProps,
   askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
+  fillReservedPeriodSlots,
   skillPropFamily,
   skillPropRank,
 } from "./boardScanPropDelivery.ts";
@@ -46,17 +47,17 @@ test("5-leg reserved prop slots leave exactly 2 game-line preview capacity", () 
   assert.equal(boardScanNonPropPreviewCap(5), 2);
 });
 
-test("askRequiresFootballPropMix: NFL mix yes; bare college stays team markets", () => {
+test("askRequiresFootballPropMix: NFL + bare college yards mix; team props stay off", () => {
   assert.equal(askRequiresFootballPropMix("10 leg nfl"), true);
   assert.equal(askRequiresFootballPropMix("10 leg football"), true);
-  // College books post team props — bare NCAAF/CFB must NOT force player-prop mix.
-  assert.equal(askRequiresFootballPropMix("10-leg NCAAF"), false);
-  assert.equal(askRequiresFootballPropMix("8 leg college football"), false);
-  assert.equal(askRequiresFootballPropMix("8 leg college"), false);
-  assert.equal(askRequiresFootballPropMix("6 leg cfb"), false);
-  assert.equal(askRequiresFootballPropMix("8 leg collage football"), false);
-  // Explicit CFB player-prop asks still use the football props path.
+  // Bare college includes posted yards with team/period markets.
+  assert.equal(askRequiresFootballPropMix("10-leg NCAAF"), true);
+  assert.equal(askRequiresFootballPropMix("8 leg college football"), true);
+  assert.equal(askRequiresFootballPropMix("8 leg college"), true);
+  assert.equal(askRequiresFootballPropMix("6 leg cfb"), true);
+  assert.equal(askRequiresFootballPropMix("8 leg collage football"), true);
   assert.equal(askRequiresFootballPropMix("8 leg college football player props"), true);
+  assert.equal(askRequiresFootballPropMix("7 leg college team props"), false);
   assert.equal(askRequiresFootballPropMix("10 leg nfl with no player props"), false);
   assert.equal(askRequiresFootballPropMix("10 leg mlb"), false);
   assert.equal(askRequiresFootballPropMix("6 leg nba"), false);
@@ -68,7 +69,7 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
   assert.equal(askIsCollegeFootballOnly("8 leg soccer and college"), false);
   assert.equal(askIsCollegeFootballOnly("10 leg nfl"), false);
   assert.equal(askIsCollegeFootballOnly("10 leg football"), false);
-  assert.equal(askAllowsNcaafPlayerProps("8 leg college"), false);
+  assert.equal(askAllowsNcaafPlayerProps("8 leg college"), true);
   assert.equal(askAllowsNcaafPlayerProps("8 leg college football player props"), true);
   assert.equal(askAllowsNcaafPlayerProps("6 leg ncaaf rushing yards"), true);
   assert.equal(askAllowsNcaafPlayerProps("5 leg college team props"), false);
@@ -78,26 +79,88 @@ test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", (
   assert.equal(askAllowsCollegeTeamMarketStacks("7 leg college"), true);
   assert.equal(askAllowsCollegeTeamMarketStacks("8 leg NCAAF"), true);
   assert.equal(askAllowsCollegeTeamMarketStacks("7 leg college team props"), true);
-  assert.equal(askAllowsCollegeTeamMarketStacks("college player props"), false);
+  assert.equal(askAllowsCollegeTeamMarketStacks("college player props"), true);
   assert.equal(askAllowsCollegeTeamMarketStacks("8 leg soccer and college"), false);
   assert.equal(askAllowsCollegeTeamMarketStacks("team props nhl"), false);
   assert.equal(askAllowsCollegeTeamMarketStacks("no player props"), false);
 });
 
-test("filterNcaafPlayerPropsUnlessAsked drops CFB player rows on bare college asks", () => {
+test("bare college allows NCAAF yards + football prop mix", () => {
+  assert.equal(askAllowsNcaafPlayerProps("7 leg college"), true);
+  assert.equal(askRequiresFootballPropMix("7 leg college"), true);
+  assert.equal(askAllowsNcaafPlayerProps("7 leg college team props"), false);
+  assert.equal(askRequiresFootballPropMix("7 leg college team props"), false);
+});
+
+test("filterNcaafPlayerPropsUnlessAsked keeps CFB yards on bare college; strips on mixed/team-props", () => {
   const rows = [
     { sport: "ncaaf", isProp: true, market: "player_reception_yds" },
     { sport: "ncaaf", isProp: false, market: "Spread" },
     { sport: "soccer", isProp: true, market: "player_shots" },
     { sport: "nfl", isProp: true, market: "player_pass_yds" },
   ];
+  // Mixed board still strips CFB player props unless named.
   const filtered = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg soccer and college");
   assert.deepEqual(
     filtered.map((r) => `${r.sport}:${r.market}`),
     ["ncaaf:Spread", "soccer:player_shots", "nfl:player_pass_yds"],
   );
+  // Bare college keeps posted yards in the mix.
+  const bare = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg college");
+  assert.equal(bare.length, 4);
   const allowed = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg college player props");
   assert.equal(allowed.length, 4);
+  const teamOnly = filterNcaafPlayerPropsUnlessAsked(rows, "7 leg college team props");
+  assert.deepEqual(
+    teamOnly.map((r) => `${r.sport}:${r.market}`),
+    ["ncaaf:Spread", "soccer:player_shots", "nfl:player_pass_yds"],
+  );
+});
+
+test("fillReservedPeriodSlots swaps FG alts for half/quarter on college tickets", () => {
+  const target = 8;
+  const fgHeavy = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    sport: "ncaaf",
+    market: "Spread",
+    pick: `Team${i} +3.5`,
+    game: `Away${i} @ Home${i}`,
+    odds: -110,
+    finalAiScore: { composite: 50 + i },
+  }));
+  const scored = [
+    ...fgHeavy.map((pick, i) => ({ pick, rankScore: 50 + i })),
+    {
+      pick: {
+        isProp: false,
+        sport: "ncaaf",
+        market: "Q2 Spread",
+        pick: "Iowa Hawkeyes +7.5",
+        game: "Ohio State Buckeyes @ Iowa Hawkeyes",
+        odds: -110,
+        finalAiScore: { composite: 80 },
+      },
+      rankScore: 90,
+    },
+    {
+      pick: {
+        isProp: false,
+        sport: "ncaaf",
+        market: "1H Spread",
+        pick: "UConn Huskies +3.5",
+        game: "Syracuse Orange @ UConn Huskies",
+        odds: -110,
+        finalAiScore: { composite: 78 },
+      },
+      rankScore: 88,
+    },
+  ];
+  const filled = fillReservedPeriodSlots(fgHeavy, scored, target, 4);
+  const periods = filled.filter((p) => /q2|1h/i.test(p.market ?? ""));
+  assert.ok(
+    periods.length >= 2,
+    `expected ≥2 period seats, got ${periods.map((p) => p.market).join(",")}`,
+  );
 });
 
 test("phone screenshot: final football mix delivers scored GLs when props miss", () => {
@@ -631,11 +694,9 @@ test("skillPropRank covers MLB / NBA / NHL / soccer families (not football-only)
   assert.ok(skillPropRank("player_pass_yds") > 0);
 });
 
-test("fillReservedPropSlots keeps college football game lines (no CFB player-prop swap)", () => {
-  // Phone: college books post team spreads / Q lines — not REC YDS / RUSH YDS.
-  // fillReservedPropSlots must not evict NCAAF game lines for player props when
-  // the scored pool still has them (mixed boards); college-only asks strip the
-  // pool earlier via filterNcaafPlayerPropsUnlessAsked / gameLinesOnly.
+test("fillReservedPropSlots keeps college football game lines when no CFB props scored", () => {
+  // When the scored pool has no CFB player props (thin board / team-props ask),
+  // fillReservedPropSlots must not invent yards — keep the NCAAF game lines.
   const target = 8;
   const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
     isProp: false,
@@ -647,7 +708,6 @@ test("fillReservedPropSlots keeps college football game lines (no CFB player-pro
     side: null as string | null,
     scores: { composite: 40 },
   }));
-  // Simulate college-only filter: NCAAF player props already stripped from scored.
   const scored = gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i }));
   const out = fillReservedPropSlots(gameHeavy, scored, target);
   assert.equal(out.filter((p) => p.isProp).length, 0, "no CFB player props invented");

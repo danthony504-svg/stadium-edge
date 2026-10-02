@@ -8,7 +8,7 @@ import {
   parseCoachAskMarketConstraint,
   propMarketKeyAllowed,
 } from "./coachAskMarketFilter.ts";
-import { askAllowsNcaafPlayerProps } from "./boardScanPropDelivery.ts";
+import { askAllowsNcaafPlayerProps, askRequiresFootballPropMix } from "./boardScanPropDelivery.ts";
 
 test("phone ask: rushing and passing yards → props-only rush+pass yds", () => {
   const c = parseCoachAskMarketConstraint("10 lag rushing and passing yards");
@@ -408,8 +408,9 @@ test("5 leg NHL team props → game lines (not player Under 0.5 stack)", () => {
   );
 });
 
-test("bare college / NCAAF → game lines (team props, not REC YDS player props)", () => {
-  // Phone: college books post spreads / team totals / Q2 spreads — not player yards.
+test("bare college / NCAAF → mix (yards + half/quarter + FG), not gameLinesOnly", () => {
+  // Phone: college should include rush/pass/rec yards when posted, plus 1H/Q
+  // team markets — not FG spreads only. Explicit "team props" stays GL-only.
   for (const ask of [
     "8 leg college",
     "8 leg college football",
@@ -419,12 +420,18 @@ test("bare college / NCAAF → game lines (team props, not REC YDS player props)
   ]) {
     const c = parseCoachAskMarketConstraint(ask);
     assert.equal(c.propsOnly, false, `${ask}: not propsOnly`);
-    assert.equal(c.gameLinesOnly, true, `${ask}: gameLinesOnly for team markets`);
+    assert.equal(c.gameLinesOnly, false, `${ask}: mix board, not gameLinesOnly`);
+    assert.equal(askAllowsNcaafPlayerProps(ask), true, `${ask}: yards allowed`);
+    assert.equal(askRequiresFootballPropMix(ask), true, `${ask}: prop mix`);
   }
-  // Explicit CFB player props still win.
+  // Explicit CFB player props still props-only.
   const propsAsk = parseCoachAskMarketConstraint("8 leg college football player props");
   assert.equal(propsAsk.propsOnly, true);
   assert.equal(propsAsk.gameLinesOnly, false);
+  // Explicit team props stay on team markets (no yards).
+  const teamAsk = parseCoachAskMarketConstraint("7 leg college team props");
+  assert.equal(teamAsk.gameLinesOnly, true);
+  assert.equal(askAllowsNcaafPlayerProps("7 leg college team props"), false);
   // Mixed soccer + college must not kill soccer props via gameLinesOnly,
   // and must still strip CFB player props unless the ask named them.
   const mixed = parseCoachAskMarketConstraint("8 leg soccer and college");

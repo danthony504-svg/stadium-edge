@@ -10,6 +10,8 @@ import {
 } from "./coachScanFailureReason.ts";
 import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import { COACH_PRIORITY_SPORTS } from "./coachPrioritySports.ts";
+import { isPeriodMainMarket } from "./altLinePool.ts";
+import { parseMarketPeriod } from "./simMarketSupport.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
@@ -71,14 +73,17 @@ export function askIsCollegeFootballOnly(text?: string | null): boolean {
  * Allow those same-team period stacks under the raised per-game cap so a
  * "7 leg college" ask can fill toward N from qualified team markets — unlike
  * NHL "team props", which still collapses FG+Q2 to one side per team.
+ * Applies on college mix tickets (yards + periods), not only game-lines-only.
  */
 export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean {
-  return askIsCollegeFootballOnly(text) && !askAllowsNcaafPlayerProps(text);
+  return askIsCollegeFootballOnly(text);
 }
 
 /**
- * True when the user explicitly asked for CFB player props / skill markets.
- * Bare "8 leg college" stays on team spreads / totals / period lines.
+ * True when CFB player props / skill markets may enter the pool.
+ * Bare "8 leg college" includes posted player yards (Odds API has no FanDuel
+ * Team Yards) alongside spreads / half / quarter team markets.
+ * Explicit "team props" / "no player props" still blocks.
  */
 export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   const t = String(text ?? "")
@@ -109,6 +114,8 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   ) {
     return true;
   }
+  // Bare college / NCAAF — score posted player yards with the team-market mix.
+  if (askIsCollegeFootballOnly(t)) return true;
   return false;
 }
 
@@ -129,10 +136,9 @@ export function filterNcaafPlayerPropsUnlessAsked<
 }
 
 /**
- * Bare "10 leg nfl" / "football" asks expect a skill-prop mix.
- * Bare NCAAF / college football stays on team markets (spreads / totals /
- * period lines) — college books rarely post player yards boards.
- * Not props-only (spreads can remain) and not "with no player props".
+ * Bare "10 leg nfl" / "football" / "college" asks expect a skill-prop mix
+ * (yards + team markets). Explicit "team props" / "no player props" stay off.
+ * Not props-only (spreads can remain).
  */
 export function askRequiresFootballPropMix(text?: string | null): boolean {
   const t = String(text ?? "").toLowerCase();
@@ -142,15 +148,14 @@ export function askRequiresFootballPropMix(text?: string | null): boolean {
   if (/\bno\s+props?\b/.test(t)) return false;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return false;
   if (/\bsides?\s+only\b/.test(t)) return false;
-  // College-only without explicit player-prop ask → team markets, not prop mix.
-  if (askIsCollegeFootballOnly(t) && !askAllowsNcaafPlayerProps(t)) return false;
+  // Explicit team-props asks stay on team markets only (no yards mix).
+  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
+  if (askIsCollegeFootballOnly(t)) return askAllowsNcaafPlayerProps(t);
   return (
     /\bnfl\b/.test(t) ||
-    // Explicit CFB player-prop asks still use the football mix / props path.
-    (askIsCollegeFootballOnly(t) && askAllowsNcaafPlayerProps(t)) ||
     (/\bfootball\b/.test(t) &&
       !/\bsoccer|nba|mlb|nhl|wnba|ncaab\b/.test(t) &&
-      // "college football" is handled above — don't treat it as NFL mix.
+      // "college football" is handled above — don't double-count.
       !/\bcollege\s+football\b|\bcollage\s+football\b|\bncaaf\b|\bcfb\b/.test(t))
   );
 }
@@ -634,6 +639,103 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     used.add(fp);
     propCount += 1;
     if (fam) familyCounts.set(fam, (familyCounts.get(fam) ?? 0) + 1);
+  }
+
+  return out.slice(0, target);
+}
+
+/** ~25% of an N-leg college ticket reserved for half / quarter team markets. */
+export function boardScanPeriodSlotCount(targetLegs: number): number {
+  if (targetLegs < 4) return 0;
+  return Math.max(1, Math.round(targetLegs * 0.25));
+}
+
+/** True for 1H / Q1–Q4 / period team totals — not full-game FG spreads. */
+export function isCollegePeriodMarketPick(pick: {
+  market?: string | null;
+  isProp?: boolean;
+}): boolean {
+  if (pick.isProp) return false;
+  const m = String(pick.market ?? "");
+  if (!m.trim()) return false;
+  if (isPeriodMainMarket(m)) return true;
+  if (parseMarketPeriod(m) !== "fg") return true;
+  return false;
+}
+
+/**
+ * College mix: reserve half/quarter seats so FG alt spreads cannot fill every
+ * slot before period team markets get a chance. Swaps lowest-ranked FG legs
+ * for qualified period leftovers — never invents filler.
+ */
+export function fillReservedPeriodSlots<T extends PropFillPick>(
+  picks: T[],
+  scored: PropFillLeg<T>[],
+  target: number,
+  legsPerGameCap?: number | null,
+): T[] {
+  if (target < 4) return picks.slice(0, Math.max(0, target));
+  const periodSlots = boardScanPeriodSlotCount(target);
+  if (periodSlots <= 0) return picks.slice(0, target);
+
+  let out = picks.slice(0, target);
+  const used = new Set(out.map(propFillFingerprint));
+  let periodCount = out.filter((p) => isCollegePeriodMarketPick(p)).length;
+  if (periodCount >= periodSlots) return out;
+
+  const remaining = () =>
+    scored.filter((leg) => {
+      if (!isCollegePeriodMarketPick(leg.pick)) return false;
+      return !used.has(propFillFingerprint(leg.pick));
+    });
+
+  const pickNext = () => {
+    const pool = remaining().sort((a, b) => {
+      const rank = (b.rankScore ?? 0) - (a.rankScore ?? 0);
+      if (rank !== 0) return rank;
+      return propFillComposite(b.pick) - propFillComposite(a.pick);
+    });
+    return pool[0] ?? null;
+  };
+
+  while (periodCount < periodSlots) {
+    const cand = pickNext();
+    if (!cand) break;
+    const fp = propFillFingerprint(cand.pick);
+    const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
+
+    if (out.length < target) {
+      if (wouldExceedMaxLegsPerGame(cand.pick, out, maxPerGame)) {
+        used.add(fp);
+        continue;
+      }
+      out = [...out, cand.pick];
+    } else {
+      // Prefer swapping a full-game non-prop leg (FG spread/ML/total).
+      let worstIdx = -1;
+      let worstScore = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < out.length; i++) {
+        const p = out[i]!;
+        if (p.isProp) continue;
+        if (isCollegePeriodMarketPick(p)) continue;
+        const score = propFillComposite(p);
+        if (score < worstScore) {
+          worstScore = score;
+          worstIdx = i;
+        }
+      }
+      if (worstIdx < 0) break;
+      const withoutWorst = out.filter((_, i) => i !== worstIdx);
+      if (wouldExceedMaxLegsPerGame(cand.pick, withoutWorst, maxPerGame)) {
+        used.add(fp);
+        continue;
+      }
+      const next = out.slice();
+      next[worstIdx] = cand.pick;
+      out = next;
+    }
+    used.add(fp);
+    periodCount += 1;
   }
 
   return out.slice(0, target);

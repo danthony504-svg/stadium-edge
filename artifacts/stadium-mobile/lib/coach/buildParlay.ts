@@ -414,7 +414,7 @@ export async function buildCoachParlay(opts: {
 
   // Allowlisted / props-only pools must not re-expand to the full board
   // (filtered yards pools are often < 40 and would otherwise undo the allowlist).
-  // Game-lines-only (incl. bare college) must not re-fetch player props either.
+  // Game-lines-only (team props / no player props) must not re-fetch player props.
   const skipPropExpand =
     propsOnly ||
     gameLinesOnly ||
