@@ -1738,16 +1738,33 @@ function appendPeriodEvalGameLines(
       out.push({ ...base, market, pick: `${teamLabel(o.name)} ML`, odds: o.price! });
     }
   };
+  const pushTeamTotal = (market: string, outcomes: OddsOutcome[] | undefined) => {
+    for (const o of outcomes ?? []) {
+      if (!evalPriceOk(o.price)) continue;
+      const side = /\bunder\b/i.test(o.name) ? "Under" : /\bover\b/i.test(o.name) ? "Over" : null;
+      const teamRaw = o.name.replace(/\s*(over|under)\s*/i, " ").trim();
+      const team = teamLabel(teamRaw) || teamLabel(o.name);
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      const pick =
+        side && team ? `${team} ${side}${pt}` : `${teamLabel(o.name)}${pt}`.trim();
+      out.push({ ...base, market, pick, odds: o.price! });
+    }
+  };
 
   for (const [suffix, plabel] of Object.entries(PERIOD_LABEL)) {
     pushMl(`${plabel} Moneyline`, g.markets.find((m) => m.key === `h2h_${suffix}`)?.outcomes);
     pushSpread(`${plabel} Spread`, g.markets.find((m) => m.key === `spreads_${suffix}`)?.outcomes);
     pushTotal(`${plabel} Total`, g.markets.find((m) => m.key === `totals_${suffix}`)?.outcomes);
+    pushTeamTotal(`${plabel} Team Total`, g.markets.find((m) => m.key === `team_totals_${suffix}`)?.outcomes);
   }
 
   for (const [suffix, plabel] of Object.entries(PERIOD_LABEL)) {
     pushSpread(`${plabel} Alt Spread`, g.markets.find((m) => m.key === `alternate_spreads_${suffix}`)?.outcomes);
     pushTotal(`${plabel} Alt Total`, g.markets.find((m) => m.key === `alternate_totals_${suffix}`)?.outcomes);
+    pushTeamTotal(
+      `${plabel} Alt Team Total`,
+      g.markets.find((m) => m.key === `alternate_team_totals_${suffix}`)?.outcomes,
+    );
   }
 
   pushMl("F5 Moneyline", g.markets.find((m) => m.key === "h2h_1st_5_innings")?.outcomes);

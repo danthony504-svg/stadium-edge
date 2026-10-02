@@ -114,3 +114,41 @@ test("phone: college 49ers pick keeps Charlotte — not bare NFL-looking 49ers",
   assert.equal(lines[0]!.pick, "Charlotte 49ers +27.5");
   assert.equal(lines[0]!.market, "Alt Spread");
 });
+
+test("college team props: team totals + Q2 team totals humanize (not player yards)", () => {
+  // FanDuel college boards post Team Yards (book-only) + spreads/team totals.
+  // Odds API team_totals / period team totals are the feed's team-prop surface.
+  assert.equal(humanizeOddsApiMarketKey("team_totals"), "Team Total");
+  assert.equal(humanizeOddsApiMarketKey("alternate_team_totals"), "Alt Team Total");
+  assert.equal(humanizeOddsApiMarketKey("team_totals_q2"), "Q2 Team Total");
+  assert.equal(humanizeOddsApiMarketKey("alternate_team_totals_q1"), "Q1 Alt Team Total");
+
+  const g = {
+    id: "ev-pitt-vt",
+    sport: "ncaaf",
+    homeTeam: "Virginia Tech Hokies",
+    awayTeam: "Pittsburgh Panthers",
+    commenceTime: "2026-10-02T23:00:00Z",
+    markets: [
+      {
+        key: "team_totals",
+        outcomes: [
+          { name: "Pittsburgh Panthers Over", price: -110, point: 24.5 },
+          { name: "Virginia Tech Hokies Under", price: -115, point: 27.5 },
+        ],
+      },
+      {
+        key: "team_totals_q2",
+        outcomes: [{ name: "Pittsburgh Panthers Over", price: -105, point: 6.5 }],
+      },
+      {
+        key: "alternate_team_totals",
+        outcomes: [{ name: "Virginia Tech Hokies Over", price: -120, point: 30.5 }],
+      },
+    ],
+  };
+  const lines = discoverAllPostedGameLines(g);
+  assert.ok(lines.some((e) => e.market === "Team Total" && /Pittsburgh Panthers Over 24\.5/.test(e.pick)));
+  assert.ok(lines.some((e) => e.market === "Q2 Team Total" && /Pittsburgh Panthers Over 6\.5/.test(e.pick)));
+  assert.ok(lines.some((e) => e.market === "Alt Team Total" && /Virginia Tech Hokies Over 30\.5/.test(e.pick)));
+});
