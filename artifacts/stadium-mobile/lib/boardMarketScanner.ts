@@ -102,6 +102,7 @@ import {
   fillReservedPropSlots,
   finalizeFootballPropMixPicks,
   footballSkillPropRank,
+  filterNcaafPlayerPropsUnlessAsked,
   isFootballHeavyPickList,
   shouldKeepAwaitingPropSlots,
   shouldReservePropSeats,
@@ -1039,6 +1040,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   /** Drop player props from staging (game lines / alts / periods only). */
   gameLinesOnly?: boolean;
   /**
+   * College books mostly post team markets — when true, strip NCAAF/CFB
+   * player props from the scan pool (mixed "soccer and college" keeps soccer).
+   */
+  excludeNcaafPlayerProps?: boolean;
+  /**
    * Football mix asks: score props before game lines, and keep reserved prop
    * seats open on the final ticket so spreads cannot pad a full GL board.
    */
@@ -1090,11 +1096,22 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   );
 
   // Expand to the full posted prop board unless the caller already loaded it.
-  let pool = filterBettablePropPool(poolBase);
+  // Game-lines-only asks (team props / bare college) never expand into player props.
+  let pool = opts.gameLinesOnly ? [] : filterBettablePropPool(poolBase);
+  if (opts.excludeNcaafPlayerProps && pool.length > 0) {
+    // Ask text already decided exclude — pass a non-allowing sentinel.
+    pool = filterNcaafPlayerPropsUnlessAsked(pool, "team markets only");
+  }
   const poolExpandP =
-    opts.espnGames?.length && !opts.skipPropPoolExpand
+    opts.espnGames?.length && !opts.skipPropPoolExpand && !opts.gameLinesOnly
       ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
-          .then((rows) => filterBettablePropPool(rows))
+          .then((rows) => {
+            let next = filterBettablePropPool(rows);
+            if (opts.excludeNcaafPlayerProps) {
+              next = filterNcaafPlayerPropsUnlessAsked(next, "team markets only");
+            }
+            return next;
+          })
           .catch(() => null)
       : null;
 
@@ -1264,6 +1281,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         propPhaseIncomplete = true;
         return null;
       });
+  } else if (opts.gameLinesOnly) {
+    // Team props / bare college — never score player props.
+    propPhaseP = null;
   } else if (overlapProps) {
     // Prefetched non-football pools still overlap props with games.
     propPhaseP = runPropPhase(pool)
@@ -1336,6 +1356,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         propPhaseIncomplete = true;
       }
     }
+  } else if (opts.gameLinesOnly) {
+    // Keep propScoredAcc empty — team-market tickets stay on spreads/totals.
   } else if (!propPhaseP) {
     try {
       const propResult = await runPropPhase(pool);

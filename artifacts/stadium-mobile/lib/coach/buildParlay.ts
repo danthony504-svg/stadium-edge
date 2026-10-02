@@ -28,6 +28,8 @@ import {
   buildFinalCoachParlayNote,
   selectFinalCoachParlayPicks,
   askRequiresFootballPropMix,
+  askAllowsNcaafPlayerProps,
+  filterNcaafPlayerPropsUnlessAsked,
   finalizeFootballPropMixPicks,
 } from "@/lib/boardScanPropDelivery";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
@@ -207,6 +209,13 @@ export async function buildCoachParlay(opts: {
   });
   // Game-lines-only asks skip the prop board entirely.
   const constrainedPropPool = gameLinesOnly ? [] : scanPropPool;
+  // College books mostly post team markets — drop NCAAF player props unless
+  // the ask named yards / TD / player props (mixed "soccer and college" still
+  // keeps soccer props; only CFB player rows are stripped).
+  const collegeTeamPropPool =
+    propsOnly || askAllowsNcaafPlayerProps(opts.askText)
+      ? constrainedPropPool
+      : filterNcaafPlayerPropsUnlessAsked(constrainedPropPool, opts.askText);
   const hrBoardAsk =
     propsOnly &&
     (marketConstraint.allowedMarketKeys ?? []).some((k) => isBatterHomeRunMarket(k));
@@ -214,8 +223,8 @@ export async function buildCoachParlay(opts: {
   let mlbGameEnv: Record<string, unknown> | undefined;
   // Home-run asks want scorers — drop Under/No so MC budget hits Over 0.5.
   const activePropPool = hrBoardAsk
-    ? filterHrScorerPoolEntries(constrainedPropPool)
-    : constrainedPropPool;
+    ? filterHrScorerPoolEntries(collegeTeamPropPool)
+    : collegeTeamPropPool;
   const propPoolSize = activePropPool.length;
 
   const hasMlbProps = activePropPool.some(
@@ -402,8 +411,10 @@ export async function buildCoachParlay(opts: {
 
   // Allowlisted / props-only pools must not re-expand to the full board
   // (filtered yards pools are often < 40 and would otherwise undo the allowlist).
+  // Game-lines-only (incl. bare college) must not re-fetch player props either.
   const skipPropExpand =
     propsOnly ||
+    gameLinesOnly ||
     marketConstraint.allowedMarketKeys != null ||
     shouldSkipScannerPropExpand(propPoolSize);
 
@@ -425,6 +436,8 @@ export async function buildCoachParlay(opts: {
     legsPerGameCap: legsPerGameCap ?? undefined,
     gameLinesOnly,
     requirePropMix,
+    excludeNcaafPlayerProps:
+      !propsOnly && !askAllowsNcaafPlayerProps(opts.askText),
     mlbPlatoon,
     mlbGameEnv,
     oppRushDefense: Object.keys(oppRushDefense).length ? oppRushDefense : undefined,
