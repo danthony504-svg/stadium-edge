@@ -8,6 +8,30 @@ const EVAL_ALT_MAX_JUICE = -1000;
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
+/** True when bare nicknames collide across schools / with pro teams. */
+function usesFullTeamLabel(sport: string | null | undefined): boolean {
+  const s = String(sport ?? "").toLowerCase();
+  return (
+    s === "ncaaf" ||
+    s === "ncaab" ||
+    s === "cfb" ||
+    s === "cbb" ||
+    s === "soccer"
+  );
+}
+
+/** Pro boards keep short nicknames; college / soccer keep disambiguating names. */
+export function gameLineTeamLabel(
+  fullName: string,
+  sport: string | null | undefined,
+): string {
+  const name = String(fullName ?? "").trim();
+  if (!name) return name;
+  if (usesFullTeamLabel(sport)) return name;
+  return nickname(name);
+}
+
+
 const PERIOD_SUFFIX: Record<string, string> = {
   h1: "1H",
   h2: "2H",
@@ -162,8 +186,9 @@ export function discoverAllPostedGameLines(g: OddsGame): RealOddsEntry[] {
   if (!g?.markets?.length) return [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
   const base = { sport: g.sport, game, startsAt: g.commenceTime };
-  const isSoccer = g.sport === "soccer";
-  const teamLabel = (name: string) => (isSoccer ? name : nickname(name));
+  // College nicknames collide (Tigers/Bulldogs) and with pro boards (49ers).
+  // Phone: "7 leg college" showed bare "49ers +27.5" — looked like NFL SF.
+  const teamLabel = (name: string) => gameLineTeamLabel(name, g.sport);
   const out: RealOddsEntry[] = [];
   const seen = new Set<string>();
 

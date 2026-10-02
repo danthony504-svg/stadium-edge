@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   discoverAllPostedGameLines,
+  gameLineTeamLabel,
   humanizeOddsApiMarketKey,
   mergeEvalLadderWithDiscovered,
 } from "./postedMarketDiscovery.ts";
@@ -85,4 +86,31 @@ test("discoverAllPostedGameLines pick includes spread point (not bare team name)
   assert.ok(ku);
   assert.equal(ku!.market, "Spread");
   assert.match(ku!.pick, /-24\.5/);
+  // College keeps the school name — bare "Jayhawks" collides across boards.
+  assert.match(ku!.pick, /Kansas Jayhawks/i);
+});
+
+test("phone: college 49ers pick keeps Charlotte — not bare NFL-looking 49ers", () => {
+  assert.equal(gameLineTeamLabel("Charlotte 49ers", "ncaaf"), "Charlotte 49ers");
+  assert.equal(gameLineTeamLabel("San Francisco 49ers", "nfl"), "49ers");
+  assert.equal(gameLineTeamLabel("Alabama Crimson Tide", "ncaaf"), "Alabama Crimson Tide");
+  assert.equal(gameLineTeamLabel("Boston Celtics", "nba"), "Celtics");
+
+  const g = {
+    id: "ev-clt",
+    sport: "ncaaf",
+    homeTeam: "Charlotte 49ers",
+    awayTeam: "Memphis Tigers",
+    commenceTime: "2026-10-03T16:00:00Z",
+    markets: [
+      {
+        key: "alternate_spreads",
+        outcomes: [{ name: "Charlotte 49ers", price: -225, point: 27.5 }],
+      },
+    ],
+  };
+  const lines = discoverAllPostedGameLines(g);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]!.pick, "Charlotte 49ers +27.5");
+  assert.equal(lines[0]!.market, "Alt Spread");
 });

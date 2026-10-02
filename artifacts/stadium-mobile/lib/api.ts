@@ -1491,14 +1491,17 @@ export function buildRealOdds(
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
   const base = { sport: g.sport, game, startsAt: g.commenceTime };
-  // Soccer team names are multi-word ("Czech Republic", "South Korea"); the
-  // last-word `nickname` truncates them to a confusing, ambiguous moneyline /
-  // spread label ("Republic ML") that doesn't clearly name the home/away side.
-  // For soccer show the FULL team name so each leg reads "Czech Republic ML".
-  // US leagues keep the nickname ("Los Angeles Lakers" -> "Lakers"), correct
-  // there. The "Draw" outcome of a 3-way line is left as-is by either path.
-  const isSoccer = g.sport === "soccer";
-  const teamLabel = (name: string) => (isSoccer ? name : nickname(name));
+  // Soccer + college keep full names — college nicknames collide with each other
+  // and with pro boards (phone: Charlotte "49ers +27.5" looked like NFL SF).
+  const sportKey = String(g.sport ?? "").toLowerCase();
+  const teamLabel = (name: string) =>
+    sportKey === "soccer" ||
+    sportKey === "ncaaf" ||
+    sportKey === "ncaab" ||
+    sportKey === "cfb" ||
+    sportKey === "cbb"
+      ? name
+      : nickname(name);
   const h2h = g.markets.find((m) => m.key === "h2h");
   const spreads = g.markets.find((m) => m.key === "spreads");
   const totals = g.markets.find((m) => m.key === "totals");
@@ -1588,7 +1591,7 @@ export function buildRealOdds(
     const mainPts = new Set((spreads?.outcomes ?? []).map((o) => `${nickname(o.name)}|${o.point ?? ""}`));
     for (const o of bestRungPerSide(altSpreads.outcomes || [], (o) => nickname(o.name), mainPts, (o) => `${nickname(o.name)}|${o.point ?? ""}`)) {
       const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-      out.push({ ...base, market: "Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price });
+      out.push({ ...base, market: "Alt Spread", pick: `${teamLabel(o.name)}${pt}`, odds: o.price });
     }
   }
   if (altTotals) {
@@ -1644,7 +1647,7 @@ export function buildRealOdds(
       );
       for (const o of bestRungPerSide(altSpreadH1.outcomes || [], (o) => nickname(o.name), mainPts, (o) => `${nickname(o.name)}|${o.point ?? ""}`)) {
         const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-        out.push({ ...base, market: "1H Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price });
+        out.push({ ...base, market: "1H Alt Spread", pick: `${teamLabel(o.name)}${pt}`, odds: o.price });
       }
     }
     if (altTotalH1) {
@@ -1666,14 +1669,14 @@ export function buildRealOdds(
     if (f5ml) {
       for (const o of f5ml.outcomes || []) {
         if (o.price == null || !mainOk(o.price)) continue;
-        out.push({ ...base, market: "F5 Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price });
+        out.push({ ...base, market: "F5 Moneyline", pick: `${teamLabel(o.name)} ML`, odds: o.price });
       }
     }
     if (f5sp) {
       for (const o of f5sp.outcomes || []) {
         if (o.price == null || !mainOk(o.price)) continue;
         const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-        out.push({ ...base, market: "F5 Run Line", pick: `${nickname(o.name)}${pt}`, odds: o.price });
+        out.push({ ...base, market: "F5 Run Line", pick: `${teamLabel(o.name)}${pt}`, odds: o.price });
       }
     }
     if (f5tot) {
@@ -1759,8 +1762,15 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
   const base = { sport: g.sport, game, startsAt: g.commenceTime };
-  const isSoccer = g.sport === "soccer";
-  const teamLabel = (name: string) => (isSoccer ? name : nickname(name));
+  const sportKey = String(g.sport ?? "").toLowerCase();
+  const teamLabel = (name: string) =>
+    sportKey === "soccer" ||
+    sportKey === "ncaaf" ||
+    sportKey === "ncaab" ||
+    sportKey === "cfb" ||
+    sportKey === "cbb"
+      ? name
+      : nickname(name);
   const scoreInputs = (o: OddsOutcome) => ({
     noVigFair: o.noVigFair ?? null,
     edge: o.edge ?? null,

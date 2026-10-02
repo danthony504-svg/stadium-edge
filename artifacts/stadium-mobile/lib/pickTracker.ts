@@ -5,6 +5,7 @@
 import { americanToDecimal } from "./format.ts";
 import { familyKeyForPick } from "./marketWeighting.ts";
 import { parsePropLeg } from "./propLegParse.ts";
+import { parsePickLineNumber } from "./pickLineParse.ts";
 
 export type GradeOutcome = "win" | "loss" | "push" | "ungraded";
 
@@ -127,10 +128,7 @@ export function edgeBucket(edge: number | null | undefined): string | null {
 
 function lineFromPick(p: CapturablePick): number | null {
   if (p.propLine != null && Number.isFinite(p.propLine)) return p.propLine;
-  const m = p.pick.match(/[+-]?\d+(?:\.\d+)?/);
-  if (!m) return null;
-  const n = Number(m[0]);
-  return Number.isFinite(n) ? n : null;
+  return parsePickLineNumber(p.pick);
 }
 
 function playerFromPick(p: CapturablePick): string | null {
