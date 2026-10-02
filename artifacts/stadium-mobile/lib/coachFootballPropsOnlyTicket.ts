@@ -48,11 +48,14 @@ import {
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import {
   opponentTeamIdForProp,
+  ownTeamIdForProp,
   oppDefensePackForOpponent,
+  ownTeamPackForProp,
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
 import { propTeamAbbrBelongsToGame } from "./footballOppTeamId.ts";
 import {
+  adjustSimHitForOppDefenseTilt,
   nhlScoringMissingOppContext,
   pickDefenseAwareAlt,
   propOppDefenseTilt,
@@ -230,7 +233,7 @@ function scoredLegFromHit(
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, rawHit);
-  const hit = sanitizeSimHitForGrade(clipped, {
+  let hit = sanitizeSimHitForGrade(clipped, {
     market: norm.market,
     sport: norm.sport,
     isProp: true,
@@ -266,9 +269,21 @@ function scoredLegFromHit(
     espnGames: rushCtx?.espnGames,
     teamIdMap: rushCtx?.teamIdMap,
   });
+  const ownId = ownTeamIdForProp({
+    sport,
+    game: norm.game,
+    teamAbbr,
+    espnGames: rushCtx?.espnGames,
+    teamIdMap: rushCtx?.teamIdMap,
+  });
   const pack = oppDefensePackForOpponent({
     sport,
     opponentTeamId: oppId,
+    map: rushCtx?.oppRushDefense,
+  });
+  const ownPack = ownTeamPackForProp({
+    sport,
+    ownTeamId: ownId,
     map: rushCtx?.oppRushDefense,
   });
   const ph = lookupPropsOnlyPlayerHistory(
@@ -298,6 +313,7 @@ function scoredLegFromHit(
       side: norm.propSide,
       defense: pack?.rush ?? null,
       pack,
+      ownPack,
     })
   ) {
     return null;
@@ -308,7 +324,10 @@ function scoredLegFromHit(
     side: norm.propSide,
     defense: pack?.rush ?? null,
     pack,
+    ownPack,
   });
+  // Matchup must move projection/grade — adjust sim hit (bounded), not display-only.
+  hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt);
 
   const trend = propsOnlyTrendFromHistory(
     ph,
@@ -353,6 +372,7 @@ function scoredLegFromHit(
       vsOpponentGames,
       rushDefense: pack?.rush ?? null,
       footballOppDefense: pack,
+      footballOwnPack: ownPack,
       mlbPlatoon: mlbPlatoon as import("./propHolisticRecommendation.ts").MlbPlatoonSlice | null,
       mlbGameEnv: mlbGameEnv as import("./propHolisticRecommendation.ts").MlbGameEnvSlice | null,
     },
@@ -686,14 +706,27 @@ export async function buildFootballPropsOnlyTicket(
       const sport = pick.sport ?? row?.sport;
       const resolvePack = (p: ParsedPick) => {
         const r = propsOnlyPoolRowForPick(p, opts.pool) as PropPoolEntry | undefined;
+        const sp = p.sport ?? r?.sport ?? sport;
+        const abbr = r?.teamAbbr ?? p.teamAbbr;
         return {
           row: r,
           pack: oppDefensePackForOpponent({
-            sport: p.sport ?? r?.sport ?? sport,
+            sport: sp,
             opponentTeamId: opponentTeamIdForProp({
-              sport: p.sport ?? r?.sport ?? sport,
+              sport: sp,
               game: p.game,
-              teamAbbr: r?.teamAbbr ?? p.teamAbbr,
+              teamAbbr: abbr,
+              espnGames: opts.espnGames,
+              teamIdMap: opts.teamIdMap,
+            }),
+            map: opts.oppRushDefense,
+          }),
+          ownPack: ownTeamPackForProp({
+            sport: sp,
+            ownTeamId: ownTeamIdForProp({
+              sport: sp,
+              game: p.game,
+              teamAbbr: abbr,
               espnGames: opts.espnGames,
               teamIdMap: opts.teamIdMap,
             }),
@@ -707,7 +740,7 @@ export async function buildFootballPropsOnlyTicket(
             )?.vsOpponent?.length ?? 0,
         };
       };
-      const { pack, vsOpponentGames } = resolvePack(pick);
+      const { pack, ownPack, vsOpponentGames } = resolvePack(pick);
       if (
         shouldDropPropMissingOppDefense({
           sport,
@@ -746,6 +779,7 @@ export async function buildFootballPropsOnlyTicket(
           side: pick.propSide,
           defense: pack?.rush ?? null,
           pack,
+          ownPack,
         })
       ) {
         return [pick];
@@ -769,6 +803,7 @@ export async function buildFootballPropsOnlyTicket(
           side: alt.propSide,
           defense: altCtx.pack?.rush ?? null,
           pack: altCtx.pack,
+          ownPack: altCtx.ownPack,
         })
       ) {
         return [];

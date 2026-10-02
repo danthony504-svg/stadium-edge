@@ -154,6 +154,8 @@ export type PropHolisticContext = {
   rushDefense?: RushDefenseSlice | null;
   /** Full football opp-D pack (rush + pass). Preferred over rushDefense alone. */
   footballOppDefense?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
+  /** Player's own team pack (O-line sacks allowed, INT%, rush YPC) — no extra fetch. */
+  footballOwnPack?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -303,13 +305,14 @@ function scoreOpponentTendency(
   const under = isUnderSide(side);
 
   // All sports — unified opp-D tilt (football box-score yards + soft feed fields).
-  if (ctx.footballOppDefense || ctx.rushDefense) {
+  if (ctx.footballOppDefense || ctx.rushDefense || ctx.footballOwnPack) {
     const tilt = propOppDefenseTilt({
       sport,
       market: key,
       side,
       defense: ctx.rushDefense,
       pack: ctx.footballOppDefense,
+      ownPack: ctx.footballOwnPack,
     });
     if (tilt.tilt !== 0 || tilt.display) {
       return {

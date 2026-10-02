@@ -42,10 +42,16 @@ import {
 import type { GameTeamIds } from "@/lib/coachGameMonteCarlo";
 import {
   opponentTeamIdForProp,
+  ownTeamIdForProp,
   oppDefensePackForOpponent,
+  ownTeamPackForProp,
   type FootballOppDefenseMap,
 } from "@/lib/footballOppDefenseContext";
 import type { FootballOppDefenseSlice, RushDefenseSlice } from "@/lib/footballRushDefense";
+import {
+  adjustSimHitForOppDefenseTilt,
+  propOppDefenseTilt,
+} from "@/lib/footballRushDefense";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import {
@@ -537,6 +543,31 @@ function footballOppPackForProp(
   });
 }
 
+function footballOwnPackForProp(
+  pick: ParsedPick,
+  entry: PropPoolEntry | undefined,
+  opts?: {
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
+  },
+): FootballOppDefenseSlice | null {
+  if (!opts?.oppRushDefense) return null;
+  const sport = pick.sport ?? entry?.sport;
+  const ownId = ownTeamIdForProp({
+    sport,
+    game: pick.game,
+    teamAbbr: entry?.teamAbbr,
+    espnGames: opts.espnGames,
+    teamIdMap: opts.teamIdMap,
+  });
+  return ownTeamPackForProp({
+    sport,
+    ownTeamId: ownId,
+    map: opts.oppRushDefense,
+  });
+}
+
 function playerTeamIsHome(game: string, playerTeam: string | null): boolean | null {
   if (!playerTeam) return null;
   const { away, home } = splitLabel(game);
@@ -796,14 +827,31 @@ export function attachPickScores(
     const footballOppDefense = p.isProp
       ? footballOppPackForProp(p, propEntry, rushOpts)
       : null;
+    const footballOwnPack = p.isProp
+      ? footballOwnPackForProp(p, propEntry, rushOpts)
+      : null;
     const rushDefense = footballOppDefense?.rush ?? null;
+    const matchupTilt =
+      p.isProp && (footballOppDefense || footballOwnPack || rushDefense)
+        ? propOppDefenseTilt({
+            sport: p.sport ?? propEntry?.sport,
+            market: p.propMarketKey ?? p.market,
+            side: p.propSide,
+            defense: rushDefense,
+            pack: footballOppDefense,
+            ownPack: footballOwnPack,
+          })
+        : { tilt: 0, blockOver: false, display: null };
+    const adjustedPropSimHit = p.isProp
+      ? adjustSimHitForOppDefenseTilt(propSimHit, matchupTilt.tilt)
+      : propSimHit;
     let finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
       edgePct: scores.edgePct,
       odds: p.odds,
       gameSim,
-      propSimHit,
+      propSimHit: adjustedPropSimHit,
       propHolisticContext: p.isProp
         ? {
             sport: p.sport ?? propEntry?.sport,
@@ -826,6 +874,7 @@ export function attachPickScores(
             mlbGameEnv,
             rushDefense,
             footballOppDefense,
+            footballOwnPack,
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,

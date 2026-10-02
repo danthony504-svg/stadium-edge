@@ -14,7 +14,7 @@ import type {
 } from "./footballRushDefense.ts";
 
 export type FootballOppDefenseMap = Record<string, FootballOppDefenseSlice>;
-export { opponentTeamIdForProp } from "./footballOppTeamId.ts";
+export { opponentTeamIdForProp, ownTeamIdForProp } from "./footballOppTeamId.ts";
 export type { OppTeamIdEspnGame } from "./footballOppTeamId.ts";
 
 const MAX_TEAMS = 24;
@@ -136,10 +136,25 @@ export async function loadFootballOppRushDefense(opts: {
               pass,
               teamName,
               pointsAgainst: def.avgPointsAgainst,
+              pointsFor: def.avgPointsFor,
               sacks: def.defensive?.sacks?.value ?? null,
               interceptions: def.defensive?.interceptions?.value ?? null,
               passesDefended: def.defensive?.passesDefended?.value ?? null,
               stuffs: def.defensive?.stuffs?.value ?? null,
+              gamesPlayed:
+                def.defensive?.teamGamesPlayed?.value ??
+                def.defensive?.gamesPlayed?.value ??
+                def.offensive?.teamGamesPlayed?.value ??
+                def.offensive?.gamesPlayed?.value ??
+                null,
+              totalTakeaways: def.defensive?.totalTakeaways?.value ?? null,
+              // ESPN passing.sacks on the offensive allowlist = sacks allowed (O-line).
+              sacksAllowed: def.offensive?.sacks?.value ?? null,
+              sackYardsLost: def.offensive?.sackYardsLost?.value ?? null,
+              interceptionPct: def.offensive?.interceptionPct?.value ?? null,
+              intsThrown: def.offensive?.interceptions?.value ?? null,
+              passingAttempts: def.offensive?.passingAttempts?.value ?? null,
+              ownRushYpc: def.offensive?.yardsPerRushAttempt?.value ?? null,
               steals: def.defensive?.avgSteals?.value ?? null,
               blocks: def.defensive?.avgBlocks?.value ?? null,
               defRebounds: def.defensive?.avgDefensiveRebounds?.value ?? null,
@@ -188,4 +203,17 @@ export function oppDefensePackForOpponent(opts: {
   const id = opts.opponentTeamId != null ? String(opts.opponentTeamId) : "";
   if (!sport || !id || !opts.map) return null;
   return opts.map[teamKey(sport, id)] ?? null;
+}
+
+/** Own-team pack from the same defense map (O-line / QB tendency — no extra fetch). */
+export function ownTeamPackForProp(opts: {
+  sport?: string | null;
+  ownTeamId?: string | null;
+  map?: FootballOppDefenseMap | null;
+}): FootballOppDefenseSlice | null {
+  return oppDefensePackForOpponent({
+    sport: opts.sport,
+    opponentTeamId: opts.ownTeamId,
+    map: opts.map,
+  });
 }

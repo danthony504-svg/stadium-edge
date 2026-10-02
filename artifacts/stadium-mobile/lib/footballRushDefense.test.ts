@@ -544,3 +544,368 @@ test("propTeamAbbrBelongsToGame drops foreign franchise on labeled game", async 
     "29",
   );
 });
+
+test("perGameRate normalizes season totals; fails closed without gp", async () => {
+  const { perGameRate } = await import("./footballRushDefense.ts");
+  assert.equal(perGameRate(30, 10), 3);
+  assert.equal(perGameRate(30, 1), null);
+  assert.equal(perGameRate(null, 10), null);
+});
+
+test("strong D-front × porous O-line demotes pass Over; favors sack Over", async () => {
+  const {
+    footballRushDefenseTilt,
+    adjustSimHitForOppDefenseTilt,
+    isFootballSackMarket,
+  } = await import("./footballRushDefense.ts");
+
+  assert.equal(isFootballSackMarket("player_sacks"), true);
+  assert.equal(isFootballSackMarket("player_pass_yds"), false);
+
+  const strongFront = {
+    pass: {
+      passingYardsAllowedPerGame: 210,
+      yardsPerPassAllowed: 6.5,
+      sampleSize: 4,
+      teamName: "Eagles",
+    },
+    teamName: "Eagles",
+    sacks: 36, // 3.0/g over 12 — elite, not a raw ≥20 guess
+    gamesPlayed: 12,
+    interceptions: 6,
+    passesDefended: 40,
+  };
+  const porousOline = {
+    sacksAllowed: 42, // 3.5/g
+    gamesPlayed: 12,
+    interceptionPct: 2.2,
+    ownRushYpc: 4.0,
+    pointsFor: 22,
+  };
+  const stoutOline = {
+    sacksAllowed: 12, // 1.0/g
+    gamesPlayed: 12,
+    interceptionPct: 1.2,
+    ownRushYpc: 4.8,
+    pointsFor: 28,
+  };
+  const weakFront = {
+    pass: {
+      passingYardsAllowedPerGame: 250,
+      yardsPerPassAllowed: 7.6,
+      sampleSize: 4,
+      teamName: "Panthers",
+    },
+    teamName: "Panthers",
+    sacks: 14, // 1.17/g
+    gamesPlayed: 12,
+    interceptions: 4,
+  };
+
+  const passVsStrong = footballRushDefenseTilt({
+    market: "player_pass_yds",
+    side: "Over",
+    pack: strongFront,
+    ownPack: porousOline,
+  });
+  const passVsWeak = footballRushDefenseTilt({
+    market: "player_pass_yds",
+    side: "Over",
+    pack: weakFront,
+    ownPack: stoutOline,
+  });
+  assert.ok(passVsStrong.tilt < passVsWeak.tilt, "porous OL vs elite rush should hurt pass Over more");
+  assert.ok(passVsStrong.tilt < 0);
+  assert.ok(passVsWeak.tilt > 0);
+
+  // Under flips relative to Over
+  const passUnderStrong = footballRushDefenseTilt({
+    market: "player_pass_yds",
+    side: "Under",
+    pack: strongFront,
+    ownPack: porousOline,
+  });
+  assert.ok(passUnderStrong.tilt > 0);
+
+  // Sack prop: rusher (ownPack.sacks) vs OL (pack.sacksAllowed)
+  const sackOver = footballRushDefenseTilt({
+    market: "player_sacks",
+    side: "Over",
+    pack: { sacksAllowed: 42, gamesPlayed: 12, teamName: "Bears" },
+    ownPack: { sacks: 36, gamesPlayed: 12 },
+  });
+  const sackOverStout = footballRushDefenseTilt({
+    market: "player_sacks",
+    side: "Over",
+    pack: { sacksAllowed: 12, gamesPlayed: 12, teamName: "Chiefs" },
+    ownPack: { sacks: 14, gamesPlayed: 12 },
+  });
+  assert.ok(sackOver.tilt > sackOverStout.tilt);
+  assert.ok(sackOver.tilt > 0);
+  assert.ok(sackOverStout.tilt < 0);
+
+  // Sim hit moves with tilt (projection, not display-only)
+  const base = 0.55;
+  const adjDown = adjustSimHitForOppDefenseTilt(base, passVsStrong.tilt);
+  const adjUp = adjustSimHitForOppDefenseTilt(base, passVsWeak.tilt);
+  assert.ok(adjDown != null && adjDown < base);
+  assert.ok(adjUp != null && adjUp > base);
+});
+
+test("QB INT Over rises vs ball-hawking D + high own INT%; Under when clean", async () => {
+  const { footballRushDefenseTilt, isFootballQbIntMarket } = await import(
+    "./footballRushDefense.ts"
+  );
+  assert.equal(isFootballQbIntMarket("player_pass_interceptions"), true);
+  assert.equal(isFootballQbIntMarket("player_defensive_interceptions"), false);
+
+  const hawk = {
+    interceptions: 18, // 1.5/g
+    passesDefended: 60, // 5/g
+    totalTakeaways: 24,
+    gamesPlayed: 12,
+    teamName: "Bills",
+  };
+  const softSecondary = {
+    interceptions: 3, // 0.25/g
+    passesDefended: 20,
+    gamesPlayed: 12,
+    teamName: "Giants",
+  };
+  const recklessQb = { interceptionPct: 3.8, gamesPlayed: 12, intsThrown: 14 };
+  const carefulQb = { interceptionPct: 1.0, gamesPlayed: 12, intsThrown: 3 };
+
+  const intOver = footballRushDefenseTilt({
+    market: "player_pass_interceptions",
+    side: "Over",
+    pack: hawk,
+    ownPack: recklessQb,
+  });
+  const intOverClean = footballRushDefenseTilt({
+    market: "player_pass_interceptions",
+    side: "Over",
+    pack: softSecondary,
+    ownPack: carefulQb,
+  });
+  assert.ok(intOver.tilt > intOverClean.tilt);
+  assert.ok(intOver.tilt > 0);
+  assert.ok(intOverClean.tilt < 0);
+
+  const intUnder = footballRushDefenseTilt({
+    market: "player_pass_interceptions",
+    side: "Under",
+    pack: hawk,
+    ownPack: recklessQb,
+  });
+  assert.ok(intUnder.tilt < 0);
+});
+
+test("pressure raises QB rush Over and receptions Over; not blanket Under", async () => {
+  const { footballRushDefenseTilt } = await import("./footballRushDefense.ts");
+  const pressurePack = {
+    sacks: 40,
+    gamesPlayed: 12,
+    pass: {
+      passingYardsAllowedPerGame: 220,
+      yardsPerPassAllowed: 6.8,
+      sampleSize: 4,
+    },
+    teamName: "Steelers",
+  };
+  const porous = { sacksAllowed: 38, gamesPlayed: 12 };
+
+  const qbRush = footballRushDefenseTilt({
+    market: "player_qb_rush_yds",
+    side: "Over",
+    pack: pressurePack,
+    ownPack: porous,
+  });
+  const passYds = footballRushDefenseTilt({
+    market: "player_pass_yds",
+    side: "Over",
+    pack: pressurePack,
+    ownPack: porous,
+  });
+  const receptions = footballRushDefenseTilt({
+    market: "player_receptions",
+    side: "Over",
+    pack: pressurePack,
+    ownPack: porous,
+  });
+  // Scramble + checkdowns lean Over; pass yards lean Under under pressure
+  assert.ok(qbRush.tilt > 0, `qb rush tilt ${qbRush.tilt}`);
+  assert.ok(passYds.tilt < qbRush.tilt);
+  assert.ok(receptions.tilt > passYds.tilt);
+});
+
+test("rush Over favored by strong own YPC vs leaky run D; demoted vs stingy", async () => {
+  const { footballRushDefenseTilt } = await import("./footballRushDefense.ts");
+  const leaky = {
+    rush: {
+      rushingYardsAllowedPerGame: 145,
+      yardsPerRushAllowed: 5.0,
+      sampleSize: 4,
+      teamName: "Cowboys",
+    },
+    teamName: "Cowboys",
+    stuffs: 8,
+    gamesPlayed: 12,
+  };
+  const stingy = {
+    rush: {
+      rushingYardsAllowedPerGame: 88,
+      yardsPerRushAllowed: 3.3,
+      sampleSize: 4,
+      teamName: "Eagles",
+    },
+    teamName: "Eagles",
+    stuffs: 36,
+    gamesPlayed: 12,
+  };
+  const strongOl = { ownRushYpc: 5.1, gamesPlayed: 12, pointsFor: 28 };
+  const weakOl = { ownRushYpc: 3.4, gamesPlayed: 12, pointsFor: 17 };
+
+  const good = footballRushDefenseTilt({
+    market: "player_rush_yds",
+    side: "Over",
+    pack: leaky,
+    ownPack: strongOl,
+  });
+  const bad = footballRushDefenseTilt({
+    market: "player_rush_yds",
+    side: "Over",
+    pack: stingy,
+    ownPack: weakOl,
+  });
+  assert.ok(good.tilt > bad.tilt);
+  assert.ok(good.tilt > 0);
+  assert.ok(bad.tilt < 0);
+  assert.equal(bad.blockOver, true);
+});
+
+test("no arbitrary ≥20 sacks / ≥10 INT season-total lean without gamesPlayed", async () => {
+  const { footballRushDefenseTilt } = await import("./footballRushDefense.ts");
+  // Mid pass D + huge season totals but NO gamesPlayed → rates fail closed.
+  // Pass yards band alone should drive tilt; sacks/INT must not invent a lean.
+  const mid = footballRushDefenseTilt({
+    market: "player_pass_yds",
+    side: "Over",
+    pack: {
+      pass: {
+        passingYardsAllowedPerGame: 220,
+        yardsPerPassAllowed: 6.8,
+        sampleSize: 4,
+      },
+      sacks: 45,
+      interceptions: 15,
+      passesDefended: 80,
+      // gamesPlayed omitted on purpose
+    },
+  });
+  const midNoTotals = footballRushDefenseTilt({
+    market: "player_pass_yds",
+    side: "Over",
+    pack: {
+      pass: {
+        passingYardsAllowedPerGame: 220,
+        yardsPerPassAllowed: 6.8,
+        sampleSize: 4,
+      },
+    },
+  });
+  assert.equal(mid.tilt, midNoTotals.tilt);
+});
+
+test("ownTeamIdForProp is inverse of opponent for CHI @ PHI", async () => {
+  const { ownTeamIdForProp, opponentTeamIdForProp } = await import(
+    "./footballOppTeamId.ts"
+  );
+  const games = [
+    {
+      id: "1",
+      sport: "nfl",
+      name: "Bears at Eagles",
+      shortName: "CHI @ PHI",
+      status: "pre",
+      startsAt: "2026-09-29T00:00:00Z",
+      homeTeam: "Philadelphia Eagles",
+      awayTeam: "Chicago Bears",
+      homeTeamId: "21",
+      awayTeamId: "3",
+      homeAbbr: "PHI",
+      awayAbbr: "CHI",
+    },
+  ];
+  assert.equal(
+    ownTeamIdForProp({
+      sport: "nfl",
+      game: "Chicago Bears @ Philadelphia Eagles",
+      teamAbbr: "CHI",
+      espnGames: games,
+    }),
+    "3",
+  );
+  assert.equal(
+    opponentTeamIdForProp({
+      sport: "nfl",
+      game: "Chicago Bears @ Philadelphia Eagles",
+      teamAbbr: "CHI",
+      espnGames: games,
+    }),
+    "21",
+  );
+});
+
+test("holistic opponentTendency moves with O-line × pass-rush matchup", async () => {
+  const { buildPropHolisticScore } = await import("./propHolisticRecommendation.ts");
+  const base = {
+    sport: "nfl" as const,
+    marketKey: "player_pass_yds",
+    propSide: "Over" as const,
+    rubricScores: {
+      matchup: null,
+      trend: 6,
+      lineValue: 6,
+      injury: null,
+      lineShopping: 5.5,
+      simulation: 6,
+    },
+    edgePct: 4,
+    simHit: 0.55,
+  };
+  const hostile = buildPropHolisticScore({
+    ...base,
+    footballOppDefense: {
+      pass: {
+        passingYardsAllowedPerGame: 200,
+        yardsPerPassAllowed: 6.2,
+        sampleSize: 4,
+        teamName: "Eagles",
+      },
+      teamName: "Eagles",
+      sacks: 36,
+      gamesPlayed: 12,
+    },
+    footballOwnPack: { sacksAllowed: 40, gamesPlayed: 12 },
+  });
+  const friendly = buildPropHolisticScore({
+    ...base,
+    footballOppDefense: {
+      pass: {
+        passingYardsAllowedPerGame: 255,
+        yardsPerPassAllowed: 7.8,
+        sampleSize: 4,
+        teamName: "Panthers",
+      },
+      teamName: "Panthers",
+      sacks: 12,
+      gamesPlayed: 12,
+    },
+    footballOwnPack: { sacksAllowed: 14, gamesPlayed: 12 },
+  });
+  const oppH = hostile.factors.find((f) => f.key === "opponentTendency");
+  const oppF = friendly.factors.find((f) => f.key === "opponentTendency");
+  assert.ok(oppH?.present && oppF?.present);
+  assert.ok((oppH?.score ?? 10) < (oppF?.score ?? 0));
+  assert.ok((hostile.composite ?? 10) <= (friendly.composite ?? 0) + 0.01);
+});
