@@ -11,7 +11,7 @@ import {
   type CoachScanFailureDiagnostics,
 } from "./coachScanFailureReason.ts";
 import { COACH_PRIORITY_SPORTS } from "./coachPrioritySports.ts";
-import { maxLegsPerGame, wouldExceedMaxLegsPerGame } from "./parlayCorrelationScore.ts";
+import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
 export function boardScanPropSlotCount(
@@ -480,9 +480,18 @@ export function fillReservedPropSlots<T extends PropFillPick>(
     const fp = propFillFingerprint(cand.pick);
     const fam = skillPropFamily(cand.pick.propMarketKey || cand.pick.market);
     const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
+    const maxProps = maxPropsPerGame(target);
 
     if (out.length < target) {
       if (wouldExceedMaxLegsPerGame(cand.pick, out, maxPerGame)) {
+        used.add(fp);
+        continue;
+      }
+      if (wouldRepeatPlayerProp(cand.pick, out)) {
+        used.add(fp);
+        continue;
+      }
+      if (wouldExceedMaxPropsPerGame(cand.pick, out, maxProps)) {
         used.add(fp);
         continue;
       }
@@ -510,6 +519,14 @@ export function fillReservedPropSlots<T extends PropFillPick>(
       if (worstIdx < 0) break;
       const withoutWorst = out.filter((_, i) => i !== worstIdx);
       if (wouldExceedMaxLegsPerGame(cand.pick, withoutWorst, maxPerGame)) {
+        used.add(fp);
+        continue;
+      }
+      if (wouldRepeatPlayerProp(cand.pick, withoutWorst)) {
+        used.add(fp);
+        continue;
+      }
+      if (wouldExceedMaxPropsPerGame(cand.pick, withoutWorst, maxProps)) {
         used.add(fp);
         continue;
       }

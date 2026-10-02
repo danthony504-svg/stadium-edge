@@ -23,7 +23,10 @@ import {
   maxLegsPerThinStatMarket,
   isThinPropStatMarket,
   maxLegsPerGame,
+  maxPropsPerGame,
   wouldExceedMaxLegsPerGame,
+  wouldRepeatPlayerProp,
+  wouldExceedMaxPropsPerGame,
   progressiveLegsPerGameRelaxation,
 } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
@@ -144,15 +147,17 @@ export function selectGreedyBoardLegs(
 ): ParsedPick[] {
   const seen = new Set(existing.map(pickLegFingerprint));
   const out: ParsedPick[] = [];
-  const maxPerGame = maxLegsPerGame(
-    ticketTarget ?? Math.max(target, existing.length + target),
-    legsPerGameCap,
-  );
+  const effectiveTarget = ticketTarget ?? Math.max(target, existing.length + target);
+  const maxPerGame = maxLegsPerGame(effectiveTarget, legsPerGameCap);
+  const maxProps = maxPropsPerGame(effectiveTarget);
   const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
   for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
     if (seen.has(fp)) continue;
-    if (wouldExceedMaxLegsPerGame(row.pick, [...existing, ...out], maxPerGame)) continue;
+    const onTicket = [...existing, ...out];
+    if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
+    if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
+    if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
     seen.add(fp);
     out.push(row.pick);
     if (out.length >= target) break;
@@ -344,6 +349,7 @@ function applyCapAndBackfillToTarget(
   const thinOnTicket = current.filter((p) => p.isProp && isThinPropStatMarket(p.market)).length;
   const maxThin = maxLegsPerThinStatMarket(target);
   const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
+  const maxProps = maxPropsPerGame(target);
   const ranked = [...pool].sort((a, b) => {
     const aThin = a.pick.isProp && isThinPropStatMarket(a.pick.market) ? 1 : 0;
     const bThin = b.pick.isProp && isThinPropStatMarket(b.pick.market) ? 1 : 0;
@@ -358,6 +364,8 @@ function applyCapAndBackfillToTarget(
     const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
     if (!role) continue;
     if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
+    if (wouldRepeatPlayerProp(row.pick, current)) continue;
+    if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
     const trial = capThinStatMarketsOnTicket(
       [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
       target,
@@ -378,6 +386,8 @@ function applyCapAndBackfillToTarget(
         return false;
       }
       if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) return false;
+      if (wouldRepeatPlayerProp(row.pick, current)) return false;
+      if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) return false;
       return boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
     });
     for (const row of nonThin) {
@@ -385,6 +395,8 @@ function applyCapAndBackfillToTarget(
       const fp = pickLegFingerprint(row.pick);
       if (used.has(fp)) continue;
       if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
+      if (wouldRepeatPlayerProp(row.pick, current)) continue;
+      if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
       const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
       const trial = capThinStatMarketsOnTicket(
         [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],

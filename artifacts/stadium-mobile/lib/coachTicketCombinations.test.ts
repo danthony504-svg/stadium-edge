@@ -104,9 +104,10 @@ test("buildIndependentCoachTicket avoids repeating the same player when near-equ
   assert.equal(picks.length, 6);
   const players = picks.filter((p) => p.player).map((p) => p.player!.toLowerCase());
   const uniquePlayers = new Set(players);
-  assert.ok(
-    uniquePlayers.size >= players.length - 1,
-    "expected at most one duplicate player on a 6-leg ticket",
+  assert.equal(
+    uniquePlayers.size,
+    players.length,
+    "hard one-prop-per-player — no Meidroth Hits+TB+HRR stack",
   );
 });
 

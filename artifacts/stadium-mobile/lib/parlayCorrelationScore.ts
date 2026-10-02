@@ -118,6 +118,70 @@ export function wouldExceedMaxLegsPerGame(
   return countLegsForGame(ticket, candidate.game) >= maxPerGame;
 }
 
+/** Normalize player identity for same-player prop stacking. */
+export function propPlayerKey(pick: { player?: string | null; pick?: string | null }): string {
+  const named = String(pick.player ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (named) return named;
+  // Fallback: first two tokens of the pick label ("Chase Meidroth Over…").
+  const fromPick = String(pick.pick ?? "")
+    .toLowerCase()
+    .replace(/\b(over|under|o|u)\b.*$/i, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .join(" ");
+  return fromPick;
+}
+
+/**
+ * Hard block: at most one player-prop leg per athlete on a ticket.
+ * Phone: "9 leg tonight mixed sports" staged Chase Meidroth Hits + Total Bases
+ * + Hits+Runs+RBIs — soft correlation wasn't enough.
+ */
+export function wouldRepeatPlayerProp(
+  candidate: CorrelationPick,
+  ticket: readonly CorrelationPick[],
+): boolean {
+  if (!candidate.isProp) return false;
+  const key = propPlayerKey(candidate);
+  if (!key) return false;
+  return ticket.some((l) => l.isProp && propPlayerKey(l) === key);
+}
+
+/** Max player-prop legs from one matchup (separate from game-line cap). */
+export function maxPropsPerGame(target: number): number {
+  if (target >= 8) return 2;
+  if (target >= 5) return 2;
+  return 3;
+}
+
+export function countPropsForGame(
+  ticket: readonly CorrelationPick[],
+  game: string,
+): number {
+  const g = normGame(game);
+  if (!g) return 0;
+  return ticket.filter((l) => l.isProp && normGame(l.game) === g).length;
+}
+
+/**
+ * Cap same-game prop stacks on mix tickets (White Sox @ Guardians × 5 props).
+ * Does not apply to game lines — those use wouldExceedMaxLegsPerGame.
+ */
+export function wouldExceedMaxPropsPerGame(
+  candidate: CorrelationPick,
+  ticket: readonly CorrelationPick[],
+  maxProps: number,
+): boolean {
+  if (!candidate.isProp) return false;
+  if (maxProps >= 99) return false;
+  return countPropsForGame(ticket, candidate.game) >= maxProps;
+}
+
 /** Higher = worse for parlay independence. */
 export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: CorrelationPick[]): number {
   let penalty = 0;
@@ -189,6 +253,7 @@ export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
     let bestIdx = -1;
     let bestScore = -Infinity;
     const onTicket = [...existing, ...added];
+    const maxProps = maxPropsPerGame(ticketTarget);
 
     for (let i = 0; i < pool.length; i++) {
       const row = pool[i]!;
@@ -201,6 +266,8 @@ export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
         continue;
       }
       if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
+      if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
+      if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
       const effective = row.rankScore - parlayCorrelationPenalty(row.pick, onTicket);
       if (effective > bestScore) {
         bestScore = effective;
