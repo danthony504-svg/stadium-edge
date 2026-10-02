@@ -181,7 +181,11 @@ export function topUpTicketFromQualifiedScored(
   target: number,
   varietySeed?: string,
   legsPerGameCap?: number | null,
-  opts?: { collapseSameTeamSides?: boolean },
+  opts?: {
+    collapseSameTeamSides?: boolean;
+    /** College team markets: raise period-stack seat budget on thin slates. */
+    collegeTeamMarketStacks?: boolean;
+  },
 ): ParsedPick[] {
   if (target < 3 || picks.length >= target) return picks.slice(0, Math.max(0, target));
   const collapseSameTeam = !!opts?.collapseSameTeamSides;
@@ -250,7 +254,9 @@ export function topUpTicketFromQualifiedScored(
 
   // (3) Thin-slate game-line relax — only after props had their chance.
   if (merged.length < target) {
-    for (const raised of progressiveLegsPerGameRelaxation(target, legsPerGameCap)) {
+    for (const raised of progressiveLegsPerGameRelaxation(target, legsPerGameCap, {
+      collegeTeamMarketStacks: !!opts?.collegeTeamMarketStacks,
+    })) {
       const next = appendExtras(merged, raised);
       if (next.length <= merged.length) continue;
       merged = next;

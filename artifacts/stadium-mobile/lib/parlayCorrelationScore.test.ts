@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   maxLegsPerGame,
   maxPropsPerGame,
+  legsPerGameCapForAsk,
   parlayCorrelationPenalty,
   progressiveLegsPerGameRelaxation,
   selectCorrelationAwareBoardLegs,
@@ -59,6 +60,28 @@ test("progressiveLegsPerGameRelaxation climbs to ceil(target/2)", () => {
   assert.deepEqual(progressiveLegsPerGameRelaxation(8), [3, 4]);
   assert.deepEqual(progressiveLegsPerGameRelaxation(10, 5), []);
   assert.deepEqual(progressiveLegsPerGameRelaxation(3), []);
+});
+
+test("college team-market stacks raise progressive seat ceiling", () => {
+  // Cap already at 4 for a 7-leg college ask — still climbs toward 5.
+  assert.deepEqual(
+    progressiveLegsPerGameRelaxation(7, 4, { collegeTeamMarketStacks: true }),
+    [5],
+  );
+  assert.deepEqual(progressiveLegsPerGameRelaxation(7, 4), []);
+});
+
+test("legsPerGameCapForAsk keeps college team stacks at ≥4 seats", () => {
+  assert.equal(
+    legsPerGameCapForAsk(7, { gameLinesOnly: true, collegeTeamMarketStacks: true }),
+    4,
+  );
+  assert.equal(legsPerGameCapForAsk(7, { gameLinesOnly: true }), 4);
+  assert.equal(legsPerGameCapForAsk(5, { gameLinesOnly: true }), 3);
+  assert.equal(
+    legsPerGameCapForAsk(5, { gameLinesOnly: true, collegeTeamMarketStacks: true }),
+    4,
+  );
 });
 
 test("props do not consume the per-game hard cap", () => {

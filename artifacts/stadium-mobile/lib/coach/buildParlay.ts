@@ -29,6 +29,7 @@ import {
   selectFinalCoachParlayPicks,
   askRequiresFootballPropMix,
   askAllowsNcaafPlayerProps,
+  askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
   finalizeFootballPropMixPicks,
 } from "@/lib/boardScanPropDelivery";
@@ -203,9 +204,11 @@ export async function buildCoachParlay(opts: {
     !propsOnly &&
     !gameLinesOnly &&
     askRequiresFootballPropMix(opts.askText);
+  const collegeTeamMarketStacks = askAllowsCollegeTeamMarketStacks(opts.askText);
   const legsPerGameCap = legsPerGameCapForAsk(target, {
     gameLinesOnly,
     maxGames: marketConstraint.maxGames,
+    collegeTeamMarketStacks,
   });
   // Game-lines-only asks skip the prop board entirely.
   const constrainedPropPool = gameLinesOnly ? [] : scanPropPool;
@@ -435,6 +438,7 @@ export async function buildCoachParlay(opts: {
     exhaustPropBoard: hrBoardAsk,
     legsPerGameCap: legsPerGameCap ?? undefined,
     gameLinesOnly,
+    collegeTeamMarketStacks: collegeTeamMarketStacks || undefined,
     requirePropMix,
     excludeNcaafPlayerProps: !askAllowsNcaafPlayerProps(opts.askText),
     mlbPlatoon,

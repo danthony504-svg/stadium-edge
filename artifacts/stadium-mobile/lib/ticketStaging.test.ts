@@ -466,6 +466,92 @@ test("gameLinesOnly top-up collapses FG + Q2 same-team spreads", () => {
   );
 });
 
+test("college team-market top-up keeps FG + Q2 + team total toward N", () => {
+  // Phone: "7 leg college" — FanDuel posts FG/Q2 spreads + team totals; do not
+  // collapse same-team period stacks the way NHL team props do.
+  const g1 = "Ohio State Buckeyes @ Iowa Hawkeyes";
+  const g2 = "Syracuse Orange @ UConn Huskies";
+  const g3 = "Duke Blue Devils @ North Carolina Tar Heels";
+  const short = [
+    leg(
+      { game: g1, market: "Spread", pick: "Iowa Hawkeyes +14.5", odds: -110, sport: "ncaaf" },
+      100,
+      mainScore,
+    ).pick,
+    leg(
+      { game: g2, market: "Spread", pick: "UConn Huskies +7", odds: -115, sport: "ncaaf" },
+      95,
+      mainScore,
+    ).pick,
+    leg(
+      { game: g3, market: "Spread", pick: "Duke Blue Devils +3.5", odds: -110, sport: "ncaaf" },
+      90,
+      mainScore,
+    ).pick,
+  ];
+  const scored: BoardScoredLeg[] = [
+    ...short.map((pick, i) =>
+      leg(
+        {
+          game: pick.game!,
+          market: pick.market!,
+          pick: pick.pick!,
+          odds: pick.odds!,
+          sport: "ncaaf",
+        },
+        100 - i,
+        mainScore,
+      ),
+    ),
+    leg(
+      { game: g1, market: "Q2 Spread", pick: "Iowa Hawkeyes +7.5", odds: -110, sport: "ncaaf" },
+      88,
+      mainScore,
+    ),
+    leg(
+      {
+        game: g1,
+        market: "Team Total",
+        pick: "Iowa Hawkeyes Under 17.5",
+        odds: -115,
+        sport: "ncaaf",
+      },
+      86,
+      mainScore,
+    ),
+    leg(
+      { game: g2, market: "Q2 Spread", pick: "UConn Huskies +3.5", odds: -110, sport: "ncaaf" },
+      84,
+      mainScore,
+    ),
+    leg(
+      {
+        game: g2,
+        market: "Team Total",
+        pick: "UConn Huskies Over 24.5",
+        odds: -110,
+        sport: "ncaaf",
+      },
+      82,
+      mainScore,
+    ),
+  ];
+  const topped = topUpTicketFromQualifiedScored(short, scored, 7, undefined, 4, {
+    collapseSameTeamSides: false,
+    collegeTeamMarketStacks: true,
+  });
+  assert.equal(topped.length, 7, `expected 7 college team-market legs, got ${topped.length}`);
+  const iowa = topped.filter((p) => /iowa/i.test(p.pick ?? "") && /ohio state/i.test(p.game ?? ""));
+  assert.ok(
+    iowa.length >= 2,
+    `expected Iowa FG+period/team stacks, got ${iowa.map((p) => `${p.market}:${p.pick}`)}`,
+  );
+  assert.ok(
+    topped.some((p) => /q2/i.test(p.market ?? "")),
+    "expected a Q2 period stack on the college ticket",
+  );
+});
+
 test("topUpTicketFromQualifiedScored respects max 2 legs per game on 10-leg asks", () => {
   const g1 = "Los Angeles Chargers @ Buffalo Bills";
   const g2 = "Carolina Panthers @ Cleveland Browns";
