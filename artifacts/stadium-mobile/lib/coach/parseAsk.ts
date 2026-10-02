@@ -1,6 +1,7 @@
 /** Greenfield ask parsing — leg targets and build intent only. */
 
 import { wantsPropsOnly } from "../slate.ts";
+import { sanitizeCoachUserNote } from "../sanitizeCoachUserNote.ts";
 
 /** Accept "leg(s)" and common typos like "lag" / "lags" so board scan still runs. */
 export const LEG_WORD = String.raw`l(?:eg|ag)s?`;
@@ -98,32 +99,16 @@ export function coachPropsAskGameLineMismatchNote(opts: {
   const raw = String(opts.askText ?? "");
   if (!coachAskedForPlayerProps(raw)) return "";
   const gameLinePicks = opts.picks.filter((p) => coachPickLooksLikeGameLine(p));
-  const propCount = opts.picks.length - gameLinePicks.length;
   const gameLineCount = gameLinePicks.length;
   if (opts.picks.length === 0 || gameLineCount <= 0) return "";
-  const markets = [
-    ...new Set(
-      gameLinePicks
-        .map((p) => String(p.market ?? "").trim())
-        .filter(Boolean)
-        .slice(0, 6),
-    ),
-  ];
-  const marketBit = markets.length ? ` markets=${markets.join("|")}` : "";
-  const askBit = JSON.stringify(normalizeCoachLegTypos(raw).slice(0, 80));
   if (opts.propsOnly) {
-    return (
+    return sanitizeCoachUserNote(
       `You asked for player props — props-only still staged team game lines ` +
-      `(spreads/totals). ` +
-      `[PROPS_ONLY_LEAKED_GAME_LINES: props=${propCount} gameLines=${gameLineCount}${marketBit}]`
+        `(spreads/totals).`,
     );
   }
-  const legs = parseRequestedLegs(raw);
-  return (
+  return sanitizeCoachUserNote(
     `You asked for player props — this ticket staged team game lines ` +
-    `(spreads/totals) instead of player props. ` +
-    `[PROPS_ASK_GOT_GAME_LINES: propsOnly=false legs=${legs}` +
-    ` props=${propCount} gameLines=${gameLineCount}${marketBit}` +
-    ` ask=${askBit}]`
+      `(spreads/totals) instead of player props.`,
   );
 }

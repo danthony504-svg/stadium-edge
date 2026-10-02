@@ -238,5 +238,7 @@ export function deriveCoachScanFailureReason(
 }
 
 export function formatCoachScanFailureTrace(reason: CoachScanFailureReason): string {
+  // LOG / MANIFEST ONLY — never concatenate onto Coach chat notes.
+  // Use sanitizeCoachUserNote at display boundaries if a path still leaks.
   return " [" + reason.code + ": " + reason.detail + "]";
 }

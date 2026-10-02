@@ -23,9 +23,9 @@ import {
 import { gameSimHitForPick, lookupGameSim } from "./gameSimScoring.ts";
 import {
   deriveCoachScanFailureReason,
-  formatCoachScanFailureTrace,
   type CoachScanFailureReason,
 } from "./coachScanFailureReason.ts";
+import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import {
   deriveGameSimLineMetrics,
   simEvPct,
@@ -961,10 +961,9 @@ export function buildScanResult(
           requirePropMix: opts.requirePropMix ?? opts.failureDiagnostics.requirePropMix,
         })
       : null;
-  const noteWithTrace =
-    failureReason && !opts.preview && picks.length === 0
-      ? `${note}${formatCoachScanFailureTrace(failureReason)}`
-      : note;
+  // Empty tickets keep failureReason on the scan result for logs/manifest —
+  // never append `[CODE: detail]` to the user-facing Coach note (phone leak).
+  const noteWithTrace = sanitizeCoachUserNote(note);
 
   let hrRankDiagnostics: ReturnType<typeof hrSelectionDiagnostics> | undefined;
   if (isHrOnlyScoredPool(scored)) {

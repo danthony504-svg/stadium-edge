@@ -181,6 +181,27 @@ test("football mix note never says showing N game-line picks", () => {
   assert.doesNotMatch(note, /showing \d+ game-line/);
 });
 
+test("phone empty note never leaks [PROP_POOL_EMPTY: …] into the chat bubble", () => {
+  // Screenshot: "8 leg soccer and college" showed machine CODE:detail after the
+  // human shortfall lead — keep structured failureReason off-device only.
+  const note = buildFinalCoachParlayNote({
+    target: 8,
+    picks: [],
+    propPoolSize: 0,
+    propsPending: false,
+    requirePropMix: true,
+    shortfallLead: buildFixedLegCountShortfallLead(8, 0),
+    failureReason: {
+      code: "PROP_POOL_EMPTY",
+      detail: "football/prop ask had an empty prop pool and no game lines cleared",
+    },
+  });
+  assert.match(note, /no AI-backed picks cleared the quality bar/i);
+  assert.doesNotMatch(note, /PROP_POOL_EMPTY/);
+  assert.doesNotMatch(note, /\[/);
+  assert.doesNotMatch(note, /football\/prop ask/);
+});
+
 test("7-leg reserved prop slots leave exactly 3 game-line preview capacity", () => {
   assert.equal(boardScanPropSlotCount(7), 4);
   assert.equal(boardScanNonPropPreviewCap(7), 3);

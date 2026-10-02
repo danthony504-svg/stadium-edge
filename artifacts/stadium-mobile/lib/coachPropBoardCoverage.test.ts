@@ -49,6 +49,17 @@ test("generic 6-leg ask loads every prop-capable sport including ncaab", () => {
 test("named CFB ask stays ncaaf-only (does not fan out all prop sports)", () => {
   assert.deepEqual(coachBoardSportsForAsk("6 leg Collage Football", 6, ALL), ["ncaaf"]);
   assert.deepEqual(coachBoardSportsForAsk("6 leg college football", 6, ALL), ["ncaaf"]);
+  assert.deepEqual(coachBoardSportsForAsk("8 leg soccer and college", 8, ALL).sort(), [
+    "ncaaf",
+    "soccer",
+  ]);
+});
+
+test("bare football / basketball / futbol board scopes", () => {
+  assert.deepEqual(coachBoardSportsForAsk("6 leg football", 6, ALL).sort(), ["ncaaf", "nfl"]);
+  assert.deepEqual(coachBoardSportsForAsk("6 leg basketball", 6, ALL), ["nba"]);
+  assert.deepEqual(coachBoardSportsForAsk("6 leg futbol", 6, ALL), ["soccer"]);
+  assert.deepEqual(coachBoardSportsForAsk("6 leg hoops", 6, ALL), ["nba"]);
 });
 
 test("mostly baseball board still considers football props (soft preference)", () => {

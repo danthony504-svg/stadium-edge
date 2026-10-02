@@ -14,6 +14,7 @@ import {
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican } from "@/lib/format";
+import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import { EdgeReadout, type ParsedPick } from "@/components/PickCard";
 import { FONT } from "@/components/ui";
 
@@ -122,6 +123,7 @@ export function AiPickCard({
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
+  const marketLabel = humanizeOddsApiMarketKey(pick.market) || pick.market;
 
   const onToggle = () => {
     if (added) {
@@ -175,13 +177,13 @@ export function AiPickCard({
       >
         {pick.isProp
           ? pick.awayAbbr && pick.homeAbbr
-            ? `${pick.awayAbbr} @ ${pick.homeAbbr} · ${pick.market}`
-            : pick.market
+            ? `${pick.awayAbbr} @ ${pick.homeAbbr} · ${marketLabel}`
+            : marketLabel
           : pick.teamAbbr
-          ? `${pick.teamAbbr} · ${pick.market}`
+          ? `${pick.teamAbbr} · ${marketLabel}`
           : pick.awayAbbr && pick.homeAbbr
-          ? `${pick.awayAbbr} @ ${pick.homeAbbr} · ${pick.market}`
-          : pick.market}
+          ? `${pick.awayAbbr} @ ${pick.homeAbbr} · ${marketLabel}`
+          : marketLabel}
       </Text>
       <Text
         style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12, textAlign: "center" }}

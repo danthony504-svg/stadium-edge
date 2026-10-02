@@ -36,6 +36,7 @@ import {
   type GradeLegResult,
 } from "@/lib/api";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
+import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import { isGameLevelMarket, parsePropLeg } from "@/lib/propLegParse";
 import { saveSlipToPhotos } from "@/lib/slipImage";
 
@@ -207,7 +208,7 @@ function LegRow({
           {leg.pick}
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-          {leg.market} · {leg.game}
+          {humanizeOddsApiMarketKey(leg.market) || leg.market} · {leg.game}
         </Text>
       </View>
       <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 14 }}>

@@ -20,6 +20,7 @@ import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican, payout } from "@/lib/format";
+import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import { saveSlipToPhotos } from "@/lib/slipImage";
 
 if (
@@ -287,7 +288,7 @@ function SlipBarBody({
                       style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 }}
                       numberOfLines={1}
                     >
-                      {leg.market} · {leg.game}
+                      {humanizeOddsApiMarketKey(leg.market) || leg.market} · {leg.game}
                     </Text>
                   </View>
                   <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 13 }}>
