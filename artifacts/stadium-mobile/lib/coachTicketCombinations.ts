@@ -18,8 +18,11 @@ import {
   isThinPropStatMarket,
   maxLegsPerGame,
   maxLegsPerThinStatMarket,
+  maxPropsPerGame,
   parlayCorrelationPenalty,
   wouldExceedMaxLegsPerGame,
+  wouldExceedMaxPropsPerGame,
+  wouldRepeatPlayerProp,
 } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
@@ -290,14 +293,18 @@ function pickDiverseLegsFromPool(
     let bestIdx = -1;
     let bestScore = -Infinity;
     const maxPerGame = maxLegsPerGame(target, config.legsPerGameCap);
+    const maxProps = maxPropsPerGame(target);
     for (let i = 0; i < poolCopy.length; i++) {
       const row = poolCopy[i]!;
       const fp = pickLegFingerprint(row.pick);
       if (used.has(fp)) continue;
       if (selected.some((p) => pickLegFingerprint(p) === fp)) continue;
-      if (wouldExceedMaxLegsPerGame(row.pick, [...ticket, ...selected], maxPerGame)) continue;
+      const onTicket = [...ticket, ...selected];
+      if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
+      if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
+      if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
 
-      const corr = parlayCorrelationPenalty(row.pick, [...ticket, ...selected]);
+      const corr = parlayCorrelationPenalty(row.pick, onTicket);
       let effective =
         row.rankScore -
         corr * config.diversityWeight -
@@ -319,6 +326,8 @@ function pickDiverseLegsFromPool(
       const alt = poolCopy[i]!;
       if (!legsNearlyEqualEdge(chosen, alt)) continue;
       if (wouldExceedMaxLegsPerGame(alt.pick, [...ticket, ...selected], maxPerGame)) continue;
+      if (wouldRepeatPlayerProp(alt.pick, [...ticket, ...selected])) continue;
+      if (wouldExceedMaxPropsPerGame(alt.pick, [...ticket, ...selected], maxProps)) continue;
       const corrChosen = parlayCorrelationPenalty(chosen.pick, [...ticket, ...selected]);
       const corrAlt = parlayCorrelationPenalty(alt.pick, [...ticket, ...selected]);
       const repeatChosen = samePlayerRepeatPenalty(chosen, poolCopy, ticket, selected);
@@ -415,6 +424,8 @@ function tryAppendBackfillLeg(
   if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target, config.legsPerGameCap))) {
     return null;
   }
+  if (wouldRepeatPlayerProp(row.pick, current)) return null;
+  if (wouldExceedMaxPropsPerGame(row.pick, current, maxPropsPerGame(target))) return null;
   const corr = parlayCorrelationPenalty(row.pick, current);
   const repeat = samePlayerRepeatPenalty(row, ranked, current, []);
   const recent = recentLegPenalty(row, ranked, current, [], config.recentLegKeys);

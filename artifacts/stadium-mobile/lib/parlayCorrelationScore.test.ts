@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   maxLegsPerGame,
+  maxPropsPerGame,
   parlayCorrelationPenalty,
   progressiveLegsPerGameRelaxation,
   selectCorrelationAwareBoardLegs,
   wouldExceedMaxLegsPerGame,
+  wouldExceedMaxPropsPerGame,
+  wouldRepeatPlayerProp,
 } from "./parlayCorrelationScore.ts";
 
 const leg = (game: string, market: string, pick: string, isProp = false, player = "") => ({
@@ -68,6 +71,68 @@ test("props do not consume the per-game hard cap", () => {
   assert.equal(
     wouldExceedMaxLegsPerGame(
       leg(g1, "player_rush_yds", "Over 65.5", true, "Dobbins"),
+      ticket,
+      2,
+    ),
+    false,
+  );
+});
+
+test("hard block: one player prop per athlete (Meidroth stack)", () => {
+  const g = "Chicago White Sox @ Cleveland Guardians";
+  const hits = leg(g, "Hits", "Chase Meidroth Over 0.5 Hits", true, "Chase Meidroth");
+  const tb = leg(g, "Total Bases", "Chase Meidroth Over 0.5 Total Bases", true, "Chase Meidroth");
+  const hrr = leg(
+    g,
+    "Hits+Runs+RBIs",
+    "Chase Meidroth Over 0.5 Hits+Runs+RBIs",
+    true,
+    "Chase Meidroth",
+  );
+  assert.equal(wouldRepeatPlayerProp(tb, [hits]), true);
+  assert.equal(wouldRepeatPlayerProp(hrr, [hits, tb]), true);
+  assert.equal(
+    wouldRepeatPlayerProp(
+      leg(g, "Hits", "Miguel Vargas Over 0.5 Hits", true, "Miguel Vargas"),
+      [hits],
+    ),
+    false,
+  );
+
+  const ranked = [
+    { pick: hits, rankScore: 100 },
+    { pick: tb, rankScore: 99 },
+    { pick: hrr, rankScore: 98 },
+    {
+      pick: leg(g, "Hits", "Colson Montgomery Under 0.5 Hits", true, "Colson Montgomery"),
+      rankScore: 90,
+    },
+    {
+      pick: leg("A @ B", "Points", "Player X Over 20.5", true, "Player X"),
+      rankScore: 80,
+    },
+    { pick: leg("C @ D", "Spread", "C +3"), rankScore: 70 },
+  ];
+  const out = selectCorrelationAwareBoardLegs(ranked, 4);
+  const meidroth = out.filter((p) => /meidroth/i.test(String(p.player ?? "")));
+  assert.equal(meidroth.length, 1, `expected one Meidroth prop, got ${meidroth.length}`);
+  assert.ok(out.length >= 3);
+});
+
+test("max 2 props per game on 9-leg mix tickets", () => {
+  const g = "Chicago White Sox @ Cleveland Guardians";
+  const ticket = [
+    leg(g, "Hits", "A Over 0.5", true, "Player A"),
+    leg(g, "Hits", "B Under 0.5", true, "Player B"),
+  ];
+  assert.equal(maxPropsPerGame(9), 2);
+  assert.equal(
+    wouldExceedMaxPropsPerGame(leg(g, "Hits", "C Over 0.5", true, "Player C"), ticket, 2),
+    true,
+  );
+  assert.equal(
+    wouldExceedMaxPropsPerGame(
+      leg("Other @ Game", "Hits", "D Over 0.5", true, "Player D"),
       ticket,
       2,
     ),
