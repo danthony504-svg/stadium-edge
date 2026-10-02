@@ -41,12 +41,16 @@ const SPORT_DEFENSIVE_STATS: Record<string, { category: string; stats: string[] 
     { category: "defensive", stats: ["avgSteals", "avgBlocks", "avgDefensiveRebounds"] },
   ],
   nfl: [
-    { category: "defensive", stats: ["sacks", "totalTackles", "passesDefended", "stuffs"] },
+    { category: "defensive", stats: ["sacks", "totalTackles", "passesDefended", "stuffs", "teamGamesPlayed"] },
     { category: "defensiveInterceptions", stats: ["interceptions"] },
+    { category: "miscellaneous", stats: ["totalTakeaways"] },
+    { category: "general", stats: ["gamesPlayed"] },
   ],
   ncaaf: [
-    { category: "defensive", stats: ["sacks", "totalTackles", "passesDefended", "stuffs"] },
+    { category: "defensive", stats: ["sacks", "totalTackles", "passesDefended", "stuffs", "teamGamesPlayed"] },
     { category: "defensiveInterceptions", stats: ["interceptions"] },
+    { category: "miscellaneous", stats: ["totalTakeaways"] },
+    { category: "general", stats: ["gamesPlayed"] },
   ],
   nhl: [
     { category: "defensive", stats: ["blockedShots", "hits", "takeaways"] },
@@ -80,14 +84,43 @@ const SPORT_OFFENSIVE_STATS: Record<string, { category: string; stats: string[] 
     { category: "offensive", stats: ["avgPoints", "avgAssists", "avgFieldGoalsMade", "avgFieldGoalsAttempted", "fieldGoalPct", "threePointFieldGoalPct", "avgTurnovers"] },
   ],
   nfl: [
-    { category: "passing", stats: ["passingYardsPerGame", "completionPct", "yardsPerPassAttempt"] },
-    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt"] },
+    // passing.sacks = sacks ALLOWED (O-line / pressure allowed), not defensive sacks.
+    {
+      category: "passing",
+      stats: [
+        "passingYardsPerGame",
+        "completionPct",
+        "yardsPerPassAttempt",
+        "sacks",
+        "sackYardsLost",
+        "interceptionPct",
+        "interceptions",
+        "passingAttempts",
+        "teamGamesPlayed",
+      ],
+    },
+    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt", "teamGamesPlayed"] },
     { category: "scoring", stats: ["totalPointsPerGame"] },
+    { category: "general", stats: ["gamesPlayed"] },
   ],
   ncaaf: [
-    { category: "passing", stats: ["passingYardsPerGame", "completionPct", "yardsPerPassAttempt"] },
-    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt"] },
+    {
+      category: "passing",
+      stats: [
+        "passingYardsPerGame",
+        "completionPct",
+        "yardsPerPassAttempt",
+        "sacks",
+        "sackYardsLost",
+        "interceptionPct",
+        "interceptions",
+        "passingAttempts",
+        "teamGamesPlayed",
+      ],
+    },
+    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt", "teamGamesPlayed"] },
     { category: "scoring", stats: ["totalPointsPerGame"] },
+    { category: "general", stats: ["gamesPlayed"] },
   ],
   nhl: [
     { category: "offensive", stats: ["avgGoals", "shotsTotal", "shootingPct"] },
@@ -114,7 +147,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `team-defense:${path}:${teamId}:v5`;
+    const key = `team-defense:${path}:${teamId}:v6`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),

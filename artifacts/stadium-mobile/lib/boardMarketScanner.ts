@@ -38,7 +38,9 @@ import {
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import {
   opponentTeamIdForProp,
+  ownTeamIdForProp,
   oppDefensePackForOpponent,
+  ownTeamPackForProp,
   type FootballOppDefenseMap,
 } from "./footballOppDefenseContext.ts";
 import {
@@ -462,10 +464,22 @@ function appendPropScoredLegs(
         e.player === pick.player &&
         e.side === pick.propSide,
     );
+    const sportKey = pick.sport ?? poolRow?.sport;
     const pack = oppDefensePackForOpponent({
-      sport: pick.sport ?? poolRow?.sport,
+      sport: sportKey,
       opponentTeamId: opponentTeamIdForProp({
-        sport: pick.sport ?? poolRow?.sport,
+        sport: sportKey,
+        game: pick.game,
+        teamAbbr: poolRow?.teamAbbr,
+        espnGames: opts.espnGames,
+        teamIdMap: opts.teamIdMap,
+      }),
+      map: opts.oppRushDefense,
+    });
+    const ownPack = ownTeamPackForProp({
+      sport: sportKey,
+      ownTeamId: ownTeamIdForProp({
+        sport: sportKey,
         game: pick.game,
         teamAbbr: poolRow?.teamAbbr,
         espnGames: opts.espnGames,
@@ -488,7 +502,7 @@ function appendPropScoredLegs(
       null;
     if (
       shouldDropPropMissingOppDefense({
-        sport: pick.sport ?? poolRow?.sport,
+        sport: sportKey,
         market: pick.propMarketKey ?? pick.market,
         side: pick.propSide,
         line: pick.propLine,
@@ -496,11 +510,12 @@ function appendPropScoredLegs(
         vsOpponentGames: propPh?.vsOpponent?.length ?? 0,
       }) ||
       shouldBlockRushOverVsDefense({
-        sport: pick.sport ?? poolRow?.sport,
+        sport: sportKey,
         market: pick.propMarketKey ?? pick.market,
         side: pick.propSide,
         defense: pack?.rush ?? null,
         pack,
+        ownPack,
       })
     ) {
       continue;

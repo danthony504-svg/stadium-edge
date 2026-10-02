@@ -26,10 +26,32 @@ export type FootballOppDefenseSlice = {
   teamName?: string | null;
   /** Coarse points-allowed rate when available (season / feed). */
   pointsAgainst?: number | null;
+  /** Own / team points scored per game — coarse game-script proxy. */
+  pointsFor?: number | null;
+  /** Season defensive sacks forced (normalize with gamesPlayed). */
   sacks?: number | null;
+  /** Season defensive interceptions (normalize with gamesPlayed). */
   interceptions?: number | null;
   passesDefended?: number | null;
   stuffs?: number | null;
+  /** Season games played — from ESPN teamGamesPlayed / gamesPlayed. */
+  gamesPlayed?: number | null;
+  /** Season takeaways (INT+fumble recoveries) when ESPN exposes them. */
+  totalTakeaways?: number | null;
+  /**
+   * Offensive-line / QB pressure allowed: ESPN passing.sacks on THIS team
+   * (sacks taken), not defensive sacks. Normalize with gamesPlayed.
+   */
+  sacksAllowed?: number | null;
+  sackYardsLost?: number | null;
+  /** Own QB/team interception rate (% of attempts) from ESPN interceptionPct. */
+  interceptionPct?: number | null;
+  /** Own season interceptions thrown (passing.interceptions). */
+  intsThrown?: number | null;
+  /** Own season pass attempts — for INT rate when pct missing. */
+  passingAttempts?: number | null;
+  /** Own offensive yards/rush — coarse run-blocking proxy (not YBC). */
+  ownRushYpc?: number | null;
   /** Basketball feed fields (honest, not positional allows). */
   steals?: number | null;
   blocks?: number | null;
@@ -72,6 +94,29 @@ const PASS_STINGY_HARD = 180;
 const PASS_STINGY_SOFT = 200;
 const PASS_LEAKY_SOFT = 245;
 
+/**
+ * League-context per-game bands (ESPN season totals ÷ gamesPlayed).
+ * Early-season (gp≥2) still works; fail closed when gp missing.
+ * Not arbitrary season-total cutoffs (≥20 sacks / ≥10 INT).
+ */
+const SACKS_PG_ELITE = 3.0;
+const SACKS_PG_STRONG = 2.5;
+const SACKS_PG_WEAK = 1.7;
+const INT_PG_ELITE = 1.0;
+const INT_PG_STRONG = 0.75;
+const INT_PG_WEAK = 0.4;
+const PD_PG_STRONG = 4.0;
+const TAKEAWAY_PG_STRONG = 1.5;
+const SACKS_ALLOWED_PG_POROUS = 3.0;
+const SACKS_ALLOWED_PG_STOUT = 1.6;
+const INT_PCT_HIGH = 3.0;
+const INT_PCT_LOW = 1.5;
+const OWN_RUSH_YPC_STRONG = 4.6;
+const OWN_RUSH_YPC_WEAK = 3.7;
+
+/** Bounded hit-prob shift from matchup tilt (±0.8 → ±~4.8pp). Sync, no I/O. */
+const HIT_TILT_SCALE = 0.06;
+
 export function isFootballRushYardsMarket(market: string | null | undefined): boolean {
   const m = String(market ?? "")
     .toLowerCase()
@@ -80,6 +125,18 @@ export function isFootballRushYardsMarket(market: string | null | undefined): bo
   if (!/rush/.test(m)) return false;
   if (/td|touchdown|attempt|longest|reception/.test(m) && !/yard|yd/.test(m)) return false;
   return /yard|yd|\brush yds\b|\brushing yds\b/.test(m) || /player rush yds/.test(m);
+}
+
+/** Rush attempts / longest rush (volume + explosive run). */
+export function isFootballRushVolumeMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (!m || !/rush/.test(m)) return false;
+  if (/yard|yd|td|touchdown|reception/.test(m) && !/attempt|longest|long rush/.test(m)) {
+    return false;
+  }
+  return /attempt|longest|long rush/.test(m);
 }
 
 /** Pass yards / completions markets (QB). */
@@ -96,6 +153,17 @@ export function isFootballPassYardsMarket(market: string | null | undefined): bo
   return /yard|yd|complet/.test(m);
 }
 
+/** Pass attempts / longest completion (volume + explosive pass). */
+export function isFootballPassVolumeMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (!m) return false;
+  if (/rush|recv|reception|receiving|int|intercept|sack|td|touchdown/.test(m)) return false;
+  if (!/pass|qb/.test(m)) return false;
+  return /attempt|longest|long (pass|completion)/.test(m);
+}
+
 /** Receiving yards / receptions (WR/TE/RB catch). */
 export function isFootballRecvMarket(market: string | null | undefined): boolean {
   const m = String(market ?? "")
@@ -109,11 +177,52 @@ export function isFootballRecvMarket(market: string | null | undefined): boolean
   );
 }
 
+/** Longest reception. */
+export function isFootballRecvLongMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  return /recv|reception|receiving/.test(m) && /longest|long recv|long reception/.test(m);
+}
+
+/** Dedicated sack props (pass rusher). */
+export function isFootballSackMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (!m) return false;
+  if (/yard|yd|allowed/.test(m)) return false;
+  return /\bsacks?\b|player_sacks/.test(m);
+}
+
+/** QB interceptions thrown (not defensive INTs). */
+export function isFootballQbIntMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (!m) return false;
+  if (/defensive/.test(m)) return false;
+  return /pass.?int|interceptions? thrown|player_pass_interceptions|\bints?\b/.test(m) ||
+    (/intercept/.test(m) && /pass|qb|thrown/.test(m));
+}
+
+/** QB rushing yards — pressure/scramble relevant. */
+export function isFootballQbRushMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  return /qb/.test(m) && /rush/.test(m) && /yard|yd/.test(m);
+}
+
 export function isFootballSkillYardsMarket(market: string | null | undefined): boolean {
   return (
     isFootballRushYardsMarket(market) ||
     isFootballPassYardsMarket(market) ||
-    isFootballRecvMarket(market)
+    isFootballRecvMarket(market) ||
+    isFootballRushVolumeMarket(market) ||
+    isFootballPassVolumeMarket(market) ||
+    isFootballSackMarket(market) ||
+    isFootballQbIntMarket(market)
   );
 }
 
@@ -138,9 +247,115 @@ function tiltFromBands(opts: {
   return { tilt: 0, blockOver: false };
 }
 
+/** Season total ÷ games — null when either missing or gp < 2. */
+export function perGameRate(
+  total: number | null | undefined,
+  gamesPlayed: number | null | undefined,
+): number | null {
+  if (total == null || !Number.isFinite(total)) return null;
+  if (gamesPlayed == null || !Number.isFinite(gamesPlayed) || gamesPlayed < 2) return null;
+  return Math.round((total / gamesPlayed) * 100) / 100;
+}
+
+function clampTilt(tilt: number): number {
+  return Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100));
+}
+
+/**
+ * Coarse pressure index from opp sack rate + own sacks-allowed rate.
+ * Returns signed lean for the *offense* facing pressure: +1 = heavy pressure.
+ */
+export function footballPressureIndex(opts: {
+  opp?: FootballOppDefenseSlice | null;
+  own?: FootballOppDefenseSlice | null;
+}): { pressure: number; bits: string[] } {
+  const bits: string[] = [];
+  let pressure = 0;
+  const oppSackPg = perGameRate(opts.opp?.sacks, opts.opp?.gamesPlayed);
+  const ownAllowedPg = perGameRate(opts.own?.sacksAllowed, opts.own?.gamesPlayed);
+  if (oppSackPg != null) {
+    bits.push(`${oppSackPg}/g opp sacks`);
+    if (oppSackPg >= SACKS_PG_ELITE) pressure += 0.55;
+    else if (oppSackPg >= SACKS_PG_STRONG) pressure += 0.35;
+    else if (oppSackPg <= SACKS_PG_WEAK) pressure -= 0.3;
+  }
+  if (ownAllowedPg != null) {
+    bits.push(`${ownAllowedPg}/g sacks allowed`);
+    if (ownAllowedPg >= SACKS_ALLOWED_PG_POROUS) pressure += 0.4;
+    else if (ownAllowedPg <= SACKS_ALLOWED_PG_STOUT) pressure -= 0.35;
+  }
+  return { pressure: Math.max(-1, Math.min(1, pressure)), bits };
+}
+
+/**
+ * Takeaway / INT threat from opp INT rate + PD + takeaways, vs own INT%.
+ * Positive = more INT risk for the QB.
+ */
+export function footballIntThreatIndex(opts: {
+  opp?: FootballOppDefenseSlice | null;
+  own?: FootballOppDefenseSlice | null;
+}): { threat: number; bits: string[] } {
+  const bits: string[] = [];
+  let threat = 0;
+  const intPg = perGameRate(opts.opp?.interceptions, opts.opp?.gamesPlayed);
+  const pdPg = perGameRate(opts.opp?.passesDefended, opts.opp?.gamesPlayed);
+  const takePg = perGameRate(opts.opp?.totalTakeaways, opts.opp?.gamesPlayed);
+  const ownIntPct = opts.own?.interceptionPct;
+  if (intPg != null) {
+    bits.push(`${intPg}/g opp INT`);
+    if (intPg >= INT_PG_ELITE) threat += 0.45;
+    else if (intPg >= INT_PG_STRONG) threat += 0.3;
+    else if (intPg <= INT_PG_WEAK) threat -= 0.25;
+  }
+  if (pdPg != null && pdPg >= PD_PG_STRONG) {
+    bits.push(`${pdPg}/g PD`);
+    threat += 0.15;
+  }
+  if (takePg != null && takePg >= TAKEAWAY_PG_STRONG) {
+    bits.push(`${takePg}/g takeaways`);
+    threat += 0.12;
+  }
+  if (ownIntPct != null && Number.isFinite(ownIntPct)) {
+    bits.push(`${ownIntPct}% INT`);
+    if (ownIntPct >= INT_PCT_HIGH) threat += 0.35;
+    else if (ownIntPct <= INT_PCT_LOW) threat -= 0.25;
+  } else {
+    const thrownPg = perGameRate(opts.own?.intsThrown, opts.own?.gamesPlayed);
+    if (thrownPg != null) {
+      bits.push(`${thrownPg}/g INT thrown`);
+      if (thrownPg >= 1.0) threat += 0.3;
+      else if (thrownPg <= 0.4) threat -= 0.2;
+    }
+  }
+  return { threat: Math.max(-1, Math.min(1, threat)), bits };
+}
+
+/**
+ * Apply matchup tilt to a sim hit probability. Bounded, sync — does not
+ * change provider lines/odds. Positive tilt → higher hit for that side.
+ */
+export function adjustSimHitForOppDefenseTilt(
+  hit: number | null | undefined,
+  tilt: number,
+): number | null {
+  if (hit == null || !Number.isFinite(hit)) return hit ?? null;
+  if (!Number.isFinite(tilt) || tilt === 0) return hit;
+  const adj = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
+  return Math.round(Math.max(0.02, Math.min(0.98, hit + adj)) * 1000) / 1000;
+}
+
+function sideTilt(magnitude: number, isOver: boolean, isUnder: boolean): number {
+  if (magnitude === 0) return 0;
+  // magnitude > 0 favors Over; < 0 favors Under
+  if (isOver) return magnitude;
+  if (isUnder) return -magnitude;
+  return 0;
+}
+
 /**
  * Tilt for a football skill prop against a known opponent defense pack.
  * Fail closed (tilt 0) when sample is thin or allowed yards missing.
+ * Optional ownPack adds O-line / QB tendency (already loaded — no extra fetch).
  */
 export function footballRushDefenseTilt(opts: {
   market?: string | null;
@@ -148,6 +363,8 @@ export function footballRushDefenseTilt(opts: {
   defense?: RushDefenseSlice | null;
   /** Full pack — preferred when present (covers pass/recv too). */
   pack?: FootballOppDefenseSlice | null;
+  /** Player's own team pack (O-line sacks allowed, INT%, rush YPC). */
+  ownPack?: FootballOppDefenseSlice | null;
 }): RushDefenseTilt {
   const empty: RushDefenseTilt = { tilt: 0, blockOver: false, display: null };
   const market = opts.market;
@@ -157,30 +374,137 @@ export function footballRushDefenseTilt(opts: {
   if (!isOver && !isUnder) return empty;
 
   const pack = opts.pack;
+  const own = opts.ownPack ?? null;
   const rush = pack?.rush ?? opts.defense ?? null;
   const pass = pack?.pass ?? null;
   const who = pack?.teamName ?? rush?.teamName ?? pass?.teamName ?? "";
 
-  if (isFootballRushYardsMarket(market)) {
-    if (!rush || rush.sampleSize < MIN_SAMPLE || rush.rushingYardsAllowedPerGame == null) {
-      return empty;
+  // --- Dedicated sack props: pass rusher vs opposing O-line ---
+  if (isFootballSackMarket(market)) {
+    // For sack props the "pack" is the offense being rushed (opponent of the
+    // defender): use sacksAllowed. Pass-rush strength comes from ownPack.sacks
+    // when the rusher's team was loaded as own, OR from pack if caller swapped.
+    const olineAllowedPg =
+      perGameRate(pack?.sacksAllowed, pack?.gamesPlayed) ??
+      perGameRate(own?.sacksAllowed, own?.gamesPlayed);
+    const rusherSackPg =
+      perGameRate(own?.sacks, own?.gamesPlayed) ??
+      perGameRate(pack?.sacks, pack?.gamesPlayed);
+    if (olineAllowedPg == null && rusherSackPg == null) return empty;
+    let favorOver = 0;
+    const bits: string[] = [];
+    if (olineAllowedPg != null) {
+      bits.push(`${olineAllowedPg}/g OL sacks allowed`);
+      if (olineAllowedPg >= SACKS_ALLOWED_PG_POROUS) favorOver += 0.4;
+      else if (olineAllowedPg <= SACKS_ALLOWED_PG_STOUT) favorOver -= 0.35;
     }
-    const allowed = rush.rushingYardsAllowedPerGame;
-    const ypc = rush.yardsPerRushAllowed;
-    let { tilt, blockOver } = tiltFromBands({
-      allowed,
-      stingyHard: RUSH_STINGY_HARD,
-      stingySoft: RUSH_STINGY_SOFT,
-      leakySoft: RUSH_LEAKY_SOFT,
-      isOver,
-      isUnder,
-    });
-    if (ypc != null && ypc <= 3.7) tilt += isOver ? -0.15 : 0.1;
-    else if (ypc != null && ypc >= 4.8) tilt += isOver ? 0.1 : -0.08;
-    tilt = Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100));
-    const bits = [`allows ${allowed} rush yds/g`];
-    if (ypc != null) bits.push(`${ypc} YPC allowed`);
-    bits.push(`n=${rush.sampleSize}`);
+    if (rusherSackPg != null) {
+      bits.push(`${rusherSackPg}/g pass-rush`);
+      if (rusherSackPg >= SACKS_PG_ELITE) favorOver += 0.35;
+      else if (rusherSackPg >= SACKS_PG_STRONG) favorOver += 0.2;
+      else if (rusherSackPg <= SACKS_PG_WEAK) favorOver -= 0.25;
+    }
+    if (favorOver === 0 && !bits.length) return empty;
+    const tilt = clampTilt(sideTilt(favorOver, isOver, isUnder));
+    return {
+      tilt,
+      blockOver: false,
+      display: `${who ? `${who} ` : ""}${bits.join(", ")} (sack)`,
+    };
+  }
+
+  // --- Dedicated QB interception props ---
+  if (isFootballQbIntMarket(market)) {
+    const { threat, bits } = footballIntThreatIndex({ opp: pack, own });
+    if (!bits.length) return empty;
+    // High INT threat favors INT Over (QB throws picks).
+    const tilt = clampTilt(sideTilt(threat * 0.7, isOver, isUnder));
+    return {
+      tilt,
+      blockOver: false,
+      display: `${who ? `${who} ` : ""}${bits.join(", ")} (INT)`,
+    };
+  }
+
+  // --- QB scramble rush: pressure favors Over (before generic rush yards) ---
+  if (isFootballQbRushMarket(market)) {
+    const { pressure, bits: pressBits } = footballPressureIndex({ opp: pack, own });
+    if (!pressBits.length && (!rush || rush.sampleSize < MIN_SAMPLE)) return empty;
+    let tilt = 0;
+    const bits: string[] = [...pressBits];
+    if (pressBits.length) {
+      tilt += sideTilt(pressure * 0.45, isOver, isUnder);
+    }
+    // Soft leaky/stingy run-D still matters for QB designed runs.
+    if (rush && rush.sampleSize >= MIN_SAMPLE && rush.rushingYardsAllowedPerGame != null) {
+      bits.push(`allows ${rush.rushingYardsAllowedPerGame} rush yds/g`);
+      if (rush.rushingYardsAllowedPerGame <= RUSH_STINGY_SOFT) {
+        tilt += isOver ? -0.15 : 0.1;
+      } else if (rush.rushingYardsAllowedPerGame >= RUSH_LEAKY_SOFT) {
+        tilt += isOver ? 0.12 : -0.08;
+      }
+    }
+    tilt = clampTilt(tilt);
+    if (!bits.length) return empty;
+    return {
+      tilt,
+      blockOver: false,
+      display: `${who ? `${who} ` : ""}${bits.join(", ")} (qb-rush)`,
+    };
+  }
+
+  if (isFootballRushYardsMarket(market) || isFootballRushVolumeMarket(market)) {
+    if (!rush || rush.sampleSize < MIN_SAMPLE || rush.rushingYardsAllowedPerGame == null) {
+      // Still allow own YPC / stuffs soft tilt when box sample thin.
+      if (own?.ownRushYpc == null && pack?.stuffs == null) return empty;
+    }
+    let tilt = 0;
+    let blockOver = false;
+    const bits: string[] = [];
+    if (rush && rush.sampleSize >= MIN_SAMPLE && rush.rushingYardsAllowedPerGame != null) {
+      const allowed = rush.rushingYardsAllowedPerGame;
+      const ypc = rush.yardsPerRushAllowed;
+      const band = tiltFromBands({
+        allowed,
+        stingyHard: RUSH_STINGY_HARD,
+        stingySoft: RUSH_STINGY_SOFT,
+        leakySoft: RUSH_LEAKY_SOFT,
+        isOver,
+        isUnder,
+      });
+      tilt = band.tilt;
+      blockOver = band.blockOver;
+      bits.push(`allows ${allowed} rush yds/g`);
+      if (ypc != null) {
+        bits.push(`${ypc} YPC allowed`);
+        if (ypc <= 3.7) tilt += isOver ? -0.15 : 0.1;
+        else if (ypc >= 4.8) tilt += isOver ? 0.1 : -0.08;
+      }
+      bits.push(`n=${rush.sampleSize}`);
+    }
+    // Run-blocking proxy: own offensive YPC (not yards-before-contact — unavailable).
+    if (own?.ownRushYpc != null) {
+      bits.push(`own ${own.ownRushYpc} YPC`);
+      if (own.ownRushYpc >= OWN_RUSH_YPC_STRONG) tilt += isOver ? 0.12 : -0.08;
+      else if (own.ownRushYpc <= OWN_RUSH_YPC_WEAK) tilt += isOver ? -0.12 : 0.08;
+    }
+    const stuffPg = perGameRate(pack?.stuffs, pack?.gamesPlayed);
+    if (stuffPg != null && stuffPg >= 2.5) {
+      bits.push(`${stuffPg}/g stuffs`);
+      tilt += isOver ? -0.1 : 0.07;
+    }
+    // Game script: trailing teams pass more → rush volume Unders; leading → rush Overs.
+    if (
+      pack?.pointsAgainst != null &&
+      own?.pointsFor != null &&
+      isFootballRushVolumeMarket(market)
+    ) {
+      const script = own.pointsFor - pack.pointsAgainst;
+      if (script >= 7) tilt += isOver ? 0.08 : -0.05;
+      else if (script <= -7) tilt += isOver ? -0.08 : 0.05;
+    }
+    tilt = clampTilt(tilt);
+    if (!bits.length) return empty;
     return {
       tilt,
       blockOver,
@@ -188,31 +512,78 @@ export function footballRushDefenseTilt(opts: {
     };
   }
 
-  if (isFootballPassYardsMarket(market) || isFootballRecvMarket(market)) {
-    if (!pass || pass.sampleSize < MIN_SAMPLE || pass.passingYardsAllowedPerGame == null) {
-      return empty;
+  if (
+    isFootballPassYardsMarket(market) ||
+    isFootballRecvMarket(market) ||
+    isFootballPassVolumeMarket(market) ||
+    isFootballRecvLongMarket(market)
+  ) {
+    const isRecv = isFootballRecvMarket(market) || isFootballRecvLongMarket(market);
+    const isPassVol = isFootballPassVolumeMarket(market);
+    const { pressure, bits: pressBits } = footballPressureIndex({ opp: pack, own });
+    const { threat: intThreat, bits: intBits } = footballIntThreatIndex({ opp: pack, own });
+
+    let tilt = 0;
+    let blockOver = false;
+    const bits: string[] = [];
+
+    if (
+      pass &&
+      pass.sampleSize >= MIN_SAMPLE &&
+      pass.passingYardsAllowedPerGame != null
+    ) {
+      const allowed = pass.passingYardsAllowedPerGame;
+      const ypa = pass.yardsPerPassAllowed;
+      const band = tiltFromBands({
+        allowed,
+        stingyHard: PASS_STINGY_HARD,
+        stingySoft: PASS_STINGY_SOFT,
+        leakySoft: PASS_LEAKY_SOFT,
+        isOver,
+        isUnder,
+      });
+      tilt = band.tilt;
+      blockOver = band.blockOver;
+      bits.push(`allows ${allowed} pass yds/g`);
+      if (ypa != null) {
+        bits.push(`${ypa} YPA allowed`);
+        if (ypa <= 5.8) tilt += isOver ? -0.12 : 0.08;
+        else if (ypa >= 7.4) tilt += isOver ? 0.1 : -0.08;
+      }
+      bits.push(`n=${pass.sampleSize}`);
     }
-    const allowed = pass.passingYardsAllowedPerGame;
-    const ypa = pass.yardsPerPassAllowed;
-    let { tilt, blockOver } = tiltFromBands({
-      allowed,
-      stingyHard: PASS_STINGY_HARD,
-      stingySoft: PASS_STINGY_SOFT,
-      leakySoft: PASS_LEAKY_SOFT,
-      isOver,
-      isUnder,
-    });
-    // Soft pressure nudge from season sacks / passes defended when present.
-    if (pack?.sacks != null && pack.sacks >= 20 && isOver) tilt -= 0.1;
-    if (pack?.interceptions != null && pack.interceptions >= 10 && isOver) tilt -= 0.08;
-    if (pack?.passesDefended != null && pack.passesDefended >= 50 && isOver) tilt -= 0.08;
-    if (ypa != null && ypa <= 5.8) tilt += isOver ? -0.12 : 0.08;
-    else if (ypa != null && ypa >= 7.4) tilt += isOver ? 0.1 : -0.08;
-    tilt = Math.max(-0.8, Math.min(0.8, Math.round(tilt * 100) / 100));
-    const kind = isFootballRecvMarket(market) ? "recv" : "pass";
-    const bits = [`allows ${allowed} pass yds/g`];
-    if (ypa != null) bits.push(`${ypa} YPA allowed`);
-    bits.push(`n=${pass.sampleSize}`);
+
+    // Pressure effects — market-aware (not blanket Under):
+    // pass yards/completions/longest: pressure suppresses efficiency → Under lean
+    // pass attempts: pressure/trailing can raise volume → mild Over lean
+    // recv yards/receptions: checkdowns under pressure → mild Over for receptions
+    if (pressBits.length) {
+      bits.push(...pressBits);
+      if (isPassVol && /attempt/.test(String(market ?? "").toLowerCase())) {
+        tilt += sideTilt(pressure * 0.2, isOver, isUnder);
+      } else if (isRecv && /reception/.test(String(market ?? "").toLowerCase()) && !/yard|yd/.test(String(market ?? "").toLowerCase())) {
+        // Receptions (checkdowns) tick up under pressure
+        tilt += sideTilt(pressure * 0.22, isOver, isUnder);
+      } else if (isRecv) {
+        // Recv yards / longest: pressure caps downfield → mild Under
+        tilt += sideTilt(-pressure * 0.15, isOver, isUnder);
+      } else {
+        // Pass yards / completions / longest completion
+        tilt += sideTilt(-pressure * 0.28, isOver, isUnder);
+      }
+    }
+
+    // INT threat soft-caps explosive pass / longest completion Overs
+    if (intBits.length && (isFootballPassYardsMarket(market) || isFootballPassVolumeMarket(market))) {
+      if (/longest|complet/.test(String(market ?? "").toLowerCase())) {
+        bits.push(...intBits.filter((b) => !bits.includes(b)));
+        tilt += sideTilt(-intThreat * 0.15, isOver, isUnder);
+      }
+    }
+
+    tilt = clampTilt(tilt);
+    if (!bits.length) return empty;
+    const kind = isRecv ? "recv" : isPassVol ? "pass-vol" : "pass";
     return {
       tilt,
       blockOver,
@@ -231,8 +602,13 @@ export function footballRushDefenseTilt(opts: {
     else if (pa <= 18) tilt = isOver ? -0.3 : 0.2;
     else if (pa >= 27) tilt = isOver ? 0.3 : -0.2;
     else return empty;
+    // Soft INT/pressure dampener on pass TD Overs only (not rush TD).
+    if (/pass/.test(m) && isOver) {
+      const { pressure } = footballPressureIndex({ opp: pack, own });
+      if (pressure >= 0.5) tilt -= 0.1;
+    }
     return {
-      tilt,
+      tilt: clampTilt(tilt),
       blockOver: false,
       display: `${who ? `${who} ` : ""}allows ${pa} pts/g`,
     };
@@ -248,6 +624,7 @@ export function shouldBlockRushOverVsDefense(opts: {
   side?: string | null;
   defense?: RushDefenseSlice | null;
   pack?: FootballOppDefenseSlice | null;
+  ownPack?: FootballOppDefenseSlice | null;
 }): boolean {
   // Unified across sports — NFL rush/pass + NHL goaltending + etc.
   return propOppDefenseTilt(opts).blockOver;
@@ -490,12 +867,24 @@ export function propOppDefenseTilt(opts: {
   side?: string | null;
   defense?: RushDefenseSlice | null;
   pack?: FootballOppDefenseSlice | null;
+  ownPack?: FootballOppDefenseSlice | null;
 }): RushDefenseTilt {
   const sport = String(opts.sport ?? "").toLowerCase();
   const hasFootballPack = !!(opts.defense || opts.pack?.rush || opts.pack?.pass);
+  const hasFootballMatchup = !!(
+    opts.pack?.sacks != null ||
+    opts.pack?.sacksAllowed != null ||
+    opts.ownPack?.sacksAllowed != null ||
+    opts.ownPack?.interceptionPct != null ||
+    opts.pack?.interceptions != null
+  );
   // Football when sport says so, OR when rush/pass yards are present and sport
   // was omitted (legacy callers / tests) — never invent football from NHL packs.
-  if (sport === "nfl" || sport === "ncaaf" || (hasFootballPack && !sport)) {
+  if (
+    sport === "nfl" ||
+    sport === "ncaaf" ||
+    ((hasFootballPack || hasFootballMatchup) && !sport)
+  ) {
     const fb = footballRushDefenseTilt(opts);
     if (fb.tilt !== 0 || fb.blockOver || fb.display) return fb;
   }
@@ -520,6 +909,7 @@ export function shouldPreferDefenseAltPick(opts: {
   side?: string | null;
   defense?: RushDefenseSlice | null;
   pack?: FootballOppDefenseSlice | null;
+  ownPack?: FootballOppDefenseSlice | null;
 }): boolean {
   const side = String(opts.side ?? "").toLowerCase();
   if (side !== "over") return false;

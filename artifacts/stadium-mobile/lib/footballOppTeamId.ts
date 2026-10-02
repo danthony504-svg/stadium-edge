@@ -202,3 +202,78 @@ export function opponentTeamIdForProp(opts: {
   }
   return null;
 }
+
+/**
+ * Resolve the player's own ESPN team id (inverse of opponentTeamIdForProp).
+ * Used for O-line / QB tendency packs already loaded in the defense map.
+ */
+export function ownTeamIdForProp(opts: {
+  sport?: string | null;
+  game: string;
+  teamAbbr?: string | null;
+  espnGames?: OppTeamIdEspnGame[] | null;
+  teamIdMap?: Map<string, OppTeamIdMapEntry> | null;
+}): string | null {
+  const sport = String(opts.sport ?? "").toLowerCase();
+  if (!sport) return null;
+  const ab = String(opts.teamAbbr ?? "")
+    .trim()
+    .toUpperCase();
+  if (!ab) return null;
+
+  const games = opts.espnGames ?? [];
+  let hit: OppTeamIdEspnGame | undefined;
+
+  if (opts.teamIdMap) {
+    const ids = resolveCoachGameTeamIds(opts.game, sport, opts.teamIdMap);
+    if (ids) {
+      hit = games.find(
+        (g) =>
+          String(g.sport ?? "").toLowerCase() === sport &&
+          String(g.homeTeamId ?? "") === ids.homeTeamId &&
+          String(g.awayTeamId ?? "") === ids.awayTeamId,
+      );
+    }
+  }
+
+  if (!hit) {
+    hit = games.find((g) => {
+      if (String(g.sport ?? "").toLowerCase() !== sport) return false;
+      const homeAb = String(g.homeAbbr ?? "").toUpperCase();
+      const awayAb = String(g.awayAbbr ?? "").toUpperCase();
+      if (homeAb === ab || awayAb === ab) {
+        const label = `${g.awayTeam ?? g.awayAbbr ?? ""} @ ${g.homeTeam ?? g.homeAbbr ?? ""}`;
+        return gameLabelsMatch(opts.game, label) || homeAb === ab || awayAb === ab;
+      }
+      const label = `${g.awayTeam ?? g.awayAbbr ?? ""} @ ${g.homeTeam ?? g.homeAbbr ?? ""}`;
+      return gameLabelsMatch(opts.game, label);
+    });
+  }
+
+  if (hit) {
+    const homeAb = String(hit.homeAbbr ?? "").toUpperCase();
+    const awayAb = String(hit.awayAbbr ?? "").toUpperCase();
+    if (homeAb === ab && hit.homeTeamId) return String(hit.homeTeamId);
+    if (awayAb === ab && hit.awayTeamId) return String(hit.awayTeamId);
+    if (
+      teamNameMatchesAbbr(String(hit.homeTeam ?? ""), ab) &&
+      hit.homeTeamId
+    ) {
+      return String(hit.homeTeamId);
+    }
+    if (
+      teamNameMatchesAbbr(String(hit.awayTeam ?? ""), ab) &&
+      hit.awayTeamId
+    ) {
+      return String(hit.awayTeamId);
+    }
+  }
+
+  if (opts.teamIdMap) {
+    const ids = resolveCoachGameTeamIds(opts.game, sport, opts.teamIdMap);
+    if (!ids) return null;
+    if (teamNameMatchesAbbr(String(ids.homeTeam ?? ""), ab)) return ids.homeTeamId;
+    if (teamNameMatchesAbbr(String(ids.awayTeam ?? ""), ab)) return ids.awayTeamId;
+  }
+  return null;
+}
