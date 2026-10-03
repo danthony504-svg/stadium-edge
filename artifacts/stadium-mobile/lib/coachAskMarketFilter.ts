@@ -444,8 +444,10 @@ export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean 
   if (/\bwithout\s+props?\b/.test(t)) return true;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return true;
   if (/\bsides?\s+only\b/.test(t)) return true;
-  // Bare college is a mix (yards + half/quarter + FG) — not game-lines-only.
-  // Explicit "team props" / "no player props" above still force team markets.
+  // Phone: college books post team spreads / totals / Q lines — not player
+  // yards. Bare "8 leg college" / "8 leg Collage" / NCAAF → game lines only
+  // unless the user named player props. Mixed "soccer and college" stays off.
+  if (askIsCollegeFootballOnly(t) && !askAllowsNcaafPlayerProps(t)) return true;
   return false;
 }
 

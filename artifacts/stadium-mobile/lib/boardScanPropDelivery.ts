@@ -80,10 +80,9 @@ export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean 
 }
 
 /**
- * True when CFB player props / skill markets may enter the pool.
- * Bare "8 leg college" includes posted player yards (Odds API has no FanDuel
- * Team Yards) alongside spreads / half / quarter team markets.
- * Explicit "team props" / "no player props" still blocks.
+ * True when the user explicitly asked for CFB player props / skill markets.
+ * Bare "8 leg college" / "8 leg Collage" stays on team spreads / totals /
+ * period lines — college books rarely post player yards boards.
  */
 export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   const t = String(text ?? "")
@@ -114,8 +113,6 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   ) {
     return true;
   }
-  // Bare college / NCAAF — score posted player yards with the team-market mix.
-  if (askIsCollegeFootballOnly(t)) return true;
   return false;
 }
 
@@ -136,9 +133,10 @@ export function filterNcaafPlayerPropsUnlessAsked<
 }
 
 /**
- * Bare "10 leg nfl" / "football" / "college" asks expect a skill-prop mix
- * (yards + team markets). Explicit "team props" / "no player props" stay off.
- * Not props-only (spreads can remain).
+ * Bare "10 leg nfl" / "football" asks expect a skill-prop mix.
+ * Bare NCAAF / college football stays on team markets (spreads / totals /
+ * period lines) unless the user named player props / yards / TDs.
+ * Not props-only (spreads can remain) and not "with no player props".
  */
 export function askRequiresFootballPropMix(text?: string | null): boolean {
   const t = String(text ?? "").toLowerCase();
@@ -150,12 +148,15 @@ export function askRequiresFootballPropMix(text?: string | null): boolean {
   if (/\bsides?\s+only\b/.test(t)) return false;
   // Explicit team-props asks stay on team markets only (no yards mix).
   if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
-  if (askIsCollegeFootballOnly(t)) return askAllowsNcaafPlayerProps(t);
+  // College-only without explicit player-prop ask → team markets, not prop mix.
+  if (askIsCollegeFootballOnly(t) && !askAllowsNcaafPlayerProps(t)) return false;
   return (
     /\bnfl\b/.test(t) ||
+    // Explicit CFB player-prop asks still use the football mix / props path.
+    (askIsCollegeFootballOnly(t) && askAllowsNcaafPlayerProps(t)) ||
     (/\bfootball\b/.test(t) &&
       !/\bsoccer|nba|mlb|nhl|wnba|ncaab\b/.test(t) &&
-      // "college football" is handled above — don't double-count.
+      // "college football" is handled above — don't treat it as NFL mix.
       !/\bcollege\s+football\b|\bcollage\s+football\b|\bncaaf\b|\bcfb\b/.test(t))
   );
 }

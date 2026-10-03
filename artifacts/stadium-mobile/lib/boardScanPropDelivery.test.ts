@@ -47,15 +47,16 @@ test("5-leg reserved prop slots leave exactly 2 game-line preview capacity", () 
   assert.equal(boardScanNonPropPreviewCap(5), 2);
 });
 
-test("askRequiresFootballPropMix: NFL + bare college yards mix; team props stay off", () => {
+test("askRequiresFootballPropMix: NFL yards mix; bare college stays team markets", () => {
   assert.equal(askRequiresFootballPropMix("10 leg nfl"), true);
   assert.equal(askRequiresFootballPropMix("10 leg football"), true);
-  // Bare college includes posted yards with team/period markets.
-  assert.equal(askRequiresFootballPropMix("10-leg NCAAF"), true);
-  assert.equal(askRequiresFootballPropMix("8 leg college football"), true);
-  assert.equal(askRequiresFootballPropMix("8 leg college"), true);
-  assert.equal(askRequiresFootballPropMix("6 leg cfb"), true);
-  assert.equal(askRequiresFootballPropMix("8 leg collage football"), true);
+  // Bare college / Collage → team markets only (college books lack player props).
+  assert.equal(askRequiresFootballPropMix("10-leg NCAAF"), false);
+  assert.equal(askRequiresFootballPropMix("8 leg college football"), false);
+  assert.equal(askRequiresFootballPropMix("8 leg college"), false);
+  assert.equal(askRequiresFootballPropMix("8 leg Collage"), false);
+  assert.equal(askRequiresFootballPropMix("6 leg cfb"), false);
+  assert.equal(askRequiresFootballPropMix("8 leg collage football"), false);
   assert.equal(askRequiresFootballPropMix("8 leg college football player props"), true);
   assert.equal(askRequiresFootballPropMix("7 leg college team props"), false);
   assert.equal(askRequiresFootballPropMix("10 leg nfl with no player props"), false);
@@ -69,7 +70,8 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
   assert.equal(askIsCollegeFootballOnly("8 leg soccer and college"), false);
   assert.equal(askIsCollegeFootballOnly("10 leg nfl"), false);
   assert.equal(askIsCollegeFootballOnly("10 leg football"), false);
-  assert.equal(askAllowsNcaafPlayerProps("8 leg college"), true);
+  assert.equal(askAllowsNcaafPlayerProps("8 leg college"), false);
+  assert.equal(askAllowsNcaafPlayerProps("8 leg Collage"), false);
   assert.equal(askAllowsNcaafPlayerProps("8 leg college football player props"), true);
   assert.equal(askAllowsNcaafPlayerProps("6 leg ncaaf rushing yards"), true);
   assert.equal(askAllowsNcaafPlayerProps("5 leg college team props"), false);
@@ -85,14 +87,16 @@ test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", (
   assert.equal(askAllowsCollegeTeamMarketStacks("no player props"), false);
 });
 
-test("bare college allows NCAAF yards + football prop mix", () => {
-  assert.equal(askAllowsNcaafPlayerProps("7 leg college"), true);
-  assert.equal(askRequiresFootballPropMix("7 leg college"), true);
+test("bare college blocks NCAAF player props; explicit yards/props still allow", () => {
+  assert.equal(askAllowsNcaafPlayerProps("7 leg college"), false);
+  assert.equal(askRequiresFootballPropMix("7 leg college"), false);
   assert.equal(askAllowsNcaafPlayerProps("7 leg college team props"), false);
   assert.equal(askRequiresFootballPropMix("7 leg college team props"), false);
+  assert.equal(askAllowsNcaafPlayerProps("7 leg college receiving yards"), true);
+  assert.equal(askRequiresFootballPropMix("7 leg college receiving yards"), true);
 });
 
-test("filterNcaafPlayerPropsUnlessAsked keeps CFB yards on bare college; strips on mixed/team-props", () => {
+test("filterNcaafPlayerPropsUnlessAsked strips CFB yards on bare college; keeps when asked", () => {
   const rows = [
     { sport: "ncaaf", isProp: true, market: "player_reception_yds" },
     { sport: "ncaaf", isProp: false, market: "Spread" },
@@ -105,9 +109,17 @@ test("filterNcaafPlayerPropsUnlessAsked keeps CFB yards on bare college; strips 
     filtered.map((r) => `${r.sport}:${r.market}`),
     ["ncaaf:Spread", "soccer:player_shots", "nfl:player_pass_yds"],
   );
-  // Bare college keeps posted yards in the mix.
+  // Bare college / Collage strips CFB player props (team markets only).
   const bare = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg college");
-  assert.equal(bare.length, 4);
+  assert.deepEqual(
+    bare.map((r) => `${r.sport}:${r.market}`),
+    ["ncaaf:Spread", "soccer:player_shots", "nfl:player_pass_yds"],
+  );
+  const collage = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg Collage");
+  assert.deepEqual(
+    collage.map((r) => `${r.sport}:${r.market}`),
+    ["ncaaf:Spread", "soccer:player_shots", "nfl:player_pass_yds"],
+  );
   const allowed = filterNcaafPlayerPropsUnlessAsked(rows, "8 leg college player props");
   assert.equal(allowed.length, 4);
   const teamOnly = filterNcaafPlayerPropsUnlessAsked(rows, "7 leg college team props");
