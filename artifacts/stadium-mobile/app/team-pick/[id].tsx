@@ -12,12 +12,20 @@ import { ErrorState, FONT, Loading } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
+  getFightAnalysis,
   getInjuries,
   getTeamDefense,
   getTeamHistory,
   searchTeam,
+  type FightAnalysis,
   type TeamForm,
 } from "@/lib/api";
+import {
+  fightAnalysisHasStats,
+  fightPickSide,
+  isCombatFightSport,
+  parseFightGameSides,
+} from "@/lib/fightPickSheet";
 import {
   injuriesForMatchup,
   teamNameMatches,
@@ -115,11 +123,22 @@ function TeamPickView() {
 
   const sportLabel = SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase();
 
+  // UFC/MMA: fighters are not ESPN teams — team-search/history is always empty
+  // (phone: Romero/Cong ML showed TEAM PICK + "couldn't pull real recent results").
+  const isFight = isCombatFightSport(sport);
+  const fightSides = isFight ? parseFightGameSides(game) : null;
+  const fightSide = fightPickSide({
+    team,
+    away: fightSides?.away,
+    home: fightSides?.home,
+  });
+
   // Resolve the team to an ESPN id, then pull its real history. Two-step so the
   // page works from the odds feed (which carries names, not ESPN ids).
+  // Combat sports skip this path entirely (use fight-analysis instead).
   const resolveQ = useQuery({
     queryKey: ["team-resolve", sport, team],
-    enabled: !!sport && !!team,
+    enabled: !isFight && !!sport && !!team,
     staleTime: 30 * 60_000,
     queryFn: async ({ signal }) => {
       const r = await searchTeam(team, signal);
@@ -138,11 +157,25 @@ function TeamPickView() {
 
   const historyQ = useQuery({
     queryKey: ["team-history", sport, resolved?.teamId],
-    enabled: !!sport && !!resolved?.teamId,
+    enabled: !isFight && !!sport && !!resolved?.teamId,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) => getTeamHistory(sport, resolved!.teamId, signal),
   });
   const history = historyQ.data ?? null;
+
+  const fightQ = useQuery({
+    queryKey: ["fight-analysis", fightSides?.away, fightSides?.home],
+    enabled: isFight && !!fightSides?.away && !!fightSides?.home,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) =>
+      getFightAnalysis(fightSides!.away, fightSides!.home, signal),
+  });
+  const fight = (fightQ.data ?? null) as FightAnalysis | null;
+  const fightHasStats = fightAnalysisHasStats(fight);
+  const pickedFighter =
+    fightSide === "home" ? fight?.home : fightSide === "away" ? fight?.away : null;
+  const oppFighter =
+    fightSide === "home" ? fight?.away : fightSide === "away" ? fight?.home : null;
 
   // The picked team "beats the number" when its real scoring margin clears the
   // spread. For a -4.5 favourite that's margin > 4.5; for +3.5 it's margin > -3.5;
@@ -214,9 +247,13 @@ function TeamPickView() {
     );
   };
 
-  const loading = resolveQ.isLoading || historyQ.isLoading;
-  const errored = resolveQ.isError || historyQ.isError;
-  const noData = !loading && !errored && (!resolved || n === 0);
+  const loading = isFight
+    ? fightQ.isLoading
+    : resolveQ.isLoading || historyQ.isLoading;
+  const errored = isFight ? fightQ.isError : resolveQ.isError || historyQ.isError;
+  const noData = isFight
+    ? !loading && !errored && !fightHasStats
+    : !loading && !errored && (!resolved || n === 0);
 
   // Back nav that never throws "GO_BACK was not handled": when opened cold
   // (deep link / fresh stack) there's nothing to pop, so fall back to home.
@@ -229,7 +266,7 @@ function TeamPickView() {
 
   const injuriesQ = useQuery({
     queryKey: ["injuries", sport],
-    enabled: !!sport,
+    enabled: !isFight && !!sport,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) => getInjuries(sport, signal),
   });
@@ -250,7 +287,7 @@ function TeamPickView() {
   // we can resolve it directly (unlike the prop page, which shows both sides).
   const oppDefenseQ = useQuery({
     queryKey: ["opp-defense", sport, opp],
-    enabled: !!sport && !!opp,
+    enabled: !isFight && !!sport && !!opp,
     staleTime: 30 * 60_000,
     queryFn: async ({ signal }) => {
       const r = await searchTeam(opp, signal);
@@ -320,15 +357,17 @@ function TeamPickView() {
               }}
             >
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
-                TEAM PICK
+                {isFight ? "FIGHT PICK" : "TEAM PICK"}
               </Text>
             </View>
+            {(!isFight || fightHasStats) ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <Feather name="check-circle" size={12} color={colors.success} />
               <Text style={{ color: colors.success, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
                 REAL STATS
               </Text>
             </View>
+            ) : null}
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -364,12 +403,33 @@ function TeamPickView() {
         </View>
 
         {loading ? (
-          <Loading label="Loading real team results…" />
+          <Loading label={isFight ? "Loading fighter data…" : "Loading real team results…"} />
         ) : errored ? (
-          <ErrorState onRetry={() => (resolved ? historyQ.refetch() : resolveQ.refetch())} />
+          <ErrorState
+            onRetry={() =>
+              isFight
+                ? fightQ.refetch()
+                : resolved
+                  ? historyQ.refetch()
+                  : resolveQ.refetch()
+            }
+          />
         ) : noData ? (
           <EmptyNote
-            text={`We couldn't pull real recent results for ${team} in ${sportLabel} right now, so we're not estimating any numbers. The line and price above are live.`}
+            text={
+              isFight
+                ? `We couldn't pull real fight data for ${team} right now. The line and price above are live.`
+                : `We couldn't pull real recent results for ${team} in ${sportLabel} right now, so we're not estimating any numbers. The line and price above are live.`
+            }
+          />
+        ) : isFight && fight ? (
+          <FightPickBody
+            fight={fight}
+            picked={pickedFighter}
+            opponent={oppFighter}
+            pickedName={team}
+            oppName={opp}
+            lean={fight.lean}
           />
         ) : (
           <>
@@ -475,7 +535,7 @@ function TeamPickView() {
         )}
 
         {/* Opponent defense — REAL season points-allowed for the opponent */}
-        {oppDefense && oppDefense.avgPointsAgainst != null ? (
+        {!isFight && oppDefense && oppDefense.avgPointsAgainst != null ? (
           <Section title="OPPONENT DEFENSE">
             <View style={{ gap: 0 }}>
               <BreakdownRow
@@ -501,7 +561,8 @@ function TeamPickView() {
           </Section>
         ) : null}
 
-        {/* Injury report — REAL ESPN designations for both sides */}
+        {/* Injury report — team sports only (UFC uses fight analysis above). */}
+        {!isFight ? (
         <Section title="INJURY REPORT">
           {injuriesQ.isLoading ? (
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
@@ -655,6 +716,7 @@ function TeamPickView() {
             </View>
           )}
         </Section>
+        ) : null}
 
         {/* Add to slip */}
         <Pressable
@@ -1206,6 +1268,138 @@ function TeamTotalBlock({
       )}
     </Section>
   );
+}
+
+function FightPickBody({
+  fight,
+  picked,
+  opponent,
+  pickedName,
+  oppName,
+  lean,
+}: {
+  fight: FightAnalysis;
+  picked: FightAnalysis["away"] | null | undefined;
+  opponent: FightAnalysis["away"] | null | undefined;
+  pickedName: string;
+  oppName: string;
+  lean: FightAnalysis["lean"];
+}) {
+  const colors = useColors();
+  const pName = picked?.resolvedName || picked?.name || pickedName;
+  const oName = opponent?.resolvedName || opponent?.name || oppName;
+  const recStr = (f: FightAnalysis["away"] | null | undefined) =>
+    f?.record ? `${f.record.wins}-${f.record.losses}-${f.record.draws}` : "—";
+  const form = (f: FightAnalysis["away"] | null | undefined) => {
+    const rows = f?.recentForm ?? [];
+    if (!rows.length) return "—";
+    return rows
+      .slice(0, 5)
+      .map((r) => (r.result === "W" ? "W" : r.result === "L" ? "L" : r.result === "D" ? "D" : "—"))
+      .join("");
+  };
+  const winPct = (f: FightAnalysis["away"] | null | undefined) =>
+    f?.record ? `${f.record.winPct}%` : "—";
+  const recent = picked?.recentForm?.slice(0, 5) ?? [];
+
+  return (
+    <View style={{ gap: 14 }}>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <MetricTile
+          icon="award"
+          label="RECORD"
+          value={recStr(picked)}
+          caption={pName}
+          tint={colors.foreground}
+        />
+        <MetricTile
+          icon="trending-up"
+          label="FORM"
+          value={form(picked)}
+          caption="recent"
+          tint={colors.foreground}
+        />
+        <MetricTile
+          icon="percent"
+          label="WIN %"
+          value={winPct(picked)}
+          caption="career"
+          tint={colors.foreground}
+        />
+      </View>
+
+      <Section title="TALE OF THE TAPE">
+        <View style={{ gap: 0 }}>
+          <BreakdownRow icon="user" label={pName} sub="Picked fighter" value={recStr(picked)} />
+          <BreakdownRow icon="user" label={oName} sub="Opponent" value={recStr(opponent)} last />
+        </View>
+        {picked?.weightClass || opponent?.weightClass ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+            {(picked?.weightClass || opponent?.weightClass || "").toUpperCase()}
+          </Text>
+        ) : null}
+      </Section>
+
+      {recent.length > 0 ? (
+        <Section title="RECENT FORM">
+          <View style={{ gap: 6 }}>
+            {recent.map((rf, i) => (
+              <Text
+                key={`${pName}-${i}`}
+                style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}
+              >
+                {rf.result === "W" ? "W" : rf.result === "L" ? "L" : rf.result === "D" ? "D" : "—"}{" "}
+                vs {rf.opponent ?? "—"}
+                {rf.method ? ` · ${rf.method}` : ""}
+                {rf.date ? ` · ${rf.date}` : ""}
+              </Text>
+            ))}
+          </View>
+        </Section>
+      ) : null}
+
+      {lean?.side ? (
+        <Section title="DATA EDGE">
+          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16 }}>
+            {lean.side}
+          </Text>
+          {(lean.reasons ?? []).slice(0, 4).map((rsn, i) => (
+            <Text
+              key={i}
+              style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}
+            >
+              · {rsn}
+            </Text>
+          ))}
+        </Section>
+      ) : null}
+
+      {fight.simulation && fight.simulation.simulations > 0 ? (
+        <Section title="10K FIGHT SIM">
+          <View style={{ gap: 0 }}>
+            <BreakdownRow
+              icon="activity"
+              label={fightSidesLabel(fight, "away")}
+              sub="Win probability"
+              value={`${Math.round(fight.simulation.awayWinProbability * 100)}%`}
+            />
+            <BreakdownRow
+              icon="activity"
+              label={fightSidesLabel(fight, "home")}
+              sub="Win probability"
+              value={`${Math.round(fight.simulation.homeWinProbability * 100)}%`}
+              last
+            />
+          </View>
+        </Section>
+      ) : null}
+    </View>
+  );
+}
+
+function fightSidesLabel(fight: FightAnalysis, side: "away" | "home"): string {
+  const f = side === "away" ? fight.away : fight.home;
+  return f.resolvedName || f.name || (side === "away" ? "Away" : "Home");
 }
 
 function MetricTile({
