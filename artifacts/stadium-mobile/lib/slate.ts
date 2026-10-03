@@ -170,8 +170,13 @@ export function threadWantsTomorrowSlate(
   priorUserTexts: string[] = [],
 ): boolean {
   if (wantsTomorrowSlate(current)) return true;
+  // Current today/tonight clears prior tomorrow inheritance.
+  if (wantsTonightSlate(current)) return false;
   for (let i = priorUserTexts.length - 1; i >= 0; i--) {
-    if (wantsTomorrowSlate(priorUserTexts[i])) return true;
+    const prior = priorUserTexts[i] ?? "";
+    // More-recent prior today/tonight clears older tomorrow.
+    if (wantsTonightSlate(prior)) return false;
+    if (wantsTomorrowSlate(prior)) return true;
   }
   return false;
 }
@@ -184,11 +189,19 @@ export function filterTomorrowSlatePicks<T extends { startsAt?: string | null }>
 
 export type SlateDay = "tonight" | "tomorrow" | null;
 
-/** Which calendar-day slate the user asked for (tomorrow wins over tonight default). */
+/**
+ * Which calendar-day slate the user asked for.
+ * Explicit date on THIS turn always wins over inherited prior intent
+ * ("7 leg for today" after a tomorrow ask must be today, not tomorrow).
+ * When this turn has no date wording, inherit from prior turns
+ * (tomorrow wins over tonight when both appear in history).
+ */
 export function slateDayFromThread(
   current: string,
   priorUserTexts: string[] = [],
 ): SlateDay {
+  if (wantsTomorrowSlate(current)) return "tomorrow";
+  if (wantsTonightSlate(current)) return "tonight";
   if (threadWantsTomorrowSlate(current, priorUserTexts)) return "tomorrow";
   if (threadWantsTonightSlate(current, priorUserTexts)) return "tonight";
   return null;
@@ -220,6 +233,23 @@ export function filterOddsForSlateDay<T extends { startsAt?: string | null }>(
     return entries.filter((e) => startsTomorrowUpcoming(e.startsAt));
   }
   return entries;
+}
+
+/**
+ * Odds API game rows use `commenceTime` (not `startsAt`). Same today/tonight /
+ * tomorrow rule as filterOddsForSlateDay — one slate-day system for board loads.
+ */
+export function filterOddsGamesForSlateDay<T extends { commenceTime?: string }>(
+  games: T[],
+  day: SlateDay,
+): T[] {
+  if (day === "tonight") {
+    return games.filter((g) => startsTodayUpcoming(g.commenceTime));
+  }
+  if (day === "tomorrow") {
+    return games.filter((g) => startsTomorrowUpcoming(g.commenceTime));
+  }
+  return games;
 }
 
 /** Odds API games within the coach 48h pregame window. */
