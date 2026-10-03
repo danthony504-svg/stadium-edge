@@ -13,11 +13,21 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { canonicalPropMarketKey } from "./coachAskMarketFilter.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
+import {
+  isRareCountPropMarket,
+  rareCountHitFromValues,
+  rareCountHitReliability,
+} from "./rareCountPropModel.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
 
-export type PropsOnlyHit = { hitProbability: number | null; nullReason?: string | null };
+export type PropsOnlyHit = {
+  hitProbability: number | null;
+  nullReason?: string | null;
+  /** 0..1 sample/threshold confidence — rare counts with thin evidence stay low. */
+  hitReliability?: number | null;
+};
 
 export type PropsOnlyHistoryGame = {
   date?: string | null;
@@ -289,21 +299,41 @@ export function propsOnlyPoolRowForPick(pick: ParsedPick, pool: PoolRow[]): Pool
   );
 }
 
+function historyValuesForMarket(
+  history: PropsOnlyHistorySlice | null | undefined,
+  market: string,
+): number[] {
+  const recent = mergePropsOnlyHistoryGames(history?.recent ?? []);
+  if (!recent.length) return [];
+  const ambiguous = computeAmbiguous(history?.labels);
+  return recent
+    .map((g) => gameValueForMarket(market, g.stats ?? {}, ambiguous))
+    .filter((v): v is number => v != null)
+    .slice(0, 10);
+}
+
 function localHitFromHistory(
   history: PropsOnlyHistorySlice | null | undefined,
   args: { market: string; line: number; side: "Over" | "Under" },
-): number | null {
-  const recent = mergePropsOnlyHistoryGames(history?.recent ?? []);
-  if (!recent.length) return null;
-  const ambiguous = computeAmbiguous(history?.labels);
-  const vals = recent
-    .map((g) => gameValueForMarket(args.market, g.stats ?? {}, ambiguous))
-    .filter((v): v is number => v != null)
-    .slice(0, 10);
-  if (vals.length < PROPS_ONLY_MIN_SAMPLE) return null;
+): { hit: number | null; reliability: number } {
+  const vals = historyValuesForMarket(history, args.market);
+  if (vals.length < PROPS_ONLY_MIN_SAMPLE) return { hit: null, reliability: 0 };
+
+  // Rare count props (HR / multi-goal / SB): threshold-aware Poisson — never
+  // invent a 2% floor, and never let Over 1.5 inherit Over 0.5's empirical rate.
+  if (isRareCountPropMarket(args.market)) {
+    return {
+      hit: rareCountHitFromValues(vals, args.line, args.side),
+      reliability: rareCountHitReliability(vals, args.line, args.side),
+    };
+  }
+
   const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
   const hitProbRaw = hits / vals.length;
-  return hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
+  const hit = hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
+  // High-volume yards/points: sample size alone drives reliability.
+  const reliability = Math.min(1, vals.length / 10);
+  return { hit, reliability };
 }
 
 export function gradeFootballPropFromHistory(
@@ -325,24 +355,36 @@ export function gradeFootballPropFromHistory(
   }
   const mergedRecent = mergePropsOnlyHistoryGames(hist?.recent ?? []);
   if (!mergedRecent.length) {
-    return { hitProbability: null, nullReason: "no_player_history" };
+    return { hitProbability: null, nullReason: "no_player_history", hitReliability: 0 };
   }
-  const hitProb = localHitFromHistory({ ...hist, recent: mergedRecent }, {
-    market,
-    line,
-    side,
-  });
+  const { hit: hitProb, reliability } = localHitFromHistory(
+    { ...hist, recent: mergedRecent },
+    { market, line, side },
+  );
   if (hitProb == null) {
     return {
       hitProbability: null,
       nullReason:
         mergedRecent.length >= PROPS_ONLY_MIN_SAMPLE
-          ? "insufficient_mapped_stats"
+          ? isRareCountPropMarket(market)
+            ? "rare_count_insufficient_evidence"
+            : "insufficient_mapped_stats"
           : "insufficient_game_log",
+      hitReliability: reliability,
     };
   }
-  const clipped = clipPropSimHitForGrade({ ...norm, propLine: line }, hitProb);
-  return { hitProbability: clipped, nullReason: null };
+  const clipped = clipPropSimHitForGrade(
+    { ...norm, propLine: line, propMarketKey: market, market },
+    hitProb,
+  );
+  if (clipped == null) {
+    return {
+      hitProbability: null,
+      nullReason: "rare_count_insufficient_evidence",
+      hitReliability: reliability,
+    };
+  }
+  return { hitProbability: clipped, nullReason: null, hitReliability: reliability };
 }
 
 export function gradeFootballPropsOnlyFromHistory(
@@ -372,12 +414,33 @@ export function softClipPropsOnlyHits(
     const row = propsOnlyPoolRowForPick(norm, pool);
     const key = propsOnlySimLookupKey(norm, row);
     if (!key) continue;
-    const raw = hits.get(key)?.hitProbability;
+    const existing = hits.get(key);
+    const raw = existing?.hitProbability;
     const clipped = clipPropSimHitForGrade(norm, raw);
-    if (clipped != null && clipped !== raw) {
-      hits.set(key, { hitProbability: clipped, nullReason: null });
+    if (clipped !== raw) {
+      hits.set(key, {
+        hitProbability: clipped,
+        nullReason: clipped == null ? "rare_count_insufficient_evidence" : null,
+        hitReliability: existing?.hitReliability ?? null,
+      });
     }
   }
+}
+
+/** Reliability 0..1 stored at grade time (defaults to 1 for non-rare / unknown). */
+export function lookupPropsOnlyHitReliability(
+  pick: Parameters<typeof propsOnlySimLookupKey>[0],
+  poolRow: Parameters<typeof propsOnlySimLookupKey>[1],
+  hits: Map<string, PropsOnlyHit>,
+): number {
+  const keys = new Set<string>();
+  const primary = propsOnlySimLookupKey(pick, poolRow);
+  if (primary) keys.add(primary);
+  for (const key of keys) {
+    const r = hits.get(key)?.hitReliability;
+    if (r != null && Number.isFinite(r)) return Math.max(0, Math.min(1, r));
+  }
+  return 1;
 }
 
 export function propsOnlyPickHasGrade(

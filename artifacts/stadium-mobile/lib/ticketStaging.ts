@@ -93,6 +93,11 @@ export type BoardScoredLeg = {
   simHit: number | null;
   composite: number | null;
   rankScore: number;
+  /**
+   * 0..1 probability reliability. Rare-count props with thin threshold evidence
+   * stay low so raw longshot EV cannot dominate ranking. Defaults to 1.
+   */
+  hitReliability?: number | null;
 };
 
 export function boardLegPoolRole(

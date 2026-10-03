@@ -43,6 +43,7 @@ import {
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
+import { isRareCountPropMarket } from "@/lib/rareCountPropModel";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
@@ -379,6 +380,14 @@ export async function buildCoachParlay(opts: {
     !hrBoardAsk &&
     shouldBuildFootballPropsOnlyTicket({ propsOnly: true, pool: activePropPool })
   ) {
+    // Explicit rare-market locks ("5 stolen bases", "home run longshots" that
+    // still hit this path) may stack same-event rare seats. Generic mixed asks
+    // keep one rare-family seat per event.
+    const lockedKeys = marketConstraint.allowedMarketKeys;
+    const allowRareCountFamilyStack =
+      lockedKeys != null &&
+      lockedKeys.length > 0 &&
+      lockedKeys.every((k) => isRareCountPropMarket(k));
     const built = await buildFootballPropsOnlyTicket({
       target,
       pool: activePropPool,
@@ -391,6 +400,7 @@ export async function buildCoachParlay(opts: {
       espnGames: inputs.espnGames,
       mlbPlatoon,
       mlbGameEnv,
+      allowRareCountFamilyStack,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
           filterPicksByAskMarketConstraint(picks, marketConstraint),
@@ -409,7 +419,6 @@ export async function buildCoachParlay(opts: {
     // (more / same-stat `_alternate` posted lines + recovery odds slack).
     // Never clear allowedMarketKeys or cross-fill another stat family.
     let recoveredNote = "";
-    const lockedKeys = marketConstraint.allowedMarketKeys;
     const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
     const recoveryPool = isMarketLocked
       ? filterPropPoolByAskMarkets(
@@ -449,6 +458,7 @@ export async function buildCoachParlay(opts: {
         mlbPlatoon,
         mlbGameEnv,
         recoveryFill: true,
+        allowRareCountFamilyStack,
         onPartialPicks: (partial) => {
           // Preserve the original market lock when present.
           opts.onPartialPicks?.(
@@ -489,6 +499,7 @@ export async function buildCoachParlay(opts: {
           mlbPlatoon,
           mlbGameEnv,
           recoveryFill: true,
+          allowRareCountFamilyStack,
           onPartialPicks: (partial) => {
             opts.onPartialPicks?.(
               filterPicksByAskMarketConstraint(partial, marketConstraint),

@@ -29,6 +29,11 @@ import {
   propsOnlyLegClearsOdds,
   PROPS_ONLY_ODDS_SLACK,
 } from "./coachFootballPropsOnlyGrade.ts";
+import {
+  isRareCountPropMarket,
+  rareCountEvRankWeight,
+  rareCountGameFamilyKey,
+} from "./rareCountPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
@@ -162,18 +167,43 @@ export function propsOnlyPerGameCeiling(
   return Math.min(target, Math.ceil(target / Math.min(games, 3)));
 }
 
+/**
+ * Reliability-weighted EV sort key — extreme longshot EV from weak rare-count
+ * probabilities cannot outrank ordinary high-confidence props.
+ */
+export function propsOnlyReliabilityWeightedEv(leg: BoardScoredLeg): number {
+  const ev = leg.evPct ?? -999;
+  const market = leg.pick.propMarketKey ?? leg.pick.market;
+  const rel =
+    leg.hitReliability != null && Number.isFinite(leg.hitReliability)
+      ? leg.hitReliability
+      : isRareCountPropMarket(market)
+        ? 0.25
+        : 1;
+  return ev * rareCountEvRankWeight(rel);
+}
+
+export function comparePropsOnlyLegsByReliableEv(a: BoardScoredLeg, b: BoardScoredLeg): number {
+  const evDiff = propsOnlyReliabilityWeightedEv(b) - propsOnlyReliabilityWeightedEv(a);
+  if (evDiff !== 0) return evDiff;
+  return (b.rankScore ?? 0) - (a.rankScore ?? 0);
+}
+
 function stageFootballPropsOnlyLegsWithCap(
   ordered: BoardScoredLeg[],
   target: number,
   maxPerGame: number,
   maxSameGameMarketSide: number,
   oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
+  allowRareCountFamilyStack = false,
 ): ParsedPick[] {
   const picks: ParsedPick[] = [];
   const usedPlayerMarket = new Set<string>();
   const usedGames = new Map<string, number>();
   // Cap identical market+side stacks per game (phone: CBJ Under 0.5 Points × roster).
   const usedGameMarketSide = new Map<string, number>();
+  // Generic tickets: one rare-count family (HR / SB / goals) seat per event.
+  const usedRareGameFamily = new Map<string, number>();
   for (const leg of ordered) {
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
@@ -190,9 +220,29 @@ function stageFootballPropsOnlyLegsWithCap(
     const gameMarketSide = `${gameKey}|${marketSide}`;
     const gmsCount = usedGameMarketSide.get(gameMarketSide) ?? 0;
     if (gmsCount >= maxSameGameMarketSide) continue;
+    if (!allowRareCountFamilyStack) {
+      const rareKey = rareCountGameFamilyKey({
+        game: p.game,
+        market: p.propMarketKey ?? p.market,
+      });
+      if (rareKey) {
+        const rareCount = usedRareGameFamily.get(rareKey) ?? 0;
+        // One seat per same-event rare family on generic mixed asks.
+        if (rareCount >= 1) continue;
+      }
+    }
     usedPlayerMarket.add(pm);
     usedGames.set(gameKey, gameCount + 1);
     usedGameMarketSide.set(gameMarketSide, gmsCount + 1);
+    if (!allowRareCountFamilyStack) {
+      const rareKey = rareCountGameFamilyKey({
+        game: p.game,
+        market: p.propMarketKey ?? p.market,
+      });
+      if (rareKey) {
+        usedRareGameFamily.set(rareKey, (usedRareGameFamily.get(rareKey) ?? 0) + 1);
+      }
+    }
     picks.push({
       ...p,
       // Mark props-only delivery so PickCard shows the letter grade (not Not Rec.)
@@ -205,29 +255,42 @@ function stageFootballPropsOnlyLegsWithCap(
   return picks;
 }
 
-/** Stage best-EV scored legs — EV-first, one player/market, thin-slate per-game raise. */
+export type StageFootballPropsOnlyOpts = {
+  /** Explicit HR / SB / goals asks may fill multiple rare-family seats. */
+  allowRareCountFamilyStack?: boolean;
+};
+
+/**
+ * Stage scored legs — reliability-weighted EV, one player/market, thin-slate
+ * per-game raise, and same-event rare-family diversity on generic asks.
+ */
 export function stageFootballPropsOnlyLegs(
   scored: BoardScoredLeg[],
   target: number,
   oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
+  opts?: StageFootballPropsOnlyOpts,
 ): ParsedPick[] {
-  const ordered = [...scored].sort((a, b) => {
-    const evDiff = (b.evPct ?? -999) - (a.evPct ?? -999);
-    if (evDiff !== 0) return evDiff;
-    return (b.rankScore ?? 0) - (a.rankScore ?? 0);
-  });
+  const ordered = [...scored].sort(comparePropsOnlyLegsByReliableEv);
   const uniqueGames = new Set(
     ordered.map((l) => String(l.pick.game ?? "")).filter(Boolean),
   ).size;
   const ceiling = propsOnlyPerGameCeiling(target, uniqueGames || 1);
   const thinSlate = uniqueGames <= 1;
+  const allowRare = !!opts?.allowRareCountFamilyStack;
   // Start at 3 (historic props-only default); raise to ceiling when short.
   // Prefer 1× same market+side per game on multi-game boards; raise only to fill.
   let best: ParsedPick[] = [];
   for (let cap = Math.min(3, ceiling); cap <= ceiling; cap++) {
     const msStart = thinSlate ? cap : 1;
     for (let msCap = msStart; msCap <= cap; msCap++) {
-      best = stageFootballPropsOnlyLegsWithCap(ordered, target, cap, msCap, oddsSlack);
+      best = stageFootballPropsOnlyLegsWithCap(
+        ordered,
+        target,
+        cap,
+        msCap,
+        oddsSlack,
+        allowRare,
+      );
       if (best.length >= target) return best;
     }
   }

@@ -4,6 +4,10 @@
 import type { PropSimulationResult } from "./api";
 import { computeAmbiguous, gameValueForMarket } from "./propStats";
 import { PROPS_ONLY_MIN_SAMPLE } from "./coachFootballPropsOnlyGrade.ts";
+import {
+  isRareCountPropMarket,
+  rareCountHitFromValues,
+} from "./rareCountPropModel.ts";
 
 export type LocalHistorySlice = {
   labels?: string[];
@@ -43,18 +47,27 @@ export function localPropSimulation(
       confidenceScore: null,
     };
   }
-  const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
   const sorted = [...vals].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)] ?? null;
-  const hitProbRaw = hits / vals.length;
-  // Soft-clip exact 0/1 so binary markets (Anytime TD) remain gradeable after
-  // sanitizeSimHitForGrade — short samples of "never scored" used to wipe every TD.
-  const hitProb = hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
+
+  let hitProb: number | null;
+  if (isRareCountPropMarket(args.market)) {
+    // Threshold-aware Poisson — 0/N does not become a fake 2% floor.
+    hitProb = rareCountHitFromValues(vals, args.line, args.side);
+  } else {
+    const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
+    const hitProbRaw = hits / vals.length;
+    // Soft-clip exact 0/1 so binary markets (Anytime TD) remain gradeable after
+    // sanitizeSimHitForGrade — short samples of "never scored" used to wipe every TD.
+    hitProb = hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
+  }
+
   let confidence = 50;
   if (vals.length >= 8) confidence += 14;
   else if (vals.length >= 5) confidence += 8;
   else confidence -= 6;
-  confidence += Math.abs(hitProb - 0.5) * 40;
+  if (hitProb != null) confidence += Math.abs(hitProb - 0.5) * 40;
+  else confidence -= 20;
   const confidenceScore = Math.max(5, Math.min(95, Math.round(confidence)));
   return {
     hitProbability: hitProb,
