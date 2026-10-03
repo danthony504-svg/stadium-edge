@@ -64,6 +64,11 @@ import {
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
 import {
+  filterPoolForFootballSkillRecovery,
+  footballSkillRecoveryNote,
+  shouldRecoverPropsOnlyWithFootballSkillBoard,
+} from "@/lib/coachFootballPropsOnlyRecovery";
+import {
   enforceMlLeanOnPicks,
   mlLeanEnforcementNote,
 } from "@/lib/mlLeanEnforcement";
@@ -378,6 +383,66 @@ export async function buildCoachParlay(opts: {
       ),
       inputs.teamScope,
     );
+
+    // Locked market family (TD / yards / …) graded but staged 0 — recover from
+    // the full football skill board (yards, receptions, sacks, TD alts). Skip
+    // the allowlist filter on the recovered ticket so alts can actually land.
+    let recoveredNote = "";
+    const skillRecoveryPool = filterPoolForFootballSkillRecovery(
+      askAllowsNcaafPlayerProps(opts.askText)
+        ? inputs.propPool
+        : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
+    );
+    if (
+      shouldRecoverPropsOnlyWithFootballSkillBoard({
+        graded: built.propLegsScored,
+        staged: picks.length,
+        preferredPoolSize: activePropPool.length,
+        skillPoolSize: skillRecoveryPool.length,
+      })
+    ) {
+      opts.onStatus?.(
+        `Locked markets missed the quality bar — scoring yards / receptions / sacks alts…`,
+      );
+      const recovered = await buildFootballPropsOnlyTicket({
+        target,
+        pool: skillRecoveryPool,
+        realOdds: inputs.realOdds,
+        teamIdMap,
+        signal: opts.signal,
+        onStatus: opts.onStatus,
+        playerHistory,
+        oppRushDefense,
+        espnGames: inputs.espnGames,
+        mlbPlatoon,
+        mlbGameEnv,
+        onPartialPicks: (partial) => {
+          // Props-only only — do not re-apply the emptied allowlist.
+          opts.onPartialPicks?.(
+            filterPicksByAskMarketConstraint(partial, {
+              ...marketConstraint,
+              allowedMarketKeys: null,
+            }),
+          );
+        },
+      });
+      const recoveredPicks = filterPicksForAskTeam(
+        filterPicksByAskMarketConstraint(
+          selectFinalCoachParlayPicks(recovered.picks),
+          { ...marketConstraint, allowedMarketKeys: null },
+        ),
+        inputs.teamScope,
+      );
+      if (recoveredPicks.length > 0) {
+        picks = recoveredPicks;
+        recoveredNote = footballSkillRecoveryNote({
+          preferredGraded: built.propLegsScored,
+          staged: picks.length,
+          target,
+        });
+      }
+    }
+
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
     const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
     const mismatchLead = coachPropsAskGameLineMismatchNote({
@@ -386,6 +451,7 @@ export async function buildCoachParlay(opts: {
       picks,
     });
     const body =
+      recoveredNote ||
       built.note.trim() ||
       buildFinalCoachParlayNote({
         target,
@@ -402,7 +468,7 @@ export async function buildCoachParlay(opts: {
     );
     // If post-filters wiped a non-empty ticket, keep the honest empty lead —
     // never append `[POST_FILTER_EMPTY: …]` into the Coach chat bubble.
-    if (built.picks.length > 0 && picks.length === 0) {
+    if (built.picks.length > 0 && picks.length === 0 && !recoveredNote) {
       return {
         picks,
         note,
