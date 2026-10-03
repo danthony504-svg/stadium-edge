@@ -51,6 +51,8 @@ import {
   resolveCoachTerminalPicks,
   shouldPublishCoachTicketPicks,
 } from "@/lib/coachTicketHold";
+import { rememberParlayBuild } from "@/lib/parlayVarietyMemory";
+import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
 import { DEFAULT_SPORTS } from "@/lib/sports";
@@ -201,26 +203,30 @@ export default function CoachScreen() {
         propsPending?: boolean;
       },
     ) => {
+      const picks = dedupePicksByMarketLadder(opts.picks);
       const outcome = resolveCoachOutcome({
-        pickCount: opts.picks.length,
+        pickCount: picks.length,
         requestedLegs: opts.requestedLegs,
         failed: opts.failed,
       });
       latchCoachSession(sessionRef.current, outcome);
-      terminalShownPickCountRef.current = opts.picks.length;
+      terminalShownPickCountRef.current = picks.length;
+      if (picks.length > 0 && outcome !== "failed") {
+        rememberParlayBuild(picks);
+      }
       // Prefer the build note when present — it carries prop-pool context.
       // Only synthesize a generic shortfall when the build returned no text.
       // Strip any leaked `[CODE: detail]` machine traces before the bubble paints.
       const shortfall =
         !opts.text.trim() && (outcome === "shortfall" || outcome === "empty")
-          ? coachShortfallNote(opts.requestedLegs, opts.picks.length, {
+          ? coachShortfallNote(opts.requestedLegs, picks.length, {
               propsPending: opts.propsPending,
             })
           : "";
       patchAssistant(assistantId, {
         building: false,
         buildStatus: undefined,
-        picks: opts.picks,
+        picks,
         text: sanitizeCoachUserNote(
           [shortfall, opts.text].filter(Boolean).join("\n\n"),
         ),

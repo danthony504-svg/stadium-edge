@@ -35,6 +35,12 @@ import {
   finalizeFootballPropMixPicks,
   finalizeGeneralPropMixPicks,
 } from "@/lib/boardScanPropDelivery";
+import {
+  askWantsAllNewPicks,
+  recentParlayVarietyContext,
+  rememberParlayBuild,
+} from "@/lib/parlayVarietyMemory";
+import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
@@ -451,6 +457,10 @@ export async function buildCoachParlay(opts: {
     playerHistory,
     matchupHistory,
     varietySeed: `greenfield-${target}-${Date.now()}`,
+    varietyContext: {
+      ...recentParlayVarietyContext(),
+      ...(askWantsAllNewPicks(opts.askText) ? { hardAvoidRecentLegs: true } : {}),
+    },
     onPartial: (partial) => {
       latest = partial;
       const propLike = countPropLike(partial.picks ?? []);
@@ -584,6 +594,9 @@ export async function buildCoachParlay(opts: {
   } else if (!propsOnly && !gameLinesOnly) {
     picks = finalizeGeneralPropMixPicks(picks, target);
   }
+  // Same-ticket ladder ban — never ship Colts +4.5 and +3.5 together.
+  picks = dedupePicksByMarketLadder(picks);
+  if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const shortfall = propsPending
     ? buildFixedLegPropsPendingShortfallLead(target, picks.length)

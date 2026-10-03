@@ -52,6 +52,11 @@ export type CoachParlayVarietyContext = {
   recentPlayerCounts: ReadonlyMap<string, number>;
   /** Tickets grouped by leg count — used to avoid smaller sizes prefixing larger ones. */
   recentTicketsByLegCount: ReadonlyMap<number, readonly (readonly string[])[]>;
+  /**
+   * "all new picks" / "fresh picks": hard-exclude recent leg keys while filling,
+   * then relax only if the ticket would otherwise shortfall.
+   */
+  hardAvoidRecentLegs?: boolean;
 };
 
 function ticketsByLegCountFromBuilds(
@@ -103,6 +108,21 @@ function playerCountsFromBuilds(builds: ParlayBuildRecord[]): Map<string, number
     counts.set(build.leadPlayerKey, (counts.get(build.leadPlayerKey) ?? 0) + 1);
   }
   return counts;
+}
+
+export function askWantsAllNewPicks(text?: string | null): boolean {
+  const t = String(text ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return false;
+  if (/\ball\s+new\b/.test(t)) return true;
+  if (/\bnew\s+picks?\b/.test(t)) return true;
+  if (/\bfresh\s+picks?\b/.test(t)) return true;
+  if (/\bdifferent\s+picks?\b/.test(t)) return true;
+  if (/\bno\s+repeats?\b/.test(t)) return true;
+  if (/\bavoid\s+repeats?\b/.test(t)) return true;
+  return false;
 }
 
 /** Full variety context for independent ticket combinator. */

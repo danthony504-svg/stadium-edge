@@ -19,6 +19,7 @@ import {
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
+import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import {
   selectCorrelationAwareBoardLegs,
   maxLegsPerThinStatMarket,
@@ -159,6 +160,7 @@ export function selectGreedyBoardLegs(
     if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
     if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
     if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
+    if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
     seen.add(fp);
     out.push(row.pick);
     if (out.length >= target) break;
