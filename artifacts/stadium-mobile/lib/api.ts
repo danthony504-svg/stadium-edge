@@ -1825,9 +1825,9 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
   pushTotal("Total", totals?.outcomes);
   pushTotal("Alt Total", altTotals?.outcomes);
 
-  // Prefer posted team totals from the Odds API when present; otherwise fall
-  // back to implied team totals from main spread + game total (still real
-  // lines — no fabricated edge).
+  // Team totals = team POINTS O/U from the Odds API only. Never invent lines
+  // or -110 prices from spread+total when books omit team_totals (FanDuel-style
+  // Team Yards are book-proprietary and have no Odds API keys).
   const teamTotals = g.markets.find((m) => m.key === "team_totals");
   const altTeamTotals = g.markets.find((m) => m.key === "alternate_team_totals");
   if (teamTotals?.outcomes?.length) {
@@ -1848,30 +1848,6 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
         odds: o.price,
         ...scoreInputs(o),
       });
-    }
-  } else {
-    const homeSpread = spreads?.outcomes?.find((o) => teamLabel(o.name) === teamLabel(g.homeTeam));
-    const gameTotal = totals?.outcomes?.find((o) => /\bover\b/i.test(o.name));
-    if (homeSpread?.point != null && gameTotal?.point != null) {
-      const roundHalf = (n: number) => Math.round(n * 2) / 2;
-      const homeLine = roundHalf((gameTotal.point - homeSpread.point) / 2);
-      const awayLine = roundHalf(gameTotal.point - homeLine);
-      for (const [team, line] of [
-        [g.homeTeam, homeLine],
-        [g.awayTeam, awayLine],
-      ] as const) {
-        for (const dir of ["Over", "Under"] as const) {
-          out.push({
-            ...base,
-            market: "Team Total",
-            pick: `${teamLabel(team)} ${dir} ${line}`,
-            odds: -110,
-            edge: null,
-            noVigFair: null,
-            bookSpread: null,
-          });
-        }
-      }
     }
   }
   if (altTeamTotals?.outcomes?.length) {

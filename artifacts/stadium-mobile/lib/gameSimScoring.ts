@@ -180,7 +180,12 @@ export function gameLineLegBucket(game: string, market: string, pick: string): s
   }
   if (/team total/i.test(market)) {
     const team = gamePickTeam({ game, market, pick, odds: 0 });
-    return team ? `${g}|team-total|${teamNick(team)}` : `${g}|team-total`;
+    const line = numLine(pick);
+    // Keep distinct posted lines as separate candidates (alt ladders). Soft
+    // correlation penalizes stuffing several near-identical same-team rungs.
+    return team
+      ? `${g}|team-total|${teamNick(team)}|${line ?? ""}`
+      : `${g}|team-total|${line ?? ""}`;
   }
   if (fam.endsWith("moneyline") || fam.endsWith("spread")) {
     const team = gamePickTeam({ game, market, pick, odds: 0 });
