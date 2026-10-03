@@ -62,3 +62,39 @@ export function fightAnalysisHasStats(analysis: {
     !!(f?.record || (f?.recentForm && f.recentForm.length > 0) || f?.athleteId);
   return sideHas(analysis.away) || sideHas(analysis.home);
 }
+
+/** UFC/MMA total detail badge — not "GAME TOTAL" (team sports). */
+export function fightTotalBadgeLabel(market?: string | null): string {
+  const m = String(market ?? "");
+  if (/total rounds/i.test(m)) return "TOTAL ROUNDS";
+  return "FIGHT TOTAL";
+}
+
+/** Subtitle under the pick on UFC total sheets. */
+export function fightTotalMarketSubtitle(market?: string | null): string {
+  const m = String(market ?? "").trim() || "Total Rounds";
+  return `${m} · rounds O/U`;
+}
+
+/**
+ * Honest copy for UFC total-rounds detail — never claim team combined scores.
+ * Method-of-victory remains unsupported by The Odds API.
+ */
+export function fightTotalRoundsExplain(
+  line: number | null | undefined,
+  pick?: string | null,
+): string {
+  const side = /\bunder\b/i.test(String(pick ?? ""))
+    ? "Under"
+    : /\bover\b/i.test(String(pick ?? ""))
+      ? "Over"
+      : null;
+  const lineBit = line != null && Number.isFinite(line) ? `${line}` : "the line";
+  const sideBit = side ? `${side} ${lineBit}` : `the ${lineBit} line`;
+  return [
+    `${sideBit} is a posted total-rounds market from The Odds API.`,
+    "Stats below are each fighter's real record, finish rates, and recent results — not team scoring.",
+    "The 10k fight sim estimates how often the bout lands Over/Under from those career signals.",
+    "Method of victory, go-the-distance, and round-winner markets are not in the feed, so we don't invent them.",
+  ].join(" ");
+}
