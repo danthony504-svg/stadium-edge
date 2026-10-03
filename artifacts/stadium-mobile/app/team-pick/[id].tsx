@@ -23,9 +23,13 @@ import {
 import {
   fightAnalysisHasStats,
   fightPickSide,
+  fightTotalBadgeLabel,
+  fightTotalMarketSubtitle,
+  fightTotalRoundsExplain,
   isCombatFightSport,
   parseFightGameSides,
 } from "@/lib/fightPickSheet";
+import { runClientFightMonteCarlo } from "@/lib/ufcClientSim";
 import {
   injuriesForMatchup,
   teamNameMatches,
@@ -809,15 +813,58 @@ function TotalMatchupView() {
   const pickStr = String(p.pick ?? "");
   const sportLabel = SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase();
 
+  // UFC/MMA totals = total rounds — fighters are not ESPN teams (phone: empty
+  // AWAY/HOME "No real recent results" + team combined-score copy on Under 2.5).
+  const isFight = isCombatFightSport(sport);
+  const fightSides = isFight
+    ? parseFightGameSides(game) ?? (away && home ? { away, home } : null)
+    : null;
+
+  const fightQ = useQuery({
+    queryKey: ["fight-analysis", fightSides?.away, fightSides?.home],
+    enabled: isFight && !!fightSides?.away && !!fightSides?.home,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) =>
+      getFightAnalysis(fightSides!.away, fightSides!.home, signal),
+  });
+  const fight = (fightQ.data ?? null) as FightAnalysis | null;
+  const fightHasStats = fightAnalysisHasStats(fight);
+
+  // Re-grade the posted O/U rounds line with client MC (same engine as Coach).
+  const fightRoundsSim = useMemo(() => {
+    if (!isFight || !fight?.away || !fight?.home || line == null || !Number.isFinite(line)) {
+      return null;
+    }
+    const over = /\bover\b/i.test(pickStr);
+    const under = /\bunder\b/i.test(pickStr);
+    if (!over && !under) return null;
+    const coverId = `${over ? "over" : "under"}-${line}`;
+    return runClientFightMonteCarlo({
+      away: fight.away,
+      home: fight.home,
+      lean: fight.lean,
+      simulations: 4_000,
+      coverQueries: [
+        {
+          id: coverId,
+          kind: "total",
+          line,
+          totalSide: over ? "over" : "under",
+        },
+      ],
+      retainOutcomes: false,
+    });
+  }, [isFight, fight, line, pickStr]);
+
   const goBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/");
   };
 
-  // Injury report for BOTH sides (same real ESPN feed the team view uses).
+  // Injury report for team sports only — UFC has no ESPN team injuries.
   const injuriesQ = useQuery({
     queryKey: ["injuries", sport],
-    enabled: !!sport,
+    enabled: !isFight && !!sport,
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) => getInjuries(sport, signal),
   });
@@ -853,6 +900,10 @@ function TotalMatchupView() {
       ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
     );
   };
+
+  const fightLoading = isFight && fightQ.isLoading;
+  const fightErrored = isFight && fightQ.isError;
+  const fightEmpty = isFight && !fightLoading && !fightErrored && !fightHasStats;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -909,15 +960,17 @@ function TotalMatchupView() {
               }}
             >
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
-                GAME TOTAL
+                {isFight ? fightTotalBadgeLabel(market) : "GAME TOTAL"}
               </Text>
             </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Feather name="check-circle" size={12} color={colors.success} />
-              <Text style={{ color: colors.success, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
-                REAL STATS
-              </Text>
-            </View>
+            {(!isFight || fightHasStats) ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Feather name="check-circle" size={12} color={colors.success} />
+                <Text style={{ color: colors.success, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
+                  REAL STATS
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -926,7 +979,7 @@ function TotalMatchupView() {
                 {pickStr}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
-                {market} · combined score
+                {isFight ? fightTotalMarketSubtitle(market) : `${market} · combined score`}
               </Text>
             </View>
             <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 24 }}>
@@ -945,19 +998,47 @@ function TotalMatchupView() {
           ) : null}
         </View>
 
-        {/* Each side's REAL combined-scoring form vs the line */}
-        <TeamTotalBlock roleLabel="AWAY" name={away} sport={sport} line={line} />
-        <TeamTotalBlock roleLabel="HOME" name={home} sport={sport} line={line} />
+        {isFight ? (
+          fightLoading ? (
+            <Loading label="Loading fighter data…" />
+          ) : fightErrored ? (
+            <ErrorState onRetry={() => fightQ.refetch()} />
+          ) : fightEmpty || !fight ? (
+            <EmptyNote
+              text={`We couldn't pull real fight data for this bout right now. The ${pickStr || "total rounds"} line and price above are live.`}
+            />
+          ) : (
+            <FightTotalRoundsBody
+              fight={fight}
+              line={line}
+              pickStr={pickStr}
+              roundsSim={fightRoundsSim}
+            />
+          )
+        ) : (
+          <>
+            {/* Each side's REAL combined-scoring form vs the line */}
+            <TeamTotalBlock roleLabel="AWAY" name={away} sport={sport} line={line} />
+            <TeamTotalBlock roleLabel="HOME" name={home} sport={sport} line={line} />
 
-        {line != null ? (
+            {line != null ? (
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+                "Over {line}" counts each team's own recent games whose combined final
+                score cleared {line} — vs varied opponents, not a prediction of this
+                matchup.
+              </Text>
+            ) : null}
+          </>
+        )}
+
+        {isFight && line != null ? (
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
-            "Over {line}" counts each team's own recent games whose combined final
-            score cleared {line} — vs varied opponents, not a prediction of this
-            matchup.
+            {fightTotalRoundsExplain(line, pickStr)}
           </Text>
         ) : null}
 
-        {/* Injury report — REAL ESPN designations for both sides */}
+        {/* Injury report — team sports only (UFC uses fight analysis above). */}
+        {!isFight ? (
         <Section title="INJURY REPORT">
           {injuriesQ.isLoading ? (
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
@@ -1088,6 +1169,7 @@ function TotalMatchupView() {
             </View>
           )}
         </Section>
+        ) : null}
 
         {/* Add to slip */}
         <Pressable
@@ -1391,6 +1473,175 @@ function FightPickBody({
               last
             />
           </View>
+        </Section>
+      ) : null}
+    </View>
+  );
+}
+
+/** UFC total-rounds detail — both fighters' real stats + O/U rounds sim. */
+function FightTotalRoundsBody({
+  fight,
+  line,
+  pickStr,
+  roundsSim,
+}: {
+  fight: FightAnalysis;
+  line: number | null;
+  pickStr: string;
+  roundsSim: ReturnType<typeof runClientFightMonteCarlo> | null;
+}) {
+  const colors = useColors();
+  const recStr = (f: FightAnalysis["away"] | null | undefined) =>
+    f?.record ? `${f.record.wins}-${f.record.losses}-${f.record.draws}` : "—";
+  const finishPct = (f: FightAnalysis["away"] | null | undefined) =>
+    f?.stats?.finishPct != null ? `${Math.round(f.stats.finishPct)}%` : "—";
+  const decisionPct = (f: FightAnalysis["away"] | null | undefined) =>
+    f?.stats?.decisionPct != null ? `${Math.round(f.stats.decisionPct)}%` : "—";
+  const formStr = (f: FightAnalysis["away"] | null | undefined) => {
+    const rows = f?.recentForm ?? [];
+    if (!rows.length) return "—";
+    return rows
+      .slice(0, 5)
+      .map((r) => (r.result === "W" ? "W" : r.result === "L" ? "L" : r.result === "D" ? "D" : "—"))
+      .join("");
+  };
+  const nameOf = (f: FightAnalysis["away"], fallback: string) =>
+    f.resolvedName || f.name || fallback;
+
+  const awayName = nameOf(fight.away, "Away");
+  const homeName = nameOf(fight.home, "Home");
+  const over = /\bover\b/i.test(pickStr);
+  const coverId =
+    line != null && Number.isFinite(line) ? `${over ? "over" : "under"}-${line}` : null;
+  const hitPct =
+    coverId && roundsSim?.coverHitRates?.[coverId] != null
+      ? Math.round(roundsSim.coverHitRates[coverId]! * 100)
+      : null;
+  const meanRounds =
+    roundsSim?.meanTotalRounds ?? fight.simulation?.meanTotalRounds ?? null;
+
+  const FighterBlock = ({
+    role,
+    f,
+  }: {
+    role: string;
+    f: FightAnalysis["away"];
+  }) => {
+    const recent = (f.recentForm ?? []).slice(0, 5);
+    return (
+      <Section title={`${role} · ${nameOf(f, role).toUpperCase()}`}>
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <MetricTile
+            icon="award"
+            label="RECORD"
+            value={recStr(f)}
+            caption="career"
+            tint={colors.foreground}
+          />
+          <MetricTile
+            icon="zap"
+            label="FINISH %"
+            value={finishPct(f)}
+            caption="KO/TKO/sub"
+            tint={colors.foreground}
+          />
+          <MetricTile
+            icon="trending-up"
+            label="FORM"
+            value={formStr(f)}
+            caption="recent"
+            tint={colors.foreground}
+          />
+        </View>
+        {f.stats?.decisionPct != null ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+            Decision rate {decisionPct(f)} — higher tends to push total rounds Over.
+          </Text>
+        ) : null}
+        {recent.length > 0 ? (
+          <View style={{ gap: 6, marginTop: 6 }}>
+            {recent.map((rf, i) => (
+              <Text
+                key={`${role}-${i}`}
+                style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}
+              >
+                {rf.result === "W" ? "W" : rf.result === "L" ? "L" : rf.result === "D" ? "D" : "—"}{" "}
+                vs {rf.opponent ?? "—"}
+                {rf.method ? ` · ${rf.method}` : ""}
+                {rf.date ? ` · ${rf.date}` : ""}
+              </Text>
+            ))}
+          </View>
+        ) : (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+            No recent fight log on file for {nameOf(f, role)} — using career rates when present.
+          </Text>
+        )}
+      </Section>
+    );
+  };
+
+  return (
+    <View style={{ gap: 14 }}>
+      <FighterBlock role="AWAY" f={fight.away} />
+      <FighterBlock role="HOME" f={fight.home} />
+
+      {(meanRounds != null || hitPct != null || (fight.simulation?.simulations ?? 0) > 0) ? (
+        <Section title="TOTAL ROUNDS SIM">
+          <View style={{ gap: 0 }}>
+            {meanRounds != null ? (
+              <BreakdownRow
+                icon="activity"
+                label="Mean total rounds"
+                sub="From fight Monte Carlo"
+                value={Number(meanRounds).toFixed(2)}
+                last={hitPct == null}
+              />
+            ) : null}
+            {hitPct != null && line != null ? (
+              <BreakdownRow
+                icon="crosshair"
+                label={`${pickStr || (over ? `Over ${line}` : `Under ${line}`)}`}
+                sub="Sim hit rate vs posted line"
+                value={`${hitPct}%`}
+                last
+              />
+            ) : null}
+            {hitPct == null && meanRounds == null && fight.simulation ? (
+              <>
+                <BreakdownRow
+                  icon="activity"
+                  label={awayName}
+                  sub="Win probability"
+                  value={`${Math.round(fight.simulation.awayWinProbability * 100)}%`}
+                />
+                <BreakdownRow
+                  icon="activity"
+                  label={homeName}
+                  sub="Win probability"
+                  value={`${Math.round(fight.simulation.homeWinProbability * 100)}%`}
+                  last
+                />
+              </>
+            ) : null}
+          </View>
+        </Section>
+      ) : null}
+
+      {fight.lean?.side ? (
+        <Section title="DATA EDGE">
+          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16 }}>
+            {fight.lean.side}
+          </Text>
+          {(fight.lean.reasons ?? []).slice(0, 4).map((rsn, i) => (
+            <Text
+              key={i}
+              style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}
+            >
+              · {rsn}
+            </Text>
+          ))}
         </Section>
       ) : null}
     </View>

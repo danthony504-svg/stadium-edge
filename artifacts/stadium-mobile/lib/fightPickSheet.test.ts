@@ -11,6 +11,9 @@ import test from "node:test";
 import {
   fightAnalysisHasStats,
   fightPickSide,
+  fightTotalBadgeLabel,
+  fightTotalMarketSubtitle,
+  fightTotalRoundsExplain,
   isCombatFightSport,
   parseFightGameSides,
 } from "./fightPickSheet.ts";
@@ -92,6 +95,18 @@ test("fightAnalysisHasStats gates REAL STATS vs empty copy", () => {
   );
 });
 
+test("fight total-rounds copy is fighter-scoped (not team scoring)", () => {
+  assert.equal(fightTotalBadgeLabel("Total Rounds"), "TOTAL ROUNDS");
+  assert.equal(fightTotalBadgeLabel("Total"), "FIGHT TOTAL");
+  assert.match(fightTotalMarketSubtitle("Total Rounds"), /rounds O\/U/i);
+  const explain = fightTotalRoundsExplain(2.5, "Under 2.5");
+  assert.match(explain, /Under 2\.5/);
+  assert.match(explain, /total-rounds/i);
+  assert.match(explain, /fighter/i);
+  assert.doesNotMatch(explain, /combined final score|each team's own recent games/i);
+  assert.match(explain, /Method of victory/i);
+});
+
 test("team-pick sheet branches UFC to fight-analysis (not team-history)", () => {
   const src = readFileSync(join(root, "app/team-pick/[id].tsx"), "utf8");
   assert.match(src, /isCombatFightSport/);
@@ -100,4 +115,8 @@ test("team-pick sheet branches UFC to fight-analysis (not team-history)", () => 
   assert.match(src, /fightAnalysisHasStats/);
   // Team-history path must be disabled for combat sports.
   assert.match(src, /enabled:\s*!isFight/);
+  // Total Rounds detail must use fight analysis — not empty TeamTotalBlock.
+  assert.match(src, /FightTotalRoundsBody/);
+  assert.match(src, /fightTotalRoundsExplain/);
+  assert.match(src, /TOTAL ROUNDS SIM/);
 });
