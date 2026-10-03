@@ -7,6 +7,7 @@ import {
   gradeFootballPropFromHistory,
   gradeFootballPropsOnlyFromHistory,
   propsOnlyLegClearsOdds,
+  PROPS_ONLY_RECOVERY_ODDS_SLACK,
 } from "./coachFootballPropsOnlyGrade.ts";
 import {
   FOOTBALL_SKILL_RECOVERY_MARKET_KEYS,
@@ -377,4 +378,51 @@ test("phone yards wipe recovers receptions/sacks alts (not TD-only patch)", () =
   assert.equal(staged.length, 2);
   assert.ok(staged.some((p) => /receptions/i.test(String(p.propMarketKey))));
   assert.ok(staged.some((p) => /sacks/i.test(String(p.propMarketKey))));
+});
+
+test("recovery odds slack stages near-clearing TD that strict gate rejects", () => {
+  // 4/8 = 50% hit vs -130 (~56.5% implied): strict 2.5pp fails; recovery 8pp clears.
+  const td = {
+    game: "A @ B",
+    market: "Anytime TD",
+    propMarketKey: "player_anytime_td",
+    pick: "Star Anytime TD",
+    odds: -130,
+    isProp: true,
+    player: "Star",
+    propLine: 0.5,
+    propSide: "Over",
+    sport: "nfl",
+    athleteId: "star-1",
+  } as ParsedPick;
+  const hist = {
+    recent: Array.from({ length: 8 }, (_, g) => ({
+      stats: {
+        rushingTouchdowns: "0",
+        receivingTouchdowns: g % 2 === 0 ? "1" : "0",
+        passingTouchdowns: "0",
+      },
+    })),
+  };
+  const hit = gradeFootballPropFromHistory(td, hist).hitProbability;
+  assert.ok(hit != null && hit >= 0.45 && hit <= 0.55, `expected ~50% hit, got ${hit}`);
+  assert.equal(propsOnlyLegClearsOdds(td, hit), false, "strict gate must fail");
+  assert.equal(
+    propsOnlyLegClearsOdds(td, hit, PROPS_ONLY_RECOVERY_ODDS_SLACK),
+    true,
+    "recovery slack must clear near-miss TD",
+  );
+  const scored: BoardScoredLeg[] = [
+    {
+      pick: { ...td, propsOnlyTicket: true },
+      simHit: hit,
+      evPct: -5,
+      rankScore: 5,
+    } as BoardScoredLeg,
+  ];
+  assert.equal(stageFootballPropsOnlyLegs(scored, 1).length, 0);
+  assert.equal(
+    stageFootballPropsOnlyLegs(scored, 1, PROPS_ONLY_RECOVERY_ODDS_SLACK).length,
+    1,
+  );
 });

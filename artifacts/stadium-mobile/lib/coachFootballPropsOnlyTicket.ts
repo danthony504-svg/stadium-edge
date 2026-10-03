@@ -30,6 +30,8 @@ import {
   propsOnlySimLookupKey,
   softClipPropsOnlyHits,
   PROPS_ONLY_HISTORY_BACKFILL_BELOW,
+  PROPS_ONLY_ODDS_SLACK,
+  PROPS_ONLY_RECOVERY_ODDS_SLACK,
   type PropsOnlyHistorySlice,
 } from "./coachFootballPropsOnlyGrade.ts";
 import {
@@ -101,6 +103,8 @@ export {
   propsOnlyPriorSeasonYear,
   softClipPropsOnlyHits,
   PROPS_ONLY_MIN_SAMPLE,
+  PROPS_ONLY_ODDS_SLACK,
+  PROPS_ONLY_RECOVERY_ODDS_SLACK,
 } from "./coachFootballPropsOnlyGrade.ts";
 
 export {
@@ -231,6 +235,7 @@ function scoredLegFromHit(
     mlbGameEnv?: Record<string, unknown>;
     playerHistory?: Record<string, PlayerHistorySlice>;
   },
+  oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, rawHit);
@@ -244,7 +249,7 @@ function scoredLegFromHit(
     simulationStatKey: "player_prop",
     expectedStatKey: "player_prop",
   });
-  if (!propsOnlyLegClearsOdds(norm, hit)) return null;
+  if (!propsOnlyLegClearsOdds(norm, hit, oddsSlack)) return null;
 
   const sport = norm.sport ?? poolRow?.sport;
   const marketKey = norm.propMarketKey ?? norm.market;
@@ -552,6 +557,11 @@ export type FootballPropsOnlyBuildOpts = {
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
   requestId?: string;
+  /**
+   * Skill-board / emptied-allowlist recovery pass — wider odds slack so
+   * yards/rec/sack alts can stage after a locked-market quality wipe.
+   */
+  recoveryFill?: boolean;
 };
 
 export type FootballPropsOnlyResult = {
@@ -571,6 +581,9 @@ export async function buildFootballPropsOnlyTicket(
   const propPoolSize = opts.pool.length;
   const athleteLinked = countAthleteLinked(opts.pool);
   const sports = countPoolSports(opts.pool);
+  const oddsSlack = opts.recoveryFill
+    ? PROPS_ONLY_RECOVERY_ODDS_SLACK
+    : PROPS_ONLY_ODDS_SLACK;
   const candidates = selectFootballPropsOnlyCandidates(opts.pool, opts.target);
 
   if (!candidates.length) {
@@ -701,7 +714,12 @@ export async function buildFootballPropsOnlyTicket(
     playerHistory: seededHistory,
   };
   const normalizedCandidates = candidates.map((c) => normalizePropsOnlyPick(c));
-  const bestSides = collapsePropsOnlyToBestEvSides(candidates, propHits, opts.pool).flatMap(
+  const bestSides = collapsePropsOnlyToBestEvSides(
+    candidates,
+    propHits,
+    opts.pool,
+    oddsSlack,
+  ).flatMap(
     (pick) => {
       const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
       const sport = pick.sport ?? row?.sport;
@@ -818,7 +836,7 @@ export async function buildFootballPropsOnlyTicket(
   for (const pick of bestSides) {
     const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
-    const leg = scoredLegFromHit(pick, raw, row, rushCtx);
+    const leg = scoredLegFromHit(pick, raw, row, rushCtx, oddsSlack);
     if (leg) propScored.push(leg);
   }
   propScored.sort((a, b) => {
@@ -828,7 +846,7 @@ export async function buildFootballPropsOnlyTicket(
     return (b.rankScore ?? 0) - (a.rankScore ?? 0);
   });
 
-  const picks = stageFootballPropsOnlyLegs(propScored, opts.target);
+  const picks = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack);
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {
     opts.onStatus?.(`Scoring props… ${picks.length} of ${opts.target} cleared`);

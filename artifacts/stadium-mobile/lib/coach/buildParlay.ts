@@ -416,6 +416,7 @@ export async function buildCoachParlay(opts: {
         espnGames: inputs.espnGames,
         mlbPlatoon,
         mlbGameEnv,
+        recoveryFill: true,
         onPartialPicks: (partial) => {
           // Props-only only — do not re-apply the emptied allowlist.
           opts.onPartialPicks?.(
@@ -440,6 +441,45 @@ export async function buildCoachParlay(opts: {
           staged: picks.length,
           target,
         });
+      } else if (built.propLegsScored > 0 && picks.length === 0) {
+        // Skill board also empty — retry the preferred pool with recovery slack
+        // so near-clearing TD/yard alts can still fill seats.
+        const softPreferred = await buildFootballPropsOnlyTicket({
+          target,
+          pool: activePropPool,
+          realOdds: inputs.realOdds,
+          teamIdMap,
+          signal: opts.signal,
+          onStatus: opts.onStatus,
+          playerHistory,
+          oppRushDefense,
+          espnGames: inputs.espnGames,
+          mlbPlatoon,
+          mlbGameEnv,
+          recoveryFill: true,
+          onPartialPicks: (partial) => {
+            opts.onPartialPicks?.(
+              filterPicksByAskMarketConstraint(partial, marketConstraint),
+            );
+          },
+        });
+        const softPicks = filterPicksForAskTeam(
+          filterPicksByAskMarketConstraint(
+            selectFinalCoachParlayPicks(softPreferred.picks),
+            marketConstraint,
+          ),
+          inputs.teamScope,
+        );
+        if (softPicks.length > 0) {
+          picks = softPicks;
+          recoveredNote = footballSkillRecoveryNote({
+            preferredGraded: built.propLegsScored,
+            staged: picks.length,
+            target,
+          });
+        } else {
+          recoveredNote = `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`;
+        }
       }
     }
 

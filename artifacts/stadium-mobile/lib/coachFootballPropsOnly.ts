@@ -27,6 +27,7 @@ import {
   propsOnlyCollapseLadderKey,
   propsOnlyEffectiveLine,
   propsOnlyLegClearsOdds,
+  PROPS_ONLY_ODDS_SLACK,
 } from "./coachFootballPropsOnlyGrade.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -166,6 +167,7 @@ function stageFootballPropsOnlyLegsWithCap(
   target: number,
   maxPerGame: number,
   maxSameGameMarketSide: number,
+  oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
 ): ParsedPick[] {
   const picks: ParsedPick[] = [];
   const usedPlayerMarket = new Set<string>();
@@ -175,7 +177,7 @@ function stageFootballPropsOnlyLegsWithCap(
   for (const leg of ordered) {
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
-    if (!propsOnlyLegClearsOdds(p, leg.simHit)) continue;
+    if (!propsOnlyLegClearsOdds(p, leg.simHit, oddsSlack)) continue;
     // Canonical ladder — main + `_alternate` share one seat per player.
     const pm = propsOnlyCollapseLadderKey(p);
     if (usedPlayerMarket.has(pm)) continue;
@@ -207,6 +209,7 @@ function stageFootballPropsOnlyLegsWithCap(
 export function stageFootballPropsOnlyLegs(
   scored: BoardScoredLeg[],
   target: number,
+  oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
 ): ParsedPick[] {
   const ordered = [...scored].sort((a, b) => {
     const evDiff = (b.evPct ?? -999) - (a.evPct ?? -999);
@@ -224,7 +227,7 @@ export function stageFootballPropsOnlyLegs(
   for (let cap = Math.min(3, ceiling); cap <= ceiling; cap++) {
     const msStart = thinSlate ? cap : 1;
     for (let msCap = msStart; msCap <= cap; msCap++) {
-      best = stageFootballPropsOnlyLegsWithCap(ordered, target, cap, msCap);
+      best = stageFootballPropsOnlyLegsWithCap(ordered, target, cap, msCap, oddsSlack);
       if (best.length >= target) return best;
     }
   }
