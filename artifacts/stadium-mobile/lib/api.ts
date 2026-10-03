@@ -2261,8 +2261,9 @@ export async function getLiveOdds(sports: string[], signal?: AbortSignal): Promi
 export async function fetchGameOutcomeSimulation(
   opts: {
     sport: string;
-    homeTeamId: string;
-    awayTeamId: string;
+    /** Required for team sports; optional for UFC/MMA/tennis (name-only). */
+    homeTeamId?: string;
+    awayTeamId?: string;
     homeTeam?: string;
     awayTeam?: string;
     simulations?: number;
@@ -2273,11 +2274,24 @@ export async function fetchGameOutcomeSimulation(
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {
   const path = "/sports/simulate/game-outcome";
+  const body: Record<string, unknown> = {
+    sport: opts.sport,
+    homeTeam: opts.homeTeam,
+    awayTeam: opts.awayTeam,
+    simulations: opts.simulations,
+    weatherImpact: opts.weatherImpact,
+    coverQueries: opts.coverQueries,
+    retainOutcomes: opts.retainOutcomes,
+  };
+  // Omit blank ids so name-only combat/tennis requests match the server contract
+  // (homeTeam + awayTeam required; team ids optional).
+  if (opts.homeTeamId) body.homeTeamId = opts.homeTeamId;
+  if (opts.awayTeamId) body.awayTeamId = opts.awayTeamId;
   const res = await withTimeout(
     expoFetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(opts),
+      body: JSON.stringify(body),
       signal,
     }),
     REQUEST_TIMEOUT_MS * 2,

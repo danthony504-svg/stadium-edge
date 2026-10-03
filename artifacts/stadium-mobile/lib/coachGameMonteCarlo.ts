@@ -27,8 +27,10 @@ import {
 } from "./coachTeamIdResolve.ts";
 import type { RealOddsEntry } from "./api.ts";
 import { passesCoachSimQualityGate } from "./gameSimQualityGates.ts";
+import { nameOnlyIdsFromGameLabel } from "./nameOnlyGameSim.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
+export { isNameOnlyGameSimSport, nameOnlyIdsFromGameLabel } from "./nameOnlyGameSim.ts";
 
 export type GameTeamIds = {
   sport: string;
@@ -49,17 +51,23 @@ export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> 
  * Away @ Home names. Nickname-only keys fail for NCAAF ("Ohio State Buckeyes"
  * → buckeyes vs Odds "Ohio State" → state) and silently skipped every sim —
  * Coach then staged 0 legs with a fake "quality bar" empty.
+ *
+ * For UFC/MMA/tennis, fall back to fighter/player names from the odds label
+ * when ESPN athlete ids are missing (same contract as Simulator + server).
+ * Phone: "4 leg UFC" only staged 2 MLs while the rest never simmed.
  */
 export function resolveTeamIds(
   gameLabel: string,
   sport: string | undefined,
   map: Map<string, GameTeamIds>,
 ): GameTeamIds | null {
-  return resolveCoachGameTeamIds(
+  const fromMap = resolveCoachGameTeamIds(
     gameLabel,
     sport,
     map as Map<string, CoachGameTeamIds>,
   ) as GameTeamIds | null;
+  if (fromMap) return fromMap;
+  return nameOnlyIdsFromGameLabel(gameLabel, sport);
 }
 
 function uniqueCoverQueries(
@@ -144,11 +152,12 @@ export async function fetchCoachGameSimulationsForPicks(
       const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
       if (!ids) return;
       const coverQueries = uniqueCoverQueries(legs, realOdds, evalLinesByGame);
-      const result = await fetchGameOutcomeSimulation(
+      const sportKey = (ids.sport || sport || "mlb").toLowerCase();
+      let result = await fetchGameOutcomeSimulation(
         {
           sport: ids.sport || sport || "mlb",
-          homeTeamId: ids.homeTeamId,
-          awayTeamId: ids.awayTeamId,
+          homeTeamId: ids.homeTeamId || undefined,
+          awayTeamId: ids.awayTeamId || undefined,
           homeTeam: ids.homeTeam,
           awayTeam: ids.awayTeam,
           simulations: COACH_GAME_SIMS,
@@ -157,6 +166,27 @@ export async function fetchCoachGameSimulationsForPicks(
         },
         signal,
       );
+      if (
+        !result &&
+        (sportKey === "ufc" || sportKey === "mma") &&
+        ids.homeTeam &&
+        ids.awayTeam
+      ) {
+        const { fetchUfcSimulatorGameOutcome } = await import("./ufcSimulatorSim.ts");
+        result = await fetchUfcSimulatorGameOutcome(
+          {
+            sport: sportKey,
+            homeTeamId: ids.homeTeamId || "",
+            awayTeamId: ids.awayTeamId || "",
+            homeTeam: ids.homeTeam,
+            awayTeam: ids.awayTeam,
+            simulations: COACH_GAME_SIMS,
+            coverQueries,
+            retainOutcomes: true,
+          },
+          signal,
+        );
+      }
       if (result) {
         const sim = result as CoachGameSimEntry;
         out.set(gameLabel, sim);
@@ -279,12 +309,40 @@ export async function fetchSlateGameSimulationsWithStatus(
     try {
       const sportKey = (ids.sport || sport || "mlb").toLowerCase();
       const wantsPeriodStats = sportKey === "ncaaf" || sportKey === "nfl" || sportKey === "nba";
-      const [result, homePeriod, awayPeriod] = await Promise.all([
-        fetchGameOutcomeSimulation(
+      const simOpts = {
+        sport: ids.sport || sport || "mlb",
+        homeTeamId: ids.homeTeamId || undefined,
+        awayTeamId: ids.awayTeamId || undefined,
+        homeTeam: ids.homeTeam,
+        awayTeam: ids.awayTeam,
+        simulations: COACH_GAME_SIMS,
+        coverQueries,
+        retainOutcomes: true as const,
+      };
+      const [resultRaw, homePeriod, awayPeriod] = await Promise.all([
+        fetchGameOutcomeSimulation(simOpts, signal),
+        wantsPeriodStats && ids.homeTeamId
+          ? fetchTeamPeriodStats(sportKey, ids.homeTeamId, signal)
+          : Promise.resolve(null),
+        wantsPeriodStats && ids.awayTeamId
+          ? fetchTeamPeriodStats(sportKey, ids.awayTeamId, signal)
+          : Promise.resolve(null),
+      ]);
+      // UFC/MMA: when production game-outcome rejects name-only (or returns
+      // null), mirror Simulator — client fight analysis + 10k MC.
+      let result = resultRaw;
+      if (
+        !result &&
+        (sportKey === "ufc" || sportKey === "mma") &&
+        ids.homeTeam &&
+        ids.awayTeam
+      ) {
+        const { fetchUfcSimulatorGameOutcome } = await import("./ufcSimulatorSim.ts");
+        result = await fetchUfcSimulatorGameOutcome(
           {
-            sport: ids.sport || sport || "mlb",
-            homeTeamId: ids.homeTeamId,
-            awayTeamId: ids.awayTeamId,
+            sport: sportKey,
+            homeTeamId: ids.homeTeamId || "",
+            awayTeamId: ids.awayTeamId || "",
             homeTeam: ids.homeTeam,
             awayTeam: ids.awayTeam,
             simulations: COACH_GAME_SIMS,
@@ -292,14 +350,8 @@ export async function fetchSlateGameSimulationsWithStatus(
             retainOutcomes: true,
           },
           signal,
-        ),
-        wantsPeriodStats
-          ? fetchTeamPeriodStats(sportKey, ids.homeTeamId, signal)
-          : Promise.resolve(null),
-        wantsPeriodStats
-          ? fetchTeamPeriodStats(sportKey, ids.awayTeamId, signal)
-          : Promise.resolve(null),
-      ]);
+        );
+      }
       if (result) {
         let entry = result as CoachGameSimEntry;
         // Re-derive period cover rates with real period offense vs opp period
