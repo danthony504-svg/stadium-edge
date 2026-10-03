@@ -172,11 +172,11 @@ export function boardScanNonPropPreviewCap(
 /**
  * Hold reserved prop seats open so game lines cannot paint the full ticket.
  *
- * Preview always reserves seats. Football prop-mix finals use
- * finalizeFootballPropMixPicks (hold while props incomplete; ship GLs when
- * props finish with 0 clears). Non-football FINAL tickets never reserve —
- * capping qualified GLs after the prop window and calling it a "quality bar"
- * shortfall truncated 6-leg MLB boards to 3 on phone.
+ * Preview + football mix: seats stay conceptually reserved via
+ * `awaitingPropSlots` / `finalizeFootballPropMixPicks`. Non-football never
+ * truncates the pick array for empty prop seats — that published exactly
+ * `boardScanNonPropPreviewCap(N)` legs on budget timeout (5→2 / 6→3) and
+ * blamed the quality bar.
  */
 export function shouldReservePropSeats(opts: {
   preview?: boolean;
@@ -194,11 +194,11 @@ export function shouldReservePropSeats(opts: {
     opts.requirePropMix ? 0.4 : 0.5,
   );
   if (propSlots <= 0 || opts.propCount >= propSlots) return false;
+  // Preview awaiting latch (cards stay hidden) — does NOT truncate picks.
   if (opts.preview) return true;
   // Football mix: keep seats open through finalizeFootballPropMixPicks.
   if (opts.requirePropMix) return true;
-  // Non-football final (complete or incomplete prop phase): ship every
-  // qualified leg toward N. Props already had their scan window.
+  // Non-football final: never hold empty prop seats in the pick array.
   return false;
 }
 
@@ -248,21 +248,21 @@ export function finalizeFootballPropMixPicks<T extends { isProp?: boolean }>(
 
 /**
  * Non-football mix (MLB / NBA / NHL / soccer / UFC, …):
- * - Preview: hold ~50% prop seats so mid-scan GLs cannot paint the full ticket.
- * - Final: ship every qualified leg toward N. Never re-cap GLs after the prop
- *   window — that was the phone 6-leg → 3 "quality bar" lie when seats were
- *   held empty and alt spreads that cleared were dropped.
+ *
+ * Never truncate qualified legs for empty prop seats. Mid-scan UI gating uses
+ * `awaitingPropSlots` (preview + 0 props) so cards stay hidden until terminal;
+ * destroying GLs in the pick array left the hang-guard / budget-timeout path
+ * publishing exactly `boardScanNonPropPreviewCap(N)` legs (phone: 5→2, 6→3)
+ * and blaming the quality bar.
+ *
+ * Football mix keeps `finalizeFootballPropMixPicks` (hold seats while incomplete).
  */
 export function finalizeGeneralPropMixPicks<T extends { isProp?: boolean }>(
   picks: T[],
   targetLegs: number,
-  opts?: { preview?: boolean; propFraction?: number },
+  _opts?: { preview?: boolean; propFraction?: number },
 ): T[] {
   if (targetLegs < 3) return picks.slice(0, Math.max(0, targetLegs));
-  const propFraction = opts?.propFraction ?? 0.5;
-  if (opts?.preview) {
-    return applyReservedPropSeatCap(picks, targetLegs, propFraction);
-  }
   return picks.slice(0, targetLegs);
 }
 

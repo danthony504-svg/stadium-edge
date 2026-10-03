@@ -47,7 +47,6 @@ import {
   resolveCoachOutcome,
   upgradeCoachSessionOutcome,
 } from "@/lib/coach/session";
-import { askRequiresFootballPropMix } from "@/lib/boardScanPropDelivery";
 import {
   resolveCoachTerminalPicks,
   shouldPublishCoachTicketPicks,
@@ -91,9 +90,9 @@ export default function CoachScreen() {
   messagesRef.current = messages;
   const sendGenRef = useRef(0);
   const pendingTicketPicksRef = useRef<ParsedPick[]>([]);
-  /** Mid-scan flush: football mix treats 0-prop buffers as props still pending. */
-  const propsIncompleteForFlush = (ask: string | null | undefined, picks: ParsedPick[]) =>
-    askRequiresFootballPropMix(ask) && !picks.some((p) => !!p.isProp);
+  /** Mid-scan flush: 0-prop buffers mean props still pending (any sport). */
+  const propsIncompleteForFlush = (_ask: string | null | undefined, picks: ParsedPick[]) =>
+    !picks.some((p) => !!p.isProp);
   /** Ask text for the open session — terminal flush uses it for football prop-mix caps. */
   const sessionAskTextRef = useRef("");
   /** Pick count committed at last terminal latch — used for late budget upgrades. */
@@ -198,6 +197,8 @@ export default function CoachScreen() {
         text: string;
         requestedLegs: number;
         failed?: boolean;
+        /** Absolute flush while props still scoring — honest shortfall, not quality bar. */
+        propsPending?: boolean;
       },
     ) => {
       const outcome = resolveCoachOutcome({
@@ -212,7 +213,9 @@ export default function CoachScreen() {
       // Strip any leaked `[CODE: detail]` machine traces before the bubble paints.
       const shortfall =
         !opts.text.trim() && (outcome === "shortfall" || outcome === "empty")
-          ? coachShortfallNote(opts.requestedLegs, opts.picks.length)
+          ? coachShortfallNote(opts.requestedLegs, opts.picks.length, {
+              propsPending: opts.propsPending,
+            })
           : "";
       patchAssistant(assistantId, {
         building: false,
@@ -307,12 +310,13 @@ export default function CoachScreen() {
         // the composer unlocks (stuck "Scoring ticket… N legs" card).
         const buffered = pendingTicketPicksRef.current;
         const ask = sessionAskTextRef.current || text;
+        const propsPending = propsIncompleteForFlush(ask, buffered);
         const picks = resolveCoachTerminalPicks({
           bufferedPicks: buffered,
           messagePicks: null,
           askText: ask,
           requestedLegs,
-          propPhaseIncomplete: propsIncompleteForFlush(ask, buffered),
+          propPhaseIncomplete: propsPending,
         });
         finishSession(assistantId, {
           picks,
@@ -320,6 +324,7 @@ export default function CoachScreen() {
             ? ""
             : "Hit the delivery budget before the board finished — composer unlocked.",
           requestedLegs,
+          propsPending,
         });
       };
 
@@ -478,12 +483,13 @@ export default function CoachScreen() {
             : "Something went wrong building that reply.";
         const ask = sessionAskTextRef.current || text;
         const buffered = pendingTicketPicksRef.current;
+        const propsPending = propsIncompleteForFlush(ask, buffered);
         const picks = resolveCoachTerminalPicks({
           bufferedPicks: buffered,
           messagePicks: null,
           askText: ask,
           requestedLegs,
-          propPhaseIncomplete: propsIncompleteForFlush(ask, buffered),
+          propPhaseIncomplete: propsPending,
         });
         pendingTicketPicksRef.current = [];
         finishSession(assistantId, {
@@ -491,6 +497,7 @@ export default function CoachScreen() {
           text: message,
           requestedLegs,
           failed: true,
+          propsPending,
         });
       }
     },

@@ -26,12 +26,14 @@ import {
 } from "@/lib/boardMarketScanner";
 import {
   buildFinalCoachParlayNote,
+  buildFixedLegPropsPendingShortfallLead,
   selectFinalCoachParlayPicks,
   askRequiresFootballPropMix,
   askAllowsNcaafPlayerProps,
   askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
   finalizeFootballPropMixPicks,
+  finalizeGeneralPropMixPicks,
 } from "@/lib/boardScanPropDelivery";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
@@ -573,13 +575,19 @@ export async function buildCoachParlay(opts: {
     !!scan?.propPhaseIncomplete;
   // Football mix: hold prop seats while props incomplete; after props finish
   // with 0 clears, deliver scored game lines (never wipe to empty).
+  // Non-football: never re-cap for empty prop seats (preview hang-guard used
+  // to publish exactly boardScanNonPropPreviewCap(N) — phone 5→2 / 6→3).
   if (requirePropMix) {
     picks = finalizeFootballPropMixPicks(picks, target, {
       propPhaseIncomplete: propsPending,
     });
+  } else if (!propsOnly && !gameLinesOnly) {
+    picks = finalizeGeneralPropMixPicks(picks, target);
   }
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
-  const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
+  const shortfall = propsPending
+    ? buildFixedLegPropsPendingShortfallLead(target, picks.length)
+    : buildFixedLegCountShortfallLead(target, picks.length);
   const mismatchLead = coachPropsAskGameLineMismatchNote({
     askText: opts.askText,
     propsOnly,

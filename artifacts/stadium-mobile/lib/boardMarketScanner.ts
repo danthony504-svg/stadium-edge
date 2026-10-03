@@ -868,10 +868,12 @@ export function buildScanResult(
   if (opts.gameLinesOnly && !opts.collegeTeamMarketStacks) {
     picks = collapseSameTeamGameLineSides(picks);
   }
-  // Final tickets: if combinators left seats empty while more AI-qualified legs
-  // already cleared scoring, top up from those — never invent ungraded filler.
-  // Props-first inside topUp; game-line relax only after prop seats get a shot.
-  if (!opts.preview && picks.length < opts.target) {
+  // Top up from AI-qualified scored leftovers whenever under target — including
+  // mid-scan previews. Preview used to skip this then seat-cap to exactly
+  // boardScanNonPropPreviewCap(N) (phone 5→2 / 6→3) for the hang-guard buffer.
+  // Never invents ungraded filler. Football finalize still re-caps while props
+  // are incomplete; non-football keeps every cleared leg for terminal flush.
+  if (picks.length < opts.target) {
     picks = topUpTicketFromQualifiedScored(
       picks,
       stagePool,

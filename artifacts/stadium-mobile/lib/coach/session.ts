@@ -180,8 +180,18 @@ export function resolveCoachOutcome(opts: {
   return "shown";
 }
 
-export function coachShortfallNote(requestedLegs: number, pickCount: number): string {
+export function coachShortfallNote(
+  requestedLegs: number,
+  pickCount: number,
+  opts?: { propsPending?: boolean },
+): string {
   if (requestedLegs < 3 || pickCount >= requestedLegs) return "";
+  if (opts?.propsPending) {
+    if (pickCount <= 0) {
+      return `You asked for **${requestedLegs}** legs — prop scoring did not finish and no AI-backed picks cleared yet. No ungraded filler was added.`;
+    }
+    return `You asked for **${requestedLegs}** legs — only **${pickCount}** cleared so far while player props were still scoring. No ungraded filler was added.`;
+  }
   if (pickCount <= 0) {
     return `You asked for **${requestedLegs}** legs — no AI-backed picks cleared the quality bar after the board scan.`;
   }
