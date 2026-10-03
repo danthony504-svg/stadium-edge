@@ -119,7 +119,14 @@ function sideOfTeam(team: string, away: string, home: string): "home" | "away" |
 
 function gamePickTeam(pick: ParsedPick): string | null {
   const p = pick.pick || "";
-  if (/\b(over|under)\b/i.test(p)) return null;
+  // Team totals: "Iowa Hawkeyes Under 17.5" / "SMU Mustangs Over 24.5".
+  // Bare game totals ("Over 54.5") have no team prefix and stay null.
+  const ouTeam = p.match(/^(.+?)\s+(?:over|under)\b/i);
+  if (ouTeam) {
+    const team = ouTeam[1]!.trim();
+    if (team) return team;
+    return null;
+  }
   const team = p
     .replace(/\s*(ml|moneyline)\s*$/i, "")
     .replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "")
@@ -294,11 +301,18 @@ export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
   return null;
 }
 
+export type PeriodOffenseDefenseProfile = {
+  /** Expected points in this period: teamMean(own.scored, opp.allowed). */
+  homeByPeriod: Partial<Record<SimPeriodScope, number>>;
+  awayByPeriod: Partial<Record<SimPeriodScope, number>>;
+};
+
 function coverQueryHits(
   q: GameCoverQuery,
   homeScore: number,
   awayScore: number,
   sport = "nba",
+  periodProfile?: PeriodOffenseDefenseProfile | null,
 ): boolean {
   if (q.kind === "raceTo") {
     const target = q.raceTarget ?? 0;
@@ -309,10 +323,18 @@ function coverQueryHits(
   const period: SimPeriodScope = q.period ?? "fg";
   // Never grade a period market from full-game scores — mismatch must not cover.
   if (period !== "fg" && !sportSupportsPeriod(sport, period)) return false;
+  const periodOpts =
+    period !== "fg" && periodProfile
+      ? {
+          homePeriodExpected: periodProfile.homeByPeriod[period] ?? null,
+          awayPeriodExpected: periodProfile.awayByPeriod[period] ?? null,
+        }
+      : undefined;
   const scoped =
     period === "fg"
       ? { home: homeScore, away: awayScore }
-      : periodScoresForDraw(sport, period, homeScore, awayScore);
+      : periodScoresForDraw(sport, period, homeScore, awayScore, periodOpts);
+  if (!Number.isFinite(scoped.home) || !Number.isFinite(scoped.away)) return false;
   const hs = scoped.home;
   const as = scoped.away;
   const total = hs + as;
@@ -349,6 +371,7 @@ export function deriveCoverHitRatesFromOutcomes(
   outcomes: { homeScores: number[]; awayScores: number[] },
   queries: GameCoverQuery[],
   sport = "nba",
+  periodProfile?: PeriodOffenseDefenseProfile | null,
 ): Record<string, number> {
   const n = outcomes.homeScores.length;
   if (!n || n !== outcomes.awayScores.length) return {};
@@ -356,11 +379,58 @@ export function deriveCoverHitRatesFromOutcomes(
   for (const q of queries) {
     let hits = 0;
     for (let i = 0; i < n; i++) {
-      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!, sport)) hits += 1;
+      if (
+        coverQueryHits(
+          q,
+          outcomes.homeScores[i]!,
+          outcomes.awayScores[i]!,
+          sport,
+          periodProfile,
+        )
+      ) {
+        hits += 1;
+      }
     }
     rates[q.id] = Math.round((hits / n) * 1000) / 1000;
   }
   return rates;
+}
+
+/**
+ * Blend own period scored with opponent period allowed (real ESPN averages only).
+ * Null when either side is missing — never invent period rates.
+ */
+export function blendPeriodExpected(
+  ownScored: number | null | undefined,
+  oppAllowed: number | null | undefined,
+): number | null {
+  if (ownScored == null || oppAllowed == null) return null;
+  if (!Number.isFinite(ownScored) || !Number.isFinite(oppAllowed)) return null;
+  return Math.round(((ownScored + oppAllowed) / 2) * 10) / 10;
+}
+
+export function buildPeriodOffenseDefenseProfile(
+  homeAverages: Record<string, { scored: number; allowed: number }> | null | undefined,
+  awayAverages: Record<string, { scored: number; allowed: number }> | null | undefined,
+): PeriodOffenseDefenseProfile | null {
+  if (!homeAverages || !awayAverages) return null;
+  const periods: SimPeriodScope[] = ["q1", "q2", "q3", "q4", "h1", "h2"];
+  const homeByPeriod: PeriodOffenseDefenseProfile["homeByPeriod"] = {};
+  const awayByPeriod: PeriodOffenseDefenseProfile["awayByPeriod"] = {};
+  let any = false;
+  for (const p of periods) {
+    const h = blendPeriodExpected(homeAverages[p]?.scored, awayAverages[p]?.allowed);
+    const a = blendPeriodExpected(awayAverages[p]?.scored, homeAverages[p]?.allowed);
+    if (h != null) {
+      homeByPeriod[p] = h;
+      any = true;
+    }
+    if (a != null) {
+      awayByPeriod[p] = a;
+      any = true;
+    }
+  }
+  return any ? { homeByPeriod, awayByPeriod } : null;
 }
 
 export function gameSimHasValidRun(sim: CoachGameSimEntry | null | undefined): boolean {

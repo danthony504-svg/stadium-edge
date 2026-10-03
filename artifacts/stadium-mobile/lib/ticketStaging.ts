@@ -15,6 +15,7 @@ import {
   BALANCED_BACKFILL_ORDER,
   balancedMixSlots,
   FOOTBALL_BALANCED_MIX_FRACTIONS,
+  COLLEGE_FOOTBALL_BALANCED_MIX_FRACTIONS,
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
@@ -556,13 +557,22 @@ export function buildBalancedStagedTicketFromScan(
   target: number,
   varietySeed?: string,
   ticketStyle: CoachTicketStyle = "balanced",
+  opts?: { collegeTeamMarketStacks?: boolean },
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const pools = partitionScoredLegsByCategory(qualifying);
-  const slots = balancedMixSlots(
-    target,
-    isFootballHeavyScoredPool(qualifying) ? FOOTBALL_BALANCED_MIX_FRACTIONS : undefined,
-  );
+  const ncaafN = qualifying.filter(
+    (l) => String(l.pick.sport ?? "").toLowerCase() === "ncaaf",
+  ).length;
+  const collegeHeavy =
+    !!opts?.collegeTeamMarketStacks ||
+    (qualifying.length > 0 && ncaafN >= Math.ceil(qualifying.length * 0.6));
+  const fractions = collegeHeavy
+    ? COLLEGE_FOOTBALL_BALANCED_MIX_FRACTIONS
+    : isFootballHeavyScoredPool(qualifying)
+      ? FOOTBALL_BALANCED_MIX_FRACTIONS
+      : undefined;
+  const slots = balancedMixSlots(target, fractions, { floorTeamTotals: collegeHeavy });
   const used = new Set<string>();
   const out: ParsedPick[] = [];
 
@@ -616,6 +626,7 @@ export function buildBalancedStagedTicketFromScan(
 export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
   legsPerGameCap?: number | null;
+  collegeTeamMarketStacks?: boolean;
 };
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
@@ -657,7 +668,9 @@ export function buildStagedTicketFromScan(
     } satisfies CoachTicketBuildOpts);
   }
   if (target >= 3) {
-    return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
+    return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle, {
+      collegeTeamMarketStacks: varietyContext?.collegeTeamMarketStacks,
+    });
   }
 
   const mains: BoardScoredLeg[] = [];

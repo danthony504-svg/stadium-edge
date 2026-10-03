@@ -2,9 +2,11 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame } from "./api.ts";
-import { fetchGameOutcomeSimulation } from "./api.ts";
+import { fetchGameOutcomeSimulation, fetchTeamPeriodStats } from "./api.ts";
 import {
   buildGameCoverQuery,
+  buildPeriodOffenseDefenseProfile,
+  deriveCoverHitRatesFromOutcomes,
   gamePickCoverQueryId,
   gameSimHitForPick,
   isGameLinePick,
@@ -275,21 +277,53 @@ export async function fetchSlateGameSimulationsWithStatus(
     // One game timeout/network failure must not abort the whole slate —
     // that collapsed Coach to an instant 0-leg ticket (phone 7-leg empty).
     try {
-      const result = await fetchGameOutcomeSimulation(
-        {
-          sport: ids.sport || sport || "mlb",
-          homeTeamId: ids.homeTeamId,
-          awayTeamId: ids.awayTeamId,
-          homeTeam: ids.homeTeam,
-          awayTeam: ids.awayTeam,
-          simulations: COACH_GAME_SIMS,
-          coverQueries,
-          retainOutcomes: true,
-        },
-        signal,
-      );
+      const sportKey = (ids.sport || sport || "mlb").toLowerCase();
+      const wantsPeriodStats = sportKey === "ncaaf" || sportKey === "nfl" || sportKey === "nba";
+      const [result, homePeriod, awayPeriod] = await Promise.all([
+        fetchGameOutcomeSimulation(
+          {
+            sport: ids.sport || sport || "mlb",
+            homeTeamId: ids.homeTeamId,
+            awayTeamId: ids.awayTeamId,
+            homeTeam: ids.homeTeam,
+            awayTeam: ids.awayTeam,
+            simulations: COACH_GAME_SIMS,
+            coverQueries,
+            retainOutcomes: true,
+          },
+          signal,
+        ),
+        wantsPeriodStats
+          ? fetchTeamPeriodStats(sportKey, ids.homeTeamId, signal)
+          : Promise.resolve(null),
+        wantsPeriodStats
+          ? fetchTeamPeriodStats(sportKey, ids.awayTeamId, signal)
+          : Promise.resolve(null),
+      ]);
       if (result) {
-        out.set(gameLabel, result as CoachGameSimEntry);
+        let entry = result as CoachGameSimEntry;
+        // Re-derive period cover rates with real period offense vs opp period
+        // defense when ESPN linescores exist — never invent period averages.
+        const profile = buildPeriodOffenseDefenseProfile(
+          homePeriod?.periodAverages,
+          awayPeriod?.periodAverages,
+        );
+        if (profile && entry.outcomes?.homeScores?.length) {
+          const periodQueries = coverQueries.filter((q) => q.period && q.period !== "fg");
+          if (periodQueries.length) {
+            const periodRates = deriveCoverHitRatesFromOutcomes(
+              entry.outcomes,
+              periodQueries,
+              sportKey,
+              profile,
+            );
+            entry = {
+              ...entry,
+              coverHitRates: { ...(entry.coverHitRates ?? {}), ...periodRates },
+            };
+          }
+        }
+        out.set(gameLabel, entry);
         statuses.push({
           gameLabel,
           resolved: true,

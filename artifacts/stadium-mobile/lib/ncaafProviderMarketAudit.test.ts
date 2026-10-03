@@ -150,4 +150,11 @@ describe("NCAAF Odds API provider market audit", () => {
       }
     }
   });
+
+  test("eval ladder never invents -110 team totals without a posted market", () => {
+    const apiSrc = readFileSync(join(root, "artifacts/stadium-mobile/lib/api.ts"), "utf8");
+    assert.ok(apiSrc.includes("Never invent lines"));
+    assert.ok(apiSrc.includes("or -110 prices"));
+    assert.ok(!apiSrc.includes("fall back to implied team totals"));
+  });
 });

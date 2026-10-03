@@ -102,10 +102,13 @@ export function coverQueryHits(
   }
 
   const period: SimPeriodScope = q.period ?? "fg";
+  // Never grade a period market from full-game scores — mismatch must not cover.
+  if (period !== "fg" && !sportSupportsPeriod(sport, period)) return false;
   const scoped =
-    period === "fg" || !sportSupportsPeriod(sport, period)
+    period === "fg"
       ? { home: homeScore, away: awayScore }
       : periodScoresForDraw(sport, period, homeScore, awayScore);
+  if (!Number.isFinite(scoped.home) || !Number.isFinite(scoped.away)) return false;
   const hs = scoped.home;
   const as = scoped.away;
   const total = hs + as;

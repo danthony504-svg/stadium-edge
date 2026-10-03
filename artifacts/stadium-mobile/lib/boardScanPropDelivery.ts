@@ -650,6 +650,12 @@ export function boardScanPeriodSlotCount(targetLegs: number): number {
   return Math.max(1, Math.round(targetLegs * 0.25));
 }
 
+/** ~15% of an N-leg college ticket reserved for posted team total points. */
+export function boardScanTeamTotalSlotCount(targetLegs: number): number {
+  if (targetLegs < 5) return 0;
+  return Math.max(1, Math.round(targetLegs * 0.15));
+}
+
 /** True for 1H / Q1–Q4 / period team totals — not full-game FG spreads. */
 export function isCollegePeriodMarketPick(pick: {
   market?: string | null;
@@ -661,6 +667,15 @@ export function isCollegePeriodMarketPick(pick: {
   if (isPeriodMainMarket(m)) return true;
   if (parseMarketPeriod(m) !== "fg") return true;
   return false;
+}
+
+/** Posted Team Total / Alt Team Total / period team totals (points only). */
+export function isCollegeTeamTotalPick(pick: {
+  market?: string | null;
+  isProp?: boolean;
+}): boolean {
+  if (pick.isProp) return false;
+  return /team total/i.test(String(pick.market ?? ""));
 }
 
 /**
@@ -736,6 +751,85 @@ export function fillReservedPeriodSlots<T extends PropFillPick>(
     }
     used.add(fp);
     periodCount += 1;
+  }
+
+  return out.slice(0, target);
+}
+
+/**
+ * College mix: reserve posted team-total-points seats so FG spreads cannot
+ * crowd out Team Total / Alt Team Total. Swaps lowest-ranked non-team-total
+ * FG legs — never invents markets or prices.
+ */
+export function fillReservedTeamTotalSlots<T extends PropFillPick>(
+  picks: T[],
+  scored: PropFillLeg<T>[],
+  target: number,
+  legsPerGameCap?: number | null,
+): T[] {
+  if (target < 5) return picks.slice(0, Math.max(0, target));
+  const seats = boardScanTeamTotalSlotCount(target);
+  if (seats <= 0) return picks.slice(0, target);
+
+  let out = picks.slice(0, target);
+  const used = new Set(out.map(propFillFingerprint));
+  let ttCount = out.filter((p) => isCollegeTeamTotalPick(p)).length;
+  if (ttCount >= seats) return out;
+
+  const remaining = () =>
+    scored.filter((leg) => {
+      if (!isCollegeTeamTotalPick(leg.pick)) return false;
+      return !used.has(propFillFingerprint(leg.pick));
+    });
+
+  const pickNext = () => {
+    const pool = remaining().sort((a, b) => {
+      const rank = (b.rankScore ?? 0) - (a.rankScore ?? 0);
+      if (rank !== 0) return rank;
+      return propFillComposite(b.pick) - propFillComposite(a.pick);
+    });
+    return pool[0] ?? null;
+  };
+
+  while (ttCount < seats) {
+    const cand = pickNext();
+    if (!cand) break;
+    const fp = propFillFingerprint(cand.pick);
+    const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
+
+    if (out.length < target) {
+      if (wouldExceedMaxLegsPerGame(cand.pick, out, maxPerGame)) {
+        used.add(fp);
+        continue;
+      }
+      out = [...out, cand.pick];
+    } else {
+      let worstIdx = -1;
+      let worstScore = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < out.length; i++) {
+        const p = out[i]!;
+        if (p.isProp) continue;
+        if (isCollegeTeamTotalPick(p)) continue;
+        // Prefer swapping FG spreads/totals over period seats already reserved.
+        if (isCollegePeriodMarketPick(p)) continue;
+        const score = propFillComposite(p);
+        if (score < worstScore) {
+          worstScore = score;
+          worstIdx = i;
+        }
+      }
+      if (worstIdx < 0) break;
+      const withoutWorst = out.filter((_, i) => i !== worstIdx);
+      if (wouldExceedMaxLegsPerGame(cand.pick, withoutWorst, maxPerGame)) {
+        used.add(fp);
+        continue;
+      }
+      const next = out.slice();
+      next[worstIdx] = cand.pick;
+      out = next;
+    }
+    used.add(fp);
+    ttCount += 1;
   }
 
   return out.slice(0, target);
