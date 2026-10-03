@@ -27,6 +27,10 @@ import {
 } from "./coachFootballPropsOnlyGrade.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
+import {
+  keepOrSwapDefenseAwareSide,
+  shouldPreferDefenseAltPick,
+} from "./footballRushDefense.ts";
 
 function pick(
   market: string,
@@ -595,4 +599,80 @@ test("propsOnlyPerGameCeiling: 2 games → ceil(target/2)", () => {
   assert.equal(propsOnlyPerGameCeiling(7, 2), 4);
   assert.equal(propsOnlyPerGameCeiling(10, 2), 5);
   assert.equal(propsOnlyPerGameCeiling(6, 3), 2);
+});
+
+test("phone 5-leg touchdown: stingy D cannot wipe graded Anytime TDs with no Under alt", () => {
+  // Mirrors the graded-40 / staged-0 phone: binary TD Overs facing ≤16 pts/g
+  // defenses had shouldPreferDefenseAltPick → pickDefenseAwareAlt(null) → [].
+  const candidates: ParsedPick[] = [];
+  const histories: Record<string, { recent: { stats: Record<string, string> }[] }> = {};
+  for (let i = 0; i < 8; i++) {
+    const name = `Scorer${i}`;
+    const id = `scorer-${i}`;
+    const game = `Away${i} @ Home${i}`;
+    candidates.push({
+      ...pick("player_anytime_td", name, 0.5, { athleteId: id, odds: 150 }),
+      game,
+      sport: "nfl",
+    });
+    histories[`${name}#${id}`] = {
+      recent: Array.from({ length: 8 }, (_, g) => ({
+        stats: {
+          rushingTouchdowns: "0",
+          receivingTouchdowns: g % 2 === 0 ? "1" : "0",
+          passingTouchdowns: "0",
+        },
+      })),
+    };
+  }
+
+  const hits = gradeFootballPropsOnlyFromHistory(candidates, histories);
+  const best = collapsePropsOnlyToBestEvSides(candidates, hits);
+  assert.ok(best.length >= 5, `expected ≥5 graded TD sides, got ${best.length}`);
+
+  // Every TD faces stingy D — must KEEP, not wipe.
+  const kept = best.flatMap((p) => {
+    assert.equal(
+      shouldPreferDefenseAltPick({
+        sport: "nfl",
+        market: p.propMarketKey ?? p.market,
+        side: p.propSide,
+        pack: { pointsAgainst: 14 },
+      }),
+      false,
+    );
+    return [keepOrSwapDefenseAwareSide(p, best)];
+  });
+  assert.equal(kept.length, best.length);
+
+  const scored: BoardScoredLeg[] = kept
+    .map((p) => {
+      const hit = gradeFootballPropFromHistory(
+        p,
+        histories[`${p.player}#${p.athleteId}`],
+      ).hitProbability;
+      if (!propsOnlyLegClearsOdds(p, hit)) return null;
+      return {
+        pick: { ...p, propsOnlyTicket: true },
+        evPct: ((hit ?? 0) - 0.4) * 100,
+        edgePct: ((hit ?? 0) - 0.4) * 100,
+        confidencePct: 60,
+        impliedProbPct: 40,
+        lineShoppingScore: null,
+        grade: "B",
+        simHit: hit,
+        composite: 7,
+        rankScore: 7,
+      } as BoardScoredLeg;
+    })
+    .filter((x): x is BoardScoredLeg => !!x);
+
+  assert.ok(scored.length >= 5, `expected ≥5 odds-cleared TDs, got ${scored.length}`);
+  const staged = stageFootballPropsOnlyLegs(scored, 5);
+  assert.equal(
+    staged.length,
+    5,
+    `5-leg touchdown must stage real TDs — not "graded N none cleared" (got ${staged.length})`,
+  );
+  assert.ok(staged.every((p) => /anytime_td|touchdown/i.test(String(p.propMarketKey ?? p.market))));
 });

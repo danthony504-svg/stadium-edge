@@ -908,6 +908,9 @@ export const DEFENSE_ALT_TILT_THRESHOLD = -0.4;
 /**
  * True when this Over should not stay as the staged side — hard block OR
  * soft stingy enough that we prefer an Under / alt instead.
+ *
+ * Binary Anytime/First TD Yes markets have no Under / softer Over — soft tilt
+ * already demotes them. Prefer-swap here emptied "5 leg touchdown" (40 graded → 0).
  */
 export function shouldPreferDefenseAltPick(opts: {
   sport?: string | null;
@@ -919,6 +922,16 @@ export function shouldPreferDefenseAltPick(opts: {
 }): boolean {
   const side = String(opts.side ?? "").toLowerCase();
   if (side !== "over") return false;
+  const m = String(opts.market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (
+    /\banytime[_\s]?td\b/.test(m) ||
+    /\bfirst[_\s]?td\b/.test(m) ||
+    (/\btouchdowns?\b/.test(m) && !/yard|yd|rush|pass|rec|reception/.test(m))
+  ) {
+    return false;
+  }
   const tilt = propOppDefenseTilt(opts);
   return tilt.blockOver || tilt.tilt <= DEFENSE_ALT_TILT_THRESHOLD;
 }
@@ -938,7 +951,10 @@ export type DefenseAwarePickCandidate = {
  * 1) same-line Under
  * 2) any Under for the player/market (prefer higher Under line)
  * 3) a softer alt Over (lower line) for the same player/market
- * Returns null when no alternative exists (caller drops the Over).
+ * Returns null when no alternative exists.
+ *
+ * Callers MUST keep the original Over when this returns null — wiping emptied
+ * "5 leg touchdown" (graded 40 Anytime TDs, no Under/softer alt posted).
  */
 export function pickDefenseAwareAlt<T extends DefenseAwarePickCandidate>(
   hostileOver: T,
@@ -975,6 +991,18 @@ export function pickDefenseAwareAlt<T extends DefenseAwarePickCandidate>(
     .slice()
     .sort((a, b) => (b.propLine ?? 0) - (a.propLine ?? 0));
   return softerOvers[0] ?? null;
+}
+
+/**
+ * Prefer a defense-aware alt when one is posted; otherwise keep the Over.
+ * Soft tilt / odds gate still demote — never empty a TD-only ticket because
+ * Anytime TD has no Under rung.
+ */
+export function keepOrSwapDefenseAwareSide<T extends DefenseAwarePickCandidate>(
+  hostileOver: T,
+  candidates: readonly T[],
+): T {
+  return pickDefenseAwareAlt(hostileOver, candidates) ?? hostileOver;
 }
 
 /** Alias — blocks any skill-yard OVER vs hard stingy matching D. */

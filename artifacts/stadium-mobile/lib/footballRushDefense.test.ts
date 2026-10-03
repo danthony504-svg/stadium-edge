@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   footballRushDefenseTilt,
   isFootballRushYardsMarket,
+  keepOrSwapDefenseAwareSide,
   pickDefenseAwareAlt,
   shouldBlockRushOverVsDefense,
   shouldPreferDefenseAltPick,
@@ -250,6 +251,30 @@ test("pickDefenseAwareAlt: Under first, then softer Over alt", () => {
   assert.equal(pickDefenseAwareAlt(over40, [over40, under40, over24]), under40);
   assert.equal(pickDefenseAwareAlt(over40, [over40, over24]), over24);
   assert.equal(pickDefenseAwareAlt(over40, [over40]), null);
+});
+
+test("phone 5-leg touchdown: keep Anytime TD when stingy D has no Under alt", () => {
+  const td = {
+    game: "Navy Midshipmen @ Air Force Falcons",
+    player: "Jeanty",
+    market: "Anytime TD",
+    propMarketKey: "player_anytime_td",
+    propSide: "Over",
+    propLine: 0.5,
+  };
+  // Elite stingy D (≤16 pts) used to prefer-swap → null alt → wipe all TDs.
+  assert.equal(
+    shouldPreferDefenseAltPick({
+      sport: "ncaaf",
+      market: "player_anytime_td",
+      side: "Over",
+      pack: { pointsAgainst: 14 },
+    }),
+    false,
+    "binary TD must not force a swap that cannot exist",
+  );
+  assert.equal(pickDefenseAwareAlt(td, [td]), null);
+  assert.equal(keepOrSwapDefenseAwareSide(td, [td]), td);
 });
 
 test("multiSport market-aware: assists use steals, rebounds use dreb", async () => {

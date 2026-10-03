@@ -56,8 +56,8 @@ import {
 import { propTeamAbbrBelongsToGame } from "./footballOppTeamId.ts";
 import {
   adjustSimHitForOppDefenseTilt,
+  keepOrSwapDefenseAwareSide,
   nhlScoringMissingOppContext,
-  pickDefenseAwareAlt,
   propOppDefenseTilt,
   shouldBlockRushOverVsDefense,
   shouldDropPropMissingOppDefense,
@@ -751,10 +751,9 @@ export async function buildFootballPropsOnlyTicket(
           vsOpponentGames,
         })
       ) {
-        // Rare Over ≥1.5 missing Match — try Under/softer alt, then re-validate.
+        // Rare Over ≥1.5 missing Match — try Under/softer alt; keep Over if none.
         if (String(pick.propSide ?? "").toLowerCase() === "over") {
-          const alt = pickDefenseAwareAlt(pick, normalizedCandidates);
-          if (!alt) return [];
+          const alt = keepOrSwapDefenseAwareSide(pick, normalizedCandidates);
           const altCtx = resolvePack(alt);
           if (
             shouldDropPropMissingOppDefense({
@@ -766,7 +765,8 @@ export async function buildFootballPropsOnlyTicket(
               vsOpponentGames: altCtx.vsOpponentGames,
             })
           ) {
-            return [];
+            // Still missing Match after swap (or same Over) — demote via rank later.
+            return alt === pick ? [] : [alt];
           }
           return [alt];
         }
@@ -784,31 +784,33 @@ export async function buildFootballPropsOnlyTicket(
       ) {
         return [pick];
       }
-      const alt = pickDefenseAwareAlt(pick, normalizedCandidates);
-      if (!alt) return [];
-      // Re-check alt — phone bestEv=5 oddsOk=0 was Over→Under without pack still staging.
-      const altCtx = resolvePack(alt);
+      // Prefer Under/softer Over when posted. If none (Anytime TD Yes-only),
+      // KEEP the graded Over — wiping here graded 40 TDs → 0 staged on phone.
+      const swapped = keepOrSwapDefenseAwareSide(pick, normalizedCandidates);
+      const altCtx = resolvePack(swapped);
       if (
-        shouldDropPropMissingOppDefense({
-          sport: alt.sport ?? altCtx.row?.sport ?? sport,
-          market: alt.propMarketKey ?? alt.market,
-          side: alt.propSide,
-          line: alt.propLine,
+        swapped !== pick &&
+        (shouldDropPropMissingOppDefense({
+          sport: swapped.sport ?? altCtx.row?.sport ?? sport,
+          market: swapped.propMarketKey ?? swapped.market,
+          side: swapped.propSide,
+          line: swapped.propLine,
           pack: altCtx.pack,
           vsOpponentGames: altCtx.vsOpponentGames,
         }) ||
-        shouldBlockRushOverVsDefense({
-          sport: alt.sport ?? altCtx.row?.sport ?? sport,
-          market: alt.propMarketKey ?? alt.market,
-          side: alt.propSide,
-          defense: altCtx.pack?.rush ?? null,
-          pack: altCtx.pack,
-          ownPack: altCtx.ownPack,
-        })
+          shouldBlockRushOverVsDefense({
+            sport: swapped.sport ?? altCtx.row?.sport ?? sport,
+            market: swapped.propMarketKey ?? swapped.market,
+            side: swapped.propSide,
+            defense: altCtx.pack?.rush ?? null,
+            pack: altCtx.pack,
+            ownPack: altCtx.ownPack,
+          }))
       ) {
-        return [];
+        // Swapped side is still hostile — keep original Over (odds gate + tilt).
+        return [pick];
       }
-      return [alt];
+      return [swapped];
     },
   );
   const propScored: BoardScoredLeg[] = [];
