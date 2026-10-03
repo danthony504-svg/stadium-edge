@@ -2287,6 +2287,36 @@ export async function fetchGameOutcomeSimulation(
   return (await res.json()) as GameSimulationResult;
 }
 
+/** ESPN L10 period scored/allowed — real only; null averages when unsupported. */
+export type TeamPeriodStatsResult = {
+  teamId: string;
+  sport: string;
+  sampleSize: number;
+  periodAverages: Record<string, { scored: number; allowed: number }> | null;
+  supported?: boolean;
+};
+
+export async function fetchTeamPeriodStats(
+  sport: string,
+  teamId: string,
+  signal?: AbortSignal,
+): Promise<TeamPeriodStatsResult | null> {
+  const s = String(sport || "").toLowerCase();
+  const id = String(teamId || "").trim();
+  if (!s || !id) return null;
+  if (s !== "ncaaf" && s !== "nfl" && s !== "nba") return null;
+  try {
+    const q = new URLSearchParams({ sport: s, teamId: id });
+    return await getJson<TeamPeriodStatsResult>(
+      `/sports/team-period-stats?${q.toString()}`,
+      signal,
+      15_000,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchPropSimulationsBatch(
   sport: string,
   props: Array<{

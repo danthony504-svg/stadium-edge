@@ -126,7 +126,12 @@ export function mergeOddsEntries(...sources: RealOddsEntry[][]): RealOddsEntry[]
 
 function pickTeamName(pick: string): string | null {
   const p = String(pick ?? "");
-  if (/\b(over|under)\b/i.test(p)) return null;
+  // Team totals: "Minnesota Golden Gophers Over 20.5". Bare "Over 45.5" → null.
+  const ouTeam = p.match(/^(.+?)\s+(?:over|under)\b/i);
+  if (ouTeam) {
+    const team = ouTeam[1]!.trim();
+    return team || null;
+  }
   return (
     p
       .replace(/\s*(ml|moneyline)\s*$/i, "")

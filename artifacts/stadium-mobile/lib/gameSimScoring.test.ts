@@ -40,11 +40,48 @@ const sim = {
   },
 };
 
-test("buildGameCoverQuery for home spread", () => {
-  const q = buildGameCoverQuery(gamePick());
-  assert.equal(q?.kind, "spread");
-  assert.equal(q?.teamSide, "home");
-  assert.equal(q?.line, -1.5);
+test("buildGameCoverQuery for team totals extracts team + period", () => {
+  const fg = buildGameCoverQuery(
+    gamePick({
+      game: "Iowa Hawkeyes @ Minnesota Golden Gophers",
+      market: "Team Total",
+      pick: "Minnesota Golden Gophers Over 20.5",
+      odds: -110,
+      sport: "ncaaf",
+    }),
+  );
+  assert.equal(fg?.kind, "teamTotal");
+  assert.equal(fg?.teamSide, "home");
+  assert.equal(fg?.totalSide, "over");
+  assert.equal(fg?.line, 20.5);
+
+  const q2 = buildGameCoverQuery(
+    gamePick({
+      game: "Iowa Hawkeyes @ Minnesota Golden Gophers",
+      market: "Q2 Team Total",
+      pick: "Iowa Hawkeyes Under 6.5",
+      odds: -115,
+      sport: "ncaaf",
+    }),
+  );
+  assert.equal(q2?.kind, "teamTotal");
+  assert.equal(q2?.teamSide, "away");
+  assert.equal(q2?.totalSide, "under");
+  assert.equal(q2?.period, "q2");
+  assert.equal(q2?.line, 6.5);
+});
+
+test("bare game totals still have no team side cover query team", () => {
+  const q = buildGameCoverQuery(
+    gamePick({
+      market: "Total",
+      pick: "Over 54.5",
+      odds: -110,
+      sport: "ncaaf",
+    }),
+  );
+  assert.equal(q?.kind, "total");
+  assert.equal(q?.teamSide, undefined);
 });
 
 test("gameSimHitForPick reads coverHitRates", () => {

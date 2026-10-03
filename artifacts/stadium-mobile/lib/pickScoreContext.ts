@@ -48,6 +48,7 @@ import {
   type FootballOppDefenseMap,
 } from "@/lib/footballOppDefenseContext";
 import type { FootballOppDefenseSlice, RushDefenseSlice } from "@/lib/footballRushDefense";
+import { teamTotalOffenseDefenseLean } from "@/lib/teamTotalMatchup";
 import {
   adjustSimHitForOppDefenseTilt,
   propOppDefenseTilt,
@@ -123,18 +124,29 @@ function sideOfTeam(
   return null;
 }
 
-// The team a GAME pick is on (moneyline/spread). Totals (Over/Under) name no
-// team and return null. Strips a trailing "ML"/handicap/price so the leading
-// words are the team name.
+// The team a GAME pick is on (moneyline/spread/team total). Bare game totals
+// ("Over 54.5") name no team. Team totals ("Iowa Hawkeyes Under 17.5") do.
 function gamePickTeam(pick: ParsedPick): string | null {
   const p = pick.pick || "";
-  if (/\b(over|under)\b/i.test(p)) return null; // game total — no side
+  const ouTeam = p.match(/^(.+?)\s+(?:over|under)\b/i);
+  if (ouTeam) {
+    const team = ouTeam[1]!.trim();
+    if (team) return team;
+    return null;
+  }
   const team = p
     .replace(/\s*(ml|moneyline)\s*$/i, "")
     .replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "")
     .trim();
   return team || null;
 }
+
+/**
+ * Team Total Points matchup: selected team's scoring offense vs opponent
+ * points allowed (L10 / venue when present). Never fabricates — null when
+ * real ptsFor / ptsAgainst are missing.
+ */
+export { teamTotalOffenseDefenseLean } from "./teamTotalMatchup.ts";
 
 // Resolve the GAME injury picture for a pick into the { side, magnitude } shape
 // scoreInjury expects. The favored (healthier) side is read from the report's
@@ -221,16 +233,24 @@ export function scoreGameLinePick(
   const pickTeam = gamePickTeam(pick);
   const pickSide = pickTeam ? sideOfTeam(pickTeam, away, home) : null;
 
-  // Matchup: team mlLean, or UFC fightAnalysis lean for MMA moneylines.
+  // Matchup: team totals use offense vs opponent points-allowed; ML/spread use mlLean.
   const entry = matchupHistory?.[pick.game];
   const fight = fightAnalysis?.[pick.game];
   const tennis = tennisAnalysis?.[pick.game];
-  const leanSource =
+  const isTeamTotal = /team total/i.test(String(pick.market ?? ""));
+  let leanSource:
+    | { side: string; edge: number }
+    | null
+    | undefined =
     fight?.lean?.side && (pick.sport === "ufc" || pick.sport === "mma")
       ? { side: fight.lean.side, edge: fight.lean.edge }
       : tennis?.lean?.side && pick.sport === "tennis"
         ? { side: tennis.lean.side, edge: tennis.lean.edge }
         : entry?.mlLean;
+  if (isTeamTotal && entry && pickSide && pickTeam) {
+    const ttLean = teamTotalOffenseDefenseLean(entry, pickSide, pick.pick, away, home);
+    if (ttLean) leanSource = ttLean;
+  }
   const { aligned, leanEdge } = matchupAlignment(leanSource, pickTeam);
   const matchup = scoreMatchup(aligned, leanEdge);
 
@@ -238,9 +258,10 @@ export function scoreGameLinePick(
   let trend = null;
   if (entry && pickSide) {
     const sideData: any = pickSide === "home" ? entry.home : entry.away;
-    trend = scoreTrend(
-      teamTrendMomentum(sideData?.streak, sideData?.last10?.avgMargin),
-    );
+    const streak =
+      (pickSide === "home" ? entry.homeStreak : entry.awayStreak) ?? sideData?.streak;
+    const avgMargin = sideData?.avgMargin ?? sideData?.last10?.avgMargin;
+    trend = scoreTrend(teamTrendMomentum(streak, avgMargin));
   }
 
   // Injury: how the ESPN injury picture leans relative to our side.

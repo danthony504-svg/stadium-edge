@@ -101,6 +101,7 @@ import {
 import {
   fillReservedPropSlots,
   fillReservedPeriodSlots,
+  fillReservedTeamTotalSlots,
   finalizeFootballPropMixPicks,
   footballSkillPropRank,
   filterNcaafPlayerPropsUnlessAsked,
@@ -830,6 +831,7 @@ export function buildScanResult(
       ...opts.varietyContext,
       ticketStyle: opts.ticketStyle,
       legsPerGameCap: opts.legsPerGameCap,
+      collegeTeamMarketStacks: opts.collegeTeamMarketStacks,
     },
   );
   let picks = injectPrioritySportsIntoTicket(
@@ -859,6 +861,7 @@ export function buildScanResult(
   // team markets (1H / Q2 spreads + period team totals).
   if (opts.collegeTeamMarketStacks && !opts.propsOnly) {
     picks = fillReservedPeriodSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+    picks = fillReservedTeamTotalSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
   // Team props / game-lines-only: one side per team before top-up (no FG+Q2
   // Browns). College team-market boards intentionally keep period + team-total
@@ -889,6 +892,7 @@ export function buildScanResult(
     }
     if (opts.collegeTeamMarketStacks && !opts.propsOnly) {
       picks = fillReservedPeriodSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+      picks = fillReservedTeamTotalSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
     }
   }
   // Football mix finals: hold reserved prop seats while props are incomplete;

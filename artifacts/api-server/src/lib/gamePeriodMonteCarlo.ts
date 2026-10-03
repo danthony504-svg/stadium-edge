@@ -43,12 +43,36 @@ export function periodScoresForDraw(
   period: SimPeriodScope,
   homeFull: number,
   awayFull: number,
+  opts?: {
+    homePeriodExpected?: number | null;
+    awayPeriodExpected?: number | null;
+  },
 ): { home: number; away: number } {
   if (period === "fg") return { home: homeFull, away: awayFull };
   const frac = periodIncrementFrac(sport, period);
-  if (frac == null) return { home: homeFull, away: awayFull };
+  // Unsupported period×sport must not silently reuse full-game scores.
+  if (frac == null) return { home: Number.NaN, away: Number.NaN };
   const noiseH = 1 + (Math.random() - 0.5) * 0.14;
   const noiseA = 1 + (Math.random() - 0.5) * 0.14;
+
+  const hExp = opts?.homePeriodExpected;
+  const aExp = opts?.awayPeriodExpected;
+  if (
+    hExp != null &&
+    aExp != null &&
+    Number.isFinite(hExp) &&
+    Number.isFinite(aExp) &&
+    homeFull > 0.5 &&
+    awayFull > 0.5
+  ) {
+    const hShare = Math.max(0.05, Math.min(0.95, hExp / homeFull));
+    const aShare = Math.max(0.05, Math.min(0.95, aExp / awayFull));
+    return {
+      home: Math.max(0, round2(homeFull * hShare * noiseH)),
+      away: Math.max(0, round2(awayFull * aShare * noiseA)),
+    };
+  }
+
   return {
     home: Math.max(0, round2(homeFull * frac * noiseH)),
     away: Math.max(0, round2(awayFull * frac * noiseA)),
