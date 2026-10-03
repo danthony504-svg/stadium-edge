@@ -258,7 +258,8 @@ test("phone 6-leg MLB: final must not truncate qualified alts to reserved seat c
     pick: `Team${i} +${1.5 + i}`,
   }));
 
-  // Preview still holds seats so mid-scan cannot paint a full GL ticket.
+  // Preview awaiting latch stays on — cards stay hidden — but picks are NOT
+  // truncated (hang-guard / budget timeout used to publish exactly the cap).
   assert.equal(
     shouldReservePropSeats({
       preview: true,
@@ -268,8 +269,16 @@ test("phone 6-leg MLB: final must not truncate qualified alts to reserved seat c
     }),
     true,
   );
+  assert.equal(
+    shouldKeepAwaitingPropSlots({
+      preview: true,
+      targetLegs: 6,
+      propCount: 0,
+    }),
+    true,
+  );
   const preview = finalizeGeneralPropMixPicks(altSpreads, 6, { preview: true });
-  assert.equal(preview.length, 3, "preview keeps reserved prop seats open");
+  assert.equal(preview.length, 6, "preview must keep all qualified GLs for hang-guard");
 
   // Final — even with propPhaseIncomplete — must ship every qualified GL.
   assert.equal(
@@ -321,6 +330,42 @@ test("phone 6-leg MLB: final must not truncate qualified alts to reserved seat c
   assert.equal(
     buildFixedLegPropsPendingShortfallLead(6, 3),
     "You asked for **6** legs — only **3** cleared so far while player props were still scoring. No ungraded filler was added.",
+  );
+});
+
+test("phone 5-leg all new picks: preview/budget path must not ship exactly 2 seat-capped GLs", () => {
+  // Screenshot: "5 leg all new picks" → only 2 cleared quality bar (Yankees +1.5,
+  // Padres +1.5). boardScanNonPropPreviewCap(5)=2 — reserved seats destroyed the
+  // hang-guard buffer, then absolute terminal synthesized a quality-bar lie.
+  assert.equal(boardScanNonPropPreviewCap(5, 0.5), 2);
+  assert.equal(boardScanPropSlotCount(5, 0.5), 3);
+
+  const fiveAlts = Array.from({ length: 5 }, (_, i) => ({
+    isProp: false,
+    sport: "mlb",
+    market: i < 2 ? "Alt Spread" : "Spread",
+    pick: i === 0 ? "Yankees +1.5" : i === 1 ? "Padres +1.5" : `Team${i} +${1.5 + i}`,
+  }));
+
+  const oldBuggy = applyReservedPropSeatCap(fiveAlts, 5, 0.5);
+  assert.equal(oldBuggy.length, 2, "documents the phone failure mode");
+
+  const preview = finalizeGeneralPropMixPicks(fiveAlts, 5, { preview: true });
+  assert.equal(preview.length, 5, "preview hang-guard keeps all 5 cleared GLs");
+
+  const final = finalizeGeneralPropMixPicks(fiveAlts, 5);
+  assert.equal(final.length, 5);
+
+  // Absolute flush with a full non-football buffer ships all 5.
+  // (resolveCoachTerminalPicks coverage lives in coachTicketHold.test.ts)
+  assert.equal(
+    shouldKeepAwaitingPropSlots({
+      preview: true,
+      targetLegs: 5,
+      propCount: 0,
+    }),
+    true,
+    "UI still awaits props — only the pick array stays intact",
   );
 });
 

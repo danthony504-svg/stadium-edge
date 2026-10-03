@@ -54,6 +54,16 @@ test("shortfall note is honest under-count copy", () => {
   assert.equal(coachShortfallNote(6, 6), "");
   assert.doesNotMatch(coachShortfallNote(7, 3), /every posted market/i);
   assert.doesNotMatch(coachShortfallNote(7, 3), /every market was scanned/i);
+  // Absolute flush while props pending must not blame the quality bar alone
+  // (phone 5→2 / 6→3 reserved-seat lie).
+  assert.match(
+    coachShortfallNote(5, 2, { propsPending: true }),
+    /while player props were still scoring/i,
+  );
+  assert.doesNotMatch(
+    coachShortfallNote(5, 2, { propsPending: true }),
+    /cleared the AI quality bar/i,
+  );
 });
 
 test("resolveCoachOutcome maps pick counts", () => {

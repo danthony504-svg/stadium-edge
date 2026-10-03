@@ -119,3 +119,20 @@ test("non-football absolute flush keeps full game-line buffer", () => {
   });
   assert.equal(out.length, 8);
 });
+
+test("phone 5-leg MLB absolute flush ships all buffered GLs (not seat cap 2)", () => {
+  // boardScanNonPropPreviewCap(5)=2 — old preview seat-cap became the terminal
+  // ticket on budget timeout. Non-football flush must keep the full buffer.
+  const buffered = Array.from({ length: 5 }, (_, i) => ({
+    isProp: false,
+    id: `mlb-${i}`,
+  }));
+  const out = resolveCoachTerminalPicks({
+    bufferedPicks: buffered,
+    messagePicks: null,
+    askText: "5 leg all new picks",
+    requestedLegs: 5,
+    propPhaseIncomplete: true,
+  });
+  assert.equal(out.length, 5, "must not truncate to reserved non-prop cap of 2");
+});
