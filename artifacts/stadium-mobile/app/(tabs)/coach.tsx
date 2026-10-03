@@ -3,12 +3,17 @@
  *
  * Replaces the ~8k-line delivery god-file. One send → one session → one latch.
  * Parlay builds use board scan with an absolute UI budget; Q&A uses streamChat.
+ * Slip photos (max 3) go straight to the vision model for keep/change analysis.
  * After latch the composer is always unlocked.
  */
 
 import Feather from "@expo/vector-icons/Feather";
+import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -30,7 +35,7 @@ import {
 } from "@/components/PickCard";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, streamChat } from "@/lib/api";
+import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } from "@/lib/api";
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
 import { isParlayBuildAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
 import {
@@ -51,6 +56,11 @@ import {
   resolveCoachTerminalPicks,
   shouldPublishCoachTicketPicks,
 } from "@/lib/coachTicketHold";
+import {
+  isSlipPhotoVisionOnly,
+  MAX_COACH_IMAGES,
+  wantsImproveSlip,
+} from "@/lib/coachPhotoUpload";
 import { rememberParlayBuild } from "@/lib/parlayVarietyMemory";
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -68,6 +78,8 @@ type CoachMessage = {
   building?: boolean;
   buildStatus?: string;
   requestedLegs?: number;
+  /** Local preview URIs for photos the user attached to this bubble. */
+  imageUris?: string[];
 };
 
 function uid(prefix: string): string {
@@ -87,11 +99,15 @@ export default function CoachScreen() {
   ]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
+  const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const sendGenRef = useRef(0);
   const pendingTicketPicksRef = useRef<ParsedPick[]>([]);
+  /** Last slip photos sent — re-attached silently on "give me a better one". */
+  const lastSlipImagesRef = useRef<string[]>([]);
   /** Mid-scan flush: 0-prop buffers mean props still pending (any sport). */
   const propsIncompleteForFlush = (_ask: string | null | undefined, picks: ParsedPick[]) =>
     !picks.some((p) => !!p.isProp);
@@ -107,6 +123,52 @@ export default function CoachScreen() {
   const unlockComposer = useCallback(() => {
     setBusy(false);
   }, []);
+
+  /**
+   * Open the photo library (up to 3). Downscale ≤1024px + JPEG 0.55 so cellular
+   * uploads stay under the API body cap (see slip-photo cellular fix).
+   */
+  const pickImage = useCallback(async () => {
+    if (busy || pickingImage) return;
+    const remaining = MAX_COACH_IMAGES - attachedImages.length;
+    if (remaining <= 0) return;
+    try {
+      setPickingImage(true);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const picked = result.assets.slice(0, remaining);
+      const processed: { uri: string; dataUrl: string }[] = [];
+      for (const asset of picked) {
+        if (!asset.uri) continue;
+        const actions =
+          asset.width && asset.width > 1024 ? [{ resize: { width: 1024 } }] : [];
+        const out = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+          compress: 0.55,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        });
+        if (!out.base64) continue;
+        processed.push({
+          uri: out.uri,
+          dataUrl: `data:image/jpeg;base64,${out.base64}`,
+        });
+      }
+      if (processed.length) {
+        setAttachedImages((prev) =>
+          [...prev, ...processed].slice(0, MAX_COACH_IMAGES),
+        );
+      }
+    } catch {
+      /* leave existing attachments */
+    } finally {
+      setPickingImage(false);
+    }
+  }, [busy, pickingImage, attachedImages.length]);
 
   /**
    * Tap a Coach pick card → real stats sheet (prop game log / team matchup).
@@ -240,7 +302,8 @@ export default function CoachScreen() {
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim();
-      if (!text) return;
+      const images = attachedImages;
+      if (!text && !images.length) return;
 
       // Busy + open session: treat as stop. Busy + already latched: ignore.
       // Holding cards mid-build means stop must flush the buffer or the ticket
@@ -279,18 +342,36 @@ export default function CoachScreen() {
         return;
       }
 
+      // Resolve outgoing images: fresh attachments, or silent re-attach on
+      // "give me a better one" so the model can re-read the same slip.
+      let outgoingImageDataUrls: string[] | undefined;
+      if (images.length) {
+        outgoingImageDataUrls = images.map((im) => im.dataUrl);
+        lastSlipImagesRef.current = outgoingImageDataUrls;
+      } else if (wantsImproveSlip(text) && lastSlipImagesRef.current.length) {
+        outgoingImageDataUrls = lastSlipImagesRef.current;
+      }
+      const hasOutgoingImages = !!outgoingImageDataUrls?.length;
+      const previewUris = images.length ? images.map((im) => im.uri) : undefined;
+
       const sendGen = ++sendGenRef.current;
       const requestedLegs = resolveBuildLegTarget(text);
+      const parlayBuild = isParlayBuildAsk(text) && requestedLegs >= 3 && !hasOutgoingImages;
       sessionAskTextRef.current = text;
       beginCoachSession(sessionRef.current, {
         sendGen,
-        requestedLegs,
+        requestedLegs: parlayBuild ? requestedLegs : 0,
       });
       abortRef.current?.abort();
       const abort = new AbortController();
       abortRef.current = abort;
 
-      const userMsg: CoachMessage = { id: uid("u"), role: "user", text };
+      const userMsg: CoachMessage = {
+        id: uid("u"),
+        role: "user",
+        text: text || (hasOutgoingImages ? "Analyze this ticket" : ""),
+        imageUris: previewUris,
+      };
       const assistantId = uid("a");
       activeAssistantIdRef.current = assistantId;
       const assistantMsg: CoachMessage = {
@@ -298,11 +379,16 @@ export default function CoachScreen() {
         role: "assistant",
         text: "",
         building: true,
-        buildStatus: requestedLegs >= 3 ? "Starting board scan…" : "Thinking…",
-        requestedLegs: requestedLegs || undefined,
+        buildStatus: hasOutgoingImages
+          ? "Reading your ticket photo…"
+          : parlayBuild
+            ? "Starting board scan…"
+            : "Thinking…",
+        requestedLegs: parlayBuild ? requestedLegs || undefined : undefined,
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setDraft("");
+      setAttachedImages([]);
       pendingTicketPicksRef.current = [];
       terminalShownPickCountRef.current = 0;
       setBusy(true);
@@ -335,7 +421,87 @@ export default function CoachScreen() {
       };
 
       try {
-        if (isParlayBuildAsk(text) && requestedLegs >= 3) {
+        // ---- Slip photo vision path (max 3) — analyze keep/change or improve ----
+        if (hasOutgoingImages) {
+          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+          const visionOnly = isSlipPhotoVisionOnly({
+            hasImages: true,
+            text,
+          });
+          const askText =
+            text ||
+            "Analyze this ticket — what should I keep and what should I change?";
+
+          let streamContext: ChatContext;
+          let propPool: import("@/lib/api").PropPoolEntry[] = [];
+          if (visionOnly) {
+            // Skip 30s+ odds fan-out so cellular opens /chat before connect-stall.
+            streamContext = {
+              selectedSports: [],
+              currentSlip: [],
+              realGames: [],
+              realOdds: [],
+              realProps: [],
+            };
+            patchAssistant(assistantId, {
+              buildStatus: "Reading the slip — keep vs change…",
+            });
+          } else {
+            patchAssistant(assistantId, { buildStatus: "Pulling live odds to improve…" });
+            const built = await buildChatContext(
+              DEFAULT_SPORTS.slice(0, 6),
+              [],
+              abort.signal,
+              null,
+              false,
+              askText,
+              null,
+              0,
+            );
+            if (sendGenRef.current !== sendGen) return;
+            streamContext = built.context;
+            propPool = built.propPool ?? [];
+          }
+
+          patchAssistant(assistantId, { buildStatus: "Writing analysis…" });
+          let streamed = "";
+          await streamChat({
+            messages: [{ role: "user", content: askText }],
+            context: streamContext,
+            signal: abort.signal,
+            imageDataUrls: outgoingImageDataUrls,
+            firstTokenMs: 90_000,
+            onToken: (full) => {
+              streamed = full;
+              if (sendGenRef.current !== sendGen) return;
+              patchAssistant(assistantId, {
+                text: full,
+                buildStatus: "Writing analysis…",
+              });
+            },
+          });
+          if (sendGenRef.current !== sendGen) return;
+          if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
+
+          // Improve-from-photo may emit PICK lines; parse when odds were loaded.
+          let picks: ParsedPick[] = [];
+          if (!visionOnly && streamed.trim()) {
+            picks = parsePicks(
+              streamed,
+              streamContext.realOdds ?? [],
+              propPool,
+              [],
+            );
+          }
+          finishSession(assistantId, {
+            picks,
+            text: picks.length ? "" : streamed.trim(),
+            requestedLegs: picks.length || 0,
+          });
+          return;
+        }
+
+        if (parlayBuild) {
           // Prop-board prefetch can take a while — do not burn the scoring budget
           // during load (that latched "2 game totals" before props ran).
           let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
@@ -507,7 +673,7 @@ export default function CoachScreen() {
         });
       }
     },
-    [busy, finishSession, patchAssistant, unlockComposer],
+    [attachedImages, busy, finishSession, patchAssistant, unlockComposer],
   );
 
   useEffect(() => {
@@ -559,20 +725,48 @@ export default function CoachScreen() {
           renderItem={({ item }) => {
             if (item.role === "user") {
               return (
-                <View style={{ paddingHorizontal: 16, alignItems: "flex-end" }}>
-                  <View
-                    style={{
-                      maxWidth: "88%",
-                      backgroundColor: colors.primary,
-                      borderRadius: 16,
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                    }}
-                  >
-                    <Text style={{ color: "#fff", fontFamily: FONT.medium, fontSize: 15 }}>
-                      {item.text}
-                    </Text>
-                  </View>
+                <View style={{ paddingHorizontal: 16, alignItems: "flex-end", gap: 8 }}>
+                  {item.imageUris?.length ? (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        justifyContent: "flex-end",
+                        maxWidth: "88%",
+                      }}
+                    >
+                      {item.imageUris.map((uri, idx) => (
+                        <Image
+                          key={`${item.id}-img-${idx}`}
+                          source={{ uri }}
+                          style={{
+                            width: 96,
+                            height: 96,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          }}
+                          contentFit="cover"
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+                  {item.text.trim() ? (
+                    <View
+                      style={{
+                        maxWidth: "88%",
+                        backgroundColor: colors.primary,
+                        borderRadius: 16,
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                      }}
+                    >
+                      <Text style={{ color: "#fff", fontFamily: FONT.medium, fontSize: 15 }}>
+                        {item.text}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               );
             }
@@ -633,6 +827,55 @@ export default function CoachScreen() {
           }}
         />
 
+        {/* Attached-photo previews — up to 3, above the composer until sent. */}
+        {attachedImages.length ? (
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 12,
+              paddingHorizontal: 12,
+              paddingTop: 8,
+            }}
+          >
+            {attachedImages.map((img, idx) => (
+              <View key={`${img.uri}-${idx}`} style={{ alignSelf: "flex-start" }}>
+                <Image
+                  source={{ uri: img.uri }}
+                  style={{
+                    width: 84,
+                    height: 84,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                  contentFit="cover"
+                />
+                <Pressable
+                  onPress={() =>
+                    setAttachedImages((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  hitSlop={8}
+                  accessibilityLabel="Remove photo"
+                  style={{
+                    position: "absolute",
+                    top: -8,
+                    right: -8,
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: colors.foreground,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Feather name="x" size={14} color={colors.background} />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         <View
           style={{
             flexDirection: "row",
@@ -646,6 +889,29 @@ export default function CoachScreen() {
             backgroundColor: colors.background,
           }}
         >
+          <Pressable
+            onPress={() => void pickImage()}
+            disabled={busy || pickingImage || attachedImages.length >= MAX_COACH_IMAGES}
+            accessibilityLabel="Upload ticket photo"
+            style={({ pressed }) => ({
+              width: 42,
+              height: 42,
+              borderRadius: 21,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              opacity:
+                pressed || busy || attachedImages.length >= MAX_COACH_IMAGES ? 0.6 : 1,
+            })}
+          >
+            {pickingImage ? (
+              <ActivityIndicator color={colors.mutedForeground} size="small" />
+            ) : (
+              <Feather name="image" size={20} color={colors.mutedForeground} />
+            )}
+          </Pressable>
           <TextInput
             value={draft}
             onChangeText={setDraft}
@@ -671,14 +937,21 @@ export default function CoachScreen() {
           />
           <Pressable
             onPress={() => void send(draft)}
-            disabled={!draft.trim() && !busy}
+            disabled={(!draft.trim() && !attachedImages.length && !busy) || pickingImage}
             style={({ pressed }) => ({
               width: 42,
               height: 42,
               borderRadius: 21,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: busy ? colors.card : colors.primary,
+              backgroundColor:
+                busy || draft.trim() || attachedImages.length
+                  ? busy
+                    ? colors.card
+                    : colors.primary
+                  : colors.card,
+              borderWidth: busy || draft.trim() || attachedImages.length ? 0 : 1,
+              borderColor: colors.border,
               opacity: pressed ? 0.8 : 1,
             })}
             accessibilityLabel={busy ? "Stop" : "Send"}
@@ -686,7 +959,15 @@ export default function CoachScreen() {
             {busy ? (
               <Feather name="square" size={16} color={colors.foreground} />
             ) : (
-              <Feather name="arrow-up" size={18} color="#fff" />
+              <Feather
+                name="arrow-up"
+                size={18}
+                color={
+                  draft.trim() || attachedImages.length
+                    ? "#fff"
+                    : colors.mutedForeground
+                }
+              />
             )}
           </Pressable>
         </View>
