@@ -5,8 +5,10 @@ import {
   boardScanNonPropPreviewCap,
   boardScanPropSlotCount,
   buildFinalCoachParlayNote,
+  buildFixedLegPropsPendingShortfallLead,
   fillReservedPropSlots,
   finalizeFootballPropMixPicks,
+  finalizeGeneralPropMixPicks,
   footballSkillPropFamily,
   footballSkillPropRank,
   selectFinalCoachParlayPicks,
@@ -224,6 +226,8 @@ test("incomplete props hold reserved seats — never fill all 10 with game lines
     shortfallLead: buildFixedLegCountShortfallLead(10, held.length),
   });
   assert.match(note, /holding reserved prop seats/i);
+  assert.match(note, /while player props were still scoring/i);
+  assert.doesNotMatch(note, /cleared the AI quality bar/i);
   assert.doesNotMatch(note, /showing \d+ game-line/);
 });
 
@@ -238,6 +242,86 @@ test("props finished with 0 clears — deliver full scored game-line ticket", ()
     propPhaseIncomplete: false,
   });
   assert.equal(delivered.length, 10, "exhausted props → ship the GLs that cleared");
+});
+
+test("phone 6-leg MLB: final must not truncate qualified alts to reserved seat cap", () => {
+  // Screenshot: "6 legs — only 3 cleared the AI quality bar" with Yankees/Padres
+  // alt spreads. Root cause: reserved prop seats (3) re-capped final GLs after
+  // top-up even when props finished / timed out — not a true quality miss.
+  assert.equal(boardScanPropSlotCount(6, 0.5), 3);
+  assert.equal(boardScanNonPropPreviewCap(6, 0.5), 3);
+
+  const altSpreads = Array.from({ length: 6 }, (_, i) => ({
+    isProp: false,
+    sport: "mlb",
+    market: "Alt Spread",
+    pick: `Team${i} +${1.5 + i}`,
+  }));
+
+  // Preview still holds seats so mid-scan cannot paint a full GL ticket.
+  assert.equal(
+    shouldReservePropSeats({
+      preview: true,
+      targetLegs: 6,
+      propCount: 0,
+      propPhaseIncomplete: true,
+    }),
+    true,
+  );
+  const preview = finalizeGeneralPropMixPicks(altSpreads, 6, { preview: true });
+  assert.equal(preview.length, 3, "preview keeps reserved prop seats open");
+
+  // Final — even with propPhaseIncomplete — must ship every qualified GL.
+  assert.equal(
+    shouldReservePropSeats({
+      targetLegs: 6,
+      propCount: 0,
+      propPhaseIncomplete: true,
+    }),
+    false,
+    "non-football final must not re-reserve empty prop seats",
+  );
+  const finalIncomplete = finalizeGeneralPropMixPicks(altSpreads, 6);
+  assert.equal(finalIncomplete.length, 6, "final ships all cleared alts toward N");
+
+  const finalDone = finalizeGeneralPropMixPicks(altSpreads, 6);
+  assert.equal(finalDone.length, 6);
+
+  // Honest note when props were still pending: never bare "quality bar".
+  const pendingNote = buildFinalCoachParlayNote({
+    target: 6,
+    picks: finalIncomplete,
+    propPoolSize: 400,
+    propsPending: true,
+    shortfallLead: buildFixedLegCountShortfallLead(6, finalIncomplete.length),
+  });
+  assert.equal(pendingNote, ""); // full 6-leg — no shortfall lead
+
+  // Short ticket after props miss: quality bar OK + props scanned suffix.
+  const shortGl = altSpreads.slice(0, 3);
+  const doneNote = buildFinalCoachParlayNote({
+    target: 6,
+    picks: shortGl,
+    propPoolSize: 400,
+    propsPending: false,
+    shortfallLead: buildFixedLegCountShortfallLead(6, shortGl.length),
+  });
+  assert.match(doneNote, /only \*\*3\*\* cleared the AI quality bar/i);
+  assert.match(doneNote, /none cleared the AI quality bar with these game lines/i);
+
+  const pendingShortNote = buildFinalCoachParlayNote({
+    target: 6,
+    picks: shortGl,
+    propPoolSize: 400,
+    propsPending: true,
+    shortfallLead: buildFixedLegCountShortfallLead(6, shortGl.length),
+  });
+  assert.match(pendingShortNote, /while player props were still scoring/i);
+  assert.doesNotMatch(pendingShortNote, /cleared the AI quality bar/i);
+  assert.equal(
+    buildFixedLegPropsPendingShortfallLead(6, 3),
+    "You asked for **6** legs — only **3** cleared so far while player props were still scoring. No ungraded filler was added.",
+  );
 });
 
 test("final football ticket with scored props keeps them and still caps GL fill", () => {
@@ -431,7 +515,8 @@ test("phone 0-of-7 regression: incomplete props keep 3 game lines, honest note",
     shortfallLead: buildFixedLegCountShortfallLead(7, picks.length),
   });
   assert.match(note, /only \*\*3\*\*/);
-  assert.match(note, /props did not finish scoring/i);
+  assert.match(note, /while player props were still scoring/i);
+  assert.doesNotMatch(note, /cleared the AI quality bar/i);
   assert.doesNotMatch(note, /every posted market/i);
   assert.doesNotMatch(note, /only \*\*0\*\*/);
 });
@@ -447,6 +532,7 @@ test("empty final with incomplete props does not claim every market scanned", ()
   });
   assert.match(note, /no AI-backed picks/i);
   assert.match(note, /prop scoring did not finish/i);
+  assert.doesNotMatch(note, /cleared the AI quality bar/i);
   assert.doesNotMatch(note, /every posted market/i);
 });
 

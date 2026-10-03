@@ -103,12 +103,11 @@ import {
   fillReservedPeriodSlots,
   fillReservedTeamTotalSlots,
   finalizeFootballPropMixPicks,
+  finalizeGeneralPropMixPicks,
   footballSkillPropRank,
   filterNcaafPlayerPropsUnlessAsked,
   isFootballHeavyPickList,
   shouldKeepAwaitingPropSlots,
-  shouldReservePropSeats,
-  applyReservedPropSeatCap,
 } from "./boardScanPropDelivery.ts";
 import { interleaveSidesWithProps } from "./boardMarketPools.ts";
 import {
@@ -897,6 +896,8 @@ export function buildScanResult(
   }
   // Football mix finals: hold reserved prop seats while props are incomplete;
   // deliver cleared GLs only after the prop phase finished with 0 props.
+  // Non-football finals: ship every qualified leg toward N (never re-cap GLs
+  // into a fake "quality bar" shortfall — phone 6-leg MLB → 3 alt spreads).
   let propCount = picks.filter((p) => p.isProp).length;
   const propFraction =
     opts.requirePropMix || isFootballHeavyPickList(picks) ? 0.4 : 0.5;
@@ -906,22 +907,14 @@ export function buildScanResult(
       propPhaseIncomplete: opts.propPhaseIncomplete,
     });
     propCount = picks.filter((p) => p.isProp).length;
-  } else if (
-    shouldReservePropSeats({
+  } else if (!opts.propsOnly && !opts.gameLinesOnly) {
+    picks = finalizeGeneralPropMixPicks(picks, opts.target, {
       preview: opts.preview,
-      propsOnly: opts.propsOnly,
-      gameLinesOnly: opts.gameLinesOnly,
-      targetLegs: opts.target,
-      propCount,
-      propPhaseIncomplete: opts.propPhaseIncomplete,
-      requirePropMix: opts.requirePropMix,
-    })
-  ) {
-    picks = applyReservedPropSeatCap(picks, opts.target, propFraction);
+      propFraction,
+    });
     propCount = picks.filter((p) => p.isProp).length;
   }
-  // Preview-only awaiting flag. Finals keep reserved seats via applyReservedPropSeatCap
-  // above — never wipe cleared game lines to an instant empty ticket.
+  // Preview-only awaiting flag. Finals never wipe cleared game lines to empty.
   const awaitingPropSlots = shouldKeepAwaitingPropSlots({
     preview: opts.preview,
     propsOnly: opts.propsOnly,

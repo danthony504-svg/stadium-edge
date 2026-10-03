@@ -79,6 +79,7 @@ test("board scan game phase continues after a thrown slate batch", () => {
   assert.match(src, /selectFootballMixPropSimCandidates/);
   assert.match(src, /shouldUseFootballSkillPropSim/);
   assert.match(src, /finalizeFootballPropMixPicks/);
+  assert.match(src, /finalizeGeneralPropMixPicks/);
   assert.match(src, /footballMixPath && pool\.length > 0/);
   assert.match(src, /boardPropSimMixBatchSize/);
   assert.doesNotMatch(src, /game-sim-batch-timeout/);

@@ -172,8 +172,11 @@ export function boardScanNonPropPreviewCap(
 /**
  * Hold reserved prop seats open so game lines cannot paint the full ticket.
  *
- * Preview always reserved seats. Football prop-mix finals use
- * finalizeFootballPropMixPicks (refuse GL-only) instead of padding.
+ * Preview always reserves seats. Football prop-mix finals use
+ * finalizeFootballPropMixPicks (hold while props incomplete; ship GLs when
+ * props finish with 0 clears). Non-football FINAL tickets never reserve —
+ * capping qualified GLs after the prop window and calling it a "quality bar"
+ * shortfall truncated 6-leg MLB boards to 3 on phone.
  */
 export function shouldReservePropSeats(opts: {
   preview?: boolean;
@@ -192,8 +195,10 @@ export function shouldReservePropSeats(opts: {
   );
   if (propSlots <= 0 || opts.propCount >= propSlots) return false;
   if (opts.preview) return true;
+  // Football mix: keep seats open through finalizeFootballPropMixPicks.
   if (opts.requirePropMix) return true;
-  if (opts.propPhaseIncomplete) return true;
+  // Non-football final (complete or incomplete prop phase): ship every
+  // qualified leg toward N. Props already had their scan window.
   return false;
 }
 
@@ -239,6 +244,26 @@ export function finalizeFootballPropMixPicks<T extends { isProp?: boolean }>(
     return picks.slice(0, targetLegs);
   }
   return applyReservedPropSeatCap(picks, targetLegs, propFraction);
+}
+
+/**
+ * Non-football mix (MLB / NBA / NHL / soccer / UFC, …):
+ * - Preview: hold ~50% prop seats so mid-scan GLs cannot paint the full ticket.
+ * - Final: ship every qualified leg toward N. Never re-cap GLs after the prop
+ *   window — that was the phone 6-leg → 3 "quality bar" lie when seats were
+ *   held empty and alt spreads that cleared were dropped.
+ */
+export function finalizeGeneralPropMixPicks<T extends { isProp?: boolean }>(
+  picks: T[],
+  targetLegs: number,
+  opts?: { preview?: boolean; propFraction?: number },
+): T[] {
+  if (targetLegs < 3) return picks.slice(0, Math.max(0, targetLegs));
+  const propFraction = opts?.propFraction ?? 0.5;
+  if (opts?.preview) {
+    return applyReservedPropSeatCap(picks, targetLegs, propFraction);
+  }
+  return picks.slice(0, targetLegs);
 }
 
 /**
@@ -836,6 +861,21 @@ export function fillReservedTeamTotalSlots<T extends PropFillPick>(
   return out.slice(0, target);
 }
 
+/**
+ * Shortfall lead when props are still scoring — never claim the quality bar
+ * alone exhausted the board (phone: reserved seats → "only 3 cleared").
+ */
+export function buildFixedLegPropsPendingShortfallLead(
+  requested: number,
+  actual: number,
+): string {
+  if (actual >= requested) return "";
+  if (actual <= 0) {
+    return `You asked for **${requested}** legs — prop scoring did not finish and no AI-backed picks cleared yet. No ungraded filler was added.`;
+  }
+  return `You asked for **${requested}** legs — only **${actual}** cleared so far while player props were still scoring. No ungraded filler was added.`;
+}
+
 /** Honest delivery note for fixed-leg shortfalls / incomplete prop scoring. */
 export function buildFinalCoachParlayNote(opts: {
   target: number;
@@ -858,6 +898,13 @@ export function buildFinalCoachParlayNote(opts: {
   requirePropMix?: boolean;
 }): string {
   const propLike = countPropLikePicks(opts.picks);
+  const propsPendingLead =
+    opts.propPoolSize > 0 && propLike === 0 && opts.propsPending
+      ? buildFixedLegPropsPendingShortfallLead(opts.target, opts.picks.length)
+      : "";
+  // Prefer the props-pending lead over a bare "quality bar" shortfall — seats
+  // held / scoring cut short is not the same as the board failing the bar.
+  const lead = propsPendingLead || opts.shortfallLead;
   const thinGameOnlyNote =
     !opts.propsOnly &&
     opts.picks.length > 0 &&
@@ -870,18 +917,24 @@ export function buildFinalCoachParlayNote(opts: {
         : ` Scanned ${opts.propPoolSize} posted props/alts — none cleared the AI quality bar with these game lines.`
       : "";
   const propsIncompleteNote =
-    opts.propPoolSize > 0 && propLike === 0 && opts.propsPending
+    // Pending lead already states the unfinished-props story — only append the
+    // seat-hold / try-again detail for football mix (and props-only empty).
+    // Full tickets need no "try again" suffix.
+    opts.propPoolSize > 0 &&
+    propLike === 0 &&
+    opts.propsPending &&
+    opts.picks.length < opts.target
       ? opts.propsOnly
         ? opts.picks.length > 0
-          ? ` Player props did not finish scoring — showing ${opts.picks.length} prop${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for the full props ticket.`
-          : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — try again for a props-only ticket (no game lines).`
+          ? ` Showing ${opts.picks.length} prop${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for the full props ticket.`
+          : ` Loaded ${opts.propPoolSize} posted props/alts — try again for a props-only ticket (no game lines).`
         : opts.requirePropMix
           ? opts.picks.length > 0
-            ? ` Player props did not finish scoring — holding reserved prop seats (${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} cleared so far). Try again for a full props mix.`
-            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish — reserved prop seats stayed open (no full game-line fill). Try again.`
+            ? ` Holding reserved prop seats (${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} so far). Try again for a full props mix.`
+            : ` Reserved prop seats stayed open (no full game-line fill). Try again.`
           : opts.picks.length > 0
-            ? ` Player props did not finish scoring — showing ${opts.picks.length} game-line pick${opts.picks.length === 1 ? "" : "s"} that cleared so far. Try again for a full props mix.`
-            : ` Loaded ${opts.propPoolSize} posted props/alts but prop scoring did not finish and no game lines cleared — try again.`
+            ? ` Try again for a full props mix.`
+            : ` No game lines cleared either — try again.`
       : "";
   const mixRefusedNote =
     opts.requirePropMix &&
@@ -896,8 +949,8 @@ export function buildFinalCoachParlayNote(opts: {
       : "";
   const base =
     (opts.scanNote?.trim() && opts.picks.length > 0 && propLike > 0 ? opts.scanNote.trim() : "") ||
-    (opts.shortfallLead
-      ? `${opts.shortfallLead}${thinGameOnlyNote}${propsIncompleteNote}${mixRefusedNote}`
+    (lead
+      ? `${lead}${thinGameOnlyNote}${propsIncompleteNote}${mixRefusedNote}`
       : "") ||
     propsIncompleteNote ||
     mixRefusedNote ||
