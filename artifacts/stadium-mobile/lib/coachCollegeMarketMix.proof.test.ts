@@ -1,7 +1,8 @@
 /**
  * Proof: NCAAF Coach can fill 5/10/15 from a legitimate mix of qualified
- * provider markets — yards, FG spread/total, team totals, 1H/Q, alts —
- * without inventing lines or collapsing same-game period sides.
+ * provider TEAM markets — FG spread/total, team totals, 1H/Q, alts —
+ * without inventing lines, staging player props on bare college, or
+ * collapsing same-game period sides.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -12,7 +13,7 @@ import {
   askAllowsNcaafPlayerProps,
   askRequiresFootballPropMix,
   fillReservedPeriodSlots,
-  fillReservedPropSlots,
+  fillReservedTeamTotalSlots,
 } from "./boardScanPropDelivery.ts";
 import { parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import {
@@ -143,27 +144,27 @@ function collegeQualifiedBoard(): BoardScoredLeg[] {
 function fillCollegeTicket(target: number, legsPerGameCap: number | null = null): ParsedPick[] {
   const ask = `${target} leg college`;
   const constraint = parseCoachAskMarketConstraint(ask);
-  assert.equal(constraint.gameLinesOnly, false, "bare college is mix, not GL-only");
-  assert.equal(askAllowsNcaafPlayerProps(ask), true);
-  assert.equal(askRequiresFootballPropMix(ask), true);
+  assert.equal(constraint.gameLinesOnly, true, "bare college is team markets / GL-only");
+  assert.equal(askAllowsNcaafPlayerProps(ask), false);
+  assert.equal(askRequiresFootballPropMix(ask), false);
   assert.equal(askAllowsCollegeTeamMarketStacks(ask), true);
 
-  const board = collegeQualifiedBoard();
+  const board = collegeQualifiedBoard().filter((l) => !l.pick.isProp);
   // Start short (FG-heavy) then apply the same seat-reservation + top-up path
-  // Coach uses after staging.
+  // Coach uses after staging (no player-prop seats on bare college).
   const short = board
-    .filter((l) => !l.pick.isProp && !/q[1-4]|1h|2h|team total|alt/i.test(l.pick.market ?? ""))
+    .filter((l) => !/q[1-4]|1h|2h|team total|alt/i.test(l.pick.market ?? ""))
     .slice(0, Math.min(3, target))
     .map((l) => l.pick);
 
-  let picks = fillReservedPropSlots(short, board, target, legsPerGameCap);
-  picks = fillReservedPeriodSlots(picks, board, target, legsPerGameCap);
+  let picks = fillReservedPeriodSlots(short, board, target, legsPerGameCap);
+  picks = fillReservedTeamTotalSlots(picks, board, target, legsPerGameCap);
   picks = topUpTicketFromQualifiedScored(picks, board, target, "proof-college", legsPerGameCap, {
     collapseSameTeamSides: false,
     collegeTeamMarketStacks: true,
   });
-  picks = fillReservedPropSlots(picks, board, target, legsPerGameCap);
   picks = fillReservedPeriodSlots(picks, board, target, legsPerGameCap);
+  picks = fillReservedTeamTotalSlots(picks, board, target, legsPerGameCap);
   return picks;
 }
 
@@ -186,15 +187,23 @@ function marketKinds(picks: ParsedPick[]) {
   return kinds;
 }
 
-test("proof: bare college routing opens yards + period stacks; team props stays GL-only", () => {
+test("proof: bare college routing is team markets + period stacks; explicit props opt in", () => {
   const bare = parseCoachAskMarketConstraint("10 leg college");
-  assert.equal(bare.gameLinesOnly, false);
-  assert.equal(askRequiresFootballPropMix("10 leg college"), true);
-  assert.equal(askAllowsNcaafPlayerProps("10 leg college"), true);
+  assert.equal(bare.gameLinesOnly, true);
+  assert.equal(askRequiresFootballPropMix("10 leg college"), false);
+  assert.equal(askAllowsNcaafPlayerProps("10 leg college"), false);
+
+  const collage = parseCoachAskMarketConstraint("8 leg Collage");
+  assert.equal(collage.gameLinesOnly, true);
+  assert.equal(askAllowsNcaafPlayerProps("8 leg Collage"), false);
 
   const team = parseCoachAskMarketConstraint("10 leg college team props");
   assert.equal(team.gameLinesOnly, true);
   assert.equal(askAllowsNcaafPlayerProps("10 leg college team props"), false);
+
+  const yards = parseCoachAskMarketConstraint("8 leg college receiving yards");
+  assert.equal(yards.gameLinesOnly, false);
+  assert.equal(askAllowsNcaafPlayerProps("8 leg college receiving yards"), true);
 
   const nfl = parseCoachAskMarketConstraint("10 leg nfl");
   assert.equal(nfl.gameLinesOnly, false);
@@ -202,13 +211,14 @@ test("proof: bare college routing opens yards + period stacks; team props stays 
   assert.equal(askAllowsCollegeTeamMarketStacks("10 leg nfl"), false);
 });
 
-test("proof: 5/10/15 college fills toward N from qualified mix without inventing markets", () => {
+test("proof: 5/10/15 college fills toward N from team markets without inventing or player props", () => {
   const boardFps = new Set(
-    collegeQualifiedBoard().map((l) => `${l.pick.game}|${l.pick.market}|${l.pick.pick}|${l.pick.odds}`),
+    collegeQualifiedBoard()
+      .filter((l) => !l.pick.isProp)
+      .map((l) => `${l.pick.game}|${l.pick.market}|${l.pick.pick}|${l.pick.odds}`),
   );
 
-  // Use gameLinesOnly+stacks so legsPerGameCapForAsk returns the college floor
-  // (bare-college mix currently leaves this null — see interaction finding).
+  // Bare college is gameLinesOnly + stacks → college floor ≥4.
   const collegeCap = legsPerGameCapForAsk(10, {
     gameLinesOnly: true,
     collegeTeamMarketStacks: true,
@@ -219,7 +229,7 @@ test("proof: 5/10/15 college fills toward N from qualified mix without inventing
     const picks = fillCollegeTicket(target, collegeCap);
     assert.equal(
       picks.length,
-      Math.min(target, collegeQualifiedBoard().length),
+      Math.min(target, boardFps.size),
       `${target}-leg: expected full fill from qualified pool, got ${picks.length}`,
     );
 
@@ -227,17 +237,18 @@ test("proof: 5/10/15 college fills toward N from qualified mix without inventing
     for (const p of picks) {
       const fp = `${p.game}|${p.market}|${p.pick}|${p.odds}`;
       assert.ok(boardFps.has(fp), `invented or mutated line: ${fp}`);
+      assert.equal(p.isProp, false, `${target}: bare college must not stage player props (${p.pick})`);
     }
 
     const kinds = marketKinds(picks);
-    assert.ok(kinds.has("player_yards"), `${target}: missing player yards — ${[...kinds]}`);
+    assert.ok(!kinds.has("player_yards"), `${target}: unexpected player yards — ${[...kinds]}`);
     assert.ok(kinds.has("fg_spread"), `${target}: missing FG spread — ${[...kinds]}`);
     assert.ok(
       kinds.has("period_spread") || kinds.has("period_total"),
       `${target}: missing half/quarter — ${[...kinds]}`,
     );
     if (target >= 10) {
-      assert.ok(kinds.has("fg_total"), `${target}: missing FG total — ${[...kinds]}`);
+      assert.ok(kinds.has("fg_total") || kinds.has("team_total"), `${target}: missing team/FG total — ${[...kinds]}`);
     }
   }
 });
@@ -366,11 +377,11 @@ test("proof: per-game caps still block unsafe over-stacking", () => {
   );
 });
 
-test("proof: #579 bare-college mix raises legsPerGameCap via college stacks (≥4)", () => {
-  // Bare college is NOT gameLinesOnly, but collegeTeamMarketStacks still
-  // raises the per-game floor so FG+Q2+team-total fills can reach N.
+test("proof: #579 bare-college team markets raise legsPerGameCap via college stacks (≥4)", () => {
+  // Bare college is gameLinesOnly + collegeTeamMarketStacks → raised per-game
+  // floor so FG+Q2+team-total fills can reach N without player props.
   const c = parseCoachAskMarketConstraint("10 leg college");
-  assert.equal(c.gameLinesOnly, false);
+  assert.equal(c.gameLinesOnly, true);
   const cap = legsPerGameCapForAsk(10, {
     gameLinesOnly: c.gameLinesOnly,
     collegeTeamMarketStacks: true,

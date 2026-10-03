@@ -72,13 +72,15 @@ test("blendPeriodExpected / period profile require real averages", () => {
   assert.equal(buildPeriodOffenseDefenseProfile(null, null), null);
 });
 
-test("college mix floors team-total seats; NFL mix may still be 0 at 7", () => {
+test("college mix floors team-total seats and keeps props at 0; NFL still budgets props", () => {
   const nfl = balancedMixSlots(7, FOOTBALL_BALANCED_MIX_FRACTIONS);
   const college = balancedMixSlots(7, COLLEGE_FOOTBALL_BALANCED_MIX_FRACTIONS, {
     floorTeamTotals: true,
   });
+  assert.equal(college.props, 0, `college props should be 0, got ${college.props}`);
   assert.ok(college.teamTotals >= 1, `college teamTotals=${college.teamTotals}`);
   assert.ok(college.alternateLines >= 1);
+  assert.ok(nfl.props >= 1, `nfl props=${nfl.props}`);
   assert.equal(
     nfl.props + nfl.gameLines + nfl.teamTotals + nfl.alternateLines,
     7,
