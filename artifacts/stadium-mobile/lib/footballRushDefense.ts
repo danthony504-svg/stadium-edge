@@ -5,6 +5,8 @@
  * staging (including alt rungs) so Coach doesn't lock a main Over vs a stout D.
  */
 
+import { canonicalPropMarketKey } from "./coachAskMarketFilter.ts";
+
 export type RushDefenseSlice = {
   rushingYardsAllowedPerGame: number | null;
   yardsPerRushAllowed: number | null;
@@ -950,7 +952,8 @@ export type DefenseAwarePickCandidate = {
  * When the best-EV Over is defense-hostile, pick a safer posted alternative:
  * 1) same-line Under
  * 2) any Under for the player/market (prefer higher Under line)
- * 3) a softer alt Over (lower line) for the same player/market
+ * 3) a softer alt Over (lower line) for the same player/market — including
+ *    `_alternate` rungs (main `player_rush_yds` must see alt 24.5)
  * Returns null when no alternative exists.
  *
  * Callers MUST keep the original Over when this returns null — wiping emptied
@@ -960,13 +963,13 @@ export function pickDefenseAwareAlt<T extends DefenseAwarePickCandidate>(
   hostileOver: T,
   candidates: readonly T[],
 ): T | null {
-  const marketKey = String(
+  const marketKey = canonicalPropMarketKey(
     hostileOver.propMarketKey ?? hostileOver.market ?? "",
-  ).toLowerCase();
+  );
   const samePlayerMarket = (c: T) =>
     c.game === hostileOver.game &&
     c.player === hostileOver.player &&
-    String(c.propMarketKey ?? c.market ?? "").toLowerCase() === marketKey;
+    canonicalPropMarketKey(c.propMarketKey ?? c.market ?? "") === marketKey;
 
   const unders = candidates
     .filter((c) => samePlayerMarket(c) && String(c.propSide ?? "").toLowerCase() === "under")
@@ -976,7 +979,7 @@ export function pickDefenseAwareAlt<T extends DefenseAwarePickCandidate>(
   unders.sort((a, b) => (b.propLine ?? 0) - (a.propLine ?? 0));
   if (unders.length) return unders[0];
 
-  // Softer Over: lower line vs stingy D (Over 40 → Over 24.5).
+  // Softer Over: lower line vs stingy D (Over 40 → Over 24.5), incl. alt keys.
   const mainLine = hostileOver.propLine;
   if (mainLine == null || !Number.isFinite(mainLine)) return null;
   const softerOvers = candidates

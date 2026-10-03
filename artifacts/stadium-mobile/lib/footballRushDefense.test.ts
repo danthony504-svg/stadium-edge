@@ -253,6 +253,26 @@ test("pickDefenseAwareAlt: Under first, then softer Over alt", () => {
   assert.equal(pickDefenseAwareAlt(over40, [over40]), null);
 });
 
+test("pickDefenseAwareAlt: finds softer Over on _alternate market key", () => {
+  // Root cause: main `player_rush_yds` exact-key match missed posted alt rungs.
+  const main = {
+    game: "CHI @ PHI",
+    player: "Kyle Monangai",
+    market: "Rush Yds",
+    propMarketKey: "player_rush_yds",
+    propSide: "Over",
+    propLine: 40.5,
+  };
+  const altSoft = {
+    ...main,
+    propMarketKey: "player_rush_yds_alternate",
+    propLine: 24.5,
+    propIsAlt: true,
+  };
+  assert.equal(pickDefenseAwareAlt(main, [main, altSoft]), altSoft);
+  assert.equal(keepOrSwapDefenseAwareSide(main, [main, altSoft]), altSoft);
+});
+
 test("phone 5-leg touchdown: keep Anytime TD when stingy D has no Under alt", () => {
   const td = {
     game: "Navy Midshipmen @ Air Force Falcons",

@@ -24,6 +24,7 @@ import { boardScanMaxPropsToSimForMix } from "./boardScanScope.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import {
   normalizePropsOnlyPick,
+  propsOnlyCollapseLadderKey,
   propsOnlyEffectiveLine,
   propsOnlyLegClearsOdds,
 } from "./coachFootballPropsOnlyGrade.ts";
@@ -175,7 +176,8 @@ function stageFootballPropsOnlyLegsWithCap(
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
     if (!propsOnlyLegClearsOdds(p, leg.simHit)) continue;
-    const pm = `${p.player}|${p.propMarketKey ?? p.market}`.toLowerCase();
+    // Canonical ladder — main + `_alternate` share one seat per player.
+    const pm = propsOnlyCollapseLadderKey(p);
     if (usedPlayerMarket.has(pm)) continue;
     const gameKey = String(p.game ?? "");
     const gameCount = usedGames.get(gameKey) ?? 0;

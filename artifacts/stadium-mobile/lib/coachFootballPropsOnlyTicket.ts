@@ -94,6 +94,7 @@ export {
   normalizeHistorySport,
   normalizePropsOnlyPick,
   pickBestEvPropsOnlySide,
+  propsOnlyCollapseLadderKey,
   propsOnlyEffectiveLine,
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,

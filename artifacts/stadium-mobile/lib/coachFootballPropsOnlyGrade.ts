@@ -11,6 +11,7 @@
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { canonicalPropMarketKey } from "./coachAskMarketFilter.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
@@ -415,15 +416,31 @@ export function propsOnlyEvPct(pick: ParsedPick, simHit: number | null): number 
 }
 
 /**
- * For a player+market ladder, keep the posted side with the best history EV.
- * Wrong-side yards (-110 Over when history is Under) were the #541 empty path.
+ * Ladder key for props-only collapse: same player + canonical market
+ * (main + `_alternate` rungs share one seat). Line is NOT in the key so
+ * softer alt numbers can beat a main that fails the odds gate.
+ */
+export function propsOnlyCollapseLadderKey(pick: ParsedPick): string {
+  const norm = normalizePropsOnlyPick(pick);
+  const market = canonicalPropMarketKey(norm.propMarketKey ?? norm.market);
+  return `${norm.game}|${norm.player}|${market || norm.market}`.toLowerCase();
+}
+
+/**
+ * For a player+market ladder (main + alt rungs), prefer the posted side that
+ * clears the odds gate with the best history EV. Only when no rung clears do
+ * we fall back to raw best EV (staging still drops it).
+ *
+ * Phone: main Over failed clearsOdds while a softer `_alternate` Over cleared —
+ * grouping by line kept them apart so the ticket emptied on "quality bar".
  */
 export function pickBestEvPropsOnlySide(
   sides: ParsedPick[],
   hits: Map<string, PropsOnlyHit>,
   pool: PoolRow[] = [],
 ): { pick: ParsedPick; hit: number; ev: number } | null {
-  let best: { pick: ParsedPick; hit: number; ev: number } | null = null;
+  let bestClearing: { pick: ParsedPick; hit: number; ev: number } | null = null;
+  let bestAny: { pick: ParsedPick; hit: number; ev: number } | null = null;
   for (const raw of sides) {
     const pick = normalizePropsOnlyPick(raw);
     const row = propsOnlyPoolRowForPick(pick, pool);
@@ -432,14 +449,19 @@ export function pickBestEvPropsOnlySide(
     if (clipped == null || !pickHasSimGrade(pick, clipped)) continue;
     const ev = propsOnlyEvPct(pick, clipped);
     if (ev == null) continue;
-    if (!best || ev > best.ev) {
-      best = { pick, hit: clipped, ev };
+    const scored = { pick, hit: clipped, ev };
+    if (!bestAny || ev > bestAny.ev) bestAny = scored;
+    if (propsOnlyLegClearsOdds(pick, clipped)) {
+      if (!bestClearing || ev > bestClearing.ev) bestClearing = scored;
     }
   }
-  return best;
+  return bestClearing ?? bestAny;
 }
 
-/** Collapse Over/Under duplicates to the history-backed EV side before staging. */
+/**
+ * Collapse main + alt ladder rungs (and Over/Under) to the odds-clearing
+ * history EV side before staging — same idea as board-scan ladder exhaustion.
+ */
 export function collapsePropsOnlyToBestEvSides(
   picks: ParsedPick[],
   hits: Map<string, PropsOnlyHit>,
@@ -448,7 +470,7 @@ export function collapsePropsOnlyToBestEvSides(
   const groups = new Map<string, ParsedPick[]>();
   for (const p of picks) {
     const norm = normalizePropsOnlyPick(p);
-    const mk = `${norm.game}|${norm.player}|${norm.propMarketKey ?? norm.market}|${propsOnlyEffectiveLine(norm)}`.toLowerCase();
+    const mk = propsOnlyCollapseLadderKey(norm);
     const arr = groups.get(mk) ?? [];
     arr.push(norm);
     groups.set(mk, arr);
