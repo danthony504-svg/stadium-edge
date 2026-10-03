@@ -104,6 +104,7 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   if (/\banytime\s+(?:td|touchdown)\b/.test(t)) return true;
   if (/\b(?:first|1st)\s+(?:td|touchdown)\b/.test(t)) return true;
   if (/\btouchdowns?\b/.test(t)) return true;
+  if (/\btds?\b/.test(t)) return true;
   if (/\breceptions?\b/.test(t)) return true;
   if (/\bsacks?\b/.test(t)) return true;
   // "N leg … props" (not "team props") — honor explicit props asks on CFB.

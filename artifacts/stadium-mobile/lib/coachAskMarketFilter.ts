@@ -233,8 +233,19 @@ function hasFirstTdAsk(t: string): boolean {
   return /\b(?:first|1st)\s+(?:td|touchdown)\b/i.test(t);
 }
 
-function hasAnytimeTdAsk(t: string): boolean {
-  return /\banytime\s+(?:td|touchdown)\b/i.test(t) || /\batd\b/i.test(t);
+/**
+ * Anytime TD / bare "touchdown" / "td" market lock.
+ * Phone: "5 leg touchdown" was NOT matching (only "anytime td") → board scanned
+ * game lines, burned the delivery budget, and painted Air Force 1H spreads.
+ */
+function hasTouchdownPropAsk(t: string): boolean {
+  if (hasFirstTdAsk(t)) return false;
+  if (/\banytime\s+(?:td|touchdown)\b/i.test(t)) return true;
+  if (/\batd\b/i.test(t)) return true;
+  if (/\btouchdowns?\b/i.test(t)) return true;
+  // Standalone "td" / "tds" ("5 leg td", "td props") — not a substring of other words.
+  if (/\btds?\b/i.test(t)) return true;
+  return false;
 }
 
 function hasFieldGoalPropAsk(t: string): boolean {
@@ -333,7 +344,7 @@ export function parseCoachAskMarketConstraint(
       allowedMarketKeys: [...FIRST_TD_PROP_KEYS],
     };
   }
-  if (hasAnytimeTdAsk(t)) {
+  if (hasTouchdownPropAsk(t)) {
     return {
       propsOnly: true,
       gameLinesOnly: false,
