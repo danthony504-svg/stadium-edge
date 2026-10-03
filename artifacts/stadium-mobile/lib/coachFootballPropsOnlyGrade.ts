@@ -396,16 +396,26 @@ export function propsOnlyPickHasGrade(
  * Props-only delivery gate: real history/MC hit rate vs posted odds.
  * Allows ~2.5pp slack so short game-log sample noise (4/8 = 50% TD at -110)
  * still stages — phone #541 emptied on exact hit>implied with n≈8.
+ *
+ * Recovery fills (skill-board / emptied allowlist) may pass a wider slack so
+ * yards/rec/sack alts can land when the strict gate wiped the ticket.
  */
-export function propsOnlyLegClearsOdds(pick: ParsedPick, simHit: number | null): boolean {
+export const PROPS_ONLY_ODDS_SLACK = 0.025;
+/** Wider slack for skill-board recovery after a locked-market quality wipe. */
+export const PROPS_ONLY_RECOVERY_ODDS_SLACK = 0.08;
+
+export function propsOnlyLegClearsOdds(
+  pick: ParsedPick,
+  simHit: number | null,
+  slack: number = PROPS_ONLY_ODDS_SLACK,
+): boolean {
   if (pick.odds == null || !Number.isFinite(pick.odds)) return false;
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, simHit);
   if (!pickHasSimGrade(norm, clipped) || clipped == null) return false;
   const implied = impliedProb(pick.odds);
-  // 2.5pp sampling slack — history windows are short (3–10 games); -110 implied
-  // is ~52.4% so a clean 4/8 TD rate must still clear.
-  return clipped + 0.025 + 1e-9 >= implied;
+  const pad = Number.isFinite(slack) ? Math.max(0, slack) : PROPS_ONLY_ODDS_SLACK;
+  return clipped + pad + 1e-9 >= implied;
 }
 
 export function propsOnlyEvPct(pick: ParsedPick, simHit: number | null): number | null {
@@ -438,6 +448,7 @@ export function pickBestEvPropsOnlySide(
   sides: ParsedPick[],
   hits: Map<string, PropsOnlyHit>,
   pool: PoolRow[] = [],
+  oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
 ): { pick: ParsedPick; hit: number; ev: number } | null {
   let bestClearing: { pick: ParsedPick; hit: number; ev: number } | null = null;
   let bestAny: { pick: ParsedPick; hit: number; ev: number } | null = null;
@@ -451,7 +462,7 @@ export function pickBestEvPropsOnlySide(
     if (ev == null) continue;
     const scored = { pick, hit: clipped, ev };
     if (!bestAny || ev > bestAny.ev) bestAny = scored;
-    if (propsOnlyLegClearsOdds(pick, clipped)) {
+    if (propsOnlyLegClearsOdds(pick, clipped, oddsSlack)) {
       if (!bestClearing || ev > bestClearing.ev) bestClearing = scored;
     }
   }
@@ -466,6 +477,7 @@ export function collapsePropsOnlyToBestEvSides(
   picks: ParsedPick[],
   hits: Map<string, PropsOnlyHit>,
   pool: PoolRow[] = [],
+  oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
 ): ParsedPick[] {
   const groups = new Map<string, ParsedPick[]>();
   for (const p of picks) {
@@ -477,7 +489,7 @@ export function collapsePropsOnlyToBestEvSides(
   }
   const out: ParsedPick[] = [];
   for (const sides of groups.values()) {
-    const best = pickBestEvPropsOnlySide(sides, hits, pool);
+    const best = pickBestEvPropsOnlySide(sides, hits, pool, oddsSlack);
     if (best) {
       out.push(best.pick);
       continue;

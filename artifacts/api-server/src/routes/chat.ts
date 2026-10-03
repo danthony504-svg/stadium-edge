@@ -20,6 +20,7 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "../lib/coachUnsupportedMarkets.js";
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
+import { EXPLICIT_MARKET_LOCK_RULES } from "../lib/explicitMarketLock.js";
 
 const router: IRouter = Router();
 const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
@@ -716,74 +717,12 @@ router.post("/chat", async (req, res): Promise<void> => {
     streamCannedCoachReply(res, unsupportedSoccerDisciplineReply(latestUser));
     return;
   }
-  const MARKET_KEYWORDS: Array<{ re: RegExp; markets: string[]; label: string }> = [
-    { re: /\b(strikeouts?|k'?s)\b/i, markets: ["pitcher_strikeouts"], label: "pitcher strikeouts" },
-    { re: /\b(home runs?|hr\b)\b/i, markets: ["batter_home_runs"], label: "home runs" },
-    { re: /\b(anytime td|anytime touchdown|touchdowns?)\b/i, markets: ["player_anytime_td"], label: "anytime TD" },
-    // "goal scorer" / "anytime goal" spans soccer (World Cup) AND hockey, so
-    // lock BOTH goal markets — whichever sport's games are in the pool fills it.
-    { re: /\b(goal scorer|first goal|anytime goal)\b/i, markets: ["player_goal_scorer_anytime", "player_goals"], label: "goal scorer (anytime)" },
-    // Soccer shots-on-target MUST precede the NHL shots-on-goal entry's no-op
-    // overlap and the bare "shots" entry below.
-    { re: /\b(shots on target|sot\b)\b/i, markets: ["player_shots_on_target"], label: "shots on target" },
-    { re: /\b(shots on goal|sog\b)\b/i, markets: ["player_shots_on_goal"], label: "shots on goal" },
-    // Bare "shots" → soccer total shots. MUST stay AFTER the two specific
-    // "shots on …" entries because \bshots\b also matches inside those phrases.
-    { re: /\bshots?\b/i, markets: ["player_shots"], label: "shots" },
-    { re: /\b(passing yards?|pass yds?)\b/i, markets: ["player_pass_yds"], label: "passing yards" },
-    { re: /\b(rushing yards?|rush yds?)\b/i, markets: ["player_rush_yds"], label: "rushing yards" },
-    { re: /\b(receiving yards?|rec yds?)\b/i, markets: ["player_reception_yds"], label: "receiving yards" },
-    { re: /\breceptions?\b/i, markets: ["player_receptions"], label: "receptions" },
-    { re: /\bsacks?\b/i, markets: ["player_sacks"], label: "sacks" },
-    // Combo (multi-stat) markets MUST be tested before the single-stat
-    // entries below, or a request like "pts+reb parlay" would lock to plain
-    // points (the bare-points entry would match first). Most specific (PRA)
-    // first, then the two-way combos.
-    { re: /\b(pra\b|p\s*\+\s*r\s*\+\s*a|points?\s*\+\s*rebounds?\s*\+\s*assists?|pts?\s*\+\s*reb\s*\+\s*ast)\b/i, markets: ["player_points_rebounds_assists"], label: "pts+reb+ast" },
-    { re: /\b(points?\s*\+\s*rebounds?|pts?\s*\+\s*reb|p\s*\+\s*r)\b/i, markets: ["player_points_rebounds"], label: "pts+reb" },
-    { re: /\b(points?\s*\+\s*assists?|pts?\s*\+\s*ast|p\s*\+\s*a)\b/i, markets: ["player_points_assists"], label: "pts+ast" },
-    { re: /\b(rebounds?\s*\+\s*assists?|reb\s*\+\s*ast|r\s*\+\s*a)\b/i, markets: ["player_rebounds_assists"], label: "reb+ast" },
-    // Generic "combo(s)" ask (the sportsbook "Combos" tab): lock to ALL the
-    // two/three-stat combo markets at once so the model builds combo legs
-    // (Pts+Reb+Ast, Pts+Reb, Pts+Ast, Reb+Ast) instead of plain single-stat
-    // props. MUST come AFTER the specific combo entries above so a named combo
-    // ("pra combo", "pts+reb combo") still locks to that one market, and BEFORE
-    // the single-stat entries so "combos" never falls through to e.g. points.
-    // "combo" can ALSO be a plain parlay synonym, but ONLY in the tight forms
-    // "combo parlay/bet/ticket" and "parlay combo" — there "combo" modifies (or
-    // is modified by) an explicit ticket word and means "combination bet". In
-    // EVERY other phrasing — including "10 leg combo", "combo for tonight",
-    // "give me a combo" — users mean the combo-prop market (this app's "Combos"
-    // tab: Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast), so LOCK to it. We do NOT
-    // exclude a preceding "leg(s)" anymore (a user who wants a plain N-leg ticket
-    // just says "N-leg parlay" without "combo"). If the slate carries no combo
-    // markets the server fresh-fetch fallback + honest-short behavior degrade
-    // gracefully rather than fabricating.
-    { re: /(?<!\bparlay[\s-])\bcombos?\b(?!\s+(?:parlay|bet|ticket))/i, markets: ["player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists"], label: "combo props (Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast)" },
-    { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
-    { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
-    { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },
-    // Stolen bases (MLB) MUST come before the NBA "steals" entry below, or
-    // "steal a base" would lock to player_steals (an NBA-only market).
-    { re: /\b(stolen bases?|steals? a base|sb\b)\b/i, markets: ["batter_stolen_bases"], label: "stolen bases" },
-    { re: /\b(blocks?\s*\+?\s*steals?|steals?\s*\+?\s*blocks?)\b/i, markets: ["player_blocks_steals"], label: "blocks + steals" },
-    { re: /\b(blocks?|blk\b)\b/i, markets: ["player_blocks"], label: "blocks" },
-    { re: /\b(steals?|stl\b)\b/i, markets: ["player_steals"], label: "steals" },
-    { re: /\bturnovers?\b/i, markets: ["player_turnovers"], label: "turnovers" },
-    // Narrowed: bare "points"/"pts" matches generic prose like "key points
-    // to watch" / "main points from this matchup". Require a nearby betting
-    // context word (prop, parlay, leg, over, under, line, props, ticket,
-    // numeric line like "25.5") within ~40 chars so it only fires on real
-    // market-lock intent.
-    { re: /\b(points|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points|pts)\b/i, markets: ["player_points"], label: "points" },
-    // Hits+Runs+RBIs (MLB combo) MUST precede the single-stat "hits" entry: the
-    // combo regex matches+blanks the whole "hits + runs + rbis" span, so the
-    // bare "hits" keyword below can't also re-match it. There is no standalone
-    // runs or RBI market, so those words lock nothing on their own.
-    { re: /\bhits?\s*[\+&,]?\s*runs?\s*[\+&,]?\s*(?:and\s+)?rbis?\b|\bh\s*\+\s*r\s*\+\s*rbis?\b/i, markets: ["batter_hits_runs_rbis"], label: "hits+runs+RBIs" },
-    { re: /\bhits?\b/i, markets: ["batter_hits"], label: "hits" },
-    { re: /\btotal bases?\b/i, markets: ["batter_total_bases"], label: "total bases" },
-  ];
+  const MARKET_KEYWORDS: Array<{ re: RegExp; markets: string[]; label: string }> =
+    EXPLICIT_MARKET_LOCK_RULES.map((r) => ({
+      re: r.re,
+      markets: [...r.markets],
+      label: r.label,
+    }));
   // Detect EVERY distinct prop market the user named — not just the first.
   // A request like "mixed parlay of hits and hr" names TWO markets; a plain
   // first-match .find() lets the earlier keyword (home runs) win and the pool
@@ -809,10 +748,9 @@ router.post("/chat", async (req, res): Promise<void> => {
       if (!overlapsKept) matchedMarketKeywords.push(k);
       // Blank the matched span so an overlapping lower-precedence keyword
       // can't re-match THIS text (a separate mention elsewhere still can).
-      scan =
-        scan.slice(0, m.index) +
-        " ".repeat(m[0].length) +
-        scan.slice(m.index + m[0].length);
+      const start = m.index ?? 0;
+      const end = start + m[0]!.length;
+      scan = scan.slice(0, start) + " ".repeat(m[0]!.length) + scan.slice(end);
     }
   }
   const soccerScorerGkAsk = wantsSoccerScorerGoalkeeperPicks(latestUser);
