@@ -384,29 +384,40 @@ export async function buildCoachParlay(opts: {
       inputs.teamScope,
     );
 
-    // Locked market family (TD / yards / …) graded but staged 0 — recover from
-    // the full football skill board (yards, receptions, sacks, TD alts). Skip
-    // the allowlist filter on the recovered ticket so alts can actually land.
+    // Locked market family graded but staged 0 — recover with the SAME allowlist
+    // (more / same-stat `_alternate` posted lines + recovery odds slack).
+    // Never clear allowedMarketKeys or cross-fill another stat family.
     let recoveredNote = "";
-    const skillRecoveryPool = filterPoolForFootballSkillRecovery(
-      askAllowsNcaafPlayerProps(opts.askText)
-        ? inputs.propPool
-        : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
-    );
+    const lockedKeys = marketConstraint.allowedMarketKeys;
+    const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
+    const recoveryPool = isMarketLocked
+      ? filterPropPoolByAskMarkets(
+          askAllowsNcaafPlayerProps(opts.askText)
+            ? inputs.propPool
+            : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
+          lockedKeys,
+        )
+      : filterPoolForFootballSkillRecovery(
+          askAllowsNcaafPlayerProps(opts.askText)
+            ? inputs.propPool
+            : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
+        );
     if (
       shouldRecoverPropsOnlyWithFootballSkillBoard({
         graded: built.propLegsScored,
         staged: picks.length,
         preferredPoolSize: activePropPool.length,
-        skillPoolSize: skillRecoveryPool.length,
+        skillPoolSize: recoveryPool.length,
       })
     ) {
       opts.onStatus?.(
-        `Locked markets missed the quality bar — scoring yards / receptions / sacks alts…`,
+        isMarketLocked
+          ? `Locked market missed the quality bar — retrying same-stat lines / alts…`
+          : `Locked markets missed the quality bar — scoring yards / receptions / sacks alts…`,
       );
       const recovered = await buildFootballPropsOnlyTicket({
         target,
-        pool: skillRecoveryPool,
+        pool: recoveryPool.length ? recoveryPool : activePropPool,
         realOdds: inputs.realOdds,
         teamIdMap,
         signal: opts.signal,
@@ -418,32 +429,32 @@ export async function buildCoachParlay(opts: {
         mlbGameEnv,
         recoveryFill: true,
         onPartialPicks: (partial) => {
-          // Props-only only — do not re-apply the emptied allowlist.
+          // Preserve the original market lock when present.
           opts.onPartialPicks?.(
-            filterPicksByAskMarketConstraint(partial, {
-              ...marketConstraint,
-              allowedMarketKeys: null,
-            }),
+            filterPicksByAskMarketConstraint(partial, marketConstraint),
           );
         },
       });
       const recoveredPicks = filterPicksForAskTeam(
         filterPicksByAskMarketConstraint(
           selectFinalCoachParlayPicks(recovered.picks),
-          { ...marketConstraint, allowedMarketKeys: null },
+          marketConstraint,
         ),
         inputs.teamScope,
       );
       if (recoveredPicks.length > 0) {
         picks = recoveredPicks;
-        recoveredNote = footballSkillRecoveryNote({
-          preferredGraded: built.propLegsScored,
-          staged: picks.length,
-          target,
-        });
+        recoveredNote = isMarketLocked
+          ? recovered.picks.length < target
+            ? `You asked for **${target}** legs in this market — only **${picks.length}** matching real lines cleared recovery odds. No other markets were substituted.`
+            : `Staged **${picks.length}** matching real lines for the requested market (same-stat alts included where posted).`
+          : footballSkillRecoveryNote({
+              preferredGraded: built.propLegsScored,
+              staged: picks.length,
+              target,
+            });
       } else if (built.propLegsScored > 0 && picks.length === 0) {
-        // Skill board also empty — retry the preferred pool with recovery slack
-        // so near-clearing TD/yard alts can still fill seats.
+        // Retry preferred (already allowlisted) pool with recovery slack.
         const softPreferred = await buildFootballPropsOnlyTicket({
           target,
           pool: activePropPool,
@@ -472,13 +483,14 @@ export async function buildCoachParlay(opts: {
         );
         if (softPicks.length > 0) {
           picks = softPicks;
-          recoveredNote = footballSkillRecoveryNote({
-            preferredGraded: built.propLegsScored,
-            staged: picks.length,
-            target,
-          });
+          recoveredNote =
+            softPicks.length < target
+              ? `You asked for **${target}** legs in this market — only **${picks.length}** matching real lines cleared recovery odds. No other markets were substituted.`
+              : `Staged **${picks.length}** matching real lines for the requested market.`;
         } else {
-          recoveredNote = `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`;
+          recoveredNote = isMarketLocked
+            ? `Graded ${built.propLegsScored} props in the requested market — none cleared recovery odds. No other markets were substituted.`
+            : `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`;
         }
       }
     }

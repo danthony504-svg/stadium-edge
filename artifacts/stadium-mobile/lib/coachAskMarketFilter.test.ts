@@ -245,10 +245,14 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
   assert.equal(none.gameLinesOnly, true);
 });
 
-test("rushing yards and passing TDs does not allowlist pass yards", () => {
+test("rushing yards and passing TDs locks both named families (not pass yards)", () => {
   const c = parseCoachAskMarketConstraint("rushing yards and passing TDs");
   assert.equal(c.propsOnly, true);
-  assert.deepEqual(c.allowedMarketKeys?.slice().sort(), ["player_rush_yds"]);
+  const keys = c.allowedMarketKeys?.slice().sort() ?? [];
+  assert.ok(keys.includes("player_rush_yds"));
+  assert.ok(keys.includes("player_anytime_td"));
+  assert.ok(keys.includes("player_pass_tds"));
+  assert.equal(keys.includes("player_pass_yds"), false);
 });
 
 test("passing and receiving yards allowlists both pass and reception yards", () => {

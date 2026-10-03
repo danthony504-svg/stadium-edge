@@ -13,6 +13,7 @@ import {
   askAllowsNcaafPlayerProps,
   askIsCollegeFootballOnly,
 } from "./boardScanPropDelivery.ts";
+import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 
 export type CoachAskMarketConstraint = {
   /** Stage props only — no ML / spread / total game lines. */
@@ -307,21 +308,40 @@ export function parseCoachAskMarketConstraint(
   // No O/U / no totals → game lines only (ML / puck line / spread), never props fill.
   const gameLinesOnly = wantsGameLinesOnlyAsk(t) || excludeTotals;
 
+  // Explicit single/multi-stat lock (all sports) — shared with server chat.
+  // Same-stat `_alternate` rungs remain allowed via canonicalPropMarketKey.
+  const explicit = matchExplicitMarketLocks(t);
+
+  // Football yards compound phrasing ("rushing and passing yards") — dedicated
+  // helpers understand shared trailing "yards". Union with any other explicit
+  // locks (e.g. "rushing yards and TDs") so named families stay locked.
   const rushYds = hasRushYardsAsk(t);
   const recYds = hasRecYardsAsk(t);
   const passYds = hasPassYardsAsk(t);
-
-  if (rushYds || recYds || passYds) {
-    const keys: string[] = [];
-    if (rushYds) keys.push(...RUSH_YARDS_KEYS);
-    if (recYds) keys.push(...REC_YARDS_KEYS);
-    if (passYds) keys.push(...PASS_YARDS_KEYS);
+  if ((rushYds || recYds || passYds) && !gameLinesOnly) {
+    const keys = new Set<string>();
+    if (rushYds) for (const k of RUSH_YARDS_KEYS) keys.add(k);
+    if (recYds) for (const k of REC_YARDS_KEYS) keys.add(k);
+    if (passYds) for (const k of PASS_YARDS_KEYS) keys.add(k);
+    if (explicit) {
+      for (const k of explicit.allowedMarketKeys) keys.add(k);
+    }
     return {
       propsOnly: true,
       gameLinesOnly: false,
       excludeTotals: false,
       maxGames,
-      allowedMarketKeys: keys,
+      allowedMarketKeys: [...keys],
+    };
+  }
+
+  if (explicit && !gameLinesOnly) {
+    return {
+      propsOnly: true,
+      gameLinesOnly: false,
+      excludeTotals: false,
+      maxGames,
+      allowedMarketKeys: [...explicit.allowedMarketKeys],
     };
   }
 
