@@ -69,8 +69,47 @@ test("runClientFightMonteCarlo returns 10k sim with method rates from Sherdog me
   assert.equal(sim.simulations, 2000);
   assert.ok(sim.awayWinProbability > sim.homeWinProbability);
   assert.ok(sim.methodRates);
+  assert.ok(sim.meanTotalRounds != null && sim.meanTotalRounds >= 1 && sim.meanTotalRounds <= 3);
   const metrics = simMetricsFromFightResult(sim);
   assert.ok(metrics.winProbability.away > 0.5);
+});
+
+test("runClientFightMonteCarlo grades total-rounds cover queries", () => {
+  const away = fighter({
+    name: "Mate Kertesz",
+    record: { wins: 10, losses: 2, draws: 0, winPct: 83 },
+    methods: { koWins: 6, tkoWins: 2, subWins: 1, decisionWins: 1 },
+    stats: {
+      strikeAccuracy: 52,
+      strikeLPM: 4.8,
+      takedownAccuracy: 40,
+      takedownAvg: 1.5,
+      submissionAvg: 0.4,
+      finishPct: 75,
+      decisionPct: 15,
+    },
+  });
+  const home = fighter({
+    name: "Cihad Akipa",
+    record: { wins: 4, losses: 4, draws: 0, winPct: 50 },
+    methods: { koWins: 1, tkoWins: null, subWins: 1, decisionWins: 2 },
+  });
+  const sim = runClientFightMonteCarlo({
+    away,
+    home,
+    lean: { side: "Mate Kertesz", edge: 2, reasons: ["record edge"] },
+    simulations: 1500,
+    coverQueries: [
+      { id: "ou-over", kind: "total", line: 2.5, totalSide: "over" },
+      { id: "ou-under", kind: "total", line: 2.5, totalSide: "under" },
+    ],
+    retainOutcomes: true,
+  });
+  assert.ok(sim.coverHitRates);
+  const over = sim.coverHitRates!["ou-over"] ?? 0;
+  const under = sim.coverHitRates!["ou-under"] ?? 0;
+  assert.ok(over > 0 && under > 0);
+  assert.ok(Math.abs(over + under - 1) < 0.02);
 });
 
 test("enrichFightAnalysisWithClientSim fills missing simulation block", () => {

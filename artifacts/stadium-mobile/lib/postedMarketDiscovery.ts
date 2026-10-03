@@ -228,7 +228,13 @@ export function discoverAllPostedGameLines(g: OddsGame): RealOddsEntry[] {
   for (const market of g.markets) {
     const decoded = decodeMarketKey(market.key);
     if (!decoded) continue;
-    const title = marketTitle(decoded);
+    let title = marketTitle(decoded);
+    const sportKey = String(g.sport ?? "").toLowerCase();
+    // UFC/MMA Odds API totals are round O/U — label for Coach/slip clarity.
+    if (sportKey === "ufc" || sportKey === "mma") {
+      if (title === "Total") title = "Total Rounds";
+      else if (title === "Alt Total") title = "Alt Total Rounds";
+    }
     for (const o of market.outcomes ?? []) {
       if (!evalPriceOk(o.price)) continue;
       const pick = pickForOutcome(decoded, teamLabel, o.name, o.point);

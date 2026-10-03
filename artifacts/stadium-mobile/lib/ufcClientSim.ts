@@ -9,12 +9,18 @@ import type {
   FightSimMetrics,
   FightSimResult,
 } from "./api";
+import {
+  deriveCoverHitRatesFromOutcomes,
+  type GameCoverQuery,
+} from "./gameSimScoring.ts";
 
 export type { FightLean };
 
 const SIM_COUNT = 10_000;
+const UFC_DEFAULT_SCHEDULED_ROUNDS = 3;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function normFighter(s: unknown): string {
   return String(s ?? "")
@@ -54,11 +60,26 @@ function sampleMethod(dist: MethodRates): keyof MethodRates {
   return "decision";
 }
 
-function sampleFinishRound(method: keyof MethodRates): number {
+function sampleFinishRound(method: keyof MethodRates, scheduledRounds = 3): number {
   const r = Math.random();
-  if (method === "decision") return 3;
-  if (method === "sub") return r < 0.35 ? 1 : r < 0.7 ? 2 : 3;
-  return r < 0.42 ? 1 : r < 0.75 ? 2 : 3;
+  if (method === "decision") return scheduledRounds;
+  if (scheduledRounds <= 3) {
+    if (method === "sub") return r < 0.35 ? 1 : r < 0.7 ? 2 : 3;
+    return r < 0.42 ? 1 : r < 0.75 ? 2 : 3;
+  }
+  // 5-round: weight earlier finishes but allow R4/R5.
+  if (method === "sub") {
+    if (r < 0.28) return 1;
+    if (r < 0.52) return 2;
+    if (r < 0.72) return 3;
+    if (r < 0.88) return 4;
+    return 5;
+  }
+  if (r < 0.32) return 1;
+  if (r < 0.55) return 2;
+  if (r < 0.72) return 3;
+  if (r < 0.88) return 4;
+  return 5;
 }
 
 function assignRoundWins(
@@ -177,24 +198,43 @@ export function runClientFightMonteCarlo(input: {
   home: FightFighter;
   lean: FightLean | null;
   simulations?: number;
+  coverQueries?: GameCoverQuery[];
+  retainOutcomes?: boolean;
+  scheduledRounds?: number;
 }): FightSimResult {
   const n = input.simulations && input.simulations > 0 ? input.simulations : SIM_COUNT;
   const { away, home } = input;
+  const scheduledRounds = Math.max(
+    3,
+    Math.min(5, Math.round(input.scheduledRounds ?? UFC_DEFAULT_SCHEDULED_ROUNDS)),
+  );
   const awayProb = awayWinProbFromFight(input);
   const awayDist = away.record ? methodDistribution(away.methods, away.record.wins) : null;
   const homeDist = home.record ? methodDistribution(home.methods, home.record.wins) : null;
   const trackMethods = awayDist != null || homeDist != null;
+  const retainOutcomes = input.retainOutcomes !== false;
+  const totalQueries = (input.coverQueries ?? []).filter((q) => q.kind === "total");
 
   let awayWins = 0;
   let homeWins = 0;
+  let totalRoundsSum = 0;
   const awayMethods: MethodRates = { ko: 0, tko: 0, sub: 0, decision: 0 };
   const homeMethods: MethodRates = { ko: 0, tko: 0, sub: 0, decision: 0 };
   const awayRounds = { r1: 0, r2: 0, r3: 0 };
   const homeRounds = { r1: 0, r2: 0, r3: 0 };
+  const homeScores: number[] = [];
+  const awayScores: number[] = [];
+
+  const finishProb = (f: FightFighter): number => {
+    if (f.stats.finishPct != null && Number.isFinite(f.stats.finishPct)) {
+      return clamp(f.stats.finishPct / 100, 0.15, 0.85);
+    }
+    return 0.5;
+  };
 
   for (let i = 0; i < n; i++) {
     const awayWinsFight = Math.random() < awayProb;
-    let finishRound = 3;
+    let finishRound = scheduledRounds;
     let isFinish = false;
 
     if (awayWinsFight) {
@@ -203,18 +243,34 @@ export function runClientFightMonteCarlo(input: {
         const m = sampleMethod(awayDist);
         awayMethods[m] += 1;
         isFinish = m !== "decision";
-        finishRound = isFinish ? sampleFinishRound(m) : 3;
+        finishRound = isFinish ? sampleFinishRound(m, scheduledRounds) : scheduledRounds;
+      } else if (Math.random() < finishProb(away)) {
+        isFinish = true;
+        finishRound = sampleFinishRound("ko", scheduledRounds);
       }
-      assignRoundWins(true, isFinish, finishRound, awayRounds, homeRounds);
+      assignRoundWins(true, isFinish, Math.min(finishRound, 3), awayRounds, homeRounds);
     } else {
       homeWins += 1;
       if (trackMethods && homeDist) {
         const m = sampleMethod(homeDist);
         homeMethods[m] += 1;
         isFinish = m !== "decision";
-        finishRound = isFinish ? sampleFinishRound(m) : 3;
+        finishRound = isFinish ? sampleFinishRound(m, scheduledRounds) : scheduledRounds;
+      } else if (Math.random() < finishProb(home)) {
+        isFinish = true;
+        finishRound = sampleFinishRound("ko", scheduledRounds);
       }
-      assignRoundWins(false, isFinish, finishRound, awayRounds, homeRounds);
+      assignRoundWins(false, isFinish, Math.min(finishRound, 3), awayRounds, homeRounds);
+    }
+
+    const totalRounds = isFinish
+      ? Math.min(finishRound, scheduledRounds)
+      : scheduledRounds;
+    totalRoundsSum += totalRounds;
+    if (retainOutcomes || totalQueries.length > 0) {
+      // Encode total rounds as homeScores so kind:"total" cover queries work.
+      homeScores.push(totalRounds);
+      awayScores.push(0);
     }
   }
 
@@ -240,6 +296,13 @@ export function runClientFightMonteCarlo(input: {
     r3: total > 0 ? round3(r.r3 / total) : 0,
   });
 
+  const outcomes =
+    homeScores.length > 0 ? { homeScores, awayScores } : undefined;
+  const coverHitRates =
+    outcomes && totalQueries.length > 0
+      ? deriveCoverHitRatesFromOutcomes(outcomes, totalQueries, "ufc")
+      : undefined;
+
   return {
     simulations: n,
     awayWinProbability: round3(awayWins / n),
@@ -259,6 +322,9 @@ export function runClientFightMonteCarlo(input: {
           home: normRounds(homeRounds, n),
         }
       : null,
+    meanTotalRounds: round2(totalRoundsSum / n),
+    coverHitRates,
+    outcomes: retainOutcomes ? outcomes : undefined,
   };
 }
 

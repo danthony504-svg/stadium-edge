@@ -98,6 +98,10 @@ const GAME_TOTAL_LINE_RANGE: Record<string, { min: number; max: number }> = {
   nhl: { min: 3.5, max: 9.5 },
   soccer: { min: 1.5, max: 5.5 },
   ncaab: { min: 110, max: 180 },
+  // UFC/MMA totals = total rounds (Odds API limited coverage).
+  ufc: { min: 0.5, max: 5.5 },
+  mma: { min: 0.5, max: 5.5 },
+  tennis: { min: 14, max: 45 },
 };
 
 /** Plausible team-total line bands (not game totals). */

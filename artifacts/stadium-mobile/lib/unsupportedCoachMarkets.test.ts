@@ -58,6 +58,9 @@ test("isUnsupportedUfcMethodRoundAsk detects method / round asks", () => {
   );
   assert.equal(isUnsupportedUfcMethodRoundAsk("will the fight go the distance UFC"), true);
   assert.equal(isUnsupportedUfcMethodRoundAsk("Chiefs moneyline tonight"), false);
+  // Posted total-rounds / O/U rounds are supported when books carry them.
+  assert.equal(isUnsupportedUfcMethodRoundAsk("UFC total rounds Over 2.5"), false);
+  assert.equal(isUnsupportedUfcMethodRoundAsk("4 leg UFC over under rounds"), false);
 });
 
 test("unsupportedUfcMethodRoundReply stays moneyline-honest", () => {
@@ -66,5 +69,6 @@ test("unsupportedUfcMethodRoundReply stays moneyline-honest", () => {
   );
   assert.match(reply, /moneyline/i);
   assert.match(reply, /method/i);
+  assert.match(reply, /total rounds/i);
   assert.doesNotMatch(reply, /I project a KO/i);
 });
