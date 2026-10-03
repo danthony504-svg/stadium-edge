@@ -100,6 +100,7 @@ import {
 } from "./boardPropSimExpansion.ts";
 import {
   fillReservedPropSlots,
+  fillReservedPeriodSlots,
   finalizeFootballPropMixPicks,
   footballSkillPropRank,
   filterNcaafPlayerPropsUnlessAsked,
@@ -854,6 +855,11 @@ export function buildScanResult(
   if (!opts.gameLinesOnly && !opts.propsOnly) {
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
+  // College mix: reserve half/quarter seats so FG alts cannot crowd out period
+  // team markets (1H / Q2 spreads + period team totals).
+  if (opts.collegeTeamMarketStacks && !opts.propsOnly) {
+    picks = fillReservedPeriodSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+  }
   // Team props / game-lines-only: one side per team before top-up (no FG+Q2
   // Browns). College team-market boards intentionally keep period + team-total
   // stacks so "7 leg college" can fill toward N from qualified team markets.
@@ -870,9 +876,9 @@ export function buildScanResult(
       opts.target,
       opts.varietySeed,
       opts.legsPerGameCap,
-      opts.gameLinesOnly
+      opts.gameLinesOnly || opts.collegeTeamMarketStacks
         ? {
-            collapseSameTeamSides: !opts.collegeTeamMarketStacks,
+            collapseSameTeamSides: !!(opts.gameLinesOnly && !opts.collegeTeamMarketStacks),
             collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
           }
         : undefined,
@@ -880,6 +886,9 @@ export function buildScanResult(
     // Top-up may have added game lines first on short tickets — enforce prop mix again.
     if (!opts.gameLinesOnly && !opts.propsOnly) {
       picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+    }
+    if (opts.collegeTeamMarketStacks && !opts.propsOnly) {
+      picks = fillReservedPeriodSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
     }
   }
   // Football mix finals: hold reserved prop seats while props are incomplete;
