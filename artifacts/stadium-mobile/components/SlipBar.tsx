@@ -22,6 +22,7 @@ import { useColors } from "@/hooks/useColors";
 import { formatAmerican, payout } from "@/lib/format";
 import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import { saveSlipToPhotos } from "@/lib/slipImage";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
 if (
   Platform.OS === "android" &&
@@ -58,6 +59,7 @@ export const SLIP_BAR_CLEARANCE = 76;
 // safe-area padding so content isn't hidden behind the floating SlipBar.
 export function useSlipClearance() {
   const { legs } = useBetSlip();
+  if (!SLIP_UI_ENABLED) return 0;
   return legs.length > 0 ? SLIP_BAR_CLEARANCE : 0;
 }
 
@@ -70,6 +72,7 @@ export function useSlipClearance() {
 // last message. Only when the slip has legs (bar is visible).
 export function useCoachSlipClearance() {
   const { legs } = useBetSlip();
+  if (!SLIP_UI_ENABLED) return 0;
   return legs.length > 0 ? SLIP_BAR_CLEARANCE : 0;
 }
 
@@ -110,7 +113,7 @@ function SlipBarBody({
   const onCoach = pathname === "/coach" || pathname.startsWith("/coach/");
   const hiddenRoute = pathname === "/slip" || pathname.startsWith("/slip/");
 
-  if (legs.length === 0 || hiddenRoute) return null;
+  if (!SLIP_UI_ENABLED || legs.length === 0 || hiddenRoute) return null;
   // On any screen OTHER than Coach, the keyboard (e.g. a search field) owns the
   // bottom while typing — step aside so we never cover what the user is editing.
   if (!onCoach && kbVisible) return null;

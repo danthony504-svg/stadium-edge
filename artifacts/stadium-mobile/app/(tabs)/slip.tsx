@@ -1,6 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useQueries } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import {
@@ -39,6 +39,7 @@ import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/for
 import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import { isGameLevelMarket, parsePropLeg } from "@/lib/propLegParse";
 import { saveSlipToPhotos } from "@/lib/slipImage";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
 // A game is considered "over" once it has been live longer than any realistic
 // game runs. Generous so we never clear a slip whose game is still in play.
@@ -427,6 +428,13 @@ function SavedSlipCard({
 }
 
 export default function SlipScreen() {
+  if (!SLIP_UI_ENABLED) {
+    return <Redirect href="/coach" />;
+  }
+  return <SlipScreenActive />;
+}
+
+function SlipScreenActive() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();

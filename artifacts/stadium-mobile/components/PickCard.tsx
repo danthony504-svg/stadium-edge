@@ -35,6 +35,7 @@ import {
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { LockedAiMetricsTeaser, useAiMetricsLocked } from "@/components/LockedAiMetrics";
 import { FONT } from "@/components/ui";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
 export type AltRungOption = {
   side: string;
@@ -1007,6 +1008,7 @@ export function PickCard({
         </View>
       ) : null}
 
+      {SLIP_UI_ENABLED ? (
       <Pressable
         onPress={onToggle}
         style={({ pressed }) => ({
@@ -1038,6 +1040,7 @@ export function PickCard({
           {added ? "Added — tap to remove" : "Add to slip"}
         </Text>
       </Pressable>
+      ) : null}
     </View>
   );
 }

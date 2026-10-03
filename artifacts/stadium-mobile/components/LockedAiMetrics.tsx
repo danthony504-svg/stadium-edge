@@ -8,7 +8,8 @@ import { useColors } from "@/hooks/useColors";
 
 /**
  * Soft-lock AI Grade / Confidence / Edge on pick cards for free users.
- * Pick text, odds, and Add to slip stay visible (Coach remains usable).
+ * Pick text and odds stay visible (Coach remains usable).
+ * Add to slip is gated by SLIP_UI_ENABLED.
  */
 export function useAiMetricsLocked(): boolean {
   const sub = useSubscriptionOptional();
