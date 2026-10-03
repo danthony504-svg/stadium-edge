@@ -66,6 +66,7 @@ test("rememberParlayBuild tracks lead player for variety context", () => {
   const ctx = recentParlayVarietyContext();
   assert.equal(ctx.recentLeadPlayers[0], parlayPlayerKey({ player: "Allisha Gray" }));
   assert.equal(ctx.recentTickets[0]!.length, 2);
+  assert.ok(ctx.recentSignatureCounts.size >= 1);
 });
 
 test("recentParlayVarietyContext caps history at MAX_PARLAY_BUILD_HISTORY", () => {

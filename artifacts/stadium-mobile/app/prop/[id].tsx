@@ -38,6 +38,7 @@ import { formatAmerican, formatGameTime } from "@/lib/format";
 import { FactorGrid } from "@/components/FactorCards";
 import { InjuryReport } from "@/components/InjuryReport";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 import { pickPlayerSearchResult } from "@/lib/playerSearchPick";
 import {
   combinePickScore,
@@ -1261,6 +1262,7 @@ export default function PropDetailScreen() {
         </Section>
 
         {/* Add to slip */}
+        {SLIP_UI_ENABLED ? (
         <Pressable
           onPress={onToggle}
           style={({ pressed }) => ({
@@ -1291,9 +1293,10 @@ export default function PropDetailScreen() {
             {added ? "Added — tap to remove" : "Add to slip"}
           </Text>
         </Pressable>
+        ) : null}
       </ScrollView>
 
-      <SlipBar pathname="/prop" />
+      {SLIP_UI_ENABLED ? <SlipBar pathname="/prop" /> : null}
     </View>
   );
 }

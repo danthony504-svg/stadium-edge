@@ -33,6 +33,7 @@ import {
   type CoachParlayVarietyContext,
 } from "./parlayVarietyMemory.ts";
 import { wouldRepeatMarketLadder, dedupePicksByMarketLadder } from "./marketLadderKey.ts";
+import { pickUsageSignature } from "./pickUsageSignature.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
@@ -83,6 +84,7 @@ type AssemblyConfig = {
   recentLegKeys?: Set<string>;
   recentLeadPlayers?: readonly string[];
   recentPlayerCounts?: ReadonlyMap<string, number>;
+  recentSignatureCounts?: ReadonlyMap<string, number>;
   lineShoppingBias: number;
   legsPerGameCap?: number | null;
   /** Skip recent legs entirely while assembling (all-new asks). */
@@ -258,6 +260,18 @@ function recentLegPenalty(
   return 38;
 }
 
+/** Soft penalty when this market-shape (alt pattern) was overused recently. */
+function recentSignaturePenalty(
+  leg: BoardScoredLeg,
+  signatureCounts?: ReadonlyMap<string, number>,
+): number {
+  if (!signatureCounts?.size) return 0;
+  const n = signatureCounts.get(pickUsageSignature(leg.pick)) ?? 0;
+  if (n <= 1) return 0;
+  if (n === 2) return 16;
+  return Math.min(44, 10 + n * 8);
+}
+
 function lineShoppingTieBonus(
   leg: BoardScoredLeg,
   config: AssemblyConfig,
@@ -319,7 +333,8 @@ function pickDiverseLegsFromPool(
         row.rankScore -
         corr * config.diversityWeight -
         samePlayerRepeatPenalty(row, poolCopy, ticket, selected) -
-        recentLegPenalty(row, poolCopy, ticket, selected, config.recentLegKeys) +
+        recentLegPenalty(row, poolCopy, ticket, selected, config.recentLegKeys) -
+        recentSignaturePenalty(row, config.recentSignatureCounts) +
         lineShoppingTieBonus(row, config);
 
       if (effective > bestScore) {
@@ -351,17 +366,21 @@ function pickDiverseLegsFromPool(
       const repeatAlt = samePlayerRepeatPenalty(alt, poolCopy, ticket, selected);
       const recentChosen = recentLegPenalty(chosen, poolCopy, ticket, selected, config.recentLegKeys);
       const recentAlt = recentLegPenalty(alt, poolCopy, ticket, selected, config.recentLegKeys);
+      const sigChosen = recentSignaturePenalty(chosen, config.recentSignatureCounts);
+      const sigAlt = recentSignaturePenalty(alt, config.recentSignatureCounts);
       const effChosen =
         chosen.rankScore -
         corrChosen * config.diversityWeight -
         repeatChosen -
-        recentChosen +
+        recentChosen -
+        sigChosen +
         lineShoppingTieBonus(chosen, config);
       const effAlt =
         alt.rankScore -
         corrAlt * config.diversityWeight -
         repeatAlt -
-        recentAlt +
+        recentAlt -
+        sigAlt +
         lineShoppingTieBonus(alt, config);
       if (effAlt > effChosen && Math.abs((alt.edgePct ?? 0) - chosenEdge) <= NEAR_EQUAL_TICKET_EDGE_PCT) {
         bestIdx = i;
@@ -686,6 +705,7 @@ function candidateVarietyPenalty(
   const recentTickets = opts.recentTickets ?? [];
   const recentLeads = opts.recentLeadPlayers ?? [];
   const playerCounts = opts.recentPlayerCounts;
+  const signatureCounts = opts.recentSignatureCounts;
 
   for (let i = 0; i < recentTickets.length; i++) {
     const recent = recentTickets[i]!;
@@ -694,6 +714,20 @@ function candidateVarietyPenalty(
     penalty += overlap * recency * 52;
     if (overlap >= 1) penalty += 90 * recency;
     else if (overlap > MAX_RECENT_TICKET_OVERLAP) penalty += (overlap - MAX_RECENT_TICKET_OVERLAP) * 40 * recency;
+  }
+
+  // Soft-penalize tickets that lean on overused market shapes (same alt pattern
+  // with a different player/team). O(legs) Map gets — no pool rescan.
+  if (signatureCounts?.size) {
+    const seen = new Set<string>();
+    for (const p of candidate.picks) {
+      const sig = pickUsageSignature(p);
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      const n = signatureCounts.get(sig) ?? 0;
+      if (n <= 1) continue;
+      penalty += n === 2 ? 14 : Math.min(36, 8 + n * 6);
+    }
   }
 
   const lead = candidate.picks[0];
@@ -812,6 +846,7 @@ function generateTicketCandidates(
       recentLegKeys: recentFlat.size ? recentFlat : undefined,
       recentLeadPlayers: opts.recentLeadPlayers,
       recentPlayerCounts: opts.recentPlayerCounts,
+      recentSignatureCounts: opts.recentSignatureCounts,
       lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
       legsPerGameCap: opts.legsPerGameCap,
       hardAvoidRecentLegs: !!opts.hardAvoidRecentLegs,

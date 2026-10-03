@@ -6,6 +6,7 @@ import { View } from "react-native";
 
 import { NavMenu } from "@/components/NavMenu";
 import { SlipBar } from "@/components/SlipBar";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
 const DARK_BG = "#0f172a";
 
@@ -42,7 +43,7 @@ export default function TabLayout() {
       </Stack>
       {tabsFocused ? (
         <>
-          <SlipBar />
+          {SLIP_UI_ENABLED ? <SlipBar /> : null}
           <NavMenu />
         </>
       ) : null}

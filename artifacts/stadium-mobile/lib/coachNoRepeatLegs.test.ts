@@ -243,3 +243,87 @@ test("hardAvoidRecentLegs skips Yankees/Padres from prior ticket when alternativ
   }
   assert.ok(picks.length >= 3, `expected fresh legs, got ${picks.length}`);
 });
+test("overused F5 +0.5 signature soft-avoids when fresher market shapes exist", () => {
+  clearParlayVarietyMemory();
+  // Two prior tickets both used F5 dog +0.5 — different teams, same shape.
+  rememberParlayBuild([
+    {
+      game: "New York Yankees @ Tampa Bay Rays",
+      market: "F5 Run Line",
+      pick: "Yankees +0.5",
+      odds: -120,
+      isProp: false,
+    },
+  ] as never);
+  rememberParlayBuild([
+    {
+      game: "San Diego Padres @ Milwaukee Brewers",
+      market: "F5 Run Line",
+      pick: "Padres +0.5",
+      odds: -115,
+      isProp: false,
+    },
+  ] as never);
+  const ctx = recentParlayVarietyContext();
+  const f5Sig = "game|f5:spread|plus|0.5";
+  assert.equal(ctx.recentSignatureCounts.get(f5Sig), 2);
+
+  const pool: BoardScoredLeg[] = [
+    scored(
+      {
+        game: "Chicago White Sox @ Cleveland Guardians",
+        market: "F5 Run Line",
+        pick: "Sox +0.5",
+        odds: -130,
+      },
+      99,
+    ),
+    scored(
+      {
+        game: "Los Angeles Dodgers @ Arizona Diamondbacks",
+        market: "Moneyline",
+        pick: "Dodgers",
+        odds: -140,
+      },
+      88,
+    ),
+    scored(
+      {
+        game: "Atlanta Braves @ Philadelphia Phillies",
+        market: "Total",
+        pick: "Over 8.5",
+        odds: -110,
+      },
+      86,
+    ),
+    scored(
+      {
+        game: "Boston Red Sox @ Toronto Blue Jays",
+        market: "Spread",
+        pick: "Red Sox -1.5",
+        odds: -105,
+      },
+      84,
+    ),
+    scored(
+      {
+        game: "Houston Astros @ Seattle Mariners",
+        market: "Moneyline",
+        pick: "Astros",
+        odds: -120,
+      },
+      82,
+    ),
+  ];
+  const { picks } = buildIndependentCoachTicket(pool, 3, {
+    varietySeed: "sig-variety",
+    ...ctx,
+  });
+  // Prefer non-F5 shapes when the +0.5 F5 dog pattern is already overused.
+  const f5Count = picks.filter((p) => /f5/i.test(p.market) && /\+0\.5/.test(p.pick)).length;
+  assert.ok(
+    f5Count === 0,
+    `expected no overused F5 +0.5 when alternatives exist, got ${picks.map((p) => `${p.market}:${p.pick}`).join(" | ")}`,
+  );
+  assert.ok(picks.length >= 3, `expected full ticket, got ${picks.length}`);
+});

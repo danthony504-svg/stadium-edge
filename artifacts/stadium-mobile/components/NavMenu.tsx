@@ -19,6 +19,7 @@ import {
   plansMenuItem,
   shouldShowOtaDiagnosticsMenuItem,
 } from "@/lib/navMenuAuth";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
 
@@ -31,7 +32,9 @@ const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
   { label: "Simulator", route: "/simulator", icon: "cpu" },
   { label: "Edge Lock", route: "/arbitrage", icon: "repeat" },
   { label: "+500 Steals", route: "/steals", icon: "target" },
-  { label: "Slip", route: "/slip", icon: "layers" },
+  ...(SLIP_UI_ENABLED
+    ? [{ label: "Slip", route: "/slip", icon: "layers" as FeatherName }]
+    : []),
   { label: "Model Report", route: "/report", icon: "bar-chart-2" },
 ];
 
@@ -102,7 +105,7 @@ export function NavMenu() {
         })}
       >
         <Feather name={open ? "x" : "menu"} size={20} color={colors.foreground} />
-        {legs.length > 0 && !open ? (
+        {SLIP_UI_ENABLED && legs.length > 0 && !open ? (
           <View
             style={{
               position: "absolute",

@@ -39,6 +39,7 @@ import {
   injuryEdge,
   type InjuryImpactTier,
 } from "@/lib/injuries";
+import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 
@@ -723,6 +724,7 @@ function TeamPickView() {
         ) : null}
 
         {/* Add to slip */}
+        {SLIP_UI_ENABLED ? (
         <Pressable
           onPress={onToggle}
           style={({ pressed }) => ({
@@ -753,9 +755,10 @@ function TeamPickView() {
             {added ? "Added — tap to remove" : "Add to slip"}
           </Text>
         </Pressable>
+        ) : null}
       </ScrollView>
 
-      <SlipBar pathname="/team-pick" />
+      {SLIP_UI_ENABLED ? <SlipBar pathname="/team-pick" /> : null}
     </View>
   );
 }
@@ -1172,6 +1175,7 @@ function TotalMatchupView() {
         ) : null}
 
         {/* Add to slip */}
+        {SLIP_UI_ENABLED ? (
         <Pressable
           onPress={onToggle}
           style={({ pressed }) => ({
@@ -1202,9 +1206,10 @@ function TotalMatchupView() {
             {added ? "Added — tap to remove" : "Add to slip"}
           </Text>
         </Pressable>
+        ) : null}
       </ScrollView>
 
-      <SlipBar pathname="/team-pick" />
+      {SLIP_UI_ENABLED ? <SlipBar pathname="/team-pick" /> : null}
     </View>
   );
 }

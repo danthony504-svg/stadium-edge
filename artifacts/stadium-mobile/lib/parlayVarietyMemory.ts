@@ -2,6 +2,7 @@
 
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry } from "@/lib/api";
+import { pickUsageSignature } from "./pickUsageSignature.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -35,6 +36,8 @@ export function parlayPlayerKey(p: { player?: string | null }): string {
 
 export type ParlayBuildRecord = {
   legKeys: string[];
+  /** Market-shape signatures (no player/team) — tracks alt-pattern reuse. */
+  signatures: string[];
   legCount: number;
   leadPlayerKey: string;
   leadLegKey: string;
@@ -50,6 +53,11 @@ export type CoachParlayVarietyContext = {
   recentTickets: readonly (readonly string[])[];
   recentLeadPlayers: readonly string[];
   recentPlayerCounts: ReadonlyMap<string, number>;
+  /**
+   * How often each market-shape signature appeared across recent tickets
+   * (player/team stripped). Soft-penalize overused alt patterns without a scan.
+   */
+  recentSignatureCounts: ReadonlyMap<string, number>;
   /** Tickets grouped by leg count — used to avoid smaller sizes prefixing larger ones. */
   recentTicketsByLegCount: ReadonlyMap<number, readonly (readonly string[])[]>;
   /**
@@ -110,6 +118,20 @@ function playerCountsFromBuilds(builds: ParlayBuildRecord[]): Map<string, number
   return counts;
 }
 
+/** Count market-shape signatures across builds (once per signature per ticket). */
+function signatureCountsFromBuilds(builds: ParlayBuildRecord[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const build of builds) {
+    const seen = new Set<string>();
+    for (const sig of build.signatures) {
+      if (!sig || seen.has(sig)) continue;
+      seen.add(sig);
+      counts.set(sig, (counts.get(sig) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
 export function askWantsAllNewPicks(text?: string | null): boolean {
   const t = String(text ?? "")
     .toLowerCase()
@@ -133,6 +155,7 @@ export function recentParlayVarietyContext(): CoachParlayVarietyContext {
       .map((b) => b.leadPlayerKey)
       .filter((p) => p.length > 0),
     recentPlayerCounts: playerCountsFromBuilds(recentBuilds),
+    recentSignatureCounts: signatureCountsFromBuilds(recentBuilds),
     recentTicketsByLegCount: ticketsByLegCountFromBuilds(recentBuilds),
   };
 }
@@ -167,9 +190,11 @@ export function ticketOverlapRatio(
 export function rememberParlayBuild(picks: ParsedPick[]): void {
   if (!picks.length) return;
   const legKeys = picks.map((p) => parlayLegKey(p));
+  const signatures = picks.map((p) => pickUsageSignature(p));
   const lead = picks[0]!;
   const record: ParlayBuildRecord = {
     legKeys,
+    signatures,
     legCount: picks.length,
     leadPlayerKey: parlayPlayerKey(lead),
     leadLegKey: parlayLegKey(lead),
@@ -179,6 +204,18 @@ export function rememberParlayBuild(picks: ParsedPick[]): void {
     record,
     ...recentBuilds.filter((b) => b.legKeys.join("||") !== fingerprint),
   ].slice(0, MAX_PARLAY_BUILD_HISTORY);
+}
+
+/** How many recent tickets reused this market-shape signature. */
+export function pickUsageCount(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+  player?: string | null;
+  propSide?: string | null;
+}): number {
+  const sig = pickUsageSignature(pick);
+  return signatureCountsFromBuilds(recentBuilds).get(sig) ?? 0;
 }
 
 /** Test helper — clear session memory. */

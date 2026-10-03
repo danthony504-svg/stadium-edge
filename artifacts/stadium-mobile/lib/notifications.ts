@@ -11,6 +11,7 @@ import {
   unregisterPushToken,
   type NotifPrefs,
 } from "./api";
+import { SLIP_UI_ENABLED } from "./slipUi";
 
 // Re-export the authed HTTP helpers under the names the settings UI consumes.
 export type { NotifPrefs };
@@ -140,7 +141,7 @@ export async function addNotificationResponseListener(
       case "result":
       case "reminder":
       case "oddsMovement":
-        navigate("/slip");
+        navigate(SLIP_UI_ENABLED ? "/slip" : "/coach");
         break;
       case "upsetAlert":
         // Upset Watch card lives on the home screen.
