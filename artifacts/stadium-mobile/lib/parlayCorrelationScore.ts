@@ -25,6 +25,63 @@ function isGameSideLeg(p: CorrelationPick): boolean {
   return !p.isProp && /moneyline|spread|total|run line|puck line/i.test(p.market);
 }
 
+function pickLineNumber(pick: string): number | null {
+  const m = String(pick ?? "").match(/([+-]?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function teamNickForCorr(name: string): string {
+  return String(name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .pop() ?? "";
+}
+
+/** Same-team team-total / alt-spread ladders — keep candidates, heavy soft penalty. */
+function sameTeamNearIdenticalLadder(
+  a: CorrelationPick,
+  b: CorrelationPick,
+): boolean {
+  const am = String(a.market ?? "").toLowerCase();
+  const bm = String(b.market ?? "").toLowerCase();
+  const aTeamTotal = /team total/.test(am);
+  const bTeamTotal = /team total/.test(bm);
+  const aSpread = /spread|run line|puck line/.test(am) && !aTeamTotal;
+  const bSpread = /spread|run line|puck line/.test(bm) && !bTeamTotal;
+  if (!(aTeamTotal && bTeamTotal) && !(aSpread && bSpread)) return false;
+
+  const aLine = pickLineNumber(a.pick);
+  const bLine = pickLineNumber(b.pick);
+  if (aLine == null || bLine == null) return false;
+  // Near-identical ladder rungs (within 7 pts for spreads / 10 for team totals).
+  const maxDelta = aTeamTotal ? 10 : 7;
+  if (Math.abs(aLine - bLine) > maxDelta) return false;
+
+  const aTokens = String(a.pick ?? "")
+    .toLowerCase()
+    .replace(/\b(over|under|o|u)\b/g, " ")
+    .replace(/[+-]?\d+(?:\.\d+)?/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const bTokens = String(b.pick ?? "")
+    .toLowerCase()
+    .replace(/\b(over|under|o|u)\b/g, " ")
+    .replace(/[+-]?\d+(?:\.\d+)?/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const aNick = teamNickForCorr(aTokens.join(" "));
+  const bNick = teamNickForCorr(bTokens.join(" "));
+  return !!aNick && aNick === bNick;
+}
+
 /** Niche stat props (SB, etc.) — low volume, high variance; cap per ticket. */
 const THIN_PROP_MARKET_RE =
   /\b(stolen bases?|steals?\b|first (td|basket|goal)|double[- ]?double)\b/i;
@@ -67,16 +124,18 @@ export function legsPerGameCapForAsk(
     collegeTeamMarketStacks?: boolean;
   },
 ): number | null {
+  // Bare college mix is not gameLinesOnly, but still needs FG+Q2+team-total
+  // seats per game so "7 leg college" can fill from real posted team markets.
+  if (opts?.collegeTeamMarketStacks) {
+    const games = Math.max(1, opts?.maxGames ?? 2);
+    const base = Math.max(maxLegsPerGame(target), Math.ceil(target / games));
+    return Math.max(base, Math.min(target, 4));
+  }
   if (!opts?.gameLinesOnly && (opts?.maxGames == null || opts.maxGames <= 0)) {
     return null;
   }
   const games = Math.max(1, opts?.maxGames ?? 2);
-  const base = Math.max(maxLegsPerGame(target), Math.ceil(target / games));
-  if (opts?.collegeTeamMarketStacks) {
-    // Enough seats for spread + period spread + team total (+ alt) per game.
-    return Math.max(base, Math.min(target, 4));
-  }
-  return base;
+  return Math.max(maxLegsPerGame(target), Math.ceil(target / games));
 }
 
 /**
@@ -241,7 +300,15 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
       const sameLeg =
         leg.market.toLowerCase() === candidate.market.toLowerCase() &&
         leg.pick.toLowerCase() === candidate.pick.toLowerCase();
-      penalty += sameLeg ? 22 : 14;
+      if (sameLeg) {
+        penalty += 22;
+      } else if (sameTeamNearIdenticalLadder(leg, candidate)) {
+        // Keep alt rungs as separate candidates, but do not fill a deep ask
+        // with several nearly identical same-team ladder lines.
+        penalty += 28;
+      } else {
+        penalty += 14;
+      }
       continue;
     }
 

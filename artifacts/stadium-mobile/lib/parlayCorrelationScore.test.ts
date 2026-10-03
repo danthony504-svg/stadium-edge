@@ -76,12 +76,29 @@ test("legsPerGameCapForAsk keeps college team stacks at ≥4 seats", () => {
     legsPerGameCapForAsk(7, { gameLinesOnly: true, collegeTeamMarketStacks: true }),
     4,
   );
+  // Bare college mix is NOT gameLinesOnly — stacks still raise the floor.
+  assert.equal(
+    legsPerGameCapForAsk(7, { gameLinesOnly: false, collegeTeamMarketStacks: true }),
+    4,
+  );
   assert.equal(legsPerGameCapForAsk(7, { gameLinesOnly: true }), 4);
   assert.equal(legsPerGameCapForAsk(5, { gameLinesOnly: true }), 3);
   assert.equal(
     legsPerGameCapForAsk(5, { gameLinesOnly: true, collegeTeamMarketStacks: true }),
     4,
   );
+  assert.equal(legsPerGameCapForAsk(7, { gameLinesOnly: false }), null);
+});
+
+test("near-identical same-team team-total alts get heavy correlation penalty", () => {
+  const g = "Boston College Eagles @ SMU Mustangs";
+  const main = leg(g, "Team Total", "SMU Mustangs Over 24.5");
+  const nearAlt = leg(g, "Alt Team Total", "SMU Mustangs Over 27.5");
+  const farAlt = leg(g, "Alt Team Total", "SMU Mustangs Over 45.5");
+  const otherTeam = leg(g, "Team Total", "Boston College Eagles Over 17.5");
+  assert.ok(parlayCorrelationPenalty(nearAlt, [main]) >= 28);
+  assert.ok(parlayCorrelationPenalty(farAlt, [main]) < 28);
+  assert.ok(parlayCorrelationPenalty(otherTeam, [main]) < 28);
 });
 
 test("props do not consume the per-game hard cap", () => {

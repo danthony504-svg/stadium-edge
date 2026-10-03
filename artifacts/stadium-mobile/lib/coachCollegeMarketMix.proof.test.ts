@@ -366,19 +366,16 @@ test("proof: per-game caps still block unsafe over-stacking", () => {
   );
 });
 
-test("proof: #579 bare-college mix leaves legsPerGameCap null (uses default 2 + progressive)", () => {
-  // Documented interaction: #578 raised floor (≥4) only when gameLinesOnly.
-  // #579 bare college is NOT gameLinesOnly, so staging starts at default 2 and
-  // top-up progressiveLegsPerGameRelaxation(college stacks) climbs toward 5.
+test("proof: #579 bare-college mix raises legsPerGameCap via college stacks (≥4)", () => {
+  // Bare college is NOT gameLinesOnly, but collegeTeamMarketStacks still
+  // raises the per-game floor so FG+Q2+team-total fills can reach N.
   const c = parseCoachAskMarketConstraint("10 leg college");
   assert.equal(c.gameLinesOnly, false);
-  assert.equal(
-    legsPerGameCapForAsk(10, {
-      gameLinesOnly: c.gameLinesOnly,
-      collegeTeamMarketStacks: true,
-    }),
-    null,
-  );
+  const cap = legsPerGameCapForAsk(10, {
+    gameLinesOnly: c.gameLinesOnly,
+    collegeTeamMarketStacks: true,
+  });
+  assert.ok(cap != null && cap >= 4, `expected ≥4 college stack seats, got ${cap}`);
   assert.equal(maxLegsPerGame(10), 2);
 });
 
