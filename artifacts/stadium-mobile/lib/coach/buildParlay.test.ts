@@ -57,3 +57,17 @@ test("7-leg reserved prop slots leave exactly 3 game-line preview capacity", () 
   assert.equal(propSlots, 4);
   assert.equal(nonPropCap, 3);
 });
+
+test("props-only empty quality bar recovers via football skill board (yards/rec/sacks)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join } = await import("node:path");
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "buildParlay.ts"),
+    "utf8",
+  );
+  assert.match(src, /shouldRecoverPropsOnlyWithFootballSkillBoard/);
+  assert.match(src, /filterPoolForFootballSkillRecovery/);
+  assert.match(src, /footballSkillRecoveryNote/);
+  assert.match(src, /yards \/ receptions \/ sacks/);
+});
