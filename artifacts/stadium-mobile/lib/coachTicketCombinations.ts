@@ -32,6 +32,7 @@ import {
   ticketOverlapRatio,
   type CoachParlayVarietyContext,
 } from "./parlayVarietyMemory.ts";
+import { wouldRepeatMarketLadder, dedupePicksByMarketLadder } from "./marketLadderKey.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
@@ -84,6 +85,8 @@ type AssemblyConfig = {
   recentPlayerCounts?: ReadonlyMap<string, number>;
   lineShoppingBias: number;
   legsPerGameCap?: number | null;
+  /** Skip recent legs entirely while assembling (all-new asks). */
+  hardAvoidRecentLegs?: boolean;
 };
 
 /** Per-leg-count optimization — different pools, weights, and assembly for each size. */
@@ -303,6 +306,13 @@ function pickDiverseLegsFromPool(
       if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
       if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
       if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
+      if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
+      if (
+        config.hardAvoidRecentLegs &&
+        config.recentLegKeys?.has(parlayLegKey(row.pick))
+      ) {
+        continue;
+      }
 
       const corr = parlayCorrelationPenalty(row.pick, onTicket);
       let effective =
@@ -328,6 +338,13 @@ function pickDiverseLegsFromPool(
       if (wouldExceedMaxLegsPerGame(alt.pick, [...ticket, ...selected], maxPerGame)) continue;
       if (wouldRepeatPlayerProp(alt.pick, [...ticket, ...selected])) continue;
       if (wouldExceedMaxPropsPerGame(alt.pick, [...ticket, ...selected], maxProps)) continue;
+      if (wouldRepeatMarketLadder(alt.pick, [...ticket, ...selected])) continue;
+      if (
+        config.hardAvoidRecentLegs &&
+        config.recentLegKeys?.has(parlayLegKey(alt.pick))
+      ) {
+        continue;
+      }
       const corrChosen = parlayCorrelationPenalty(chosen.pick, [...ticket, ...selected]);
       const corrAlt = parlayCorrelationPenalty(alt.pick, [...ticket, ...selected]);
       const repeatChosen = samePlayerRepeatPenalty(chosen, poolCopy, ticket, selected);
@@ -797,6 +814,7 @@ function generateTicketCandidates(
       recentPlayerCounts: opts.recentPlayerCounts,
       lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
       legsPerGameCap: opts.legsPerGameCap,
+      hardAvoidRecentLegs: !!opts.hardAvoidRecentLegs,
     };
     const picks = assembleBalancedDiverseTicket(
       qualifying,
@@ -898,6 +916,8 @@ function pickBestDistinctCandidate(
   if (!recentTickets.length) return sorted[0]!;
 
   const qualityFloor = sorted[0]!.qualityScore - 4;
+  const maxOverlap = opts.hardAvoidRecentLegs ? 0 : MAX_RECENT_TICKET_OVERLAP;
+  const overlapWeight = opts.hardAvoidRecentLegs ? 80 : 25;
 
   for (const c of sorted) {
     if (c.qualityScore < qualityFloor) break;
@@ -906,14 +926,14 @@ function pickBestDistinctCandidate(
 
   for (const c of sorted) {
     if (c.qualityScore < qualityFloor) break;
-    if (maxRecentOverlap(c, recentTickets) <= MAX_RECENT_TICKET_OVERLAP) return c;
+    if (maxRecentOverlap(c, recentTickets) <= maxOverlap) return c;
   }
 
   const viable = sorted.filter((c) => c.qualityScore >= qualityFloor);
   const viablePool = viable.length ? viable : sorted;
   const diversePick = [...viablePool].sort((a, b) => {
-    const scoreA = candidateTotalScore(a) - maxRecentOverlap(a, recentTickets) * 25;
-    const scoreB = candidateTotalScore(b) - maxRecentOverlap(b, recentTickets) * 25;
+    const scoreA = candidateTotalScore(a) - maxRecentOverlap(a, recentTickets) * overlapWeight;
+    const scoreB = candidateTotalScore(b) - maxRecentOverlap(b, recentTickets) * overlapWeight;
     return scoreB - scoreA;
   })[0];
   if (diversePick) return diversePick;
@@ -947,15 +967,27 @@ export function buildIndependentCoachTicket(
   target: number,
   opts: CoachTicketBuildOpts,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
-  const qualifying = qualifyingScoredLegs(scored);
-  const candidates = generateTicketCandidates(scored, target, opts);
+  const recentFlat = new Set((opts.recentTickets ?? []).flatMap((r) => [...r]));
+  let workScored = scored;
+  if (opts.hardAvoidRecentLegs && recentFlat.size) {
+    const fresh = scored.filter((leg) => !recentFlat.has(parlayLegKey(leg.pick)));
+    // Prefer a fresh-only pool whenever any alternatives exist. Honest shortfall
+    // beats replaying Yankees/Padres on an "all new picks" ask.
+    if (fresh.length > 0) workScored = fresh;
+  }
+
+  const qualifying = qualifyingScoredLegs(workScored);
+  const candidates = generateTicketCandidates(workScored, target, opts);
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
     candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),
-    extra: { candidateCount: candidates.length },
+    extra: { candidateCount: candidates.length, hardAvoid: !!opts.hardAvoidRecentLegs },
   });
   const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
-  const picks = chosen?.picks ?? [];
+  // Hard ban: never leave two rungs of the same market ladder on one ticket
+  // (phone: Colts +4.5 and Colts +3.5 1H alt spreads).
+  const picks = dedupePicksByMarketLadder(chosen?.picks ?? []);
+
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
     candidateId: chosen

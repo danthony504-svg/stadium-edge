@@ -109,6 +109,7 @@ import {
   isFootballHeavyPickList,
   shouldKeepAwaitingPropSlots,
 } from "./boardScanPropDelivery.ts";
+import { dedupePicksByMarketLadder } from "./marketLadderKey.ts";
 import { interleaveSidesWithProps } from "./boardMarketPools.ts";
 import {
   boardScanGamePhaseBudgetMs,
@@ -817,11 +818,14 @@ export function buildScanResult(
     prioritySports?: readonly string[];
   },
 ): FullBoardScanResult {
+  // Preview + final: collapse ladder rungs before staging so Colts +4.5 / +3.5
+  // cannot both land on the hang-guard buffer or the terminal ticket.
+  const ladderCollapsed = collapseScoredLegsByMarketLadder(scored);
   const stagePool = opts.propsOnly
-    ? scored.filter((leg) => !!leg.pick.isProp)
+    ? ladderCollapsed.filter((leg) => !!leg.pick.isProp)
     : opts.gameLinesOnly
-      ? scored.filter((leg) => !leg.pick.isProp)
-      : scored;
+      ? ladderCollapsed.filter((leg) => !leg.pick.isProp)
+      : ladderCollapsed;
   const staged = buildStagedTicketFromScan(
     stagePool,
     opts.target,
@@ -868,6 +872,13 @@ export function buildScanResult(
   if (opts.gameLinesOnly && !opts.collegeTeamMarketStacks) {
     picks = collapseSameTeamGameLineSides(picks);
   }
+  // Always collapse same-team same-period sides on mix tickets too — FG+Q2 stay
+  // (different period buckets); Colts +4.5/+3.5 1H alts do not.
+  if (!opts.gameLinesOnly) {
+    picks = collapseSameTeamGameLineSides(picks);
+  }
+  // Final safety: one rung per market ladder on the published ticket.
+  picks = dedupePicksByMarketLadder(picks);
   // Top up from AI-qualified scored leftovers whenever under target — including
   // mid-scan previews. Preview used to skip this then seat-cap to exactly
   // boardScanNonPropPreviewCap(N) (phone 5→2 / 6→3) for the hang-guard buffer.
@@ -916,6 +927,9 @@ export function buildScanResult(
     });
     propCount = picks.filter((p) => p.isProp).length;
   }
+  // Last pass: one rung per market ladder (assembly / fills cannot reintroduce).
+  picks = dedupePicksByMarketLadder(picks);
+  propCount = picks.filter((p) => p.isProp).length;
   // Preview-only awaiting flag. Finals never wipe cleared game lines to empty.
   const awaitingPropSlots = shouldKeepAwaitingPropSlots({
     preview: opts.preview,

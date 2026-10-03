@@ -5,8 +5,15 @@
 // that rung outranks the main O/U — without changing Coach hold/delivery.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { isAltPropPick, isMainBoardPick, isMainLineGameLeg, marketFamily } from "./altLinePool.ts";
+import { isAltPropPick, isMainBoardPick, isMainLineGameLeg } from "./altLinePool.ts";
 import { boardLegPoolRole, type BoardScoredLeg } from "./ticketStaging.ts";
+import { marketLadderKey } from "./marketLadderKey.ts";
+
+export {
+  marketLadderKey,
+  wouldRepeatMarketLadder,
+  dedupePicksByMarketLadder,
+} from "./marketLadderKey.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -14,28 +21,6 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-
-function pickSideKey(pick: string): string {
-  const p = norm(pick);
-  if (/\bover\b/.test(p)) return "over";
-  if (/\bunder\b/.test(p)) return "under";
-  const t = pick
-    .replace(/\s*(ml|moneyline)\s*$/i, "")
-    .replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "")
-    .trim();
-  return norm(t);
-}
-
-/** Stable key for one posted market ladder (game line family or player prop market). */
-export function marketLadderKey(pick: ParsedPick): string {
-  if (pick.isProp) {
-    const player = norm(pick.player ?? pick.pick.split(/\s+/)[0] ?? "");
-    const market = norm(pick.market);
-    const side = pick.propSide ?? (/\bover\b/i.test(pick.pick) ? "Over" : /\bunder\b/i.test(pick.pick) ? "Under" : "");
-    return `${norm(pick.game)}|prop|${player}|${market}|${side}`.toLowerCase();
-  }
-  return `${norm(pick.game)}|${marketFamily(pick.market)}|${pickSideKey(pick.pick)}`.toLowerCase();
-}
 
 function ladderSortRank(leg: BoardScoredLeg): number {
   const pick = leg.pick;

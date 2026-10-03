@@ -3,6 +3,7 @@
 // full-board ranker prefers independent legs. Pure module — no React imports.
 
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 
 type CorrelationPick = {
   game: string;
@@ -349,6 +350,7 @@ export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
       if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
       if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
       if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
+      if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
       const effective = row.rankScore - parlayCorrelationPenalty(row.pick, onTicket);
       if (effective > bestScore) {
         bestScore = effective;
