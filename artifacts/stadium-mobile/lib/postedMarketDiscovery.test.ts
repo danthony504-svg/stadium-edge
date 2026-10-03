@@ -50,6 +50,40 @@ test("mergeEvalLadderWithDiscovered keeps ladder row on collision", () => {
   assert.equal(merged[0]!.bookSpread, 2.1);
 });
 
+test("discoverAllPostedGameLines labels UFC totals as Total Rounds", () => {
+  const g = {
+    id: "ufc1",
+    sport: "ufc",
+    homeTeam: "Lucas Armand",
+    awayTeam: "Anthony Wint",
+    commenceTime: "2026-10-04T00:00:00Z",
+    markets: [
+      {
+        key: "h2h",
+        outcomes: [
+          { name: "Lucas Armand", price: 423, point: null },
+          { name: "Anthony Wint", price: -550, point: null },
+        ],
+      },
+      {
+        key: "totals",
+        outcomes: [
+          { name: "Over", price: -115, point: 2.5 },
+          { name: "Under", price: -105, point: 2.5 },
+        ],
+      },
+    ],
+  };
+  const lines = discoverAllPostedGameLines(g);
+  assert.ok(lines.some((e) => e.market === "Moneyline"));
+  assert.ok(lines.some((e) => e.market === "Total Rounds" && /Over 2\.5/.test(e.pick)));
+  assert.equal(
+    lines.filter((e) => e.market === "Total").length,
+    0,
+    "UFC must not use bare Total label",
+  );
+});
+
 test("humanizeOddsApiMarketKey: phone SPREADS / SPREADS_Q2 badges", () => {
   assert.equal(humanizeOddsApiMarketKey("spreads"), "Spread");
   assert.equal(humanizeOddsApiMarketKey("SPREADS"), "Spread");

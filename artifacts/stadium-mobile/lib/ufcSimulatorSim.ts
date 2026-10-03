@@ -1,23 +1,11 @@
 // UFC Game Simulator outcome — API first, then on-device fight analysis + 10k MC
 // when production /sports/simulate/game-outcome is stale (requires team IDs).
 
-import type { FightSimResult, GameSimulationResult } from "./api";
 import { getFightAnalysis } from "./api";
 import { fetchSimulatorGameOutcome } from "./simulatorApi";
+import { fightSimToGameResult } from "./ufcFightSimMap";
 
-export function fightSimToGameResult(sport: string, sim: FightSimResult): GameSimulationResult {
-  return {
-    sport,
-    simulations: sim.simulations,
-    homeWinProbability: sim.homeWinProbability,
-    awayWinProbability: sim.awayWinProbability,
-    tieProbability: 0,
-    mostLikelyWinner: sim.mostLikelyWinner === "home" ? "home" : "away",
-    mostLikelyWinnerPct: sim.mostLikelyWinnerPct,
-    confidenceScore: sim.confidenceScore,
-    methodRates: sim.methodRates,
-  };
-}
+export { fightSimToGameResult } from "./ufcFightSimMap";
 
 type UfcSimOpts = {
   sport: string;
@@ -41,7 +29,7 @@ type UfcSimOpts = {
 export async function fetchUfcSimulatorGameOutcome(
   opts: UfcSimOpts,
   signal?: AbortSignal,
-): Promise<GameSimulationResult | null> {
+): Promise<ReturnType<typeof fightSimToGameResult> | null> {
   const api = await fetchSimulatorGameOutcome(opts, signal);
   if (api) return api;
 
@@ -50,7 +38,23 @@ export async function fetchUfcSimulatorGameOutcome(
   if (!away || !home) return null;
 
   const analysis = await getFightAnalysis(away, home, signal);
-  const sim = analysis?.simulation;
-  if (!sim || (sim.simulations ?? 0) <= 0) return null;
+  if (!analysis?.away || !analysis?.home) {
+    const sim = analysis?.simulation;
+    if (!sim || (sim.simulations ?? 0) <= 0) return null;
+    return fightSimToGameResult(opts.sport || "ufc", sim);
+  }
+
+  // Re-run client MC with posted Total cover queries (O/U rounds) — mirrors
+  // server /sports/simulate/game-outcome UFC path.
+  const { runClientFightMonteCarlo } = await import("./ufcClientSim.ts");
+  const sim = runClientFightMonteCarlo({
+    away: analysis.away,
+    home: analysis.home,
+    lean: analysis.lean,
+    coverQueries: opts.coverQueries,
+    retainOutcomes: opts.retainOutcomes,
+    simulations: opts.simulations,
+  });
+  if ((sim.simulations ?? 0) <= 0) return null;
   return fightSimToGameResult(opts.sport || "ufc", sim);
 }

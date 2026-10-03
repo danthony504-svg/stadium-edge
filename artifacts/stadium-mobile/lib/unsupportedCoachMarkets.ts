@@ -57,13 +57,21 @@ export function unsupportedSoccerDisciplineReply(text: string): string {
 const UFC_METHOD_ROUND_RE =
   /\b(?:method of (?:victory|win)|ko\/tko|submission win|fight (?:goes?|to go) the distance|go the distance|winning round|round betting|round \d+\s*(?:winner|win)|by (?:ko|tko|decision|submission))\b/i;
 
-/** UFC method / round / distance markets — Odds API only posts fight winner (h2h). */
+/** UFC method / round-winner / distance markets — Odds API does not post these. */
 export function isUnsupportedUfcMethodRoundAsk(text?: string | null): boolean {
   const t = String(text || "").trim();
   if (!t) return false;
   if (!UFC_METHOD_ROUND_RE.test(t)) return false;
   // Only intercept when the ask is clearly UFC/MMA-scoped.
   if (!/\b(?:ufc|mma|fight(?:er)?s?)\b/i.test(t)) return false;
+  // Explicit total-rounds / over-under rounds asks ARE supported when books post them.
+  if (
+    /\b(?:total rounds?|over\/under rounds?|o\/u rounds?|rounds? (?:over|under)|(?:over|under)\s+\d+(?:\.\d+)?\s+rounds?)\b/i.test(
+      t,
+    )
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -71,7 +79,7 @@ export function unsupportedUfcMethodRoundReply(text: string): string {
   const matchup = extractMatchupHint(text);
   const fightLead = matchup ? `For **${matchup}**, ` : "For that fight, ";
   return [
-    "Stadium Edge's UFC board is **moneyline-only** from the Odds API — we don't get method-of-victory, go-the-distance, or round-winner markets from the feed, so Coach won't invent those legs.",
-    `${fightLead}I can still grade **fight winner** moneylines using real posted prices and fighter context. Method / round props aren't on the board.`,
+    "Stadium Edge's UFC board from The Odds API carries **fight winner (moneyline)** and, when books post them, **total rounds Over/Under** — we don't get method-of-victory, go-the-distance, or round-winner markets from the feed, so Coach won't invent those legs.",
+    `${fightLead}I can grade **moneylines** and posted **total-rounds** lines with real prices and fight simulation. Method / round props aren't on the board.`,
   ].join("\n\n");
 }

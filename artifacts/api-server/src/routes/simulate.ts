@@ -312,7 +312,20 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
 
   if (sport === "ufc" || sport === "mma") {
     const analysis = await buildFightAnalysis(awayTeam, homeTeam);
-    const sim = analysis.simulation;
+    // Re-run MC with posted Total cover queries so O/U rounds can grade.
+    // buildFightAnalysis caches the base fight+lean; cover rates are request-specific.
+    const { runFightMonteCarlo } = await import("../lib/ufcMonteCarlo.js");
+    const sim = runFightMonteCarlo(
+      {
+        away: analysis.away,
+        home: analysis.home,
+        lean: analysis.lean,
+        comparison: analysis.comparison ?? undefined,
+        coverQueries,
+        retainOutcomes,
+      },
+      simulations,
+    );
     res.json({
       sport,
       homeTeam: homeTeam || null,
@@ -321,10 +334,14 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       homeWinProbability: sim.homeWinProbability,
       awayWinProbability: sim.awayWinProbability,
       tieProbability: 0,
+      homeProjectedScore: sim.meanTotalRounds ?? null,
+      awayProjectedScore: 0,
       mostLikelyWinner: sim.mostLikelyWinner === "home" ? "home" : "away",
       mostLikelyWinnerPct: sim.mostLikelyWinnerPct,
       confidenceScore: sim.confidenceScore,
       methodRates: sim.methodRates,
+      coverHitRates: sim.coverHitRates,
+      outcomes: retainOutcomes ? sim.outcomes : undefined,
       lean: analysis.lean,
     });
     return;

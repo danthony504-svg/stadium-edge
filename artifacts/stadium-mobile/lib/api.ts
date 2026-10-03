@@ -1538,7 +1538,16 @@ export function buildRealOdds(
     for (const o of totals.outcomes || []) {
       if (!mainOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point}`;
-      out.push({ ...base, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price, ...scoreInputs(o) });
+      // UFC/MMA totals from The Odds API are total rounds (O/U), not points.
+      const totalMarket =
+        sportKey === "ufc" || sportKey === "mma" ? "Total Rounds" : "Total";
+      out.push({
+        ...base,
+        market: totalMarket,
+        pick: `${o.name}${pt}`.trim(),
+        odds: o.price,
+        ...scoreInputs(o),
+      });
     }
   }
 
@@ -1598,7 +1607,9 @@ export function buildRealOdds(
     const mainPts = new Set((totals?.outcomes ?? []).map((o) => `${o.name}|${o.point ?? ""}`));
     for (const o of bestRungPerSide(altTotals.outcomes || [], (o) => o.name, mainPts, (o) => `${o.name}|${o.point ?? ""}`)) {
       const pt = o.point == null ? "" : ` ${o.point}`;
-      out.push({ ...base, market: "Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
+      const altTotalMarket =
+        sportKey === "ufc" || sportKey === "mma" ? "Alt Total Rounds" : "Alt Total";
+      out.push({ ...base, market: altTotalMarket, pick: `${o.name}${pt}`.trim(), odds: o.price });
     }
   }
 
@@ -1822,8 +1833,13 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
   }
   pushSpread("Spread", spreads?.outcomes);
   pushSpread("Alt Spread", altSpreads?.outcomes);
-  pushTotal("Total", totals?.outcomes);
-  pushTotal("Alt Total", altTotals?.outcomes);
+  // UFC/MMA totals = total rounds O/U when books post them.
+  const totalMarket =
+    sportKey === "ufc" || sportKey === "mma" ? "Total Rounds" : "Total";
+  const altTotalMarket =
+    sportKey === "ufc" || sportKey === "mma" ? "Alt Total Rounds" : "Alt Total";
+  pushTotal(totalMarket, totals?.outcomes);
+  pushTotal(altTotalMarket, altTotals?.outcomes);
 
   // Team totals = team POINTS O/U from the Odds API only. Never invent lines
   // or -110 prices from spread+total when books omit team_totals (FanDuel-style
@@ -2704,6 +2720,15 @@ export type FightSimResult = {
     away: { r1: number; r2: number; r3: number };
     home: { r1: number; r2: number; r3: number };
   } | null;
+  /** Mean total rounds across sims (for posted O/U rounds). */
+  meanTotalRounds?: number | null;
+  /** Hit rates for posted Total cover queries (Over/Under rounds). */
+  coverHitRates?: Record<string, number>;
+  /**
+   * Round totals encoded as homeScores=totalRounds, awayScores=0 so
+   * total cover queries work. Do NOT use for ML grading.
+   */
+  outcomes?: { homeScores: number[]; awayScores: number[] };
 };
 export type FightRecommendation = {
   market: string;
@@ -2833,7 +2858,7 @@ function defaultUnavailableMarkets(): string[] {
   return [
     "Method of victory",
     "Fight goes the distance / doesn't go the distance",
-    "Over/Under rounds",
+    "Winning round / round betting",
     "Fighter total strikes",
     "Alternate lines",
     "Same-game parlays",

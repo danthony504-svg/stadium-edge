@@ -71,7 +71,7 @@ export type FightPickAnalysis = {
 export const UFC_UNAVAILABLE_MARKETS = [
   "Method of victory",
   "Fight goes the distance / doesn't go the distance",
-  "Over/Under rounds",
+  "Winning round / round betting",
   "Fighter total strikes",
   "Significant strikes props",
   "Takedowns props",

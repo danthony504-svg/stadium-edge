@@ -48,8 +48,18 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
   // and serves mains only. We never request set betting / set winners: the Odds
   // API doesn't carry them (INVALID_MARKET), so they'd have to be fabricated.
   const moneylineOnly = sportId === "tabletennis";
-  const skipAltPeriod = moneylineOnly || sportId === "tennis" || sportId === "cricket";
-  const bulkMarkets = moneylineOnly ? "h2h" : "h2h,spreads,totals";
+  // UFC/MMA: Odds API featured markets are h2h + totals (round O/U). Spreads
+  // are not a standard US MMA market; skip them to save quota. No period alts.
+  const skipAltPeriod =
+    moneylineOnly ||
+    sportId === "tennis" ||
+    sportId === "cricket" ||
+    sportId === "ufc";
+  const bulkMarkets = moneylineOnly
+    ? "h2h"
+    : sportId === "ufc"
+      ? "h2h,totals"
+      : "h2h,spreads,totals";
   const apiKey = process.env["ODDS_API_KEY"];
   if (!apiKey) {
     res.status(502).json({ error: "ODDS_API_KEY not configured" });

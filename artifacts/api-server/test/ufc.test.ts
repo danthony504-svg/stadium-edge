@@ -139,15 +139,82 @@ describe("classifyFighterStyle", () => {
 describe("runFightMonteCarlo", () => {
   it("runs 10k draws and returns probabilities", () => {
     const away = fighter({ name: "Away" });
-    const home = fighter({ name: "Home", record: { wins: 5, losses: 8, draws: 0, winPct: 38.5 } });
+    const home = fighter({
+      name: "Home",
+      record: { wins: 5, losses: 8, draws: 0, winPct: 38.5 },
+    });
     const lean = computeFightLean(away, home);
-    const sim = runFightMonteCarlo(
-      { away, home, lean },
-      1000,
-    );
+    const sim = runFightMonteCarlo({ away, home, lean }, 1000);
     assert.equal(sim.simulations, 1000);
     assert.ok(sim.awayWinProbability > sim.homeWinProbability);
     assert.ok(sim.confidenceScore >= 5 && sim.confidenceScore <= 95);
+  });
+
+  it("grades posted total-rounds Over/Under via coverHitRates", () => {
+    const away = fighter({
+      name: "Finisher",
+      stats: {
+        strikeAccuracy: 55,
+        strikeLPM: 5.2,
+        takedownAccuracy: 40,
+        takedownAvg: 1.5,
+        submissionAvg: 0.4,
+        finishPct: 80,
+        decisionPct: 10,
+      },
+      methods: {
+        koWins: 8,
+        tkoWins: 2,
+        subWins: 1,
+        decisionWins: 1,
+        koLosses: null,
+        tkoLosses: 1,
+        subLosses: null,
+      },
+    });
+    const home = fighter({
+      name: "Decision",
+      record: { wins: 8, losses: 4, draws: 0, winPct: 66.7 },
+      stats: {
+        strikeAccuracy: 48,
+        strikeLPM: 3.1,
+        takedownAccuracy: 35,
+        takedownAvg: 1.2,
+        submissionAvg: 0.2,
+        finishPct: 25,
+        decisionPct: 70,
+      },
+      methods: {
+        koWins: 1,
+        tkoWins: 1,
+        subWins: 1,
+        decisionWins: 5,
+        koLosses: null,
+        tkoLosses: 1,
+        subLosses: null,
+      },
+    });
+    const lean = computeFightLean(away, home);
+    const sim = runFightMonteCarlo(
+      {
+        away,
+        home,
+        lean,
+        coverQueries: [
+          { id: "over-2.5", kind: "total", line: 2.5, totalSide: "over" },
+          { id: "under-2.5", kind: "total", line: 2.5, totalSide: "under" },
+        ],
+        retainOutcomes: true,
+      },
+      2000,
+    );
+    assert.ok(sim.meanTotalRounds != null && sim.meanTotalRounds >= 1 && sim.meanTotalRounds <= 3);
+    assert.ok(sim.coverHitRates);
+    const over = sim.coverHitRates!["over-2.5"] ?? 0;
+    const under = sim.coverHitRates!["under-2.5"] ?? 0;
+    assert.ok(over > 0 && under > 0);
+    assert.ok(Math.abs(over + under - 1) < 0.02);
+    assert.ok(sim.outcomes?.homeScores?.length === 2000);
   });
 });
 
