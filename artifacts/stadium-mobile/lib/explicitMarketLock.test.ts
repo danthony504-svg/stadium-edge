@@ -307,11 +307,16 @@ test("buildParlay recovery preserves allowedMarketKeys when locked (no null)", (
   // Locked path must keep marketConstraint — never wipe allowlist on recovery.
   assert.match(src, /isMarketLocked/);
   assert.match(src, /filterPropPoolByAskMarkets\(/);
-  assert.match(src, /No other markets were substituted/);
+  assert.match(src, /lockedMarketQualityShortfallNote/);
   assert.match(src, /same-stat/);
   assert.match(src, /recoveryFill:\s*true/);
   assert.match(src, /recovered\.picks/);
   assert.match(src, /softPreferred\.picks/);
+  // User-facing locked shortfall must not leak internal gate jargon.
+  assert.doesNotMatch(
+    src,
+    /none cleared recovery odds\. No other markets were substituted/,
+  );
   // Recovery / soft-retry paths must keep marketConstraint (never wipe lock).
   assert.ok(
     (src.match(/filterPicksByAskMarketConstraint\([\s\S]*?marketConstraint/g) ?? [])
