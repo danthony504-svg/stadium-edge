@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = new URL("../", import.meta.url).href;
 const FAKE_EXPO_FETCH = new URL("./fakes/expo-fetch.ts", import.meta.url).href;
+const PICKCARD_STUB = new URL("./fakes/PickCardStub.ts", import.meta.url).href;
 
 module.registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -12,6 +13,15 @@ module.registerHooks({
 
     if (specifier === "expo/fetch" || specifier === "expo/fetch.js") {
       return { url: FAKE_EXPO_FETCH, shortCircuit: true };
+    }
+
+    // Keep PickCard off the React Native .tsx path under node --test.
+    if (
+      specifier === "@/components/PickCard" ||
+      specifier.endsWith("/components/PickCard") ||
+      specifier.endsWith("PickCard.tsx")
+    ) {
+      return { url: PICKCARD_STUB, shortCircuit: true };
     }
 
     if (specifier.startsWith("@/")) {
