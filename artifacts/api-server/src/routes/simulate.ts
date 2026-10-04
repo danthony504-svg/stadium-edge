@@ -1,7 +1,14 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
 import { teamPace } from "../lib/statmuse.js";
-import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monteCarloBuild.js";
+import {
+  keyInjuryWeight,
+  propRequestSharedDistributionKey,
+  simulateProp,
+  simulatePropGroupShared,
+  type SimPropRequest,
+  type SimPropRow as BuiltSimPropRow,
+} from "../lib/monteCarloBuild.js";
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
@@ -64,7 +71,7 @@ type GameSimContext = {
   weatherImpact: number | null;
 };
 
-type SimPropRow = ReturnType<typeof simulateProp> & {
+type SimPropRow = BuiltSimPropRow & {
   tier: SimTier;
   cached: boolean;
   deepPending?: boolean;
@@ -114,76 +121,188 @@ function propSport(p: SimPropRequest, gameCtx: GameSimContext): string {
   return String(p.sport ?? gameCtx.sport).toLowerCase();
 }
 
+function resolveIsHome(
+  p: SimPropRequest,
+  isHomeByPlayer: Record<string, boolean>,
+): boolean | null {
+  return p.isHome ?? isHomeByPlayer[p.player] ?? null;
+}
+
+type HistoryCache = Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>;
+
+async function loadPropHistory(
+  p: SimPropRequest,
+  gameCtx: GameSimContext,
+  historyCache: HistoryCache,
+): Promise<Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null> {
+  const sportKey = propSport(p, gameCtx);
+  const athleteId = p.athleteId ?? "";
+  const histKey = `${sportKey}:${athleteId}:${p.opponentTeamId ?? ""}`;
+  let history = historyCache.get(histKey);
+  if (history === undefined) {
+    history = athleteId
+      ? await fetchEspnPlayerHistory(sportKey, athleteId, p.opponentTeamId ?? undefined)
+      : null;
+    historyCache.set(histKey, history);
+  }
+  return history;
+}
+
+function gameCtxForSimulate(gameCtx: GameSimContext) {
+  return {
+    sport: gameCtx.sport,
+    oppPace: gameCtx.oppPace,
+    leaguePace: gameCtx.leaguePace,
+    oppKeyInjuries: gameCtx.oppKeyInjuries,
+    ownKeyInjuries: gameCtx.ownKeyInjuries,
+    weatherImpact: gameCtx.weatherImpact,
+    playerHistories: new Map(),
+  };
+}
+
+/**
+ * Phase 1: group compatible props (same event/player/stat/period/context) so
+ * one Monte Carlo draw scores every genuine alt line × side in the batch.
+ */
 async function runPropSims(
   props: SimPropRequest[],
   tier: SimTier,
   gameCtx: GameSimContext,
   isHomeByPlayer: Record<string, boolean>,
   simulations?: number,
-): Promise<{ rows: SimPropRow[]; deepPending: boolean }> {
+): Promise<{ rows: SimPropRow[]; deepPending: boolean; distributionsGenerated: number }> {
   const simCount = tierSimCount(tier, simulations);
-  const historyCache = new Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>();
+  const historyCache: HistoryCache = new Map();
   let deepPending = false;
+  let distributionsGenerated = 0;
 
-  const rows = await Promise.all(
-    props.map(async (p) => {
-      const sportKey = propSport(p, gameCtx);
-      const cacheKey = simCacheKey(sportKey, p.player, p.market, p.line, p.side, tier, p.additionalLines);
+  type Indexed = { index: number; prop: SimPropRequest; isHome: boolean | null };
+  const indexed: Indexed[] = props.map((prop, index) => ({
+    index,
+    prop,
+    isHome: resolveIsHome(prop, isHomeByPlayer),
+  }));
+
+  const groups = new Map<string, Indexed[]>();
+  for (const item of indexed) {
+    const key = propRequestSharedDistributionKey(
+      item.prop,
+      gameCtx,
+      item.isHome,
+    );
+    const arr = groups.get(key) ?? [];
+    arr.push(item);
+    groups.set(key, arr);
+  }
+
+  const rows: SimPropRow[] = new Array(props.length);
+  const deepWarmProps: SimPropRequest[] = [];
+
+  for (const group of groups.values()) {
+    const uncached: Indexed[] = [];
+    for (const item of group) {
+      const sportKey = propSport(item.prop, gameCtx);
+      const cacheKey = simCacheKey(
+        sportKey,
+        item.prop.player,
+        item.prop.market,
+        item.prop.line,
+        item.prop.side,
+        tier,
+        item.prop.additionalLines,
+      );
       const cached = await getCachedSim<SimPropRow>(cacheKey);
       if (cached && cached.hitProbability != null) {
-        const row: SimPropRow = { ...cached, tier, cached: true };
+        rows[item.index] = { ...cached, tier, cached: true };
         if (tier === "quick") {
-          const deepKey = simCacheKey(sportKey, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
+          const deepKey = simCacheKey(
+            sportKey,
+            item.prop.player,
+            item.prop.market,
+            item.prop.line,
+            item.prop.side,
+            "deep",
+            item.prop.additionalLines,
+          );
           const deepHit = await getCachedSim(deepKey);
           if (!deepHit) {
             deepPending = true;
-            scheduleDeepSim([p], gameCtx, isHomeByPlayer);
+            deepWarmProps.push(item.prop);
           }
         }
-        return row;
+      } else {
+        uncached.push(item);
       }
+    }
 
-      const athleteId = p.athleteId ?? "";
-      const histKey = `${sportKey}:${athleteId}:${p.opponentTeamId ?? ""}`;
-      let history = historyCache.get(histKey);
-      if (history === undefined) {
-        history = athleteId
-          ? await fetchEspnPlayerHistory(sportKey, athleteId, p.opponentTeamId ?? undefined)
-          : null;
-        historyCache.set(histKey, history);
-      }
+    if (!uncached.length) continue;
 
-      const isHome = p.isHome ?? isHomeByPlayer[p.player] ?? null;
-      const result = simulateProp(
-        { ...p, sport: sportKey, isHome },
-        history,
-        {
-          sport: gameCtx.sport,
-          oppPace: gameCtx.oppPace,
-          leaguePace: gameCtx.leaguePace,
-          oppKeyInjuries: gameCtx.oppKeyInjuries,
-          ownKeyInjuries: gameCtx.ownKeyInjuries,
-          weatherImpact: gameCtx.weatherImpact,
-          playerHistories: new Map(),
-        },
-        simCount,
-      );
+    // Merge every line in the uncached group onto each request so the shared
+    // draw publishes a complete ladder (main + alts) for consumers.
+    const groupLines = [
+      ...new Set(
+        uncached
+          .flatMap((u) => [u.prop.line, ...(u.prop.additionalLines ?? [])])
+          .filter((l) => Number.isFinite(l)),
+      ),
+    ].sort((a, b) => a - b);
 
+    const requests: SimPropRequest[] = uncached.map((u) => {
+      const extras = groupLines.filter((l) => l !== u.prop.line);
+      return {
+        ...u.prop,
+        sport: propSport(u.prop, gameCtx),
+        isHome: u.isHome,
+        ...(extras.length ? { additionalLines: extras } : { additionalLines: undefined }),
+      };
+    });
+
+    const history = await loadPropHistory(requests[0]!, gameCtx, historyCache);
+    const gctx = gameCtxForSimulate(gameCtx);
+
+    let results: BuiltSimPropRow[];
+    if (requests.length === 1) {
+      results = [simulateProp(requests[0]!, history, gctx, simCount)];
+      if (results[0]?.hitProbability != null) distributionsGenerated += 1;
+    } else {
+      results = simulatePropGroupShared(requests, history, gctx, simCount);
+      if (results.some((r) => r.hitProbability != null)) distributionsGenerated += 1;
+    }
+
+    for (let i = 0; i < uncached.length; i++) {
+      const item = uncached[i]!;
+      const result = results[i]!;
       const row: SimPropRow = { ...result, tier, cached: false };
+      rows[item.index] = row;
       if (result.hitProbability != null) {
+        const sportKey = propSport(item.prop, gameCtx);
+        const cacheKey = simCacheKey(
+          sportKey,
+          item.prop.player,
+          item.prop.market,
+          item.prop.line,
+          item.prop.side,
+          tier,
+          item.prop.additionalLines,
+        );
         await setCachedSim(cacheKey, row, tier);
       }
-
       if (tier === "quick") {
         deepPending = true;
-        scheduleDeepSim([p], gameCtx, isHomeByPlayer);
+        deepWarmProps.push(item.prop);
       }
+    }
+  }
 
-      return row;
-    }),
-  );
+  if (tier === "quick" && deepWarmProps.length) {
+    scheduleDeepSim(deepWarmProps, gameCtx, isHomeByPlayer);
+  }
 
-  return { rows, deepPending: tier === "quick" ? deepPending : false };
+  return {
+    rows: rows as SimPropRow[],
+    deepPending: tier === "quick" ? deepPending : false,
+    distributionsGenerated,
+  };
 }
 
 function scheduleDeepSim(
@@ -201,48 +320,97 @@ async function warmDeepSims(
   gameCtx: GameSimContext,
   isHomeByPlayer: Record<string, boolean>,
 ): Promise<void> {
-  const historyCache = new Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>();
+  const historyCache: HistoryCache = new Map();
 
+  type Indexed = { prop: SimPropRequest; isHome: boolean | null };
+  const groups = new Map<string, Indexed[]>();
   for (const p of props) {
-    const sportKey = propSport(p, gameCtx);
-    const deepKey = simCacheKey(sportKey, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
-    if (deepInFlight.has(deepKey)) continue;
-    const existing = await getCachedSim(deepKey);
-    if (existing) continue;
+    const isHome = resolveIsHome(p, isHomeByPlayer);
+    const key = propRequestSharedDistributionKey(p, gameCtx, isHome);
+    const arr = groups.get(key) ?? [];
+    arr.push({ prop: p, isHome });
+    groups.set(key, arr);
+  }
 
-    deepInFlight.add(deepKey);
-    try {
-      const athleteId = p.athleteId ?? "";
-      const histKey = `${sportKey}:${athleteId}:${p.opponentTeamId ?? ""}`;
-      let history = historyCache.get(histKey);
-      if (history === undefined) {
-        history = athleteId
-          ? await fetchEspnPlayerHistory(sportKey, athleteId, p.opponentTeamId ?? undefined)
-          : null;
-        historyCache.set(histKey, history);
-      }
-
-      const isHome = p.isHome ?? isHomeByPlayer[p.player] ?? null;
-      const result = simulateProp(
-        { ...p, sport: sportKey, isHome },
-        history,
-        {
-          sport: gameCtx.sport,
-          oppPace: gameCtx.oppPace,
-          leaguePace: gameCtx.leaguePace,
-          oppKeyInjuries: gameCtx.oppKeyInjuries,
-          ownKeyInjuries: gameCtx.ownKeyInjuries,
-          weatherImpact: gameCtx.weatherImpact,
-          playerHistories: new Map(),
-        },
-        DEEP_SIMULATIONS,
+  for (const group of groups.values()) {
+    const need: Indexed[] = [];
+    for (const item of group) {
+      const sportKey = propSport(item.prop, gameCtx);
+      const deepKey = simCacheKey(
+        sportKey,
+        item.prop.player,
+        item.prop.market,
+        item.prop.line,
+        item.prop.side,
+        "deep",
+        item.prop.additionalLines,
       );
-      const row: SimPropRow = { ...result, tier: "deep", cached: false };
-      if (result.hitProbability != null) {
-        await setCachedSim(deepKey, row, "deep");
+      if (deepInFlight.has(deepKey)) continue;
+      const existing = await getCachedSim(deepKey);
+      if (existing) continue;
+      deepInFlight.add(deepKey);
+      need.push(item);
+    }
+    if (!need.length) continue;
+
+    try {
+      const groupLines = [
+        ...new Set(
+          need
+            .flatMap((u) => [u.prop.line, ...(u.prop.additionalLines ?? [])])
+            .filter((l) => Number.isFinite(l)),
+        ),
+      ].sort((a, b) => a - b);
+
+      const requests: SimPropRequest[] = need.map((u) => {
+        const extras = groupLines.filter((l) => l !== u.prop.line);
+        return {
+          ...u.prop,
+          sport: propSport(u.prop, gameCtx),
+          isHome: u.isHome,
+          ...(extras.length ? { additionalLines: extras } : { additionalLines: undefined }),
+        };
+      });
+
+      const history = await loadPropHistory(requests[0]!, gameCtx, historyCache);
+      const gctx = gameCtxForSimulate(gameCtx);
+      const results =
+        requests.length === 1
+          ? [simulateProp(requests[0]!, history, gctx, DEEP_SIMULATIONS)]
+          : simulatePropGroupShared(requests, history, gctx, DEEP_SIMULATIONS);
+
+      for (let i = 0; i < need.length; i++) {
+        const item = need[i]!;
+        const result = results[i]!;
+        const row: SimPropRow = { ...result, tier: "deep", cached: false };
+        if (result.hitProbability != null) {
+          const sportKey = propSport(item.prop, gameCtx);
+          const deepKey = simCacheKey(
+            sportKey,
+            item.prop.player,
+            item.prop.market,
+            item.prop.line,
+            item.prop.side,
+            "deep",
+            item.prop.additionalLines,
+          );
+          await setCachedSim(deepKey, row, "deep");
+        }
       }
     } finally {
-      deepInFlight.delete(deepKey);
+      for (const item of need) {
+        const sportKey = propSport(item.prop, gameCtx);
+        const deepKey = simCacheKey(
+          sportKey,
+          item.prop.player,
+          item.prop.market,
+          item.prop.line,
+          item.prop.side,
+          "deep",
+          item.prop.additionalLines,
+        );
+        deepInFlight.delete(deepKey);
+      }
     }
   }
 }
@@ -458,7 +626,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     weatherImpact,
   };
 
-  const { rows, deepPending } = await runPropSims(
+  const { rows, deepPending, distributionsGenerated } = await runPropSims(
     propsResolved,
     tier,
     gameCtx,
@@ -471,6 +639,9 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     tier,
     simulations: tierSimCount(tier, simulations),
     deepPending: tier === "quick" ? deepPending : false,
+    providerLinesEvaluated: rows.length,
+    distributionsGenerated,
+    monteCarloDraws: distributionsGenerated * tierSimCount(tier, simulations),
     props: rows,
   });
 });
