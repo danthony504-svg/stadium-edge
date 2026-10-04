@@ -387,6 +387,87 @@ export function scoreLinesFromSharedSamples(
   return scoreSharedDistribution(base, targets, simulations, opts).results;
 }
 
+/**
+ * Score provider thresholds against an existing draw (no new Monte Carlo).
+ * Over = P(X > line), Under = P(X < line) — both sides from the same samples.
+ */
+export function scoreTargetsFromSamples(
+  samples: readonly number[],
+  shared: {
+    simulations: number;
+    mostLikelyLine: number | null;
+    meanProjection: number | null;
+    medianProjection: number | null;
+    stdDev: number | null;
+    sampleGames: number;
+    percentiles: PropSimulationResult["percentiles"];
+  },
+  targets: Array<{ line: number; side: PropSimSide }>,
+  confidenceCtx: Pick<
+    PropSimulationContext,
+    "vsOpponentValues" | "minutesL5" | "minutesSeason" | "oppPace"
+  >,
+  evaluateLines?: number[],
+): SharedDrawScoreBundle {
+  const lineSet = new Set<number>();
+  for (const t of targets) {
+    if (Number.isFinite(t.line)) lineSet.add(t.line);
+  }
+  for (const ln of evaluateLines ?? []) {
+    if (Number.isFinite(ln)) lineSet.add(ln);
+  }
+  const allLines = [...lineSet].sort((a, b) => a - b);
+  const lineHitRatesBySide = {
+    Over: {} as Record<string, number>,
+    Under: {} as Record<string, number>,
+  };
+  for (const ln of allLines) {
+    lineHitRatesBySide.Over[String(ln)] = round3(hitRateFromSamples(samples, ln, "Over"));
+    lineHitRatesBySide.Under[String(ln)] = round3(hitRateFromSamples(samples, ln, "Under"));
+  }
+
+  const simMean = shared.meanProjection ?? 0;
+  const std = shared.stdDev ?? 0;
+  const results = targets.map((t) => {
+    const hitProb = hitRateFromSamples(samples, t.line, t.side);
+    return {
+      line: t.line,
+      side: t.side,
+      simulations: shared.simulations,
+      hitProbability: round3(hitProb),
+      mostLikelyLine: shared.mostLikelyLine,
+      meanProjection: shared.meanProjection,
+      medianProjection: shared.medianProjection,
+      stdDev: shared.stdDev,
+      sampleGames: shared.sampleGames,
+      percentiles: shared.percentiles,
+      confidenceScore: confidenceFromHit(
+        hitProb,
+        shared.sampleGames,
+        simMean,
+        std,
+        confidenceCtx,
+      ),
+      lineHitRatesBySide,
+    };
+  });
+
+  return {
+    samples: samples as number[],
+    shared: {
+      simulations: shared.simulations,
+      mostLikelyLine: shared.mostLikelyLine,
+      meanProjection: shared.meanProjection,
+      medianProjection: shared.medianProjection,
+      stdDev: shared.stdDev,
+      sampleGames: shared.sampleGames,
+      percentiles: shared.percentiles,
+    },
+    results,
+    lineHitRatesBySide,
+  };
+}
+
 /** Draw once; return per-target rows plus full line×side hit maps. */
 export function scoreSharedDistribution(
   base: Omit<PropSimulationContext, "line" | "side" | "additionalLines">,
