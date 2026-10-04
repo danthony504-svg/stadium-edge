@@ -191,14 +191,17 @@ export function enforceMlLeanOnPicks(
 export function mlLeanEnforcementNote(result: MlLeanEnforcementResult): string {
   if (result.swapped === 0 && result.dropped === 0) return "";
   const parts: string[] = [];
+  // Wording reports swap/drop *adjustments*, never ticket size (picks.length).
   if (result.swapped > 0) {
+    const n = result.swapped;
     parts.push(
-      `_Aligned ${result.swapped} leg${result.swapped === 1 ? "" : "s"} to tonight's analytics lean (same team the form data favors)._`,
+      `Updated ${n} moneyline/spread ${n === 1 ? "pick" : "picks"} to match the stronger analytics lean.`,
     );
   }
   if (result.dropped > 0) {
+    const n = result.dropped;
     parts.push(
-      `_Dropped ${result.dropped} leg${result.dropped === 1 ? "" : "s"} that opposed the analytics lean and had no matching real line on the favored side._`,
+      `Dropped ${n} moneyline/spread ${n === 1 ? "pick" : "picks"} that opposed the analytics lean and had no matching real line on the favored side.`,
     );
   }
   return parts.join("\n\n");

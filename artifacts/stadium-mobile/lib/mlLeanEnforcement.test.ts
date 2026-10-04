@@ -5,6 +5,7 @@ import type { ParsedPick } from "@/components/PickCard";
 import {
   enforceMlLeanOnPicks,
   isGameSideMlOrSpread,
+  mlLeanEnforcementNote,
   teamsMatch,
 } from "./mlLeanEnforcement.ts";
 
@@ -120,4 +121,59 @@ test("enforceMlLeanOnPicks: totals and props pass through", () => {
   assert.equal(swapped, 0);
   assert.equal(dropped, 0);
   assert.equal(out.length, 2);
+});
+
+test("mlLeanEnforcementNote: 0 swaps → no alignment note", () => {
+  assert.equal(mlLeanEnforcementNote({ picks: [], swapped: 0, dropped: 0 }), "");
+});
+
+test("mlLeanEnforcementNote: 1 swap → singular pick, no legs/Markdown", () => {
+  const note = mlLeanEnforcementNote({ picks: [], swapped: 1, dropped: 0 });
+  assert.equal(
+    note,
+    "Updated 1 moneyline/spread pick to match the stronger analytics lean.",
+  );
+  assert.equal(note.includes("_"), false);
+  assert.equal(/\blegs?\b/i.test(note), false);
+  assert.equal(/Aligned/i.test(note), false);
+});
+
+test("mlLeanEnforcementNote: 2 swaps → plural picks, not ticket legs", () => {
+  const note = mlLeanEnforcementNote({ picks: [], swapped: 2, dropped: 0 });
+  assert.equal(
+    note,
+    "Updated 2 moneyline/spread picks to match the stronger analytics lean.",
+  );
+  assert.equal(note.includes("_"), false);
+  assert.equal(/\blegs?\b/i.test(note), false);
+  assert.equal(/Aligned/i.test(note), false);
+});
+
+test("mlLeanEnforcementNote: 7-leg ticket with 2 swaps keeps 7 picks; note is adjustments only", () => {
+  const ticket: ParsedPick[] = [
+    { game: GAME, market: "Moneyline", pick: "Sox ML", odds: -105 },
+    { game: GAME, market: "Spread", pick: "Sox +1.5", odds: -180 },
+    { game: GAME, market: "Total", pick: "Over 8.5", odds: -110 },
+    { game: "A @ B", market: "Moneyline", pick: "A ML", odds: -110 },
+    { game: "C @ D", market: "Spread", pick: "C +3.5", odds: -110 },
+    { game: "E @ F", market: "Total", pick: "Under 45.5", odds: -110 },
+    { game: "G @ H", market: "Moneyline", pick: "G ML", odds: 120 },
+  ];
+  assert.equal(ticket.length, 7);
+  const note = mlLeanEnforcementNote({ picks: ticket, swapped: 2, dropped: 0 });
+  assert.equal(ticket.length, 7);
+  assert.match(note, /Updated 2 moneyline\/spread picks/);
+  assert.equal(/\b2 legs\b/i.test(note), false);
+  assert.equal(note.includes("_"), false);
+});
+
+test("mlLeanEnforcementNote: dropped copy uses pick/picks without Markdown", () => {
+  assert.equal(
+    mlLeanEnforcementNote({ picks: [], swapped: 0, dropped: 1 }),
+    "Dropped 1 moneyline/spread pick that opposed the analytics lean and had no matching real line on the favored side.",
+  );
+  assert.equal(
+    mlLeanEnforcementNote({ picks: [], swapped: 0, dropped: 2 }),
+    "Dropped 2 moneyline/spread picks that opposed the analytics lean and had no matching real line on the favored side.",
+  );
 });
