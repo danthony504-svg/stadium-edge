@@ -45,7 +45,6 @@ import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
 import { isRareCountPropMarket } from "@/lib/rareCountPropModel";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
-import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
@@ -79,6 +78,8 @@ import {
 import {
   lockedMarketLabelForAsk,
   lockedMarketQualityShortfallNote,
+  lockedMarketAnalyzedFromBoardDiagnostics,
+  resolveCoachParlayShortfallLead,
 } from "@/lib/lockedMarketQualityShortfall";
 import {
   enforceMlLeanOnPicks,
@@ -489,7 +490,7 @@ export async function buildCoachParlay(opts: {
                 qualified: picks.length,
                 marketLabel: lockedMarketLabel,
               })
-            : `Staged **${picks.length}** matching real lines for the requested market (same-stat alts included where posted).`
+            : `Staged ${picks.length} matching real lines for the requested market (same-stat alts included where posted).`
           : footballSkillRecoveryNote({
               preferredGraded: built.propLegsScored,
               staged: picks.length,
@@ -534,7 +535,7 @@ export async function buildCoachParlay(opts: {
                   qualified: picks.length,
                   marketLabel: lockedMarketLabel,
                 })
-              : `Staged **${picks.length}** matching real lines for the requested market.`;
+              : `Staged ${picks.length} matching real lines for the requested market.`;
         } else {
           recoveredNote = isMarketLocked
             ? lockedMarketQualityShortfallNote({
@@ -548,8 +549,8 @@ export async function buildCoachParlay(opts: {
       }
     }
 
-    // Locked-market shortfall copy (0/N or partial N/N) — UI only; selection unchanged.
-    if (isMarketLocked && built.propLegsScored > 0 && picks.length < target) {
+    // Locked-market shortfall copy (0 analyzed, 0/N, or partial) — UI only; selection unchanged.
+    if (isMarketLocked && picks.length < target) {
       const shortfallNote = lockedMarketQualityShortfallNote({
         requestedLegs: target,
         analyzed: built.propLegsScored,
@@ -562,7 +563,13 @@ export async function buildCoachParlay(opts: {
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
     // Final belt — recovery/top-up must not reintroduce another local day.
     picks = filterPicksForSlateDay(picks, inputs.slateDay);
-    const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
+    const shortfall = resolveCoachParlayShortfallLead({
+      askText: opts.askText,
+      requestedLegs: target,
+      qualified: picks.length,
+      analyzed: built.propLegsScored,
+      isMarketLocked,
+    });
     const mismatchLead = coachPropsAskGameLineMismatchNote({
       askText: opts.askText,
       propsOnly: true,
@@ -784,9 +791,25 @@ export async function buildCoachParlay(opts: {
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
-  const shortfall = propsPending
-    ? buildFixedLegPropsPendingShortfallLead(target, picks.length)
-    : buildFixedLegCountShortfallLead(target, picks.length);
+  // Full-board / hrBoardAsk exit — same locked shortfall helper as props-only.
+  // Analyzed count = failureDiagnostics.propLegsScored from the allowlisted
+  // (HR: scorer-filtered) pool with skipPropPoolExpand — never invent from
+  // unrelated board totals (hits / TB / Ks / etc.).
+  const isMarketLocked =
+    marketConstraint.allowedMarketKeys != null &&
+    marketConstraint.allowedMarketKeys.length > 0;
+  const lockedAnalyzed = lockedMarketAnalyzedFromBoardDiagnostics(
+    scan?.failureDiagnostics,
+  );
+  const shortfall = resolveCoachParlayShortfallLead({
+    askText: opts.askText,
+    requestedLegs: target,
+    qualified: picks.length,
+    analyzed: lockedAnalyzed,
+    isMarketLocked,
+    propsPending,
+    buildPendingLead: buildFixedLegPropsPendingShortfallLead,
+  });
   const mismatchLead = coachPropsAskGameLineMismatchNote({
     askText: opts.askText,
     propsOnly,

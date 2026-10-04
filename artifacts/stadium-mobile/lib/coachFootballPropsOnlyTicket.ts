@@ -887,14 +887,14 @@ export async function buildFootballPropsOnlyTicket(
     const lead =
       propLegsScored > 0
         ? `Graded ${propLegsScored} props but none cleared the ticket quality bar. No ungraded filler was added.`
-        : `You asked for **${opts.target}** legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.`;
+        : `You asked for ${opts.target} legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.`;
     note = propsOnlyFailNote(lead, failDiag);
   } else if (picks.length < opts.target) {
     // Phone: oddsOk=23 staged=3 — diversity/thin slate, not a quality wipe.
     const lead =
       propScored.length > picks.length && uniqueGames > 0
-        ? `You asked for **${opts.target}** legs — only **${picks.length}** player props fit after thin-slate fill (${uniqueGames} game${uniqueGames === 1 ? "" : "s"}, ${propScored.length} cleared odds). No ungraded filler was added.`
-        : `You asked for **${opts.target}** legs — only **${picks.length}** player props cleared the AI quality bar. No ungraded filler was added.`;
+        ? `You asked for ${opts.target} legs — only ${picks.length} player props fit after thin-slate fill (${uniqueGames} game${uniqueGames === 1 ? "" : "s"}, ${propScored.length} cleared odds). No ungraded filler was added.`
+        : `You asked for ${opts.target} legs — only ${picks.length} player props cleared the AI quality bar. No ungraded filler was added.`;
     note = propsOnlyFailNote(lead, failDiag);
   }
 

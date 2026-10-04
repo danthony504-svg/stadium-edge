@@ -50,7 +50,8 @@ test("2-of-6 scan-continues limbo: shortfall latch unlocks and stays unlocked", 
   assert.equal(outcome, "shortfall");
   latchCoachSession(session, outcome);
   assert.equal(coachSessionShouldKeepBusy(session), false);
-  assert.match(coachShortfallNote(6, 2), /only \*\*2\*\*/);
+  assert.match(coachShortfallNote(6, 2), /only 2/);
+  assert.doesNotMatch(coachShortfallNote(6, 2), /\*\*/);
   // Late "scan still pending" cannot re-busy
   assert.equal(coachSessionShouldKeepBusy(session), false);
   latchCoachSession(session, "shown"); // second latch is a no-op upgrade path

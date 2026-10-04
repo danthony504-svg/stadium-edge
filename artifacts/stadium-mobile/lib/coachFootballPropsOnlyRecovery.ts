@@ -92,7 +92,7 @@ export function footballSkillRecoveryNote(opts: {
   const graded = opts.preferredGraded;
   const lead =
     n >= opts.target
-      ? `Graded ${graded} locked-market props below the quality bar — staged **${n}** clearing skill props (yards / receptions / sacks / TD alts).`
-      : `Graded ${graded} locked-market props below the quality bar — staged **${n}** of **${opts.target}** clearing skill props (yards / receptions / sacks / TD alts). No ungraded filler was added.`;
+      ? `Graded ${graded} locked-market props below the quality bar — staged ${n} clearing skill props (yards / receptions / sacks / TD alts).`
+      : `Graded ${graded} locked-market props below the quality bar — staged ${n} of ${opts.target} clearing skill props (yards / receptions / sacks / TD alts). No ungraded filler was added.`;
   return lead;
 }

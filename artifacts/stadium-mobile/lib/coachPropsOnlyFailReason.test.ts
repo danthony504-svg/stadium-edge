@@ -110,7 +110,7 @@ test("phone empty note includes code + counters so OTA can diagnose", () => {
   assert.match(trace, /sports=wnba:362/);
 
   const note = propsOnlyFailNote(
-    "You asked for **9** legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.",
+    "You asked for 9 legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.",
     diag,
   );
   assert.match(note, /quality bar/);

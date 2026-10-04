@@ -184,8 +184,8 @@ export function buildParlayShortfallNote(
   oddsPhrase: string,
 ): string {
   return [
-    `You asked for ${requested} legs. I searched moneylines, spreads, alt spreads, totals, alt totals, and player props across every game on ${oddsPhrase}, but only **${actual}** cleared the quality filters — I won't pad with weak filler.`,
-    `_Every other candidate failed sim cover, edge, or one-side-per-matchup rules. The **${backupCount}** backup card${backupCount === 1 ? "" : "s"} below almost qualified._`,
+    `You asked for ${requested} legs. I searched moneylines, spreads, alt spreads, totals, alt totals, and player props across every game on ${oddsPhrase}, but only ${actual} cleared the quality filters — I won't pad with weak filler.`,
+    `_Every other candidate failed sim cover, edge, or one-side-per-matchup rules. The ${backupCount} backup card${backupCount === 1 ? "" : "s"} below almost qualified._`,
   ].join("\n\n");
 }
 
@@ -205,7 +205,7 @@ export function buildFullBoardShortfallNote(
 ): string {
   const exclusion =
     excludedSports && excludedSports.length > 0
-      ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues were off the board. `
+      ? `You asked to exclude ${excludedSports.map((s) => s.toUpperCase()).join(", ")} — those leagues were off the board. `
       : "";
   const mainQ = staging?.mainQualified ?? totalQualified;
   const altQ = staging?.altQualified ?? 0;
@@ -213,29 +213,29 @@ export function buildFullBoardShortfallNote(
   const altOn = staging?.altOnTicket ?? 0;
   const altFill =
     altOn > 0
-      ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"} and **${altOn}** alt pick${altOn === 1 ? "" : "s"} (each alt labeled **ALT PICK** on the card).`
+      ? ` ${mainOn} main pick${mainOn === 1 ? "" : "s"} and ${altOn} alt pick${altOn === 1 ? "" : "s"} (each alt labeled ALT PICK on the card).`
       : mainOn > 0
-        ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"}.`
+        ? ` ${mainOn} main pick${mainOn === 1 ? "" : "s"}.`
         : "";
-  const scanLead = `${exclusion}I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
+  const scanLead = `${exclusion}I scanned ${totalScanned} posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
   const shortfallLead = buildFixedLegCountShortfallLead(requested, actual);
   if (actual >= requested) {
     return [
       scanLead,
-      `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters.${altFill} These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`,
+      `${mainQ} main lines and ${altQ} alt lines cleared quality filters.${altFill} These ${actual} are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`,
     ].join("\n\n");
   }
   if (altOn > 0 || altQ > 0) {
     return [
       shortfallLead,
       scanLead,
-      `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters — I filled with every qualifying main, then promoted alternate rungs where mains ran out.${altFill} These **${actual}** are every sim-aligned leg on today's board.`,
+      `${mainQ} main lines and ${altQ} alt lines cleared quality filters — I filled with every qualifying main, then promoted alternate rungs where mains ran out.${altFill} These ${actual} are every sim-aligned leg on today's board.`,
     ].join("\n\n");
   }
   return [
     shortfallLead,
     scanLead,
-    `${COACH_FIXED_LEG_SHORTFALL_LEAD} **${mainQ}** main and **${altQ}** alt lines met quality standards after the full-board scan.${altFill} These **${actual}** are every AI-backed pick on the board.`,
+    `${COACH_FIXED_LEG_SHORTFALL_LEAD} ${mainQ} main and ${altQ} alt lines met quality standards after the full-board scan.${altFill} These ${actual} are every AI-backed pick on the board.`,
   ].join("\n\n");
 }
 
@@ -248,15 +248,15 @@ export function buildQualifyingAltShortfallNote(
 ): string {
   const exclusion =
     excludedSports && excludedSports.length > 0
-      ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues are off the board. `
+      ? `You asked to exclude ${excludedSports.map((s) => s.toUpperCase()).join(", ")} — those leagues are off the board. `
       : "";
   const altDetail =
     altCount > 0
-      ? ` **${altCount}** alternate line${altCount === 1 ? "" : "s"} on the ticket passed 10k sim grading with positive edge — each is labeled **ALT PICK** and graded separately.`
+      ? ` ${altCount} alternate line${altCount === 1 ? "" : "s"} on the ticket passed 10k sim grading with positive edge — each is labeled ALT PICK and graded separately.`
       : "";
   const shortfallLead = buildFixedLegCountShortfallLead(requested, actual);
   return [
     shortfallLead,
-    `${exclusion}I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, then filled with mains first and alternate rungs where needed.${altDetail} These **${actual}** are every sim-aligned leg that cleared the quality bar.`,
+    `${exclusion}I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, then filled with mains first and alternate rungs where needed.${altDetail} These ${actual} are every sim-aligned leg that cleared the quality bar.`,
   ].join("\n\n");
 }

@@ -872,9 +872,9 @@ export function buildFixedLegPropsPendingShortfallLead(
 ): string {
   if (actual >= requested) return "";
   if (actual <= 0) {
-    return `You asked for **${requested}** legs — prop scoring did not finish and no AI-backed picks cleared yet. No ungraded filler was added.`;
+    return `You asked for ${requested} legs — prop scoring did not finish and no AI-backed picks cleared yet. No ungraded filler was added.`;
   }
-  return `You asked for **${requested}** legs — only **${actual}** cleared so far while player props were still scoring. No ungraded filler was added.`;
+  return `You asked for ${requested} legs — only ${actual} cleared so far while player props were still scoring. No ungraded filler was added.`;
 }
 
 /** Honest delivery note for fixed-leg shortfalls / incomplete prop scoring. */

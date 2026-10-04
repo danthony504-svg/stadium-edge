@@ -6,6 +6,7 @@
  * Display names come from ExplicitMarketLockRule.label (canonical mapping).
  */
 
+import { buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 
 /**
@@ -58,8 +59,8 @@ export type LockedMarketQualityShortfallOpts = {
 
 /**
  * Honest shortfall note for locked-market underfills.
- * Returns "" when there is nothing useful to say (no analyzed candidates),
- * or when the ticket already met the requested count (N/N).
+ * Returns "" when the ticket already met the requested count (N/N).
+ * Distinguishes analyzed=0 (no candidates to grade) from analyzed>0 / qualified=0.
  */
 export function lockedMarketQualityShortfallNote(
   opts: LockedMarketQualityShortfallOpts,
@@ -67,9 +68,16 @@ export function lockedMarketQualityShortfallNote(
   const requested = Math.max(0, Math.floor(opts.requestedLegs));
   const analyzed = Math.max(0, Math.floor(opts.analyzed));
   const qualified = Math.max(0, Math.floor(opts.qualified));
-  if (analyzed <= 0) return "";
+  if (qualified >= requested && requested > 0) return "";
 
   const phrase = lockedMarketPickPhrase(opts.marketLabel);
+
+  if (analyzed <= 0) {
+    return (
+      `I couldn't find any available ${phrase} for tonight that I could grade. ` +
+      `I won't substitute another market just to fill your ${requested}-leg request.`
+    );
+  }
 
   if (qualified <= 0) {
     return (
@@ -87,4 +95,73 @@ export function lockedMarketQualityShortfallNote(
   }
 
   return "";
+}
+
+export type ResolveCoachParlayShortfallLeadOpts = {
+  askText: string;
+  requestedLegs: number;
+  /** Legs that cleared quality (ticket length). */
+  qualified: number;
+  /**
+   * Real graded/evaluated count for the locked market pool.
+   * Must not invent from unrelated board totals — pass diagnostics /
+   * props-only propLegsScored for the already-allowlisted pool.
+   */
+  analyzed: number;
+  isMarketLocked: boolean;
+  /** Incomplete prop scoring — prefer pending copy over quality shortfall. */
+  propsPending?: boolean;
+  /** Pending-lead builder (injected so callers share boardScanPropDelivery). */
+  buildPendingLead?: (requested: number, actual: number) => string;
+};
+
+/**
+ * Full-board / hrBoardAsk analyzed count for locked shortfall copy.
+ *
+ * Uses `failureDiagnostics.propLegsScored` only. That count is lock-scoped
+ * because `buildParlay` always passes an allowlisted (and for HR,
+ * scorer-filtered) `activePropPool` with `skipPropPoolExpand` — the scanner
+ * never re-expands into hits / total bases / strikeouts / etc.
+ * Never substitutes `propPoolSize` or cross-market board totals.
+ */
+export function lockedMarketAnalyzedFromBoardDiagnostics(
+  diagnostics:
+    | { propLegsScored?: number | null | undefined }
+    | null
+    | undefined,
+): number {
+  return Math.max(0, Math.floor(Number(diagnostics?.propLegsScored ?? 0)));
+}
+
+/**
+ * Final shortfall lead for both props-only/recovery and full-board/hrBoardAsk
+ * exits. Copy routing only — does not change selection or hrBoardAsk.
+ */
+export function resolveCoachParlayShortfallLead(
+  opts: ResolveCoachParlayShortfallLeadOpts,
+): string {
+  const requested = Math.max(0, Math.floor(opts.requestedLegs));
+  const qualified = Math.max(0, Math.floor(opts.qualified));
+  if (requested > 0 && qualified >= requested) return "";
+
+  if (opts.propsPending) {
+    return (
+      opts.buildPendingLead?.(requested, qualified) ??
+      buildFixedLegCountShortfallLead(requested, qualified)
+    );
+  }
+
+  if (opts.isMarketLocked) {
+    const label = lockedMarketLabelForAsk(opts.askText);
+    if (label) {
+      return lockedMarketQualityShortfallNote({
+        requestedLegs: requested,
+        analyzed: Math.max(0, Math.floor(opts.analyzed)),
+        qualified,
+        marketLabel: label,
+      });
+    }
+  }
+
+  return buildFixedLegCountShortfallLead(requested, qualified);
 }

@@ -23,12 +23,12 @@ import { coachPropsAskGameLineMismatchNote } from "./coach/parseAsk.ts";
 test("sanitizeCoachUserNote strips every known Coach machine CODE", () => {
   for (const code of COACH_MACHINE_TRACE_CODES) {
     const dirty =
-      `You asked for **8** legs — no AI-backed picks cleared. [${code}: internal detail here]`;
+      `You asked for 8 legs — no AI-backed picks cleared. [${code}: internal detail here]`;
     assert.ok(coachUserNoteHasMachineTrace(dirty), code);
     const clean = sanitizeCoachUserNote(dirty);
     assert.equal(
       clean,
-      "You asked for **8** legs — no AI-backed picks cleared.",
+      "You asked for 8 legs — no AI-backed picks cleared.",
       code,
     );
     assert.ok(!coachUserNoteHasMachineTrace(clean), code);
@@ -46,7 +46,7 @@ test("sanitizeCoachUserNote strips multiple traces and leaves human copy", () =>
 
 test("sanitizeCoachUserNote is a no-op on clean human notes", () => {
   const clean =
-    "You asked for **8** legs — no AI-backed picks cleared the quality bar. No ungraded filler was added.";
+    "You asked for 8 legs — no AI-backed picks cleared the quality bar. No ungraded filler was added.";
   assert.equal(sanitizeCoachUserNote(clean), clean);
 });
 
@@ -112,7 +112,7 @@ test("propsOnlyFailNote never leaks PROPS_ONLY_* codes", () => {
     sports: { nfl: 50 },
   });
   const lead =
-    "You asked for **9** legs — no AI-backed player props cleared the quality bar.";
+    "You asked for 9 legs — no AI-backed player props cleared the quality bar.";
   // Even if a caller concatenates the log trace, sanitize must win.
   const dirty = `${lead}${formatPropsOnlyFailTrace(diag)}`;
   assert.ok(coachUserNoteHasMachineTrace(dirty));
