@@ -174,12 +174,11 @@ export function propsOnlyPerGameCeiling(
 export function propsOnlyReliabilityWeightedEv(leg: BoardScoredLeg): number {
   const ev = leg.evPct ?? -999;
   const market = leg.pick.propMarketKey ?? leg.pick.market;
+  if (!isRareCountPropMarket(market)) return ev;
   const rel =
     leg.hitReliability != null && Number.isFinite(leg.hitReliability)
       ? leg.hitReliability
-      : isRareCountPropMarket(market)
-        ? 0.25
-        : 1;
+      : 0.25;
   return ev * rareCountEvRankWeight(rel);
 }
 

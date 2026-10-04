@@ -331,9 +331,9 @@ function localHitFromHistory(
   const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
   const hitProbRaw = hits / vals.length;
   const hit = hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
-  // High-volume yards/points: sample size alone drives reliability.
-  const reliability = Math.min(1, vals.length / 10);
-  return { hit, reliability };
+  // High-volume yards/points keep full ranking trust once the sample clears the
+  // min gate — reliability shrink is reserved for rare-count longshots.
+  return { hit, reliability: 1 };
 }
 
 export function gradeFootballPropFromHistory(
