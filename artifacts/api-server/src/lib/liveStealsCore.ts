@@ -4,10 +4,10 @@
 // cron) lives in liveSteals.ts and re-exports from here.
 //
 // HONESTY: a steal is surfaced ONLY when the feed already carries a real de-vig
-// edge for it (game lines: odds.ts per-outcome noVigFair/edge at ANY price;
-// props: props.ts ev/edge, computed only for prices ≤ +600). Nothing is
-// fabricated; the W/L ledger settles with the exact same real-result grader the
-// rest of the app uses (gradeLegs).
+// edge for it (game lines — mains + alt/period: odds.ts per-outcome noVigFair/
+// edge at ANY price; props: props.ts ev/edge, computed only for prices ≤ +600).
+// Nothing is fabricated; the W/L ledger settles with the exact same real-result
+// grader the rest of the app uses (gradeLegs).
 // ───────────────────────────────────────────────────────────────────────────
 
 // Longshot price band (American odds). The high end is intentionally generous,
@@ -44,7 +44,7 @@ export const GIVE_UP_MS = 5 * 24 * 60 * 60 * 1000;
 
 // Map a prop market KEY (Odds API) → the human stat label the grader/StatMuse
 // expects. Mirrors the mobile client's PROP_MARKET_LABELS so a stored steal leg
-// grades identically. (Steals come from MAIN, non-period lines only.)
+// grades identically.
 const PROP_MARKET_LABELS: Record<string, string> = {
   player_points: "Points",
   player_rebounds: "Rebounds",
@@ -323,22 +323,86 @@ const GAME_MARKET_LABEL: Record<string, string> = {
   totals: "Total",
 };
 
-// Build a steal from a single game-line outcome (any price) carrying a real edge.
+const PERIOD_SUFFIX_LABEL: Record<string, string> = {
+  h1: "1H",
+  h2: "2H",
+  q1: "Q1",
+  q2: "Q2",
+  q3: "Q3",
+  q4: "Q4",
+  p1: "1P",
+  p2: "2P",
+  p3: "3P",
+  "1st_5_innings": "F5",
+  "1st_1_innings": "1st Inning",
+};
+
+/** Human label for any odds market key Steals may evaluate (mains + alt/period). */
+export function stealGameMarketLabel(marketKey: string): string | null {
+  const k = String(marketKey ?? "").toLowerCase().trim();
+  if (!k) return null;
+  if (GAME_MARKET_LABEL[k]) return GAME_MARKET_LABEL[k]!;
+  if (k === "btts") return "Both Teams to Score";
+  if (k === "draw_no_bet") return "Draw No Bet";
+  if (k === "double_chance") return "Double Chance";
+
+  let m = k.match(/^alternate_team_totals(?:_(h1|h2|q1|q2|q3|q4|p1|p2|p3))?$/);
+  if (m) {
+    const period = m[1] ? PERIOD_SUFFIX_LABEL[m[1]] ?? m[1].toUpperCase() : "";
+    return `${period ? `${period} ` : ""}Alt Team Total`.trim();
+  }
+  m = k.match(/^team_totals(?:_(h1|h2|q1|q2|q3|q4|p1|p2|p3))?$/);
+  if (m) {
+    const period = m[1] ? PERIOD_SUFFIX_LABEL[m[1]] ?? m[1].toUpperCase() : "";
+    return `${period ? `${period} ` : ""}Team Total`.trim();
+  }
+  m = k.match(/^alternate_(spreads|totals)(?:_(h1|h2|q1|q2|q3|q4|p1|p2|p3))?$/);
+  if (m) {
+    const base = m[1] === "spreads" ? "Spread" : "Total";
+    const period = m[2] ? PERIOD_SUFFIX_LABEL[m[2]] ?? m[2].toUpperCase() : "";
+    return `${period ? `${period} ` : ""}Alt ${base}`.trim();
+  }
+  m = k.match(/^(h2h|spreads|totals)_(h1|h2|q1|q2|q3|q4|p1|p2|p3|1st_5_innings|1st_1_innings)$/);
+  if (m) {
+    const kind = m[1]!;
+    const suffix = m[2]!;
+    if (kind === "h2h" && suffix === "1st_5_innings") return "F5 Moneyline";
+    if (kind === "spreads" && suffix === "1st_5_innings") return "F5 Run Line";
+    if (kind === "totals" && suffix === "1st_5_innings") return "F5 Total";
+    if (kind === "totals" && suffix === "1st_1_innings") return "1st Inning Total";
+    const period = PERIOD_SUFFIX_LABEL[suffix] ?? suffix.toUpperCase();
+    const base = kind === "h2h" ? "Moneyline" : kind === "spreads" ? "Spread" : "Total";
+    return `${period} ${base}`;
+  }
+  // Unknown keys stay out of Steals rather than inventing a label.
+  return null;
+}
+
+function formatGameStealPick(marketKey: string, o: OddsOutcome): string {
+  const k = String(marketKey ?? "").toLowerCase();
+  if (k === "h2h" || k.startsWith("h2h_") || k === "draw_no_bet") {
+    return k === "draw_no_bet" ? `${o.name} DNB` : `${o.name} ML`;
+  }
+  if (k.includes("spread")) {
+    return o.point != null ? `${o.name} ${fmtSignedPoint(o.point)}` : `${o.name}`;
+  }
+  // totals / team totals / btts / double chance / etc.
+  return o.point != null ? `${o.name} ${o.point}` : `${o.name}`;
+}
+
+// Build a steal from a game-line outcome (mains + alt/period) carrying a real edge.
 export function findGameSteals(rows: OddsRow[]): Steal[] {
   const out: Steal[] = [];
   for (const g of rows) {
     const game = `${g.awayTeam} @ ${g.homeTeam}`;
     for (const m of g.markets) {
-      const label = GAME_MARKET_LABEL[m.key];
-      if (!label) continue; // mains only (skip alt/period markets)
+      const label = stealGameMarketLabel(m.key);
+      if (!label) continue;
       for (const o of m.outcomes) {
         if (!inStealBand(o.price)) continue;
         const ev = evPct(o.noVigFair, o.price);
         if (!passesGuards(o.edge ?? null, ev)) continue;
-        let pick: string;
-        if (m.key === "h2h") pick = `${o.name} ML`;
-        else if (m.key === "spreads") pick = o.point != null ? `${o.name} ${fmtSignedPoint(o.point)}` : `${o.name}`;
-        else pick = o.point != null ? `${o.name} ${o.point}` : `${o.name}`; // totals: "Over 9.5"
+        const pick = formatGameStealPick(m.key, o);
         out.push({
           id: stealKey(g.sport, g.id, label, pick),
           sport: g.sport,
@@ -363,16 +427,13 @@ export function findNearMissGameSteals(rows: OddsRow[]): NearMissSteal[] {
   for (const g of rows) {
     const game = `${g.awayTeam} @ ${g.homeTeam}`;
     for (const m of g.markets) {
-      const label = GAME_MARKET_LABEL[m.key];
+      const label = stealGameMarketLabel(m.key);
       if (!label) continue;
       for (const o of m.outcomes) {
         if (!inStealBand(o.price)) continue;
         const ev = evPct(o.noVigFair, o.price);
         if (!isNearMissSteal(o.edge ?? null, ev)) continue;
-        let pick: string;
-        if (m.key === "h2h") pick = `${o.name} ML`;
-        else if (m.key === "spreads") pick = o.point != null ? `${o.name} ${fmtSignedPoint(o.point)}` : `${o.name}`;
-        else pick = o.point != null ? `${o.name} ${o.point}` : `${o.name}`;
+        const pick = formatGameStealPick(m.key, o);
         out.push({
           id: stealKey(g.sport, g.id, label, pick),
           sport: g.sport,

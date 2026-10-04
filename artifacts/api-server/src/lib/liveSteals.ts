@@ -8,6 +8,11 @@ import {
   type StealOddsSportProbe,
 } from "./stealFeedDiagnostics.ts";
 import {
+  buildCoachGameTeamIdMap,
+  resolveCoachGameTeamIds,
+  type CoachGameTeamIds,
+} from "./coachTeamIdResolve";
+import {
   findGameSteals,
   findPropSteals,
   findNearMissGameSteals,
@@ -194,11 +199,66 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     for (const g of oddsBySport.get(sport) ?? []) cands.push({ sport, g });
   }
   cands.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
+  const propCands = cands.slice(0, MAX_PROP_GAMES);
+
+  // Resolve ESPN team IDs the same way Coach does (build map from /sports/games,
+  // then resolve odds-board labels). Without IDs, props.ts fail-closes via
+  // propBelongsToGameTeams — never weaken that gate; pass real IDs instead.
+  const espnGames: Array<{
+    sport?: string;
+    homeTeam?: string;
+    awayTeam?: string;
+    homeAbbr?: string | null;
+    awayAbbr?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+  }> = [];
+  const sportsNeedingIds = [...new Set(propCands.map((c) => c.sport))];
+  await Promise.all(
+    sportsNeedingIds.map(async (sport) => {
+      type GameRow = {
+        sport?: string;
+        homeTeam?: string;
+        awayTeam?: string;
+        homeAbbr?: string | null;
+        awayAbbr?: string | null;
+        homeTeamId?: string | null;
+        awayTeamId?: string | null;
+      };
+      const rows = await fetchJson<GameRow[]>(`/sports/games?sport=${encodeURIComponent(sport)}`);
+      if (!Array.isArray(rows)) return;
+      for (const row of rows) {
+        espnGames.push({
+          sport: row.sport || sport,
+          homeTeam: row.homeTeam,
+          awayTeam: row.awayTeam,
+          homeAbbr: row.homeAbbr,
+          awayAbbr: row.awayAbbr,
+          homeTeamId: row.homeTeamId != null ? String(row.homeTeamId) : null,
+          awayTeamId: row.awayTeamId != null ? String(row.awayTeamId) : null,
+        });
+      }
+    }),
+  );
+  const teamIdMap = buildCoachGameTeamIdMap(espnGames);
+
   const propGames = await Promise.all(
-    cands.slice(0, MAX_PROP_GAMES).map(async ({ sport, g }): Promise<PropGame> => {
+    propCands.map(async ({ sport, g }): Promise<PropGame> => {
       const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
+      const label = `${g.awayTeam} @ ${g.homeTeam}`;
+      const ids: CoachGameTeamIds | null = resolveCoachGameTeamIds(label, sport, teamIdMap);
+      if (ids?.homeTeamId) q.set("homeTeamId", ids.homeTeamId);
+      if (ids?.awayTeamId) q.set("awayTeamId", ids.awayTeamId);
+      // Soccer (and any sport) without resolved club IDs stays fail-closed inside
+      // propBelongsToGameTeams — we do not invent IDs or bypass the gate.
       const r = await fetchJson<{ props?: FeedProp[] }>(`/sports/props?${q.toString()}`);
-      return { eventId: g.id, game: `${g.awayTeam} @ ${g.homeTeam}`, sport, startsAt: g.commenceTime, props: r?.props ?? [] };
+      return {
+        eventId: g.id,
+        game: label,
+        sport,
+        startsAt: g.commenceTime,
+        props: r?.props ?? [],
+      };
     }),
   );
   const propTally = tallyPropScan(propGames);
