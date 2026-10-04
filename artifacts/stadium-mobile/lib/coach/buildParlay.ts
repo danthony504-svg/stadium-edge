@@ -76,8 +76,10 @@ import {
   footballSkillRecoveryNote,
   shouldRecoverPropsOnlyWithFootballSkillBoard,
 } from "@/lib/coachFootballPropsOnlyRecovery";
-import { lockedMarketQualityShortfallNote } from "@/lib/lockedMarketQualityShortfall";
-import { matchExplicitMarketLocks } from "@/lib/explicitMarketLock";
+import {
+  lockedMarketLabelForAsk,
+  lockedMarketQualityShortfallNote,
+} from "@/lib/lockedMarketQualityShortfall";
 import {
   enforceMlLeanOnPicks,
   mlLeanEnforcementNote,
@@ -422,8 +424,8 @@ export async function buildCoachParlay(opts: {
     // Never clear allowedMarketKeys or cross-fill another stat family.
     let recoveredNote = "";
     const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
-    const lockedMarketLabel =
-      matchExplicitMarketLocks(opts.askText)?.labels[0] ?? "market";
+    // Canonical lock label from EXPLICIT_MARKET_LOCK_RULES (any sport/family).
+    const lockedMarketLabel = lockedMarketLabelForAsk(opts.askText) ?? "market";
     const recoveryPool = isMarketLocked
       ? filterPropPoolByAskMarkets(
           askAllowsNcaafPlayerProps(opts.askText)
