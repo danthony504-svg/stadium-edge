@@ -46,6 +46,13 @@ export function periodScoresForDraw(
   opts?: {
     homePeriodExpected?: number | null;
     awayPeriodExpected?: number | null;
+    /**
+     * Stable full-game expected points for the share denominator.
+     * MUST NOT be the per-draw score — dividing by the draw cancels Monte Carlo
+     * variance and collapses every trial to ~period mean (±noise).
+     */
+    homeFgExpected?: number | null;
+    awayFgExpected?: number | null;
   },
 ): { home: number; away: number } {
   if (period === "fg") return { home: homeFull, away: awayFull };
@@ -55,18 +62,28 @@ export function periodScoresForDraw(
   const noiseH = 1 + (Math.random() - 0.5) * 0.14;
   const noiseA = 1 + (Math.random() - 0.5) * 0.14;
 
+  // Scale each FG draw by (periodExpected / fgExpected). fgExpected is a
+  // constant from ESPN period averages, so draw variance survives.
   const hExp = opts?.homePeriodExpected;
   const aExp = opts?.awayPeriodExpected;
+  const homeFg = opts?.homeFgExpected;
+  const awayFg = opts?.awayFgExpected;
   if (
     hExp != null &&
     aExp != null &&
+    homeFg != null &&
+    awayFg != null &&
     Number.isFinite(hExp) &&
     Number.isFinite(aExp) &&
+    Number.isFinite(homeFg) &&
+    Number.isFinite(awayFg) &&
+    homeFg > 0.5 &&
+    awayFg > 0.5 &&
     homeFull > 0.5 &&
     awayFull > 0.5
   ) {
-    const hShare = Math.max(0.05, Math.min(0.95, hExp / homeFull));
-    const aShare = Math.max(0.05, Math.min(0.95, aExp / awayFull));
+    const hShare = Math.max(0.05, Math.min(0.95, hExp / homeFg));
+    const aShare = Math.max(0.05, Math.min(0.95, aExp / awayFg));
     return {
       home: Math.max(0, round2(homeFull * hShare * noiseH)),
       away: Math.max(0, round2(awayFull * aShare * noiseA)),
