@@ -524,11 +524,11 @@ export function gameLabelHitsExcludedTeams(
  */
 export function resolveExcludedTeamIdsFromGames<
   T extends {
-    homeTeam?: string;
-    awayTeam?: string;
+    homeTeam?: string | null;
+    awayTeam?: string | null;
     homeTeamId?: string | null;
     awayTeamId?: string | null;
-    sport?: string;
+    sport?: string | null;
   },
 >(
   excluded: readonly CoachAskExcludedTeam[],
@@ -554,7 +554,11 @@ export function resolveExcludedTeamIdsFromGames<
 
 /** Drop every game whose home or away side is an excluded franchise. */
 export function filterOddsGamesExcludingTeams<
-  T extends { homeTeam?: string; awayTeam?: string; sport?: string },
+  T extends {
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    sport?: string | null;
+  },
 >(games: T[], excluded: readonly CoachAskExcludedTeam[] | null | undefined): T[] {
   if (!excluded?.length || !games.length) return games;
   return games.filter((g) => {
@@ -575,7 +579,11 @@ export function filterPicksExcludingTeams<
 
 /** Keep only odds games that include the named franchise. Strict: empty > wrong games. */
 export function filterOddsGamesForAskTeam<
-  T extends { homeTeam?: string; awayTeam?: string; sport?: string },
+  T extends {
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    sport?: string | null;
+  },
 >(games: T[], scope: CoachAskTeamScope | null): T[] {
   if (!scope || !games.length) return games;
   return games.filter((g) => {
@@ -601,7 +609,11 @@ export function filterPicksForAskTeam<
  * Exclusions always win when both apply to the same phrase (negatives stripped from include).
  */
 export function filterOddsGamesForCoachAskTeams<
-  T extends { homeTeam?: string; awayTeam?: string; sport?: string },
+  T extends {
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    sport?: string | null;
+  },
 >(
   games: T[],
   scope: CoachAskTeamScope | null,

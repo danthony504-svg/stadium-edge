@@ -586,7 +586,7 @@ export async function buildCoachParlay(opts: {
     picks = filterPicksForSlateDay(picks, inputs.slateDay);
     picks = filterPicksForCoachAskTeams(picks, inputs.teamScope, inputs.excludedTeams);
     const shortfall = resolveCoachParlayShortfallLead({
-      askText: opts.askText,
+      askText: opts.askText ?? "",
       requestedLegs: target,
       qualified: picks.length,
       analyzed: built.propLegsScored,
@@ -832,7 +832,7 @@ export async function buildCoachParlay(opts: {
     scan?.failureDiagnostics,
   );
   const shortfall = resolveCoachParlayShortfallLead({
-    askText: opts.askText,
+    askText: opts.askText ?? "",
     requestedLegs: target,
     qualified: picks.length,
     analyzed: lockedAnalyzed,
