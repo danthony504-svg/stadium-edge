@@ -52,8 +52,11 @@ import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
 import {
   coachAskTeamMissNote,
   coachAskTeamScope,
-  filterOddsGamesForAskTeam,
-  filterPicksForAskTeam,
+  excludedTeamScopesFromText,
+  filterOddsGamesForCoachAskTeams,
+  filterPicksForCoachAskTeams,
+  resolveExcludedTeamIdsFromGames,
+  type CoachAskExcludedTeam,
 } from "@/lib/coachAskTeamScope";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import {
@@ -139,6 +142,7 @@ async function loadScanInputs(
   sports: string[];
   prioritySports: readonly string[];
   teamScope: ReturnType<typeof coachAskTeamScope>;
+  excludedTeams: CoachAskExcludedTeam[];
   slateDay: SlateDay;
 }> {
   // Named league(s) scope the board (CFB stays CFB). Generic asks union every
@@ -161,10 +165,13 @@ async function loadScanInputs(
   ]);
 
   // "6 leg Saints" / "7 leg saints game" → keep only that franchise's matchup.
+  // "6 leg NHL not the ducks" → drop the entire excluded matchup (both clubs).
   // Sport scoping alone still allowed other NFL games to fill a team ask.
   const teamScope = coachAskTeamScope(askText);
-  let oddsGames = filterOddsGamesForAskTeam(oddsRaw, teamScope);
-  let espnGames = filterOddsGamesForAskTeam(espnGamesRaw, teamScope);
+  let excludedTeams = excludedTeamScopesFromText(askText);
+  excludedTeams = resolveExcludedTeamIdsFromGames(excludedTeams, espnGamesRaw);
+  let oddsGames = filterOddsGamesForCoachAskTeams(oddsRaw, teamScope, excludedTeams);
+  let espnGames = filterOddsGamesForCoachAskTeams(espnGamesRaw, teamScope, excludedTeams);
 
   // "7 leg for today" / "tonight" / "tomorrow" — restrict the board BEFORE props
   // and game lines are discovered so recovery/top-up cannot reintroduce other days.
@@ -179,16 +186,26 @@ async function loadScanInputs(
   );
   // Belt: drop any row whose kickoff slipped outside the requested local day.
   propPool = filterOddsForSlateDay(propPool, slateDay);
+  // Exclusions already removed games before prop fetch; belt-and-suspenders on
+  // pool rows so a stale basePool cannot reintroduce an excluded matchup.
+  propPool = filterPicksForCoachAskTeams(propPool, teamScope, excludedTeams);
+
+  const liveOdds = filterPicksForCoachAskTeams(
+    filterOddsForSlateDay(liveFeed.odds ?? [], slateDay),
+    teamScope,
+    excludedTeams,
+  );
 
   return {
     espnGames,
     oddsGames,
     propPool,
     realOdds: realOddsFromOddsGames(oddsGames),
-    liveOdds: filterOddsForSlateDay(liveFeed.odds ?? [], slateDay),
+    liveOdds,
     sports,
     prioritySports,
     teamScope,
+    excludedTeams,
     slateDay,
   };
 }
@@ -412,12 +429,13 @@ export async function buildCoachParlay(opts: {
         );
       },
     });
-    let picks = filterPicksForAskTeam(
+    let picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(
         selectFinalCoachParlayPicks(built.picks),
         marketConstraint,
       ),
       inputs.teamScope,
+      inputs.excludedTeams,
     );
 
     // Locked market family graded but staged 0 — recover with the SAME allowlist
@@ -473,12 +491,13 @@ export async function buildCoachParlay(opts: {
           );
         },
       });
-      const recoveredPicks = filterPicksForAskTeam(
+      const recoveredPicks = filterPicksForCoachAskTeams(
         filterPicksByAskMarketConstraint(
           selectFinalCoachParlayPicks(recovered.picks),
           marketConstraint,
         ),
         inputs.teamScope,
+        inputs.excludedTeams,
       );
       if (recoveredPicks.length > 0) {
         picks = recoveredPicks;
@@ -518,12 +537,13 @@ export async function buildCoachParlay(opts: {
             );
           },
         });
-        const softPicks = filterPicksForAskTeam(
+        const softPicks = filterPicksForCoachAskTeams(
           filterPicksByAskMarketConstraint(
             selectFinalCoachParlayPicks(softPreferred.picks),
             marketConstraint,
           ),
           inputs.teamScope,
+          inputs.excludedTeams,
         );
         if (softPicks.length > 0) {
           picks = softPicks;
@@ -561,10 +581,12 @@ export async function buildCoachParlay(opts: {
     }
 
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
-    // Final belt — recovery/top-up must not reintroduce another local day.
+    // Final belt — recovery/top-up must not reintroduce another local day
+    // or an explicitly excluded matchup.
     picks = filterPicksForSlateDay(picks, inputs.slateDay);
+    picks = filterPicksForCoachAskTeams(picks, inputs.teamScope, inputs.excludedTeams);
     const shortfall = resolveCoachParlayShortfallLead({
-      askText: opts.askText,
+      askText: opts.askText ?? "",
       requestedLegs: target,
       qualified: picks.length,
       analyzed: built.propLegsScored,
@@ -630,6 +652,7 @@ export async function buildCoachParlay(opts: {
     espnGames: inputs.espnGames,
     gameMeta: [],
     teamIdMap,
+    excludedTeams: inputs.excludedTeams,
     signal: opts.signal,
     skipPropPoolExpand: skipPropExpand,
     prioritySports: inputs.prioritySports,
@@ -751,12 +774,13 @@ export async function buildCoachParlay(opts: {
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;
-  let picks = filterPicksForAskTeam(
+  let picks = filterPicksForCoachAskTeams(
     filterPicksByAskMarketConstraint(
       selectFinalCoachParlayPicks(rawPicks),
       marketConstraint,
     ),
     teamScope,
+    inputs.excludedTeams,
   );
   // Lock ML / puck-line / spread sides to real mlLean when present — opponent
   // comparison like NFL, not freeform chat inventing home-ice one-liners.
@@ -767,7 +791,11 @@ export async function buildCoachParlay(opts: {
       realOdds: scanRealOdds,
       gameMeta: [],
     });
-    picks = filterPicksByAskMarketConstraint(enforced.picks, marketConstraint);
+    picks = filterPicksForCoachAskTeams(
+      filterPicksByAskMarketConstraint(enforced.picks, marketConstraint),
+      teamScope,
+      inputs.excludedTeams,
+    );
     mlLeanNote = mlLeanEnforcementNote(enforced);
   }
   const propsPending =
@@ -787,8 +815,10 @@ export async function buildCoachParlay(opts: {
   }
   // Same-ticket ladder ban — never ship Colts +4.5 and +3.5 together.
   picks = dedupePicksByMarketLadder(picks);
-  // Final belt — staging/top-up must not reintroduce another local day.
+  // Final belt — staging/top-up must not reintroduce another local day
+  // or an explicitly excluded matchup.
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
+  picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   // Full-board / hrBoardAsk exit — same locked shortfall helper as props-only.
@@ -802,7 +832,7 @@ export async function buildCoachParlay(opts: {
     scan?.failureDiagnostics,
   );
   const shortfall = resolveCoachParlayShortfallLead({
-    askText: opts.askText,
+    askText: opts.askText ?? "",
     requestedLegs: target,
     qualified: picks.length,
     analyzed: lockedAnalyzed,

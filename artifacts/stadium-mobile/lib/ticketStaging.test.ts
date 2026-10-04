@@ -681,3 +681,71 @@ test("topUp relaxes game-line cap when no props qualify on 2-game board", () => 
   assert.ok(topped.length >= 8, `expected ≥8 from period/alt relax, got ${topped.length}`);
   assert.equal(topped.filter((p) => p.isProp).length, 0);
 });
+
+test("top-up after excluded-matchup filter never reintroduces Florida @ Anaheim", async () => {
+  const { excludedTeamScopesFromText, filterPicksExcludingTeams } = await import(
+    "./coachAskTeamScope.ts"
+  );
+  const excluded = excludedTeamScopesFromText("6 leg NHL not the ducks");
+  const ducks = "Florida Panthers @ Anaheim Ducks";
+  const ok1 = "Calgary Flames @ Seattle Kraken";
+  const ok2 = "Vegas Golden Knights @ Vancouver Canucks";
+  const short: ParsedPick[] = [
+    leg({ game: ok1, market: "Moneyline", pick: "Kraken", odds: 120, sport: "nhl" }, 100, mainScore).pick,
+    leg({ game: ok1, market: "Total", pick: "Over 5.5", odds: -110, sport: "nhl" }, 95, mainScore).pick,
+    leg({ game: ok2, market: "Moneyline", pick: "Canucks", odds: -105, sport: "nhl" }, 90, mainScore).pick,
+    leg({ game: ok2, market: "Puck Line", pick: "Canucks +1.5", odds: -115, sport: "nhl" }, 85, mainScore).pick,
+  ];
+  const scoredRaw: BoardScoredLeg[] = [
+    ...short.map((pick, i) => ({
+      pick,
+      evPct: 2,
+      edgePct: 3,
+      confidencePct: 55,
+      impliedProbPct: 50,
+      lineShoppingScore: 1,
+      grade: "B",
+      simHit: 0.55,
+      composite: 7,
+      rankScore: 100 - i,
+    })),
+    // Would fill seats 5–6 if exclusion were bypassed
+    leg(
+      { game: ducks, market: "POINTS", pick: "Luneau Over 0.5", odds: 220, sport: "nhl", isProp: true },
+      99,
+      mainScore,
+    ),
+    leg(
+      { game: ducks, market: "ALT TOTAL", pick: "Over 6.5", odds: -105, sport: "nhl" },
+      98,
+      mainScore,
+    ),
+    leg(
+      { game: "Ottawa Senators @ Boston Bruins", market: "Moneyline", pick: "Bruins", odds: -130, sport: "nhl" },
+      70,
+      mainScore,
+    ),
+    leg(
+      { game: "Winnipeg Jets @ Pittsburgh Penguins", market: "Total", pick: "Under 6.5", odds: -110, sport: "nhl" },
+      65,
+      mainScore,
+    ),
+  ];
+  // Mirror buildScanResult exclusion belt before top-up.
+  const scored = scoredRaw.filter(
+    (leg) => filterPicksExcludingTeams([leg.pick], excluded).length > 0,
+  );
+  const topped = topUpTicketFromQualifiedScored(short, scored, 6);
+  // May land 5–6 depending on mix caps; never pad with the excluded Ducks game.
+  assert.ok(topped.length >= 5 && topped.length <= 6, `got ${topped.length}`);
+  assert.ok(
+    topped.every((p) => !/ducks|anaheim/i.test(String(p.game))),
+    "excluded Ducks matchup must not re-enter via ALT/top-up",
+  );
+  assert.equal(
+    scoredRaw.length - scored.length,
+    2,
+    "both Ducks leftovers must be stripped before top-up",
+  );
+  assert.ok(excluded.length >= 1);
+});

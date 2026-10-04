@@ -8,6 +8,11 @@ import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
+  filterOddsGamesExcludingTeams,
+  filterPicksExcludingTeams,
+  type CoachAskExcludedTeam,
+} from "./coachAskTeamScope.ts";
+import {
   createCoachBoardScanManifestRecorder,
   type CoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
@@ -816,11 +821,20 @@ export function buildScanResult(
     failureDiagnostics?: FullBoardScanResult["failureDiagnostics"];
     /** Limit NFL/NCAAF priority inject to leagues named in the ask. */
     prioritySports?: readonly string[];
+    /** Drop scored leftovers from excluded matchups before staging/top-up. */
+    excludedTeams?: readonly CoachAskExcludedTeam[];
   },
 ): FullBoardScanResult {
+  // Drop excluded-matchup leftovers before staging/top-up can re-seat them.
+  const exclusionSafe = opts.excludedTeams?.length
+    ? scored.filter(
+        (leg) =>
+          filterPicksExcludingTeams([leg.pick], opts.excludedTeams).length > 0,
+      )
+    : scored;
   // Preview + final: collapse ladder rungs before staging so Colts +4.5 / +3.5
   // cannot both land on the hang-guard buffer or the terminal ticket.
-  const ladderCollapsed = collapseScoredLegsByMarketLadder(scored);
+  const ladderCollapsed = collapseScoredLegsByMarketLadder(exclusionSafe);
   const stagePool = opts.propsOnly
     ? ladderCollapsed.filter((leg) => !!leg.pick.isProp)
     : opts.gameLinesOnly
@@ -1051,6 +1065,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   gameMeta: GameMeta[];
   teamIdMap: Map<string, GameTeamIds>;
   excludedSports?: Set<string>;
+  /** Explicit franchise exclusions — drop entire matchups before sim/staging. */
+  excludedTeams?: readonly CoachAskExcludedTeam[];
   matchupHistory?: Record<string, MatchupHistoryEntry>;
   matchupInjuries?: Record<string, GameInjuryReport>;
   playerHistory?: Record<string, PlayerHistorySlice>;
@@ -1097,13 +1113,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   /** Limit priority-sport inject to leagues named in the user ask. */
   prioritySports?: readonly string[];
 }): Promise<FullBoardScanResult> {
+  const excludedTeams = opts.excludedTeams ?? [];
+  const poolAfterSports = opts.excludedSports?.size
+    ? filterForExcludedSports(opts.propPool, opts.excludedSports)
+    : opts.propPool;
   const poolBase = filterBettablePropPool(
-    opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
+    filterPicksExcludingTeams(poolAfterSports, excludedTeams),
   );
   const oddsGamesRaw = opts.excludedSports?.size
     ? opts.oddsGames.filter((g) => !opts.excludedSports!.has(g.sport))
     : opts.oddsGames;
-  const oddsGames = filterBettableOddsGames(oddsGamesRaw);
+  const oddsGames = filterBettableOddsGames(
+    filterOddsGamesExcludingTeams(oddsGamesRaw, excludedTeams),
+  );
 
   // Pre-bind odds labels → ESPN ids so slate sims hit direct keys. Capture
   // bind counts — map.size alone overstates health (many keys per game).
@@ -1145,7 +1167,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     opts.espnGames?.length && !opts.skipPropPoolExpand && !opts.gameLinesOnly
       ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
           .then((rows) => {
-            let next = filterBettablePropPool(rows);
+            let next = filterPicksExcludingTeams(
+              filterBettablePropPool(rows),
+              excludedTeams,
+            );
             if (opts.excludeNcaafPlayerProps) {
               next = filterNcaafPlayerPropsUnlessAsked(next, "team markets only");
             }
@@ -1198,6 +1223,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       legsPerGameCap: opts.legsPerGameCap,
       requirePropMix: opts.requirePropMix,
       prioritySports: opts.prioritySports,
+      excludedTeams,
     });
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
   };
@@ -1488,6 +1514,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     requirePropMix: opts.requirePropMix,
     failureDiagnostics,
     prioritySports: opts.prioritySports,
+    excludedTeams,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;
