@@ -181,6 +181,28 @@ test("5) today request after a previous tomorrow request → today wins", () => 
   assert.ok(startsTodayUpcoming(filtered.oddsGames[0]!.commenceTime));
 });
 
+test("5b) sport-scoped ask after tonight does NOT inherit tonight (48h NFL)", () => {
+  // Phone: prior "tonight" staged college; "7 leg NFL" inherited tonight and
+  // emptied Sunday-evening NFL while Monday games were outside "today".
+  assert.equal(slateDayFromThread("7 leg NFL", ["7 leg tonight"]), null);
+  assert.equal(slateDayFromThread("7 leg nfl", ["5 leg for today"]), null);
+  assert.equal(slateDayFromThread("10 leg nba", ["parlay for tonight"]), null);
+  // Explicit date on this turn still wins.
+  assert.equal(slateDayFromThread("7 leg NFL tonight", ["7 leg tomorrow"]), "tonight");
+  // Bare refinement without a sport still inherits tonight.
+  assert.equal(slateDayFromThread("5 leg", ["7 leg tonight"]), "tonight");
+  assert.equal(slateDayFromThread("5 leg parlay", ["for tonight"]), "tonight");
+
+  const board = boardFixture();
+  // boardFixture NFL game is day-after — must survive "7 leg NFL" after tonight.
+  const filtered = applyLoadScanSlateFilter("7 leg NFL", ["7 leg tonight"], board);
+  assert.equal(filtered.slateDay, null);
+  assert.ok(
+    filtered.oddsGames.some((g) => (g as { sport?: string }).sport === "nfl"),
+    "NFL day-after game must remain on the 48h board",
+  );
+});
+
 test("6) tomorrow request after a previous today request → tomorrow wins", () => {
   assert.equal(
     slateDayFromThread("7 leg tomorrow", ["7 leg for today"]),

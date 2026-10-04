@@ -194,7 +194,10 @@ export type SlateDay = "tonight" | "tomorrow" | null;
  * Explicit date on THIS turn always wins over inherited prior intent
  * ("7 leg for today" after a tomorrow ask must be today, not tomorrow).
  * When this turn has no date wording, inherit from prior turns
- * (tomorrow wins over tonight when both appear in history).
+ * (tomorrow wins over tonight when both appear in history) — EXCEPT when
+ * this turn names a sport/league. Sport-scoped builds ("7 leg NFL") keep the
+ * normal 48h bettable window; inheriting a prior "tonight" emptied Sunday
+ * evening NFL boards while Monday games sat outside "today".
  */
 export function slateDayFromThread(
   current: string,
@@ -202,9 +205,19 @@ export function slateDayFromThread(
 ): SlateDay {
   if (wantsTomorrowSlate(current)) return "tomorrow";
   if (wantsTonightSlate(current)) return "tonight";
+  // Named sport + no date on this turn → 48h window (do not inherit prior day).
+  if (askNamesSportWithoutSlateDay(current)) return null;
   if (threadWantsTomorrowSlate(current, priorUserTexts)) return "tomorrow";
   if (threadWantsTonightSlate(current, priorUserTexts)) return "tonight";
   return null;
+}
+
+/** True when the ask names a league/sport and does not mention today/tonight/tomorrow. */
+export function askNamesSportWithoutSlateDay(text?: string | null): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (/\b(today|tonight|tomorrow)\b/i.test(t)) return false;
+  return focalSportsFromText(t).size > 0;
 }
 
 export function slateOddsLabel(day: SlateDay): string {
