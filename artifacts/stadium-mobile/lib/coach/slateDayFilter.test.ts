@@ -13,6 +13,7 @@ import {
   filterOddsGamesForSlateDay,
   filterPicksForSlateDay,
   localDayDiff,
+  resolveTodayOnly,
   slateDayFromThread,
   startsTodayUpcoming,
   startsTomorrowUpcoming,
@@ -74,7 +75,7 @@ function boardFixture() {
   };
 }
 
-/** Mirrors loadScanInputs: bettable → slateDay → filter games/props/odds. */
+/** Mirrors loadScanInputs: slateDay → resolveTodayOnly salvage → filter. */
 function applyLoadScanSlateFilter<T extends { commenceTime?: string; startsAt?: string | null }>(
   ask: string,
   prior: string[],
@@ -85,7 +86,16 @@ function applyLoadScanSlateFilter<T extends { commenceTime?: string; startsAt?: 
     liveOdds: Array<T & { startsAt?: string | null }>;
   },
 ) {
-  const slateDay = slateDayFromThread(ask, prior);
+  let slateDay = slateDayFromThread(ask, prior);
+  if (slateDay === "tonight") {
+    const startTimes = [
+      ...board.oddsGames.map((g) => g.commenceTime),
+      ...board.espnGames.map((g) => g.startsAt),
+    ];
+    if (!resolveTodayOnly(true, startTimes)) {
+      slateDay = null;
+    }
+  }
   return {
     slateDay,
     oddsGames: filterOddsGamesForSlateDay(board.oddsGames, slateDay),
@@ -203,6 +213,43 @@ test("5b) sport-scoped ask after tonight does NOT inherit tonight (48h NFL)", ()
   );
 });
 
+test("5c) tonight salvage: empty today board falls back to 48h (same as chat)", () => {
+  // Explicit "7 leg NFL tonight" when only day-after NFL is posted — resolveTodayOnly
+  // drops the day filter so the board is not empty / blamed on the quality bar.
+  const board = boardFixture();
+  const nflOnly = {
+    ...board,
+    oddsGames: board.oddsGames.filter((g) => (g as { sport?: string }).sport === "nfl"),
+    espnGames: board.espnGames.filter((g) => (g as { sport?: string }).sport === "nfl"),
+    propPool: board.propPool.filter((p) => p.startsAt === board.dayAfter),
+    liveOdds: board.liveOdds.filter((o) => (o as { sport?: string }).sport === "nfl"),
+  };
+  assert.equal(nflOnly.oddsGames.length, 1);
+  assert.equal(localDayDiff(nflOnly.oddsGames[0]!.commenceTime), 2);
+
+  const filtered = applyLoadScanSlateFilter("7 leg NFL tonight", [], nflOnly);
+  assert.equal(filtered.slateDay, null, "empty tonight → 48h salvage");
+  assert.equal(filtered.oddsGames.length, 1);
+  assert.ok((filtered.oddsGames[0] as { sport?: string }).sport === "nfl");
+
+  // When today games exist, tonight stays applied.
+  const withTodayNfl = {
+    ...nflOnly,
+    oddsGames: [
+      { id: "n0", sport: "nfl", commenceTime: board.today, label: "todayNfl" },
+      ...nflOnly.oddsGames,
+    ],
+    espnGames: [
+      { id: "n0", sport: "nfl", startsAt: board.today, label: "todayNfl" },
+      ...nflOnly.espnGames,
+    ],
+  };
+  const kept = applyLoadScanSlateFilter("7 leg NFL tonight", [], withTodayNfl);
+  assert.equal(kept.slateDay, "tonight");
+  assert.equal(kept.oddsGames.length, 1);
+  assert.ok(startsTodayUpcoming(kept.oddsGames[0]!.commenceTime));
+});
+
 test("6) tomorrow request after a previous today request → tomorrow wins", () => {
   assert.equal(
     slateDayFromThread("7 leg tomorrow", ["7 leg for today"]),
@@ -285,6 +332,7 @@ test("8) explicit market lock retains date restriction (5 touchdowns today)", ()
 test("buildCoachParlay wires slate-day filter before props + game lines", () => {
   const src = readFileSync(join(root, "lib/coach/buildParlay.ts"), "utf8");
   assert.match(src, /slateDayFromThread\(askText/);
+  assert.match(src, /resolveTodayOnly/);
   assert.match(src, /filterOddsGamesForSlateDay\(oddsGames,\s*slateDay\)/);
   assert.match(src, /filterOddsForSlateDay\(espnGames,\s*slateDay\)/);
   assert.match(src, /fetchFullBoardPropPool\(oddsGames,\s*espnGames/);
