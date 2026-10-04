@@ -4,14 +4,18 @@ import {
   type PropSimulationResult,
   type PropSimSide,
   type RunMonteCarloOpts,
+  type SharedDrawScoreBundle,
   runMonteCarloSimulation,
   scoreSharedDistribution,
+  scoreTargetsFromSamples,
   simulationKey,
 } from "./monteCarlo.js";
 import {
   propSharedDistributionKey,
   type PropSharedDistributionParts,
 } from "./propSharedDistribution.js";
+import type { CachedPropDistribution } from "./propDistributionCache.js";
+import type { SimTier } from "./simCache.js";
 
 export type PropSimNullReason =
   | "missing_athlete_id"
@@ -224,38 +228,12 @@ export function propRequestSharedDistributionKey(
   return propSharedDistributionKey(sharedDistributionPartsForProp(req, game, isHome));
 }
 
-/**
- * One underlying draw for a compatible group; expand to one row per request.
- * Preserves each request's market string (incl. `_alternate`) and exact line/side.
- */
-export function simulatePropGroupShared(
+/** Expand one shared-draw bundle into per-request rows (provider line/side preserved). */
+export function expandSimPropRowsFromBundle(
   requests: SimPropRequest[],
   history: PlayerHistoryShape | null | undefined,
-  game: GameSimContext,
-  simulations?: number,
-  opts?: { seed?: number },
+  bundle: SharedDrawScoreBundle,
 ): SimPropRow[] {
-  if (!requests.length) return [];
-  const primary = requests[0]!;
-  const ctx = buildPropSimulationContext(primary, history, game);
-  if (!ctx) {
-    return requests.map((req) => nullSimPropRow(req, history));
-  }
-
-  const allLines = [
-    ...new Set(
-      requests
-        .flatMap((r) => [r.line, ...(r.additionalLines ?? [])])
-        .filter((l) => Number.isFinite(l)),
-    ),
-  ].sort((a, b) => a - b);
-
-  const targets = requests.map((r) => ({ line: r.line, side: r.side }));
-  const bundle = scoreSharedDistribution(ctx, targets, simulations, {
-    seed: opts?.seed,
-    evaluateLines: allLines,
-  });
-
   return requests.map((req, i) => {
     const hit = bundle.results[i]!;
     const lineHitRates: Record<string, number> = {};
@@ -290,6 +268,145 @@ export function simulatePropGroupShared(
       nullReason: hit.hitProbability == null ? diagnosePropSimNullReason(req, history) : null,
     };
   });
+}
+
+/** Persistable 10k draw — line/side/odds free. */
+export function cachedPropDistributionFromBundle(
+  distributionKey: string,
+  tier: SimTier,
+  ctx: PropSimulationContext,
+  bundle: SharedDrawScoreBundle,
+): CachedPropDistribution | null {
+  if (!bundle.samples?.length || !bundle.shared) return null;
+  const shared = bundle.shared;
+  if (
+    shared.meanProjection == null ||
+    shared.medianProjection == null ||
+    shared.stdDev == null ||
+    !shared.percentiles
+  ) {
+    return null;
+  }
+  return {
+    distributionKey,
+    tier,
+    simulations: shared.simulations,
+    samples: bundle.samples,
+    meanProjection: shared.meanProjection,
+    medianProjection: shared.medianProjection,
+    mostLikelyLine: shared.mostLikelyLine,
+    stdDev: shared.stdDev,
+    sampleGames: shared.sampleGames,
+    percentiles: shared.percentiles,
+    vsOpponentCount: (ctx.vsOpponentValues ?? []).filter((v) => Number.isFinite(v)).length,
+    minutesL5: ctx.minutesL5 ?? null,
+    minutesSeason: ctx.minutesSeason ?? null,
+    oppPace: ctx.oppPace ?? null,
+  };
+}
+
+/** Score provider thresholds against a cached draw (no new Monte Carlo). */
+export function scoreRequestsFromCachedDistribution(
+  requests: SimPropRequest[],
+  history: PlayerHistoryShape | null | undefined,
+  ctx: PropSimulationContext,
+  cached: CachedPropDistribution,
+  evaluateLines?: number[],
+): SimPropRow[] {
+  const targets = requests.map((r) => ({ line: r.line, side: r.side }));
+  const bundle = scoreTargetsFromSamples(
+    cached.samples,
+    {
+      simulations: cached.simulations,
+      mostLikelyLine: cached.mostLikelyLine,
+      meanProjection: cached.meanProjection,
+      medianProjection: cached.medianProjection,
+      stdDev: cached.stdDev,
+      sampleGames: cached.sampleGames,
+      percentiles: cached.percentiles,
+    },
+    targets,
+    ctx,
+    evaluateLines,
+  );
+  return expandSimPropRowsFromBundle(requests, history, bundle);
+}
+
+/**
+ * One underlying draw for a compatible group; expand to one row per request.
+ * Preserves each request's market string (incl. `_alternate`) and exact line/side.
+ */
+export function simulatePropGroupShared(
+  requests: SimPropRequest[],
+  history: PlayerHistoryShape | null | undefined,
+  game: GameSimContext,
+  simulations?: number,
+  opts?: { seed?: number },
+): SimPropRow[] {
+  if (!requests.length) return [];
+  const primary = requests[0]!;
+  const ctx = buildPropSimulationContext(primary, history, game);
+  if (!ctx) {
+    return requests.map((req) => nullSimPropRow(req, history));
+  }
+
+  const allLines = [
+    ...new Set(
+      requests
+        .flatMap((r) => [r.line, ...(r.additionalLines ?? [])])
+        .filter((l) => Number.isFinite(l)),
+    ),
+  ].sort((a, b) => a - b);
+
+  const targets = requests.map((r) => ({ line: r.line, side: r.side }));
+  const bundle = scoreSharedDistribution(ctx, targets, simulations, {
+    seed: opts?.seed,
+    evaluateLines: allLines,
+  });
+
+  return expandSimPropRowsFromBundle(requests, history, bundle);
+}
+
+/**
+ * Draw once (or reuse) and return both rows + cacheable distribution payload.
+ * Used by the simulate route so alt lines share one 10k draw across requests.
+ */
+export function simulatePropGroupSharedWithDistribution(
+  requests: SimPropRequest[],
+  history: PlayerHistoryShape | null | undefined,
+  game: GameSimContext,
+  distributionKey: string,
+  tier: SimTier,
+  simulations?: number,
+  opts?: { seed?: number },
+): { rows: SimPropRow[]; distribution: CachedPropDistribution | null } {
+  if (!requests.length) return { rows: [], distribution: null };
+  const primary = requests[0]!;
+  const ctx = buildPropSimulationContext(primary, history, game);
+  if (!ctx) {
+    return {
+      rows: requests.map((req) => nullSimPropRow(req, history)),
+      distribution: null,
+    };
+  }
+
+  const allLines = [
+    ...new Set(
+      requests
+        .flatMap((r) => [r.line, ...(r.additionalLines ?? [])])
+        .filter((l) => Number.isFinite(l)),
+    ),
+  ].sort((a, b) => a - b);
+
+  const targets = requests.map((r) => ({ line: r.line, side: r.side }));
+  const bundle = scoreSharedDistribution(ctx, targets, simulations, {
+    seed: opts?.seed,
+    evaluateLines: allLines,
+  });
+  return {
+    rows: expandSimPropRowsFromBundle(requests, history, bundle),
+    distribution: cachedPropDistributionFromBundle(distributionKey, tier, ctx, bundle),
+  };
 }
 
 export { keyInjuryWeight };
