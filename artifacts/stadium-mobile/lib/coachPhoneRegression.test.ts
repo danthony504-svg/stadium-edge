@@ -15,6 +15,7 @@ import {
   wantsPropsOnly,
   wantsMixedSportsAsk,
   threadWantsPropsOnly,
+  slateDayFromThread,
 } from "./slate.ts";
 import {
   maxPropsPerGame,
@@ -113,6 +114,16 @@ test("phone: bare N legs + slate day is mix (not props-only)", () => {
   assert.equal(wantsPropsOnly("5 leg for tomorrow"), false);
   assert.equal(parseCoachAskMarketConstraint("8 legs tonight").propsOnly, false);
   assert.equal(parseCoachAskMarketConstraint("5 leg for tomorrow").propsOnly, false);
+});
+
+test("phone: 7 leg NFL after tonight keeps 48h board (does not inherit tonight)", () => {
+  // Screenshot: prior tonight ticket (college ALT) then "7 leg NFL" → empty
+  // quality-bar note because inherited tonight wiped Monday NFL games.
+  assert.equal(slateDayFromThread("7 leg NFL", ["7 leg tonight"]), null);
+  assert.equal(slateDayFromThread("7 leg NFL", ["5 leg for today"]), null);
+  assert.equal(wantsPropsOnly("7 leg NFL"), false);
+  assert.equal(parseCoachAskMarketConstraint("7 leg NFL").propsOnly, false);
+  assert.equal(parseCoachAskMarketConstraint("7 leg NFL").allowedMarketKeys, null);
 });
 
 test("phone: Bet365 no O/U NHL → game lines + exclude totals", () => {

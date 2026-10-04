@@ -215,6 +215,12 @@ test("threadWantsTonightSlate: inherits tonight from prior user turn", () => {
   );
 });
 
+test("slateDayFromThread: sport-scoped ask does not inherit prior tonight", () => {
+  assert.equal(slateDayFromThread("7 leg NFL", ["7 leg tonight"]), null);
+  assert.equal(slateDayFromThread("7 leg", ["7 leg tonight"]), "tonight");
+  assert.equal(slateDayFromThread("7 leg NFL tonight", ["7 leg tomorrow"]), "tonight");
+});
+
 test("filterTonightSlatePicks drops tomorrow kickoffs", () => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
