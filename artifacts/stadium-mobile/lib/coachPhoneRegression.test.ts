@@ -108,9 +108,11 @@ test("phone: 9 leg tonight mixed sports → mix path, not props-only HR stack", 
   );
 });
 
-test("phone: bare 8 legs tonight still props-only (slate-day rule intact)", () => {
-  assert.equal(wantsPropsOnly("8 legs tonight"), true);
-  assert.equal(wantsPropsOnly("5 leg for tomorrow"), true);
+test("phone: bare N legs + slate day is mix (not props-only)", () => {
+  assert.equal(wantsPropsOnly("8 legs tonight"), false);
+  assert.equal(wantsPropsOnly("5 leg for tomorrow"), false);
+  assert.equal(parseCoachAskMarketConstraint("8 legs tonight").propsOnly, false);
+  assert.equal(parseCoachAskMarketConstraint("5 leg for tomorrow").propsOnly, false);
 });
 
 test("phone: Bet365 no O/U NHL → game lines + exclude totals", () => {

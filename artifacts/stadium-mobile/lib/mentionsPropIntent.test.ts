@@ -53,9 +53,9 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   // Mixed phrasing still stays on the board-scan / reach path.
   assert.equal(wantsPropsOnly("6 leg with player props"), false);
   assert.equal(wantsPropsOnly("10 leg nfl with no player props"), false);
-  // Phone: "5 leg for tomorrow" staged spreads — slate-only N-leg → props-only.
-  assert.equal(wantsPropsOnly("5 leg for tomorrow"), true);
-  assert.equal(wantsPropsOnly("8 legs tonight"), true);
+  // Bare number + slate day is MIX — never props-only without prop/family words.
+  assert.equal(wantsPropsOnly("5 leg for tomorrow"), false);
+  assert.equal(wantsPropsOnly("8 legs tonight"), false);
   assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
   assert.equal(wantsPropsOnly("5 leg nfl for tomorrow"), false);
   // Phone: "5 leg soccer" → 1 Asian spread shortfall — sport N-leg → props-only.
@@ -81,8 +81,8 @@ test("threadWantsPropsOnly inherits prior player-prop ask onto slate refinement"
   );
   assert.equal(
     threadWantsPropsOnly("5 leg for tomorrow", []),
-    true,
-    "slate-only N-leg is props-only even without prior",
+    false,
+    "bare slate N-leg alone is mix (not props-only)",
   );
   assert.equal(
     threadWantsPropsOnly("5 leg with no player props", ["7 leg NFL player props"]),
