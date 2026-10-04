@@ -131,6 +131,23 @@ test("give me N different ones routes to board scan (not freeform chat)", () => 
   assert.equal(resolveBuildLegTarget("4 nhl picks tonight"), 4);
 });
 
+test("bare N picks + slate day parses leg count (mix path, not freeform)", () => {
+  for (const n of [3, 5, 9, 12, 15]) {
+    const ask = `${n} picks tonight`;
+    assert.equal(parseRequestedLegs(ask), n, ask);
+    assert.equal(resolveBuildLegTarget(ask), n, ask);
+    assert.equal(isParlayBuildAsk(ask), true, ask);
+  }
+});
+
+test("N prop-family asks parse leg count without the word leg", () => {
+  assert.equal(parseRequestedLegs("4 player props tonight"), 4);
+  assert.equal(parseRequestedLegs("3 touchdowns tonight"), 3);
+  assert.equal(parseRequestedLegs("6 home runs tonight"), 6);
+  assert.equal(parseRequestedLegs("5 receiving yards props tonight"), 5);
+  assert.equal(resolveBuildLegTarget("4 player props tonight"), 4);
+});
+
 test("resolveBuildLegTarget defaults build asks to 6", () => {
   assert.equal(resolveBuildLegTarget("build a parlay"), 6);
   assert.equal(resolveBuildLegTarget("8 leg NBA"), 8);

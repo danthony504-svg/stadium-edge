@@ -216,8 +216,6 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
     // Phone: asked for player props + teams → still propsOnly (no game-line fill).
     "player props for bears and broncos",
     "player prop bears broncos",
-    // Phone: bare slate ask staged Q1/NHL spreads — must be propsOnly.
-    "5 leg for tomorrow",
     // Phone: "5 leg soccer" staged 1 Asian spread — must be propsOnly.
     "5 leg soccer",
     "6 leg nba",
@@ -239,6 +237,9 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
     parseCoachAskMarketConstraint("8 leg multi-sport tonight").propsOnly,
     false,
   );
+  // Bare number + slate day is mix (not props-only).
+  assert.equal(parseCoachAskMarketConstraint("5 leg for tomorrow").propsOnly, false);
+  assert.equal(parseCoachAskMarketConstraint("8 legs tonight").propsOnly, false);
   // Explicit no-props stays game-lines-only.
   const none = parseCoachAskMarketConstraint("10 leg nfl with no player props");
   assert.equal(none.propsOnly, false);

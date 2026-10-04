@@ -45,6 +45,21 @@ export function parseRequestedLegs(text: string): number {
     const n = parseInt(sportPicks[1]!, 10);
     if (Number.isFinite(n) && n > 0) return n;
   }
+  // "5 picks tonight" / "12 picks tomorrow" — bare count + picks (no sport token).
+  const barePicks = raw.match(/\b(\d{1,3})\s+(?:different\s+)?picks?\b/i);
+  if (barePicks) {
+    const n = parseInt(barePicks[1]!, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  // "4 player props tonight" / "3 touchdowns tonight" / "6 home runs tonight" /
+  // "5 receiving yards props tonight" — leading count without the word "leg".
+  const propFamilyCount = raw.match(
+    /\b(\d{1,3})\s+(?:(?:different\s+)?(?:player\s+)?props?\b|(?:anytime\s+)?(?:touchdowns?|tds?)\b|(?:home\s*runs?|hrs?|homers?)\b|(?:(?:rushing|receiving|passing)\s+yards?(?:\s+props?)?)\b)/i,
+  );
+  if (propFamilyCount) {
+    const n = parseInt(propFamilyCount[1]!, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
   return 0;
 }
 

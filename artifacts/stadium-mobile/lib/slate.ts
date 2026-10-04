@@ -535,20 +535,10 @@ export function wantsPropsOnly(text?: string | null): boolean {
   // game). Explicit multi-sport / mix asks are board-scan mix, not props-only.
   if (wantsMixedSportsAsk(t)) return false;
 
-  // Phone: "5 leg for tomorrow" staged Q1 ALT SPREAD + NHL spreads — user expected
-  // player props. Slate-day + N-leg with NO sport and NO side/spread cue → props-only.
-  // Keep "6-leg parlay for tonight" and "10 leg nfl" on the mix path.
-  // Checked before mentionsPropIntent so bare slate asks (no "prop" word) still hit.
-  if (
-    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
-    /\b(today|tonight|tomorrow)\b/.test(t) &&
-    !/\bparlay\b/.test(t) &&
-    !/\b(nfl|nba|mlb|nhl|wnba|ncaaf|ncaab|cfb|soccer|football)\b/.test(t) &&
-    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t) &&
-    !/(?:^|[\s/])ml(?:$|[\s/])/.test(t)
-  ) {
-    return true;
-  }
+  // Bare "N leg tonight/today/tomorrow" (any N) is a full-board MIX ask — never
+  // props-only. Number + date alone must not lock prop markets; only explicit
+  // prop/family phrasing ("player props", "touchdowns", "home runs", …) does.
+  // Sport-scoped N-leg without "parlay"/side cues (below) still means props-only.
 
   // Phone: "5 leg soccer" → 1 Asian handicap spread, shortfall 1/5. Soccer (and
   // other non-football prop boards) N-leg without "parlay"/side cues → props-only
@@ -606,7 +596,8 @@ export function wantsMixedSportsAsk(text?: string | null): boolean {
 
 /**
  * Inherit props-only from a prior user turn (same pattern as tonight/tomorrow slate).
- * "5 leg for tomorrow" after "7 leg NFL player props" must stay props-only.
+ * "5 leg for tomorrow" after "7 leg NFL player props" must stay props-only —
+ * bare slate refinement alone is mix, but an explicit prior props ask inherits.
  */
 export function threadWantsPropsOnly(
   current: string | null | undefined,

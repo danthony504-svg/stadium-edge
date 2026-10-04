@@ -221,10 +221,13 @@ test("mixed / general asks stay unlocked (variety path)", () => {
     "8 leg multi-sport tonight",
     "10 leg with player props",
     "5 leg for tomorrow",
+    "8 legs tonight",
+    "12 leg tonight",
   ]) {
     assert.equal(askHasExplicitMarketLock(ask), false, ask);
     const c = parseCoachAskMarketConstraint(ask);
     assert.equal(c.allowedMarketKeys, null, ask);
+    assert.equal(c.propsOnly, false, ask);
   }
   // Props-only without a named market stays unlocked allowlist.
   const propsOnly = parseCoachAskMarketConstraint("9 leg nfl props");
