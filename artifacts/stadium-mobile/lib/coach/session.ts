@@ -188,14 +188,14 @@ export function coachShortfallNote(
   if (requestedLegs < 3 || pickCount >= requestedLegs) return "";
   if (opts?.propsPending) {
     if (pickCount <= 0) {
-      return `You asked for **${requestedLegs}** legs — prop scoring did not finish and no AI-backed picks cleared yet. No ungraded filler was added.`;
+      return `You asked for ${requestedLegs} legs — prop scoring did not finish and no AI-backed picks cleared yet. No ungraded filler was added.`;
     }
-    return `You asked for **${requestedLegs}** legs — only **${pickCount}** cleared so far while player props were still scoring. No ungraded filler was added.`;
+    return `You asked for ${requestedLegs} legs — only ${pickCount} cleared so far while player props were still scoring. No ungraded filler was added.`;
   }
   if (pickCount <= 0) {
-    return `You asked for **${requestedLegs}** legs — no AI-backed picks cleared the quality bar after the board scan.`;
+    return `You asked for ${requestedLegs} legs — no AI-backed picks cleared the quality bar after the board scan.`;
   }
   // Do not claim "every posted market was scanned" — that lied when prop scoring
   // was starved and only reserved game-line slots (2 of 5 / 3 of 7) published.
-  return `You asked for **${requestedLegs}** legs — only **${pickCount}** cleared the AI quality bar. No ungraded filler was added.`;
+  return `You asked for ${requestedLegs} legs — only ${pickCount} cleared the AI quality bar. No ungraded filler was added.`;
 }

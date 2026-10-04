@@ -23,10 +23,11 @@ export function buildFixedLegCountShortfallLead(requested: number, actual: numbe
   if (actual >= requested) return "";
   // Do not claim "every posted market was scanned" — that lied when prop scoring
   // was incomplete or starved and Coach returned 0 / game-line-only tickets.
+  // Plain text only — Coach chat does not render Markdown emphasis.
   if (actual <= 0) {
-    return `You asked for **${requested}** legs — no AI-backed picks cleared the quality bar. No ungraded filler was added.`;
+    return `You asked for ${requested} legs — no AI-backed picks cleared the quality bar. No ungraded filler was added.`;
   }
-  return `You asked for **${requested}** legs — only **${actual}** cleared the AI quality bar. No ungraded filler was added.`;
+  return `You asked for ${requested} legs — only ${actual} cleared the AI quality bar. No ungraded filler was added.`;
 }
 
 /** Guarantee the shortfall lead is present when a fixed-leg ticket is short. */

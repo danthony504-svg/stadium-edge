@@ -315,7 +315,7 @@ test("phone 6-leg MLB: final must not truncate qualified alts to reserved seat c
     propsPending: false,
     shortfallLead: buildFixedLegCountShortfallLead(6, shortGl.length),
   });
-  assert.match(doneNote, /only \*\*3\*\* cleared the AI quality bar/i);
+  assert.match(doneNote, /only 3 cleared the AI quality bar/i);
   assert.match(doneNote, /none cleared the AI quality bar with these game lines/i);
 
   const pendingShortNote = buildFinalCoachParlayNote({
@@ -329,7 +329,7 @@ test("phone 6-leg MLB: final must not truncate qualified alts to reserved seat c
   assert.doesNotMatch(pendingShortNote, /cleared the AI quality bar/i);
   assert.equal(
     buildFixedLegPropsPendingShortfallLead(6, 3),
-    "You asked for **6** legs — only **3** cleared so far while player props were still scoring. No ungraded filler was added.",
+    "You asked for 6 legs — only 3 cleared so far while player props were still scoring. No ungraded filler was added.",
   );
 });
 
@@ -523,7 +523,9 @@ test("shortfall copy does not claim every posted market was scanned", () => {
   assert.doesNotMatch(buildFixedLegCountShortfallLead(7, 0), /every posted market/i);
   assert.doesNotMatch(buildFixedLegCountShortfallLead(7, 3), /every posted market/i);
   assert.match(buildFixedLegCountShortfallLead(7, 0), /no AI-backed picks/i);
-  assert.match(buildFixedLegCountShortfallLead(7, 3), /only \*\*3\*\*/);
+  assert.match(buildFixedLegCountShortfallLead(7, 3), /only 3/);
+  assert.doesNotMatch(buildFixedLegCountShortfallLead(7, 0), /\*\*/);
+  assert.doesNotMatch(buildFixedLegCountShortfallLead(7, 3), /\*\*/);
   assert.doesNotMatch(coachShortfallNote(7, 3), /every posted market/i);
 });
 
@@ -559,11 +561,12 @@ test("phone 0-of-7 regression: incomplete props keep 3 game lines, honest note",
     propsPending: true,
     shortfallLead: buildFixedLegCountShortfallLead(7, picks.length),
   });
-  assert.match(note, /only \*\*3\*\*/);
+  assert.match(note, /only 3/);
   assert.match(note, /while player props were still scoring/i);
   assert.doesNotMatch(note, /cleared the AI quality bar/i);
   assert.doesNotMatch(note, /every posted market/i);
-  assert.doesNotMatch(note, /only \*\*0\*\*/);
+  assert.doesNotMatch(note, /only 0 /);
+  assert.doesNotMatch(note, /\*\*/);
 });
 
 test("empty final with incomplete props does not claim every market scanned", () => {

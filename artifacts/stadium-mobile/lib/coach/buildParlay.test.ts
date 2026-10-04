@@ -71,3 +71,24 @@ test("props-only empty quality bar recovers via football skill board (yards/rec/
   assert.match(src, /footballSkillRecoveryNote/);
   assert.match(src, /yards \/ receptions \/ sacks/);
 });
+
+test("HR stays on full-board path; both exits share resolveCoachParlayShortfallLead", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join } = await import("node:path");
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "buildParlay.ts"),
+    "utf8",
+  );
+  // Selection routing unchanged — HR must not enter props-only builder.
+  assert.match(src, /propsOnly &&\s*\n\s*!hrBoardAsk &&/);
+  assert.match(src, /exhaustPropBoard:\s*hrBoardAsk/);
+  // Copy routing: both exits use the shared locked/generic shortfall resolver.
+  const resolveHits = src.match(/resolveCoachParlayShortfallLead/g) ?? [];
+  assert.ok(
+    resolveHits.length >= 2,
+    `expected ≥2 resolveCoachParlayShortfallLead calls, got ${resolveHits.length}`,
+  );
+  assert.match(src, /failureDiagnostics\?\.propLegsScored/);
+  assert.doesNotMatch(src, /buildFixedLegCountShortfallLead/);
+});

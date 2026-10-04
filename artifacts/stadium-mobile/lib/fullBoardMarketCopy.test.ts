@@ -51,8 +51,9 @@ test("props-only shortfall falls through to honest fixed-leg lead (screenshot)",
     shortfallLead,
     scanNote,
   });
-  assert.match(note, /asked for \*\*9\*\*/i);
-  assert.match(note, /only \*\*8\*\*/i);
+  assert.match(note, /asked for 9/i);
+  assert.match(note, /only 8/);
+  assert.doesNotMatch(note, /\*\*/);
   assert.doesNotMatch(note, /moneylines/i);
   assert.doesNotMatch(note, /entire board/i);
 });

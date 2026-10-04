@@ -208,8 +208,9 @@ test("boardScanIsComplete distinguishes partial previews from settled scans", ()
 
 test("ensureFixedLegShortfallLegNote prepends lead when missing", () => {
   const out = ensureFixedLegShortfallLegNote("", 9, 7);
-  assert.match(out, /asked for \*\*9\*\* legs/i);
-  assert.match(out, /only \*\*7\*\*/i);
+  assert.match(out, /asked for 9 legs/i);
+  assert.match(out, /only 7/);
+  assert.doesNotMatch(out, /\*\*/);
   const kept = ensureFixedLegShortfallLegNote(out, 9, 7);
   assert.equal(kept, out);
 });
