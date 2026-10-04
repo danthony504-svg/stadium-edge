@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { GetOddsQueryParams, GetOddsResponse } from "@workspace/api-zod";
 import { ODDS_SPORT_KEYS, resolveOddsKeys, cachedJson, rateLimit } from "../lib/sports";
+import { mergeAltPeriodMarkets } from "../lib/oddsAltDevig";
 import { resolveWorldCupTeam } from "./props";
 
 const router: IRouter = Router();
@@ -19,7 +20,12 @@ type RawOddsGame = {
     title?: string;
     markets?: Array<{
       key: string;
-      outcomes?: Array<{ name: string; price: number; point?: number }>;
+      outcomes?: Array<{
+        name: string;
+        price: number;
+        point?: number;
+        description?: string;
+      }>;
     }>;
   }>;
 };
@@ -263,8 +269,11 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       if (sportKey.startsWith("soccer")) return PERIOD_MARKETS_SOCCER;
       return PERIOD_MARKETS_DEFAULT;
     };
-    type Outcome = { name: string; price: number; point: number | null };
-    const altByEvent = new Map<string, Map<string, Map<string, Outcome>>>();
+    // Alt/period outcomes retain per-book prices + honest no-vig (exact
+    // event/market/period/side/point identity; never synthesize opposing sides).
+    // v7: books[] + cross-book no-vig (replaces best-price-only collapse).
+    type AltOutcomes = ReturnType<typeof mergeAltPeriodMarkets> extends Map<string, infer V> ? V : never;
+    const altByEvent = new Map<string, Map<string, AltOutcomes>>();
     await Promise.all(
       upcoming.map(async (g) => {
         try {
@@ -272,37 +281,19 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
           const evGame = await cachedJson(
             // Key the per-event alt/period fetch by the event's OWN sport_key
             // (which league/tour it belongs to) so merged multi-key sports hit
-            // the correct endpoint and cache bucket. v3: baseball now requests
-            // innings markets instead of the (empty) quarter/half set, so the
-            // cache bucket is bumped to avoid serving stale empty v2 entries.
-            `odds:${g.sport_key}:alt:${g.id}:v6`,
+            // the correct endpoint and cache bucket. v7 preserves cross-book
+            // prices for Steals (us+us2 regions, books[] + no-vig).
+            `odds:${g.sport_key}:alt:${g.id}:v7`,
             10 * 60 * 1000,
             async () => {
-              const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;
+              const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us,us2&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;
               const r = await fetch(url);
               if (!r.ok) return null;
               return (await r.json()) as RawOddsGame;
             },
           );
           if (!evGame) return;
-          // Generic best-price-by-(name,point) merge across bookmakers for
-          // every period market key the API returned. Lower-juice wins
-          // (using americanToProb so favorites and dogs compare correctly).
-          const byMarket = new Map<string, Map<string, Outcome>>();
-          for (const b of evGame.bookmakers ?? []) {
-            for (const m of b.markets ?? []) {
-              if (!gamePeriodMarkets.includes(m.key)) continue;
-              let bucket = byMarket.get(m.key);
-              if (!bucket) { bucket = new Map(); byMarket.set(m.key, bucket); }
-              for (const o of m.outcomes ?? []) {
-                const k = `${o.name}|${o.point ?? ""}`;
-                const prev = bucket.get(k);
-                if (!prev || americanToProb(o.price) < americanToProb(prev.price)) {
-                  bucket.set(k, { name: o.name, price: Math.round(o.price), point: o.point ?? null });
-                }
-              }
-            }
-          }
+          const byMarket = mergeAltPeriodMarkets(evGame.bookmakers ?? [], gamePeriodMarkets);
           if (byMarket.size) altByEvent.set(g.id, byMarket);
         } catch {
           // Best-effort — failure just means no alt/period ladder for this game.
@@ -399,13 +390,24 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
         return { key, outcomes };
       });
       const alt = altByEvent.get(g.id);
-      const altMarkets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
+      const altMarkets: Array<{
+        key: string;
+        outcomes: Array<{
+          name: string;
+          price: number;
+          point: number | null;
+          books?: Array<{ book: string; price: number; point: number | null }>;
+          noVigFair?: number | null;
+          edge?: number | null;
+          bookSpread?: number | null;
+        }>;
+      }> = [];
       if (alt) {
         // Emit each period/alt market in a stable order so downstream
         // consumers (and the chat AI) see them grouped predictably.
         for (const key of periodMarketsFor(g.sport_key)) {
-          const bucket = alt.get(key);
-          if (bucket?.size) altMarkets.push({ key, outcomes: Array.from(bucket.values()) });
+          const outcomes = alt.get(key);
+          if (outcomes?.length) altMarkets.push({ key, outcomes });
         }
       }
       return {

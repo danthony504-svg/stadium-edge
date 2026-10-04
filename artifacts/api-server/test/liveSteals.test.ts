@@ -147,3 +147,50 @@ test("findPropSteals is also event-scoped: same prop on different events => dist
   assert.equal(a[0]!.pick, b[0]!.pick);
   assert.notEqual(a[0]!.id, b[0]!.id);
 });
+
+test("findGameSteals evaluates alt/period markets when they carry real edge", () => {
+  const rows = [
+    {
+      id: "evt_alt",
+      sport: "nfl",
+      homeTeam: "Baltimore Ravens",
+      awayTeam: "Tennessee Titans",
+      commenceTime: "2026-10-04T17:00:00Z",
+      markets: [
+        {
+          key: "alternate_spreads",
+          outcomes: [
+            {
+              name: "Tennessee Titans",
+              price: 650,
+              point: 14.5,
+              noVigFair: 0.18,
+              edge: 5,
+              books: [
+                { book: "DraftKings", price: 650, point: 14.5 },
+                { book: "FanDuel", price: 640, point: 14.5 },
+                { book: "BetMGM", price: 630, point: 14.5 },
+              ],
+            },
+            // Same market family, different point — must not qualify without edge.
+            { name: "Tennessee Titans", price: 900, point: 20.5, noVigFair: null, edge: null },
+          ],
+        },
+      ],
+    },
+  ];
+  const steals = findGameSteals(rows);
+  assert.equal(steals.length, 1);
+  assert.equal(steals[0]!.market, "Alt Spread");
+  assert.match(steals[0]!.pick, /14\.5/);
+  assert.doesNotMatch(steals[0]!.pick, /20\.5/);
+});
+
+test("stealGameMarketLabel covers alt and period keys", async () => {
+  const { stealGameMarketLabel } = await import("../src/lib/liveStealsCore.ts");
+  assert.equal(stealGameMarketLabel("alternate_spreads"), "Alt Spread");
+  assert.equal(stealGameMarketLabel("spreads_h1"), "1H Spread");
+  assert.equal(stealGameMarketLabel("alternate_totals_q1"), "Q1 Alt Total");
+  assert.equal(stealGameMarketLabel("team_totals"), "Team Total");
+  assert.equal(stealGameMarketLabel("not_a_real_market"), null);
+});
