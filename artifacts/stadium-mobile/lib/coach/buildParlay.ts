@@ -76,6 +76,8 @@ import {
   footballSkillRecoveryNote,
   shouldRecoverPropsOnlyWithFootballSkillBoard,
 } from "@/lib/coachFootballPropsOnlyRecovery";
+import { lockedMarketQualityShortfallNote } from "@/lib/lockedMarketQualityShortfall";
+import { matchExplicitMarketLocks } from "@/lib/explicitMarketLock";
 import {
   enforceMlLeanOnPicks,
   mlLeanEnforcementNote,
@@ -420,6 +422,8 @@ export async function buildCoachParlay(opts: {
     // Never clear allowedMarketKeys or cross-fill another stat family.
     let recoveredNote = "";
     const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
+    const lockedMarketLabel =
+      matchExplicitMarketLocks(opts.askText)?.labels[0] ?? "market";
     const recoveryPool = isMarketLocked
       ? filterPropPoolByAskMarkets(
           askAllowsNcaafPlayerProps(opts.askText)
@@ -477,7 +481,12 @@ export async function buildCoachParlay(opts: {
         picks = recoveredPicks;
         recoveredNote = isMarketLocked
           ? recovered.picks.length < target
-            ? `You asked for **${target}** legs in this market — only **${picks.length}** matching real lines cleared recovery odds. No other markets were substituted.`
+            ? lockedMarketQualityShortfallNote({
+                requestedLegs: target,
+                analyzed: built.propLegsScored,
+                qualified: picks.length,
+                marketLabel: lockedMarketLabel,
+              })
             : `Staged **${picks.length}** matching real lines for the requested market (same-stat alts included where posted).`
           : footballSkillRecoveryNote({
               preferredGraded: built.propLegsScored,
@@ -517,14 +526,35 @@ export async function buildCoachParlay(opts: {
           picks = softPicks;
           recoveredNote =
             softPicks.length < target
-              ? `You asked for **${target}** legs in this market — only **${picks.length}** matching real lines cleared recovery odds. No other markets were substituted.`
+              ? lockedMarketQualityShortfallNote({
+                  requestedLegs: target,
+                  analyzed: built.propLegsScored,
+                  qualified: picks.length,
+                  marketLabel: lockedMarketLabel,
+                })
               : `Staged **${picks.length}** matching real lines for the requested market.`;
         } else {
           recoveredNote = isMarketLocked
-            ? `Graded ${built.propLegsScored} props in the requested market — none cleared recovery odds. No other markets were substituted.`
+            ? lockedMarketQualityShortfallNote({
+                requestedLegs: target,
+                analyzed: built.propLegsScored,
+                qualified: 0,
+                marketLabel: lockedMarketLabel,
+              })
             : `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`;
         }
       }
+    }
+
+    // Locked-market shortfall copy (0/N or partial N/N) — UI only; selection unchanged.
+    if (isMarketLocked && built.propLegsScored > 0 && picks.length < target) {
+      const shortfallNote = lockedMarketQualityShortfallNote({
+        requestedLegs: target,
+        analyzed: built.propLegsScored,
+        qualified: picks.length,
+        marketLabel: lockedMarketLabel,
+      });
+      if (shortfallNote) recoveredNote = shortfallNote;
     }
 
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
