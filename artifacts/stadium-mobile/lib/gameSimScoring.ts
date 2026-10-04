@@ -307,6 +307,27 @@ export type PeriodOffenseDefenseProfile = {
   awayByPeriod: Partial<Record<SimPeriodScope, number>>;
 };
 
+/**
+ * Stable FG expected points from period averages — used as the share
+ * denominator so periodScoresForDraw does not cancel Monte Carlo draws.
+ */
+export function fgExpectedFromPeriodAverages(
+  byPeriod: Partial<Record<SimPeriodScope, number>>,
+): number | null {
+  const quarters = (["q1", "q2", "q3", "q4"] as const)
+    .map((p) => byPeriod[p])
+    .filter((n): n is number => n != null && Number.isFinite(n));
+  if (quarters.length === 4) {
+    return Math.round(quarters.reduce((a, b) => a + b, 0) * 10) / 10;
+  }
+  const h1 = byPeriod.h1;
+  const h2 = byPeriod.h2;
+  if (h1 != null && h2 != null && Number.isFinite(h1) && Number.isFinite(h2)) {
+    return Math.round((h1 + h2) * 10) / 10;
+  }
+  return null;
+}
+
 function coverQueryHits(
   q: GameCoverQuery,
   homeScore: number,
@@ -328,6 +349,9 @@ function coverQueryHits(
       ? {
           homePeriodExpected: periodProfile.homeByPeriod[period] ?? null,
           awayPeriodExpected: periodProfile.awayByPeriod[period] ?? null,
+          // Constant FG refs (sum of period means) — never the per-draw score.
+          homeFgExpected: fgExpectedFromPeriodAverages(periodProfile.homeByPeriod),
+          awayFgExpected: fgExpectedFromPeriodAverages(periodProfile.awayByPeriod),
         }
       : undefined;
   const scoped =

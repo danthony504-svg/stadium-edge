@@ -63,6 +63,7 @@ import {
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
 import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
+import { parseMarketPeriod } from "@/lib/simMarketSupport";
 import {
   type MlbGameEnvSlice,
   type MlbPlatoonSlice,
@@ -287,13 +288,9 @@ export function scoreGameLinePick(
       : null;
 
   const simHit = gameSimHitForPick(pick, gameSim) ?? fightSimHit ?? tennisSimHit;
-  // Prefer sim-derived edge over the book feed's pre-computed edge so Coach gates
-  // stay aligned with the 10k Monte Carlo that qualified the leg.
-  let edgePct = ro?.edge ?? null;
-  if (simHit != null && pick.odds != null) {
-    const simEdge = simEdgeFromHit(simHit, pick.odds);
-    if (simEdge != null) edgePct = simEdge;
-  }
+  // Period markets: prefer book/no-vig edge (see edgePctFromPick). Full-game
+  // keeps sim-aligned edge so Coach gates match the 10k Monte Carlo.
+  const edgePct = edgePctFromPick(pick, ro?.edge, simHit);
   const lineValue = scoreLineValue(edgePct);
 
   const scores: PickSubScores = {
@@ -602,6 +599,28 @@ function edgePctFromPick(
   entryEdge: number | null | undefined,
   simHit: number | null | undefined,
 ): number | null {
+  const bookEdge = (): number | null => {
+    if (entryEdge != null && Number.isFinite(entryEdge)) return entryEdge;
+    const edgeNum = (pick as { edgeNum?: number }).edgeNum;
+    if (typeof edgeNum === "number" && Number.isFinite(edgeNum)) return edgeNum;
+    if (pick.finalAiScore?.edgePct != null) return pick.finalAiScore.edgePct;
+    if (pick.scores?.edgePct != null) return pick.scores.edgePct;
+    const m = String(pick.edge ?? "").match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+    if (m && Number.isFinite(Number(m[1]))) return Number(m[1]);
+    return null;
+  };
+
+  // Period cover rates rebuilt from ESPN L10 period averages are not
+  // market-calibrated. Preferring simHit−implied over the book/no-vig edge
+  // invented phone Edges of +38–52% on ordinary -110/+110 1H/Q2 spreads
+  // (Commanders +2.5 @ +110 → +52.3%). Keep market edge for period line-value;
+  // simHit still drives the simulation subscore + agreement gates.
+  const isPeriod = parseMarketPeriod(pick.market ?? "") !== "fg";
+  if (isPeriod) {
+    const fromBook = bookEdge();
+    if (fromBook != null) return fromBook;
+  }
+
   if (simHit != null && pick.odds != null) {
     const simEdge = simEdgeFromHit(simHit, pick.odds);
     if (
@@ -613,13 +632,12 @@ function edgePctFromPick(
       return simEdge;
     }
   }
-  if (entryEdge != null && Number.isFinite(entryEdge)) return entryEdge;
-  const edgeNum = (pick as { edgeNum?: number }).edgeNum;
-  if (typeof edgeNum === "number" && Number.isFinite(edgeNum)) return edgeNum;
-  if (pick.finalAiScore?.edgePct != null) return pick.finalAiScore.edgePct;
-  if (pick.scores?.edgePct != null) return pick.scores.edgePct;
-  const m = String(pick.edge ?? "").match(/([+-]?\d+(?:\.\d+)?)\s*%/);
-  if (m && Number.isFinite(Number(m[1]))) return Number(m[1]);
+
+  if (!isPeriod) {
+    const fromBook = bookEdge();
+    if (fromBook != null) return fromBook;
+  }
+
   if (simHit != null && pick.odds != null) {
     const simEdge = simEdgeFromHit(simHit, pick.odds);
     if (simEdge != null) return simEdge;
