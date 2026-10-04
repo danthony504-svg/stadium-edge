@@ -1,6 +1,7 @@
 import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
 import { filterPropsForGameTeams } from "./propGameTeamGate";
 import { resolveCoachGameTeamIds } from "./coachTeamIdResolve";
+import { propMarketsShareDistribution } from "./propSharedDistribution";
 import {
   logStealFeedClient,
   stealFeedFullUrl,
@@ -2025,6 +2026,11 @@ export type PropSimulationResult = {
     p90: number;
   } | null;
   lineHitRates?: Record<string, number>;
+  /** Hit rates for every evaluated line × side from the same shared draw. */
+  lineHitRatesBySide?: {
+    Over: Record<string, number>;
+    Under: Record<string, number>;
+  };
   /** Present when hitProbability is null — explains why MC could not grade. */
   nullReason?: "missing_athlete_id" | "no_history" | "insufficient_sample" | "stat_mapping_failed" | null;
 };
@@ -2101,6 +2107,7 @@ export async function fetchPropSimulations(
     game: string;
     additionalLines?: number[];
   };
+  const seenKeys = new Set<string>();
   const props: BuiltProp[] = [];
 
   for (const p of picks) {
@@ -2119,11 +2126,17 @@ export async function fetchPropSimulations(
     if (!market) continue;
     const sport = (p.sport ?? pool?.sport ?? picks.find((x) => x.sport)?.sport ?? "nba").toLowerCase();
     const game = p.game ?? pool?.game ?? "";
+    const dedupeKey = `${p.player}|${market}|${p.propLine}|${side}|${game}`;
+    if (seenKeys.has(dedupeKey)) continue;
+    seenKeys.add(dedupeKey);
+
+    // Collect genuine alt rungs that share the same underlying distribution
+    // (main + `_alternate`; never cross period scopes).
     const additionalLines: number[] = [];
     for (const e of propPool) {
-      if (e.player !== p.player || e.side !== side) continue;
-      if (market && e.marketKey !== market) continue;
+      if (e.player !== p.player) continue;
       if (game && e.game !== game) continue;
+      if (!propMarketsShareDistribution(market, e.marketKey)) continue;
       if (e.line == null || e.line === p.propLine) continue;
       if (!additionalLines.includes(e.line)) additionalLines.push(e.line);
     }
@@ -2206,7 +2219,40 @@ export async function fetchPropSimulations(
   );
 
   for (const batchRows of gameResults) {
-    for (const row of batchRows) out.set(row.key, row);
+    for (const row of batchRows) {
+      out.set(row.key, row);
+      // Expand shared-draw ladder into per-line map entries so every genuine
+      // provider rung can be graded without a second Monte Carlo request.
+      const bySide = row.lineHitRatesBySide;
+      if (!bySide) continue;
+      const markets = [row.market];
+      if (row.market.endsWith("_alternate")) {
+        markets.push(row.market.slice(0, -"_alternate".length));
+      } else {
+        markets.push(`${row.market}_alternate`);
+      }
+      for (const side of ["Over", "Under"] as const) {
+        const rates = bySide[side];
+        if (!rates) continue;
+        for (const [lineStr, hit] of Object.entries(rates)) {
+          const line = Number(lineStr);
+          if (!Number.isFinite(line) || hit == null) continue;
+          for (const market of markets) {
+            const key = `${row.player}|${market}|${line}|${side}`;
+            if (out.has(key)) continue;
+            out.set(key, {
+              ...row,
+              key,
+              market,
+              line,
+              side,
+              hitProbability: hit,
+              lineHitRates: undefined,
+            });
+          }
+        }
+      }
+    }
   }
   return out;
 }
@@ -2355,6 +2401,7 @@ export async function fetchPropSimulationsBatch(
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
+    additionalLines?: number[];
   }>,
   opts?: {
     homeTeam?: string;

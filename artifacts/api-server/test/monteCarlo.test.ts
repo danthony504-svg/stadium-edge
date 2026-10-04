@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   buildProjectionMean,
   runMonteCarloSimulation,
+  scoreLinesFromSharedSamples,
   simulationKey,
   type PropSimulationContext,
 } from "../src/lib/monteCarlo.ts";
@@ -34,12 +35,13 @@ test("runMonteCarloSimulation returns hit probability and mode line", () => {
     recentValues: [32, 30, 28, 31, 29, 27, 30, 28, 31, 29],
     discrete: false,
   };
-  const result = runMonteCarloSimulation(ctx, 5000);
+  const result = runMonteCarloSimulation(ctx, 5000, { seed: 1 });
   assert.equal(result.simulations, 5000);
   assert.ok(result.hitProbability != null && result.hitProbability > 0.7);
   assert.ok(result.mostLikelyLine != null && result.mostLikelyLine >= 20);
   assert.ok(result.confidenceScore != null && result.confidenceScore >= 55);
   assert.ok(result.percentiles != null);
+  assert.ok(result.lineHitRatesBySide?.Over);
 });
 
 test("runMonteCarloSimulation fails closed with thin sample", () => {
@@ -59,4 +61,25 @@ test("simulationKey is stable", () => {
     simulationKey("LeBron James", "player_points", 24.5, "Over"),
     "LeBron James|player_points|24.5|Over",
   );
+});
+
+test("scoreLinesFromSharedSamples matches seeded primary", () => {
+  const ctx: PropSimulationContext = {
+    sport: "nba",
+    market: "player_points",
+    line: 24.5,
+    side: "Over",
+    recentValues: [28, 26, 30, 22, 27, 25, 29, 24, 26, 28],
+    discrete: false,
+  };
+  const seed = 55;
+  const primary = runMonteCarloSimulation(ctx, 3000, { seed });
+  const shared = scoreLinesFromSharedSamples(
+    ctx,
+    [{ line: 24.5, side: "Over" }],
+    3000,
+    { seed },
+  );
+  assert.equal(shared[0]!.hitProbability, primary.hitProbability);
+  assert.equal(shared[0]!.confidenceScore, primary.confidenceScore);
 });
