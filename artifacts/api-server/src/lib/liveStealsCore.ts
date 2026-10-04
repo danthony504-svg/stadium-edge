@@ -129,6 +129,8 @@ export type Steal = {
   ev: number | null;
   fairProb: number | null;
   startsAt: string | null;
+  /** Distinct sportsbooks posting this outcome (for BOOKS column). */
+  books: number | null;
 };
 
 // Accept a steal only when BOTH guards pass (real edge + believable EV).
@@ -351,6 +353,7 @@ export function findGameSteals(rows: OddsRow[]): Steal[] {
           ev,
           fairProb: o.noVigFair ?? null,
           startsAt: g.commenceTime,
+          books: o.books?.length ? o.books.length : null,
         });
       }
     }
@@ -385,6 +388,7 @@ export function findNearMissGameSteals(rows: OddsRow[]): NearMissSteal[] {
           ev,
           fairProb: o.noVigFair ?? null,
           startsAt: g.commenceTime,
+          books: o.books?.length ? o.books.length : null,
           neededEdgePct: MIN_EDGE_PTS,
           neededEvPct: MIN_EV,
         });
@@ -419,6 +423,7 @@ export function findPropSteals(games: PropGame[]): Steal[] {
         ev,
         fairProb: p.fairProb ?? null,
         startsAt: pg.startsAt,
+        books: null,
       });
     }
   }
@@ -448,6 +453,7 @@ export function findNearMissPropSteals(games: PropGame[]): NearMissSteal[] {
         ev,
         fairProb: p.fairProb ?? null,
         startsAt: pg.startsAt,
+        books: null,
         neededEdgePct: MIN_EDGE_PTS,
         neededEvPct: MIN_EV,
       });
