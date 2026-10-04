@@ -706,6 +706,8 @@ export type LiveSteal = {
   ev: number | null;
   fairProb: number | null;
   startsAt: string | null;
+  /** Distinct sportsbooks posting this outcome (BOOKS column). */
+  books?: number | null;
 };
 
 // Auto-graded W/L track record of the app's OWN steal picks (graded against real

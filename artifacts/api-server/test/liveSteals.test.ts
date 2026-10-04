@@ -27,7 +27,18 @@ function oddsRow(eventId: string, commenceTime: string) {
         key: "h2h",
         outcomes: [
           // +650 underdog ML with a real +5pt de-vig edge and a believable EV.
-          { name: "Minnesota Twins", price: 650, point: null, noVigFair: 0.18, edge: 5 },
+          {
+            name: "Minnesota Twins",
+            price: 650,
+            point: null,
+            noVigFair: 0.18,
+            edge: 5,
+            books: [
+              { book: "draftkings", price: 650 },
+              { book: "fanduel", price: 620 },
+              { book: "betmgm", price: 600 },
+            ],
+          },
         ],
       },
     ],
@@ -57,6 +68,7 @@ test("stealKey is event-scoped: same pick on different dates yields DISTINCT ids
   assert.equal(day1[0]!.pick, day2[0]!.pick);
   assert.equal(day1[0]!.game, day2[0]!.game);
   assert.notEqual(day1[0]!.id, day2[0]!.id);
+  assert.equal(day1[0]!.books, 3);
 });
 
 test("stealKey is stable across refreshes of the SAME event (no duplicate attempts)", () => {
