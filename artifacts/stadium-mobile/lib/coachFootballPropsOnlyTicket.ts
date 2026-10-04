@@ -10,6 +10,13 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchPropSimulations, getPlayerHistory } from "./api.ts";
 import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
+import {
+  FOOTBALL_PROPS_ONLY_BATCH,
+  selectFootballPropsOnlyFromPicks,
+  stageFootballPropsOnlyLegs,
+  comparePropsOnlyLegsByReliableEv,
+} from "./coachFootballPropsOnly.ts";
+import {
   collapsePropsOnlyToBestEvSides,
   gradeFootballPropsOnlyFromHistory,
   lookupPropsOnlyHit,
@@ -27,27 +34,21 @@ import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
   PROPS_ONLY_HISTORY_BACKFILL_BELOW,
   PROPS_ONLY_ODDS_SLACK,
   PROPS_ONLY_RECOVERY_ODDS_SLACK,
-  type PropsOnlyHistorySlice,
 } from "./coachFootballPropsOnlyGrade.ts";
-import {
-  FOOTBALL_PROPS_ONLY_BATCH,
-  selectFootballPropsOnlyFromPicks,
-  stageFootballPropsOnlyLegs,
-  comparePropsOnlyLegsByReliableEv,
-} from "./coachFootballPropsOnly.ts";
+import type { PropsOnlyHistorySlice } from "./coachFootballPropsOnlyGrade.ts";
 import {
   buildPropsOnlyFailDiag,
   propsOnlyFailNote,
-  type PropsOnlyFailDiag,
 } from "./coachPropsOnlyFailReason.ts";
+import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
 import {
   playerTrendMomentum,
   scoreLineShopping,
   scoreLineValue,
   scoreSimulation,
   scoreTrend,
-  type PickSubScores,
 } from "./pickScore.ts";
+import type { PickSubScores } from "./pickScore.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import {
   opponentTeamIdForProp,
