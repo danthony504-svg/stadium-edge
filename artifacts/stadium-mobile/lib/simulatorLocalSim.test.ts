@@ -70,3 +70,42 @@ test("1-game sample still returns null hit (below min)", () => {
   assert.equal(local!.sampleGames, 1);
   assert.equal(local!.hitProbability, null);
 });
+
+test("rare HR 0/N sample does not invent a 2% local sim floor", () => {
+  const local = localPropSimulation(
+    {
+      recent: Array.from({ length: 10 }, () => ({ stats: { HR: "0" } })),
+    },
+    {
+      player: "Dustin Harris",
+      market: "batter_home_runs",
+      line: 1.5,
+      side: "Over",
+    },
+  );
+  assert.ok(local);
+  assert.equal(local!.hitProbability, null);
+});
+
+test("rare HR Over 0.5 vs 1.5 are threshold-specific in local sim", () => {
+  const hist = {
+    recent: [
+      ...Array.from({ length: 9 }, () => ({ stats: { HR: "0" } })),
+      { stats: { HR: "2" } },
+    ],
+  };
+  const over05 = localPropSimulation(hist, {
+    player: "Jake Cronenworth",
+    market: "batter_home_runs",
+    line: 0.5,
+    side: "Over",
+  });
+  const over15 = localPropSimulation(hist, {
+    player: "Jake Cronenworth",
+    market: "batter_home_runs",
+    line: 1.5,
+    side: "Over",
+  });
+  assert.ok(over05?.hitProbability != null && over15?.hitProbability != null);
+  assert.ok(over05!.hitProbability! > over15!.hitProbability!);
+});

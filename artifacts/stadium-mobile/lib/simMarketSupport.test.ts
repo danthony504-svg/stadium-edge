@@ -200,4 +200,8 @@ test("clipPropSimHitForGrade soft-clips binary TD 0/1 so sanitize can grade", ()
     }),
     null,
   );
+  // Rare multi-HR: never invent a 2% floor from a zero.
+  const hr = { propMarketKey: "batter_home_runs", propLine: 1.5, market: "Home Runs" };
+  assert.equal(clipPropSimHitForGrade(hr, 0), null);
+  assert.equal(clipPropSimHitForGrade(hr, 0.017), 0.017);
 });

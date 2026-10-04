@@ -43,6 +43,7 @@ import {
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
+import { isRareCountPropMarket } from "@/lib/rareCountPropModel";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
@@ -56,7 +57,14 @@ import {
   filterPicksForAskTeam,
 } from "@/lib/coachAskTeamScope";
 import { DEFAULT_SPORTS } from "@/lib/sports";
-import { filterBettableOddsGames } from "@/lib/slate";
+import {
+  filterBettableOddsGames,
+  filterOddsForSlateDay,
+  filterOddsGamesForSlateDay,
+  filterPicksForSlateDay,
+  slateDayFromThread,
+  type SlateDay,
+} from "@/lib/slate";
 import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
 import {
   filterPicksByAskMarketConstraint,
@@ -116,6 +124,7 @@ async function loadScanInputs(
   requestedLegs: number,
   askText: string | null | undefined,
   onStatus?: (status: string) => void,
+  priorUserTexts: string[] = [],
 ): Promise<{
   espnGames: EspnGame[];
   oddsGames: OddsGame[];
@@ -125,6 +134,7 @@ async function loadScanInputs(
   sports: string[];
   prioritySports: readonly string[];
   teamScope: ReturnType<typeof coachAskTeamScope>;
+  slateDay: SlateDay;
 }> {
   // Named league(s) scope the board (CFB stays CFB). Generic asks union every
   // player-prop league (incl. ncaab) so mains+alts across sports enter the pool.
@@ -148,22 +158,33 @@ async function loadScanInputs(
   // "6 leg Saints" / "7 leg saints game" → keep only that franchise's matchup.
   // Sport scoping alone still allowed other NFL games to fill a team ask.
   const teamScope = coachAskTeamScope(askText);
-  const oddsGames = filterOddsGamesForAskTeam(oddsRaw, teamScope);
-  const espnGames = filterOddsGamesForAskTeam(espnGamesRaw, teamScope);
+  let oddsGames = filterOddsGamesForAskTeam(oddsRaw, teamScope);
+  let espnGames = filterOddsGamesForAskTeam(espnGamesRaw, teamScope);
+
+  // "7 leg for today" / "tonight" / "tomorrow" — restrict the board BEFORE props
+  // and game lines are discovered so recovery/top-up cannot reintroduce other days.
+  // Bare "7 leg" keeps the existing 48h bettable window (slateDay null).
+  const slateDay = slateDayFromThread(askText ?? "", priorUserTexts);
+  oddsGames = filterOddsGamesForSlateDay(oddsGames, slateDay);
+  espnGames = filterOddsForSlateDay(espnGames, slateDay);
+
   onStatus?.("Loading player props and alt lines across the board…");
-  const propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
+  let propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
     () => [] as PropPoolEntry[],
   );
+  // Belt: drop any row whose kickoff slipped outside the requested local day.
+  propPool = filterOddsForSlateDay(propPool, slateDay);
 
   return {
     espnGames,
     oddsGames,
     propPool,
     realOdds: realOddsFromOddsGames(oddsGames),
-    liveOdds: liveFeed.odds ?? [],
+    liveOdds: filterOddsForSlateDay(liveFeed.odds ?? [], slateDay),
     sports,
     prioritySports,
     teamScope,
+    slateDay,
   };
 }
 
@@ -187,6 +208,7 @@ export async function buildCoachParlay(opts: {
     target,
     opts.askText,
     opts.onStatus,
+    opts.priorUserTexts ?? [],
   );
   if (opts.signal.aborted) {
     return { picks: [], note: "", scan: null, timedOut: false, propPoolSize: 0 };
@@ -358,6 +380,14 @@ export async function buildCoachParlay(opts: {
     !hrBoardAsk &&
     shouldBuildFootballPropsOnlyTicket({ propsOnly: true, pool: activePropPool })
   ) {
+    // Explicit rare-market locks ("5 stolen bases", "home run longshots" that
+    // still hit this path) may stack same-event rare seats. Generic mixed asks
+    // keep one rare-family seat per event.
+    const lockedKeys = marketConstraint.allowedMarketKeys;
+    const allowRareCountFamilyStack =
+      lockedKeys != null &&
+      lockedKeys.length > 0 &&
+      lockedKeys.every((k) => isRareCountPropMarket(k));
     const built = await buildFootballPropsOnlyTicket({
       target,
       pool: activePropPool,
@@ -370,6 +400,7 @@ export async function buildCoachParlay(opts: {
       espnGames: inputs.espnGames,
       mlbPlatoon,
       mlbGameEnv,
+      allowRareCountFamilyStack,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
           filterPicksByAskMarketConstraint(picks, marketConstraint),
@@ -388,7 +419,6 @@ export async function buildCoachParlay(opts: {
     // (more / same-stat `_alternate` posted lines + recovery odds slack).
     // Never clear allowedMarketKeys or cross-fill another stat family.
     let recoveredNote = "";
-    const lockedKeys = marketConstraint.allowedMarketKeys;
     const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
     const recoveryPool = isMarketLocked
       ? filterPropPoolByAskMarkets(
@@ -428,6 +458,7 @@ export async function buildCoachParlay(opts: {
         mlbPlatoon,
         mlbGameEnv,
         recoveryFill: true,
+        allowRareCountFamilyStack,
         onPartialPicks: (partial) => {
           // Preserve the original market lock when present.
           opts.onPartialPicks?.(
@@ -468,6 +499,7 @@ export async function buildCoachParlay(opts: {
           mlbPlatoon,
           mlbGameEnv,
           recoveryFill: true,
+          allowRareCountFamilyStack,
           onPartialPicks: (partial) => {
             opts.onPartialPicks?.(
               filterPicksByAskMarketConstraint(partial, marketConstraint),
@@ -496,6 +528,8 @@ export async function buildCoachParlay(opts: {
     }
 
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
+    // Final belt — recovery/top-up must not reintroduce another local day.
+    picks = filterPicksForSlateDay(picks, inputs.slateDay);
     const shortfall = buildFixedLegCountShortfallLead(target, picks.length);
     const mismatchLead = coachPropsAskGameLineMismatchNote({
       askText: opts.askText,
@@ -714,6 +748,8 @@ export async function buildCoachParlay(opts: {
   }
   // Same-ticket ladder ban — never ship Colts +4.5 and +3.5 together.
   picks = dedupePicksByMarketLadder(picks);
+  // Final belt — staging/top-up must not reintroduce another local day.
+  picks = filterPicksForSlateDay(picks, inputs.slateDay);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const shortfall = propsPending

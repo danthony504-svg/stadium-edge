@@ -10,15 +10,10 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchPropSimulations, getPlayerHistory } from "./api.ts";
 import type { GameTeamIds } from "./coachGameMonteCarlo.ts";
-import {
-  FOOTBALL_PROPS_ONLY_BATCH,
-  selectFootballPropsOnlyFromPicks,
-  stageFootballPropsOnlyLegs,
-} from "./coachFootballPropsOnly.ts";
-import {
   collapsePropsOnlyToBestEvSides,
   gradeFootballPropsOnlyFromHistory,
   lookupPropsOnlyHit,
+  lookupPropsOnlyHitReliability,
   mergePropsOnlySeasonLogs,
   normalizeHistorySport,
   normalizePropsOnlyPick,
@@ -34,6 +29,12 @@ import {
   PROPS_ONLY_RECOVERY_ODDS_SLACK,
   type PropsOnlyHistorySlice,
 } from "./coachFootballPropsOnlyGrade.ts";
+import {
+  FOOTBALL_PROPS_ONLY_BATCH,
+  selectFootballPropsOnlyFromPicks,
+  stageFootballPropsOnlyLegs,
+  comparePropsOnlyLegsByReliableEv,
+} from "./coachFootballPropsOnly.ts";
 import {
   buildPropsOnlyFailDiag,
   propsOnlyFailNote,
@@ -72,6 +73,7 @@ import {
 } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { COACH_SIM_MIN_CONFIDENCE, simEvPct } from "./gameSimQualityGates.ts";
+import { isRareCountPropMarket } from "./rareCountPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
@@ -236,6 +238,7 @@ function scoredLegFromHit(
     playerHistory?: Record<string, PlayerHistorySlice>;
   },
   oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
+  hitReliability: number = 1,
 ): BoardScoredLeg | null {
   const norm = normalizePropsOnlyPick(pick);
   const clipped = clipPropSimHitForGrade(norm, rawHit);
@@ -403,6 +406,9 @@ function scoredLegFromHit(
   const implied =
     norm.odds != null ? Math.round(impliedProb(norm.odds) * 1000) / 10 : null;
   const composite = score.composite;
+  const rare = isRareCountPropMarket(marketKey);
+  const rel = Math.max(0, Math.min(1, hitReliability));
+  const evRankFactor = rare ? 0.05 + 0.95 * rel * rel : 1;
   return {
     pick: {
       ...norm,
@@ -418,11 +424,13 @@ function scoredLegFromHit(
     grade: score.grade,
     simHit: hit,
     composite,
+    hitReliability: rare ? rel : 1,
     // Opp-D tilt + Match-grounded boost; demote NHL scoring without opp context
     // so EV-only Unders don't beat legs that compared the netminder.
+    // Rare-count reliability shrinks how much raw EV can inflate rank.
     rankScore:
       (composite ?? 0) +
-      (ev ?? 0) * 0.01 +
+      (ev ?? 0) * 0.01 * evRankFactor +
       defTilt.tilt +
       (defTilt.display ? 0.45 : 0) +
       (vsOpponentGames > 0 ? 0.2 : 0) -
@@ -562,6 +570,11 @@ export type FootballPropsOnlyBuildOpts = {
    * yards/rec/sack alts can stage after a locked-market quality wipe.
    */
   recoveryFill?: boolean;
+  /**
+   * Explicit rare-market asks ("5 home run picks", "stolen bases") may stack
+   * same-event rare family seats. Generic mixed asks keep the diversity cap.
+   */
+  allowRareCountFamilyStack?: boolean;
 };
 
 export type FootballPropsOnlyResult = {
@@ -836,17 +849,15 @@ export async function buildFootballPropsOnlyTicket(
   for (const pick of bestSides) {
     const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
-    const leg = scoredLegFromHit(pick, raw, row, rushCtx, oddsSlack);
+    const reliability = lookupPropsOnlyHitReliability(pick, row, propHits);
+    const leg = scoredLegFromHit(pick, raw, row, rushCtx, oddsSlack, reliability);
     if (leg) propScored.push(leg);
   }
-  propScored.sort((a, b) => {
-    const evA = a.evPct ?? propsOnlyEvPct(a.pick, a.simHit) ?? -999;
-    const evB = b.evPct ?? propsOnlyEvPct(b.pick, b.simHit) ?? -999;
-    if (evB !== evA) return evB - evA;
-    return (b.rankScore ?? 0) - (a.rankScore ?? 0);
-  });
+  propScored.sort(comparePropsOnlyLegsByReliableEv);
 
-  const picks = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack);
+  const picks = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack, {
+    allowRareCountFamilyStack: !!opts.allowRareCountFamilyStack,
+  });
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {
     opts.onStatus?.(`Scoring props… ${picks.length} of ${opts.target} cleared`);

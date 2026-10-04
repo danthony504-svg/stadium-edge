@@ -1,6 +1,7 @@
 // Which markets have a dedicated Monte Carlo model — only these get AI recommendations.
 
 import { sportSimModelForSport, type SportSimModelId } from "./sportSimModels.ts";
+import { isRareCountPropMarket } from "./rareCountPropModel.ts";
 
 export type { SportSimModelId };
 
@@ -380,6 +381,9 @@ export function sanitizeSimHitForGrade(
  * empirical hits remain gradeable. sanitizeSimHitForGrade rejects those as
  * unusable for continuous markets — phone PROP_ALL_NO_SIM_GRADE when TD spam
  * filled the deep-sim set with only 0/1 hits.
+ *
+ * Rare count props (multi-HR / multi-goal / SB) must NOT invent a 2% floor —
+ * zero evidence stays ungradeable.
  */
 export function clipPropSimHitForGrade(
   pick: {
@@ -390,13 +394,17 @@ export function clipPropSimHitForGrade(
   simHit: number | null | undefined,
 ): number | null {
   if (simHit == null || !Number.isFinite(simHit)) return null;
+  const market = String(pick.propMarketKey ?? pick.market ?? "");
+  if (isRareCountPropMarket(market)) {
+    if (simHit <= 0) return null;
+    if (simHit >= 1) return 0.98;
+    return simHit;
+  }
   const line = pick.propLine;
   const isBinaryLine = line != null && line > 0 && line <= 0.5;
   if (
     isBinaryLine ||
-    /\btd\b|touchdown|goal\s*scorer|anytime/.test(
-      String(pick.propMarketKey ?? pick.market ?? "").toLowerCase(),
-    )
+    /\btd\b|touchdown|goal\s*scorer|anytime/.test(market.toLowerCase())
   ) {
     if (simHit <= 0) return 0.02;
     if (simHit >= 1) return 0.98;
