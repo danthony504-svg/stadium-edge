@@ -116,6 +116,24 @@ export type ResolveCoachParlayShortfallLeadOpts = {
 };
 
 /**
+ * Full-board / hrBoardAsk analyzed count for locked shortfall copy.
+ *
+ * Uses `failureDiagnostics.propLegsScored` only. That count is lock-scoped
+ * because `buildParlay` always passes an allowlisted (and for HR,
+ * scorer-filtered) `activePropPool` with `skipPropPoolExpand` — the scanner
+ * never re-expands into hits / total bases / strikeouts / etc.
+ * Never substitutes `propPoolSize` or cross-market board totals.
+ */
+export function lockedMarketAnalyzedFromBoardDiagnostics(
+  diagnostics:
+    | { propLegsScored?: number | null | undefined }
+    | null
+    | undefined,
+): number {
+  return Math.max(0, Math.floor(Number(diagnostics?.propLegsScored ?? 0)));
+}
+
+/**
  * Final shortfall lead for both props-only/recovery and full-board/hrBoardAsk
  * exits. Copy routing only — does not change selection or hrBoardAsk.
  */

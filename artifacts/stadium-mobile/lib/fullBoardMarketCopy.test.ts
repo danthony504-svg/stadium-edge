@@ -33,7 +33,8 @@ test("mix shortfall note still describes the full board", () => {
   });
   assert.match(note, /moneylines/i);
   assert.match(note, /spreads/i);
-  assert.match(note, /\*\*8\*\*/);
+  assert.match(note, /\b8\b/);
+  assert.doesNotMatch(note, /\*\*/);
 });
 
 test("props-only shortfall falls through to honest fixed-leg lead (screenshot)", () => {

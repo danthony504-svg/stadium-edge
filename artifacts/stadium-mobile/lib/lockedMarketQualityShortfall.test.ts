@@ -8,9 +8,10 @@ import {
   EXPLICIT_MARKET_LOCK_RULES,
   matchExplicitMarketLocks,
 } from "./explicitMarketLock.ts";
-import { parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
-import { isBatterHomeRunMarket } from "./coachHrRank.ts";
+import { parseCoachAskMarketConstraint, filterPropPoolByAskMarkets, propMarketKeyAllowed } from "./coachAskMarketFilter.ts";
+import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "./coachHrRank.ts";
 import {
+  lockedMarketAnalyzedFromBoardDiagnostics,
   lockedMarketLabelForAsk,
   lockedMarketPickPhrase,
   lockedMarketQualityShortfallNote,
@@ -352,7 +353,8 @@ test("buildParlay wires resolveCoachParlayShortfallLead on both exits (canonical
   assert.match(src, /!hrBoardAsk/);
   assert.match(src, /exhaustPropBoard:\s*hrBoardAsk/);
   // Full-board exit must pass real diagnostics propLegsScored (not invent).
-  assert.match(src, /failureDiagnostics\?\.propLegsScored/);
+  assert.match(src, /lockedMarketAnalyzedFromBoardDiagnostics/);
+  assert.match(src, /failureDiagnostics/);
 });
 
 /**
@@ -501,5 +503,184 @@ test("buildParlay path shortfall: TD props-only vs HR full-board vs generic", ()
     });
     assert.match(g, new RegExp(`You asked for ${n} legs`));
     assert.doesNotMatch(g, /\*\*/);
+  }
+});
+
+/**
+ * Prove failureDiagnostics.propLegsScored is lock-scoped for explicit locks:
+ * buildParlay filters the pool BEFORE scan, skips expand, then the scanner's
+ * propLegsScored counts only isProp legs graded from that pool.
+ */
+test("analyzed count source is lock-scoped (HR excludes hits/TB/Ks; other locks equivalent)", () => {
+  const mixedBoard = [
+    { marketKey: "batter_home_runs", side: "Over" },
+    { marketKey: "batter_home_runs_alternate", side: "Yes" },
+    { marketKey: "batter_home_runs", side: "Under" },
+    { marketKey: "batter_hits", side: "Over" },
+    { marketKey: "batter_total_bases", side: "Over" },
+    { marketKey: "pitcher_strikeouts", side: "Over" },
+    { marketKey: "batter_rbis", side: "Over" },
+    { marketKey: "player_anytime_td", side: "Yes" },
+    { marketKey: "player_pass_yds", side: "Over" },
+    { marketKey: "player_rush_yds", side: "Over" },
+    { marketKey: "player_reception_yds", side: "Over" },
+    { marketKey: "player_sacks", side: "Over" },
+    { marketKey: "player_assists", side: "Over" },
+    { marketKey: "player_rebounds", side: "Over" },
+    { marketKey: "player_threes", side: "Over" },
+    { marketKey: "player_shots_on_goal", side: "Over" },
+  ];
+
+  const cases: ReadonlyArray<{
+    ask: string;
+    expectKeys: readonly string[];
+    hrBoardAsk: boolean;
+    banned: RegExp;
+  }> = [
+    {
+      ask: "5 home run picks tonight",
+      expectKeys: ["batter_home_runs", "batter_home_runs_alternate"],
+      hrBoardAsk: true,
+      banned: /hits|total_bases|strikeouts|rbis|anytime_td|pass_yds|assists|shots_on_goal/,
+    },
+    {
+      ask: "5 leg touchdown",
+      expectKeys: [
+        "player_anytime_td",
+        "player_first_td",
+        "player_rush_tds",
+        "player_reception_tds",
+        "player_pass_tds",
+      ],
+      hrBoardAsk: false,
+      banned: /home_runs|hits|pass_yds|assists/,
+    },
+    {
+      ask: "5 passing yards picks tonight",
+      expectKeys: ["player_pass_yds"],
+      hrBoardAsk: false,
+      banned: /rush_yds|reception_yds|home_runs|assists/,
+    },
+    {
+      ask: "5 rushing yards picks tonight",
+      expectKeys: ["player_rush_yds"],
+      hrBoardAsk: false,
+      banned: /pass_yds|reception_yds|home_runs/,
+    },
+    {
+      ask: "5 receiving yards picks tonight",
+      expectKeys: ["player_reception_yds"],
+      hrBoardAsk: false,
+      banned: /pass_yds|rush_yds|home_runs/,
+    },
+    {
+      ask: "5 sacks picks tonight",
+      expectKeys: ["player_sacks"],
+      hrBoardAsk: false,
+      banned: /home_runs|assists|pass_yds/,
+    },
+    {
+      ask: "5 assists picks tonight",
+      expectKeys: ["player_assists"],
+      hrBoardAsk: false,
+      banned: /rebounds|threes|home_runs/,
+    },
+    {
+      ask: "5 rebounds picks tonight",
+      expectKeys: ["player_rebounds"],
+      hrBoardAsk: false,
+      banned: /assists|threes|home_runs/,
+    },
+    {
+      ask: "5 three pointers tonight",
+      expectKeys: ["player_threes"],
+      hrBoardAsk: false,
+      banned: /assists|rebounds|home_runs/,
+    },
+    {
+      ask: "5 shots on goal tonight",
+      expectKeys: ["player_shots_on_goal"],
+      hrBoardAsk: false,
+      banned: /home_runs|assists|pass_yds/,
+    },
+  ];
+
+  for (const row of cases) {
+    const c = parseCoachAskMarketConstraint(row.ask);
+    assert.equal(c.propsOnly, true, row.ask);
+    assert.ok(c.allowedMarketKeys?.length, row.ask);
+    for (const k of row.expectKeys) {
+      // allowlist may be the base key only; alts allowed via canonical match
+      if (!k.endsWith("_alternate")) {
+        assert.ok(
+          c.allowedMarketKeys!.includes(k) ||
+            c.allowedMarketKeys!.some((a) => k.startsWith(a)),
+          `${row.ask} missing ${k}`,
+        );
+      }
+    }
+
+    const filtered = filterPropPoolByAskMarkets(mixedBoard, c.allowedMarketKeys);
+    const hrBoardAsk =
+      c.propsOnly &&
+      (c.allowedMarketKeys ?? []).some((k) => isBatterHomeRunMarket(k));
+    assert.equal(hrBoardAsk, row.hrBoardAsk, row.ask);
+    const active = hrBoardAsk ? filterHrScorerPoolEntries(filtered) : filtered;
+
+    // skipPropExpand equivalent: propsOnly || allowedMarketKeys
+    const skipExpand = c.propsOnly || c.allowedMarketKeys != null;
+    assert.equal(skipExpand, true, `${row.ask} must skip full-board expand`);
+
+    for (const rowKey of active.map((r) => r.marketKey)) {
+      assert.doesNotMatch(rowKey, row.banned, `${row.ask} leaked ${rowKey}`);
+      assert.ok(
+        propMarketKeyAllowed(rowKey, c.allowedMarketKeys),
+        `${row.ask} active pool key ${rowKey} outside allowlist`,
+      );
+    }
+
+    // Simulate scanner diagnostic: only graded props from the allowlisted pool.
+    const gradedFromPool = active.filter((r) => {
+      const side = String(r.side ?? "").toLowerCase();
+      return side !== "under" && side !== "no";
+    });
+    // For HR, Under already removed by filterHrScorerPoolEntries.
+    const propLegsScored = gradedFromPool.length;
+    const analyzed = lockedMarketAnalyzedFromBoardDiagnostics({ propLegsScored });
+    assert.equal(analyzed, propLegsScored, row.ask);
+    // Must never equal the mixed board size (would prove cross-market leakage).
+    assert.ok(analyzed < mixedBoard.length, `${row.ask} analyzed must be < mixed board`);
+
+    if (row.ask.includes("home run")) {
+      assert.equal(analyzed, 2, "HR: Over + alternate Yes only (Under dropped)");
+      const note = resolveCoachParlayShortfallLead({
+        askText: row.ask,
+        requestedLegs: 5,
+        qualified: 0,
+        analyzed,
+        isMarketLocked: true,
+      });
+      assert.match(note, /analyzed 2 home run picks/);
+      assert.doesNotMatch(note, /hits|strikeouts|total bases/i);
+    }
+  }
+
+  // Generics stay unlocked and would keep the full mixed pool (not lock-scoped).
+  for (const ask of ["2 leg tonight", "5 leg tonight", "12 leg tonight"]) {
+    const c = parseCoachAskMarketConstraint(ask);
+    assert.equal(c.propsOnly, false, ask);
+    assert.equal(c.allowedMarketKeys, null, ask);
+    const pool = filterPropPoolByAskMarkets(mixedBoard, c.allowedMarketKeys);
+    assert.equal(pool.length, mixedBoard.length, ask);
+    const note = resolveCoachParlayShortfallLead({
+      askText: ask,
+      requestedLegs: parseInt(ask, 10),
+      qualified: 0,
+      analyzed: 0,
+      isMarketLocked: false,
+    });
+    assert.match(note, /You asked for \d+ legs/);
+    assert.doesNotMatch(note, /home run|touchdown|analyzed/i);
+    assert.doesNotMatch(note, /\*\*/);
   }
 });

@@ -78,6 +78,7 @@ import {
 import {
   lockedMarketLabelForAsk,
   lockedMarketQualityShortfallNote,
+  lockedMarketAnalyzedFromBoardDiagnostics,
   resolveCoachParlayShortfallLead,
 } from "@/lib/lockedMarketQualityShortfall";
 import {
@@ -791,14 +792,14 @@ export async function buildCoachParlay(opts: {
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   // Full-board / hrBoardAsk exit — same locked shortfall helper as props-only.
-  // Analyzed count comes from allowlisted-pool diagnostics (HR pool is already
-  // batter_home_runs-only); never invent from unrelated board totals.
+  // Analyzed count = failureDiagnostics.propLegsScored from the allowlisted
+  // (HR: scorer-filtered) pool with skipPropPoolExpand — never invent from
+  // unrelated board totals (hits / TB / Ks / etc.).
   const isMarketLocked =
     marketConstraint.allowedMarketKeys != null &&
     marketConstraint.allowedMarketKeys.length > 0;
-  const lockedAnalyzed = Math.max(
-    0,
-    Math.floor(Number(scan?.failureDiagnostics?.propLegsScored ?? 0)),
+  const lockedAnalyzed = lockedMarketAnalyzedFromBoardDiagnostics(
+    scan?.failureDiagnostics,
   );
   const shortfall = resolveCoachParlayShortfallLead({
     askText: opts.askText,

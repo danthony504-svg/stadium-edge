@@ -89,6 +89,6 @@ test("HR stays on full-board path; both exits share resolveCoachParlayShortfallL
     resolveHits.length >= 2,
     `expected ≥2 resolveCoachParlayShortfallLead calls, got ${resolveHits.length}`,
   );
-  assert.match(src, /failureDiagnostics\?\.propLegsScored/);
+  assert.match(src, /lockedMarketAnalyzedFromBoardDiagnostics/);
   assert.doesNotMatch(src, /buildFixedLegCountShortfallLead/);
 });

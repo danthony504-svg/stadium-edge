@@ -111,8 +111,9 @@ test("parameterized: explicit prop-family asks stay locked (contrast with bare N
 test("honest shortfall copy stays under-count (never fabricates to reach N)", () => {
   // 12 requested, 9 cleared quality gates → honest 9/12 note.
   const note = coachShortfallNote(12, 9);
-  assert.match(note, /\*\*12\*\*/);
-  assert.match(note, /\*\*9\*\*/);
+  assert.match(note, /\b12\b/);
+  assert.match(note, /\b9\b/);
+  assert.doesNotMatch(note, /\*\*/);
   assert.match(note, /No ungraded filler was added/i);
   assert.equal(coachShortfallNote(12, 12), "");
   // Same pattern for other counts — not hard-coded to 5/7.
@@ -125,8 +126,9 @@ test("honest shortfall copy stays under-count (never fabricates to reach N)", ()
     if (got >= asked) {
       assert.equal(coachShortfallNote(asked, got), "");
     } else {
-      assert.match(coachShortfallNote(asked, got), new RegExp(`\\*\\*${asked}\\*\\*`));
-      assert.match(coachShortfallNote(asked, got), new RegExp(`\\*\\*${got}\\*\\*`));
+      assert.match(coachShortfallNote(asked, got), new RegExp(`asked for ${asked} legs`));
+      assert.match(coachShortfallNote(asked, got), new RegExp(`only ${got}`));
+      assert.doesNotMatch(coachShortfallNote(asked, got), /\*\*/);
       assert.match(coachShortfallNote(asked, got), /No ungraded filler was added/i);
     }
   }

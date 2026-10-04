@@ -36,13 +36,13 @@ export function fullBoardScanShortfallNote(
   const staged =
     staging && (staging.mainOnTicket > 0 || staging.altOnTicket > 0)
       ? staging.altOnTicket > 0
-        ? ` Filled with **${staging.mainOnTicket}** main pick${staging.mainOnTicket === 1 ? "" : "s"} and **${staging.altOnTicket}** alt pick${staging.altOnTicket === 1 ? "" : "s"} (labeled **ALT PICK**).`
-        : ` **${staging.mainOnTicket}** main pick${staging.mainOnTicket === 1 ? "" : "s"} on the ticket.`
+        ? ` Filled with ${staging.mainOnTicket} main pick${staging.mainOnTicket === 1 ? "" : "s"} and ${staging.altOnTicket} alt pick${staging.altOnTicket === 1 ? "" : "s"} (labeled ALT PICK).`
+        : ` ${staging.mainOnTicket} main pick${staging.mainOnTicket === 1 ? "" : "s"} on the ticket.`
       : "";
   const altPool = staging?.altQualified ?? 0;
   const mainPool = staging?.mainQualified ?? totalQualified;
   if (staging && staging.altOnTicket > 0) {
-    return `_Scanned the entire board — **${totalScanned}** posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). **${mainPool}** main lines and **${altPool}** alt lines cleared the quality bar — stepped to alternate rungs where mains ran out.${staged} These **${pickCount}** are the highest-rated sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
+    return `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). ${mainPool} main lines and ${altPool} alt lines cleared the quality bar — stepped to alternate rungs where mains ran out.${staged} These ${pickCount} are the highest-rated sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
   }
-  return `_Scanned the entire board — **${totalScanned}** posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). **${mainPool}** main lines and **${altPool}** alt lines cleared the quality bar (sim + positive edge + positive EV + grade ≥ C+ + confidence ≥ 52%).${staged} These **${pickCount}** are the top sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
+  return `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). ${mainPool} main lines and ${altPool} alt lines cleared the quality bar (sim + positive edge + positive EV + grade ≥ C+ + confidence ≥ 52%).${staged} These ${pickCount} are the top sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
 }
