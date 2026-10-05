@@ -13,6 +13,7 @@ import { COACH_PRIORITY_SPORTS } from "./coachPrioritySports.ts";
 import { isPeriodMainMarket } from "./altLinePool.ts";
 import { parseMarketPeriod } from "./simMarketSupport.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
+import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
 export function boardScanPropSlotCount(
@@ -83,6 +84,10 @@ export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean 
  * True when the user explicitly asked for CFB player props / skill markets.
  * Bare "8 leg college" / "8 leg Collage" stays on team spreads / totals /
  * period lines — college books rarely post player yards boards.
+ *
+ * Explicit market-family locks (completions, rush attempts, longest rush, …)
+ * count as opt-in even when the college game-lines default would otherwise
+ * apply — named market intent beats the automatic board-mode default.
  */
 export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   const t = String(text ?? "")
@@ -107,6 +112,8 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   if (/\btds?\b/.test(t)) return true;
   if (/\breceptions?\b/.test(t)) return true;
   if (/\bsacks?\b/.test(t)) return true;
+  // Any EXPLICIT_MARKET_LOCK_RULES hit is named market intent — not bare college.
+  if (matchExplicitMarketLocks(t)) return true;
   // "N leg … props" (not "team props") — honor explicit props asks on CFB.
   if (
     /\b\d{1,3}\s*[-\s]?\s*legs?\b[\s\w]{0,40}\bprops?\b/.test(t) &&

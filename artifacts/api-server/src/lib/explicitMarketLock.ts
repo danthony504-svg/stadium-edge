@@ -98,12 +98,6 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
     markets: ["player_reception_yds"],
   },
   {
-    id: "fb_completions",
-    label: "completions",
-    re: /\b(pass(?:ing)?\s+completions?|completed\s+passes?|completions?)\b/i,
-    markets: ["player_pass_completions"],
-  },
-  {
     id: "fb_pass_attempts",
     label: "passing attempts",
     re: /\b(pass(?:ing)?\s+attempts?)\b/i,
@@ -114,6 +108,32 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
     label: "rushing attempts",
     re: /\b(rush(?:ing)?\s+attempts?)\b/i,
     markets: ["player_rush_attempts"],
+  },
+  // Longest-* BEFORE bare completions/receptions — otherwise
+  // \bcompletions?\b eats "completion" inside "longest completion".
+  {
+    id: "fb_longest_completion",
+    label: "longest completion",
+    re: /\b(longest\s+completions?|pass(?:ing)?\s+longest)\b/i,
+    markets: ["player_pass_longest_completion"],
+  },
+  {
+    id: "fb_longest_reception",
+    label: "longest reception",
+    re: /\b(longest\s+receptions?|rec(?:eiving)?\s+longest)\b/i,
+    markets: ["player_reception_longest"],
+  },
+  {
+    id: "fb_longest_rush",
+    label: "longest rush",
+    re: /\b(longest\s+rush(?:es)?|rush(?:ing)?\s+longest)\b/i,
+    markets: ["player_rush_longest"],
+  },
+  {
+    id: "fb_completions",
+    label: "completions",
+    re: /\b(pass(?:ing)?\s+completions?|completed\s+passes?|completions?)\b/i,
+    markets: ["player_pass_completions"],
   },
   {
     id: "fb_receptions",
@@ -132,24 +152,6 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
     label: "pass interceptions",
     re: /\b(pass(?:ing)?\s+interceptions?|interceptions?|ints?)\b/i,
     markets: ["player_pass_interceptions"],
-  },
-  {
-    id: "fb_longest_completion",
-    label: "longest completion",
-    re: /\b(longest\s+completions?|pass(?:ing)?\s+longest)\b/i,
-    markets: ["player_pass_longest_completion"],
-  },
-  {
-    id: "fb_longest_reception",
-    label: "longest reception",
-    re: /\b(longest\s+receptions?|rec(?:eiving)?\s+longest)\b/i,
-    markets: ["player_reception_longest"],
-  },
-  {
-    id: "fb_longest_rush",
-    label: "longest rush",
-    re: /\b(longest\s+rush(?:es)?|rush(?:ing)?\s+longest)\b/i,
-    markets: ["player_rush_longest"],
   },
   {
     id: "fb_first_td",

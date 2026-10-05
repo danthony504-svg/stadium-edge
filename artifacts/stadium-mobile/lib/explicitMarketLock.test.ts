@@ -81,6 +81,23 @@ const FAMILY_CASES: Array<{
   { ask: "5 leg receptions", id: "fb_receptions", keys: ["player_receptions"] },
   { ask: "5 leg sacks", id: "fb_sacks", keys: ["player_sacks"] },
   { ask: "5 leg completions", id: "fb_completions", keys: ["player_pass_completions"] },
+  {
+    ask: "5 leg longest completion",
+    id: "fb_longest_completion",
+    keys: ["player_pass_longest_completion"],
+    reject: ["player_pass_completions"],
+  },
+  {
+    ask: "5 leg longest reception",
+    id: "fb_longest_reception",
+    keys: ["player_reception_longest"],
+    reject: ["player_receptions"],
+  },
+  {
+    ask: "5 leg longest rush",
+    id: "fb_longest_rush",
+    keys: ["player_rush_longest"],
+  },
   { ask: "4 leg field goals", id: "fb_field_goals", keys: ["player_field_goals"] },
 ];
 

@@ -222,6 +222,22 @@ const NICK_TO_SPORT: Record<string, NickEntry> = {
   jazz: { sport: "nba", tokens: ["jazz", "utah"] },
   "trail blazers": { sport: "nba", tokens: ["trail blazers", "blazers", "portland"] },
   blazers: { sport: "nba", tokens: ["trail blazers", "blazers", "portland"] },
+
+  // Soccer (club nicknames — exclusion / include via same NICK_TO_SPORT path)
+  chelsea: { sport: "soccer", tokens: ["chelsea"] },
+  "chelsea fc": { sport: "soccer", tokens: ["chelsea"] },
+  arsenal: { sport: "soccer", tokens: ["arsenal"] },
+  liverpool: { sport: "soccer", tokens: ["liverpool"] },
+  "man city": { sport: "soccer", tokens: ["man city", "manchester city"] },
+  "manchester city": { sport: "soccer", tokens: ["man city", "manchester city"] },
+  "man united": { sport: "soccer", tokens: ["man united", "manchester united"] },
+  "manchester united": { sport: "soccer", tokens: ["man united", "manchester united"] },
+
+  // NCAAF (common exclusion / include aliases)
+  "ohio state": { sport: "ncaaf", tokens: ["ohio state", "buckeyes"] },
+  buckeyes: { sport: "ncaaf", tokens: ["ohio state", "buckeyes"] },
+  alabama: { sport: "ncaaf", tokens: ["alabama", "crimson tide"] },
+  "crimson tide": { sport: "ncaaf", tokens: ["alabama", "crimson tide"] },
 };
 
 function escapeRegExp(s: string): string {
@@ -250,6 +266,7 @@ function sportsHintFromText(text: string): Set<string> {
   if (/\bwnba\b/i.test(t)) out.add("wnba");
   if (/\bncaaf\b|\bcfb\b|\bcollege\s+football\b/i.test(t)) out.add("ncaaf");
   if (/\bncaab\b|\bcbb\b|\bcollege\s+basketball\b/i.test(t)) out.add("ncaab");
+  if (/\bsoccer\b|\bfutbol\b|\bfootball\s+club\b|\bfc\b/i.test(t)) out.add("soccer");
   return out;
 }
 

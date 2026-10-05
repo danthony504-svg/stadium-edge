@@ -199,21 +199,61 @@ test("10 leg NBA not Lakers excludes entire Lakers matchup", () => {
   );
 });
 
-test("5 leg MLB no Yankees or Dodgers excludes both matchups", () => {
-  const ask = "5 leg MLB no Yankees or Dodgers";
-  assert.equal(coachAskTeamScope(ask), null);
-  const excluded = excludedTeamScopesFromText(ask);
-  assert.equal(excluded.length, 2);
-  assert.ok(excluded.some((e) => e.matchTokens.includes("yankees")));
-  assert.ok(excluded.some((e) => e.matchTokens.includes("dodgers")));
+test("Chelsea / Ohio State exclusions: negative ≠ positive; entire matchup drops", () => {
+  // Positive include
+  const chelseaInc = coachAskTeamScope("5 leg Chelsea");
+  assert.ok(chelseaInc);
+  assert.equal(chelseaInc!.sport, "soccer");
+  assert.ok(chelseaInc!.matchTokens.includes("chelsea"));
+  assert.equal(excludedTeamScopesFromText("5 leg Chelsea").length, 0);
+
+  // Negative exclusion
+  for (const ask of [
+    "5 leg SOCCER no Chelsea",
+    "5 leg SOCCER not Chelsea",
+    "5 SOCCER picks without the Chelsea",
+    "6 leg soccer tonight no Chelsea",
+  ]) {
+    assert.equal(coachAskTeamScope(ask), null, `include must be null: ${ask}`);
+    const ex = excludedTeamScopesFromText(ask);
+    assert.ok(ex.length >= 1, ask);
+    assert.ok(ex.some((e) => e.sport === "soccer" && e.matchTokens.includes("chelsea")), ask);
+  }
+
+  for (const ask of [
+    "5 leg NCAAF no Ohio State",
+    "5 leg NCAAF not Ohio State",
+    "5 NCAAF picks without the Ohio State",
+    "6 leg NCAAF no Buckeyes",
+  ]) {
+    assert.equal(coachAskTeamScope(ask), null, ask);
+    const ex = excludedTeamScopesFromText(ask);
+    assert.ok(ex.length >= 1, ask);
+    assert.ok(
+      ex.some(
+        (e) =>
+          e.sport === "ncaaf" &&
+          (e.matchTokens.includes("ohio state") || e.matchTokens.includes("buckeyes")),
+      ),
+      ask,
+    );
+  }
+
+  // Entire matchup excluded (PR #609 invariant)
+  const ex = excludedTeamScopesFromText("5 leg SOCCER no Chelsea");
   const games = [
-    { sport: "mlb", awayTeam: "New York Yankees", homeTeam: "Boston Red Sox" },
-    { sport: "mlb", awayTeam: "Los Angeles Dodgers", homeTeam: "San Diego Padres" },
-    { sport: "mlb", awayTeam: "Chicago Cubs", homeTeam: "Atlanta Braves" },
+    { sport: "soccer", awayTeam: "Chelsea", homeTeam: "Arsenal" },
+    { sport: "soccer", awayTeam: "Liverpool", homeTeam: "Manchester City" },
   ];
-  const filtered = filterOddsGamesExcludingTeams(games, excluded);
+  const filtered = filterOddsGamesExcludingTeams(games, ex);
   assert.equal(filtered.length, 1);
-  assert.equal(filtered[0]!.awayTeam, "Chicago Cubs");
+  assert.equal(filtered[0]!.awayTeam, "Liverpool");
+
+  // Multiple exclusions
+  const multi = excludedTeamScopesFromText("8 leg soccer no Chelsea no Arsenal");
+  assert.ok(multi.length >= 2);
+  assert.ok(multi.some((e) => e.matchTokens.includes("chelsea")));
+  assert.ok(multi.some((e) => e.matchTokens.includes("arsenal")));
 });
 
 test("exclusion drops opponent player props, game lines, and alts from excluded matchup", () => {

@@ -306,6 +306,8 @@ export function parseCoachAskMarketConstraint(
   const maxGames = parseMaxGamesFromAsk(t);
   const excludeTotals = wantsNoTotalsAsk(t);
   // No O/U / no totals → game lines only (ML / puck line / spread), never props fill.
+  // College bare asks also default here via wantsGameLinesOnlyAsk — but an
+  // explicit market-family lock below takes precedence over that automatic default.
   const gameLinesOnly = wantsGameLinesOnlyAsk(t) || excludeTotals;
 
   // Explicit single/multi-stat lock (all sports) — shared with server chat.
@@ -315,10 +317,11 @@ export function parseCoachAskMarketConstraint(
   // Football yards compound phrasing ("rushing and passing yards") — dedicated
   // helpers understand shared trailing "yards". Union with any other explicit
   // locks (e.g. "rushing yards and TDs") so named families stay locked.
+  // Named yards intent always wins over automatic college game-lines default.
   const rushYds = hasRushYardsAsk(t);
   const recYds = hasRecYardsAsk(t);
   const passYds = hasPassYardsAsk(t);
-  if ((rushYds || recYds || passYds) && !gameLinesOnly) {
+  if (rushYds || recYds || passYds) {
     const keys = new Set<string>();
     if (rushYds) for (const k of RUSH_YARDS_KEYS) keys.add(k);
     if (recYds) for (const k of REC_YARDS_KEYS) keys.add(k);
@@ -335,7 +338,10 @@ export function parseCoachAskMarketConstraint(
     };
   }
 
-  if (explicit && !gameLinesOnly) {
+  // Explicit market-family lock wins over broad automatic board-mode defaults
+  // (college gameLinesOnly). Do not silently discard a named family merely
+  // because bare NCAAF/college defaults toward team markets.
+  if (explicit) {
     return {
       propsOnly: true,
       gameLinesOnly: false,

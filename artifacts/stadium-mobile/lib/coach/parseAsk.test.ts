@@ -120,15 +120,20 @@ test("isParlayBuildAsk detects build intent", () => {
   assert.equal(isParlayBuildAsk("who wins tonight"), false);
 });
 
-test("give me N different ones routes to board scan (not freeform chat)", () => {
-  const ask =
-    "Bet 365 doesn't have over or under for NHL so give me 4 different ones.";
-  assert.equal(parseRequestedLegs(ask), 4);
-  assert.equal(isParlayBuildAsk(ask), true);
-  assert.equal(resolveBuildLegTarget(ask), 4);
-  assert.equal(parseRequestedLegs("give me 5 NHL picks"), 5);
-  assert.equal(isParlayBuildAsk("4 nhl picks tonight"), true);
-  assert.equal(resolveBuildLegTarget("4 nhl picks tonight"), 4);
+test("give me N UFC/tennis picks resolves legs for every N 2–15", () => {
+  for (const n of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) {
+    for (const sport of ["UFC", "tennis", "mma"]) {
+      const ask = `give me ${n} ${sport} picks`;
+      assert.equal(parseRequestedLegs(ask), n, ask);
+      assert.equal(resolveBuildLegTarget(ask), n, ask);
+      assert.equal(isParlayBuildAsk(ask), true, ask);
+    }
+    assert.equal(parseRequestedLegs(`give me ${n} UFC picks tonight`), n);
+    assert.equal(parseRequestedLegs(`give me ${n} tennis picks tomorrow`), n);
+  }
+  // Unaffected sports still work.
+  assert.equal(parseRequestedLegs("give me 5 NFL picks"), 5);
+  assert.equal(parseRequestedLegs("give me 6 soccer picks"), 6);
 });
 
 test("bare N picks + slate day parses leg count (mix path, not freeform)", () => {
