@@ -357,8 +357,12 @@ export async function runPropSims(
       });
       if (generated.coalesced) distStats.distCoalesced += 1;
 
-      if (!generated.value.drew && generated.value.dist?.samples?.length) {
-        // Another caller filled the cache while we waited.
+      if (
+        generated.value.dist?.samples?.length &&
+        (!generated.value.drew || generated.coalesced)
+      ) {
+        // Cache filled by a peer (pre-check race) or we coalesced onto their draw.
+        // Do not count waiters as generators — only the non-coalesced drawer does.
         fromCache = true;
         distStats.distributionCacheHits += 1;
         distStats.distributionCacheMisses -= 1;
@@ -372,7 +376,11 @@ export async function runPropSims(
         const scored = results.filter((r) => r.hitProbability != null).length;
         distStats.thresholdsEvaluatedFromCache += scored;
         distStats.monteCarloDrawsAvoided += generated.value.dist.simulations;
-      } else if (generated.value.drew && "rows" in generated.value) {
+      } else if (
+        generated.value.drew &&
+        !generated.coalesced &&
+        "rows" in generated.value
+      ) {
         results = generated.value.rows;
         if (generated.value.dist) {
           distStats.distributionsGenerated += 1;
