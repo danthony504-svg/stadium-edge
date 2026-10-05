@@ -42,3 +42,7 @@ yarn-error.*
 .vercel
 
 .env
+
+# Generated Coach QA artifacts (regenerate via pnpm test:coach-qa)
+lib/coachQa/reports/*.jsonl
+lib/coachQa/reports/coach-qa-report.json
