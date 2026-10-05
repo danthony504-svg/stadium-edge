@@ -446,6 +446,85 @@ test("bare college / NCAAF / Collage → gameLinesOnly team markets (no player p
   assert.equal(askAllowsNcaafPlayerProps("8 leg soccer and college"), false);
 });
 
+test("RC3: explicit market locks beat college gameLinesOnly default (all 30 families)", () => {
+  // Every EXPLICIT_MARKET_LOCK_RULES label on an ncaaf ask must keep its lock —
+  // college automatic game-lines default must not silently discard named intent.
+  const RC3_ASKS: Array<{ ask: string; key: string }> = [
+    { ask: "5 leg ncaaf pitcher strikeouts", key: "pitcher_strikeouts" },
+    { ask: "5 leg ncaaf hits+runs+RBIs", key: "batter_hits_runs_rbis" },
+    { ask: "5 leg ncaaf stolen bases", key: "batter_stolen_bases" },
+    { ask: "5 leg ncaaf total bases", key: "batter_total_bases" },
+    { ask: "5 leg ncaaf RBIs", key: "batter_rbis" },
+    { ask: "5 leg ncaaf hits", key: "batter_hits" },
+    { ask: "5 leg ncaaf runs", key: "batter_runs" },
+    { ask: "5 leg ncaaf passing attempts", key: "player_pass_attempts" },
+    { ask: "5 leg ncaaf rushing attempts", key: "player_rush_attempts" },
+    { ask: "5 leg ncaaf longest completion", key: "player_pass_longest_completion" },
+    { ask: "5 leg ncaaf longest rush", key: "player_rush_longest" },
+    { ask: "5 leg ncaaf completions", key: "player_pass_completions" },
+    { ask: "5 leg ncaaf pass interceptions", key: "player_pass_interceptions" },
+    { ask: "5 leg ncaaf goal scorer", key: "player_goal_scorer_anytime" },
+    { ask: "5 leg ncaaf shots on target", key: "player_shots_on_target" },
+    { ask: "5 leg ncaaf shots on goal", key: "player_shots_on_goal" },
+    { ask: "5 leg ncaaf shots", key: "player_shots" },
+    { ask: "5 leg ncaaf goals", key: "player_goals" },
+    { ask: "5 leg ncaaf pts+reb+ast", key: "player_points_rebounds_assists" },
+    { ask: "5 leg ncaaf pts+reb", key: "player_points_rebounds" },
+    { ask: "5 leg ncaaf pts+ast", key: "player_points_assists" },
+    { ask: "5 leg ncaaf reb+ast", key: "player_rebounds_assists" },
+    { ask: "5 leg ncaaf blocks+steals", key: "player_blocks_steals" },
+    { ask: "5 leg ncaaf rebounds", key: "player_rebounds" },
+    { ask: "5 leg ncaaf assists", key: "player_assists" },
+    { ask: "5 leg ncaaf threes", key: "player_threes" },
+    { ask: "5 leg ncaaf blocks", key: "player_blocks" },
+    { ask: "5 leg ncaaf steals", key: "player_steals" },
+    { ask: "5 leg ncaaf turnovers", key: "player_turnovers" },
+    { ask: "5 leg ncaaf points", key: "player_points" },
+  ];
+  assert.equal(RC3_ASKS.length, 30, "must cover all 30 RC3 cases");
+
+  for (const { ask, key } of RC3_ASKS) {
+    const c = parseCoachAskMarketConstraint(ask);
+    assert.equal(c.propsOnly, true, `${ask}: propsOnly`);
+    assert.equal(c.gameLinesOnly, false, `${ask}: not gameLinesOnly`);
+    assert.ok(c.allowedMarketKeys?.includes(key), `${ask}: missing ${key} got ${c.allowedMarketKeys}`);
+    assert.equal(askAllowsNcaafPlayerProps(ask), true, `${ask}: allows NCAAF props opt-in`);
+  }
+
+  // Equivalent wording / college tokens still lock (not just "ncaaf").
+  for (const ask of [
+    "5 leg college completions",
+    "5 leg cfb rushing attempts",
+    "5 leg NCAAF longest rush",
+    "6 leg college football pass interceptions",
+    "8 leg collage completions",
+  ]) {
+    const c = parseCoachAskMarketConstraint(ask);
+    assert.equal(c.propsOnly, true, ask);
+    assert.equal(c.gameLinesOnly, false, ask);
+    assert.ok(c.allowedMarketKeys && c.allowedMarketKeys.length > 0, ask);
+  }
+
+  // Already-working skill families stay locked.
+  for (const ask of [
+    "5 leg ncaaf passing yards",
+    "5 leg ncaaf touchdowns",
+    "5 leg ncaaf sacks",
+    "5 leg ncaaf receptions",
+  ]) {
+    const c = parseCoachAskMarketConstraint(ask);
+    assert.equal(c.propsOnly, true, ask);
+    assert.equal(c.gameLinesOnly, false, ask);
+    assert.ok(c.allowedMarketKeys?.length, ask);
+  }
+
+  // Bare college unchanged — still automatic team markets.
+  const bare = parseCoachAskMarketConstraint("8 leg college");
+  assert.equal(bare.gameLinesOnly, true);
+  assert.equal(bare.propsOnly, false);
+  assert.equal(bare.allowedMarketKeys, null);
+});
+
 test("thread prior props-only inherits onto refinement ask", () => {
   const c = parseCoachAskMarketConstraint("make it 5 for tomorrow", [
     "7 leg NFL player props",

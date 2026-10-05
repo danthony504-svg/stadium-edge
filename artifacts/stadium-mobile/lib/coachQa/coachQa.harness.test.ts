@@ -88,14 +88,24 @@ test("run full Coach QA harness and write report artifacts", () => {
   assert.ok(markdown.includes("AI COACH QA REPORT"));
   assert.equal(screenshot.stalePropsOnlyConfirmed, false);
 
-  // P1 RCs should be cleared; RC3 P2 college locks may remain.
+  // All P1/P2 RCs cleared — remaining findings should be warnings only.
   const failFindings = report.findings.filter(
     (f) =>
       !String(f.title).startsWith("Live failure-injection") &&
       f.title !== "Suspicious prop flagged for review",
   );
   const p1 = failFindings.filter((f) => f.severity === "P1");
+  const p2 = failFindings.filter((f) => f.severity === "P2");
   assert.equal(p1.length, 0, `unexpected P1: ${p1.slice(0, 5).map((f) => f.title).join("; ")}`);
+  assert.equal(p2.length, 0, `unexpected P2: ${p2.slice(0, 5).map((f) => f.title).join("; ")}`);
+  assert.equal(report.totals.failed, 0, `expected 0 failed, got ${report.totals.failed}`);
+
+  // RC1 must stay fixed after RC3.
+  assert.equal(
+    snapshotAsk("5 leg", ["4 leg soccer"]).propsOnly,
+    false,
+    "RC1 regression: soccer→5 leg must not inherit propsOnly",
+  );
 
   // Also mirror to /opt/cursor/artifacts when available
   try {

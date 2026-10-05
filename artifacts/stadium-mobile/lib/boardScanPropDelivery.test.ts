@@ -77,6 +77,12 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
   assert.equal(askAllowsNcaafPlayerProps("8 leg college football player props"), true);
   assert.equal(askAllowsNcaafPlayerProps("6 leg ncaaf rushing yards"), true);
   assert.equal(askAllowsNcaafPlayerProps("5 leg college team props"), false);
+  // RC3: named market families opt into CFB props path (not bare college default).
+  assert.equal(askAllowsNcaafPlayerProps("5 leg ncaaf completions"), true);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg ncaaf rushing attempts"), true);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg college longest rush"), true);
+  assert.equal(askRequiresFootballPropMix("5 leg ncaaf completions"), true);
+  assert.equal(askRequiresFootballPropMix("8 leg college"), false);
 });
 
 test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", () => {
