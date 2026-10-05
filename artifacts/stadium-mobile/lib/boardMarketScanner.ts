@@ -1240,10 +1240,24 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
   };
 
-  const scoreGamesAndMaybePartial = (games: string[]) => {
-    for (const game of games) {
+  /**
+   * Score game lines, cooperatively yielding between games so prop-sim /
+   * UI work can run (Phase 2.4 Option C). Yielding changes scheduling only —
+   * same draws, same ordering within a game, same outputs. Abort mid-yield
+   * stops this scan cleanly without touching shared game-sim caches.
+   */
+  const scoreGamesAndMaybePartial = async (games: string[]) => {
+    for (let gi = 0; gi < games.length; gi++) {
+      if (opts.signal?.aborted) return;
+      const game = games[gi]!;
       const lines = evalLinesByGame.get(game);
-      if (!lines?.length) continue;
+      if (!lines?.length) {
+        if (gi + 1 < games.length) {
+          await new Promise<void>((r) => setImmediate(r));
+          if (opts.signal?.aborted) return;
+        }
+        continue;
+      }
       // Fuzzy bind — sims may be keyed under ESPN labels while eval uses odds labels.
       const sim = lookupGameSim(game, gameSimulations);
       const evaluated = evaluateGameLines({
@@ -1271,7 +1285,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
           if (!sim) gameLegsDroppedNoSim += 1;
         }
       }
+      // Yield between games (not mid-game) so RNG/call order inside one game
+      // stays identical; no simulation is skipped because of the yield.
+      if (gi + 1 < games.length) {
+        await new Promise<void>((r) => setImmediate(r));
+        if (opts.signal?.aborted) return;
+      }
     }
+    if (opts.signal?.aborted) return;
     emitBoardScanPartial();
   };
 
@@ -1405,7 +1426,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         for (const [label, sim] of batchResult.sims) gameSimulations.set(label, sim);
         gameSimsFetchNull += batchResult.fetchNull.length;
         slateUnresolved += batchResult.unresolved.length;
-        scoreGamesAndMaybePartial(batch.map(([game]) => game));
+        await scoreGamesAndMaybePartial(batch.map(([game]) => game));
+        if (opts.signal?.aborted) break;
       } catch {
         // Keep scanning remaining games + props. A thrown slate batch used to
         // abort buildTopLegsFromFullBoardScan → tryReachFullBoardScan(null) →
