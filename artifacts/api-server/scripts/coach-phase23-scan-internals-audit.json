@@ -1,0 +1,451 @@
+{
+  "generatedAt": "2026-10-05T21:24:16.954992+00:00",
+  "phase": "2.3-prep-scan-internals",
+  "note": "AUDIT ONLY \u2014 no production code changes. Primary waterfall = critical-path warm 26.7s scan (submit\u2192final 31005ms). Hot-cache re-audit understated hist/multi-game and is retained only as secondary.",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "sourceSample": {
+    "artifact": "/opt/cursor/artifacts/coach-phase22-critical-path.json",
+    "submitToFinalMs": 31005,
+    "scanStartMs": 4342,
+    "scanEndMs": 31005,
+    "scanWallMs": 26663,
+    "propPool": 3758,
+    "finalLegs": 5
+  },
+  "scanBreakdown": {
+    "scanStartMs": 4342,
+    "scanEndMs": 31005,
+    "scanWallMs": 26663,
+    "readyPool": 3758,
+    "operations": [
+      {
+        "operation": "history_enrichment (client getPlayerHistory)",
+        "count": 23,
+        "start": 5297,
+        "end": 30772,
+        "wall": 25475,
+        "concurrency": "Promise.all over each prop batch (unbounded within batch; request-local Map dedupes athleteId)",
+        "cacheHM": "client coachContextCache playerHistory 35H/23M of 58 calls; NO share with server propsim-ctx",
+        "blocksFinal": true
+      },
+      {
+        "operation": "game_simulation_batches (serial outer SLATE_SIM_BATCH=2)",
+        "count": 2,
+        "start": 5196,
+        "end": 18431,
+        "wall": 13235,
+        "concurrency": "outer serial await batch=2; inner SLATE_SIM_CONCURRENCY=4 unused headroom \u2192 effective 2",
+        "cacheHM": "client gameSimulation 17H/2M of 19 game lookups; HTTP only on misses",
+        "blocksFinal": true
+      },
+      {
+        "operation": "prop_simulation_request (deep waves)",
+        "count": 3,
+        "start": 5198,
+        "end": 19990,
+        "wall": 14792,
+        "concurrency": "1 client HTTP at a time per wave; server PROPSIM_CTX_LOAD_CONCURRENCY=4 on misses",
+        "cacheHM": "propsim-ctx 17/25; dist 17/23",
+        "blocksFinal": true
+      },
+      {
+        "operation": "game_line_grading (+ mid-scan partial staging)",
+        "count": 10,
+        "start": 6673,
+        "end": 19945,
+        "wall": 13272,
+        "concurrency": "1 sync after each awaited game batch (scoreGamesAndMaybePartial \u2192 emitBoardScanPartial)",
+        "cacheHM": "n/a",
+        "blocksFinal": false
+      },
+      {
+        "operation": "prop_grading (attachPickScores after sim+enrich)",
+        "count": 3,
+        "start": 5198,
+        "end": 30895,
+        "wall": 25697,
+        "concurrency": "1 sync after each simPropBatch enrich",
+        "cacheHM": "n/a",
+        "blocksFinal": true
+      },
+      {
+        "operation": "ALT_grading",
+        "count": -1,
+        "start": 5198,
+        "end": 19990,
+        "wall": 0,
+        "concurrency": "bundled \u2014 no separate ALT HTTP; expanded from deep-sim additionalLines / lineHitRatesBySide",
+        "cacheHM": "shared distribution",
+        "blocksFinal": true
+      },
+      {
+        "operation": "qualification",
+        "count": 13,
+        "start": 5439,
+        "end": 31005,
+        "wall": 25566,
+        "concurrency": "1 (buildScanResult on each partial + final)",
+        "cacheHM": "n/a",
+        "blocksFinal": true
+      },
+      {
+        "operation": "EV_edge_computation",
+        "count": -1,
+        "start": 5439,
+        "end": 31005,
+        "wall": 0,
+        "concurrency": "bundled inside attachPickScores / evaluateGameLines / prop score",
+        "cacheHM": "n/a",
+        "blocksFinal": true
+      },
+      {
+        "operation": "correlation_scoring",
+        "count": -1,
+        "start": 5439,
+        "end": 31005,
+        "wall": 0,
+        "concurrency": "bundled in staging (buildStagedTicketFromScan)",
+        "cacheHM": "n/a",
+        "blocksFinal": true
+      },
+      {
+        "operation": "diversity",
+        "count": -1,
+        "start": 5439,
+        "end": 31005,
+        "wall": 0,
+        "concurrency": "bundled in staging / diversity inject at finalize",
+        "cacheHM": "n/a",
+        "blocksFinal": true
+      },
+      {
+        "operation": "staging",
+        "count": 13,
+        "start": 5439,
+        "end": 31005,
+        "wall": 25566,
+        "concurrency": "1 sync per partial+final (fillReservedPropSlots)",
+        "cacheHM": "n/a",
+        "blocksFinal": true
+      },
+      {
+        "operation": "recovery_top_up",
+        "count": -1,
+        "start": 30895,
+        "end": 31005,
+        "wall": 110,
+        "concurrency": "1 at finalize (topUpTicketFromQualifiedScored) \u2014 not a separate multi-second network phase",
+        "cacheHM": "n/a",
+        "blocksFinal": true
+      }
+    ],
+    "intervalsAreOverlapping": true,
+    "doNotSumWalls": true
+  },
+  "whyGameSimsSerial": {
+    "code": "boardMarketScanner.buildTopLegsFromFullBoardScan: for (i\u2026; i += SLATE_SIM_BATCH) await fetchSlateGameSimulationsWithStatus(batch)",
+    "SLATE_SIM_BATCH_default": 2,
+    "SLATE_SIM_BATCH_footballMix": 4,
+    "inner": "fetchSlateGameSimulationsWithStatus: SLATE_SIM_CONCURRENCY=4",
+    "effectiveConcurrencyOnDefaultPath": 2,
+    "whySerialOuter": "Each batch is awaited so scoreGamesAndMaybePartial can emit mid-scan GL partials before the next games start \u2014 intentional progressive staging, not a provider rate-limit.",
+    "observed": {
+      "gamesAttempted": 19,
+      "gameSimsLoaded": 19,
+      "httpGameSimCalls": 2,
+      "httpSumMs": 521,
+      "spanStartMs": 5196,
+      "spanEndMs": 18431,
+      "spanWallMs": 13235,
+      "clientCache": {
+        "stage": "gameSimulation",
+        "calls": 19,
+        "cacheHit": 17,
+        "cacheMiss": 2,
+        "coalesced": 0,
+        "durationMs": 524
+      },
+      "note": "Span ~5.2s\u219218.4s is dominated by serial outer loop + overlapping prop/mlb work, NOT by 521ms HTTP sum (17/19 cache hits)."
+    }
+  },
+  "gameSimConcurrencyBench": {
+    "generatedAt": "2026-10-05T21:23:19.480Z",
+    "note": "AUDIT ONLY \u2014 identical game list + cover queries; outer batch size only. Cache cleared between levels. Inner SLATE_SIM_CONCURRENCY remains 4 (so outer 6 \u2248 outer 4).",
+    "apiBase": "https://stadium-edge.onrender.com/api",
+    "games": [
+      {
+        "sport": "mlb",
+        "label": "San Diego Padres @ Milwaukee Brewers",
+        "homeTeamId": "8",
+        "awayTeamId": "25"
+      },
+      {
+        "sport": "mlb",
+        "label": "Atlanta Braves @ Los Angeles Dodgers",
+        "homeTeamId": "19",
+        "awayTeamId": "15"
+      },
+      {
+        "sport": "mlb",
+        "label": "Chicago White Sox @ Cleveland Guardians",
+        "homeTeamId": "5",
+        "awayTeamId": "4"
+      },
+      {
+        "sport": "mlb",
+        "label": "New York Yankees @ Tampa Bay Rays",
+        "homeTeamId": "30",
+        "awayTeamId": "10"
+      },
+      {
+        "sport": "nfl",
+        "label": "Indianapolis Colts @ Washington Commanders",
+        "homeTeamId": "28",
+        "awayTeamId": "11"
+      },
+      {
+        "sport": "nfl",
+        "label": "New England Patriots @ Buffalo Bills",
+        "homeTeamId": "2",
+        "awayTeamId": "17"
+      },
+      {
+        "sport": "nfl",
+        "label": "New York Jets @ Chicago Bears",
+        "homeTeamId": "3",
+        "awayTeamId": "20"
+      },
+      {
+        "sport": "nfl",
+        "label": "Jacksonville Jaguars @ Cincinnati Bengals",
+        "homeTeamId": "4",
+        "awayTeamId": "30"
+      },
+      {
+        "sport": "nfl",
+        "label": "Arizona Cardinals @ New York Giants",
+        "homeTeamId": "19",
+        "awayTeamId": "22"
+      },
+      {
+        "sport": "nfl",
+        "label": "Los Angeles Rams @ Philadelphia Eagles",
+        "homeTeamId": "21",
+        "awayTeamId": "14"
+      },
+      {
+        "sport": "nfl",
+        "label": "Green Bay Packers @ Tampa Bay Buccaneers",
+        "homeTeamId": "27",
+        "awayTeamId": "9"
+      },
+      {
+        "sport": "nfl",
+        "label": "Tennessee Titans @ Baltimore Ravens",
+        "homeTeamId": "33",
+        "awayTeamId": "10"
+      }
+    ],
+    "rows": [
+      {
+        "concurrency": 2,
+        "simulations": 12,
+        "simsLoaded": 12,
+        "wallMs": 1186,
+        "httpCalls": 12,
+        "errors": 0,
+        "rateLimited429": 0,
+        "statusHistogram": {
+          "200": 12
+        }
+      },
+      {
+        "concurrency": 4,
+        "simulations": 12,
+        "simsLoaded": 12,
+        "wallMs": 567,
+        "httpCalls": 12,
+        "errors": 0,
+        "rateLimited429": 0,
+        "statusHistogram": {
+          "200": 12
+        }
+      },
+      {
+        "concurrency": 6,
+        "simulations": 12,
+        "simsLoaded": 12,
+        "wallMs": 786,
+        "httpCalls": 12,
+        "errors": 0,
+        "rateLimited429": 0,
+        "statusHistogram": {
+          "200": 12
+        }
+      }
+    ],
+    "deterministic": {
+      "fullFingerprintEqual": {
+        "c2_vs_c4": false,
+        "c2_vs_c6": false,
+        "c4_vs_c6": false
+      },
+      "homeWinOnlyEqual": {
+        "c2_vs_c4": false,
+        "c2_vs_c6": false,
+        "c4_vs_c6": false
+      },
+      "numericHomeWinCoverDiffs": {
+        "c2_vs_c4": 11,
+        "c2_vs_c6": 10,
+        "c4_vs_c6": 11
+      },
+      "perGameHomeWin": {
+        "San Diego Padres @ Milwaukee Brewers": {
+          "c2": 0.573,
+          "c4": 0.572,
+          "c6": 0.571,
+          "maxAbsDelta": 0.0020000000000000018
+        },
+        "Atlanta Braves @ Los Angeles Dodgers": {
+          "c2": 0.492,
+          "c4": 0.49,
+          "c6": 0.493,
+          "maxAbsDelta": 0.0030000000000000027
+        },
+        "Chicago White Sox @ Cleveland Guardians": {
+          "c2": 0.08,
+          "c4": 0.077,
+          "c6": 0.076,
+          "maxAbsDelta": 0.0040000000000000036
+        },
+        "New York Yankees @ Tampa Bay Rays": {
+          "c2": 0.371,
+          "c4": 0.38,
+          "c6": 0.374,
+          "maxAbsDelta": 0.009000000000000008
+        },
+        "Indianapolis Colts @ Washington Commanders": {
+          "c2": 0.437,
+          "c4": 0.435,
+          "c6": 0.441,
+          "maxAbsDelta": 0.006000000000000005
+        },
+        "New England Patriots @ Buffalo Bills": {
+          "c2": 0.443,
+          "c4": 0.436,
+          "c6": 0.424,
+          "maxAbsDelta": 0.019000000000000017
+        },
+        "New York Jets @ Chicago Bears": {
+          "c2": 0.431,
+          "c4": 0.431,
+          "c6": 0.431,
+          "maxAbsDelta": 0
+        },
+        "Jacksonville Jaguars @ Cincinnati Bengals": {
+          "c2": 0.441,
+          "c4": 0.44,
+          "c6": 0.437,
+          "maxAbsDelta": 0.0040000000000000036
+        },
+        "Arizona Cardinals @ New York Giants": {
+          "c2": 0.44,
+          "c4": 0.438,
+          "c6": 0.44,
+          "maxAbsDelta": 0.0020000000000000018
+        },
+        "Los Angeles Rams @ Philadelphia Eagles": {
+          "c2": 0.442,
+          "c4": 0.436,
+          "c6": 0.437,
+          "maxAbsDelta": 0.006000000000000005
+        },
+        "Green Bay Packers @ Tampa Bay Buccaneers": {
+          "c2": 0.444,
+          "c4": 0.45,
+          "c6": 0.435,
+          "maxAbsDelta": 0.015000000000000013
+        },
+        "Tennessee Titans @ Baltimore Ravens": {
+          "c2": 0.439,
+          "c4": 0.438,
+          "c6": 0.432,
+          "maxAbsDelta": 0.007000000000000006
+        }
+      },
+      "note": "homeWinOnly isolates MC draw; coverKeys may differ when NFL/NCAAF period-stats fan-in races independently of concurrency batching."
+    },
+    "interpretation": {
+      "wallSpeedup_2_to_4": 2.09,
+      "wallSpeedup_2_to_6": 1.51,
+      "errors": 0,
+      "rateLimited429": 0,
+      "plateau": "Outer 6 \u2248 outer 4 because inner SLATE_SIM_CONCURRENCY remains 4.",
+      "determinism": "homeWin differs by ~0\u20131.9pp across sequential cold runs \u2014 consistent with production MC run-to-run noise / live input drift, not a concurrency-specific equation fork. No 429s. Equations/sim counts unchanged."
+    }
+  },
+  "historyEnrichment": {
+    "clientHttpCalls": 23,
+    "clientHttpSumMs": 10617,
+    "clientHttpMaxMs": 739,
+    "clientSpanStartMs": 5297,
+    "clientSpanEndMs": 30772,
+    "clientSpanWallMs": 25475,
+    "clientCacheCalls": 58,
+    "clientCacheHits": 35,
+    "clientCacheMisses": 23,
+    "uniqueNetworkAthletesApprox": 23,
+    "providerCalls": "client \u2192 GET /sports/player-history \u2192 server history.ts \u2192 ESPN gamelog (cachedJson 30m)",
+    "duplicatesWithinClientBatch": "request-local Map by sport:athleteId; cross-batch may re-hit cache",
+    "concurrency": "Promise.all over historyNeeded (= entire prop batch) \u2014 unbounded within batch",
+    "longestIndividualCallMs": 739,
+    "serverPropSimCtx": {
+      "ctx": "17/25",
+      "dist": "17/23",
+      "historyLoadsOnCtxMiss": "fetchEspnPlayerHistory direct to ESPN (same gamelog), keyed into propsim-ctx; concurrency PROPSIM_CTX_LOAD_CONCURRENCY=4",
+      "onCtxHit": "server does NOT reload history"
+    },
+    "duplicationVsPhase21": {
+      "duplicateAcquisition": true,
+      "mechanism": "enrichCoachPropSimHits ALWAYS getPlayerHistory for every batch player even when hitProbability already present from propsim-ctx MC path",
+      "independentStores": "server propsim-ctx / ESPN cachedJson  vs  client coachContextCache.playerHistory \u2014 no shared keyspace across the client enrich hop",
+      "afterPhase21CtxWarm": "ctx hits skip server hist reload, but client enrich still re-fetches /sports/player-history for form/matchup cards (comment: avoid still-loading cards)",
+      "materialInputs": "Client hist also feeds localPropSimulation fallback when MC null/extreme; do not remove that fallback path \u2014 only skip redundant fetch when MC grade already usable"
+    }
+  },
+  "lastBlocker": {
+    "operation": "history_enrichment (client getPlayerHistory after/alongside prop sim)",
+    "lastHttpStage": "player_history",
+    "lastHttpEndMs": 30772,
+    "finalReturnMs": 31005,
+    "propSeatsLandAtMs": 30895,
+    "whyFinalCannotCompleteBefore": "simPropBatch awaits enrichCoachPropSimHits after fetchPropSimulations; buildTopLegsFromFullBoardScan awaits the overlapping prop phase before boardExhausted final; awaitingPropSlots/fillReservedPropSlots need prop-scored legs to replace GL-only preview seats. Last network work is client player-history; ticket composition flips 0\u21922 props only after that wave completes."
+  },
+  "canRemainingWorkAlterTicket": {
+    "qualification": true,
+    "ranking": true,
+    "correlation": true,
+    "diversity": true,
+    "final5Selections": true,
+    "evidence": {
+      "first5GlAt": 6673,
+      "first5GlProps": 0,
+      "propsLandAt": 30895,
+      "propsLandCount": 2,
+      "note": "After first 5-leg GL partial at 6.7s, scan ran ~24.3s more and membership changed (0\u21922 props). Early exit would freeze a different ticket."
+    }
+  },
+  "proposedPhase23": {
+    "title": "Smallest safe Phase 2.3: eliminate duplicate client history enrich when server MC already graded",
+    "change": "In enrichCoachPropSimHits / simPropBatch: when server hitProbability is already a usable MC grade, skip getPlayerHistory (or accept optional thin history slices returned with prop-sim rows). Keep local history fallback only for null/unusable MC.",
+    "optionalFollowup": "Raise default SLATE_SIM_BATCH 2\u21924 to match inner concurrency (football mix already uses 4) \u2014 preserves progressive partials, cuts serial game-span wall. Bench shows ~2\u00d7 wall reduction 2\u21924, 0\u00d7429, no equation change.",
+    "expectedImpact": "Remove ~23 client player-history RTTs / ~10.6s sum (span extending to ~31s) from scan tail without changing MC equations, markets, thresholds, or final deterministic qualified set inputs.",
+    "mustPreserve": "ESPN mapping, 10k sims, markets/ALTs, thresholds, EV/edge/grade/confidence, correlation/diversity, no fabricated history, local fallback when MC null",
+    "notInScope": "Early exit at first 5 GL \u2014 remaining work alters final ticket"
+  },
+  "secondaryHotCacheAudit": {
+    "note": "coach-phase23-scan-internals-audit.json first pass was cache-hot (hist HTTP 0, 1 game) \u2014 not representative of the 26.7s critical-path shape",
+    "scanWallMs": 16145
+  }
+}

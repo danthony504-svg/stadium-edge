@@ -1,0 +1,209 @@
+{
+  "generatedAt": "2026-10-05T21:23:19.480Z",
+  "note": "AUDIT ONLY — identical game list + cover queries; outer batch size only. Cache cleared between levels. Inner SLATE_SIM_CONCURRENCY remains 4 (so outer 6 ≈ outer 4).",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "games": [
+    {
+      "sport": "mlb",
+      "label": "San Diego Padres @ Milwaukee Brewers",
+      "homeTeamId": "8",
+      "awayTeamId": "25"
+    },
+    {
+      "sport": "mlb",
+      "label": "Atlanta Braves @ Los Angeles Dodgers",
+      "homeTeamId": "19",
+      "awayTeamId": "15"
+    },
+    {
+      "sport": "mlb",
+      "label": "Chicago White Sox @ Cleveland Guardians",
+      "homeTeamId": "5",
+      "awayTeamId": "4"
+    },
+    {
+      "sport": "mlb",
+      "label": "New York Yankees @ Tampa Bay Rays",
+      "homeTeamId": "30",
+      "awayTeamId": "10"
+    },
+    {
+      "sport": "nfl",
+      "label": "Indianapolis Colts @ Washington Commanders",
+      "homeTeamId": "28",
+      "awayTeamId": "11"
+    },
+    {
+      "sport": "nfl",
+      "label": "New England Patriots @ Buffalo Bills",
+      "homeTeamId": "2",
+      "awayTeamId": "17"
+    },
+    {
+      "sport": "nfl",
+      "label": "New York Jets @ Chicago Bears",
+      "homeTeamId": "3",
+      "awayTeamId": "20"
+    },
+    {
+      "sport": "nfl",
+      "label": "Jacksonville Jaguars @ Cincinnati Bengals",
+      "homeTeamId": "4",
+      "awayTeamId": "30"
+    },
+    {
+      "sport": "nfl",
+      "label": "Arizona Cardinals @ New York Giants",
+      "homeTeamId": "19",
+      "awayTeamId": "22"
+    },
+    {
+      "sport": "nfl",
+      "label": "Los Angeles Rams @ Philadelphia Eagles",
+      "homeTeamId": "21",
+      "awayTeamId": "14"
+    },
+    {
+      "sport": "nfl",
+      "label": "Green Bay Packers @ Tampa Bay Buccaneers",
+      "homeTeamId": "27",
+      "awayTeamId": "9"
+    },
+    {
+      "sport": "nfl",
+      "label": "Tennessee Titans @ Baltimore Ravens",
+      "homeTeamId": "33",
+      "awayTeamId": "10"
+    }
+  ],
+  "rows": [
+    {
+      "concurrency": 2,
+      "simulations": 12,
+      "simsLoaded": 12,
+      "wallMs": 1186,
+      "httpCalls": 12,
+      "errors": 0,
+      "rateLimited429": 0,
+      "statusHistogram": {
+        "200": 12
+      }
+    },
+    {
+      "concurrency": 4,
+      "simulations": 12,
+      "simsLoaded": 12,
+      "wallMs": 567,
+      "httpCalls": 12,
+      "errors": 0,
+      "rateLimited429": 0,
+      "statusHistogram": {
+        "200": 12
+      }
+    },
+    {
+      "concurrency": 6,
+      "simulations": 12,
+      "simsLoaded": 12,
+      "wallMs": 786,
+      "httpCalls": 12,
+      "errors": 0,
+      "rateLimited429": 0,
+      "statusHistogram": {
+        "200": 12
+      }
+    }
+  ],
+  "deterministic": {
+    "fullFingerprintEqual": {
+      "c2_vs_c4": false,
+      "c2_vs_c6": false,
+      "c4_vs_c6": false
+    },
+    "homeWinOnlyEqual": {
+      "c2_vs_c4": false,
+      "c2_vs_c6": false,
+      "c4_vs_c6": false
+    },
+    "numericHomeWinCoverDiffs": {
+      "c2_vs_c4": 11,
+      "c2_vs_c6": 10,
+      "c4_vs_c6": 11
+    },
+    "perGameHomeWin": {
+      "San Diego Padres @ Milwaukee Brewers": {
+        "c2": 0.573,
+        "c4": 0.572,
+        "c6": 0.571,
+        "maxAbsDelta": 0.0020000000000000018
+      },
+      "Atlanta Braves @ Los Angeles Dodgers": {
+        "c2": 0.492,
+        "c4": 0.49,
+        "c6": 0.493,
+        "maxAbsDelta": 0.0030000000000000027
+      },
+      "Chicago White Sox @ Cleveland Guardians": {
+        "c2": 0.08,
+        "c4": 0.077,
+        "c6": 0.076,
+        "maxAbsDelta": 0.0040000000000000036
+      },
+      "New York Yankees @ Tampa Bay Rays": {
+        "c2": 0.371,
+        "c4": 0.38,
+        "c6": 0.374,
+        "maxAbsDelta": 0.009000000000000008
+      },
+      "Indianapolis Colts @ Washington Commanders": {
+        "c2": 0.437,
+        "c4": 0.435,
+        "c6": 0.441,
+        "maxAbsDelta": 0.006000000000000005
+      },
+      "New England Patriots @ Buffalo Bills": {
+        "c2": 0.443,
+        "c4": 0.436,
+        "c6": 0.424,
+        "maxAbsDelta": 0.019000000000000017
+      },
+      "New York Jets @ Chicago Bears": {
+        "c2": 0.431,
+        "c4": 0.431,
+        "c6": 0.431,
+        "maxAbsDelta": 0
+      },
+      "Jacksonville Jaguars @ Cincinnati Bengals": {
+        "c2": 0.441,
+        "c4": 0.44,
+        "c6": 0.437,
+        "maxAbsDelta": 0.0040000000000000036
+      },
+      "Arizona Cardinals @ New York Giants": {
+        "c2": 0.44,
+        "c4": 0.438,
+        "c6": 0.44,
+        "maxAbsDelta": 0.0020000000000000018
+      },
+      "Los Angeles Rams @ Philadelphia Eagles": {
+        "c2": 0.442,
+        "c4": 0.436,
+        "c6": 0.437,
+        "maxAbsDelta": 0.006000000000000005
+      },
+      "Green Bay Packers @ Tampa Bay Buccaneers": {
+        "c2": 0.444,
+        "c4": 0.45,
+        "c6": 0.435,
+        "maxAbsDelta": 0.015000000000000013
+      },
+      "Tennessee Titans @ Baltimore Ravens": {
+        "c2": 0.439,
+        "c4": 0.438,
+        "c6": 0.432,
+        "maxAbsDelta": 0.007000000000000006
+      }
+    },
+    "note": "homeWinOnly isolates MC draw; coverKeys may differ when NFL/NCAAF period-stats fan-in races independently of concurrency batching."
+  }
+}
