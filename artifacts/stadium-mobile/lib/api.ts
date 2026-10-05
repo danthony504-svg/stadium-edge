@@ -208,6 +208,11 @@ export type RealGameEntry = {
 // rejects, converting a hung link into the same graceful "narrower pool" path.
 const REQUEST_TIMEOUT_MS = 12000;
 
+import {
+  classifyCoachContextPath,
+  withCoachContextCache,
+} from "./coachContextCache";
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`request timeout: ${label}`)), ms);
@@ -230,16 +235,13 @@ function sleepBackoff(attempt: number): Promise<void> {
   return new Promise((r) => setTimeout(r, 300 * attempt + Math.random() * 250));
 }
 
-// Resilient GET. A single transient blip used to nuke whole surfaces (e.g. the
-// Props page errors out the moment its uncaught odds fetch fails). The most
-// common transients are a 429 from the shared-proxy-IP rate limiter (every
-// mobile client looks like one IP to the edge) and brief upstream 5xx — both
-// return fast, so we retry those up to MAX_ATTEMPTS. Deterministic 4xx
-// (400/401/404) won't change on retry, so we fail fast. Network drops/timeouts
-// each wait the full per-request timeout, so we cap THOSE at a single retry to
-// avoid stacking long stalls onto the chat-context fan-outs that share this
-// fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+// Resilient GET (uncached). Odds / props / simulate stay on this path so live
+// books remain authoritative per existing freshness policy.
+async function getJsonUncached<T>(
+  path: string,
+  signal?: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
@@ -270,6 +272,24 @@ async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUES
     }
   }
   throw lastErr;
+}
+
+/**
+ * Resilient GET. Stable Coach context GETs (history / injuries / defense /
+ * matchups / period stats / team ids) use Phase-2 TTL + in-flight coalescing.
+ * Live odds, props boards, and simulate routes are never cached here.
+ */
+async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const stage = classifyCoachContextPath(path);
+  if (!stage) return getJsonUncached<T>(path, signal, timeoutMs);
+  // Shared fill must not abort mid-flight when one waiter cancels — pass no
+  // signal into the network layer; withCoachContextCache races waiter abort.
+  return withCoachContextCache(
+    path,
+    stage,
+    () => getJsonUncached<T>(path, undefined, timeoutMs),
+    signal,
+  );
 }
 
 import { getAuthTokenGetter, setAuthTokenGetter } from "./authToken";
