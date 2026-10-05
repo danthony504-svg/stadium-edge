@@ -683,7 +683,7 @@ export async function buildFootballPropsOnlyTicket(
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
         ]);
         if (!serverRows) continue;
-        for (const [k, v] of serverRows) {
+        for (const [k, v] of serverRows.hits) {
           if (v.hitProbability != null && Number.isFinite(v.hitProbability)) {
             const existing = propHits.get(k)?.hitProbability;
             if (existing == null || !Number.isFinite(existing)) {

@@ -368,6 +368,48 @@ export function simulatePropGroupShared(
 }
 
 /**
+ * Draw once from a pre-built context (Phase 2.1 propsim-ctx hit path).
+ * Same statistical model as simulatePropGroupSharedWithDistribution.
+ */
+export function simulatePropGroupFromContext(
+  requests: SimPropRequest[],
+  ctx: PropSimulationContext,
+  history: PlayerHistoryShape | null | undefined,
+  distributionKey: string,
+  tier: SimTier,
+  simulations?: number,
+  opts?: { seed?: number },
+): { rows: SimPropRow[]; distribution: CachedPropDistribution | null } {
+  if (!requests.length) return { rows: [], distribution: null };
+
+  const allLines = [
+    ...new Set(
+      requests
+        .flatMap((r) => [r.line, ...(r.additionalLines ?? [])])
+        .filter((l) => Number.isFinite(l)),
+    ),
+  ].sort((a, b) => a - b);
+
+  const targets = requests.map((r) => ({ line: r.line, side: r.side }));
+  // Apply primary request line/side onto ctx for the shared draw base.
+  const primary = requests[0]!;
+  const drawCtx: PropSimulationContext = {
+    ...ctx,
+    line: primary.line,
+    side: primary.side,
+    additionalLines: primary.additionalLines,
+  };
+  const bundle = scoreSharedDistribution(drawCtx, targets, simulations, {
+    seed: opts?.seed,
+    evaluateLines: allLines,
+  });
+  return {
+    rows: expandSimPropRowsFromBundle(requests, history, bundle),
+    distribution: cachedPropDistributionFromBundle(distributionKey, tier, drawCtx, bundle),
+  };
+}
+
+/**
  * Draw once (or reuse) and return both rows + cacheable distribution payload.
  * Used by the simulate route so alt lines share one 10k draw across requests.
  */
@@ -389,24 +431,15 @@ export function simulatePropGroupSharedWithDistribution(
       distribution: null,
     };
   }
-
-  const allLines = [
-    ...new Set(
-      requests
-        .flatMap((r) => [r.line, ...(r.additionalLines ?? [])])
-        .filter((l) => Number.isFinite(l)),
-    ),
-  ].sort((a, b) => a - b);
-
-  const targets = requests.map((r) => ({ line: r.line, side: r.side }));
-  const bundle = scoreSharedDistribution(ctx, targets, simulations, {
-    seed: opts?.seed,
-    evaluateLines: allLines,
-  });
-  return {
-    rows: expandSimPropRowsFromBundle(requests, history, bundle),
-    distribution: cachedPropDistributionFromBundle(distributionKey, tier, ctx, bundle),
-  };
+  return simulatePropGroupFromContext(
+    requests,
+    ctx,
+    history,
+    distributionKey,
+    tier,
+    simulations,
+    opts,
+  );
 }
 
 export { keyInjuryWeight };

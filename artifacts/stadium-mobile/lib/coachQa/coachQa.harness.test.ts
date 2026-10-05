@@ -11,6 +11,11 @@ import { generateRequestMatrix, sequentialTransitionSeeds } from "./matrix.ts";
 import { snapshotAsk } from "./parseSnapshot.ts";
 import { checkSequentialTransition } from "./invariants.ts";
 import { runCoachQaHarness, COACH_QA_SEED, screenshotSequenceAudit } from "./runCoachQa.ts";
+import {
+  assertAbsoluteTerminalClearsBusyOnHungScan,
+  runAbsoluteTerminalHangGuardSuite,
+} from "./terminalInvariant.ts";
+import { runProductionTerminalAbAudit } from "./terminalLiveAudit.ts";
 
 test("request matrix covers legs 2–15 and all DEFAULT sports tags", () => {
   const matrix = generateRequestMatrix();
@@ -147,3 +152,160 @@ test("sequentialTransitionSeeds includes required phone pairs", () => {
     assert.ok(ids.has(id), id);
   }
 });
+
+test("terminal invariant: absolute hang-guard suite (sync)", () => {
+  const cases = runAbsoluteTerminalHangGuardSuite();
+  assert.ok(cases.length >= 3);
+  for (const c of cases) {
+    assert.equal(c.ok, true, c.finding ? JSON.stringify(c.finding) : c.id);
+  }
+});
+
+test("terminal invariant: hung scan must clear busy via absolute terminal", async () => {
+  const result = await assertAbsoluteTerminalClearsBusyOnHungScan();
+  assert.equal(result.ok, true, result.finding ? JSON.stringify(result.finding) : result.id);
+});
+
+/**
+ * Production-equivalent A/B terminal gate.
+ * Parser suites alone must not pass while the real async pipeline hangs on
+ * "Scoring game lines… props/alts next (N posted)".
+ *
+ * Skip only when explicitly disabled (offline CI without network). Default ON
+ * when EXPO_PUBLIC_DOMAIN points at production/staging.
+ */
+test(
+  "terminal invariant: live A/B pipeline must reach a terminal state",
+  { timeout: 300_000 },
+  async (t) => {
+    if (process.env.COACH_QA_SKIP_LIVE_TERMINAL === "1") {
+      t.skip("COACH_QA_SKIP_LIVE_TERMINAL=1");
+      return;
+    }
+    // API_BASE is fixed at module load from EXPO_PUBLIC_DOMAIN (see package.json
+    // test:coach-qa default). Refuse a relative /api base — that cannot hit prod.
+    const { API_BASE } = await import("../apiBase.ts");
+    assert.match(
+      API_BASE,
+      /^https:\/\//,
+      `live terminal audit needs absolute API_BASE, got ${API_BASE}`,
+    );
+    const { cases, summaries } = await runProductionTerminalAbAudit();
+    try {
+      mkdirSync("/opt/cursor/artifacts", { recursive: true });
+      writeFileSync(
+        "/opt/cursor/artifacts/coach-5leg-terminal-ab.json",
+        JSON.stringify({ generatedAt: new Date().toISOString(), summaries }, null, 2),
+      );
+    } catch {
+      // optional
+    }
+    for (const c of cases) {
+      assert.equal(
+        c.ok,
+        true,
+        c.finding
+          ? `${c.finding.title}: ${c.finding.actual}`
+          : JSON.stringify(c.meta),
+      );
+    }
+    // Phone sequence B2 must not inherit propsOnly limbo — terminal with finite runtime.
+    const b2 = summaries.find((s) => s.label === "B2_after_soccer");
+    assert.ok(b2, "missing B2_after_soccer");
+    assert.equal(b2!.terminalReached, true);
+    assert.ok(
+      (b2!.postedCandidates ?? 0) > 0 || b2!.finalLegs >= 0,
+      "B2 should load a board or honest-empty",
+    );
+  },
+);
+
+/**
+ * Phase 2 performance measurement gate (no invented fail timeout yet).
+ * Ensures live odds/props/simulate stay uncacheable and records cold/warm
+ * walls when live profiling is enabled — parser suites alone cannot pretend
+ * the async path was measured.
+ */
+test("phase2 context cache never classifies live odds/props/simulate as cacheable", async () => {
+  const { classifyCoachContextPath } = await import("../coachContextCache.ts");
+  for (const p of [
+    "/sports/odds?sport=nfl",
+    "/sports/live-odds?sport=mlb",
+    "/sports/props?sport=nba&eventId=1",
+    "/sports/simulate/props",
+    "/sports/simulate/game-outcome",
+  ]) {
+    assert.equal(classifyCoachContextPath(p), null, p);
+  }
+  for (const p of [
+    "/sports/player-history?athleteId=1",
+    "/sports/injuries?sport=nfl",
+    "/sports/team-defense?sport=nfl&teamId=1",
+    "/sports/matchup-history?sport=nfl&homeTeamId=1&awayTeamId=2",
+  ]) {
+    assert.ok(classifyCoachContextPath(p), p);
+  }
+});
+
+test(
+  "phase2 performance measurement: record cold/warm 5 leg walls when enabled",
+  { timeout: 420_000 },
+  async (t) => {
+    if (process.env.COACH_QA_RUN_PERF_MEASURE !== "1") {
+      t.skip("Set COACH_QA_RUN_PERF_MEASURE=1 to record live cold/warm walls");
+      return;
+    }
+    const { clearCoachContextCache, coachCacheSnapshot, resetCoachCacheStats } =
+      await import("../coachContextCache.ts");
+    const { buildCoachParlay } = await import("../coach/buildParlay.ts");
+
+    async function once(clear: boolean) {
+      if (clear) clearCoachContextCache();
+      resetCoachCacheStats();
+      const t0 = performance.now();
+      const ac = new AbortController();
+      const kill = setTimeout(() => ac.abort(), 300_000);
+      try {
+        const r = await buildCoachParlay({
+          requestedLegs: 5,
+          askText: "5 leg",
+          priorUserTexts: [],
+          signal: ac.signal,
+        });
+        return {
+          ms: Math.round(performance.now() - t0),
+          legs: r.picks.length,
+          posted: r.propPoolSize,
+          cache: coachCacheSnapshot(),
+        };
+      } finally {
+        clearTimeout(kill);
+      }
+    }
+
+    const cold = await once(true);
+    const warm = await once(false);
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      note: "Measurement only — fail threshold deferred until distribution agreed",
+      phase1Baseline: { coldMs: 51_300, warmMs: 20_300 },
+      prePhase2Baseline: { coldMs: 42_000, warmMs: 27_700 },
+      cold,
+      warm,
+    };
+    try {
+      mkdirSync("/opt/cursor/artifacts", { recursive: true });
+      writeFileSync(
+        "/opt/cursor/artifacts/coach-phase2-perf-measure.json",
+        JSON.stringify(payload, null, 2),
+      );
+    } catch {
+      /* optional */
+    }
+    assert.ok(cold.ms > 0 && warm.ms > 0);
+    assert.ok(cold.legs >= 0 && warm.legs >= 0);
+    console.log(
+      `phase2 measure cold=${cold.ms}ms warm=${warm.ms}ms warmHits=${warm.cache.stages.reduce((a, s) => a + s.cacheHit, 0)}`,
+    );
+  },
+);

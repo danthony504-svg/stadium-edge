@@ -6,11 +6,22 @@
 import { createHash } from "node:crypto";
 
 import type { PropSimulationContext } from "./monteCarlo.js";
-import { getCachedSim, setCachedSim, type SimTier } from "./simCache.js";
+import type { SimTier } from "./simCache.js";
 import {
   propSharedDistributionKey,
   type PropSharedDistributionParts,
 } from "./propSharedDistribution.js";
+import {
+  getPropSimDistStore,
+  setPropSimDistStore,
+  withInflightCoalesce,
+} from "./propSimDedicatedStore.js";
+
+/** Deep / quick TTLs — dedicated store (not shared CACHE_MAX=200 LRU). */
+const DIST_TTL_MS: Record<SimTier, number> = {
+  quick: 5 * 60_000,
+  deep: 30 * 60_000,
+};
 
 export type CachedPropDistribution = {
   /** Line-agnostic identity (no sportsbook / odds / O-U / threshold). */
@@ -45,6 +56,12 @@ export type PropDistributionCacheStats = {
   thresholdsEvaluatedFromFreshDraw: number;
   monteCarloDrawsAvoided: number;
   monteCarloDrawsExecuted: number;
+  /** Phase 2.1 instrumentation */
+  ctxCacheHits: number;
+  ctxCacheMisses: number;
+  ctxCoalesced: number;
+  historyLoads: number;
+  distCoalesced: number;
 };
 
 export function emptyPropDistributionCacheStats(): PropDistributionCacheStats {
@@ -56,6 +73,11 @@ export function emptyPropDistributionCacheStats(): PropDistributionCacheStats {
     thresholdsEvaluatedFromFreshDraw: 0,
     monteCarloDrawsAvoided: 0,
     monteCarloDrawsExecuted: 0,
+    ctxCacheHits: 0,
+    ctxCacheMisses: 0,
+    ctxCoalesced: 0,
+    historyLoads: 0,
+    distCoalesced: 0,
   };
 }
 
@@ -108,7 +130,7 @@ export function propDistributionCacheKey(
 export async function getCachedPropDistribution(
   key: string,
 ): Promise<CachedPropDistribution | undefined> {
-  return getCachedSim<CachedPropDistribution>(key);
+  return getPropSimDistStore<CachedPropDistribution>(key);
 }
 
 export async function setCachedPropDistribution(
@@ -116,5 +138,13 @@ export async function setCachedPropDistribution(
   value: CachedPropDistribution,
   tier: SimTier,
 ): Promise<void> {
-  await setCachedSim(key, value, tier);
+  await setPropSimDistStore(key, value, DIST_TTL_MS[tier]);
+}
+
+/** Coalesce concurrent distribution generations for the same distKey. */
+export async function withPropSimDistInflight<T>(
+  distKey: string,
+  work: () => Promise<T>,
+): Promise<{ value: T; coalesced: boolean }> {
+  return withInflightCoalesce(`dist:${distKey}`, work);
 }

@@ -4,6 +4,10 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame } from "./api.ts";
 import { fetchGameOutcomeSimulation, fetchTeamPeriodStats } from "./api.ts";
 import {
+  fingerprintCoachGameSim,
+  withCoachGameSimCache,
+} from "./coachContextCache.ts";
+import {
   buildGameCoverQuery,
   buildPeriodOffenseDefenseProfile,
   deriveCoverHitRatesFromOutcomes,
@@ -319,8 +323,23 @@ export async function fetchSlateGameSimulationsWithStatus(
         coverQueries,
         retainOutcomes: true as const,
       };
+      // Fingerprint excludes American odds — price changes recompute EV/edge
+      // against the same statistical draw when material sim inputs match.
+      const simFp = fingerprintCoachGameSim({
+        sport: String(simOpts.sport),
+        homeTeamId: simOpts.homeTeamId,
+        awayTeamId: simOpts.awayTeamId,
+        homeTeam: simOpts.homeTeam,
+        awayTeam: simOpts.awayTeam,
+        simulations: COACH_GAME_SIMS,
+        coverQueries,
+      });
       const [resultRaw, homePeriod, awayPeriod] = await Promise.all([
-        fetchGameOutcomeSimulation(simOpts, signal),
+        withCoachGameSimCache(
+          simFp,
+          () => fetchGameOutcomeSimulation(simOpts, signal),
+          signal,
+        ),
         wantsPeriodStats && ids.homeTeamId
           ? fetchTeamPeriodStats(sportKey, ids.homeTeamId, signal)
           : Promise.resolve(null),

@@ -1,0 +1,2197 @@
+{
+  "generatedAt": "2026-10-05T22:15:59.685Z",
+  "phase": "2.3-remaining-latency-attribution",
+  "note": "AUDIT ONLY — no optimizations. propSimSum* sums sequential waves; gameSimSpan is serial-batch overlap window.",
+  "whyCriticalPathMoves": {
+    "fresh": {
+      "dominantReported": "gameSim span",
+      "actual": "Serial SLATE_SIM_BATCH outer loop spans ~scan while props overlap; HTTP SUM is much smaller than SPAN when most games are cache-miss progressive. Prop-sim waves are short when ctx/dist cold-path finishes early relative to game batch span.",
+      "evidence": {
+        "gameSimSpanMs": 17743,
+        "gameSimSumMs": 16409,
+        "propSimSpanMs": 376,
+        "propSimSumElapsedMs": 266,
+        "overlapGamePropMs": 373,
+        "attribution": {
+          "gameSimLargeValueIs": "provider_http_and_or_serial_batches",
+          "propSimLargeValueIs": "includes_dist_generation_cache_miss"
+        }
+      }
+    },
+    "repeat": {
+      "dominantReported": "propSim wall (prior mean ~10.7s)",
+      "actual": "Prior bench SUMMED propSimWall across waves and across the mean of runs. Warm run1 often has hot caches (propSim ~ms) while later runs can issue new deep-sim waves for different candidates (ctx miss / new athletes) OR sum multiple sequential waves. gameSim HTTP often 0 (client fingerprint cache) so SPAN=0 and critical path appears to 'move' to propSim.",
+      "evidence": {
+        "perRun": [
+          {
+            "label": "warm-1",
+            "wall": 18141,
+            "gameSpan": 0,
+            "gameSum": 0,
+            "gameCalls": 0,
+            "gameHM": "18/0",
+            "propSpan": 13511,
+            "propSumElapsed": 13504,
+            "propSumWall": 13510,
+            "waves": 1,
+            "ctx": "17/4",
+            "dist": "17/0",
+            "maxSingleWaveElapsed": 13504
+          },
+          {
+            "label": "warm-2",
+            "wall": 19278,
+            "gameSpan": 0,
+            "gameSum": 0,
+            "gameCalls": 0,
+            "gameHM": "18/0",
+            "propSpan": 13236,
+            "propSumElapsed": 13229,
+            "propSumWall": 13236,
+            "waves": 1,
+            "ctx": "17/4",
+            "dist": "17/0",
+            "maxSingleWaveElapsed": 13229
+          },
+          {
+            "label": "warm-3",
+            "wall": 15096,
+            "gameSpan": 0,
+            "gameSum": 0,
+            "gameCalls": 0,
+            "gameHM": "18/0",
+            "propSpan": 13224,
+            "propSumElapsed": 13218,
+            "propSumWall": 13225,
+            "waves": 1,
+            "ctx": "17/4",
+            "dist": "17/0",
+            "maxSingleWaveElapsed": 13218
+          },
+          {
+            "label": "warm-4",
+            "wall": 15343,
+            "gameSpan": 0,
+            "gameSum": 0,
+            "gameCalls": 0,
+            "gameHM": "18/0",
+            "propSpan": 13207,
+            "propSumElapsed": 13200,
+            "propSumWall": 13207,
+            "waves": 1,
+            "ctx": "17/4",
+            "dist": "17/0",
+            "maxSingleWaveElapsed": 13200
+          },
+          {
+            "label": "warm-5",
+            "wall": 15041,
+            "gameSpan": 0,
+            "gameSum": 0,
+            "gameCalls": 0,
+            "gameHM": "18/0",
+            "propSpan": 13070,
+            "propSumElapsed": 13064,
+            "propSumWall": 13071,
+            "waves": 1,
+            "ctx": "17/4",
+            "dist": "17/0",
+            "maxSingleWaveElapsed": 13064
+          }
+        ]
+      }
+    }
+  },
+  "freshOps": [
+    {
+      "operation": "player_history",
+      "calls": 16,
+      "cacheHM": "0/16",
+      "generated": 0,
+      "providerNetworkSumMs": 5551,
+      "serverComputeMs": null,
+      "clientWaitSpanMs": 1366,
+      "start": 4123,
+      "end": 5489,
+      "note": "client→API /sports/player-history (early board context + enrich fallback)"
+    },
+    {
+      "operation": "game_simulation",
+      "calls": 18,
+      "cacheHM": "0/18",
+      "generated": 18,
+      "providerNetworkSumMs": 16409,
+      "serverComputeMs": null,
+      "clientWaitSpanMs": 17743,
+      "start": 11056,
+      "end": 28799,
+      "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+    },
+    {
+      "operation": "prop_simulation",
+      "calls": 1,
+      "cacheHM": "ctx 0/21; dist 0/17",
+      "generated": 17,
+      "providerNetworkSumMs": 376,
+      "serverComputeMs": 266,
+      "clientWaitSpanMs": 376,
+      "start": 11053,
+      "end": 11429,
+      "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+      "waves": [
+        {
+          "startMs": 11053,
+          "endMs": 11429,
+          "wallMs": 376,
+          "propSimElapsedMs": 266,
+          "athleteMs": 14,
+          "injuryMs": 96,
+          "paceMs": 0,
+          "authHistMs": 0,
+          "ctxHits": 0,
+          "ctxMisses": 21,
+          "distHits": 0,
+          "distMisses": 17,
+          "historyLoads": 21,
+          "historyShared": 8,
+          "historyCoalesced": 0,
+          "scored": 17,
+          "propsIn": 21
+        }
+      ]
+    }
+  ],
+  "repeatOps": [
+    {
+      "operation": "player_history",
+      "calls": 0,
+      "cacheHM": "16/0",
+      "generated": 0,
+      "providerNetworkSumMs": 0,
+      "serverComputeMs": null,
+      "clientWaitSpanMs": 0,
+      "start": -1,
+      "end": -1,
+      "note": "client→API /sports/player-history (early board context + enrich fallback)"
+    },
+    {
+      "operation": "game_simulation",
+      "calls": 0,
+      "cacheHM": "18/0",
+      "generated": 0,
+      "providerNetworkSumMs": 0,
+      "serverComputeMs": null,
+      "clientWaitSpanMs": 0,
+      "start": -1,
+      "end": -1,
+      "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+    },
+    {
+      "operation": "prop_simulation",
+      "calls": 1,
+      "cacheHM": "ctx 17/4; dist 17/0",
+      "generated": 0,
+      "providerNetworkSumMs": 13207,
+      "serverComputeMs": 13200,
+      "clientWaitSpanMs": 13207,
+      "start": 1868,
+      "end": 15075,
+      "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+      "waves": [
+        {
+          "startMs": 1868,
+          "endMs": 15075,
+          "wallMs": 13207,
+          "propSimElapsedMs": 13200,
+          "athleteMs": 7,
+          "injuryMs": 0,
+          "paceMs": 0,
+          "authHistMs": 0,
+          "ctxHits": 17,
+          "ctxMisses": 4,
+          "distHits": 17,
+          "distMisses": 0,
+          "historyLoads": 4,
+          "historyShared": 8,
+          "historyCoalesced": 0,
+          "scored": 17,
+          "propsIn": 21
+        }
+      ]
+    }
+  ],
+  "consecutiveWarm": {
+    "afterCold": true,
+    "runs": [
+      {
+        "run": "warm-1",
+        "totalWall": 18141,
+        "hist": 0,
+        "histCalls": 0,
+        "gameSimSpan": 0,
+        "gameSimSum": 0,
+        "propSimSpan": 13511,
+        "propSimSumElapsed": 13504,
+        "propSimSumWall": 13510,
+        "propWaves": 1,
+        "maxWaveElapsed": 13504,
+        "ctxHM": "17/4",
+        "distHM": "17/0",
+        "gameSimHM": "18/0",
+        "final": 5
+      },
+      {
+        "run": "warm-2",
+        "totalWall": 19278,
+        "hist": 0,
+        "histCalls": 0,
+        "gameSimSpan": 0,
+        "gameSimSum": 0,
+        "propSimSpan": 13236,
+        "propSimSumElapsed": 13229,
+        "propSimSumWall": 13236,
+        "propWaves": 1,
+        "maxWaveElapsed": 13229,
+        "ctxHM": "17/4",
+        "distHM": "17/0",
+        "gameSimHM": "18/0",
+        "final": 5
+      },
+      {
+        "run": "warm-3",
+        "totalWall": 15096,
+        "hist": 0,
+        "histCalls": 0,
+        "gameSimSpan": 0,
+        "gameSimSum": 0,
+        "propSimSpan": 13224,
+        "propSimSumElapsed": 13218,
+        "propSimSumWall": 13225,
+        "propWaves": 1,
+        "maxWaveElapsed": 13218,
+        "ctxHM": "17/4",
+        "distHM": "17/0",
+        "gameSimHM": "18/0",
+        "final": 5
+      },
+      {
+        "run": "warm-4",
+        "totalWall": 15343,
+        "hist": 0,
+        "histCalls": 0,
+        "gameSimSpan": 0,
+        "gameSimSum": 0,
+        "propSimSpan": 13207,
+        "propSimSumElapsed": 13200,
+        "propSimSumWall": 13207,
+        "propWaves": 1,
+        "maxWaveElapsed": 13200,
+        "ctxHM": "17/4",
+        "distHM": "17/0",
+        "gameSimHM": "18/0",
+        "final": 5
+      },
+      {
+        "run": "warm-5",
+        "totalWall": 15041,
+        "hist": 0,
+        "histCalls": 0,
+        "gameSimSpan": 0,
+        "gameSimSum": 0,
+        "propSimSpan": 13070,
+        "propSimSumElapsed": 13064,
+        "propSimSumWall": 13071,
+        "propWaves": 1,
+        "maxWaveElapsed": 13064,
+        "ctxHM": "17/4",
+        "distHM": "17/0",
+        "gameSimHM": "18/0",
+        "final": 5
+      }
+    ],
+    "statsTotal": {
+      "n": 5,
+      "min": 15041,
+      "median": 15343,
+      "mean": 16580,
+      "p95": 19278,
+      "max": 19278
+    },
+    "statsPropSumElapsed": {
+      "n": 5,
+      "min": 13064,
+      "median": 13218,
+      "mean": 13243,
+      "p95": 13504,
+      "max": 13504
+    },
+    "statsPropMaxWave": {
+      "n": 5,
+      "min": 13064,
+      "median": 13218,
+      "mean": 13243,
+      "p95": 13504,
+      "max": 13504
+    },
+    "statsGameSpan": {
+      "n": 5,
+      "min": 0,
+      "median": 0,
+      "mean": 0,
+      "p95": 0,
+      "max": 0
+    }
+  },
+  "nfl7": {
+    "wallMs": 14224,
+    "requested": 7,
+    "final": 6,
+    "ticket": [
+      {
+        "pick": "Zachariah Branch Over 0.5 Receptions",
+        "isProp": true,
+        "market": "Receptions",
+        "grade": "A-",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.98
+      },
+      {
+        "pick": "Brian Robinson Jr. Over 29.5 Rush Yds",
+        "isProp": true,
+        "market": "Rush Yds",
+        "grade": "B+",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.793
+      },
+      {
+        "pick": "Falcons +3.5",
+        "isProp": false,
+        "market": "Q1 Spread",
+        "grade": "A",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.982
+      },
+      {
+        "pick": "Falcons ML",
+        "isProp": false,
+        "market": "Q1 Moneyline",
+        "grade": "A-",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.824
+      },
+      {
+        "pick": "Falcons Over 9.5",
+        "isProp": false,
+        "market": "1H Alt Team Total",
+        "grade": "A+",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.993
+      },
+      {
+        "pick": "Falcons Over 9.5",
+        "isProp": false,
+        "market": "2H Team Total",
+        "grade": "A+",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.992
+      }
+    ],
+    "failureDiagnostics": null,
+    "note": "_Scanned the entire board — 2200 posted lines across live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to markets, first 5 innings, innings, first half, second half, first quarter, second quar",
+    "partialLog": [
+      {
+        "t": 5809,
+        "picks": 2,
+        "props": 2
+      },
+      {
+        "t": 14131,
+        "picks": 4,
+        "props": 0
+      },
+      {
+        "t": 14224,
+        "picks": 6,
+        "props": 2
+      }
+    ]
+  },
+  "cold": {
+    "label": "cold",
+    "wallMs": 29237,
+    "opsTable": [
+      {
+        "operation": "player_history",
+        "calls": 16,
+        "cacheHM": "0/16",
+        "generated": 0,
+        "providerNetworkSumMs": 5551,
+        "serverComputeMs": null,
+        "clientWaitSpanMs": 1366,
+        "start": 4123,
+        "end": 5489,
+        "note": "client→API /sports/player-history (early board context + enrich fallback)"
+      },
+      {
+        "operation": "game_simulation",
+        "calls": 18,
+        "cacheHM": "0/18",
+        "generated": 18,
+        "providerNetworkSumMs": 16409,
+        "serverComputeMs": null,
+        "clientWaitSpanMs": 17743,
+        "start": 11056,
+        "end": 28799,
+        "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+      },
+      {
+        "operation": "prop_simulation",
+        "calls": 1,
+        "cacheHM": "ctx 0/21; dist 0/17",
+        "generated": 17,
+        "providerNetworkSumMs": 376,
+        "serverComputeMs": 266,
+        "clientWaitSpanMs": 376,
+        "start": 11053,
+        "end": 11429,
+        "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+        "waves": [
+          {
+            "startMs": 11053,
+            "endMs": 11429,
+            "wallMs": 376,
+            "propSimElapsedMs": 266,
+            "athleteMs": 14,
+            "injuryMs": 96,
+            "paceMs": 0,
+            "authHistMs": 0,
+            "ctxHits": 0,
+            "ctxMisses": 21,
+            "distHits": 0,
+            "distMisses": 17,
+            "historyLoads": 21,
+            "historyShared": 8,
+            "historyCoalesced": 0,
+            "scored": 17,
+            "propsIn": 21
+          }
+        ]
+      }
+    ],
+    "propWaves": [
+      {
+        "startMs": 11053,
+        "endMs": 11429,
+        "wallMs": 376,
+        "propSimElapsedMs": 266,
+        "athleteMs": 14,
+        "injuryMs": 96,
+        "paceMs": 0,
+        "authHistMs": 0,
+        "ctxHits": 0,
+        "ctxMisses": 21,
+        "distHits": 0,
+        "distMisses": 17,
+        "historyLoads": 21,
+        "historyShared": 8,
+        "historyCoalesced": 0,
+        "scored": 17,
+        "propsIn": 21
+      }
+    ],
+    "gameHttp": [
+      {
+        "op": "game_simulation",
+        "startMs": 11056,
+        "endMs": 11487,
+        "wallMs": 431,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 11065,
+        "endMs": 12293,
+        "wallMs": 1228,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 11058,
+        "endMs": 14965,
+        "wallMs": 3907,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 11059,
+        "endMs": 14965,
+        "wallMs": 3906,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 21175,
+        "endMs": 21452,
+        "wallMs": 277,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 21174,
+        "endMs": 21604,
+        "wallMs": 430,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 21176,
+        "endMs": 21901,
+        "wallMs": 725,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 21173,
+        "endMs": 22272,
+        "wallMs": 1099,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 25533,
+        "endMs": 25827,
+        "wallMs": 294,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 25531,
+        "endMs": 25877,
+        "wallMs": 346,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 25532,
+        "endMs": 25902,
+        "wallMs": 370,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 25533,
+        "endMs": 25965,
+        "wallMs": 432,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 26672,
+        "endMs": 26885,
+        "wallMs": 213,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 26671,
+        "endMs": 27091,
+        "wallMs": 420,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 26673,
+        "endMs": 27181,
+        "wallMs": 508,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 26672,
+        "endMs": 27940,
+        "wallMs": 1268,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 28488,
+        "endMs": 28732,
+        "wallMs": 244,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      },
+      {
+        "op": "game_simulation",
+        "startMs": 28488,
+        "endMs": 28799,
+        "wallMs": 311,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/simulate/game-outcome"
+        }
+      }
+    ],
+    "histHttp": [
+      {
+        "op": "player_history",
+        "startMs": 4124,
+        "endMs": 4298,
+        "wallMs": 174,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=34995&name=Trent+Grisham"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4124,
+        "endMs": 4378,
+        "wallMs": 254,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=33912&name=Cody+Bellinger"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4124,
+        "endMs": 4474,
+        "wallMs": 350,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=40459&name=Luis+Garcia+Jr."
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4123,
+        "endMs": 4511,
+        "wallMs": 388,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=5016968&name=Ben+Rice"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4124,
+        "endMs": 4611,
+        "wallMs": 487,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=4905921&name=Junior+Caminero"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4124,
+        "endMs": 4682,
+        "wallMs": 558,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=4867424&name=Spencer+Jones"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4683,
+        "endMs": 5021,
+        "wallMs": 338,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=4917849&name=Victor+Mesa+Jr."
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4683,
+        "endMs": 5104,
+        "wallMs": 421,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=4683349&name=Austin+Wells"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4683,
+        "endMs": 5117,
+        "wallMs": 434,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=33247&name=Ryan+McMahon"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4683,
+        "endMs": 5174,
+        "wallMs": 491,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=41433&name=Jazz+Chisholm+Jr."
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4683,
+        "endMs": 5190,
+        "wallMs": 507,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=33481&name=Yandy+Diaz"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 4683,
+        "endMs": 5225,
+        "wallMs": 542,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=40810&name=Jonathan+Aranda"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 5226,
+        "endMs": 5323,
+        "wallMs": 97,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=5005912&name=Jonny+Deluca"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 5226,
+        "endMs": 5325,
+        "wallMs": 99,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=5149070&name=George+Lombard+Jr."
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 5226,
+        "endMs": 5374,
+        "wallMs": 148,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=4725251&name=Liam+Hicks"
+        }
+      },
+      {
+        "op": "player_history",
+        "startMs": 5226,
+        "endMs": 5489,
+        "wallMs": 263,
+        "detail": {
+          "status": 200,
+          "url": "https://stadium-edge.onrender.com/api/sports/player-history?sport=mlb&athleteId=41359&name=Richie+Palacios"
+        }
+      }
+    ],
+    "overlapGamePropMs": 373,
+    "ctx": "0/21",
+    "dist": "0/17",
+    "gameSimHM": "0/18",
+    "histHM": "0/16",
+    "histSpanMs": 1366,
+    "histCalls": 16,
+    "gameSimSpanMs": 17743,
+    "gameSimSumMs": 16409,
+    "gameSimCalls": 18,
+    "propSimSpanMs": 376,
+    "propSimSumWallMs": 376,
+    "propSimSumElapsedMs": 266,
+    "propSimWaves": 1,
+    "finalLegs": 5,
+    "ticket": [
+      {
+        "pick": "Falcons +2.5",
+        "isProp": false,
+        "market": "1H Spread",
+        "grade": "A+",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.86
+      },
+      {
+        "pick": "Jonathan Aranda Over 0.5 Total Bases",
+        "isProp": true,
+        "market": "Total Bases",
+        "grade": "B",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.716
+      },
+      {
+        "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+        "isProp": true,
+        "market": "Hits+Runs+RBIs",
+        "grade": "B-",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.62
+      },
+      {
+        "pick": "Over 49.5",
+        "isProp": false,
+        "market": "Total",
+        "grade": "A+",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.992
+      },
+      {
+        "pick": "Brewers Under 5.5",
+        "isProp": false,
+        "market": "Alt Team Total",
+        "grade": "A",
+        "edge": null,
+        "ev": null,
+        "simHit": 0.988
+      }
+    ],
+    "failureDiagnostics": null,
+    "staging": null,
+    "note": "",
+    "statusLog": [
+      {
+        "t": 75,
+        "status": "Loading tonight's board…"
+      },
+      {
+        "t": 1981,
+        "status": "Loading player props and alt lines across the board…"
+      },
+      {
+        "t": 4081,
+        "status": "Loading matchups, injuries, and opponent context…"
+      },
+      {
+        "t": 10044,
+        "status": "Scanning 3709 posted props/alts plus game lines for a 5-leg ticket…"
+      },
+      {
+        "t": 11484,
+        "status": "Scoring ticket… 2 legs (2 props/alts)"
+      },
+      {
+        "t": 21170,
+        "status": "Scoring game lines… props/alts next (3709 posted)"
+      },
+      {
+        "t": 25530,
+        "status": "Scoring game lines… props/alts next (3709 posted)"
+      },
+      {
+        "t": 26671,
+        "status": "Scoring game lines… props/alts next (3709 posted)"
+      },
+      {
+        "t": 28487,
+        "status": "Scoring game lines… props/alts next (3709 posted)"
+      },
+      {
+        "t": 29150,
+        "status": "Scoring game lines… props/alts next (3709 posted)"
+      },
+      {
+        "t": 29236,
+        "status": "Scoring ticket… 5 legs (2 props/alts)"
+      }
+    ],
+    "partialLog": [
+      {
+        "t": 11484,
+        "picks": 2,
+        "props": 2
+      },
+      {
+        "t": 21170,
+        "picks": 5,
+        "props": 0
+      },
+      {
+        "t": 25530,
+        "picks": 5,
+        "props": 0
+      },
+      {
+        "t": 26671,
+        "picks": 5,
+        "props": 0
+      },
+      {
+        "t": 28487,
+        "picks": 5,
+        "props": 0
+      },
+      {
+        "t": 29150,
+        "picks": 5,
+        "props": 0
+      },
+      {
+        "t": 29236,
+        "picks": 5,
+        "props": 2
+      }
+    ],
+    "attribution": {
+      "gameSimLargeValueIs": "provider_http_and_or_serial_batches",
+      "propSimLargeValueIs": "includes_dist_generation_cache_miss"
+    }
+  },
+  "warmRuns": [
+    {
+      "label": "warm-1",
+      "wallMs": 18141,
+      "opsTable": [
+        {
+          "operation": "player_history",
+          "calls": 0,
+          "cacheHM": "16/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "client→API /sports/player-history (early board context + enrich fallback)"
+        },
+        {
+          "operation": "game_simulation",
+          "calls": 0,
+          "cacheHM": "18/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+        },
+        {
+          "operation": "prop_simulation",
+          "calls": 1,
+          "cacheHM": "ctx 17/4; dist 17/0",
+          "generated": 0,
+          "providerNetworkSumMs": 13510,
+          "serverComputeMs": 13504,
+          "clientWaitSpanMs": 13511,
+          "start": 4363,
+          "end": 17874,
+          "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+          "waves": [
+            {
+              "startMs": 4363,
+              "endMs": 17874,
+              "wallMs": 13510,
+              "propSimElapsedMs": 13504,
+              "athleteMs": 7,
+              "injuryMs": 0,
+              "paceMs": 0,
+              "authHistMs": 0,
+              "ctxHits": 17,
+              "ctxMisses": 4,
+              "distHits": 17,
+              "distMisses": 0,
+              "historyLoads": 4,
+              "historyShared": 8,
+              "historyCoalesced": 0,
+              "scored": 17,
+              "propsIn": 21
+            }
+          ]
+        }
+      ],
+      "propWaves": [
+        {
+          "startMs": 4363,
+          "endMs": 17874,
+          "wallMs": 13510,
+          "propSimElapsedMs": 13504,
+          "athleteMs": 7,
+          "injuryMs": 0,
+          "paceMs": 0,
+          "authHistMs": 0,
+          "ctxHits": 17,
+          "ctxMisses": 4,
+          "distHits": 17,
+          "distMisses": 0,
+          "historyLoads": 4,
+          "historyShared": 8,
+          "historyCoalesced": 0,
+          "scored": 17,
+          "propsIn": 21
+        }
+      ],
+      "gameHttp": [],
+      "histHttp": [],
+      "overlapGamePropMs": 0,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "gameSimHM": "18/0",
+      "histHM": "16/0",
+      "histSpanMs": 0,
+      "histCalls": 0,
+      "gameSimSpanMs": 0,
+      "gameSimSumMs": 0,
+      "gameSimCalls": 0,
+      "propSimSpanMs": 13511,
+      "propSimSumWallMs": 13510,
+      "propSimSumElapsedMs": 13504,
+      "propSimWaves": 1,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.86
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Total Bases",
+          "isProp": true,
+          "market": "Total Bases",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.701
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.62
+        },
+        {
+          "pick": "Over 49.5",
+          "isProp": false,
+          "market": "Total",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.992
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total",
+          "grade": "A",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.988
+        }
+      ],
+      "failureDiagnostics": null,
+      "staging": null,
+      "note": "",
+      "statusLog": [
+        {
+          "t": 2,
+          "status": "Loading tonight's board…"
+        },
+        {
+          "t": 1027,
+          "status": "Loading player props and alt lines across the board…"
+        },
+        {
+          "t": 2901,
+          "status": "Loading matchups, injuries, and opponent context…"
+        },
+        {
+          "t": 3460,
+          "status": "Scanning 3707 posted props/alts plus game lines for a 5-leg ticket…"
+        },
+        {
+          "t": 13002,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 16299,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 16960,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 17503,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 17859,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 18015,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        },
+        {
+          "t": 18140,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        }
+      ],
+      "partialLog": [
+        {
+          "t": 13002,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 16299,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 16960,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 17503,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 17859,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 18015,
+          "picks": 5,
+          "props": 2
+        },
+        {
+          "t": 18140,
+          "picks": 5,
+          "props": 2
+        }
+      ],
+      "attribution": {
+        "gameSimLargeValueIs": "client_cache_hits_no_http",
+        "propSimLargeValueIs": "includes_ctx_history_miss_work"
+      }
+    },
+    {
+      "label": "warm-2",
+      "wallMs": 19278,
+      "opsTable": [
+        {
+          "operation": "player_history",
+          "calls": 0,
+          "cacheHM": "16/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "client→API /sports/player-history (early board context + enrich fallback)"
+        },
+        {
+          "operation": "game_simulation",
+          "calls": 0,
+          "cacheHM": "18/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+        },
+        {
+          "operation": "prop_simulation",
+          "calls": 1,
+          "cacheHM": "ctx 17/4; dist 17/0",
+          "generated": 0,
+          "providerNetworkSumMs": 13236,
+          "serverComputeMs": 13229,
+          "clientWaitSpanMs": 13236,
+          "start": 5790,
+          "end": 19026,
+          "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+          "waves": [
+            {
+              "startMs": 5790,
+              "endMs": 19026,
+              "wallMs": 13236,
+              "propSimElapsedMs": 13229,
+              "athleteMs": 7,
+              "injuryMs": 0,
+              "paceMs": 0,
+              "authHistMs": 0,
+              "ctxHits": 17,
+              "ctxMisses": 4,
+              "distHits": 17,
+              "distMisses": 0,
+              "historyLoads": 4,
+              "historyShared": 8,
+              "historyCoalesced": 0,
+              "scored": 17,
+              "propsIn": 21
+            }
+          ]
+        }
+      ],
+      "propWaves": [
+        {
+          "startMs": 5790,
+          "endMs": 19026,
+          "wallMs": 13236,
+          "propSimElapsedMs": 13229,
+          "athleteMs": 7,
+          "injuryMs": 0,
+          "paceMs": 0,
+          "authHistMs": 0,
+          "ctxHits": 17,
+          "ctxMisses": 4,
+          "distHits": 17,
+          "distMisses": 0,
+          "historyLoads": 4,
+          "historyShared": 8,
+          "historyCoalesced": 0,
+          "scored": 17,
+          "propsIn": 21
+        }
+      ],
+      "gameHttp": [],
+      "histHttp": [],
+      "overlapGamePropMs": 0,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "gameSimHM": "18/0",
+      "histHM": "16/0",
+      "histSpanMs": 0,
+      "histCalls": 0,
+      "gameSimSpanMs": 0,
+      "gameSimSumMs": 0,
+      "gameSimCalls": 0,
+      "propSimSpanMs": 13236,
+      "propSimSumWallMs": 13236,
+      "propSimSumElapsedMs": 13229,
+      "propSimWaves": 1,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.86
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs",
+          "grade": "B",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.707
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.62
+        },
+        {
+          "pick": "Over 49.5",
+          "isProp": false,
+          "market": "Total",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.992
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total",
+          "grade": "A",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.988
+        }
+      ],
+      "failureDiagnostics": null,
+      "staging": null,
+      "note": "",
+      "statusLog": [
+        {
+          "t": 2,
+          "status": "Loading tonight's board…"
+        },
+        {
+          "t": 1312,
+          "status": "Loading player props and alt lines across the board…"
+        },
+        {
+          "t": 4620,
+          "status": "Loading matchups, injuries, and opponent context…"
+        },
+        {
+          "t": 4891,
+          "status": "Scanning 3707 posted props/alts plus game lines for a 5-leg ticket…"
+        },
+        {
+          "t": 14260,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 17460,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 18111,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 18658,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 19012,
+          "status": "Scoring game lines… props/alts next (3707 posted)"
+        },
+        {
+          "t": 19155,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        },
+        {
+          "t": 19277,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        }
+      ],
+      "partialLog": [
+        {
+          "t": 14260,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 17460,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 18111,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 18658,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 19012,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 19155,
+          "picks": 5,
+          "props": 2
+        },
+        {
+          "t": 19277,
+          "picks": 5,
+          "props": 2
+        }
+      ],
+      "attribution": {
+        "gameSimLargeValueIs": "client_cache_hits_no_http",
+        "propSimLargeValueIs": "includes_ctx_history_miss_work"
+      }
+    },
+    {
+      "label": "warm-3",
+      "wallMs": 15096,
+      "opsTable": [
+        {
+          "operation": "player_history",
+          "calls": 0,
+          "cacheHM": "16/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "client→API /sports/player-history (early board context + enrich fallback)"
+        },
+        {
+          "operation": "game_simulation",
+          "calls": 0,
+          "cacheHM": "18/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+        },
+        {
+          "operation": "prop_simulation",
+          "calls": 1,
+          "cacheHM": "ctx 17/4; dist 17/0",
+          "generated": 0,
+          "providerNetworkSumMs": 13225,
+          "serverComputeMs": 13218,
+          "clientWaitSpanMs": 13224,
+          "start": 1616,
+          "end": 14840,
+          "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+          "waves": [
+            {
+              "startMs": 1616,
+              "endMs": 14840,
+              "wallMs": 13225,
+              "propSimElapsedMs": 13218,
+              "athleteMs": 7,
+              "injuryMs": 0,
+              "paceMs": 0,
+              "authHistMs": 0,
+              "ctxHits": 17,
+              "ctxMisses": 4,
+              "distHits": 17,
+              "distMisses": 0,
+              "historyLoads": 4,
+              "historyShared": 8,
+              "historyCoalesced": 0,
+              "scored": 17,
+              "propsIn": 21
+            }
+          ]
+        }
+      ],
+      "propWaves": [
+        {
+          "startMs": 1616,
+          "endMs": 14840,
+          "wallMs": 13225,
+          "propSimElapsedMs": 13218,
+          "athleteMs": 7,
+          "injuryMs": 0,
+          "paceMs": 0,
+          "authHistMs": 0,
+          "ctxHits": 17,
+          "ctxMisses": 4,
+          "distHits": 17,
+          "distMisses": 0,
+          "historyLoads": 4,
+          "historyShared": 8,
+          "historyCoalesced": 0,
+          "scored": 17,
+          "propsIn": 21
+        }
+      ],
+      "gameHttp": [],
+      "histHttp": [],
+      "overlapGamePropMs": 0,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "gameSimHM": "18/0",
+      "histHM": "16/0",
+      "histSpanMs": 0,
+      "histCalls": 0,
+      "gameSimSpanMs": 0,
+      "gameSimSumMs": 0,
+      "gameSimCalls": 0,
+      "propSimSpanMs": 13224,
+      "propSimSumWallMs": 13225,
+      "propSimSumElapsedMs": 13218,
+      "propSimWaves": 1,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.992
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits",
+          "isProp": true,
+          "market": "Hits",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.638
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.62
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.862
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total",
+          "grade": "A",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.988
+        }
+      ],
+      "failureDiagnostics": null,
+      "staging": null,
+      "note": "",
+      "statusLog": [
+        {
+          "t": 4,
+          "status": "Loading tonight's board…"
+        },
+        {
+          "t": 353,
+          "status": "Loading player props and alt lines across the board…"
+        },
+        {
+          "t": 645,
+          "status": "Loading matchups, injuries, and opponent context…"
+        },
+        {
+          "t": 751,
+          "status": "Scanning 3709 posted props/alts plus game lines for a 5-leg ticket…"
+        },
+        {
+          "t": 10039,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 13291,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 13932,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14473,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14826,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14971,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        },
+        {
+          "t": 15096,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        }
+      ],
+      "partialLog": [
+        {
+          "t": 10039,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 13291,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 13932,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14473,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14826,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14971,
+          "picks": 5,
+          "props": 2
+        },
+        {
+          "t": 15096,
+          "picks": 5,
+          "props": 2
+        }
+      ],
+      "attribution": {
+        "gameSimLargeValueIs": "client_cache_hits_no_http",
+        "propSimLargeValueIs": "includes_ctx_history_miss_work"
+      }
+    },
+    {
+      "label": "warm-4",
+      "wallMs": 15343,
+      "opsTable": [
+        {
+          "operation": "player_history",
+          "calls": 0,
+          "cacheHM": "16/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "client→API /sports/player-history (early board context + enrich fallback)"
+        },
+        {
+          "operation": "game_simulation",
+          "calls": 0,
+          "cacheHM": "18/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+        },
+        {
+          "operation": "prop_simulation",
+          "calls": 1,
+          "cacheHM": "ctx 17/4; dist 17/0",
+          "generated": 0,
+          "providerNetworkSumMs": 13207,
+          "serverComputeMs": 13200,
+          "clientWaitSpanMs": 13207,
+          "start": 1868,
+          "end": 15075,
+          "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+          "waves": [
+            {
+              "startMs": 1868,
+              "endMs": 15075,
+              "wallMs": 13207,
+              "propSimElapsedMs": 13200,
+              "athleteMs": 7,
+              "injuryMs": 0,
+              "paceMs": 0,
+              "authHistMs": 0,
+              "ctxHits": 17,
+              "ctxMisses": 4,
+              "distHits": 17,
+              "distMisses": 0,
+              "historyLoads": 4,
+              "historyShared": 8,
+              "historyCoalesced": 0,
+              "scored": 17,
+              "propsIn": 21
+            }
+          ]
+        }
+      ],
+      "propWaves": [
+        {
+          "startMs": 1868,
+          "endMs": 15075,
+          "wallMs": 13207,
+          "propSimElapsedMs": 13200,
+          "athleteMs": 7,
+          "injuryMs": 0,
+          "paceMs": 0,
+          "authHistMs": 0,
+          "ctxHits": 17,
+          "ctxMisses": 4,
+          "distHits": 17,
+          "distMisses": 0,
+          "historyLoads": 4,
+          "historyShared": 8,
+          "historyCoalesced": 0,
+          "scored": 17,
+          "propsIn": 21
+        }
+      ],
+      "gameHttp": [],
+      "histHttp": [],
+      "overlapGamePropMs": 0,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "gameSimHM": "18/0",
+      "histHM": "16/0",
+      "histSpanMs": 0,
+      "histCalls": 0,
+      "gameSimSpanMs": 0,
+      "gameSimSumMs": 0,
+      "gameSimCalls": 0,
+      "propSimSpanMs": 13207,
+      "propSimSumWallMs": 13207,
+      "propSimSumElapsedMs": 13200,
+      "propSimWaves": 1,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.859
+        },
+        {
+          "pick": "Junior Caminero Over 0.5 Total Bases",
+          "isProp": true,
+          "market": "Total Bases",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.679
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.62
+        },
+        {
+          "pick": "Over 49.5",
+          "isProp": false,
+          "market": "Total",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.992
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total",
+          "grade": "A",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.988
+        }
+      ],
+      "failureDiagnostics": null,
+      "staging": null,
+      "note": "",
+      "statusLog": [
+        {
+          "t": 2,
+          "status": "Loading tonight's board…"
+        },
+        {
+          "t": 530,
+          "status": "Loading player props and alt lines across the board…"
+        },
+        {
+          "t": 908,
+          "status": "Loading matchups, injuries, and opponent context…"
+        },
+        {
+          "t": 1008,
+          "status": "Scanning 3709 posted props/alts plus game lines for a 5-leg ticket…"
+        },
+        {
+          "t": 10289,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 13484,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14135,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14696,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 15061,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 15209,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        },
+        {
+          "t": 15342,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        }
+      ],
+      "partialLog": [
+        {
+          "t": 10289,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 13484,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14135,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14696,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 15061,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 15209,
+          "picks": 5,
+          "props": 2
+        },
+        {
+          "t": 15342,
+          "picks": 5,
+          "props": 2
+        }
+      ],
+      "attribution": {
+        "gameSimLargeValueIs": "client_cache_hits_no_http",
+        "propSimLargeValueIs": "includes_ctx_history_miss_work"
+      }
+    },
+    {
+      "label": "warm-5",
+      "wallMs": 15041,
+      "opsTable": [
+        {
+          "operation": "player_history",
+          "calls": 0,
+          "cacheHM": "16/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "client→API /sports/player-history (early board context + enrich fallback)"
+        },
+        {
+          "operation": "game_simulation",
+          "calls": 0,
+          "cacheHM": "18/0",
+          "generated": 0,
+          "providerNetworkSumMs": 0,
+          "serverComputeMs": null,
+          "clientWaitSpanMs": 0,
+          "start": -1,
+          "end": -1,
+          "note": "SPAN is serial outer batches overlapping other work; SUM is true HTTP cost. Client fingerprint cache H/M separate."
+        },
+        {
+          "operation": "prop_simulation",
+          "calls": 1,
+          "cacheHM": "ctx 17/4; dist 17/0",
+          "generated": 0,
+          "providerNetworkSumMs": 13071,
+          "serverComputeMs": 13064,
+          "clientWaitSpanMs": 13070,
+          "start": 1713,
+          "end": 14783,
+          "note": "SUM of wave walls ≠ critical-path add when waves are sequential; SPAN is first→last wave. propSimElapsedMs = inside runPropSims.",
+          "waves": [
+            {
+              "startMs": 1713,
+              "endMs": 14783,
+              "wallMs": 13071,
+              "propSimElapsedMs": 13064,
+              "athleteMs": 6,
+              "injuryMs": 0,
+              "paceMs": 0,
+              "authHistMs": 1,
+              "ctxHits": 17,
+              "ctxMisses": 4,
+              "distHits": 17,
+              "distMisses": 0,
+              "historyLoads": 4,
+              "historyShared": 8,
+              "historyCoalesced": 0,
+              "scored": 17,
+              "propsIn": 21
+            }
+          ]
+        }
+      ],
+      "propWaves": [
+        {
+          "startMs": 1713,
+          "endMs": 14783,
+          "wallMs": 13071,
+          "propSimElapsedMs": 13064,
+          "athleteMs": 6,
+          "injuryMs": 0,
+          "paceMs": 0,
+          "authHistMs": 1,
+          "ctxHits": 17,
+          "ctxMisses": 4,
+          "distHits": 17,
+          "distMisses": 0,
+          "historyLoads": 4,
+          "historyShared": 8,
+          "historyCoalesced": 0,
+          "scored": 17,
+          "propsIn": 21
+        }
+      ],
+      "gameHttp": [],
+      "histHttp": [],
+      "overlapGamePropMs": 0,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "gameSimHM": "18/0",
+      "histHM": "16/0",
+      "histSpanMs": 0,
+      "histCalls": 0,
+      "gameSimSpanMs": 0,
+      "gameSimSumMs": 0,
+      "gameSimCalls": 0,
+      "propSimSpanMs": 13070,
+      "propSimSumWallMs": 13071,
+      "propSimSumElapsedMs": 13064,
+      "propSimWaves": 1,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.992
+        },
+        {
+          "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.568
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs",
+          "grade": "B-",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.62
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread",
+          "grade": "A+",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.863
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total",
+          "grade": "A",
+          "edge": null,
+          "ev": null,
+          "simHit": 0.988
+        }
+      ],
+      "failureDiagnostics": null,
+      "staging": null,
+      "note": "",
+      "statusLog": [
+        {
+          "t": 4,
+          "status": "Loading tonight's board…"
+        },
+        {
+          "t": 427,
+          "status": "Loading player props and alt lines across the board…"
+        },
+        {
+          "t": 752,
+          "status": "Loading matchups, injuries, and opponent context…"
+        },
+        {
+          "t": 859,
+          "status": "Scanning 3709 posted props/alts plus game lines for a 5-leg ticket…"
+        },
+        {
+          "t": 10072,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 13237,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 13875,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14416,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14770,
+          "status": "Scoring game lines… props/alts next (3709 posted)"
+        },
+        {
+          "t": 14915,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        },
+        {
+          "t": 15041,
+          "status": "Scoring ticket… 5 legs (2 props/alts)"
+        }
+      ],
+      "partialLog": [
+        {
+          "t": 10072,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 13237,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 13875,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14416,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14770,
+          "picks": 5,
+          "props": 0
+        },
+        {
+          "t": 14915,
+          "picks": 5,
+          "props": 2
+        },
+        {
+          "t": 15041,
+          "picks": 5,
+          "props": 2
+        }
+      ],
+      "attribution": {
+        "gameSimLargeValueIs": "client_cache_hits_no_http",
+        "propSimLargeValueIs": "includes_ctx_history_miss_work"
+      }
+    }
+  ]
+}

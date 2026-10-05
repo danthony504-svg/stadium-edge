@@ -1,0 +1,431 @@
+{
+  "generatedAt": "2026-10-05T19:26:43.819Z",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "phase2": true,
+  "runs": [
+    {
+      "label": "cold_5leg",
+      "ask": "5 leg",
+      "priors": [],
+      "totalRuntimeMs": 29710,
+      "terminal": true,
+      "timedOut": false,
+      "posted": 3441,
+      "finalLegs": 5,
+      "propLike": 2,
+      "gameLike": 3,
+      "markets": [
+        "Alt Spread",
+        "Hits+Runs+RBIs",
+        "Hits",
+        "F5 Run Line",
+        "Q1 Moneyline"
+      ],
+      "httpCalls": 144,
+      "coachCache": {
+        "stages": [
+          {
+            "stage": "espnGames",
+            "calls": 8,
+            "cacheHit": 0,
+            "cacheMiss": 8,
+            "coalesced": 0,
+            "durationMs": 5030
+          },
+          {
+            "stage": "injuries",
+            "calls": 8,
+            "cacheHit": 0,
+            "cacheMiss": 8,
+            "coalesced": 0,
+            "durationMs": 4804
+          },
+          {
+            "stage": "otherContext",
+            "calls": 17,
+            "cacheHit": 0,
+            "cacheMiss": 17,
+            "coalesced": 0,
+            "durationMs": 4545
+          },
+          {
+            "stage": "playerHistory",
+            "calls": 37,
+            "cacheHit": 0,
+            "cacheMiss": 25,
+            "coalesced": 12,
+            "durationMs": 7664
+          },
+          {
+            "stage": "teamDefense",
+            "calls": 24,
+            "cacheHit": 0,
+            "cacheMiss": 24,
+            "coalesced": 0,
+            "durationMs": 15757
+          },
+          {
+            "stage": "matchupHistory",
+            "calls": 12,
+            "cacheHit": 0,
+            "cacheMiss": 8,
+            "coalesced": 4,
+            "durationMs": 6652
+          },
+          {
+            "stage": "gameSimulation",
+            "calls": 19,
+            "cacheHit": 0,
+            "cacheMiss": 19,
+            "coalesced": 0,
+            "durationMs": 10309
+          },
+          {
+            "stage": "teamPeriodStats",
+            "calls": 4,
+            "cacheHit": 0,
+            "cacheMiss": 4,
+            "coalesced": 0,
+            "durationMs": 8382
+          }
+        ],
+        "contextEntries": 94,
+        "gameSimEntries": 19,
+        "inflightContext": 0,
+        "inflightGameSim": 0
+      },
+      "note": ""
+    },
+    {
+      "label": "warm_5leg",
+      "ask": "5 leg",
+      "priors": [],
+      "totalRuntimeMs": 19425,
+      "terminal": true,
+      "timedOut": false,
+      "posted": 3441,
+      "finalLegs": 5,
+      "propLike": 2,
+      "gameLike": 3,
+      "markets": [
+        "Alt Spread",
+        "Hits+Runs+RBIs",
+        "Total Bases",
+        "F5 Run Line",
+        "Q1 Moneyline"
+      ],
+      "httpCalls": 31,
+      "coachCache": {
+        "stages": [
+          {
+            "stage": "espnGames",
+            "calls": 8,
+            "cacheHit": 8,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 0
+          },
+          {
+            "stage": "injuries",
+            "calls": 8,
+            "cacheHit": 8,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 0
+          },
+          {
+            "stage": "otherContext",
+            "calls": 17,
+            "cacheHit": 17,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 0
+          },
+          {
+            "stage": "playerHistory",
+            "calls": 37,
+            "cacheHit": 37,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 0
+          },
+          {
+            "stage": "teamDefense",
+            "calls": 24,
+            "cacheHit": 24,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 0
+          },
+          {
+            "stage": "matchupHistory",
+            "calls": 12,
+            "cacheHit": 12,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 0
+          },
+          {
+            "stage": "gameSimulation",
+            "calls": 19,
+            "cacheHit": 19,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 1
+          },
+          {
+            "stage": "teamPeriodStats",
+            "calls": 4,
+            "cacheHit": 4,
+            "cacheMiss": 0,
+            "coalesced": 0,
+            "durationMs": 0
+          }
+        ],
+        "contextEntries": 94,
+        "gameSimEntries": 19,
+        "inflightContext": 0,
+        "inflightGameSim": 0
+      },
+      "note": ""
+    },
+    {
+      "label": "soccer_4leg",
+      "ask": "4 leg soccer",
+      "priors": [],
+      "totalRuntimeMs": 1698,
+      "terminal": true,
+      "timedOut": false,
+      "posted": 0,
+      "finalLegs": 0,
+      "propLike": 0,
+      "gameLike": 0,
+      "markets": [],
+      "httpCalls": 28,
+      "coachCache": {
+        "stages": [
+          {
+            "stage": "espnGames",
+            "calls": 1,
+            "cacheHit": 0,
+            "cacheMiss": 1,
+            "coalesced": 0,
+            "durationMs": 595
+          },
+          {
+            "stage": "injuries",
+            "calls": 1,
+            "cacheHit": 0,
+            "cacheMiss": 1,
+            "coalesced": 0,
+            "durationMs": 125
+          },
+          {
+            "stage": "teamDefense",
+            "calls": 24,
+            "cacheHit": 0,
+            "cacheMiss": 24,
+            "coalesced": 0,
+            "durationMs": 3512
+          }
+        ],
+        "contextEntries": 26,
+        "gameSimEntries": 0,
+        "inflightContext": 0,
+        "inflightGameSim": 0
+      },
+      "note": "You asked for 4 legs \u2014 no AI-backed picks cleared the quality bar. No ungraded filler was added."
+    },
+    {
+      "label": "after_soccer_5leg",
+      "ask": "5 leg",
+      "priors": [
+        "4 leg soccer"
+      ],
+      "totalRuntimeMs": 26447,
+      "terminal": true,
+      "timedOut": false,
+      "posted": 3442,
+      "finalLegs": 5,
+      "propLike": 2,
+      "gameLike": 3,
+      "markets": [
+        "2H Spread",
+        "Hits",
+        "Hits+Runs+RBIs",
+        "1H Spread",
+        "F5 Moneyline"
+      ],
+      "httpCalls": 142,
+      "coachCache": {
+        "stages": [
+          {
+            "stage": "espnGames",
+            "calls": 8,
+            "cacheHit": 1,
+            "cacheMiss": 7,
+            "coalesced": 0,
+            "durationMs": 2738
+          },
+          {
+            "stage": "injuries",
+            "calls": 8,
+            "cacheHit": 1,
+            "cacheMiss": 7,
+            "coalesced": 0,
+            "durationMs": 2850
+          },
+          {
+            "stage": "otherContext",
+            "calls": 17,
+            "cacheHit": 0,
+            "cacheMiss": 17,
+            "coalesced": 0,
+            "durationMs": 3851
+          },
+          {
+            "stage": "playerHistory",
+            "calls": 37,
+            "cacheHit": 0,
+            "cacheMiss": 25,
+            "coalesced": 12,
+            "durationMs": 5729
+          },
+          {
+            "stage": "teamDefense",
+            "calls": 24,
+            "cacheHit": 0,
+            "cacheMiss": 24,
+            "coalesced": 0,
+            "durationMs": 10514
+          },
+          {
+            "stage": "matchupHistory",
+            "calls": 12,
+            "cacheHit": 0,
+            "cacheMiss": 8,
+            "coalesced": 4,
+            "durationMs": 5772
+          },
+          {
+            "stage": "gameSimulation",
+            "calls": 19,
+            "cacheHit": 0,
+            "cacheMiss": 19,
+            "coalesced": 0,
+            "durationMs": 11449
+          },
+          {
+            "stage": "teamPeriodStats",
+            "calls": 4,
+            "cacheHit": 0,
+            "cacheMiss": 4,
+            "coalesced": 0,
+            "durationMs": 8576
+          }
+        ],
+        "contextEntries": 118,
+        "gameSimEntries": 19,
+        "inflightContext": 0,
+        "inflightGameSim": 0
+      },
+      "note": ""
+    },
+    {
+      "label": "cold_7leg_nfl",
+      "ask": "7 leg NFL",
+      "priors": [],
+      "totalRuntimeMs": 12868,
+      "terminal": true,
+      "timedOut": false,
+      "posted": 861,
+      "finalLegs": 6,
+      "propLike": 2,
+      "gameLike": 4,
+      "markets": [
+        "Rec Yds",
+        "Rush Yds",
+        "Q1 Spread",
+        "1H Moneyline",
+        "1H Alt Team Total",
+        "2H Team Total"
+      ],
+      "httpCalls": 65,
+      "coachCache": {
+        "stages": [
+          {
+            "stage": "espnGames",
+            "calls": 1,
+            "cacheHit": 0,
+            "cacheMiss": 1,
+            "coalesced": 0,
+            "durationMs": 368
+          },
+          {
+            "stage": "injuries",
+            "calls": 1,
+            "cacheHit": 0,
+            "cacheMiss": 1,
+            "coalesced": 0,
+            "durationMs": 142
+          },
+          {
+            "stage": "teamDefense",
+            "calls": 24,
+            "cacheHit": 0,
+            "cacheMiss": 24,
+            "coalesced": 0,
+            "durationMs": 5248
+          },
+          {
+            "stage": "matchupHistory",
+            "calls": 12,
+            "cacheHit": 0,
+            "cacheMiss": 12,
+            "coalesced": 0,
+            "durationMs": 3169
+          },
+          {
+            "stage": "playerHistory",
+            "calls": 56,
+            "cacheHit": 6,
+            "cacheMiss": 18,
+            "coalesced": 32,
+            "durationMs": 1621
+          },
+          {
+            "stage": "gameSimulation",
+            "calls": 1,
+            "cacheHit": 0,
+            "cacheMiss": 1,
+            "coalesced": 0,
+            "durationMs": 1302
+          },
+          {
+            "stage": "teamPeriodStats",
+            "calls": 2,
+            "cacheHit": 0,
+            "cacheMiss": 2,
+            "coalesced": 0,
+            "durationMs": 411
+          }
+        ],
+        "contextEntries": 58,
+        "gameSimEntries": 1,
+        "inflightContext": 0,
+        "inflightGameSim": 0
+      },
+      "note": "_Scanned the entire board \u2014 2160 posted lines across live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to market"
+    }
+  ],
+  "summary": {
+    "cold5Ms": 29710,
+    "warm5Ms": 19425,
+    "afterSoccer5Ms": 26447,
+    "nfl7Ms": 12868,
+    "cold5Calls": 144,
+    "warm5Calls": 31,
+    "warmCacheHits": 129,
+    "warmCoalesced": 0
+  }
+}

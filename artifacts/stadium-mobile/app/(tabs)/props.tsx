@@ -712,7 +712,7 @@ export default function PropsScreen() {
       const picks = gradeCandidates.map((c) => c.pick);
       const m = await fetchPropSimulations(picks, propPoolForRank, { tier: "quick" }, signal);
       const out = new Map<string, { hitProbability: number | null }>();
-      for (const [k, v] of m) out.set(k, { hitProbability: v.hitProbability });
+      for (const [k, v] of m.hits) out.set(k, { hitProbability: v.hitProbability });
       return out;
     },
   });

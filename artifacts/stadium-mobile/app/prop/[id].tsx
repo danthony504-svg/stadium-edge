@@ -215,7 +215,7 @@ export default function PropDetailScreen() {
         signal,
       );
       const key = `${player}|${marketKey}|${line}|${side}`;
-      return map.get(key) ?? null;
+      return map.hits.get(key) ?? null;
     },
   });
 
@@ -252,7 +252,7 @@ export default function PropDetailScreen() {
         signal,
       );
       const key = `${player}|${marketKey}|${line}|${side}`;
-      return map.get(key) ?? null;
+      return map.hits.get(key) ?? null;
     },
   });
 
