@@ -197,17 +197,24 @@ Two parallel `buildCoachParlay` calls (no shared `requestId`):
 | parallel span | 21299 | — | — |
 | max loop delay | **9255** | | |
 
-Both complete with 5 legs. PR **#341** single-flight/abort (`coachBoardScanGuard` per `requestId` on `coach.tsx`) is **not** exercised by this harness; do not weaken it. Contention here is shared event-loop CPU, not duplicate scan join.
+Both complete with 5 legs. Contention here is shared event-loop CPU, not duplicate scan join.
+
+**PR #341 note:** `coachBoardScanGuard.ts` (single-flight per `requestId` + abort) is **not present on this branch**; current equivalent is `AbortController` / `abortRef` in `coach.tsx` plus fingerprint-level `gameSimInflight` coalesce. Any future work must preserve that single-flight/abort intent — do not reintroduce duplicate scans.
 
 ---
 
 ## Correctness bar (for any future implementation)
 
-Fixed seeded fixtures must remain identical for:
+Any change must keep identical outputs for the same retained draw set + cover queries:
 
 game probs · expected scores/distributions · ML/spread/total probs · qualification · EV/edge · grade/confidence · candidate ordering · correlation/diversity · final ticket  
 
 No approximation, no lower N.
+
+**RNG reality (explore confirmation):**
+- Server/client **game** MC uses **`Math.random()` only** — no seed API today (unlike prop MC’s optional Mulberry32).
+- `distributionForQuery` (the warm hot path) is **pure aggregation** — no RNG; caching it is bit-identical for a fixed `outcomes` array.
+- Period re-derive (`periodScoresForDraw` / race-to) injects **`Math.random()` noise per draw**, so period cover rates are not reproducible from FG outcomes alone even when FG draws are held fixed. Do not “stabilize” that by accident when chunking; FG aggregation reuse is the safe first cut.
 
 ---
 
