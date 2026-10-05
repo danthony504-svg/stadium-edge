@@ -495,7 +495,7 @@ export async function warmDeepSims(
           await setCachedPropSimCtx(parts, created);
           return created;
         });
-        cachedCtx = loaded.value;
+        cachedCtx = loaded.value ?? undefined;
       }
       if (!cachedCtx) return;
 
