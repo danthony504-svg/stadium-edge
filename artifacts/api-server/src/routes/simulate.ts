@@ -1,33 +1,12 @@
 import { type SimTier } from "../lib/simCache.js";
-import {
-  emptyPropDistributionCacheStats,
-  getCachedPropDistribution,
-  propDistributionCacheKey,
-  propHistoryFingerprint,
-  setCachedPropDistribution,
-  type PropDistributionCacheStats,
-} from "../lib/propDistributionCache.js";
-import {
-  DEEP_SIMULATIONS,
-  QUICK_SIMULATIONS,
-} from "../lib/monteCarlo.js";
-import {
-  buildPropSimulationContext,
-  diagnosePropSimNullReason,
-  keyInjuryWeight,
-  propRequestSharedDistributionKey,
-  scoreRequestsFromCachedDistribution,
-  sharedDistributionPartsForProp,
-  simulatePropGroupSharedWithDistribution,
-  type SimPropRequest,
-  type SimPropRow as BuiltSimPropRow,
-} from "../lib/monteCarloBuild.js";
+import { DEEP_SIMULATIONS } from "../lib/monteCarlo.js";
+import { keyInjuryWeight, type SimPropRequest } from "../lib/monteCarloBuild.js";
+import { runPropSims, tierSimCount } from "../lib/propSimRunner.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
 import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
 import { buildFightAnalysis } from "../lib/ufc.js";
-import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
 import { resolvePropAthleteIds } from "../lib/resolvePropAthleteIds.js";
 import { Router, type IRouter } from "express";
@@ -85,14 +64,6 @@ type GameSimContext = {
   weatherImpact: number | null;
 };
 
-type SimPropRow = BuiltSimPropRow & {
-  tier: SimTier;
-  cached: boolean;
-  deepPending?: boolean;
-};
-
-const deepInFlight = new Set<string>();
-
 function teamInjuryWeight(teams: Awaited<ReturnType<typeof fetchEspnInjuries>>, teamName: string): number {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").trim();
   const target = norm(teamName);
@@ -123,323 +94,6 @@ async function fetchTeamHistory(
     return (await r.json()) as TeamHistoryResp;
   } catch {
     return null;
-  }
-}
-
-function tierSimCount(tier: SimTier, simulations?: number): number {
-  if (simulations && Number.isFinite(simulations) && simulations > 0) return simulations;
-  return tier === "deep" ? DEEP_SIMULATIONS : QUICK_SIMULATIONS;
-}
-
-function propSport(p: SimPropRequest, gameCtx: GameSimContext): string {
-  return String(p.sport ?? gameCtx.sport).toLowerCase();
-}
-
-function resolveIsHome(
-  p: SimPropRequest,
-  isHomeByPlayer: Record<string, boolean>,
-): boolean | null {
-  return p.isHome ?? isHomeByPlayer[p.player] ?? null;
-}
-
-type HistoryCache = Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>;
-
-async function loadPropHistory(
-  p: SimPropRequest,
-  gameCtx: GameSimContext,
-  historyCache: HistoryCache,
-): Promise<Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null> {
-  const sportKey = propSport(p, gameCtx);
-  const athleteId = p.athleteId ?? "";
-  const histKey = `${sportKey}:${athleteId}:${p.opponentTeamId ?? ""}`;
-  let history = historyCache.get(histKey);
-  if (history === undefined) {
-    history = athleteId
-      ? await fetchEspnPlayerHistory(sportKey, athleteId, p.opponentTeamId ?? undefined)
-      : null;
-    historyCache.set(histKey, history);
-  }
-  return history;
-}
-
-function gameCtxForSimulate(gameCtx: GameSimContext) {
-  return {
-    sport: gameCtx.sport,
-    oppPace: gameCtx.oppPace,
-    leaguePace: gameCtx.leaguePace,
-    oppKeyInjuries: gameCtx.oppKeyInjuries,
-    ownKeyInjuries: gameCtx.ownKeyInjuries,
-    weatherImpact: gameCtx.weatherImpact,
-    playerHistories: new Map(),
-  };
-}
-
-/**
- * Phase 1: group compatible props (same event/player/stat/period/context) so
- * one Monte Carlo draw scores every genuine alt line × side in the batch.
- * Distributions are cached without sportsbook / odds / O-U / threshold — only
- * simulation inputs (incl. history fingerprint) — then each live provider line
- * is evaluated against that same 10k sample.
- */
-async function runPropSims(
-  props: SimPropRequest[],
-  tier: SimTier,
-  gameCtx: GameSimContext,
-  isHomeByPlayer: Record<string, boolean>,
-  simulations?: number,
-): Promise<{
-  rows: SimPropRow[];
-  deepPending: boolean;
-  distStats: PropDistributionCacheStats;
-  propSimElapsedMs: number;
-}> {
-  const t0 = performance.now();
-  const simCount = tierSimCount(tier, simulations);
-  const historyCache: HistoryCache = new Map();
-  let deepPending = false;
-  const distStats = emptyPropDistributionCacheStats();
-
-  type Indexed = { index: number; prop: SimPropRequest; isHome: boolean | null };
-  const indexed: Indexed[] = props.map((prop, index) => ({
-    index,
-    prop,
-    isHome: resolveIsHome(prop, isHomeByPlayer),
-  }));
-
-  const groups = new Map<string, Indexed[]>();
-  for (const item of indexed) {
-    const key = propRequestSharedDistributionKey(
-      item.prop,
-      gameCtx,
-      item.isHome,
-    );
-    const arr = groups.get(key) ?? [];
-    arr.push(item);
-    groups.set(key, arr);
-  }
-
-  const rows: SimPropRow[] = new Array(props.length);
-  const deepWarmProps: SimPropRequest[] = [];
-
-  for (const group of groups.values()) {
-    const primary = group[0]!;
-    const history = await loadPropHistory(primary.prop, gameCtx, historyCache);
-    const gctx = gameCtxForSimulate(gameCtx);
-    const primaryReq: SimPropRequest = {
-      ...primary.prop,
-      sport: propSport(primary.prop, gameCtx),
-      isHome: primary.isHome,
-    };
-    const ctx = buildPropSimulationContext(primaryReq, history, gctx);
-
-    if (!ctx) {
-      for (const item of group) {
-        rows[item.index] = {
-          key: `${item.prop.player}|${item.prop.market}|${item.prop.line}|${item.prop.side}`,
-          player: item.prop.player,
-          market: item.prop.market,
-          line: item.prop.line,
-          side: item.prop.side,
-          simulations: 0,
-          hitProbability: null,
-          mostLikelyLine: null,
-          meanProjection: null,
-          medianProjection: null,
-          confidenceScore: null,
-          stdDev: null,
-          sampleGames: history?.recent?.length ?? 0,
-          percentiles: null,
-          nullReason: diagnosePropSimNullReason(
-            { ...item.prop, sport: propSport(item.prop, gameCtx), isHome: item.isHome },
-            history,
-          ),
-          tier,
-          cached: false,
-        };
-      }
-      continue;
-    }
-
-    const parts = sharedDistributionPartsForProp(primaryReq, gameCtx, primary.isHome);
-    const fingerprint = propHistoryFingerprint(ctx);
-    const distKey = propDistributionCacheKey(parts, fingerprint, tier, simCount);
-
-    const groupLines = [
-      ...new Set(
-        group
-          .flatMap((u) => [u.prop.line, ...(u.prop.additionalLines ?? [])])
-          .filter((l) => Number.isFinite(l)),
-      ),
-    ].sort((a, b) => a - b);
-
-    const requests: SimPropRequest[] = group.map((u) => {
-      const extras = groupLines.filter((l) => l !== u.prop.line);
-      return {
-        ...u.prop,
-        sport: propSport(u.prop, gameCtx),
-        isHome: u.isHome,
-        ...(extras.length ? { additionalLines: extras } : { additionalLines: undefined }),
-      };
-    });
-
-    const cachedDist = await getCachedPropDistribution(distKey);
-    let results: BuiltSimPropRow[];
-    let fromCache = false;
-
-    if (cachedDist?.samples?.length) {
-      distStats.distributionCacheHits += 1;
-      fromCache = true;
-      results = scoreRequestsFromCachedDistribution(
-        requests,
-        history,
-        ctx,
-        cachedDist,
-        groupLines,
-      );
-      const scored = results.filter((r) => r.hitProbability != null).length;
-      distStats.thresholdsEvaluatedFromCache += scored;
-      distStats.monteCarloDrawsAvoided += cachedDist.simulations;
-    } else {
-      distStats.distributionCacheMisses += 1;
-      const drawn = simulatePropGroupSharedWithDistribution(
-        requests,
-        history,
-        gctx,
-        distKey,
-        tier,
-        simCount,
-      );
-      results = drawn.rows;
-      if (drawn.distribution) {
-        await setCachedPropDistribution(distKey, drawn.distribution, tier);
-        distStats.distributionsGenerated += 1;
-        distStats.monteCarloDrawsExecuted += drawn.distribution.simulations;
-        const scored = results.filter((r) => r.hitProbability != null).length;
-        distStats.thresholdsEvaluatedFromFreshDraw += scored;
-      }
-    }
-
-    for (let i = 0; i < group.length; i++) {
-      const item = group[i]!;
-      const result = results[i]!;
-      rows[item.index] = { ...result, tier, cached: fromCache };
-    }
-
-    if (tier === "quick") {
-      const deepParts = sharedDistributionPartsForProp(primaryReq, gameCtx, primary.isHome);
-      const deepKey = propDistributionCacheKey(
-        deepParts,
-        fingerprint,
-        "deep",
-        DEEP_SIMULATIONS,
-      );
-      const deepHit = await getCachedPropDistribution(deepKey);
-      if (!deepHit) {
-        deepPending = true;
-        // One representative prop per distribution group is enough to warm deep.
-        deepWarmProps.push(primaryReq);
-      }
-    }
-  }
-
-  if (tier === "quick" && deepWarmProps.length) {
-    scheduleDeepSim(deepWarmProps, gameCtx, isHomeByPlayer);
-  }
-
-  return {
-    rows: rows as SimPropRow[],
-    deepPending: tier === "quick" ? deepPending : false,
-    distStats,
-    propSimElapsedMs: Math.round(performance.now() - t0),
-  };
-}
-
-function scheduleDeepSim(
-  props: SimPropRequest[],
-  gameCtx: GameSimContext,
-  isHomeByPlayer: Record<string, boolean>,
-): void {
-  void warmDeepSims(props, gameCtx, isHomeByPlayer).catch(() => {
-    /* background warm is best-effort */
-  });
-}
-
-async function warmDeepSims(
-  props: SimPropRequest[],
-  gameCtx: GameSimContext,
-  isHomeByPlayer: Record<string, boolean>,
-): Promise<void> {
-  const historyCache: HistoryCache = new Map();
-
-  type Indexed = { prop: SimPropRequest; isHome: boolean | null };
-  const groups = new Map<string, Indexed[]>();
-  for (const p of props) {
-    const isHome = resolveIsHome(p, isHomeByPlayer);
-    const key = propRequestSharedDistributionKey(p, gameCtx, isHome);
-    const arr = groups.get(key) ?? [];
-    arr.push({ prop: p, isHome });
-    groups.set(key, arr);
-  }
-
-  for (const group of groups.values()) {
-    const primary = group[0]!;
-    const history = await loadPropHistory(primary.prop, gameCtx, historyCache);
-    const gctx = gameCtxForSimulate(gameCtx);
-    const primaryReq: SimPropRequest = {
-      ...primary.prop,
-      sport: propSport(primary.prop, gameCtx),
-      isHome: primary.isHome,
-    };
-    const ctx = buildPropSimulationContext(primaryReq, history, gctx);
-    if (!ctx) continue;
-
-    const parts = sharedDistributionPartsForProp(primaryReq, gameCtx, primary.isHome);
-    const fingerprint = propHistoryFingerprint(ctx);
-    const deepKey = propDistributionCacheKey(
-      parts,
-      fingerprint,
-      "deep",
-      DEEP_SIMULATIONS,
-    );
-
-    if (deepInFlight.has(deepKey)) continue;
-    const existing = await getCachedPropDistribution(deepKey);
-    if (existing?.samples?.length) continue;
-
-    deepInFlight.add(deepKey);
-    try {
-      const groupLines = [
-        ...new Set(
-          group
-            .flatMap((u) => [u.prop.line, ...(u.prop.additionalLines ?? [])])
-            .filter((l) => Number.isFinite(l)),
-        ),
-      ].sort((a, b) => a - b);
-
-      const requests: SimPropRequest[] = group.map((u) => {
-        const extras = groupLines.filter((l) => l !== u.prop.line);
-        return {
-          ...u.prop,
-          sport: propSport(u.prop, gameCtx),
-          isHome: u.isHome,
-          ...(extras.length ? { additionalLines: extras } : { additionalLines: undefined }),
-        };
-      });
-
-      const drawn = simulatePropGroupSharedWithDistribution(
-        requests,
-        history,
-        gctx,
-        deepKey,
-        "deep",
-        DEEP_SIMULATIONS,
-      );
-      if (drawn.distribution) {
-        await setCachedPropDistribution(deepKey, drawn.distribution, "deep");
-      }
-    } finally {
-      deepInFlight.delete(deepKey);
-    }
   }
 }
 
@@ -675,6 +329,11 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     thresholdsEvaluatedFromFreshDraw: distStats.thresholdsEvaluatedFromFreshDraw,
     monteCarloDrawsAvoided: distStats.monteCarloDrawsAvoided,
     monteCarloDrawsExecuted: distStats.monteCarloDrawsExecuted,
+    ctxCacheHits: distStats.ctxCacheHits,
+    ctxCacheMisses: distStats.ctxCacheMisses,
+    ctxCoalesced: distStats.ctxCoalesced,
+    historyLoads: distStats.historyLoads,
+    distCoalesced: distStats.distCoalesced,
     propSimElapsedMs,
     coachElapsedMs,
     props: rows,
