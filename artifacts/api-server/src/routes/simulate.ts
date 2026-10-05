@@ -307,7 +307,8 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     weatherImpact,
   };
 
-  const { rows, deepPending, distStats, propSimElapsedMs } = await runPropSims(
+  const { rows, deepPending, distStats, propSimElapsedMs, playerHistories, historyShared, historyCoalesced } =
+    await runPropSims(
     propsResolved,
     tier,
     gameCtx,
@@ -334,9 +335,12 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     ctxCoalesced: distStats.ctxCoalesced,
     historyLoads: distStats.historyLoads,
     distCoalesced: distStats.distCoalesced,
+    historyShared,
+    historyCoalesced,
     propSimElapsedMs,
     coachElapsedMs,
     props: rows,
+    playerHistories,
   });
 });
 

@@ -115,6 +115,8 @@ export function clearPropSimDedicatedStoresForTests(): void {
   ctxMem.clear();
   distMem.clear();
   inflight.clear();
+  // Soft import avoided — callers that need auth-hist clear should also call
+  // clearAuthoritativePlayerHistoryForTests from authoritativePlayerHistory.
 }
 
 /** Clear only distributions — leave propsim-ctx warm (bench: warm ctx + cold dist). */

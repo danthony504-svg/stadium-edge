@@ -33,6 +33,11 @@ import {
 } from "./propSimCtxCache.js";
 import { withInflightCoalesce } from "./propSimDedicatedStore.js";
 import { fetchEspnPlayerHistory } from "./espnPlayerHistory.js";
+import {
+  loadAuthoritativePlayerHistory,
+  toEnrichmentHistory,
+  type PropSimEnrichmentHistory,
+} from "./authoritativePlayerHistory.js";
 
 export type PropSimGameContext = {
   sport: string;
@@ -119,6 +124,10 @@ export async function runPropSims(
   deepPending: boolean;
   distStats: PropDistributionCacheStats;
   propSimElapsedMs: number;
+  /** Authoritative histories for Coach enrich — same ESPN material propsim used. */
+  playerHistories: Record<string, PropSimEnrichmentHistory>;
+  historyShared: number;
+  historyCoalesced: number;
 }> {
   const t0 = performance.now();
   const simCount = tierSimCount(tier, simulations);
@@ -434,11 +443,47 @@ export async function runPropSims(
     scheduleDeepSim(deepWarmProps, gameCtx, isHomeByPlayer);
   }
 
+  // Phase 2.3: ensure enrichment-ready history is available for every athlete
+  // in this batch (reuse authoritative store filled during ctx miss loads;
+  // on ctx hit, load/join the same store so enrich does not re-hit ESPN via HTTP).
+  const playerHistories: Record<string, PropSimEnrichmentHistory> = {};
+  let historyShared = 0;
+  let historyCoalesced = 0;
+  const athleteKeys = new Map<string, { sport: string; athleteId: string; opponentTeamId?: string }>();
+  for (const p of props) {
+    const athleteId = String(p.athleteId ?? "").trim();
+    if (!athleteId) continue;
+    const sportKey = propSport(p, gameCtx);
+    const mapKey = `${sportKey}:${athleteId}`;
+    if (athleteKeys.has(mapKey)) continue;
+    athleteKeys.set(mapKey, {
+      sport: sportKey,
+      athleteId,
+      opponentTeamId: p.opponentTeamId ?? undefined,
+    });
+  }
+  const histLoads = await mapWithConcurrency(
+    [...athleteKeys.values()],
+    PROPSIM_CTX_LOAD_CONCURRENCY,
+    async (a) => {
+      const { history, coalesced } = await loadAuthoritativePlayerHistory(a.sport, a.athleteId);
+      if (!history) return { coalesced, shared: false as const };
+      playerHistories[a.athleteId] = toEnrichmentHistory(history, a.opponentTeamId);
+      return { coalesced, shared: true as const };
+    },
+  );
+  for (const h of histLoads) {
+    if (h.coalesced) historyCoalesced += 1;
+    if (h.shared) historyShared += 1;
+  }
   return {
     rows: rows as PropSimRow[],
     deepPending: tier === "quick" ? deepPending : false,
     distStats,
     propSimElapsedMs: Math.round(performance.now() - t0),
+    playerHistories,
+    historyShared,
+    historyCoalesced,
   };
 }
 

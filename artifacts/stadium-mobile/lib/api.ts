@@ -1179,6 +1179,12 @@ export type PlayerHistory = {
   season: string | null;
   availableSeasons: string[];
   seasonSummary: PlayerStatSummary;
+  minutesTrend?: {
+    l5: number | null;
+    l10: number | null;
+    season: number | null;
+    direction: "up" | "down" | "steady" | string;
+  } | null;
 };
 
 export type GetPlayerHistoryArgs = {
@@ -2057,6 +2063,37 @@ export type PropSimulationResult = {
   nullReason?: "missing_athlete_id" | "no_history" | "insufficient_sample" | "stat_mapping_failed" | null;
 };
 
+/** Phase 2.3 — authoritative history returned with prop-sim for Coach enrich reuse. */
+export type PropSimPlayerHistoryPayload = {
+  sport: string;
+  athleteId: string;
+  labels: string[];
+  recent: Array<{
+    date?: string | null;
+    opponentName?: string | null;
+    opponentId?: string | null;
+    isHome?: boolean | null;
+    stats?: Record<string, string>;
+  }>;
+  vsOpponent?: Array<{
+    date?: string | null;
+    stats?: Record<string, string>;
+  }>;
+  minutesTrend?: {
+    l5?: number | null;
+    l10?: number | null;
+    season?: number | null;
+    direction?: string | null;
+  } | null;
+};
+
+export type PropSimFetchResult = {
+  hits: Map<string, PropSimulationResult>;
+  playerHistories: Record<string, PropSimPlayerHistoryPayload>;
+  historyShared?: number;
+  historyCoalesced?: number;
+};
+
 export type PropSimTeamIds = {
   homeTeamId: string;
   awayTeamId: string;
@@ -2117,8 +2154,11 @@ export async function fetchPropSimulations(
     simulations?: number;
   },
   signal?: AbortSignal,
-): Promise<Map<string, PropSimulationResult>> {
+): Promise<PropSimFetchResult> {
   const out = new Map<string, PropSimulationResult>();
+  const playerHistories: Record<string, PropSimPlayerHistoryPayload> = {};
+  let historyShared = 0;
+  let historyCoalesced = 0;
   type BuiltProp = {
     player: string;
     market: string;
@@ -2175,7 +2215,9 @@ export async function fetchPropSimulations(
     });
   }
 
-  if (!props.length) return out;
+  if (!props.length) {
+    return { hits: out, playerHistories, historyShared, historyCoalesced };
+  }
 
   const byGame = new Map<string, BuiltProp[]>();
   for (const row of props) {
@@ -2236,47 +2278,54 @@ export async function fetchPropSimulations(
           ),
         ),
       );
-      return chunkRows.flat();
+      return chunkRows;
     }),
   );
 
-  for (const batchRows of gameResults) {
-    for (const row of batchRows) {
-      out.set(row.key, row);
-      // Expand shared-draw ladder into per-line map entries so every genuine
-      // provider rung can be graded without a second Monte Carlo request.
-      const bySide = row.lineHitRatesBySide;
-      if (!bySide) continue;
-      const markets = [row.market];
-      if (row.market.endsWith("_alternate")) {
-        markets.push(row.market.slice(0, -"_alternate".length));
-      } else {
-        markets.push(`${row.market}_alternate`);
+  for (const chunkResults of gameResults) {
+    for (const batch of chunkResults) {
+      historyShared += batch.historyShared ?? 0;
+      historyCoalesced += batch.historyCoalesced ?? 0;
+      for (const [athleteId, hist] of Object.entries(batch.playerHistories ?? {})) {
+        if (!playerHistories[athleteId]) playerHistories[athleteId] = hist;
       }
-      for (const side of ["Over", "Under"] as const) {
-        const rates = bySide[side];
-        if (!rates) continue;
-        for (const [lineStr, hit] of Object.entries(rates)) {
-          const line = Number(lineStr);
-          if (!Number.isFinite(line) || hit == null) continue;
-          for (const market of markets) {
-            const key = `${row.player}|${market}|${line}|${side}`;
-            if (out.has(key)) continue;
-            out.set(key, {
-              ...row,
-              key,
-              market,
-              line,
-              side,
-              hitProbability: hit,
-              lineHitRates: undefined,
-            });
+      for (const row of batch.props) {
+        out.set(row.key, row);
+        // Expand shared-draw ladder into per-line map entries so every genuine
+        // provider rung can be graded without a second Monte Carlo request.
+        const bySide = row.lineHitRatesBySide;
+        if (!bySide) continue;
+        const markets = [row.market];
+        if (row.market.endsWith("_alternate")) {
+          markets.push(row.market.slice(0, -"_alternate".length));
+        } else {
+          markets.push(`${row.market}_alternate`);
+        }
+        for (const side of ["Over", "Under"] as const) {
+          const rates = bySide[side];
+          if (!rates) continue;
+          for (const [lineStr, hit] of Object.entries(rates)) {
+            const line = Number(lineStr);
+            if (!Number.isFinite(line) || hit == null) continue;
+            for (const market of markets) {
+              const key = `${row.player}|${market}|${line}|${side}`;
+              if (out.has(key)) continue;
+              out.set(key, {
+                ...row,
+                key,
+                market,
+                line,
+                side,
+                hitProbability: hit,
+                lineHitRates: undefined,
+              });
+            }
           }
         }
       }
     }
   }
-  return out;
+  return { hits: out, playerHistories, historyShared, historyCoalesced };
 }
 
 export type GameSimulationResult = {
@@ -2435,8 +2484,13 @@ export async function fetchPropSimulationsBatch(
     tier?: "quick" | "deep";
   },
   signal?: AbortSignal,
-): Promise<PropSimulationResult[]> {
-  if (!props.length) return [];
+): Promise<{
+  props: PropSimulationResult[];
+  playerHistories: Record<string, PropSimPlayerHistoryPayload>;
+  historyShared?: number;
+  historyCoalesced?: number;
+}> {
+  if (!props.length) return { props: [], playerHistories: {} };
   const path = "/sports/simulate/props";
   const tier = opts?.tier ?? "quick";
   const res = await withTimeout(
@@ -2449,9 +2503,19 @@ export async function fetchPropSimulationsBatch(
     tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
     path,
   );
-  if (!res.ok) return [];
-  const json = (await res.json()) as { props?: PropSimulationResult[] };
-  return json.props ?? [];
+  if (!res.ok) return { props: [], playerHistories: {} };
+  const json = (await res.json()) as {
+    props?: PropSimulationResult[];
+    playerHistories?: Record<string, PropSimPlayerHistoryPayload>;
+    historyShared?: number;
+    historyCoalesced?: number;
+  };
+  return {
+    props: json.props ?? [],
+    playerHistories: json.playerHistories ?? {},
+    historyShared: json.historyShared,
+    historyCoalesced: json.historyCoalesced,
+  };
 }
 
 // Render-only team metadata for game-level picks (logos + abbreviations). Built

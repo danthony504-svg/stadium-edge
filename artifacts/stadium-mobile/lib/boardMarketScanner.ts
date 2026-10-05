@@ -381,8 +381,9 @@ async function simPropBatch(
   const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
   if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
   let timedOut = false;
+  let sharedHistories: Record<string, import("./api.ts").PropSimPlayerHistoryPayload> = {};
   try {
-    const rows = await Promise.race([
+    const simResult = await Promise.race([
       fetchPropSimulations(
         batch,
         pool,
@@ -393,9 +394,10 @@ async function simPropBatch(
         setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
       ),
     ]);
-    for (const [k, v] of rows) {
+    for (const [k, v] of simResult.hits) {
       out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
     }
+    sharedHistories = simResult.playerHistories ?? {};
   } catch {
     timedOut = true;
   }
@@ -403,18 +405,25 @@ async function simPropBatch(
   // boardScanPending true forever while Coach sat at 84% Scoring player props.
   // Football skill path uses a longer enrich window so athleteId history can
   // land grades (phone PROP_ALL_NO_SIM_GRADE: 500 deep-simmed, 0 cleared).
+  // Phase 2.3: pass authoritative histories from prop-sim so enrich reuses them.
   const PROP_ENRICH_TIMEOUT_MS = batchOpts?.enrichTimeoutMs ?? 12_000;
   let enriched: Awaited<ReturnType<typeof enrichCoachPropSimHits>>;
   try {
     enriched = await Promise.race([
-      enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal),
+      enrichCoachPropSimHits(
+        batch,
+        pool,
+        aliasPropSimHitsForBatch(batch, out),
+        signal,
+        sharedHistories,
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("prop-enrich-timeout")), PROP_ENRICH_TIMEOUT_MS),
       ),
     ]);
   } catch {
     timedOut = true;
-    enriched = { hits: out, playerHistory: {} };
+    enriched = { hits: out, playerHistory: {}, historyReused: 0, historyFetched: 0 };
   }
   return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory };
 }
@@ -1185,7 +1194,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let gameLegsDroppedNoSim = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
-  const SLATE_SIM_BATCH = 2;
+  // Phase 2.3: outer batch 4 matches inner SLATE_SIM_CONCURRENCY (was effective 2).
+  // Progressive partials preserved — still awaited per batch; scoring order follows
+  // gameEntries insertion order independent of Promise completion order.
+  const SLATE_SIM_BATCH = 4;
   const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
 
   for (const [, lines] of gameEntries) {

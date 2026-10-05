@@ -1,9 +1,13 @@
 // When /sports/simulate/props returns null (stale server deploy, missing athleteId
 // resolution, etc.), grade props from the same ESPN game logs the stats UI uses.
 // Mirrors simulatorLocalSim — real history only, never fabricated.
+//
+// Phase 2.3: prefer authoritative history returned with prop-sim (same ESPN
+// material propsim-ctx already loaded). Still runs enrichment — does not skip —
+// but avoids duplicate provider acquisition when shareable fields overlap.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { PropPoolEntry } from "./api.ts";
+import type { PropPoolEntry, PropSimPlayerHistoryPayload } from "./api.ts";
 import { getPlayerHistory, searchPlayer } from "./api.ts";
 import { pickPlayerSearchResult } from "./playerSearchPick.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
@@ -11,6 +15,10 @@ import { propSimLookupKey } from "./propSelection.ts";
 import { localPropSimulation, type LocalHistorySlice } from "./simulatorLocalSim.ts";
 import { clipPropSimHitForGrade } from "./simMarketSupport.ts";
 import { normalizeHistorySport } from "./coachFootballPropsOnlyGrade.ts";
+import {
+  COACH_CONTEXT_TTL_MS,
+  rememberCoachContextCache,
+} from "./coachContextCache.ts";
 
 export type PropSimHit = { hitProbability: number | null; nullReason?: string | null };
 
@@ -18,6 +26,10 @@ export type EnrichCoachPropSimResult = {
   hits: Map<string, PropSimHit>;
   /** Player#athleteId slices for holistic trend/form scoring during board scan. */
   playerHistory: Record<string, PlayerHistorySlice>;
+  /** How many athletes reused prop-sim authoritative history (no client HTTP). */
+  historyReused: number;
+  /** How many athletes still required getPlayerHistory. */
+  historyFetched: number;
 };
 
 function poolRowForPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEntry | undefined {
@@ -67,22 +79,79 @@ function historySliceFromApi(
       date: g.date,
       stats: g.stats,
     })),
+    minutesTrend: h.minutesTrend ?? null,
   };
 }
 
-/** Fill null server MC hits using /sports/player-history + localPropSimulation. */
+function historySliceFromShared(
+  player: string,
+  h: PropSimPlayerHistoryPayload,
+): PlayerHistorySlice {
+  return {
+    player,
+    labels: h.labels,
+    recent: (h.recent ?? []).slice(0, 10).map((g) => ({
+      date: g.date ?? undefined,
+      opp: g.opponentName ?? undefined,
+      stats: g.stats,
+    })),
+    vsOpponent: (h.vsOpponent ?? []).slice(0, 5).map((g) => ({
+      date: g.date ?? undefined,
+      stats: g.stats,
+    })),
+    minutesTrend: h.minutesTrend
+      ? {
+          l5: h.minutesTrend.l5 ?? null,
+          l10: h.minutesTrend.l10 ?? null,
+          season: h.minutesTrend.season ?? null,
+          direction: h.minutesTrend.direction ?? null,
+        }
+      : null,
+  };
+}
+
+function localSliceFromShared(h: PropSimPlayerHistoryPayload): LocalHistorySlice {
+  return {
+    labels: h.labels,
+    recent: (h.recent ?? []).map((g) => ({ stats: g.stats ?? {} })),
+  };
+}
+
+function seedClientHistoryCache(h: PropSimPlayerHistoryPayload): void {
+  // Seed the same path key getPlayerHistory would use so concurrent callers
+  // join the warm entry instead of issuing a duplicate provider HTTP.
+  const q = new URLSearchParams({ sport: h.sport, athleteId: h.athleteId });
+  const path = `/sports/player-history?${q.toString()}`;
+  rememberCoachContextCache(
+    path,
+    {
+      sport: h.sport,
+      athleteId: h.athleteId,
+      labels: h.labels,
+      recent: h.recent,
+      vsOpponent: h.vsOpponent ?? [],
+      minutesTrend: h.minutesTrend ?? null,
+    },
+    COACH_CONTEXT_TTL_MS.playerHistory,
+  );
+}
+
+/** Fill null server MC hits using shared prop-sim history and/or /sports/player-history. */
 export async function enrichCoachPropSimHits(
   batch: ParsedPick[],
   pool: PropPoolEntry[],
   hits: Map<string, PropSimHit>,
   signal?: AbortSignal,
+  sharedHistories?: Record<string, PropSimPlayerHistoryPayload>,
 ): Promise<EnrichCoachPropSimResult> {
   const out = new Map(hits);
   const playerHistory: Record<string, PlayerHistorySlice> = {};
   const pending: ParsedPick[] = [];
+  let historyReused = 0;
+  let historyFetched = 0;
 
-  // Always pull player history for holistic matchup/form — not only when MC is
-  // null. Skipping history when MC already hit was shipping "still loading" cards.
+  // Always materialize player history for holistic matchup/form — not only when
+  // MC is null. Phase 2.3 reuses authoritative shared history when present.
   const historyNeeded: typeof pending = [];
   for (const pick of batch) {
     const key = simKeyForPick(pick, pool);
@@ -103,7 +172,9 @@ export async function enrichCoachPropSimHits(
     pending.push(pick);
   }
 
-  if (!pending.length && !historyNeeded.length) return { hits: out, playerHistory };
+  if (!pending.length && !historyNeeded.length) {
+    return { hits: out, playerHistory, historyReused, historyFetched };
+  }
 
   const historyCache = new Map<string, LocalHistorySlice>();
   const athleteIdCache = new Map<string, string | null>();
@@ -130,6 +201,16 @@ export async function enrichCoachPropSimHits(
       const sport = normalizeHistorySport(pick.sport ?? poolRow?.sport) || "nba";
       const cacheKey = `${sport}:${athleteId}`;
       if (historyCache.has(cacheKey)) return;
+
+      const shared = sharedHistories?.[athleteId];
+      if (shared?.recent?.length) {
+        seedClientHistoryCache(shared);
+        historyCache.set(cacheKey, localSliceFromShared(shared));
+        playerHistory[`${pick.player}#${athleteId}`] = historySliceFromShared(pick.player, shared);
+        historyReused += 1;
+        return;
+      }
+
       try {
         const h = await getPlayerHistory({ sport, athleteId }, signal);
         if (!h.recent?.length) return;
@@ -138,6 +219,7 @@ export async function enrichCoachPropSimHits(
           recent: h.recent.map((g) => ({ stats: g.stats })),
         });
         playerHistory[`${pick.player}#${athleteId}`] = historySliceFromApi(pick.player, h);
+        historyFetched += 1;
       } catch {
         /* honest skip */
       }
@@ -179,5 +261,5 @@ export async function enrichCoachPropSimHits(
     out.set(key, { hitProbability: local.hitProbability, nullReason: null });
   }
 
-  return { hits: out, playerHistory };
+  return { hits: out, playerHistory, historyReused, historyFetched };
 }
