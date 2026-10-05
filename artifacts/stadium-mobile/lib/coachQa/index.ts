@@ -8,5 +8,6 @@ export * from "./invariants.ts";
 export * from "./fuzz.ts";
 export * from "./fixtures.ts";
 export * from "./pipelineAudit.ts";
+export * from "./terminalInvariant.ts";
 export * from "./report.ts";
 export { runCoachQaHarness, COACH_QA_SEED, screenshotSequenceAudit } from "./runCoachQa.ts";

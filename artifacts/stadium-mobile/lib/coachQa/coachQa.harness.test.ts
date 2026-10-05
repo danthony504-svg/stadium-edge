@@ -11,6 +11,11 @@ import { generateRequestMatrix, sequentialTransitionSeeds } from "./matrix.ts";
 import { snapshotAsk } from "./parseSnapshot.ts";
 import { checkSequentialTransition } from "./invariants.ts";
 import { runCoachQaHarness, COACH_QA_SEED, screenshotSequenceAudit } from "./runCoachQa.ts";
+import {
+  assertAbsoluteTerminalClearsBusyOnHungScan,
+  runAbsoluteTerminalHangGuardSuite,
+} from "./terminalInvariant.ts";
+import { runProductionTerminalAbAudit } from "./terminalLiveAudit.ts";
 
 test("request matrix covers legs 2–15 and all DEFAULT sports tags", () => {
   const matrix = generateRequestMatrix();
@@ -147,3 +152,70 @@ test("sequentialTransitionSeeds includes required phone pairs", () => {
     assert.ok(ids.has(id), id);
   }
 });
+
+test("terminal invariant: absolute hang-guard suite (sync)", () => {
+  const cases = runAbsoluteTerminalHangGuardSuite();
+  assert.ok(cases.length >= 3);
+  for (const c of cases) {
+    assert.equal(c.ok, true, c.finding ? JSON.stringify(c.finding) : c.id);
+  }
+});
+
+test("terminal invariant: hung scan must clear busy via absolute terminal", async () => {
+  const result = await assertAbsoluteTerminalClearsBusyOnHungScan();
+  assert.equal(result.ok, true, result.finding ? JSON.stringify(result.finding) : result.id);
+});
+
+/**
+ * Production-equivalent A/B terminal gate.
+ * Parser suites alone must not pass while the real async pipeline hangs on
+ * "Scoring game lines… props/alts next (N posted)".
+ *
+ * Skip only when explicitly disabled (offline CI without network). Default ON
+ * when EXPO_PUBLIC_DOMAIN points at production/staging.
+ */
+test(
+  "terminal invariant: live A/B pipeline must reach a terminal state",
+  { timeout: 300_000 },
+  async (t) => {
+    if (process.env.COACH_QA_SKIP_LIVE_TERMINAL === "1") {
+      t.skip("COACH_QA_SKIP_LIVE_TERMINAL=1");
+      return;
+    }
+    // API_BASE is fixed at module load from EXPO_PUBLIC_DOMAIN (see package.json
+    // test:coach-qa default). Refuse a relative /api base — that cannot hit prod.
+    const { API_BASE } = await import("../apiBase.ts");
+    assert.match(
+      API_BASE,
+      /^https:\/\//,
+      `live terminal audit needs absolute API_BASE, got ${API_BASE}`,
+    );
+    const { cases, summaries } = await runProductionTerminalAbAudit();
+    try {
+      mkdirSync("/opt/cursor/artifacts", { recursive: true });
+      writeFileSync(
+        "/opt/cursor/artifacts/coach-5leg-terminal-ab.json",
+        JSON.stringify({ generatedAt: new Date().toISOString(), summaries }, null, 2),
+      );
+    } catch {
+      // optional
+    }
+    for (const c of cases) {
+      assert.equal(
+        c.ok,
+        true,
+        c.finding
+          ? `${c.finding.title}: ${c.finding.actual}`
+          : JSON.stringify(c.meta),
+      );
+    }
+    // Phone sequence B2 must not inherit propsOnly limbo — terminal with finite runtime.
+    const b2 = summaries.find((s) => s.label === "B2_after_soccer");
+    assert.ok(b2, "missing B2_after_soccer");
+    assert.equal(b2!.terminalReached, true);
+    assert.ok(
+      (b2!.postedCandidates ?? 0) > 0 || b2!.finalLegs >= 0,
+      "B2 should load a board or honest-empty",
+    );
+  },
+);

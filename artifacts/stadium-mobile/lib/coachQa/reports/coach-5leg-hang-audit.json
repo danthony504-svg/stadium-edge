@@ -1,0 +1,387 @@
+{
+  "generatedAt": "2026-10-05T18:49:03.125Z",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "A": {
+    "label": "A_fresh",
+    "ask": "5 leg",
+    "priorUserTexts": [],
+    "routing": {
+      "propsOnly": false,
+      "gameLinesOnly": false,
+      "requirePropMix": false,
+      "budgetMs": 75000,
+      "propPhaseDeadlineMs": 40000
+    },
+    "totalRuntimeMs": 28808,
+    "hardTimeoutMs": 180000,
+    "aborted": false,
+    "terminalReached": true,
+    "error": null,
+    "lastProgressStatus": "status: Scoring ticket\u2026 5 legs (2 props/alts)",
+    "stages": [
+      {
+        "tMs": 11,
+        "status": "start ask=\"5 leg\" priors=[] legs=5 budgetMs=75000 propsOnly=false gameLinesOnly=false requirePropMix=false api=https://stadium-edge.onrender.com/api"
+      },
+      {
+        "tMs": 52,
+        "status": "status: Loading tonight's board\u2026"
+      },
+      {
+        "tMs": 1624,
+        "status": "status: Loading player props and alt lines across the board\u2026"
+      },
+      {
+        "tMs": 4072,
+        "status": "status: Loading matchups, injuries, and opponent context\u2026"
+      },
+      {
+        "tMs": 8079,
+        "status": "onReadyToScan propPoolSize=3198 maxToSim\u2248500 propDeadlineMs=40000"
+      },
+      {
+        "tMs": 8079,
+        "status": "status: Scanning 3198 posted props/alts plus game lines for a 5-leg ticket\u2026"
+      },
+      {
+        "tMs": 9635,
+        "status": "status: Scoring ticket\u2026 2 legs (2 props/alts)"
+      },
+      {
+        "tMs": 9635,
+        "status": "onPartialPicks n=2 props=2"
+      },
+      {
+        "tMs": 11034,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 11034,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 12655,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 12655,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 23749,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 23749,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 24686,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 24686,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 25538,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 25538,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 26148,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 26149,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 26849,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 26849,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 27605,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 27605,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 28251,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 28251,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 28716,
+        "status": "status: Scoring game lines\u2026 props/alts next (3198 posted)"
+      },
+      {
+        "tMs": 28716,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 28806,
+        "status": "status: Scoring ticket\u2026 5 legs (2 props/alts)"
+      },
+      {
+        "tMs": 28806,
+        "status": "onPartialPicks n=5 props=2"
+      },
+      {
+        "tMs": 28808,
+        "status": "buildCoachParlay returned picks=5 timedOut=false propPoolSize=3198 noteLen=0"
+      }
+    ],
+    "totals": {
+      "postedCandidates": 3198,
+      "finalLegs": 5,
+      "timedOut": false,
+      "propLikeFinal": 2,
+      "gameLineFinal": 3,
+      "scanTotalScanned": null,
+      "propLegsScored": 9,
+      "gameLegsScored": 1988,
+      "propPhaseIncomplete": false,
+      "awaitingPropSlots": false,
+      "failureReason": null
+    },
+    "notePreview": ""
+  },
+  "B_soccer": {
+    "label": "B1_soccer",
+    "ask": "4 leg soccer",
+    "priorUserTexts": [],
+    "routing": {
+      "propsOnly": true,
+      "gameLinesOnly": false,
+      "requirePropMix": false,
+      "budgetMs": 75000,
+      "propPhaseDeadlineMs": 40000
+    },
+    "totalRuntimeMs": 1618,
+    "hardTimeoutMs": 180000,
+    "aborted": false,
+    "terminalReached": true,
+    "error": null,
+    "lastProgressStatus": "status: No matching props posted for a 4-leg ticket\u2026",
+    "stages": [
+      {
+        "tMs": 1,
+        "status": "start ask=\"4 leg soccer\" priors=[] legs=4 budgetMs=75000 propsOnly=true gameLinesOnly=false requirePropMix=false api=https://stadium-edge.onrender.com/api"
+      },
+      {
+        "tMs": 5,
+        "status": "status: Loading SOCCER board\u2026"
+      },
+      {
+        "tMs": 620,
+        "status": "status: Loading player props and alt lines across the board\u2026"
+      },
+      {
+        "tMs": 620,
+        "status": "status: Loading injury context\u2026"
+      },
+      {
+        "tMs": 1615,
+        "status": "onReadyToScan propPoolSize=0 maxToSim\u22480 propDeadlineMs=40000"
+      },
+      {
+        "tMs": 1615,
+        "status": "status: No matching props posted for a 4-leg ticket\u2026"
+      },
+      {
+        "tMs": 1618,
+        "status": "buildCoachParlay returned picks=0 timedOut=false propPoolSize=0 noteLen=96"
+      }
+    ],
+    "totals": {
+      "postedCandidates": 0,
+      "finalLegs": 0,
+      "timedOut": false,
+      "propLikeFinal": 0,
+      "gameLineFinal": 0,
+      "scanTotalScanned": null,
+      "propLegsScored": 0,
+      "gameLegsScored": 0,
+      "propPhaseIncomplete": false,
+      "awaitingPropSlots": false,
+      "failureReason": {
+        "code": "NO_ODDS_GAMES",
+        "detail": "no bettable odds games on the loaded board"
+      }
+    },
+    "notePreview": "You asked for 4 legs \u2014 no AI-backed picks cleared the quality bar. No ungraded filler was added."
+  },
+  "B_five_after_soccer": {
+    "label": "B2_after_soccer",
+    "ask": "5 leg",
+    "priorUserTexts": [
+      "4 leg soccer"
+    ],
+    "routing": {
+      "propsOnly": false,
+      "gameLinesOnly": false,
+      "requirePropMix": false,
+      "budgetMs": 75000,
+      "propPhaseDeadlineMs": 40000
+    },
+    "totalRuntimeMs": 27789,
+    "hardTimeoutMs": 180000,
+    "aborted": false,
+    "terminalReached": true,
+    "error": null,
+    "lastProgressStatus": "status: Scoring ticket\u2026 5 legs (2 props/alts)",
+    "stages": [
+      {
+        "tMs": 0,
+        "status": "start ask=\"5 leg\" priors=[\"4 leg soccer\"] legs=5 budgetMs=75000 propsOnly=false gameLinesOnly=false requirePropMix=false api=https://stadium-edge.onrender.com/api"
+      },
+      {
+        "tMs": 3,
+        "status": "status: Loading tonight's board\u2026"
+      },
+      {
+        "tMs": 1053,
+        "status": "status: Loading player props and alt lines across the board\u2026"
+      },
+      {
+        "tMs": 2843,
+        "status": "status: Loading matchups, injuries, and opponent context\u2026"
+      },
+      {
+        "tMs": 7133,
+        "status": "onReadyToScan propPoolSize=3197 maxToSim\u2248500 propDeadlineMs=40000"
+      },
+      {
+        "tMs": 7133,
+        "status": "status: Scanning 3197 posted props/alts plus game lines for a 5-leg ticket\u2026"
+      },
+      {
+        "tMs": 9621,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 9621,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 9671,
+        "status": "status: Scoring ticket\u2026 5 legs (2 props/alts)"
+      },
+      {
+        "tMs": 9671,
+        "status": "onPartialPicks n=5 props=2"
+      },
+      {
+        "tMs": 11140,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 11140,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 22048,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 22048,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 23040,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 23040,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 24054,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 24054,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 24848,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 24848,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 25492,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 25492,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 26552,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 26552,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 27184,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 27184,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 27686,
+        "status": "status: Scoring game lines\u2026 props/alts next (3197 posted)"
+      },
+      {
+        "tMs": 27686,
+        "status": "onPartialPicks n=5 props=0"
+      },
+      {
+        "tMs": 27787,
+        "status": "status: Scoring ticket\u2026 5 legs (2 props/alts)"
+      },
+      {
+        "tMs": 27787,
+        "status": "onPartialPicks n=5 props=2"
+      },
+      {
+        "tMs": 27789,
+        "status": "buildCoachParlay returned picks=5 timedOut=false propPoolSize=3197 noteLen=0"
+      }
+    ],
+    "totals": {
+      "postedCandidates": 3197,
+      "finalLegs": 5,
+      "timedOut": false,
+      "propLikeFinal": 2,
+      "gameLineFinal": 3,
+      "scanTotalScanned": null,
+      "propLegsScored": 9,
+      "gameLegsScored": 1980,
+      "propPhaseIncomplete": false,
+      "awaitingPropSlots": false,
+      "failureReason": null
+    },
+    "notePreview": ""
+  }
+}

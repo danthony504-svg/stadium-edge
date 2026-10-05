@@ -1,12 +1,22 @@
-// Test-only resolver for stadium-mobile pipeline proofs.
+/**
+ * Benchmark-only module resolver: expo/fetch → global fetch, stub RN icon imports,
+ * rewrite @/ and .js→.ts, and allow API_BASE override via BENCH_API_BASE.
+ */
 import module from "node:module";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("../", import.meta.url).href;
-const FAKE_EXPO_FETCH = new URL("./fakes/expo-fetch.ts", import.meta.url).href;
-const PICKCARD_STUB = new URL("./fakes/PickCardStub.ts", import.meta.url).href;
+const ROOT = new URL("../../stadium-mobile/", import.meta.url).href;
+const FAKE_EXPO_FETCH = new URL(
+  "../../stadium-mobile/test/fakes/expo-fetch.ts",
+  import.meta.url,
+).href;
+const PICKCARD_STUB = new URL(
+  "../../stadium-mobile/test/fakes/PickCardStub.ts",
+  import.meta.url,
+).href;
 const SPORTS_STUB = new URL("./fakes/sportsStub.ts", import.meta.url).href;
+const API_BASE_STUB = new URL("./fakes/apiBaseStub.ts", import.meta.url).href;
 
 module.registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -16,7 +26,6 @@ module.registerHooks({
       return { url: FAKE_EXPO_FETCH, shortCircuit: true };
     }
 
-    // Keep PickCard off the React Native .tsx path under node --test.
     if (
       specifier === "@/components/PickCard" ||
       specifier.endsWith("/components/PickCard") ||
@@ -25,13 +34,22 @@ module.registerHooks({
       return { url: PICKCARD_STUB, shortCircuit: true };
     }
 
-    // Live terminal audit imports buildParlay → sports → @expo/vector-icons.
     if (
       specifier === "@/lib/sports" ||
       specifier.endsWith("/lib/sports") ||
       specifier.endsWith("/lib/sports.ts")
     ) {
       return { url: SPORTS_STUB, shortCircuit: true };
+    }
+
+    if (
+      specifier === "@/lib/apiBase" ||
+      specifier.endsWith("/lib/apiBase") ||
+      specifier.endsWith("/lib/apiBase.ts") ||
+      specifier === "./apiBase" ||
+      specifier === "./apiBase.ts"
+    ) {
+      return { url: API_BASE_STUB, shortCircuit: true };
     }
 
     if (specifier.startsWith("@expo/vector-icons")) {

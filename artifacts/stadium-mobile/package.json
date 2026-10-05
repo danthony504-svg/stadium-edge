@@ -13,7 +13,7 @@
     "update:ios": "bash scripts/publish-production-ota.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test 'lib/**/*.test.ts'",
-    "test:coach-qa": "node --import ./test/register-hooks.mjs --test lib/coachQa/coachQa.harness.test.ts"
+    "test:coach-qa": "EXPO_PUBLIC_DOMAIN=${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com} node --import ./test/register-hooks.mjs --test lib/coachQa/coachQa.harness.test.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
