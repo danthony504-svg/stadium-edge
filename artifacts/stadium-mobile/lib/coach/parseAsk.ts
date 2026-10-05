@@ -38,8 +38,9 @@ export function parseRequestedLegs(text: string): number {
     const n = parseInt(giveMe[1]!, 10);
     if (Number.isFinite(n) && n > 0) return n;
   }
+  // Keep in sync with DEFAULT_SPORTS / app sport ids (incl. ufc + tennis).
   const sportPicks = raw.match(
-    /\b(\d{1,3})\s+(?:different\s+)?(?:nhl|nfl|nba|mlb|wnba|ncaaf|ncaab|cfb|soccer)\s+picks?\b/i,
+    /\b(\d{1,3})\s+(?:different\s+)?(?:nhl|nfl|nba|mlb|wnba|ncaaf|ncaab|cfb|soccer|ufc|mma|tennis)\s+picks?\b/i,
   );
   if (sportPicks) {
     const n = parseInt(sportPicks[1]!, 10);

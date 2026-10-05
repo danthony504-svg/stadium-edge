@@ -1,6 +1,6 @@
 # AI COACH QA REPORT
 
-Generated: 2026-10-05T17:40:07.594Z
+Generated: 2026-10-05T17:53:43.228Z
 Seed: 6092026
 
 ## Summary
@@ -8,8 +8,8 @@ Seed: 6092026
 | Metric | Count |
 |---|---|
 | Total tests | 13596 |
-| Passed | 13309 |
-| Failed | 287 |
+| Passed | 13566 |
+| Failed | 30 |
 | Warnings | 96 |
 
 ## By category
@@ -17,831 +17,469 @@ Seed: 6092026
 | Category | Passed | Failed | Warnings |
 |---|---|---|---|
 | data_quality | 5 | 0 | 1 |
-| date_sport_team | 2 | 32 | 0 |
+| date_sport_team | 2 | 0 | 0 |
 | failure_injection | 17 | 0 | 13 |
 | fuzz_parser | 500 | 0 | 0 |
-| fuzz_sequential | 4671 | 0 | 0 |
+| fuzz_sequential | 4762 | 0 | 0 |
 | mapping | 9 | 0 | 0 |
 | market_coverage | 420 | 30 | 82 |
-| parser | 6780 | 56 | 0 |
+| parser | 6868 | 0 | 0 |
 | performance | 66 | 0 | 0 |
 | pipeline_counts | 8 | 0 | 0 |
 | provider_integrity | 10 | 0 | 0 |
 | recovery_alt | 3 | 0 | 0 |
-| sequential | 794 | 0 | 0 |
-| state_leak | 0 | 169 | 0 |
+| sequential | 872 | 0 | 0 |
 | ticket_construction | 24 | 0 | 0 |
 
 ## Ranked findings
 
-### 1. [P1] Expected team exclusion missing
+### 1. [P2] Live failure-injection not executed: cache miss
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg SOCCER no Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"cache miss"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 2. [P1] Expected team exclusion missing
+### 2. [P2] Live failure-injection not executed: empty market
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg SOCCER not Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"empty market"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 3. [P1] Expected team exclusion missing
+### 3. [P2] Live failure-injection not executed: malformed provider outcome
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 SOCCER picks without the Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"malformed provider outcome"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 4. [P1] Expected team exclusion missing
+### 4. [P2] Live failure-injection not executed: missing ESPN ID
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg SOCCER tonight no Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"missing ESPN ID"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 5. [P1] Expected team exclusion missing
+### 5. [P2] Live failure-injection not executed: missing history
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg SOCCER no Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"missing history"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 6. [P1] Expected team exclusion missing
+### 6. [P2] Live failure-injection not executed: missing injury data
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg SOCCER not Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"missing injury data"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 7. [P1] Expected team exclusion missing
+### 7. [P2] Live failure-injection not executed: missing weather
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 SOCCER picks without the Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"missing weather"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 8. [P1] Expected team exclusion missing
+### 8. [P2] Live failure-injection not executed: one sport failing while another works
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg SOCCER tonight no Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"one sport failing while another works"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 9. [P1] Expected team exclusion missing
+### 9. [P2] Live failure-injection not executed: partial board
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg SOCCER no Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"partial board"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 10. [P1] Expected team exclusion missing
+### 10. [P2] Live failure-injection not executed: provider 429
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg SOCCER not Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"provider 429"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 11. [P1] Expected team exclusion missing
+### 11. [P2] Live failure-injection not executed: provider timeout
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 SOCCER picks without the Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"provider timeout"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 12. [P1] Expected team exclusion missing
+### 12. [P2] Live failure-injection not executed: simulation timeout
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg SOCCER tonight no Chelsea"`
-- **Expected:** excluded contains chelsea
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"simulation timeout"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 13. [P1] Expected team exclusion missing
+### 13. [P2] Live failure-injection not executed: stale cache
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg NCAAF no Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
+- **Category:** failure_injection
+- **Prompt/sequence:** `"stale cache"`
+- **Expected:** safe degrade without freeze/crash/fabricate
+- **Actual:** SKIPPED in offline harness — needs controlled live/IO harness extension
+- **Stage:** failure_injection
+- **Likely file:** `lib/coach/buildParlay.ts / api-server odds routes`
+- **Production affected:** no
 
-### 14. [P1] Expected team exclusion missing
+### 14. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg NCAAF not Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 15. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 NCAAF picks without the Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 16. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg NCAAF tonight no Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 17. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg NCAAF no Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 18. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg NCAAF not Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 19. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 NCAAF picks without the Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 20. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg NCAAF tonight no Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 21. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg NCAAF no Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 22. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg NCAAF not Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 23. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 NCAAF picks without the Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 24. [P1] Expected team exclusion missing
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg NCAAF tonight no Ohio State"`
-- **Expected:** excluded contains ohio state
-- **Actual:** excluded=[]
-- **Stage:** excludedTeamScopesFromText
-- **Likely file:** `lib/coachAskTeamScope.ts`
-- **Production affected:** YES
-
-### 25. [P1] Market lock family mismatch
-
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg longest completion"`
-- **Expected:** keys include player_pass_longest_completion
-- **Actual:** keys=["player_pass_completions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf pitcher strikeouts"`
+- **Expected:** isMarketLocked with pitcher_strikeouts
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 26. [P1] Market lock family mismatch
+### 15. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg longest completion"`
-- **Expected:** keys include player_pass_longest_completion
-- **Actual:** keys=["player_pass_completions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf hits+runs+RBIs"`
+- **Expected:** isMarketLocked with batter_hits_runs_rbis
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 27. [P1] Market lock family mismatch
+### 16. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg longest completion"`
-- **Expected:** keys include player_pass_longest_completion
-- **Actual:** keys=["player_pass_completions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf stolen bases"`
+- **Expected:** isMarketLocked with batter_stolen_bases
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 28. [P1] Market lock family mismatch
+### 17. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"10 leg longest completion"`
-- **Expected:** keys include player_pass_longest_completion
-- **Actual:** keys=["player_pass_completions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf total bases"`
+- **Expected:** isMarketLocked with batter_total_bases
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 29. [P1] Market lock family mismatch
+### 18. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"5 leg longest reception"`
-- **Expected:** keys include player_reception_longest
-- **Actual:** keys=["player_receptions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf RBIs"`
+- **Expected:** isMarketLocked with batter_rbis
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 30. [P1] Market lock family mismatch
+### 19. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"6 leg longest reception"`
-- **Expected:** keys include player_reception_longest
-- **Actual:** keys=["player_receptions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf hits"`
+- **Expected:** isMarketLocked with batter_hits
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 31. [P1] Market lock family mismatch
+### 20. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"8 leg longest reception"`
-- **Expected:** keys include player_reception_longest
-- **Actual:** keys=["player_receptions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf runs"`
+- **Expected:** isMarketLocked with batter_runs
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 32. [P1] Market lock family mismatch
+### 21. [P2] Market family failed to lock for ncaaf
 
-- **Category:** date_sport_team
-- **Prompt/sequence:** `"10 leg longest reception"`
-- **Expected:** keys include player_reception_longest
-- **Actual:** keys=["player_receptions"]
-- **Stage:** allowedMarketKeys
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf passing attempts"`
+- **Expected:** isMarketLocked with player_pass_attempts
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
 - **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 33. [P1] propsOnly leaked from prior turn onto follow-up
+### 22. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg player props","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg player props]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf rushing attempts"`
+- **Expected:** isMarketLocked with player_rush_attempts
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 34. [P1] propsOnly leaked from prior turn onto follow-up
+### 23. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["4 leg soccer","5 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[4 leg soccer]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf longest completion"`
+- **Expected:** isMarketLocked with player_pass_longest_completion
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 35. [P1] propsOnly leaked from prior turn onto follow-up
+### 24. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["9 leg nfl props","5 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[9 leg nfl props]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf longest rush"`
+- **Expected:** isMarketLocked with player_rush_longest
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 36. [P1] propsOnly leaked from prior turn onto follow-up
+### 25. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf completions"`
+- **Expected:** isMarketLocked with player_pass_completions
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 37. [P1] propsOnly leaked from prior turn onto follow-up
+### 26. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5-leg MLB","5 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5-leg MLB]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf pass interceptions"`
+- **Expected:** isMarketLocked with player_pass_interceptions
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 38. [P1] propsOnly leaked from prior turn onto follow-up
+### 27. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb tonight","6 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb tonight]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf goal scorer"`
+- **Expected:** isMarketLocked with player_goal_scorer_anytime
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 39. [P1] propsOnly leaked from prior turn onto follow-up
+### 28. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb today","7 leg today"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb today]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf shots on target"`
+- **Expected:** isMarketLocked with player_shots_on_target
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 40. [P1] propsOnly leaked from prior turn onto follow-up
+### 29. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5-leg MLB today","7 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5-leg MLB today]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf shots on goal"`
+- **Expected:** isMarketLocked with player_shots_on_goal
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 41. [P1] propsOnly leaked from prior turn onto follow-up
+### 30. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb tomorrow","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb tomorrow]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf shots"`
+- **Expected:** isMarketLocked with player_shots
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 42. [P1] propsOnly leaked from prior turn onto follow-up
+### 31. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5-leg MLB tomorrow","7 leg tomorrow"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5-leg MLB tomorrow]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf goals"`
+- **Expected:** isMarketLocked with player_goals
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 43. [P1] propsOnly leaked from prior turn onto follow-up
+### 32. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb player props","5 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb player props]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf pts+reb+ast"`
+- **Expected:** isMarketLocked with player_points_rebounds_assists
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 44. [P1] propsOnly leaked from prior turn onto follow-up
+### 33. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb moneylines","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb moneylines]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf pts+reb"`
+- **Expected:** isMarketLocked with player_points_rebounds
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 45. [P1] propsOnly leaked from prior turn onto follow-up
+### 34. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb spreads","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb spreads]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf pts+ast"`
+- **Expected:** isMarketLocked with player_points_assists
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 46. [P1] propsOnly leaked from prior turn onto follow-up
+### 35. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb team totals","7 leg today"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb team totals]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf reb+ast"`
+- **Expected:** isMarketLocked with player_rebounds_assists
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 47. [P1] propsOnly leaked from prior turn onto follow-up
+### 36. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb over","6 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb over]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf blocks+steals"`
+- **Expected:** isMarketLocked with player_blocks_steals
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 48. [P1] propsOnly leaked from prior turn onto follow-up
+### 37. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb under","7 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb under]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf rebounds"`
+- **Expected:** isMarketLocked with player_rebounds
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 49. [P1] propsOnly leaked from prior turn onto follow-up
+### 38. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb alternate","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb alternate]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf assists"`
+- **Expected:** isMarketLocked with player_assists
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 50. [P1] propsOnly leaked from prior turn onto follow-up
+### 39. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["5 leg mlb alt lines","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[5 leg mlb alt lines]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf threes"`
+- **Expected:** isMarketLocked with player_threes
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 51. [P1] propsOnly leaked from prior turn onto follow-up
+### 40. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["6-leg MLB","6 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6-leg MLB]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf blocks"`
+- **Expected:** isMarketLocked with player_blocks
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 52. [P1] propsOnly leaked from prior turn onto follow-up
+### 41. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb tonight","7 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb tonight]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf steals"`
+- **Expected:** isMarketLocked with player_steals
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 53. [P1] propsOnly leaked from prior turn onto follow-up
+### 42. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["6-leg MLB tonight","7 leg today"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6-leg MLB tonight]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf turnovers"`
+- **Expected:** isMarketLocked with player_turnovers
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 54. [P1] propsOnly leaked from prior turn onto follow-up
+### 43. [P2] Market family failed to lock for ncaaf
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb today","7 leg tomorrow"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb today]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
+- **Category:** market_coverage
+- **Prompt/sequence:** `"5 leg ncaaf points"`
+- **Expected:** isMarketLocked with player_points
+- **Actual:** locked=false keys=null
+- **Stage:** parseCoachAskMarketConstraint
+- **Likely file:** `lib/explicitMarketLock.ts`
 - **Production affected:** YES
 
-### 55. [P1] propsOnly leaked from prior turn onto follow-up
+### 44. [P3] Suspicious prop flagged for review
 
-- **Category:** state_leak
-- **Prompt/sequence:** `["6-leg MLB today","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6-leg MLB today]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
+- **Category:** data_quality
+- **Prompt/sequence:** `"Ghost Runner"`
+- **Expected:** sane line/odds on provider board
+- **Actual:** line=999.5 odds=-110 id=prop-fabricated
+- **Stage:** data-quality
+- **Likely file:** `lib/coachQa/fixtures.ts (fixture) / board scan`
+- **Production affected:** no
 
-### 56. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb tomorrow","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb tomorrow]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 57. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6-leg MLB tomorrow","5 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6-leg MLB tomorrow]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 58. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb player props","6 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb player props]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 59. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb moneylines","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb moneylines]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 60. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb totals","7 leg today"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb totals]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 61. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb team totals","7 leg tomorrow"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb team totals]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 62. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb over","7 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb over]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 63. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb under","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb under]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 64. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["6 leg mlb alternate","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[6 leg mlb alternate]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 65. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb","7 leg today"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 66. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7-leg MLB","7 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7-leg MLB]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 67. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb tonight","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb tonight]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 68. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7-leg MLB tonight","7 leg tomorrow"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7-leg MLB tonight]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 69. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb today","5 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb today]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 70. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7-leg MLB today","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7-leg MLB today]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 71. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7-leg MLB tomorrow","6 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7-leg MLB tomorrow]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 72. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb player props","7 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb player props]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 73. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb spreads","7 leg today"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb spreads]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 74. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb totals","7 leg tomorrow"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb totals]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 75. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb team totals","5 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb team totals]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 76. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb over","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb over]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 77. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb under","5 leg NFL"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb under]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 78. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["7 leg mlb alt lines","7 leg today"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[7 leg mlb alt lines]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 79. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["8 leg mlb","7 leg tomorrow"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[8 leg mlb]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-### 80. [P1] propsOnly leaked from prior turn onto follow-up
-
-- **Category:** state_leak
-- **Prompt/sequence:** `["8-leg MLB","10 leg"]`
-- **Expected:** propsOnly=false (current text alone)
-- **Actual:** propsOnly=true via threadWantsPropsOnly priors=[8-leg MLB]
-- **Stage:** threadWantsPropsOnly
-- **Likely file:** `lib/slate.ts#threadWantsPropsOnly → coachAskMarketFilter.ts`
-- **Production affected:** YES
-
-_… 221 additional findings truncated in markdown (see JSON)._
 
 ## Sequential / fuzz
 
 - Sequential checks: 1872
-- Stale-leak failures: 169
+- Stale-leak failures: 0
 - Fuzz cases: 5262
-- Fuzz failures: 91
+- Fuzz failures: 0
 
 ## Sport × market × request-type matrix (sample)
 
@@ -858,15 +496,15 @@ _… 221 additional findings truncated in markdown (see JSON)._
 | mlb | fb_pass_yds | explicit_lock | PASS |
 | mlb | fb_rush_yds | explicit_lock | PASS |
 | mlb | fb_rec_yds | explicit_lock | PASS |
-| mlb | fb_completions | explicit_lock | PASS |
 | mlb | fb_pass_attempts | explicit_lock | PASS |
 | mlb | fb_rush_attempts | explicit_lock | PASS |
-| mlb | fb_receptions | explicit_lock | PASS |
-| mlb | fb_sacks | explicit_lock | PASS |
-| mlb | fb_pass_ints | explicit_lock | PASS |
 | mlb | fb_longest_completion | explicit_lock | PASS |
 | mlb | fb_longest_reception | explicit_lock | PASS |
 | mlb | fb_longest_rush | explicit_lock | PASS |
+| mlb | fb_completions | explicit_lock | PASS |
+| mlb | fb_receptions | explicit_lock | PASS |
+| mlb | fb_sacks | explicit_lock | PASS |
+| mlb | fb_pass_ints | explicit_lock | PASS |
 | mlb | fb_first_td | explicit_lock | PASS |
 | mlb | fb_touchdowns | explicit_lock | PASS |
 | mlb | fb_field_goals | explicit_lock | PASS |
@@ -903,17 +541,17 @@ _… 221 additional findings truncated in markdown (see JSON)._
 | wnba | fb_pass_yds | explicit_lock | PASS |
 | wnba | fb_rush_yds | explicit_lock | PASS |
 | wnba | fb_rec_yds | explicit_lock | PASS |
-| wnba | fb_completions | explicit_lock | PASS |
 | wnba | fb_pass_attempts | explicit_lock | PASS |
 | wnba | fb_rush_attempts | explicit_lock | PASS |
-| wnba | fb_receptions | explicit_lock | PASS |
+| wnba | fb_longest_completion | explicit_lock | PASS |
+| wnba | fb_longest_reception | explicit_lock | PASS |
 | … | 390 more rows in JSON | … | … |
 
 ## Notes
 
 - Offline harness: parser/state/fuzz/fixture-pipeline only. Large fuzz does not call paid/live APIs.
 - Live provider end-to-end validation is a separate controlled subset (not executed in this default run).
-- Documented intentional inheritance: slateDay when current ask has no date cue; propsOnly inheritance exists in threadWantsPropsOnly — bare N-leg after props-only prior is flagged as state_leak (P1) per product QA expectation.
-- Screenshot sequence stale propsOnly confirmed=true
+- Documented intentional inheritance: propsOnly only onto explicit slate-day refinements (`N … for tomorrow/tonight/today`). Bare `5 leg` after soccer/player-props must NOT inherit (RC1 fix).
+- Screenshot sequence stale propsOnly confirmed=false
 - Matrix size=3125; sequential seeds=10
 - No production Coach thresholds, selection, merge, deploy, OTA, or EAS build were changed.

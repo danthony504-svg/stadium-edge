@@ -29,15 +29,19 @@ test("request matrix covers legs 2–15 and all DEFAULT sports tags", () => {
   }
 });
 
-test("screenshot sequence: 4 leg soccer → 5 leg inherits propsOnly (known leak)", () => {
+test("screenshot sequence: 4 leg soccer → 5 leg does NOT inherit propsOnly (RC1 fix)", () => {
   const audit = screenshotSequenceAudit();
-  assert.equal(audit.stalePropsOnlyConfirmed, true);
+  assert.equal(audit.stalePropsOnlyConfirmed, false);
   const clean = snapshotAsk("5 leg", []);
   assert.equal(clean.propsOnly, false);
   assert.equal(clean.isMarketLocked, false);
-  const stale = snapshotAsk("5 leg", ["4 leg soccer"]);
-  assert.equal(stale.propsOnly, true);
-  assert.equal(stale.isMarketLocked, false);
+  const after = snapshotAsk("5 leg", ["4 leg soccer"]);
+  assert.equal(after.propsOnly, false);
+  assert.equal(after.isMarketLocked, false);
+  assert.equal(after.pathHint, "full_board_mix");
+  // Current-request props intent still works.
+  assert.equal(snapshotAsk("5 player props", []).propsOnly, true);
+  assert.equal(snapshotAsk("5 leg player props", []).propsOnly, true);
 });
 
 test("sequential seeds: TD/yards/sacks market lock resets on bare 5 leg", () => {
@@ -49,14 +53,21 @@ test("sequential seeds: TD/yards/sacks market lock resets on bare 5 leg", () => 
   }
 });
 
-test("sequential seed suite flags soccer→5 leg propsOnly leak", () => {
+test("sequential seed: soccer→5 leg propsOnly no longer leaks (RC1)", () => {
   const results = checkSequentialTransition(
     "soccer-to-bare",
     "4 leg soccer",
     "5 leg",
     ["propsOnly", "sport", "marketLock"],
   );
-  assert.ok(results.some((r) => !r.ok && r.finding?.category === "state_leak"));
+  assert.ok(results.every((r) => r.ok), JSON.stringify(results.filter((r) => !r.ok)));
+  const afterProps = checkSequentialTransition(
+    "playerprops-to-bare",
+    "5 leg player props",
+    "5 leg",
+    ["propsOnly", "marketLock"],
+  );
+  assert.ok(afterProps.every((r) => r.ok));
 });
 
 test("run full Coach QA harness and write report artifacts", () => {
@@ -75,7 +86,16 @@ test("run full Coach QA harness and write report artifacts", () => {
 
   assert.ok(report.totals.tests > 1000, `expected large suite, got ${report.totals.tests}`);
   assert.ok(markdown.includes("AI COACH QA REPORT"));
-  assert.equal(screenshot.stalePropsOnlyConfirmed, true);
+  assert.equal(screenshot.stalePropsOnlyConfirmed, false);
+
+  // P1 RCs should be cleared; RC3 P2 college locks may remain.
+  const failFindings = report.findings.filter(
+    (f) =>
+      !String(f.title).startsWith("Live failure-injection") &&
+      f.title !== "Suspicious prop flagged for review",
+  );
+  const p1 = failFindings.filter((f) => f.severity === "P1");
+  assert.equal(p1.length, 0, `unexpected P1: ${p1.slice(0, 5).map((f) => f.title).join("; ")}`);
 
   // Also mirror to /opt/cursor/artifacts when available
   try {
@@ -90,6 +110,7 @@ test("run full Coach QA harness and write report artifacts", () => {
           findingCount: report.findings.length,
           screenshot,
           seed: report.seed,
+          p1Remaining: p1.length,
         },
         null,
         2,

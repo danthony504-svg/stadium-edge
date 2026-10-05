@@ -95,6 +95,35 @@ test("threadWantsPropsOnly inherits prior player-prop ask onto slate refinement"
   );
 });
 
+test("threadWantsPropsOnly: bare/generic follow-ups do not inherit prior props-only", () => {
+  assert.equal(
+    threadWantsPropsOnly("5 leg", ["4 leg soccer"]),
+    false,
+    "screenshot: soccer N-leg must not contaminate bare 5 leg",
+  );
+  assert.equal(
+    threadWantsPropsOnly("5 leg", ["5 leg player props"]),
+    false,
+  );
+  assert.equal(
+    threadWantsPropsOnly("10 leg", ["7 leg player props"]),
+    false,
+  );
+  assert.equal(
+    threadWantsPropsOnly("5 leg NFL", ["4 leg soccer"]),
+    false,
+  );
+  assert.equal(
+    threadWantsPropsOnly("7 leg today", ["4 leg soccer"]),
+    false,
+    "bare N-leg + day without 'for' is a new ask",
+  );
+  // Current-request props intent still wins without priors.
+  assert.equal(wantsPropsOnly("5 player props"), true);
+  assert.equal(threadWantsPropsOnly("5 player props", []), true);
+  assert.equal(threadWantsPropsOnly("5 leg player props", ["5 leg"]), true);
+});
+
 test("effectiveBuildLegCount defaults bare parlay asks onto the compact path", () => {
   assert.equal(effectiveBuildLegCount("Build me a player props only parlay"), 6);
   assert.equal(effectiveBuildLegCount("build me a parlay"), 8);

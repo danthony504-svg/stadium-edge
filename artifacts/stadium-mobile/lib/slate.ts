@@ -595,9 +595,35 @@ export function wantsMixedSportsAsk(text?: string | null): boolean {
 }
 
 /**
- * Inherit props-only from a prior user turn (same pattern as tonight/tomorrow slate).
- * "5 leg for tomorrow" after "7 leg NFL player props" must stay props-only —
- * bare slate refinement alone is mix, but an explicit prior props ask inherits.
+ * True when THIS turn is only a slate-day refinement of an existing ticket
+ * ("5 leg for tomorrow" / "make it 5 for tomorrow") — not a new standalone ask.
+ * Bare "5 leg", "5 leg NFL", "7 leg today" start a new ticket from current text.
+ */
+export function isPropsOnlySlateRefinementAsk(
+  text: string | null | undefined,
+): boolean {
+  const cur = String(text ?? "").toLowerCase().trim();
+  if (!cur) return false;
+  // Require explicit "for <day>" — bare "N leg tonight/today" is a new ask.
+  if (!/\bfor\s+(tonight|today|tomorrow)\b/.test(cur)) return false;
+  // Must still name a count (leg target or "make it N").
+  if (!/\b\d{1,3}\b/.test(cur)) return false;
+  // Sport / league token = new scoped ticket, not a pure day refinement.
+  if (
+    /\b(nfl|ncaaf|cfb|nba|mlb|nhl|wnba|ncaab|soccer|ufc|tennis|football|college|collage)\b/.test(
+      cur,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Inherit props-only from a prior user turn ONLY onto documented slate-day
+ * refinements: "5 leg for tomorrow" after "7 leg NFL player props".
+ * Bare "5 leg" / "5 leg NFL" / "7 leg today" after soccer or player-props must
+ * NOT inherit — propsOnly comes from the current request alone.
  */
 export function threadWantsPropsOnly(
   current: string | null | undefined,
@@ -614,6 +640,8 @@ export function threadWantsPropsOnly(
   if (/\bteam\s+props?\b/.test(cur) && !/\bplayer\s+props?\b/.test(cur)) return false;
   if (wantsMixedSportsAsk(cur)) return false;
   if (/\b(spread|total|moneyline)\b/.test(cur)) return false;
+  // New standalone / generic tickets do not inherit prior props-only intent.
+  if (!isPropsOnlySlateRefinementAsk(cur)) return false;
   for (let i = priorUserTexts.length - 1; i >= 0; i--) {
     if (wantsPropsOnly(priorUserTexts[i])) return true;
   }

@@ -106,7 +106,7 @@ export function runCoachQaHarness(opts?: {
     notes: [
       "Offline harness: parser/state/fuzz/fixture-pipeline only. Large fuzz does not call paid/live APIs.",
       "Live provider end-to-end validation is a separate controlled subset (not executed in this default run).",
-      "Documented intentional inheritance: slateDay when current ask has no date cue; propsOnly inheritance exists in threadWantsPropsOnly — bare N-leg after props-only prior is flagged as state_leak (P1) per product QA expectation.",
+      "Documented intentional inheritance: propsOnly only onto explicit slate-day refinements (`N … for tomorrow/tonight/today`). Bare `5 leg` after soccer/player-props must NOT inherit (RC1 fix).",
       `Screenshot sequence stale propsOnly confirmed=${screenshot.stalePropsOnlyConfirmed}`,
       `Matrix size=${generateRequestMatrix().length}; sequential seeds=${sequentialTransitionSeeds().length}`,
       "No production Coach thresholds, selection, merge, deploy, OTA, or EAS build were changed.",
