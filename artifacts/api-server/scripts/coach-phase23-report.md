@@ -125,3 +125,15 @@ vs baseline max 34.5s → **29.8s**; median 29.1 → **27.2s**.
 2. Game-sim effective concurrency 2→4 as benched.  
 3. Fresh submit→final improved (median ~27.2s / max ~29.8s vs 29.1 / 34.5).  
 4. Do **not** merge/deploy until authorized — Render still needs this server change for production clients to receive `playerHistories`.
+
+---
+
+## Follow-up (this turn) — remaining latency variance
+
+See `coach-phase23-latency-variance-report.md` + `coach-phase23-latency-attribution.json`.
+
+- History sharing unchanged.
+- Fresh critical path = gameSim provider HTTP (~17s).
+- Warm critical path = propSim ctx/history miss (~13.2s every consecutive warm run; reproducible).
+- NFL 7→6 = staging after 21 qualified; another legitimate candidate available.
+- No merge / deploy / OTA / EAS.

@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-10-05T22:23:41.243Z",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "funnel": {
+    "requested": 7,
+    "returned": 6,
+    "shortfall": true,
+    "eligiblePosted": {
+      "propPoolSize": 902,
+      "oddsGameCount": 1,
+      "gameEntryCount": 1
+    },
+    "simulated": {
+      "gameSimsLoaded": 1,
+      "gameLegsScored": 794,
+      "propSimEvaluated": 35,
+      "propLegsScored": 7
+    },
+    "qualified": {
+      "scoredBeforeStage": 21
+    },
+    "staging": {
+      "requirePropMix": true,
+      "note": "_Scanned the entire board \u2014 2201 posted lines across live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to markets, first 5 innings, innings, first half, second half, first quarter, second quarter, third quarter, first period, second period, third period, player props, alternate player props, combo props, and any other sportsbook-posted markets (10k s"
+    },
+    "final": [
+      {
+        "pick": "Zachariah Branch Over 0.5 Receptions",
+        "isProp": true,
+        "market": "Receptions",
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "sport": "nfl",
+        "grade": "A-",
+        "edge": null,
+        "simHit": 0.98
+      },
+      {
+        "pick": "Brian Robinson Jr. Over 30.5 Rush Yds",
+        "isProp": true,
+        "market": "Rush Yds",
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "sport": "nfl",
+        "grade": "B+",
+        "edge": null,
+        "simHit": 0.779
+      },
+      {
+        "pick": "Falcons +3.5",
+        "isProp": false,
+        "market": "Q1 Spread",
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "sport": "nfl",
+        "grade": "A",
+        "edge": null,
+        "simHit": 0.98
+      },
+      {
+        "pick": "Falcons ML",
+        "isProp": false,
+        "market": "Q1 Moneyline",
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "sport": "nfl",
+        "grade": "A-",
+        "edge": null,
+        "simHit": 0.826
+      },
+      {
+        "pick": "Falcons Over 9.5",
+        "isProp": false,
+        "market": "1H Alt Team Total",
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "sport": "nfl",
+        "grade": "A+",
+        "edge": null,
+        "simHit": 0.993
+      },
+      {
+        "pick": "Falcons Over 9.5",
+        "isProp": false,
+        "market": "2H Team Total",
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "sport": "nfl",
+        "grade": "A+",
+        "edge": null,
+        "simHit": 0.992
+      }
+    ],
+    "sameGameStacks": [
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "count": 6,
+        "legs": [
+          "Receptions: Zachariah Branch Over 0.5 Receptions",
+          "Rush Yds: Brian Robinson Jr. Over 30.5 Rush Yds",
+          "Q1 Spread: Falcons +3.5",
+          "Q1 Moneyline: Falcons ML",
+          "1H Alt Team Total: Falcons Over 9.5",
+          "2H Team Total: Falcons Over 9.5"
+        ]
+      }
+    ]
+  },
+  "disappearance": "staging_correlation_diversity_or_per_game_cap",
+  "analysis": "Board produced enough qualified candidates (scoredBeforeStage \u2265 7) but staging could only place 6 without violating per-game / correlation / prop-mix / diversity caps. Another legitimate qualified candidate existed in the qualified pool but was excluded by staging policy \u2014 not by empty board or lowered thresholds.",
+  "anotherLegitimateQualifiedAvailable": true,
+  "doNot": "Do not lower thresholds or add filler."
+}
