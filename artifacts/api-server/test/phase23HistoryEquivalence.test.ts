@@ -52,8 +52,8 @@ describe("Phase 2.3 MC equivalence from shared history", () => {
       ownKeyInjuries: 0,
       weatherImpact: null,
     };
-    const a = simulateProp(req, h1, game, "deep", 10_000);
-    const b = simulateProp(req, h2, game, "deep", 10_000);
+    const a = simulateProp(req, h1, game, 10_000, { seed: 42 });
+    const b = simulateProp(req, h2, game, 10_000, { seed: 42 });
     assert.equal(a.hitProbability, b.hitProbability);
     assert.equal(a.meanProjection, b.meanProjection);
     assert.equal(a.confidenceScore, b.confidenceScore);
