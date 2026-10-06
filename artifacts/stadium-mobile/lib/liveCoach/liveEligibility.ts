@@ -6,6 +6,9 @@
 import type { NormalizedLiveMarket } from "./types.ts";
 import {
   hasUsableLiveClock,
+  isEndOfRegulationTransition,
+  isExplicitOvertimeState,
+  parseEndOfPeriodLabel,
   type LiveBasketballSport,
 } from "./remainingGameSim.ts";
 
@@ -65,6 +68,30 @@ export function evaluateLiveRecommendationEligibility(
     reasons.push("missing_usable_clock");
   }
 
+  // End of 4th / regulation→OT transition: fail closed for regulation mains
+  // unless the board is explicitly in a live OT state.
+  if (isEndOfRegulationTransition(m.period, m.periodLabel)) {
+    reasons.push("end_of_regulation_awaiting_ot");
+  }
+
+  // Period transitions without a genuine provider timestamp cannot prove the
+  // sportsbook quote still matches the board (fetchedAt ≠ provider sync).
+  if (
+    parseEndOfPeriodLabel(m.periodLabel) &&
+    (m.providerLastUpdate == null || String(m.providerLastUpdate).trim() === "")
+  ) {
+    reasons.push("transition_unsynchronized_quote");
+  }
+
+  // Explicit OT required for period≥5 recommendations; otherwise reject.
+  if (
+    m.period != null &&
+    m.period >= 5 &&
+    !isExplicitOvertimeState(m.period, m.periodLabel)
+  ) {
+    reasons.push("ot_state_not_explicit");
+  }
+
   const market = String(m.market ?? "").toLowerCase();
   if (market === "spread" || market === "total") {
     if (m.line == null || !Number.isFinite(m.line)) {
@@ -89,7 +116,11 @@ export function evaluateLiveRecommendationEligibility(
   if (m.marketStatus === "closed") reasons.push("closed");
   if (m.marketStatus === "unknown") reasons.push("unknown_market_status");
   if (m.marketStatus !== "open") {
-    if (!reasons.includes("suspended") && !reasons.includes("closed") && !reasons.includes("unknown_market_status")) {
+    if (
+      !reasons.includes("suspended") &&
+      !reasons.includes("closed") &&
+      !reasons.includes("unknown_market_status")
+    ) {
       reasons.push("market_not_open");
     }
   }

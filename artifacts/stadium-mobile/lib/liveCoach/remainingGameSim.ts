@@ -116,21 +116,78 @@ export function isHalftimeClock(
   const c = String(clock ?? "").trim().toLowerCase();
   const pl = String(periodLabel ?? "").trim().toLowerCase();
   if (c === "ht" || c === "half" || c === "halftime") return true;
-  if (/\bhalftime\b|\bhalf\b/.test(pl) && !/\d/.test(pl.replace(/1st|2nd|3rd|4th/g, ""))) {
-    return /halftime|half\s*time|^ht$|half/.test(pl);
+  if (/halftime|half\s*time/.test(pl)) return true;
+  // "End of 2nd" / Halftime transition — completedPeriod 2.
+  const end = parseEndOfPeriodLabel(periodLabel);
+  return end?.kind === "halftime";
+}
+
+/**
+ * ESPN period-transition labels ("End of 4th", "Halftime", …).
+ * When present, a reset displayClock like "12:00" must NOT be read as time
+ * still left in the period that just ended.
+ */
+export type EndOfPeriodTransition =
+  | { kind: "halftime"; completedPeriod: 2 }
+  | { kind: "end_of_quarter"; completedPeriod: 1 | 2 | 3 | 4 };
+
+export function parseEndOfPeriodLabel(
+  periodLabel?: string | null,
+): EndOfPeriodTransition | null {
+  const pl = String(periodLabel ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!pl) return null;
+  if (/halftime|half\s*time/.test(pl) || pl === "ht" || pl === "half") {
+    return { kind: "halftime", completedPeriod: 2 };
   }
-  return /halftime|half\s*time/.test(pl);
+  const m = pl.match(
+    /\bend(?:\s+of)?\s+(?:the\s+)?(1st|2nd|3rd|4th|first|second|third|fourth)(?:\s+q(?:tr|uarter)?)?\b/,
+  );
+  if (!m) return null;
+  const token = m[1]!;
+  const completedPeriod =
+    token === "1st" || token === "first"
+      ? 1
+      : token === "2nd" || token === "second"
+        ? 2
+        : token === "3rd" || token === "third"
+          ? 3
+          : 4;
+  if (completedPeriod === 2) return { kind: "halftime", completedPeriod: 2 };
+  return { kind: "end_of_quarter", completedPeriod };
+}
+
+/** True when regulation has ended and we are not yet in an explicit OT state. */
+export function isEndOfRegulationTransition(
+  period: number | null | undefined,
+  periodLabel?: string | null,
+): boolean {
+  const end = parseEndOfPeriodLabel(periodLabel);
+  if (!end || end.completedPeriod !== 4) return false;
+  return !isExplicitOvertimeState(period, periodLabel);
+}
+
+/** Explicit OT / OT clock — not "End of 4th" awaiting OT. */
+export function isExplicitOvertimeState(
+  period: number | null | undefined,
+  periodLabel?: string | null,
+): boolean {
+  if (period != null && Number.isFinite(period) && period >= 5) return true;
+  const pl = String(periodLabel ?? "").toLowerCase();
+  if (!pl) return false;
+  if (/\bend\s+of\b/.test(pl)) return false;
+  return /\bot\b|\bovertime\b/.test(pl);
 }
 
 /**
  * Usable clock for Live Coach eligibility:
  * - parseable M:SS countdown, or
- * - known halftime marker
+ * - known halftime / end-of-period transition marker
  */
 export function hasUsableLiveClock(
   clock: string | null | undefined,
   periodLabel?: string | null,
 ): boolean {
+  if (parseEndOfPeriodLabel(periodLabel)) return true;
   if (isHalftimeClock(clock, periodLabel)) return true;
   return parseCountdownClockSeconds(clock) != null;
 }
@@ -138,6 +195,9 @@ export function hasUsableLiveClock(
 /**
  * Remaining regulation (+ OT period) minutes from current period + clock.
  * Returns null when period/clock cannot ground a remaining-time estimate.
+ *
+ * End-of-period labels force the completed period to 0:00 remaining so a
+ * reset ESPN displayClock ("12:00") is never treated as time still left.
  */
 export function remainingMinutesFromState(opts: {
   sport: LiveBasketballSport;
@@ -151,6 +211,22 @@ export function remainingMinutesFromState(opts: {
 
   if (!Number.isFinite(period) || period < 1) return null;
 
+  // Period-transition / end-of-period: completed period → 0 remaining in it.
+  const end = parseEndOfPeriodLabel(opts.periodLabel);
+  if (end) {
+    if (end.completedPeriod === 4) {
+      // Regulation over. OT only when explicitly active (caller gate).
+      if (isExplicitOvertimeState(period, opts.periodLabel)) {
+        const clockSec = parseCountdownClockSeconds(opts.clock);
+        if (clockSec == null) return null;
+        return Math.max(0, Math.min(otLen, clockSec / 60));
+      }
+      return 0;
+    }
+    // End of 1st / 2nd(halftime) / 3rd → only later regulation quarters remain.
+    return Math.max(0, (4 - end.completedPeriod) * qLen);
+  }
+
   if (isHalftimeClock(opts.clock, opts.periodLabel)) {
     // Start of 2nd half = Q3 + Q4.
     return qLen * 2;
@@ -160,7 +236,7 @@ export function remainingMinutesFromState(opts: {
   if (clockSec == null) return null;
   const clockMin = clockSec / 60;
 
-  if (period >= 5) {
+  if (period >= 5 || isExplicitOvertimeState(period, opts.periodLabel)) {
     // In OT: only current OT clock remains (do not invent further OTs).
     return Math.max(0, Math.min(otLen, clockMin));
   }
@@ -177,10 +253,14 @@ export function elapsedMinutesFromState(opts: {
 }): number | null {
   const rem = remainingMinutesFromState(opts);
   if (rem == null) return null;
-  if (opts.period >= 5) {
+  if (opts.period >= 5 || isExplicitOvertimeState(opts.period, opts.periodLabel)) {
     // Elapsed = full regulation + (OT length - remaining in this OT).
     const otLen = otLengthMinutes(opts.sport);
     return regulationMinutes(opts.sport) + (otLen - rem);
+  }
+  const end = parseEndOfPeriodLabel(opts.periodLabel);
+  if (end) {
+    return end.completedPeriod * periodLengthMinutes(opts.sport);
   }
   if (isHalftimeClock(opts.clock, opts.periodLabel)) {
     return regulationMinutes(opts.sport) / 2;

@@ -5,6 +5,7 @@
 
 import { classifyLivePriceFreshness } from "./liveFreshness.ts";
 import { detectLiveGameStateAdvance } from "./liveGameStateAdvance.ts";
+import { parseEndOfPeriodLabel } from "./remainingGameSim.ts";
 import type {
   LiveGameStateRecord,
   LiveMarketStatus,
@@ -94,8 +95,19 @@ export function normalizeLiveMarkets(opts: {
     const advance = detectLiveGameStateAdvance(game, price.quoteGameState ?? undefined);
 
     const unsafeReasons: string[] = [];
-    if (freshness.status === "stale") unsafeReasons.push("stale_price");
-    if (freshness.status === "unknown") unsafeReasons.push("unknown_freshness");
+    // Period transitions: fetchedAt alone ≠ sportsbook sync with the board.
+    // Keep ageMs from fetchedAt for display, but do not treat as trustworthy fresh.
+    const inPeriodTransition = parseEndOfPeriodLabel(game.periodLabel) != null;
+    const providerMissing =
+      price.providerLastUpdate == null || String(price.providerLastUpdate).trim() === "";
+    let freshnessStatus = freshness.status;
+    if (inPeriodTransition && providerMissing && freshness.ageSource !== "providerLastUpdate") {
+      freshnessStatus = "unknown";
+      unsafeReasons.push("transition_unsynchronized_quote");
+    }
+
+    if (freshnessStatus === "stale") unsafeReasons.push("stale_price");
+    if (freshnessStatus === "unknown") unsafeReasons.push("unknown_freshness");
     if (marketStatus === "suspended") unsafeReasons.push("suspended");
     if (marketStatus === "closed") unsafeReasons.push("closed");
     if (marketStatus === "unknown") unsafeReasons.push("unknown_market_status");
@@ -123,7 +135,7 @@ export function normalizeLiveMarkets(opts: {
       price: price.price,
       providerLastUpdate: price.providerLastUpdate,
       fetchedAt: price.fetchedAt,
-      freshness: freshness.status,
+      freshness: freshnessStatus,
       ageMs: freshness.ageMs,
       marketStatus,
       gameStateAdvanced: advance.advanced,
