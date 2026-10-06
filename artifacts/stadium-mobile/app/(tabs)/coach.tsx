@@ -39,6 +39,10 @@ import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } fr
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
 import { isParlayBuildAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
 import {
+  buildLiveCoachRecommendations,
+  wantsLiveCoachAsk,
+} from "@/lib/liveCoach";
+import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
   coachPropLoadFailsafeMs,
@@ -355,12 +359,15 @@ export default function CoachScreen() {
       const previewUris = images.length ? images.map((im) => im.uri) : undefined;
 
       const sendGen = ++sendGenRef.current;
+      const liveAsk = wantsLiveCoachAsk(text);
       const requestedLegs = resolveBuildLegTarget(text);
-      const parlayBuild = isParlayBuildAsk(text) && requestedLegs >= 3 && !hasOutgoingImages;
+      // Live Coach asks never enter pregame buildParlay — even when they look like N-pick counts.
+      const parlayBuild =
+        !liveAsk && isParlayBuildAsk(text) && requestedLegs >= 3 && !hasOutgoingImages;
       sessionAskTextRef.current = text;
       beginCoachSession(sessionRef.current, {
         sendGen,
-        requestedLegs: parlayBuild ? requestedLegs : 0,
+        requestedLegs: liveAsk ? requestedLegs || 3 : parlayBuild ? requestedLegs : 0,
       });
       abortRef.current?.abort();
       const abort = new AbortController();
@@ -381,10 +388,12 @@ export default function CoachScreen() {
         building: true,
         buildStatus: hasOutgoingImages
           ? "Reading your ticket photo…"
-          : parlayBuild
-            ? "Starting board scan…"
-            : "Thinking…",
-        requestedLegs: parlayBuild ? requestedLegs || undefined : undefined,
+          : liveAsk
+            ? "Scanning LIVE board…"
+            : parlayBuild
+              ? "Starting board scan…"
+              : "Thinking…",
+        requestedLegs: liveAsk || parlayBuild ? requestedLegs || undefined : undefined,
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setDraft("");
@@ -497,6 +506,30 @@ export default function CoachScreen() {
             picks,
             text: picks.length ? "" : streamed.trim(),
             requestedLegs: picks.length || 0,
+          });
+          return;
+        }
+
+        // ---- Live Coach Phase 2A (NBA/WNBA live mains only) ----
+        // Isolated from buildParlay / pregame Monte Carlo. Never lowers quality to fill.
+        if (liveAsk) {
+          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+          patchAssistant(assistantId, { buildStatus: "Scanning LIVE NBA/WNBA board…" });
+          const liveResult = await buildLiveCoachRecommendations({
+            askText: text,
+            signal: abort.signal,
+            onStatus: (status) => {
+              if (sendGenRef.current !== sendGen) return;
+              patchAssistant(assistantId, { buildStatus: status });
+            },
+          });
+          if (sendGenRef.current !== sendGen) return;
+          if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
+          const liveLegs = liveResult.intent.count || requestedLegs || 3;
+          finishSession(assistantId, {
+            picks: liveResult.picks,
+            text: sanitizeCoachUserNote(liveResult.note),
+            requestedLegs: liveLegs,
           });
           return;
         }
