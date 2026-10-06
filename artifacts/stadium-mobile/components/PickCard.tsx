@@ -130,6 +130,30 @@ export type ParsedPick = {
   propsOnlyTicket?: boolean;
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
+  /**
+   * Live Coach Phase 2A metadata — when set, the card shows a LIVE badge plus
+   * live score / period / clock / freshness. Never used by pregame Coach.
+   */
+  liveCoach?: {
+    live: true;
+    matchup: string;
+    score: string;
+    awayScore: number | null;
+    homeScore: number | null;
+    period: number | null;
+    periodLabel: string | null;
+    clock: string | null;
+    line: number | null;
+    price: number;
+    freshness: string;
+    ageMs: number | null;
+    edgePct: number;
+    fairProb: number;
+    impliedProb: number;
+    confidencePct: number;
+    source: string | null;
+    eventId: string;
+  };
 };
 
 if (
@@ -718,8 +742,16 @@ export function PickCard({
     caption: "Alternate rung — positive EV, edge, and sim grade",
     tone: "grade" as const,
   };
+  const liveMeta = pick.liveCoach;
+  const livePickBadge = liveMeta
+    ? {
+        text: "LIVE",
+        caption: `${liveMeta.score} · ${liveMeta.periodLabel ?? (liveMeta.period != null ? `Q${liveMeta.period}` : "")}${liveMeta.clock ? ` ${liveMeta.clock}` : ""} · edge ${liveMeta.edgePct > 0 ? "+" : ""}${liveMeta.edgePct.toFixed(1)}% · ${liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"}${liveMeta.freshness === "fresh" ? " fresh" : ""}`.replace(/\s+/g, " ").trim(),
+        tone: "value" as const,
+      }
+    : null;
   const isAltLeg = pickShowsAltBadge(pick);
-  const cardBadge = isAltLeg ? altPickBadge : badge;
+  const cardBadge = livePickBadge ?? (isAltLeg ? altPickBadge : badge);
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
   // FULL team name (multi-word national teams) on a 3-way line, so "Canada -0.5"
@@ -881,7 +913,27 @@ export function PickCard({
           ) : null}
         </View>
         <MatchupLine game={pick.game} />
-        {formatGameTime(pick.startsAt) ? (
+        {liveMeta ? (
+          <View style={{ gap: 2, marginTop: -2 }}>
+            <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12 }}>
+              LIVE · {liveMeta.score}
+              {liveMeta.periodLabel || liveMeta.period != null
+                ? ` · ${liveMeta.periodLabel ?? `Q${liveMeta.period}`}`
+                : ""}
+              {liveMeta.clock ? ` ${liveMeta.clock}` : ""}
+            </Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {pick.market}
+              {liveMeta.line != null ? ` ${liveMeta.line}` : ""} · {formatAmerican(liveMeta.price)}
+              {" · "}
+              {liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"}{" "}
+              ({liveMeta.freshness})
+              {" · "}
+              edge {liveMeta.edgePct > 0 ? "+" : ""}
+              {liveMeta.edgePct.toFixed(1)}% · conf {liveMeta.confidencePct}%
+            </Text>
+          </View>
+        ) : formatGameTime(pick.startsAt) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
             <Feather name="clock" size={11} color={colors.mutedForeground} />
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>

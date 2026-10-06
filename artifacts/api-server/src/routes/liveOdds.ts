@@ -47,6 +47,11 @@ type LiveOddsEntry = {
   providerLastUpdate: string | null;
   line: number | null;
   startsAt?: string | null;
+  /**
+   * When pickcenter returns a live quote for an in-progress game, the market is
+   * open for Live Coach. Suspended/closed are reserved for explicit upstream signals.
+   */
+  marketStatus: "open";
 };
 
 type LiveGameEntry = {
@@ -292,6 +297,7 @@ router.get("/sports/live-odds", async (req, res): Promise<void> => {
           fetchedAt,
           providerLastUpdate,
           startsAt: state.startsAt,
+          marketStatus: "open",
         };
         odds.push(...linesFromPickcenter(sport, state.matchup, liveMeta, pc));
       }

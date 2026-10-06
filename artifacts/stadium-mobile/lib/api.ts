@@ -2393,6 +2393,7 @@ export type LiveOddsFeed = {
       fetchedAt?: string;
       providerLastUpdate?: string | null;
       line?: number | null;
+      marketStatus?: "open" | "suspended" | "closed" | "unknown" | null;
     }
   >;
   /** Board assembly timestamp (ISO). Distinct from per-quote providerLastUpdate. */
