@@ -43,7 +43,7 @@ export function liveCoverQueryFromMarket(m: NormalizedLiveMarket): LiveCoverQuer
     return { id, kind: "ml", teamSide: side };
   }
 
-  if (market === "spread") {
+  if (market === "spread" || market === "puck line" || market === "puckline") {
     const side = resolveTeamSide(m);
     if (!side) return null;
     if (m.line == null || !Number.isFinite(m.line)) return null;

@@ -510,7 +510,7 @@ export default function CoachScreen() {
           return;
         }
 
-        // ---- Live Coach (NBA/WNBA/NFL live mains) ----
+        // ---- Live Coach (NBA/WNBA/NFL/NHL live mains) ----
         // Isolated from buildParlay / pregame Monte Carlo. Never lowers quality to fill.
         if (liveAsk) {
           armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);

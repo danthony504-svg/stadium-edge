@@ -25,6 +25,7 @@ import {
   type LiveMarketGrade,
 } from "./liveMarketGrade.ts";
 import {
+  attachNhlSettlementToCoverQuery,
   runRemainingGameSim,
   type LiveCoachSport,
   type LiveCoverQuery,
@@ -172,8 +173,9 @@ function sportList(intent: LiveCoachIntent): LiveCoachSport[] {
   if (intent.sport === "nba") return ["nba"];
   if (intent.sport === "wnba") return ["wnba"];
   if (intent.sport === "nfl") return ["nfl"];
-  // best live bets → all enabled live sports
-  return ["nba", "wnba", "nfl"];
+  if (intent.sport === "nhl") return ["nhl"];
+  // best live bets / N live → all enabled live sports
+  return ["nba", "wnba", "nfl", "nhl"];
 }
 
 function feedToNormalized(opts: {
@@ -291,10 +293,17 @@ export async function buildLiveCoachRecommendations(
     const queries: LiveCoverQuery[] = [];
     const queryByMarketKey = new Map<string, LiveCoverQuery>();
     for (const m of eventMarkets) {
-      const q = liveCoverQueryFromMarket(m);
+      let q = liveCoverQueryFromMarket(m);
       if (!q) {
         rejectedCount += 1;
         continue;
+      }
+      if (sport === "nhl") {
+        q = attachNhlSettlementToCoverQuery(q, m.market, m.pick);
+        if (!q) {
+          rejectedCount += 1;
+          continue;
+        }
       }
       queries.push(q);
       queryByMarketKey.set(marketKey(m), q);
@@ -376,7 +385,9 @@ export async function buildLiveCoachRecommendations(
         ? "WNBA"
         : intent.sport === "nfl"
           ? "NFL"
-          : "NBA/WNBA/NFL";
+          : intent.sport === "nhl"
+            ? "NHL"
+            : "NBA/WNBA/NFL/NHL";
 
   let note = "";
   if (picked.length === 0) {

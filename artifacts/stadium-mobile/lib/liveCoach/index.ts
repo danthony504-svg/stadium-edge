@@ -1,5 +1,5 @@
 /**
- * Live Coach Phase 1 + Phase 2A/2B (NBA/WNBA/NFL live mains).
+ * Live Coach Phase 1 + 2A/2B/3A (NBA/WNBA/NFL/NHL live mains).
  * Pregame Coach routing (buildParlay / isPregameBettable) stays untouched.
  */
 
@@ -34,12 +34,18 @@ export {
   parseEndOfPeriodLabel,
   isEndOfRegulationTransition,
   isExplicitOvertimeState,
+  isExplicitShootoutState,
+  isFinalState,
   isLiveCoachSport,
   createLiveSimRng,
   leagueBaselinePpg,
   regulationMinutes,
   periodLengthMinutes,
+  regulationPeriodCount,
+  overtimePeriodNumber,
+  attachNhlSettlementToCoverQuery,
 } from "./remainingGameSim.ts";
+export { resolveNhlLiveMarketSettlement } from "./nhlMarketSettlement.ts";
 export {
   evaluateLiveRecommendationEligibility,
   isLiveRecommendationEligible,
@@ -47,6 +53,7 @@ export {
   isLivePhase2aSport,
   LIVE_PHASE2A_SPORTS,
   LIVE_PHASE2B_SPORTS,
+  LIVE_PHASE3A_SPORTS,
   LIVE_COACH_SPORTS,
 } from "./liveEligibility.ts";
 export {
