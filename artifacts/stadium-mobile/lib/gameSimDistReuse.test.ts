@@ -29,6 +29,10 @@ import {
   type GameCoverQuery,
 } from "./gameSimScoring.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
+import {
+  buildStagedTicketFromScan,
+  type BoardScoredLeg,
+} from "./ticketStaging.ts";
 
 const N = 10_000;
 
@@ -455,4 +459,241 @@ test("reuse stats: raceTo bypass increments bypass counter", () => {
   assert.equal(getGameSimDistReuseStats().bypass, 1);
   assert.equal(getGameSimDistReuseStats().hits, 0);
   assert.equal(getGameSimDistReuseStats().misses, 0);
+});
+
+test("A≡C extends through qualification, ordering, correlation/diversity, final ticket", () => {
+  clearGameSimDistReuseForTests();
+  const sim = makeSim(seededOutcomes(21));
+
+  // Shareable FG markets only — ML / spread / total / TT + compatible ALTs.
+  // All on one known parseable matchup so cover-query construction is reliable.
+  const game = "Boston Celtics @ New York Knicks";
+  const pickSpecs: Array<{
+    market: string;
+    pick: string;
+    odds: number;
+    composite: number;
+    grade: string;
+    confidencePct: number;
+  }> = [
+    { market: "Moneyline", pick: "Knicks ML", odds: -140, composite: 8.2, grade: "B+", confidencePct: 62 },
+    { market: "Moneyline", pick: "Celtics ML", odds: +120, composite: 7.0, grade: "B-", confidencePct: 54 },
+    { market: "Spread", pick: "Knicks -3.5", odds: -110, composite: 8.0, grade: "B+", confidencePct: 60 },
+    { market: "Spread", pick: "Knicks -6.5", odds: +115, composite: 7.1, grade: "B", confidencePct: 56 },
+    { market: "Spread", pick: "Celtics +3.5", odds: -105, composite: 7.5, grade: "B", confidencePct: 57 },
+    { market: "Total", pick: "Over 224.5", odds: -110, composite: 7.8, grade: "B", confidencePct: 58 },
+    { market: "Total", pick: "Under 224.5", odds: -110, composite: 7.6, grade: "B", confidencePct: 57 },
+    { market: "Total", pick: "Over 230.5", odds: +100, composite: 7.2, grade: "B-", confidencePct: 55 },
+    {
+      market: "Team Total",
+      pick: "New York Knicks Over 112.5",
+      odds: -115,
+      composite: 7.4,
+      grade: "B",
+      confidencePct: 56,
+    },
+    {
+      market: "Team Total",
+      pick: "Boston Celtics Under 110.5",
+      odds: -105,
+      composite: 7.3,
+      grade: "B",
+      confidencePct: 55,
+    },
+  ];
+
+  // Second game so correlation/diversity staging has cross-game choices.
+  const game2 = "Dallas Mavericks @ Denver Nuggets";
+  const pickSpecs2: typeof pickSpecs = [
+    { market: "Moneyline", pick: "Nuggets ML", odds: -150, composite: 8.1, grade: "B+", confidencePct: 61 },
+    { market: "Spread", pick: "Nuggets -4.5", odds: -110, composite: 7.9, grade: "B+", confidencePct: 59 },
+    { market: "Total", pick: "Over 228.5", odds: -108, composite: 7.4, grade: "B", confidencePct: 56 },
+    { market: "Spread", pick: "Mavericks +4.5", odds: -105, composite: 7.2, grade: "B-", confidencePct: 55 },
+  ];
+
+  const allSpecs = [
+    ...pickSpecs.map((s) => ({ ...s, game })),
+    ...pickSpecs2.map((s) => ({ ...s, game: game2 })),
+  ];
+
+  function buildLegSnapshot(mode: "A" | "C") {
+    clearGameSimDistReuseForTests();
+    const queries = allSpecs.map((s) =>
+      buildGameCoverQuery(
+        gamePick({
+          game: s.game,
+          market: s.market,
+          pick: s.pick,
+          odds: s.odds,
+          sport: "nba",
+        }),
+      ),
+    );
+    const usable = allSpecs
+      .map((s, i) => ({ s, q: queries[i]! }))
+      .filter((x) => x.q != null);
+    assert.ok(usable.length >= 10, `expected parseable FG queries, got ${usable.length}`);
+
+    const rates = deriveCoverHitRatesFromOutcomes(
+      sim.outcomes!,
+      usable.map((x) => x.q!),
+      "nba",
+    );
+
+    const legs: BoardScoredLeg[] = [];
+    const fieldRows: Array<Record<string, unknown>> = [];
+
+    for (const { s, q } of usable) {
+      const pick = gamePick({
+        game: s.game,
+        market: s.market,
+        pick: s.pick,
+        odds: s.odds,
+        sport: "nba",
+      });
+      const dist =
+        mode === "A"
+          ? distributionForQuery(q!, sim)
+          : withFgDistSeriesReuse(q!, sim, () => distributionForQuery(q!, sim));
+      const hit = rates[q!.id]!;
+      assert.ok(hit != null && Number.isFinite(hit), `missing cover rate for ${q!.id}`);
+      const { edge, ev, implied } = edgeEv(hit, s.odds);
+      const graded = gameSimHitForPick(pick, { ...sim, coverHitRates: rates });
+      const qualified = graded != null && graded > 0 && graded < 1;
+      fieldRows.push({
+        id: `${s.game}|${s.market}|${s.pick}`,
+        seriesKey: fgDistSeriesKey(q!),
+        dist,
+        hit,
+        graded,
+        edge,
+        ev,
+        implied,
+        grade: s.grade,
+        confidencePct: s.confidencePct,
+        qualified,
+      });
+      if (!qualified) continue;
+      const finalAiScore = {
+        composite: s.composite,
+        grade: s.grade,
+        confidencePct: s.confidencePct,
+        edgePct: edge,
+        simHit: graded,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [] as string[],
+        rubric: {
+          composite: s.composite,
+          grade: s.grade,
+          confidencePct: s.confidencePct,
+          edgePct: edge,
+          scores: {} as never,
+        },
+      };
+      const legPick = { ...pick, finalAiScore };
+      const leg: Omit<BoardScoredLeg, "rankScore"> = {
+        pick: legPick,
+        evPct: ev,
+        edgePct: edge,
+        confidencePct: s.confidencePct,
+        impliedProbPct: Math.round(implied * 1000) / 10,
+        lineShoppingScore: 1,
+        grade: s.grade,
+        simHit: graded,
+        composite: s.composite,
+      };
+      legs.push({
+        ...leg,
+        rankScore: (graded ?? 0) * 100 + s.composite,
+      });
+    }
+
+    const ordered = [...legs].sort((a, b) => {
+      if (b.rankScore !== a.rankScore) return b.rankScore - a.rankScore;
+      return String(a.pick.pick).localeCompare(String(b.pick.pick));
+    });
+
+    // No varietySeed → balanced staging path (correlation/diversity + caps).
+    const staged = buildStagedTicketFromScan(ordered, Math.min(5, ordered.length));
+    return {
+      fieldRows,
+      qualifiedIds: ordered.map((l) => `${l.pick.game}|${l.pick.market}|${l.pick.pick}`),
+      orderedRank: ordered.map((l) => ({
+        id: `${l.pick.game}|${l.pick.market}|${l.pick.pick}`,
+        rankScore: l.rankScore,
+        simHit: l.simHit,
+        edgePct: l.edgePct,
+        grade: l.grade,
+        confidencePct: l.confidencePct,
+      })),
+      ticket: staged.picks.map((p) => `${p.game}|${p.market}|${p.pick}|${p.odds}`),
+      breakdown: staged.breakdown,
+    };
+  }
+
+  const a = buildLegSnapshot("A");
+  const c = buildLegSnapshot("C");
+
+  const diffs: Array<{ field: string; a: unknown; c: unknown }> = [];
+  assert.equal(a.fieldRows.length, c.fieldRows.length);
+  for (let i = 0; i < a.fieldRows.length; i++) {
+    const ar = a.fieldRows[i]!;
+    const cr = c.fieldRows[i]!;
+    for (const key of [
+      "seriesKey",
+      "dist",
+      "hit",
+      "graded",
+      "edge",
+      "ev",
+      "implied",
+      "grade",
+      "confidencePct",
+      "qualified",
+    ] as const) {
+      if (JSON.stringify(ar[key]) !== JSON.stringify(cr[key])) {
+        diffs.push({ field: `${ar.id}.${key}`, a: ar[key], c: cr[key] });
+      }
+    }
+  }
+  if (JSON.stringify(a.qualifiedIds) !== JSON.stringify(c.qualifiedIds)) {
+    diffs.push({ field: "qualification.order", a: a.qualifiedIds, c: c.qualifiedIds });
+  }
+  if (JSON.stringify(a.orderedRank) !== JSON.stringify(c.orderedRank)) {
+    diffs.push({ field: "ordering", a: a.orderedRank, c: c.orderedRank });
+  }
+  if (JSON.stringify(a.breakdown) !== JSON.stringify(c.breakdown)) {
+    diffs.push({ field: "correlation_diversity_breakdown", a: a.breakdown, c: c.breakdown });
+  }
+  if (JSON.stringify(a.ticket) !== JSON.stringify(c.ticket)) {
+    diffs.push({ field: "final_ticket", a: a.ticket, c: c.ticket });
+  }
+
+  assert.deepEqual(diffs, [], `A≡C staging diffs (expected []): ${JSON.stringify(diffs)}`);
+  assert.ok(a.qualifiedIds.length >= 8, `expected qualified pool, got ${a.qualifiedIds.length}`);
+  assert.ok(a.ticket.length >= 1, "fixture must stage a real ticket");
+  assert.equal(a.ticket.length, c.ticket.length);
+});
+
+test("periodScoresForDraw / raceToHits source paths unchanged by Option C", async () => {
+  // Structural: period/race still import and call the stochastic helpers.
+  const scoringSrc = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("./gameSimScoring.ts", import.meta.url), "utf8"),
+  );
+  const periodSrc = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("./gamePeriodScoring.ts", import.meta.url), "utf8"),
+  );
+  assert.match(scoringSrc, /periodScoresForDraw\(/);
+  assert.match(scoringSrc, /raceToHits\(/);
+  assert.match(periodSrc, /Math\.random\(\)/);
+  // Option C only wraps distributionForQuery — coverQueryHits body must still
+  // branch to periodScoresForDraw for non-fg periods.
+  assert.match(scoringSrc, /periodScoresForDraw\(sport, period, homeScore, awayScore/);
+  assert.match(scoringSrc, /return raceToHits\(/);
+  // Reuse key must bypass period/race (not force onto FG series cache).
+  assert.equal(fgDistSeriesKey({ kind: "spread", teamSide: "home", period: "h1" }), null);
+  assert.equal(fgDistSeriesKey({ kind: "total", period: "q2" }), null);
+  assert.equal(fgDistSeriesKey({ kind: "raceTo", teamSide: "away" }), null);
 });
