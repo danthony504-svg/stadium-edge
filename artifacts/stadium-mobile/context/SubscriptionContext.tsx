@@ -20,12 +20,10 @@ import {
   type SubscriptionPersistedState,
   applyStoreKitSnapshot,
   buildEntitlementView,
+  clearCustomPromoUnlock,
   clearLocalTrialEntitlement,
   clearUnverifiedPaidPlan,
-  normalizePromoCode,
   parseAdminEmails,
-  redeemPromoCode,
-  redeemPromoFailureMessage,
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
@@ -61,7 +59,7 @@ type SubscriptionContextValue = {
   /**
    * Purchase Go/Pro via Apple StoreKit / RevenueCat. Never grants paid access
    * from a local or preview fallback — if StoreKit is unavailable, returns an
-   * error. Real access also comes from Restore Purchases or admin/promo.
+   * error. Real access also comes from Restore Purchases or admin allowlist.
    */
   selectPlan: (planId: PlanId) => Promise<PurchaseActionResult>;
   /** Restore App Store purchases (also listed under Settings → Subscriptions). */
@@ -70,7 +68,10 @@ type SubscriptionContextValue = {
   requirePro: (featureLabel?: SoftProFeatureLabel) => boolean;
   openSoftPaywall: (featureLabel?: SoftProFeatureLabel) => void;
   closeSoftPaywall: () => void;
-  /** Redeem a local promo code (or from ?promo= link). */
+  /**
+   * Custom promo redeem is disabled (Guideline 3.1.1). Always returns failure.
+   * Kept on the context type so older call sites do not crash.
+   */
   redeemPromo: (code: string) => RedeemResult;
 };
 
@@ -134,12 +135,18 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       try {
         const raw = await AsyncStorage.getItem(SUBSCRIPTION_STORAGE_KEY);
         const parsed = raw ? sanitizeSubscriptionState(JSON.parse(raw)) : DEFAULT_STATE;
-        // Drop legacy local trial + unverified Go/Pro preview unlocks.
-        const cleaned = clearUnverifiedPaidPlan(clearLocalTrialEntitlement(parsed));
+        // Drop legacy local trial, unverified Go/Pro preview, and custom promo unlocks.
+        const cleaned = clearCustomPromoUnlock(
+          clearUnverifiedPaidPlan(clearLocalTrialEntitlement(parsed)),
+        );
         if (!cancelled) setState(cleaned);
       } catch {
         if (!cancelled) {
-          setState(clearUnverifiedPaidPlan(clearLocalTrialEntitlement(DEFAULT_STATE)));
+          setState(
+            clearCustomPromoUnlock(
+              clearUnverifiedPaidPlan(clearLocalTrialEntitlement(DEFAULT_STATE)),
+            ),
+          );
         }
       } finally {
         loaded.current = true;
@@ -280,21 +287,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [storeKitReady, storeKitBlockedReason, applySnapshot]);
 
-  const redeemPromo = useCallback((code: string): RedeemResult => {
-    const normalized = normalizePromoCode(code);
-    if (!normalized) {
-      return { ok: false, message: "Enter a promo code." };
-    }
-    const result = redeemPromoCode(state, normalized, nowMs());
-    if (!result.ok) {
-      return { ok: false, message: redeemPromoFailureMessage(result.reason) };
-    }
-    setState(result.state);
+  const redeemPromo = useCallback((_code: string): RedeemResult => {
+    // Guideline 3.1.1 — no custom redeem path; use Apple Offer Codes in ASC.
     return {
-      ok: true,
-      message: result.definition.label,
+      ok: false,
+      message: "Promo codes are not available. Subscribe through Apple on this screen.",
     };
-  }, [state]);
+  }, []);
 
   const openSoftPaywall = useCallback((featureLabel: SoftProFeatureLabel = "Upgrade") => {
     setGatedFeature(String(featureLabel));

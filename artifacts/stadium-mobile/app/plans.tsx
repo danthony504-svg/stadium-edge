@@ -1,5 +1,5 @@
 import Feather from "@expo/vector-icons/Feather";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import React from "react";
 import {
   ActivityIndicator,
@@ -13,26 +13,20 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
-import { PromoCodeForm } from "@/components/PromoCodeForm";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
-import {
-  PAID_SUBSCRIPTION_PLANS,
-  extractPromoFromQuery,
-  type PlanId,
-} from "@/lib/entitlements";
+import { PAID_SUBSCRIPTION_PLANS, type PlanId } from "@/lib/entitlements";
 
 /**
  * Plans screen — Go/Pro via Apple StoreKit (auto-renewable) with a 7-day
  * introductory free trial on each product. Appears under Settings → Subscriptions.
  * Native rebuild + RevenueCat key required for real billing.
+ * Custom promo/redeem unlocks removed for App Store Guideline 3.1.1.
  */
 export default function PlansScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ promo?: string | string[]; code?: string | string[] }>();
-  const promoFromLink = extractPromoFromQuery(params);
   const {
     entitlement,
     selectPlan,
@@ -165,8 +159,8 @@ export default function PlansScreen() {
             }}
           >
             Both plans include a 7-day free trial. Discover + Coach + Props + Slip stay free after;
-            Edge Lock, Steals, Simulator, and Model Report need a plan, admin, or promo. Billed
-            through Apple — manage under Settings → Subscriptions.
+            Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple —
+            manage under Settings → Subscriptions.
           </Text>
         </View>
 
@@ -243,8 +237,6 @@ export default function PlansScreen() {
             </Pressable>
           );
         })}
-
-        <PromoCodeForm initialCode={promoFromLink} autoRedeem={!!promoFromLink} />
 
         <Pressable
           onPress={onContinue}
