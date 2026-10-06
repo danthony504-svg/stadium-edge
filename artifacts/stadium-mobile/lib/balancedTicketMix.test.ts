@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { balancedMixSlots, BALANCED_MIX_FRACTIONS, FOOTBALL_BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
-import { buildBalancedStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
+import {
+  buildBalancedStagedTicketFromScan,
+  buildStagedTicketFromScan,
+  type BoardScoredLeg,
+} from "./ticketStaging.ts";
+import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
 import {
   boardMarketCategory,
   gameLineFamily,
@@ -399,4 +404,192 @@ test("interleaveSidesWithProps puts spread ahead of Over props (LIVE card-order 
   assert.equal(out[0]!.pick, "Falcons +6");
   assert.notEqual(out[0]!.pick, "Over 48");
   assert.ok(out.slice(0, 3).some((p) => !p.isProp), "first viewport must include a side");
+});
+
+/** Qualified multi-family pool for generic market-agnostic mix regression. */
+function multiFamilyQualifiedPool(): BoardScoredLeg[] {
+  const props: BoardScoredLeg[] = Array.from({ length: 6 }, (_, i) =>
+    leg(
+      {
+        game: `PropAway${i} @ PropHome${i}`,
+        market: "Receptions",
+        pick: `Skill${i} Over 3.5`,
+        odds: -110,
+        isProp: true,
+        player: `Skill${i}`,
+        propLine: 3.5,
+        propSide: "Over",
+        sport: "nfl",
+      },
+      88 - i,
+      qualifiedScore,
+    ),
+  );
+  const moneylines: BoardScoredLeg[] = Array.from({ length: 4 }, (_, i) =>
+    leg(
+      {
+        game: `MlAway${i} @ MlHome${i}`,
+        market: "Moneyline",
+        pick: `MlAway${i} ML`,
+        odds: 125,
+        sport: "nfl",
+      },
+      86 - i,
+      qualifiedScore,
+    ),
+  );
+  const spreads: BoardScoredLeg[] = Array.from({ length: 4 }, (_, i) =>
+    leg(
+      {
+        game: `SpAway${i} @ SpHome${i}`,
+        market: "Spread",
+        pick: `SpAway${i} -3.5`,
+        odds: -110,
+        sport: "nfl",
+      },
+      84 - i,
+      qualifiedScore,
+    ),
+  );
+  const teamTotals: BoardScoredLeg[] = Array.from({ length: 3 }, (_, i) =>
+    leg(
+      {
+        game: `TtAway${i} @ TtHome${i}`,
+        market: "Team Total",
+        pick: `TtAway${i} Over 22.5`,
+        odds: -110,
+        sport: "nfl",
+      },
+      82 - i,
+      qualifiedScore,
+    ),
+  );
+  const alts: BoardScoredLeg[] = Array.from({ length: 4 }, (_, i) =>
+    leg(
+      {
+        game: `AltAway${i} @ AltHome${i}`,
+        market: "Alt Spread",
+        pick: `AltAway${i} +1.5`,
+        odds: -115,
+        sport: "nfl",
+      },
+      80 - i,
+      qualifiedScore,
+    ),
+  );
+  const totals: BoardScoredLeg[] = Array.from({ length: 4 }, (_, i) =>
+    leg(
+      {
+        game: `TotAway${i} @ TotHome${i}`,
+        market: "Total",
+        pick: `Over ${44 + i}.5`,
+        odds: -110,
+        sport: "nfl",
+      },
+      95 - i,
+      qualifiedScore,
+    ),
+  );
+  return [...props, ...moneylines, ...spreads, ...teamTotals, ...alts, ...totals];
+}
+
+function familiesPresent(mix: ReturnType<typeof ticketCategoryMix>): number {
+  return (["props", "gameLines", "teamTotals", "alternateLines"] as const).filter(
+    (k) => mix[k] > 0,
+  ).length;
+}
+
+test("generic mix: multi-family pool → ticket uses props + game lines + alts (no mono-family)", () => {
+  const scored = multiFamilyQualifiedPool();
+  const { picks } = buildBalancedStagedTicketFromScan(scored, 10);
+  assert.ok(picks.length >= 8, `expected near-target ticket, got ${picks.length}`);
+  const mix = ticketCategoryMix(picks);
+  assert.ok(
+    familiesPresent(mix) >= 3,
+    `generic 10-leg must span ≥3 market families when pool supports it, got ${JSON.stringify(mix)}`,
+  );
+  assert.ok(mix.props > 0 && mix.props < picks.length, `must not be all props: ${JSON.stringify(mix)}`);
+  assert.ok(
+    mix.gameLines + mix.alternateLines > 0,
+    `must include game-line/alt seats: ${JSON.stringify(mix)}`,
+  );
+  assert.ok(
+    mix.props + mix.teamTotals < picks.length,
+    `must not collapse to props+team-totals only: ${JSON.stringify(mix)}`,
+  );
+});
+
+test("generic mix: 5/7/8-leg targets keep multi-family preference (no hard quotas)", () => {
+  const scored = multiFamilyQualifiedPool();
+  for (const n of [5, 7, 8]) {
+    const { picks } = buildBalancedStagedTicketFromScan(scored, n);
+    assert.equal(picks.length, n, `${n}-leg shortfall unexpectedly`);
+    const mix = ticketCategoryMix(picks);
+    assert.ok(
+      familiesPresent(mix) >= 2,
+      `${n}-leg generic must use ≥2 families when pool supports it, got ${JSON.stringify(mix)}`,
+    );
+    assert.notEqual(mix.props, n, `${n}-leg must not be all player props`);
+    assert.notEqual(mix.gameLines, n, `${n}-leg must not be all game lines`);
+  }
+});
+
+test("generic mix: sides preferred — not all Overs/Unders when spreads/ML qualify", () => {
+  const scored = multiFamilyQualifiedPool();
+  const { picks } = buildBalancedStagedTicketFromScan(scored, 8);
+  const ouOnly = picks.every(
+    (p) => /\bover\b|\bunder\b/i.test(p.pick) || boardMarketCategory(p) === "teamTotals",
+  );
+  assert.equal(ouOnly, false, `ticket must not be all O/U when sides qualify: ${picks.map((p) => p.pick)}`);
+  const sideCount = picks.filter(
+    (p) => !p.isProp && (gameLineFamily(p) === "spread" || gameLineFamily(p) === "moneyline"),
+  ).length;
+  assert.ok(sideCount >= 1, `expected ≥1 spread/ML seat, got ${picks.map((p) => `${p.market}:${p.pick}`)}`);
+});
+
+test("generic mix: honest mono-family shortfall when only one family qualifies — no filler", () => {
+  const propsOnlyPool: BoardScoredLeg[] = Array.from({ length: 4 }, (_, i) =>
+    leg(
+      {
+        game: `Only${i} @ X${i}`,
+        market: "Points",
+        pick: `Only${i} Over 20.5`,
+        odds: -110,
+        isProp: true,
+        player: `Only${i}`,
+        propLine: 20.5,
+        propSide: "Over",
+      },
+      90 - i,
+      qualifiedScore,
+    ),
+  );
+  const { picks } = buildBalancedStagedTicketFromScan(propsOnlyPool, 8);
+  assert.equal(picks.length, 4, "must not invent legs outside the qualified pool");
+  assert.ok(picks.every((p) => p.isProp));
+});
+
+test("generic mix via buildStagedTicketFromScan (no varietySeed) stays multi-family", () => {
+  const scored = multiFamilyQualifiedPool();
+  const { picks } = buildStagedTicketFromScan(scored, 7);
+  const mix = ticketCategoryMix(picks);
+  assert.ok(
+    familiesPresent(mix) >= 2,
+    `staged generic 7-leg must be multi-family, got ${JSON.stringify(mix)}`,
+  );
+});
+
+test("generic mix via independent path (varietySeed) still prefers multi-family", () => {
+  const scored = multiFamilyQualifiedPool();
+  const { picks } = buildIndependentCoachTicket(scored, 8, {
+    varietySeed: "generic-mix-lock",
+  });
+  const mix = ticketCategoryMix(picks);
+  assert.ok(picks.length >= 6, `expected filled ticket, got ${picks.length}`);
+  assert.ok(
+    familiesPresent(mix) >= 2,
+    `independent generic path must stay multi-family, got ${JSON.stringify(mix)}`,
+  );
+  assert.notEqual(mix.props, picks.length, "must not be all props");
+  assert.notEqual(mix.gameLines, picks.length, "must not be all game lines");
 });
