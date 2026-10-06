@@ -34,6 +34,13 @@ test("intent: best live bets → Live Coach (both sports, count 3)", () => {
   assert.equal(i.count, 3);
 });
 
+test("intent: live bets (no explicit count) → default 3", () => {
+  const i = parseLiveCoachIntent("live bets");
+  assert.equal(i.wantsLive, true);
+  assert.equal(i.sport, null);
+  assert.equal(i.count, 3);
+});
+
 test("intent: 3 live NBA picks → NBA Live Coach", () => {
   const i = parseLiveCoachIntent("3 live NBA picks");
   assert.equal(i.wantsLive, true);
@@ -46,6 +53,46 @@ test("intent: 3 live WNBA picks → WNBA Live Coach", () => {
   assert.equal(i.wantsLive, true);
   assert.equal(i.sport, "wnba");
   assert.equal(i.count, 3);
+});
+
+test("intent: explicit count phrases preserve N (2–15)", () => {
+  const cases: Array<{ ask: string; count: number; sport: "nba" | "wnba" | null }> = [
+    { ask: "5 leg live", count: 5, sport: null },
+    { ask: "5 live legs", count: 5, sport: null },
+    { ask: "5 live picks", count: 5, sport: null },
+    { ask: "give me 5 live picks", count: 5, sport: null },
+    { ask: "3 live NBA picks", count: 3, sport: "nba" },
+    { ask: "7 leg live NBA", count: 7, sport: "nba" },
+    { ask: "10 live WNBA picks", count: 10, sport: "wnba" },
+  ];
+  for (const c of cases) {
+    const i = parseLiveCoachIntent(c.ask);
+    assert.equal(i.wantsLive, true, c.ask);
+    assert.equal(i.count, c.count, c.ask);
+    assert.equal(i.sport, c.sport, c.ask);
+  }
+});
+
+test("intent: N leg live / N live legs / N live picks / N leg live NBA for 2–15", () => {
+  for (let n = 2; n <= 15; n++) {
+    for (const ask of [
+      `${n} leg live`,
+      `${n} live legs`,
+      `${n} live picks`,
+      `${n} leg live NBA`,
+    ]) {
+      const i = parseLiveCoachIntent(ask);
+      assert.equal(i.wantsLive, true, ask);
+      assert.equal(i.count, n, ask);
+      if (ask.includes("NBA")) assert.equal(i.sport, "nba", ask);
+    }
+  }
+});
+
+test("intent: default does not override explicit number", () => {
+  assert.equal(parseLiveCoachIntent("5 leg live").count, 5);
+  assert.equal(parseLiveCoachIntent("live bets").count, 3);
+  assert.equal(parseLiveCoachIntent("best live bets").count, 3);
 });
 
 test("intent: normal 5 leg / 5 leg NBA stay pregame", () => {

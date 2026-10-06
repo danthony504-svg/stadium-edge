@@ -15,14 +15,28 @@ export type LiveCoachIntent = {
 };
 
 const DEFAULT_LIVE_COUNT = 3;
-const MAX_LIVE_COUNT = 10;
+/** Same supported range as overall Coach legs (2–15). */
+const MIN_LIVE_COUNT = 2;
+const MAX_LIVE_COUNT = 15;
+
+/**
+ * Clamp an explicit requested count into the supported Coach leg range.
+ * Default (no explicit number) stays DEFAULT_LIVE_COUNT and is not clamped here.
+ */
+function clampLiveCount(n: number): number {
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIVE_COUNT;
+  return Math.max(MIN_LIVE_COUNT, Math.min(MAX_LIVE_COUNT, Math.floor(n)));
+}
 
 /**
  * Parse Live Coach asks:
- * - "best live bets" → both sports, 3 picks
+ * - "best live bets" / "live bets" → both sports, default 3 (no explicit count)
+ * - "5 leg live" / "5 live legs" / "5 live picks" → count 5
  * - "3 live NBA picks" → nba, 3
- * - "3 live WNBA picks" → wnba, 3
+ * - "7 leg live NBA" → nba, 7
  * - "5 leg" / "5 leg NBA" → wantsLive false (pregame)
+ *
+ * Explicit requested counts always win over the default.
  */
 export function parseLiveCoachIntent(text?: string | null): LiveCoachIntent {
   const raw = String(text ?? "");
@@ -36,7 +50,10 @@ export function parseLiveCoachIntent(text?: string | null): LiveCoachIntent {
   else if (/\bnba\b/.test(t)) sport = "nba";
 
   let count = DEFAULT_LIVE_COUNT;
+  // Order: more specific "N leg(s) live" / "N live leg(s)" before bare "N live".
   const numbered =
+    t.match(/\b(\d{1,3})\s+legs?\s+live\b/) ||
+    t.match(/\b(\d{1,3})\s+live\s+legs?\b/) ||
     t.match(/\b(\d{1,3})\s+live\b/) ||
     t.match(/\blive\s+(\d{1,3})\b/) ||
     t.match(/\b(\d{1,3})\s+(?:live\s+)?(?:nba|wnba)\s+picks?\b/) ||
@@ -44,8 +61,7 @@ export function parseLiveCoachIntent(text?: string | null): LiveCoachIntent {
     t.match(/\b(\d{1,3})\s+(?:live\s+)?picks?\b/) ||
     t.match(/\bgive\s+me\s+(\d{1,3})\b/);
   if (numbered) {
-    const n = parseInt(numbered[1]!, 10);
-    if (Number.isFinite(n) && n > 0) count = Math.min(n, MAX_LIVE_COUNT);
+    count = clampLiveCount(parseInt(numbered[1]!, 10));
   }
 
   return { wantsLive: true, sport, count };
