@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-10-06T00:10:24.447Z",
+  "ask": "10 leg Saints",
+  "teamScope": {
+    "sport": "nfl",
+    "matchTokens": [
+      "saints",
+      "new orleans"
+    ]
+  },
+  "funnel": {
+    "requested": 10,
+    "available": {
+      "oddsGameCount": 1,
+      "gameEntryCount": 1,
+      "propPoolSize": 916
+    },
+    "simulated": {
+      "gameSimsLoaded": 1,
+      "gameLegsScored": 817,
+      "propSimEvaluated": 21,
+      "propLegsScored": 12
+    },
+    "qualified": {
+      "scoredBeforeStage": 28
+    },
+    "final": 7
+  },
+  "roles": {
+    "main": 4,
+    "alt": 3,
+    "other": 0
+  },
+  "byGame": [
+    [
+      "Atlanta Falcons @ New Orleans Saints",
+      7
+    ]
+  ],
+  "note": "You asked for 10 legs. 7 qualified picks were available, so no filler was added. Ticket composition: 4 main picks and 3 alt picks (labeled ALT PICK).\n\n_Scanned the entire board — 2227 posted lines across live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to markets, first 5 innings, innings, first half, second half, first quarter, second quarter, third quarter, first period, second period, third period, player props, alternate player props, combo props, and any other sportsbook-posted markets (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). Every posted market was scanned — these are every AI Recommended and qualifying alt pick on the board. No filler was added to reach your requested leg count._",
+  "noteHasStalePoolCopy": false,
+  "noteHasHonestShortfall": true,
+  "ticket": [
+    {
+      "game": "Atlanta Falcons @ New Orleans Saints",
+      "market": "Q1 Spread",
+      "pick": "Falcons +3.5",
+      "ticketRole": "main",
+      "isProp": false
+    },
+    {
+      "game": "Atlanta Falcons @ New Orleans Saints",
+      "market": "Receptions",
+      "pick": "Zachariah Branch Over 0.5 Receptions",
+      "ticketRole": "main",
+      "isProp": true
+    },
+    {
+      "game": "Atlanta Falcons @ New Orleans Saints",
+      "market": "Rush Yds",
+      "pick": "Brian Robinson Jr. Over 29.5 Rush Yds",
+      "ticketRole": "main",
+      "isProp": true
+    },
+    {
+      "game": "Atlanta Falcons @ New Orleans Saints",
+      "market": "Q1 Moneyline",
+      "pick": "Falcons ML",
+      "ticketRole": "main",
+      "isProp": false
+    },
+    {
+      "game": "Atlanta Falcons @ New Orleans Saints",
+      "market": "1H Alt Team Total",
+      "pick": "Falcons Over 9.5",
+      "ticketRole": "alt",
+      "isProp": false
+    },
+    {
+      "game": "Atlanta Falcons @ New Orleans Saints",
+      "market": "2H Team Total",
+      "pick": "Falcons Over 9.5",
+      "ticketRole": "alt",
+      "isProp": false
+    },
+    {
+      "game": "Atlanta Falcons @ New Orleans Saints",
+      "market": "Q2 Team Total",
+      "pick": "Falcons Over 9.5",
+      "ticketRole": "alt",
+      "isProp": false
+    }
+  ]
+}

@@ -74,9 +74,11 @@ import {
   boardLegPoolRole,
   buildStagedTicketFromScan,
   collapseSameTeamGameLineSides,
+  tagTicketRoles,
   topUpTicketFromQualifiedScored,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
+import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { safeCoachManifestInstrument } from "./coachFootballPropFunnel.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
@@ -954,7 +956,16 @@ export function buildScanResult(
     propPhaseIncomplete: opts.propPhaseIncomplete,
     requirePropMix: opts.requirePropMix,
   });
-  const breakdown = staged.breakdown;
+  // Tag AFTER fill / dedupe / top-up / prop-mix finalize so main/alt on-ticket
+  // counts match the delivered ticket. staged.breakdown.mainOnTicket is an
+  // intermediate staged snapshot (phone: Filled 3+1 while These 7…).
+  picks = tagTicketRoles(picks);
+  const breakdown: TicketStagingBreakdown = {
+    mainQualified: staged.breakdown.mainQualified,
+    altQualified: staged.breakdown.altQualified,
+    mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
+    altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+  };
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const scanComplete = !opts.preview && opts.boardExhausted === true && !opts.propPhaseIncomplete;
@@ -986,7 +997,7 @@ export function buildScanResult(
             totalQualified,
             picks.length,
             breakdown,
-            { propsOnly: opts.propsOnly },
+            { propsOnly: opts.propsOnly, requested: opts.target },
           );
   // Final display order: lead with a side when props+sides both exist so
   // LIVE "7 leg nfl" does not open as a wall of Over props. Must run AFTER

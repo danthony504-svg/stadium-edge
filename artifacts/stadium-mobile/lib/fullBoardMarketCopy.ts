@@ -19,6 +19,12 @@ import { COACH_NO_FILLER_SHORTFALL } from "./coachScanPolicy.ts";
 
 /**
  * Shortfall chat note after a full-board (or props-only) scan.
+ *
+ * Copy MUST describe the final delivered ticket (`pickCount`), not intermediate
+ * staging pools. Phone bug: "20 main + 7 alt cleared" / "Filled with 3 main and
+ * 1 alt" / "These 7 are…" mixed pool counts, pre-fill staged counts, and final
+ * length in one paragraph.
+ *
  * Props/yards asks never sim moneylines/spreads/F5 — returning the full-board
  * essay there lied on phone (screenshot: props ask + "scanned … moneylines").
  * Empty string → `buildFinalCoachParlayNote` falls through to the honest
@@ -29,20 +35,41 @@ export function fullBoardScanShortfallNote(
   totalQualified: number,
   pickCount: number,
   staging?: TicketStagingBreakdown,
-  opts?: { propsOnly?: boolean },
+  opts?: { propsOnly?: boolean; requested?: number },
 ): string {
   if (opts?.propsOnly) return "";
 
-  const staged =
-    staging && (staging.mainOnTicket > 0 || staging.altOnTicket > 0)
-      ? staging.altOnTicket > 0
-        ? ` Filled with ${staging.mainOnTicket} main pick${staging.mainOnTicket === 1 ? "" : "s"} and ${staging.altOnTicket} alt pick${staging.altOnTicket === 1 ? "" : "s"} (labeled ALT PICK).`
-        : ` ${staging.mainOnTicket} main pick${staging.mainOnTicket === 1 ? "" : "s"} on the ticket.`
-      : "";
-  const altPool = staging?.altQualified ?? 0;
-  const mainPool = staging?.mainQualified ?? totalQualified;
-  if (staging && staging.altOnTicket > 0) {
-    return `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). ${mainPool} main lines and ${altPool} alt lines cleared the quality bar — stepped to alternate rungs where mains ran out.${staged} These ${pickCount} are the highest-rated sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
+  const requested = opts?.requested;
+  const mainOn = staging?.mainOnTicket ?? 0;
+  const altOn = staging?.altOnTicket ?? 0;
+  // Only cite main/alt composition when it reconciles with the final ticket.
+  const rolesMatchFinal = pickCount > 0 && mainOn + altOn === pickCount;
+  const finalRoleDetail = rolesMatchFinal
+    ? altOn > 0
+      ? ` Ticket composition: ${mainOn} main pick${mainOn === 1 ? "" : "s"} and ${altOn} alt pick${altOn === 1 ? "" : "s"} (labeled ALT PICK).`
+      : ` Ticket composition: ${mainOn} main pick${mainOn === 1 ? "" : "s"}.`
+    : "";
+
+  // Preferred path: requested known and short of target — lead with final length.
+  if (requested != null && pickCount < requested) {
+    const lead =
+      pickCount <= 0
+        ? `You asked for ${requested} legs. No qualified picks were available, so no filler was added.`
+        : `You asked for ${requested} legs. ${pickCount} qualified picks were available, so no filler was added.`;
+    const scanCtx = `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). ${COACH_NO_FILLER_SHORTFALL}_`;
+    // Intentionally omit mainQualified/altQualified pool sizes here — those are
+    // intermediate candidate counts and disagree with final ticket length.
+    void totalQualified;
+    return `${lead}${finalRoleDetail}\n\n${scanCtx}`;
   }
-  return `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). ${mainPool} main lines and ${altPool} alt lines cleared the quality bar (sim + positive edge + positive EV + grade ≥ C+ + confidence ≥ 52%).${staged} These ${pickCount} are the top sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
+
+  // Fallback when requested is unknown: still never mix pool sizes with a
+  // mismatched "Filled with" / "These N" trio.
+  const composed = rolesMatchFinal
+    ? altOn > 0
+      ? ` Filled with ${mainOn} main pick${mainOn === 1 ? "" : "s"} and ${altOn} alt pick${altOn === 1 ? "" : "s"} (labeled ALT PICK).`
+      : ` ${mainOn} main pick${mainOn === 1 ? "" : "s"} on the ticket.`
+    : "";
+  void totalQualified;
+  return `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied).${composed} These ${pickCount} are the top sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
 }

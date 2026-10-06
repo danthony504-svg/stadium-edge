@@ -30,11 +30,55 @@ test("mix shortfall note still describes the full board", () => {
     altQualified: 0,
     mainOnTicket: 8,
     altOnTicket: 0,
-  });
+  }, { requested: 10 });
   assert.match(note, /moneylines/i);
   assert.match(note, /spreads/i);
-  assert.match(note, /\b8\b/);
+  assert.match(note, /asked for 10/i);
+  assert.match(note, /8 qualified picks were available/i);
   assert.doesNotMatch(note, /\*\*/);
+});
+
+test("10-leg Saints screenshot: copy uses final ticket, not intermediate pools", () => {
+  // Phone: requested 10, badge 10-Leg, "20 main + 7 alt cleared",
+  // "Filled with 3 main and 1 alt", "These 7 are…" — three disagreeing counts.
+  // Intermediate staging said 3+1 on ticket while final delivered 7.
+  const note = fullBoardScanShortfallNote(
+    2225,
+    27,
+    7,
+    {
+      mainQualified: 20,
+      altQualified: 7,
+      mainOnTicket: 3,
+      altOnTicket: 1,
+    },
+    { requested: 10 },
+  );
+  assert.match(note, /You asked for 10 legs\. 7 qualified picks were available, so no filler was added\./);
+  assert.doesNotMatch(note, /20 main/);
+  assert.doesNotMatch(note, /7 alt lines cleared/);
+  assert.doesNotMatch(note, /Filled with 3 main/);
+  assert.doesNotMatch(note, /These 7 are/);
+  // Stale 3+1 must not appear when it disagrees with final=7.
+  assert.doesNotMatch(note, /3 main pick/);
+  assert.doesNotMatch(note, /1 alt pick/);
+});
+
+test("shortfall role detail only when final ticket main+alt sums to pickCount", () => {
+  const note = fullBoardScanShortfallNote(
+    1000,
+    12,
+    7,
+    {
+      mainQualified: 10,
+      altQualified: 2,
+      mainOnTicket: 6,
+      altOnTicket: 1,
+    },
+    { requested: 10 },
+  );
+  assert.match(note, /7 qualified picks were available/);
+  assert.match(note, /Ticket composition: 6 main picks and 1 alt pick/);
 });
 
 test("props-only shortfall falls through to honest fixed-leg lead (screenshot)", () => {
