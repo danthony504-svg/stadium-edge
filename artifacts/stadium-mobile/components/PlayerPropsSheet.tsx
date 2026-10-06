@@ -17,7 +17,7 @@ import {
   type PlayerStatSummary,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
+import { computeAmbiguous, formatSeasonStatLabel, gameValueForMarket, seasonStatFamilyKey } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
 
 export type PlayerSheetData = {
@@ -38,14 +38,50 @@ const STEP = 0.5;
 
 // Season-stats grid config per sport: which columns to surface and whether the
 // natural read is a per-game average (basketball) or a season total (the rest).
+// Football prefers ESPN machine fields so ambiguous YDS/TD headers don't wipe
+// the preferred list and fall through to raw camelCase fillers.
 const GRID_BY_SPORT: Record<string, { mode: "avg" | "total"; labels: string[] }> = {
   nba: { mode: "avg", labels: ["PTS", "REB", "AST", "BLK", "STL"] },
   wnba: { mode: "avg", labels: ["PTS", "REB", "AST", "BLK", "STL"] },
   ncaab: { mode: "avg", labels: ["PTS", "REB", "AST", "BLK", "STL"] },
   nhl: { mode: "total", labels: ["G", "A", "PTS", "S", "PIM"] },
   mlb: { mode: "total", labels: ["HR", "RBI", "H", "R", "BB"] },
-  nfl: { mode: "total", labels: ["YDS", "TD", "REC", "INT"] },
-  ncaaf: { mode: "total", labels: ["YDS", "TD", "REC", "INT"] },
+  nfl: {
+    mode: "total",
+    labels: [
+      "receptions",
+      "receivingYards",
+      "receivingTargets",
+      "rushingYards",
+      "passingYards",
+      "receivingTouchdowns",
+      "rushingTouchdowns",
+      "passingTouchdowns",
+      "interceptions",
+      "REC",
+      "YDS",
+      "TD",
+      "INT",
+    ],
+  },
+  ncaaf: {
+    mode: "total",
+    labels: [
+      "receptions",
+      "receivingYards",
+      "receivingTargets",
+      "rushingYards",
+      "passingYards",
+      "receivingTouchdowns",
+      "rushingTouchdowns",
+      "passingTouchdowns",
+      "interceptions",
+      "REC",
+      "YDS",
+      "TD",
+      "INT",
+    ],
+  },
   soccer: { mode: "total", labels: ["G", "SH", "SOT", "A"] },
 };
 
@@ -62,19 +98,32 @@ function buildGrid(
   const cfg = GRID_BY_SPORT[sport] ?? { mode: "avg" as const, labels: [] };
   const source = cfg.mode === "avg" ? summary.averages : summary.totals;
   const cells: GridCell[] = [];
-  const used = new Set<string>();
+  const usedKeys = new Set<string>();
+  const usedFamilies = new Set<string>();
+
+  const push = (rawKey: string, value: number) => {
+    if (!Number.isFinite(value)) return false;
+    if (usedKeys.has(rawKey)) return false;
+    if (ambiguous.has(rawKey)) return false;
+    const family = seasonStatFamilyKey(rawKey);
+    if (family && usedFamilies.has(family)) return false;
+    const label = formatSeasonStatLabel(rawKey);
+    if (!label) return false;
+    cells.push({ label, value });
+    usedKeys.add(rawKey);
+    if (family) usedFamilies.add(family);
+    return true;
+  };
+
   for (const lab of cfg.labels) {
-    if (ambiguous.has(lab)) continue;
     const v = source[lab];
-    if (Number.isFinite(v)) {
-      cells.push({ label: lab, value: v });
-      used.add(lab);
-    }
+    if (v == null) continue;
+    push(lab, v);
+    if (cells.length >= 5) break;
   }
   if (cells.length < 5) {
     for (const [lab, v] of Object.entries(source)) {
-      if (used.has(lab) || ambiguous.has(lab) || !Number.isFinite(v)) continue;
-      cells.push({ label: lab, value: v });
+      push(lab, v);
       if (cells.length >= 5) break;
     }
   }
@@ -433,13 +482,34 @@ export function PlayerPropsSheet({
                 Couldn&apos;t load season stats right now.
               </Text>
             ) : grid && grid.cells.length > 0 ? (
-              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 4 }}>
                 {grid.cells.map((c) => (
-                  <View key={c.label} style={{ alignItems: "center", flex: 1 }}>
-                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 10, letterSpacing: 0.5 }}>
+                  <View key={c.label} style={{ alignItems: "center", flex: 1, minWidth: 0 }}>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: FONT.semibold,
+                        fontSize: 10,
+                        letterSpacing: 0.4,
+                        textAlign: "center",
+                        width: "100%",
+                      }}
+                    >
                       {c.label}
                     </Text>
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 19, marginTop: 4 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: colors.foreground,
+                        fontFamily: FONT.bold,
+                        fontSize: 19,
+                        marginTop: 4,
+                        textAlign: "center",
+                      }}
+                    >
                       {fmtStat(c.value, grid.mode)}
                     </Text>
                   </View>

@@ -1,8 +1,34 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
+import {
+  computeAmbiguous,
+  formatSeasonStatLabel,
+  gameValueForMarket,
+  seasonStatFamilyKey,
+} from "./propStats.ts";
 
 const NONE = new Set<string>();
+
+test("formatSeasonStatLabel: camelCase machine keys become short caps", () => {
+  assert.equal(formatSeasonStatLabel("receivingTargets"), "TGTS");
+  assert.equal(formatSeasonStatLabel("receivingYards"), "REC YDS");
+  assert.equal(formatSeasonStatLabel("receptions"), "REC");
+  assert.equal(formatSeasonStatLabel("rushingYards"), "RUSH YDS");
+  assert.equal(formatSeasonStatLabel("passingYards"), "PASS YDS");
+  assert.equal(formatSeasonStatLabel("PTS"), "PTS");
+});
+
+test("seasonStatFamilyKey: REC and receptions share a family (no duplicate tiles)", () => {
+  assert.equal(seasonStatFamilyKey("REC"), seasonStatFamilyKey("receptions"));
+  assert.equal(
+    seasonStatFamilyKey("TGTS"),
+    seasonStatFamilyKey("receivingTargets"),
+  );
+  assert.notEqual(
+    seasonStatFamilyKey("receivingYards"),
+    seasonStatFamilyKey("rushingYards"),
+  );
+});
 
 test("player_threes reads the MADE count from an ESPN 'made-attempted' column", () => {
   // ESPN NBA gamelog encodes 3-pointers as "made-attempted", e.g. "2-5".
