@@ -134,8 +134,8 @@ export async function assertAbsoluteTerminalClearsBusyOnHungScan(): Promise<QaCa
   // Tiny remaining budget so the unit test does not wait 75s.
   session.startedAtMs = Date.now() - coachAbsoluteBudgetMs(5) + 30;
 
-  let busy = true;
-  let building = true;
+  let busy: boolean = true;
+  let building: boolean = true;
   let outcome: string = "open";
 
   const hungScan = new Promise<never>(() => {
@@ -157,8 +157,8 @@ export async function assertAbsoluteTerminalClearsBusyOnHungScan(): Promise<QaCa
 
   const ok =
     coachSessionIsTerminal(session) &&
-    busy === false &&
-    building === false &&
+    !busy &&
+    !building &&
     outcome !== "open";
 
   return {
