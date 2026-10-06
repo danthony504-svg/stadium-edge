@@ -279,14 +279,17 @@ test("gate: unknown market status → ineligible", () => {
   assert.equal(r.eligible, false);
 });
 
-test("gate: NHL / player props / alt / quarter markets rejected (NFL mains allowed)", () => {
-  assert.equal(isLiveRecommendationEligible(baseNorm({ sport: "nhl" })), false);
+test("gate: soccer/MLB/tennis + props/alts rejected; NFL/NHL mains allowed", () => {
+  assert.equal(isLiveRecommendationEligible(baseNorm({ sport: "soccer" })), false);
+  assert.equal(isLiveRecommendationEligible(baseNorm({ sport: "mlb" })), false);
+  assert.equal(isLiveRecommendationEligible(baseNorm({ sport: "tennis" })), false);
   assert.equal(isLiveRecommendationEligible(baseNorm({ market: "Player Points" })), false);
   assert.equal(isLiveRecommendationEligible(baseNorm({ market: "Alt Spread" })), false);
   assert.equal(isLiveRecommendationEligible(baseNorm({ market: "1H Spread" })), false);
   assert.equal(isLiveRecommendationEligible(baseNorm({ market: "Q4 Total" })), false);
-  // NFL live mains are Phase 2B — eligible when other gates pass.
+  // NFL Phase 2B + NHL Phase 3A live mains — eligible when other gates pass.
   assert.equal(isLiveRecommendationEligible(baseNorm({ sport: "nfl" })), true);
+  assert.equal(isLiveRecommendationEligible(baseNorm({ sport: "nhl" })), true);
 });
 
 // ---------- Grade preserves provider line/price ----------
