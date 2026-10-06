@@ -1,0 +1,486 @@
+{
+  "generatedAt": "2026-10-05T23:58:03.322Z",
+  "phase": "2.4-option-c-validate",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "canonicalKeyForm": "fgDist|<outcomesRef|projectionSimRef>|<seriesKey>",
+  "seriesKeyExamples": {
+    "mlHome": "ml|home",
+    "spreadAway": "spread|away",
+    "total": "total",
+    "teamTotalHome": "teamTotal|home",
+    "periodBypass": null,
+    "raceBypass": null
+  },
+  "materialDims": "outcomes object identity (WeakMap) + kind + teamSide (FG only); period must be fg",
+  "excludedDims": "line thresholds, totalSide, sportsbook/price, cover query id",
+  "table": {
+    "fresh5": {
+      "label": "fresh5",
+      "coachWallMs": 29153,
+      "distCpuMs": 143,
+      "distHits": 9723,
+      "distMisses": 158,
+      "distBypass": 3180,
+      "maxLoopDelayMs": 2628,
+      "propSimObservedMs": 224,
+      "qualified": null,
+      "finalLegs": 5,
+      "note": "",
+      "ticket": [
+        {
+          "game": "Los Angeles Dodgers @ Atlanta Braves",
+          "market": "Spread",
+          "pick": "Braves +1.5",
+          "isProp": false
+        },
+        {
+          "game": "New York Yankees @ Tampa Bay Rays",
+          "market": "Total Bases",
+          "pick": "Jonathan Aranda Over 0.5 Total Bases",
+          "isProp": true
+        },
+        {
+          "game": "New York Yankees @ Tampa Bay Rays",
+          "market": "Hits+Runs+RBIs",
+          "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+          "isProp": true
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "Alt Spread",
+          "pick": "Falcons +0.5",
+          "isProp": false
+        },
+        {
+          "game": "Jacksonville State Gamecocks @ Kennesaw State Owls",
+          "market": "Alt Spread",
+          "pick": "Kennesaw State Owls +2.5",
+          "isProp": false
+        }
+      ]
+    },
+    "repeat5": {
+      "label": "repeat5",
+      "coachWallMs": 15835,
+      "distCpuMs": 6,
+      "distHits": 9875,
+      "distMisses": 7,
+      "distBypass": 3180,
+      "maxLoopDelayMs": 4565,
+      "propSimObservedMs": 661,
+      "qualified": null,
+      "finalLegs": 5,
+      "note": "",
+      "ticket": [
+        {
+          "game": "New York Yankees @ Tampa Bay Rays",
+          "market": "Spread",
+          "pick": "Rays +1.5",
+          "isProp": false
+        },
+        {
+          "game": "New York Yankees @ Tampa Bay Rays",
+          "market": "Total Bases",
+          "pick": "Liam Hicks Over 0.5 Total Bases",
+          "isProp": true
+        },
+        {
+          "game": "New York Yankees @ Tampa Bay Rays",
+          "market": "Hits+Runs+RBIs",
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "1H Spread",
+          "pick": "Falcons +1.5",
+          "isProp": false
+        },
+        {
+          "game": "New Mexico State Aggies @ Florida International Panthers",
+          "market": "Total",
+          "pick": "Over 47",
+          "isProp": false
+        }
+      ]
+    },
+    "soccerTo5": {
+      "label": "soccer→5",
+      "coachWallMs": 29467,
+      "distCpuMs": 139,
+      "distHits": 9749,
+      "distMisses": 158,
+      "distBypass": 3180,
+      "maxLoopDelayMs": 2643,
+      "propSimObservedMs": 204,
+      "qualified": null,
+      "finalLegs": 5,
+      "note": "",
+      "ticket": [
+        {
+          "game": "Southern Mississippi Golden Eagles @ Troy Trojans",
+          "market": "Spread",
+          "pick": "Southern Mississippi Golden Eagles +10.5",
+          "isProp": false
+        },
+        {
+          "game": "New York Yankees @ Tampa Bay Rays",
+          "market": "RBIs",
+          "pick": "Jonathan Aranda Over 0.5 RBIs",
+          "isProp": true
+        },
+        {
+          "game": "New York Yankees @ Tampa Bay Rays",
+          "market": "Hits+Runs+RBIs",
+          "pick": "Liam Hicks Over 0.5 Hits+Runs+RBIs",
+          "isProp": true
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "Q1 Moneyline",
+          "pick": "Falcons ML",
+          "isProp": false
+        },
+        {
+          "game": "Milwaukee Brewers @ San Diego Padres",
+          "market": "Alt Team Total",
+          "pick": "Brewers Under 5.5",
+          "isProp": false
+        }
+      ]
+    },
+    "nfl7": {
+      "label": "nfl7",
+      "coachWallMs": 12622,
+      "distCpuMs": 8,
+      "distHits": 1454,
+      "distMisses": 7,
+      "distBypass": 2271,
+      "maxLoopDelayMs": 395,
+      "propSimObservedMs": 232,
+      "qualified": null,
+      "finalLegs": 6,
+      "note": "_Scanned the entire board — 2243 posted lines across live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to markets, first 5 innings, innings, first half,",
+      "ticket": [
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "Receptions",
+          "pick": "Zachariah Branch Over 0.5 Receptions",
+          "isProp": true
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "Rush Yds",
+          "pick": "Brian Robinson Jr. Over 29.5 Rush Yds",
+          "isProp": true
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "Q1 Spread",
+          "pick": "Falcons +3.5",
+          "isProp": false
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "1H Moneyline",
+          "pick": "Falcons ML",
+          "isProp": false
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "2H Team Total",
+          "pick": "Falcons Over 9.5",
+          "isProp": false
+        },
+        {
+          "game": "Atlanta Falcons @ New Orleans Saints",
+          "market": "1H Alt Team Total",
+          "pick": "Falcons Over 9.5",
+          "isProp": false
+        }
+      ]
+    },
+    "warm5": [
+      {
+        "label": "warm5-1",
+        "coachWallMs": 14682,
+        "distCpuMs": 0,
+        "distHits": 9925,
+        "distMisses": 0,
+        "distBypass": 3182,
+        "maxLoopDelayMs": 4521,
+        "propSimObservedMs": 707,
+        "qualified": null,
+        "finalLegs": 5,
+        "note": "",
+        "ticket": [
+          {
+            "game": "Chapecoense @ Vitoria",
+            "market": "Spread",
+            "pick": "Chapecoense +0.5",
+            "isProp": false
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Total Bases",
+            "pick": "Junior Caminero Over 0.5 Total Bases",
+            "isProp": true
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits+Runs+RBIs",
+            "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+            "isProp": true
+          },
+          {
+            "game": "Atlanta Falcons @ New Orleans Saints",
+            "market": "Q1 Moneyline",
+            "pick": "Falcons ML",
+            "isProp": false
+          },
+          {
+            "game": "Jacksonville State Gamecocks @ Kennesaw State Owls",
+            "market": "1H Team Total",
+            "pick": "Kennesaw State Owls Over 10.5",
+            "isProp": false
+          }
+        ]
+      },
+      {
+        "label": "warm5-2",
+        "coachWallMs": 15071,
+        "distCpuMs": 0,
+        "distHits": 9925,
+        "distMisses": 0,
+        "distBypass": 3182,
+        "maxLoopDelayMs": 4516,
+        "propSimObservedMs": 707,
+        "qualified": null,
+        "finalLegs": 5,
+        "note": "",
+        "ticket": [
+          {
+            "game": "Utah Mammoth @ New Jersey Devils",
+            "market": "Spread",
+            "pick": "Mammoth +1.5",
+            "isProp": false
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits+Runs+RBIs",
+            "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+            "isProp": true
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits",
+            "pick": "Liam Hicks Over 0.5 Hits",
+            "isProp": true
+          },
+          {
+            "game": "Atlanta Falcons @ New Orleans Saints",
+            "market": "Q1 Moneyline",
+            "pick": "Falcons ML",
+            "isProp": false
+          },
+          {
+            "game": "Jacksonville State Gamecocks @ Kennesaw State Owls",
+            "market": "1H Team Total",
+            "pick": "Kennesaw State Owls Over 10.5",
+            "isProp": false
+          }
+        ]
+      },
+      {
+        "label": "warm5-3",
+        "coachWallMs": 15390,
+        "distCpuMs": 0,
+        "distHits": 9925,
+        "distMisses": 0,
+        "distBypass": 3182,
+        "maxLoopDelayMs": 4557,
+        "propSimObservedMs": 605,
+        "qualified": null,
+        "finalLegs": 5,
+        "note": "",
+        "ticket": [
+          {
+            "game": "Corinthians @ Internacional",
+            "market": "Spread",
+            "pick": "Corinthians +0.25",
+            "isProp": false
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits+Runs+RBIs",
+            "pick": "Liam Hicks Over 0.5 Hits+Runs+RBIs",
+            "isProp": true
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits+Runs+RBIs",
+            "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+            "isProp": true
+          },
+          {
+            "game": "Atlanta Falcons @ New Orleans Saints",
+            "market": "Q1 Moneyline",
+            "pick": "Falcons ML",
+            "isProp": false
+          },
+          {
+            "game": "Jacksonville State Gamecocks @ Kennesaw State Owls",
+            "market": "1H Team Total",
+            "pick": "Kennesaw State Owls Over 10.5",
+            "isProp": false
+          }
+        ]
+      },
+      {
+        "label": "warm5-4",
+        "coachWallMs": 15781,
+        "distCpuMs": 8,
+        "distHits": 9915,
+        "distMisses": 7,
+        "distBypass": 3182,
+        "maxLoopDelayMs": 4576,
+        "propSimObservedMs": 1382,
+        "qualified": null,
+        "finalLegs": 5,
+        "note": "",
+        "ticket": [
+          {
+            "game": "Nashville Predators @ Toronto Maple Leafs",
+            "market": "Spread",
+            "pick": "Predators +1.5",
+            "isProp": false
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits+Runs+RBIs",
+            "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+            "isProp": true
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Total Bases",
+            "pick": "Yandy Diaz Over 0.5 Total Bases",
+            "isProp": true
+          },
+          {
+            "game": "Atlanta Falcons @ New Orleans Saints",
+            "market": "Q1 Moneyline",
+            "pick": "Falcons ML",
+            "isProp": false
+          },
+          {
+            "game": "Jacksonville State Gamecocks @ Kennesaw State Owls",
+            "market": "1H Team Total",
+            "pick": "Kennesaw State Owls Over 10.5",
+            "isProp": false
+          }
+        ]
+      },
+      {
+        "label": "warm5-5",
+        "coachWallMs": 14297,
+        "distCpuMs": 0,
+        "distHits": 9922,
+        "distMisses": 0,
+        "distBypass": 3182,
+        "maxLoopDelayMs": 4549,
+        "propSimObservedMs": 1028,
+        "qualified": null,
+        "finalLegs": 5,
+        "note": "",
+        "ticket": [
+          {
+            "game": "New York Islanders @ New York Rangers",
+            "market": "Spread",
+            "pick": "Islanders +1.5",
+            "isProp": false
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits",
+            "pick": "Liam Hicks Over 0.5 Hits",
+            "isProp": true
+          },
+          {
+            "game": "New York Yankees @ Tampa Bay Rays",
+            "market": "Hits+Runs+RBIs",
+            "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+            "isProp": true
+          },
+          {
+            "game": "Atlanta Falcons @ New Orleans Saints",
+            "market": "Q1 Moneyline",
+            "pick": "Falcons ML",
+            "isProp": false
+          },
+          {
+            "game": "New Mexico State Aggies @ Florida International Panthers",
+            "market": "Total",
+            "pick": "Over 47",
+            "isProp": false
+          }
+        ]
+      }
+    ]
+  },
+  "warm5Agg": {
+    "coachWall": {
+      "n": 5,
+      "min": 14297,
+      "median": 15071,
+      "mean": 15044,
+      "p95": 15781,
+      "max": 15781
+    },
+    "distCpu": {
+      "n": 5,
+      "min": 0,
+      "median": 0,
+      "mean": 2,
+      "p95": 8,
+      "max": 8
+    },
+    "maxLoopDelay": {
+      "n": 5,
+      "min": 4516,
+      "median": 4549,
+      "mean": 4544,
+      "p95": 4576,
+      "max": 4576
+    },
+    "propSim": {
+      "n": 5,
+      "min": 605,
+      "median": 707,
+      "mean": 886,
+      "p95": 1382,
+      "max": 1382
+    },
+    "qualified": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "final": [
+      5,
+      5,
+      5,
+      5,
+      5
+    ]
+  },
+  "nfl7Note": "NFL 7→6 shortfall kept separate — do not lower thresholds or add filler.",
+  "ancestry": {
+    "pr609": true,
+    "pr612": true,
+    "pr341": true,
+    "pr342": true
+  }
+}

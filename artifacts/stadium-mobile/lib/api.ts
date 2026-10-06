@@ -208,6 +208,11 @@ export type RealGameEntry = {
 // rejects, converting a hung link into the same graceful "narrower pool" path.
 const REQUEST_TIMEOUT_MS = 12000;
 
+import {
+  classifyCoachContextPath,
+  withCoachContextCache,
+} from "./coachContextCache";
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`request timeout: ${label}`)), ms);
@@ -230,16 +235,13 @@ function sleepBackoff(attempt: number): Promise<void> {
   return new Promise((r) => setTimeout(r, 300 * attempt + Math.random() * 250));
 }
 
-// Resilient GET. A single transient blip used to nuke whole surfaces (e.g. the
-// Props page errors out the moment its uncaught odds fetch fails). The most
-// common transients are a 429 from the shared-proxy-IP rate limiter (every
-// mobile client looks like one IP to the edge) and brief upstream 5xx — both
-// return fast, so we retry those up to MAX_ATTEMPTS. Deterministic 4xx
-// (400/401/404) won't change on retry, so we fail fast. Network drops/timeouts
-// each wait the full per-request timeout, so we cap THOSE at a single retry to
-// avoid stacking long stalls onto the chat-context fan-outs that share this
-// fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+// Resilient GET (uncached). Odds / props / simulate stay on this path so live
+// books remain authoritative per existing freshness policy.
+async function getJsonUncached<T>(
+  path: string,
+  signal?: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
@@ -270,6 +272,24 @@ async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUES
     }
   }
   throw lastErr;
+}
+
+/**
+ * Resilient GET. Stable Coach context GETs (history / injuries / defense /
+ * matchups / period stats / team ids) use Phase-2 TTL + in-flight coalescing.
+ * Live odds, props boards, and simulate routes are never cached here.
+ */
+async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const stage = classifyCoachContextPath(path);
+  if (!stage) return getJsonUncached<T>(path, signal, timeoutMs);
+  // Shared fill must not abort mid-flight when one waiter cancels — pass no
+  // signal into the network layer; withCoachContextCache races waiter abort.
+  return withCoachContextCache(
+    path,
+    stage,
+    () => getJsonUncached<T>(path, undefined, timeoutMs),
+    signal,
+  );
 }
 
 import { getAuthTokenGetter, setAuthTokenGetter } from "./authToken";
@@ -1159,6 +1179,12 @@ export type PlayerHistory = {
   season: string | null;
   availableSeasons: string[];
   seasonSummary: PlayerStatSummary;
+  minutesTrend?: {
+    l5: number | null;
+    l10: number | null;
+    season: number | null;
+    direction: "up" | "down" | "steady" | string;
+  } | null;
 };
 
 export type GetPlayerHistoryArgs = {
@@ -2037,6 +2063,37 @@ export type PropSimulationResult = {
   nullReason?: "missing_athlete_id" | "no_history" | "insufficient_sample" | "stat_mapping_failed" | null;
 };
 
+/** Phase 2.3 — authoritative history returned with prop-sim for Coach enrich reuse. */
+export type PropSimPlayerHistoryPayload = {
+  sport: string;
+  athleteId: string;
+  labels: string[];
+  recent: Array<{
+    date?: string | null;
+    opponentName?: string | null;
+    opponentId?: string | null;
+    isHome?: boolean | null;
+    stats?: Record<string, string>;
+  }>;
+  vsOpponent?: Array<{
+    date?: string | null;
+    stats?: Record<string, string>;
+  }>;
+  minutesTrend?: {
+    l5?: number | null;
+    l10?: number | null;
+    season?: number | null;
+    direction?: string | null;
+  } | null;
+};
+
+export type PropSimFetchResult = {
+  hits: Map<string, PropSimulationResult>;
+  playerHistories: Record<string, PropSimPlayerHistoryPayload>;
+  historyShared?: number;
+  historyCoalesced?: number;
+};
+
 export type PropSimTeamIds = {
   homeTeamId: string;
   awayTeamId: string;
@@ -2097,8 +2154,11 @@ export async function fetchPropSimulations(
     simulations?: number;
   },
   signal?: AbortSignal,
-): Promise<Map<string, PropSimulationResult>> {
+): Promise<PropSimFetchResult> {
   const out = new Map<string, PropSimulationResult>();
+  const playerHistories: Record<string, PropSimPlayerHistoryPayload> = {};
+  let historyShared = 0;
+  let historyCoalesced = 0;
   type BuiltProp = {
     player: string;
     market: string;
@@ -2155,7 +2215,9 @@ export async function fetchPropSimulations(
     });
   }
 
-  if (!props.length) return out;
+  if (!props.length) {
+    return { hits: out, playerHistories, historyShared, historyCoalesced };
+  }
 
   const byGame = new Map<string, BuiltProp[]>();
   for (const row of props) {
@@ -2216,47 +2278,54 @@ export async function fetchPropSimulations(
           ),
         ),
       );
-      return chunkRows.flat();
+      return chunkRows;
     }),
   );
 
-  for (const batchRows of gameResults) {
-    for (const row of batchRows) {
-      out.set(row.key, row);
-      // Expand shared-draw ladder into per-line map entries so every genuine
-      // provider rung can be graded without a second Monte Carlo request.
-      const bySide = row.lineHitRatesBySide;
-      if (!bySide) continue;
-      const markets = [row.market];
-      if (row.market.endsWith("_alternate")) {
-        markets.push(row.market.slice(0, -"_alternate".length));
-      } else {
-        markets.push(`${row.market}_alternate`);
+  for (const chunkResults of gameResults) {
+    for (const batch of chunkResults) {
+      historyShared += batch.historyShared ?? 0;
+      historyCoalesced += batch.historyCoalesced ?? 0;
+      for (const [athleteId, hist] of Object.entries(batch.playerHistories ?? {})) {
+        if (!playerHistories[athleteId]) playerHistories[athleteId] = hist;
       }
-      for (const side of ["Over", "Under"] as const) {
-        const rates = bySide[side];
-        if (!rates) continue;
-        for (const [lineStr, hit] of Object.entries(rates)) {
-          const line = Number(lineStr);
-          if (!Number.isFinite(line) || hit == null) continue;
-          for (const market of markets) {
-            const key = `${row.player}|${market}|${line}|${side}`;
-            if (out.has(key)) continue;
-            out.set(key, {
-              ...row,
-              key,
-              market,
-              line,
-              side,
-              hitProbability: hit,
-              lineHitRates: undefined,
-            });
+      for (const row of batch.props) {
+        out.set(row.key, row);
+        // Expand shared-draw ladder into per-line map entries so every genuine
+        // provider rung can be graded without a second Monte Carlo request.
+        const bySide = row.lineHitRatesBySide;
+        if (!bySide) continue;
+        const markets = [row.market];
+        if (row.market.endsWith("_alternate")) {
+          markets.push(row.market.slice(0, -"_alternate".length));
+        } else {
+          markets.push(`${row.market}_alternate`);
+        }
+        for (const side of ["Over", "Under"] as const) {
+          const rates = bySide[side];
+          if (!rates) continue;
+          for (const [lineStr, hit] of Object.entries(rates)) {
+            const line = Number(lineStr);
+            if (!Number.isFinite(line) || hit == null) continue;
+            for (const market of markets) {
+              const key = `${row.player}|${market}|${line}|${side}`;
+              if (out.has(key)) continue;
+              out.set(key, {
+                ...row,
+                key,
+                market,
+                line,
+                side,
+                hitProbability: hit,
+                lineHitRates: undefined,
+              });
+            }
           }
         }
       }
     }
   }
-  return out;
+  return { hits: out, playerHistories, historyShared, historyCoalesced };
 }
 
 export type GameSimulationResult = {
@@ -2415,8 +2484,13 @@ export async function fetchPropSimulationsBatch(
     tier?: "quick" | "deep";
   },
   signal?: AbortSignal,
-): Promise<PropSimulationResult[]> {
-  if (!props.length) return [];
+): Promise<{
+  props: PropSimulationResult[];
+  playerHistories: Record<string, PropSimPlayerHistoryPayload>;
+  historyShared?: number;
+  historyCoalesced?: number;
+}> {
+  if (!props.length) return { props: [], playerHistories: {} };
   const path = "/sports/simulate/props";
   const tier = opts?.tier ?? "quick";
   const res = await withTimeout(
@@ -2429,9 +2503,19 @@ export async function fetchPropSimulationsBatch(
     tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
     path,
   );
-  if (!res.ok) return [];
-  const json = (await res.json()) as { props?: PropSimulationResult[] };
-  return json.props ?? [];
+  if (!res.ok) return { props: [], playerHistories: {} };
+  const json = (await res.json()) as {
+    props?: PropSimulationResult[];
+    playerHistories?: Record<string, PropSimPlayerHistoryPayload>;
+    historyShared?: number;
+    historyCoalesced?: number;
+  };
+  return {
+    props: json.props ?? [],
+    playerHistories: json.playerHistories ?? {},
+    historyShared: json.historyShared,
+    historyCoalesced: json.historyCoalesced,
+  };
 }
 
 // Render-only team metadata for game-level picks (logos + abbreviations). Built

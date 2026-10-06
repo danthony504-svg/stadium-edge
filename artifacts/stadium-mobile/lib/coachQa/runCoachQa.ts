@@ -22,6 +22,7 @@ import {
   runFailureInjectionSuite,
   runPerformanceSmoke,
 } from "./pipelineAudit.ts";
+import { runAbsoluteTerminalHangGuardSuite } from "./terminalInvariant.ts";
 import { snapshotAsk } from "./parseSnapshot.ts";
 import { aggregateReport, formatMarkdownReport, countBySeverity } from "./report.ts";
 import type { QaCaseResult } from "./types.ts";
@@ -99,13 +100,14 @@ export function runCoachQaHarness(opts?: {
   results.push(...runDataQualityFlags());
   results.push(...runFailureInjectionSuite());
   results.push(...runPerformanceSmoke());
+  results.push(...runAbsoluteTerminalHangGuardSuite());
 
   const screenshot = screenshotSequenceAudit();
   const report = aggregateReport(results, {
     seed,
     notes: [
-      "Offline harness: parser/state/fuzz/fixture-pipeline only. Large fuzz does not call paid/live APIs.",
-      "Live provider end-to-end validation is a separate controlled subset (not executed in this default run).",
+      "Offline harness: parser/state/fuzz/fixture-pipeline + terminal-state guards. Large fuzz does not call paid/live APIs.",
+      "Live A/B terminal audit (fresh 5 leg vs soccer→5 leg) runs from coachQa.harness.test.ts — parser suites alone cannot pass while the async pipeline hangs.",
       "Documented intentional inheritance: propsOnly only onto explicit slate-day refinements (`N … for tomorrow/tonight/today`). Bare `5 leg` after soccer/player-props must NOT inherit (RC1 fix).",
       `Screenshot sequence stale propsOnly confirmed=${screenshot.stalePropsOnlyConfirmed}`,
       `Matrix size=${generateRequestMatrix().length}; sequential seeds=${sequentialTransitionSeeds().length}`,

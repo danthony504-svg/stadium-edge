@@ -251,7 +251,7 @@ export async function enrichChatContextProps(
       propSimulations = await Promise.race([
         fetchPropSimulations(simPicks, propPool, { tier: "quick" }, signal).then((m) => {
           const out = new Map<string, { hitProbability: number | null }>();
-          for (const [k, v] of m) out.set(k, { hitProbability: v.hitProbability });
+          for (const [k, v] of m.hits) out.set(k, { hitProbability: v.hitProbability });
           return out;
         }),
         new Promise<Map<string, { hitProbability: number | null }>>((resolve) => {

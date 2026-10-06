@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = new URL("../", import.meta.url).href;
 const FAKE_EXPO_FETCH = new URL("./fakes/expo-fetch.ts", import.meta.url).href;
 const PICKCARD_STUB = new URL("./fakes/PickCardStub.ts", import.meta.url).href;
+const SPORTS_STUB = new URL("./fakes/sportsStub.ts", import.meta.url).href;
 
 module.registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -22,6 +23,19 @@ module.registerHooks({
       specifier.endsWith("PickCard.tsx")
     ) {
       return { url: PICKCARD_STUB, shortCircuit: true };
+    }
+
+    // Live terminal audit imports buildParlay → sports → @expo/vector-icons.
+    if (
+      specifier === "@/lib/sports" ||
+      specifier.endsWith("/lib/sports") ||
+      specifier.endsWith("/lib/sports.ts")
+    ) {
+      return { url: SPORTS_STUB, shortCircuit: true };
+    }
+
+    if (specifier.startsWith("@expo/vector-icons")) {
+      return { url: SPORTS_STUB, shortCircuit: true };
     }
 
     if (specifier.startsWith("@/")) {

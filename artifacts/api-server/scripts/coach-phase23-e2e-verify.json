@@ -1,0 +1,663 @@
+{
+  "generatedAt": "2026-10-05T22:04:04.659Z",
+  "phase": "2.3",
+  "note": "Local prop-sim (Phase 2.3 playerHistories) + production board. No merge/deploy.",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "freshBaselinePre23": {
+    "min": 26027,
+    "median": 29072,
+    "mean": 29531,
+    "max": 34469
+  },
+  "table": {
+    "fresh5": {
+      "label": "fresh5",
+      "wallMs": 29064,
+      "historyProviderCalls": 16,
+      "historyWallMs": 1697,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 16,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 17283,
+      "gameSimCalls": 18,
+      "propSimWallMs": 441,
+      "propSimElapsedMs": 323,
+      "ctx": "0/21",
+      "dist": "0/17",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread"
+        },
+        {
+          "pick": "Jonathan Aranda Over 0.5 Total Bases",
+          "isProp": true,
+          "market": "Total Bases"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    "repeat5_mean": {
+      "wallMs": 16972,
+      "historyProviderCalls": 0,
+      "historyWallMs": 0,
+      "historyShared": 9,
+      "gameSimWallMs": 288,
+      "propSimWallMs": 10742,
+      "finalLegs": 5
+    },
+    "soccerTo5": {
+      "label": "soccer-to-5",
+      "wallMs": 26523,
+      "historyProviderCalls": 16,
+      "historyWallMs": 1483,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 16,
+      "historyShared": 8,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 17315,
+      "gameSimCalls": 18,
+      "propSimWallMs": 75,
+      "propSimElapsedMs": 65,
+      "ctx": "0/21",
+      "dist": "0/17",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread"
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits",
+          "isProp": true,
+          "market": "Hits"
+        },
+        {
+          "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons ML",
+          "isProp": false,
+          "market": "Q1 Moneyline"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    "nfl7": {
+      "label": "nfl-7",
+      "wallMs": 11994,
+      "historyProviderCalls": 0,
+      "historyWallMs": 0,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 0,
+      "historyShared": 23,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 1367,
+      "gameSimCalls": 1,
+      "propSimWallMs": 395,
+      "propSimElapsedMs": 248,
+      "ctx": "0/34",
+      "dist": "0/19",
+      "qualified": null,
+      "finalLegs": 6,
+      "ticket": [
+        {
+          "pick": "Zachariah Branch Over 0.5 Receptions",
+          "isProp": true,
+          "market": "Receptions"
+        },
+        {
+          "pick": "Brian Robinson Jr. Over 29.5 Rush Yds",
+          "isProp": true,
+          "market": "Rush Yds"
+        },
+        {
+          "pick": "Falcons +3.5",
+          "isProp": false,
+          "market": "Q1 Spread"
+        },
+        {
+          "pick": "Falcons ML",
+          "isProp": false,
+          "market": "1H Moneyline"
+        },
+        {
+          "pick": "Falcons Over 9.5",
+          "isProp": false,
+          "market": "1H Alt Team Total"
+        },
+        {
+          "pick": "Falcons Over 9.5",
+          "isProp": false,
+          "market": "2H Team Total"
+        }
+      ],
+      "note": "_Scanned the entire board — 2188 posted lines across live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to market"
+    }
+  },
+  "fresh5Variance": {
+    "n": 5,
+    "min": 24796,
+    "median": 27245,
+    "mean": 27191,
+    "p95": 29757,
+    "max": 29757
+  },
+  "repeat5Variance": {
+    "n": 5,
+    "min": 15304,
+    "median": 15513,
+    "mean": 16972,
+    "p95": 23137,
+    "max": 23137
+  },
+  "freshRuns": [
+    {
+      "label": "fresh5",
+      "wallMs": 29064,
+      "historyProviderCalls": 16,
+      "historyWallMs": 1697,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 16,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 17283,
+      "gameSimCalls": 18,
+      "propSimWallMs": 441,
+      "propSimElapsedMs": 323,
+      "ctx": "0/21",
+      "dist": "0/17",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread"
+        },
+        {
+          "pick": "Jonathan Aranda Over 0.5 Total Bases",
+          "isProp": true,
+          "market": "Total Bases"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "fresh5-2",
+      "wallMs": 24796,
+      "historyProviderCalls": 16,
+      "historyWallMs": 1330,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 16,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 17577,
+      "gameSimCalls": 18,
+      "propSimWallMs": 72,
+      "propSimElapsedMs": 61,
+      "ctx": "0/21",
+      "dist": "0/17",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread"
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits",
+          "isProp": true,
+          "market": "Hits"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "fresh5-3",
+      "wallMs": 29757,
+      "historyProviderCalls": 16,
+      "historyWallMs": 1658,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 16,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 18349,
+      "gameSimCalls": 18,
+      "propSimWallMs": 70,
+      "propSimElapsedMs": 59,
+      "ctx": "0/21",
+      "dist": "0/17",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits",
+          "isProp": true,
+          "market": "Hits"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Over 49.5",
+          "isProp": false,
+          "market": "Total"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "fresh5-4",
+      "wallMs": 25095,
+      "historyProviderCalls": 16,
+      "historyWallMs": 1419,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 16,
+      "historyShared": 8,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 16839,
+      "gameSimCalls": 18,
+      "propSimWallMs": 66,
+      "propSimElapsedMs": 57,
+      "ctx": "0/21",
+      "dist": "0/17",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Over 49.5",
+          "isProp": false,
+          "market": "Total"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "fresh5-5",
+      "wallMs": 27245,
+      "historyProviderCalls": 16,
+      "historyWallMs": 1290,
+      "historyCacheHits": 0,
+      "historyCacheMisses": 16,
+      "historyShared": 8,
+      "historyCoalesced": 0,
+      "historyReusedClient": 0,
+      "gameSimWallMs": 17563,
+      "gameSimCalls": 18,
+      "propSimWallMs": 72,
+      "propSimElapsedMs": 62,
+      "ctx": "0/21",
+      "dist": "0/17",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Braves +1.5",
+          "isProp": false,
+          "market": "Spread"
+        },
+        {
+          "pick": "Yandy Diaz Over 0.5 Total Bases",
+          "isProp": true,
+          "market": "Total Bases"
+        },
+        {
+          "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons ML",
+          "isProp": false,
+          "market": "Q1 Moneyline"
+        },
+        {
+          "pick": "Over 49.5",
+          "isProp": false,
+          "market": "Total"
+        }
+      ],
+      "note": ""
+    }
+  ],
+  "warmRuns": [
+    {
+      "label": "repeat5-1",
+      "wallMs": 23137,
+      "historyProviderCalls": 0,
+      "historyWallMs": 0,
+      "historyCacheHits": 16,
+      "historyCacheMisses": 0,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 16,
+      "gameSimWallMs": 1441,
+      "gameSimCalls": 1,
+      "propSimWallMs": 24,
+      "propSimElapsedMs": 15,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +5.5",
+          "isProp": false,
+          "market": "2H Spread"
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "repeat5-2",
+      "wallMs": 15351,
+      "historyProviderCalls": 0,
+      "historyWallMs": 0,
+      "historyCacheHits": 16,
+      "historyCacheMisses": 0,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 16,
+      "gameSimWallMs": 0,
+      "gameSimCalls": 0,
+      "propSimWallMs": 13444,
+      "propSimElapsedMs": 13437,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread"
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits",
+          "isProp": true,
+          "market": "Hits"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "repeat5-3",
+      "wallMs": 15513,
+      "historyProviderCalls": 0,
+      "historyWallMs": 0,
+      "historyCacheHits": 16,
+      "historyCacheMisses": 0,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 16,
+      "gameSimWallMs": 0,
+      "gameSimCalls": 0,
+      "propSimWallMs": 13511,
+      "propSimElapsedMs": 13504,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Junior Caminero Over 0.5 Total Bases",
+          "isProp": true,
+          "market": "Total Bases"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Over 49.5",
+          "isProp": false,
+          "market": "Total"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "repeat5-4",
+      "wallMs": 15304,
+      "historyProviderCalls": 0,
+      "historyWallMs": 0,
+      "historyCacheHits": 16,
+      "historyCacheMisses": 0,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 16,
+      "gameSimWallMs": 0,
+      "gameSimCalls": 0,
+      "propSimWallMs": 13409,
+      "propSimElapsedMs": 13402,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +5.5",
+          "isProp": false,
+          "market": "2H Spread"
+        },
+        {
+          "pick": "Junior Caminero Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    },
+    {
+      "label": "repeat5-5",
+      "wallMs": 15557,
+      "historyProviderCalls": 0,
+      "historyWallMs": 0,
+      "historyCacheHits": 16,
+      "historyCacheMisses": 0,
+      "historyShared": 9,
+      "historyCoalesced": 0,
+      "historyReusedClient": 16,
+      "gameSimWallMs": 0,
+      "gameSimCalls": 0,
+      "propSimWallMs": 13323,
+      "propSimElapsedMs": 13316,
+      "ctx": "17/4",
+      "dist": "17/0",
+      "qualified": null,
+      "finalLegs": 5,
+      "ticket": [
+        {
+          "pick": "Southern Mississippi Golden Eagles +2.5",
+          "isProp": false,
+          "market": "Q3 Spread"
+        },
+        {
+          "pick": "Liam Hicks Over 0.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Yandy Diaz Over 1.5 Hits+Runs+RBIs",
+          "isProp": true,
+          "market": "Hits+Runs+RBIs"
+        },
+        {
+          "pick": "Falcons +2.5",
+          "isProp": false,
+          "market": "1H Spread"
+        },
+        {
+          "pick": "Brewers Under 5.5",
+          "isProp": false,
+          "market": "Alt Team Total"
+        }
+      ],
+      "note": ""
+    }
+  ],
+  "ancestry": {
+    "pr609": true,
+    "pr612": true
+  }
+}

@@ -1,14 +1,14 @@
 # AI COACH QA REPORT
 
-Generated: 2026-10-05T17:58:48.342Z
+Generated: 2026-10-05T23:51:42.274Z
 Seed: 6092026
 
 ## Summary
 
 | Metric | Count |
 |---|---|
-| Total tests | 13596 |
-| Passed | 13596 |
+| Total tests | 13599 |
+| Passed | 13599 |
 | Failed | 0 |
 | Warnings | 96 |
 
@@ -29,6 +29,7 @@ Seed: 6092026
 | provider_integrity | 10 | 0 | 0 |
 | recovery_alt | 3 | 0 | 0 |
 | sequential | 872 | 0 | 0 |
+| terminal_state | 3 | 0 | 0 |
 | ticket_construction | 24 | 0 | 0 |
 
 ## Ranked findings
@@ -249,8 +250,8 @@ Seed: 6092026
 
 ## Notes
 
-- Offline harness: parser/state/fuzz/fixture-pipeline only. Large fuzz does not call paid/live APIs.
-- Live provider end-to-end validation is a separate controlled subset (not executed in this default run).
+- Offline harness: parser/state/fuzz/fixture-pipeline + terminal-state guards. Large fuzz does not call paid/live APIs.
+- Live A/B terminal audit (fresh 5 leg vs soccer→5 leg) runs from coachQa.harness.test.ts — parser suites alone cannot pass while the async pipeline hangs.
 - Documented intentional inheritance: propsOnly only onto explicit slate-day refinements (`N … for tomorrow/tonight/today`). Bare `5 leg` after soccer/player-props must NOT inherit (RC1 fix).
 - Screenshot sequence stale propsOnly confirmed=false
 - Matrix size=3125; sequential seeds=10

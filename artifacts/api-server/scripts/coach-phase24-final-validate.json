@@ -1,0 +1,198 @@
+{
+  "generatedAt": "2026-10-06T00:05:09.339Z",
+  "phase": "2.4-final-validate",
+  "apiBase": "https://stadium-edge.onrender.com/api",
+  "warm5": [
+    {
+      "run": "warm5-1",
+      "coachWallMs": 14840,
+      "maxLoopDelayMs": 4628,
+      "propSim": 678,
+      "distCpuMs": 0,
+      "qualified": 118,
+      "final": 5
+    },
+    {
+      "run": "warm5-2",
+      "coachWallMs": 15183,
+      "maxLoopDelayMs": 4595,
+      "propSim": 571,
+      "distCpuMs": 0,
+      "qualified": 118,
+      "final": 5
+    },
+    {
+      "run": "warm5-3",
+      "coachWallMs": 14915,
+      "maxLoopDelayMs": 4571,
+      "propSim": 828,
+      "distCpuMs": 0,
+      "qualified": 118,
+      "final": 5
+    },
+    {
+      "run": "warm5-4",
+      "coachWallMs": 14975,
+      "maxLoopDelayMs": 4545,
+      "propSim": 600,
+      "distCpuMs": 7,
+      "qualified": 118,
+      "final": 5
+    },
+    {
+      "run": "warm5-5",
+      "coachWallMs": 16175,
+      "maxLoopDelayMs": 4570,
+      "propSim": 1564,
+      "distCpuMs": 8,
+      "qualified": 121,
+      "final": 5
+    }
+  ],
+  "warm5Agg": {
+    "coachWall": {
+      "n": 5,
+      "min": 14840,
+      "median": 14975,
+      "mean": 15218,
+      "p95": 16175,
+      "max": 16175
+    },
+    "maxLoopDelay": {
+      "n": 5,
+      "min": 4545,
+      "median": 4571,
+      "mean": 4582,
+      "p95": 4628,
+      "max": 4628
+    },
+    "propSim": {
+      "n": 5,
+      "min": 571,
+      "median": 678,
+      "mean": 848,
+      "p95": 1564,
+      "max": 1564
+    },
+    "distCpu": {
+      "n": 5,
+      "min": 0,
+      "median": 0,
+      "mean": 3,
+      "p95": 8,
+      "max": 8
+    },
+    "qualified": [
+      118,
+      118,
+      118,
+      118,
+      121
+    ],
+    "final": [
+      5,
+      5,
+      5,
+      5,
+      5
+    ]
+  },
+  "nfl7Funnel": {
+    "requested": 7,
+    "available": {
+      "propPoolSize": 916,
+      "oddsGameCount": 1,
+      "gameEntryCount": 1
+    },
+    "simulated": {
+      "gameSimsLoaded": 1,
+      "gameLegsScored": 808,
+      "propSimEvaluated": 35,
+      "propLegsScored": 7
+    },
+    "qualified": {
+      "scoredBeforeStage": 23
+    },
+    "correlationDiversityStaging": {
+      "disappearance": "staging_correlation_diversity_or_per_game_cap",
+      "requirePropMix": true,
+      "note": "_Scanned the entire board — 2225 posted lines across live markets, moneylines, spreads, alternate spreads, totals, alternate totals, team totals, race-to markets, first 5 innings, innings, first half, second half, first quarter, second quarter, third quarter, first period, second period, third period, player props, alternate player props, combo props, and any other sportsbook-posted markets (10k s"
+    },
+    "staged": 6,
+    "final": [
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "market": "Receptions",
+        "pick": "Zachariah Branch Over 0.5 Receptions",
+        "isProp": true,
+        "sport": "nfl",
+        "grade": "A-",
+        "simHit": 0.98
+      },
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "market": "Rush Yds",
+        "pick": "Brian Robinson Jr. Over 29.5 Rush Yds",
+        "isProp": true,
+        "sport": "nfl",
+        "grade": "B+",
+        "simHit": 0.812
+      },
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "market": "Q1 Spread",
+        "pick": "Falcons +3.5",
+        "isProp": false,
+        "sport": "nfl",
+        "grade": "A",
+        "simHit": 0.983
+      },
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "market": "1H Moneyline",
+        "pick": "Falcons ML",
+        "isProp": false,
+        "sport": "nfl",
+        "grade": "B+",
+        "simHit": 0.768
+      },
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "market": "2H Team Total",
+        "pick": "Falcons Over 9.5",
+        "isProp": false,
+        "sport": "nfl",
+        "grade": "A",
+        "simHit": 0.992
+      },
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "market": "1H Alt Team Total",
+        "pick": "Falcons Over 9.5",
+        "isProp": false,
+        "sport": "nfl",
+        "grade": "A",
+        "simHit": 0.993
+      }
+    ],
+    "sameGameStacks": [
+      {
+        "game": "Atlanta Falcons @ New Orleans Saints",
+        "count": 6,
+        "legs": [
+          "Receptions: Zachariah Branch Over 0.5 Receptions",
+          "Rush Yds: Brian Robinson Jr. Over 29.5 Rush Yds",
+          "Q1 Spread: Falcons +3.5",
+          "1H Moneyline: Falcons ML",
+          "2H Team Total: Falcons Over 9.5",
+          "1H Alt Team Total: Falcons Over 9.5"
+        ]
+      }
+    ],
+    "seventhLegitimateQualifiedCandidateExisted": true,
+    "analysis": "Board produced enough qualified candidates (scoredBeforeStage ≥ 7) but staging could only place 6 without violating per-game / correlation / prop-mix / diversity caps. A legitimate 7th qualified candidate existed in the pool but was excluded by staging policy — not by empty board or lowered thresholds."
+  },
+  "noThresholdChange": true,
+  "noFiller": true,
+  "noFurtherPerfOpt": true
+}

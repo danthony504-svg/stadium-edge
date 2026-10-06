@@ -12,6 +12,7 @@ import {
   normalizeMarketKey,
 } from "./simMarketSupport.ts";
 import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeriodScoring.ts";
+import { withFgDistSeriesReuse } from "./gameSimDistReuse.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
 import { parsePickLineNumber } from "./pickLineParse.ts";
 
@@ -557,7 +558,8 @@ function simulatedStatisticForQuery(query: GameCoverQuery): string {
   return period;
 }
 
-function distributionForQuery(
+/** Exported for Phase 2.4 A≡C / identity tests — production path goes through reuse. */
+export function distributionForQuery(
   query: GameCoverQuery,
   sim: CoachGameSimEntry,
 ): { mean: number | null; median: number | null; stdev: number | null } {
@@ -622,7 +624,10 @@ function sanitizeGameSimHit(
       : null;
   const periodClaimed = parseMarketPeriod(pick.market ?? "");
   const periodUsed = query.period ?? "fg";
-  const dist = distributionForQuery(query, sim);
+  // Option C: reuse FG base series (mean/median/stdev) across alt thresholds /
+  // books on the same outcomes object. Period/race queries bypass the series
+  // cache; coverHitRates / periodScoresForDraw / raceToHits stay unchanged.
+  const dist = withFgDistSeriesReuse(query, sim, () => distributionForQuery(query, sim));
   const simStat = simulatedStatisticForQuery(query);
   return sanitizeSimHitForGrade(hit, {
     market: pick.market,
