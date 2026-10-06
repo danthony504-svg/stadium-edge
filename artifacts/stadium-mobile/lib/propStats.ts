@@ -80,6 +80,119 @@ const MARKET_MADE: Record<string, string[]> = {
   player_threes: ["3PM", "3PT"],
 };
 
+/**
+ * Short display labels for season-total tiles (Player Props sheet).
+ * Machine camelCase keys must never render raw — they wrap mid-word on narrow columns.
+ */
+const SEASON_STAT_DISPLAY: Record<string, string> = {
+  receivingYards: "REC YDS",
+  receivingTargets: "TGTS",
+  receptions: "REC",
+  receivingTouchdowns: "REC TD",
+  rushingYards: "RUSH YDS",
+  rushingAttempts: "CAR",
+  rushingTouchdowns: "RUSH TD",
+  passingYards: "PASS YDS",
+  passingAttempts: "ATT",
+  passingTouchdowns: "PASS TD",
+  completions: "COMP",
+  interceptions: "INT",
+  longReceiving: "LONG",
+  longReception: "LONG",
+  longRushing: "LONG",
+  longPassing: "LONG",
+  totalTackles: "TKL",
+  soloTackles: "SOLO",
+  kickingPoints: "K PTS",
+  fieldGoalsMade: "FGM",
+  extraPointsMade: "XPM",
+  // Short ESPN / StatMuse labels — pass through.
+  YDS: "YDS",
+  TD: "TD",
+  REC: "REC",
+  INT: "INT",
+  TGTS: "TGTS",
+  TGT: "TGTS",
+  PTS: "PTS",
+  REB: "REB",
+  AST: "AST",
+  BLK: "BLK",
+  STL: "STL",
+  HR: "HR",
+  RBI: "RBI",
+  H: "H",
+  R: "R",
+  BB: "BB",
+  G: "G",
+  A: "A",
+  S: "SOG",
+  SOG: "SOG",
+  PIM: "PIM",
+  SH: "SH",
+  SOT: "SOT",
+};
+
+/** Synonym family so REC and receptions don't both occupy a tile. */
+const SEASON_STAT_FAMILY: Record<string, string> = {
+  REC: "rec",
+  receptions: "rec",
+  TGTS: "tgt",
+  TGT: "tgt",
+  receivingTargets: "tgt",
+  targets: "tgt",
+  receivingYards: "rec_yds",
+  "REC YDS": "rec_yds",
+  rushingYards: "rush_yds",
+  "RUSH YDS": "rush_yds",
+  passingYards: "pass_yds",
+  "PASS YDS": "pass_yds",
+  YDS: "yds_ambiguous",
+  TD: "td_ambiguous",
+  receivingTouchdowns: "rec_td",
+  "REC TD": "rec_td",
+  rushingTouchdowns: "rush_td",
+  "RUSH TD": "rush_td",
+  passingTouchdowns: "pass_td",
+  "PASS TD": "pass_td",
+  INT: "int",
+  interceptions: "int",
+};
+
+/** Compact uppercase label for season-total tiles — never raw camelCase. */
+export function formatSeasonStatLabel(raw: string | null | undefined): string {
+  const key = String(raw ?? "").trim();
+  if (!key) return "";
+  if (SEASON_STAT_DISPLAY[key]) return SEASON_STAT_DISPLAY[key];
+  // Already a short abbreviation (≤6 chars, mostly caps / digits).
+  if (/^[A-Z0-9+/.\-]{1,6}$/.test(key)) return key;
+  // camelCase / snake_case → spaced words, then shorten.
+  const spaced = key
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
+  const words = spaced.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    const last = words[words.length - 1]!.slice(0, 4).toUpperCase();
+    const head = words
+      .slice(0, -1)
+      .map((w) => w.slice(0, 3).toUpperCase())
+      .join(" ");
+    const out = `${head} ${last}`.trim();
+    return out.length <= 10 ? out : last;
+  }
+  return spaced.slice(0, 8).toUpperCase();
+}
+
+/** Dedupe key for season tiles (REC ↔ receptions). */
+export function seasonStatFamilyKey(raw: string | null | undefined): string {
+  const key = String(raw ?? "").trim();
+  if (!key) return "";
+  if (SEASON_STAT_FAMILY[key]) return SEASON_STAT_FAMILY[key];
+  const display = formatSeasonStatLabel(key);
+  if (SEASON_STAT_FAMILY[display]) return SEASON_STAT_FAMILY[display];
+  return display.toLowerCase();
+}
+
 function num(stats: Record<string, string>, label: string): number | null {
   const n = Number(stats[label]);
   return Number.isFinite(n) ? n : null;
