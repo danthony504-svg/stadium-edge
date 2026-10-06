@@ -16,7 +16,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
-import { PromoCodeForm } from "@/components/PromoCodeForm";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -281,8 +280,6 @@ export default function AccountScreen() {
                 : "Go and Pro bill through Apple StoreKit on a native build. Coach and browse stay free."}
           </Text>
         </View>
-
-        <PromoCodeForm />
 
         {referralLink ? (
           <View

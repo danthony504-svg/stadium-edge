@@ -3,13 +3,22 @@
  *
  * Design rules (App Store + OTA-safe):
  * - Guest browsing + Coach stay freely usable (App Store 5.1.1(v)).
- * - Secondary tools may soft-gate without an Apple/promo/admin unlock
+ * - Secondary tools may soft-gate without an Apple/admin unlock
  *   (Edge Lock, Steals, Simulator, Report).
- * - Admin emails + promo codes/links unlock everything without StoreKit.
+ * - Custom promo/redeem unlocks are DISABLED (Guideline 3.1.1) — use Apple
+ *   Offer Codes for IAP if discounted/free access is needed later.
+ * - Admin emails may unlock for the allowlisted account only (not consumer).
  * - Paid Go/Pro (including any free trial) come exclusively from Apple
  *   StoreKit auto-renewables via RevenueCat — no local device trial clock.
  * - Pure helpers stay Node-testable (no React / AsyncStorage / Purchases imports).
  */
+
+/**
+ * Custom redeem / promo-code unlocks are off for App Store compliance
+ * (Guideline 3.1.1). Catalog + storage fields remain for sanitize compat;
+ * they must never grant Go/Pro.
+ */
+export const CUSTOM_PROMO_UNLOCKS_ENABLED = false;
 
 export type PlanId = "free" | "go" | "pro";
 
@@ -137,10 +146,10 @@ export type PromoDefinition = {
 };
 
 /**
- * Local promo catalog (OTA-updatable). Codes are case-insensitive.
- * Share as `https://<domain>/plans?promo=CODE` or redeem on Plans/Account.
+ * Legacy promo catalog — retained for storage/sanitize shape only.
+ * Redeem and unlock are gated by CUSTOM_PROMO_UNLOCKS_ENABLED (false).
  *
- * Timing knobs per code:
+ * Timing knobs per code (inactive while disabled):
  * - redeemFromMs / redeemUntilMs → when the code may be entered
  * - kind "days" → access length after redeem
  * - kind "until" → access ends on a fixed calendar date
@@ -311,6 +320,7 @@ export function isPromoUnlockActive(
   state: Pick<SubscriptionPersistedState, "redeemedPromoCode" | "promoExpiresAtMs" | "promoLifetime">,
   nowMs: number,
 ): boolean {
+  if (!CUSTOM_PROMO_UNLOCKS_ENABLED) return false;
   if (!state.redeemedPromoCode) return false;
   if (state.promoLifetime) return true;
   if (state.promoExpiresAtMs == null) return false;
@@ -376,9 +386,9 @@ export type EntitlementAccessOpts = {
 };
 
 /**
- * Soft Pro access: verified Apple StoreKit plan, active promo, admin email,
- * or temporary App Review unlock. Local / preview paid planId without StoreKit
- * does not unlock Pro.
+ * Soft Pro access: verified Apple StoreKit plan, admin email, or temporary
+ * App Review unlock. Custom promo codes never unlock. Local / preview paid
+ * planId without StoreKit does not unlock Pro.
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
@@ -388,6 +398,30 @@ export function hasProAccess(
   if (opts.appReviewMode) return true;
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
   return hasPromoOrPlanAccess(state, nowMs);
+}
+
+/**
+ * Strip custom promo unlock fields so stored codes cannot grant Go/Pro.
+ * Catalog/storage keys stay for AsyncStorage shape compatibility.
+ */
+export function clearCustomPromoUnlock(
+  state: SubscriptionPersistedState,
+): SubscriptionPersistedState {
+  if (
+    state.redeemedPromoCode == null &&
+    state.promoExpiresAtMs == null &&
+    !state.promoLifetime &&
+    Object.keys(state.promoRedeemCounts ?? {}).length === 0
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    redeemedPromoCode: null,
+    promoExpiresAtMs: null,
+    promoLifetime: false,
+    promoRedeemCounts: {},
+  };
 }
 
 export function resolveUnlockSource(
@@ -524,6 +558,8 @@ export function redeemPromoCode(
   code: string,
   nowMs: number,
 ): RedeemPromoResult {
+  // Guideline 3.1.1 — custom redeem codes must not unlock digital content.
+  if (!CUSTOM_PROMO_UNLOCKS_ENABLED) return { ok: false, reason: "invalid" };
   const definition = findPromoDefinition(code);
   if (!definition) return { ok: false, reason: "invalid" };
 
@@ -594,11 +630,12 @@ export function redeemPromoCode(
   };
 }
 
-/** Shareable promo link — same host pattern as referral links. */
+/** Shareable promo link — disabled while CUSTOM_PROMO_UNLOCKS_ENABLED is false. */
 export function buildPromoLink(
   code: string,
   domain: string | null | undefined,
 ): string | null {
+  if (!CUSTOM_PROMO_UNLOCKS_ENABLED) return null;
   const normalized = normalizePromoCode(code);
   if (!findPromoDefinition(normalized)) return null;
   const host = (domain ?? "").trim();
@@ -609,9 +646,11 @@ export function buildPromoLink(
   return `${base}/plans?promo=${encodeURIComponent(normalized)}`;
 }
 
+/** Deep-link `?promo=` / `?code=` — disabled; never auto-unlock from URL. */
 export function extractPromoFromQuery(
   params: Record<string, string | string[] | undefined> | null | undefined,
 ): string | null {
+  if (!CUSTOM_PROMO_UNLOCKS_ENABLED) return null;
   if (!params) return null;
   const raw = params.promo ?? params.code;
   if (Array.isArray(raw)) return normalizePromoCode(raw[0] ?? "") || null;

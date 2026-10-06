@@ -3,9 +3,11 @@ import test from "node:test";
 
 import {
   APPLE_INTRO_TRIAL_DAYS,
+  CUSTOM_PROMO_UNLOCKS_ENABLED,
   buildEntitlementView,
   buildPromoLink,
   canAccessPremiumFeature,
+  clearCustomPromoUnlock,
   clearLocalTrialEntitlement,
   clearUnverifiedPaidPlan,
   extractPromoFromQuery,
@@ -50,8 +52,9 @@ test("local trial helpers never grant access", () => {
   );
 });
 
-test("hasProAccess: paid requires storeKitActive; promo and admin unlock", () => {
+test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; admin ok", () => {
   const start = 1_700_000_000_000;
+  assert.equal(CUSTOM_PROMO_UNLOCKS_ENABLED, false);
   assert.equal(
     hasProAccess(baseState({ planId: "go", storeKitActive: true }), start, {}),
     true,
@@ -64,6 +67,7 @@ test("hasProAccess: paid requires storeKitActive; promo and admin unlock", () =>
     hasProAccess(baseState({ planId: "free", trialStartedAtMs: start }), start + DAY, {}),
     false,
   );
+  // Guideline 3.1.1 — stored custom promo codes must not grant Pro.
   assert.equal(
     hasProAccess(
       baseState({
@@ -73,7 +77,14 @@ test("hasProAccess: paid requires storeKitActive; promo and admin unlock", () =>
       start + 100 * DAY,
       {},
     ),
-    true,
+    false,
+  );
+  assert.equal(
+    isPromoUnlockActive(
+      baseState({ redeemedPromoCode: "7VXHVPOR", promoLifetime: true }),
+      start,
+    ),
+    false,
   );
   assert.equal(
     hasProAccess(baseState({ planId: "free" }), start, {
@@ -98,7 +109,7 @@ test("hasProAccess: app review mode unlocks everything temporarily", () => {
   assert.equal(view.statusLabel, "Temporary unlock");
 });
 
-test("buildEntitlementView labels admin / promo / free (no local trial)", () => {
+test("buildEntitlementView labels admin / free (promo unlock disabled)", () => {
   const start = 1_700_000_000_000;
   const admin = buildEntitlementView(baseState({ trialStartedAtMs: start }), start + 10 * DAY, {
     email: "admin@x.com",
@@ -118,8 +129,8 @@ test("buildEntitlementView labels admin / promo / free (no local trial)", () => 
     start + DAY,
     {},
   );
-  assert.equal(promo.unlockSource, "promo");
-  assert.equal(promo.isPro, true);
+  assert.equal(promo.unlockSource, "none");
+  assert.equal(promo.isPro, false);
 
   const legacyTrialStamp = buildEntitlementView(
     baseState({ planId: "free", trialStartedAtMs: start }),
@@ -167,14 +178,16 @@ test("clearUnverifiedPaidPlan drops local preview Go/Pro", () => {
   });
   assert.equal(clearUnverifiedPaidPlan(verified).planId, "pro");
   assert.equal(clearUnverifiedPaidPlan(verified).storeKitActive, true);
-  // Promo-only state is untouched even without StoreKit.
+  // Stored promo fields are cleared on hydrate via clearCustomPromoUnlock.
   const promo = baseState({
     planId: "free",
     redeemedPromoCode: "7VXHVPOR",
     promoLifetime: true,
   });
   assert.equal(clearUnverifiedPaidPlan(promo).redeemedPromoCode, "7VXHVPOR");
-  assert.equal(clearUnverifiedPaidPlan(promo).promoLifetime, true);
+  const wiped = clearCustomPromoUnlock(promo);
+  assert.equal(wiped.redeemedPromoCode, null);
+  assert.equal(wiped.promoLifetime, false);
 });
 
 test("softRequirePro is a boolean soft gate", () => {
@@ -206,41 +219,23 @@ test("premium routes map to gated features; Coach stays free", () => {
   assert.equal(canAccessPremiumFeature("coach_ai_metrics", true), true);
 });
 
-test("promo catalog redeem lifetime and timed codes", () => {
+test("custom promo redeem / deep-link unlock disabled (Guideline 3.1.1)", () => {
   const now = 1_700_000_000_000;
+  assert.equal(CUSTOM_PROMO_UNLOCKS_ENABLED, false);
+  // Catalog entries may still resolve for sanitize/debug — redeem must fail.
   assert.equal(findPromoDefinition("7vxhvpor")?.kind, "lifetime");
-  const life = redeemPromoCode(baseState(), "7VXHVPOR", now);
-  assert.equal(life.ok, true);
-  if (life.ok) {
-    assert.equal(life.state.promoLifetime, true);
-    assert.equal(isPromoUnlockActive(life.state, now + 1000 * DAY), true);
-  }
-  const week = redeemPromoCode(baseState(), "KFXD4X2B", now);
-  assert.equal(week.ok, true);
-  if (week.ok) {
-    assert.equal(week.state.promoLifetime, false);
-    assert.ok((week.state.promoExpiresAtMs ?? 0) > now);
-  }
-});
-
-test("promo redeem window and fixed unlock-until date", () => {
-  const now = 1_789_603_200_000; // inside flash window
-  const flash = redeemPromoCode(baseState(), "6EUSDWFI", now);
-  assert.equal(flash.ok, true);
-  const tooLate = redeemPromoCode(baseState(), "6EUSDWFI", 1_792_281_600_000);
-  assert.equal(tooLate.ok, false);
+  assert.equal(redeemPromoCode(baseState(), "7VXHVPOR", now).ok, false);
+  assert.equal(redeemPromoCode(baseState(), "KFXD4X2B", now).ok, false);
+  assert.equal(redeemPromoCode(baseState(), "6EUSDWFI", 1_789_603_200_000).ok, false);
+  assert.equal(buildPromoLink("KFXD4X2B", "stadium-edge.onrender.com"), null);
+  assert.equal(extractPromoFromQuery({ promo: "kfxd4x2b" }), null);
+  assert.equal(extractPromoFromQuery({ code: "7VXHVPOR" }), null);
 });
 
 test("admin email allowlist parsing", () => {
   assert.deepEqual(parseAdminEmails("a@x.com, b@y.com"), ["a@x.com", "b@y.com"]);
   assert.equal(isAdminEmail("A@X.com", ["a@x.com"]), true);
   assert.equal(isAdminEmail("other@x.com", ["a@x.com"]), false);
-});
-
-test("promo link + query extract", () => {
-  const link = buildPromoLink("KFXD4X2B", "stadium-edge.onrender.com");
-  assert.ok(link?.includes("promo=KFXD4X2B"));
-  assert.equal(extractPromoFromQuery({ promo: "kfxd4x2b" }), "KFXD4X2B");
 });
 
 test("applyStoreKitSnapshot activates and clears Apple plans", () => {
