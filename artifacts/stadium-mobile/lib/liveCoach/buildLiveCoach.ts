@@ -26,7 +26,7 @@ import {
 } from "./liveMarketGrade.ts";
 import {
   runRemainingGameSim,
-  type LiveBasketballSport,
+  type LiveCoachSport,
   type LiveCoverQuery,
   type RemainingGameSimResult,
 } from "./remainingGameSim.ts";
@@ -168,21 +168,23 @@ export function liveRecommendationToPick(
   };
 }
 
-function sportList(intent: LiveCoachIntent): LiveBasketballSport[] {
+function sportList(intent: LiveCoachIntent): LiveCoachSport[] {
   if (intent.sport === "nba") return ["nba"];
   if (intent.sport === "wnba") return ["wnba"];
-  return ["nba", "wnba"];
+  if (intent.sport === "nfl") return ["nfl"];
+  // best live bets → all enabled live sports
+  return ["nba", "wnba", "nfl"];
 }
 
 function feedToNormalized(opts: {
   feed: LiveOddsFeed;
-  sports: LiveBasketballSport[];
+  sports: LiveCoachSport[];
   nowMs?: number;
 }): NormalizedLiveMarket[] {
   const sportSet = new Set(opts.sports);
   const games: LiveGameStateRecord[] = [];
   for (const g of opts.feed.games ?? []) {
-    if (!sportSet.has(String(g.sport).toLowerCase() as LiveBasketballSport)) continue;
+    if (!sportSet.has(String(g.sport).toLowerCase() as LiveCoachSport)) continue;
     games.push(
       liveGameFromFeedRow({
         ...g,
@@ -193,7 +195,7 @@ function feedToNormalized(opts: {
   }
   const prices = [];
   for (const o of opts.feed.odds ?? []) {
-    if (!sportSet.has(String(o.sport).toLowerCase() as LiveBasketballSport)) continue;
+    if (!sportSet.has(String(o.sport).toLowerCase() as LiveCoachSport)) continue;
     // Live board quotes with finite odds are treated as open when status omitted
     // (ESPN pickcenter does not emit suspended flags on these rows).
     prices.push(
@@ -240,7 +242,7 @@ export async function buildLiveCoachRecommendations(
   }
 
   const sports = sportList(intent);
-  opts.onStatus?.("Pulling live NBA/WNBA board…");
+  opts.onStatus?.("Pulling live board…");
 
   const feed =
     opts.feed ??
@@ -285,7 +287,7 @@ export async function buildLiveCoachRecommendations(
   const simByEvent = new Map<string, EventSimBundle>();
   for (const [eventId, eventMarkets] of byEvent) {
     const first = eventMarkets[0]!;
-    const sport = String(first.sport).toLowerCase() as LiveBasketballSport;
+    const sport = String(first.sport).toLowerCase() as LiveCoachSport;
     const queries: LiveCoverQuery[] = [];
     const queryByMarketKey = new Map<string, LiveCoverQuery>();
     for (const m of eventMarkets) {
@@ -372,7 +374,9 @@ export async function buildLiveCoachRecommendations(
       ? "NBA"
       : intent.sport === "wnba"
         ? "WNBA"
-        : "NBA/WNBA";
+        : intent.sport === "nfl"
+          ? "NFL"
+          : "NBA/WNBA/NFL";
 
   let note = "";
   if (picked.length === 0) {

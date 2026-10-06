@@ -510,11 +510,11 @@ export default function CoachScreen() {
           return;
         }
 
-        // ---- Live Coach Phase 2A (NBA/WNBA live mains only) ----
+        // ---- Live Coach (NBA/WNBA/NFL live mains) ----
         // Isolated from buildParlay / pregame Monte Carlo. Never lowers quality to fill.
         if (liveAsk) {
           armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-          patchAssistant(assistantId, { buildStatus: "Scanning LIVE NBA/WNBA board…" });
+          patchAssistant(assistantId, { buildStatus: "Scanning LIVE board…" });
           const liveResult = await buildLiveCoachRecommendations({
             askText: text,
             signal: abort.signal,

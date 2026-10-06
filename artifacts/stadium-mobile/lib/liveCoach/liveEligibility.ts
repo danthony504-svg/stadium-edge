@@ -1,5 +1,5 @@
 /**
- * Live Coach Phase 2A — mandatory safety gate.
+ * Live Coach — mandatory safety gate.
  * Unknown / unsafe state → no recommendation.
  */
 
@@ -8,11 +8,15 @@ import {
   hasUsableLiveClock,
   isEndOfRegulationTransition,
   isExplicitOvertimeState,
+  isLiveCoachSport,
   parseEndOfPeriodLabel,
-  type LiveBasketballSport,
+  type LiveCoachSport,
 } from "./remainingGameSim.ts";
 
-export const LIVE_PHASE2A_SPORTS = new Set<LiveBasketballSport>(["nba", "wnba"]);
+/** Phase 2A + 2B live sports (mains only). */
+export const LIVE_PHASE2A_SPORTS = new Set<LiveCoachSport>(["nba", "wnba"]);
+export const LIVE_PHASE2B_SPORTS = new Set<LiveCoachSport>(["nfl"]);
+export const LIVE_COACH_SPORTS = new Set<LiveCoachSport>(["nba", "wnba", "nfl"]);
 
 /** Full-game live mains only — no props, alts, quarters, halves. */
 export function isLivePhase2aMarket(market: string | null | undefined): boolean {
@@ -24,9 +28,8 @@ export function isLivePhase2aMarket(market: string | null | undefined): boolean 
   return m === "moneyline" || m === "spread" || m === "total";
 }
 
-export function isLivePhase2aSport(sport: string | null | undefined): sport is LiveBasketballSport {
-  const s = String(sport ?? "").trim().toLowerCase();
-  return s === "nba" || s === "wnba";
+export function isLivePhase2aSport(sport: string | null | undefined): sport is LiveCoachSport {
+  return isLiveCoachSport(sport);
 }
 
 export type LiveEligibilityResult = {
@@ -43,8 +46,8 @@ export function evaluateLiveRecommendationEligibility(
 ): LiveEligibilityResult {
   const reasons: string[] = [];
 
-  if (!isLivePhase2aSport(m.sport)) {
-    reasons.push("sport_not_nba_wnba");
+  if (!isLiveCoachSport(m.sport)) {
+    reasons.push("sport_not_live_coach");
   }
   if (!isLivePhase2aMarket(m.market)) {
     reasons.push("market_not_live_main");
