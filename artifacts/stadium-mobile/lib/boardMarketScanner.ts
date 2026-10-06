@@ -78,7 +78,6 @@ import {
   topUpTicketFromQualifiedScored,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
-import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { safeCoachManifestInstrument } from "./coachFootballPropFunnel.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
