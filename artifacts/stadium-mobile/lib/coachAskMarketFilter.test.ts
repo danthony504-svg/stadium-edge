@@ -112,6 +112,36 @@ test("generic parlay ask has no market constraint", () => {
   assert.equal(c.allowedMarketKeys, null);
 });
 
+test("generic asks stay market-unlocked (mix path) — examples from lock-in", () => {
+  for (const ask of [
+    "5 leg",
+    "7 leg parlay",
+    "10 leg Saints",
+    "give me a parlay",
+    "8 leg NFL",
+  ]) {
+    const c = parseCoachAskMarketConstraint(ask);
+    assert.equal(c.propsOnly, false, ask);
+    assert.equal(c.gameLinesOnly, false, ask);
+    assert.equal(c.allowedMarketKeys, null, ask);
+  }
+});
+
+test("explicit locks stay locked — props / TD / sport-only soccer", () => {
+  const props = parseCoachAskMarketConstraint("5 player props");
+  assert.equal(props.propsOnly, true);
+  assert.equal(props.gameLinesOnly, false);
+
+  const td = parseCoachAskMarketConstraint("5 touchdowns");
+  assert.equal(td.propsOnly, true);
+  assert.ok(td.allowedMarketKeys?.some((k) => /td/i.test(k)));
+
+  const soccer = parseCoachAskMarketConstraint("4 soccer");
+  assert.equal(soccer.propsOnly, false, "sport lock must not force propsOnly");
+  assert.equal(soccer.gameLinesOnly, false, "sport lock must keep broad market mix");
+  assert.equal(soccer.allowedMarketKeys, null);
+});
+
 test("screenshot ask: nfl rushing receiving and passing props → props-only skill families", () => {
   const c = parseCoachAskMarketConstraint(
     "9 leg nfl rushing receiving and passing props",
