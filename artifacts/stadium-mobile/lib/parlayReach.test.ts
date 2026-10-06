@@ -132,19 +132,20 @@ test("selectParlayMainBackupPicks skips alt rungs", () => {
 test("buildFullBoardShortfallNote explains entire-board scan when short", () => {
   const note = buildFullBoardShortfallNote(15, 11, 840, 11, "today's real odds");
   assert.match(note, /asked for 15 legs/i);
-  assert.match(note, /only 11/);
+  assert.match(note, /11 qualified picks were available/i);
+  assert.match(note, /no filler was added/i);
   assert.match(note, /840/);
   assert.match(note, /second half/i);
   assert.match(note, /combo props/i);
   assert.match(note, /correlation scoring/i);
-  assert.match(note, /Every qualifying market/i);
-  assert.match(note, /no ungraded filler/i);
 });
 
 test("buildFullBoardShortfallNote confirms top 15 when board has more qualifiers", () => {
   const note = buildFullBoardShortfallNote(15, 15, 920, 48, "today's real odds");
-  assert.match(note, /48/);
   assert.match(note, /highest-rated/i);
+  assert.match(note, /These 15/);
+  // Pool size 48 is intermediate — must not appear in final-ticket copy.
+  assert.doesNotMatch(note, /\b48\b/);
 });
 
 test("mergeParlayRejects dedupes by leg fingerprint", () => {

@@ -7,7 +7,7 @@ import {
   isMainLineGameLeg,
   isQualifyingBackupGameLine,
 } from "./altLinePool.ts";
-import { COACH_FIXED_LEG_SHORTFALL_LEAD, buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
+import { buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
 
 export type ParlayLegReject = {
@@ -207,36 +207,38 @@ export function buildFullBoardShortfallNote(
     excludedSports && excludedSports.length > 0
       ? `You asked to exclude ${excludedSports.map((s) => s.toUpperCase()).join(", ")} — those leagues were off the board. `
       : "";
-  const mainQ = staging?.mainQualified ?? totalQualified;
-  const altQ = staging?.altQualified ?? 0;
-  const mainOn = staging?.mainOnTicket ?? actual;
+  const mainOn = staging?.mainOnTicket ?? 0;
   const altOn = staging?.altOnTicket ?? 0;
-  const altFill =
-    altOn > 0
-      ? ` ${mainOn} main pick${mainOn === 1 ? "" : "s"} and ${altOn} alt pick${altOn === 1 ? "" : "s"} (each alt labeled ALT PICK on the card).`
-      : mainOn > 0
-        ? ` ${mainOn} main pick${mainOn === 1 ? "" : "s"}.`
-        : "";
+  const rolesMatchFinal = actual > 0 && mainOn + altOn === actual;
   const scanLead = `${exclusion}I scanned ${totalScanned} posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
-  const shortfallLead = buildFixedLegCountShortfallLead(requested, actual);
+  void totalQualified;
+  void staging?.mainQualified;
+  void staging?.altQualified;
+
   if (actual >= requested) {
+    const fill = rolesMatchFinal
+      ? altOn > 0
+        ? ` ${mainOn} main pick${mainOn === 1 ? "" : "s"} and ${altOn} alt pick${altOn === 1 ? "" : "s"} (each alt labeled ALT PICK on the card).`
+        : ` ${mainOn} main pick${mainOn === 1 ? "" : "s"}.`
+      : "";
     return [
       scanLead,
-      `${mainQ} main lines and ${altQ} alt lines cleared quality filters.${altFill} These ${actual} are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`,
+      `These ${actual} are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.${fill}`,
     ].join("\n\n");
   }
-  if (altOn > 0 || altQ > 0) {
-    return [
-      shortfallLead,
-      scanLead,
-      `${mainQ} main lines and ${altQ} alt lines cleared quality filters — I filled with every qualifying main, then promoted alternate rungs where mains ran out.${altFill} These ${actual} are every sim-aligned leg on today's board.`,
-    ].join("\n\n");
-  }
-  return [
-    shortfallLead,
-    scanLead,
-    `${COACH_FIXED_LEG_SHORTFALL_LEAD} ${mainQ} main and ${altQ} alt lines met quality standards after the full-board scan.${altFill} These ${actual} are every AI-backed pick on the board.`,
-  ].join("\n\n");
+
+  // Shortfall: final ticket length only — never cite intermediate pool sizes
+  // next to a mismatched "Filled with" / "These N" trio.
+  const lead =
+    actual <= 0
+      ? `You asked for ${requested} legs. No qualified picks were available, so no filler was added.`
+      : `You asked for ${requested} legs. ${actual} qualified picks were available, so no filler was added.`;
+  const roleDetail = rolesMatchFinal
+    ? altOn > 0
+      ? ` Ticket composition: ${mainOn} main pick${mainOn === 1 ? "" : "s"} and ${altOn} alt pick${altOn === 1 ? "" : "s"} (labeled ALT PICK).`
+      : ` Ticket composition: ${mainOn} main pick${mainOn === 1 ? "" : "s"}.`
+    : "";
+  return [lead + roleDetail, scanLead].join("\n\n");
 }
 
 export function buildQualifyingAltShortfallNote(
