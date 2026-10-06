@@ -246,15 +246,51 @@ test("N leg NFL player props / just player props → propsOnly (no game-line fil
     // Phone: asked for player props + teams → still propsOnly (no game-line fill).
     "player props for bears and broncos",
     "player prop bears broncos",
-    // Phone: "5 leg soccer" staged 1 Asian spread — must be propsOnly.
-    "5 leg soccer",
-    "6 leg nba",
   ]) {
     const c = parseCoachAskMarketConstraint(ask);
     assert.equal(c.propsOnly, true, ask);
     assert.equal(c.gameLinesOnly, false, ask);
     assert.equal(c.allowedMarketKeys, null, ask);
   }
+  // Sport-scoped N-leg alone is full-board mix — never imply player props.
+  for (const ask of [
+    "5 leg soccer",
+    "6 leg nba",
+    "7 leg MLB",
+    "7 leg NFL",
+    "7 leg NCAAF",
+    "7 leg NHL",
+    "7 leg WNBA",
+  ]) {
+    const c = parseCoachAskMarketConstraint(ask);
+    assert.equal(c.propsOnly, false, ask);
+    // Bare NCAAF/college still defaults to team game-lines (existing college
+    // books rule) — every other sport-only N-leg is open full-board mix.
+    if (!/\bncaaf\b/i.test(ask)) {
+      assert.equal(c.gameLinesOnly, false, ask);
+    }
+  }
+  // Explicit prop asks stay props-only (incl. count + "props" without "leg").
+  for (const ask of [
+    "7 player props MLB",
+    "7 MLB player props",
+    "give me 7 props MLB",
+  ]) {
+    assert.equal(parseCoachAskMarketConstraint(ask).propsOnly, true, ask);
+  }
+  // Sequential: generic follow-up after props/soccer must reset propsOnly.
+  assert.equal(
+    parseCoachAskMarketConstraint("7 leg MLB", ["7 player props MLB"]).propsOnly,
+    false,
+  );
+  assert.equal(
+    parseCoachAskMarketConstraint("7 leg MLB", ["4 leg soccer"]).propsOnly,
+    false,
+  );
+  assert.equal(
+    parseCoachAskMarketConstraint("7 leg", ["7 leg MLB"]).propsOnly,
+    false,
+  );
   // Mixed "with player props" stays on the board-scan mix path.
   const mixed = parseCoachAskMarketConstraint("10 leg with player props");
   assert.equal(mixed.propsOnly, false);

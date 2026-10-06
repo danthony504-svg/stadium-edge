@@ -58,11 +58,18 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("8 legs tonight"), false);
   assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
   assert.equal(wantsPropsOnly("5 leg nfl for tomorrow"), false);
-  // Phone: "5 leg soccer" → 1 Asian spread shortfall — sport N-leg → props-only.
-  assert.equal(wantsPropsOnly("5 leg soccer"), true);
-  assert.equal(wantsPropsOnly("6 leg nba"), true);
+  // Sport-scoped N-leg alone is MIX — never imply player props (phone: 7 leg MLB).
+  assert.equal(wantsPropsOnly("5 leg soccer"), false);
+  assert.equal(wantsPropsOnly("6 leg nba"), false);
+  assert.equal(wantsPropsOnly("7 leg MLB"), false);
+  assert.equal(wantsPropsOnly("7 leg NHL"), false);
+  assert.equal(wantsPropsOnly("7 leg WNBA"), false);
   assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);
   assert.equal(wantsPropsOnly("10 leg nfl"), false);
+  // Explicit prop asks stay props-only.
+  assert.equal(wantsPropsOnly("7 player props MLB"), true);
+  assert.equal(wantsPropsOnly("7 MLB player props"), true);
+  assert.equal(wantsPropsOnly("give me 7 props MLB"), true);
   // Phone: "5 leg NHL team props" → player Under 0.5 stack — team props ≠ player props.
   assert.equal(wantsPropsOnly("5 leg NHL team props"), false);
   assert.equal(wantsPropsOnly("6 leg team props tonight"), false);

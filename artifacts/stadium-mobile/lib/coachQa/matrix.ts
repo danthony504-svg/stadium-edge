@@ -110,6 +110,9 @@ export function generateRequestMatrix(): MatrixCase[] {
           expect: {
             legs: n,
             sport,
+            // Sport-scoped N-leg is full-board mix — never imply player props.
+            propsOnly: false,
+            marketLocked: false,
             slateDay: date.includes("tomorrow")
               ? "tomorrow"
               : date.includes("tonight") || date.includes("today")
@@ -122,7 +125,7 @@ export function generateRequestMatrix(): MatrixCase[] {
             id: `wording-${sport}-${n}-${w.slice(0, 40)}`,
             ask: w.replace(/\s+/g, " ").trim(),
             tags: ["wording", sport, `n${n}`],
-            expect: { legs: n, sport },
+            expect: { legs: n, sport, propsOnly: false, marketLocked: false },
           });
         }
       }
@@ -331,6 +334,27 @@ export function sequentialTransitionSeeds(): Array<{
       second: "5 leg",
       mustReset: ["propsOnly", "sport", "marketLock"],
       notes: "Screenshot regression — soccer N-leg must not make bare 5 leg props-only",
+    },
+    {
+      id: "playerprops-mlb-to-mlb-mix",
+      first: "7 player props MLB",
+      second: "7 leg MLB",
+      mustReset: ["propsOnly", "marketLock"],
+      notes: "Phone: props→sport N-leg must reset to full_board_mix",
+    },
+    {
+      id: "soccer-to-mlb-mix",
+      first: "4 leg soccer",
+      second: "7 leg MLB",
+      mustReset: ["propsOnly", "sport", "marketLock"],
+      notes: "Sport follow-up after soccer is mix, not props-only",
+    },
+    {
+      id: "mlb-mix-to-bare",
+      first: "7 leg MLB",
+      second: "7 leg",
+      mustReset: ["propsOnly", "sport", "marketLock"],
+      notes: "Bare N-leg after sport mix stays mix",
     },
     {
       id: "tomorrow-to-today",

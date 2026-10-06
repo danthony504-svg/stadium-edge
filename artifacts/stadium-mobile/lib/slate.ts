@@ -535,25 +535,10 @@ export function wantsPropsOnly(text?: string | null): boolean {
   // game). Explicit multi-sport / mix asks are board-scan mix, not props-only.
   if (wantsMixedSportsAsk(t)) return false;
 
-  // Bare "N leg tonight/today/tomorrow" (any N) is a full-board MIX ask — never
-  // props-only. Number + date alone must not lock prop markets; only explicit
-  // prop/family phrasing ("player props", "touchdowns", "home runs", …) does.
-  // Sport-scoped N-leg without "parlay"/side cues (below) still means props-only.
-
-  // Phone: "5 leg soccer" → 1 Asian handicap spread, shortfall 1/5. Soccer (and
-  // other non-football prop boards) N-leg without "parlay"/side cues → props-only
-  // (goal scorers / shots / points). Football stays on askRequiresFootballPropMix.
-  // "7 leg soccer parlay for today" stays mix (existing test).
-  if (
-    /\b\d{1,3}\s*[-\s]?\s*legs?\b/.test(t) &&
-    !/\bparlay\b/.test(t) &&
-    /\b(soccer|nba|mlb|nhl|wnba|ncaab)\b/.test(t) &&
-    !/\b(nfl|ncaaf|cfb|football)\b/.test(t) &&
-    !/\b(spread|total|moneyline|sides?|game\s*lines?)\b/.test(t) &&
-    !/(?:^|[\s/])ml(?:$|[\s/])/.test(t)
-  ) {
-    return true;
-  }
+  // Bare / sport-scoped "N leg …" (any N, any league) is a full-board MIX ask —
+  // never props-only. Sport alone must not imply player props (phone: "7 leg MLB"
+  // wrongly took the props-only thin-slate path). Only explicit prop/family
+  // phrasing ("player props", "touchdowns", "home runs", "7 props", …) does.
 
   if (!mentionsPropIntent(text)) return false;
 
@@ -572,6 +557,8 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (/\bplayer\s+props?\s+\d{1,3}\s*[-\s]?\s*legs?\b/.test(t)) return true;
   // "9 leg nfl props" / "10 leg props" — all-prop ticket (not "with props").
   if (/\b\d{1,3}\s*[-\s]?\s*legs?\b[\s\w]{0,30}\bprops?\b/.test(t)) return true;
+  // "give me 7 props MLB" / "7 props" — count + props without the word "leg".
+  if (/\b\d{1,3}\s+props?\b/.test(t)) return true;
   if (
     /\bparlay\b/.test(t) &&
     /\b(strikeouts?|k'?s|home runs?|hrs?|anytime td|receptions?|hits?|total bases?)\b/.test(t)
