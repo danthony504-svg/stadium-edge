@@ -1,12 +1,15 @@
 /**
- * Live Coach Phase 2A — NBA/WNBA remaining-game Monte Carlo.
+ * Live Coach remaining-game Monte Carlo (NBA / WNBA / NFL).
  *
  * Separate from pregame /sports/simulate/game-outcome and runGameMonteCarlo.
  * Simulates ONLY from the current live state through the remainder of the game.
  * Never invents possession, fouls, lineups, injuries, or player stats.
  */
 
-export type LiveBasketballSport = "nba" | "wnba";
+/** Sports with a live remaining-game path. Phase 2A: nba/wnba. Phase 2B: +nfl. */
+export type LiveCoachSport = "nba" | "wnba" | "nfl";
+/** @deprecated Use LiveCoachSport — kept for existing Phase 2A imports. */
+export type LiveBasketballSport = Exclude<LiveCoachSport, "nfl">;
 
 export type LiveCoverQuery = {
   id: string;
@@ -17,7 +20,7 @@ export type LiveCoverQuery = {
 };
 
 export type RemainingGameSimInput = {
-  sport: LiveBasketballSport;
+  sport: LiveCoachSport;
   homeScore: number;
   awayScore: number;
   /** 1–4 regulation; 5+ = OT. */
@@ -49,10 +52,13 @@ export type RemainingGameSimResult = {
 
 const NBA_Q_MIN = 12;
 const WNBA_Q_MIN = 10;
+const NFL_Q_MIN = 15;
 const NBA_OT_MIN = 5;
 const WNBA_OT_MIN = 5;
+const NFL_OT_MIN = 10;
 const NBA_LEAGUE_PPG = 112;
 const WNBA_LEAGUE_PPG = 82;
+const NFL_LEAGUE_PPG = 22;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -80,20 +86,31 @@ function normalSample(mean: number, std: number, rng: () => number): number {
   return mean + z * std;
 }
 
-export function periodLengthMinutes(sport: LiveBasketballSport): number {
-  return sport === "wnba" ? WNBA_Q_MIN : NBA_Q_MIN;
+export function periodLengthMinutes(sport: LiveCoachSport): number {
+  if (sport === "wnba") return WNBA_Q_MIN;
+  if (sport === "nfl") return NFL_Q_MIN;
+  return NBA_Q_MIN;
 }
 
-export function regulationMinutes(sport: LiveBasketballSport): number {
+export function regulationMinutes(sport: LiveCoachSport): number {
   return periodLengthMinutes(sport) * 4;
 }
 
-export function otLengthMinutes(sport: LiveBasketballSport): number {
-  return sport === "wnba" ? WNBA_OT_MIN : NBA_OT_MIN;
+export function otLengthMinutes(sport: LiveCoachSport): number {
+  if (sport === "wnba") return WNBA_OT_MIN;
+  if (sport === "nfl") return NFL_OT_MIN;
+  return NBA_OT_MIN;
 }
 
-export function leagueBaselinePpg(sport: LiveBasketballSport): number {
-  return sport === "wnba" ? WNBA_LEAGUE_PPG : NBA_LEAGUE_PPG;
+export function leagueBaselinePpg(sport: LiveCoachSport): number {
+  if (sport === "wnba") return WNBA_LEAGUE_PPG;
+  if (sport === "nfl") return NFL_LEAGUE_PPG;
+  return NBA_LEAGUE_PPG;
+}
+
+export function isLiveCoachSport(sport: string | null | undefined): sport is LiveCoachSport {
+  const s = String(sport ?? "").trim().toLowerCase();
+  return s === "nba" || s === "wnba" || s === "nfl";
 }
 
 /** Parse countdown clock "M:SS" → seconds remaining in the period. */
@@ -200,7 +217,7 @@ export function hasUsableLiveClock(
  * reset ESPN displayClock ("12:00") is never treated as time still left.
  */
 export function remainingMinutesFromState(opts: {
-  sport: LiveBasketballSport;
+  sport: LiveCoachSport;
   period: number;
   clock: string;
   periodLabel?: string | null;
@@ -246,7 +263,7 @@ export function remainingMinutesFromState(opts: {
 }
 
 export function elapsedMinutesFromState(opts: {
-  sport: LiveBasketballSport;
+  sport: LiveCoachSport;
   period: number;
   clock: string;
   periodLabel?: string | null;
@@ -299,7 +316,7 @@ function coverHits(
  * Does not invent possessions/fouls — scales PPG by remaining fraction of a game.
  */
 function expectedRemainingPoints(opts: {
-  sport: LiveBasketballSport;
+  sport: LiveCoachSport;
   currentScore: number;
   elapsedMin: number;
   remainingMin: number;
