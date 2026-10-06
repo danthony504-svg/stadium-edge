@@ -204,6 +204,17 @@ test("phone: White Sox game cannot take a 3rd prop on a 9-leg mix", () => {
 test("phone: NHL Under 0.5 Points stack — multi-game prefers one market+side per game first", async () => {
   // Coverage lives in coachFootballPropsOnly.test.ts; assert the ask still
   // routes correctly so props-only diversity applies when they DO ask player props.
-  assert.equal(wantsPropsOnly("5 leg NHL"), true);
+  // Sport-only N-leg is full-board mix; explicit player props stay props-only.
+  assert.equal(wantsPropsOnly("5 leg NHL"), false);
+  assert.equal(wantsPropsOnly("5 leg NHL player props"), true);
   assert.equal(wantsPropsOnly("5 leg NHL team props"), false);
+});
+
+test("sport-scoped N-leg is mix; sequential generic follow-up clears propsOnly", () => {
+  assert.equal(wantsPropsOnly("7 leg MLB"), false);
+  assert.equal(wantsPropsOnly("7 leg NBA"), false);
+  assert.equal(wantsPropsOnly("7 leg soccer"), false);
+  assert.equal(threadWantsPropsOnly("7 leg MLB", ["7 player props MLB"]), false);
+  assert.equal(threadWantsPropsOnly("7 leg MLB", ["4 leg soccer"]), false);
+  assert.equal(threadWantsPropsOnly("7 leg", ["7 leg MLB"]), false);
 });
