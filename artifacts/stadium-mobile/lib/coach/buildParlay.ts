@@ -52,11 +52,14 @@ import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
 import {
   coachAskTeamMissNote,
   coachAskTeamScope,
+  coachAskTeamShortfallNote,
+  buildCoachTeamGameScopeDiagnostics,
   excludedTeamScopesFromText,
   filterOddsGamesForCoachAskTeams,
   filterPicksForCoachAskTeams,
   resolveExcludedTeamIdsFromGames,
   type CoachAskExcludedTeam,
+  type CoachTeamGameScopeDiagnostics,
 } from "@/lib/coachAskTeamScope";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import {
@@ -108,6 +111,8 @@ export type CoachParlayBuildResult = {
   scan: FullBoardScanResult | null;
   timedOut: boolean;
   propPoolSize: number;
+  /** Team-scoped ask funnel diagnostics ("4 leg Troy"). */
+  teamGameScopeDiagnostics?: CoachTeamGameScopeDiagnostics | null;
 };
 
 export { shouldSkipScannerPropExpand } from "./propPoolPolicy";
@@ -144,6 +149,8 @@ async function loadScanInputs(
   teamScope: ReturnType<typeof coachAskTeamScope>;
   excludedTeams: CoachAskExcludedTeam[];
   slateDay: SlateDay;
+  /** Games loaded for the board before franchise filter (same sports). */
+  oddsGamesBeforeTeamFilter: OddsGame[];
 }> {
   // Named league(s) scope the board (CFB stays CFB). Generic asks union every
   // player-prop league (incl. ncaab) so mains+alts across sports enter the pool.
@@ -164,12 +171,13 @@ async function loadScanInputs(
     getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] as RealOddsEntry[] })),
   ]);
 
-  // "6 leg Saints" / "7 leg saints game" → keep only that franchise's matchup.
+  // "6 leg Saints" / "4 leg Troy" → keep only that franchise's matchup.
   // "6 leg NHL not the ducks" → drop the entire excluded matchup (both clubs).
   // Sport scoping alone still allowed other NFL games to fill a team ask.
   const teamScope = coachAskTeamScope(askText);
   let excludedTeams = excludedTeamScopesFromText(askText);
   excludedTeams = resolveExcludedTeamIdsFromGames(excludedTeams, espnGamesRaw);
+  const oddsGamesBeforeTeamFilter = oddsRaw;
   let oddsGames = filterOddsGamesForCoachAskTeams(oddsRaw, teamScope, excludedTeams);
   let espnGames = filterOddsGamesForCoachAskTeams(espnGamesRaw, teamScope, excludedTeams);
 
@@ -207,6 +215,7 @@ async function loadScanInputs(
     teamScope,
     excludedTeams,
     slateDay,
+    oddsGamesBeforeTeamFilter,
   };
 }
 
@@ -581,6 +590,12 @@ export async function buildCoachParlay(opts: {
     }
 
     const teamMiss = coachAskTeamMissNote(inputs.teamScope, inputs.oddsGames.length);
+    const teamShortfall = coachAskTeamShortfallNote(
+      inputs.teamScope,
+      target,
+      picks.length,
+      inputs.oddsGames.length,
+    );
     // Final belt — recovery/top-up must not reintroduce another local day
     // or an explicitly excluded matchup.
     picks = filterPicksForSlateDay(picks, inputs.slateDay);
@@ -605,7 +620,7 @@ export async function buildCoachParlay(opts: {
         picks,
         propPoolSize,
         propsPending: false,
-        shortfallLead: teamMiss || shortfall,
+        shortfallLead: teamMiss || teamShortfall || shortfall,
         propsOnly: true,
         requirePropMix: false,
       });
@@ -613,6 +628,13 @@ export async function buildCoachParlay(opts: {
     const note = sanitizeCoachUserNote(
       [mismatchLead, body].filter((s) => s.trim()).join("\n\n"),
     );
+    const teamGameScopeDiagnostics = buildCoachTeamGameScopeDiagnostics({
+      requestedLegs: target,
+      scope: inputs.teamScope,
+      gamesBeforeFilter: inputs.oddsGamesBeforeTeamFilter,
+      gamesAfterFilter: inputs.oddsGames,
+      finalLegCount: picks.length,
+    });
     // If post-filters wiped a non-empty ticket, keep the honest empty lead —
     // never append `[POST_FILTER_EMPTY: …]` into the Coach chat bubble.
     if (built.picks.length > 0 && picks.length === 0 && !recoveredNote) {
@@ -622,6 +644,7 @@ export async function buildCoachParlay(opts: {
         scan: null,
         timedOut: false,
         propPoolSize,
+        teamGameScopeDiagnostics,
       };
     }
     return {
@@ -630,6 +653,7 @@ export async function buildCoachParlay(opts: {
       scan: null,
       timedOut: false,
       propPoolSize,
+      teamGameScopeDiagnostics,
     };
   }
 
@@ -821,6 +845,12 @@ export async function buildCoachParlay(opts: {
   picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
+  const teamShortfall = coachAskTeamShortfallNote(
+    teamScope,
+    target,
+    picks.length,
+    inputs.oddsGames.length,
+  );
   // Full-board / hrBoardAsk exit — same locked shortfall helper as props-only.
   // Analyzed count = failureDiagnostics.propLegsScored from the allowlisted
   // (HR: scorer-filtered) pool with skipPropPoolExpand — never invent from
@@ -850,7 +880,7 @@ export async function buildCoachParlay(opts: {
     picks,
     propPoolSize,
     propsPending,
-    shortfallLead: teamMiss || shortfall,
+    shortfallLead: teamMiss || teamShortfall || shortfall,
     timedOut: timed.timedOut,
     budgetMs,
     scanMissing: !scan,
@@ -865,5 +895,20 @@ export async function buildCoachParlay(opts: {
     [mismatchLead, mlLeanNote, body].filter((s) => s.trim()).join("\n\n"),
   );
 
-  return { picks, note, scan, timedOut: timed.timedOut, propPoolSize };
+  const teamGameScopeDiagnostics = buildCoachTeamGameScopeDiagnostics({
+    requestedLegs: target,
+    scope: teamScope,
+    gamesBeforeFilter: inputs.oddsGamesBeforeTeamFilter,
+    gamesAfterFilter: inputs.oddsGames,
+    finalLegCount: picks.length,
+  });
+
+  return {
+    picks,
+    note,
+    scan,
+    timedOut: timed.timedOut,
+    propPoolSize,
+    teamGameScopeDiagnostics,
+  };
 }

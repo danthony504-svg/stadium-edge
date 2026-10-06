@@ -10,6 +10,23 @@ export type CoachAskTeamScope = {
   sport: string;
   /** Lowercase tokens that identify the franchise in Odds/ESPN labels. */
   matchTokens: string[];
+  /** Raw team phrase parsed from the ask (e.g. "troy"). */
+  parsedTeam?: string;
+  /** Display label for notes/diagnostics (e.g. "Troy Trojans"). */
+  displayName?: string;
+};
+
+/** Funnel diagnostics for team-scoped parlays ("4 leg Troy"). */
+export type CoachTeamGameScopeDiagnostics = {
+  requestedLegs: number;
+  parsedTeam: string | null;
+  resolvedTeamId: string | null;
+  resolvedSport: string | null;
+  resolvedLeague: string | null;
+  resolvedGameId: string | null;
+  candidateCountBeforeGameFilter: number;
+  candidateCountAfterGameFilter: number;
+  finalLegCount: number;
 };
 
 /** Explicit negative franchise constraint — exclude the entire matchup. */
@@ -238,6 +255,124 @@ const NICK_TO_SPORT: Record<string, NickEntry> = {
   buckeyes: { sport: "ncaaf", tokens: ["ohio state", "buckeyes"] },
   alabama: { sport: "ncaaf", tokens: ["alabama", "crimson tide"] },
   "crimson tide": { sport: "ncaaf", tokens: ["alabama", "crimson tide"] },
+  // Troy Trojans — do NOT add bare "trojans" (collides with USC).
+  troy: { sport: "ncaaf", tokens: ["troy"] },
+  "troy trojans": { sport: "ncaaf", tokens: ["troy"] },
+  // Unambiguous FBS school names (avoid bare city names that collide with pro clubs).
+  "appalachian state": { sport: "ncaaf", tokens: ["appalachian state", "app state"] },
+  "app state": { sport: "ncaaf", tokens: ["appalachian state", "app state"] },
+  "boise state": { sport: "ncaaf", tokens: ["boise state"] },
+  "florida state": { sport: "ncaaf", tokens: ["florida state", "fsu"] },
+  fsu: { sport: "ncaaf", tokens: ["florida state", "fsu"] },
+  "penn state": { sport: "ncaaf", tokens: ["penn state", "nittany lions"] },
+  "michigan state": { sport: "ncaaf", tokens: ["michigan state"] },
+  "oklahoma state": { sport: "ncaaf", tokens: ["oklahoma state"] },
+  "oregon state": { sport: "ncaaf", tokens: ["oregon state"] },
+  "arizona state": { sport: "ncaaf", tokens: ["arizona state"] },
+  "kansas state": { sport: "ncaaf", tokens: ["kansas state"] },
+  "san diego state": { sport: "ncaaf", tokens: ["san diego state"] },
+  "san jose state": { sport: "ncaaf", tokens: ["san jose state"] },
+  "fresno state": { sport: "ncaaf", tokens: ["fresno state"] },
+  "colorado state": { sport: "ncaaf", tokens: ["colorado state"] },
+  "georgia state": { sport: "ncaaf", tokens: ["georgia state"] },
+  "georgia tech": { sport: "ncaaf", tokens: ["georgia tech"] },
+  "texas tech": { sport: "ncaaf", tokens: ["texas tech"] },
+  "texas a&m": { sport: "ncaaf", tokens: ["texas a&m", "texas am"] },
+  "ole miss": { sport: "ncaaf", tokens: ["ole miss"] },
+  "southern miss": { sport: "ncaaf", tokens: ["southern miss", "southern mississippi"] },
+  "southern mississippi": { sport: "ncaaf", tokens: ["southern miss", "southern mississippi"] },
+  clemson: { sport: "ncaaf", tokens: ["clemson"] },
+  auburn: { sport: "ncaaf", tokens: ["auburn"] },
+  lsu: { sport: "ncaaf", tokens: ["lsu", "louisiana state"] },
+  "louisiana state": { sport: "ncaaf", tokens: ["lsu", "louisiana state"] },
+  georgia: { sport: "ncaaf", tokens: ["georgia"] },
+  michigan: { sport: "ncaaf", tokens: ["michigan"] },
+  oregon: { sport: "ncaaf", tokens: ["oregon"] },
+  oklahoma: { sport: "ncaaf", tokens: ["oklahoma"] },
+  wisconsin: { sport: "ncaaf", tokens: ["wisconsin"] },
+  nebraska: { sport: "ncaaf", tokens: ["nebraska"] },
+  iowa: { sport: "ncaaf", tokens: ["iowa"] },
+  "iowa state": { sport: "ncaaf", tokens: ["iowa state"] },
+  missouri: { sport: "ncaaf", tokens: ["missouri"] },
+  arkansas: { sport: "ncaaf", tokens: ["arkansas"] },
+  kentucky: { sport: "ncaaf", tokens: ["kentucky"] },
+  "mississippi state": { sport: "ncaaf", tokens: ["mississippi state"] },
+  vanderbilt: { sport: "ncaaf", tokens: ["vanderbilt"] },
+  "notre dame": { sport: "ncaaf", tokens: ["notre dame"] },
+  louisville: { sport: "ncaaf", tokens: ["louisville"] },
+  tulane: { sport: "ncaaf", tokens: ["tulane"] },
+  smu: { sport: "ncaaf", tokens: ["smu", "southern methodist"] },
+  baylor: { sport: "ncaaf", tokens: ["baylor"] },
+  tcu: { sport: "ncaaf", tokens: ["tcu"] },
+  byu: { sport: "ncaaf", tokens: ["byu"] },
+  "utah state": { sport: "ncaaf", tokens: ["utah state"] },
+  "air force": { sport: "ncaaf", tokens: ["air force"] },
+  army: { sport: "ncaaf", tokens: ["army"] },
+  navy: { sport: "ncaaf", tokens: ["navy"] },
+  uconn: { sport: "ncaaf", tokens: ["uconn", "connecticut"] },
+  connecticut: { sport: "ncaaf", tokens: ["uconn", "connecticut"] },
+  "james madison": { sport: "ncaaf", tokens: ["james madison", "jmu"] },
+  jmu: { sport: "ncaaf", tokens: ["james madison", "jmu"] },
+  liberty: { sport: "ncaaf", tokens: ["liberty"] },
+  "coastal carolina": { sport: "ncaaf", tokens: ["coastal carolina"] },
+  "louisiana tech": { sport: "ncaaf", tokens: ["louisiana tech"] },
+  "louisiana monroe": { sport: "ncaaf", tokens: ["louisiana monroe", "ul monroe"] },
+  marshall: { sport: "ncaaf", tokens: ["marshall"] },
+  "western kentucky": { sport: "ncaaf", tokens: ["western kentucky", "wku"] },
+  wku: { sport: "ncaaf", tokens: ["western kentucky", "wku"] },
+  "middle tennessee": { sport: "ncaaf", tokens: ["middle tennessee", "mtsu"] },
+  "jacksonville state": { sport: "ncaaf", tokens: ["jacksonville state"] },
+  "kennesaw state": { sport: "ncaaf", tokens: ["kennesaw state"] },
+  "new mexico state": { sport: "ncaaf", tokens: ["new mexico state"] },
+  "florida international": { sport: "ncaaf", tokens: ["florida international", "fiu"] },
+  fiu: { sport: "ncaaf", tokens: ["florida international", "fiu"] },
+  "florida atlantic": { sport: "ncaaf", tokens: ["florida atlantic", "fau"] },
+  fau: { sport: "ncaaf", tokens: ["florida atlantic", "fau"] },
+  "south alabama": { sport: "ncaaf", tokens: ["south alabama"] },
+  "texas state": { sport: "ncaaf", tokens: ["texas state"] },
+  utsa: { sport: "ncaaf", tokens: ["utsa", "texas san antonio"] },
+  "north texas": { sport: "ncaaf", tokens: ["north texas"] },
+  rice: { sport: "ncaaf", tokens: ["rice"] },
+  tulsa: { sport: "ncaaf", tokens: ["tulsa"] },
+  uab: { sport: "ncaaf", tokens: ["uab"] },
+  "south florida": { sport: "ncaaf", tokens: ["south florida", "usf"] },
+  usf: { sport: "ncaaf", tokens: ["south florida", "usf"] },
+  "central florida": { sport: "ncaaf", tokens: ["central florida", "ucf"] },
+  ucf: { sport: "ncaaf", tokens: ["central florida", "ucf"] },
+  "virginia tech": { sport: "ncaaf", tokens: ["virginia tech"] },
+  "north carolina": { sport: "ncaaf", tokens: ["north carolina", "unc"] },
+  unc: { sport: "ncaaf", tokens: ["north carolina", "unc"] },
+  "nc state": { sport: "ncaaf", tokens: ["nc state", "north carolina state"] },
+  "north carolina state": { sport: "ncaaf", tokens: ["nc state", "north carolina state"] },
+  duke: { sport: "ncaaf", tokens: ["duke"] },
+  "wake forest": { sport: "ncaaf", tokens: ["wake forest"] },
+  syracuse: { sport: "ncaaf", tokens: ["syracuse"] },
+  "boston college": { sport: "ncaaf", tokens: ["boston college"] },
+  "west virginia": { sport: "ncaaf", tokens: ["west virginia"] },
+  "miami ohio": { sport: "ncaaf", tokens: ["miami ohio", "miami (oh)"] },
+  "miami (oh)": { sport: "ncaaf", tokens: ["miami ohio", "miami (oh)"] },
+  "bowling green": { sport: "ncaaf", tokens: ["bowling green"] },
+  "central michigan": { sport: "ncaaf", tokens: ["central michigan"] },
+  "eastern michigan": { sport: "ncaaf", tokens: ["eastern michigan"] },
+  "western michigan": { sport: "ncaaf", tokens: ["western michigan"] },
+  "northern illinois": { sport: "ncaaf", tokens: ["northern illinois"] },
+  "ball state": { sport: "ncaaf", tokens: ["ball state"] },
+  northwestern: { sport: "ncaaf", tokens: ["northwestern"] },
+  purdue: { sport: "ncaaf", tokens: ["purdue"] },
+  rutgers: { sport: "ncaaf", tokens: ["rutgers"] },
+  usc: { sport: "ncaaf", tokens: ["usc", "southern california"] },
+  "southern california": { sport: "ncaaf", tokens: ["usc", "southern california"] },
+  "usc trojans": { sport: "ncaaf", tokens: ["usc", "southern california"] },
+  ucla: { sport: "ncaaf", tokens: ["ucla"] },
+  stanford: { sport: "ncaaf", tokens: ["stanford"] },
+  "washington state": { sport: "ncaaf", tokens: ["washington state"] },
+  "south carolina": { sport: "ncaaf", tokens: ["south carolina"] },
+  "washington huskies": { sport: "ncaaf", tokens: ["washington huskies", "washington"] },
+  "miami hurricanes": { sport: "ncaaf", tokens: ["miami hurricanes", "miami"] },
+  "texas longhorns": { sport: "ncaaf", tokens: ["texas longhorns", "texas"] },
+  "florida gators": { sport: "ncaaf", tokens: ["florida gators", "florida"] },
+  "tennessee volunteers": { sport: "ncaaf", tokens: ["tennessee volunteers", "tennessee"] },
+  "tennessee vols": { sport: "ncaaf", tokens: ["tennessee volunteers", "tennessee"] },
 };
 
 function escapeRegExp(s: string): string {
@@ -480,6 +615,9 @@ export function stripTeamExclusionClauses(text: string): string {
  * First unambiguous team nickname in the ask → sport + match tokens.
  * Prefers longer nicknames ("red sox" before "sox" if ever added).
  * Negative team phrases are stripped first so they never become includes.
+ *
+ * Also resolves "N leg <Team>" phrases (e.g. "4 leg Troy") via the nickname
+ * catalog so college/pro franchises not previously matched still scope the board.
  */
 export function coachAskTeamScope(
   text: string | null | undefined,
@@ -491,7 +629,145 @@ export function coachAskTeamScope(
     // Bare ambiguous nicknames never auto-scope (giants / cardinals / …).
     if (AMBIGUOUS_NICKNAMES.has(nick.toLowerCase())) continue;
     const entry = NICK_TO_SPORT[nick]!;
-    return { sport: entry.sport, matchTokens: entry.tokens.map((x) => x.toLowerCase()) };
+    return scopeFromEntry(nick, entry);
+  }
+  // "4 leg Troy" / "5 leg Boise State" — phrase after leg count when nick
+  // word-boundary missed (shouldn't for troy) or multi-word school names.
+  const phrase = extractTeamPhraseFromLegAsk(t);
+  if (phrase) {
+    const fromPhrase = resolveNickEntryForPhrase(phrase);
+    if (fromPhrase) return scopeFromEntry(phrase, fromPhrase.entry, fromPhrase.nick);
+  }
+  return null;
+}
+
+function scopeFromEntry(
+  parsedTeam: string,
+  entry: NickEntry,
+  nickKey?: string,
+): CoachAskTeamScope {
+  const display =
+    nickKey && nickKey.includes(" ")
+      ? titleCaseTeam(nickKey)
+      : entry.sport === "ncaaf" && parsedTeam === "troy"
+        ? "Troy Trojans"
+        : titleCaseTeam(parsedTeam);
+  return {
+    sport: entry.sport,
+    matchTokens: entry.tokens.map((x) => x.toLowerCase()),
+    parsedTeam: parsedTeam.toLowerCase().trim(),
+    displayName: display,
+  };
+}
+
+function titleCaseTeam(s: string): string {
+  return String(s ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+/** Stopwords that must never become a team phrase after "N leg …". */
+const TEAM_PHRASE_STOPWORDS = new Set([
+  "parlay",
+  "props",
+  "prop",
+  "picks",
+  "pick",
+  "total",
+  "totals",
+  "spread",
+  "spreads",
+  "moneyline",
+  "moneylines",
+  "ml",
+  "tonight",
+  "today",
+  "tomorrow",
+  "best",
+  "value",
+  "legs",
+  "leg",
+  "mixed",
+  "mix",
+  "multi",
+  "sport",
+  "sports",
+  "game",
+  "games",
+  "player",
+  "players",
+  "alt",
+  "alts",
+  "alternate",
+  "nfl",
+  "nba",
+  "mlb",
+  "nhl",
+  "wnba",
+  "ncaaf",
+  "ncaab",
+  "cfb",
+  "cbb",
+  "soccer",
+  "ufc",
+  "tennis",
+  "college",
+  "football",
+  "basketball",
+  "baseball",
+  "hockey",
+]);
+
+/**
+ * Extract the team phrase from asks like "4 leg Troy", "4-leg Troy Trojans",
+ * "give me 5 Alabama legs". Returns lowercase trimmed phrase or null.
+ */
+export function extractTeamPhraseFromLegAsk(
+  text: string | null | undefined,
+): string | null {
+  const raw = String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!raw) return null;
+  const patterns = [
+    /\b\d{1,2}\s*-?\s*legs?\s+(.+?)(?:\s+game|\s+picks?|\s+parlay)?\s*$/i,
+    /\bgive\s+me\s+\d{1,2}\s+(.+?)\s+legs?\b/i,
+    /\b\d{1,2}\s+(.+?)\s+legs?\b/i,
+  ];
+  for (const re of patterns) {
+    const m = raw.match(re);
+    if (!m?.[1]) continue;
+    let phrase = m[1]!.trim();
+    phrase = phrase
+      .replace(/\b(game|picks?|parlay|tonight|today|tomorrow)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!phrase || TEAM_PHRASE_STOPWORDS.has(phrase)) continue;
+    // Reject phrases that are only sport keywords.
+    if ([...phrase.split(" ")].every((w) => TEAM_PHRASE_STOPWORDS.has(w))) continue;
+    return phrase;
+  }
+  return null;
+}
+
+function resolveNickEntryForPhrase(
+  phrase: string,
+): { nick: string; entry: NickEntry } | null {
+  const p = phrase.toLowerCase().trim();
+  if (!p || TEAM_PHRASE_STOPWORDS.has(p) || AMBIGUOUS_NICKNAMES.has(p)) return null;
+  // Exact nick key.
+  if (NICK_TO_SPORT[p] && !AMBIGUOUS_NICKNAMES.has(p)) {
+    return { nick: p, entry: NICK_TO_SPORT[p]! };
+  }
+  // Match against longer nick keys / tokens (longest first).
+  for (const nick of nickKeysLongestFirst()) {
+    if (AMBIGUOUS_NICKNAMES.has(nick)) continue;
+    const entry = NICK_TO_SPORT[nick]!;
+    if (nick === p) return { nick, entry };
+    if (entry.tokens.some((tok) => tok === p)) return { nick, entry };
+    // "troy trojans" phrase ↔ nick "troy"
+    if (p.includes(nick) && nick.length >= 3) return { nick, entry };
   }
   return null;
 }
@@ -661,8 +937,80 @@ export function coachAskTeamMissNote(
   matchedGameCount: number,
 ): string {
   if (!scope || matchedGameCount > 0) return "";
-  const nick = scope.matchTokens[0] ?? "that team";
+  const nick = scope.displayName ?? scope.parsedTeam ?? scope.matchTokens[0] ?? "that team";
   return `No ${nick} matchup is on tonight's ${scope.sport.toUpperCase()} board — won't fill with other games.`;
+}
+
+/**
+ * When the team's game is on the board but fewer than N legs qualify, do not
+ * fill with other games — tell the user the shortfall is team-scoped.
+ */
+export function coachAskTeamShortfallNote(
+  scope: CoachAskTeamScope | null,
+  requestedLegs: number,
+  finalLegCount: number,
+  matchedGameCount: number,
+): string {
+  if (!scope || matchedGameCount <= 0) return "";
+  if (finalLegCount >= requestedLegs) return "";
+  const nick = scope.displayName ?? scope.parsedTeam ?? scope.matchTokens[0] ?? "that team";
+  if (finalLegCount <= 0) {
+    return `No eligible real markets cleared for ${nick} — won't fill a ${requestedLegs}-leg ticket with other games.`;
+  }
+  return `Only ${finalLegCount} eligible real-market selection${finalLegCount === 1 ? "" : "s"} for ${nick} — not enough for a ${requestedLegs}-leg ticket. Won't fill with other games.`;
+}
+
+/**
+ * Build team-game scope diagnostics for "N leg <Team>" asks.
+ * finalLegCount may be filled in after ticket assembly.
+ */
+export function buildCoachTeamGameScopeDiagnostics(opts: {
+  requestedLegs: number;
+  scope: CoachAskTeamScope | null;
+  gamesBeforeFilter: readonly {
+    id?: string | null;
+    sport?: string | null;
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+  }[];
+  gamesAfterFilter: readonly {
+    id?: string | null;
+    sport?: string | null;
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+  }[];
+  finalLegCount?: number;
+}): CoachTeamGameScopeDiagnostics {
+  const scope = opts.scope;
+  const matched = opts.gamesAfterFilter[0] ?? null;
+  let resolvedTeamId: string | null = null;
+  if (scope && matched) {
+    const home = String(matched.homeTeam ?? "");
+    const away = String(matched.awayTeam ?? "");
+    if (labelMatchesTeamTokens(home, scope.matchTokens) && matched.homeTeamId) {
+      resolvedTeamId = String(matched.homeTeamId);
+    } else if (labelMatchesTeamTokens(away, scope.matchTokens) && matched.awayTeamId) {
+      resolvedTeamId = String(matched.awayTeamId);
+    }
+  }
+  const gameLabel = matched
+    ? `${matched.awayTeam ?? ""} @ ${matched.homeTeam ?? ""}`.trim()
+    : null;
+  return {
+    requestedLegs: opts.requestedLegs,
+    parsedTeam: scope?.parsedTeam ?? scope?.matchTokens?.[0] ?? null,
+    resolvedTeamId,
+    resolvedSport: scope?.sport ?? null,
+    resolvedLeague: scope?.sport ? scope.sport.toUpperCase() : null,
+    resolvedGameId: matched?.id != null ? String(matched.id) : gameLabel,
+    candidateCountBeforeGameFilter: opts.gamesBeforeFilter.length,
+    candidateCountAfterGameFilter: opts.gamesAfterFilter.length,
+    finalLegCount: opts.finalLegCount ?? 0,
+  };
 }
 
 /**
