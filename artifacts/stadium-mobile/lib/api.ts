@@ -2364,21 +2364,39 @@ export type LiveOddsFeed = {
     sport: string;
     game: string;
     status: string;
+    state?: string;
+    awayTeam?: string;
+    homeTeam?: string;
     awayScore: number | null;
     homeScore: number | null;
+    period?: number | null;
     periodLabel: string | null;
     clock: string | null;
     eventId: string;
+    source?: string;
+    fetchedAt?: string;
+    startsAt?: string | null;
   }>;
   odds: Array<
     RealOddsEntry & {
       live: true;
+      eventId?: string;
+      awayTeam?: string;
+      homeTeam?: string;
       awayScore?: number | null;
       homeScore?: number | null;
+      state?: string;
+      period?: number | null;
       periodLabel?: string | null;
       clock?: string | null;
+      source?: string;
+      fetchedAt?: string;
+      providerLastUpdate?: string | null;
+      line?: number | null;
     }
   >;
+  /** Board assembly timestamp (ISO). Distinct from per-quote providerLastUpdate. */
+  fetchedAt?: string;
 };
 
 export async function getLiveOdds(sports: string[], signal?: AbortSignal): Promise<LiveOddsFeed> {

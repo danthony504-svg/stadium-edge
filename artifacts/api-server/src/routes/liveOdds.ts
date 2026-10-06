@@ -1,9 +1,25 @@
 import { Router, type IRouter } from "express";
-import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports.js";
+import {
+  ESPN_SPORT_PATHS,
+  cachedJson,
+  rateLimit,
+} from "../lib/sports.js";
+import {
+  espnScoreboardDayKeys,
+  mergeEspnEventsById,
+} from "../lib/espnScoreboardWindow.js";
+import {
+  espnPickcenterProviderLastUpdate,
+  extractLiveGameStateFromEspnEvent,
+  type LiveScoreboardEvent,
+} from "../lib/liveOddsBoard.js";
 
 const router: IRouter = Router();
 
 router.use("/sports/live-odds", rateLimit({ windowMs: 60_000, max: 90, name: "live-odds" }));
+
+/** Price source for Phase 1 live board (ESPN pickcenter / DraftKings mirror). */
+export const LIVE_ODDS_SOURCE = "espn_pickcenter" as const;
 
 type LiveOddsEntry = {
   sport: string;
@@ -12,22 +28,43 @@ type LiveOddsEntry = {
   pick: string;
   odds: number;
   live: true;
-  awayScore?: number | null;
-  homeScore?: number | null;
-  periodLabel?: string | null;
-  clock?: string | null;
-  startsAt?: string;
+  eventId: string;
+  awayTeam: string;
+  homeTeam: string;
+  awayScore: number | null;
+  homeScore: number | null;
+  state: "in";
+  period: number | null;
+  periodLabel: string | null;
+  clock: string | null;
+  source: typeof LIVE_ODDS_SOURCE;
+  /** ISO timestamp when THIS server assembled the quote. Never a fabricated provider time. */
+  fetchedAt: string;
+  /**
+   * Provider-native last_update when genuinely present on the upstream payload.
+   * Distinct from fetchedAt. Null when the provider does not supply one.
+   */
+  providerLastUpdate: string | null;
+  line: number | null;
+  startsAt?: string | null;
 };
 
 type LiveGameEntry = {
   sport: string;
   game: string;
-  status: string;
+  status: "in";
+  state: "in";
+  awayTeam: string;
+  homeTeam: string;
   awayScore: number | null;
   homeScore: number | null;
+  period: number | null;
   periodLabel: string | null;
   clock: string | null;
   eventId: string;
+  source: typeof LIVE_ODDS_SOURCE;
+  fetchedAt: string;
+  startsAt?: string | null;
 };
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -50,6 +87,8 @@ async function fetchEspnPickcenter(
   tot: number | null;
   totO: number | null;
   totU: number | null;
+  /** Raw summary blob — used only to probe for a real provider timestamp. */
+  raw: unknown;
 } | null> {
   const path = ESPN_SPORT_PATHS[sport];
   if (!path) return null;
@@ -63,7 +102,14 @@ async function fetchEspnPickcenter(
   };
   type Summary = {
     pickcenter?: Pickcenter[];
-    header?: { competitions?: Array<{ competitors?: Array<{ homeAway: "home" | "away"; team?: { displayName?: string } }> }> };
+    header?: {
+      competitions?: Array<{
+        competitors?: Array<{
+          homeAway: "home" | "away";
+          team?: { displayName?: string };
+        }>;
+      }>;
+    };
   };
   const data = await cachedJson<Summary | null>(
     `live-odds:espn:${sport}:${eventId}`,
@@ -78,8 +124,10 @@ async function fetchEspnPickcenter(
   const pc = data?.pickcenter?.[0];
   if (!pc) return null;
   const comp = data?.header?.competitions?.[0];
-  const home = comp?.competitors?.find((c) => c.homeAway === "home")?.team?.displayName ?? null;
-  const away = comp?.competitors?.find((c) => c.homeAway === "away")?.team?.displayName ?? null;
+  const home =
+    comp?.competitors?.find((c) => c.homeAway === "home")?.team?.displayName ?? null;
+  const away =
+    comp?.competitors?.find((c) => c.homeAway === "away")?.team?.displayName ?? null;
   return {
     home,
     away,
@@ -91,30 +139,72 @@ async function fetchEspnPickcenter(
     tot: num(pc.overUnder),
     totO: num(pc.overOdds),
     totU: num(pc.underOdds),
+    raw: data,
   };
 }
+
+type LiveMeta = Omit<
+  LiveOddsEntry,
+  "sport" | "game" | "market" | "pick" | "odds" | "line"
+>;
 
 function linesFromPickcenter(
   sport: string,
   game: string,
-  liveMeta: Omit<LiveOddsEntry, "sport" | "game" | "market" | "pick" | "odds">,
+  liveMeta: LiveMeta,
   pc: NonNullable<Awaited<ReturnType<typeof fetchEspnPickcenter>>>,
 ): LiveOddsEntry[] {
   const out: LiveOddsEntry[] = [];
-  const base = { sport, game, live: true as const, ...liveMeta };
+  const base = { sport, game, ...liveMeta };
   if (pc.home && pc.away && pc.mlH != null && pc.mlA != null) {
-    out.push({ ...base, market: "Moneyline", pick: `${nickname(pc.away)} ML`, odds: pc.mlA });
-    out.push({ ...base, market: "Moneyline", pick: `${nickname(pc.home)} ML`, odds: pc.mlH });
+    out.push({
+      ...base,
+      market: "Moneyline",
+      pick: `${nickname(pc.away)} ML`,
+      odds: pc.mlA,
+      line: null,
+    });
+    out.push({
+      ...base,
+      market: "Moneyline",
+      pick: `${nickname(pc.home)} ML`,
+      odds: pc.mlH,
+      line: null,
+    });
   }
   if (pc.sp != null && pc.spH != null && pc.spA != null && pc.home && pc.away) {
     const ptH = pc.sp > 0 ? ` +${pc.sp}` : ` ${pc.sp}`;
     const ptA = -pc.sp > 0 ? ` +${-pc.sp}` : ` ${-pc.sp}`;
-    out.push({ ...base, market: "Spread", pick: `${nickname(pc.home)}${ptH}`, odds: pc.spH });
-    out.push({ ...base, market: "Spread", pick: `${nickname(pc.away)}${ptA}`, odds: pc.spA });
+    out.push({
+      ...base,
+      market: "Spread",
+      pick: `${nickname(pc.home)}${ptH}`,
+      odds: pc.spH,
+      line: pc.sp,
+    });
+    out.push({
+      ...base,
+      market: "Spread",
+      pick: `${nickname(pc.away)}${ptA}`,
+      odds: pc.spA,
+      line: -pc.sp,
+    });
   }
   if (pc.tot != null && pc.totO != null && pc.totU != null) {
-    out.push({ ...base, market: "Total", pick: `Over ${pc.tot}`, odds: pc.totO });
-    out.push({ ...base, market: "Total", pick: `Under ${pc.tot}`, odds: pc.totU });
+    out.push({
+      ...base,
+      market: "Total",
+      pick: `Over ${pc.tot}`,
+      odds: pc.totO,
+      line: pc.tot,
+    });
+    out.push({
+      ...base,
+      market: "Total",
+      pick: `Under ${pc.tot}`,
+      odds: pc.totU,
+      line: pc.tot,
+    });
   }
   return out;
 }
@@ -131,81 +221,84 @@ router.get("/sports/live-odds", async (req, res): Promise<void> => {
     return;
   }
 
+  const fetchedAt = new Date().toISOString();
   const games: LiveGameEntry[] = [];
   const odds: LiveOddsEntry[] = [];
-
-  const fmt = (d: Date) =>
-    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
-  const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const dateRange = `${fmt(yesterday)}-${fmt(tomorrow)}`;
+  const dayKeys = espnScoreboardDayKeys(Date.now(), 1, 1);
 
   await Promise.all(
     sports.map(async (sport) => {
       const path = ESPN_SPORT_PATHS[sport];
       if (!path) return;
-      type ScoreboardEvent = {
-        id: string;
-        date: string;
-        status?: { type?: { state?: string; description?: string; shortDetail?: string } };
-        competitions?: Array<{
-          status?: { type?: { state?: string; description?: string; shortDetail?: string } };
-          competitors?: Array<{
-            homeAway: "home" | "away";
-            score?: string;
-            team?: { displayName?: string };
-          }>;
-        }>;
-      };
-      const board = await cachedJson<{ events?: ScoreboardEvent[] } | null>(
-        `live-odds:board:${sport}:${dateRange}`,
-        15_000,
-        async () => {
-          const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${dateRange}`;
-          const r = await fetch(url);
-          if (!r.ok) return null;
-          return (await r.json()) as { events?: ScoreboardEvent[] };
-        },
+
+      const dayBoards = await Promise.all(
+        dayKeys.map((day) =>
+          cachedJson<{ events?: LiveScoreboardEvent[] } | null>(
+            `live-odds:board:${sport}:${day}`,
+            15_000,
+            async () => {
+              const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${day}`;
+              const r = await fetch(url);
+              if (!r.ok) return null;
+              return (await r.json()) as { events?: LiveScoreboardEvent[] };
+            },
+          ),
+        ),
       );
-      for (const ev of board?.events ?? []) {
-        const comp = ev.competitions?.[0];
-        const state = comp?.status?.type?.state ?? ev.status?.type?.state ?? "";
-        if (state !== "in") continue;
-        const awayC = comp?.competitors?.find((c) => c.homeAway === "away");
-        const homeC = comp?.competitors?.find((c) => c.homeAway === "home");
-        const away = awayC?.team?.displayName;
-        const home = homeC?.team?.displayName;
-        if (!away || !home || !ev.id) continue;
-        const game = `${away} @ ${home}`;
-        const awayScore = num(Number(awayC?.score));
-        const homeScore = num(Number(homeC?.score));
-        const periodLabel = comp?.status?.type?.shortDetail ?? comp?.status?.type?.description ?? null;
+      const events = mergeEspnEventsById(
+        dayBoards.map((b) => b?.events ?? []),
+      ) as LiveScoreboardEvent[];
+
+      for (const ev of events) {
+        const state = extractLiveGameStateFromEspnEvent(ev);
+        if (!state) continue;
+
+        // Games row is the scoreboard authority for this eventId.
         games.push({
           sport,
-          game,
+          game: state.matchup,
           status: "in",
-          awayScore,
-          homeScore,
-          periodLabel,
-          clock: null,
-          eventId: ev.id,
+          state: "in",
+          awayTeam: state.awayTeam,
+          homeTeam: state.homeTeam,
+          awayScore: state.awayScore,
+          homeScore: state.homeScore,
+          period: state.period,
+          periodLabel: state.periodLabel,
+          clock: state.clock,
+          eventId: state.eventId,
+          source: LIVE_ODDS_SOURCE,
+          fetchedAt,
+          startsAt: state.startsAt,
         });
-        const pc = await fetchEspnPickcenter(sport, ev.id);
+
+        const pc = await fetchEspnPickcenter(sport, state.eventId);
         if (!pc) continue;
-        const liveMeta = {
-          awayScore,
-          homeScore,
-          periodLabel,
-          clock: null,
-          startsAt: ev.date,
+
+        // Join prices to the SAME eventId as the scoreboard row — never by name alone.
+        const providerLastUpdate = espnPickcenterProviderLastUpdate(pc.raw);
+        const liveMeta: LiveMeta = {
+          live: true,
+          eventId: state.eventId,
+          awayTeam: state.awayTeam,
+          homeTeam: state.homeTeam,
+          awayScore: state.awayScore,
+          homeScore: state.homeScore,
+          state: "in",
+          period: state.period,
+          periodLabel: state.periodLabel,
+          clock: state.clock,
+          source: LIVE_ODDS_SOURCE,
+          fetchedAt,
+          providerLastUpdate,
+          startsAt: state.startsAt,
         };
-        odds.push(...linesFromPickcenter(sport, game, liveMeta, pc));
+        odds.push(...linesFromPickcenter(sport, state.matchup, liveMeta, pc));
       }
     }),
   );
 
-  res.json({ games, odds });
+  res.json({ games, odds, fetchedAt });
 });
 
 export default router;
