@@ -1,22 +1,21 @@
 /**
- * Current-roster grounding for Coach Q&A.
+ * Current-roster grounding for Coach Q&A and prop-identity asks.
  *
  * Live ESPN player-search (same provider the prop identity path uses) overrides
  * the LLM's pretrained roster knowledge. Never invents assignments — only
  * reports what the provider returns for the requested/current season.
+ *
+ * Critical: bare identity asks ("Is Ashton Jeanty an NFL player?") must still
+ * extract the player name and look him up — not only "plays for Team" claims.
  */
 
 import { cachedJson } from "./sports.js";
+import {
+  PROVIDER_LEAGUE_TO_SPORT,
+  resolveProviderLeagueSport,
+} from "./currentFactAuthority.js";
 
-const LEAGUE_TO_SPORT: Record<string, string> = {
-  nba: "nba",
-  wnba: "wnba",
-  mlb: "mlb",
-  nfl: "nfl",
-  "college-football": "ncaaf",
-  "mens-college-basketball": "ncaab",
-  nhl: "nhl",
-};
+const LEAGUE_TO_SPORT: Record<string, string> = { ...PROVIDER_LEAGUE_TO_SPORT };
 
 const SPORT_HINT: Array<{ re: RegExp; sport: string }> = [
   { re: /\b(nfl|national football)\b/i, sport: "nfl" },
@@ -26,7 +25,36 @@ const SPORT_HINT: Array<{ re: RegExp; sport: string }> = [
   { re: /\b(mlb|baseball)\b/i, sport: "mlb" },
   { re: /\b(nhl|hockey)\b/i, sport: "nhl" },
   { re: /\b(ncaab|college basketball|cbb)\b/i, sport: "ncaab" },
+  { re: /\b(soccer|mls|epl|premier league|ucl|champions league|liga)\b/i, sport: "soccer" },
+  { re: /\b(tennis|atp|wta|french open|wimbledon|us open|australian open)\b/i, sport: "tennis" },
+  { re: /\b(ufc|mma|mixed martial)\b/i, sport: "ufc" },
+  { re: /\b(cricket|ipl|t20)\b/i, sport: "cricket" },
+  { re: /\b(table\s*tennis|ping\s*pong)\b/i, sport: "tabletennis" },
 ];
+
+/** Words that look capitalized but are not person-name tokens. */
+const NAME_STOP = new Set(
+  [
+    "the", "and", "for", "with", "from", "into", "over", "under", "yes", "no",
+    "new", "york", "los", "angeles", "las", "vegas", "san", "francisco", "kansas",
+    "city", "green", "bay", "tampa", "bay", "new", "england", "bay",
+    "chicago", "bears", "giants", "ravens", "commanders", "washington", "atlanta",
+    "falcons", "raiders", "lakers", "celtics", "yankees", "dodgers", "bruins",
+    "rangers", "manchester", "united", "city", "arsenal", "chelsea", "barcelona",
+    "madrid", "nfl", "nba", "mlb", "nhl", "wnba", "ncaaf", "ncaab", "ufc", "mma",
+    "atp", "wta", "mls", "epl", "ucl",
+    "props", "prop", "parlay", "ticket", "legs", "leg", "build", "tonight",
+    "today", "tomorrow", "season", "seasons", "football", "basketball", "baseball",
+    "hockey", "soccer", "tennis", "cricket", "active", "roster", "player", "players",
+    "team", "teams", "game", "games", "market", "markets", "odds", "line", "lines",
+    "rushing", "yards", "receiving", "passing", "touchdowns", "points", "rebounds",
+    "assists", "goals", "shots", "strikeouts", "aces",
+    "does", "did", "is", "are", "was", "were", "can", "could", "will", "would",
+    "should", "still", "currently", "official", "record", "verified", "transfer",
+    "club", "fighter", "tournament", "confirm", "confirming", "about", "versus",
+    "against", "between",
+  ].map((s) => s.toLowerCase()),
+);
 
 /** NFL-style season year: Aug–Dec → that calendar year; Jan–Jul → prior year. */
 export function resolveCurrentSeasonYear(
@@ -57,24 +85,39 @@ export function detectSportHint(text: string): string | null {
   return null;
 }
 
+/** Identity / roster / current-season cues that require live provider lookup (all sports). */
+export function hasRosterIdentityCue(text: string): boolean {
+  const t = String(text || "");
+  return (
+    /\b(roster|depth chart|transaction|waiv(?:e|ed|er)|sign(?:ed|ing)?|trad(?:e|ed|ing)|transfer(?:red|s)?|injur(?:y|ies|ed)|questionable|doubtful|out for|who (?:plays|is|fights) (?:for|on)|plays? for|fights? (?:for|on)|on the .{2,40} roster|current team|current club|what team|which team|which club|still (?:play|with|on|fight)|active (?:\w+\s+)?roster|(?:an?|the)\s+(?:\w+\s+)?player|not an? (?:\w+\s+)?player|not an active player|official record|no record of|current(?:ly)? (?:on|with|listed)|lineup|starter|starting|probable pitcher|goalkeeper|carded|tournament|draw)\b/i.test(
+      t,
+    ) ||
+    /\bis\s+[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,3}\s+(?:an?|on|with|still)\b/i.test(t) ||
+    /\b(?:does|did|is)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){0,3}\s+(?:play|plays|playing|fight|fights|on|still)\b/i.test(
+      t,
+    )
+  );
+}
+
 /**
- * True when the ask needs live provider roster/identity data before answering —
- * players, teams, rosters, injuries, schedules, depth charts, transactions, etc.
+ * True when the ask needs live provider roster/identity data before answering.
  */
 export function wantsRosterGrounding(text: string): boolean {
   const t = String(text || "").trim();
-  if (t.length < 8) return false;
+  if (t.length < 6) return false;
+  if (hasRosterIdentityCue(t)) return true;
+  if (/\bplays?\s+for\b/i.test(t) || /\bis\s+on\s+the\b/i.test(t)) return true;
+  const names = extractNamedPlayers(t);
+  if (!names.length) return extractPlayerTeamClaims(t).length > 0;
+  // Named athlete + sport / season / prop / stat / slate cue → ground identity
+  // before the model answers (covers "Jeanty rushing yards" and "is X an NFL player").
   if (
-    /\b(roster|depth chart|transaction|waiv(?:e|ed|er)|sign(?:ed|ing)?|trad(?:e|ed|ing)|injur(?:y|ies|ed)|questionable|doubtful|out for|who (?:plays|is) (?:for|on)|plays? for|on the .{2,30} roster|current team|what team|which team)\b/i.test(
+    detectSportHint(t) ||
+    /\b20[2-9]\d\b/.test(t) ||
+    /\b(props?|odds|lines?|parlay|ticket|legs?|matchup|vs\.?|against|over|under|rushing|receiving|passing|yards?|touchdowns?|tds?|points?|rebounds?|assists?|strikeouts?|tonight|today|tomorrow|slate|board)\b/i.test(
       t,
     )
   ) {
-    return true;
-  }
-  // Explicit "Player plays for Team" / "Player is on the Team" claims.
-  if (/\bplays?\s+for\b/i.test(t) || /\bis\s+on\s+the\b/i.test(t)) return true;
-  // Season-year + team + player-shaped claim (e.g. 2026 NFL roster questions).
-  if (/\b20[2-9]\d\b/.test(t) && detectSportHint(t) && extractPlayerTeamClaims(t).length > 0) {
     return true;
   }
   return extractPlayerTeamClaims(t).length > 0;
@@ -86,8 +129,52 @@ export type PlayerTeamClaim = {
 };
 
 /**
+ * Extract person-like "First Last" / "First Middle Last Jr." names from free text.
+ * Conservative stop-list avoids team cities/nicknames becoming "players".
+ */
+export function extractNamedPlayers(text: string): string[] {
+  const t = String(text || "").replace(/\s+/g, " ").trim();
+  if (!t) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  // First Last (optional Jr/Sr/II/III) — allows lowercase second token for
+  // mangled names like "Isaiah likely".
+  const re =
+    /\b([A-Z][a-z]+)\s+([A-Z][a-z]+|[a-z]{3,})(?:\s+(Jr\.?|Sr\.?|II|III|IV))?\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t)) != null) {
+    const first = m[1];
+    const second = m[2];
+    const suffix = m[3] ? ` ${m[3].replace(/\.$/, "")}` : "";
+    // "Is Ashton Jeanty" matches "Is Ashton" first — rewind so Ashton is reused.
+    if (NAME_STOP.has(first.toLowerCase())) {
+      re.lastIndex = m.index + first.length;
+      continue;
+    }
+    if (NAME_STOP.has(second.toLowerCase())) {
+      continue;
+    }
+    // Skip obvious team nicknames as "Last".
+    if (
+      /^(giants|bears|ravens|falcons|raiders|commanders|cowboys|eagles|chiefs|packers|patriots|jets|bills|dolphins|steelers|bengals|browns|titans|colts|jaguars|texans|broncos|chargers|rams|49ers|seahawks|cardinals|vikings|lions|saints|buccaneers|panthers)$/i.test(
+        second,
+      )
+    ) {
+      continue;
+    }
+    const player = cleanPersonName(`${first} ${second}${suffix}`);
+    if (!player || player.split(/\s+/).length < 2) continue;
+    const key = player.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(player);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/**
  * Pull "Name … plays for … Team" style claims from free text.
- * Conservative: requires a capitalized multi-token player name.
  */
 export function extractPlayerTeamClaims(text: string): PlayerTeamClaim[] {
   const t = String(text || "").replace(/\s+/g, " ").trim();
@@ -99,6 +186,7 @@ export function extractPlayerTeamClaims(text: string): PlayerTeamClaim[] {
     /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,3})\s+plays?\s+for\s+(?:the\s+)?([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})/g,
     /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,3})\s+is\s+on\s+the\s+([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})/g,
     /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,3})\s+\((?:the\s+)?([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})\)/g,
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,3})\s+still\s+plays?\s+for\s+(?:the\s+)?([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})/g,
   ];
 
   const skipLead =
@@ -121,8 +209,6 @@ export function extractPlayerTeamClaims(text: string): PlayerTeamClaim[] {
     }
   }
 
-  // Fallback: "First Last" tokens near a known team nickname when "plays for" was
-  // mangled (e.g. "Isaiah likely plays" with lowercase likely).
   const soft =
     /\b([A-Z][a-z]+)\s+([a-z]{3,}|[A-Z][a-z]+)\s+plays?\s+for\s+(?:the\s+)?([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})/g;
   let sm: RegExpExecArray | null;
@@ -149,8 +235,21 @@ function cleanPersonName(raw: string): string {
     .trim()
     .split(/\s+/)
     .filter((tok) => !/^(?:does|did|is|are|was|were|can|could|will|would|should)$/i.test(tok))
-    .map((tok) => tok.charAt(0).toUpperCase() + tok.slice(1).toLowerCase())
-    .join(" ");
+    .map((tok, i, arr) => {
+      if (/^(jr|sr|ii|iii|iv)$/i.test(tok)) {
+        return tok.toUpperCase() === "JR" || tok.toUpperCase() === "SR"
+          ? `${tok[0].toUpperCase()}${tok.slice(1).toLowerCase()}.`.replace("..", ".")
+          : tok.toUpperCase();
+      }
+      // Keep last token title-case even when source was lowercase ("likely").
+      if (i === arr.length - 1 || i === 0) {
+        return tok.charAt(0).toUpperCase() + tok.slice(1).toLowerCase();
+      }
+      return tok.charAt(0).toUpperCase() + tok.slice(1).toLowerCase();
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function cleanTeamName(raw: string): string {
@@ -172,7 +271,25 @@ export type RosterGroundingEntry = {
   claimedTeam: string | null;
   claimMatchesProvider: boolean | null;
   verified: boolean;
-  source: "espn_player_search";
+  isActive: boolean | null;
+  source: "espn_player_search" | "stadium_edge_realProps";
+};
+
+/** Structured current-season fact row for the final LLM prompt. */
+export type VerifiedCurrentFact = {
+  season: number;
+  player: string;
+  team: string | null;
+  opponent: string | null;
+  game: string | null;
+  market: string | null;
+  line: number | string | null;
+  odds: number | string | null;
+  provider: string;
+  dataTimestamp: string;
+  athleteId: string | null;
+  sport: string | null;
+  verified: boolean;
 };
 
 export type RosterGroundingPayload = {
@@ -182,6 +299,10 @@ export type RosterGroundingPayload = {
   entries: RosterGroundingEntry[];
   /** Plain facts the model may quote — provider-only, never invented. */
   facts: string[];
+  /** Structured rows: season/player/team/opponent/game/market/line/odds/provider/timestamp. */
+  verifiedCurrentFacts: VerifiedCurrentFact[];
+  authority:
+    "For current sports facts, the supplied live context is authoritative and overrides pretrained model knowledge.";
 };
 
 type SearchItem = {
@@ -203,45 +324,51 @@ async function searchEspnPlayer(
   team: string | null;
   sport: string;
   seasonYearFromLeague: number | null;
+  isActive: boolean | null;
 } | null> {
   const q = query.trim();
   if (q.length < 2) return null;
-  const key = `roster-ground:v1:${q.toLowerCase()}`;
-  const data = await cachedJson<{ items?: SearchItem[]; seasonYear?: number | null }>(
-    key,
-    30 * 60 * 1000,
-    async () => {
-      const url =
-        `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=player&query=` +
-        encodeURIComponent(q);
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`ESPN search ${r.status}`);
-      const json = (await r.json()) as {
-        items?: Array<
-          SearchItem & {
-            leagueRelationships?: Array<{
-              core?: { season?: { year?: number } };
-            }>;
-          }
-        >;
-      };
-      // Preserve season year from the first matching item's league payload.
-      let seasonYear: number | null = null;
-      const items: SearchItem[] = [];
-      for (const it of json.items ?? []) {
-        if (!seasonYear) {
-          const y = it.leagueRelationships?.[0]?.core?.season?.year;
-          if (typeof y === "number") seasonYear = y;
+  const key = `roster-ground:v2:${q.toLowerCase()}`;
+  const data = await cachedJson<{
+    items?: SearchItem[];
+    seasonYear?: number | null;
+  }>(key, 30 * 60 * 1000, async () => {
+    const url =
+      `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=player&query=` +
+      encodeURIComponent(q);
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`ESPN search ${r.status}`);
+    const json = (await r.json()) as {
+      items?: Array<
+        SearchItem & {
+          leagueRelationships?: Array<{
+            core?: { season?: { year?: number } };
+          }>;
         }
-        items.push(it);
+      >;
+    };
+    let seasonYear: number | null = null;
+    const items: SearchItem[] = [];
+    for (const it of json.items ?? []) {
+      if (!seasonYear) {
+        const y = it.leagueRelationships?.[0]?.core?.season?.year;
+        if (typeof y === "number") seasonYear = y;
       }
-      return { items, seasonYear };
-    },
-  );
+      items.push(it);
+    }
+    return { items, seasonYear };
+  });
+
+  const sportOf = (it: SearchItem): string | null =>
+    resolveProviderLeagueSport(
+      String(it.league || it.defaultLeagueSlug || "").toLowerCase(),
+    ) ||
+    LEAGUE_TO_SPORT[String(it.league || it.defaultLeagueSlug || "").toLowerCase()] ||
+    null;
 
   const ranked = [...(data.items ?? [])].sort((a, b) => {
-    const sportA = LEAGUE_TO_SPORT[String(a.league || a.defaultLeagueSlug || "").toLowerCase()] || "";
-    const sportB = LEAGUE_TO_SPORT[String(b.league || b.defaultLeagueSlug || "").toLowerCase()] || "";
+    const sportA = sportOf(a) || "";
+    const sportB = sportOf(b) || "";
     const score = (sport: string, it: SearchItem) => {
       let s = 0;
       if (preferSport && sport === preferSport) s += 10;
@@ -252,33 +379,32 @@ async function searchEspnPlayer(
     return score(sportB, b) - score(sportA, a);
   });
 
+  const pick = (it: SearchItem) => {
+    const sport = sportOf(it);
+    if (!sport || !it.id || !it.displayName) return null;
+    return {
+      athleteId: String(it.id),
+      name: it.displayName,
+      team: it.teamRelationships?.[0]?.displayName ?? null,
+      sport,
+      seasonYearFromLeague:
+        typeof data.seasonYear === "number" ? data.seasonYear : null,
+      isActive:
+        it.isActive === undefined && it.isRetired === undefined
+          ? null
+          : it.isActive !== false && it.isRetired !== true,
+    };
+  };
+
   for (const it of ranked) {
-    const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
-    const sport = LEAGUE_TO_SPORT[leagueSlug];
-    if (!sport || !it.id || !it.displayName) continue;
+    const sport = sportOf(it);
     if (preferSport && sport !== preferSport) continue;
-    return {
-      athleteId: String(it.id),
-      name: it.displayName,
-      team: it.teamRelationships?.[0]?.displayName ?? null,
-      sport,
-      seasonYearFromLeague:
-        typeof data.seasonYear === "number" ? data.seasonYear : null,
-    };
+    const hit = pick(it);
+    if (hit) return hit;
   }
-  // Prefer-sport miss: accept best overall active hit rather than inventing.
   for (const it of ranked) {
-    const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
-    const sport = LEAGUE_TO_SPORT[leagueSlug];
-    if (!sport || !it.id || !it.displayName) continue;
-    return {
-      athleteId: String(it.id),
-      name: it.displayName,
-      team: it.teamRelationships?.[0]?.displayName ?? null,
-      sport,
-      seasonYearFromLeague:
-        typeof data.seasonYear === "number" ? data.seasonYear : null,
-    };
+    const hit = pick(it);
+    if (hit) return hit;
   }
   return null;
 }
@@ -302,26 +428,109 @@ function teamNamesMatch(a: string | null | undefined, b: string | null | undefin
   return nick(na).length >= 3 && nick(na) === nick(nb);
 }
 
+function namesLooselyMatch(a: string, b: string): boolean {
+  const norm = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\b(jr|sr|ii|iii|iv)\b/g, "")
+      .replace(/[^a-z\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const na = norm(a);
+  const nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const ta = na.split(" ");
+  const tb = nb.split(" ");
+  return ta[0] === tb[0] && ta[ta.length - 1] === tb[tb.length - 1];
+}
+
+type PropLike = {
+  player?: unknown;
+  athleteId?: unknown;
+  sport?: unknown;
+  game?: unknown;
+  market?: unknown;
+  line?: unknown;
+  overOdds?: unknown;
+  underOdds?: unknown;
+  odds?: unknown;
+  opponentTeamId?: unknown;
+  playerTeamId?: unknown;
+  team?: unknown;
+  teamName?: unknown;
+};
+
+function propTeamLabel(p: PropLike): string | null {
+  if (typeof p.team === "string" && p.team.trim()) return p.team.trim();
+  if (typeof p.teamName === "string" && p.teamName.trim()) return p.teamName.trim();
+  return null;
+}
+
+function opponentFromGame(game: string | null | undefined, team: string | null): string | null {
+  if (!game || !team || !game.includes(" @ ")) return null;
+  const [away, home] = game.split(" @ ").map((s) => s.trim());
+  if (!away || !home) return null;
+  if (teamNamesMatch(team, away)) return home;
+  if (teamNamesMatch(team, home)) return away;
+  // Nickname fallback
+  const nick = (s: string) => s.split(/\s+/).pop()?.toLowerCase() || "";
+  if (nick(team) && nick(team) === nick(away)) return home;
+  if (nick(team) && nick(team) === nick(home)) return away;
+  return null;
+}
+
 /**
- * Resolve named player↔team claims against live ESPN search for the
- * mentioned or current season. Returns structured context for the chat model.
+ * Resolve named players / claims against live ESPN (and optional realProps rows)
+ * for the mentioned or current season.
  */
 export async function buildRosterGrounding(
   userText: string,
-  opts?: { now?: Date; fetchPlayer?: typeof searchEspnPlayer },
+  opts?: {
+    now?: Date;
+    fetchPlayer?: typeof searchEspnPlayer;
+    /** Optional live prop pool — used to attach game/market/line/odds rows. */
+    realProps?: PropLike[];
+  },
 ): Promise<RosterGroundingPayload | null> {
   if (!wantsRosterGrounding(userText)) return null;
+
   const claims = extractPlayerTeamClaims(userText);
-  if (!claims.length) return null;
+  const bareNames = extractNamedPlayers(userText);
+  const byKey = new Map<string, PlayerTeamClaim>();
+  for (const c of claims) byKey.set(c.player.toLowerCase(), c);
+  for (const n of bareNames) {
+    const k = n.toLowerCase();
+    if (!byKey.has(k)) byKey.set(k, { player: n, claimedTeam: null });
+  }
+  // Also ground players present in realProps that the user named (or all if
+  // identity cue + few props) — never invent; only surface supplied rows.
+  const props = Array.isArray(opts?.realProps) ? opts!.realProps! : [];
+  if (bareNames.length && props.length) {
+    for (const p of props) {
+      const pname = typeof p.player === "string" ? p.player : "";
+      if (!pname) continue;
+      if (!bareNames.some((n) => namesLooselyMatch(n, pname))) continue;
+      const k = pname.toLowerCase();
+      if (!byKey.has(k)) byKey.set(k, { player: pname, claimedTeam: propTeamLabel(p) });
+    }
+  }
+
+  const targets = [...byKey.values()];
+  if (!targets.length) return null;
 
   const sportHint = detectSportHint(userText);
   const mentionedYear = extractMentionedSeasonYear(userText);
-  const defaultYear = resolveCurrentSeasonYear(sportHint || "nfl", opts?.now ?? new Date());
+  const now = opts?.now ?? new Date();
+  const defaultYear = resolveCurrentSeasonYear(sportHint || "nfl", now);
   const seasonYear = mentionedYear ?? defaultYear;
   const fetchPlayer = opts?.fetchPlayer ?? searchEspnPlayer;
+  const retrievedAt = now.toISOString();
 
   const entries: RosterGroundingEntry[] = [];
-  for (const claim of claims.slice(0, 6)) {
+  for (const claim of targets.slice(0, 6)) {
     try {
       const hit = await fetchPlayer(claim.player, sportHint);
       if (!hit) {
@@ -335,6 +544,7 @@ export async function buildRosterGrounding(
           claimedTeam: claim.claimedTeam,
           claimMatchesProvider: null,
           verified: false,
+          isActive: null,
           source: "espn_player_search",
         });
         continue;
@@ -354,6 +564,7 @@ export async function buildRosterGrounding(
         claimedTeam: claim.claimedTeam,
         claimMatchesProvider: match,
         verified: !!hit.team,
+        isActive: hit.isActive,
         source: "espn_player_search",
       });
     } catch {
@@ -367,6 +578,7 @@ export async function buildRosterGrounding(
         claimedTeam: claim.claimedTeam,
         claimMatchesProvider: null,
         verified: false,
+        isActive: null,
         source: "espn_player_search",
       });
     }
@@ -374,21 +586,73 @@ export async function buildRosterGrounding(
 
   if (!entries.length) return null;
 
+  const verifiedCurrentFacts: VerifiedCurrentFact[] = [];
+  for (const e of entries) {
+    const matchingProps = props.filter((p) => {
+      const pname = typeof p.player === "string" ? p.player : "";
+      if (!pname) return false;
+      if (e.name && namesLooselyMatch(e.name, pname)) return true;
+      return namesLooselyMatch(e.query, pname);
+    });
+    if (matchingProps.length) {
+      for (const p of matchingProps.slice(0, 3)) {
+        const game = typeof p.game === "string" ? p.game : null;
+        const team = e.team || propTeamLabel(p);
+        const odds =
+          p.overOdds ?? p.underOdds ?? p.odds ?? null;
+        verifiedCurrentFacts.push({
+          season: e.seasonYear,
+          player: e.name || e.query,
+          team,
+          opponent: opponentFromGame(game, team),
+          game,
+          market: typeof p.market === "string" ? p.market : null,
+          line: (p.line as number | string | null | undefined) ?? null,
+          odds: odds as number | string | null,
+          provider: "stadium_edge_realProps+espn_player_search",
+          dataTimestamp: retrievedAt,
+          athleteId: e.athleteId || (p.athleteId != null ? String(p.athleteId) : null),
+          sport: e.sport || (typeof p.sport === "string" ? p.sport : null),
+          verified: e.verified,
+        });
+      }
+    } else {
+      verifiedCurrentFacts.push({
+        season: e.seasonYear,
+        player: e.name || e.query,
+        team: e.team,
+        opponent: null,
+        game: null,
+        market: null,
+        line: null,
+        odds: null,
+        provider: "espn_player_search",
+        dataTimestamp: retrievedAt,
+        athleteId: e.athleteId,
+        sport: e.sport,
+        verified: e.verified,
+      });
+    }
+  }
+
   const facts: string[] = [];
   facts.push(
     `Roster grounding seasonYear=${seasonYear}` +
       (sportHint ? ` sport=${sportHint}` : "") +
-      ` (live ESPN player search — overrides any pretrained cutoff).`,
+      ` retrievedAt=${retrievedAt} (live ESPN player search — AUTHORITATIVE; overrides any pretrained cutoff).`,
   );
   for (const e of entries) {
     if (e.verified && e.name && e.team) {
-      let line = `${e.name} is currently listed on the ${e.team} roster for the ${e.seasonYear} ${e.sport.toUpperCase()} season (ESPN).`;
+      let line =
+        `${e.name} is currently listed on the ${e.team} roster for the ${e.seasonYear} ${e.sport.toUpperCase()} season (ESPN` +
+        (e.isActive === true ? ", active" : e.isActive === false ? ", inactive/retired flag" : "") +
+        `).`;
       if (e.claimedTeam) {
         line +=
           e.claimMatchesProvider === true
             ? ` User claim (${e.claimedTeam}) MATCHES provider.`
             : e.claimMatchesProvider === false
-              ? ` User claim (${e.claimedTeam}) does NOT match provider team.`
+              ? ` User claim (${e.claimedTeam}) does NOT match provider team — use provider team ${e.team}, not training memory.`
               : "";
       }
       facts.push(line);
@@ -396,7 +660,7 @@ export async function buildRosterGrounding(
       facts.push(
         `Could not currently verify roster assignment for "${e.query}"` +
           (e.claimedTeam ? ` (user claimed ${e.claimedTeam})` : "") +
-          ` via live ESPN search for ${e.seasonYear}. Do NOT substitute pretrained/old roster knowledge.`,
+          ` via live ESPN search for ${e.seasonYear}. Say you cannot currently verify it — do NOT substitute pretrained/old roster knowledge.`,
       );
     }
   }
@@ -404,20 +668,27 @@ export async function buildRosterGrounding(
   return {
     seasonYear,
     sport: sportHint,
-    retrievedAt: (opts?.now ?? new Date()).toISOString(),
+    retrievedAt,
     entries,
     facts,
+    verifiedCurrentFacts,
+    authority:
+      "For current sports facts, the supplied live context is authoritative and overrides pretrained model knowledge.",
   };
 }
 
-/** System-prompt addendum when roster grounding is attached (or should be). */
+/** System-prompt addendum when roster grounding is needed or attached. */
 export const ROSTER_GROUNDING_SYSTEM_RULE = `
-*** CURRENT ROSTER / IDENTITY GROUNDING (CRITICAL) ***
-For questions about current players, teams, rosters, injuries, schedules, games, stats, depth charts, transactions, odds, or props:
-1. Use ONLY live Stadium Edge / provider data in the Current app context (rosterGrounding, realProps, realOdds, realGames, matchupInjuries, statmuseFacts, etc.). That data OVERRIDES any pretrained training knowledge.
-2. NEVER cite a model knowledge-cutoff date (e.g. "as of my latest data cutoff", "June 2024", "my training data") as evidence that a current roster claim is false or true.
-3. When context.rosterGrounding is present, treat its facts as authoritative for player↔team identity for the stated seasonYear. If a user claim MATCHES an entry, confirm it from that data. If it CONTRADICTS, correct using the provider team — never the old training roster.
-4. If current provider data cannot verify a player/team assignment, say you cannot currently verify it. Do NOT fill the gap with an old roster from memory and present it as current.
-5. Include the season year from rosterGrounding.seasonYear (or the year the user asked about) in your reasoning. A 2026 question must be answered against 2026 provider data, not 2024 memory.
-6. Still never invent a prop, line, price, roster assignment, injury, or game that is not in the provided context.
+*** CURRENT ROSTER / IDENTITY GROUNDING (ALL SPORTS — OVERRIDES TRAINING DATA) ***
+For current sports facts, supplied live Stadium Edge/provider context is authoritative and overrides pretrained model knowledge. Never reject or alter a player, team, roster assignment, transfer, matchup, schedule, event, market, line, or odds because it conflicts with your training data. If current data cannot be verified, state that it cannot be verified rather than substituting historical information.
+
+HARD RULES (NFL, NCAAF, NBA, WNBA, NCAAB, MLB, NHL, Soccer, Tennis, UFC/MMA, Cricket, Table Tennis):
+1. Use ONLY live Stadium Edge / provider data in the Current app context (currentFactGrounding, rosterGrounding.verifiedCurrentFacts, realProps, realOdds, realGames, fightAnalysis, tennisAnalysis, matchupInjuries, statmuseFacts, etc.). That data OVERRIDES any pretrained training knowledge.
+2. NEVER cite a model knowledge-cutoff date (e.g. "as of my latest data cutoff", "June 2024", "as of 2025", "my training data", "latest data", "official record" from memory, "no record of" from memory) as evidence that a current fact is false or true.
+3. NEVER say a player/fighter is "not a [league] player" or "not on an active roster" from training memory when live context lists them.
+4. When Stadium Edge supplies player + current team/club + opponent + market + line/price (or UFC/tennis card rows), you MUST NOT re-check identity using pretrained knowledge and contradict the supplied data.
+5. Treat verifiedCurrentFacts as authoritative for the stated seasonYear/event. If a user claim CONTRADICTS provider data, correct using the provider — never the old training roster/club.
+6. If current provider data cannot verify something, say "Current data could not be verified." Do NOT substitute historical information and present it as current.
+7. Answer against the season/year/event in the live context — not an older season from memory.
+8. Still never invent a prop, line, price, roster assignment, injury, fight, or game that is not in the provided context.
 `.trim();
