@@ -4,6 +4,7 @@ import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
 import {
   matchesAppReviewCredentials,
+  normalizeReviewCode,
   normalizeReviewEmail,
   readAppReviewEnv,
 } from "../lib/appReviewAuth";
@@ -99,28 +100,52 @@ router.post("/auth/app-review-selfcheck", selfcheckLimiter, async (req, res) => 
 
 router.post("/auth/app-review-ticket", ticketLimiter, async (req, res) => {
   const configured = readAppReviewEnv();
-  if (!configured) {
-    // Path not configured — fail closed without revealing whether the feature exists.
-    res.status(404).json({ error: "not available" });
-    return;
-  }
-
   const email = normalizeReviewEmail(
     typeof req.body?.email === "string" ? req.body.email : "",
   );
   const code = typeof req.body?.code === "string" ? req.body.code : "";
+  const codeNormalized = normalizeReviewCode(code);
+
+  // TEMPORARY safe diagnostics — booleans + status only. Remove after Build 78 triage.
+  // Never log email, domain, codes, tickets, or env values.
+  const emailPresent = email.length > 0;
+  const codePresent = codeNormalized.length > 0;
+  const emailMatchesConfiguredReviewEmail = !!(
+    configured && emailPresent && email === configured.email
+  );
+  const codeMatchesConfiguredReviewCode = !!(
+    configured && codePresent && codeNormalized === configured.code
+  );
+  const logTicketDiag = (finalHttpStatus: number) => {
+    logger.info(
+      {
+        path: "app-review-ticket",
+        emailPresent,
+        emailMatchesConfiguredReviewEmail,
+        codePresent,
+        codeMatchesConfiguredReviewCode,
+        finalHttpStatus,
+      },
+      "app-review-ticket request received",
+    );
+  };
+
+  if (!configured) {
+    // Path not configured — fail closed without revealing whether the feature exists.
+    logTicketDiag(404);
+    res.status(404).json({ error: "not available" });
+    return;
+  }
 
   if (!email || !code) {
+    logTicketDiag(400);
     res.status(400).json({ error: "email and code required" });
     return;
   }
 
   if (!matchesAppReviewCredentials(email, code, configured)) {
     // Same generic response for wrong email or wrong code — no account oracle.
-    logger.info(
-      { path: "app-review-ticket", outcome: "rejected", emailDomain: email.split("@")[1] ?? null },
-      "app review ticket: credentials rejected",
-    );
+    logTicketDiag(401);
     res.status(401).json({ error: "invalid credentials" });
     return;
   }
@@ -136,6 +161,7 @@ router.post("/auth/app-review-ticket", ticketLimiter, async (req, res) => {
         { path: "app-review-ticket", outcome: "user_missing" },
         "app review ticket: designated review user not found in Clerk",
       );
+      logTicketDiag(404);
       res.status(404).json({ error: "review account not found" });
       return;
     }
@@ -151,6 +177,7 @@ router.post("/auth/app-review-ticket", ticketLimiter, async (req, res) => {
         { path: "app-review-ticket", outcome: "token_empty", userId: user.id },
         "app review ticket: Clerk returned empty token",
       );
+      logTicketDiag(502);
       res.status(502).json({ error: "could not mint ticket" });
       return;
     }
@@ -166,12 +193,14 @@ router.post("/auth/app-review-ticket", ticketLimiter, async (req, res) => {
       "app review ticket: issued for designated review account",
     );
 
+    logTicketDiag(200);
     res.json({ ok: true, ticket });
   } catch (err) {
     logger.error(
       { err, path: "app-review-ticket", outcome: "error" },
       "app review ticket: failed",
     );
+    logTicketDiag(500);
     res.status(500).json({ error: "ticket failed" });
   }
 });
