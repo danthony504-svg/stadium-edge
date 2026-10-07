@@ -27,7 +27,75 @@ const ticketLimiter = rateLimit({
   name: "app-review-ticket",
 });
 
+/** Temporary probe — max 3/hour. Remove after App Review verification. */
+const selfcheckLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 3,
+  name: "app-review-selfcheck",
+});
+
 const router: IRouter = Router();
+
+/**
+ * POST /auth/app-review-selfcheck
+ *
+ * TEMPORARY production probe. Does not accept email/code from the client.
+ * When APP_REVIEW_SELFCHECK=1, reads APP_REVIEW_EMAIL / APP_REVIEW_CODE from
+ * the server env, mints a Clerk ticket the same way as the real route, then
+ * discards it. Response is only PASS / FAIL + status — never email, code, or
+ * ticket. Does not change login behavior. Disable by unsetting
+ * APP_REVIEW_SELFCHECK (or set ≠ 1); delete this route after verification.
+ */
+router.post("/auth/app-review-selfcheck", selfcheckLimiter, async (req, res) => {
+  if ((process.env.APP_REVIEW_SELFCHECK ?? "").trim() !== "1") {
+    res.status(404).json({ result: "FAIL", status: 404 });
+    return;
+  }
+
+  const configured = readAppReviewEnv();
+  if (!configured) {
+    res.status(200).json({ result: "FAIL", status: 404 });
+    return;
+  }
+
+  try {
+    const list = await clerkClient.users.getUserList({
+      emailAddress: [configured.email],
+      limit: 1,
+    });
+    const user = list.data?.[0];
+    if (!user?.id) {
+      logger.info(
+        { path: "app-review-selfcheck", outcome: "user_missing" },
+        "app review selfcheck: review user missing",
+      );
+      res.status(200).json({ result: "FAIL", status: 404 });
+      return;
+    }
+
+    const signInToken = await clerkClient.signInTokens.createSignInToken({
+      userId: user.id,
+      expiresInSeconds: 60,
+    });
+    // Intentionally discard the token — never put it in the response or logs.
+    if (!signInToken.token) {
+      res.status(200).json({ result: "FAIL", status: 502 });
+      return;
+    }
+
+    logger.info(
+      { path: "app-review-selfcheck", outcome: "pass", userId: user.id },
+      "app review selfcheck: PASS (ticket minted and discarded)",
+    );
+    res.status(200).json({ result: "PASS" });
+  } catch (err) {
+    logger.error(
+      { err, path: "app-review-selfcheck", outcome: "error" },
+      "app review selfcheck: failed",
+    );
+    res.status(200).json({ result: "FAIL", status: 500 });
+  }
+});
 
 router.post("/auth/app-review-ticket", ticketLimiter, async (req, res) => {
   const configured = readAppReviewEnv();
