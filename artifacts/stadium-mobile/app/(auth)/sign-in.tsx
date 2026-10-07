@@ -1,7 +1,7 @@
 import { useSignIn } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import { type Href, Link, useRouter } from "expo-router";
+import { type Href, Link, useFocusEffect, useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
@@ -25,6 +25,11 @@ import {
   runBiometricGate,
   saveBiometricLogin,
 } from "@/lib/biometricLogin";
+import {
+  freshSignInLocalState,
+  shouldArmSecondFactor,
+  shouldShowVerifyScreen,
+} from "@/lib/signInFreshStart";
 
 type Mode = "signin" | "resetRequest" | "resetVerify";
 
@@ -136,6 +141,12 @@ export default function SignInScreen() {
   const [savedEmail, setSavedEmail] = React.useState<string | null>(null);
   const [bioBusy, setBioBusy] = React.useState(false);
   const [verifyBusy, setVerifyBusy] = React.useState(false);
+  // Armed only after this visit's password/biometric submit reaches MFA.
+  // Prevents stale Clerk needs_second_factor / needs_client_trust from skipping
+  // the email/password screen when opening Sign in.
+  const [awaitingSecondFactor, setAwaitingSecondFactor] = React.useState(false);
+  const signInRef = React.useRef(signIn);
+  signInRef.current = signIn;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -153,6 +164,26 @@ export default function SignInScreen() {
       cancelled = true;
     };
   }, []);
+
+  // Fresh Sign in visit: drop abandoned Clerk MFA and clear stale local fields.
+  // Empty deps — must not re-run when signIn.status flips to needs_second_factor
+  // after a successful password submit on this focused screen.
+  useFocusEffect(
+    React.useCallback(() => {
+      // Clear local stale UI synchronously on entry so a late Clerk reset
+      // cannot wipe an email the user typed after the form appeared.
+      const fresh = freshSignInLocalState();
+      setEmailAddress(fresh.emailAddress);
+      setCode(fresh.code);
+      setFormError(fresh.formError);
+      setAwaitingSecondFactor(fresh.awaitingSecondFactor);
+      setMode(fresh.mode);
+      setNewPassword("");
+      void signInRef.current.reset().catch(() => {
+        // Local UI already reset; ignore Clerk reset failures.
+      });
+    }, []),
+  );
 
   const goHome = ({
     session,
@@ -201,11 +232,15 @@ export default function SignInScreen() {
     if (signIn.status === "complete") {
       await offerBiometricEnroll(emailAddress, password);
       await signIn.finalize({ navigate: goHome });
-    } else if (signIn.status === "needs_second_factor") {
-      const emailCodeFactor = signIn.supportedSecondFactors?.find(
-        (f) => f.strategy === "email_code",
-      );
-      if (emailCodeFactor) await signIn.mfa.sendEmailCode();
+    } else if (shouldArmSecondFactor(signIn.status)) {
+      // Keep current emailAddress — Verify posts it to the review-ticket path.
+      setAwaitingSecondFactor(true);
+      if (signIn.status === "needs_second_factor") {
+        const emailCodeFactor = signIn.supportedSecondFactors?.find(
+          (f) => f.strategy === "email_code",
+        );
+        if (emailCodeFactor) await signIn.mfa.sendEmailCode();
+      }
     }
   };
 
@@ -291,11 +326,15 @@ export default function SignInScreen() {
       }
       if (signIn.status === "complete") {
         await signIn.finalize({ navigate: goHome });
-      } else if (signIn.status === "needs_second_factor") {
-        const emailCodeFactor = signIn.supportedSecondFactors?.find(
-          (f) => f.strategy === "email_code",
-        );
-        if (emailCodeFactor) await signIn.mfa.sendEmailCode();
+      } else if (shouldArmSecondFactor(signIn.status)) {
+        setEmailAddress(creds.email);
+        setAwaitingSecondFactor(true);
+        if (signIn.status === "needs_second_factor") {
+          const emailCodeFactor = signIn.supportedSecondFactors?.find(
+            (f) => f.strategy === "email_code",
+          );
+          if (emailCodeFactor) await signIn.mfa.sendEmailCode();
+        }
       }
     } finally {
       setBioBusy(false);
@@ -335,10 +374,13 @@ export default function SignInScreen() {
   // password / MFA sign-in paths start from a clean state.
   const backToSignIn = async () => {
     await signIn.reset();
-    setCode("");
+    const fresh = freshSignInLocalState();
+    setEmailAddress(fresh.emailAddress);
+    setCode(fresh.code);
+    setFormError(fresh.formError);
+    setAwaitingSecondFactor(fresh.awaitingSecondFactor);
     setNewPassword("");
-    setFormError("");
-    setMode("signin");
+    setMode(fresh.mode);
   };
 
   const TextLink = ({
@@ -361,7 +403,7 @@ export default function SignInScreen() {
     </Pressable>
   );
 
-  if (signIn.status === "needs_second_factor" || signIn.status === "needs_client_trust") {
+  if (shouldShowVerifyScreen(awaitingSecondFactor, signIn.status)) {
     return (
       <AuthShell title="Verify it's you" subtitle="Enter the code we emailed you">
         <AuthField
