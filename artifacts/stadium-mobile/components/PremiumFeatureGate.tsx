@@ -78,8 +78,8 @@ export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGatePr
           textAlign: "center",
         }}
       >
-        Included with Go ($9.99/wk), Pro ($29.99/mo), your free trial, an admin account, or a
-        promo code. Discover, Coach, Props, and Slip stay free.
+        Included with Go ($9.99/wk) or Pro ($29.99/mo) via Apple, or an admin account.
+        Discover, Coach, Props, and Slip stay free.
       </Text>
       <Pressable
         onPress={() => openSoftPaywall(meta.label)}

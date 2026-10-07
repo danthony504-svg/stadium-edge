@@ -54,6 +54,8 @@ type SubscriptionContextValue = {
   storeKitReady: boolean;
   /** Why StoreKit is unavailable (null when ready). */
   storeKitBlockedReason: string | null;
+  /** Apple subscription management URL from StoreKit when available. */
+  storeKitManagementUrl: string | null;
   /** Busy while a purchase or restore is in flight. */
   billingBusy: boolean;
   /**
@@ -325,6 +327,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       entitlement,
       storeKitReady,
       storeKitBlockedReason,
+      storeKitManagementUrl: state.storeKitManagementUrl,
       billingBusy,
       selectPlan,
       restorePurchasesAction,
@@ -338,6 +341,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       entitlement,
       storeKitReady,
       storeKitBlockedReason,
+      state.storeKitManagementUrl,
       billingBusy,
       selectPlan,
       restorePurchasesAction,

@@ -49,7 +49,8 @@ export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
     name: "Stadium Edge Go",
     priceLabel: "$9.99/week",
     periodLabel: "",
-    note: "7-day free trial, then $9.99/week",
+    // Trial copy is shown only when StoreKit reports a free intro offer.
+    note: "Billed through Apple · $9.99/week",
     paid: true,
   },
   {
@@ -57,7 +58,7 @@ export const SUBSCRIPTION_PLANS: readonly PlanDefinition[] = [
     name: "Stadium Edge Pro",
     priceLabel: "$29.99/month",
     periodLabel: "",
-    note: "7-day free trial, then $29.99/month",
+    note: "Billed through Apple · $29.99/month",
     paid: true,
   },
 ] as const;

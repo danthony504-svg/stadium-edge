@@ -29,10 +29,12 @@ import modelCalibrationRouter from "./modelCalibration";
 import coachSlateRouter from "./coachSlate";
 import fantasyRouter from "./fantasy";
 import subscriptionsRouter from "./subscriptions";
+import appReviewAuthRouter from "./appReviewAuth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(appReviewAuthRouter);
 router.use(oddsRouter);
 router.use(propsRouter);
 router.use(gamesRouter);

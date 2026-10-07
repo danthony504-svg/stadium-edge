@@ -38,6 +38,23 @@ export type RestoreResult =
   | { ok: true; snapshot: StoreKitCustomerSnapshot; restored: boolean }
   | { ok: false; message: string };
 
+/** StoreKit catalog row for Plans UI (price + intro/trial honesty). */
+export type StoreKitCatalogProduct = {
+  productId: StoreKitProductId;
+  planId: PlanId;
+  /** Localized App Store price string when available. */
+  priceString: string | null;
+  /** True when Apple reports a free introductory offer (trial) on this product. */
+  hasFreeTrial: boolean;
+  /** Intro period length in days when a free trial is present (best-effort). */
+  freeTrialDays: number | null;
+};
+
+export type StoreKitCatalog = {
+  go: StoreKitCatalogProduct | null;
+  pro: StoreKitCatalogProduct | null;
+};
+
 type PurchasesModule = typeof import("react-native-purchases").default;
 type CustomerInfo = import("react-native-purchases").CustomerInfo;
 type PurchasesStoreProduct = import("react-native-purchases").PurchasesStoreProduct;
@@ -198,6 +215,61 @@ async function findStoreProduct(
     return products.find((p) => p.identifier === productId) ?? null;
   } catch {
     return null;
+  }
+}
+
+function freeTrialDaysFromIntro(
+  intro: PurchasesStoreProduct["introPrice"],
+): number | null {
+  if (!intro || intro.price !== 0) return null;
+  const unit = (intro.periodUnit ?? "").toUpperCase();
+  const n = intro.periodNumberOfUnits ?? 0;
+  if (!n || n < 1) return null;
+  if (unit === "DAY") return n * (intro.cycles || 1);
+  if (unit === "WEEK") return n * 7 * (intro.cycles || 1);
+  if (unit === "MONTH") return n * 30 * (intro.cycles || 1);
+  return null;
+}
+
+function catalogRowFromProduct(
+  planId: PlanId,
+  productId: StoreKitProductId,
+  product: PurchasesStoreProduct | null,
+): StoreKitCatalogProduct | null {
+  if (!product) return null;
+  const intro = product.introPrice;
+  const hasFreeTrial = !!intro && intro.price === 0;
+  return {
+    productId,
+    planId,
+    priceString: product.priceString ?? null,
+    hasFreeTrial,
+    freeTrialDays: hasFreeTrial ? freeTrialDaysFromIntro(intro) : null,
+  };
+}
+
+/**
+ * Load Go/Pro StoreKit product metadata for honest price/trial display.
+ * Returns null rows when StoreKit is unavailable or products are not loaded.
+ */
+export async function fetchStoreKitCatalog(): Promise<StoreKitCatalog> {
+  const empty: StoreKitCatalog = { go: null, pro: null };
+  if (!isStoreKitAvailable()) return empty;
+  try {
+    if (!(await configurePurchases(null))) return empty;
+    const goId = productIdForPlan("go");
+    const proId = productIdForPlan("pro");
+    if (!goId || !proId) return empty;
+    const [goProduct, proProduct] = await Promise.all([
+      findStoreProduct(goId),
+      findStoreProduct(proId),
+    ]);
+    return {
+      go: catalogRowFromProduct("go", goId, goProduct),
+      pro: catalogRowFromProduct("pro", proId, proProduct),
+    };
+  } catch {
+    return empty;
   }
 }
 

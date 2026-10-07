@@ -16,10 +16,39 @@ import { FONT } from "@/components/ui";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import { PAID_SUBSCRIPTION_PLANS, type PlanId } from "@/lib/entitlements";
+import {
+  fetchStoreKitCatalog,
+  type StoreKitCatalog,
+  type StoreKitCatalogProduct,
+} from "@/lib/purchases";
+
+const APPLE_SUBSCRIPTIONS_URL = "https://apps.apple.com/account/subscriptions";
+
+function planNote(
+  planId: PlanId,
+  catalog: StoreKitCatalog | null,
+  fallbackNote: string,
+): string {
+  const row: StoreKitCatalogProduct | null | undefined =
+    planId === "go" ? catalog?.go : planId === "pro" ? catalog?.pro : null;
+  if (!row) return fallbackNote;
+  const price = row.priceString
+    ? planId === "go"
+      ? `${row.priceString}/week`
+      : `${row.priceString}/month`
+    : planId === "go"
+      ? "$9.99/week"
+      : "$29.99/month";
+  if (row.hasFreeTrial) {
+    const days = row.freeTrialDays ?? 7;
+    return `${days}-day free trial, then ${price}`;
+  }
+  return `Billed through Apple · ${price}`;
+}
 
 /**
- * Plans screen — Go/Pro via Apple StoreKit (auto-renewable) with a 7-day
- * introductory free trial on each product. Appears under Settings → Subscriptions.
+ * Plans screen — Go/Pro via Apple StoreKit (auto-renewable).
+ * Trial copy is shown only when StoreKit reports a free introductory offer.
  * Native rebuild + RevenueCat key required for real billing.
  * Custom promo/redeem unlocks removed for App Store Guideline 3.1.1.
  */
@@ -33,17 +62,34 @@ export default function PlansScreen() {
     restorePurchasesAction,
     storeKitReady,
     storeKitBlockedReason,
+    storeKitManagementUrl,
     billingBusy,
   } = useSubscription();
   const defaultPaid: PlanId =
     entitlement.planId === "pro" || entitlement.planId === "go" ? entitlement.planId : "go";
   const [draft, setDraft] = React.useState<PlanId>(defaultPaid);
+  const [catalog, setCatalog] = React.useState<StoreKitCatalog | null>(null);
 
   React.useEffect(() => {
     if (entitlement.planId === "go" || entitlement.planId === "pro") {
       setDraft(entitlement.planId);
     }
   }, [entitlement.planId]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!storeKitReady) {
+      setCatalog(null);
+      return;
+    }
+    (async () => {
+      const next = await fetchStoreKitCatalog();
+      if (!cancelled) setCatalog(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storeKitReady]);
 
   const onContinue = async () => {
     const planId: PlanId = draft === "pro" ? "pro" : "go";
@@ -68,9 +114,7 @@ export default function PlansScreen() {
 
   const onManage = () => {
     const url =
-      entitlement.unlockSource === "storekit" && entitlement.statusDetail
-        ? "https://apps.apple.com/account/subscriptions"
-        : "https://apps.apple.com/account/subscriptions";
+      (storeKitManagementUrl && storeKitManagementUrl.trim()) || APPLE_SUBSCRIPTIONS_URL;
     Linking.openURL(url).catch(() => {
       Alert.alert(
         "Subscriptions",
@@ -81,6 +125,7 @@ export default function PlansScreen() {
 
   const selectedPlan = PAID_SUBSCRIPTION_PLANS.find((p) => p.id === draft);
   const continueLabel = `Subscribe · ${selectedPlan?.priceLabel ?? ""}`;
+  const anyFreeTrial = !!(catalog?.go?.hasFreeTrial || catalog?.pro?.hasFreeTrial);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -158,14 +203,23 @@ export default function PlansScreen() {
               textAlign: "center",
             }}
           >
-            Both plans include a 7-day free trial. Discover + Coach + Props + Slip stay free after;
-            Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple —
-            manage under Settings → Subscriptions.
+            {anyFreeTrial
+              ? "Eligible plans may include a free trial from the App Store. Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."
+              : "Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."}
           </Text>
         </View>
 
         {PAID_SUBSCRIPTION_PLANS.map((plan) => {
           const selected = draft === plan.id;
+          const note = planNote(plan.id, catalog, plan.note);
+          const priceLabel =
+            plan.id === "go"
+              ? catalog?.go?.priceString
+                ? `${catalog.go.priceString}/week`
+                : plan.priceLabel
+              : catalog?.pro?.priceString
+                ? `${catalog.pro.priceString}/month`
+                : plan.priceLabel;
           return (
             <Pressable
               key={plan.id}
@@ -202,9 +256,9 @@ export default function PlansScreen() {
                     color: colors.mutedForeground,
                   }}
                 >
-                  {[plan.priceLabel, plan.periodLabel].filter(Boolean).join(" ")}
+                  {priceLabel}
                 </Text>
-                {plan.note ? (
+                {note ? (
                   <Text
                     style={{
                       fontFamily: FONT.body,
@@ -214,7 +268,7 @@ export default function PlansScreen() {
                       marginTop: 2,
                     }}
                   >
-                    {plan.note}
+                    {note}
                   </Text>
                 ) : null}
               </View>
