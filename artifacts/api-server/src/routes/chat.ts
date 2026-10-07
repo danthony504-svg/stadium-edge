@@ -10,7 +10,7 @@ import {
   finalizeErroredBuild,
 } from "../lib/coachBuild.js";
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
-import { putChatContextStash, getChatContextStash } from "../lib/chatContextStash.js";
+import { putChatContextStash, resolveChatRequestContext } from "../lib/chatContextStash.js";
 import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming, chatStreamUserMessage, isNonRetryableUpstreamError } from "../lib/openaiConfig.js";
 import { coachSystemPromptForProvider, trimLockedContextForDirectOpenAI } from "../lib/coachSystemPrompt.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
@@ -705,17 +705,22 @@ router.post("/chat", async (req, res): Promise<void> => {
   const bgBuildId = typeof rawBody.buildId === "string" ? rawBody.buildId : "";
   const bgUserId = notifyOnBackground && bgBuildId ? chatUserId(req) : null;
 
-  let clientContext = parsed.data.context as Record<string, unknown> | undefined;
-  if (typeof rawBody.contextStashId === "string" && rawBody.contextStashId.trim()) {
-    const stashed = getChatContextStash(rawBody.contextStashId.trim());
-    if (!stashed) {
-      res.status(410).json({
-        error: "Build context expired — pull to refresh and try your build again.",
-      });
-      return;
-    }
-    clientContext = stashed;
+  // Large Coach builds stash context server-side and send only contextStashId.
+  // The resolved clientContext MUST become lockedContext below — loading the
+  // stash into a throwaway variable while the model reads empty inline context
+  // drops live realProps/realOdds/fightAnalysis/tennisAnalysis (stale-LLM risk).
+  const resolvedCtx = resolveChatRequestContext({
+    inlineContext: parsed.data.context as Record<string, unknown> | undefined,
+    contextStashId:
+      typeof rawBody.contextStashId === "string" ? rawBody.contextStashId : null,
+  });
+  if (!resolvedCtx.ok) {
+    res.status(410).json({
+      error: "Build context expired — pull to refresh and try your build again.",
+    });
+    return;
   }
+  const clientContext = resolvedCtx.context;
 
   // MARKET-LOCK enforcement (server-side belt-and-braces). When the latest
   // user message names a specific market keyword, we (a) filter the realProps
@@ -919,9 +924,9 @@ router.post("/chat", async (req, res): Promise<void> => {
     /\bimprove\b[^\n]{0,18}\b(this|that|it|ticket|slip|parlay|card|legs?)\b/i.test(latestUser) ||
     /\b(?:fix|tighten|trim|diversif\w*|de-?correlate|clean up)\b[^\n]{0,18}\b(this|that|it|ticket|slip|parlay|card|legs?)\b/i.test(latestUser);
   const improveCurrentSlipLen = Array.isArray(
-    (parsed.data.context as { currentSlip?: unknown[] } | undefined)?.currentSlip
+    (clientContext as { currentSlip?: unknown[] } | undefined)?.currentSlip
   )
-    ? (parsed.data.context as { currentSlip?: unknown[] }).currentSlip!.length
+    ? (clientContext as { currentSlip?: unknown[] }).currentSlip!.length
     : 0;
   // Fallback gate: a prior assistant turn that actually talked about a ticket
   // (built or critiqued one) — not just any assistant message — so "give me a
@@ -938,10 +943,10 @@ router.post("/chat", async (req, res): Promise<void> => {
   // build the ticket from game-level period realOdds entries.
   const periodSuffixList = Array.from(periodIntents).map((p) => `_${p}`);
 
-  let lockedContext = parsed.data.context;
+  let lockedContext = clientContext as typeof parsed.data.context;
   let sameGamePeriodsInjected = false; // true once same-game period markets are appended
-  if (lockedMarket && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
-    const ctx = parsed.data.context as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
+  if (lockedMarket && lockedContext && Array.isArray((lockedContext as { realProps?: unknown[] }).realProps)) {
+    const ctx = lockedContext as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
     // Build the effective allow-list. With NO period intent, include only
     // the base full-game markets. With period intent, REPLACE the base
     // markets with their period-suffixed variants — full-game variants
@@ -1079,13 +1084,13 @@ router.post("/chat", async (req, res): Promise<void> => {
       }
     }
     lockedContext = { ...ctx, realProps: filteredProps };
-  } else if (periodIntent && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
+  } else if (periodIntent && lockedContext && Array.isArray((lockedContext as { realProps?: unknown[] }).realProps)) {
     // Period intent WITHOUT a specific market keyword (e.g. "4 leg first
     // quarter parlay") — strip the realProps array down to only `_q1` /
     // `_h1` markets so the AI can't pick full-game props even if the
     // SYSTEM_PROMPT rule were ignored. This is the belt-and-braces server
     // filter for the original failing case.
-    const ctx = parsed.data.context as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
+    const ctx = lockedContext as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
     // Period matching now covers BOTH shapes:
     //   - Player-prop markets ending in "_q1" / "_h1" (the Odds API raw keys
     //     we surface unchanged in realProps).
@@ -1225,7 +1230,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     }
 
     lockedContext = { ...ctx, realProps: filteredProps, realOdds: filteredOdds };
-  } else if ((sameGameIntent || highLegTodayIntent) && parsed.data.context && Array.isArray((parsed.data.context as { realOdds?: unknown[] }).realOdds)) {
+  } else if ((sameGameIntent || highLegTodayIntent) && lockedContext && Array.isArray((lockedContext as { realOdds?: unknown[] }).realOdds)) {
     // SAME-GAME or HIGH-LEG THIN-SLATE parlay (no explicit period intent): harvest
     // game-level period markets (1H/2H/Q1-Q4 and MLB F5/1st-inning) for the games
     // already in realOdds and APPEND them as additional legs. These settle on
@@ -1233,7 +1238,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     // duplicates. Older mobile builds only send full-game sides + alt ladders, so
     // without server-side harvesting a late "15-leg tonight" request can be capped
     // at 3 or 6 full-game legs.
-    const ctx = parsed.data.context as { realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
+    const ctx = lockedContext as { realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
     const existingOdds = ctx.realOdds || [];
     const gamesBySport = new Map<string, Set<string>>();
     for (const o of existingOdds) {
@@ -1486,8 +1491,8 @@ router.post("/chat", async (req, res): Promise<void> => {
       const periodPhrase = primaryCode ? PERIOD_PHRASE[primaryCode] : null;
       if (periodPhrase) {
         const statWord = detectStatWord(latestUser);
-        const fullProps = Array.isArray((parsed.data.context as { realProps?: unknown[] })?.realProps)
-          ? ((parsed.data.context as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
+        const fullProps = Array.isArray((clientContext as { realProps?: unknown[] } | undefined)?.realProps)
+          ? ((clientContext as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
           : [];
         const filteredProps = Array.isArray((lockedContext as { realProps?: unknown[] })?.realProps)
           ? ((lockedContext as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
@@ -1525,8 +1530,8 @@ router.post("/chat", async (req, res): Promise<void> => {
         //     its own player and the 2-row minimum drops any non-player junk that
         //     slips through (never fabricates).
         if (candidates.length < 4) {
-          const ctxGames = Array.isArray((parsed.data.context as { realGames?: unknown[] })?.realGames)
-            ? ((parsed.data.context as { realGames?: Array<Record<string, unknown>> }).realGames ?? [])
+          const ctxGames = Array.isArray((clientContext as { realGames?: unknown[] } | undefined)?.realGames)
+            ? ((clientContext as { realGames?: Array<Record<string, unknown>> }).realGames ?? [])
             : [];
           const exclude = new Set<string>();
           const addWords = (v: string) => {
@@ -1608,7 +1613,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     {
       const ctxPlatoon =
         ((lockedContext as { mlbPlatoon?: Record<string, unknown> })?.mlbPlatoon) ||
-        ((parsed.data.context as { mlbPlatoon?: Record<string, unknown> })?.mlbPlatoon);
+        ((clientContext as { mlbPlatoon?: Record<string, unknown> } | undefined)?.mlbPlatoon);
       if (ctxPlatoon && typeof ctxPlatoon === "object") {
         const entries = Object.values(ctxPlatoon).filter(
           (e): e is { player: string; opposingPitcherName: string } =>
@@ -1696,7 +1701,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     > = [];
     {
       const PVT_SPORTS = new Set(["nba", "nfl", "nhl"]);
-      const ctx = (lockedContext || parsed.data.context) as {
+      const ctx = (lockedContext || clientContext) as {
         realProps?: Array<{ player?: unknown; athleteId?: unknown; sport?: unknown; game?: unknown; opponentTeamId?: unknown }>;
         realGames?: Array<{ game?: unknown; homeTeamId?: unknown; awayTeamId?: unknown }>;
       };
@@ -1888,8 +1893,8 @@ router.post("/chat", async (req, res): Promise<void> => {
         (lockedContext as { realProps?: unknown[] } | null | undefined)?.realProps,
       )
         ? ((lockedContext as { realProps?: unknown[] }).realProps as Array<Record<string, unknown>>)
-        : Array.isArray((parsed.data.context as { realProps?: unknown[] } | undefined)?.realProps)
-          ? ((parsed.data.context as { realProps?: unknown[] }).realProps as Array<
+        : Array.isArray((clientContext as { realProps?: unknown[] } | undefined)?.realProps)
+          ? ((clientContext as { realProps?: unknown[] }).realProps as Array<
               Record<string, unknown>
             >)
           : [];
@@ -2150,7 +2155,7 @@ Apply the NBA SUMMER LEAGUE FUTURES ANALYSIS RULE in full for this reply. This o
   // games CURRENTLY in progress (each marked live:true with the real score/period)
   // OR, when nothing is in progress, leaves liveGameCount === 0 so we answer
   // honestly instead of passing off scheduled games as "live".
-  const liveCtx = parsed.data.context as
+  const liveCtx = (lockedContext || clientContext) as
     | { liveOnly?: boolean; liveGameCount?: number; realOdds?: unknown[]; realProps?: unknown[] }
     | undefined;
   const liveOnly = !!liveCtx?.liveOnly;
