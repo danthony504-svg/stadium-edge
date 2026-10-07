@@ -5,6 +5,9 @@ import {
   askNamesTeamGame,
   coachAskTeamMissNote,
   coachAskTeamScope,
+  coachAskTeamShortfallNote,
+  buildCoachTeamGameScopeDiagnostics,
+  extractTeamPhraseFromLegAsk,
   excludedTeamScopesFromText,
   filterOddsGamesExcludingTeams,
   filterOddsGamesForAskTeam,
@@ -314,4 +317,133 @@ test("anything but the Ducks parses as exclusion", () => {
   const excluded = excludedTeamScopesFromText("6 leg NHL anything but the Ducks");
   assert.ok(excluded.some((e) => e.matchTokens.includes("ducks")));
   assert.equal(coachAskTeamScope("6 leg NHL anything but the Ducks"), null);
+});
+
+test("4 leg Troy → NCAAF Troy Trojans only (no MLB / other CFB / USC)", () => {
+  const ask = "4 leg Troy";
+  assert.equal(parseRequestedLegs(ask), 4);
+  assert.equal(resolveBuildLegTarget(ask), 4);
+  assert.deepEqual([...focalSportsFromText(ask)], ["ncaaf"]);
+  assert.deepEqual(coachBoardSportsForAsk(ask, 4, ALL), ["ncaaf"]);
+  const scope = coachAskTeamScope(ask);
+  assert.ok(scope);
+  assert.equal(scope!.sport, "ncaaf");
+  assert.equal(scope!.parsedTeam, "troy");
+  assert.match(String(scope!.displayName), /Troy/i);
+  assert.ok(scope!.matchTokens.includes("troy"));
+  assert.ok(!scope!.matchTokens.includes("trojans")); // avoid USC collision
+
+  const games = [
+    { id: "mlb1", sport: "mlb", awayTeam: "Cleveland Guardians", homeTeam: "Chicago White Sox" },
+    { id: "mlb2", sport: "mlb", awayTeam: "Los Angeles Dodgers", homeTeam: "Atlanta Braves" },
+    {
+      id: "ncaaf-other",
+      sport: "ncaaf",
+      awayTeam: "New Mexico State Aggies",
+      homeTeam: "Florida International Panthers",
+    },
+    {
+      id: "troy-game",
+      sport: "ncaaf",
+      awayTeam: "Southern Mississippi Golden Eagles",
+      homeTeam: "Troy Trojans",
+      homeTeamId: "2653",
+      awayTeamId: "2572",
+    },
+    {
+      id: "usc",
+      sport: "ncaaf",
+      awayTeam: "USC Trojans",
+      homeTeam: "UCLA Bruins",
+    },
+  ];
+  const filtered = filterOddsGamesForAskTeam(games, scope);
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0]!.id, "troy-game");
+
+  const picks = filterPicksForAskTeam(
+    [
+      { sport: "mlb", game: "Cleveland Guardians @ Chicago White Sox", market: "Spread", pick: "Sox +1.5" },
+      {
+        sport: "mlb",
+        game: "Los Angeles Dodgers @ Atlanta Braves",
+        market: "Total Bases",
+        pick: "Ronald Acuna Jr. Under 1.5 Total Bases",
+      },
+      {
+        sport: "ncaaf",
+        game: "New Mexico State Aggies @ Florida International Panthers",
+        market: "Total",
+        pick: "Over 47",
+      },
+      {
+        sport: "ncaaf",
+        game: "Southern Mississippi Golden Eagles @ Troy Trojans",
+        market: "Spread",
+        pick: "Troy Trojans -10.5",
+      },
+      {
+        sport: "ncaaf",
+        game: "Southern Mississippi Golden Eagles @ Troy Trojans",
+        market: "Moneyline",
+        pick: "Troy Trojans ML",
+      },
+      {
+        sport: "ncaaf",
+        game: "Southern Mississippi Golden Eagles @ Troy Trojans",
+        market: "Total",
+        pick: "Under 49.5",
+      },
+      {
+        sport: "ncaaf",
+        game: "Southern Mississippi Golden Eagles @ Troy Trojans",
+        market: "1H Spread",
+        pick: "Troy Trojans -6.5",
+      },
+      {
+        sport: "ncaaf",
+        game: "USC Trojans @ UCLA Bruins",
+        market: "Spread",
+        pick: "USC Trojans -7",
+      },
+    ],
+    scope,
+  );
+  assert.equal(picks.length, 4);
+  assert.ok(picks.every((p) => /Troy Trojans/i.test(String(p.game))));
+  assert.ok(picks.every((p) => p.sport === "ncaaf"));
+
+  const diag = buildCoachTeamGameScopeDiagnostics({
+    requestedLegs: 4,
+    scope,
+    gamesBeforeFilter: games.filter((g) => g.sport === "ncaaf"),
+    gamesAfterFilter: filtered,
+    finalLegCount: 4,
+  });
+  assert.equal(diag.parsedTeam, "troy");
+  assert.equal(diag.resolvedSport, "ncaaf");
+  assert.equal(diag.resolvedLeague, "NCAAF");
+  assert.equal(diag.resolvedTeamId, "2653");
+  assert.equal(diag.resolvedGameId, "troy-game");
+  assert.equal(diag.candidateCountBeforeGameFilter, 3);
+  assert.equal(diag.candidateCountAfterGameFilter, 1);
+  assert.equal(diag.finalLegCount, 4);
+});
+
+test("4 leg Troy Trojans phrase also scopes NCAAF", () => {
+  const scope = coachAskTeamScope("4 leg Troy Trojans");
+  assert.ok(scope);
+  assert.equal(scope!.sport, "ncaaf");
+  assert.ok(scope!.matchTokens.includes("troy"));
+});
+
+test("bare 4 leg Trojans stays unresolved (USC ambiguity)", () => {
+  assert.equal(coachAskTeamScope("4 leg Trojans"), null);
+});
+
+test("Troy shortfall note does not invite other games", () => {
+  const scope = coachAskTeamScope("4 leg Troy");
+  assert.match(coachAskTeamShortfallNote(scope, 4, 2, 1), /Troy/i);
+  assert.match(coachAskTeamShortfallNote(scope, 4, 2, 1), /won't fill/i);
+  assert.equal(coachAskTeamShortfallNote(scope, 4, 4, 1), "");
 });
