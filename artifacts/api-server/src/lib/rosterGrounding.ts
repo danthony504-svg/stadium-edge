@@ -10,16 +10,12 @@
  */
 
 import { cachedJson } from "./sports.js";
+import {
+  PROVIDER_LEAGUE_TO_SPORT,
+  resolveProviderLeagueSport,
+} from "./currentFactAuthority.js";
 
-const LEAGUE_TO_SPORT: Record<string, string> = {
-  nba: "nba",
-  wnba: "wnba",
-  mlb: "mlb",
-  nfl: "nfl",
-  "college-football": "ncaaf",
-  "mens-college-basketball": "ncaab",
-  nhl: "nhl",
-};
+const LEAGUE_TO_SPORT: Record<string, string> = { ...PROVIDER_LEAGUE_TO_SPORT };
 
 const SPORT_HINT: Array<{ re: RegExp; sport: string }> = [
   { re: /\b(nfl|national football)\b/i, sport: "nfl" },
@@ -29,6 +25,11 @@ const SPORT_HINT: Array<{ re: RegExp; sport: string }> = [
   { re: /\b(mlb|baseball)\b/i, sport: "mlb" },
   { re: /\b(nhl|hockey)\b/i, sport: "nhl" },
   { re: /\b(ncaab|college basketball|cbb)\b/i, sport: "ncaab" },
+  { re: /\b(soccer|mls|epl|premier league|ucl|champions league|liga)\b/i, sport: "soccer" },
+  { re: /\b(tennis|atp|wta|french open|wimbledon|us open|australian open)\b/i, sport: "tennis" },
+  { re: /\b(ufc|mma|mixed martial)\b/i, sport: "ufc" },
+  { re: /\b(cricket|ipl|t20)\b/i, sport: "cricket" },
+  { re: /\b(table\s*tennis|ping\s*pong)\b/i, sport: "tabletennis" },
 ];
 
 /** Words that look capitalized but are not person-name tokens. */
@@ -38,14 +39,19 @@ const NAME_STOP = new Set(
     "new", "york", "los", "angeles", "las", "vegas", "san", "francisco", "kansas",
     "city", "green", "bay", "tampa", "bay", "new", "england", "bay",
     "chicago", "bears", "giants", "ravens", "commanders", "washington", "atlanta",
-    "falcons", "raiders", "nfl", "nba", "mlb", "nhl", "wnba", "ncaaf", "ncaab",
+    "falcons", "raiders", "lakers", "celtics", "yankees", "dodgers", "bruins",
+    "rangers", "manchester", "united", "city", "arsenal", "chelsea", "barcelona",
+    "madrid", "nfl", "nba", "mlb", "nhl", "wnba", "ncaaf", "ncaab", "ufc", "mma",
+    "atp", "wta", "mls", "epl", "ucl",
     "props", "prop", "parlay", "ticket", "legs", "leg", "build", "tonight",
     "today", "tomorrow", "season", "seasons", "football", "basketball", "baseball",
-    "hockey", "active", "roster", "player", "players", "team", "teams", "game",
-    "games", "market", "markets", "odds", "line", "lines", "rushing", "yards",
-    "receiving", "passing", "touchdowns", "points", "rebounds", "assists",
+    "hockey", "soccer", "tennis", "cricket", "active", "roster", "player", "players",
+    "team", "teams", "game", "games", "market", "markets", "odds", "line", "lines",
+    "rushing", "yards", "receiving", "passing", "touchdowns", "points", "rebounds",
+    "assists", "goals", "shots", "strikeouts", "aces",
     "does", "did", "is", "are", "was", "were", "can", "could", "will", "would",
-    "should", "still", "currently", "official", "record", "verified",
+    "should", "still", "currently", "official", "record", "verified", "transfer",
+    "club", "fighter", "tournament",
   ].map((s) => s.toLowerCase()),
 );
 
@@ -78,15 +84,15 @@ export function detectSportHint(text: string): string | null {
   return null;
 }
 
-/** Identity / roster / current-season cues that require live provider lookup. */
+/** Identity / roster / current-season cues that require live provider lookup (all sports). */
 export function hasRosterIdentityCue(text: string): boolean {
   const t = String(text || "");
   return (
-    /\b(roster|depth chart|transaction|waiv(?:e|ed|er)|sign(?:ed|ing)?|trad(?:e|ed|ing)|injur(?:y|ies|ed)|questionable|doubtful|out for|who (?:plays|is) (?:for|on)|plays? for|on the .{2,40} roster|current team|what team|which team|still (?:play|with|on)|active (?:nfl |nba |mlb |nhl )?roster|(?:an?|the)\s+nfl\s+player|not an nfl player|official record|current(?:ly)? (?:on|with|listed))\b/i.test(
+    /\b(roster|depth chart|transaction|waiv(?:e|ed|er)|sign(?:ed|ing)?|trad(?:e|ed|ing)|transfer(?:red|s)?|injur(?:y|ies|ed)|questionable|doubtful|out for|who (?:plays|is|fights) (?:for|on)|plays? for|fights? (?:for|on)|on the .{2,40} roster|current team|current club|what team|which team|which club|still (?:play|with|on|fight)|active (?:\w+\s+)?roster|(?:an?|the)\s+(?:\w+\s+)?player|not an? (?:\w+\s+)?player|not an active player|official record|no record of|current(?:ly)? (?:on|with|listed)|lineup|starter|starting|probable pitcher|goalkeeper|carded|tournament|draw)\b/i.test(
       t,
     ) ||
     /\bis\s+[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,3}\s+(?:an?|on|with|still)\b/i.test(t) ||
-    /\b(?:does|did|is)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){0,3}\s+(?:play|plays|playing|on|still)\b/i.test(
+    /\b(?:does|did|is)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){0,3}\s+(?:play|plays|playing|fight|fights|on|still)\b/i.test(
       t,
     )
   );
@@ -352,13 +358,16 @@ async function searchEspnPlayer(
     return { items, seasonYear };
   });
 
+  const sportOf = (it: SearchItem): string | null =>
+    resolveProviderLeagueSport(
+      String(it.league || it.defaultLeagueSlug || "").toLowerCase(),
+    ) ||
+    LEAGUE_TO_SPORT[String(it.league || it.defaultLeagueSlug || "").toLowerCase()] ||
+    null;
+
   const ranked = [...(data.items ?? [])].sort((a, b) => {
-    const sportA =
-      LEAGUE_TO_SPORT[String(a.league || a.defaultLeagueSlug || "").toLowerCase()] ||
-      "";
-    const sportB =
-      LEAGUE_TO_SPORT[String(b.league || b.defaultLeagueSlug || "").toLowerCase()] ||
-      "";
+    const sportA = sportOf(a) || "";
+    const sportB = sportOf(b) || "";
     const score = (sport: string, it: SearchItem) => {
       let s = 0;
       if (preferSport && sport === preferSport) s += 10;
@@ -370,8 +379,7 @@ async function searchEspnPlayer(
   });
 
   const pick = (it: SearchItem) => {
-    const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
-    const sport = LEAGUE_TO_SPORT[leagueSlug];
+    const sport = sportOf(it);
     if (!sport || !it.id || !it.displayName) return null;
     return {
       athleteId: String(it.id),
@@ -388,8 +396,7 @@ async function searchEspnPlayer(
   };
 
   for (const it of ranked) {
-    const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
-    const sport = LEAGUE_TO_SPORT[leagueSlug];
+    const sport = sportOf(it);
     if (preferSport && sport !== preferSport) continue;
     const hit = pick(it);
     if (hit) return hit;
@@ -671,16 +678,16 @@ export async function buildRosterGrounding(
 
 /** System-prompt addendum when roster grounding is needed or attached. */
 export const ROSTER_GROUNDING_SYSTEM_RULE = `
-*** CURRENT ROSTER / IDENTITY GROUNDING (CRITICAL — OVERRIDES TRAINING DATA) ***
-For current sports facts, the supplied live context is authoritative and overrides pretrained model knowledge. Never reject a player, team, roster assignment, schedule, injury status, market, or matchup because it conflicts with your training data.
+*** CURRENT ROSTER / IDENTITY GROUNDING (ALL SPORTS — OVERRIDES TRAINING DATA) ***
+For current sports facts, supplied live Stadium Edge/provider context is authoritative and overrides pretrained model knowledge. Never reject or alter a player, team, roster assignment, transfer, matchup, schedule, event, market, line, or odds because it conflicts with your training data. If current data cannot be verified, state that it cannot be verified rather than substituting historical information.
 
-HARD RULES:
-1. Use ONLY live Stadium Edge / provider data in the Current app context (rosterGrounding.verifiedCurrentFacts, rosterGrounding.facts, realProps, realOdds, realGames, matchupInjuries, statmuseFacts, etc.). That data OVERRIDES any pretrained training knowledge.
-2. NEVER cite a model knowledge-cutoff date (e.g. "as of my latest data cutoff", "June 2024", "my training data", "latest data", "current verified roster" from memory, "official record" from memory, "as of 2024") as evidence that a current roster claim is false or true.
-3. NEVER say a player is "not an NFL player" or "not on an active NFL roster" based on training memory when rosterGrounding / realProps lists them. If the live context says they are on a team for seasonYear, that is authoritative.
-4. When Stadium Edge supplies a candidate such as player + current team + opponent + market + line/price (in verifiedCurrentFacts or realProps), you MUST NOT re-check that player's current team using pretrained knowledge and contradict the supplied data.
-5. When context.rosterGrounding is present, treat its verifiedCurrentFacts / facts as authoritative for player↔team identity for the stated seasonYear. If a user claim MATCHES, confirm from that data. If it CONTRADICTS, correct using the provider team — never the old training roster (e.g. do not keep a player on Washington when the provider lists Atlanta).
-6. If current provider data cannot verify a player/team assignment, say you cannot currently verify it. Do NOT fill the gap with an old roster from memory and present it as current.
-7. Include the season year from rosterGrounding.seasonYear (or the year the user asked about) in your reasoning. A 2026 question must be answered against 2026 provider data, not 2024 memory.
-8. Still never invent a prop, line, price, roster assignment, injury, or game that is not in the provided context.
+HARD RULES (NFL, NCAAF, NBA, WNBA, NCAAB, MLB, NHL, Soccer, Tennis, UFC/MMA, Cricket, Table Tennis):
+1. Use ONLY live Stadium Edge / provider data in the Current app context (currentFactGrounding, rosterGrounding.verifiedCurrentFacts, realProps, realOdds, realGames, fightAnalysis, tennisAnalysis, matchupInjuries, statmuseFacts, etc.). That data OVERRIDES any pretrained training knowledge.
+2. NEVER cite a model knowledge-cutoff date (e.g. "as of my latest data cutoff", "June 2024", "as of 2025", "my training data", "latest data", "official record" from memory, "no record of" from memory) as evidence that a current fact is false or true.
+3. NEVER say a player/fighter is "not a [league] player" or "not on an active roster" from training memory when live context lists them.
+4. When Stadium Edge supplies player + current team/club + opponent + market + line/price (or UFC/tennis card rows), you MUST NOT re-check identity using pretrained knowledge and contradict the supplied data.
+5. Treat verifiedCurrentFacts as authoritative for the stated seasonYear/event. If a user claim CONTRADICTS provider data, correct using the provider — never the old training roster/club.
+6. If current provider data cannot verify something, say "Current data could not be verified." Do NOT substitute historical information and present it as current.
+7. Answer against the season/year/event in the live context — not an older season from memory.
+8. Still never invent a prop, line, price, roster assignment, injury, fight, or game that is not in the provided context.
 `.trim();

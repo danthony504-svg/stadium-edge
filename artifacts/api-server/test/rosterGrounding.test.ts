@@ -266,13 +266,20 @@ test("buildRosterGrounding does not invent a team when ESPN misses", async () =>
 test("ROSTER_GROUNDING_SYSTEM_RULE bans knowledge-cutoff and stale roster overrides", () => {
   assert.match(
     ROSTER_GROUNDING_SYSTEM_RULE,
-    /supplied live context is authoritative and overrides pretrained model knowledge/i,
+    /supplied live Stadium Edge\/provider context is authoritative and overrides pretrained model knowledge/i,
   );
-  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /Never reject a player, team, roster assignment/i);
+  assert.match(
+    ROSTER_GROUNDING_SYSTEM_RULE,
+    /Never reject or alter a player, team, roster assignment, transfer/i,
+  );
   assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /NEVER cite a model knowledge-cutoff/i);
   assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /June 2024/);
-  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /not an NFL player/i);
-  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /cannot currently verify/i);
+  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /as of 2025/);
+  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /not a \[league\] player/i);
+  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /Current data could not be verified/i);
   assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /seasonYear/);
   assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /verifiedCurrentFacts/);
+  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /Soccer/);
+  assert.match(ROSTER_GROUNDING_SYSTEM_RULE, /UFC/);
+  assert.doesNotMatch(ROSTER_GROUNDING_SYSTEM_RULE, /Ashton Jeanty|if player ===/i);
 });
