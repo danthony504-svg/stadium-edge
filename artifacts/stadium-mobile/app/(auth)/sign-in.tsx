@@ -135,6 +135,7 @@ export default function SignInScreen() {
   const [bioLabel, setBioLabel] = React.useState("Face ID");
   const [savedEmail, setSavedEmail] = React.useState<string | null>(null);
   const [bioBusy, setBioBusy] = React.useState(false);
+  const [verifyBusy, setVerifyBusy] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -209,28 +210,38 @@ export default function SignInScreen() {
   };
 
   const handleVerify = async () => {
+    if (verifyBusy) return;
     setFormError("");
-    // App Review–only path: designated demo account may use a server-validated
-    // fixed review code (not a temporary emailed OTP). Normal users fall through
-    // to Clerk MFA email verification unchanged.
-    const review = await requestAppReviewTicket(emailAddress, code);
-    if (review.ok) {
-      // Ticket replaces the in-progress MFA attempt for the review account only.
-      await signIn.reset();
-      const { error } = await signIn.ticket({ ticket: review.ticket });
+    setVerifyBusy(true);
+    try {
+      // App Review–only path: designated demo account may use a server-validated
+      // fixed review code (not a temporary emailed OTP). Secrets stay on the
+      // server (APP_REVIEW_*). Normal users fall through to Clerk MFA unchanged.
+      const review = await requestAppReviewTicket(emailAddress, code);
+      if (review.ok) {
+        // Ticket replaces the in-progress MFA attempt for the review account only.
+        await signIn.reset();
+        const { error } = await signIn.ticket({ ticket: review.ticket });
+        if (!error && signIn.status === "complete") {
+          await offerBiometricEnroll(emailAddress, password);
+          await signIn.finalize({ navigate: goHome });
+          return;
+        }
+        setFormError("Couldn't finish App Review sign-in. Please try again.");
+        return;
+      }
+
+      // Wrong review code (or non-review account): try Clerk emailed OTP.
+      // 401 from the ticket endpoint is expected for every normal user.
+      const { error } = await signIn.mfa.verifyEmailCode({ code });
       if (!error && signIn.status === "complete") {
         await offerBiometricEnroll(emailAddress, password);
         await signIn.finalize({ navigate: goHome });
         return;
       }
-      setFormError("Couldn't finish App Review sign-in. Please try again.");
-      return;
-    }
-
-    await signIn.mfa.verifyEmailCode({ code });
-    if (signIn.status === "complete") {
-      await offerBiometricEnroll(emailAddress, password);
-      await signIn.finalize({ navigate: goHome });
+      setFormError("Incorrect verification code");
+    } finally {
+      setVerifyBusy(false);
     }
   };
 
@@ -358,14 +369,19 @@ export default function SignInScreen() {
           leftIcon="hash"
           value={code}
           onChangeText={setCode}
-          placeholder="123456"
-          keyboardType="number-pad"
+          placeholder="Enter code"
+          // Default keyboard: App Review may use an alphanumeric server code;
+          // normal users still type emailed numeric OTPs fine.
+          keyboardType="default"
+          autoCapitalize="none"
+          autoCorrect={false}
           error={errors.fields.code?.message || formError || undefined}
         />
         <PrimaryButton
           label="Verify"
           onPress={handleVerify}
-          loading={fetchStatus === "fetching"}
+          disabled={!code.trim() || verifyBusy}
+          loading={verifyBusy || fetchStatus === "fetching"}
         />
       </AuthShell>
     );
