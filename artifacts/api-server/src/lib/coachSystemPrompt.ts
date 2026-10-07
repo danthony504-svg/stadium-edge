@@ -124,6 +124,16 @@ const CONTEXT_TRIM_FIELDS = [
   "statmuseFacts",
   "realGames",
   "currentSlip",
+  // rosterGrounding + currentFactGrounding intentionally omitted — keep live
+  // identity / provenance facts under TPM pressure (all sports).
+] as const;
+
+/** Fields that must survive Direct-OpenAI TPM trim for current-fact grounding. */
+const AUTHORITY_CONTEXT_KEYS = [
+  "rosterGrounding",
+  "currentFactGrounding",
+  "asOf",
+  "seasonYear",
 ] as const;
 
 function jsonBytes(v: unknown): number {
@@ -260,6 +270,13 @@ export function trimLockedContextForDirectOpenAI(
       }
     }
     if (!dropped) break;
+  }
+
+  // Re-assert authority fields if a future trim list ever touches them.
+  for (const key of AUTHORITY_CONTEXT_KEYS) {
+    if (ctx[key] != null && out[key] == null) {
+      out[key] = ctx[key];
+    }
   }
 
   return out;

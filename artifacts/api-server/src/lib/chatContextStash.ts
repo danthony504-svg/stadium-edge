@@ -42,3 +42,26 @@ export function getChatContextStash(stashId: string): Record<string, unknown> | 
   }
   return entry.context;
 }
+
+/**
+ * Resolve the Coach request context: prefer a valid contextStashId payload
+ * (large mobile builds omit inline `context`), else the inline body context.
+ * Callers MUST use the returned context for lockedContext — never leave the
+ * stash loaded into a throwaway variable while the model reads empty inline
+ * context (that drops live realProps/realOdds/fightAnalysis/tennisAnalysis).
+ */
+export function resolveChatRequestContext(args: {
+  inlineContext: Record<string, unknown> | undefined;
+  contextStashId?: string | null;
+}):
+  | { ok: true; context: Record<string, unknown> | undefined; fromStash: boolean }
+  | { ok: false; reason: "expired" } {
+  const stashId =
+    typeof args.contextStashId === "string" ? args.contextStashId.trim() : "";
+  if (stashId) {
+    const stashed = getChatContextStash(stashId);
+    if (!stashed) return { ok: false, reason: "expired" };
+    return { ok: true, context: stashed, fromStash: true };
+  }
+  return { ok: true, context: args.inlineContext, fromStash: false };
+}

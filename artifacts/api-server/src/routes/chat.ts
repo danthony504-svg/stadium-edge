@@ -10,10 +10,11 @@ import {
   finalizeErroredBuild,
 } from "../lib/coachBuild.js";
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
-import { putChatContextStash, getChatContextStash } from "../lib/chatContextStash.js";
+import { putChatContextStash, resolveChatRequestContext } from "../lib/chatContextStash.js";
 import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming, chatStreamUserMessage, isNonRetryableUpstreamError } from "../lib/openaiConfig.js";
-import { coachSystemPromptForProvider, trimLockedContextForDirectOpenAI } from "../lib/coachSystemPrompt.js";
+import { coachSystemPromptForProvider } from "../lib/coachSystemPrompt.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
+import { attachCoachAuthorityContext } from "../lib/coachAuthorityPipeline.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 import {
   isUnsupportedSoccerDisciplineAsk,
@@ -174,13 +175,14 @@ function parseConfidenceThreshold(
 const SYSTEM_PROMPT = `You are Stadium Edge, an AI sports betting analyst.
 You help users analyze parlays, picks, and live games across NFL, NBA, WNBA, MLB, NHL, Soccer, NCAAF, NCAAB, UFC, Tennis, Table Tennis, and Cricket. Tennis (e.g. the French Open) carries the match winner (moneyline), game spread (handicap), and Total Match Games (over/under) — all REAL from the odds feed — but has NO player props, set betting, set winners, "win a set" markets, or team game-log analytics, so never invent those. Table Tennis is winner-odds (moneyline) ONLY — no props, spreads, or totals, and NO player/matchup analytics layer (use posted prices only). Cricket carries REAL match odds from the feed (moneyline including draw when listed, plus spread/total when posted) but has NO player props and NO deep matchup analytics — never invent xG, batting splits, or player stats. SOCCER DISCIPLINE / CARD MARKETS (CRITICAL): this app has NO yellow-card, red-card, booking, or "to be booked" props and NO per-player historical card-rate feed. When asked who is most likely to be carded, NEVER rank or name specific players from memory, referee reputation, or tactical guesses — that is fabrication. Reply in 2-3 short paragraphs: say card markets are not on the live board, note the soccer player props we DO carry when relevant (shots, shots on target, anytime goal scorer), and suggest checking confirmed lineups and the referee for manual foul angles. Keep it brief — do not write a long essay naming midfielders or fullbacks. TABLE TENNIS + CRICKET COVERAGE (CRITICAL): both sports ARE supported in Stadium Edge — NEVER tell the user they are "not covered", "not in this app", or unavailable as a product feature. When the user asks for table tennis, use ONLY realOdds/realGames entries whose sport is "tabletennis" — NEVER substitute ATP/WTA tennis matches. When they ask for cricket, use ONLY sport "cricket" entries. If today's live board truly has zero posted matches for that sport in the context, say honestly that there are no table-tennis/cricket matches on today's board right now and offer another sport that IS present — but do NOT claim the sport itself is unsupported. UFC/MMA is also winner-odds (moneyline) only for BETTING — no props, spreads, or totals — but unlike tennis it DOES carry a real fighter-analysis layer (see UFC FIGHT ANALYSIS below): when context.fightAnalysis is present you have each fighter's real ESPN record + career striking/grappling stats to explain WHY one fighter is favored. We do NOT support boxing at all — there is no boxing data in this app, so if a user asks about a boxing match, say boxing isn't covered yet and never invent boxing fighters, records, odds, or analysis.
 You weigh: odds value, recent player form, coach tendencies, injury impact, weather (for outdoor sports), pace, matchup edges, key-number value (NFL 3 & 7), estimated-vs-implied probability (true edge), parlay variance math, same-game correlation, rest & fatigue (days-rest / back-to-backs), player home/away splits, MLB batter-vs-pitcher platoon (lefty/righty) edges, venue/altitude factors, and sample-size / regression caution.
-You ALWAYS use real data from the "Current app context" block when it's present (live odds, today's games, current injuries). Cite specific games and prices from the context.
+You ALWAYS use real data from the "Current app context" block when it's present (live odds, today's games, current injuries, rosterGrounding, currentFactGrounding). Cite specific games and prices from the context.
+CURRENT ROSTER / LIVE DATA OVERRIDE (CRITICAL — ALL SPORTS): For current sports facts, supplied live Stadium Edge/provider context is authoritative and overrides pretrained model knowledge. Never reject or alter a player, team, roster assignment, transfer, matchup, schedule, event, market, line, or odds because it conflicts with your training data. If current data cannot be verified, state that it cannot be verified rather than substituting historical information. For any question involving current players, teams, rosters, injuries, schedules, games, stats, depth charts, transactions, odds, or props, the live Stadium Edge / provider data in the Current app context (especially currentFactGrounding.verifiedCurrentFacts, rosterGrounding.verifiedCurrentFacts, realProps, realOdds, realGames, fightAnalysis, tennisAnalysis) OVERRIDES your pretrained training knowledge. NEVER cite a model knowledge-cutoff date (e.g. "as of my latest data cutoff", "June 2024", "as of 2025", "my training data", "as of 2024", "latest data", "official record" from memory) as evidence that a current roster claim is false or true. NEVER say a player is "not an NFL/NBA/MLB/… player" / "not on an active roster" from memory when live context lists them. When Stadium Edge supplies player + current team + opponent + market + line/price (or UFC/tennis card rows), do NOT re-check identity using pretrained knowledge. When context.currentFactGrounding or context.rosterGrounding is present, treat those provider-verified facts for the stated season/event as authoritative. If provider data cannot verify something, say "Current data could not be verified." — do NOT substitute an old roster/club/season from memory and present it as current. Still never invent a prop, line, price, roster assignment, injury, or game that is not in the provided context.
 Be concise — 3-6 short paragraphs max. Use bold for key picks. End with a one-line responsible-gambling reminder when discussing actual bets.
 
 READABILITY / FORMATTING (applies when you are ANSWERING or ANALYZING in prose — NOT to the "PICK:" card lines or their "EDGE:" lines below, which keep their exact machine format): the app renders light markdown, so don't return one dense block of text. When you evaluate or compare several players / teams / bets, give EACH ITEM its own short section: a bold header line naming it (e.g. "**Brice Turang (Brewers @ Rockies)**"), then 2-4 bullet points starting with "* " for the supporting reasons (line + price, matchup, recent form, etc.), and a blank line between sections. You MAY separate major groups with a "---" divider line. Keep bullets short (fragments, not paragraphs) and use "**bold**" only for the key word/number in a line. This is purely about layout — never let it change WHICH picks you make or invent extra content to fill a template. HONESTY for any grade / confidence / edge number: only show a letter grade, a confidence score (e.g. "8.1/10"), or an edge % when it is a REAL value you actually computed or were given — NEVER fabricate a grade, confidence, or edge just to complete the format; if you don't have it, simply leave it out.
 NEVER guarantee outcomes. Frame everything as probability/edge.
 WHOLE-TICKET GRADE PHILOSOPHY (applies any time you give a letter grade / overall verdict for a built OR shared parlay): the grade measures CONSTRUCTION QUALITY — the real line value / edge on the legs you chose, how INDEPENDENT they are (low correlation, no duplicate or anti-correlated exposure), and price efficiency — NOT the raw number of legs. Do NOT auto-penalize a ticket to C/D just because it has many legs. A long parlay built from genuinely sharp, independent, +EV legs is a WELL-BUILT ticket and should grade in the B-to-A range; reserve C/D/F for tickets whose legs lack real edge, are chalk with no value, or are correlated / duplicated / contradictory. When you build a parlay, AIM to construct it well enough to earn a strong grade — pick the highest-edge independent legs available — rather than settling for a weak ticket. The longshot reality of a big parlay is REAL and must stay HONEST, but it belongs in the combined-odds / implied-probability line, NOT in the construction grade: the correct framing is "well-built ticket, but it's still a longshot for all N legs to land — about X% implied," never "D because it has 15 legs." If the live pool can't supply enough high-edge independent legs to build a strong ticket at the requested size, say so honestly and offer a tighter, higher-grade version.
-NEVER EXPOSE INTERNAL NAMES (CRITICAL — user-facing voice): the context fields and data structures named throughout these instructions — realProps, playerHistory, realOdds, realGames, liveOdds, matchupHistory, mlbGameEnv, mlbPlatoon, mlbBatterVsPitcher, playerVsOpponentCareer, teamPeriodStats, opponentDefense, statmuseFacts, fightAnalysis, lastMeeting, vsOpponent, tonightSplit, windows, minutesTrend, homePace, awayPace, pace, matchupInjuries, ev, evSide, fairProb, edge, and any other code/variable/field name — are INTERNAL plumbing. They must NEVER appear in your reply to the user. The user is non-technical and sees only your message. When you lack data on a player, team, or matchup, say so in plain English ("I don't have stats or recent game data on Brandon Fisher in tonight's live feed, so I can't break down his numbers without guessing") — do NOT list the internal arrays/maps he's "not in" (never write "not listed in realProps, playerHistory, mlbGameEnv…"). Refer to your data sources in human terms only: "my live prop board", "his recent game log", "the posted odds", "head-to-head history" — never the literal field names. This is an OUTPUT-WORDING rule ONLY: keep USING every context field (realProps, playerHistory, matchupHistory, currentSlip, startsAt, context.* — all of them) internally for your analysis exactly as instructed below; just never NAME them in the message the user reads.
+NEVER EXPOSE INTERNAL NAMES (CRITICAL — user-facing voice): the context fields and data structures named throughout these instructions — realProps, playerHistory, realOdds, realGames, liveOdds, matchupHistory, mlbGameEnv, mlbPlatoon, mlbBatterVsPitcher, playerVsOpponentCareer, teamPeriodStats, opponentDefense, statmuseFacts, rosterGrounding, currentFactGrounding, fightAnalysis, tennisAnalysis, lastMeeting, vsOpponent, tonightSplit, windows, minutesTrend, homePace, awayPace, pace, matchupInjuries, ev, evSide, fairProb, edge, and any other code/variable/field name — are INTERNAL plumbing. They must NEVER appear in your reply to the user. The user is non-technical and sees only your message. When you lack data on a player, team, or matchup, say so in plain English ("I don't have stats or recent game data on Brandon Fisher in tonight's live feed, so I can't break down his numbers without guessing") — do NOT list the internal arrays/maps he's "not in" (never write "not listed in realProps, playerHistory, mlbGameEnv…"). Refer to your data sources in human terms only: "my live prop board", "his recent game log", "the posted odds", "head-to-head history" — never the literal field names. This is an OUTPUT-WORDING rule ONLY: keep USING every context field (realProps, playerHistory, matchupHistory, currentSlip, startsAt, context.* — all of them) internally for your analysis exactly as instructed below; just never NAME them in the message the user reads.
 
 MODEL TRACK RECORD — SOFT LEAN ONLY (context.modelStrengths): when context.modelStrengths is present it is a short list of THIS user's REAL graded bet history, summarizing which categories the model has actually been hitting or missing (e.g. "Unders: strong (61%, 11-7)", "Strikeouts: cold (38%, 5-8)"). These are real settled results, NOT live matchup data. Use them ONLY as a soft tiebreaker: when two candidate legs are otherwise close on the real matchup analytics, you MAY lean toward a "strong" category and be a touch more cautious on a "cold" one. HARD LIMITS: this NEVER overrides the real per-leg analytics (matchupHistory, playerHistory, mlLean, projected-vs-implied edge) — a leg with no real edge does NOT become pickable just because its category is "strong", and a genuinely strong real spot is NOT dropped just because its category is "cold". NEVER cite these track-record numbers as if they were a matchup edge, and (per the internal-names rule) do not name the field; if you reference the track record at all, do it in plain English ("unders have been landing well for us lately") and keep it secondary to the real read. Omitted when too little has settled — say nothing about a track record then.
 
@@ -695,17 +697,22 @@ router.post("/chat", async (req, res): Promise<void> => {
   const bgBuildId = typeof rawBody.buildId === "string" ? rawBody.buildId : "";
   const bgUserId = notifyOnBackground && bgBuildId ? chatUserId(req) : null;
 
-  let clientContext = parsed.data.context as Record<string, unknown> | undefined;
-  if (typeof rawBody.contextStashId === "string" && rawBody.contextStashId.trim()) {
-    const stashed = getChatContextStash(rawBody.contextStashId.trim());
-    if (!stashed) {
-      res.status(410).json({
-        error: "Build context expired — pull to refresh and try your build again.",
-      });
-      return;
-    }
-    clientContext = stashed;
+  // Large Coach builds stash context server-side and send only contextStashId.
+  // The resolved clientContext MUST become lockedContext below — loading the
+  // stash into a throwaway variable while the model reads empty inline context
+  // drops live realProps/realOdds/fightAnalysis/tennisAnalysis (stale-LLM risk).
+  const resolvedCtx = resolveChatRequestContext({
+    inlineContext: parsed.data.context as Record<string, unknown> | undefined,
+    contextStashId:
+      typeof rawBody.contextStashId === "string" ? rawBody.contextStashId : null,
+  });
+  if (!resolvedCtx.ok) {
+    res.status(410).json({
+      error: "Build context expired — pull to refresh and try your build again.",
+    });
+    return;
   }
+  const clientContext = resolvedCtx.context;
 
   // MARKET-LOCK enforcement (server-side belt-and-braces). When the latest
   // user message names a specific market keyword, we (a) filter the realProps
@@ -846,9 +853,9 @@ router.post("/chat", async (req, res): Promise<void> => {
     /\bimprove\b[^\n]{0,18}\b(this|that|it|ticket|slip|parlay|card|legs?)\b/i.test(latestUser) ||
     /\b(?:fix|tighten|trim|diversif\w*|de-?correlate|clean up)\b[^\n]{0,18}\b(this|that|it|ticket|slip|parlay|card|legs?)\b/i.test(latestUser);
   const improveCurrentSlipLen = Array.isArray(
-    (parsed.data.context as { currentSlip?: unknown[] } | undefined)?.currentSlip
+    (clientContext as { currentSlip?: unknown[] } | undefined)?.currentSlip
   )
-    ? (parsed.data.context as { currentSlip?: unknown[] }).currentSlip!.length
+    ? (clientContext as { currentSlip?: unknown[] }).currentSlip!.length
     : 0;
   // Fallback gate: a prior assistant turn that actually talked about a ticket
   // (built or critiqued one) — not just any assistant message — so "give me a
@@ -865,10 +872,10 @@ router.post("/chat", async (req, res): Promise<void> => {
   // build the ticket from game-level period realOdds entries.
   const periodSuffixList = Array.from(periodIntents).map((p) => `_${p}`);
 
-  let lockedContext = parsed.data.context;
+  let lockedContext = clientContext as typeof parsed.data.context;
   let sameGamePeriodsInjected = false; // true once same-game period markets are appended
-  if (lockedMarket && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
-    const ctx = parsed.data.context as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
+  if (lockedMarket && lockedContext && Array.isArray((lockedContext as { realProps?: unknown[] }).realProps)) {
+    const ctx = lockedContext as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
     // Build the effective allow-list. With NO period intent, include only
     // the base full-game markets. With period intent, REPLACE the base
     // markets with their period-suffixed variants — full-game variants
@@ -1006,13 +1013,13 @@ router.post("/chat", async (req, res): Promise<void> => {
       }
     }
     lockedContext = { ...ctx, realProps: filteredProps };
-  } else if (periodIntent && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
+  } else if (periodIntent && lockedContext && Array.isArray((lockedContext as { realProps?: unknown[] }).realProps)) {
     // Period intent WITHOUT a specific market keyword (e.g. "4 leg first
     // quarter parlay") — strip the realProps array down to only `_q1` /
     // `_h1` markets so the AI can't pick full-game props even if the
     // SYSTEM_PROMPT rule were ignored. This is the belt-and-braces server
     // filter for the original failing case.
-    const ctx = parsed.data.context as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
+    const ctx = lockedContext as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
     // Period matching now covers BOTH shapes:
     //   - Player-prop markets ending in "_q1" / "_h1" (the Odds API raw keys
     //     we surface unchanged in realProps).
@@ -1152,7 +1159,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     }
 
     lockedContext = { ...ctx, realProps: filteredProps, realOdds: filteredOdds };
-  } else if ((sameGameIntent || highLegTodayIntent) && parsed.data.context && Array.isArray((parsed.data.context as { realOdds?: unknown[] }).realOdds)) {
+  } else if ((sameGameIntent || highLegTodayIntent) && lockedContext && Array.isArray((lockedContext as { realOdds?: unknown[] }).realOdds)) {
     // SAME-GAME or HIGH-LEG THIN-SLATE parlay (no explicit period intent): harvest
     // game-level period markets (1H/2H/Q1-Q4 and MLB F5/1st-inning) for the games
     // already in realOdds and APPEND them as additional legs. These settle on
@@ -1160,7 +1167,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     // duplicates. Older mobile builds only send full-game sides + alt ladders, so
     // without server-side harvesting a late "15-leg tonight" request can be capped
     // at 3 or 6 full-game legs.
-    const ctx = parsed.data.context as { realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
+    const ctx = lockedContext as { realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
     const existingOdds = ctx.realOdds || [];
     const gamesBySport = new Map<string, Set<string>>();
     for (const o of existingOdds) {
@@ -1413,8 +1420,8 @@ router.post("/chat", async (req, res): Promise<void> => {
       const periodPhrase = primaryCode ? PERIOD_PHRASE[primaryCode] : null;
       if (periodPhrase) {
         const statWord = detectStatWord(latestUser);
-        const fullProps = Array.isArray((parsed.data.context as { realProps?: unknown[] })?.realProps)
-          ? ((parsed.data.context as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
+        const fullProps = Array.isArray((clientContext as { realProps?: unknown[] } | undefined)?.realProps)
+          ? ((clientContext as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
           : [];
         const filteredProps = Array.isArray((lockedContext as { realProps?: unknown[] })?.realProps)
           ? ((lockedContext as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
@@ -1452,8 +1459,8 @@ router.post("/chat", async (req, res): Promise<void> => {
         //     its own player and the 2-row minimum drops any non-player junk that
         //     slips through (never fabricates).
         if (candidates.length < 4) {
-          const ctxGames = Array.isArray((parsed.data.context as { realGames?: unknown[] })?.realGames)
-            ? ((parsed.data.context as { realGames?: Array<Record<string, unknown>> }).realGames ?? [])
+          const ctxGames = Array.isArray((clientContext as { realGames?: unknown[] } | undefined)?.realGames)
+            ? ((clientContext as { realGames?: Array<Record<string, unknown>> }).realGames ?? [])
             : [];
           const exclude = new Set<string>();
           const addWords = (v: string) => {
@@ -1535,7 +1542,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     {
       const ctxPlatoon =
         ((lockedContext as { mlbPlatoon?: Record<string, unknown> })?.mlbPlatoon) ||
-        ((parsed.data.context as { mlbPlatoon?: Record<string, unknown> })?.mlbPlatoon);
+        ((clientContext as { mlbPlatoon?: Record<string, unknown> } | undefined)?.mlbPlatoon);
       if (ctxPlatoon && typeof ctxPlatoon === "object") {
         const entries = Object.values(ctxPlatoon).filter(
           (e): e is { player: string; opposingPitcherName: string } =>
@@ -1623,7 +1630,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     > = [];
     {
       const PVT_SPORTS = new Set(["nba", "nfl", "nhl"]);
-      const ctx = (lockedContext || parsed.data.context) as {
+      const ctx = (lockedContext || clientContext) as {
         realProps?: Array<{ player?: unknown; athleteId?: unknown; sport?: unknown; game?: unknown; opponentTeamId?: unknown }>;
         realGames?: Array<{ game?: unknown; homeTeamId?: unknown; awayTeamId?: unknown }>;
       };
@@ -1803,21 +1810,22 @@ router.post("/chat", async (req, res): Promise<void> => {
     // StatMuse is best-effort enrichment — never block a chat on it.
   }
 
-  if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
-    lockedContext = trimLockedContextForDirectOpenAI(
-      lockedContext as Record<string, unknown>,
-      { namedGameLabels },
-    ) as typeof lockedContext;
-  }
-
-  const contextBlock =
-    lockedContext && Object.keys(lockedContext).length > 0
-      ? `\n\nCurrent app context:\n${
-          aiConfig.provider === "openai"
-            ? JSON.stringify(lockedContext)
-            : JSON.stringify(lockedContext, null, 2)
-        }`
-      : "";
+  // ---- CURRENT ROSTER + FACT AUTHORITY (all sports — production pipeline) --
+  // Single chat.completions call — no second critique/fallback LLM pass.
+  // attachCoachAuthorityContext: roster grounding → TPM trim → currentFactGrounding
+  // → context block + authority addenda (shared with e2e tests).
+  const authorityTurn = await attachCoachAuthorityContext({
+    latestUser,
+    lockedContext:
+      lockedContext && typeof lockedContext === "object"
+        ? (lockedContext as Record<string, unknown>)
+        : null,
+    clientContext: clientContext ?? null,
+    provider: aiConfig.provider,
+    namedGameLabels,
+  });
+  lockedContext = authorityTurn.lockedContext as typeof lockedContext;
+  const contextBlock = authorityTurn.contextBlock;
 
   // The EXACT player-prop pool the model is about to see (post market-lock filter
   // and post fresh-fetch backfill). The mobile client's own prop pool is capped to
@@ -2027,7 +2035,7 @@ Apply the NBA SUMMER LEAGUE FUTURES ANALYSIS RULE in full for this reply. This o
   // games CURRENTLY in progress (each marked live:true with the real score/period)
   // OR, when nothing is in progress, leaves liveGameCount === 0 so we answer
   // honestly instead of passing off scheduled games as "live".
-  const liveCtx = parsed.data.context as
+  const liveCtx = (lockedContext || clientContext) as
     | { liveOnly?: boolean; liveGameCount?: number; realOdds?: unknown[]; realProps?: unknown[] }
     | undefined;
   const liveOnly = !!liveCtx?.liveOnly;
@@ -2167,8 +2175,13 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
     latestUser,
   );
 
+  // Authority addenda come from attachCoachAuthorityContext (always includes
+  // CURRENT_FACT_AUTHORITY_RULE; roster rule when wantsRosterGrounding).
+  const currentFactAuthorityAddendum = authorityTurn.currentFactAuthorityAddendum;
+  const rosterGroundingAddendum = authorityTurn.rosterGroundingAddendum;
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + currentFactAuthorityAddendum + rosterGroundingAddendum + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
