@@ -124,6 +124,7 @@ const CONTEXT_TRIM_FIELDS = [
   "statmuseFacts",
   "realGames",
   "currentSlip",
+  // rosterGrounding intentionally omitted — keep live ESPN identity facts under TPM pressure
 ] as const;
 
 function jsonBytes(v: unknown): number {

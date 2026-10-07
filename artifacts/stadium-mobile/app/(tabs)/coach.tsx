@@ -545,6 +545,28 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 /** Legacy 25s watchdog copy from older OTAs — never show as a chat bubble. */
 const DEAD_BUILD_PROSE_RE = /still scoring every market/i;
 
+/**
+ * Orphan scan-status fragments that can leak into the chat column above the
+ * conversation (e.g. a bare "progress." left over from "Scan in progress…").
+ */
+const ORPHAN_STATUS_FRAGMENT_RE =
+  /^(?:progress\.?|scan\s+in\s+progress\.?|\*\*status:\*\*\s*scan\s+in\s+progress.*)$/i;
+
+function isOrphanCoachStatusFragment(text: string | null | undefined): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  return ORPHAN_STATUS_FRAGMENT_RE.test(t);
+}
+
+function scrubOrphanStatusFragments(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !isOrphanCoachStatusFragment(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function scrubDeadBuildProseFromMessages(msgs: UIMessage[]): UIMessage[] {
   let changed = false;
   const next = msgs.map((m) => {
@@ -716,10 +738,11 @@ function dedupeLegNoteParagraphs(note: string): string {
 function assistantBubbleText(content: string, hasPicks: boolean): string {
   if (hasPicks) return "";
   if (DEAD_BUILD_PROSE_RE.test(content)) return "";
+  if (isOrphanCoachStatusFragment(content)) return "";
   const lines = content.split("\n");
   const idx = lines.findIndex((l) => PICK_SCAFFOLD_RE.test(l.trim()));
   const kept = idx === -1 ? lines : lines.slice(0, idx);
-  return stripTrailingReminder(kept.join("\n"));
+  return scrubOrphanStatusFragments(stripTrailingReminder(kept.join("\n")));
 }
 
 // Does the user want the coach's TAKE/projection, not just the raw stat card?

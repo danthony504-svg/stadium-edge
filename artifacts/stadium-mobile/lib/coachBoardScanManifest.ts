@@ -334,7 +334,7 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
       ? "**Status:** Full board evaluated — every posted market family scanned."
       : manifest.scanComplete
         ? "**Status:** Scan finished."
-        : "**Status:** Scan in progress…",
+        : "**Status:** Board scan still running…",
   );
   lines.push("");
   lines.push("**Coverage**");
