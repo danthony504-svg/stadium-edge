@@ -3,6 +3,9 @@ import { publishableKeyFromHost } from "@clerk/react/internal";
 import { dark } from "@clerk/themes";
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
 import ParlayBuilder, { ParlayBuilderContent } from "./ParlayBuilder";
+import SupportPage from "./pages/SupportPage";
+import PrivacyPage from "./pages/PrivacyPage";
+import TermsPage from "./pages/TermsPage";
 
 // REQUIRED — copy verbatim. Empty in dev, auto-set in prod. Do NOT gate on PROD.
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
@@ -134,6 +137,9 @@ function ClerkProviderWithRoutes() {
     >
       <Switch>
         <Route path="/" component={ParlayBuilder} />
+        <Route path="/support" component={SupportPage} />
+        <Route path="/privacy" component={PrivacyPage} />
+        <Route path="/terms" component={TermsPage} />
         <Route
           path="/sign-in/*?"
           component={AUTH_ENABLED ? SignInPage : () => <Redirect to="/" />}
@@ -160,6 +166,9 @@ export default function App() {
       ) : (
         <Switch>
           <Route path="/" component={LocalParlayBuilderPage} />
+          <Route path="/support" component={SupportPage} />
+          <Route path="/privacy" component={PrivacyPage} />
+          <Route path="/terms" component={TermsPage} />
           <Route path="/sign-in/*?">
             <Redirect to="/" />
           </Route>

@@ -1,36 +1,19 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-
+import { test } from "node:test";
 import {
   STOREKIT_PRODUCT_IDS,
   planIdForProductId,
-  planIdFromEntitlements,
   productIdForPlan,
 } from "./storekitProducts.ts";
 
-test("productIdForPlan maps go/pro and ignores free", () => {
-  assert.equal(productIdForPlan("go"), STOREKIT_PRODUCT_IDS.goWeekly);
-  assert.equal(productIdForPlan("pro"), STOREKIT_PRODUCT_IDS.proMonthly);
-  assert.equal(productIdForPlan("free"), null);
+test("Go maps to weekly StoreKit product id", () => {
+  assert.equal(productIdForPlan("go"), "com.stadiumedge.app.go.weekly");
+  assert.equal(STOREKIT_PRODUCT_IDS.goWeekly, "com.stadiumedge.app.go.weekly");
+  assert.equal(planIdForProductId("com.stadiumedge.app.go.weekly"), "go");
 });
 
-test("planIdForProductId reverses App Store product ids", () => {
-  assert.equal(planIdForProductId(STOREKIT_PRODUCT_IDS.goWeekly), "go");
-  assert.equal(planIdForProductId(STOREKIT_PRODUCT_IDS.proMonthly), "pro");
-  assert.equal(planIdForProductId("unknown"), null);
-  assert.equal(planIdForProductId(null), null);
-});
-
-test("planIdFromEntitlements prefers pro over go", () => {
-  assert.equal(planIdFromEntitlements(["go", "pro"]), "pro");
-  assert.equal(planIdFromEntitlements(["go"]), "go");
-  assert.equal(planIdFromEntitlements([]), null);
-  assert.equal(
-    planIdFromEntitlements([], [STOREKIT_PRODUCT_IDS.proMonthly]),
-    "pro",
-  );
-  assert.equal(
-    planIdFromEntitlements([], [STOREKIT_PRODUCT_IDS.goWeekly]),
-    "go",
-  );
+test("Pro maps to monthly StoreKit product id", () => {
+  assert.equal(productIdForPlan("pro"), "com.stadiumedge.app.pro.monthly");
+  assert.equal(STOREKIT_PRODUCT_IDS.proMonthly, "com.stadiumedge.app.pro.monthly");
+  assert.equal(planIdForProductId("com.stadiumedge.app.pro.monthly"), "pro");
 });

@@ -96,9 +96,8 @@ export function SoftPaywallModal({
               color: colors.mutedForeground,
             }}
           >
-            Unlock with Stadium Edge Go or Pro — billed through Apple, with a 7-day free
-            trial on first subscribe. Browse and Coach keep working either way; this sheet
-            is optional.
+            Unlock with Stadium Edge Go or Pro — billed through Apple. Browse and Coach keep
+            working either way; this sheet is optional.
           </Text>
 
           <View style={{ gap: 10, marginTop: 4 }}>

@@ -195,12 +195,12 @@ test("softRequirePro is a boolean soft gate", () => {
   assert.equal(softRequirePro(false), false);
 });
 
-test("catalog shows Go/Pro with intro trial copy (no free-trial plan card)", () => {
+test("catalog shows Go/Pro price labels without claiming trial when StoreKit unavailable", () => {
   assert.equal(planById("free").paid, false);
   assert.equal(planById("go").priceLabel, "$9.99/week");
-  assert.equal(planById("go").note, "7-day free trial, then $9.99/week");
+  assert.equal(planById("go").note, "Billed through Apple · $9.99/week");
   assert.equal(planById("pro").priceLabel, "$29.99/month");
-  assert.equal(planById("pro").note, "7-day free trial, then $29.99/month");
+  assert.equal(planById("pro").note, "Billed through Apple · $29.99/month");
   assert.equal(planById("go").paid, true);
   assert.equal(planById("pro").paid, true);
 });

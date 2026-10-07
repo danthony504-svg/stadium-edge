@@ -16,6 +16,7 @@ import {
 } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { requestAppReviewTicket } from "@/lib/appReviewAuth";
 import {
   clearBiometricLogin,
   getBiometricCapability,
@@ -208,6 +209,24 @@ export default function SignInScreen() {
   };
 
   const handleVerify = async () => {
+    setFormError("");
+    // App Review–only path: designated demo account may use a server-validated
+    // fixed review code (not a temporary emailed OTP). Normal users fall through
+    // to Clerk MFA email verification unchanged.
+    const review = await requestAppReviewTicket(emailAddress, code);
+    if (review.ok) {
+      // Ticket replaces the in-progress MFA attempt for the review account only.
+      await signIn.reset();
+      const { error } = await signIn.ticket({ ticket: review.ticket });
+      if (!error && signIn.status === "complete") {
+        await offerBiometricEnroll(emailAddress, password);
+        await signIn.finalize({ navigate: goHome });
+        return;
+      }
+      setFormError("Couldn't finish App Review sign-in. Please try again.");
+      return;
+    }
+
     await signIn.mfa.verifyEmailCode({ code });
     if (signIn.status === "complete") {
       await offerBiometricEnroll(emailAddress, password);
@@ -341,7 +360,7 @@ export default function SignInScreen() {
           onChangeText={setCode}
           placeholder="123456"
           keyboardType="number-pad"
-          error={errors.fields.code?.message}
+          error={errors.fields.code?.message || formError || undefined}
         />
         <PrimaryButton
           label="Verify"
