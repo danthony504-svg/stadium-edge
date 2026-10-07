@@ -12,18 +12,9 @@ import {
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
 import { putChatContextStash, resolveChatRequestContext } from "../lib/chatContextStash.js";
 import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming, chatStreamUserMessage, isNonRetryableUpstreamError } from "../lib/openaiConfig.js";
-import { coachSystemPromptForProvider, trimLockedContextForDirectOpenAI } from "../lib/coachSystemPrompt.js";
+import { coachSystemPromptForProvider } from "../lib/coachSystemPrompt.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
-import {
-  buildRosterGrounding,
-  extractNamedPlayers,
-  ROSTER_GROUNDING_SYSTEM_RULE,
-  wantsRosterGrounding,
-} from "../lib/rosterGrounding.js";
-import {
-  CURRENT_FACT_AUTHORITY_RULE,
-  buildCurrentFactGroundingPayload,
-} from "../lib/currentFactAuthority.js";
+import { attachCoachAuthorityContext } from "../lib/coachAuthorityPipeline.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 import {
   isUnsupportedSoccerDisciplineAsk,
@@ -1881,79 +1872,22 @@ router.post("/chat", async (req, res): Promise<void> => {
     // StatMuse is best-effort enrichment — never block a chat on it.
   }
 
-  // ---- CURRENT ROSTER GROUNDING (ESPN player search — overrides LLM cutoff) --
-  // Identity asks, named-player prop asks, and "plays for" claims must resolve
-  // against live ESPN BEFORE the model answers. Also attach matching realProps
-  // rows as structured verifiedCurrentFacts so the model cannot re-litigate
-  // team assignment from pretrained knowledge. Single chat.completions call —
-  // there is no second critique/fallback LLM pass that rewrites roster facts.
-  try {
-    if (wantsRosterGrounding(latestUser)) {
-      const ctxProps = Array.isArray(
-        (lockedContext as { realProps?: unknown[] } | null | undefined)?.realProps,
-      )
-        ? ((lockedContext as { realProps?: unknown[] }).realProps as Array<Record<string, unknown>>)
-        : Array.isArray((clientContext as { realProps?: unknown[] } | undefined)?.realProps)
-          ? ((clientContext as { realProps?: unknown[] }).realProps as Array<
-              Record<string, unknown>
-            >)
-          : [];
-      const rosterGrounding = await buildRosterGrounding(latestUser, {
-        realProps: ctxProps,
-      });
-      if (rosterGrounding) {
-        lockedContext = {
-          ...((lockedContext && typeof lockedContext === "object"
-            ? lockedContext
-            : {}) as Record<string, unknown>),
-          rosterGrounding,
-          asOf: rosterGrounding.retrievedAt,
-          seasonYear: rosterGrounding.seasonYear,
-        } as typeof lockedContext;
-      }
-    }
-  } catch {
-    // Roster grounding is best-effort — never block a chat on ESPN search.
-  }
-
-  if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
-    lockedContext = trimLockedContextForDirectOpenAI(
-      lockedContext as Record<string, unknown>,
-      { namedGameLabels },
-    ) as typeof lockedContext;
-  }
-
-  // ---- CURRENT FACT AUTHORITY (ALL SPORTS — every /chat turn) --------------
-  // Project live provider rows into provenance-rich fact rows AFTER TPM trim so
-  // the model only reasons from fields it will actually see. Always attach —
-  // not gated on wantsRosterGrounding — so slate/build turns get the same rule.
-  try {
-    const liveCtx = (
-      lockedContext && typeof lockedContext === "object" ? lockedContext : {}
-    ) as Record<string, unknown>;
-    const currentFactGrounding = buildCurrentFactGroundingPayload({
-      rosterGrounding:
-        (liveCtx.rosterGrounding as Record<string, unknown> | null | undefined) ?? null,
-      liveContext: liveCtx as Parameters<typeof buildCurrentFactGroundingPayload>[0]["liveContext"],
-      namedPlayers: extractNamedPlayers(latestUser),
-    });
-    lockedContext = {
-      ...liveCtx,
-      currentFactGrounding,
-    } as typeof lockedContext;
-  } catch {
-    // Authority payload is best-effort — never block a chat on projection.
-  }
-
-  const contextBlock =
-    lockedContext && Object.keys(lockedContext).length > 0
-      ? `\n\nCurrent app context:\n${
-          aiConfig.provider === "openai"
-            ? JSON.stringify(lockedContext)
-            : JSON.stringify(lockedContext, null, 2)
-        }`
-      : "";
-
+  // ---- CURRENT ROSTER + FACT AUTHORITY (all sports — production pipeline) --
+  // Single chat.completions call — no second critique/fallback LLM pass.
+  // attachCoachAuthorityContext: roster grounding → TPM trim → currentFactGrounding
+  // → context block + authority addenda (shared with e2e tests).
+  const authorityTurn = await attachCoachAuthorityContext({
+    latestUser,
+    lockedContext:
+      lockedContext && typeof lockedContext === "object"
+        ? (lockedContext as Record<string, unknown>)
+        : null,
+    clientContext: clientContext ?? null,
+    provider: aiConfig.provider,
+    namedGameLabels,
+  });
+  lockedContext = authorityTurn.lockedContext as typeof lockedContext;
+  const contextBlock = authorityTurn.contextBlock;
   // The EXACT player-prop pool the model is about to see (post market-lock filter
   // and post fresh-fetch backfill). The mobile client's own prop pool is capped to
   // the soonest games and can miss late-starting games (or drop them on a burst
@@ -2295,12 +2229,10 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
     latestUser,
   );
 
-  // Always attach shared current-fact authority (all sports). Roster-identity
-  // addendum still gates on wantsRosterGrounding for the extra ESPN-focused rules.
-  const currentFactAuthorityAddendum = `\n\n${CURRENT_FACT_AUTHORITY_RULE}`;
-  const rosterGroundingAddendum = wantsRosterGrounding(latestUser)
-    ? `\n\n${ROSTER_GROUNDING_SYSTEM_RULE}`
-    : "";
+  // Authority addenda come from attachCoachAuthorityContext (always includes
+  // CURRENT_FACT_AUTHORITY_RULE; roster rule when wantsRosterGrounding).
+  const currentFactAuthorityAddendum = authorityTurn.currentFactAuthorityAddendum;
+  const rosterGroundingAddendum = authorityTurn.rosterGroundingAddendum;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: baseSystemPrompt + contextBlock + currentFactAuthorityAddendum + rosterGroundingAddendum + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },

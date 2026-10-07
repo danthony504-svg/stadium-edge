@@ -333,7 +333,7 @@ export function projectLiveContextFacts(
             return namesLooselyMatch(name, parts[0]) ? parts[1] : parts[0];
           })(),
           rosterStatus: "draw",
-          market: null,
+          market: "moneyline",
           line: null,
           odds: null,
           provider: "stadium_edge_tennisAnalysis",
@@ -417,20 +417,48 @@ export function buildCurrentFactGroundingPayload(args: {
     maxFacts: 24,
   });
 
-  // Dedupe by playerName+market+game
-  const seen = new Set<string>();
-  const verifiedCurrentFacts: AuthoritativeCurrentFact[] = [];
+  // Dedupe by playerName (+ game when present). Merge non-null fields so an
+  // ESPN identity row + a realProps row become one provenance-rich fact
+  // (eventDate/market/line/odds from the board, team from ESPN when needed).
+  const byKey = new Map<string, AuthoritativeCurrentFact>();
+  const mergeFact = (
+    a: AuthoritativeCurrentFact,
+    b: AuthoritativeCurrentFact,
+  ): AuthoritativeCurrentFact => ({
+    sport: a.sport || b.sport,
+    league: a.league || b.league,
+    season: a.season ?? b.season,
+    eventId: a.eventId || b.eventId,
+    eventDate: a.eventDate || b.eventDate,
+    playerId: a.playerId || b.playerId,
+    playerName: a.playerName || b.playerName,
+    currentTeam: a.currentTeam || b.currentTeam,
+    opponent: a.opponent || b.opponent,
+    rosterStatus: a.rosterStatus || b.rosterStatus,
+    market: a.market || b.market,
+    line: a.line ?? b.line,
+    odds: a.odds ?? b.odds,
+    provider:
+      a.provider.includes("realProps") || a.provider.includes("fight") || a.provider.includes("tennis")
+        ? a.provider
+        : b.provider.includes("realProps") || b.provider.includes("fight") || b.provider.includes("tennis")
+          ? b.provider
+          : `${a.provider}+${b.provider}`,
+    providerTimestamp: a.providerTimestamp || b.providerTimestamp,
+    lastVerifiedAt: a.lastVerifiedAt || b.lastVerifiedAt,
+    game: a.game || b.game,
+    verified: a.verified || b.verified,
+  });
   for (const row of [...fromRoster, ...fromLive]) {
     const key = [
       row.playerName.toLowerCase(),
-      row.market ?? "",
       row.game ?? "",
-      row.provider,
+      row.market ?? "",
     ].join("|");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    verifiedCurrentFacts.push(row);
+    const prev = byKey.get(key);
+    byKey.set(key, prev ? mergeFact(prev, row) : row);
   }
+  const verifiedCurrentFacts = [...byKey.values()];
 
   const facts: string[] = [];
   if (Array.isArray(args.rosterGrounding?.facts)) {

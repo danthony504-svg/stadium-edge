@@ -51,7 +51,8 @@ const NAME_STOP = new Set(
     "assists", "goals", "shots", "strikeouts", "aces",
     "does", "did", "is", "are", "was", "were", "can", "could", "will", "would",
     "should", "still", "currently", "official", "record", "verified", "transfer",
-    "club", "fighter", "tournament",
+    "club", "fighter", "tournament", "confirm", "confirming", "about", "versus",
+    "against", "between",
   ].map((s) => s.toLowerCase()),
 );
 
