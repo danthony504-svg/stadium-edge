@@ -12,12 +12,34 @@ import { p0UnvalidatedSimTotalDecision } from "./coachP0UnvalidatedTotals.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { pickHasSimGrade } from "./simMarketSupport.ts";
+import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import {
   boardLegPoolRole,
   topUpTicketFromQualifiedScored,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
+
+/**
+ * Quarter / half / regulation-period markets are not eligible for post-lean
+ * final fill (unvalidated period OD / calibration). Full-game alts + player
+ * props remain eligible under existing sim / grade / ladder / P0 gates.
+ * Does not strip period legs already seated before lean.
+ */
+export function isPostLeanFillBlockedPeriodMarket(pick: ParsedPick): boolean {
+  if (pick.isProp) return false;
+  const period = parseMarketPeriod(pick.market ?? "");
+  return (
+    period === "q1" ||
+    period === "q2" ||
+    period === "q3" ||
+    period === "q4" ||
+    period === "h1" ||
+    period === "h2" ||
+    period === "p1" ||
+    period === "p2" ||
+    period === "p3"
+  );
+}
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -76,6 +98,7 @@ export function wouldConflictOppositeSideSamePeriod(
 export function scoredLegFromQualifiedCandidate(pick: ParsedPick): BoardScoredLeg | null {
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return null;
   if (!pick.game || !pick.market || !pick.pick) return null;
+  if (isPostLeanFillBlockedPeriodMarket(pick)) return null;
   if (p0UnvalidatedSimTotalDecision(pick)) return null;
   const score = pick.finalAiScore;
   if (!score) return null;

@@ -894,10 +894,13 @@ export async function buildCoachParlay(opts: {
   const lockedAnalyzed = lockedMarketAnalyzedFromBoardDiagnostics(
     scan?.failureDiagnostics,
   );
+  // Shortfall copy must use the final delivered ticket length — never a
+  // pre-lean / pre-fill staging pool count.
+  const finalLegCount = picks.length;
   const shortfall = resolveCoachParlayShortfallLead({
     askText: opts.askText ?? "",
     requestedLegs: target,
-    qualified: picks.length,
+    qualified: finalLegCount,
     analyzed: lockedAnalyzed,
     isMarketLocked,
     propsPending,
@@ -917,7 +920,9 @@ export async function buildCoachParlay(opts: {
     timedOut: timed.timedOut,
     budgetMs,
     scanMissing: !scan,
-    scanNote: scan?.note,
+    // Drop staging scan notes on shortfall — they can claim a larger "qualified"
+    // count than the post-lean / post-fill ticket actually delivered.
+    scanNote: finalLegCount < target ? undefined : scan?.note,
     failureReason: scan?.failureReason,
     failureDiagnostics: scan?.failureDiagnostics,
     propsOnly,
