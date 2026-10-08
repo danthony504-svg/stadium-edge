@@ -1,16 +1,15 @@
-// Per-market ladder exhaustion — one qualifying rung per ladder.
-// Game lines: prefer the main posted line, then alt rungs by rank.
-// Player props: prefer the best-scoring posted line (main or alt number) so
-// rush/pass yards, attempts, and completions can land on 150 / 175 / etc. when
-// that rung outranks the main O/U — without changing Coach hold/delivery.
+// Per-market ladder exhaustion — distinct thresholds score independently;
+// ticket seating still allows only one correlated rung (see marketLadderKey).
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { isAltPropPick, isMainBoardPick, isMainLineGameLeg } from "./altLinePool.ts";
 import { boardLegPoolRole, type BoardScoredLeg } from "./ticketStaging.ts";
-import { marketLadderKey } from "./marketLadderKey.ts";
+import { marketLadderKey, marketLadderScoreKey } from "./marketLadderKey.ts";
 
 export {
   marketLadderKey,
+  marketLadderScoreKey,
+  postedLineKey,
   wouldRepeatMarketLadder,
   dedupePicksByMarketLadder,
 } from "./marketLadderKey.ts";
@@ -60,32 +59,34 @@ function comparePropLadderRungs(a: BoardScoredLeg, b: BoardScoredLeg): number {
 }
 
 /**
- * Within each market ladder, keep the first qualifying rung.
- * - Game lines: mains first, then alts by rank (unchanged).
- * - Player props: best rankScore wins among qualifying rungs so posted alt
- *   yard/attempt/completion numbers (150, 175, …) can beat the main O/U when
- *   they score higher — without putting two rungs of the same ladder on a ticket.
+ * Keep the best qualifying copy of each distinct posted threshold.
+ * Different lines (main 67.5 vs alt 149.5, spread +1.5 vs +3.5) survive so they
+ * can compete fairly in staging. Final tickets still call
+ * {@link wouldRepeatMarketLadder} / {@link dedupePicksByMarketLadder} so only
+ * one correlated rung per side seats.
  */
 export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): BoardScoredLeg[] {
-  const byLadder = new Map<string, BoardScoredLeg[]>();
+  const byScoreKey = new Map<string, BoardScoredLeg[]>();
   for (const leg of scored) {
-    const key = marketLadderKey(leg.pick);
-    const arr = byLadder.get(key) ?? [];
+    const key = marketLadderScoreKey(leg.pick);
+    const arr = byScoreKey.get(key) ?? [];
     arr.push(leg);
-    byLadder.set(key, arr);
+    byScoreKey.set(key, arr);
   }
 
   const out: BoardScoredLeg[] = [];
-  for (const ladder of byLadder.values()) {
+  for (const ladder of byScoreKey.values()) {
     const propLadder = ladder.some((leg) => !!leg.pick.isProp);
     ladder.sort((a, b) => {
       if (propLadder) {
         return comparePropLadderRungs(a, b);
       }
-      const tierA = ladderSortRank(a);
-      const tierB = ladderSortRank(b);
-      if (tierA !== tierB) return tierA - tierB;
-      return b.rankScore - a.rankScore;
+      // Fair competition: best rankScore wins among identical score-keys
+      // (duplicate rows). No mains-first preference across different lines —
+      // those are separate score-keys.
+      const scoreDiff = b.rankScore - a.rankScore;
+      if (scoreDiff !== 0) return scoreDiff;
+      return ladderSortRank(a) - ladderSortRank(b);
     });
     for (const leg of ladder) {
       const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);

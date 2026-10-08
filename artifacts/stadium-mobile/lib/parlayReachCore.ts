@@ -93,7 +93,10 @@ export function selectParlayBackupPicks(
   return out;
 }
 
-/** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
+/**
+ * Fill a short ticket from qualifying mains + alts by validated nearScore.
+ * No mains-first seating — a higher-scored alt can beat a lower-scored main.
+ */
 export function promoteQualifyingStagedToTicket(
   ticket: ParsedPick[],
   qualifyingMains: ParlayLegReject[],
@@ -105,28 +108,41 @@ export function promoteQualifyingStagedToTicket(
   const promotedAlts: ParsedPick[] = [];
   const onTicket = new Set(merged.map(pickLegFingerprint));
 
-  // Step 2: add qualifying mains first (highest-rated not already on ticket).
-  const mainGap = Math.max(0, target - merged.length);
-  if (mainGap > 0 && qualifyingMains.length > 0) {
-    for (const p of selectParlayMainBackupPicks(merged, qualifyingMains, mainGap)) {
-      const fp = pickLegFingerprint(p);
-      if (onTicket.has(fp)) continue;
-      onTicket.add(fp);
-      merged.push(p);
-      promotedMains.push(p);
-    }
+  const pool = mergeParlayRejects(qualifyingMains, qualifyingAlts);
+  const gap = Math.max(0, target - merged.length);
+  if (gap <= 0 || pool.length === 0) {
+    return { picks: merged, promotedMains, promotedAlts };
   }
 
-  // Step 3: promote qualifying alternates until target or pool exhausted.
-  const altGap = Math.max(0, target - merged.length);
-  if (altGap > 0 && qualifyingAlts.length > 0) {
-    for (const p of selectParlayBackupPicks(merged, qualifyingAlts, altGap)) {
-      const fp = pickLegFingerprint(p);
-      if (onTicket.has(fp)) continue;
-      onTicket.add(fp);
-      merged.push(p);
-      promotedAlts.push(p);
-    }
+  let added = 0;
+  for (const r of pool) {
+    if (added >= gap) break;
+    const fp = pickLegFingerprint(r.pick);
+    if (onTicket.has(fp)) continue;
+    const eligibleMain = isMainBoardPick(r.pick);
+    const eligibleAlt =
+      (r.pick.isProp && isAltPropPick(r.pick)) ||
+      (!r.pick.isProp && isQualifyingBackupGameLine(r.pick));
+    if (!eligibleMain && !eligibleAlt) continue;
+    onTicket.add(fp);
+    // Badge only — seating already ordered by nearScore across mains + alts.
+    const ticketRole =
+      r.pick.isProp
+        ? isAltPropPick(r.pick)
+          ? ("alt" as const)
+          : ("main" as const)
+        : isMainLineGameLeg(r.pick)
+          ? ("main" as const)
+          : ("alt" as const);
+    const pick = {
+      ...r.pick,
+      ticketRole,
+      backupReason: r.reason,
+    } as ParsedPick & { backupReason?: string };
+    merged.push(pick);
+    if (ticketRole === "main") promotedMains.push(pick);
+    else promotedAlts.push(pick);
+    added += 1;
   }
 
   return { picks: merged, promotedMains, promotedAlts };
@@ -259,6 +275,6 @@ export function buildQualifyingAltShortfallNote(
   const shortfallLead = buildFixedLegCountShortfallLead(requested, actual);
   return [
     shortfallLead,
-    `${exclusion}I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, then filled with mains first and alternate rungs where needed.${altDetail} These ${actual} are every sim-aligned leg that cleared the quality bar.`,
+    `${exclusion}I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, then seated the highest-ranked qualifying legs (mains and alternates compete on the same ranking).${altDetail} These ${actual} are every sim-aligned leg that cleared the quality bar.`,
   ].join("\n\n");
 }

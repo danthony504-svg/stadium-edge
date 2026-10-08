@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collapseScoredLegsByMarketLadder, marketLadderKey } from "./marketLadderExhaustion.ts";
+import {
+  collapseScoredLegsByMarketLadder,
+  marketLadderKey,
+  marketLadderScoreKey,
+  wouldRepeatMarketLadder,
+  dedupePicksByMarketLadder,
+} from "./marketLadderExhaustion.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 const mainScore = {
@@ -52,6 +58,7 @@ function leg(
     propIsAlt?: boolean;
     player?: string;
     propSide?: string;
+    propLine?: number;
   },
   rankScore: number,
   finalAiScore: typeof mainScore,
@@ -88,17 +95,34 @@ test("marketLadderKey groups alt spreads with main spread on the same side", () 
   assert.equal(main, alt);
 });
 
-test("collapseScoredLegsByMarketLadder keeps main when it qualifies", () => {
+test("marketLadderScoreKey keeps distinct thresholds separate", () => {
+  const main = marketLadderScoreKey({
+    game: "A @ B",
+    market: "Spread",
+    pick: "A +1.5",
+    isProp: false,
+  });
+  const alt = marketLadderScoreKey({
+    game: "A @ B",
+    market: "Alt Spread",
+    pick: "A +3.5",
+    isProp: false,
+  });
+  assert.notEqual(main, alt);
+});
+
+test("collapseScoredLegsByMarketLadder keeps distinct qualifying thresholds", () => {
   const scored = [
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, mainScore),
     leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 90, altScore),
   ];
   const out = collapseScoredLegsByMarketLadder(scored);
-  assert.equal(out.length, 1);
-  assert.equal(out[0]!.pick.market, "Spread");
+  assert.equal(out.length, 2);
+  assert.ok(out.some((l) => l.pick.market === "Spread"));
+  assert.ok(out.some((l) => l.pick.market === "Alt Spread"));
 });
 
-test("collapseScoredLegsByMarketLadder promotes alt when main fails quality bar", () => {
+test("collapseScoredLegsByMarketLadder drops below-bar rung but keeps qualifying alt threshold", () => {
   const scored = [
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, belowBar),
     leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 90, altScore),
@@ -116,7 +140,7 @@ test("collapseScoredLegsByMarketLadder drops ladder when no rung qualifies", () 
   assert.equal(collapseScoredLegsByMarketLadder(scored).length, 0);
 });
 
-test("prop ladder keeps higher-scoring alt yard number over main O/U", () => {
+test("prop ladder preserves distinct main and alt yard thresholds for scoring", () => {
   const scored = [
     leg(
       {
@@ -128,6 +152,7 @@ test("prop ladder keeps higher-scoring alt yard number over main O/U", () => {
         propIsAlt: false,
         player: "Barkley",
         propSide: "Over",
+        propLine: 67.5,
       },
       70,
       mainScore,
@@ -142,56 +167,48 @@ test("prop ladder keeps higher-scoring alt yard number over main O/U", () => {
         propIsAlt: true,
         player: "Barkley",
         propSide: "Over",
+        propLine: 149.5,
       },
       95,
       altScore,
     ),
   ];
   const out = collapseScoredLegsByMarketLadder(scored);
-  assert.equal(out.length, 1);
-  assert.match(out[0]!.pick.pick, /149\.5/);
-  assert.equal(out[0]!.pick.propIsAlt, true);
+  assert.equal(out.length, 2);
+  assert.ok(out.some((l) => /149\.5/.test(l.pick.pick)));
+  assert.ok(out.some((l) => /67\.5/.test(l.pick.pick)));
 });
 
-test("prop ladder near-tie prefers higher yard milestone over main O/U", () => {
-  const scored = [
-    leg(
-      {
-        game: "DEN @ KC",
-        market: "Rush Yds",
-        pick: "Barkley Over 67.5 Rush Yds",
-        odds: -110,
-        isProp: true,
-        propIsAlt: false,
-        player: "Barkley",
-        propSide: "Over",
-      },
-      70,
-      mainScore,
-    ),
-    leg(
-      {
-        game: "DEN @ KC",
-        market: "Rush Yds",
-        pick: "Barkley Over 149.5 Rush Yds",
-        odds: 250,
-        isProp: true,
-        propIsAlt: true,
-        player: "Barkley",
-        propSide: "Over",
-      },
-      69.8,
-      altScore,
-    ),
-  ];
-  scored[0]!.pick.propLine = 67.5;
-  scored[1]!.pick.propLine = 149.5;
-  const out = collapseScoredLegsByMarketLadder(scored);
-  assert.equal(out.length, 1);
-  assert.match(out[0]!.pick.pick, /149\.5/);
+test("correlated prop rungs cannot both seat — wouldRepeatMarketLadder", () => {
+  const main = {
+    game: "DEN @ KC",
+    market: "Rush Yds",
+    pick: "Barkley Over 67.5 Rush Yds",
+    isProp: true as const,
+    player: "Barkley",
+    propSide: "Over",
+    propLine: 67.5,
+  };
+  const alt = {
+    game: "DEN @ KC",
+    market: "Rush Yds",
+    pick: "Barkley Over 149.5 Rush Yds",
+    isProp: true as const,
+    player: "Barkley",
+    propSide: "Over",
+    propLine: 149.5,
+  };
+  assert.equal(wouldRepeatMarketLadder(alt, [main]), true);
+  assert.equal(
+    dedupePicksByMarketLadder([
+      { ...main, odds: -110, sport: "nfl", finalAiScore: mainScore },
+      { ...alt, odds: 250, sport: "nfl", finalAiScore: { ...altScore, composite: 12 } },
+    ] as never).length,
+    1,
+  );
 });
 
-test("prop ladder still keeps main when it outranks alt yard numbers", () => {
+test("prop ladder still keeps main and lower-ranked alt as separate score keys", () => {
   const scored = [
     leg(
       {
@@ -203,6 +220,7 @@ test("prop ladder still keeps main when it outranks alt yard numbers", () => {
         propIsAlt: false,
         player: "Mahomes",
         propSide: "Over",
+        propLine: 265.5,
       },
       100,
       mainScore,
@@ -217,13 +235,14 @@ test("prop ladder still keeps main when it outranks alt yard numbers", () => {
         propIsAlt: true,
         player: "Mahomes",
         propSide: "Over",
+        propLine: 299.5,
       },
       80,
       altScore,
     ),
   ];
   const out = collapseScoredLegsByMarketLadder(scored);
-  assert.equal(out.length, 1);
-  assert.match(out[0]!.pick.pick, /265\.5/);
-  assert.equal(out[0]!.pick.propIsAlt, false);
+  assert.equal(out.length, 2);
+  assert.ok(out.some((l) => /265\.5/.test(l.pick.pick)));
+  assert.ok(out.some((l) => /299\.5/.test(l.pick.pick)));
 });

@@ -22,6 +22,18 @@ function pickSideKey(pick: string): string {
   return norm(t);
 }
 
+/** Extract posted line/point from a pick label for score-key uniqueness. */
+export function postedLineKey(pick: {
+  pick: string;
+  propLine?: number | null;
+}): string {
+  if (pick.propLine != null && Number.isFinite(pick.propLine)) {
+    return String(pick.propLine);
+  }
+  const m = String(pick.pick ?? "").match(/([+-]?\d+(?:\.\d+)?)/);
+  return m?.[1] ?? "na";
+}
+
 /** Stable key for one posted market ladder (game line family or player prop market). */
 export function marketLadderKey(pick: {
   game: string;
@@ -40,6 +52,24 @@ export function marketLadderKey(pick: {
     return `${norm(pick.game)}|prop|${player}|${market}|${side}`.toLowerCase();
   }
   return `${norm(pick.game)}|${marketFamily(pick.market)}|${pickSideKey(pick.pick)}`.toLowerCase();
+}
+
+/**
+ * Score-pool key: correlation ladder + distinct posted threshold.
+ * Distinct alt lines (67.5 vs 149.5) score independently; ticket seating still
+ * uses {@link marketLadderKey} / {@link wouldRepeatMarketLadder} so only one
+ * correlated rung lands on a ticket.
+ */
+export function marketLadderScoreKey(pick: {
+  game: string;
+  market: string;
+  pick: string;
+  isProp?: boolean;
+  player?: string | null;
+  propSide?: string | null;
+  propLine?: number | null;
+}): string {
+  return `${marketLadderKey(pick)}|${postedLineKey(pick)}`;
 }
 
 /** True when `candidate` shares a market ladder already on the ticket. */

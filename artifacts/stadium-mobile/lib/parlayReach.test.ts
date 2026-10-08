@@ -79,7 +79,7 @@ test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () 
   assert.equal(picks.length, 3);
 });
 
-test("promoteQualifyingStagedToTicket fills mains before qualifying alts on reach-N shortfall", () => {
+test("promoteQualifyingStagedToTicket seats by nearScore — higher alt beats lower main", () => {
   const ticket = [
     { game: "A @ B", market: "Points", pick: "Player A Over 10.5 Points", odds: -110, isProp: true },
   ];
@@ -87,14 +87,14 @@ test("promoteQualifyingStagedToTicket fills mains before qualifying alts on reac
     {
       pick: { game: "C @ D", market: "Spread", pick: "D +1.5", odds: -110, isProp: false },
       reason: "+2% edge",
-      nearScore: 50,
+      nearScore: 40,
     },
   ];
   const alts = [
     {
       pick: { game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, isProp: false },
       reason: "+2% edge",
-      nearScore: 40,
+      nearScore: 55,
     },
   ];
   const { picks, promotedMains, promotedAlts } = promoteQualifyingStagedToTicket(
@@ -106,8 +106,8 @@ test("promoteQualifyingStagedToTicket fills mains before qualifying alts on reac
   assert.equal(promotedAlts.length, 1);
   assert.equal(promotedMains.length, 1);
   assert.equal(picks.length, 3);
-  assert.equal(picks[1]!.ticketRole, "main");
-  assert.equal(picks[2]!.ticketRole, "alt");
+  assert.equal(picks[1]!.ticketRole, "alt", "higher nearScore alt seats before lower main");
+  assert.equal(picks[2]!.ticketRole, "main");
 });
 
 test("selectParlayMainBackupPicks skips alt rungs", () => {
