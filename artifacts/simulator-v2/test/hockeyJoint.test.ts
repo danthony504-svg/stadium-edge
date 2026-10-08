@@ -12,6 +12,7 @@ import {
   buildJointHockeyTensor,
   impliedProbFromAmerican,
   nhlFinalHomeSeries,
+  resolveHockeyCalibration,
   selectProductionSimResult,
   settleMarket,
   validateScenarioConsistency,
@@ -126,6 +127,55 @@ describe("NHL joint milestone D.2 (shadow)", () => {
       v2: null,
     });
     assert.equal(prod.engine, "v1");
+  });
+
+  it("v0.2 and v0.3 calibration profiles conserve P1+P2+P3=regulation and OT/SO finals", () => {
+    for (const profile of ["v0.2", "v0.3"] as const) {
+      const calib = resolveHockeyCalibration(profile);
+      const tensor = buildJointHockeyTensor({
+        sport: "nhl",
+        eventId: `nhl-${profile}`,
+        seed: `nhl-${profile}`,
+        nDraws: 800,
+        calibrationProfile: profile,
+        home: { teamId: "h", goalsFor: 3.4, goalsAgainst: 2.6 },
+        away: { teamId: "a", goalsFor: 2.7, goalsAgainst: 3.2 },
+      });
+      assert.equal(tensor.meta.modelVersion, calib.modelVersion);
+      const cons = validateScenarioConsistency(tensor, { periodSumGroup: ["p1", "p2", "p3"] });
+      assert.equal(cons.ok, true, `${profile}:${JSON.stringify(cons.issues)}`);
+      for (let i = 0; i < tensor.meta.nDraws; i++) {
+        const regH =
+          tensor.team.homeByPeriod.p1![i]! +
+          tensor.team.homeByPeriod.p2![i]! +
+          tensor.team.homeByPeriod.p3![i]!;
+        const regA =
+          tensor.team.awayByPeriod.p1![i]! +
+          tensor.team.awayByPeriod.p2![i]! +
+          tensor.team.awayByPeriod.p3![i]!;
+        assert.equal(regH, tensor.team.homeFg[i]!);
+        assert.equal(regA, tensor.team.awayFg[i]!);
+        const tied = regH === regA;
+        const wentOt = tensor.team.homeByPeriod.went_ot![i] === 1;
+        if (wentOt) assert.equal(tied, true);
+        if (!tied) {
+          assert.equal(tensor.team.homeByPeriod.ot![i], 0);
+          assert.equal(tensor.team.awayByPeriod.ot![i], 0);
+          assert.equal(tensor.team.homeByPeriod.so![i], 0);
+          assert.equal(tensor.team.awayByPeriod.so![i], 0);
+        }
+      }
+      const finals = nhlFinalHomeSeries(tensor);
+      for (let i = 0; i < tensor.meta.nDraws; i++) {
+        assert.ok(finals[i]! >= tensor.team.homeFg[i]!);
+      }
+    }
+    assert.equal(resolveHockeyCalibration("v0.2").formShrinkToLeague, 0);
+    assert.equal(resolveHockeyCalibration("v0.2").meanShockSigma, 0);
+    assert.equal(resolveHockeyCalibration("v0.2").hfaGoals, 0.15);
+    assert.equal(resolveHockeyCalibration("v0.3").formShrinkToLeague, 0.4);
+    assert.equal(resolveHockeyCalibration("v0.3").meanShockSigma, 0.15);
+    assert.equal(resolveHockeyCalibration("v0.3").hfaGoals, 0.08);
   });
 
   it("settles regulation FG on homeFg (not OT/SO final) when includeOtSo=false", () => {

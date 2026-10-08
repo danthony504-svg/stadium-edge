@@ -110,6 +110,12 @@ export function overconfidenceBand(rows: BinaryObservation[], threshold: number)
   return { n: band.length, hitRate: band.reduce((s, r) => s + r.y, 0) / band.length };
 }
 
+/** Mean |p − 0.5|; collapses toward 0 when probs shrink to a coin-flip. */
+export function meanAbsDevFromHalf(rows: BinaryObservation[]): number | null {
+  if (!rows.length) return null;
+  return rows.reduce((s, r) => s + Math.abs(r.p - 0.5), 0) / rows.length;
+}
+
 /** Game-clustered bootstrap SE for ECE. */
 export function clusteredEceSe(obs: CalibObs[], nBoot = 200, seed = "ece-boot"): number | null {
   if (obs.length < 20) return null;

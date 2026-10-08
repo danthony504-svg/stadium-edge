@@ -1,7 +1,9 @@
 /**
  * Milestone D.2+ — NHL joint model with regulation / OT / SO layers (shadow-only).
  * P1+P2+P3 = regulation FG. Final scores add OT goal or SO winner (+1).
- * v0.3.0: form shrinkage + lognormal mean shocks + milder HFA (calib fix).
+ * calibrationProfile:
+ *   v0.2 — no shrink, no shock, HFA 0.15 (baseline)
+ *   v0.3 — form shrink 0.4 + lognormal σ0.15 + HFA 0.08 (default)
  * No football imports.
  */
 
@@ -11,15 +13,47 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { NHL_PERIOD_SHARES, NHL_TEAM_FG_MEAN, isHockeySport, type HockeySport } from "./priors.js";
 
 export const HOCKEY_JOINT_MODEL_ID = "hockey.joint.v0" as const;
+/** Default model version (v0.3 calibration profile). */
 export const HOCKEY_JOINT_MODEL_VERSION = "0.3.0" as const;
 export const HOCKEY_JOINT_MODEL_IDS = [HOCKEY_JOINT_MODEL_ID] as const;
 
-/** Shrink raw form 40% toward league mean (reduces form overconfidence). */
+export type HockeyCalibrationProfile = "v0.2" | "v0.3";
+
+/** Shrink raw form 40% toward league mean (v0.3; reduces form overconfidence). */
 export const NHL_FORM_SHRINK_TO_LEAGUE = 0.4 as const;
-/** Per-draw lognormal σ on team means (adds overdispersion vs thin Poisson). */
+/** Per-draw lognormal σ on team means (v0.3; adds overdispersion vs thin Poisson). */
 export const NHL_MEAN_SHOCK_SIGMA = 0.15 as const;
-/** Milder home-ice advantage (goals) vs v0.2.0's 0.15. */
+/** Milder home-ice advantage (goals) for v0.3 vs v0.2's 0.15. */
 export const NHL_HFA_GOALS = 0.08 as const;
+
+export type HockeyCalibParams = {
+  profile: HockeyCalibrationProfile;
+  modelVersion: "0.2.0" | "0.3.0";
+  formShrinkToLeague: number;
+  meanShockSigma: number;
+  hfaGoals: number;
+};
+
+export function resolveHockeyCalibration(
+  profile: HockeyCalibrationProfile = "v0.3",
+): HockeyCalibParams {
+  if (profile === "v0.2") {
+    return {
+      profile: "v0.2",
+      modelVersion: "0.2.0",
+      formShrinkToLeague: 0,
+      meanShockSigma: 0,
+      hfaGoals: 0.15,
+    };
+  }
+  return {
+    profile: "v0.3",
+    modelVersion: "0.3.0",
+    formShrinkToLeague: NHL_FORM_SHRINK_TO_LEAGUE,
+    meanShockSigma: NHL_MEAN_SHOCK_SIGMA,
+    hfaGoals: NHL_HFA_GOALS,
+  };
+}
 
 export type HockeyTeamInput = {
   teamId: string;
@@ -45,6 +79,8 @@ export type JointHockeyInput = {
   away: HockeyTeamInput;
   nDraws?: number;
   players?: HockeyPropPlayerInput[];
+  /** Default v0.3. Use v0.2 for frozen baseline A/B only. */
+  calibrationProfile?: HockeyCalibrationProfile;
 };
 
 function avg(vals: number[] | undefined, fallback: number): number {
@@ -78,13 +114,14 @@ function poissonSample(lambda: number, rng: () => number): number {
   return k - 1;
 }
 
-function shrinkToLeague(raw: number): number {
-  return (1 - NHL_FORM_SHRINK_TO_LEAGUE) * raw + NHL_FORM_SHRINK_TO_LEAGUE * NHL_TEAM_FG_MEAN;
+function shrinkToLeague(raw: number, shrink: number): number {
+  if (shrink <= 0) return raw;
+  return (1 - shrink) * raw + shrink * NHL_TEAM_FG_MEAN;
 }
 
-function teamFgMean(team: HockeyTeamInput, opp: HockeyTeamInput): number {
-  const offense = shrinkToLeague(team.goalsFor ?? avg(team.recentFgGoals, NHL_TEAM_FG_MEAN));
-  const defense = shrinkToLeague(opp.goalsAgainst ?? NHL_TEAM_FG_MEAN);
+function teamFgMean(team: HockeyTeamInput, opp: HockeyTeamInput, shrink: number): number {
+  const offense = shrinkToLeague(team.goalsFor ?? avg(team.recentFgGoals, NHL_TEAM_FG_MEAN), shrink);
+  const defense = shrinkToLeague(opp.goalsAgainst ?? NHL_TEAM_FG_MEAN, shrink);
   return clamp(0.55 * offense + 0.45 * defense, 1.5, 5.0);
 }
 
@@ -92,10 +129,11 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
   if (!isHockeySport(input.sport)) {
     throw new Error(`hockey_joint_sport_unsupported:${input.sport}`);
   }
+  const calib = resolveHockeyCalibration(input.calibrationProfile ?? "v0.3");
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const homeMeanBase = teamFgMean(input.home, input.away) + NHL_HFA_GOALS;
-  const awayMeanBase = teamFgMean(input.away, input.home);
+  const homeMeanBase = teamFgMean(input.home, input.away, calib.formShrinkToLeague) + calib.hfaGoals;
+  const awayMeanBase = teamFgMean(input.away, input.home, calib.formShrinkToLeague);
 
   const homeFg = new Float64Array(n); // regulation
   const awayFg = new Float64Array(n);
@@ -117,8 +155,12 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
   const wentSo = new Float64Array(n);
 
   for (let i = 0; i < n; i++) {
-    const homeMean = homeMeanBase * Math.exp(normalSample(next, 0, NHL_MEAN_SHOCK_SIGMA));
-    const awayMean = awayMeanBase * Math.exp(normalSample(next, 0, NHL_MEAN_SHOCK_SIGMA));
+    const homeShock =
+      calib.meanShockSigma > 0 ? Math.exp(normalSample(next, 0, calib.meanShockSigma)) : 1;
+    const awayShock =
+      calib.meanShockSigma > 0 ? Math.exp(normalSample(next, 0, calib.meanShockSigma)) : 1;
+    const homeMean = homeMeanBase * homeShock;
+    const awayMean = awayMeanBase * awayShock;
     let hs = 0;
     let as = 0;
     for (let p = 0; p < 3; p++) {
@@ -188,16 +230,32 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
   const createdAt = new Date().toISOString();
   const dataFingerprint = fingerprintPayload([
     HOCKEY_JOINT_MODEL_ID,
-    HOCKEY_JOINT_MODEL_VERSION,
+    calib.modelVersion,
+    calib.profile,
     input,
   ]);
+
+  const warnings =
+    calib.profile === "v0.3"
+      ? [
+          "hockey_v0_shadow_only",
+          "not_accepted_for_production_serve",
+          "fg_is_regulation_use_nhl_final_paths",
+          "form_shrink_0.4_league_plus_lognormal_shock",
+        ]
+      : [
+          "hockey_v0_shadow_only",
+          "not_accepted_for_production_serve",
+          "fg_is_regulation_use_nhl_final_paths",
+          "calib_profile_v0.2_baseline_no_shrink_no_shock",
+        ];
 
   return {
     meta: {
       schemaVersion: SIM_V2_SCHEMA_VERSION,
       engineId: "simulator-v2",
       modelId: HOCKEY_JOINT_MODEL_ID,
-      modelVersion: HOCKEY_JOINT_MODEL_VERSION,
+      modelVersion: calib.modelVersion,
       sport: input.sport,
       eventId: input.eventId,
       nDraws: n,
@@ -208,12 +266,7 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
       quality: {
         status: "pass",
         missingFields: [],
-        warnings: [
-          "hockey_v0_shadow_only",
-          "not_accepted_for_production_serve",
-          "fg_is_regulation_use_nhl_final_paths",
-          "form_shrink_0.4_league_plus_lognormal_shock",
-        ],
+        warnings,
         participationReady: (input.players?.length ?? 0) > 0,
         oddsReady: true,
       },
