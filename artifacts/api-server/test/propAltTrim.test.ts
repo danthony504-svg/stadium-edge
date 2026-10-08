@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   aggregatePropRowsWithAltTrim,
+  isHigherCountAltLine,
   isMilestonePropLine,
   trimAlternatePropRungs,
 } from "../src/lib/propAltTrim.js";
@@ -150,4 +151,12 @@ test("fullBoard trim keeps hockey shot and point milestones", () => {
   const trimmed = trimAlternatePropRungs(rows, { fullBoard: true });
   assert.ok(trimmed.some((r) => r.market === "player_shots_on_goal" && r.line === 3.5));
   assert.ok(trimmed.some((r) => r.market === "player_points" && r.line === 1.5));
+});
+
+test("isMilestonePropLine covers phone sportsbook N+ thresholds", () => {
+  assert.ok(isMilestonePropLine(39.5, "player_reception_yds"), "40+ receiving yards");
+  assert.ok(isMilestonePropLine(199.5, "player_pass_yds"), "200+ passing yards");
+  assert.ok(isMilestonePropLine(19.5, "player_points"), "20+ NBA points");
+  assert.ok(isMilestonePropLine(1.5, "batter_hits"), "2+ MLB hits");
+  assert.ok(isHigherCountAltLine(4.5, "player_receptions", 2.5), "5+ receptions");
 });

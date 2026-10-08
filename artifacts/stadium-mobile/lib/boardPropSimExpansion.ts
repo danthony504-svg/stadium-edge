@@ -9,6 +9,7 @@ import {
   FOOTBALL_DST_PROP_SIM_CAP,
   isFootballDstPropMarket,
 } from "./footballDstProps.ts";
+import { isPostedMilestoneAltLine } from "./coachMilestoneLines.ts";
 
 export const BOARD_PROP_SIM_BATCH = 21;
 
@@ -105,27 +106,40 @@ function isAltSimCandidate(pick: { propIsAlt?: boolean; market?: string | null }
 }
 
 /**
- * Within one correlation ladder, prefer main + nearest + farthest posted lines
- * so milestone thresholds still reach deep sim inside the 3-rung budget.
+ * Within one correlation ladder, prefer main + sportsbook milestone alts
+ * (40+ yards, 200+ pass, 5+ receptions, 20+ points, 2+ hits, …) then nearest /
+ * farthest fillers so posted N+ thresholds reach deep sim inside the 3-rung budget.
+ * Does not raise BOARD_PROP_SIM_RUNGS_PER_LADDER or invent lines.
  */
 export function pickDiverseLadderRungsForSim<T extends {
   propLine?: number | null;
   propIsAlt?: boolean;
   market?: string | null;
+  propMarketKey?: string | null;
 }>(rungs: readonly T[], maxRungs: number): T[] {
   if (maxRungs <= 0 || rungs.length === 0) return [];
   if (rungs.length <= maxRungs) return [...rungs];
   const mains = rungs.filter((r) => !isAltSimCandidate(r));
   const alts = rungs.filter((r) => isAltSimCandidate(r));
+  const marketKey = (r: T) => r.propMarketKey ?? r.market ?? "";
   const mainLine =
     mains.find((r) => r.propLine != null)?.propLine ??
     rungs.find((r) => r.propLine != null)?.propLine ??
     null;
-  const altsByDist = [...alts].sort((a, b) => {
-    const da = a.propLine != null && mainLine != null ? Math.abs(a.propLine - mainLine) : 0;
-    const db = b.propLine != null && mainLine != null ? Math.abs(b.propLine - mainLine) : 0;
-    return da - db;
-  });
+  const dist = (r: T) =>
+    r.propLine != null && mainLine != null ? Math.abs(r.propLine - mainLine) : 0;
+  const altsByDist = [...alts].sort((a, b) => dist(a) - dist(b));
+  const milestoneAlts = altsByDist.filter((r) =>
+    isPostedMilestoneAltLine(r.propLine, marketKey(r), mainLine),
+  );
+  // Prefer the most-cushion underside milestone (40+ when main is 62.5) and
+  // the farthest upside milestone (200+) so sportsbook N+ thresholds deep-sim.
+  const belowMain = milestoneAlts
+    .filter((r) => r.propLine != null && mainLine != null && r.propLine < mainLine)
+    .sort((a, b) => (a.propLine ?? 0) - (b.propLine ?? 0));
+  const aboveMain = milestoneAlts
+    .filter((r) => r.propLine != null && mainLine != null && r.propLine > mainLine)
+    .sort((a, b) => (b.propLine ?? 0) - (a.propLine ?? 0));
   const picked: T[] = [];
   const used = new Set<T>();
   const take = (r: T | undefined) => {
@@ -134,8 +148,17 @@ export function pickDiverseLadderRungsForSim<T extends {
     picked.push(r);
   };
   take(mains[0]);
-  take(altsByDist[0]);
-  take(altsByDist[altsByDist.length - 1]);
+  take(belowMain[0]); // lowest underside milestone (40+, 5+, 20+, 2+, …)
+  take(aboveMain[0]); // highest upside milestone
+  // Fill remaining seats from any milestone, then nearest alts, then any rung.
+  for (const r of milestoneAlts) {
+    if (picked.length >= maxRungs) break;
+    take(r);
+  }
+  for (const r of altsByDist) {
+    if (picked.length >= maxRungs) break;
+    take(r);
+  }
   for (const r of rungs) {
     if (picked.length >= maxRungs) break;
     take(r);

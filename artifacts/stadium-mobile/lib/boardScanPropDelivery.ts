@@ -482,7 +482,11 @@ export function footballRushMilestoneBonus(pick: {
     line = m ? Number(m[1]) : null;
   }
   if (line == null || !Number.isFinite(line)) return 0;
-  const milestones = [24.5, 25, 25.5, 49.5, 50, 50.5, 74.5, 75, 75.5, 99.5, 100, 100.5];
+  // Include 40+ / 60+ sportsbook milestones alongside classic 25/50/75/100 steps.
+  const milestones = [
+    24.5, 25, 25.5, 29.5, 30, 30.5, 39.5, 40, 40.5, 49.5, 50, 50.5, 59.5, 60, 60.5,
+    74.5, 75, 75.5, 99.5, 100, 100.5, 124.5, 149.5, 174.5, 199.5,
+  ];
   if (milestones.some((x) => Math.abs((line as number) - x) < 0.01)) return 2;
   if (line >= 20 && line <= 110) return 1;
   return 0;
