@@ -198,6 +198,39 @@ export function settleMarket(req: SettleRequest): SimV2SimulationResult {
     });
   }
 
+  if (market.family === "player_prop" && market.playerId) {
+    const pl = tensor.players[market.playerId];
+    if (!pl) {
+      return finish({
+        status: "missing_data",
+        reason: `missing_data:player_not_on_tensor:${market.playerId}`,
+        simHit: null,
+        providerOddsAmerican: odds.american,
+        impliedProbRaw: odds.impliedProbRaw,
+        edgePct: null,
+        evPct: null,
+      });
+    }
+    let anyPart = false;
+    for (let i = 0; i < pl.participated.length; i++) {
+      if (pl.participated[i]) {
+        anyPart = true;
+        break;
+      }
+    }
+    if (!anyPart) {
+      return finish({
+        status: "missing_data",
+        reason: `missing_data:player_no_participation:${market.playerId}`,
+        simHit: null,
+        providerOddsAmerican: odds.american,
+        impliedProbRaw: odds.impliedProbRaw,
+        edgePct: null,
+        evPct: null,
+      });
+    }
+  }
+
   const series = resolveSeries(tensor, market);
   if (!series) {
     return finish({

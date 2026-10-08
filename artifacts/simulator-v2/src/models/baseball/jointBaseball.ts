@@ -10,7 +10,7 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { MLB_TEAM_FG_MEAN, isBaseballSport, type BaseballSport } from "./priors.js";
 
 export const BASEBALL_JOINT_MODEL_ID = "baseball.joint.v0" as const;
-export const BASEBALL_JOINT_MODEL_VERSION = "0.1.0" as const;
+export const BASEBALL_JOINT_MODEL_VERSION = "0.2.0" as const;
 export const BASEBALL_JOINT_MODEL_IDS = [BASEBALL_JOINT_MODEL_ID] as const;
 
 export type BaseballTeamInput = {
@@ -26,6 +26,11 @@ export type BaseballPropPlayerInput = {
   kind: "batter" | "pitcher";
   usage: number;
   participateProb?: number;
+  /** Confirmed starter / batting order slot (1–9). OUT when null and required. */
+  battingOrder?: number | null;
+  confirmedStarter?: boolean;
+  /** Opponent pitcher K rate proxy for matchup (pitcher K / 9 IP scale). */
+  oppPitcherKPer9?: number | null;
 };
 
 export type JointBaseballInput = {
@@ -110,28 +115,53 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
   }
 
   const players: SimV2ScenarioTensor["players"] = {};
-  const playerStatKeys = ["hits", "total_bases", "home_runs", "strikeouts", "rbis"];
+  const playerStatKeys = [
+    "hits",
+    "total_bases",
+    "home_runs",
+    "strikeouts",
+    "rbis",
+    "stolen_bases",
+  ];
   for (const pl of input.players ?? []) {
     const usage = clamp(pl.usage, 0, 1);
-    const partP = clamp(pl.participateProb ?? 0.9, 0, 1);
+    let partP = clamp(pl.participateProb ?? 0.9, 0, 1);
+    // Fail-closed: non-starter pitchers and batters without order/starter confirmation.
+    if (pl.kind === "pitcher" && pl.confirmedStarter === false) partP = 0;
+    if (
+      pl.kind === "batter" &&
+      pl.battingOrder == null &&
+      pl.confirmedStarter !== true
+    ) {
+      partP = 0;
+    }
+    if (pl.confirmedStarter || (pl.kind === "batter" && pl.battingOrder != null)) {
+      partP = Math.max(partP, 0.95);
+    }
     const participated = new Uint8Array(n);
     const hits = new Float64Array(n);
     const totalBases = new Float64Array(n);
     const homeRuns = new Float64Array(n);
     const strikeouts = new Float64Array(n);
     const rbis = new Float64Array(n);
+    const stolen = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const inGame = next() < partP ? 1 : 0;
       participated[i] = inGame;
       if (!inGame) continue;
       const teamR = pl.teamSide === "home" ? homeFg[i]! : awayFg[i]!;
       if (pl.kind === "pitcher") {
-        strikeouts[i] = poissonSample(4.5 + usage * 3, next);
+        const k9 = pl.oppPitcherKPer9 != null ? pl.oppPitcherKPer9 / 9 : 1;
+        strikeouts[i] = poissonSample((4.5 + usage * 3) * clamp(k9, 0.7, 1.4), next);
       } else {
-        hits[i] = poissonSample(0.7 + usage * 0.9, next);
-        homeRuns[i] = next() < 0.08 * usage * (teamR / 4) ? 1 : 0;
+        const kPenalty =
+          pl.oppPitcherKPer9 != null ? clamp(1.15 - pl.oppPitcherKPer9 / 20, 0.75, 1.1) : 1;
+        hits[i] = poissonSample((0.7 + usage * 0.9) * kPenalty, next);
+        homeRuns[i] = next() < 0.08 * usage * (teamR / 4) * kPenalty ? 1 : 0;
         totalBases[i] = hits[i]! + homeRuns[i]! * 2 + poissonSample(0.3, next);
         rbis[i] = poissonSample(usage * teamR * 0.15, next);
+        stolen[i] = next() < 0.08 * usage ? 1 : 0;
+        strikeouts[i] = poissonSample((0.8 + (pl.oppPitcherKPer9 ?? 8) / 12) * usage, next);
       }
     }
     players[pl.playerId] = {
@@ -142,6 +172,7 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
         home_runs: homeRuns,
         strikeouts,
         rbis,
+        stolen_bases: stolen,
       },
     };
   }

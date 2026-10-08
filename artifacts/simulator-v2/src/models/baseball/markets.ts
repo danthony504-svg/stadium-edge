@@ -37,6 +37,65 @@ export type BuildBaseballMarketArgs = {
   providerMarketKey?: string;
 };
 
+export function buildBaseballMlMarket(
+  args: BuildBaseballMarketArgs & { side: "home" | "away" },
+): SimV2Market {
+  const period = args.period ?? "fg";
+  const p = paths(period);
+  const now = args.listedAt ?? new Date().toISOString();
+  return {
+    marketId: args.marketId,
+    eventId: args.eventId,
+    sport: "mlb",
+    family: "ml",
+    providerMarketKey: args.providerMarketKey ?? (period === "fg" ? "h2h" : `${period}_h2h`),
+    period,
+    side: args.side,
+    teamSide: args.side,
+    settlement: rule({
+      ruleId: `mlb_${period}_ml_${args.side}`,
+      description: `MLB ${period} ML ${args.side}`,
+      settlePath: p.margin,
+      comparator: args.side === "home" ? "home_wins" : "away_wins",
+      lineApplies: false,
+      period,
+    }),
+    listedAt: now,
+    provenance: [{ provider: "sportsbook", fetchedAt: now }],
+  };
+}
+
+/** Run line / alt run line. */
+export function buildBaseballSpreadMarket(
+  args: BuildBaseballMarketArgs & { side: "home" | "away"; postedSpread: number },
+): SimV2Market {
+  const period = args.period ?? "fg";
+  const p = paths(period);
+  const now = args.listedAt ?? new Date().toISOString();
+  const isHome = args.side === "home";
+  return {
+    marketId: args.marketId,
+    eventId: args.eventId,
+    sport: "mlb",
+    family: "spread",
+    providerMarketKey: args.providerMarketKey ?? (period === "fg" ? "spreads" : `${period}_spreads`),
+    period,
+    side: args.side,
+    teamSide: args.side,
+    line: isHome ? -args.postedSpread : args.postedSpread,
+    settlement: rule({
+      ruleId: `mlb_${period}_rl_${args.side}`,
+      description: `MLB run line ${args.side} ${args.postedSpread}`,
+      settlePath: p.margin,
+      comparator: isHome ? "gt" : "lt",
+      lineApplies: true,
+      period,
+    }),
+    listedAt: now,
+    provenance: [{ provider: "sportsbook", fetchedAt: now }],
+  };
+}
+
 export function buildBaseballTotalMarket(
   args: BuildBaseballMarketArgs & { side: "over" | "under"; line: number },
 ): SimV2Market {
@@ -48,7 +107,7 @@ export function buildBaseballTotalMarket(
     eventId: args.eventId,
     sport: "mlb",
     family: "total",
-    providerMarketKey: args.providerMarketKey ?? `${period}_totals`,
+    providerMarketKey: args.providerMarketKey ?? (period === "fg" ? "totals" : `${period}_totals`),
     period,
     side: args.side,
     line: args.line,
@@ -65,33 +124,74 @@ export function buildBaseballTotalMarket(
   };
 }
 
+export function buildBaseballTeamTotalMarket(
+  args: BuildBaseballMarketArgs & {
+    teamSide: "home" | "away";
+    side: "over" | "under";
+    line: number;
+  },
+): SimV2Market {
+  const period = args.period ?? "fg";
+  const p = paths(period);
+  const now = args.listedAt ?? new Date().toISOString();
+  return {
+    marketId: args.marketId,
+    eventId: args.eventId,
+    sport: "mlb",
+    family: "team_total",
+    providerMarketKey: args.providerMarketKey ?? "team_totals",
+    period,
+    side: args.side,
+    teamSide: args.teamSide,
+    line: args.line,
+    settlement: rule({
+      ruleId: `mlb_${period}_tt_${args.teamSide}_${args.side}`,
+      description: `MLB ${args.teamSide} TT ${args.side} ${args.line}`,
+      settlePath: args.teamSide === "home" ? p.home : p.away,
+      comparator: args.side === "over" ? "gt" : "lt",
+      lineApplies: true,
+      period,
+    }),
+    listedAt: now,
+    provenance: [{ provider: "sportsbook", fetchedAt: now }],
+  };
+}
+
+export type BaseballPropStat =
+  | "hits"
+  | "total_bases"
+  | "home_runs"
+  | "strikeouts"
+  | "rbis"
+  | "stolen_bases";
+
+const PROP_KEYS: Record<BaseballPropStat, { main: string; alt: string | null }> = {
+  hits: { main: "batter_hits", alt: "batter_hits_alternate" },
+  total_bases: { main: "batter_total_bases", alt: "batter_total_bases_alternate" },
+  home_runs: { main: "batter_home_runs", alt: "batter_home_runs_alternate" },
+  strikeouts: { main: "pitcher_strikeouts", alt: "pitcher_strikeouts_alternate" },
+  rbis: { main: "batter_rbis", alt: null },
+  stolen_bases: { main: "batter_stolen_bases", alt: null },
+};
+
 export function buildBaseballPlayerPropMarket(
   args: BuildBaseballMarketArgs & {
     playerId: string;
-    stat: "hits" | "total_bases" | "home_runs" | "strikeouts" | "rbis";
+    stat: BaseballPropStat;
     side: "over" | "under";
     line: number;
     alternate?: boolean;
   },
 ): SimV2Market {
   const now = args.listedAt ?? new Date().toISOString();
-  const main =
-    args.stat === "strikeouts"
-      ? "pitcher_strikeouts"
-      : args.stat === "home_runs"
-        ? "batter_home_runs"
-        : args.stat === "total_bases"
-          ? "batter_total_bases"
-          : args.stat === "rbis"
-            ? "batter_rbis"
-            : "batter_hits";
+  const keys = PROP_KEYS[args.stat];
+  if (args.alternate && !keys.alt) throw new Error(`baseball_prop_no_alt:${args.stat}`);
   return {
     marketId: args.marketId,
     eventId: args.eventId,
     sport: "mlb",
     family: "player_prop",
-    providerMarketKey:
-      args.providerMarketKey ?? (args.alternate ? `${main}_alternate` : main),
+    providerMarketKey: args.providerMarketKey ?? (args.alternate ? keys.alt! : keys.main),
     period: "fg",
     side: args.side,
     line: args.line,

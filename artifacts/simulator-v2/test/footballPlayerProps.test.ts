@@ -151,7 +151,8 @@ describe("Phase C.1 football player props (shadow)", () => {
       line: 60.5,
     });
     const r = settleMarket({ tensor, market: m, odds: odds(m.marketId, -110) });
-    assert.equal(r.status, "unsupported");
+    // Fail-closed: player absent from tensor → missing_data (not a synthetic grade).
+    assert.equal(r.status, "missing_data");
     assert.equal(isMarketFamilySupported("soccer", "player_prop").supported, false);
     const prod = selectProductionSimResult({
       flags: DEFAULT_SIM_V2_FLAGS,
