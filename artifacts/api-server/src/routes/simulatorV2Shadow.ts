@@ -24,8 +24,8 @@ router.get("/v2/simulate/health", (_req, res): void => {
     engineId: SIM_V2_ENGINE_ID,
     schemaVersion: SIM_V2_SCHEMA_VERSION,
     packageVersion: SIM_V2_PACKAGE_VERSION,
-    phase: "B",
-    sportModels: ["football.joint.phase_b"],
+    phase: "B-correct",
+    sportModels: ["football.joint.phase_b_correct", "football.joint.phase_b"],
     flags: {
       masterEnabled: flags.masterEnabled,
       shadowOnly: flags.shadowOnly,
@@ -33,7 +33,7 @@ router.get("/v2/simulate/health", (_req, res): void => {
       forceV1Rollback: flags.forceV1Rollback,
       acceptedFamilies: flags.acceptedFamilies,
     },
-    note: "Phase B joint NFL/NCAAF model is shadow-only under default flags; cannot influence Coach picks.",
+    note: "Phase B corrected joint NFL/NCAAF model is shadow-only; cannot influence Coach picks under default flags.",
   });
 });
 
@@ -41,6 +41,17 @@ router.get("/v2/simulate/models", (_req, res): void => {
   res.json({
     schemaVersion: SIM_V2_SCHEMA_VERSION,
     models: [
+      {
+        modelId: "football.joint.phase_b_correct",
+        modelVersion: "0.3.0",
+        sports: ["nfl", "ncaaf"],
+        families: ["ml", "spread", "total", "team_total"],
+        periods: ["fg", "q1", "q2", "q3", "q4", "h1", "h2"],
+        productionServe: false,
+        shadowOnly: true,
+        jointConservation: "q1+q2+q3+q4=fg and h1+h2=fg per draw",
+        notes: "Train-frozen HFA + gamma-Poisson overdispersion; gates closed",
+      },
       {
         modelId: "football.joint.phase_b",
         modelVersion: "0.2.0",
@@ -50,9 +61,10 @@ router.get("/v2/simulate/models", (_req, res): void => {
         productionServe: false,
         shadowOnly: true,
         jointConservation: "q1+q2+q3+q4=fg and h1+h2=fg per draw",
+        notes: "Original thin-tailed Phase B v0 (comparison only)",
       },
     ],
-    message: "Phase B football joint model registered for shadow diagnostics only.",
+    message: "Phase B football models registered for shadow diagnostics only.",
   });
 });
 

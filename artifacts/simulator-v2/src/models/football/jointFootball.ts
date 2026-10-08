@@ -5,8 +5,10 @@
  *   FG = Q1+Q2+Q3+Q4 = H1+H2
  *   H1 = Q1+Q2, H2 = Q3+Q4
  *
- * Periods are the generative process — never an independent overwrite of FG.
- * Shadow-only: tensors are not production-served under default flags.
+ * Variants:
+ *   - phase_b_v0: original thin-tailed Poisson (for A/B comparison)
+ *   - phase_b_correct: HFA + gamma–Poisson overdispersion + margin/blowout shocks
+ *     (train-frozen knobs; shadow-only)
  */
 
 import {
@@ -22,21 +24,26 @@ import {
   type FootballSport,
   isFootballSport,
 } from "./priors.js";
+import { FROZEN_TRAIN_PARAMS } from "./trainFrozenParams.js";
 
-export const FOOTBALL_JOINT_MODEL_ID = "football.joint.phase_b" as const;
-export const FOOTBALL_JOINT_MODEL_VERSION = "0.2.0" as const;
+export type FootballModelVariant = "phase_b_v0" | "phase_b_correct";
+
+export const FOOTBALL_JOINT_MODEL_ID_V0 = "football.joint.phase_b" as const;
+export const FOOTBALL_JOINT_MODEL_ID = "football.joint.phase_b_correct" as const;
+export const FOOTBALL_JOINT_MODEL_VERSION = "0.3.0" as const;
+export const FOOTBALL_JOINT_MODEL_VERSION_V0 = "0.2.0" as const;
+
+export const FOOTBALL_JOINT_MODEL_IDS = [
+  FOOTBALL_JOINT_MODEL_ID,
+  FOOTBALL_JOINT_MODEL_ID_V0,
+] as const;
 
 export type FootballTeamInput = {
   teamId: string;
-  /** Historical mean points scored by quarter (Q1..Q4). */
   scoredByQuarter?: [number, number, number, number] | null;
-  /** Historical mean points allowed by quarter. */
   allowedByQuarter?: [number, number, number, number] | null;
-  /** Full-game pts for (fallback when quarter history missing). */
   ptsFor?: number | null;
-  /** Full-game pts against (fallback). */
   ptsAgainst?: number | null;
-  /** Recent full-game scores for volatility. */
   recentFgScores?: number[];
 };
 
@@ -47,10 +54,10 @@ export type JointFootballInput = {
   home: FootballTeamInput;
   away: FootballTeamInput;
   nDraws?: number;
-  /** Optional weather / pace scalar in [-1, 1] applied to both teams. */
   paceImpact?: number | null;
-  /** Provenance labels for dataFingerprint / audit. */
   provenanceProviders?: string[];
+  /** Default: phase_b_correct. */
+  variant?: FootballModelVariant;
 };
 
 function avg(vals: number[]): number {
@@ -62,7 +69,6 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Box–Muller normal using seeded RNG. */
 function normalSample(rng: () => number, mean: number, std: number): number {
   let u = 0;
   let v = 0;
@@ -72,7 +78,7 @@ function normalSample(rng: () => number, mean: number, std: number): number {
   return mean + z * std;
 }
 
-/** Knuth Poisson for λ; normal approx for larger λ. Seeded. */
+/** Knuth Poisson; normal approx for large λ. */
 export function poissonSample(lambda: number, rng: () => number): number {
   const lam = Math.max(0, lambda);
   if (lam === 0) return 0;
@@ -89,6 +95,38 @@ export function poissonSample(lambda: number, rng: () => number): number {
   return k - 1;
 }
 
+/**
+ * Gamma(shape, scale) with mean = shape*scale.
+ * Marsaglia–Tsang for shape ≥ 1; boost for shape < 1.
+ */
+export function gammaSample(shape: number, scale: number, rng: () => number): number {
+  if (!(shape > 0) || !(scale > 0)) return 0;
+  if (shape < 1) {
+    const g = gammaSample(shape + 1, scale, rng);
+    return g * Math.pow(rng(), 1 / shape);
+  }
+  const d = shape - 1 / 3;
+  const c = 1 / Math.sqrt(9 * d);
+  for (;;) {
+    let x: number;
+    let v: number;
+    do {
+      x = normalSample(rng, 0, 1);
+      v = 1 + c * x;
+    } while (v <= 0);
+    v = v * v * v;
+    const u = rng();
+    if (u < 1 - 0.0331 * (x * x) * (x * x)) return d * v * scale;
+    if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v * scale;
+  }
+}
+
+/** Mean-1 gamma with variance 1/shape. */
+function gammaMean1(shape: number, rng: () => number): number {
+  const a = Math.max(0.5, shape);
+  return gammaSample(a, 1 / a, rng);
+}
+
 function teamFgMean(team: FootballTeamInput, opp: FootballTeamInput, sport: FootballSport): number {
   const parts = [team.ptsFor, opp.ptsAgainst].filter(
     (v): v is number => v != null && Number.isFinite(v) && v > 0,
@@ -101,16 +139,17 @@ function teamFgMean(team: FootballTeamInput, opp: FootballTeamInput, sport: Foot
 }
 
 /**
- * Per-quarter expected points for `offense` vs `defense` (opponent).
- * Blend own period scored with opp period allowed when both exist.
+ * Per-quarter expected points for offense vs defense.
+ * Optional home-field points are applied by the caller on the home side only.
  */
 export function quarterMeansForSide(
   offense: FootballTeamInput,
   defense: FootballTeamInput,
   sport: FootballSport,
+  opts?: { homeFieldBonus?: number },
 ): [number, number, number, number] {
   const shares = LEAGUE_QUARTER_SHARES[sport];
-  const fgMean = teamFgMean(offense, defense, sport);
+  const fgMean = teamFgMean(offense, defense, sport) + (opts?.homeFieldBonus ?? 0);
   const out: [number, number, number, number] = [0, 0, 0, 0];
   for (let q = 0; q < 4; q++) {
     const scored = offense.scoredByQuarter?.[q];
@@ -119,7 +158,11 @@ export function quarterMeansForSide(
       (v): v is number => v != null && Number.isFinite(v) && v >= 0,
     );
     if (parts.length) {
-      out[q] = parts.reduce((a, b) => a + b, 0) / parts.length;
+      const base = parts.reduce((a, b) => a + b, 0) / parts.length;
+      // Distribute HFA across quarters by league share when bonus provided via fgMean path only
+      // when falling back; when parts exist, add share of bonus.
+      const bonus = (opts?.homeFieldBonus ?? 0) * shares[q];
+      out[q] = Math.max(0.05, base + (parts.length ? bonus : 0));
     } else {
       out[q] = Math.max(0.05, fgMean * shares[q]);
     }
@@ -127,57 +170,86 @@ export function quarterMeansForSide(
   return out;
 }
 
-export function buildJointFootballTensor(input: JointFootballInput): SimV2ScenarioTensor {
-  if (!isFootballSport(input.sport)) {
-    throw new Error(`football_joint_sport_unsupported:${input.sport}`);
+function teamRelVol(
+  team: FootballTeamInput,
+  opp: FootballTeamInput,
+  sport: FootballSport,
+  floor: number,
+  ceil: number,
+): number {
+  const mean = Math.max(1, teamFgMean(team, opp, sport));
+  if (!team.recentFgScores || team.recentFgScores.length < 2) {
+    return clamp(QUARTER_PACE_SIGMA[sport], floor, ceil);
   }
-  const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
-  const { next } = createSeededRng(input.seed);
-  const homeQ = quarterMeansForSide(input.home, input.away, input.sport);
-  const awayQ = quarterMeansForSide(input.away, input.home, input.sport);
+  const m = avg(team.recentFgScores);
+  const v =
+    team.recentFgScores.reduce((a, x) => a + (x - m) ** 2, 0) /
+    Math.max(1, team.recentFgScores.length - 1);
+  return clamp(Math.sqrt(v) / mean, floor, ceil);
+}
 
-  let paceMul = 1;
-  if (input.paceImpact != null && Number.isFinite(input.paceImpact)) {
-    paceMul = 1 + clamp(input.paceImpact, -1, 1) * 0.06;
+function emptyPeriodArrays(n: number) {
+  return {
+    homeFg: new Float64Array(n),
+    awayFg: new Float64Array(n),
+    homeQ: [new Float64Array(n), new Float64Array(n), new Float64Array(n), new Float64Array(n)] as const,
+    awayQ: [new Float64Array(n), new Float64Array(n), new Float64Array(n), new Float64Array(n)] as const,
+    homeH1: new Float64Array(n),
+    homeH2: new Float64Array(n),
+    awayH1: new Float64Array(n),
+    awayH2: new Float64Array(n),
+  };
+}
+
+function finalizeDraw(
+  arr: ReturnType<typeof emptyPeriodArrays>,
+  i: number,
+  hq: readonly [number, number, number, number],
+  aq: readonly [number, number, number, number],
+): void {
+  for (let q = 0; q < 4; q++) {
+    arr.homeQ[q][i] = hq[q]!;
+    arr.awayQ[q][i] = aq[q]!;
   }
+  arr.homeH1[i] = hq[0] + hq[1];
+  arr.homeH2[i] = hq[2] + hq[3];
+  arr.awayH1[i] = aq[0] + aq[1];
+  arr.awayH2[i] = aq[2] + aq[3];
+  arr.homeFg[i] = arr.homeH1[i] + arr.homeH2[i];
+  arr.awayFg[i] = arr.awayH1[i] + arr.awayH2[i];
+}
 
-  const homeFg = new Float64Array(n);
-  const awayFg = new Float64Array(n);
-  const homeQ1 = new Float64Array(n);
-  const homeQ2 = new Float64Array(n);
-  const homeQ3 = new Float64Array(n);
-  const homeQ4 = new Float64Array(n);
-  const awayQ1 = new Float64Array(n);
-  const awayQ2 = new Float64Array(n);
-  const awayQ3 = new Float64Array(n);
-  const awayQ4 = new Float64Array(n);
-  const homeH1 = new Float64Array(n);
-  const homeH2 = new Float64Array(n);
-  const awayH1 = new Float64Array(n);
-  const awayH2 = new Float64Array(n);
-
-  const paceSigma = QUARTER_PACE_SIGMA[input.sport];
+function simulateV0(
+  homeQ: [number, number, number, number],
+  awayQ: [number, number, number, number],
+  sport: FootballSport,
+  home: FootballTeamInput,
+  away: FootballTeamInput,
+  paceMul: number,
+  next: () => number,
+  n: number,
+): ReturnType<typeof emptyPeriodArrays> {
+  const arr = emptyPeriodArrays(n);
+  const paceSigma = QUARTER_PACE_SIGMA[sport];
   const homeVol =
-    input.home.recentFgScores && input.home.recentFgScores.length >= 2
+    home.recentFgScores && home.recentFgScores.length >= 2
       ? Math.sqrt(
-          input.home.recentFgScores.reduce((a, x) => a + (x - avg(input.home.recentFgScores!)) ** 2, 0) /
-            Math.max(1, input.home.recentFgScores.length - 1),
-        ) / Math.max(1, teamFgMean(input.home, input.away, input.sport))
+          home.recentFgScores.reduce((a, x) => a + (x - avg(home.recentFgScores!)) ** 2, 0) /
+            Math.max(1, home.recentFgScores.length - 1),
+        ) / Math.max(1, teamFgMean(home, away, sport))
       : paceSigma;
   const awayVol =
-    input.away.recentFgScores && input.away.recentFgScores.length >= 2
+    away.recentFgScores && away.recentFgScores.length >= 2
       ? Math.sqrt(
-          input.away.recentFgScores.reduce((a, x) => a + (x - avg(input.away.recentFgScores!)) ** 2, 0) /
-            Math.max(1, input.away.recentFgScores.length - 1),
-        ) / Math.max(1, teamFgMean(input.away, input.home, input.sport))
+          away.recentFgScores.reduce((a, x) => a + (x - avg(away.recentFgScores!)) ** 2, 0) /
+            Math.max(1, away.recentFgScores.length - 1),
+        ) / Math.max(1, teamFgMean(away, home, sport))
       : paceSigma;
 
   for (let i = 0; i < n; i++) {
-    // Shared game pace factor — correlates quarters without breaking conservation.
     const gamePace = Math.exp(clamp(normalSample(next, 0, paceSigma), -0.45, 0.45));
     const homePace = gamePace * Math.exp(clamp(normalSample(next, 0, homeVol * 0.5), -0.35, 0.35));
     const awayPace = gamePace * Math.exp(clamp(normalSample(next, 0, awayVol * 0.5), -0.35, 0.35));
-
     const hq = [
       poissonSample(homeQ[0] * paceMul * homePace, next),
       poissonSample(homeQ[1] * paceMul * homePace, next),
@@ -190,31 +262,99 @@ export function buildJointFootballTensor(input: JointFootballInput): SimV2Scenar
       poissonSample(awayQ[2] * paceMul * awayPace, next),
       poissonSample(awayQ[3] * paceMul * awayPace, next),
     ] as const;
-
-    homeQ1[i] = hq[0];
-    homeQ2[i] = hq[1];
-    homeQ3[i] = hq[2];
-    homeQ4[i] = hq[3];
-    awayQ1[i] = aq[0];
-    awayQ2[i] = aq[1];
-    awayQ3[i] = aq[2];
-    awayQ4[i] = aq[3];
-
-    homeH1[i] = hq[0] + hq[1];
-    homeH2[i] = hq[2] + hq[3];
-    awayH1[i] = aq[0] + aq[1];
-    awayH2[i] = aq[2] + aq[3];
-    homeFg[i] = homeH1[i] + homeH2[i];
-    awayFg[i] = awayH1[i] + awayH2[i];
+    finalizeDraw(arr, i, hq, aq);
   }
+  return arr;
+}
+
+function simulateCorrect(
+  homeQ: [number, number, number, number],
+  awayQ: [number, number, number, number],
+  sport: FootballSport,
+  home: FootballTeamInput,
+  away: FootballTeamInput,
+  paceMul: number,
+  next: () => number,
+  n: number,
+): ReturnType<typeof emptyPeriodArrays> {
+  const p = FROZEN_TRAIN_PARAMS[sport];
+  const arr = emptyPeriodArrays(n);
+  const homeVol = teamRelVol(home, away, sport, p.teamVolFloor, p.teamVolCeil);
+  const awayVol = teamRelVol(away, home, sport, p.teamVolFloor, p.teamVolCeil);
+  // Map relative vol into gamma shape: higher vol ⇒ lower shape.
+  const homeTeamShape = clamp(p.teamGammaShape / (1 + 3 * homeVol), 2, 40);
+  const awayTeamShape = clamp(p.teamGammaShape / (1 + 3 * awayVol), 2, 40);
+
+  for (let i = 0; i < n; i++) {
+    const gameG = gammaMean1(p.gameGammaShape, next);
+    const homeG = gammaMean1(homeTeamShape, next);
+    const awayG = gammaMean1(awayTeamShape, next);
+    const blowout = next() < p.blowoutProb;
+    const marginZ = normalSample(
+      next,
+      0,
+      blowout ? p.blowoutMarginShockSd : p.marginShockSd,
+    );
+    // Log-margin shock with sum-normalization so E[homeλ+awayλ] is not inflated by Jensen.
+    const rawH = Math.exp(clamp(marginZ * 0.5, -1.0, 1.0));
+    const rawA = Math.exp(clamp(-marginZ * 0.5, -1.0, 1.0));
+    const norm = 2 / (rawH + rawA);
+    const homeMarginMul = rawH * norm;
+    const awayMarginMul = rawA * norm;
+
+    const hq: [number, number, number, number] = [0, 0, 0, 0];
+    const aq: [number, number, number, number] = [0, 0, 0, 0];
+    for (let q = 0; q < 4; q++) {
+      const qHomeG = gammaMean1(p.quarterGammaShape, next);
+      const qAwayG = gammaMean1(p.quarterGammaShape, next);
+      const hLam = homeQ[q]! * paceMul * gameG * homeG * homeMarginMul * qHomeG;
+      const aLam = awayQ[q]! * paceMul * gameG * awayG * awayMarginMul * qAwayG;
+      hq[q] = poissonSample(hLam, next);
+      aq[q] = poissonSample(aLam, next);
+    }
+    finalizeDraw(arr, i, hq, aq);
+  }
+  return arr;
+}
+
+export function buildJointFootballTensor(input: JointFootballInput): SimV2ScenarioTensor {
+  if (!isFootballSport(input.sport)) {
+    throw new Error(`football_joint_sport_unsupported:${input.sport}`);
+  }
+  const variant: FootballModelVariant = input.variant ?? "phase_b_correct";
+  const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
+  const { next } = createSeededRng(input.seed);
+
+  const hfa = variant === "phase_b_correct" ? FROZEN_TRAIN_PARAMS[input.sport].homeFieldAdvantage : 0;
+  const homeQ = quarterMeansForSide(input.home, input.away, input.sport, {
+    homeFieldBonus: hfa,
+  });
+  const awayQ = quarterMeansForSide(input.away, input.home, input.sport);
+
+  let paceMul = 1;
+  if (input.paceImpact != null && Number.isFinite(input.paceImpact)) {
+    paceMul = 1 + clamp(input.paceImpact, -1, 1) * 0.06;
+  }
+
+  const arr =
+    variant === "phase_b_correct"
+      ? simulateCorrect(homeQ, awayQ, input.sport, input.home, input.away, paceMul, next, n)
+      : simulateV0(homeQ, awayQ, input.sport, input.home, input.away, paceMul, next, n);
+
+  const modelId = variant === "phase_b_correct" ? FOOTBALL_JOINT_MODEL_ID : FOOTBALL_JOINT_MODEL_ID_V0;
+  const modelVersion =
+    variant === "phase_b_correct" ? FOOTBALL_JOINT_MODEL_VERSION : FOOTBALL_JOINT_MODEL_VERSION_V0;
 
   const createdAt = new Date().toISOString();
   const providers = input.provenanceProviders?.length
     ? input.provenanceProviders
-    : ["historical_team_form", "league_priors"];
+    : variant === "phase_b_correct"
+      ? ["historical_team_form", "train_frozen_params", "league_priors"]
+      : ["historical_team_form", "league_priors"];
   const dataFingerprint = fingerprintPayload([
-    FOOTBALL_JOINT_MODEL_ID,
-    FOOTBALL_JOINT_MODEL_VERSION,
+    modelId,
+    modelVersion,
+    variant,
     input.sport,
     input.eventId,
     input.seed,
@@ -224,14 +364,15 @@ export function buildJointFootballTensor(input: JointFootballInput): SimV2Scenar
     input.home,
     input.away,
     input.paceImpact ?? null,
+    variant === "phase_b_correct" ? FROZEN_TRAIN_PARAMS[input.sport] : null,
   ]);
 
   return {
     meta: {
       schemaVersion: SIM_V2_SCHEMA_VERSION,
       engineId: "simulator-v2",
-      modelId: FOOTBALL_JOINT_MODEL_ID,
-      modelVersion: FOOTBALL_JOINT_MODEL_VERSION,
+      modelId,
+      modelVersion,
       sport: input.sport,
       eventId: input.eventId,
       nDraws: n,
@@ -246,6 +387,7 @@ export function buildJointFootballTensor(input: JointFootballInput): SimV2Scenar
           "phase_b_shadow_only",
           "not_accepted_for_production_serve",
           "calibration_gates_required_before_p0_lift",
+          variant === "phase_b_correct" ? "phase_b_correct_train_frozen" : "phase_b_v0_unadjusted",
         ],
         participationReady: false,
         oddsReady: true,
@@ -259,52 +401,77 @@ export function buildJointFootballTensor(input: JointFootballInput): SimV2Scenar
       })),
     },
     team: {
-      homeFg,
-      awayFg,
+      homeFg: arr.homeFg,
+      awayFg: arr.awayFg,
       homeByPeriod: {
-        q1: homeQ1,
-        q2: homeQ2,
-        q3: homeQ3,
-        q4: homeQ4,
-        h1: homeH1,
-        h2: homeH2,
+        q1: arr.homeQ[0],
+        q2: arr.homeQ[1],
+        q3: arr.homeQ[2],
+        q4: arr.homeQ[3],
+        h1: arr.homeH1,
+        h2: arr.homeH2,
       },
       awayByPeriod: {
-        q1: awayQ1,
-        q2: awayQ2,
-        q3: awayQ3,
-        q4: awayQ4,
-        h1: awayH1,
-        h2: awayH2,
+        q1: arr.awayQ[0],
+        q2: arr.awayQ[1],
+        q3: arr.awayQ[2],
+        q4: arr.awayQ[3],
+        h1: arr.awayH1,
+        h2: arr.awayH2,
       },
     },
     players: {},
   };
 }
 
-/** Mean FG / period scores across draws (diagnostics). */
+/** Convenience: original thin-tailed model. */
+export function buildJointFootballTensorV0(
+  input: Omit<JointFootballInput, "variant">,
+): SimV2ScenarioTensor {
+  return buildJointFootballTensor({ ...input, variant: "phase_b_v0" });
+}
+
 export function summarizeJointFootballTensor(tensor: SimV2ScenarioTensor): {
   homeFgMean: number;
   awayFgMean: number;
   homeQuarterMeans: number[];
   awayQuarterMeans: number[];
   totalFgMean: number;
+  totalFgVar: number;
+  marginMean: number;
+  marginVar: number;
 } {
   const n = tensor.meta.nDraws;
-  const mean = (arr: Float64Array) => {
+  const mean = (a: Float64Array) => {
     let s = 0;
-    for (let i = 0; i < n; i++) s += arr[i];
+    for (let i = 0; i < n; i++) s += a[i]!;
     return s / n;
+  };
+  const variance = (a: Float64Array, m: number) => {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += (a[i]! - m) ** 2;
+    return s / Math.max(1, n - 1);
   };
   const hq = ["q1", "q2", "q3", "q4"].map((p) => mean(tensor.team.homeByPeriod[p]!));
   const aq = ["q1", "q2", "q3", "q4"].map((p) => mean(tensor.team.awayByPeriod[p]!));
   const homeFgMean = mean(tensor.team.homeFg);
   const awayFgMean = mean(tensor.team.awayFg);
+  const totals = new Float64Array(n);
+  const margins = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    totals[i] = tensor.team.homeFg[i]! + tensor.team.awayFg[i]!;
+    margins[i] = tensor.team.homeFg[i]! - tensor.team.awayFg[i]!;
+  }
+  const totalFgMean = mean(totals);
+  const marginMean = mean(margins);
   return {
     homeFgMean,
     awayFgMean,
     homeQuarterMeans: hq,
     awayQuarterMeans: aq,
-    totalFgMean: homeFgMean + awayFgMean,
+    totalFgMean,
+    totalFgVar: variance(totals, totalFgMean),
+    marginMean,
+    marginVar: variance(margins, marginMean),
   };
 }

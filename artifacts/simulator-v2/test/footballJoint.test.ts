@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   FOOTBALL_JOINT_MODEL_ID,
+  FOOTBALL_JOINT_MODEL_ID_V0,
+  buildJointFootballTensorV0,
   buildCalibrationReport,
   buildFootballMlMarket,
   buildFootballSpreadMarket,
@@ -65,6 +67,7 @@ describe("Phase B joint football model", () => {
     const tensor = nflTensor("conserve-1", 5000);
     assert.equal(tensor.meta.modelId, FOOTBALL_JOINT_MODEL_ID);
     assert.equal(tensor.meta.isFixture, false);
+    assert.ok(tensor.meta.modelVersion.startsWith("0.3"));
     const qReport = validateScenarioConsistency(tensor, {
       periodSumGroup: ["q1", "q2", "q3", "q4"],
       checkDerivedHalves: true,
@@ -351,5 +354,42 @@ describe("Phase B joint football model", () => {
     assert.equal(r.status, "ok");
     assert.equal(r.providerOddsAmerican, 185);
     assert.ok(Math.abs(r.impliedProbRaw! - impliedProbFromAmerican(185)) < 1e-12);
+  });
+
+  it("correct model raises FG variance vs v0 and keeps conservation", () => {
+    const base = {
+      sport: "nfl" as const,
+      eventId: "var-1",
+      seed: "var-compare",
+      nDraws: 4000,
+      home: {
+        teamId: "h",
+        scoredByQuarter: [4.5, 6.2, 5.0, 7.1] as [number, number, number, number],
+        ptsFor: 22.8,
+        ptsAgainst: 22.1,
+        recentFgScores: [17, 24, 27, 20, 31],
+      },
+      away: {
+        teamId: "a",
+        scoredByQuarter: [3.8, 5.5, 4.2, 6.0] as [number, number, number, number],
+        ptsFor: 19.5,
+        ptsAgainst: 22.1,
+        recentFgScores: [14, 21, 10, 28, 17],
+      },
+    };
+    const corrected = buildJointFootballTensor({ ...base, variant: "phase_b_correct" });
+    const v0 = buildJointFootballTensorV0(base);
+    assert.equal(corrected.meta.modelId, FOOTBALL_JOINT_MODEL_ID);
+    assert.equal(v0.meta.modelId, FOOTBALL_JOINT_MODEL_ID_V0);
+    const sc = summarizeJointFootballTensor(corrected);
+    const sv = summarizeJointFootballTensor(v0);
+    assert.ok(sc.totalFgVar > sv.totalFgVar * 1.3, `${sc.totalFgVar} vs ${sv.totalFgVar}`);
+    // HFA should lift home mean vs v0 on same form.
+    assert.ok(sc.homeFgMean > sv.homeFgMean);
+    const cons = validateScenarioConsistency(corrected, {
+      periodSumGroup: ["q1", "q2", "q3", "q4"],
+      checkDerivedHalves: true,
+    });
+    assert.equal(cons.ok, true, JSON.stringify(cons.issues));
   });
 });

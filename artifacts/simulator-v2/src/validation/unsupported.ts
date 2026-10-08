@@ -1,7 +1,7 @@
 import type { SimV2MarketFamily } from "../schemas/market.js";
 import type { SimV2SportId } from "../schemas/sport.js";
 import { PHASE_B_FOOTBALL_FAMILIES } from "../models/football/markets.js";
-import { FOOTBALL_JOINT_MODEL_ID } from "../models/football/jointFootball.js";
+import { FOOTBALL_JOINT_MODEL_IDS } from "../models/football/jointFootball.js";
 
 export type UnsupportedDecision = {
   supported: boolean;
@@ -40,8 +40,11 @@ export function isMarketFamilySupported(
       reason: `unsupported_market_family:${sport}:${family}:no_accepted_sport_model`,
     };
   }
-  // Phase B football joint model only — reject unknown / future model ids.
-  if (opts?.modelId && opts.modelId !== FOOTBALL_JOINT_MODEL_ID) {
+  // Phase B football joint models only (v0 + correct) — reject unknown ids.
+  if (
+    opts?.modelId &&
+    !(FOOTBALL_JOINT_MODEL_IDS as readonly string[]).includes(opts.modelId)
+  ) {
     return {
       supported: false,
       reason: `unsupported_model:${opts.modelId}`,

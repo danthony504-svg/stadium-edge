@@ -1,4 +1,5 @@
 export * from "./priors.js";
+export * from "./trainFrozenParams.js";
 export * from "./jointFootball.js";
 export * from "./markets.js";
 export * from "./calibration.js";
