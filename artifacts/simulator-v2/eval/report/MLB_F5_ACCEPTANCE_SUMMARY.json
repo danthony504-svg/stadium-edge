@@ -1,0 +1,518 @@
+{
+  "defaultProfile": "v0.3.1",
+  "promote": false,
+  "fgMlDecision": "MODIFY",
+  "f5": {
+    "profile": "v0.3.1",
+    "fold": "holdout",
+    "family": "f5",
+    "n": 1680,
+    "games": 560,
+    "effN": 560,
+    "brier": 0.25313194836309566,
+    "logLoss": 0.7003529460377005,
+    "ece": 0.04855089285714275,
+    "eceSe": 0.009808343887514908,
+    "meanAbsDevFromHalf": 0.09177529761904751,
+    "separation": 0.010468273921761584,
+    "auc": 0.5323496253728812,
+    "verdict": "FAIL",
+    "reasons": [
+      "ece_0.0486_gt_0.04"
+    ]
+  },
+  "p95RuntimeMs": 1.496458999999959,
+  "f5Pass": false,
+  "val": {
+    "mlPrior": {
+      "profile": "v0.3.1",
+      "fold": "val",
+      "family": "ml",
+      "n": 560,
+      "games": 560,
+      "effN": 560,
+      "brier": 0.25319480892857127,
+      "logLoss": 0.7007203702742376,
+      "ece": 0.09928035714285723,
+      "eceSe": 0.018528284204768784,
+      "meanAbsDevFromHalf": 0.09040714285714288,
+      "separation": 0.02772137252635798,
+      "auc": 0.5822642575541601,
+      "verdict": "FAIL",
+      "reasons": [
+        "ece_0.0993_gt_0.04"
+      ]
+    },
+    "mlCand": {
+      "profile": "v0.3.2",
+      "fold": "val",
+      "family": "ml",
+      "n": 560,
+      "games": 560,
+      "effN": 560,
+      "brier": 0.2529907276785718,
+      "logLoss": 0.7009840168494399,
+      "ece": 0.0973642857142857,
+      "eceSe": 0.017726797267706207,
+      "meanAbsDevFromHalf": 0.10020714285714288,
+      "separation": 0.033808375390068146,
+      "auc": 0.5858792104891423,
+      "verdict": "FAIL",
+      "reasons": [
+        "ece_0.0974_gt_0.04"
+      ]
+    },
+    "ttPrior": {
+      "profile": "v0.3.1",
+      "fold": "val",
+      "family": "team_total",
+      "n": 560,
+      "games": 560,
+      "effN": 560,
+      "brier": 0.24352054062499967,
+      "logLoss": 0.6801187281717261,
+      "ece": 0.06071874999999987,
+      "eceSe": 0.01767906119829999,
+      "meanAbsDevFromHalf": 0.08865803571428578,
+      "separation": 0.012726923885618135,
+      "auc": 0.5363882464255677,
+      "verdict": "FAIL",
+      "reasons": [
+        "ece_0.0607_gt_0.04"
+      ]
+    },
+    "ttCand": {
+      "profile": "v0.3.2",
+      "fold": "val",
+      "family": "team_total",
+      "n": 560,
+      "games": 560,
+      "effN": 560,
+      "brier": 0.2445315691964282,
+      "logLoss": 0.6822306514446292,
+      "ece": 0.06426160714285711,
+      "eceSe": 0.016621468394597806,
+      "meanAbsDevFromHalf": 0.0994437500000001,
+      "separation": 0.01481292052144606,
+      "auc": 0.5342396446593777,
+      "verdict": "FAIL",
+      "reasons": [
+        "ece_0.0643_gt_0.04"
+      ]
+    }
+  },
+  "holdout": {
+    "prior": {
+      "ml": {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "ml",
+        "n": 560,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.2576861276785717,
+        "logLoss": 0.7093642327274863,
+        "ece": 0.10739464285714298,
+        "eceSe": 0.02127790435130693,
+        "meanAbsDevFromHalf": 0.08588214285714293,
+        "separation": 0.018337436108715466,
+        "auc": 0.5543059829279912,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.1074_gt_0.04"
+        ]
+      },
+      "spread": {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "spread",
+        "n": 1120,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.21617164531249988,
+        "logLoss": 0.6250526918242743,
+        "ece": 0.04961562500000013,
+        "eceSe": 0.014769594574836826,
+        "meanAbsDevFromHalf": 0.22575312500000014,
+        "separation": 0.030485454399889367,
+        "auc": 0.5935019705885564,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0496_gt_0.04"
+        ]
+      },
+      "total": {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "total",
+        "n": 1120,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.24283805870535718,
+        "logLoss": 0.6806765393085954,
+        "ece": 0.05401741071428583,
+        "eceSe": 0.011776497458980212,
+        "meanAbsDevFromHalf": 0.1325888392857141,
+        "separation": 0.04364195358940676,
+        "auc": 0.5921204099949271,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0540_gt_0.04"
+        ]
+      },
+      "team_total": {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "team_total",
+        "n": 560,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.25678076517857146,
+        "logLoss": 0.7073400956577484,
+        "ece": 0.09135000000000017,
+        "eceSe": 0.017780756003951778,
+        "meanAbsDevFromHalf": 0.07885000000000002,
+        "separation": -0.0020218955592106735,
+        "auc": 0.48867958470394735,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0914_gt_0.04"
+        ]
+      },
+      "f5": {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "f5",
+        "n": 1680,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.25313194836309566,
+        "logLoss": 0.7003529460377005,
+        "ece": 0.04855089285714275,
+        "eceSe": 0.009808343887514908,
+        "meanAbsDevFromHalf": 0.09177529761904751,
+        "separation": 0.010468273921761584,
+        "auc": 0.5323496253728812,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0486_gt_0.04"
+        ]
+      },
+      "main_all": {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "main_all",
+        "n": 3360,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.2513487894345238,
+        "logLoss": 0.6963452585484847,
+        "ece": 0.06698928571428564,
+        "eceSe": 0.010518998282866608,
+        "meanAbsDevFromHalf": 0.09556071428571437,
+        "separation": 0.02155991446875244,
+        "auc": 0.5524874557009474,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0670_gt_0.04"
+        ]
+      },
+      "alt_all": {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "alt_all",
+        "n": 1680,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.22792980312499997,
+        "logLoss": 0.6503833591577228,
+        "ece": 0.057640773809523864,
+        "eceSe": 0.011792327741055366,
+        "meanAbsDevFromHalf": 0.19445922619047615,
+        "separation": 0.018467968247932454,
+        "auc": 0.5544214533861487,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0576_gt_0.04"
+        ]
+      }
+    },
+    "candidate": {
+      "ml": {
+        "profile": "v0.3.2",
+        "fold": "holdout",
+        "family": "ml",
+        "n": 560,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.2594769959821431,
+        "logLoss": 0.71328322421883,
+        "ece": 0.11629017857142865,
+        "eceSe": 0.02148807522550596,
+        "meanAbsDevFromHalf": 0.09406875000000008,
+        "separation": 0.018809755249707294,
+        "auc": 0.5490723693527829,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.1163_gt_0.04"
+        ]
+      },
+      "spread": {
+        "profile": "v0.3.2",
+        "fold": "holdout",
+        "family": "spread",
+        "n": 1120,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.2175471058035717,
+        "logLoss": 0.6289102182502988,
+        "ece": 0.05246249999999985,
+        "eceSe": 0.013043697546775599,
+        "meanAbsDevFromHalf": 0.2217160714285715,
+        "separation": 0.03009265951213852,
+        "auc": 0.584180340695292,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0525_gt_0.04"
+        ]
+      },
+      "total": {
+        "profile": "v0.3.2",
+        "fold": "holdout",
+        "family": "total",
+        "n": 1120,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.24386452857142865,
+        "logLoss": 0.6834565930887455,
+        "ece": 0.06016785714285716,
+        "eceSe": 0.012621447640069306,
+        "meanAbsDevFromHalf": 0.13571875000000008,
+        "separation": 0.044632819105347554,
+        "auc": 0.5906456899803587,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0602_gt_0.04"
+        ]
+      },
+      "team_total": {
+        "profile": "v0.3.2",
+        "fold": "holdout",
+        "family": "team_total",
+        "n": 560,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.2599862816964287,
+        "logLoss": 0.714237071282295,
+        "ece": 0.10330982142857155,
+        "eceSe": 0.017438022565223723,
+        "meanAbsDevFromHalf": 0.0883223214285715,
+        "separation": -0.0038167146381575257,
+        "auc": 0.48515881990131576,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.1033_gt_0.04"
+        ]
+      },
+      "f5": {
+        "profile": "v0.3.2",
+        "fold": "holdout",
+        "family": "f5",
+        "n": 1680,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.25439065267857186,
+        "logLoss": 0.7031754744590017,
+        "ece": 0.05137440476190445,
+        "eceSe": 0.010388463498117622,
+        "meanAbsDevFromHalf": 0.09559166666666664,
+        "separation": 0.010482834994462176,
+        "auc": 0.5298668388369385,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0514_gt_0.04"
+        ]
+      },
+      "main_all": {
+        "profile": "v0.3.2",
+        "fold": "holdout",
+        "family": "main_all",
+        "n": 3360,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.25290365773809537,
+        "logLoss": 0.6998310843349262,
+        "ece": 0.07213392857142846,
+        "eceSe": 0.010275637024768903,
+        "meanAbsDevFromHalf": 0.1013005952380951,
+        "separation": 0.021849050977987006,
+        "auc": 0.5490372410209228,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0721_gt_0.04"
+        ]
+      },
+      "alt_all": {
+        "profile": "v0.3.2",
+        "fold": "holdout",
+        "family": "alt_all",
+        "n": 1680,
+        "games": 560,
+        "effN": 560,
+        "brier": 0.22934551934523836,
+        "logLoss": 0.6542646118488875,
+        "ece": 0.060858928571428404,
+        "eceSe": 0.010292764979956827,
+        "meanAbsDevFromHalf": 0.1920773809523809,
+        "separation": 0.017931304414775695,
+        "auc": 0.5487319128075157,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0609_gt_0.04"
+        ]
+      }
+    }
+  },
+  "shrinkMl": {
+    "flagged": false,
+    "note": "ok: ΔECE=0.0089, meanAbsDevFromHalf 0.0859→0.0941 (Δ=0.0082, -9.5% drop)",
+    "madDropPct": -0.09532374100719414,
+    "deltaEce": 0.008895535714285668
+  },
+  "shrinkTt": {
+    "flagged": false,
+    "note": "ok: ΔECE=0.0120, meanAbsDevFromHalf 0.0789→0.0883 (Δ=0.0095, -12.0% drop)",
+    "madDropPct": -0.12013089953800238,
+    "deltaEce": 0.011959821428571382
+  },
+  "promotionChecks": {
+    "eceImproved": false,
+    "shrinkFlagged": false,
+    "brierOk": false,
+    "llOk": false
+  },
+  "props": {
+    "stats": {
+      "attempted": 120,
+      "ok": 120,
+      "fail": 0
+    },
+    "named": {
+      "profile": "v0.3.1",
+      "fold": "holdout",
+      "family": "player_prop_named",
+      "n": 5040,
+      "games": 120,
+      "effN": 120,
+      "brier": 0.1572522209821438,
+      "logLoss": 0.4800968045019304,
+      "ece": 0.041557440476190394,
+      "eceSe": 0.0053607407786936245,
+      "meanAbsDevFromHalf": 0.2763010912698403,
+      "separation": 0.26644442307692334,
+      "auc": 0.7671298076923077,
+      "verdict": "FAIL",
+      "reasons": [
+        "ece_0.0416_gt_0.04"
+      ]
+    },
+    "byStat": [
+      {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "prop_hits",
+        "n": 1200,
+        "games": 120,
+        "effN": 120,
+        "brier": 0.23374613625000018,
+        "logLoss": 0.6603118489415695,
+        "ece": 0.005171666666665908,
+        "eceSe": 0.009200079661343495,
+        "meanAbsDevFromHalf": 0.13350499999999993,
+        "separation": -0.00015262099891688585,
+        "auc": 0.49800020221003677,
+        "verdict": "PASS",
+        "reasons": []
+      },
+      {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "prop_hr",
+        "n": 1200,
+        "games": 120,
+        "effN": 120,
+        "brier": 0.1372098054166669,
+        "logLoss": 0.48600739303354173,
+        "ece": 0.09652416666666688,
+        "eceSe": 0.012024766933198275,
+        "meanAbsDevFromHalf": 0.44569083333333237,
+        "separation": 0.0009696918764471735,
+        "auc": 0.5331925460450339,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0965_gt_0.04"
+        ]
+      },
+      {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "prop_k",
+        "n": 240,
+        "games": 120,
+        "effN": 120,
+        "brier": 0.32418438958333323,
+        "logLoss": 0.8495439488738447,
+        "ece": 0.29925833333333385,
+        "eceSe": 0.030151457281840276,
+        "meanAbsDevFromHalf": 0.17425833333333332,
+        "separation": -0.00032444444444457154,
+        "auc": 0.48548148148148146,
+        "verdict": "INSUFFICIENT_DATA",
+        "reasons": [
+          "oos_sample_240_lt_500",
+          "ece_0.2993_gt_0.04"
+        ]
+      },
+      {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "prop_rbi",
+        "n": 1200,
+        "games": 120,
+        "effN": 120,
+        "brier": 0.22042996708333382,
+        "logLoss": 0.6331004491864887,
+        "ece": 0.07785583333333307,
+        "eceSe": 0.01589157027935053,
+        "meanAbsDevFromHalf": 0.11127916666666657,
+        "separation": 0.003049212121212397,
+        "auc": 0.5227846464646465,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0779_gt_0.04"
+        ]
+      },
+      {
+        "profile": "v0.3.1",
+        "fold": "holdout",
+        "family": "prop_sb",
+        "n": 1200,
+        "games": 120,
+        "effN": 120,
+        "brier": 0.004236541458333333,
+        "logLoss": 0.06707809797174084,
+        "ece": 0.06486208333333329,
+        "eceSe": 0.00016133734766818767,
+        "meanAbsDevFromHalf": 0.43513791666666746,
+        "separation": null,
+        "auc": null,
+        "verdict": "FAIL",
+        "reasons": [
+          "ece_0.0649_gt_0.04"
+        ]
+      }
+    ]
+  },
+  "deepDrawsConservationTest": 10000,
+  "notProductionAllowlist": true
+}

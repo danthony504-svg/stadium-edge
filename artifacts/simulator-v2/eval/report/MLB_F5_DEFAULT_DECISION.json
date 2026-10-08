@@ -1,0 +1,7 @@
+{
+  "promote": false,
+  "defaultProfile": "v0.3.1",
+  "fgMlDecision": "MODIFY",
+  "priorDefault": "v0.3.1",
+  "candidate": "v0.3.2"
+}
