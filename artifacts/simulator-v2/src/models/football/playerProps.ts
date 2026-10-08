@@ -1,6 +1,6 @@
 /**
- * Phase C.1 — attach skill player props to the joint football tensor.
- * Stats are sampled conditional on the same draw's team FG (joint, not independent V1).
+ * Phase C.2 — joint football player props with shared team budgets,
+ * participation/injury grounding, DST + Q/H stats where provider markets exist.
  * Shadow-only; production serve remains off.
  */
 
@@ -10,14 +10,49 @@ import { poissonSample } from "./jointFootball.js";
 
 export const FOOTBALL_PROP_STAT_KEYS = [
   "pass_yds",
+  "pass_attempts",
+  "pass_completions",
+  "pass_tds",
   "rush_yds",
+  "rush_attempts",
+  "rush_tds",
   "rec_yds",
   "receptions",
-  "pass_attempts",
+  "reception_tds",
   "any_td",
+  "kicking_points",
+  "tackles_assists",
+  "solo_tackles",
+  "defensive_interceptions",
+  // Period slices (provider QH keys) — joint with quarter team points.
+  "pass_yds_q1",
+  "pass_yds_h1",
+  "rush_yds_q1",
+  "rush_yds_h1",
+  "rec_yds_q1",
+  "rec_yds_h1",
+  "pass_tds_q1",
 ] as const;
 
-export type FootballPropRole = "qb" | "rb" | "wr" | "te" | "flex";
+export type FootballPropStatKeyC2 = (typeof FOOTBALL_PROP_STAT_KEYS)[number];
+
+export type FootballPropRole =
+  | "qb"
+  | "rb"
+  | "wr"
+  | "te"
+  | "flex"
+  | "k"
+  | "dst_lb"
+  | "dst_db";
+
+export type FootballParticipationStatus =
+  | "out"
+  | "doubtful"
+  | "questionable"
+  | "probable"
+  | "active"
+  | "confirmed_starter";
 
 export type FootballPropPlayerInput = {
   playerId: string;
@@ -25,14 +60,15 @@ export type FootballPropPlayerInput = {
   role: FootballPropRole;
   /** 0–1 share of team skill volume for this player's primary stat. */
   usage: number;
-  /** Expected participation; <0.5 ⇒ often DNP in draws. */
+  /** Explicit participation; overrides role default when set. */
   participateProb?: number;
+  /** Injury / roster grounding — OUT rejects settlement for this player. */
+  participationStatus?: FootballParticipationStatus;
 };
 
 export type AttachFootballPlayerPropsInput = {
   tensor: SimV2ScenarioTensor;
   players: FootballPropPlayerInput[];
-  /** Extra entropy mixed into seed (deterministic). */
   propSeedSuffix?: string;
 };
 
@@ -40,7 +76,28 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-/** Rough yards-per-point scaling so props move with team scoring on the same draw. */
+function statusToParticipateProb(
+  status: FootballParticipationStatus | undefined,
+  fallback: number,
+): number {
+  switch (status) {
+    case "out":
+      return 0;
+    case "doubtful":
+      return 0.15;
+    case "questionable":
+      return 0.45;
+    case "probable":
+      return 0.8;
+    case "confirmed_starter":
+      return 0.97;
+    case "active":
+      return 0.92;
+    default:
+      return fallback;
+  }
+}
+
 function teamYardBudget(points: number, kind: "pass" | "rush" | "rec"): number {
   const pts = Math.max(0, points);
   if (kind === "pass") return 8.5 * pts + 120;
@@ -48,78 +105,176 @@ function teamYardBudget(points: number, kind: "pass" | "rush" | "rec"): number {
   return 5.5 * pts + 80;
 }
 
+function emptyStats(n: number): Record<string, Float64Array> {
+  const out: Record<string, Float64Array> = {};
+  for (const k of FOOTBALL_PROP_STAT_KEYS) out[k] = new Float64Array(n);
+  return out;
+}
+
 /**
- * Mutates a shallow-copied tensor with joint player stats.
- * Does not invent sportsbook markets — callers attach real lines via market builders.
+ * Attach joint player props. Same-team skill players share pass/rush budgets
+ * per draw so related outcomes stay correlated (no independent paste-on).
  */
 export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput): SimV2ScenarioTensor {
   const base = input.tensor;
   const n = base.meta.nDraws;
-  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c1"}`;
+  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2"}`;
   const { next } = createSeededRng(seed);
 
   const players: SimV2ScenarioTensor["players"] = { ...base.players };
-  const warnings = [...base.meta.quality.warnings, "phase_c1_player_props_shadow"];
+  const warnings = [
+    ...base.meta.quality.warnings,
+    "phase_c2_player_props_shadow",
+    "shared_team_skill_budgets",
+  ];
+  const outPlayerIds: string[] = [];
 
-  for (const p of input.players) {
-    if (!p.playerId) continue;
-    const usage = clamp01(p.usage);
-    const partP = clamp01(p.participateProb ?? 0.92);
-    const participated = new Uint8Array(n);
-    const passYds = new Float64Array(n);
-    const rushYds = new Float64Array(n);
-    const recYds = new Float64Array(n);
-    const receptions = new Float64Array(n);
-    const passAttempts = new Float64Array(n);
-    const anyTd = new Float64Array(n);
+  const bySide = {
+    home: input.players.filter((p) => p.teamSide === "home"),
+    away: input.players.filter((p) => p.teamSide === "away"),
+  };
+
+  for (const side of ["home", "away"] as const) {
+    const roster = bySide[side];
+    if (!roster.length) continue;
+
+    const prepared = roster.map((p) => {
+      const partP = statusToParticipateProb(
+        p.participationStatus,
+        clamp01(p.participateProb ?? (p.role.startsWith("dst") || p.role === "k" ? 0.95 : 0.92)),
+      );
+      if (p.participationStatus === "out") outPlayerIds.push(p.playerId);
+      return {
+        p,
+        usage: clamp01(p.usage),
+        partP,
+        participated: new Uint8Array(n),
+        stats: emptyStats(n),
+      };
+    });
 
     for (let i = 0; i < n; i++) {
-      const teamPts =
-        p.teamSide === "home" ? base.team.homeFg[i]! : base.team.awayFg[i]!;
-      const inGame = next() < partP ? 1 : 0;
-      participated[i] = inGame;
-      if (!inGame) continue;
+      const teamPts = side === "home" ? base.team.homeFg[i]! : base.team.awayFg[i]!;
+      const q1 = side === "home" ? base.team.homeByPeriod.q1![i]! : base.team.awayByPeriod.q1![i]!;
+      const h1 = side === "home" ? base.team.homeByPeriod.h1![i]! : base.team.awayByPeriod.h1![i]!;
+      const qShare = teamPts > 0 ? q1 / teamPts : 0.25;
+      const hShare = teamPts > 0 ? h1 / teamPts : 0.5;
 
       const passBud = teamYardBudget(teamPts, "pass");
       const rushBud = teamYardBudget(teamPts, "rush");
       const recBud = teamYardBudget(teamPts, "rec");
 
-      if (p.role === "qb") {
-        passYds[i] = poissonSample(passBud * usage, next);
-        passAttempts[i] = poissonSample(22 * usage + 8, next);
-        rushYds[i] = poissonSample(rushBud * usage * 0.15, next);
-        anyTd[i] = next() < clamp01(0.04 * teamPts * usage) ? 1 : 0;
-      } else if (p.role === "rb") {
-        rushYds[i] = poissonSample(rushBud * usage, next);
-        recYds[i] = poissonSample(recBud * usage * 0.35, next);
-        receptions[i] = poissonSample(2.2 * usage, next);
-        anyTd[i] = next() < clamp01(0.05 * teamPts * usage) ? 1 : 0;
-      } else {
-        // wr / te / flex
-        recYds[i] = poissonSample(recBud * usage, next);
-        receptions[i] = poissonSample(3.5 * usage, next);
-        rushYds[i] = poissonSample(rushBud * usage * 0.05, next);
-        anyTd[i] = next() < clamp01(0.035 * teamPts * usage) ? 1 : 0;
+      // Participation draws first.
+      for (const row of prepared) {
+        row.participated[i] = row.partP > 0 && next() < row.partP ? 1 : 0;
+      }
+
+      const activeSkill = prepared.filter(
+        (r) =>
+          r.participated[i] &&
+          (r.p.role === "qb" ||
+            r.p.role === "rb" ||
+            r.p.role === "wr" ||
+            r.p.role === "te" ||
+            r.p.role === "flex"),
+      );
+      const passUsageSum = Math.max(
+        1e-6,
+        activeSkill.filter((r) => r.p.role === "qb").reduce((s, r) => s + r.usage, 0),
+      );
+      const rushUsageSum = Math.max(
+        1e-6,
+        activeSkill
+          .filter((r) => r.p.role === "rb" || r.p.role === "qb")
+          .reduce((s, r) => s + r.usage * (r.p.role === "qb" ? 0.15 : 1), 0),
+      );
+      const recUsageSum = Math.max(
+        1e-6,
+        activeSkill
+          .filter((r) => r.p.role === "wr" || r.p.role === "te" || r.p.role === "flex" || r.p.role === "rb")
+          .reduce((s, r) => s + r.usage * (r.p.role === "rb" ? 0.35 : 1), 0),
+      );
+
+      // Sample team totals once, then allocate — joint correlation.
+      const teamPassYds = poissonSample(passBud, next);
+      const teamRushYds = poissonSample(rushBud, next);
+      const teamRecYds = poissonSample(recBud, next);
+
+      for (const row of prepared) {
+        if (!row.participated[i]) continue;
+        const { p, usage, stats } = row;
+
+        if (p.role === "qb") {
+          const share = usage / passUsageSum;
+          stats.pass_yds[i] = Math.round(teamPassYds * share);
+          stats.pass_attempts[i] = poissonSample(22 * usage + 8, next);
+          stats.pass_completions[i] = Math.min(
+            stats.pass_attempts[i]!,
+            poissonSample(stats.pass_attempts[i]! * 0.64, next),
+          );
+          stats.pass_tds[i] = poissonSample(0.12 * teamPts * usage, next);
+          const rushShare = (usage * 0.15) / rushUsageSum;
+          stats.rush_yds[i] = Math.round(teamRushYds * rushShare);
+          stats.rush_attempts[i] = poissonSample(3 * usage, next);
+          stats.any_td[i] =
+            stats.pass_tds[i]! + stats.rush_tds[i]! > 0 || next() < clamp01(0.03 * teamPts * usage)
+              ? 1
+              : 0;
+          stats.pass_yds_q1[i] = Math.round(stats.pass_yds[i]! * qShare);
+          stats.pass_yds_h1[i] = Math.round(stats.pass_yds[i]! * hShare);
+          stats.pass_tds_q1[i] = next() < qShare * clamp01(stats.pass_tds[i]! > 0 ? 0.7 : 0.05) ? 1 : 0;
+          stats.rush_yds_q1[i] = Math.round(stats.rush_yds[i]! * qShare);
+          stats.rush_yds_h1[i] = Math.round(stats.rush_yds[i]! * hShare);
+        } else if (p.role === "rb") {
+          const rushShare = usage / rushUsageSum;
+          const recShare = (usage * 0.35) / recUsageSum;
+          stats.rush_yds[i] = Math.round(teamRushYds * rushShare);
+          stats.rush_attempts[i] = poissonSample(12 * usage + 4, next);
+          stats.rush_tds[i] = poissonSample(0.08 * teamPts * usage, next);
+          stats.rec_yds[i] = Math.round(teamRecYds * recShare);
+          stats.receptions[i] = poissonSample(2.2 * usage, next);
+          stats.reception_tds[i] = next() < 0.04 * usage * teamPts ? 1 : 0;
+          stats.any_td[i] = stats.rush_tds[i]! + stats.reception_tds[i]! > 0 ? 1 : 0;
+          stats.rush_yds_q1[i] = Math.round(stats.rush_yds[i]! * qShare);
+          stats.rush_yds_h1[i] = Math.round(stats.rush_yds[i]! * hShare);
+          stats.rec_yds_q1[i] = Math.round(stats.rec_yds[i]! * qShare);
+          stats.rec_yds_h1[i] = Math.round(stats.rec_yds[i]! * hShare);
+        } else if (p.role === "wr" || p.role === "te" || p.role === "flex") {
+          const recShare = usage / recUsageSum;
+          stats.rec_yds[i] = Math.round(teamRecYds * recShare);
+          stats.receptions[i] = poissonSample(3.5 * usage, next);
+          stats.reception_tds[i] = next() < 0.05 * usage * teamPts ? 1 : 0;
+          stats.rush_yds[i] = Math.round(teamRushYds * ((usage * 0.05) / rushUsageSum));
+          stats.any_td[i] = stats.reception_tds[i]! > 0 ? 1 : 0;
+          stats.rec_yds_q1[i] = Math.round(stats.rec_yds[i]! * qShare);
+          stats.rec_yds_h1[i] = Math.round(stats.rec_yds[i]! * hShare);
+          stats.rush_yds_q1[i] = Math.round(stats.rush_yds[i]! * qShare);
+          stats.rush_yds_h1[i] = Math.round(stats.rush_yds[i]! * hShare);
+        } else if (p.role === "k") {
+          // NFL DST batch: player_kicking_points
+          stats.kicking_points[i] = poissonSample(6 + 0.15 * teamPts, next);
+        } else if (p.role === "dst_lb") {
+          stats.tackles_assists[i] = poissonSample(6 + usage * 4, next);
+          stats.solo_tackles[i] = poissonSample(3 + usage * 3, next);
+        } else if (p.role === "dst_db") {
+          stats.solo_tackles[i] = poissonSample(2 + usage * 2, next);
+          stats.defensive_interceptions[i] = next() < 0.12 * usage ? 1 : 0;
+          stats.tackles_assists[i] = poissonSample(3 + usage * 2, next);
+        }
       }
     }
 
-    players[p.playerId] = {
-      participated,
-      stats: {
-        pass_yds: passYds,
-        rush_yds: rushYds,
-        rec_yds: recYds,
-        receptions,
-        pass_attempts: passAttempts,
-        any_td: anyTd,
-      },
-    };
+    for (const row of prepared) {
+      players[row.p.playerId] = {
+        participated: row.participated,
+        stats: row.stats,
+      };
+    }
   }
 
-  const playerStatKeys = [...FOOTBALL_PROP_STAT_KEYS];
   const dataFingerprint = fingerprintPayload([
     base.meta.dataFingerprint,
-    "football_props_c1",
+    "football_props_c2",
     input.players,
     seed,
   ]);
@@ -129,13 +284,24 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     meta: {
       ...base.meta,
       dataFingerprint,
-      playerStatKeys,
+      playerStatKeys: [...FOOTBALL_PROP_STAT_KEYS],
       quality: {
         ...base.meta.quality,
+        // Per-player OUT is handled at settle time — do not fail the whole tensor.
         participationReady: input.players.length > 0,
-        warnings,
+        warnings: [
+          ...warnings,
+          ...outPlayerIds.map((id) => `player_out_excluded:${id}`),
+        ],
       },
     },
     players,
   };
+}
+
+/** True when player is roster-grounded for settlement (not OUT). */
+export function playerSettlementAllowed(
+  player: FootballPropPlayerInput | { participationStatus?: FootballParticipationStatus },
+): boolean {
+  return player.participationStatus !== "out";
 }

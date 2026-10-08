@@ -12,7 +12,8 @@
     "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'",
     "eval:historical": "node --import ./test/register-hooks.mjs ./eval/runHistoricalValidation.ts",
     "eval:audit": "node --import ./test/register-hooks.mjs ./eval/auditCalibrationRootCause.ts",
-    "eval:chrono-oos": "node --import ./test/register-hooks.mjs ./eval/runChronologicalOos.ts"
+    "eval:chrono-oos": "node --import ./test/register-hooks.mjs ./eval/runChronologicalOos.ts",
+    "eval:prop-oos": "node --import ./test/register-hooks.mjs ./eval/runFootballPropOos.ts"
   },
   "dependencies": {
     "zod": "catalog:"
