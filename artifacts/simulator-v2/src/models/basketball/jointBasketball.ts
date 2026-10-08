@@ -15,7 +15,7 @@ import {
 } from "./priors.js";
 
 export const BASKETBALL_JOINT_MODEL_ID = "basketball.joint.v0" as const;
-export const BASKETBALL_JOINT_MODEL_VERSION = "0.1.0" as const;
+export const BASKETBALL_JOINT_MODEL_VERSION = "0.2.0" as const;
 export const BASKETBALL_JOINT_MODEL_IDS = [BASKETBALL_JOINT_MODEL_ID] as const;
 
 export type BasketballTeamInput = {
@@ -71,6 +71,11 @@ function poissonSample(lambda: number, rng: () => number): number {
     p *= rng();
   } while (p > L);
   return k - 1;
+}
+
+function tensorQ1(byPeriod: Record<string, Float64Array>, i: number): number | null {
+  const q1 = byPeriod.q1;
+  return q1 ? q1[i]! : null;
 }
 
 function teamMean(sport: BasketballSport, team: BasketballTeamInput, opp: BasketballTeamInput): number {
@@ -151,7 +156,17 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
   }
 
   const players: SimV2ScenarioTensor["players"] = {};
-  const playerStatKeys = ["points", "rebounds", "assists", "threes"];
+  const playerStatKeys = [
+    "points",
+    "rebounds",
+    "assists",
+    "threes",
+    "pra",
+    "pr",
+    "pa",
+    "ra",
+    "points_q1",
+  ];
   for (const pl of input.players ?? []) {
     const usage = clamp(pl.usage, 0, 1);
     const partP = clamp(pl.participateProb ?? 0.9, 0, 1);
@@ -160,19 +175,43 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
     const rebounds = new Float64Array(n);
     const assists = new Float64Array(n);
     const threes = new Float64Array(n);
+    const pra = new Float64Array(n);
+    const pr = new Float64Array(n);
+    const pa = new Float64Array(n);
+    const ra = new Float64Array(n);
+    const pointsQ1 = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const inGame = next() < partP ? 1 : 0;
       participated[i] = inGame;
       if (!inGame) continue;
       const teamPts = pl.teamSide === "home" ? homeFg[i]! : awayFg[i]!;
+      const q1 =
+        pl.teamSide === "home"
+          ? (tensorQ1(homeByPeriod, i) ?? teamPts * 0.24)
+          : (tensorQ1(awayByPeriod, i) ?? teamPts * 0.24);
       points[i] = poissonSample(teamPts * usage * 0.22, next);
       rebounds[i] = poissonSample(4 + usage * 6, next);
       assists[i] = poissonSample(2 + usage * 5, next);
       threes[i] = poissonSample(usage * 2.4, next);
+      pra[i] = points[i]! + rebounds[i]! + assists[i]!;
+      pr[i] = points[i]! + rebounds[i]!;
+      pa[i] = points[i]! + assists[i]!;
+      ra[i] = rebounds[i]! + assists[i]!;
+      pointsQ1[i] = poissonSample(Math.max(0, q1) * usage * 0.22, next);
     }
     players[pl.playerId] = {
       participated,
-      stats: { points, rebounds, assists, threes },
+      stats: {
+        points,
+        rebounds,
+        assists,
+        threes,
+        pra,
+        pr,
+        pa,
+        ra,
+        points_q1: pointsQ1,
+      },
     };
   }
 
