@@ -12,6 +12,9 @@ export const SimV2SportIdSchema = z.enum([
   "tennis",
   "ufc",
   "mma",
+  "boxing",
+  "tabletennis",
+  "cricket",
   "golf",
 ]);
 
@@ -41,4 +44,6 @@ export const PERIOD_SUM_GROUPS: Record<string, SimV2PeriodKey[]> = {
   hockey_periods: ["p1", "p2", "p3"],
   basketball_quarters: ["q1", "q2", "q3", "q4"],
   basketball_halves: ["h1", "h2"],
+  /** Soccer halves: H1+H2 = FG (90'); ET/penalties are separate layers when modeled. */
+  soccer_halves: ["h1", "h2"],
 };

@@ -1,6 +1,6 @@
-# @workspace/simulator-v2 (Phase B)
+# @workspace/simulator-v2
 
-Isolated, versioned simulation platform for Stadium Edge.
+Isolated, versioned simulation platform for Stadium Edge — **all sports**, gated per `sport:family`.
 
 **Phase A:** schemas, deterministic seeding, joint scenario tensor format, settle + alt-line batching, validation, shadow ledger, calibration metrics, feature flags, acceptance gates.
 
@@ -8,7 +8,9 @@ Isolated, versioned simulation platform for Stadium Edge.
 
 **Phase B correct (`0.3.0`):** train-frozen HFA + gamma–Poisson overdispersion + margin/blowout shocks (`football.joint.phase_b_correct`). Original thin-tailed v0 retained for A/B. Chronological OOS: `pnpm eval:chrono-oos`.
 
-**Not in Phase B:** Coach UI changes, P0 removal, production serve, OTA publish, other sports.
+**All-sports roadmap:** [`ALL_SPORTS_ROADMAP.md`](./ALL_SPORTS_ROADMAP.md) — Phases B→I (NFL/NCAAF → props → NHL → basketball → MLB → soccer/tennis → combat → cutover). Machine-readable matrix: `src/models/sportRegistry.ts`.
+
+**Not enabled:** production serve, OTA, Coach/P0 changes, unvalidated families. Non-football sports remain fail-closed.
 
 ## Joint football model
 
