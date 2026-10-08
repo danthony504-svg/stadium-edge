@@ -8,9 +8,14 @@ Isolated, versioned simulation platform for Stadium Edge — **all sports**, gat
 
 **Phase B correct (`0.3.0`):** train-frozen HFA + gamma–Poisson overdispersion + margin/blowout shocks (`football.joint.phase_b_correct`). Original thin-tailed v0 retained for A/B. Chronological OOS: `pnpm eval:chrono-oos`.
 
-**All-sports roadmap:** [`ALL_SPORTS_ROADMAP.md`](./ALL_SPORTS_ROADMAP.md) — Phases B→I (NFL/NCAAF → props → NHL → basketball → MLB → soccer/tennis → combat → cutover). Machine-readable matrix: `src/models/sportRegistry.ts`.
+**All-sports roadmap:** [`ALL_SPORTS_ROADMAP.md`](./ALL_SPORTS_ROADMAP.md)  
+**Parallel development:** [`PARALLEL_DEVELOPMENT_PLAN.md`](./PARALLEL_DEVELOPMENT_PLAN.md) — independent sport branches; no football wait; no football scoring reuse.  
+**Coverage matrix:** [`COVERAGE_MATRIX.md`](./COVERAGE_MATRIX.md) + `src/models/coverageMatrix.ts`  
+**Closing-line archive (design):** [`CLOSING_LINE_ARCHIVE.md`](./CLOSING_LINE_ARCHIVE.md)  
+**Phase C props plan:** [`PHASE_C_PROP_PLAN.md`](./PHASE_C_PROP_PLAN.md)  
+**Sport registry:** `src/models/sportRegistry.ts`
 
-**Not enabled:** production serve, OTA, Coach/P0 changes, unvalidated families. Non-football sports remain fail-closed.
+**Not enabled:** production serve, OTA, Coach/P0 changes, unvalidated families, PR #649. Non-football sports remain fail-closed.
 
 ## Joint football model
 

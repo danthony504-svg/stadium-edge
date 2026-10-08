@@ -62,7 +62,7 @@ export const SPORT_COVERAGE_REGISTRY: readonly SportCoverageRow[] = [
     conservationGroups: ["hockey_periods"],
     plannedFamilies: ["ml", "spread", "total", "team_total", "player_prop"],
     v2SettleFamilies: [],
-    notes: "Joint P1–P3 goals + OT/SO layer. Fail closed until Phase D.",
+    notes: "Parallel hockey stream (Phase D label). Own generative model — no football reuse.",
   },
   {
     sport: "nba",
@@ -74,7 +74,7 @@ export const SPORT_COVERAGE_REGISTRY: readonly SportCoverageRow[] = [
     conservationGroups: ["basketball_quarters", "basketball_halves"],
     plannedFamilies: ["ml", "spread", "total", "team_total", "player_prop", "race_to"],
     v2SettleFamilies: [],
-    notes: "Independent of NFL football joint code.",
+    notes: "Parallel basketball stream — prop-first; no football scoring reuse.",
   },
   {
     sport: "wnba",

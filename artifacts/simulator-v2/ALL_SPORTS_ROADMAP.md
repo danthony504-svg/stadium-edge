@@ -1,8 +1,9 @@
 # Simulator V2 — All-Sports Architecture & Roadmap
 
-**Status:** Planning + NFL/NCAAF Phase B correct in progress.  
+**Status:** Planning approved for parallel development + NFL/NCAAF Phase B correct in progress.  
 **Production:** V2 shadow-only. All sport:family acceptance lists empty. Coach / P0 / PR #649 unchanged.  
-**Do not merge, deploy, or OTA from this document alone.**
+**Do not merge, deploy, or OTA from this document alone.**  
+**Parallel plan:** [`PARALLEL_DEVELOPMENT_PLAN.md`](./PARALLEL_DEVELOPMENT_PLAN.md) — sport streams do **not** wait on football calibration.
 
 ## 1. Goal
 
@@ -124,54 +125,64 @@ Existing thresholds in `acceptanceGates.ts` (do not loosen):
 
 Flags remain: `SIM_V2_ENABLED`, `SIM_V2_SHADOW_ONLY`, `SIM_V2_SERVE`, `SIM_V2_ACCEPTED_FAMILIES`, `SIM_V2_FORCE_V1`.
 
-## 6. Phased rollout
+## 6. Phased labels (parallel streams)
 
-| Phase | Scope | Exit criteria (shadow) |
-|-------|--------|-------------------------|
-| **B** *(current)* | NFL/NCAAF scoring + period markets (ML/spread/total/team_total) | Holdout ECE path; conservation 100%; gates still closed |
-| **C** | NFL/NCAAF **player props** (joint with game tensor); alt props path audit | Prop families gated separately (`nfl:player_prop`, …) |
-| **D** | NHL joint P1–P3 + FG; team markets; then props | `nhl:*` gates independent |
-| **E** | NBA / WNBA / NCAAB joint quarters/halves; then props | College vs pro params separate |
-| **F** | MLB joint innings/F5 + pitcher/batter props | F5 conservation + starter confirmation features |
-| **G** | Soccer (multi-league) + Tennis | Soccer specials mapped; tennis set/game coupling |
-| **H** | UFC / MMA / Boxing combat joint | Method/rounds mutual exclusion tests |
-| **I** | All-sports integration, monitoring dashboards, controlled cutover | Per-family allowlist only; rollback via `SIM_V2_FORCE_V1` |
+Phase letters are **labels**, not a global queue. NHL/NBA/MLB/etc. may start on independent branches while B/C continue.
 
-### Dependencies
+| Phase | Scope | Stream | Exit criteria (shadow) |
+|-------|--------|--------|-------------------------|
+| **B** *(current)* | NFL/NCAAF scoring + periods | Football | Holdout path; conservation 100%; gates closed |
+| **C** | NFL/NCAAF player props (+ alts) | Football | `nfl:player_prop` / `ncaaf:player_prop` separate gates |
+| **D** | NHL joint + props | Hockey | Own generative model; no football reuse |
+| **E** | NBA/WNBA/NCAAB + props | Basketball | Separate param packs + flags per sport |
+| **F** | MLB + props | Baseball | F5 conservation; starter features |
+| **G** | Soccer / Tennis | Soccer + Tennis | Specials / set-game coupling |
+| **H** | UFC/MMA/Boxing | Combat | Method×rounds exclusion |
+| **I** | Integration / monitoring / cutover | Foundation | Per-family allowlist only |
+
+### Dependencies (parallel)
 
 ```
-Phase A platform (schemas, settle, flags, shadow) ──┐
-                                                   ├──► B football scoring
-B holdout + audit ─────────────────────────────────┼──► C football props
-                                                   │
-C joint prop tensor patterns ──────────────────────┼──► D/E/F prop phases
-B conservation + chrono OOS harness ────────────────┼──► D/E/F/G scoring phases
-Closing-line archive (external) ───────────────────┴──► stronger market baselines (all phases)
-Coach/P0 protections ── unchanged throughout ── cutover only in I per family
+Phase A foundation (shared) ──┬──► Football B ──► Football C (props)
+                              ├──► Hockey D (scoring+props)     [parallel]
+                              ├──► Basketball E (+ prop-first)  [parallel]
+                              ├──► Baseball F (+ prop-first)    [parallel]
+                              ├──► Soccer/Tennis G              [parallel]
+                              ├──► Combat H                     [parallel]
+                              ├──► Coverage matrix + CL archive design
+                              └──► Phase I cutover (last, per family)
+
+Hard rule: no football scoring distributions / FROZEN_TRAIN_PARAMS reused outside football.
+Prop-first: where Odds mains+alts + box-score maps exist, props are in-scope with scoring.
+Coach/P0/PR#649/OTA ── unchanged.
 ```
 
-## 7. Implementation order (near term)
+## 7. Near-term priorities
 
-1. **Finish Phase B correct** — period ECE, residual bias, larger NFL holdout sample; keep serve off.
-2. **Sport registry + coverage reporter** — machine-readable matrix (`sportRegistry.ts`); CI prints blocked families.
-3. **Schema align** — add `boxing`, `tabletennis`, `cricket` ids; keep unsupported.
-4. **Phase C design** — football prop settlePaths, participation, alt-prop discovery tests.
-5. **Phase D NHL** — three-period joint goals model (no football code reuse for scoring).
-6. Only after each phase’s holdout gates: optional allowlist entry + separate review (still no OTA without approval).
+1. Continue **Phase B correct** + **Phase C planning** (this football stream).
+2. Stand up **parallel branches** for NHL, basketball, MLB (see parallel plan).
+3. Maintain **coverage matrix** (`COVERAGE_MATRIX.md` / `coverageMatrix.ts`).
+4. Land **closing-line archive design** (`CLOSING_LINE_ARCHIVE.md`) — ingest off until license OK.
+5. Never flip serve/allowlist without independent holdout + human approval.
 
 ## 8. What we will not do
 
 - Enable unvalidated V2 models or widen `ACCEPTED_FAMILIES` without holdout evidence.
 - Invent probabilities for unsupported markets.
-- Modify PR #649, Coach qualification/correlation/48h, or remove P0 blocks as part of V2 work.
+- Reuse football scoring code as another sport’s generative model.
+- Modify PR #649, Coach qualification/correlation/48h/no-filler, or remove P0 blocks as part of V2 work.
 - Merge / deploy / publish OTA from roadmap or Phase B correct without separate review.
-- Auto-enable WNBA because NBA passed (or any cross-sport inheritance).
+- Auto-enable one sport because another passed.
+- Wait for football calibration before starting other sport scaffolds.
 
 ## 9. Related docs
 
 | Doc | Role |
 |-----|------|
-| `PHASE_B_CORRECT_REPORT.md` | NFL/NCAAF generative correction + holdout |
-| `eval/report/CHRONOLOGICAL_OOS.md` | Chrono OOS numbers |
-| `eval/report/CALIBRATION_ROOT_CAUSE_AUDIT.md` | Pre-correction audit |
-| `src/models/sportRegistry.ts` | Machine-readable coverage matrix |
+| `PARALLEL_DEVELOPMENT_PLAN.md` | Branches, tests, priorities |
+| `COVERAGE_MATRIX.md` | Provider→prod dimensions |
+| `src/models/coverageMatrix.ts` | Machine-readable matrix |
+| `CLOSING_LINE_ARCHIVE.md` | Market-implied / CLV design |
+| `PHASE_C_PROP_PLAN.md` | NFL/NCAAF props plan |
+| `PHASE_B_CORRECT_REPORT.md` | Football scoring status |
+| `src/models/sportRegistry.ts` | Sport inventory registry |
