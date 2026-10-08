@@ -7,9 +7,13 @@ import {
   isGameSideMlOrSpread,
   isLeanQualifiedSubstitute,
   mlLeanEnforcementNote,
+  passesLeanTicketConstraints,
   teamsMatch,
 } from "./mlLeanEnforcement.ts";
 import { marketLadderKey, wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { maxLegsPerGame, wouldExceedMaxLegsPerGame } from "./parlayCorrelationScore.ts";
+import { p0UnvalidatedSimTotalDecision } from "./coachP0UnvalidatedTotals.ts";
+import { collapseSameTeamGameLineSides } from "./ticketStaging.ts";
 
 const GAME = "New York Yankees @ Boston Red Sox";
 const HISTORY = {
@@ -394,7 +398,158 @@ function cowboysPeriodSubs(): ParsedPick[] {
   ];
 }
 
-test("TNF staged-only: 0 swaps, 0 drops, preserve 4 qualified Bucs + 2 props → 6", () => {
+test("period coexistence: Q1/Q2/1H/2H are ladder-distinct but hard maxLegsPerGame(7)=2", () => {
+  const gls = tnfStagedSix(false);
+  assert.equal(maxLegsPerGame(7), 2);
+  // Soft ladder: all period keys distinct.
+  for (let i = 0; i < gls.length; i++) {
+    for (let j = i + 1; j < gls.length; j++) {
+      assert.equal(wouldRepeatMarketLadder(gls[j]!, [gls[i]!]), false);
+    }
+  }
+  // Hard same-team collapse (correlation select) → 1 Bucs GL.
+  assert.equal(collapseSameTeamGameLineSides(gls).length, 1);
+  // Hard per-game GL cap without progressive raise → 2.
+  let on: ParsedPick[] = [];
+  for (const p of gls) {
+    if (!wouldExceedMaxLegsPerGame(p, on, maxLegsPerGame(7))) on.push(p);
+  }
+  assert.equal(on.length, 2);
+});
+
+test("valid original with no replacement → preserve (under hard caps)", () => {
+  const original: ParsedPick = {
+    game: TNF,
+    sport: "nfl",
+    market: "Q1 Alt Spread",
+    pick: "Buccaneers +6.5",
+    odds: -242,
+    finalAiScore: qualifiedScore({ grade: "B+", edgePct: 8, simHit: 0.72 }) as never,
+  };
+  const { picks: out, swapped, dropped } = enforceMlLeanOnPicks([original], {
+    matchupHistory: TNF_HISTORY as never,
+    qualifiedCandidates: [],
+    requestedLegs: 7,
+  });
+  assert.equal(swapped, 0);
+  assert.equal(dropped, 0);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick, "Buccaneers +6.5");
+  assert.equal(out[0]!.odds, -242);
+  assert.equal(out[0]!.finalAiScore?.grade, "B+");
+});
+
+test("valid original with qualified replacement → swap preserves grade evidence", () => {
+  const opposing = tnfStagedSix(false)[0]!;
+  const lean = cowboysPeriodSubs()[0]!;
+  const { picks: out, swapped, dropped } = enforceMlLeanOnPicks([opposing], {
+    matchupHistory: TNF_HISTORY as never,
+    qualifiedCandidates: [lean],
+    requestedLegs: 7,
+  });
+  assert.equal(swapped, 1);
+  assert.equal(dropped, 0);
+  assert.equal(out[0]!.pick, "Cowboys +2.5");
+  assert.equal(out[0]!.odds, -387);
+  assert.equal(out[0]!.finalAiScore?.simHit, 0.9);
+  assert.ok(isLeanQualifiedSubstitute(out[0]!));
+});
+
+test("invalid original with no replacement → drop", () => {
+  const bad: ParsedPick = {
+    game: TNF,
+    sport: "nfl",
+    market: "Q1 Alt Spread",
+    pick: "Buccaneers +6.5",
+    odds: -242,
+  };
+  const { picks: out, swapped, dropped } = enforceMlLeanOnPicks([bad], {
+    matchupHistory: TNF_HISTORY as never,
+    qualifiedCandidates: [],
+    requestedLegs: 7,
+  });
+  assert.equal(swapped, 0);
+  assert.equal(dropped, 1);
+  assert.equal(out.length, 0);
+});
+
+test("P0-blocked original cannot be preserved or swapped in", () => {
+  const blocked: ParsedPick = {
+    game: TNF,
+    sport: "nfl",
+    market: "1H Team Total",
+    pick: "Buccaneers Over 9.5",
+    odds: -110,
+    finalAiScore: qualifiedScore({ simHit: 0.72 }) as never,
+  };
+  assert.ok(p0UnvalidatedSimTotalDecision(blocked));
+  assert.equal(isLeanQualifiedSubstitute(blocked), false);
+  assert.equal(passesLeanTicketConstraints(blocked, []), false);
+  // Totals are not game-side ML/spread — lean leaves them alone in the loop,
+  // but finalize/constraints still reject P0 if somehow seated via swap path.
+  const opposingSpread: ParsedPick = {
+    game: TNF,
+    sport: "nfl",
+    market: "Q1 Alt Spread",
+    pick: "Buccaneers +6.5",
+    odds: -242,
+    finalAiScore: qualifiedScore({ simHit: 0.72 }) as never,
+  };
+  const { picks: out, swapped } = enforceMlLeanOnPicks([opposingSpread], {
+    matchupHistory: TNF_HISTORY as never,
+    // P0 total must never qualify as a lean substitute.
+    qualifiedCandidates: [blocked],
+    requestedLegs: 7,
+  });
+  assert.equal(swapped, 0);
+  assert.ok(out.every((p) => !/team total/i.test(p.market)));
+});
+
+test("duplicate ladder: nick vs full-name lean alt cannot double-seat", () => {
+  const g = "Dallas Cowboys @ New York Giants";
+  const history = {
+    [g]: {
+      ...HISTORY[GAME],
+      mlLean: { side: "Dallas Cowboys", edge: 8, reasons: ["lean"] },
+    },
+  };
+  const seated: ParsedPick = {
+    game: g,
+    market: "Spread",
+    pick: "Cowboys -5.5",
+    odds: -108,
+    sport: "nfl",
+    finalAiScore: qualifiedScore({ simHit: 0.6 }) as never,
+  };
+  const opposing: ParsedPick = {
+    game: g,
+    market: "Spread",
+    pick: "Giants +5.5",
+    odds: -110,
+    sport: "nfl",
+    finalAiScore: qualifiedScore({ simHit: 0.45 }) as never,
+  };
+  const leanAlt: ParsedPick = {
+    game: g,
+    market: "Alt Spread",
+    pick: "Dallas Cowboys -8.5",
+    odds: -103,
+    sport: "nfl",
+    finalAiScore: qualifiedScore({ simHit: 0.57 }) as never,
+  };
+  assert.equal(marketLadderKey(seated), marketLadderKey(leanAlt));
+  const { picks: out, swapped, dropped } = enforceMlLeanOnPicks([seated, opposing], {
+    matchupHistory: history as never,
+    qualifiedCandidates: [seated, leanAlt],
+    requestedLegs: 7,
+  });
+  assert.equal(swapped, 0);
+  assert.equal(dropped, 1);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick, "Cowboys -5.5");
+});
+
+test("same-game period correlation: hard maxLegs keeps ≤2 GLs on TNF (not all 4 Bucs)", () => {
   const staged = tnfStagedSix();
   for (const p of staged.filter((x) => !x.isProp)) {
     assert.ok(isLeanQualifiedSubstitute(p), `pre-lean valid: ${p.pick}`);
@@ -402,68 +557,82 @@ test("TNF staged-only: 0 swaps, 0 drops, preserve 4 qualified Bucs + 2 props →
   const { picks: out, swapped, dropped } = enforceMlLeanOnPicks(staged, {
     matchupHistory: TNF_HISTORY as never,
     qualifiedCandidates: staged,
+    requestedLegs: 7,
   });
   assert.equal(swapped, 0);
-  assert.equal(dropped, 0);
-  assert.equal(out.length, 6);
   assert.equal(out.filter((p) => p.isProp).length, 2);
+  assert.equal(out.filter((p) => !p.isProp).length, 2);
+  assert.equal(out.length, 4);
+  assert.ok(dropped >= 2); // Q2 + 2H exceed hard per-game GL cap
   assert.ok(out.some((p) => p.pick === "Buccaneers +6.5"));
   assert.ok(out.some((p) => p.pick === "Buccaneers +13.5"));
-  assert.ok(out.some((p) => p.pick === "Buccaneers +3.5"));
-  assert.ok(out.some((p) => p.pick === "Buccaneers +9.5"));
+  assert.equal(
+    out.some((p) => p.pick === "Buccaneers +3.5"),
+    false,
+  );
+  assert.equal(
+    out.some((p) => p.pick === "Buccaneers +9.5"),
+    false,
+  );
 });
 
-test("TNF live: 1 Cowboys Q1 sub → 1 swap, 0 drops, 6 final (3 Bucs preserved)", () => {
+/**
+ * Original destructive outcomes (pre-fix): staged-only→2, live→3, four-subs→6.
+ * After preserve + hard maxLegsPerGame(7)=2 revalidation:
+ */
+test("scenario was-2-pick (staged-only): preserve under cap → 4 (2 props + 2 Bucs)", () => {
+  const staged = tnfStagedSix();
+  const { picks: out, swapped, dropped } = enforceMlLeanOnPicks(staged, {
+    matchupHistory: TNF_HISTORY as never,
+    qualifiedCandidates: staged,
+    requestedLegs: 7,
+  });
+  assert.equal(swapped, 0);
+  assert.ok(dropped >= 2);
+  assert.equal(out.length, 4);
+  const labels = out.map((p) => `${p.market}|${p.pick}|${p.odds}|${p.finalAiScore?.grade}`);
+  assert.deepEqual(labels, [
+    "Q1 Alt Spread|Buccaneers +6.5|-242|B+",
+    "Rec Yds|Ryan Flournoy Under 31.5 Rec Yds|-112|B",
+    "Rec Yds|Javonte Williams Over 14.5 Rec Yds|-113|B",
+    "1H Alt Spread|Buccaneers +13.5|-375|B",
+  ]);
+});
+
+test("scenario was-3-pick (live 1 Q1 sub): 1 swap + 1 Bucs keep → 4", () => {
   const staged = tnfStagedSix();
   const q1 = cowboysPeriodSubs()[0]!;
   const { picks: out, swapped, dropped } = enforceMlLeanOnPicks(staged, {
     matchupHistory: TNF_HISTORY as never,
     qualifiedCandidates: [...staged, q1],
+    requestedLegs: 7,
   });
   assert.equal(swapped, 1);
-  assert.equal(dropped, 0);
-  assert.equal(out.length, 6);
-  assert.ok(out.some((p) => p.pick === "Cowboys +2.5"));
-  assert.equal(
-    out.filter((p) => /Buccaneers/i.test(p.pick) && !p.isProp).length,
-    3,
-  );
+  assert.ok(dropped >= 2);
+  assert.equal(out.length, 4);
+  assert.ok(out.some((p) => p.pick === "Cowboys +2.5" && p.odds === -387));
+  assert.ok(out.some((p) => p.pick === "Buccaneers +13.5"));
+  assert.equal(out.filter((p) => p.isProp).length, 2);
 });
 
-test("TNF four replacements: 4 swaps, 0 drops, 6 final", () => {
+test("scenario was-6-pick (four subs): hard cap seats 2 Cowboys GLs + 2 props → 4", () => {
   const staged = tnfStagedSix();
   const subs = cowboysPeriodSubs();
   const { picks: out, swapped, dropped } = enforceMlLeanOnPicks(staged, {
     matchupHistory: TNF_HISTORY as never,
     qualifiedCandidates: [...staged, ...subs],
+    requestedLegs: 7,
   });
-  assert.equal(swapped, 4);
-  assert.equal(dropped, 0);
-  assert.equal(out.length, 6);
+  // First two period families swap; remaining two fail per-game cap → drop.
+  assert.equal(swapped, 2);
+  assert.ok(dropped >= 2);
+  assert.equal(out.length, 4);
   assert.equal(out.filter((p) => p.isProp).length, 2);
   assert.ok(out.every((p) => p.isProp || /Cowboys/i.test(p.pick)));
   for (const p of out.filter((x) => !x.isProp)) {
     assert.ok(isLeanQualifiedSubstitute(p));
     assert.ok(p.finalAiScore?.simHit != null);
   }
-});
-
-test("TNF: invalid anti-lean original dropped even when no replacement", () => {
-  const bad: ParsedPick = {
-    game: TNF,
-    sport: "nfl",
-    market: "Q1 Alt Spread",
-    pick: "Buccaneers +6.5",
-    odds: -242,
-    // No finalAiScore — ungraded
-  };
-  const { picks: out, swapped, dropped } = enforceMlLeanOnPicks([bad], {
-    matchupHistory: TNF_HISTORY as never,
-    qualifiedCandidates: [],
-  });
-  assert.equal(swapped, 0);
-  assert.equal(dropped, 1);
-  assert.equal(out.length, 0);
 });
 
 test("lean replacement without grading evidence is rejected; qualified original preserved", () => {
@@ -479,11 +648,11 @@ test("lean replacement without grading evidence is rejected; qualified original 
     market: "Spread",
     pick: "Sox +1.5",
     odds: -110,
-    // no finalAiScore
   };
   const { picks: out, swapped, dropped } = enforceMlLeanOnPicks([opposing], {
     matchupHistory: HISTORY as never,
     qualifiedCandidates: [ungradedLean],
+    requestedLegs: 7,
   });
   assert.equal(swapped, 0);
   assert.equal(dropped, 0);
