@@ -2,6 +2,10 @@
  * Milestone F.1 — MLB joint runs model (shadow-only).
  * Samples 9 inning run vectors; F5 = sum(i1..i5); FG = sum(i1..i9).
  * Guarantees F5 ≤ FG on every draw. No football reuse.
+ *
+ * calibrationProfile:
+ *   - "v0.2" pre-correction: no shrink, no lognormal shock, HFA 0.1
+ *   - "v0.3" corrected (default): shrink 0.4, σ0.18 shock, HFA 0.05
  */
 
 import { SIM_V2_DEEP_DRAWS, SIM_V2_SCHEMA_VERSION } from "../../version.js";
@@ -10,17 +14,51 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { MLB_TEAM_FG_MEAN, isBaseballSport, type BaseballSport } from "./priors.js";
 
 export const BASEBALL_JOINT_MODEL_ID = "baseball.joint.v0" as const;
-/** v0.3: form shrinkage + per-draw game shock (ML ECE calibration). */
+/** Default / current published version string (v0.3 profile). */
 export const BASEBALL_JOINT_MODEL_VERSION = "0.3.0" as const;
 export const BASEBALL_JOINT_MODEL_IDS = [BASEBALL_JOINT_MODEL_ID] as const;
 
+export type BaseballCalibrationProfile = "v0.2" | "v0.3";
+
+export type BaseballProfileLevers = {
+  profile: BaseballCalibrationProfile;
+  modelVersion: string;
+  shrinkWeight: number;
+  gameShockSigma: number;
+  homeEdge: number;
+};
+
+/** Profile levers — v0.2 vs v0.3 differ only on these knobs. */
+export function baseballProfileLevers(
+  profile: BaseballCalibrationProfile = "v0.3",
+): BaseballProfileLevers {
+  if (profile === "v0.2") {
+    return {
+      profile: "v0.2",
+      modelVersion: "0.2.0",
+      shrinkWeight: 0,
+      gameShockSigma: 0,
+      homeEdge: 0.1,
+    };
+  }
+  return {
+    profile: "v0.3",
+    modelVersion: "0.3.0",
+    shrinkWeight: 0.4,
+    gameShockSigma: 0.18,
+    homeEdge: 0.05,
+  };
+}
+
 /** Shrink noisy recent form toward league mean — primary ECE fix alongside game shock. */
-function shrinkToLeague(raw: number, league: number, weight = 0.4): number {
+function shrinkToLeague(raw: number, league: number, weight: number): number {
+  if (weight <= 0) return raw;
   return weight * league + (1 - weight) * raw;
 }
 
 /** Box-Muller then exp — per-draw multiplicative shock (underdispersion fix). */
 function logNormalShock(rng: () => number, sigma: number): number {
+  if (sigma <= 0) return 1;
   let u = 0;
   let v = 0;
   while (u === 0) u = rng();
@@ -57,6 +95,11 @@ export type JointBaseballInput = {
   away: BaseballTeamInput;
   nDraws?: number;
   players?: BaseballPropPlayerInput[];
+  /**
+   * A/B calibration profile. Default "v0.3" (corrected).
+   * "v0.2" = pre-correction (no shrink / no shock / HFA 0.1).
+   */
+  calibrationProfile?: BaseballCalibrationProfile;
 };
 
 function avg(vals: number[] | undefined, fallback: number): number {
@@ -81,28 +124,33 @@ function poissonSample(lambda: number, rng: () => number): number {
   return k - 1;
 }
 
-function teamMean(team: BaseballTeamInput, opp: BaseballTeamInput): number {
+function teamMean(
+  team: BaseballTeamInput,
+  opp: BaseballTeamInput,
+  shrinkWeight: number,
+): number {
   const offense = shrinkToLeague(
     team.runsFor ?? avg(team.recentFgRuns, MLB_TEAM_FG_MEAN),
     MLB_TEAM_FG_MEAN,
+    shrinkWeight,
   );
-  const defense = shrinkToLeague(opp.runsAgainst ?? MLB_TEAM_FG_MEAN, MLB_TEAM_FG_MEAN);
+  const defense = shrinkToLeague(
+    opp.runsAgainst ?? MLB_TEAM_FG_MEAN,
+    MLB_TEAM_FG_MEAN,
+    shrinkWeight,
+  );
   return clamp(0.55 * offense + 0.45 * defense, 2.0, 7.5);
 }
-
-/** Per-draw lognormal sigma on team means (game-level shock). */
-const BASEBALL_GAME_SHOCK_SIGMA = 0.18;
-/** Milder home edge vs prior 0.1 — reduced ML overconfidence. */
-const BASEBALL_HOME_EDGE = 0.05;
 
 export function buildJointBaseballTensor(input: JointBaseballInput): SimV2ScenarioTensor {
   if (!isBaseballSport(input.sport)) {
     throw new Error(`baseball_joint_sport_unsupported:${input.sport}`);
   }
+  const levers = baseballProfileLevers(input.calibrationProfile ?? "v0.3");
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const homeBase = teamMean(input.home, input.away) + BASEBALL_HOME_EDGE;
-  const awayBase = teamMean(input.away, input.home);
+  const homeBase = teamMean(input.home, input.away, levers.shrinkWeight) + levers.homeEdge;
+  const awayBase = teamMean(input.away, input.home, levers.shrinkWeight);
 
   const homeFg = new Float64Array(n);
   const awayFg = new Float64Array(n);
@@ -112,8 +160,9 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
   const awayI1 = new Float64Array(n);
 
   for (let i = 0; i < n; i++) {
-    const homeMean = homeBase * logNormalShock(next, BASEBALL_GAME_SHOCK_SIGMA);
-    const awayMean = awayBase * logNormalShock(next, BASEBALL_GAME_SHOCK_SIGMA);
+    // v0.2: sigma=0 → identity multiplier and no RNG consumption (pre-correction stream).
+    const homeMean = homeBase * logNormalShock(next, levers.gameShockSigma);
+    const awayMean = awayBase * logNormalShock(next, levers.gameShockSigma);
     const perInningH = homeMean / 9;
     const perInningA = awayMean / 9;
     let hf = 0;
@@ -206,7 +255,8 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
   const createdAt = new Date().toISOString();
   const dataFingerprint = fingerprintPayload([
     BASEBALL_JOINT_MODEL_ID,
-    BASEBALL_JOINT_MODEL_VERSION,
+    levers.modelVersion,
+    levers.profile,
     input,
   ]);
 
@@ -215,7 +265,7 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
       schemaVersion: SIM_V2_SCHEMA_VERSION,
       engineId: "simulator-v2",
       modelId: BASEBALL_JOINT_MODEL_ID,
-      modelVersion: BASEBALL_JOINT_MODEL_VERSION,
+      modelVersion: levers.modelVersion,
       sport: "mlb",
       eventId: input.eventId,
       nDraws: n,

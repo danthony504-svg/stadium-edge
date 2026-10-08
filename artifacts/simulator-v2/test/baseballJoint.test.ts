@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   SIM_V2_DEEP_DRAWS,
   assertBaseballF5Conserved,
+  baseballProfileLevers,
   buildBaseballMlMarket,
   buildBaseballPlayerPropMarket,
   buildBaseballSpreadMarket,
@@ -25,7 +26,51 @@ function od(id: string, am: number) {
   };
 }
 
+function totalDrawVariance(tensor: ReturnType<typeof buildJointBaseballTensor>): number {
+  const n = tensor.meta.nDraws;
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += tensor.team.homeFg[i]! + tensor.team.awayFg[i]!;
+  mean /= n;
+  let var_ = 0;
+  for (let i = 0; i < n; i++) {
+    const t = tensor.team.homeFg[i]! + tensor.team.awayFg[i]!;
+    var_ += (t - mean) ** 2;
+  }
+  return var_ / n;
+}
+
 describe("MLB joint milestone F.2 (shadow)", () => {
+  it("both calibration profiles conserve F5⊆FG; v0.3 has higher draw variance than v0.2", () => {
+    const base = {
+      sport: "mlb" as const,
+      eventId: "mlb-ab-profile",
+      seed: "mlb-ab-same-seed",
+      nDraws: 4000,
+      home: { teamId: "h", runsFor: 5.2, runsAgainst: 3.8, recentFgRuns: [6, 5, 7, 4, 8] },
+      away: { teamId: "a", runsFor: 3.5, runsAgainst: 5.1, recentFgRuns: [2, 3, 4, 3, 5] },
+    };
+    const v02 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.2" });
+    const v03 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.3" });
+    assert.equal(v02.meta.modelVersion, "0.2.0");
+    assert.equal(v03.meta.modelVersion, "0.3.0");
+    assert.equal(baseballProfileLevers("v0.2").shrinkWeight, 0);
+    assert.equal(baseballProfileLevers("v0.2").gameShockSigma, 0);
+    assert.equal(baseballProfileLevers("v0.2").homeEdge, 0.1);
+    assert.equal(baseballProfileLevers("v0.3").shrinkWeight, 0.4);
+    assert.equal(baseballProfileLevers("v0.3").gameShockSigma, 0.18);
+    assert.equal(baseballProfileLevers("v0.3").homeEdge, 0.05);
+    assert.doesNotThrow(() => assertBaseballF5Conserved(v02));
+    assert.doesNotThrow(() => assertBaseballF5Conserved(v03));
+    // Same seed → different tensors (profile levers); v0.3 shock raises draw variance.
+    assert.notEqual(v02.meta.dataFingerprint, v03.meta.dataFingerprint);
+    const var02 = totalDrawVariance(v02);
+    const var03 = totalDrawVariance(v03);
+    assert.ok(
+      var03 > var02 * 1.05,
+      `expected v0.3 draw var > v0.2: v02=${var02.toFixed(3)} v03=${var03.toFixed(3)}`,
+    );
+  });
+
   it("F5≤FG; settles ML/RL/totals/TT/F5 + props; rejects non-starter pitcher", () => {
     const tensor = buildJointBaseballTensor({
       sport: "mlb",
