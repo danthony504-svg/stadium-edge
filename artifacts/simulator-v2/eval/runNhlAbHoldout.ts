@@ -33,6 +33,7 @@ import {
   formatReliability,
   meanAbsDevFromHalf,
 } from "./familyCalibration.js";
+import { boxStatIndices } from "./nhlEspnShared.js";
 
 const REPORT_DIR = join(import.meta.dirname, "report");
 
@@ -239,17 +240,15 @@ async function fetchBoxPlayers(eventId: string): Promise<BoxPlayer[]> {
       if (!side) continue;
       for (const grp of block.statistics ?? []) {
         const keys = grp.keys ?? grp.names ?? [];
-        const gi = keys.findIndex((k) => /^(g|goals)$/i.test(k));
-        const sogi = keys.findIndex((k) => /^(sog|shots?)$/i.test(k));
-        const svi = keys.findIndex((k) => /^(sv|saves)$/i.test(k));
-        const isGoalieGrp = svi >= 0 && gi < 0;
+        // shotsTotal is ESPN's skater SOG column — bare sog|shots regex misses it.
+        const idx = boxStatIndices(keys);
         for (const a of grp.athletes ?? []) {
           const id = a.athlete?.id;
           // Named props require verified athlete IDs — reject unverified identity.
           if (!id || typeof id !== "string" || !id.trim() || !a.stats?.length) continue;
-          const goals = gi >= 0 ? Number(a.stats[gi] ?? 0) : 0;
-          const sog = sogi >= 0 ? Number(a.stats[sogi] ?? 0) : 0;
-          const saves = svi >= 0 ? Number(a.stats[svi] ?? 0) : 0;
+          const goals = idx.goals >= 0 ? Number(a.stats[idx.goals] ?? 0) : 0;
+          const sog = idx.sog >= 0 ? Number(a.stats[idx.sog] ?? 0) : 0;
+          const saves = idx.saves >= 0 ? Number(a.stats[idx.saves] ?? 0) : 0;
           if (!Number.isFinite(goals) && !Number.isFinite(sog) && !Number.isFinite(saves)) continue;
           out.push({
             athleteId: id.trim(),
@@ -257,7 +256,7 @@ async function fetchBoxPlayers(eventId: string): Promise<BoxPlayer[]> {
             goals: Number.isFinite(goals) ? goals : 0,
             sog: Number.isFinite(sog) ? sog : 0,
             saves: Number.isFinite(saves) ? saves : 0,
-            isGoalie: isGoalieGrp || saves > 0,
+            isGoalie: idx.isGoalieGrp || saves > 0,
           });
         }
       }

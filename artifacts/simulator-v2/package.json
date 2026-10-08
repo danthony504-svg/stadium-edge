@@ -14,7 +14,9 @@
     "eval:audit": "node --import ./test/register-hooks.mjs ./eval/auditCalibrationRootCause.ts",
     "eval:chrono-oos": "node --import ./test/register-hooks.mjs ./eval/runChronologicalOos.ts",
     "eval:nhl-oos": "node --import ./test/register-hooks.mjs ./eval/runNhlChronoOos.ts",
-    "eval:nhl-ab": "node --import ./test/register-hooks.mjs ./eval/runNhlAbHoldout.ts"
+    "eval:nhl-ab": "node --import ./test/register-hooks.mjs ./eval/runNhlAbHoldout.ts",
+    "eval:nhl-ml-expand": "node --import ./test/register-hooks.mjs ./eval/runNhlMlNExpand.ts",
+    "eval:nhl-prop-diagnose": "node --import ./test/register-hooks.mjs ./eval/runNhlPropDiagnose.ts"
   },
   "dependencies": {
     "zod": "catalog:"
