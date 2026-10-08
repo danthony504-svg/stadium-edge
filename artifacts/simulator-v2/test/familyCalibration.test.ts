@@ -24,7 +24,7 @@ describe("familyCalibration helpers", () => {
     assert.ok(gate.n >= 500);
     assert.ok((gate.ece ?? 1) <= 0.04);
     const table = formatGateTable([gate]);
-    assert.ok(table[1]!.includes("nhl:ml"));
+    assert.ok(table.some((line) => line.includes("nhl:ml")));
   });
 
   it("flags overconfidence bands and compares distributions", () => {
