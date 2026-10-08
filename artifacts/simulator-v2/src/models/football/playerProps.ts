@@ -1,5 +1,5 @@
 /**
- * Phase C.2 / C.2.2 — joint football player props with shared team budgets,
+ * Phase C.2 / C.2.2 / C.2.3 — joint football player props with shared team budgets,
  * participation/injury grounding, DST + Q/H stats where provider markets exist.
  * Shadow-only; production serve remains off.
  *
@@ -7,8 +7,14 @@
  * mean scales for pass/rush/rec after named-player OOS (proxy identity was
  * primary eval defect; holdout never used for coefficient fitting).
  *
+ * C.2.3: role-aware anytime-TD intensity multipliers (qb/rb/wr/te), fitted on
+ * chrono val only. Usage remains the snap / red-zone proxy when pregame
+ * snap/RZ fields are absent. Bump FOOTBALL_PROP_MODEL_VERSION to 0.3.3 only
+ * after frozen holdout improves any_td ECE+Brier+LogLoss without pass_yds
+ * regression — otherwise keep 0.3.2 + identity multipliers.
+ *
  * `propCalibrationProfile` selects prior (v0.2) vs current (v0.3.2) means/shock
- * for shadow A/B holdout only — default remains 0.3.2.
+ * for shadow A/B holdout only — default remains 0.3.2 yard means/shock.
  */
 
 import type { SimV2ScenarioTensor } from "../../schemas/scenarioTensor.js";
@@ -22,6 +28,36 @@ export const FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA = 0.12 as const;
 /** Multiplier on generative TD intensities (pass/rush/rec → any_td). Default 1. */
 export const FOOTBALL_PROP_TD_RATE_TEMPER = 1.0 as const;
 
+/** Roles that receive anytime-TD intensity reweighting. */
+export type FootballRoleTdKey = "qb" | "rb" | "wr" | "te" | "flex";
+
+export type FootballRoleTdMultipliers = Record<FootballRoleTdKey, number>;
+
+/** Identity = 0.3.2 generative TD rates (no role reweight). */
+export const FOOTBALL_PROP_ROLE_TD_MULTIPLIERS_IDENTITY: FootballRoleTdMultipliers = {
+  qb: 1,
+  rb: 1,
+  wr: 1,
+  te: 1,
+  flex: 1,
+};
+
+/**
+ * Default role-TD table. Stays identity while version is 0.3.2.
+ * When C.2.3 promotes, replace with val-fitted constants and bump version.
+ */
+export const FOOTBALL_PROP_ROLE_TD_MULTIPLIERS: FootballRoleTdMultipliers = {
+  ...FOOTBALL_PROP_ROLE_TD_MULTIPLIERS_IDENTITY,
+};
+
+/** Clamp bounds so multipliers cannot invent missing-data extremes. */
+export const FOOTBALL_PROP_ROLE_TD_MULT_MIN = 0.45 as const;
+export const FOOTBALL_PROP_ROLE_TD_MULT_MAX = 1.85 as const;
+/** Min role-n on val before fitting a multiplier (else leave 1). */
+export const FOOTBALL_PROP_ROLE_TD_FIT_MIN_N = 40 as const;
+/** Shrink fitted mult toward 1 to limit val overfit. */
+export const FOOTBALL_PROP_ROLE_TD_FIT_SHRINK = 0.85 as const;
+
 /** Shadow A/B prior (v0.2) vs calibrated (v0.3.2) yard-budget profile. */
 export type PropCalibrationProfile = "v0.2" | "v0.3.2";
 
@@ -33,12 +69,125 @@ export type FootballPropEvalKnobs = {
   yardBudgetShockSigma?: number;
   /** Scale Poisson/Bernoulli TD intensities before any_td. */
   tdRateTemper?: number;
+  /**
+   * Role-aware anytime-TD intensity multipliers (C.2.3 shadow).
+   * Partial overrides merge onto identity; unset roles stay 1.
+   */
+  roleTdMultipliers?: Partial<FootballRoleTdMultipliers>;
 };
 
 export function footballPropModelVersionForProfile(
   profile: PropCalibrationProfile = "v0.3.2",
 ): "0.2.0" | "0.3.2" {
   return profile === "v0.2" ? "0.2.0" : "0.3.2";
+}
+
+/**
+ * Fit a Bernoulli/Poisson-occurrence intensity multiplier so
+ * P'≈1−(1−sim)^m ≈ actual. Returns 1 when n or rates are insufficient.
+ */
+export function fitRoleTdMultiplier(args: {
+  simRate: number;
+  actualRate: number;
+  n: number;
+  minN?: number;
+  shrink?: number;
+  minMult?: number;
+  maxMult?: number;
+}): number {
+  const minN = args.minN ?? FOOTBALL_PROP_ROLE_TD_FIT_MIN_N;
+  const shrink = args.shrink ?? FOOTBALL_PROP_ROLE_TD_FIT_SHRINK;
+  const minMult = args.minMult ?? FOOTBALL_PROP_ROLE_TD_MULT_MIN;
+  const maxMult = args.maxMult ?? FOOTBALL_PROP_ROLE_TD_MULT_MAX;
+  if (args.n < minN) return 1;
+  const s = args.simRate;
+  const a = args.actualRate;
+  if (!(s > 0.02 && s < 0.98 && a > 0.02 && a < 0.98)) return 1;
+  // Avoid log(0) / log(1) pathologies.
+  if (Math.abs(Math.log(1 - s)) < 1e-9) return 1;
+  const raw = Math.log(1 - a) / Math.log(1 - s);
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  const shrunk = 1 + shrink * (raw - 1);
+  return Math.max(minMult, Math.min(maxMult, shrunk));
+}
+
+/** Pool role occurrence rates (e.g. NFL+NCAAF val) then fit multipliers. */
+export function fitRoleTdMultipliersFromRoleRates(
+  roles: Array<{ role: string; n: number; simMeanRate: number; actualOccurrenceRate: number }>,
+): FootballRoleTdMultipliers {
+  const pool = new Map<string, { n: number; simN: number; actN: number }>();
+  for (const r of roles) {
+    const key = r.role === "te" || r.role === "flex" ? "wr" : r.role;
+    if (key !== "qb" && key !== "rb" && key !== "wr") continue;
+    const cur = pool.get(key) ?? { n: 0, simN: 0, actN: 0 };
+    cur.n += r.n;
+    cur.simN += r.simMeanRate * r.n;
+    cur.actN += r.actualOccurrenceRate * r.n;
+    pool.set(key, cur);
+  }
+  const qb = pool.get("qb");
+  const rb = pool.get("rb");
+  const wr = pool.get("wr");
+  const qbM = qb
+    ? fitRoleTdMultiplier({
+        simRate: qb.simN / qb.n,
+        actualRate: qb.actN / qb.n,
+        n: qb.n,
+      })
+    : 1;
+  const rbM = rb
+    ? fitRoleTdMultiplier({
+        simRate: rb.simN / rb.n,
+        actualRate: rb.actN / rb.n,
+        n: rb.n,
+      })
+    : 1;
+  const wrM = wr
+    ? fitRoleTdMultiplier({
+        simRate: wr.simN / wr.n,
+        actualRate: wr.actN / wr.n,
+        n: wr.n,
+      })
+    : 1;
+  return { qb: qbM, rb: rbM, wr: wrM, te: wrM, flex: wrM };
+}
+
+export function resolveRoleTdMultipliers(
+  knobs?: FootballPropEvalKnobs,
+): FootballRoleTdMultipliers {
+  const base = { ...FOOTBALL_PROP_ROLE_TD_MULTIPLIERS };
+  if (!knobs?.roleTdMultipliers) return base;
+  return {
+    qb: knobs.roleTdMultipliers.qb ?? base.qb,
+    rb: knobs.roleTdMultipliers.rb ?? base.rb,
+    wr: knobs.roleTdMultipliers.wr ?? base.wr,
+    te: knobs.roleTdMultipliers.te ?? base.te,
+    flex: knobs.roleTdMultipliers.flex ?? base.flex,
+  };
+}
+
+function roleTdIntensityScale(
+  role: FootballPropRole,
+  table: FootballRoleTdMultipliers,
+): number {
+  if (role === "qb" || role === "rb" || role === "wr" || role === "te" || role === "flex") {
+    return table[role];
+  }
+  return 1;
+}
+
+function roleTdTableFingerprint(table: FootballRoleTdMultipliers): string {
+  return `qb${table.qb.toFixed(3)}_rb${table.rb.toFixed(3)}_wr${table.wr.toFixed(3)}_te${table.te.toFixed(3)}_fx${table.flex.toFixed(3)}`;
+}
+
+function roleTdTableIsIdentity(table: FootballRoleTdMultipliers): boolean {
+  return (
+    table.qb === 1 &&
+    table.rb === 1 &&
+    table.wr === 1 &&
+    table.te === 1 &&
+    table.flex === 1
+  );
 }
 
 export const FOOTBALL_PROP_STAT_KEYS = [
@@ -181,7 +330,9 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
   const base = input.tensor;
   const n = base.meta.nDraws;
   const profile: PropCalibrationProfile = input.propCalibrationProfile ?? "v0.3.2";
-  const modelVersion = footballPropModelVersionForProfile(profile);
+  // Yard means/shock stay on the 0.3.2 profile; version string may be 0.3.3 after C.2.3 promote.
+  const modelVersion =
+    profile === "v0.2" ? "0.2.0" : FOOTBALL_PROP_MODEL_VERSION;
   const useShock = profile === "v0.3.2";
   const shockSigma =
     input.propEvalKnobs?.yardBudgetShockSigma ?? FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA;
@@ -189,12 +340,18 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     0,
     input.propEvalKnobs?.tdRateTemper ?? FOOTBALL_PROP_TD_RATE_TEMPER,
   );
+  const roleTdTable = resolveRoleTdMultipliers(input.propEvalKnobs);
+  const roleTdFp = roleTdTableFingerprint(roleTdTable);
+  const roleTdNonIdentity = !roleTdTableIsIdentity(roleTdTable);
   const knobsDiffer =
     shockSigma !== FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA ||
-    tdTemper !== FOOTBALL_PROP_TD_RATE_TEMPER;
+    tdTemper !== FOOTBALL_PROP_TD_RATE_TEMPER ||
+    roleTdNonIdentity ||
+    (input.propEvalKnobs?.roleTdMultipliers != null &&
+      !roleTdTableIsIdentity(resolveRoleTdMultipliers(input.propEvalKnobs)));
   // Keep default seed stable so holdout A/B remains comparable; knob probes get a suffix.
   const seed = knobsDiffer
-    ? `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}|${profile}|s${shockSigma}|td${tdTemper}`
+    ? `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}|${profile}|s${shockSigma}|td${tdTemper}|rtd${roleTdFp}`
     : `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}|${profile}`;
   const { next } = createSeededRng(seed);
 
@@ -213,6 +370,9 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
   }
   if (tdTemper !== FOOTBALL_PROP_TD_RATE_TEMPER) {
     warnings.push(`prop_td_rate_temper_${tdTemper}`);
+  }
+  if (roleTdNonIdentity) {
+    warnings.push(`prop_role_td_mult_${roleTdFp}`);
   }
   const outPlayerIds: string[] = [];
 
@@ -293,6 +453,8 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
       for (const row of prepared) {
         if (!row.participated[i]) continue;
         const { p, usage, stats } = row;
+        // usage = snap / red-zone volume proxy when pregame RZ fields absent.
+        const tdScale = tdTemper * roleTdIntensityScale(p.role, roleTdTable);
 
         if (p.role === "qb") {
           const share = usage / passUsageSum;
@@ -302,13 +464,13 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
             stats.pass_attempts[i]!,
             poissonSample(stats.pass_attempts[i]! * 0.64, next),
           );
-          stats.pass_tds[i] = poissonSample(0.12 * teamPts * usage * tdTemper, next);
+          stats.pass_tds[i] = poissonSample(0.12 * teamPts * usage * tdScale, next);
           const rushShare = (usage * 0.15) / rushUsageSum;
           stats.rush_yds[i] = Math.round(teamRushYds * rushShare);
           stats.rush_attempts[i] = poissonSample(3 * usage, next);
           stats.any_td[i] =
             stats.pass_tds[i]! + stats.rush_tds[i]! > 0 ||
-            next() < clamp01(0.03 * teamPts * usage * tdTemper)
+            next() < clamp01(0.03 * teamPts * usage * tdScale)
               ? 1
               : 0;
           stats.pass_yds_q1[i] = Math.round(stats.pass_yds[i]! * qShare);
@@ -321,10 +483,10 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
           const recShare = (usage * 0.35) / recUsageSum;
           stats.rush_yds[i] = Math.round(teamRushYds * rushShare);
           stats.rush_attempts[i] = poissonSample(12 * usage + 4, next);
-          stats.rush_tds[i] = poissonSample(0.08 * teamPts * usage * tdTemper, next);
+          stats.rush_tds[i] = poissonSample(0.08 * teamPts * usage * tdScale, next);
           stats.rec_yds[i] = Math.round(teamRecYds * recShare);
           stats.receptions[i] = poissonSample(2.2 * usage, next);
-          stats.reception_tds[i] = next() < 0.04 * usage * teamPts * tdTemper ? 1 : 0;
+          stats.reception_tds[i] = next() < 0.04 * usage * teamPts * tdScale ? 1 : 0;
           stats.any_td[i] = stats.rush_tds[i]! + stats.reception_tds[i]! > 0 ? 1 : 0;
           stats.rush_yds_q1[i] = Math.round(stats.rush_yds[i]! * qShare);
           stats.rush_yds_h1[i] = Math.round(stats.rush_yds[i]! * hShare);
@@ -334,7 +496,7 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
           const recShare = usage / recUsageSum;
           stats.rec_yds[i] = Math.round(teamRecYds * recShare);
           stats.receptions[i] = poissonSample(3.5 * usage, next);
-          stats.reception_tds[i] = next() < 0.05 * usage * teamPts * tdTemper ? 1 : 0;
+          stats.reception_tds[i] = next() < 0.05 * usage * teamPts * tdScale ? 1 : 0;
           stats.rush_yds[i] = Math.round(teamRushYds * ((usage * 0.05) / rushUsageSum));
           stats.any_td[i] = stats.reception_tds[i]! > 0 ? 1 : 0;
           stats.rec_yds_q1[i] = Math.round(stats.rec_yds[i]! * qShare);
@@ -363,15 +525,18 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     }
   }
 
+  // Preserve exact 0.3.2 fingerprint when defaults (identity role-TD) so prior
+  // holdout A/B remains byte-comparable; C.2.3 knobs / promoted defaults diverge.
   const dataFingerprint = fingerprintPayload(
-    knobsDiffer
+    knobsDiffer || FOOTBALL_PROP_MODEL_VERSION !== "0.3.2"
       ? [
           base.meta.dataFingerprint,
-          "football_props_c2_2",
+          "football_props_c2_3",
           modelVersion,
           profile,
           useShock ? shockSigma : 0,
           tdTemper,
+          roleTdFp,
           input.players,
           seed,
         ]

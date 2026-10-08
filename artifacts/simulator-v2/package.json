@@ -15,7 +15,8 @@
     "eval:chrono-oos": "node --import ./test/register-hooks.mjs ./eval/runChronologicalOos.ts",
     "eval:prop-oos": "node --import ./test/register-hooks.mjs ./eval/runFootballPropOos.ts",
     "eval:prop-ab": "node --import ./test/register-hooks.mjs ./eval/runFootballPropAbHoldout.ts",
-    "eval:prop-family": "node --import ./test/register-hooks.mjs ./eval/runFootballPropFamilyDiagnose.ts"
+    "eval:prop-family": "node --import ./test/register-hooks.mjs ./eval/runFootballPropFamilyDiagnose.ts",
+    "eval:prop-c23": "node --import ./test/register-hooks.mjs ./eval/runFootballPropC23.ts"
   },
   "dependencies": {
     "zod": "catalog:"

@@ -11,6 +11,8 @@ import {
   DEFAULT_SIM_V2_FLAGS,
   footballPropModelVersionForProfile,
   footballPropSupportsAlternate,
+  fitRoleTdMultiplier,
+  fitRoleTdMultipliersFromRoleRates,
   impliedProbFromAmerican,
   isMarketFamilySupported,
   mapProviderPropKeyToStat,
@@ -331,5 +333,62 @@ describe("Phase C.2.2 prop calibration knobs", () => {
     const baseTd = meanOf(base.players.rb1!.stats.any_td);
     const temperTd = meanOf(tempered.players.rb1!.stats.any_td);
     assert.ok(temperTd < baseTd - 0.05, `expected tempered any_td ${temperTd} < base ${baseTd}`);
+  });
+});
+
+describe("Phase C.2.3 role-aware anytime-TD (shadow)", () => {
+  it("fits role TD multipliers with clamp and min-n guard", () => {
+    assert.equal(fitRoleTdMultiplier({ simRate: 0.75, actualRate: 0.49, n: 10 }), 1);
+    const rbDown = fitRoleTdMultiplier({ simRate: 0.75, actualRate: 0.49, n: 200 });
+    assert.ok(rbDown < 0.85 && rbDown >= 0.45, `expected RB down mult, got ${rbDown}`);
+    const wrUp = fitRoleTdMultiplier({ simRate: 0.35, actualRate: 0.46, n: 200 });
+    assert.ok(wrUp > 1.1 && wrUp <= 1.85, `expected WR up mult, got ${wrUp}`);
+    const pooled = fitRoleTdMultipliersFromRoleRates([
+      { role: "qb", n: 100, simMeanRate: 0.9, actualOccurrenceRate: 0.82 },
+      { role: "rb", n: 100, simMeanRate: 0.75, actualOccurrenceRate: 0.49 },
+      { role: "wr", n: 100, simMeanRate: 0.35, actualOccurrenceRate: 0.46 },
+    ]);
+    assert.ok(pooled.rb < 1 && pooled.wr > 1 && pooled.te === pooled.wr);
+  });
+
+  it("roleTdMultipliers lower RB and raise WR any_td without changing pass_yds means materially", () => {
+    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.2");
+    const players = [
+      { playerId: "3139477", teamSide: "home" as const, role: "qb" as const, usage: 0.95, participationStatus: "confirmed_starter" as const },
+      { playerId: "15847", teamSide: "home" as const, role: "rb" as const, usage: 0.65, participationStatus: "active" as const },
+      { playerId: "2977644", teamSide: "away" as const, role: "wr" as const, usage: 0.35, participationStatus: "active" as const },
+    ];
+    const base = attachFootballPlayerProps({
+      tensor: baseTensor(4000),
+      players,
+      propSeedSuffix: "c23-base",
+    });
+    const roleAware = attachFootballPlayerProps({
+      tensor: baseTensor(4000),
+      players,
+      propSeedSuffix: "c23-role",
+      propEvalKnobs: {
+        roleTdMultipliers: { qb: 0.9, rb: 0.55, wr: 1.4, te: 1.4, flex: 1.4 },
+      },
+    });
+    assert.ok(roleAware.meta.quality.warnings.some((w) => w.startsWith("prop_role_td_mult_")));
+    assert.ok(roleAware.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.2")));
+    const meanOf = (xs: Float64Array) => {
+      let s = 0;
+      for (let i = 0; i < xs.length; i++) s += xs[i]!;
+      return s / xs.length;
+    };
+    const baseRb = meanOf(base.players["15847"]!.stats.any_td);
+    const roleRb = meanOf(roleAware.players["15847"]!.stats.any_td);
+    const baseWr = meanOf(base.players["2977644"]!.stats.any_td);
+    const roleWr = meanOf(roleAware.players["2977644"]!.stats.any_td);
+    assert.ok(roleRb < baseRb - 0.05, `RB any_td ${roleRb} should drop vs ${baseRb}`);
+    assert.ok(roleWr > baseWr + 0.03, `WR any_td ${roleWr} should rise vs ${baseWr}`);
+    const basePass = meanOf(base.players["3139477"]!.stats.pass_yds);
+    const rolePass = meanOf(roleAware.players["3139477"]!.stats.pass_yds);
+    assert.ok(
+      Math.abs(rolePass - basePass) / Math.max(1, basePass) < 0.08,
+      `pass_yds mean should stay stable (${basePass} vs ${rolePass})`,
+    );
   });
 });
