@@ -13,7 +13,8 @@
     "eval:historical": "node --import ./test/register-hooks.mjs ./eval/runHistoricalValidation.ts",
     "eval:audit": "node --import ./test/register-hooks.mjs ./eval/auditCalibrationRootCause.ts",
     "eval:chrono-oos": "node --import ./test/register-hooks.mjs ./eval/runChronologicalOos.ts",
-    "eval:basketball-oos": "node --import ./test/register-hooks.mjs ./eval/runBasketballChronoOos.ts"
+    "eval:basketball-oos": "node --import ./test/register-hooks.mjs ./eval/runBasketballChronoOos.ts",
+    "eval:basketball-ab": "node --import ./test/register-hooks.mjs ./eval/runBasketballAbHoldout.ts"
   },
   "dependencies": {
     "zod": "catalog:"

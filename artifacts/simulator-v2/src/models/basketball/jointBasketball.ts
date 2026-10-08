@@ -19,6 +19,33 @@ export const BASKETBALL_JOINT_MODEL_ID = "basketball.joint.v0" as const;
 export const BASKETBALL_JOINT_MODEL_VERSION = "0.3.0" as const;
 export const BASKETBALL_JOINT_MODEL_IDS = [BASKETBALL_JOINT_MODEL_ID] as const;
 
+export type BasketballCalibrationProfile = "v0.2" | "v0.3";
+
+export function basketballProfileLevers(profile: BasketballCalibrationProfile = "v0.3") {
+  if (profile === "v0.2") {
+    return {
+      profile: "v0.2" as const,
+      modelVersion: "0.2.0",
+      shrinkWeight: 0,
+      shockSigmaNba: 0,
+      shockSigmaNcaab: 0,
+      hfaNba: 2.4,
+      hfaWnba: 2.4,
+      hfaNcaab: 3.2,
+    };
+  }
+  return {
+    profile: "v0.3" as const,
+    modelVersion: "0.3.0",
+    shrinkWeight: 0.2,
+    shockSigmaNba: 0.12,
+    shockSigmaNcaab: 0.14,
+    hfaNba: 2.0,
+    hfaWnba: 1.8,
+    hfaNcaab: 2.6,
+  };
+}
+
 export type BasketballTeamInput = {
   teamId: string;
   ptsFor?: number | null;
@@ -41,6 +68,8 @@ export type JointBasketballInput = {
   away: BasketballTeamInput;
   nDraws?: number;
   players?: BasketballPropPlayerInput[];
+  /** A/B profile. Default v0.3 (corrected). v0.2 = pre-correction. */
+  calibrationProfile?: BasketballCalibrationProfile;
 };
 
 function avg(vals: number[] | undefined, fallback: number): number {
@@ -79,21 +108,27 @@ function tensorQ1(byPeriod: Record<string, Float64Array>, i: number): number | n
   return q1 ? q1[i]! : null;
 }
 
-/** Mild shrink (val-tuned 0.2) — heavier shrink collapsed between-game separation. */
-function shrinkToLeague(raw: number, league: number, weight = 0.2): number {
+function shrinkToLeague(raw: number, league: number, weight: number): number {
+  if (weight <= 0) return raw;
   return weight * league + (1 - weight) * raw;
 }
 
-function teamMean(sport: BasketballSport, team: BasketballTeamInput, opp: BasketballTeamInput): number {
+function teamMean(
+  sport: BasketballSport,
+  team: BasketballTeamInput,
+  opp: BasketballTeamInput,
+  shrinkWeight: number,
+): number {
   const league = BASKETBALL_FG_MEAN[sport];
-  const offense = shrinkToLeague(team.ptsFor ?? avg(team.recentFgScores, league), league);
-  const defense = shrinkToLeague(opp.ptsAgainst ?? league, league);
+  const offense = shrinkToLeague(team.ptsFor ?? avg(team.recentFgScores, league), league, shrinkWeight);
+  const defense = shrinkToLeague(opp.ptsAgainst ?? league, league, shrinkWeight);
   const lo = sport === "nba" ? 90 : sport === "wnba" ? 65 : 55;
   const hi = sport === "nba" ? 140 : sport === "wnba" ? 105 : 95;
   return clamp(0.55 * offense + 0.45 * defense, lo, hi);
 }
 
 function logNormalShock(rng: () => number, sigma: number): number {
+  if (sigma <= 0) return 1;
   let u = 0;
   let v = 0;
   while (u === 0) u = rng();
@@ -108,10 +143,16 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
   }
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const hfa = input.sport === "ncaab" ? 2.6 : input.sport === "wnba" ? 1.8 : 2.0;
-  const homeBase = teamMean(input.sport, input.home, input.away) + hfa;
-  const awayBase = teamMean(input.sport, input.away, input.home);
-  const shockSigma = input.sport === "ncaab" ? 0.14 : 0.12;
+  const levers = basketballProfileLevers(input.calibrationProfile ?? "v0.3");
+  const hfa =
+    input.sport === "ncaab"
+      ? levers.hfaNcaab
+      : input.sport === "wnba"
+        ? levers.hfaWnba
+        : levers.hfaNba;
+  const homeBase = teamMean(input.sport, input.home, input.away, levers.shrinkWeight) + hfa;
+  const awayBase = teamMean(input.sport, input.away, input.home, levers.shrinkWeight);
+  const shockSigma = input.sport === "ncaab" ? levers.shockSigmaNcaab : levers.shockSigmaNba;
   const collegeHalves = input.sport === "ncaab";
 
   const homeFg = new Float64Array(n);
@@ -238,7 +279,7 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
   const createdAt = new Date().toISOString();
   const dataFingerprint = fingerprintPayload([
     BASKETBALL_JOINT_MODEL_ID,
-    BASKETBALL_JOINT_MODEL_VERSION,
+    levers.modelVersion,
     input.sport,
     input,
   ]);
@@ -248,7 +289,7 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
       schemaVersion: SIM_V2_SCHEMA_VERSION,
       engineId: "simulator-v2",
       modelId: BASKETBALL_JOINT_MODEL_ID,
-      modelVersion: BASKETBALL_JOINT_MODEL_VERSION,
+      modelVersion: levers.modelVersion,
       sport: input.sport,
       eventId: input.eventId,
       nDraws: n,

@@ -169,3 +169,32 @@ describe("Basketball joint milestone E.2 (shadow)", () => {
     assert.equal(wnba.meta.sport, "wnba");
   });
 });
+
+describe("Basketball calibration profiles A/B", () => {
+  it("v0.3 reports higher within-draw total variance than v0.2 on same seed", () => {
+    const base = {
+      sport: "nba" as const,
+      eventId: "nba-ab",
+      seed: "nba-ab-var",
+      nDraws: 3000,
+      home: { teamId: "h", ptsFor: 118, ptsAgainst: 108 },
+      away: { teamId: "a", ptsFor: 105, ptsAgainst: 115 },
+    };
+    const a = buildJointBasketballTensor({ ...base, calibrationProfile: "v0.2" });
+    const b = buildJointBasketballTensor({ ...base, calibrationProfile: "v0.3" });
+    assert.equal(a.meta.modelVersion, "0.2.0");
+    assert.equal(b.meta.modelVersion, "0.3.0");
+    const varOf = (t: typeof a) => {
+      let s = 0;
+      let sq = 0;
+      for (let i = 0; i < t.meta.nDraws; i++) {
+        const tot = t.team.homeFg[i]! + t.team.awayFg[i]!;
+        s += tot;
+        sq += tot * tot;
+      }
+      const m = s / t.meta.nDraws;
+      return sq / t.meta.nDraws - m * m;
+    };
+    assert.ok(varOf(b) > varOf(a) * 1.05, `v0.3 var ${varOf(b)} should exceed v0.2 ${varOf(a)}`);
+  });
+});
