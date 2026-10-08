@@ -144,6 +144,8 @@ export type OddsGame = {
   homeTeam: string;
   awayTeam: string;
   commenceTime: string;
+  /** Provider retrieval ISO time stamped by /sports/odds. */
+  fetchedAt?: string;
   markets: OddsMarket[];
 };
 
@@ -181,6 +183,12 @@ export type RealOddsEntry = {
   pick: string;
   odds: number;
   startsAt?: string;
+  /** Odds API event id (or fallback source id). */
+  eventId?: string | null;
+  sportsbook?: string | null;
+  oddsFetchedAt?: string | null;
+  providerLastUpdate?: string | null;
+  oddsProvider?: string | null;
   // Real cross-book scoring inputs carried from the picked outcome (two-sided
   // MAIN markets only; null otherwise — never fabricated). Used to ground the
   // pick rubric's Line Value (edge) and Line-Shopping (bookSpread) sub-scores.
@@ -672,6 +680,8 @@ export type PlayerProp = {
   headshot: string | null;
   athleteId: string | null;
   playerTeamId: string | null;
+  /** ESPN roster position abbreviation when known. */
+  position?: string | null;
   // National-team crest, resolved server-side for World Cup soccer props (which
   // carry no team id). REAL ESPN logo or null — never guessed. Lets the avatar
   // fall back to a crest when there's no headshot.
@@ -701,6 +711,11 @@ export type PropsResponse = {
   away: string | null;
   bookmaker: string | null;
   props: PlayerProp[];
+  provider?: string | null;
+  eventId?: string | null;
+  fetchedAt?: string | null;
+  providerLastUpdate?: string | null;
+  source?: string | null;
 };
 
 // Sports the props endpoint actually serves (MARKETS_BY_SPORT in props.ts).
@@ -1519,7 +1534,14 @@ export function buildRealOdds(
   if (!g || !g.markets) return [];
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
-  const base = { sport: g.sport, game, startsAt: g.commenceTime };
+  const base = {
+    sport: g.sport,
+    game,
+    startsAt: g.commenceTime,
+    eventId: g.id,
+    oddsFetchedAt: g.fetchedAt ?? null,
+    oddsProvider: "OddsAPI" as const,
+  };
   // Soccer + college keep full names — college nicknames collide with each other
   // and with pro boards (phone: Charlotte "49ers +27.5" looked like NFL SF).
   const sportKey = String(g.sport ?? "").toLowerCase();
@@ -1549,6 +1571,7 @@ export function buildRealOdds(
     noVigFair: o.noVigFair ?? null,
     edge: o.edge ?? null,
     bookSpread: o.bookSpread ?? null,
+    sportsbook: o.books?.[0]?.book ?? "OddsAPI best",
   });
   if (h2h) {
     for (const o of h2h.outcomes || []) {
@@ -1747,7 +1770,14 @@ function evalPriceOk(price: number | null | undefined): boolean {
 function appendPeriodEvalGameLines(
   g: OddsGame,
   out: RealOddsEntry[],
-  base: { sport: string; game: string; startsAt: string },
+  base: {
+    sport: string;
+    game: string;
+    startsAt: string;
+    eventId?: string | null;
+    oddsFetchedAt?: string | null;
+    oddsProvider?: string | null;
+  },
   teamLabel: (name: string) => string,
 ): void {
   const PERIOD_LABEL: Record<string, string> = {
@@ -1758,24 +1788,43 @@ function appendPeriodEvalGameLines(
     q3: "Q3",
     q4: "Q4",
   };
+  const bookOf = (o: OddsOutcome) => o.books?.[0]?.book ?? "OddsAPI best";
   const pushSpread = (market: string, outcomes: OddsOutcome[] | undefined) => {
     for (const o of outcomes ?? []) {
       if (!evalPriceOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-      out.push({ ...base, market, pick: `${teamLabel(o.name)}${pt}`, odds: o.price! });
+      out.push({
+        ...base,
+        market,
+        pick: `${teamLabel(o.name)}${pt}`,
+        odds: o.price!,
+        sportsbook: bookOf(o),
+      });
     }
   };
   const pushTotal = (market: string, outcomes: OddsOutcome[] | undefined) => {
     for (const o of outcomes ?? []) {
       if (!evalPriceOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point}`;
-      out.push({ ...base, market, pick: `${o.name}${pt}`.trim(), odds: o.price! });
+      out.push({
+        ...base,
+        market,
+        pick: `${o.name}${pt}`.trim(),
+        odds: o.price!,
+        sportsbook: bookOf(o),
+      });
     }
   };
   const pushMl = (market: string, outcomes: OddsOutcome[] | undefined) => {
     for (const o of outcomes ?? []) {
       if (!evalPriceOk(o.price)) continue;
-      out.push({ ...base, market, pick: `${teamLabel(o.name)} ML`, odds: o.price! });
+      out.push({
+        ...base,
+        market,
+        pick: `${teamLabel(o.name)} ML`,
+        odds: o.price!,
+        sportsbook: bookOf(o),
+      });
     }
   };
   const pushTeamTotal = (market: string, outcomes: OddsOutcome[] | undefined) => {
@@ -1818,7 +1867,14 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
   if (!g?.markets) return [];
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
-  const base = { sport: g.sport, game, startsAt: g.commenceTime };
+  const base = {
+    sport: g.sport,
+    game,
+    startsAt: g.commenceTime,
+    eventId: g.id,
+    oddsFetchedAt: g.fetchedAt ?? null,
+    oddsProvider: "OddsAPI" as const,
+  };
   const sportKey = String(g.sport ?? "").toLowerCase();
   const teamLabel = (name: string) =>
     sportKey === "soccer" ||
@@ -1832,6 +1888,7 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
     noVigFair: o.noVigFair ?? null,
     edge: o.edge ?? null,
     bookSpread: o.bookSpread ?? null,
+    sportsbook: o.books?.[0]?.book ?? "OddsAPI best",
   });
   const pushSpread = (market: string, outcomes: OddsOutcome[] | undefined) => {
     for (const o of outcomes ?? []) {
@@ -2027,6 +2084,12 @@ export type PropPoolEntry = {
   marketKey?: string;
   /** True for alternate-ladder rungs (5+/10+/15+ points, alt total bases, etc.). */
   alt?: boolean;
+  position?: string | null;
+  eventId?: string | null;
+  sportsbook?: string | null;
+  oddsFetchedAt?: string | null;
+  providerLastUpdate?: string | null;
+  oddsProvider?: string | null;
 };
 
 export type PropSimulationResult = {
@@ -2043,6 +2106,8 @@ export type PropSimulationResult = {
   confidenceScore: number | null;
   stdDev: number | null;
   sampleGames: number;
+  /** Participating games after attempt/target filters. */
+  validParticipatingGames?: number;
   tier?: "quick" | "deep";
   cached?: boolean;
   deepPending?: boolean;
@@ -2060,7 +2125,13 @@ export type PropSimulationResult = {
     Under: Record<string, number>;
   };
   /** Present when hitProbability is null — explains why MC could not grade. */
-  nullReason?: "missing_athlete_id" | "no_history" | "insufficient_sample" | "stat_mapping_failed" | null;
+  nullReason?:
+    | "missing_athlete_id"
+    | "no_history"
+    | "insufficient_sample"
+    | "stat_mapping_failed"
+    | "unreliable_participation_history"
+    | null;
 };
 
 /** Phase 2.3 — authoritative history returned with prop-sim for Coach enrich reuse. */
@@ -4014,6 +4085,13 @@ async function buildLightParlayContext(
           : null;
         const marketLabel = propMarketLabel(p.market);
         const athleteId = p.athleteId ?? null;
+        const provenance = {
+          eventId: r.eventId ?? g.id,
+          oddsFetchedAt: r.fetchedAt ?? null,
+          providerLastUpdate: r.providerLastUpdate ?? null,
+          oddsProvider: r.provider ?? r.source ?? "OddsAPI",
+          position: p.position ?? null,
+        };
         if (p.overPrice != null) {
           propPool.push({
             sport: g.sport,
@@ -4030,6 +4108,8 @@ async function buildLightParlayContext(
             alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
+            sportsbook: p.overBook ?? r.bookmaker ?? null,
+            ...provenance,
           });
         }
         if (p.line != null && p.underPrice != null) {
@@ -4048,6 +4128,8 @@ async function buildLightParlayContext(
             alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
+            sportsbook: p.underBook ?? r.bookmaker ?? null,
+            ...provenance,
           });
         }
       }
@@ -4736,11 +4818,52 @@ export async function buildChatContext(
               : null;
             const marketLabel = propMarketLabel(p.market);
             const athleteId = p.athleteId ?? null;
+            const provenance = {
+              eventId: r.eventId ?? g.id,
+              oddsFetchedAt: r.fetchedAt ?? null,
+              providerLastUpdate: r.providerLastUpdate ?? null,
+              oddsProvider: r.provider ?? r.source ?? "OddsAPI",
+              position: p.position ?? null,
+            };
             if (overQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Over" ? (p.edge ?? null) : null, bookSpread: p.overSpread ?? null });
+              propPool.push({
+                sport,
+                game,
+                marketLabel,
+                player: p.player,
+                line: p.line,
+                side: "Over",
+                odds: p.overPrice!,
+                headshot,
+                teamAbbr,
+                athleteId,
+                marketKey: p.market,
+                alt: !!p.alt,
+                edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+                bookSpread: p.overSpread ?? null,
+                sportsbook: p.overBook ?? r.bookmaker ?? null,
+                ...provenance,
+              });
             }
             if (p.line != null && underQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Under" ? (p.edge ?? null) : null, bookSpread: p.underSpread ?? null });
+              propPool.push({
+                sport,
+                game,
+                marketLabel,
+                player: p.player,
+                line: p.line,
+                side: "Under",
+                odds: p.underPrice!,
+                headshot,
+                teamAbbr,
+                athleteId,
+                marketKey: p.market,
+                alt: !!p.alt,
+                edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+                bookSpread: p.underSpread ?? null,
+                sportsbook: p.underBook ?? r.bookmaker ?? null,
+                ...provenance,
+              });
             }
           }
         }
@@ -5201,6 +5324,13 @@ export async function fetchFullBoardPropPool(
         const teamAbbr = p.playerTeamId
           ? (teamMetaById.get(String(p.playerTeamId))?.abbr ?? null)
           : null;
+        const provenance = {
+          eventId: r.eventId ?? g.id,
+          oddsFetchedAt: r.fetchedAt ?? null,
+          providerLastUpdate: r.providerLastUpdate ?? null,
+          oddsProvider: r.provider ?? r.source ?? "OddsAPI",
+          position: p.position ?? null,
+        };
         const base = {
           sport: g.sport,
           game,
@@ -5213,12 +5343,14 @@ export async function fetchFullBoardPropPool(
           alt: !!p.alt,
           headshot: p.headshot ?? null,
           teamAbbr,
+          ...provenance,
         };
         if (p.overPrice != null) {
           const row: PropPoolEntry = {
             ...base,
             side: "Over",
             odds: p.overPrice,
+            sportsbook: p.overBook ?? r.bookmaker ?? null,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
           };
@@ -5233,6 +5365,7 @@ export async function fetchFullBoardPropPool(
             ...base,
             side: "Under",
             odds: p.underPrice,
+            sportsbook: p.underBook ?? r.bookmaker ?? null,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
           };

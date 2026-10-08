@@ -18,6 +18,10 @@ import {
 } from "./pickRecommendation.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
+import {
+  isUnsupportedQbRushOverHalf,
+  yardageTicketSampleFails,
+} from "./coachPropIntegrityGates.ts";
 
 const GRADE_RANK: Record<string, number> = {
   F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
@@ -45,7 +49,9 @@ export type BoardLegGateCode =
   | "not_sim_aligned"
   | "holistic_not_recommended"
   | "not_ai_recommended"
-  | "not_staged";
+  | "not_staged"
+  | "unsupported_settlement_model"
+  | "insufficient_yardage_sample";
 
 export type BoardLegQualification = {
   qualifies: boolean;
@@ -140,6 +146,22 @@ export function explainBoardLegQualification(
   }
 
   if (pick.isProp) {
+    if (isUnsupportedQbRushOverHalf(pick)) {
+      return {
+        qualifies: false,
+        role: null,
+        gate: "unsupported_settlement_model",
+        reason: "QB rush Over ≤0.5 blocked until kneel settlement is modeled",
+      };
+    }
+    if (yardageTicketSampleFails(pick)) {
+      return {
+        qualifies: false,
+        role: null,
+        gate: "insufficient_yardage_sample",
+        reason: "Yardage prop needs ≥5 valid participating games for ticket seating",
+      };
+    }
     if (!isRealisticBoardPropCandidate(pick)) {
       if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) {
         return {

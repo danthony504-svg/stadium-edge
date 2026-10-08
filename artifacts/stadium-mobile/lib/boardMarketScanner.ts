@@ -380,11 +380,27 @@ async function simPropBatch(
   signal?: AbortSignal,
   batchOpts?: { enrichTimeoutMs?: number },
 ): Promise<{
-  hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
+  hits: Map<
+    string,
+    {
+      hitProbability: number | null;
+      nullReason?: string | null;
+      sampleGames?: number;
+      validParticipatingGames?: number;
+    }
+  >;
   timedOut: boolean;
   playerHistory: Record<string, PlayerHistorySlice>;
 }> {
-  const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
+  const out = new Map<
+    string,
+    {
+      hitProbability: number | null;
+      nullReason?: string | null;
+      sampleGames?: number;
+      validParticipatingGames?: number;
+    }
+  >();
   if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
   let timedOut = false;
   let sharedHistories: Record<string, import("./api.ts").PropSimPlayerHistoryPayload> = {};
@@ -401,7 +417,12 @@ async function simPropBatch(
       ),
     ]);
     for (const [k, v] of simResult.hits) {
-      out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
+      out.set(k, {
+        hitProbability: v.hitProbability,
+        nullReason: v.nullReason ?? null,
+        sampleGames: v.sampleGames,
+        validParticipatingGames: v.validParticipatingGames,
+      });
     }
     sharedHistories = simResult.playerHistories ?? {};
   } catch {
@@ -462,7 +483,22 @@ function appendPropScoredLegs(
   });
   if (!pending.length) return;
 
-  const scoredPicks = attachPickScores(pending, {
+  const pendingWithSample = pending.map((pick) => {
+    const key = propSimKeyForPick(pick, poolRowForPropPick(pick, opts.pool));
+    const hit = key ? propHits.get(key) : null;
+    if (!hit) return pick;
+    return {
+      ...pick,
+      sampleGames:
+        (hit as { sampleGames?: number }).sampleGames ?? pick.sampleGames ?? null,
+      validParticipatingGames:
+        (hit as { validParticipatingGames?: number }).validParticipatingGames ??
+        pick.validParticipatingGames ??
+        null,
+    };
+  });
+
+  const scoredPicks = attachPickScores(pendingWithSample, {
     realOdds: opts.mergedOdds,
     propPool: opts.pool,
     matchupHistory: opts.matchupHistory,
@@ -653,7 +689,15 @@ async function simPropPoolUntilQualified(
   /** True when abort/deadline stopped scoring before the candidate pool was exhausted. */
   incomplete: boolean;
 }> {
-  const propHits = new Map<string, { hitProbability: number | null }>();
+  const propHits = new Map<
+    string,
+    {
+      hitProbability: number | null;
+      nullReason?: string | null;
+      sampleGames?: number;
+      validParticipatingGames?: number;
+    }
+  >();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
   const footballSkill = shouldUseFootballSkillPropSim({

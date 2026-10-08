@@ -9,6 +9,7 @@ import {
   FOOTBALL_DST_PROP_SIM_CAP,
   isFootballDstPropMarket,
 } from "./footballDstProps.ts";
+import { isUnsupportedQbRushOverHalf } from "./coachPropIntegrityGates.ts";
 
 export const BOARD_PROP_SIM_BATCH = 21;
 
@@ -17,6 +18,7 @@ export function isRealisticBoardPropCandidate(pick: ParsedPick): boolean {
   if (!pick.isProp) return false;
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return false;
   if (pick.propLine == null || !Number.isFinite(pick.propLine) || !pick.propSide) return false;
+  if (isUnsupportedQbRushOverHalf(pick)) return false;
   return marketSupportsSimulation(pick.market ?? "", pick);
 }
 

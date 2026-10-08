@@ -1,5 +1,11 @@
 import { Router, type IRouter } from "express";
-import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
+import {
+  ODDS_SPORT_KEYS,
+  ESPN_SPORT_PATHS,
+  cachedJson,
+  cachedJsonWithFetchedAt,
+  rateLimit,
+} from "../lib/sports";
 import { resolveOddsEvent, type OddsEventRow } from "../lib/oddsEventResolve.js";
 import { propBelongsToGameTeams } from "../lib/propGameTeamGate.js";
 import { aggregatePropRowsWithAltTrim } from "../lib/propAltTrim.js";
@@ -231,6 +237,7 @@ type RawEventOdds = {
   away_team?: string;
   bookmakers?: Array<{
     title?: string;
+    last_update?: string;
     markets?: Array<{
       key: string;
       outcomes?: Array<{ name: string; description?: string; price: number; point?: number }>;
@@ -245,9 +252,37 @@ type RawEventOdds = {
 // player-prop analytics, not just bookmaker odds.
 const normalizeName = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
-type RosterAthlete = { id?: string | number; fullName?: string; displayName?: string; headshot?: { href?: string } | string };
-type EspnRoster = { athletes?: Array<RosterAthlete | { items?: RosterAthlete[]; position?: string }> };
-type RosterEntry = { headshot: string | null; athleteId: string | null; teamId: string };
+type RosterAthlete = {
+  id?: string | number;
+  fullName?: string;
+  displayName?: string;
+  headshot?: { href?: string } | string;
+  position?: string | { abbreviation?: string; name?: string };
+};
+type EspnRoster = {
+  athletes?: Array<RosterAthlete | { items?: RosterAthlete[]; position?: string | { abbreviation?: string } }>;
+};
+type RosterEntry = {
+  headshot: string | null;
+  athleteId: string | null;
+  teamId: string;
+  position: string | null;
+};
+function rosterPositionAbbr(
+  athlete: RosterAthlete,
+  groupPosition?: string | { abbreviation?: string } | null,
+): string | null {
+  const fromAthlete =
+    typeof athlete.position === "string"
+      ? athlete.position
+      : athlete.position?.abbreviation ?? athlete.position?.name ?? null;
+  if (fromAthlete && String(fromAthlete).trim()) return String(fromAthlete).trim();
+  if (typeof groupPosition === "string" && groupPosition.trim()) return groupPosition.trim();
+  if (groupPosition && typeof groupPosition === "object" && groupPosition.abbreviation) {
+    return String(groupPosition.abbreviation).trim();
+  }
+  return null;
+}
 async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<string, RosterEntry>> {
   const url = `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`;
   const data = await cachedJson<EspnRoster>(`roster:${espnPath}:${teamId}`, 6 * 60 * 60 * 1000, async () => {
@@ -259,20 +294,26 @@ async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<str
   // ESPN ships rosters in two shapes depending on sport: a flat
   // `athletes` array, or a position-grouped array of `{position, items}`.
   // Flatten both into one list so the lookup works across all sports.
-  const flat: RosterAthlete[] = [];
+  const flat: Array<{ athlete: RosterAthlete; groupPosition?: string | { abbreviation?: string } }> = [];
   for (const entry of data.athletes ?? []) {
     if (entry && typeof entry === "object" && "items" in entry && Array.isArray((entry as { items?: RosterAthlete[] }).items)) {
-      flat.push(...((entry as { items: RosterAthlete[] }).items));
+      const group = entry as { items: RosterAthlete[]; position?: string | { abbreviation?: string } };
+      for (const a of group.items) flat.push({ athlete: a, groupPosition: group.position });
     } else {
-      flat.push(entry as RosterAthlete);
+      flat.push({ athlete: entry as RosterAthlete });
     }
   }
-  for (const a of flat) {
+  for (const { athlete: a, groupPosition } of flat) {
     const name = a.fullName ?? a.displayName;
     if (!name) continue;
     const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
     const athleteId = a.id != null ? String(a.id) : null;
-    m.set(normalizeName(name), { headshot: href ?? null, athleteId, teamId });
+    m.set(normalizeName(name), {
+      headshot: href ?? null,
+      athleteId,
+      teamId,
+      position: rosterPositionAbbr(a, groupPosition),
+    });
   }
   return m;
 }
@@ -398,7 +439,15 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   }
   const markets = MARKETS_BY_SPORT[sport];
   if (!markets) {
-    res.json({ home: null, away: null, props: [] });
+    res.json({
+      home: null,
+      away: null,
+      props: [],
+      provider: null,
+      eventId: null,
+      fetchedAt: new Date().toISOString(),
+      providerLastUpdate: null,
+    });
     return;
   }
   const apiKey = process.env["ODDS_API_KEY"];
@@ -466,7 +515,15 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           { sport, eventId, homeName, awayName },
           "multi-key league resolution failed; returning empty props",
         );
-        res.json({ home: null, away: null, props: [] });
+        res.json({
+          home: null,
+          away: null,
+          props: [],
+          provider: null,
+          eventId: eventId || null,
+          fetchedAt: new Date().toISOString(),
+          providerLastUpdate: null,
+        });
         return;
       }
       oddsKey = resolvedKey;
@@ -509,11 +566,23 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             bookmaker: "PrizePicks",
             props: pp,
             source: "PrizePicks",
+            provider: "PrizePicks",
+            eventId: eventId || null,
+            fetchedAt: new Date().toISOString(),
+            providerLastUpdate: null,
           });
           return;
         }
       }
-      res.json({ home: null, away: null, props: [] });
+      res.json({
+        home: null,
+        away: null,
+        props: [],
+        provider: null,
+        eventId: eventId || null,
+        fetchedAt: new Date().toISOString(),
+        providerLastUpdate: null,
+      });
       return;
     }
 
@@ -530,13 +599,16 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     const coreMarkets = markets.slice(0, Math.min(4, markets.length));
     const loadBaseOdds = async () => {
       try {
-        return await cachedJson<RawEventOdds>(`props:${oddsKey}:${effectiveEventId}`, 5 * 60 * 1000, () =>
-          fetchOdds(markets),
+        return await cachedJsonWithFetchedAt<RawEventOdds>(
+          `props:${oddsKey}:${effectiveEventId}:meta1`,
+          5 * 60 * 1000,
+          () => fetchOdds(markets),
         );
       } catch (err) {
         if (coreMarkets.length === markets.length) throw err;
         req.log.warn({ err, sport, effectiveEventId }, "full props fetch failed; retrying core markets only");
-        return fetchOdds(coreMarkets);
+        const data = await fetchOdds(coreMarkets);
+        return { data, fetchedAt: new Date().toISOString() };
       }
     };
 
@@ -545,27 +617,43 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     const altExtendedMarkets = ALT_MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
     const extendedMainMarkets = MARKETS_EXTENDED_BY_SPORT[sport] ?? [];
     const dstMarkets = MARKETS_DST_BY_SPORT[sport] ?? [];
-    const [data, qhData, altData, altExtendedData, extendedMainData, dstData] = await Promise.all([
+    const [baseWrapped, qhWrapped, altWrapped, altExtWrapped, extMainWrapped, dstWrapped] = await Promise.all([
       loadBaseOdds(),
       qhMarkets.length
-        ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
-            // Honest fallback: if a quarter/half segment 422s for this sport/event
-            // (e.g. game not in-window for QH lines yet) we return null and keep
-            // the base props rather than failing the whole request.
-            try { return await fetchOdds(qhMarkets); } catch { return null; }
-          })
+        ? cachedJsonWithFetchedAt<RawEventOdds | null>(
+            `props-qh:${oddsKey}:${effectiveEventId}:v2meta1`,
+            5 * 60 * 1000,
+            async () => {
+              // Honest fallback: if a quarter/half segment 422s for this sport/event
+              // (e.g. game not in-window for QH lines yet) we return null and keep
+              // the base props rather than failing the whole request.
+              try {
+                return await fetchOdds(qhMarkets);
+              } catch {
+                return null;
+              }
+            },
+          )
         : Promise.resolve(null),
       altMarkets.length
-        ? cachedJson<RawEventOdds | null>(`props-alt:${oddsKey}:${effectiveEventId}:v1`, 5 * 60 * 1000, async () => {
-            // Same honest fallback as QH: the alternate-ladder batch is all-or-
-            // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
-            // window) returns null and the base + QH props stand on their own.
-            try { return await fetchOdds(altMarkets); } catch { return null; }
-          })
+        ? cachedJsonWithFetchedAt<RawEventOdds | null>(
+            `props-alt:${oddsKey}:${effectiveEventId}:v1meta1`,
+            5 * 60 * 1000,
+            async () => {
+              // Same honest fallback as QH: the alternate-ladder batch is all-or-
+              // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
+              // window) returns null and the base + QH props stand on their own.
+              try {
+                return await fetchOdds(altMarkets);
+              } catch {
+                return null;
+              }
+            },
+          )
         : Promise.resolve(null),
       altExtendedMarkets.length
-        ? cachedJson<RawEventOdds | null>(
-            `props-alt-ext:${oddsKey}:${effectiveEventId}:v2`,
+        ? cachedJsonWithFetchedAt<RawEventOdds | null>(
+            `props-alt-ext:${oddsKey}:${effectiveEventId}:v2meta1`,
             5 * 60 * 1000,
             async () => {
               try {
@@ -577,8 +665,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           )
         : Promise.resolve(null),
       extendedMainMarkets.length
-        ? cachedJson<RawEventOdds | null>(
-            `props-ext:${oddsKey}:${effectiveEventId}:v1`,
+        ? cachedJsonWithFetchedAt<RawEventOdds | null>(
+            `props-ext:${oddsKey}:${effectiveEventId}:v1meta1`,
             5 * 60 * 1000,
             async () => {
               try {
@@ -590,8 +678,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           )
         : Promise.resolve(null),
       dstMarkets.length
-        ? cachedJson<RawEventOdds | null>(
-            `props-dst:${oddsKey}:${effectiveEventId}:v1`,
+        ? cachedJsonWithFetchedAt<RawEventOdds | null>(
+            `props-dst:${oddsKey}:${effectiveEventId}:v1meta1`,
             5 * 60 * 1000,
             async () => {
               // Isolated D/ST batch — 422 must not wipe skill extended mains.
@@ -604,6 +692,34 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           )
         : Promise.resolve(null),
     ]);
+    const data = baseWrapped.data;
+    const qhData = qhWrapped?.data ?? null;
+    const altData = altWrapped?.data ?? null;
+    const altExtendedData = altExtWrapped?.data ?? null;
+    const extendedMainData = extMainWrapped?.data ?? null;
+    const dstData = dstWrapped?.data ?? null;
+    const providerFetchedAts = [
+      baseWrapped.fetchedAt,
+      qhWrapped?.fetchedAt,
+      altWrapped?.fetchedAt,
+      altExtWrapped?.fetchedAt,
+      extMainWrapped?.fetchedAt,
+      dstWrapped?.fetchedAt,
+    ]
+      .filter((t): t is string => typeof t === "string" && t.length > 0)
+      .sort();
+    const propsFetchedAt = providerFetchedAts[0] ?? new Date().toISOString();
+    let providerLastUpdate: string | null = null;
+    for (const src of [data, qhData, altData, altExtendedData, extendedMainData, dstData]) {
+      for (const book of src?.bookmakers ?? []) {
+        const lu = (book as { last_update?: string }).last_update;
+        if (typeof lu === "string" && lu.trim()) {
+          if (!providerLastUpdate || Date.parse(lu) > Date.parse(providerLastUpdate)) {
+            providerLastUpdate = lu;
+          }
+        }
+      }
+    }
 
     // Union player markets across ALL bookmakers (base + quarter/half),
     // keeping the BEST price per (player, market, line, side). Earlier this
@@ -863,6 +979,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           athleteId: w?.athleteId ?? r?.athleteId ?? null,
           playerTeamId: w?.teamId ?? r?.teamId ?? null,
           teamLogo: w?.teamLogo ?? null,
+          position: r?.position ?? null,
         };
       })
       // Mirror PrizePicks: when ESPN home/away ids are known, drop orphans and
@@ -875,12 +992,17 @@ router.get("/sports/props", async (req, res): Promise<void> => {
         awayTeamId: awayTeamId || null,
       }).catch(() => []);
       if (pp.length > 0) {
+        const ppFetchedAt = new Date().toISOString();
         res.json({
           home: homeName,
           away: awayName,
           bookmaker: "PrizePicks",
           props: pp,
           source: "PrizePicks",
+          provider: "PrizePicks",
+          eventId: effectiveEventId,
+          fetchedAt: ppFetchedAt,
+          providerLastUpdate: null,
         });
         return;
       }
@@ -891,6 +1013,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       away: data.away_team ?? null,
       bookmaker: Array.from(new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean))).join(", ") || null,
       props,
+      provider: "OddsAPI",
+      eventId: effectiveEventId,
+      fetchedAt: propsFetchedAt,
+      providerLastUpdate,
     });
   } catch (err) {
     req.log.error({ err, sport, homeName, awayName }, "Failed to fetch player props; trying PrizePicks fallback");
@@ -907,6 +1033,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             bookmaker: "PrizePicks",
             props: pp,
             source: "PrizePicks",
+            provider: "PrizePicks",
+            eventId: eventId || null,
+            fetchedAt: new Date().toISOString(),
+            providerLastUpdate: null,
           });
           return;
         }
