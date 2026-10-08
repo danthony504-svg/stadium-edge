@@ -1,6 +1,7 @@
 /**
  * Thin bridge from api-server → @workspace/simulator-v2.
- * Phase A: shadow diagnostics only. Never feeds Coach seating / grading.
+ * Phase B: shadow diagnostics only. Never feeds Coach seating / grading
+ * unless serve flags + acceptance gates are explicitly enabled (not default).
  */
 
 import {

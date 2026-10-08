@@ -1,8 +1,9 @@
 /**
- * @workspace/simulator-v2 — Phase A platform
+ * @workspace/simulator-v2 — Phase B platform
  *
- * Isolated versioned simulation engine. No production sport models yet.
- * Shadow mode cannot influence Coach picks under default flags.
+ * Isolated versioned simulation engine.
+ * Phase B adds joint NFL/NCAAF football model (shadow-only under default flags).
+ * Production Coach picks remain on V1 until acceptance gates + explicit serve flags.
  */
 
 export * from "./version.js";
@@ -20,3 +21,4 @@ export * from "./metrics/coverage.js";
 export * from "./metrics/latency.js";
 export * from "./flags/featureFlags.js";
 export * from "./flags/acceptanceGates.js";
+export * from "./models/index.js";
