@@ -15,7 +15,8 @@ import {
 } from "./priors.js";
 
 export const BASKETBALL_JOINT_MODEL_ID = "basketball.joint.v0" as const;
-export const BASKETBALL_JOINT_MODEL_VERSION = "0.2.0" as const;
+/** v0.3: mild form shrink + per-draw game shock (calibration). */
+export const BASKETBALL_JOINT_MODEL_VERSION = "0.3.0" as const;
 export const BASKETBALL_JOINT_MODEL_IDS = [BASKETBALL_JOINT_MODEL_ID] as const;
 
 export type BasketballTeamInput = {
@@ -78,13 +79,27 @@ function tensorQ1(byPeriod: Record<string, Float64Array>, i: number): number | n
   return q1 ? q1[i]! : null;
 }
 
+/** Mild shrink (val-tuned 0.2) — heavier shrink collapsed between-game separation. */
+function shrinkToLeague(raw: number, league: number, weight = 0.2): number {
+  return weight * league + (1 - weight) * raw;
+}
+
 function teamMean(sport: BasketballSport, team: BasketballTeamInput, opp: BasketballTeamInput): number {
   const league = BASKETBALL_FG_MEAN[sport];
-  const offense = team.ptsFor ?? avg(team.recentFgScores, league);
-  const defense = opp.ptsAgainst ?? league;
+  const offense = shrinkToLeague(team.ptsFor ?? avg(team.recentFgScores, league), league);
+  const defense = shrinkToLeague(opp.ptsAgainst ?? league, league);
   const lo = sport === "nba" ? 90 : sport === "wnba" ? 65 : 55;
   const hi = sport === "nba" ? 140 : sport === "wnba" ? 105 : 95;
   return clamp(0.55 * offense + 0.45 * defense, lo, hi);
+}
+
+function logNormalShock(rng: () => number, sigma: number): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  return Math.exp(sigma * z - 0.5 * sigma * sigma);
 }
 
 export function buildJointBasketballTensor(input: JointBasketballInput): SimV2ScenarioTensor {
@@ -93,9 +108,10 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
   }
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const hfa = input.sport === "ncaab" ? 3.2 : 2.4;
-  const homeMean = teamMean(input.sport, input.home, input.away) + hfa;
-  const awayMean = teamMean(input.sport, input.away, input.home);
+  const hfa = input.sport === "ncaab" ? 2.6 : input.sport === "wnba" ? 1.8 : 2.0;
+  const homeBase = teamMean(input.sport, input.home, input.away) + hfa;
+  const awayBase = teamMean(input.sport, input.away, input.home);
+  const shockSigma = input.sport === "ncaab" ? 0.14 : 0.12;
   const collegeHalves = input.sport === "ncaab";
 
   const homeFg = new Float64Array(n);
@@ -109,6 +125,8 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
     awayByPeriod.h1 = new Float64Array(n);
     awayByPeriod.h2 = new Float64Array(n);
     for (let i = 0; i < n; i++) {
+      const homeMean = homeBase * logNormalShock(next, shockSigma);
+      const awayMean = awayBase * logNormalShock(next, shockSigma);
       const hh1 = poissonSample(homeMean * 0.48, next);
       const hh2 = poissonSample(homeMean * 0.52, next);
       const ah1 = poissonSample(awayMean * 0.48, next);
@@ -128,6 +146,8 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
     awayByPeriod.h1 = new Float64Array(n);
     awayByPeriod.h2 = new Float64Array(n);
     for (let i = 0; i < n; i++) {
+      const homeMean = homeBase * logNormalShock(next, shockSigma);
+      const awayMean = awayBase * logNormalShock(next, shockSigma);
       let hs = 0;
       let as = 0;
       for (let q = 0; q < 4; q++) {
