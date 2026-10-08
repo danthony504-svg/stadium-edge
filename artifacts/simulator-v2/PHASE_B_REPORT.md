@@ -117,6 +117,10 @@ Synthetic 8-game FG total calibration plumbing: Brier ≈ 0.253, log loss ≈ 0.
 6. **HOLD #649** remains; do not treat Phase B as permission to ship lean top-up.
 7. **Production serve still forbidden** until explicit family acceptance + flag flip + separate review.
 
+## Calibration root-cause audit (read-only)
+
+See `eval/report/CALIBRATION_ROOT_CAUSE_AUDIT.md`. **No model changes.** Primary failures: under-dispersed Poisson quarters (FG var ratio ~0.56–0.62), home/margin bias (−2.6 NFL / −3.9 NCAAF), and thin tails on extreme spreads. Integrity/leakage cleared. Gates remain closed.
+
 ## Historical validation (follow-up)
 
 See `eval/report/HISTORICAL_VALIDATION.md` for walk-forward results:
