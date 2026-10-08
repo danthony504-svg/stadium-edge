@@ -1,6 +1,7 @@
 // Which markets have a dedicated Monte Carlo model — only these get AI recommendations.
 
 import { sportSimModelForSport, type SportSimModelId } from "./sportSimModels.ts";
+import { p0UnvalidatedSimTotalDecision } from "./coachP0UnvalidatedTotals.ts";
 import { isRareCountPropMarket } from "./rareCountPropModel.ts";
 
 export type { SportSimModelId };
@@ -210,6 +211,11 @@ export function assessSimMarketIntegrity(
             ? `${periodClaimed}:game_total`
             : `${periodClaimed}:${expectedKind}`
           : `${periodClaimed}:${expectedKind}`);
+
+  // P0: fail closed on unvalidated NFL/NCAAF/NHL team/period totals (and
+  // NFL/NCAAF FG game totals) before extreme-hit accept paths can grade them.
+  const p0 = p0UnvalidatedSimTotalDecision(pick);
+  if (p0) return p0;
 
   if (!simMarketMappingIsValid(pick)) {
     return { accept: false, reason: "unsupported_market_or_period_mapping" };
