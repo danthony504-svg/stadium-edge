@@ -1,0 +1,837 @@
+{
+  "freeze": {
+    "holdoutEvents": 320,
+    "graded02": 316,
+    "graded03": 316
+  },
+  "verdicts": {
+    "v02": "FAIL",
+    "v03": "FAIL"
+  },
+  "shrinkTo50": {
+    "flagged": false,
+    "reasons": []
+  },
+  "variance": {
+    "actualRegVar": 3.0484873217433073,
+    "meanSimDrawVar02": 3.0791080537974707,
+    "meanSimDrawVar03": 3.3187885870253195,
+    "varRatio02": 1.0100445659838442,
+    "varRatio03": 1.088667341128202
+  },
+  "runtimeMs": {
+    "v02": {
+      "mean": 1.8648447943038562,
+      "p90": 4.3059139999968465,
+      "p95": 5.465084000003117
+    },
+    "v03": {
+      "mean": 2.090429943037991,
+      "p90": 4.527415999997174,
+      "p95": 5.958337999996729
+    }
+  },
+  "mainAll": {
+    "v02": {
+      "ece": 0.13079925320056923,
+      "brier": 0.26469147804054105,
+      "logLoss": 0.7298928002941368,
+      "n": 2812,
+      "games": 316,
+      "effN": 264.601258198367,
+      "eceSe": 0.011709217445395258,
+      "meanAbsDevFromHalf": 0.15566909672830717,
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "verdict": "FAIL"
+    },
+    "v03": {
+      "ece": 0.1055835704125182,
+      "brier": 0.2588987402204851,
+      "logLoss": 0.7151838747747314,
+      "n": 2812,
+      "games": 316,
+      "effN": 264.601258198367,
+      "eceSe": 0.011668130087256149,
+      "meanAbsDevFromHalf": 0.1370010668563301,
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "verdict": "FAIL"
+    }
+  },
+  "gates02": [
+    {
+      "key": "nhl:ml_final",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2553239659810127,
+      "logLoss": 0.7060944828624063,
+      "ece": 0.08322626582278482,
+      "eceSe": 0.02323404035912026,
+      "meanP": 0.5367927215189875,
+      "meanY": 0.5632911392405063,
+      "bias": -0.02649841772151884,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0832_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 2,
+        "hitRate": 0.5
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.11020727848101274
+    },
+    {
+      "key": "nhl:ml_regulation",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2594325411392403,
+      "logLoss": 0.7166491995400179,
+      "ece": 0.09088924050632907,
+      "eceSe": 0.023095312528269858,
+      "meanP": 0.44692405063291124,
+      "meanY": 0.44936708860759494,
+      "bias": -0.002443037974683704,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0909_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.10987658227848096
+    },
+    {
+      "key": "nhl:spread",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.24316190506329102,
+      "logLoss": 0.6902344657015289,
+      "ece": 0.0993955696202532,
+      "eceSe": 0.023856437310400873,
+      "meanP": 0.29808860759493677,
+      "meanY": 0.36075949367088606,
+      "bias": -0.06267088607594928,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0994_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.2052594936708861
+    },
+    {
+      "key": "nhl:total_final",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2598661938291141,
+      "logLoss": 0.7169369854441511,
+      "ece": 0.11585601265822768,
+      "eceSe": 0.025712113414297723,
+      "meanP": 0.5709604430379749,
+      "meanY": 0.5664556962025317,
+      "bias": 0.0045047468354432185,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.1159_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 3,
+        "hitRate": 0.3333333333333333
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.10715664556962028
+    },
+    {
+      "key": "nhl:total_regulation",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2598661938291141,
+      "logLoss": 0.7169369854441511,
+      "ece": 0.11585601265822768,
+      "eceSe": 0.02588127793928899,
+      "meanP": 0.5709604430379749,
+      "meanY": 0.5664556962025317,
+      "bias": 0.0045047468354432185,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.1159_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 3,
+        "hitRate": 0.3333333333333333
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.10715664556962028
+    },
+    {
+      "key": "nhl:team_total",
+      "verdict": "FAIL",
+      "n": 632,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.25164436471519014,
+      "logLoss": 0.7015112377621022,
+      "ece": 0.08642246835443024,
+      "eceSe": 0.022122462725610054,
+      "meanP": 0.6137072784810124,
+      "meanY": 0.5917721518987342,
+      "bias": 0.02193512658227814,
+      "reasons": [
+        "ece_0.0864_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 18,
+        "hitRate": 0.3888888888888889
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.1391962025316454
+    },
+    {
+      "key": "nhl:alt_spread",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.17304240031645576,
+      "logLoss": 0.5465903820388918,
+      "ece": 0.06341455696202536,
+      "eceSe": 0.018102099682095283,
+      "meanP": 0.17888924050632907,
+      "meanY": 0.20569620253164558,
+      "bias": -0.026806962025316516,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0634_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.3213291139240507
+    },
+    {
+      "key": "nhl:alt_total",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.25473807278481014,
+      "logLoss": 0.7034842498023963,
+      "ece": 0.09353164556962026,
+      "eceSe": 0.023790492952996182,
+      "meanP": 0.4623639240506329,
+      "meanY": 0.41455696202531644,
+      "bias": 0.04780696202531648,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0935_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.09331012658227845
+    },
+    {
+      "key": "nhl:alt_player_prop",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 240,
+      "nGames": 60,
+      "nPlayers": 117,
+      "effectiveN": 60,
+      "brier": 0.23848435729166667,
+      "logLoss": 0.670003991308816,
+      "ece": 0.4868479166666665,
+      "eceSe": 0.004464594920839163,
+      "meanP": 0.48684791666666655,
+      "meanY": 0,
+      "bias": 0.48684791666666655,
+      "reasons": [
+        "oos_sample_240_lt_500",
+        "ece_0.4868_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.033897916666666646
+    },
+    {
+      "key": "nhl:alt_all",
+      "verdict": "FAIL",
+      "n": 872,
+      "nGames": 316,
+      "nPlayers": 117,
+      "effectiveN": 238.8140703517588,
+      "brier": 0.2206592606077981,
+      "logLoss": 0.6374134651100501,
+      "ece": 0.17646616972477067,
+      "eceSe": 0.01644210897080728,
+      "meanP": 0.3663755733944952,
+      "meanY": 0.22477064220183487,
+      "bias": 0.14160493119266035,
+      "reasons": [
+        "ece_0.1765_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.15958887614678888
+    },
+    {
+      "key": "nhl:main_all",
+      "verdict": "FAIL",
+      "n": 2812,
+      "nGames": 316,
+      "nPlayers": 176,
+      "effectiveN": 264.601258198367,
+      "brier": 0.26469147804054105,
+      "logLoss": 0.7298928002941368,
+      "ece": 0.13079925320056923,
+      "eceSe": 0.011709217445395258,
+      "meanP": 0.5251299786628726,
+      "meanY": 0.45376955903271693,
+      "bias": 0.07136041963015566,
+      "reasons": [
+        "ece_0.1308_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 146,
+        "hitRate": 0.5547945205479452
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.15566909672830717
+    },
+    {
+      "key": "nhl:player_prop_named",
+      "verdict": "FAIL",
+      "n": 840,
+      "nGames": 60,
+      "nPlayers": 176,
+      "effectiveN": 60,
+      "brier": 0.28425213184523823,
+      "logLoss": 0.7727370719928892,
+      "ece": 0.39255773809523786,
+      "eceSe": 0.00958499189312443,
+      "meanP": 0.5235101190476193,
+      "meanY": 0.13095238095238096,
+      "bias": 0.3925577380952384,
+      "reasons": [
+        "ece_0.3926_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 120,
+        "hitRate": 0.5916666666666667
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.18544464285714274
+    }
+  ],
+  "gates03": [
+    {
+      "key": "nhl:ml_final",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2484734390822784,
+      "logLoss": 0.6903550758222065,
+      "ece": 0.04101424050632913,
+      "eceSe": 0.01909033935191339,
+      "meanP": 0.5251060126582278,
+      "meanY": 0.5632911392405063,
+      "bias": -0.03818512658227857,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0410_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.06671360759493666
+    },
+    {
+      "key": "nhl:ml_regulation",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2511297444620251,
+      "logLoss": 0.6961472202697593,
+      "ece": 0.03289398734177226,
+      "eceSe": 0.017675538118675418,
+      "meanP": 0.43500474683544293,
+      "meanY": 0.44936708860759494,
+      "bias": -0.01436234177215201,
+      "reasons": [
+        "oos_sample_316_lt_500"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.08036234177215194
+    },
+    {
+      "key": "nhl:spread",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2378282579113924,
+      "logLoss": 0.6725001941345968,
+      "ece": 0.08958227848101277,
+      "eceSe": 0.025638703272487517,
+      "meanP": 0.2888069620253165,
+      "meanY": 0.36075949367088606,
+      "bias": -0.07195253164556953,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0896_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.21119303797468367
+    },
+    {
+      "key": "nhl:total_final",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2514845996835446,
+      "logLoss": 0.6971794371383515,
+      "ece": 0.0768639240506328,
+      "eceSe": 0.024955702388339843,
+      "meanP": 0.5758924050632913,
+      "meanY": 0.5664556962025317,
+      "bias": 0.009436708860759646,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0769_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.08415822784810133
+    },
+    {
+      "key": "nhl:total_regulation",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2514845996835446,
+      "logLoss": 0.6971794371383515,
+      "ece": 0.0768639240506328,
+      "eceSe": 0.02616322749457644,
+      "meanP": 0.5758924050632913,
+      "meanY": 0.5664556962025317,
+      "bias": 0.009436708860759646,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0769_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.08415822784810133
+    },
+    {
+      "key": "nhl:team_total",
+      "verdict": "FAIL",
+      "n": 632,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2443836681170889,
+      "logLoss": 0.6829430825000853,
+      "ece": 0.04610522151898715,
+      "eceSe": 0.017987558881225055,
+      "meanP": 0.6075530063291132,
+      "meanY": 0.5917721518987342,
+      "bias": 0.01578085443037902,
+      "reasons": [
+        "ece_0.0461_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.1126242088607595
+    },
+    {
+      "key": "nhl:alt_spread",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.16869533860759495,
+      "logLoss": 0.5281687793215052,
+      "ece": 0.04545886075949361,
+      "eceSe": 0.017632618350389147,
+      "meanP": 0.17307278481012656,
+      "meanY": 0.20569620253164558,
+      "bias": -0.03262341772151903,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0455_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.32692721518987367
+    },
+    {
+      "key": "nhl:alt_total",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 316,
+      "nGames": 316,
+      "nPlayers": 0,
+      "effectiveN": 316,
+      "brier": 0.2474597974683545,
+      "logLoss": 0.6878899348738141,
+      "ece": 0.06354430379746824,
+      "eceSe": 0.02155099316305032,
+      "meanP": 0.46777848101265845,
+      "meanY": 0.41455696202531644,
+      "bias": 0.05322151898734201,
+      "reasons": [
+        "oos_sample_316_lt_500",
+        "ece_0.0635_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.059170886075949426
+    },
+    {
+      "key": "nhl:alt_player_prop",
+      "verdict": "INSUFFICIENT_DATA",
+      "n": 240,
+      "nGames": 60,
+      "nPlayers": 117,
+      "effectiveN": 60,
+      "brier": 0.2384809250000001,
+      "logLoss": 0.6700637098079133,
+      "ece": 0.48773750000000016,
+      "eceSe": 0.002770522167991678,
+      "meanP": 0.4877375000000005,
+      "meanY": 0,
+      "bias": 0.4877375000000005,
+      "reasons": [
+        "oos_sample_240_lt_500",
+        "ece_0.4877_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.022849999999999995
+    },
+    {
+      "key": "nhl:alt_all",
+      "verdict": "FAIL",
+      "n": 872,
+      "nGames": 316,
+      "nPlayers": 117,
+      "effectiveN": 238.8140703517588,
+      "brier": 0.2164454644495411,
+      "logLoss": 0.6251030321555278,
+      "ece": 0.16999999999999987,
+      "eceSe": 0.016721340630019964,
+      "meanP": 0.36647477064220213,
+      "meanY": 0.22477064220183487,
+      "bias": 0.14170412844036726,
+      "reasons": [
+        "ece_0.1700_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.14620527522935783
+    },
+    {
+      "key": "nhl:main_all",
+      "verdict": "FAIL",
+      "n": 2812,
+      "nGames": 316,
+      "nPlayers": 176,
+      "effectiveN": 264.601258198367,
+      "brier": 0.2588987402204851,
+      "logLoss": 0.7151838747747314,
+      "ece": 0.1055835704125182,
+      "eceSe": 0.011668130087256149,
+      "meanP": 0.5212496443812225,
+      "meanY": 0.45376955903271693,
+      "bias": 0.06748008534850553,
+      "reasons": [
+        "ece_0.1056_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 120,
+        "hitRate": 0.5916666666666667
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.1370010668563301
+    },
+    {
+      "key": "nhl:player_prop_named",
+      "verdict": "FAIL",
+      "n": 840,
+      "nGames": 60,
+      "nPlayers": 176,
+      "effectiveN": 60,
+      "brier": 0.28433523660714316,
+      "logLoss": 0.7726549129730474,
+      "ece": 0.3931136904761905,
+      "eceSe": 0.009013791727574891,
+      "meanP": 0.5240660714285715,
+      "meanY": 0.13095238095238096,
+      "bias": 0.3931136904761906,
+      "reasons": [
+        "ece_0.3931_gt_0.04"
+      ],
+      "overconf80": {
+        "n": 120,
+        "hitRate": 0.5916666666666667
+      },
+      "overconf90": {
+        "n": 0,
+        "hitRate": null
+      },
+      "overconf95": {
+        "n": 0,
+        "hitRate": null
+      },
+      "meanAbsDevFromHalf": 0.1823232142857146
+    }
+  ]
+}
