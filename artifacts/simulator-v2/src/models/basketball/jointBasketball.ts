@@ -27,9 +27,20 @@ export type BasketballCalibrationProfile =
   | "v0.3"
   | "ablate_shrink"
   | "ablate_shock"
-  | "ablate_hfa";
+  | "ablate_hfa"
+  | "nba_e3"
+  | "wnba_e3"
+  | "ncaab_e3";
 
-/** One-factor ablations vs v0.2 baseline (for eval only). */
+/**
+ * Per-league default (E.3). Leagues do not share parameters.
+ * Holdout verification promoted none — every league stays v0.2.
+ */
+export function defaultBasketballProfile(_sport: BasketballSport): BasketballCalibrationProfile {
+  return "v0.2";
+}
+
+/** One-factor ablations / E.3 league profiles vs v0.2 baseline. */
 export function basketballProfileLevers(profile: BasketballCalibrationProfile = "v0.2") {
   const base = {
     profile: "v0.2" as BasketballCalibrationProfile,
@@ -41,7 +52,13 @@ export function basketballProfileLevers(profile: BasketballCalibrationProfile = 
     hfaWnba: 2.4,
     hfaNcaab: 3.2,
   };
-  if (profile === "v0.2") return base;
+  if (profile === "v0.2" || profile === "wnba_e3") {
+    return {
+      ...base,
+      profile,
+      modelVersion: profile === "wnba_e3" ? "0.2.0-wnba" : "0.2.0",
+    };
+  }
   if (profile === "v0.3") {
     return {
       profile: "v0.3" as const,
@@ -66,15 +83,23 @@ export function basketballProfileLevers(profile: BasketballCalibrationProfile = 
       shockSigmaNcaab: 0.14,
     };
   }
-  // ablate_hfa — v0.3 HFA only
-  return {
-    ...base,
-    profile: "ablate_hfa" as const,
-    modelVersion: "0.2.0+hfa",
-    hfaNba: 2.0,
-    hfaWnba: 1.8,
-    hfaNcaab: 2.6,
-  };
+  if (profile === "ablate_hfa") {
+    return {
+      ...base,
+      profile: "ablate_hfa" as const,
+      modelVersion: "0.2.0+hfa",
+      hfaNba: 2.0,
+      hfaWnba: 1.8,
+      hfaNcaab: 2.6,
+    };
+  }
+  if (profile === "nba_e3") {
+    return { ...base, profile: "nba_e3" as const, modelVersion: "0.2.1-nba", shrinkWeight: 0.15 };
+  }
+  if (profile === "ncaab_e3") {
+    return { ...base, profile: "ncaab_e3" as const, modelVersion: "0.2.1-ncaab", shrinkWeight: 0.2 };
+  }
+  return base;
 }
 
 export type BasketballTeamInput = {
@@ -174,7 +199,7 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
   }
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const levers = basketballProfileLevers(input.calibrationProfile ?? "v0.2");
+  const levers = basketballProfileLevers(input.calibrationProfile ?? defaultBasketballProfile(input.sport));
   const hfa =
     input.sport === "ncaab"
       ? levers.hfaNcaab

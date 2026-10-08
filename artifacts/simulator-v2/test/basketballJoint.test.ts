@@ -170,6 +170,20 @@ describe("Basketball joint milestone E.2 (shadow)", () => {
   });
 });
 
+describe("Basketball E.3 league profiles", () => {
+  it("keeps defaultBasketballProfile at v0.2 for every league after failed promote", async () => {
+    const { defaultBasketballProfile, basketballProfileLevers } = await import(
+      "../src/models/basketball/jointBasketball.js"
+    );
+    assert.equal(defaultBasketballProfile("nba"), "v0.2");
+    assert.equal(defaultBasketballProfile("wnba"), "v0.2");
+    assert.equal(defaultBasketballProfile("ncaab"), "v0.2");
+    assert.equal(basketballProfileLevers("nba_e3").shrinkWeight, 0.15);
+    assert.equal(basketballProfileLevers("ncaab_e3").shrinkWeight, 0.2);
+    assert.equal(basketballProfileLevers("wnba_e3").shrinkWeight, 0);
+  });
+});
+
 describe("Basketball calibration profiles A/B", () => {
   it("v0.3 reports higher within-draw total variance than v0.2 on same seed", () => {
     const base = {

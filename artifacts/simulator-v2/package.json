@@ -15,7 +15,8 @@
     "eval:chrono-oos": "node --import ./test/register-hooks.mjs ./eval/runChronologicalOos.ts",
     "eval:basketball-oos": "node --import ./test/register-hooks.mjs ./eval/runBasketballChronoOos.ts",
     "eval:basketball-ab": "node --import ./test/register-hooks.mjs ./eval/runBasketballAbHoldout.ts",
-    "eval:basketball-ablate": "node --import ./test/register-hooks.mjs ./eval/runBasketballAblation.ts"
+    "eval:basketball-ablate": "node --import ./test/register-hooks.mjs ./eval/runBasketballAblation.ts",
+    "eval:basketball-e3": "node --import ./test/register-hooks.mjs ./eval/runBasketballE3.ts"
   },
   "dependencies": {
     "zod": "catalog:"
