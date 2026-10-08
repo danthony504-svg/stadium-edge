@@ -91,6 +91,7 @@ import {
   enforceMlLeanOnPicks,
   mlLeanEnforcementNote,
 } from "@/lib/mlLeanEnforcement";
+import { topUpAfterMlLean } from "@/lib/postLeanFinalFill";
 import { marketFamily } from "@/components/PickCard";
 import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
 import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
@@ -821,6 +822,7 @@ export async function buildCoachParlay(opts: {
       realOdds: scanRealOdds,
       gameMeta: [],
       qualifiedCandidates,
+      requestedLegs: target,
     });
     picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(enforced.picks, marketConstraint),
@@ -843,6 +845,30 @@ export async function buildCoachParlay(opts: {
     });
   } else if (!propsOnly && !gameLinesOnly) {
     picks = finalizeGeneralPropMixPicks(picks, target);
+  }
+  // Post-lean final fill — reuse production top-up / progressive GL raise on
+  // already-qualified leftovers. Skip while props are still scoring so we do
+  // not pack GL seats before skill props land. Never re-runs mlLean.
+  if (picks.length < target && !propsPending && !propsOnly) {
+    const fillPool = [
+      ...(scan?.qualifiedCandidates ?? []),
+      ...(latest?.qualifiedCandidates ?? []),
+    ];
+    if (fillPool.length) {
+      picks = topUpAfterMlLean({
+        picks,
+        qualifiedCandidates: fillPool,
+        target,
+        varietySeed: opts.askText,
+        legsPerGameCap,
+        collegeTeamMarketStacks,
+      });
+      picks = filterPicksForCoachAskTeams(
+        filterPicksByAskMarketConstraint(picks, marketConstraint),
+        teamScope,
+        inputs.excludedTeams,
+      );
+    }
   }
   // Same-ticket ladder ban — never ship Colts +4.5 and +3.5 together.
   picks = dedupePicksByMarketLadder(picks);

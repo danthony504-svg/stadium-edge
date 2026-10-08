@@ -14,7 +14,6 @@ import {
   filterTicketPicksPreservingTicket,
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
-  pickGradeDisplayCaption,
   propsOnlyTicketCleared,
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
