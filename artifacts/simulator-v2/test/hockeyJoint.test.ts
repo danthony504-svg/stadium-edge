@@ -45,7 +45,7 @@ describe("NHL joint milestone D.2 (shadow)", () => {
       ],
     });
     assert.equal(tensor.meta.modelId, HOCKEY_JOINT_MODEL_ID);
-    assert.ok(tensor.meta.modelVersion.startsWith("0.2"));
+    assert.ok(tensor.meta.modelVersion.startsWith("0.3"));
     const cons = validateScenarioConsistency(tensor, { periodSumGroup: ["p1", "p2", "p3"] });
     assert.equal(cons.ok, true, JSON.stringify(cons.issues));
 
@@ -126,5 +126,37 @@ describe("NHL joint milestone D.2 (shadow)", () => {
       v2: null,
     });
     assert.equal(prod.engine, "v1");
+  });
+
+  it("settles regulation FG on homeFg (not OT/SO final) when includeOtSo=false", () => {
+    const tensor = buildJointHockeyTensor({
+      sport: "nhl",
+      eventId: "nhl-reg",
+      seed: "nhl-reg",
+      nDraws: 500,
+      home: { teamId: "h", goalsFor: 3.1, goalsAgainst: 2.9 },
+      away: { teamId: "a", goalsFor: 2.9, goalsAgainst: 3.1 },
+    });
+    const reg = buildHockeyTotalMarket({
+      marketId: "tot_reg",
+      eventId: "nhl-reg",
+      side: "over",
+      line: 5.5,
+      includeOtSo: false,
+    });
+    const fin = buildHockeyTotalMarket({
+      marketId: "tot_fin",
+      eventId: "nhl-reg",
+      side: "over",
+      line: 5.5,
+      includeOtSo: true,
+    });
+    assert.equal(reg.settlement.settlePath, "team.totalFg");
+    assert.equal(fin.settlement.settlePath, "team.nhlFinalTotal");
+    const rReg = settleMarket({ tensor, market: reg, odds: od("tot_reg", -110) });
+    const rFin = settleMarket({ tensor, market: fin, odds: od("tot_fin", -110) });
+    assert.equal(rReg.status, "ok");
+    assert.equal(rFin.status, "ok");
+    assert.ok(rFin.simHit! >= rReg.simHit! - 1e-9);
   });
 });

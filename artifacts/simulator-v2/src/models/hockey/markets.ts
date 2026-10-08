@@ -13,12 +13,21 @@ export const HOCKEY_SHADOW_FAMILIES: SimV2MarketFamily[] = [
 ];
 
 function paths(period: HockeyPeriod, finalGame: boolean) {
-  if (finalGame || period === "fg") {
+  if (period === "fg") {
+    // Regulation FG (includeOtSo=false) uses homeFg; final includes OT/SO.
+    if (finalGame) {
+      return {
+        home: "team.nhlFinalHome",
+        away: "team.nhlFinalAway",
+        total: "team.nhlFinalTotal",
+        margin: "team.nhlFinalMargin",
+      };
+    }
     return {
-      home: "team.nhlFinalHome",
-      away: "team.nhlFinalAway",
-      total: "team.nhlFinalTotal",
-      margin: "team.nhlFinalMargin",
+      home: "team.homeFg",
+      away: "team.awayFg",
+      total: "team.totalFg",
+      margin: "team.margin",
     };
   }
   return {

@@ -9,13 +9,15 @@
 | Props | goals/ast/pts/sog (+alts), saves | saves = goalie |
 
 ## Files
-- `src/models/hockey/jointHockey.ts` v0.2.0
-- `src/models/hockey/markets.ts`
+- `src/models/hockey/jointHockey.ts` v0.3.0 (form shrink + lognormal shock + milder HFA)
+- `src/models/hockey/markets.ts` (regulation FG vs OT/SO final settle paths)
 - `src/engine/settle.ts` (nhlFinal paths)
-- `eval/runNhlChronoOos.ts`
+- `eval/runNhlChronoOos.ts` + `eval/familyCalibration.ts`
+- `eval/report/NHL_CHRONO_OOS.md`, `NHL_FAMILY_GATES.md`
+- `MILESTONE_NHL_CALIBRATION.md`
 - `test/hockeyJoint.test.ts`
 
 ## Blockers
-- Chrono n may be <500; ESPN week fetch incomplete
-- Named player OOS / closing lines
-- Acceptance review before allowlist
+- Family ECE may still exceed 0.04; closing lines unlicensed
+- Named player OOS depends on ESPN boxscore density
+- Acceptance review before allowlist — see `MILESTONE_NHL_CALIBRATION.md`

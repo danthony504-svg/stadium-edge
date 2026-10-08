@@ -1,6 +1,7 @@
 /**
- * Milestone D.2 — NHL joint model with regulation / OT / SO layers (shadow-only).
+ * Milestone D.2+ — NHL joint model with regulation / OT / SO layers (shadow-only).
  * P1+P2+P3 = regulation FG. Final scores add OT goal or SO winner (+1).
+ * v0.3.0: form shrinkage + lognormal mean shocks + milder HFA (calib fix).
  * No football imports.
  */
 
@@ -10,8 +11,15 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { NHL_PERIOD_SHARES, NHL_TEAM_FG_MEAN, isHockeySport, type HockeySport } from "./priors.js";
 
 export const HOCKEY_JOINT_MODEL_ID = "hockey.joint.v0" as const;
-export const HOCKEY_JOINT_MODEL_VERSION = "0.2.0" as const;
+export const HOCKEY_JOINT_MODEL_VERSION = "0.3.0" as const;
 export const HOCKEY_JOINT_MODEL_IDS = [HOCKEY_JOINT_MODEL_ID] as const;
+
+/** Shrink raw form 40% toward league mean (reduces form overconfidence). */
+export const NHL_FORM_SHRINK_TO_LEAGUE = 0.4 as const;
+/** Per-draw lognormal σ on team means (adds overdispersion vs thin Poisson). */
+export const NHL_MEAN_SHOCK_SIGMA = 0.15 as const;
+/** Milder home-ice advantage (goals) vs v0.2.0's 0.15. */
+export const NHL_HFA_GOALS = 0.08 as const;
 
 export type HockeyTeamInput = {
   teamId: string;
@@ -48,6 +56,15 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
+function normalSample(rng: () => number, mean: number, std: number): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  return mean + z * std;
+}
+
 function poissonSample(lambda: number, rng: () => number): number {
   const lam = Math.max(0, lambda);
   if (lam === 0) return 0;
@@ -61,9 +78,13 @@ function poissonSample(lambda: number, rng: () => number): number {
   return k - 1;
 }
 
+function shrinkToLeague(raw: number): number {
+  return (1 - NHL_FORM_SHRINK_TO_LEAGUE) * raw + NHL_FORM_SHRINK_TO_LEAGUE * NHL_TEAM_FG_MEAN;
+}
+
 function teamFgMean(team: HockeyTeamInput, opp: HockeyTeamInput): number {
-  const offense = team.goalsFor ?? avg(team.recentFgGoals, NHL_TEAM_FG_MEAN);
-  const defense = opp.goalsAgainst ?? NHL_TEAM_FG_MEAN;
+  const offense = shrinkToLeague(team.goalsFor ?? avg(team.recentFgGoals, NHL_TEAM_FG_MEAN));
+  const defense = shrinkToLeague(opp.goalsAgainst ?? NHL_TEAM_FG_MEAN);
   return clamp(0.55 * offense + 0.45 * defense, 1.5, 5.0);
 }
 
@@ -73,8 +94,8 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
   }
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const homeMean = teamFgMean(input.home, input.away) + 0.15;
-  const awayMean = teamFgMean(input.away, input.home);
+  const homeMeanBase = teamFgMean(input.home, input.away) + NHL_HFA_GOALS;
+  const awayMeanBase = teamFgMean(input.away, input.home);
 
   const homeFg = new Float64Array(n); // regulation
   const awayFg = new Float64Array(n);
@@ -96,6 +117,8 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
   const wentSo = new Float64Array(n);
 
   for (let i = 0; i < n; i++) {
+    const homeMean = homeMeanBase * Math.exp(normalSample(next, 0, NHL_MEAN_SHOCK_SIGMA));
+    const awayMean = awayMeanBase * Math.exp(normalSample(next, 0, NHL_MEAN_SHOCK_SIGMA));
     let hs = 0;
     let as = 0;
     for (let p = 0; p < 3; p++) {
@@ -189,6 +212,7 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
           "hockey_v0_shadow_only",
           "not_accepted_for_production_serve",
           "fg_is_regulation_use_nhl_final_paths",
+          "form_shrink_0.4_league_plus_lognormal_shock",
         ],
         participationReady: (input.players?.length ?? 0) > 0,
         oddsReady: true,
