@@ -40,7 +40,7 @@ function totalDrawVariance(tensor: ReturnType<typeof buildJointBaseballTensor>):
 }
 
 describe("MLB joint milestone F.2 (shadow)", () => {
-  it("both calibration profiles conserve F5⊆FG; v0.3 has higher draw variance than v0.2", () => {
+  it("calibration profiles conserve F5⊆FG; shock profiles raise draw variance vs v0.2", () => {
     const base = {
       sport: "mlb" as const,
       eventId: "mlb-ab-profile",
@@ -51,23 +51,37 @@ describe("MLB joint milestone F.2 (shadow)", () => {
     };
     const v02 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.2" });
     const v03 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.3" });
+    const v031 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.3.1" });
+    const def = buildJointBaseballTensor(base);
     assert.equal(v02.meta.modelVersion, "0.2.0");
     assert.equal(v03.meta.modelVersion, "0.3.0");
+    assert.equal(v031.meta.modelVersion, "0.3.1");
+    assert.equal(def.meta.modelVersion, "0.3.1");
     assert.equal(baseballProfileLevers("v0.2").shrinkWeight, 0);
     assert.equal(baseballProfileLevers("v0.2").gameShockSigma, 0);
     assert.equal(baseballProfileLevers("v0.2").homeEdge, 0.1);
     assert.equal(baseballProfileLevers("v0.3").shrinkWeight, 0.4);
     assert.equal(baseballProfileLevers("v0.3").gameShockSigma, 0.18);
     assert.equal(baseballProfileLevers("v0.3").homeEdge, 0.05);
+    assert.equal(baseballProfileLevers("v0.3.1").shrinkWeight, 0.2);
+    assert.equal(baseballProfileLevers("v0.3.1").gameShockSigma, 0.22);
+    assert.equal(baseballProfileLevers("v0.3.1").homeEdge, 0.07);
+    assert.equal(baseballProfileLevers().profile, "v0.3.1");
     assert.doesNotThrow(() => assertBaseballF5Conserved(v02));
     assert.doesNotThrow(() => assertBaseballF5Conserved(v03));
-    // Same seed → different tensors (profile levers); v0.3 shock raises draw variance.
+    assert.doesNotThrow(() => assertBaseballF5Conserved(v031));
     assert.notEqual(v02.meta.dataFingerprint, v03.meta.dataFingerprint);
+    assert.notEqual(v03.meta.dataFingerprint, v031.meta.dataFingerprint);
     const var02 = totalDrawVariance(v02);
     const var03 = totalDrawVariance(v03);
+    const var031 = totalDrawVariance(v031);
     assert.ok(
       var03 > var02 * 1.05,
       `expected v0.3 draw var > v0.2: v02=${var02.toFixed(3)} v03=${var03.toFixed(3)}`,
+    );
+    assert.ok(
+      var031 > var02 * 1.05,
+      `expected v0.3.1 draw var > v0.2: v02=${var02.toFixed(3)} v031=${var031.toFixed(3)}`,
     );
   });
 
@@ -105,7 +119,7 @@ describe("MLB joint milestone F.2 (shadow)", () => {
         },
       ],
     });
-    assert.ok(tensor.meta.modelVersion.startsWith("0.3"));
+    assert.equal(tensor.meta.modelVersion, "0.3.1");
     assert.doesNotThrow(() => assertBaseballF5Conserved(tensor));
 
     const markets = [

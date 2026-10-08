@@ -8,10 +8,18 @@
 ## Root cause (ML ECE 0.2289 on F.2 @ v0.2.0)
 Independent per-inning Poisson draws with **fixed** team means produce underdispersed FG/margin distributions. Combined with **raw recent form** (no league shrinkage) and a **0.1 home edge**, home ML probabilities clustered too far from 0.5 → **overconfident ML ECE ≈ 0.229**.
 
-## Model correction (`baseball.joint.v0` 0.3.0)
+## Model correction (`baseball.joint.v0`)
+**v0.3.0** (A/B profile, not default after discrimination audit):
 1. Shrink offense/defense form **40%** toward `MLB_TEAM_FG_MEAN` (4.45).
 2. Per-draw **lognormal game shock** on team means (`σ ≈ 0.18`).
 3. Milder home edge **0.05** (was 0.1).
+
+**v0.3.1** (default after Option B — VAL ML separation worsened under v0.3):
+1. Shrink **20%** (less collapse toward league / 0.5).
+2. Game shock **σ ≈ 0.22**.
+3. Home edge **0.07**.
+
+See `MILESTONE_MLB_DECISION.md` + `eval/report/MLB_DISCRIMINATION_AUDIT.md`.
 
 ## Holdout protocol
 - ESPN MLB **date-sample** (week API empty); dense daily Apr–Jun + Aug–Sep, seasons 2023–2024.

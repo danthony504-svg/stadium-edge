@@ -5,7 +5,9 @@
  *
  * calibrationProfile:
  *   - "v0.2" pre-correction: no shrink, no lognormal shock, HFA 0.1
- *   - "v0.3" corrected (default): shrink 0.4, σ0.18 shock, HFA 0.05
+ *   - "v0.3" aggressive correction: shrink 0.4, σ0.18 shock, HFA 0.05
+ *     (A/B ECE↓ but VAL ML separation↓ / holdout shrink-to-50 — not accepted for ml/team_total)
+ *   - "v0.3.1" default: less shrink / more variance (VAL-informed Option B)
  */
 
 import { SIM_V2_DEEP_DRAWS, SIM_V2_SCHEMA_VERSION } from "../../version.js";
@@ -14,11 +16,11 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { MLB_TEAM_FG_MEAN, isBaseballSport, type BaseballSport } from "./priors.js";
 
 export const BASEBALL_JOINT_MODEL_ID = "baseball.joint.v0" as const;
-/** Default / current published version string (v0.3 profile). */
-export const BASEBALL_JOINT_MODEL_VERSION = "0.3.0" as const;
+/** Default / current published version string (v0.3.1 profile). */
+export const BASEBALL_JOINT_MODEL_VERSION = "0.3.1" as const;
 export const BASEBALL_JOINT_MODEL_IDS = [BASEBALL_JOINT_MODEL_ID] as const;
 
-export type BaseballCalibrationProfile = "v0.2" | "v0.3";
+export type BaseballCalibrationProfile = "v0.2" | "v0.3" | "v0.3.1";
 
 export type BaseballProfileLevers = {
   profile: BaseballCalibrationProfile;
@@ -28,9 +30,14 @@ export type BaseballProfileLevers = {
   homeEdge: number;
 };
 
-/** Profile levers — v0.2 vs v0.3 differ only on these knobs. */
+/**
+ * Profile levers. Default v0.3.1 (Option B from VAL discrimination audit):
+ * half the v0.3 form shrink (preserve separation), slightly higher game shock
+ * (within-draw variance / tails), HFA midway. Single VAL-informed step — not
+ * iterated on holdout.
+ */
 export function baseballProfileLevers(
-  profile: BaseballCalibrationProfile = "v0.3",
+  profile: BaseballCalibrationProfile = "v0.3.1",
 ): BaseballProfileLevers {
   if (profile === "v0.2") {
     return {
@@ -41,12 +48,21 @@ export function baseballProfileLevers(
       homeEdge: 0.1,
     };
   }
+  if (profile === "v0.3") {
+    return {
+      profile: "v0.3",
+      modelVersion: "0.3.0",
+      shrinkWeight: 0.4,
+      gameShockSigma: 0.18,
+      homeEdge: 0.05,
+    };
+  }
   return {
-    profile: "v0.3",
-    modelVersion: "0.3.0",
-    shrinkWeight: 0.4,
-    gameShockSigma: 0.18,
-    homeEdge: 0.05,
+    profile: "v0.3.1",
+    modelVersion: "0.3.1",
+    shrinkWeight: 0.2,
+    gameShockSigma: 0.22,
+    homeEdge: 0.07,
   };
 }
 
@@ -96,8 +112,8 @@ export type JointBaseballInput = {
   nDraws?: number;
   players?: BaseballPropPlayerInput[];
   /**
-   * A/B calibration profile. Default "v0.3" (corrected).
-   * "v0.2" = pre-correction (no shrink / no shock / HFA 0.1).
+   * A/B calibration profile. Default "v0.3.1" (less shrink / more variance).
+   * "v0.2" = pre-correction; "v0.3" = aggressive shrink (not default after disc audit).
    */
   calibrationProfile?: BaseballCalibrationProfile;
 };
@@ -146,7 +162,7 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
   if (!isBaseballSport(input.sport)) {
     throw new Error(`baseball_joint_sport_unsupported:${input.sport}`);
   }
-  const levers = baseballProfileLevers(input.calibrationProfile ?? "v0.3");
+  const levers = baseballProfileLevers(input.calibrationProfile ?? "v0.3.1");
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
   const homeBase = teamMean(input.home, input.away, levers.shrinkWeight) + levers.homeEdge;

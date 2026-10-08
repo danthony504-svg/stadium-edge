@@ -80,13 +80,17 @@ describe("MLB discrimination metrics", () => {
     assert.ok(rSep > rFlat);
   });
 
-  it("default baseball profile remains v0.3 levers (Option A — no param change)", () => {
+  it("default baseball profile is v0.3.1 (Option B — less shrink / more variance)", () => {
     const d = baseballProfileLevers();
-    assert.equal(d.profile, "v0.3");
-    assert.equal(d.modelVersion, "0.3.0");
-    assert.equal(d.shrinkWeight, 0.4);
-    assert.equal(d.gameShockSigma, 0.18);
-    assert.equal(d.homeEdge, 0.05);
+    assert.equal(d.profile, "v0.3.1");
+    assert.equal(d.modelVersion, "0.3.1");
+    assert.equal(d.shrinkWeight, 0.2);
+    assert.equal(d.gameShockSigma, 0.22);
+    assert.equal(d.homeEdge, 0.07);
+    const v03 = baseballProfileLevers("v0.3");
+    assert.equal(v03.shrinkWeight, 0.4);
+    assert.ok(d.shrinkWeight < v03.shrinkWeight);
+    assert.ok(d.gameShockSigma > v03.gameShockSigma);
     const v02 = baseballProfileLevers("v0.2");
     assert.equal(v02.shrinkWeight, 0);
     assert.equal(v02.gameShockSigma, 0);
