@@ -10,7 +10,8 @@ import {
 
 describe("familyCalibration helpers", () => {
   it("computes Kish effective N and family verdicts", () => {
-    assert.equal(effectiveSampleSize(["a", "a", "b", "b"]), 4);
+    assert.equal(effectiveSampleSize(["a", "a", "b", "b"]), 2); // Kish: (4^2)/(2^2+2^2)=2
+    assert.equal(effectiveSampleSize(["a", "b", "c", "d"]), 4);
     const few: CalibObs[] = Array.from({ length: 20 }, (_, i) => ({
       y: (i % 2 === 0 ? 1 : 0) as 0 | 1,
       p: 0.55,
