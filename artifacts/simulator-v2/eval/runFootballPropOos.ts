@@ -58,25 +58,28 @@ async function fetchLeaders(sport: FootballSport, eventId: string): Promise<Part
 
   const pickYard = (
     groupName: string,
-    key: string,
+    keyCandidates: string[],
     stat: LeaderStat,
   ): void => {
     for (const teamBlock of j.boxscore?.players ?? []) {
+      const tid = String(teamBlock.team?.id ?? "");
       const side: "home" | "away" | null =
-        teamBlock.team?.id && teamBlock.team.id === homeId
+        tid && tid === String(homeId ?? "")
           ? "home"
-          : teamBlock.team?.id && teamBlock.team.id === awayId
+          : tid && tid === String(awayId ?? "")
             ? "away"
             : null;
       if (!side) continue;
       for (const st of teamBlock.statistics ?? []) {
         if ((st.name ?? "").toLowerCase() !== groupName) continue;
-        const keys = st.keys ?? st.labels ?? [];
-        const yi = keys.findIndex((k) => k.toLowerCase() === key || k.toLowerCase() === "yds");
+        const keys = (st.keys ?? []).map((k) => k.toLowerCase());
+        const labels = (st.labels ?? []).map((k) => k.toLowerCase());
+        let yi = keys.findIndex((k) => keyCandidates.includes(k));
+        if (yi < 0) yi = labels.findIndex((k) => keyCandidates.includes(k));
         if (yi < 0) continue;
         for (const a of st.athletes ?? []) {
           const raw = a.stats?.[yi];
-          const v = Number(raw);
+          const v = Number(String(raw ?? "").replace(/,/g, ""));
           if (!Number.isFinite(v)) continue;
           const name = a.athlete?.displayName ?? "unknown";
           const prev = out[stat];
@@ -86,9 +89,9 @@ async function fetchLeaders(sport: FootballSport, eventId: string): Promise<Part
     }
   };
 
-  pickYard("passing", "yds", "pass_yds");
-  pickYard("rushing", "yds", "rush_yds");
-  pickYard("receiving", "yds", "rec_yds");
+  pickYard("passing", ["passingyards", "yds"], "pass_yds");
+  pickYard("rushing", ["rushingyards", "yds"], "rush_yds");
+  pickYard("receiving", ["receivingyards", "yds"], "rec_yds");
   return out;
 }
 
