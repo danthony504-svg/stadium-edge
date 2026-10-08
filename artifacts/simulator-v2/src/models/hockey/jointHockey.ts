@@ -81,6 +81,13 @@ export type JointHockeyInput = {
   players?: HockeyPropPlayerInput[];
   /** Default v0.3. Use v0.2 for frozen baseline A/B only. */
   calibrationProfile?: HockeyCalibrationProfile;
+  /**
+   * Shadow eval-only param overrides (val diagnostics). Never a production path.
+   * Applied on top of the selected calibration profile.
+   */
+  calibrationOverrides?: Partial<
+    Pick<HockeyCalibParams, "formShrinkToLeague" | "meanShockSigma" | "hfaGoals">
+  >;
 };
 
 function avg(vals: number[] | undefined, fallback: number): number {
@@ -129,7 +136,11 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
   if (!isHockeySport(input.sport)) {
     throw new Error(`hockey_joint_sport_unsupported:${input.sport}`);
   }
-  const calib = resolveHockeyCalibration(input.calibrationProfile ?? "v0.3");
+  const baseCalib = resolveHockeyCalibration(input.calibrationProfile ?? "v0.3");
+  const calib: HockeyCalibParams = {
+    ...baseCalib,
+    ...input.calibrationOverrides,
+  };
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
   const homeMeanBase = teamFgMean(input.home, input.away, calib.formShrinkToLeague) + calib.hfaGoals;

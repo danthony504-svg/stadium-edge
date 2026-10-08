@@ -16,7 +16,8 @@
     "eval:nhl-oos": "node --import ./test/register-hooks.mjs ./eval/runNhlChronoOos.ts",
     "eval:nhl-ab": "node --import ./test/register-hooks.mjs ./eval/runNhlAbHoldout.ts",
     "eval:nhl-ml-expand": "node --import ./test/register-hooks.mjs ./eval/runNhlMlNExpand.ts",
-    "eval:nhl-prop-diagnose": "node --import ./test/register-hooks.mjs ./eval/runNhlPropDiagnose.ts"
+    "eval:nhl-prop-diagnose": "node --import ./test/register-hooks.mjs ./eval/runNhlPropDiagnose.ts",
+    "eval:nhl-ml-reg-diagnose": "node --import ./test/register-hooks.mjs ./eval/runNhlMlRegDiagnose.ts"
   },
   "dependencies": {
     "zod": "catalog:"

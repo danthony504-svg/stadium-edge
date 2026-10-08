@@ -21,8 +21,13 @@ export type BoxPlayer = {
   athleteId: string;
   teamSide: "home" | "away";
   goals: number;
+  assists: number;
+  /** goals + assists when ESPN omits a points column (typical). */
+  points: number;
   sog: number;
   saves: number;
+  /** Plus/minus when present; null if column missing. */
+  plusMinus: number | null;
   isGoalie: boolean;
   /** Seconds of TOI when parseable; null if missing. */
   toiSeconds: number | null;
@@ -51,25 +56,85 @@ export function nhlSampleDays(startYear: number, stepDays = 1): string[] {
   return days;
 }
 
-/**
- * Map ESPN boxscore column keys → goals / SOG / saves indices.
- * Critical: NHL skater SOG lives under `shotsTotal` (not `sog` / bare `shots`).
- */
-export function boxStatIndices(keys: string[]): {
+export type NhlBoxStatIndices = {
   goals: number;
+  assists: number;
+  points: number;
   sog: number;
   saves: number;
+  plusMinus: number;
   toi: number;
   isGoalieGrp: boolean;
-} {
-  const goals = keys.findIndex((k) => /^(g|goals)$/i.test(k));
-  const sog = keys.findIndex((k) =>
-    /^(sog|shotsOnGoal|shotsTotal|shots|s)$/i.test(k),
-  );
-  const saves = keys.findIndex((k) => /^(sv|saves)$/i.test(k));
-  const toi = keys.findIndex((k) => /^(toi|timeOnIce)$/i.test(k));
+  /** Whether columns look like ESPN machine keys vs display labels. */
+  columnMode: "keys" | "labels" | "mixed";
+};
+
+/**
+ * ESPN NHL boxscore machine keys vs display labels (site API):
+ * - SOG actuals → key `shotsTotal` (label `S`). Label `SOG` is **shootoutGoals**.
+ * - Assists → key `assists` (label `A`).
+ * - Points → usually absent; derive goals+assists.
+ * - Saves → key `saves` (label `SV`); never `shootoutSaves` / `evenStrengthSaves`.
+ * - Plus/minus → key `plusMinus` (label `+/-`).
+ * - Goalie groups expose `goalsAgainst` (not skater `goals`) + `saves`.
+ */
+export function detectNhlBoxColumnMode(cols: string[]): "keys" | "labels" | "mixed" {
+  const keyHits = cols.filter((k) =>
+    /^(shotsTotal|timeOnIce|plusMinus|assists|goalsAgainst|shotsAgainst|ytdGoals|blockedShots)$/i.test(
+      k,
+    ),
+  ).length;
+  const labelHits = cols.filter((k) =>
+    /^(TOI|SV|SV%|GA|SA|\+\/-|YTDG|BS|HT|PPTOI)$/i.test(k),
+  ).length;
+  if (keyHits > 0 && labelHits === 0) return "keys";
+  if (labelHits > 0 && keyHits === 0) return "labels";
+  if (keyHits > 0 && labelHits > 0) return "mixed";
+  // Ambiguous short tokens (G/A/S) — treat as labels so `SOG`≠shots.
+  return "labels";
+}
+
+/**
+ * Map ESPN boxscore column keys/labels → goals / assists / points / SOG / saves / ± / TOI.
+ * Critical: skater SOG is `shotsTotal` (or label `S`), never label `SOG` (shootout goals).
+ */
+export function boxStatIndices(keys: string[]): NhlBoxStatIndices {
+  const mode = detectNhlBoxColumnMode(keys);
+  const find = (re: RegExp) => keys.findIndex((k) => re.test(k));
+
+  let goals: number;
+  let assists: number;
+  let points: number;
+  let sog: number;
+  let saves: number;
+  let plusMinus: number;
+  let toi: number;
+
+  if (mode === "keys" || mode === "mixed") {
+    // Machine keys — strict anchors (avoid goalsAgainst / shootoutSaves / shootoutGoals).
+    goals = find(/^(goals)$/i);
+    assists = find(/^(assists)$/i);
+    points = find(/^(points)$/i);
+    // Prefer shotsTotal; allow sog/shotsOnGoal; never shootoutGoals / shotsMissed / shotsAgainst.
+    sog = find(/^(shotsTotal|shotsOnGoal|sog)$/i);
+    if (sog < 0) sog = find(/^(shots)$/i);
+    saves = find(/^(saves)$/i);
+    plusMinus = find(/^(plusMinus|plus_minus)$/i);
+    toi = find(/^(timeOnIce|toi)$/i);
+  } else {
+    // Display labels — ESPN uses S for shots, SOG for shootout goals.
+    goals = find(/^(g)$/i);
+    assists = find(/^(a|ast)$/i);
+    points = find(/^(pts|p)$/i);
+    sog = find(/^(s)$/i); // NOT /^sog$/ — that is shootoutGoals
+    saves = find(/^(sv)$/i);
+    plusMinus = find(/^(\+\/-|pm)$/i);
+    toi = find(/^(toi)$/i);
+  }
+
+  // Goalie grp: has saves, no skater goals column (goalsAgainst ≠ goals).
   const isGoalieGrp = saves >= 0 && goals < 0;
-  return { goals, sog, saves, toi, isGoalieGrp };
+  return { goals, assists, points, sog, saves, plusMinus, toi, isGoalieGrp, columnMode: mode };
 }
 
 export function parseToiSeconds(raw: string | undefined): number | null {
@@ -205,6 +270,8 @@ export async function fetchBoxPlayers(
             }>;
             names?: string[];
             keys?: string[];
+            /** Display labels (G/A/S/SV). Prefer `keys` — label SOG is shootoutGoals. */
+            labels?: string[];
           }>;
         }>;
       };
@@ -224,25 +291,43 @@ export async function fetchBoxPlayers(
         tid && tid === homeTid ? "home" : tid && tid === awayTid ? "away" : null;
       if (!side) continue;
       for (const grp of block.statistics ?? []) {
-        const keys = grp.keys ?? grp.names ?? [];
+        // Prefer machine keys; labels alone mis-map SOG→shootoutGoals.
+        const keys = grp.keys?.length
+          ? grp.keys
+          : (grp.labels?.length ? grp.labels : (grp.names ?? []));
         const idx = boxStatIndices(keys);
         for (const a of grp.athletes ?? []) {
           const id = a.athlete?.id;
           if (!id || typeof id !== "string" || !id.trim() || !a.stats?.length) continue;
           const goals = idx.goals >= 0 ? Number(a.stats[idx.goals] ?? 0) : 0;
+          const assists = idx.assists >= 0 ? Number(a.stats[idx.assists] ?? 0) : 0;
           const sog = idx.sog >= 0 ? Number(a.stats[idx.sog] ?? 0) : 0;
           const saves = idx.saves >= 0 ? Number(a.stats[idx.saves] ?? 0) : 0;
+          const plusRaw =
+            idx.plusMinus >= 0 ? Number(a.stats[idx.plusMinus] ?? NaN) : NaN;
+          const ptsRaw = idx.points >= 0 ? Number(a.stats[idx.points] ?? NaN) : NaN;
+          const g = Number.isFinite(goals) ? goals : 0;
+          const ast = Number.isFinite(assists) ? assists : 0;
+          const points = Number.isFinite(ptsRaw) ? ptsRaw : g + ast;
           const toiSeconds =
             idx.toi >= 0 ? parseToiSeconds(a.stats[idx.toi]) : null;
-          if (!Number.isFinite(goals) && !Number.isFinite(sog) && !Number.isFinite(saves)) {
+          if (
+            !Number.isFinite(g) &&
+            !Number.isFinite(ast) &&
+            !Number.isFinite(sog) &&
+            !Number.isFinite(saves)
+          ) {
             continue;
           }
           out.push({
             athleteId: id.trim(),
             teamSide: side,
-            goals: Number.isFinite(goals) ? goals : 0,
+            goals: g,
+            assists: ast,
+            points,
             sog: Number.isFinite(sog) ? sog : 0,
             saves: Number.isFinite(saves) ? saves : 0,
+            plusMinus: Number.isFinite(plusRaw) ? plusRaw : null,
             isGoalie: idx.isGoalieGrp || saves > 0,
             toiSeconds,
           });
