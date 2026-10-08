@@ -821,6 +821,7 @@ export async function buildCoachParlay(opts: {
       realOdds: scanRealOdds,
       gameMeta: [],
       qualifiedCandidates,
+      requestedLegs: target,
     });
     picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(enforced.picks, marketConstraint),
