@@ -110,6 +110,138 @@ export function overconfidenceBand(rows: BinaryObservation[], threshold: number)
   return { n: band.length, hitRate: band.reduce((s, r) => s + r.y, 0) / band.length };
 }
 
+/** Mean |p − 0.5|; collapses toward 0 when probs shrink to a coin-flip. */
+export function meanAbsDevFromHalf(rows: BinaryObservation[]): number {
+  if (!rows.length) return 0;
+  return rows.reduce((s, r) => s + Math.abs(r.p - 0.5), 0) / rows.length;
+}
+
+/**
+ * Discrimination proxies: mean predicted P when y=1 vs y=0 (separation).
+ * Positive separation ⇒ model ranks wins higher than losses on average.
+ */
+export function separationByOutcome(rows: BinaryObservation[]): {
+  meanPWhenY1: number | null;
+  meanPWhenY0: number | null;
+  separation: number | null;
+  nY1: number;
+  nY0: number;
+} {
+  const y1 = rows.filter((r) => r.y === 1);
+  const y0 = rows.filter((r) => r.y === 0);
+  const meanPWhenY1 = y1.length ? y1.reduce((s, r) => s + r.p, 0) / y1.length : null;
+  const meanPWhenY0 = y0.length ? y0.reduce((s, r) => s + r.p, 0) / y0.length : null;
+  const separation =
+    meanPWhenY1 != null && meanPWhenY0 != null ? meanPWhenY1 - meanPWhenY0 : null;
+  return { meanPWhenY1, meanPWhenY0, separation, nY1: y1.length, nY0: y0.length };
+}
+
+/**
+ * Mann–Whitney AUC (probability that a random y=1 has higher p than a random y=0).
+ * Ties contribute 0.5. Returns null if a class is empty.
+ */
+export function binaryAuc(rows: BinaryObservation[]): number | null {
+  const pos = rows.filter((r) => r.y === 1).map((r) => r.p);
+  const neg = rows.filter((r) => r.y === 0).map((r) => r.p);
+  if (!pos.length || !neg.length) return null;
+  let rankSum = 0;
+  for (const p of pos) {
+    for (const q of neg) {
+      if (p > q) rankSum += 1;
+      else if (p === q) rankSum += 0.5;
+    }
+  }
+  return rankSum / (pos.length * neg.length);
+}
+
+/**
+ * Murphy resolution component of Brier decomposition (higher ⇒ more discrimination).
+ * resolution = (1/n) Σ_k n_k (ȳ_k − ȳ)² over equal-width probability bins.
+ */
+export function brierResolution(rows: BinaryObservation[], bins = 10): number | null {
+  if (rows.length < 10) return null;
+  const yBar = rows.reduce((s, r) => s + r.y, 0) / rows.length;
+  const diagram = reliabilityDiagram(rows, bins);
+  let res = 0;
+  for (const b of diagram) {
+    if (!b.count) continue;
+    res += (b.count / rows.length) * (b.avgOutcome - yBar) ** 2;
+  }
+  return res;
+}
+
+/** Prefer AUC; fall back to Brier resolution when AUC is undefined / degenerate. */
+export function discriminationProxy(rows: BinaryObservation[]): {
+  kind: "auc" | "resolution" | "none";
+  value: number | null;
+  auc: number | null;
+  resolution: number | null;
+  separation: number | null;
+  meanPWhenY1: number | null;
+  meanPWhenY0: number | null;
+} {
+  const sep = separationByOutcome(rows);
+  const auc = binaryAuc(rows);
+  const resolution = brierResolution(rows);
+  if (auc != null && Number.isFinite(auc) && sep.nY1 >= 5 && sep.nY0 >= 5) {
+    return {
+      kind: "auc",
+      value: auc,
+      auc,
+      resolution,
+      separation: sep.separation,
+      meanPWhenY1: sep.meanPWhenY1,
+      meanPWhenY0: sep.meanPWhenY0,
+    };
+  }
+  if (resolution != null) {
+    return {
+      kind: "resolution",
+      value: resolution,
+      auc,
+      resolution,
+      separation: sep.separation,
+      meanPWhenY1: sep.meanPWhenY1,
+      meanPWhenY0: sep.meanPWhenY0,
+    };
+  }
+  return {
+    kind: "none",
+    value: null,
+    auc,
+    resolution,
+    separation: sep.separation,
+    meanPWhenY1: sep.meanPWhenY1,
+    meanPWhenY0: sep.meanPWhenY0,
+  };
+}
+
+/**
+ * Flag ECE gains driven mainly by collapse of |p−0.5| toward 0.5 (shrink-to-50).
+ * Thresholds match MLB A/B holdout diagnosis.
+ */
+export function shrinkTo50Flag(opts: {
+  eceBefore: number | null;
+  eceAfter: number | null;
+  madBefore: number;
+  madAfter: number;
+}): { flagged: boolean; note: string; madDropPct: number; deltaEce: number | null } {
+  const { eceBefore, eceAfter, madBefore, madAfter } = opts;
+  if (eceBefore == null || eceAfter == null) {
+    return { flagged: false, note: "insufficient_ece", madDropPct: 0, deltaEce: null };
+  }
+  const deltaEce = eceAfter - eceBefore;
+  const madDrop = madBefore - madAfter;
+  const madDropPct = madBefore > 1e-9 ? madDrop / madBefore : 0;
+  const eceImproved = deltaEce < -0.005;
+  const madCollapsed = madDropPct >= 0.25 && madDrop >= 0.02;
+  const flagged = eceImproved && madCollapsed;
+  const note = flagged
+    ? `SHRINK_TO_50_SUSPECT: ΔECE=${deltaEce.toFixed(4)} but meanAbsDevFromHalf ${madBefore.toFixed(4)}→${madAfter.toFixed(4)} (drop ${(madDropPct * 100).toFixed(1)}%) — ECE gain may be from probs collapsing toward 0.5`
+    : `ok: ΔECE=${deltaEce.toFixed(4)}, meanAbsDevFromHalf ${madBefore.toFixed(4)}→${madAfter.toFixed(4)} (Δ=${(madAfter - madBefore).toFixed(4)}, ${(madDropPct * 100).toFixed(1)}% drop)`;
+  return { flagged, note, madDropPct, deltaEce };
+}
+
 /** Game-clustered bootstrap SE for ECE. */
 export function clusteredEceSe(obs: CalibObs[], nBoot = 200, seed = "ece-boot"): number | null {
   if (obs.length < 20) return null;
