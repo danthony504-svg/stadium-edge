@@ -36,6 +36,7 @@ Holdout protocol unchanged: mid+late-2024 chrono slice; **no holdout tuning**.
 
 ## Verdict
 - ML n reached ≥500 (ml_regulation n=650, ml_final n=650).
-- v0.3 ml_regulation ECE=0.0380 (prior A/B n=316 ECE≈0.033).
-- v0.3 ml_final ECE=0.0308.
+- v0.3 uses form shrink **0.45** (val-only lever from `NHL_ML_REG_DIAGNOSE.md`; was 0.40 with reg ECE 0.0439 FAIL).
+- v0.3 ml_regulation ECE=0.0380 → **PASS**.
+- v0.3 ml_final ECE=0.0308 → **PASS** (preserved vs 0.0313 @ shrink 0.40).
 - Do **not** enable production NHL serve from this expand alone.
