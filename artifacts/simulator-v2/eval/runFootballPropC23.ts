@@ -25,6 +25,11 @@ import {
   type FootballPropRole,
   type FootballRoleTdMultipliers,
 } from "../src/models/football/playerProps.js";
+
+/** Explicit 0.3.2 generative TD rates (identity) even after tree promotes to 0.3.3. */
+const BASELINE_032_KNOBS: FootballPropEvalKnobs = {
+  roleTdMultipliers: { ...FOOTBALL_PROP_ROLE_TD_MULTIPLIERS_IDENTITY },
+};
 import { buildFootballPlayerPropMarket } from "../src/models/football/markets.js";
 import { settleMarket } from "../src/engine/settle.js";
 import { impliedProbFromAmerican } from "../src/schemas/odds.js";
@@ -606,7 +611,7 @@ async function main() {
     : undefined;
   const maxVal = process.env.PROP_C23_MAX_VAL ? Number(process.env.PROP_C23_MAX_VAL) : undefined;
 
-  const baselineKnobs: FootballPropEvalKnobs = {};
+  const baselineKnobs: FootballPropEvalKnobs = BASELINE_032_KNOBS;
   const valRoleRows: RoleTdRow[] = [];
   const valRuns = new Map<FootballSport, FoldMetrics>();
   const holdBase = new Map<FootballSport, FoldMetrics>();
@@ -629,7 +634,7 @@ async function main() {
       `prop-c23 ${sport}: val=${valGames.length} (${split.labels.val}) holdout=${holdoutGames.length} (${split.labels.holdout})`,
     );
 
-    console.log(`prop-c23 ${sport}: val baseline (fit source)...`);
+    console.log(`prop-c23 ${sport}: val baseline (fit source, identity TD)...`);
     const val = await runFold(sport, valGames, leaderCache, "val_baseline_0.3.2", baselineKnobs, {
       draws,
       fold: "val",

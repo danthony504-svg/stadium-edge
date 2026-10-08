@@ -229,15 +229,16 @@ describe("Phase C.2 football player props (shadow)", () => {
 });
 
 describe("Phase C.2.2 prop calibration knobs", () => {
-  it("exports prop model 0.3.2 and yard-budget shock sigma 0.12", () => {
-    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.2");
+  it("exports prop model 0.3.3 and yard-budget shock sigma 0.12", () => {
+    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.3");
     assert.equal(FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA, 0.12);
     const tensor = attachFootballPlayerProps({
       tensor: baseTensor(500),
       players: [{ playerId: "qb1", teamSide: "home", role: "qb", usage: 0.95, participationStatus: "confirmed_starter" }],
     });
     assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("prop_yard_budget_shock_0.12")));
-    assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.2")));
+    assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.3")));
+    assert.ok(tensor.meta.quality.warnings.some((w) => w.startsWith("prop_role_td_mult_")));
     const yds = tensor.players.qb1!.stats.pass_yds;
     let var_ = 0;
     let m = 0;
@@ -250,8 +251,8 @@ describe("Phase C.2.2 prop calibration knobs", () => {
 
   it("propCalibrationProfile v0.2 vs v0.3.2 changes means, shock, and reported version", () => {
     assert.equal(footballPropModelVersionForProfile("v0.2"), "0.2.0");
-    assert.equal(footballPropModelVersionForProfile("v0.3.2"), "0.3.2");
-    assert.equal(footballPropModelVersionForProfile(), "0.3.2");
+    assert.equal(footballPropModelVersionForProfile("v0.3.2"), "0.3.3");
+    assert.equal(footballPropModelVersionForProfile(), "0.3.3");
 
     const players = [
       { playerId: "3139477", teamSide: "home" as const, role: "qb" as const, usage: 0.95, participationStatus: "confirmed_starter" as const },
@@ -270,7 +271,7 @@ describe("Phase C.2.2 prop calibration knobs", () => {
     assert.ok(prior.meta.quality.warnings.some((w) => w === "football_prop_model_0.2.0"));
     assert.ok(prior.meta.quality.warnings.some((w) => w === "prop_yard_budget_shock_none"));
     assert.ok(prior.meta.quality.warnings.some((w) => w === "prop_calibration_profile_v0.2"));
-    assert.ok(cal.meta.quality.warnings.some((w) => w === "football_prop_model_0.3.2"));
+    assert.ok(cal.meta.quality.warnings.some((w) => w === "football_prop_model_0.3.3"));
     assert.ok(cal.meta.quality.warnings.some((w) => w.includes("prop_yard_budget_shock_0.12")));
 
     const meanOf = (xs: Float64Array) => {
@@ -308,7 +309,7 @@ describe("Phase C.2.2 prop calibration knobs", () => {
   });
 
   it("shadow propEvalKnobs temper TD rates without changing default version", () => {
-    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.2");
+    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.3");
     const players = [
       { playerId: "rb1", teamSide: "home" as const, role: "rb" as const, usage: 0.7, participationStatus: "active" as const },
     ];
@@ -324,7 +325,7 @@ describe("Phase C.2.2 prop calibration knobs", () => {
       propEvalKnobs: { tdRateTemper: 0.5 },
     });
     assert.ok(tempered.meta.quality.warnings.some((w) => w === "prop_td_rate_temper_0.5"));
-    assert.ok(tempered.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.2")));
+    assert.ok(tempered.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.3")));
     const meanOf = (xs: Float64Array) => {
       let s = 0;
       for (let i = 0; i < xs.length; i++) s += xs[i]!;
@@ -352,16 +353,20 @@ describe("Phase C.2.3 role-aware anytime-TD (shadow)", () => {
   });
 
   it("roleTdMultipliers lower RB and raise WR any_td without changing pass_yds means materially", () => {
-    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.2");
+    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.3");
     const players = [
       { playerId: "3139477", teamSide: "home" as const, role: "qb" as const, usage: 0.95, participationStatus: "confirmed_starter" as const },
       { playerId: "15847", teamSide: "home" as const, role: "rb" as const, usage: 0.65, participationStatus: "active" as const },
       { playerId: "2977644", teamSide: "away" as const, role: "wr" as const, usage: 0.35, participationStatus: "active" as const },
     ];
+    // Identity (0.3.2 TD rates) vs stronger role reweight for directional check.
     const base = attachFootballPlayerProps({
       tensor: baseTensor(4000),
       players,
       propSeedSuffix: "c23-base",
+      propEvalKnobs: {
+        roleTdMultipliers: { qb: 1, rb: 1, wr: 1, te: 1, flex: 1 },
+      },
     });
     const roleAware = attachFootballPlayerProps({
       tensor: baseTensor(4000),
@@ -372,7 +377,7 @@ describe("Phase C.2.3 role-aware anytime-TD (shadow)", () => {
       },
     });
     assert.ok(roleAware.meta.quality.warnings.some((w) => w.startsWith("prop_role_td_mult_")));
-    assert.ok(roleAware.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.2")));
+    assert.ok(roleAware.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.3")));
     const meanOf = (xs: Float64Array) => {
       let s = 0;
       for (let i = 0; i < xs.length; i++) s += xs[i]!;

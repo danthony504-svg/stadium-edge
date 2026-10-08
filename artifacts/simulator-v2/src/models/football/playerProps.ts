@@ -22,7 +22,7 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { poissonSample } from "./jointFootball.js";
 
 /** Bump when prop generative assumptions change incompatibly for OOS. */
-export const FOOTBALL_PROP_MODEL_VERSION = "0.3.2" as const;
+export const FOOTBALL_PROP_MODEL_VERSION = "0.3.3" as const;
 /** Per-draw lognormal σ on pass/rush/rec team yard budgets (v0.3.2 profile). */
 export const FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA = 0.12 as const;
 /** Multiplier on generative TD intensities (pass/rush/rec → any_td). Default 1. */
@@ -33,7 +33,7 @@ export type FootballRoleTdKey = "qb" | "rb" | "wr" | "te" | "flex";
 
 export type FootballRoleTdMultipliers = Record<FootballRoleTdKey, number>;
 
-/** Identity = 0.3.2 generative TD rates (no role reweight). */
+/** Identity = 0.3.2 generative TD rates (no role reweight) — shadow A/B baseline. */
 export const FOOTBALL_PROP_ROLE_TD_MULTIPLIERS_IDENTITY: FootballRoleTdMultipliers = {
   qb: 1,
   rb: 1,
@@ -43,11 +43,15 @@ export const FOOTBALL_PROP_ROLE_TD_MULTIPLIERS_IDENTITY: FootballRoleTdMultiplie
 };
 
 /**
- * Default role-TD table. Stays identity while version is 0.3.2.
- * When C.2.3 promotes, replace with val-fitted constants and bump version.
+ * C.2.3 default role-TD intensity multipliers (val-fold fit, chronoSplits val only).
+ * NFL 2023 + NCAAF 2024 w1–7 pooled; TE/flex inherit WR. Clamped [0.45, 1.85].
  */
 export const FOOTBALL_PROP_ROLE_TD_MULTIPLIERS: FootballRoleTdMultipliers = {
-  ...FOOTBALL_PROP_ROLE_TD_MULTIPLIERS_IDENTITY,
+  qb: 0.756,
+  rb: 0.569,
+  wr: 1.249,
+  te: 1.249,
+  flex: 1.249,
 };
 
 /** Clamp bounds so multipliers cannot invent missing-data extremes. */
@@ -78,8 +82,9 @@ export type FootballPropEvalKnobs = {
 
 export function footballPropModelVersionForProfile(
   profile: PropCalibrationProfile = "v0.3.2",
-): "0.2.0" | "0.3.2" {
-  return profile === "v0.2" ? "0.2.0" : "0.3.2";
+): "0.2.0" | typeof FOOTBALL_PROP_MODEL_VERSION {
+  // Calibrated yard profile (v0.3.2 means/shock) reports current prop model version.
+  return profile === "v0.2" ? "0.2.0" : FOOTBALL_PROP_MODEL_VERSION;
 }
 
 /**
@@ -525,30 +530,18 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     }
   }
 
-  // Preserve exact 0.3.2 fingerprint when defaults (identity role-TD) so prior
-  // holdout A/B remains byte-comparable; C.2.3 knobs / promoted defaults diverge.
   const dataFingerprint = fingerprintPayload(
-    knobsDiffer || FOOTBALL_PROP_MODEL_VERSION !== "0.3.2"
-      ? [
-          base.meta.dataFingerprint,
-          "football_props_c2_3",
-          modelVersion,
-          profile,
-          useShock ? shockSigma : 0,
-          tdTemper,
-          roleTdFp,
-          input.players,
-          seed,
-        ]
-      : [
-          base.meta.dataFingerprint,
-          "football_props_c2_2",
-          modelVersion,
-          profile,
-          useShock ? FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA : 0,
-          input.players,
-          seed,
-        ],
+    [
+      base.meta.dataFingerprint,
+      "football_props_c2_3",
+      modelVersion,
+      profile,
+      useShock ? shockSigma : 0,
+      tdTemper,
+      roleTdFp,
+      input.players,
+      seed,
+    ],
   );
 
   return {
