@@ -304,4 +304,32 @@ describe("Phase C.2.2 prop calibration knobs", () => {
     assert.equal(isNamedEspnAthleteId(undefined), false);
     assert.equal(isNamedEspnAthleteId("qb1"), false);
   });
+
+  it("shadow propEvalKnobs temper TD rates without changing default version", () => {
+    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.2");
+    const players = [
+      { playerId: "rb1", teamSide: "home" as const, role: "rb" as const, usage: 0.7, participationStatus: "active" as const },
+    ];
+    const base = attachFootballPlayerProps({
+      tensor: baseTensor(3000),
+      players,
+      propSeedSuffix: "knob-base",
+    });
+    const tempered = attachFootballPlayerProps({
+      tensor: baseTensor(3000),
+      players,
+      propSeedSuffix: "knob-temper",
+      propEvalKnobs: { tdRateTemper: 0.5 },
+    });
+    assert.ok(tempered.meta.quality.warnings.some((w) => w === "prop_td_rate_temper_0.5"));
+    assert.ok(tempered.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.2")));
+    const meanOf = (xs: Float64Array) => {
+      let s = 0;
+      for (let i = 0; i < xs.length; i++) s += xs[i]!;
+      return s / xs.length;
+    };
+    const baseTd = meanOf(base.players.rb1!.stats.any_td);
+    const temperTd = meanOf(tempered.players.rb1!.stats.any_td);
+    assert.ok(temperTd < baseTd - 0.05, `expected tempered any_td ${temperTd} < base ${baseTd}`);
+  });
 });

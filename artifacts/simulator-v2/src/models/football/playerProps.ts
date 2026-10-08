@@ -19,9 +19,21 @@ import { poissonSample } from "./jointFootball.js";
 export const FOOTBALL_PROP_MODEL_VERSION = "0.3.2" as const;
 /** Per-draw lognormal σ on pass/rush/rec team yard budgets (v0.3.2 profile). */
 export const FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA = 0.12 as const;
+/** Multiplier on generative TD intensities (pass/rush/rec → any_td). Default 1. */
+export const FOOTBALL_PROP_TD_RATE_TEMPER = 1.0 as const;
 
 /** Shadow A/B prior (v0.2) vs calibrated (v0.3.2) yard-budget profile. */
 export type PropCalibrationProfile = "v0.2" | "v0.3.2";
+
+/**
+ * Shadow-only generative overrides for val-fold probes (never fit on holdout).
+ * Production path leaves these unset — defaults match 0.3.2.
+ */
+export type FootballPropEvalKnobs = {
+  yardBudgetShockSigma?: number;
+  /** Scale Poisson/Bernoulli TD intensities before any_td. */
+  tdRateTemper?: number;
+};
 
 export function footballPropModelVersionForProfile(
   profile: PropCalibrationProfile = "v0.3.2",
@@ -96,6 +108,8 @@ export type AttachFootballPlayerPropsInput = {
    * Default `"v0.3.2"` (current). `"v0.2"` restores pre-shock coeffs.
    */
   propCalibrationProfile?: PropCalibrationProfile;
+  /** Val-fold / diagnose-only generative knobs (shadow). */
+  propEvalKnobs?: FootballPropEvalKnobs;
 };
 
 function clamp01(n: number): number {
@@ -144,7 +158,7 @@ function teamYardBudget(
 }
 
 /** Lognormal shock with E[m]≈1 so mean budget is preserved while variance rises. */
-function yardBudgetShock(next: () => number, sigma = FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA): number {
+function yardBudgetShock(next: () => number, sigma: number = FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA): number {
   let u = 0;
   let v = 0;
   while (u === 0) u = next();
@@ -169,7 +183,19 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
   const profile: PropCalibrationProfile = input.propCalibrationProfile ?? "v0.3.2";
   const modelVersion = footballPropModelVersionForProfile(profile);
   const useShock = profile === "v0.3.2";
-  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}|${profile}`;
+  const shockSigma =
+    input.propEvalKnobs?.yardBudgetShockSigma ?? FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA;
+  const tdTemper = Math.max(
+    0,
+    input.propEvalKnobs?.tdRateTemper ?? FOOTBALL_PROP_TD_RATE_TEMPER,
+  );
+  const knobsDiffer =
+    shockSigma !== FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA ||
+    tdTemper !== FOOTBALL_PROP_TD_RATE_TEMPER;
+  // Keep default seed stable so holdout A/B remains comparable; knob probes get a suffix.
+  const seed = knobsDiffer
+    ? `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}|${profile}|s${shockSigma}|td${tdTemper}`
+    : `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}|${profile}`;
   const { next } = createSeededRng(seed);
 
   const players: SimV2ScenarioTensor["players"] = { ...base.players };
@@ -181,9 +207,12 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     `football_prop_model_${modelVersion}`,
   ];
   if (useShock) {
-    warnings.push(`prop_yard_budget_shock_${FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA}`);
+    warnings.push(`prop_yard_budget_shock_${shockSigma}`);
   } else {
     warnings.push("prop_yard_budget_shock_none");
+  }
+  if (tdTemper !== FOOTBALL_PROP_TD_RATE_TEMPER) {
+    warnings.push(`prop_td_rate_temper_${tdTemper}`);
   }
   const outPlayerIds: string[] = [];
 
@@ -218,9 +247,9 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
       const qShare = teamPts > 0 ? q1 / teamPts : 0.25;
       const hShare = teamPts > 0 ? h1 / teamPts : 0.5;
 
-      const passShock = useShock ? yardBudgetShock(next) : 1;
-      const rushShock = useShock ? yardBudgetShock(next) : 1;
-      const recShock = useShock ? yardBudgetShock(next) : 1;
+      const passShock = useShock ? yardBudgetShock(next, shockSigma) : 1;
+      const rushShock = useShock ? yardBudgetShock(next, shockSigma) : 1;
+      const recShock = useShock ? yardBudgetShock(next, shockSigma) : 1;
       const passBud = teamYardBudget(teamPts, "pass", profile) * passShock;
       const rushBud = teamYardBudget(teamPts, "rush", profile) * rushShock;
       const recBud = teamYardBudget(teamPts, "rec", profile) * recShock;
@@ -273,12 +302,13 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
             stats.pass_attempts[i]!,
             poissonSample(stats.pass_attempts[i]! * 0.64, next),
           );
-          stats.pass_tds[i] = poissonSample(0.12 * teamPts * usage, next);
+          stats.pass_tds[i] = poissonSample(0.12 * teamPts * usage * tdTemper, next);
           const rushShare = (usage * 0.15) / rushUsageSum;
           stats.rush_yds[i] = Math.round(teamRushYds * rushShare);
           stats.rush_attempts[i] = poissonSample(3 * usage, next);
           stats.any_td[i] =
-            stats.pass_tds[i]! + stats.rush_tds[i]! > 0 || next() < clamp01(0.03 * teamPts * usage)
+            stats.pass_tds[i]! + stats.rush_tds[i]! > 0 ||
+            next() < clamp01(0.03 * teamPts * usage * tdTemper)
               ? 1
               : 0;
           stats.pass_yds_q1[i] = Math.round(stats.pass_yds[i]! * qShare);
@@ -291,10 +321,10 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
           const recShare = (usage * 0.35) / recUsageSum;
           stats.rush_yds[i] = Math.round(teamRushYds * rushShare);
           stats.rush_attempts[i] = poissonSample(12 * usage + 4, next);
-          stats.rush_tds[i] = poissonSample(0.08 * teamPts * usage, next);
+          stats.rush_tds[i] = poissonSample(0.08 * teamPts * usage * tdTemper, next);
           stats.rec_yds[i] = Math.round(teamRecYds * recShare);
           stats.receptions[i] = poissonSample(2.2 * usage, next);
-          stats.reception_tds[i] = next() < 0.04 * usage * teamPts ? 1 : 0;
+          stats.reception_tds[i] = next() < 0.04 * usage * teamPts * tdTemper ? 1 : 0;
           stats.any_td[i] = stats.rush_tds[i]! + stats.reception_tds[i]! > 0 ? 1 : 0;
           stats.rush_yds_q1[i] = Math.round(stats.rush_yds[i]! * qShare);
           stats.rush_yds_h1[i] = Math.round(stats.rush_yds[i]! * hShare);
@@ -304,7 +334,7 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
           const recShare = usage / recUsageSum;
           stats.rec_yds[i] = Math.round(teamRecYds * recShare);
           stats.receptions[i] = poissonSample(3.5 * usage, next);
-          stats.reception_tds[i] = next() < 0.05 * usage * teamPts ? 1 : 0;
+          stats.reception_tds[i] = next() < 0.05 * usage * teamPts * tdTemper ? 1 : 0;
           stats.rush_yds[i] = Math.round(teamRushYds * ((usage * 0.05) / rushUsageSum));
           stats.any_td[i] = stats.reception_tds[i]! > 0 ? 1 : 0;
           stats.rec_yds_q1[i] = Math.round(stats.rec_yds[i]! * qShare);
@@ -333,15 +363,28 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     }
   }
 
-  const dataFingerprint = fingerprintPayload([
-    base.meta.dataFingerprint,
-    "football_props_c2_2",
-    modelVersion,
-    profile,
-    useShock ? FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA : 0,
-    input.players,
-    seed,
-  ]);
+  const dataFingerprint = fingerprintPayload(
+    knobsDiffer
+      ? [
+          base.meta.dataFingerprint,
+          "football_props_c2_2",
+          modelVersion,
+          profile,
+          useShock ? shockSigma : 0,
+          tdTemper,
+          input.players,
+          seed,
+        ]
+      : [
+          base.meta.dataFingerprint,
+          "football_props_c2_2",
+          modelVersion,
+          profile,
+          useShock ? FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA : 0,
+          input.players,
+          seed,
+        ],
+  );
 
   return {
     ...base,

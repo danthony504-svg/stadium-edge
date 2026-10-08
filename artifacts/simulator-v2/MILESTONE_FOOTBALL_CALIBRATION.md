@@ -26,10 +26,15 @@ No `SIM_V2_SERVE`, no allowlists, no Coach / P0 / PR#649, no merge/deploy/OTA.
 ## Closing lines
 No licensed archive (`CLOSING_LINE_ARCHIVE.md`). OOS uses **eval-grid −110** labeled `eval-grid-not-closing-line`. Family gate `*:closing_line_benchmark` → **INSUFFICIENT_DATA**.
 
+## Decision (post family diagnose)
+**KEEP 0.3.2** — see `MILESTONE_FOOTBALL_DECISION.md`. Named-athlete identity retained.
+Val-fold probes found no safe generative MODIFY (uniform TD temper blocked by opposite RB/WR gaps).
+
 ## Commands
 ```bash
 pnpm test
 pnpm eval:prop-oos
+pnpm eval:prop-family
 ```
 
 ## Non-goals
