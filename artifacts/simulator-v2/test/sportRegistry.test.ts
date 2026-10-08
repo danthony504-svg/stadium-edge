@@ -22,8 +22,9 @@ test("only NFL/NCAAF have scoring models and v2 settle families today", () => {
   for (const row of SPORT_COVERAGE_REGISTRY) {
     if (row.sport === "nfl" || row.sport === "ncaaf") {
       assert.ok(row.scoringModelId);
+      assert.ok(row.propModelId);
       assert.ok(row.v2SettleFamilies.includes("spread"));
-      assert.equal(row.propModelId, null);
+      assert.ok(row.v2SettleFamilies.includes("player_prop"));
     } else {
       assert.equal(row.scoringModelId, null);
       assert.deepEqual(row.v2SettleFamilies, []);

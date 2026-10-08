@@ -183,3 +183,89 @@ export const PHASE_B_FOOTBALL_FAMILIES: SimV2MarketFamily[] = [
   "total",
   "team_total",
 ];
+
+/** Phase C shadow families = B + player_prop (alts use same family + different line). */
+export const PHASE_C_FOOTBALL_FAMILIES: SimV2MarketFamily[] = [
+  ...PHASE_B_FOOTBALL_FAMILIES,
+  "player_prop",
+];
+
+export type FootballPropStatKey =
+  | "pass_yds"
+  | "rush_yds"
+  | "rec_yds"
+  | "receptions"
+  | "pass_attempts"
+  | "any_td";
+
+const PROP_PROVIDER_KEYS: Record<FootballPropStatKey, { main: string; alt: string }> = {
+  pass_yds: { main: "player_pass_yds", alt: "player_pass_yds_alternate" },
+  rush_yds: { main: "player_rush_yds", alt: "player_rush_yds_alternate" },
+  rec_yds: { main: "player_reception_yds", alt: "player_reception_yds_alternate" },
+  receptions: { main: "player_receptions", alt: "player_receptions_alternate" },
+  pass_attempts: { main: "player_pass_attempts", alt: "player_pass_attempts_alternate" },
+  any_td: { main: "player_anytime_td", alt: "player_anytime_td" },
+};
+
+/**
+ * Player prop / alt prop from a real provider key + line.
+ * Does not invent markets — providerMarketKey must come from the book feed.
+ */
+export function buildFootballPlayerPropMarket(
+  args: BuildFootballMarketArgs & {
+    playerId: string;
+    stat: FootballPropStatKey;
+    side: "over" | "under" | "yes" | "no";
+    line?: number;
+    alternate?: boolean;
+  },
+): SimV2Market {
+  const now = args.listedAt ?? new Date().toISOString();
+  const keys = PROP_PROVIDER_KEYS[args.stat];
+  const isYesNo = args.stat === "any_td";
+  // any_td is 0/1 — yes hits when value > 0.5; no when value < 0.5.
+  const line = isYesNo ? 0.5 : args.line;
+  return {
+    marketId: args.marketId,
+    eventId: args.eventId,
+    sport: args.sport,
+    family: "player_prop",
+    providerMarketKey:
+      args.providerMarketKey ?? (args.alternate ? keys.alt : keys.main),
+    period: args.period ?? "fg",
+    side: args.side,
+    line,
+    playerId: args.playerId,
+    settlement: rule({
+      ruleId: `player_${args.stat}_${args.side}${args.alternate ? "_alt" : ""}`,
+      description: `Player ${args.stat} ${args.side}${args.line != null ? ` ${args.line}` : ""}`,
+      settlePath: `players.${args.playerId}.stats.${args.stat}`,
+      comparator: args.side === "under" || args.side === "no" ? "lt" : "gt",
+      lineApplies: true,
+      period: (args.period ?? "fg") as FootballPeriod,
+    }),
+    listedAt: now,
+    provenance: [{ provider: "sportsbook", fetchedAt: now }],
+  };
+}
+
+/** Build main + alternate ladder rungs for the same player/stat (real lines only). */
+export function buildFootballPlayerPropAltLadder(
+  args: Omit<Parameters<typeof buildFootballPlayerPropMarket>[0], "line" | "alternate" | "marketId"> & {
+    marketIdPrefix: string;
+    lines: number[];
+  },
+): SimV2Market[] {
+  return args.lines.map((line, idx) =>
+    buildFootballPlayerPropMarket({
+      ...args,
+      marketId: `${args.marketIdPrefix}:${line}`,
+      line,
+      alternate: idx > 0 || args.lines.length > 1,
+      providerMarketKey:
+        idx === 0
+          ? PROP_PROVIDER_KEYS[args.stat].main
+          : PROP_PROVIDER_KEYS[args.stat].alt,
+    }),
+  );
+}
