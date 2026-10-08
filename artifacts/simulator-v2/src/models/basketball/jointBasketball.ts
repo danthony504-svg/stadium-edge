@@ -15,31 +15,62 @@ import {
 } from "./priors.js";
 
 export const BASKETBALL_JOINT_MODEL_ID = "basketball.joint.v0" as const;
-/** v0.3: mild form shrink + per-draw game shock (calibration). */
-export const BASKETBALL_JOINT_MODEL_VERSION = "0.3.0" as const;
+/**
+ * Default published version = restored pre-correction levers (v0.2).
+ * v0.3 retained only as an explicit calibrationProfile for ablation — NOT default.
+ */
+export const BASKETBALL_JOINT_MODEL_VERSION = "0.2.0" as const;
 export const BASKETBALL_JOINT_MODEL_IDS = [BASKETBALL_JOINT_MODEL_ID] as const;
 
-export type BasketballCalibrationProfile = "v0.2" | "v0.3";
+export type BasketballCalibrationProfile =
+  | "v0.2"
+  | "v0.3"
+  | "ablate_shrink"
+  | "ablate_shock"
+  | "ablate_hfa";
 
-export function basketballProfileLevers(profile: BasketballCalibrationProfile = "v0.3") {
-  if (profile === "v0.2") {
+/** One-factor ablations vs v0.2 baseline (for eval only). */
+export function basketballProfileLevers(profile: BasketballCalibrationProfile = "v0.2") {
+  const base = {
+    profile: "v0.2" as BasketballCalibrationProfile,
+    modelVersion: "0.2.0",
+    shrinkWeight: 0,
+    shockSigmaNba: 0,
+    shockSigmaNcaab: 0,
+    hfaNba: 2.4,
+    hfaWnba: 2.4,
+    hfaNcaab: 3.2,
+  };
+  if (profile === "v0.2") return base;
+  if (profile === "v0.3") {
     return {
-      profile: "v0.2" as const,
-      modelVersion: "0.2.0",
-      shrinkWeight: 0,
-      shockSigmaNba: 0,
-      shockSigmaNcaab: 0,
-      hfaNba: 2.4,
-      hfaWnba: 2.4,
-      hfaNcaab: 3.2,
+      profile: "v0.3" as const,
+      modelVersion: "0.3.0",
+      shrinkWeight: 0.2,
+      shockSigmaNba: 0.12,
+      shockSigmaNcaab: 0.14,
+      hfaNba: 2.0,
+      hfaWnba: 1.8,
+      hfaNcaab: 2.6,
     };
   }
+  if (profile === "ablate_shrink") {
+    return { ...base, profile: "ablate_shrink" as const, modelVersion: "0.2.0+shrink", shrinkWeight: 0.2 };
+  }
+  if (profile === "ablate_shock") {
+    return {
+      ...base,
+      profile: "ablate_shock" as const,
+      modelVersion: "0.2.0+shock",
+      shockSigmaNba: 0.12,
+      shockSigmaNcaab: 0.14,
+    };
+  }
+  // ablate_hfa — v0.3 HFA only
   return {
-    profile: "v0.3" as const,
-    modelVersion: "0.3.0",
-    shrinkWeight: 0.2,
-    shockSigmaNba: 0.12,
-    shockSigmaNcaab: 0.14,
+    ...base,
+    profile: "ablate_hfa" as const,
+    modelVersion: "0.2.0+hfa",
     hfaNba: 2.0,
     hfaWnba: 1.8,
     hfaNcaab: 2.6,
@@ -68,7 +99,7 @@ export type JointBasketballInput = {
   away: BasketballTeamInput;
   nDraws?: number;
   players?: BasketballPropPlayerInput[];
-  /** A/B profile. Default v0.3 (corrected). v0.2 = pre-correction. */
+  /** Profile. Default v0.2 (restored). v0.3 / ablate_* for eval only. */
   calibrationProfile?: BasketballCalibrationProfile;
 };
 
@@ -143,7 +174,7 @@ export function buildJointBasketballTensor(input: JointBasketballInput): SimV2Sc
   }
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const levers = basketballProfileLevers(input.calibrationProfile ?? "v0.3");
+  const levers = basketballProfileLevers(input.calibrationProfile ?? "v0.2");
   const hfa =
     input.sport === "ncaab"
       ? levers.hfaNcaab

@@ -37,7 +37,7 @@ describe("Basketball joint milestone E.2 (shadow)", () => {
       away: { teamId: "a", ptsFor: 108, ptsAgainst: 112 },
       players: [{ playerId: "g1", teamSide: "home", usage: 0.28 }],
     });
-    assert.ok(tensor.meta.modelVersion.startsWith("0.3"));
+    assert.ok(tensor.meta.modelVersion.startsWith("0.2"));
     const q = validateScenarioConsistency(tensor, {
       periodSumGroup: ["q1", "q2", "q3", "q4"],
       checkDerivedHalves: true,
