@@ -149,6 +149,19 @@ export async function fetchNhlSeason(
   const maxWeek = opts.maxWeek ?? 28;
   const userAgent = opts.userAgent ?? "stadium-sim-v2-nhl";
   const delayMs = opts.delayMs ?? 30;
+  const cacheDir = join(import.meta.dirname, "cache");
+  const cacheKey = `nhl_season_${season}_step${stepDays}_w${maxWeek}.json`;
+  const cachePath = join(cacheDir, cacheKey);
+  try {
+    const raw = await readFile(cachePath, "utf8");
+    const parsed = JSON.parse(raw) as NhlGame[];
+    if (Array.isArray(parsed) && parsed.length > 100) {
+      console.log(`nhl-cache hit ${cacheKey} n=${parsed.length}`);
+      return parsed;
+    }
+  } catch {
+    /* miss */
+  }
   const games: NhlGame[] = [];
   for (const dates of nhlSampleDays(season, stepDays)) {
     const url = `https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard?dates=${dates}`;
@@ -160,9 +173,17 @@ export async function fetchNhlSeason(
     await parseScoreboard(wurl, season, games, userAgent);
     if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
   }
-  return Array.from(new Map(games.map((g) => [g.eventId, g])).values()).sort(
+  const ordered = Array.from(new Map(games.map((g) => [g.eventId, g])).values()).sort(
     (a, b) => new Date(a.kickoffIso).getTime() - new Date(b.kickoffIso).getTime(),
   );
+  try {
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(cachePath, JSON.stringify(ordered), "utf8");
+    console.log(`nhl-cache write ${cacheKey} n=${ordered.length}`);
+  } catch {
+    /* non-fatal */
+  }
+  return ordered;
 }
 
 export async function fetchBoxPlayers(
