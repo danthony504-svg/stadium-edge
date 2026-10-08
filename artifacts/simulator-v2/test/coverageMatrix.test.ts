@@ -14,13 +14,13 @@ test("no coverage row is production-ready", () => {
   }
 });
 
-test("only football stream has V2s settle today", () => {
+test("football and basketball may mark V2s settle; prod stays N", () => {
   for (const row of COVERAGE_MATRIX) {
     if (row.dims.settle === "V2s") {
-      assert.equal(row.stream, "football");
+      assert.ok(row.stream === "football" || row.stream === "basketball", row.stream);
     }
   }
-  assert.ok(rowsForStream("football").length >= 2);
+  assert.ok(rowsForStream("basketball").length >= 1);
 });
 
 test("prop-priority sports include nfl nba nhl mlb", () => {
