@@ -1,5 +1,5 @@
 /**
- * Phase C.2.1 — chronological OOS for NFL/NCAAF player props (shadow).
+ * Phase C.2.2 — chronological OOS for NFL/NCAAF player props (shadow).
  *
  * Named-player grounding: ESPN summary boxscore athlete.id + displayName + team
  * at event; model that playerId; side/team must match; participationStatus
@@ -309,7 +309,7 @@ async function runFold(
         away: { ...eg.awayForm, teamId: g.awayTeamId },
       }),
       players: roster,
-      propSeedSuffix: "c2.1-oos",
+      propSeedSuffix: "c2.2-oos",
     });
 
     for (const L of leaders) {
@@ -488,11 +488,11 @@ async function main() {
   const maxVal = Number(process.env.PROP_OOS_MAX_VAL ?? 40);
 
   const oosParts: string[] = [
-    "# Phase C.2.1 — Football player prop chronological OOS (named-player)",
+    "# Phase C.2.2 — Football player prop chronological OOS (named-player)",
     "",
     "Shadow-only. No `SIM_V2_SERVE`, no allowlists, no Coach/P0 wiring.",
     "",
-    `- Prop model: \`football.props\` @ **${FOOTBALL_PROP_MODEL_VERSION}** (yard-budget shock σ=0.12; pass mean trimmed).`,
+    `- Prop model: \`football.props\` @ **${FOOTBALL_PROP_MODEL_VERSION}** (yard-budget shock σ=0.12; val-fold mean scales).`,
     `- Draws/game: ${draws} (CI deep contract ${SIM_V2_DEEP_DRAWS}).`,
     "- Odds: **eval-grid −110** (explicitly **not** closing lines; archive unlicensed → INSUFFICIENT).",
     "- Identity: ESPN boxscore `athlete.id` + `displayName` + team id; side must match game record.",

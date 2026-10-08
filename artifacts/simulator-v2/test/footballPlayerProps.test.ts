@@ -224,16 +224,16 @@ describe("Phase C.2 football player props (shadow)", () => {
   });
 });
 
-describe("Phase C.2.1 prop calibration knobs", () => {
-  it("exports prop model 0.3.1 and yard-budget shock sigma 0.12", () => {
-    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.1");
+describe("Phase C.2.2 prop calibration knobs", () => {
+  it("exports prop model 0.3.2 and yard-budget shock sigma 0.12", () => {
+    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.2");
     assert.equal(FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA, 0.12);
     const tensor = attachFootballPlayerProps({
       tensor: baseTensor(500),
       players: [{ playerId: "qb1", teamSide: "home", role: "qb", usage: 0.95, participationStatus: "confirmed_starter" }],
     });
     assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("prop_yard_budget_shock_0.12")));
-    assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.1")));
+    assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.2")));
     const yds = tensor.players.qb1!.stats.pass_yds;
     let var_ = 0;
     let m = 0;

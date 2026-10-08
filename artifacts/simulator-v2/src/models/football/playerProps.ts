@@ -1,11 +1,11 @@
 /**
- * Phase C.2 / C.2.1 — joint football player props with shared team budgets,
+ * Phase C.2 / C.2.2 — joint football player props with shared team budgets,
  * participation/injury grounding, DST + Q/H stats where provider markets exist.
  * Shadow-only; production serve remains off.
  *
- * C.2.1 calibration: multiplicative yard-budget shock (σ≈0.12) + slightly
- * lower pass mean coefficient after named-player OOS showed overconfident
- * pass distributions (proxy identity + tight budgets).
+ * C.2.2 calibration: multiplicative yard-budget shock (σ≈0.12) + val-fold
+ * mean scales for pass/rush/rec after named-player OOS (proxy identity was
+ * primary eval defect; holdout never used for coefficient fitting).
  */
 
 import type { SimV2ScenarioTensor } from "../../schemas/scenarioTensor.js";
@@ -13,7 +13,7 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { poissonSample } from "./jointFootball.js";
 
 /** Bump when prop generative assumptions change incompatibly for OOS. */
-export const FOOTBALL_PROP_MODEL_VERSION = "0.3.1" as const;
+export const FOOTBALL_PROP_MODEL_VERSION = "0.3.2" as const;
 /** Per-draw lognormal σ on pass/rush/rec team yard budgets. */
 export const FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA = 0.12 as const;
 
@@ -109,10 +109,11 @@ function statusToParticipateProb(
 
 function teamYardBudget(points: number, kind: "pass" | "rush" | "rec"): number {
   const pts = Math.max(0, points);
-  // C.2.1: pass mean trimmed (8.5→7.6, intercept 120→110) after OOS pass mean >> leaders.
-  if (kind === "pass") return 7.6 * pts + 110;
-  if (kind === "rush") return 3.2 * pts + 60;
-  return 5.5 * pts + 80;
+  // C.2.2: val-fold mean scales (holdout unused). Pass slightly lower than C.1;
+  // rush/rec scaled so game-leader means track ESPN leaders (shared-budget starters).
+  if (kind === "pass") return 5.8 * pts + 90;
+  if (kind === "rush") return 2.0 * pts + 40;
+  return 3.6 * pts + 55;
 }
 
 /** Lognormal shock with E[m]≈1 so mean budget is preserved while variance rises. */
@@ -138,7 +139,7 @@ function emptyStats(n: number): Record<string, Float64Array> {
 export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput): SimV2ScenarioTensor {
   const base = input.tensor;
   const n = base.meta.nDraws;
-  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.1"}`;
+  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}`;
   const { next } = createSeededRng(seed);
 
   const players: SimV2ScenarioTensor["players"] = { ...base.players };
@@ -296,7 +297,7 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
 
   const dataFingerprint = fingerprintPayload([
     base.meta.dataFingerprint,
-    "football_props_c2_1",
+    "football_props_c2_2",
     FOOTBALL_PROP_MODEL_VERSION,
     FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA,
     input.players,
