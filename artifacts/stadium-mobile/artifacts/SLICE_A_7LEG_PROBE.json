@@ -1,0 +1,89 @@
+{
+  "ask": "7 leg NFL",
+  "target": 7,
+  "elapsedMs": 16000,
+  "finalCount": 5,
+  "props": 2,
+  "periodMarketsOnTicket": [
+    {
+      "market": "Q1 Alt Spread",
+      "pick": "Cowboys +2.5"
+    },
+    {
+      "market": "1H Alt Spread",
+      "pick": "Buccaneers +13.5"
+    }
+  ],
+  "qualifiedPoolSize": 108,
+  "periodBlockedInPool": 49,
+  "fgAltPool": 53,
+  "propPool": 6,
+  "notePreview": "Updated 1 moneyline/spread pick to a qualified analytics-lean selection.\n\nDropped 2 moneyline/spread picks that opposed the analytics lean and were not staging-qualified for a lean-side seat.\n\nYou asked for 7 legs — only 5 cleared the AI quality bar. No ungraded filler was added.",
+  "shortfallMentions": 0,
+  "shortfallCountMatch": null,
+  "shortfallCitesFinal": true,
+  "synthetic": {
+    "afterLean": 4,
+    "afterFill": 5,
+    "added": [
+      {
+        "market": "Alt Spread",
+        "pick": "Buccaneers +21.5",
+        "odds": -525
+      }
+    ],
+    "addedPeriodBlocked": 0
+  },
+  "ticket": [
+    {
+      "game": "Tampa Bay Buccaneers @ Dallas Cowboys",
+      "market": "Rush Attempts",
+      "pick": "Javonte Williams Under 16.5 Rush Attempts",
+      "odds": -114,
+      "isProp": true,
+      "period": "fg",
+      "grade": "B",
+      "simHit": 0.699
+    },
+    {
+      "game": "Tampa Bay Buccaneers @ Dallas Cowboys",
+      "market": "Receptions",
+      "pick": "CeeDee Lamb Over 6.5 Receptions",
+      "odds": 100,
+      "isProp": true,
+      "period": "fg",
+      "grade": "B",
+      "simHit": 0.672
+    },
+    {
+      "game": "Tampa Bay Buccaneers @ Dallas Cowboys",
+      "market": "Q1 Alt Spread",
+      "pick": "Cowboys +2.5",
+      "odds": -389,
+      "isProp": false,
+      "period": "q1",
+      "grade": "B+",
+      "simHit": 0.848
+    },
+    {
+      "game": "Tampa Bay Buccaneers @ Dallas Cowboys",
+      "market": "1H Alt Spread",
+      "pick": "Buccaneers +13.5",
+      "odds": -375,
+      "isProp": false,
+      "period": "h1",
+      "grade": "B+",
+      "simHit": 0.991
+    },
+    {
+      "game": "Tampa Bay Buccaneers @ Dallas Cowboys",
+      "market": "Alt Spread",
+      "pick": "Buccaneers +21.5",
+      "odds": -525,
+      "isProp": false,
+      "period": "fg",
+      "grade": "B",
+      "simHit": 0.948
+    }
+  ]
+}
