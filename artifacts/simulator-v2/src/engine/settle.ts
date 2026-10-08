@@ -61,9 +61,13 @@ function resolveSeries(tensor: SimV2ScenarioTensor, market: SimV2Market): Float6
 }
 
 function defaultPeriodSumGroup(tensor: SimV2ScenarioTensor): string[] {
-  if (tensor.meta.sport === "nfl" || tensor.meta.sport === "ncaaf") {
-    return ["q1", "q2", "q3", "q4"];
-  }
+  const sport = tensor.meta.sport;
+  if (sport === "nfl" || sport === "ncaaf") return ["q1", "q2", "q3", "q4"];
+  if (sport === "nhl") return ["p1", "p2", "p3"];
+  if (sport === "nba" || sport === "wnba") return ["q1", "q2", "q3", "q4"];
+  if (sport === "ncaab") return ["h1", "h2"];
+  // MLB uses F5 ⊆ FG (checked in baseball tests); no equal-sum period group.
+  if (sport === "mlb") return [];
   return ["h1", "h2"];
 }
 
@@ -161,9 +165,14 @@ export function settleMarket(req: SettleRequest): SimV2SimulationResult {
     });
   }
 
+  const sport = tensor.meta.sport;
   const consistency = validateScenarioConsistency(tensor, {
     periodSumGroup: req.periodSumGroup ?? defaultPeriodSumGroup(tensor),
-    checkDerivedHalves: tensor.meta.sport === "nfl" || tensor.meta.sport === "ncaaf",
+    checkDerivedHalves:
+      sport === "nfl" ||
+      sport === "ncaaf" ||
+      sport === "nba" ||
+      sport === "wnba",
   });
   if (!consistency.ok) {
     return finish({
@@ -187,6 +196,40 @@ export function settleMarket(req: SettleRequest): SimV2SimulationResult {
       edgePct: null,
       evPct: null,
     });
+  }
+
+  // Player props: OUT / zero-participation → missing_data (fail closed, no invented grade).
+  if (market.family === "player_prop" && market.playerId) {
+    const pl = tensor.players[market.playerId];
+    if (!pl) {
+      return finish({
+        status: "missing_data",
+        reason: `missing_data:player_not_on_tensor:${market.playerId}`,
+        simHit: null,
+        providerOddsAmerican: odds.american,
+        impliedProbRaw: odds.impliedProbRaw,
+        edgePct: null,
+        evPct: null,
+      });
+    }
+    let anyPart = false;
+    for (let i = 0; i < pl.participated.length; i++) {
+      if (pl.participated[i]) {
+        anyPart = true;
+        break;
+      }
+    }
+    if (!anyPart) {
+      return finish({
+        status: "missing_data",
+        reason: `missing_data:player_no_participation:${market.playerId}`,
+        simHit: null,
+        providerOddsAmerican: odds.american,
+        impliedProbRaw: odds.impliedProbRaw,
+        edgePct: null,
+        evPct: null,
+      });
+    }
   }
 
   const series = resolveSeries(tensor, market);

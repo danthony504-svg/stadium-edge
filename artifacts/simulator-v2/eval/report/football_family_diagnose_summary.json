@@ -1,0 +1,845 @@
+{
+  "decisionHint": "KEEP",
+  "modelVersion": "0.3.2",
+  "shock": 0.12,
+  "tdTemper": 1,
+  "winners": [],
+  "scores": [
+    {
+      "candidateId": "baseline_0.3.2",
+      "nflEce": 0.06604998229670725,
+      "ncaafEce": 0.07839344664963656,
+      "nflAnyTdEce": 0.13305582672361188,
+      "ncaafAnyTdEce": 0.13743159775395625,
+      "nflBrier": 0.17507481184350368,
+      "ncaafBrier": 0.1915381785959925,
+      "nflO95": {
+        "n": 58,
+        "hitRate": 0.8275862068965517
+      },
+      "ncaafO95": {
+        "n": 193,
+        "hitRate": 0.9067357512953368
+      },
+      "clearWin": false,
+      "reasons": [
+        "nfl_ece_flat_0.0000",
+        "ncaaf_ece_flat_0.0000",
+        "nfl_any_td_ece_flat_0.0000",
+        "ncaaf_any_td_ece_flat_0.0000"
+      ]
+    },
+    {
+      "candidateId": "shock_0.16",
+      "nflEce": 0.06219379570653459,
+      "ncaafEce": 0.07137658321060375,
+      "nflAnyTdEce": 0.1327101891397193,
+      "ncaafAnyTdEce": 0.13912889229198555,
+      "nflBrier": 0.17429287791932144,
+      "ncaafBrier": 0.1901453511782037,
+      "nflO95": {
+        "n": 55,
+        "hitRate": 0.8181818181818182
+      },
+      "ncaafO95": {
+        "n": 198,
+        "hitRate": 0.8838383838383839
+      },
+      "clearWin": false,
+      "reasons": [
+        "nfl_ece_flat_-0.0039",
+        "ncaaf_ece_flat_-0.0070",
+        "nfl_any_td_ece_flat_-0.0003",
+        "ncaaf_any_td_ece_flat_0.0017",
+        "no_safe_val_fold_win_without_holdout_tuning"
+      ]
+    },
+    {
+      "candidateId": "td_temper_0.75",
+      "nflEce": 0.06591870206489675,
+      "ncaafEce": 0.07648831156075057,
+      "nflAnyTdEce": 0.11789170225747422,
+      "ncaafAnyTdEce": 0.1334828994384892,
+      "nflBrier": 0.17373697380531064,
+      "ncaafBrier": 0.19036107717807738,
+      "nflO95": {
+        "n": 50,
+        "hitRate": 0.78
+      },
+      "ncaafO95": {
+        "n": 91,
+        "hitRate": 0.8791208791208791
+      },
+      "clearWin": false,
+      "reasons": [
+        "nfl_ece_flat_-0.0001",
+        "ncaaf_ece_flat_-0.0019",
+        "nfl_any_td_ece_improved_-0.0152",
+        "ncaaf_any_td_ece_flat_-0.0039",
+        "uniform_td_temper_blocked_until_role_aware_rates",
+        "no_safe_val_fold_win_without_holdout_tuning"
+      ]
+    },
+    {
+      "candidateId": "shock_0.16_td_0.75",
+      "nflEce": 0.06208795422369061,
+      "ncaafEce": 0.06950756013745708,
+      "nflAnyTdEce": 0.11635143380109834,
+      "ncaafAnyTdEce": 0.13247371107708036,
+      "nflBrier": 0.17311482376710718,
+      "ncaafBrier": 0.18913958460972055,
+      "nflO95": {
+        "n": 46,
+        "hitRate": 0.782608695652174
+      },
+      "ncaafO95": {
+        "n": 92,
+        "hitRate": 0.8695652173913043
+      },
+      "clearWin": false,
+      "reasons": [
+        "nfl_ece_flat_-0.0040",
+        "ncaaf_ece_improved_-0.0089",
+        "nfl_any_td_ece_improved_-0.0167",
+        "ncaaf_any_td_ece_flat_-0.0050",
+        "uniform_td_temper_blocked_until_role_aware_rates",
+        "no_safe_val_fold_win_without_holdout_tuning"
+      ]
+    }
+  ],
+  "holdout": {
+    "nfl": {
+      "n": 8480,
+      "brier": 0.17360024926297232,
+      "logLoss": 0.5310478374947553,
+      "ece": 0.057418691037736044,
+      "meanP": 0.46996303066037637,
+      "meanY": 0.4659198113207547,
+      "bias": 0.004043219339621651,
+      "anyTd": {
+        "n": 1644,
+        "actualOccurrenceRate": 0.5948905109489051,
+        "simMeanRate": 0.6670802919708025,
+        "rateGap": 0.07218978102189744,
+        "actualMeanTdCount": 0.9708029197080292,
+        "byRole": [
+          {
+            "role": "qb",
+            "n": 570,
+            "actualOccurrenceRate": 0.8245614035087719,
+            "simMeanRate": 0.9024438596491229,
+            "rateGap": 0.07788245614035094
+          },
+          {
+            "role": "rb",
+            "n": 516,
+            "actualOccurrenceRate": 0.48643410852713176,
+            "simMeanRate": 0.7485319767441857,
+            "rateGap": 0.26209786821705394
+          },
+          {
+            "role": "wr",
+            "n": 558,
+            "actualOccurrenceRate": 0.460573476702509,
+            "simMeanRate": 0.35133422939068093,
+            "rateGap": -0.10923924731182805
+          }
+        ],
+        "diagnosis": "leaders_td_common_residual_ece_is_shape_not_mean_rarity"
+      },
+      "families": [
+        {
+          "sport": "nfl",
+          "family": "player_prop",
+          "n": 8480,
+          "games": 285,
+          "effN": 284.93359114971315,
+          "brier": 0.17360024926297232,
+          "logLoss": 0.5310478374947553,
+          "ece": 0.057418691037736044,
+          "eceSe": 0.005134370557512619,
+          "meanP": 0.46996303066037637,
+          "meanY": 0.4659198113207547,
+          "bias": 0.004043219339621651,
+          "meanAbsDevFromHalf": 0.3017583136792446,
+          "overconf80": {
+            "n": 2307,
+            "hitRate": 0.8439531859557867
+          },
+          "overconf90": {
+            "n": 1231,
+            "hitRate": 0.8968318440292445
+          },
+          "overconf95": {
+            "n": 58,
+            "hitRate": 0.6896551724137931
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "pass_yds",
+          "n": 2280,
+          "games": 285,
+          "effN": 285,
+          "brier": 0.1625552820175438,
+          "logLoss": 0.494842906363499,
+          "ece": 0.024681578947368398,
+          "eceSe": 0.009865753992885433,
+          "meanP": 0.27949298245614035,
+          "meanY": 0.3017543859649123,
+          "bias": -0.022261403508771926,
+          "meanAbsDevFromHalf": 0.2751899122807023,
+          "overconf80": {
+            "n": 8,
+            "hitRate": 0.5
+          },
+          "overconf90": {
+            "n": 0,
+            "hitRate": null
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "pass_yds:main",
+          "n": 570,
+          "games": 285,
+          "effN": 285,
+          "brier": 0.23598910570175438,
+          "logLoss": 0.6735945456235031,
+          "ece": 0.06454122807017547,
+          "eceSe": 0.015829816972461698,
+          "meanP": 0.3171991228070176,
+          "meanY": 0.35964912280701755,
+          "bias": -0.04244999999999993,
+          "meanAbsDevFromHalf": 0.18896578947368411,
+          "overconf80": {
+            "n": 0,
+            "hitRate": null
+          },
+          "overconf90": {
+            "n": 0,
+            "hitRate": null
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "pass_yds:alt",
+          "n": 1710,
+          "games": 285,
+          "effN": 285,
+          "brier": 0.13807734078947392,
+          "logLoss": 0.435259026610163,
+          "ece": 0.029932456140350852,
+          "eceSe": 0.0077649149374470535,
+          "meanP": 0.2669242690058479,
+          "meanY": 0.2824561403508772,
+          "bias": -0.015531871345029258,
+          "meanAbsDevFromHalf": 0.30393128654970814,
+          "overconf80": {
+            "n": 8,
+            "hitRate": 0.5
+          },
+          "overconf90": {
+            "n": 0,
+            "hitRate": null
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "rush_yds",
+          "n": 2276,
+          "games": 285,
+          "effN": 284.9381738173817,
+          "brier": 0.17022791739894538,
+          "logLoss": 0.5488537302342933,
+          "ece": 0.08046748681898046,
+          "eceSe": 0.007515929067060876,
+          "meanP": 0.39844859402460475,
+          "meanY": 0.4090509666080844,
+          "bias": -0.010602372583479625,
+          "meanAbsDevFromHalf": 0.34189103690685424,
+          "overconf80": {
+            "n": 591,
+            "hitRate": 0.8020304568527918
+          },
+          "overconf90": {
+            "n": 248,
+            "hitRate": 0.8225806451612904
+          },
+          "overconf95": {
+            "n": 51,
+            "hitRate": 0.6470588235294118
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "rush_yds:main",
+          "n": 570,
+          "games": 285,
+          "effN": 285,
+          "brier": 0.26795585307017566,
+          "logLoss": 0.7372177911250736,
+          "ece": 0.09480964912280693,
+          "eceSe": 0.017124242050906104,
+          "meanP": 0.5540868421052633,
+          "meanY": 0.5333333333333333,
+          "bias": 0.02075350877192994,
+          "meanAbsDevFromHalf": 0.11059912280701757,
+          "overconf80": {
+            "n": 25,
+            "hitRate": 0.4
+          },
+          "overconf90": {
+            "n": 0,
+            "hitRate": null
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "rush_yds:alt",
+          "n": 1706,
+          "games": 285,
+          "effN": 284.8899765074393,
+          "brier": 0.13757555905627183,
+          "logLoss": 0.4859184930081817,
+          "ece": 0.08500732708089079,
+          "eceSe": 0.008536177389859788,
+          "meanP": 0.3464475381008211,
+          "meanY": 0.3675263774912075,
+          "bias": -0.021078839390386406,
+          "meanAbsDevFromHalf": 0.419169109026964,
+          "overconf80": {
+            "n": 566,
+            "hitRate": 0.8197879858657244
+          },
+          "overconf90": {
+            "n": 248,
+            "hitRate": 0.8225806451612904
+          },
+          "overconf95": {
+            "n": 51,
+            "hitRate": 0.6470588235294118
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "rec_yds",
+          "n": 2280,
+          "games": 285,
+          "effN": 285,
+          "brier": 0.14035229506578958,
+          "logLoss": 0.4410275660997764,
+          "ece": 0.042100657894736895,
+          "eceSe": 0.0070014476380800645,
+          "meanP": 0.5896901315789492,
+          "meanY": 0.593859649122807,
+          "bias": -0.004169517543857748,
+          "meanAbsDevFromHalf": 0.3125730263157895,
+          "overconf80": {
+            "n": 1060,
+            "hitRate": 0.9018867924528302
+          },
+          "overconf90": {
+            "n": 636,
+            "hitRate": 0.9638364779874213
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "rec_yds:main",
+          "n": 570,
+          "games": 285,
+          "effN": 285,
+          "brier": 0.1272758736842105,
+          "logLoss": 0.4263634603608651,
+          "ece": 0.05023508771929839,
+          "eceSe": 0.012721600829617642,
+          "meanP": 0.834298245614036,
+          "meanY": 0.856140350877193,
+          "bias": -0.021842105263156997,
+          "meanAbsDevFromHalf": 0.33433508771929826,
+          "overconf80": {
+            "n": 445,
+            "hitRate": 0.8606741573033708
+          },
+          "overconf90": {
+            "n": 72,
+            "hitRate": 0.8055555555555556
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "rec_yds:alt",
+          "n": 1710,
+          "games": 285,
+          "effN": 285,
+          "brier": 0.14471110219298242,
+          "logLoss": 0.44591560134608016,
+          "ece": 0.07193070175438605,
+          "eceSe": 0.00765824398622696,
+          "meanP": 0.508154093567251,
+          "meanY": 0.5064327485380117,
+          "bias": 0.001721345029239374,
+          "meanAbsDevFromHalf": 0.305319005847953,
+          "overconf80": {
+            "n": 615,
+            "hitRate": 0.9317073170731708
+          },
+          "overconf90": {
+            "n": 564,
+            "hitRate": 0.9840425531914894
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "any_td",
+          "n": 1644,
+          "games": 285,
+          "effN": 283.3056603773585,
+          "brier": 0.23969713990267616,
+          "logLoss": 0.6814537072542523,
+          "ece": 0.14821593673965935,
+          "eceSe": 0.01057591391959105,
+          "meanP": 0.6670802919708025,
+          "meanY": 0.5948905109489051,
+          "bias": 0.07218978102189744,
+          "meanAbsDevFromHalf": 0.26804562043795616,
+          "overconf80": {
+            "n": 648,
+            "hitRate": 0.7916666666666666
+          },
+          "overconf90": {
+            "n": 347,
+            "hitRate": 0.8270893371757925
+          },
+          "overconf95": {
+            "n": 7,
+            "hitRate": 1
+          }
+        },
+        {
+          "sport": "nfl",
+          "family": "any_td:main",
+          "n": 1644,
+          "games": 285,
+          "effN": 283.3056603773585,
+          "brier": 0.23969713990267616,
+          "logLoss": 0.6814537072542523,
+          "ece": 0.14821593673965935,
+          "eceSe": 0.010579544539115492,
+          "meanP": 0.6670802919708025,
+          "meanY": 0.5948905109489051,
+          "bias": 0.07218978102189744,
+          "meanAbsDevFromHalf": 0.26804562043795616,
+          "overconf80": {
+            "n": 648,
+            "hitRate": 0.7916666666666666
+          },
+          "overconf90": {
+            "n": 347,
+            "hitRate": 0.8270893371757925
+          },
+          "overconf95": {
+            "n": 7,
+            "hitRate": 1
+          }
+        }
+      ]
+    },
+    "ncaaf": {
+      "n": 11990,
+      "brier": 0.18912600289824838,
+      "logLoss": 0.5687890396293143,
+      "ece": 0.07395567139282756,
+      "meanP": 0.5244923686405331,
+      "meanY": 0.476814011676397,
+      "bias": 0.04767835696413608,
+      "anyTd": {
+        "n": 2301,
+        "actualOccurrenceRate": 0.6384180790960452,
+        "simMeanRate": 0.7104667535853991,
+        "rateGap": 0.07204867448935393,
+        "actualMeanTdCount": 1.1408083441981747,
+        "byRole": [
+          {
+            "role": "qb",
+            "n": 808,
+            "actualOccurrenceRate": 0.8341584158415841,
+            "simMeanRate": 0.9255055693069305,
+            "rateGap": 0.09134715346534639
+          },
+          {
+            "role": "rb",
+            "n": 715,
+            "actualOccurrenceRate": 0.5958041958041959,
+            "simMeanRate": 0.7917230769230769,
+            "rateGap": 0.195918881118881
+          },
+          {
+            "role": "wr",
+            "n": 778,
+            "actualOccurrenceRate": 0.47429305912596403,
+            "simMeanRate": 0.4124595115681231,
+            "rateGap": -0.06183354755784093
+          }
+        ],
+        "diagnosis": "leaders_td_common_residual_ece_is_shape_not_mean_rarity"
+      },
+      "families": [
+        {
+          "sport": "ncaaf",
+          "family": "player_prop",
+          "n": 11990,
+          "games": 404,
+          "effN": 403.8386556699177,
+          "brier": 0.18912600289824838,
+          "logLoss": 0.5687890396293143,
+          "ece": 0.07395567139282756,
+          "eceSe": 0.005084482511364351,
+          "meanP": 0.5244923686405331,
+          "meanY": 0.476814011676397,
+          "bias": 0.04767835696413608,
+          "meanAbsDevFromHalf": 0.2859176396997496,
+          "overconf80": {
+            "n": 3742,
+            "hitRate": 0.8190807055050775
+          },
+          "overconf90": {
+            "n": 2252,
+            "hitRate": 0.8854351687388987
+          },
+          "overconf95": {
+            "n": 234,
+            "hitRate": 0.9188034188034188
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "pass_yds",
+          "n": 3232,
+          "games": 404,
+          "effN": 404,
+          "brier": 0.175998193842822,
+          "logLoss": 0.5230719672559354,
+          "ece": 0.11818100247524758,
+          "eceSe": 0.01083306182891605,
+          "meanP": 0.3855077351485136,
+          "meanY": 0.26732673267326734,
+          "bias": 0.11818100247524627,
+          "meanAbsDevFromHalf": 0.2445727103960398,
+          "overconf80": {
+            "n": 185,
+            "hitRate": 0.6432432432432432
+          },
+          "overconf90": {
+            "n": 11,
+            "hitRate": 0.6363636363636364
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "pass_yds:main",
+          "n": 808,
+          "games": 404,
+          "effN": 404,
+          "brier": 0.24541902691831677,
+          "logLoss": 0.6847787711103951,
+          "ece": 0.1321268564356435,
+          "eceSe": 0.01574683024410467,
+          "meanP": 0.4860872524752483,
+          "meanY": 0.35396039603960394,
+          "bias": 0.13212685643564437,
+          "meanAbsDevFromHalf": 0.12806002475247522,
+          "overconf80": {
+            "n": 5,
+            "hitRate": 0.2
+          },
+          "overconf90": {
+            "n": 0,
+            "hitRate": null
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "pass_yds:alt",
+          "n": 2424,
+          "games": 404,
+          "effN": 404,
+          "brier": 0.15285791615099012,
+          "logLoss": 0.4691696993044459,
+          "ece": 0.1135323844884489,
+          "eceSe": 0.009945500630877391,
+          "meanP": 0.3519812293729367,
+          "meanY": 0.23844884488448845,
+          "bias": 0.11353238448844824,
+          "meanAbsDevFromHalf": 0.28341027227722787,
+          "overconf80": {
+            "n": 180,
+            "hitRate": 0.6555555555555556
+          },
+          "overconf90": {
+            "n": 11,
+            "hitRate": 0.6363636363636364
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "rush_yds",
+          "n": 3229,
+          "games": 404,
+          "effN": 403.95339196466625,
+          "brier": 0.19139728840198156,
+          "logLoss": 0.5962069529261648,
+          "ece": 0.10740987921957247,
+          "eceSe": 0.007675614961588733,
+          "meanP": 0.4133436048312165,
+          "meanY": 0.49334159182409415,
+          "bias": -0.07999798699287763,
+          "meanAbsDevFromHalf": 0.3249976772994744,
+          "overconf80": {
+            "n": 835,
+            "hitRate": 0.8718562874251496
+          },
+          "overconf90": {
+            "n": 580,
+            "hitRate": 0.9103448275862069
+          },
+          "overconf95": {
+            "n": 93,
+            "hitRate": 0.9139784946236559
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "rush_yds:main",
+          "n": 808,
+          "games": 404,
+          "effN": 404,
+          "brier": 0.2576743267326735,
+          "logLoss": 0.7137159075964938,
+          "ece": 0.11794306930693063,
+          "eceSe": 0.016102513759419495,
+          "meanP": 0.49899628712871275,
+          "meanY": 0.5668316831683168,
+          "bias": -0.06783539603960403,
+          "meanAbsDevFromHalf": 0.12880569306930678,
+          "overconf80": {
+            "n": 27,
+            "hitRate": 0.5925925925925926
+          },
+          "overconf90": {
+            "n": 2,
+            "hitRate": 1
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "rush_yds:alt",
+          "n": 2421,
+          "games": 404,
+          "effN": 403.9170973744056,
+          "brier": 0.16927756639818212,
+          "logLoss": 0.5569887640068635,
+          "ece": 0.10526332094175946,
+          "eceSe": 0.008787279276289178,
+          "meanP": 0.3847573316811231,
+          "meanY": 0.4688145394465097,
+          "bias": -0.08405720776538661,
+          "meanAbsDevFromHalf": 0.3904760429574561,
+          "overconf80": {
+            "n": 808,
+            "hitRate": 0.8811881188118812
+          },
+          "overconf90": {
+            "n": 578,
+            "hitRate": 0.9100346020761245
+          },
+          "overconf95": {
+            "n": 93,
+            "hitRate": 0.9139784946236559
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "rec_yds",
+          "n": 3228,
+          "games": 404,
+          "effN": 403.75015499070054,
+          "brier": 0.1795183066914501,
+          "logLoss": 0.5399660258958818,
+          "ece": 0.08869919454770739,
+          "eceSe": 0.009545469113822874,
+          "meanP": 0.6422651796778194,
+          "meanY": 0.5548327137546468,
+          "bias": 0.08743246592317255,
+          "meanAbsDevFromHalf": 0.2967397769516735,
+          "overconf80": {
+            "n": 1559,
+            "hitRate": 0.8268120590121874
+          },
+          "overconf90": {
+            "n": 977,
+            "hitRate": 0.8955987717502559
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "rec_yds:main",
+          "n": 807,
+          "games": 404,
+          "effN": 403.75015499070054,
+          "brier": 0.2022228543990083,
+          "logLoss": 0.6146267811220214,
+          "ece": 0.10440520446096674,
+          "eceSe": 0.014338812284525087,
+          "meanP": 0.8379863692688978,
+          "meanY": 0.7335811648079306,
+          "bias": 0.10440520446096724,
+          "meanAbsDevFromHalf": 0.3379863692688972,
+          "overconf80": {
+            "n": 625,
+            "hitRate": 0.768
+          },
+          "overconf90": {
+            "n": 150,
+            "hitRate": 0.6933333333333334
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "rec_yds:alt",
+          "n": 2421,
+          "games": 404,
+          "effN": 403.75015499070054,
+          "brier": 0.17195012412226363,
+          "logLoss": 0.5150791074871671,
+          "ece": 0.09310037174721178,
+          "eceSe": 0.00831065017014783,
+          "meanP": 0.5770247831474596,
+          "meanY": 0.4952498967368856,
+          "bias": 0.08177488641057407,
+          "meanAbsDevFromHalf": 0.2829909128459317,
+          "overconf80": {
+            "n": 934,
+            "hitRate": 0.8661670235546038
+          },
+          "overconf90": {
+            "n": 827,
+            "hitRate": 0.932285368802902
+          },
+          "overconf95": {
+            "n": 0,
+            "hitRate": null
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "any_td",
+          "n": 2301,
+          "games": 404,
+          "effN": 400.5902247106,
+          "brier": 0.21785644241634097,
+          "logLoss": 0.634962800692665,
+          "ece": 0.11302564102564139,
+          "eceSe": 0.0071518780219931785,
+          "meanP": 0.7104667535853991,
+          "meanY": 0.6384180790960452,
+          "bias": 0.07204867448935393,
+          "meanAbsDevFromHalf": 0.27396784006953506,
+          "overconf80": {
+            "n": 1163,
+            "hitRate": 0.7987962166809974
+          },
+          "overconf90": {
+            "n": 684,
+            "hitRate": 0.8538011695906432
+          },
+          "overconf95": {
+            "n": 141,
+            "hitRate": 0.9219858156028369
+          }
+        },
+        {
+          "sport": "ncaaf",
+          "family": "any_td:main",
+          "n": 2301,
+          "games": 404,
+          "effN": 400.5902247106,
+          "brier": 0.21785644241634097,
+          "logLoss": 0.634962800692665,
+          "ece": 0.11302564102564139,
+          "eceSe": 0.00821332889669887,
+          "meanP": 0.7104667535853991,
+          "meanY": 0.6384180790960452,
+          "bias": 0.07204867448935393,
+          "meanAbsDevFromHalf": 0.27396784006953506,
+          "overconf80": {
+            "n": 1163,
+            "hitRate": 0.7987962166809974
+          },
+          "overconf90": {
+            "n": 684,
+            "hitRate": 0.8538011695906432
+          },
+          "overconf95": {
+            "n": 141,
+            "hitRate": 0.9219858156028369
+          }
+        }
+      ]
+    }
+  },
+  "decisionRationale": "No safe val-fold-only generative MODIFY: shock_0.16 alone insufficient; uniform td_temper blocked by opposite RB/WR any_td rate gaps; combined candidate worsens NFL p95 overconf hit rate. Leave 0.3.2."
+}

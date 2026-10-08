@@ -1,12 +1,21 @@
-# @workspace/simulator-v2 (Phase B)
+# @workspace/simulator-v2
 
-Isolated, versioned simulation platform for Stadium Edge.
+Isolated, versioned simulation platform for Stadium Edge — **all sports**, gated per `sport:family`.
 
 **Phase A:** schemas, deterministic seeding, joint scenario tensor format, settle + alt-line batching, validation, shadow ledger, calibration metrics, feature flags, acceptance gates.
 
 **Phase B:** joint NFL/NCAAF football model — one draw yields FG + Q1–Q4 + H1/H2 with exact period→FG conservation. Shadow diagnostics only under default flags.
 
-**Not in Phase B:** Coach UI changes, P0 removal, production serve, OTA publish, other sports.
+**Phase B correct (`0.3.0`):** train-frozen HFA + gamma–Poisson overdispersion + margin/blowout shocks (`football.joint.phase_b_correct`). Original thin-tailed v0 retained for A/B. Chronological OOS: `pnpm eval:chrono-oos`.
+
+**All-sports roadmap:** [`ALL_SPORTS_ROADMAP.md`](./ALL_SPORTS_ROADMAP.md)  
+**Parallel development:** [`PARALLEL_DEVELOPMENT_PLAN.md`](./PARALLEL_DEVELOPMENT_PLAN.md) — independent sport branches; no football wait; no football scoring reuse.  
+**Coverage matrix:** [`COVERAGE_MATRIX.md`](./COVERAGE_MATRIX.md) + `src/models/coverageMatrix.ts`  
+**Closing-line archive (design):** [`CLOSING_LINE_ARCHIVE.md`](./CLOSING_LINE_ARCHIVE.md)  
+**Phase C props plan:** [`PHASE_C_PROP_PLAN.md`](./PHASE_C_PROP_PLAN.md)  
+**Sport registry:** `src/models/sportRegistry.ts`
+
+**Not enabled:** production serve, OTA, Coach/P0 changes, unvalidated families, PR #649. Non-football sports remain fail-closed.
 
 ## Joint football model
 

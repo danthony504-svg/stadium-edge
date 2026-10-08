@@ -5,6 +5,7 @@
 import {
   buildJointFootballTensor,
   validateScenarioConsistency,
+  type FootballModelVariant,
   type SimV2ScenarioTensor,
 } from "../src/index.js";
 import { createSeededRng } from "../src/seed/mulberry32.js";
@@ -109,12 +110,14 @@ export function simulateV2Joint(
   game: EligibleGame,
   seed: string,
   nDraws: number,
+  variant: FootballModelVariant = "phase_b_correct",
 ): { tensor: SimV2ScenarioTensor; consistencyOk: boolean; breaks: number } {
   const tensor = buildJointFootballTensor({
     sport: game.game.sport,
     eventId: game.game.eventId,
     seed,
     nDraws,
+    variant,
     home: {
       teamId: game.homeForm.teamId,
       scoredByQuarter: game.homeForm.scoredByQuarter,
@@ -271,14 +274,16 @@ export function predictAllMarketsForGame(
   game: EligibleGame,
   markets: EvalMarketSpec[],
   nDraws: number,
+  variant: FootballModelVariant = "phase_b_correct",
 ): {
   v2ByMarket: Map<string, EnginePrediction>;
   v1ByMarket: Map<string, EnginePrediction>;
   scoreMeans: ScoreMeans[];
   v2ConsistencyOk: boolean;
   v1BreakRate: number;
+  variant: FootballModelVariant;
 } {
-  const v2 = simulateV2Joint(game, `v2:${game.game.eventId}`, nDraws);
+  const v2 = simulateV2Joint(game, `v2:${variant}:${game.game.eventId}`, nDraws, variant);
   const v1 = simulateV1FracTensor(game, `v1:${game.game.eventId}`, nDraws);
   const v2Source: DrawSource = {
     homeFg: v2.tensor.team.homeFg,
@@ -328,6 +333,7 @@ export function predictAllMarketsForGame(
     scoreMeans: [pack("v2_joint", v2Source), pack("v1_frac", v1)],
     v2ConsistencyOk: v2.consistencyOk,
     v1BreakRate: v1.periodSumBreaks / nDraws,
+    variant,
   };
 }
 

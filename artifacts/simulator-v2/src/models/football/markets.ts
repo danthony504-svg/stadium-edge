@@ -183,3 +183,144 @@ export const PHASE_B_FOOTBALL_FAMILIES: SimV2MarketFamily[] = [
   "total",
   "team_total",
 ];
+
+/** Phase C shadow families = B + player_prop (alts use same family + different line). */
+export const PHASE_C_FOOTBALL_FAMILIES: SimV2MarketFamily[] = [
+  ...PHASE_B_FOOTBALL_FAMILIES,
+  "player_prop",
+];
+
+export type FootballPropStatKey =
+  | "pass_yds"
+  | "pass_attempts"
+  | "pass_completions"
+  | "pass_tds"
+  | "rush_yds"
+  | "rush_attempts"
+  | "rush_tds"
+  | "rec_yds"
+  | "receptions"
+  | "reception_tds"
+  | "any_td"
+  | "kicking_points"
+  | "tackles_assists"
+  | "solo_tackles"
+  | "defensive_interceptions"
+  | "pass_yds_q1"
+  | "pass_yds_h1"
+  | "rush_yds_q1"
+  | "rush_yds_h1"
+  | "rec_yds_q1"
+  | "rec_yds_h1"
+  | "pass_tds_q1";
+
+/** Provider keys verified in api-server props routes — do not invent extras. */
+const PROP_PROVIDER_KEYS: Record<FootballPropStatKey, { main: string; alt: string | null }> = {
+  pass_yds: { main: "player_pass_yds", alt: "player_pass_yds_alternate" },
+  pass_attempts: { main: "player_pass_attempts", alt: "player_pass_attempts_alternate" },
+  pass_completions: { main: "player_pass_completions", alt: "player_pass_completions_alternate" },
+  pass_tds: { main: "player_pass_tds", alt: "player_pass_tds_alternate" },
+  rush_yds: { main: "player_rush_yds", alt: "player_rush_yds_alternate" },
+  rush_attempts: { main: "player_rush_attempts", alt: "player_rush_attempts_alternate" },
+  rush_tds: { main: "player_rush_tds", alt: null },
+  rec_yds: { main: "player_reception_yds", alt: "player_reception_yds_alternate" },
+  receptions: { main: "player_receptions", alt: "player_receptions_alternate" },
+  reception_tds: { main: "player_reception_tds", alt: null },
+  any_td: { main: "player_anytime_td", alt: null },
+  kicking_points: { main: "player_kicking_points", alt: null },
+  tackles_assists: { main: "player_tackles_assists", alt: null },
+  solo_tackles: { main: "player_solo_tackles", alt: null },
+  defensive_interceptions: { main: "player_defensive_interceptions", alt: null },
+  pass_yds_q1: { main: "player_pass_yds_q1", alt: null },
+  pass_yds_h1: { main: "player_pass_yds_h1", alt: null },
+  rush_yds_q1: { main: "player_rush_yds_q1", alt: null },
+  rush_yds_h1: { main: "player_rush_yds_h1", alt: null },
+  rec_yds_q1: { main: "player_reception_yds_q1", alt: null },
+  rec_yds_h1: { main: "player_reception_yds_h1", alt: null },
+  pass_tds_q1: { main: "player_pass_tds_q1", alt: null },
+};
+
+export function footballPropSupportsAlternate(stat: FootballPropStatKey): boolean {
+  return PROP_PROVIDER_KEYS[stat].alt != null;
+}
+
+/**
+ * Player prop / alt prop from a real provider key + line.
+ * Does not invent markets — providerMarketKey must come from the book feed.
+ */
+export function buildFootballPlayerPropMarket(
+  args: BuildFootballMarketArgs & {
+    playerId: string;
+    stat: FootballPropStatKey;
+    side: "over" | "under" | "yes" | "no";
+    line?: number;
+    alternate?: boolean;
+  },
+): SimV2Market {
+  const now = args.listedAt ?? new Date().toISOString();
+  const keys = PROP_PROVIDER_KEYS[args.stat];
+  if (args.alternate && !keys.alt) {
+    throw new Error(`football_prop_no_alt_provider_key:${args.stat}`);
+  }
+  const isYesNo = args.stat === "any_td" || args.stat === "defensive_interceptions";
+  const line = isYesNo && args.line == null ? 0.5 : args.line;
+  const period: FootballPeriod =
+    args.period ??
+    (args.stat.endsWith("_q1") ? "q1" : args.stat.endsWith("_h1") ? "h1" : "fg");
+  return {
+    marketId: args.marketId,
+    eventId: args.eventId,
+    sport: args.sport,
+    family: "player_prop",
+    providerMarketKey:
+      args.providerMarketKey ?? (args.alternate ? keys.alt! : keys.main),
+    period,
+    side: args.side,
+    line,
+    playerId: args.playerId,
+    settlement: rule({
+      ruleId: `player_${args.stat}_${args.side}${args.alternate ? "_alt" : ""}`,
+      description: `Player ${args.stat} ${args.side}${args.line != null ? ` ${args.line}` : ""}`,
+      settlePath: `players.${args.playerId}.stats.${args.stat}`,
+      comparator: args.side === "under" || args.side === "no" ? "lt" : "gt",
+      lineApplies: true,
+      period,
+    }),
+    listedAt: now,
+    provenance: [{ provider: "sportsbook", fetchedAt: now }],
+  };
+}
+
+/** Build main + alternate ladder rungs for the same player/stat (real lines only). */
+export function buildFootballPlayerPropAltLadder(
+  args: Omit<Parameters<typeof buildFootballPlayerPropMarket>[0], "line" | "alternate" | "marketId"> & {
+    marketIdPrefix: string;
+    lines: number[];
+  },
+): SimV2Market[] {
+  return args.lines.map((line, idx) =>
+    buildFootballPlayerPropMarket({
+      ...args,
+      marketId: `${args.marketIdPrefix}:${line}`,
+      line,
+      alternate: idx > 0,
+      providerMarketKey:
+        idx === 0
+          ? PROP_PROVIDER_KEYS[args.stat].main
+          : (PROP_PROVIDER_KEYS[args.stat].alt ?? PROP_PROVIDER_KEYS[args.stat].main),
+    }),
+  );
+}
+
+/** Map a raw Odds API market key to a settle stat, or null if unsupported. */
+export function mapProviderPropKeyToStat(providerMarketKey: string): FootballPropStatKey | null {
+  const k = providerMarketKey.replace(/_alternate$/, "");
+  for (const [stat, keys] of Object.entries(PROP_PROVIDER_KEYS) as Array<
+    [FootballPropStatKey, { main: string; alt: string | null }]
+  >) {
+    if (keys.main === k || keys.alt === providerMarketKey || keys.main === providerMarketKey) {
+      return stat;
+    }
+  }
+  return null;
+}
