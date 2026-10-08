@@ -26,3 +26,7 @@
 - Closing-line archive missing
 - n≥500 gate may not clear on first OOS pass
 - Coach path still V1-only by flags
+
+## Follow-up C.2.1 (calibration)
+See `MILESTONE_FOOTBALL_CALIBRATION.md` — named-player OOS, family gates, prop model `0.3.1`.
+

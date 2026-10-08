@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   SIM_V2_DEEP_DRAWS,
+  FOOTBALL_PROP_MODEL_VERSION,
+  FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA,
   attachFootballPlayerProps,
   buildFootballPlayerPropAltLadder,
   buildFootballPlayerPropMarket,
@@ -219,5 +221,26 @@ describe("Phase C.2 football player props (shadow)", () => {
       v2: null,
     });
     assert.equal(prod.engine, "v1");
+  });
+});
+
+describe("Phase C.2.1 prop calibration knobs", () => {
+  it("exports prop model 0.3.1 and yard-budget shock sigma 0.12", () => {
+    assert.equal(FOOTBALL_PROP_MODEL_VERSION, "0.3.1");
+    assert.equal(FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA, 0.12);
+    const tensor = attachFootballPlayerProps({
+      tensor: baseTensor(500),
+      players: [{ playerId: "qb1", teamSide: "home", role: "qb", usage: 0.95, participationStatus: "confirmed_starter" }],
+    });
+    assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("prop_yard_budget_shock_0.12")));
+    assert.ok(tensor.meta.quality.warnings.some((w) => w.includes("football_prop_model_0.3.1")));
+    const yds = tensor.players.qb1!.stats.pass_yds;
+    let var_ = 0;
+    let m = 0;
+    for (let i = 0; i < yds.length; i++) m += yds[i]!;
+    m /= yds.length;
+    for (let i = 0; i < yds.length; i++) var_ += (yds[i]! - m) ** 2;
+    var_ /= yds.length;
+    assert.ok(var_ > 100, "pass yards should have material dispersion after budget shock");
   });
 });

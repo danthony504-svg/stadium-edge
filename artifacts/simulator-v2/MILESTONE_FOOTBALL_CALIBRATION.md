@@ -1,0 +1,36 @@
+# Milestone — Football prop calibration (C.2.1, shadow)
+
+## Scope
+Historical validation + family gates for NFL/NCAAF player props. **Shadow-only.**
+No `SIM_V2_SERVE`, no allowlists, no Coach / P0 / PR#649, no merge/deploy/OTA.
+
+## Root causes (prior ECE ≈ 0.112 NFL / 0.127 NCAAF)
+1. **Proxy identity mismatch** — OOS modeled synthetic `home_qb` / `home_rb` / `home_wr` while grading ESPN game leaders (not the same identity).
+2. **Overconfident pass yard budgets** — `teamYardBudget` + usage produced tight pass distributions (ECE worst on `pass_yds`).
+
+## Corrections (smallest model change)
+| Lever | Change |
+|-------|--------|
+| Eval grounding | Named `athlete.id` + displayName + team id; side/team match; QB `confirmed_starter`, skill `active` |
+| Pass mean | Coefficient 8.5→7.6, intercept 120→110 |
+| Dispersion | Per-draw lognormal yard-budget shock σ≈0.12 on pass/rush/rec |
+| Version | `FOOTBALL_PROP_MODEL_VERSION = "0.3.1"` |
+
+## Artifacts
+- `eval/familyCalibration.ts` — `FamilyVerdict`, `evaluateFamilyGate` (minOos=500, maxEce=0.04), `effectiveSampleSize`, `clusteredEceSe`, overconfidence 80/90/95%, `compareDistributions`, format helpers
+- `eval/runFootballPropOos.ts` — chrono train/val/holdout; gates on holdout; val diagnostic; main vs alt; NFL vs NCAAF; dist compare; CL → INSUFFICIENT
+- `eval/report/FOOTBALL_PROP_OOS.md`
+- `eval/report/FOOTBALL_FAMILY_GATES.md`
+- `src/models/football/playerProps.ts` (C.2.1)
+
+## Closing lines
+No licensed archive (`CLOSING_LINE_ARCHIVE.md`). OOS uses **eval-grid −110** labeled `eval-grid-not-closing-line`. Family gate `*:closing_line_benchmark` → **INSUFFICIENT_DATA**.
+
+## Commands
+```bash
+pnpm test
+pnpm eval:prop-oos
+```
+
+## Non-goals
+Serve flags, family allowlists, Coach wiring, production OTA.

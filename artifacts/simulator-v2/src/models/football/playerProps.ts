@@ -1,12 +1,21 @@
 /**
- * Phase C.2 — joint football player props with shared team budgets,
+ * Phase C.2 / C.2.1 — joint football player props with shared team budgets,
  * participation/injury grounding, DST + Q/H stats where provider markets exist.
  * Shadow-only; production serve remains off.
+ *
+ * C.2.1 calibration: multiplicative yard-budget shock (σ≈0.12) + slightly
+ * lower pass mean coefficient after named-player OOS showed overconfident
+ * pass distributions (proxy identity + tight budgets).
  */
 
 import type { SimV2ScenarioTensor } from "../../schemas/scenarioTensor.js";
 import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { poissonSample } from "./jointFootball.js";
+
+/** Bump when prop generative assumptions change incompatibly for OOS. */
+export const FOOTBALL_PROP_MODEL_VERSION = "0.3.1" as const;
+/** Per-draw lognormal σ on pass/rush/rec team yard budgets. */
+export const FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA = 0.12 as const;
 
 export const FOOTBALL_PROP_STAT_KEYS = [
   "pass_yds",
@@ -100,9 +109,20 @@ function statusToParticipateProb(
 
 function teamYardBudget(points: number, kind: "pass" | "rush" | "rec"): number {
   const pts = Math.max(0, points);
-  if (kind === "pass") return 8.5 * pts + 120;
+  // C.2.1: pass mean trimmed (8.5→7.6, intercept 120→110) after OOS pass mean >> leaders.
+  if (kind === "pass") return 7.6 * pts + 110;
   if (kind === "rush") return 3.2 * pts + 60;
   return 5.5 * pts + 80;
+}
+
+/** Lognormal shock with E[m]≈1 so mean budget is preserved while variance rises. */
+function yardBudgetShock(next: () => number, sigma = FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = next();
+  while (v === 0) v = next();
+  const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  return Math.exp(sigma * z - 0.5 * sigma * sigma);
 }
 
 function emptyStats(n: number): Record<string, Float64Array> {
@@ -118,7 +138,7 @@ function emptyStats(n: number): Record<string, Float64Array> {
 export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput): SimV2ScenarioTensor {
   const base = input.tensor;
   const n = base.meta.nDraws;
-  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2"}`;
+  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.1"}`;
   const { next } = createSeededRng(seed);
 
   const players: SimV2ScenarioTensor["players"] = { ...base.players };
@@ -126,6 +146,8 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     ...base.meta.quality.warnings,
     "phase_c2_player_props_shadow",
     "shared_team_skill_budgets",
+    `prop_yard_budget_shock_${FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA}`,
+    `football_prop_model_${FOOTBALL_PROP_MODEL_VERSION}`,
   ];
   const outPlayerIds: string[] = [];
 
@@ -160,9 +182,9 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
       const qShare = teamPts > 0 ? q1 / teamPts : 0.25;
       const hShare = teamPts > 0 ? h1 / teamPts : 0.5;
 
-      const passBud = teamYardBudget(teamPts, "pass");
-      const rushBud = teamYardBudget(teamPts, "rush");
-      const recBud = teamYardBudget(teamPts, "rec");
+      const passBud = teamYardBudget(teamPts, "pass") * yardBudgetShock(next);
+      const rushBud = teamYardBudget(teamPts, "rush") * yardBudgetShock(next);
+      const recBud = teamYardBudget(teamPts, "rec") * yardBudgetShock(next);
 
       // Participation draws first.
       for (const row of prepared) {
@@ -274,7 +296,9 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
 
   const dataFingerprint = fingerprintPayload([
     base.meta.dataFingerprint,
-    "football_props_c2",
+    "football_props_c2_1",
+    FOOTBALL_PROP_MODEL_VERSION,
+    FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA,
     input.players,
     seed,
   ]);
