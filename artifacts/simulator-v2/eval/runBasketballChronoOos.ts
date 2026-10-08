@@ -1,6 +1,8 @@
 /**
- * Basketball E.2 chronological OOS — separate reports per sport id (NBA focus).
+ * Basketball E.2 chronological OOS — separate reports per sport id.
  * Shadow-only; grid lines.
+ * NBA/WNBA ESPN scoreboards are date-keyed (week filters return empty).
+ * NCAAB week filters remain valid.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -32,49 +34,92 @@ type Game = {
   awayFg: number;
 };
 
+function ymd(year: number, month: number, day: number): string {
+  return `${year}${String(month).padStart(2, "0")}${String(day).padStart(2, "0")}`;
+}
+
+/** NBA season labeled by start year: Oct Y – Jun Y+1, every 3rd day. */
+function nbaSampleDays(startYear: number): string[] {
+  const days: string[] = [];
+  for (const [y, months] of [
+    [startYear, [10, 11, 12]],
+    [startYear + 1, [1, 2, 3, 4, 5, 6]],
+  ] as const) {
+    for (const month of months) {
+      for (let d = 1; d <= 28; d += 3) days.push(ymd(y, month, d));
+    }
+  }
+  return days;
+}
+
+/** WNBA calendar season May–Sep. */
+function wnbaSampleDays(year: number): string[] {
+  const days: string[] = [];
+  for (const month of [5, 6, 7, 8, 9]) {
+    for (let d = 1; d <= 28; d += 3) days.push(ymd(year, month, d));
+  }
+  return days;
+}
+
+async function parseScoreboard(
+  url: string,
+  out: Game[],
+): Promise<void> {
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": "stadium-sim-v2-bball" } });
+    if (!r.ok) return;
+    const j = (await r.json()) as {
+      events?: Array<{
+        id?: string;
+        date?: string;
+        competitions?: Array<{
+          competitors?: Array<{
+            homeAway?: string;
+            score?: string;
+            team?: { id?: string };
+          }>;
+          status?: { type?: { completed?: boolean } };
+        }>;
+      }>;
+    };
+    for (const ev of j.events ?? []) {
+      const c = ev.competitions?.[0];
+      if (!c?.status?.type?.completed || !ev.id || !ev.date) continue;
+      const home = c.competitors?.find((x) => x.homeAway === "home");
+      const away = c.competitors?.find((x) => x.homeAway === "away");
+      if (!home?.team?.id || !away?.team?.id) continue;
+      const homeFg = Number(home.score);
+      const awayFg = Number(away.score);
+      if (!Number.isFinite(homeFg) || !Number.isFinite(awayFg)) continue;
+      out.push({
+        eventId: ev.id,
+        kickoffIso: ev.date,
+        homeId: home.team.id,
+        awayId: away.team.id,
+        homeFg,
+        awayFg,
+      });
+    }
+  } catch {
+    /* skip */
+  }
+}
+
 async function fetchGames(sport: "nba" | "wnba" | "ncaab", season: number): Promise<Game[]> {
   const out: Game[] = [];
-  for (let week = 1; week <= 20; week++) {
-    const url = `https://site.api.espn.com/apis/site/v2/sports/${ESPN[sport]}/scoreboard?dates=${season}&seasontype=2&week=${week}`;
-    try {
-      const r = await fetch(url, { headers: { "User-Agent": "stadium-sim-v2-bball" } });
-      if (!r.ok) continue;
-      const j = (await r.json()) as {
-        events?: Array<{
-          id?: string;
-          date?: string;
-          competitions?: Array<{
-            competitors?: Array<{
-              homeAway?: string;
-              score?: string;
-              team?: { id?: string };
-            }>;
-            status?: { type?: { completed?: boolean } };
-          }>;
-        }>;
-      };
-      for (const ev of j.events ?? []) {
-        const c = ev.competitions?.[0];
-        if (!c?.status?.type?.completed || !ev.id || !ev.date) continue;
-        const home = c.competitors?.find((x) => x.homeAway === "home");
-        const away = c.competitors?.find((x) => x.homeAway === "away");
-        if (!home?.team?.id || !away?.team?.id) continue;
-        const homeFg = Number(home.score);
-        const awayFg = Number(away.score);
-        if (!Number.isFinite(homeFg) || !Number.isFinite(awayFg)) continue;
-        out.push({
-          eventId: ev.id,
-          kickoffIso: ev.date,
-          homeId: home.team.id,
-          awayId: away.team.id,
-          homeFg,
-          awayFg,
-        });
-      }
-    } catch {
-      /* skip */
+  if (sport === "ncaab") {
+    for (let week = 1; week <= 20; week++) {
+      const url = `https://site.api.espn.com/apis/site/v2/sports/${ESPN[sport]}/scoreboard?dates=${season}&seasontype=2&week=${week}&groups=50`;
+      await parseScoreboard(url, out);
+      await new Promise((r) => setTimeout(r, 40));
     }
-    await new Promise((r) => setTimeout(r, 60));
+  } else {
+    const days = sport === "nba" ? nbaSampleDays(season) : wnbaSampleDays(season);
+    for (const dates of days) {
+      const url = `https://site.api.espn.com/apis/site/v2/sports/${ESPN[sport]}/scoreboard?dates=${dates}`;
+      await parseScoreboard(url, out);
+      await new Promise((r) => setTimeout(r, 35));
+    }
   }
   return Array.from(new Map(out.map((g) => [g.eventId, g])).values()).sort(
     (a, b) => new Date(a.kickoffIso).getTime() - new Date(b.kickoffIso).getTime(),
@@ -88,7 +133,7 @@ function form(teamId: string, before: number, games: Game[]) {
       (g.homeId === teamId || g.awayId === teamId),
   );
   if (prior.length < 4) return null;
-  const used = prior.slice(-8);
+  const used = prior.slice(-10);
   let pf = 0;
   let pa = 0;
   const recent: number[] = [];
@@ -113,11 +158,14 @@ function form(teamId: string, before: number, games: Game[]) {
 
 async function runSport(sport: BasketballSport) {
   if (sport !== "nba" && sport !== "wnba" && sport !== "ncaab") return "";
-  const train = await fetchGames(sport, sport === "nba" ? 2023 : 2023);
-  const hold = await fetchGames(sport, 2024);
+  // NBA: season label = start year. WNBA/NCAAB: calendar year.
+  const trainSeason = sport === "nba" ? 2023 : 2023;
+  const holdSeason = sport === "nba" ? 2024 : 2024;
+  const train = await fetchGames(sport, trainSeason);
+  const hold = await fetchGames(sport, holdSeason);
   const all = [...train, ...hold];
-  const holdout = hold.slice(Math.floor(hold.length * 0.5)).slice(0, 60);
-  const obs: Array<{ y: 0 | 1; p: number; kind: string }> = [];
+  const holdout = hold.slice(Math.floor(hold.length * 0.45)).slice(0, 100);
+  const obs: Array<{ y: 0 | 1; p: number; kind: string; eventId: string }> = [];
   let used = 0;
   const t0 = performance.now();
   for (const g of holdout) {
@@ -134,6 +182,7 @@ async function runSport(sport: BasketballSport) {
       home,
       away,
     });
+    const totLine = sport === "nba" ? 224.5 : sport === "wnba" ? 162.5 : 144.5;
     const specs = [
       {
         kind: "ml_home",
@@ -163,12 +212,9 @@ async function runSport(sport: BasketballSport) {
           eventId: g.eventId,
           sport,
           side: "over",
-          line: sport === "nba" ? 224.5 : sport === "wnba" ? 162.5 : 144.5,
+          line: totLine,
         }),
-        y: (g.homeFg + g.awayFg >
-        (sport === "nba" ? 224.5 : sport === "wnba" ? 162.5 : 144.5)
-          ? 1
-          : 0) as 0 | 1,
+        y: (g.homeFg + g.awayFg > totLine ? 1 : 0) as 0 | 1,
       },
     ];
     for (const s of specs) {
@@ -184,14 +230,19 @@ async function runSport(sport: BasketballSport) {
           provenance: { provider: "eval-grid", fetchedAt: new Date().toISOString() },
         },
       });
-      if (r.status === "ok" && r.simHit != null) obs.push({ y: s.y, p: r.simHit, kind: s.kind });
+      if (r.status === "ok" && r.simHit != null) {
+        obs.push({ y: s.y, p: r.simHit, kind: s.kind, eventId: g.eventId });
+      }
     }
   }
   const ms = performance.now() - t0;
+  const clusters = new Set(obs.map((o) => o.eventId)).size;
   const lines = [
     `## ${sport.toUpperCase()} (separate gates)`,
-    `- Train n=${train.length}, hold n=${hold.length}, used=${used}, obs=${obs.length}`,
+    `- Fetch: ${sport === "ncaab" ? "ESPN week" : "ESPN date-sample"} (week API empty for NBA/WNBA)`,
+    `- Train n=${train.length}, hold n=${hold.length}, used=${used}, obs=${obs.length}, games_clustered=${clusters}`,
     `- Mean runtime/game: ${(ms / Math.max(1, used)).toFixed(1)} ms`,
+    `- p95 runtime/game (proxy mean×1.5): ${((ms / Math.max(1, used)) * 1.5).toFixed(1)} ms`,
     `| Slice | n | Brier | LogLoss | ECE |`,
     `|-------|---|-------|---------|-----|`,
   ];
@@ -214,12 +265,14 @@ async function main() {
     "# Basketball E.2 chronological OOS",
     "",
     "Shadow-only. Separate sport sections — NBA pass does not enable WNBA/NCAAB.",
+    "Baseline: leakage-safe team form only; grid −110 (no closing-line archive).",
     "",
   ];
   for (const sport of ["nba", "wnba", "ncaab"] as const) {
     console.log(`bball-oos ${sport}`);
     parts.push(await runSport(sport));
   }
+  parts.push("- Serve/allowlist unchanged (`SIM_V2_SERVE=off`).");
   const path = join(REPORT_DIR, "BASKETBALL_CHRONO_OOS.md");
   await writeFile(path, parts.join("\n"), "utf8");
   console.log(`wrote ${path}`);
