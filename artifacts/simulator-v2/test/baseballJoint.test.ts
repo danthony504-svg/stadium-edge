@@ -60,7 +60,7 @@ describe("MLB joint milestone F.2 (shadow)", () => {
         },
       ],
     });
-    assert.ok(tensor.meta.modelVersion.startsWith("0.2"));
+    assert.ok(tensor.meta.modelVersion.startsWith("0.3"));
     assert.doesNotThrow(() => assertBaseballF5Conserved(tensor));
 
     const markets = [

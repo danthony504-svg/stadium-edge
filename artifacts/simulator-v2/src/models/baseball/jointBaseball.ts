@@ -10,8 +10,24 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { MLB_TEAM_FG_MEAN, isBaseballSport, type BaseballSport } from "./priors.js";
 
 export const BASEBALL_JOINT_MODEL_ID = "baseball.joint.v0" as const;
-export const BASEBALL_JOINT_MODEL_VERSION = "0.2.0" as const;
+/** v0.3: form shrinkage + per-draw game shock (ML ECE calibration). */
+export const BASEBALL_JOINT_MODEL_VERSION = "0.3.0" as const;
 export const BASEBALL_JOINT_MODEL_IDS = [BASEBALL_JOINT_MODEL_ID] as const;
+
+/** Shrink noisy recent form toward league mean — primary ECE fix alongside game shock. */
+function shrinkToLeague(raw: number, league: number, weight = 0.4): number {
+  return weight * league + (1 - weight) * raw;
+}
+
+/** Box-Muller then exp — per-draw multiplicative shock (underdispersion fix). */
+function logNormalShock(rng: () => number, sigma: number): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  return Math.exp(sigma * z - 0.5 * sigma * sigma);
+}
 
 export type BaseballTeamInput = {
   teamId: string;
@@ -66,10 +82,18 @@ function poissonSample(lambda: number, rng: () => number): number {
 }
 
 function teamMean(team: BaseballTeamInput, opp: BaseballTeamInput): number {
-  const offense = team.runsFor ?? avg(team.recentFgRuns, MLB_TEAM_FG_MEAN);
-  const defense = opp.runsAgainst ?? MLB_TEAM_FG_MEAN;
+  const offense = shrinkToLeague(
+    team.runsFor ?? avg(team.recentFgRuns, MLB_TEAM_FG_MEAN),
+    MLB_TEAM_FG_MEAN,
+  );
+  const defense = shrinkToLeague(opp.runsAgainst ?? MLB_TEAM_FG_MEAN, MLB_TEAM_FG_MEAN);
   return clamp(0.55 * offense + 0.45 * defense, 2.0, 7.5);
 }
+
+/** Per-draw lognormal sigma on team means (game-level shock). */
+const BASEBALL_GAME_SHOCK_SIGMA = 0.18;
+/** Milder home edge vs prior 0.1 — reduced ML overconfidence. */
+const BASEBALL_HOME_EDGE = 0.05;
 
 export function buildJointBaseballTensor(input: JointBaseballInput): SimV2ScenarioTensor {
   if (!isBaseballSport(input.sport)) {
@@ -77,10 +101,8 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
   }
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const homeMean = teamMean(input.home, input.away) + 0.1;
-  const awayMean = teamMean(input.away, input.home);
-  const perInningH = homeMean / 9;
-  const perInningA = awayMean / 9;
+  const homeBase = teamMean(input.home, input.away) + BASEBALL_HOME_EDGE;
+  const awayBase = teamMean(input.away, input.home);
 
   const homeFg = new Float64Array(n);
   const awayFg = new Float64Array(n);
@@ -90,6 +112,10 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
   const awayI1 = new Float64Array(n);
 
   for (let i = 0; i < n; i++) {
+    const homeMean = homeBase * logNormalShock(next, BASEBALL_GAME_SHOCK_SIGMA);
+    const awayMean = awayBase * logNormalShock(next, BASEBALL_GAME_SHOCK_SIGMA);
+    const perInningH = homeMean / 9;
+    const perInningA = awayMean / 9;
     let hf = 0;
     let af = 0;
     let h5 = 0;
