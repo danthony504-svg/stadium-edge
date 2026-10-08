@@ -758,3 +758,143 @@ test("top-up after excluded-matchup filter never reintroduces Florida @ Anaheim"
   );
   assert.ok(excluded.length >= 1);
 });
+
+test("short ticket seats remaining qualified props/milestones before mixed game-line fill", () => {
+  // Target 7, propFloor already met (3 football / ~4 mixed) but still short —
+  // leftover independent alt props must be searched before high-rank FG alts.
+  const g1 = "Dallas Cowboys @ New York Giants";
+  const g2 = "Philadelphia Eagles @ Washington Commanders";
+  const g3 = "Chicago Bears @ Detroit Lions";
+  const g4 = "Green Bay Packers @ Minnesota Vikings";
+  // No stub propHolistic — incomplete holistic objects fail ticket-fill gates.
+  const propScore = {
+    ...mainScore,
+    grade: "B",
+    confidencePct: 60,
+    edgePct: 5,
+    simHit: 0.62,
+    recommends: true,
+  };
+  const short: ParsedPick[] = [
+    leg({ game: g1, market: "Spread", pick: "Cowboys -3.5", odds: -110, sport: "nfl" }, 100, mainScore).pick,
+    leg({ game: g2, market: "Spread", pick: "Eagles -2.5", odds: -110, sport: "nfl" }, 99, mainScore).pick,
+    leg(
+      {
+        game: g1,
+        market: "Rush Yds",
+        propMarketKey: "player_rush_yds",
+        pick: "Player A Over 65.5 Rush Yds",
+        odds: -110,
+        isProp: true,
+        sport: "nfl",
+        player: "Player A",
+        propLine: 65.5,
+        propSide: "Over",
+      },
+      95,
+      propScore,
+    ).pick,
+    leg(
+      {
+        game: g2,
+        market: "Pass Yds",
+        propMarketKey: "player_pass_yds",
+        pick: "Player B Over 240.5 Pass Yds",
+        odds: -110,
+        isProp: true,
+        sport: "nfl",
+        player: "Player B",
+        propLine: 240.5,
+        propSide: "Over",
+      },
+      94,
+      propScore,
+    ).pick,
+    leg(
+      {
+        game: g1,
+        market: "Rec Yds",
+        propMarketKey: "player_reception_yds",
+        pick: "Player C Over 39.5 Rec Yds",
+        odds: 140,
+        isProp: true,
+        sport: "nfl",
+        player: "Player C",
+        propLine: 39.5,
+        propSide: "Over",
+        propIsAlt: true,
+      },
+      93,
+      propScore,
+    ).pick,
+  ];
+  const leftoverProps: BoardScoredLeg[] = [
+    leg(
+      {
+        game: g3,
+        market: "Rec Yds",
+        propMarketKey: "player_reception_yds",
+        pick: "Player D Over 39.5 Rec Yds",
+        odds: 150,
+        isProp: true,
+        sport: "nfl",
+        player: "Player D",
+        propLine: 39.5,
+        propSide: "Over",
+        propIsAlt: true,
+      },
+      40,
+      propScore,
+    ),
+    leg(
+      {
+        game: g4,
+        market: "Points",
+        propMarketKey: "player_points",
+        pick: "Player E Over 19.5 Points",
+        odds: 160,
+        isProp: true,
+        sport: "nba",
+        player: "Player E",
+        propLine: 19.5,
+        propSide: "Over",
+        propIsAlt: true,
+      },
+      38,
+      propScore,
+    ),
+  ];
+  const highRankFgAlts: BoardScoredLeg[] = [
+    leg({ game: g1, market: "Alt Spread", pick: "Cowboys -1.5", odds: -150, sport: "nfl" }, 98, mainScore),
+    leg({ game: g2, market: "Alt Spread", pick: "Eagles -1.5", odds: -155, sport: "nfl" }, 97, mainScore),
+    leg({ game: g3, market: "Alt Spread", pick: "Bears +3.5", odds: -110, sport: "nfl" }, 96, mainScore),
+    leg({ game: g4, market: "Alt Spread", pick: "Packers -2.5", odds: -110, sport: "nfl" }, 95, mainScore),
+  ];
+  const scored: BoardScoredLeg[] = [
+    ...short.map((pick, i) => ({
+      pick,
+      evPct: 3,
+      edgePct: 4,
+      confidencePct: 58,
+      impliedProbPct: 48,
+      lineShoppingScore: 1,
+      grade: "B",
+      simHit: 0.56,
+      composite: 8,
+      rankScore: 100 - i,
+    })),
+    ...leftoverProps,
+    ...highRankFgAlts,
+  ];
+  const topped = topUpTicketFromQualifiedScored(short, scored, 7);
+  assert.equal(topped.length, 7, `expected full 7-leg from prop shortfall search, got ${topped.length}`);
+  assert.ok(
+    topped.some((p) => p.player === "Player D"),
+    "remaining 40+ rec milestone must seat before FG alt crowd-out",
+  );
+  assert.ok(
+    topped.some((p) => p.player === "Player E"),
+    "remaining 20+ points milestone must seat before FG alt crowd-out",
+  );
+  assert.ok(topped.filter((p) => p.isProp).length >= 5, "shortfall search seats leftover props");
+});

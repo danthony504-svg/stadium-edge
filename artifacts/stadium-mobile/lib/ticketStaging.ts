@@ -259,6 +259,17 @@ export function topUpTicketFromQualifiedScored(
     merged = appendExtras(merged, legsPerGameCap, (leg) => !!leg.pick.isProp);
   }
 
+  // (1b) Short-ticket belt: before mixed game-line fill, seat every remaining
+  // qualified player prop / + milestone that still clears player / ladder /
+  // maxPropsPerGame gates. Does not raise caps or loosen qualification.
+  if (
+    !collapseSameTeam &&
+    merged.length < target &&
+    leftover.some((l) => l.pick.isProp)
+  ) {
+    merged = appendExtras(merged, legsPerGameCap, (leg) => !!leg.pick.isProp);
+  }
+
   // (2) Mixed top-up under the default diversity cap.
   merged = appendExtras(merged, legsPerGameCap);
 

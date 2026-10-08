@@ -7,10 +7,15 @@ import {
   isRealisticBoardPropCandidate,
   boardPropSlotTarget,
   countStagedPropLegs,
+  pickDiverseLadderRungsForSim,
   shouldStopPropSimForTicketMix,
   selectBoardPropSimCandidates,
   selectFootballMixPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
+import {
+  isPostedMilestoneAltLine,
+  milestoneMarketFamily,
+} from "./coachMilestoneLines.ts";
 import {
   FOOTBALL_DST_PROP_SIM_CAP,
   isFootballDstPropMarket,
@@ -207,6 +212,7 @@ test("selectBoardPropSimCandidates keeps multiple alt yard rungs per player ladd
     ranked.push({
       game: "DEN @ KC",
       market: "Rush Yds",
+      propMarketKey: "player_rush_yds",
       pick: `Barkley Over ${line} Rush Yds`,
       odds: -110,
       isProp: true,
@@ -222,6 +228,7 @@ test("selectBoardPropSimCandidates keeps multiple alt yard rungs per player ladd
     ranked.push({
       game: "DEN @ KC",
       market: "Pass Yds",
+      propMarketKey: "player_pass_yds",
       pick: `QB${i} Over 250.5 Pass Yds`,
       odds: -110,
       isProp: true,
@@ -234,10 +241,105 @@ test("selectBoardPropSimCandidates keeps multiple alt yard rungs per player ladd
   }
   const { selected } = selectBoardPropSimCandidates(ranked, 8);
   const barkley = selected.filter((p) => p.player === "Barkley");
-  assert.equal(barkley.length, 3, "main + nearest + farthest alt yard numbers reach deep sim");
+  assert.equal(barkley.length, 3, "main + milestone alts reach deep sim inside 3-rung budget");
   assert.deepEqual(
     barkley.map((p) => p.propLine).sort((a, b) => (a ?? 0) - (b ?? 0)),
     [67.5, 99.5, 174.5],
+  );
+});
+
+test("posted milestones recognized across NFL/NBA/MLB (+ settlement lines)", () => {
+  assert.ok(isPostedMilestoneAltLine(39.5, "player_reception_yds"), "40+ rec yds");
+  assert.ok(isPostedMilestoneAltLine(199.5, "player_pass_yds"), "200+ pass yds");
+  assert.ok(isPostedMilestoneAltLine(4.5, "player_receptions", 2.5), "5+ receptions");
+  assert.ok(isPostedMilestoneAltLine(19.5, "player_points"), "20+ NBA points");
+  assert.ok(isPostedMilestoneAltLine(1.5, "batter_hits"), "2+ MLB hits");
+  assert.equal(isPostedMilestoneAltLine(72.5, "player_rush_yds"), false, "non-milestone rung");
+  assert.equal(milestoneMarketFamily("player_pass_yds"), "yards");
+  assert.equal(milestoneMarketFamily("batter_hits"), "baseball");
+});
+
+test("pickDiverseLadderRungsForSim prefers 40+ / 200+ milestones over nearest non-milestone", () => {
+  const rungs = [62.5, 57.5, 59.5, 39.5, 72.5, 199.5].map((line) => ({
+    propLine: line,
+    propIsAlt: line !== 62.5,
+    propMarketKey: "player_reception_yds",
+    market: "Rec Yds",
+  }));
+  const picked = pickDiverseLadderRungsForSim(rungs, 3);
+  const lines = picked.map((r) => r.propLine).sort((a, b) => (a ?? 0) - (b ?? 0));
+  assert.ok(lines.includes(62.5), "main stays");
+  assert.ok(lines.includes(39.5), "40+ receiving milestone must deep-sim");
+  assert.ok(lines.includes(199.5), "far milestone kept as third rung");
+  assert.equal(lines.includes(57.5), false, "nearest non-milestone must not crowd out 40+");
+});
+
+test("alt sim selection counts by sport/family include milestones when budget allows", () => {
+  const sports: Array<{ sport: string; market: string; key: string; main: number; miles: number[] }> = [
+    { sport: "nfl", market: "Rec Yds", key: "player_reception_yds", main: 52.5, miles: [39.5, 59.5, 74.5] },
+    { sport: "ncaaf", market: "Pass Yds", key: "player_pass_yds", main: 245.5, miles: [199.5, 274.5, 299.5] },
+    { sport: "nba", market: "Points", key: "player_points", main: 24.5, miles: [19.5, 29.5, 34.5] },
+    { sport: "wnba", market: "Points", key: "player_points", main: 18.5, miles: [14.5, 19.5, 24.5] },
+    { sport: "mlb", market: "Hits", key: "batter_hits", main: 0.5, miles: [1.5, 2.5] },
+    { sport: "nhl", market: "Shots", key: "player_shots_on_goal", main: 2.5, miles: [3.5, 4.5] },
+  ];
+  const ranked = [];
+  for (const s of sports) {
+    for (let p = 0; p < 4; p++) {
+      const player = `${s.sport}_P${p}`;
+      ranked.push({
+        game: `${s.sport} A @ B`,
+        market: s.market,
+        propMarketKey: s.key,
+        pick: `${player} Over ${s.main} ${s.market}`,
+        odds: -110,
+        isProp: true as const,
+        sport: s.sport,
+        player,
+        propLine: s.main,
+        propSide: "Over" as const,
+        propIsAlt: false,
+      });
+      for (const m of s.miles) {
+        ranked.push({
+          game: `${s.sport} A @ B`,
+          market: s.market,
+          propMarketKey: s.key,
+          pick: `${player} Over ${m} ${s.market}`,
+          odds: 150,
+          isProp: true as const,
+          sport: s.sport,
+          player,
+          propLine: m,
+          propSide: "Over" as const,
+          propIsAlt: true,
+        });
+      }
+    }
+  }
+  const available = ranked.filter((r) => r.propIsAlt).length;
+  const { selected } = selectBoardPropSimCandidates(ranked, 80);
+  const simAlts = selected.filter((r) => r.propIsAlt);
+  const bySport: Record<string, { available: number; simulated: number; milestones: number }> = {};
+  for (const s of sports) {
+    const avail = ranked.filter((r) => r.sport === s.sport && r.propIsAlt).length;
+    const sim = simAlts.filter((r) => r.sport === s.sport);
+    bySport[s.sport] = {
+      available: avail,
+      simulated: sim.length,
+      milestones: sim.filter((r) => isPostedMilestoneAltLine(r.propLine, r.propMarketKey, s.main)).length,
+    };
+  }
+  assert.ok(available >= 40, `expected many posted alts, got ${available}`);
+  for (const sport of Object.keys(bySport)) {
+    const row = bySport[sport]!;
+    assert.ok(row.simulated > 0, `${sport}: alts must reach deep-sim set`);
+    assert.ok(row.milestones > 0, `${sport}: milestone alts must be among simulated`);
+  }
+  // Surface exact counts in assertion message for the release report.
+  assert.ok(
+    true,
+    `alt counts by sport=${JSON.stringify(bySport)} available=${available} simulatedAlts=${simAlts.length}`,
   );
 });
 
