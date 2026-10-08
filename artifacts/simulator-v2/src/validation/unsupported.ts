@@ -1,5 +1,7 @@
 import type { SimV2MarketFamily } from "../schemas/market.js";
 import type { SimV2SportId } from "../schemas/sport.js";
+import { PHASE_B_FOOTBALL_FAMILIES } from "../models/football/markets.js";
+import { FOOTBALL_JOINT_MODEL_ID } from "../models/football/jointFootball.js";
 
 export type UnsupportedDecision = {
   supported: boolean;
@@ -7,24 +9,42 @@ export type UnsupportedDecision = {
 };
 
 /**
- * Phase A: no production sport models. Only fixture tensors may settle for tests.
- * Sport models register support maps in later phases.
+ * Phase B: NFL/NCAAF joint model may settle ml/spread/total/team_total for
+ * shadow diagnostics. Production serve still gated by feature flags + acceptance.
+ * Fixtures remain test-only via allowFixture.
  */
-const PHASE_A_SUPPORTED_FAMILIES: Partial<Record<SimV2SportId, SimV2MarketFamily[]>> = {};
+const PHASE_B_SUPPORTED_FAMILIES: Partial<Record<SimV2SportId, SimV2MarketFamily[]>> = {
+  nfl: [...PHASE_B_FOOTBALL_FAMILIES],
+  ncaaf: [...PHASE_B_FOOTBALL_FAMILIES],
+};
 
 export function isMarketFamilySupported(
   sport: SimV2SportId,
   family: SimV2MarketFamily,
-  opts?: { allowFixture?: boolean; isFixtureTensor?: boolean },
+  opts?: {
+    allowFixture?: boolean;
+    isFixtureTensor?: boolean;
+    modelId?: string;
+  },
 ): UnsupportedDecision {
   if (opts?.isFixtureTensor && opts.allowFixture) {
     return { supported: true };
   }
-  const allowed = PHASE_A_SUPPORTED_FAMILIES[sport];
+  if (opts?.isFixtureTensor && !opts.allowFixture) {
+    return { supported: false, reason: "fixture_tensor_not_for_production" };
+  }
+  const allowed = PHASE_B_SUPPORTED_FAMILIES[sport];
   if (!allowed || !allowed.includes(family)) {
     return {
       supported: false,
-      reason: `unsupported_market_family:${sport}:${family}:phase_a_no_sport_model`,
+      reason: `unsupported_market_family:${sport}:${family}:no_accepted_sport_model`,
+    };
+  }
+  // Phase B football joint model only — reject unknown / future model ids.
+  if (opts?.modelId && opts.modelId !== FOOTBALL_JOINT_MODEL_ID) {
+    return {
+      supported: false,
+      reason: `unsupported_model:${opts.modelId}`,
     };
   }
   return { supported: true };

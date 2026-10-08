@@ -1,6 +1,6 @@
 {
   "name": "@workspace/simulator-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,7 +9,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
-    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'"
+    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'",
+    "eval:historical": "node --import ./test/register-hooks.mjs ./eval/runHistoricalValidation.ts",
+    "eval:audit": "node --import ./test/register-hooks.mjs ./eval/auditCalibrationRootCause.ts"
   },
   "dependencies": {
     "zod": "catalog:"

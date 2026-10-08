@@ -24,8 +24,8 @@ router.get("/v2/simulate/health", (_req, res): void => {
     engineId: SIM_V2_ENGINE_ID,
     schemaVersion: SIM_V2_SCHEMA_VERSION,
     packageVersion: SIM_V2_PACKAGE_VERSION,
-    phase: "A",
-    sportModels: [],
+    phase: "B",
+    sportModels: ["football.joint.phase_b"],
     flags: {
       masterEnabled: flags.masterEnabled,
       shadowOnly: flags.shadowOnly,
@@ -33,15 +33,26 @@ router.get("/v2/simulate/health", (_req, res): void => {
       forceV1Rollback: flags.forceV1Rollback,
       acceptedFamilies: flags.acceptedFamilies,
     },
-    note: "Phase A platform only — no production sport models; cannot influence Coach picks under default flags.",
+    note: "Phase B joint NFL/NCAAF model is shadow-only under default flags; cannot influence Coach picks.",
   });
 });
 
 router.get("/v2/simulate/models", (_req, res): void => {
   res.json({
     schemaVersion: SIM_V2_SCHEMA_VERSION,
-    models: [],
-    message: "No sport models registered in Phase A. Fixture tensors are test-only.",
+    models: [
+      {
+        modelId: "football.joint.phase_b",
+        modelVersion: "0.2.0",
+        sports: ["nfl", "ncaaf"],
+        families: ["ml", "spread", "total", "team_total"],
+        periods: ["fg", "q1", "q2", "q3", "q4", "h1", "h2"],
+        productionServe: false,
+        shadowOnly: true,
+        jointConservation: "q1+q2+q3+q4=fg and h1+h2=fg per draw",
+      },
+    ],
+    message: "Phase B football joint model registered for shadow diagnostics only.",
   });
 });
 

@@ -53,9 +53,9 @@ export function selectProductionSimResult(args: {
   };
 }
 
-/** Explicit guard used by API adapters — throws if a caller tries to force V2 serve in Phase A. */
+/** Explicit guard used by API adapters — throws if a caller tries to force V2 serve while shadow-only. */
 export function assertShadowCannotInfluenceCoach(choice: ProductionSimChoice): void {
   if (choice.influencedProduction) {
-    throw new Error("sim_v2_phase_a_forbid_production_influence");
+    throw new Error("sim_v2_shadow_forbid_production_influence");
   }
 }

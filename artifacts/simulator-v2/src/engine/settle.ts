@@ -26,20 +26,45 @@ function resolveSeries(tensor: SimV2ScenarioTensor, market: SimV2Market): Float6
     for (let i = 0; i < out.length; i++) out[i] = tensor.team.homeFg[i] + tensor.team.awayFg[i];
     return out;
   }
-  const periodHome = /^team\.homeByPeriod\.(\w+)$/.exec(path);
-  if (periodHome) return tensor.team.homeByPeriod[periodHome[1]] ?? null;
-  const periodAway = /^team\.awayByPeriod\.(\w+)$/.exec(path);
-  if (periodAway) return tensor.team.awayByPeriod[periodAway[1]] ?? null;
-  const playerStat = /^players\.([^.]+)\.stats\.([^.]+)$/.exec(path);
-  if (playerStat) {
-    return tensor.players[playerStat[1]]?.stats[playerStat[2]] ?? null;
-  }
   if (path === "team.margin") {
     const out = new Float64Array(tensor.meta.nDraws);
     for (let i = 0; i < out.length; i++) out[i] = tensor.team.homeFg[i] - tensor.team.awayFg[i];
     return out;
   }
+  const periodHome = /^team\.homeByPeriod\.(\w+)$/.exec(path);
+  if (periodHome) return tensor.team.homeByPeriod[periodHome[1]] ?? null;
+  const periodAway = /^team\.awayByPeriod\.(\w+)$/.exec(path);
+  if (periodAway) return tensor.team.awayByPeriod[periodAway[1]] ?? null;
+  const periodTotal = /^team\.totalByPeriod\.(\w+)$/.exec(path);
+  if (periodTotal) {
+    const h = tensor.team.homeByPeriod[periodTotal[1]];
+    const a = tensor.team.awayByPeriod[periodTotal[1]];
+    if (!h || !a) return null;
+    const out = new Float64Array(tensor.meta.nDraws);
+    for (let i = 0; i < out.length; i++) out[i] = h[i] + a[i];
+    return out;
+  }
+  const periodMargin = /^team\.marginByPeriod\.(\w+)$/.exec(path);
+  if (periodMargin) {
+    const h = tensor.team.homeByPeriod[periodMargin[1]];
+    const a = tensor.team.awayByPeriod[periodMargin[1]];
+    if (!h || !a) return null;
+    const out = new Float64Array(tensor.meta.nDraws);
+    for (let i = 0; i < out.length; i++) out[i] = h[i] - a[i];
+    return out;
+  }
+  const playerStat = /^players\.([^.]+)\.stats\.([^.]+)$/.exec(path);
+  if (playerStat) {
+    return tensor.players[playerStat[1]]?.stats[playerStat[2]] ?? null;
+  }
   return null;
+}
+
+function defaultPeriodSumGroup(tensor: SimV2ScenarioTensor): string[] {
+  if (tensor.meta.sport === "nfl" || tensor.meta.sport === "ncaaf") {
+    return ["q1", "q2", "q3", "q4"];
+  }
+  return ["h1", "h2"];
 }
 
 function hitForDraw(value: number, market: SimV2Market): boolean {
@@ -109,6 +134,7 @@ export function settleMarket(req: SettleRequest): SimV2SimulationResult {
   const support = isMarketFamilySupported(market.sport, market.family, {
     allowFixture: req.allowFixture,
     isFixtureTensor: tensor.meta.isFixture,
+    modelId: tensor.meta.modelId,
   });
   if (!support.supported) {
     return finish({
@@ -136,7 +162,8 @@ export function settleMarket(req: SettleRequest): SimV2SimulationResult {
   }
 
   const consistency = validateScenarioConsistency(tensor, {
-    periodSumGroup: req.periodSumGroup ?? ["h1", "h2"],
+    periodSumGroup: req.periodSumGroup ?? defaultPeriodSumGroup(tensor),
+    checkDerivedHalves: tensor.meta.sport === "nfl" || tensor.meta.sport === "ncaaf",
   });
   if (!consistency.ok) {
     return finish({
