@@ -29,6 +29,7 @@ export const GetOddsResponseItem = zod.object({
   "homeTeam": zod.string(),
   "awayTeam": zod.string(),
   "commenceTime": zod.string(),
+  "fetchedAt": zod.string().optional().describe("ISO timestamp of the provider retrieval that produced these odds"),
   "markets": zod.array(zod.object({
   "key": zod.string(),
   "outcomes": zod.array(zod.object({

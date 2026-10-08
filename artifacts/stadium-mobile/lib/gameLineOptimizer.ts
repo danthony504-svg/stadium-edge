@@ -221,6 +221,11 @@ function entryToPick(entry: RealOddsEntry, template?: ParsedPick): ParsedPick {
     sport: entry.sport ?? template?.sport,
     isProp: false,
     startsAt: entry.startsAt ?? template?.startsAt ?? null,
+    eventId: entry.eventId ?? template?.eventId ?? null,
+    sportsbook: entry.sportsbook ?? template?.sportsbook ?? null,
+    oddsFetchedAt: entry.oddsFetchedAt ?? template?.oddsFetchedAt ?? null,
+    providerLastUpdate: entry.providerLastUpdate ?? template?.providerLastUpdate ?? null,
+    oddsProvider: entry.oddsProvider ?? template?.oddsProvider ?? null,
   };
 }
 

@@ -17,6 +17,10 @@ import {
   PROP_HOLISTIC_MIN_GRADE,
   propQualifiesForTicketFill,
 } from "./propHolisticRecommendation.ts";
+import {
+  isUnsupportedQbRushOverHalf,
+  yardageTicketSampleFails,
+} from "./coachPropIntegrityGates.ts";
 
 export type CoachPickEnrichSources = Parameters<typeof enrichPicksWithStartsAt>[1] & {
   propPool?: Array<{ game: string; player?: string; sport?: string; startsAt?: string | null }>;
@@ -236,6 +240,8 @@ export function propSimEdgeStagingQualifies(
     const ev = simEvPct(score.simHit, pick.odds);
     if (ev != null && ev <= 0) return false;
   }
+  if (isUnsupportedQbRushOverHalf(pick as never)) return false;
+  if (yardageTicketSampleFails(pick as never)) return false;
   return true;
 }
 

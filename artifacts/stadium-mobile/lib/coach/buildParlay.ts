@@ -91,6 +91,7 @@ import {
   enforceMlLeanOnPicks,
   mlLeanEnforcementNote,
 } from "@/lib/mlLeanEnforcement";
+import { filterPicksForOddsIntegrity } from "@/lib/coachTicketOddsIntegrity";
 import { topUpAfterMlLean } from "@/lib/postLeanFinalFill";
 import { marketFamily } from "@/components/PickCard";
 import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
@@ -876,6 +877,18 @@ export async function buildCoachParlay(opts: {
   // or an explicitly excluded matchup.
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
   picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
+  // Fail-closed odds provenance: revalidate stale props when possible, else drop.
+  let oddsIntegrityNote = "";
+  if (picks.length > 0) {
+    const oddsGate = await filterPicksForOddsIntegrity(picks, { revalidate: true });
+    picks = oddsGate.picks;
+    oddsIntegrityNote = oddsGate.note;
+    if (oddsIntegrityNote) {
+      mlLeanNote = mlLeanNote
+        ? `${mlLeanNote}\n\n${oddsIntegrityNote}`
+        : oddsIntegrityNote;
+    }
+  }
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(

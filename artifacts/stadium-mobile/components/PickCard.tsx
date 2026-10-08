@@ -105,6 +105,21 @@ export type ParsedPick = {
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
   propSide?: string; // "Over" | "Under" | "Yes"
+  /** ESPN roster position abbreviation (e.g. QB) — integrity gates only. */
+  position?: string | null;
+  /** Odds API / ESPN event id for provenance. */
+  eventId?: string | null;
+  /** Sportsbook that posted the seated price. */
+  sportsbook?: string | null;
+  /** Provider retrieval ISO time for the seated price. */
+  oddsFetchedAt?: string | null;
+  /** Provider-native last_update when present. */
+  providerLastUpdate?: string | null;
+  /** OddsAPI | PrizePicks | ESPN | Bovada, etc. */
+  oddsProvider?: string | null;
+  /** Participating games from prop sim (yardage ticket gate). */
+  validParticipatingGames?: number | null;
+  sampleGames?: number | null;
   // True while a server-side Monte Carlo run is still refining this prop leg's
   // simulation sub-score. Picks render immediately; the grade updates when done.
   simulationPending?: boolean;

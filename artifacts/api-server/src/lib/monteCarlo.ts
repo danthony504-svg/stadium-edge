@@ -37,6 +37,8 @@ export type PropSimulationContext = {
   discrete?: boolean;
   /** Extra lines scored on the SAME 10k draw (alt rungs). */
   additionalLines?: number[];
+  /** Games that cleared participation filters (attempts/targets). */
+  validParticipatingGames?: number;
 };
 
 export type PropSimulationResult = {
@@ -48,6 +50,8 @@ export type PropSimulationResult = {
   confidenceScore: number | null;
   stdDev: number | null;
   sampleGames: number;
+  /** Participating games used for yardage / pass-TD integrity gates. */
+  validParticipatingGames?: number;
   percentiles: { p10: number; p25: number; p50: number; p75: number; p90: number } | null;
   /** Hit rate per additional line on the same draw (key = line number string). */
   lineHitRates?: Record<string, number>;
@@ -350,6 +354,7 @@ export function runMonteCarloSimulation(
     confidenceScore: confidenceFromHit(hitProb, vals.length, simMean, std, ctx),
     stdDev: round2(std),
     sampleGames: vals.length,
+    validParticipatingGames: ctx.validParticipatingGames ?? vals.length,
     percentiles: {
       p10: round2(percentile(sorted, 0.1)),
       p25: round2(percentile(sorted, 0.25)),

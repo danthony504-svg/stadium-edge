@@ -97,6 +97,12 @@ export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     propMarketKey: e.marketKey,
     propLine: e.line,
     propSide: e.side,
+    position: e.position ?? null,
+    eventId: e.eventId ?? null,
+    sportsbook: e.sportsbook ?? null,
+    oddsFetchedAt: e.oddsFetchedAt ?? null,
+    providerLastUpdate: e.providerLastUpdate ?? null,
+    oddsProvider: e.oddsProvider ?? null,
   };
 }
 

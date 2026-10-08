@@ -21,7 +21,77 @@ export type PropSimNullReason =
   | "missing_athlete_id"
   | "no_history"
   | "insufficient_sample"
-  | "stat_mapping_failed";
+  | "stat_mapping_failed"
+  | "unreliable_participation_history";
+
+const PASS_ATT_MIN = 5;
+/** Backup-sized max attempts across "participating" logs → unreliable for pass-TD sims. */
+const PASS_TD_STARTER_ATTEMPT_FLOOR = 10;
+
+function stripAltSuffix(market: string): string {
+  return market.endsWith("_alternate") ? market.slice(0, -"_alternate".length) : market;
+}
+
+export function isPassTdCountMarket(market: string): boolean {
+  const m = stripAltSuffix(market);
+  // Passing TDs only — not anytime_td (RB/WR/TE use rush/rec participation).
+  return /(?:^|_)pass_tds?(?:_|$)/i.test(m) || /player_pass_td/i.test(m);
+}
+
+export function isYardagePropMarketKey(market: string): boolean {
+  const m = stripAltSuffix(market);
+  return /pass_yds|rush_yds|reception_yds/i.test(m);
+}
+
+function numStat(stats: Record<string, string>, key: string): number | null {
+  const n = Number(stats[key]);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Whether a game log row shows real participation for this market. */
+export function gameHasParticipationForMarket(
+  market: string,
+  stats: Record<string, string>,
+): boolean {
+  const m = stripAltSuffix(market);
+  if (/(?:^|_)pass_tds?(?:_|$)|player_pass_td|pass_yds/i.test(m)) {
+    const att = numStat(stats, "passingAttempts");
+    return att != null && att >= PASS_ATT_MIN;
+  }
+  if (/rush_yds/i.test(m)) {
+    const att = numStat(stats, "rushingAttempts");
+    return att != null && att >= 1;
+  }
+  if (/reception_yds/i.test(m)) {
+    const tgt = numStat(stats, "receivingTargets");
+    const rec = numStat(stats, "receptions");
+    return (tgt != null && tgt >= 1) || (rec != null && rec >= 1);
+  }
+  return true;
+}
+
+function participatingStatSeries(
+  market: string,
+  games: Array<{ stats: Record<string, string> }>,
+  labels: string[],
+): { values: number[]; participatingGames: number; maxPassAttempts: number } {
+  const ambiguous = computeAmbiguous(labels);
+  const values: number[] = [];
+  let participatingGames = 0;
+  let maxPassAttempts = 0;
+  const needParticipation = isPassTdCountMarket(market) || isYardagePropMarketKey(market);
+  for (const g of games) {
+    if (needParticipation && !gameHasParticipationForMarket(market, g.stats)) continue;
+    const att = numStat(g.stats, "passingAttempts");
+    if (att != null) maxPassAttempts = Math.max(maxPassAttempts, att);
+    const v = gameValueForMarket(market, g.stats, ambiguous);
+    if (v != null && Number.isFinite(v)) {
+      values.push(v);
+      participatingGames += 1;
+    }
+  }
+  return { values, participatingGames, maxPassAttempts };
+}
 
 export type SimPropRequest = {
   player: string;
@@ -81,6 +151,10 @@ function statSeries(
   games: Array<{ stats: Record<string, string> }>,
   labels: string[],
 ): number[] {
+  // Pass-TD / yardage markets require participation-filtered series.
+  if (isPassTdCountMarket(market) || isYardagePropMarketKey(market)) {
+    return participatingStatSeries(market, games, labels).values;
+  }
   const ambiguous = computeAmbiguous(labels);
   const out: number[] = [];
   for (const g of games) {
@@ -108,6 +182,32 @@ export function diagnosePropSimNullReason(
   if (!req.athleteId) return "missing_athlete_id";
   if (!history?.recent?.length) return "no_history";
   const labels = history.labels ?? [];
+  if (isPassTdCountMarket(req.market) || isYardagePropMarketKey(req.market)) {
+    const part = participatingStatSeries(req.market, history.recent, labels);
+    const rawMapped = (() => {
+      const ambiguous = computeAmbiguous(labels);
+      let n = 0;
+      for (const g of history.recent) {
+        const v = gameValueForMarket(req.market, g.stats, ambiguous);
+        if (v != null && Number.isFinite(v)) n += 1;
+      }
+      return n;
+    })();
+    if (rawMapped === 0) return "stat_mapping_failed";
+    if (part.values.length === 0 && rawMapped > 0) {
+      return "unreliable_participation_history";
+    }
+    if (
+      isPassTdCountMarket(req.market) &&
+      part.values.length > 0 &&
+      part.values.every((v) => v === 0) &&
+      part.maxPassAttempts < PASS_TD_STARTER_ATTEMPT_FLOOR
+    ) {
+      return "unreliable_participation_history";
+    }
+    if (part.values.length < 3) return "insufficient_sample";
+    return "insufficient_sample";
+  }
   const recentValues = statSeries(req.market, history.recent, labels);
   if (recentValues.length === 0) return "stat_mapping_failed";
   if (recentValues.length < 3) return "insufficient_sample";
@@ -121,12 +221,29 @@ export function buildPropSimulationContext(
 ): PropSimulationContext | null {
   if (!history?.recent?.length) return null;
   const labels = history.labels ?? [];
+
+  if (isPassTdCountMarket(req.market)) {
+    const part = participatingStatSeries(req.market, history.recent, labels);
+    // Backup / DNP logs → fail closed (do not invent mid-range probabilities).
+    if (
+      part.values.length < 3 ||
+      (part.values.every((v) => v === 0) &&
+        part.maxPassAttempts < PASS_TD_STARTER_ATTEMPT_FLOOR)
+    ) {
+      return null;
+    }
+  }
+
   const recentValues = statSeries(req.market, history.recent, labels);
   if (recentValues.length < 3) return null;
 
   const vsOpponentValues = statSeries(req.market, history.vsOpponent ?? [], labels);
   const homeGames = history.recent.filter((g) => g.isHome === true);
   const awayGames = history.recent.filter((g) => g.isHome === false);
+  const participatingGames =
+    isPassTdCountMarket(req.market) || isYardagePropMarketKey(req.market)
+      ? participatingStatSeries(req.market, history.recent, labels).participatingGames
+      : recentValues.length;
 
   return {
     sport: req.sport,
@@ -148,6 +265,7 @@ export function buildPropSimulationContext(
     weatherImpact: game.weatherImpact ?? null,
     discrete: isDiscreteCountMarket(req.market),
     additionalLines: req.additionalLines,
+    validParticipatingGames: participatingGames,
   };
 }
 

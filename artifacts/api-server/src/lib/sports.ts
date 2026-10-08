@@ -133,6 +133,31 @@ export async function cachedJson<T>(
   return value;
 }
 
+/** Cache wrapper that preserves the provider retrieval timestamp across TTL hits. */
+export type CachedWithFetchedAt<T> = { data: T; fetchedAt: string };
+
+export async function cachedJsonWithFetchedAt<T>(
+  key: string,
+  ttlMs: number,
+  fetcher: () => Promise<T>,
+): Promise<CachedWithFetchedAt<T>> {
+  const hit = await cacheGet<CachedWithFetchedAt<T>>(key);
+  if (
+    hit !== undefined &&
+    hit != null &&
+    typeof hit === "object" &&
+    "data" in hit &&
+    typeof (hit as CachedWithFetchedAt<T>).fetchedAt === "string"
+  ) {
+    return hit as CachedWithFetchedAt<T>;
+  }
+  const data = await fetcher();
+  const fetchedAt = new Date().toISOString();
+  const wrapped: CachedWithFetchedAt<T> = { data, fetchedAt };
+  await cacheSet(key, wrapped, ttlMs);
+  return wrapped;
+}
+
 // Sliding-window rate limiter for expensive routes.
 //
 // Identity: a signed-in user is keyed by their Clerk user id (stable and

@@ -1,6 +1,12 @@
 import { Router, type IRouter } from "express";
 import { GetOddsQueryParams, GetOddsResponse } from "@workspace/api-zod";
-import { ODDS_SPORT_KEYS, resolveOddsKeys, cachedJson, rateLimit } from "../lib/sports";
+import {
+  ODDS_SPORT_KEYS,
+  resolveOddsKeys,
+  cachedJson,
+  cachedJsonWithFetchedAt,
+  rateLimit,
+} from "../lib/sports";
 import { mergeAltPeriodMarkets } from "../lib/oddsAltDevig";
 import { resolveWorldCupTeam } from "./props";
 
@@ -83,8 +89,8 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     // out the others, so a per-key failure resolves to [] rather than throwing.
     const perKey = await Promise.all(
       oddsKeys.map((key) =>
-        cachedJson(
-          `odds:${key}:v3`,
+        cachedJsonWithFetchedAt(
+          `odds:${key}:v3meta1`,
           5 * 60 * 1000,
           async () => {
             // Scan us + us2 so we cover MORE sportsbooks (Fanatics, ESPN BET,
@@ -100,10 +106,15 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             }
             return (await r.json()) as RawOddsGame[];
           },
-        ).catch(() => [] as RawOddsGame[]),
+        ).catch(() => ({ data: [] as RawOddsGame[], fetchedAt: new Date().toISOString() })),
       ),
     );
-    let games = perKey.flat();
+    const oddsFetchedAt =
+      perKey
+        .map((w) => w.fetchedAt)
+        .filter((t) => typeof t === "string" && t.length > 0)
+        .sort()[0] ?? new Date().toISOString();
+    let games = perKey.flatMap((w) => w.data);
 
     // ── Finished World Cup game suppression ──────────────────────────────
     // The Odds API keeps a match in its feed during play and for a while
@@ -416,6 +427,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
         homeTeam: g.home_team,
         awayTeam: g.away_team,
         commenceTime: g.commence_time,
+        fetchedAt: oddsFetchedAt,
         markets: [...mainMarkets, ...altMarkets],
       };
     });
