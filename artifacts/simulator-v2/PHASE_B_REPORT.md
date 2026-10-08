@@ -117,6 +117,16 @@ Synthetic 8-game FG total calibration plumbing: Brier ≈ 0.253, log loss ≈ 0.
 6. **HOLD #649** remains; do not treat Phase B as permission to ship lean top-up.
 7. **Production serve still forbidden** until explicit family acceptance + flag flip + separate review.
 
+## Historical validation (follow-up)
+
+See `eval/report/HISTORICAL_VALIDATION.md` for walk-forward results:
+
+- NFL evaluated **790** games (≥500); NCAAF **1278** (≥500).
+- V2 period-sum violations: **0**; V1 frac breaks ≈ **99.9%** of draws.
+- All FG family acceptance gates **FAIL** (ECE > 0.04; shadow soak incomplete).
+- Extreme alt spreads: V2 underestimates large-margin cover rates (NFL bias −0.11).
+- Closing lines unavailable from ESPN historical scoreboard.
+
 ## Explicit non-actions
 
 - No merge / deploy / OTA publish from this branch.

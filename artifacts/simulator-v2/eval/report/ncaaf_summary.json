@@ -1,0 +1,4536 @@
+{
+  "sport": "ncaaf",
+  "provenance": {
+    "source": "espn_site_api_scoreboard",
+    "endpoint": "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80",
+    "plan": [
+      {
+        "season": 2023,
+        "seasonType": 2,
+        "weeks": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      },
+      {
+        "season": 2024,
+        "seasonType": 2,
+        "weeks": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      }
+    ],
+    "cachePath": "/workspace/artifacts/simulator-v2/eval/cache/ncaaf_9ac26272eaa7.json",
+    "fromCache": false,
+    "fetchErrors": [],
+    "datasetFingerprint": "561caad07bb1ab93",
+    "formWindow": 4,
+    "minPriorGames": 4,
+    "leakageControl": "team form uses only games with kickoffMs < target kickoffMs",
+    "marketClosingLines": "unavailable_from_espn_historical_scoreboard"
+  },
+  "coverage": {
+    "rawGames": 1739,
+    "eligibleGames": 1278,
+    "evaluatedGames": 1278,
+    "skippedColdStart": 461,
+    "coverageBySeason": {
+      "ncaaf:2023": {
+        "total": 868,
+        "eligible": 531
+      },
+      "ncaaf:2024": {
+        "total": 871,
+        "eligible": 747
+      }
+    },
+    "otRate": 0.041471048513302036,
+    "targetPerSport": 500,
+    "targetMet": true
+  },
+  "sim": {
+    "nDraws": 2000,
+    "v2ConsistencyGameRate": 1,
+    "v1MeanPeriodSumBreakRate": 0.9991791862284813
+  },
+  "overall": {
+    "v2_joint": {
+      "n": 31950,
+      "brier": 0.2209451015805942,
+      "logLoss": 0.6614141658170463,
+      "ece": 0.0897463536776212,
+      "reliability": [
+        {
+          "lo": 0,
+          "hi": 0.1,
+          "count": 4610,
+          "avgPred": 0.04238655097613869,
+          "avgOutcome": 0.16941431670281995
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "count": 3468,
+          "avgPred": 0.14964143598615942,
+          "avgOutcome": 0.2918108419838524
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "count": 3290,
+          "avgPred": 0.24940866261398192,
+          "avgOutcome": 0.360790273556231
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 3196,
+          "avgPred": 0.34958854818523133,
+          "avgOutcome": 0.42021276595744683
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 3208,
+          "avgPred": 0.4501490024937649,
+          "avgOutcome": 0.48566084788029923
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 3014,
+          "avgPred": 0.5498163570006632,
+          "avgOutcome": 0.5401459854014599
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 3109,
+          "avgPred": 0.6499084914763589,
+          "avgOutcome": 0.5940816982952718
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 2981,
+          "avgPred": 0.7492673599463265,
+          "avgOutcome": 0.6642066420664207
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 2860,
+          "avgPred": 0.8492534965034951,
+          "avgOutcome": 0.7297202797202798
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 2214,
+          "avgPred": 0.9451350496838308,
+          "avgOutcome": 0.8166214995483289
+        }
+      ],
+      "meanP": 0.45474015649452504,
+      "meanY": 0.4767136150234742,
+      "bias": -0.021973458528949164
+    },
+    "v1_frac": {
+      "n": 31950,
+      "brier": 0.21301252434272208,
+      "logLoss": 0.6352588019004557,
+      "ece": 0.03561306729264419,
+      "reliability": [
+        {
+          "lo": 0,
+          "hi": 0.1,
+          "count": 2252,
+          "avgPred": 0.04696225577264658,
+          "avgOutcome": 0.13898756660746003
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "count": 2813,
+          "avgPred": 0.1519539637397796,
+          "avgOutcome": 0.2161393530039104
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "count": 3517,
+          "avgPred": 0.2514337503554168,
+          "avgOutcome": 0.2911572362809212
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 4222,
+          "avgPred": 0.3505084083372809,
+          "avgOutcome": 0.36238749407863574
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 4549,
+          "avgPred": 0.45000197845680406,
+          "avgOutcome": 0.4660364915366014
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 4521,
+          "avgPred": 0.5496672196416738,
+          "avgOutcome": 0.5582835655828357
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 4018,
+          "avgPred": 0.648134395221502,
+          "avgOutcome": 0.6353907416625186
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 2935,
+          "avgPred": 0.7475068143100498,
+          "avgOutcome": 0.7199318568994889
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 1955,
+          "avgPred": 0.8456964194373402,
+          "avgOutcome": 0.7641943734015345
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 1168,
+          "avgPred": 0.9493266267123291,
+          "avgOutcome": 0.815068493150685
+        }
+      ],
+      "meanP": 0.4691623004694845,
+      "meanY": 0.4767136150234742,
+      "bias": -0.007551314553989719
+    },
+    "baseline_hist": {
+      "n": 31950,
+      "brier": 0.2279573625114053,
+      "logLoss": 0.6620121209458466,
+      "ece": 0.007310568672213466,
+      "reliability": [
+        {
+          "lo": 0,
+          "hi": 0.1,
+          "count": 45,
+          "avgPred": 0.004136605092159692,
+          "avgOutcome": 0.5333333333333333
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "count": 163,
+          "avgPred": 0.17615651974030405,
+          "avgOutcome": 0.3128834355828221
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "count": 4864,
+          "avgPred": 0.23824019186812878,
+          "avgOutcome": 0.24568256578947367
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 5745,
+          "avgPred": 0.34599182683599683,
+          "avgOutcome": 0.34586597040905137
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 5806,
+          "avgPred": 0.45791158852337965,
+          "avgOutcome": 0.46503616947984844
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 8763,
+          "avgPred": 0.5504245159244672,
+          "avgOutcome": 0.5534634257674312
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 3546,
+          "avgPred": 0.649863340034008,
+          "avgOutcome": 0.6364918217710096
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 2983,
+          "avgPred": 0.7281912061196778,
+          "avgOutcome": 0.7194099899430104
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 27,
+          "avgPred": 0.8127600556692843,
+          "avgOutcome": 0.5555555555555556
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 8,
+          "avgPred": 0.999999999,
+          "avgOutcome": 0.75
+        }
+      ],
+      "meanP": 0.4746160252735355,
+      "meanY": 0.4767136150234742,
+      "bias": -0.0020975897499386775
+    },
+    "baseline_coin": {
+      "n": 31950,
+      "brier": 0.25,
+      "logLoss": 0.6931471805596247,
+      "ece": 0.023286384976525798,
+      "reliability": [
+        {
+          "lo": 0,
+          "hi": 0.1,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 31950,
+          "avgPred": 0.5,
+          "avgOutcome": 0.4767136150234742
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        }
+      ],
+      "meanP": 0.5,
+      "meanY": 0.4767136150234742,
+      "bias": 0.023286384976525798
+    }
+  },
+  "byFamily": [
+    {
+      "key": "ml:fg",
+      "family": "ml",
+      "period": "fg",
+      "engines": {
+        "v2_joint": {
+          "n": 1278,
+          "brier": 0.21723085035211273,
+          "logLoss": 0.6356521730596819,
+          "ece": 0.10135093896713615,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 98,
+              "avgPred": 0.0567142857142857,
+              "avgOutcome": 0.21428571428571427
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 123,
+              "avgPred": 0.15022764227642274,
+              "avgOutcome": 0.34146341463414637
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 144,
+              "avgPred": 0.2502916666666668,
+              "avgOutcome": 0.3333333333333333
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 147,
+              "avgPred": 0.3502210884353743,
+              "avgOutcome": 0.5034013605442177
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 147,
+              "avgPred": 0.45122789115646267,
+              "avgOutcome": 0.6394557823129252
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 154,
+              "avgPred": 0.549542207792208,
+              "avgOutcome": 0.6298701298701299
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 138,
+              "avgPred": 0.6508768115942025,
+              "avgOutcome": 0.6594202898550725
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 118,
+              "avgPred": 0.7488050847457628,
+              "avgOutcome": 0.7966101694915254
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 119,
+              "avgPred": 0.8470798319327733,
+              "avgOutcome": 0.8319327731092437
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 90,
+              "avgPred": 0.9491611111111112,
+              "avgOutcome": 0.8666666666666667
+            }
+          ],
+          "meanP": 0.4905535993740218,
+          "meanY": 0.5774647887323944,
+          "bias": -0.08691118935837255
+        },
+        "v1_frac": {
+          "n": 1278,
+          "brier": 0.21087188791079833,
+          "logLoss": 0.6115601904608207,
+          "ece": 0.07709741784037566,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 21,
+              "avgPred": 0.060238095238095236,
+              "avgOutcome": 0.14285714285714285
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 69,
+              "avgPred": 0.15510869565217386,
+              "avgOutcome": 0.2318840579710145
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 115,
+              "avgPred": 0.25959565217391306,
+              "avgOutcome": 0.3217391304347826
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 193,
+              "avgPred": 0.35279274611398925,
+              "avgOutcome": 0.35751295336787564
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 235,
+              "avgPred": 0.4495744680851065,
+              "avgOutcome": 0.5914893617021276
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 247,
+              "avgPred": 0.5502834008097164,
+              "avgOutcome": 0.6356275303643725
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 183,
+              "avgPred": 0.6477076502732242,
+              "avgOutcome": 0.7158469945355191
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 118,
+              "avgPred": 0.7463644067796611,
+              "avgOutcome": 0.8559322033898306
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 70,
+              "avgPred": 0.8413214285714286,
+              "avgOutcome": 0.8714285714285714
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 27,
+              "avgPred": 0.9446111111111113,
+              "avgOutcome": 0.8888888888888888
+            }
+          ],
+          "meanP": 0.5027218309859157,
+          "meanY": 0.5774647887323944,
+          "bias": -0.07474295774647866
+        },
+        "baseline_hist": {
+          "n": 1278,
+          "brier": 0.24561603042351848,
+          "logLoss": 0.6986854206976799,
+          "ece": 0.013807467169867341,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1224,
+              "avgPred": 0.574160364712911,
+              "avgOutcome": 0.5816993464052288
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 48,
+              "avgPred": 0.6073738279251614,
+              "avgOutcome": 0.4791666666666667
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 2,
+              "avgPred": 0.7321428571428572,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 1,
+              "avgPred": 0.8,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 3,
+              "avgPred": 0.999999999,
+              "avgOutcome": 0.6666666666666666
+            }
+          ],
+          "meanP": 0.5768313895620472,
+          "meanY": 0.5774647887323944,
+          "bias": -0.0006333991703472153
+        },
+        "baseline_coin": {
+          "n": 1278,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599231,
+          "ece": 0.07746478873239437,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1278,
+              "avgPred": 0.5,
+              "avgOutcome": 0.5774647887323944
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.5774647887323944,
+          "bias": -0.07746478873239437
+        }
+      }
+    },
+    {
+      "key": "ml:h1",
+      "family": "ml",
+      "period": "h1",
+      "engines": {
+        "v2_joint": {
+          "n": 1278,
+          "brier": 0.251257636737089,
+          "logLoss": 0.7334860745705561,
+          "ece": 0.12660211267605642,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 114,
+              "avgPred": 0.04946491228070173,
+              "avgOutcome": 0.2894736842105263
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 138,
+              "avgPred": 0.1496485507246377,
+              "avgOutcome": 0.39855072463768115
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 123,
+              "avgPred": 0.2543739837398374,
+              "avgOutcome": 0.3821138211382114
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 169,
+              "avgPred": 0.35220710059171617,
+              "avgOutcome": 0.5443786982248521
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 152,
+              "avgPred": 0.45225328947368415,
+              "avgOutcome": 0.4934210526315789
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 111,
+              "avgPred": 0.5468423423423424,
+              "avgOutcome": 0.5585585585585585
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 132,
+              "avgPred": 0.6510568181818184,
+              "avgOutcome": 0.5984848484848485
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 123,
+              "avgPred": 0.7510528455284556,
+              "avgOutcome": 0.7235772357723578
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 121,
+              "avgPred": 0.8514752066115708,
+              "avgOutcome": 0.7107438016528925
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 95,
+              "avgPred": 0.9473000000000001,
+              "avgOutcome": 0.7684210526315789
+            }
+          ],
+          "meanP": 0.48347769953051606,
+          "meanY": 0.5406885758998435,
+          "bias": -0.05721087636932748
+        },
+        "v1_frac": {
+          "n": 1278,
+          "brier": 0.22515671459311434,
+          "logLoss": 0.643713588377136,
+          "ece": 0.04434624413145545,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 20,
+              "avgPred": 0.06054999999999999,
+              "avgOutcome": 0.2
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 71,
+              "avgPred": 0.15677464788732387,
+              "avgOutcome": 0.29577464788732394
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 110,
+              "avgPred": 0.25951818181818165,
+              "avgOutcome": 0.37272727272727274
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 201,
+              "avgPred": 0.35340049751243774,
+              "avgOutcome": 0.36318407960199006
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 232,
+              "avgPred": 0.4506831896551723,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 247,
+              "avgPred": 0.5498724696356274,
+              "avgOutcome": 0.5910931174089069
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 188,
+              "avgPred": 0.6487074468085108,
+              "avgOutcome": 0.6702127659574468
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 113,
+              "avgPred": 0.7476283185840706,
+              "avgOutcome": 0.7345132743362832
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 69,
+              "avgPred": 0.8403405797101449,
+              "avgOutcome": 0.8260869565217391
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 27,
+              "avgPred": 0.9431666666666667,
+              "avgOutcome": 0.8888888888888888
+            }
+          ],
+          "meanP": 0.5024941314553986,
+          "meanY": 0.5406885758998435,
+          "bias": -0.038194444444444975
+        },
+        "baseline_hist": {
+          "n": 1278,
+          "brier": 0.2510064999194712,
+          "logLoss": 0.7097988282817753,
+          "ece": 0.00806647847873561,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 1,
+              "avgPred": 1e-9,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 13,
+              "avgPred": 0.49334132635974426,
+              "avgOutcome": 0.7692307692307693
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1221,
+              "avgPred": 0.5382381218706921,
+              "avgOutcome": 0.5389025389025389
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 40,
+              "avgPred": 0.6161714457332522,
+              "avgOutcome": 0.525
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 2,
+              "avgPred": 0.7321428571428572,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 1,
+              "avgPred": 0.8,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5403077680683928,
+          "meanY": 0.5406885758998435,
+          "bias": -0.0003808078314507801
+        },
+        "baseline_coin": {
+          "n": 1278,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599231,
+          "ece": 0.04068857589984354,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1278,
+              "avgPred": 0.5,
+              "avgOutcome": 0.5406885758998435
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.5406885758998435,
+          "bias": -0.04068857589984354
+        }
+      }
+    },
+    {
+      "key": "ml:q2",
+      "family": "ml",
+      "period": "q2",
+      "engines": {
+        "v2_joint": {
+          "n": 1278,
+          "brier": 0.27899942918622794,
+          "logLoss": 0.8119104646980445,
+          "ece": 0.1584084507042254,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 107,
+              "avgPred": 0.05308878504672897,
+              "avgOutcome": 0.411214953271028
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 136,
+              "avgPred": 0.15433088235294112,
+              "avgOutcome": 0.4411764705882353
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 144,
+              "avgPred": 0.24670138888888887,
+              "avgOutcome": 0.4652777777777778
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 138,
+              "avgPred": 0.35232608695652173,
+              "avgOutcome": 0.47101449275362317
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 164,
+              "avgPred": 0.44798170731707304,
+              "avgOutcome": 0.4695121951219512
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 159,
+              "avgPred": 0.550625786163522,
+              "avgOutcome": 0.4968553459119497
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 139,
+              "avgPred": 0.650453237410072,
+              "avgOutcome": 0.5899280575539568
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 119,
+              "avgPred": 0.7487521008403362,
+              "avgOutcome": 0.6386554621848739
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 106,
+              "avgPred": 0.8424245283018871,
+              "avgOutcome": 0.5754716981132075
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 66,
+              "avgPred": 0.9449924242424242,
+              "avgOutcome": 0.7121212121212122
+            }
+          ],
+          "meanP": 0.47184272300469454,
+          "meanY": 0.514866979655712,
+          "bias": -0.0430242566510175
+        },
+        "v1_frac": {
+          "n": 1278,
+          "brier": 0.24188094131455437,
+          "logLoss": 0.6836257929324958,
+          "ece": 0.05775352112676066,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 21,
+              "avgPred": 0.06157142857142857,
+              "avgOutcome": 0.19047619047619047
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 70,
+              "avgPred": 0.15742857142857142,
+              "avgOutcome": 0.35714285714285715
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 111,
+              "avgPred": 0.259563063063063,
+              "avgOutcome": 0.40540540540540543
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 195,
+              "avgPred": 0.3524615384615384,
+              "avgOutcome": 0.38974358974358975
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 236,
+              "avgPred": 0.44898940677966104,
+              "avgOutcome": 0.4661016949152542
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 251,
+              "avgPred": 0.5505119521912355,
+              "avgOutcome": 0.5338645418326693
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 181,
+              "avgPred": 0.647718232044199,
+              "avgOutcome": 0.6519337016574586
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 117,
+              "avgPred": 0.745854700854701,
+              "avgOutcome": 0.6495726495726496
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 69,
+              "avgPred": 0.8400724637681158,
+              "avgOutcome": 0.6956521739130435
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 27,
+              "avgPred": 0.9427222222222222,
+              "avgOutcome": 0.8148148148148148
+            }
+          ],
+          "meanP": 0.5022809076682316,
+          "meanY": 0.514866979655712,
+          "bias": -0.012586071987480407
+        },
+        "baseline_hist": {
+          "n": 1278,
+          "brier": 0.25171824351536615,
+          "logLoss": 0.7111877445173095,
+          "ece": 0.010629179457814723,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 1,
+              "avgPred": 1e-9,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 27,
+              "avgPred": 0.36516149692143923,
+              "avgOutcome": 0.4444444444444444
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 83,
+              "avgPred": 0.4762631906571113,
+              "avgOutcome": 0.5662650602409639
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1163,
+              "avgPred": 0.5106133878565438,
+              "avgOutcome": 0.5124677558039553
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 3,
+              "avgPred": 0.6444444444444444,
+              "avgOutcome": 0.6666666666666666
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 1,
+              "avgPred": 0.75,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5054115091180847,
+          "meanY": 0.514866979655712,
+          "bias": -0.009455470537627297
+        },
+        "baseline_coin": {
+          "n": 1278,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599231,
+          "ece": 0.014866979655712043,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1278,
+              "avgPred": 0.5,
+              "avgOutcome": 0.514866979655712
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.514866979655712,
+          "bias": -0.014866979655712043
+        }
+      }
+    },
+    {
+      "key": "spread:fg",
+      "family": "spread",
+      "period": "fg",
+      "extreme": false,
+      "engines": {
+        "v2_joint": {
+          "n": 5112,
+          "brier": 0.2118225261639283,
+          "logLoss": 0.6342060593582987,
+          "ece": 0.10079978482003137,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 1039,
+              "avgPred": 0.04443407122232926,
+              "avgOutcome": 0.16843118383060635
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 719,
+              "avgPred": 0.14988595271210017,
+              "avgOutcome": 0.3004172461752434
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 614,
+              "avgPred": 0.24945602605863182,
+              "avgOutcome": 0.4169381107491857
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 534,
+              "avgPred": 0.3498764044943815,
+              "avgOutcome": 0.4681647940074906
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 486,
+              "avgPred": 0.4468045267489712,
+              "avgOutcome": 0.5411522633744856
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 437,
+              "avgPred": 0.5494530892448515,
+              "avgOutcome": 0.6270022883295194
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 391,
+              "avgPred": 0.6503452685421994,
+              "avgOutcome": 0.6572890025575447
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 332,
+              "avgPred": 0.7485828313253015,
+              "avgOutcome": 0.7289156626506024
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 288,
+              "avgPred": 0.8482100694444443,
+              "avgOutcome": 0.8090277777777778
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 272,
+              "avgPred": 0.9483547794117653,
+              "avgOutcome": 0.9044117647058824
+            }
+          ],
+          "meanP": 0.3826769366197196,
+          "meanY": 0.47183098591549294,
+          "bias": -0.08915404929577336
+        },
+        "v1_frac": {
+          "n": 5112,
+          "brier": 0.20479458132824765,
+          "logLoss": 0.5997371338140203,
+          "ece": 0.05992771909233171,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 357,
+              "avgPred": 0.05199019607843135,
+              "avgOutcome": 0.12885154061624648
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 551,
+              "avgPred": 0.15290290381125235,
+              "avgOutcome": 0.18874773139745918
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 784,
+              "avgPred": 0.2498679846938774,
+              "avgOutcome": 0.2869897959183674
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 861,
+              "avgPred": 0.34918176538908247,
+              "avgOutcome": 0.4076655052264808
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 844,
+              "avgPred": 0.44869194312796234,
+              "avgOutcome": 0.5165876777251185
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 669,
+              "avgPred": 0.5483550074738415,
+              "avgOutcome": 0.6412556053811659
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 496,
+              "avgPred": 0.6457701612903232,
+              "avgOutcome": 0.7318548387096774
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 302,
+              "avgPred": 0.7454056291390725,
+              "avgOutcome": 0.7781456953642384
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 174,
+              "avgPred": 0.8451465517241379,
+              "avgOutcome": 0.8850574712643678
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 74,
+              "avgPred": 0.9421351351351356,
+              "avgOutcome": 0.9324324324324325
+            }
+          ],
+          "meanP": 0.41218417449139183,
+          "meanY": 0.47183098591549294,
+          "bias": -0.05964681142410111
+        },
+        "baseline_hist": {
+          "n": 5112,
+          "brier": 0.2356558531338321,
+          "logLoss": 0.6784949570289069,
+          "ece": 0.009821028694287373,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 3,
+              "avgPred": 1e-9,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 33,
+              "avgPred": 0.2945494456031552,
+              "avgOutcome": 0.48484848484848486
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 1938,
+              "avgPred": 0.3506903029686638,
+              "avgOutcome": 0.3591331269349845
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 1437,
+              "avgPred": 0.45223311250085213,
+              "avgOutcome": 0.453723034098817
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 418,
+              "avgPred": 0.5091850663764764,
+              "avgOutcome": 0.47607655502392343
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 1265,
+              "avgPred": 0.6640734656985511,
+              "avgOutcome": 0.6616600790513834
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 11,
+              "avgPred": 0.7126592882350642,
+              "avgOutcome": 0.36363636363636365
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 2,
+              "avgPred": 0.8452380952380952,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 5,
+              "avgPred": 0.9999999990000001,
+              "avgOutcome": 0.8
+            }
+          ],
+          "meanP": 0.47078226559761793,
+          "meanY": 0.47183098591549294,
+          "bias": -0.001048720317875007
+        },
+        "baseline_coin": {
+          "n": 5112,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599945,
+          "ece": 0.02816901408450706,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 5112,
+              "avgPred": 0.5,
+              "avgOutcome": 0.47183098591549294
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.47183098591549294,
+          "bias": 0.02816901408450706
+        }
+      }
+    },
+    {
+      "key": "spread:fg:extreme",
+      "family": "spread",
+      "period": "fg",
+      "extreme": true,
+      "engines": {
+        "v2_joint": {
+          "n": 2556,
+          "brier": 0.19083672251564965,
+          "logLoss": 0.6909364294839175,
+          "ece": 0.13694033646322373,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 1535,
+              "avgPred": 0.03029609120521178,
+              "avgOutcome": 0.15960912052117263
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 437,
+              "avgPred": 0.14404576659038903,
+              "avgOutcome": 0.33638443935926776
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 238,
+              "avgPred": 0.24351680672268897,
+              "avgOutcome": 0.3907563025210084
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 149,
+              "avgPred": 0.34354026845637586,
+              "avgOutcome": 0.46308724832214765
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 93,
+              "avgPred": 0.4471451612903227,
+              "avgOutcome": 0.5483870967741935
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 43,
+              "avgPred": 0.5496744186046513,
+              "avgOutcome": 0.4883720930232558
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 33,
+              "avgPred": 0.6437121212121213,
+              "avgOutcome": 0.6060606060606061
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 20,
+              "avgPred": 0.7462250000000001,
+              "avgOutcome": 0.8
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 8,
+              "avgPred": 0.844125,
+              "avgOutcome": 0.875
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.1278315727699525,
+          "meanY": 0.26173708920187794,
+          "bias": -0.13390551643192544
+        },
+        "v1_frac": {
+          "n": 2556,
+          "brier": 0.17680901379107994,
+          "logLoss": 0.5724070481581288,
+          "ece": 0.05999197965571204,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 714,
+              "avgPred": 0.04559523809523811,
+              "avgOutcome": 0.10784313725490197
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 708,
+              "avgPred": 0.14859745762711865,
+              "avgOutcome": 0.2175141242937853
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 508,
+              "avgPred": 0.2476200787401576,
+              "avgOutcome": 0.30118110236220474
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 340,
+              "avgPred": 0.3433470588235294,
+              "avgOutcome": 0.37058823529411766
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 174,
+              "avgPred": 0.44287643678160904,
+              "avgOutcome": 0.5402298850574713
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 70,
+              "avgPred": 0.5433428571428572,
+              "avgOutcome": 0.5142857142857142
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 31,
+              "avgPred": 0.6446451612903227,
+              "avgOutcome": 0.5806451612903226
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 9,
+              "avgPred": 0.7438333333333333,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 2,
+              "avgPred": 0.81625,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.20488908450704194,
+          "meanY": 0.26173708920187794,
+          "bias": -0.056848004694836
+        },
+        "baseline_hist": {
+          "n": 2556,
+          "brier": 0.1949548096310922,
+          "logLoss": 0.5934735717538437,
+          "ece": 0.01961292911456568,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 2,
+              "avgPred": 1e-9,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 20,
+              "avgPred": 0.1613875957056541,
+              "avgOutcome": 0.25
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 2278,
+              "avgPred": 0.25237453028442075,
+              "avgOutcome": 0.26382791922739246
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 246,
+              "avgPred": 0.309488802388293,
+              "avgOutcome": 0.23983739837398374
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 2,
+              "avgPred": 0.4,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 6,
+              "avgPred": 0.5,
+              "avgOutcome": 0.3333333333333333
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 2,
+              "avgPred": 0.6666666666666666,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.2579829853774946,
+          "meanY": 0.26173708920187794,
+          "bias": -0.003754103824383348
+        },
+        "baseline_coin": {
+          "n": 2556,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599067,
+          "ece": 0.23826291079812206,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 2556,
+              "avgPred": 0.5,
+              "avgOutcome": 0.26173708920187794
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.26173708920187794,
+          "bias": 0.23826291079812206
+        }
+      }
+    },
+    {
+      "key": "spread:q2",
+      "family": "spread",
+      "period": "q2",
+      "engines": {
+        "v2_joint": {
+          "n": 1278,
+          "brier": 0.22937561169796597,
+          "logLoss": 0.731328374619032,
+          "ece": 0.13470226917057931,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 9,
+              "avgPred": 0.067,
+              "avgOutcome": 0.4444444444444444
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 22,
+              "avgPred": 0.14940909090909094,
+              "avgOutcome": 0.5909090909090909
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 44,
+              "avgPred": 0.2518409090909092,
+              "avgOutcome": 0.5227272727272727
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 54,
+              "avgPred": 0.3501111111111111,
+              "avgOutcome": 0.7222222222222222
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 87,
+              "avgPred": 0.45680459770114956,
+              "avgOutcome": 0.6206896551724138
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 115,
+              "avgPred": 0.551052173913044,
+              "avgOutcome": 0.6173913043478261
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 140,
+              "avgPred": 0.6536642857142859,
+              "avgOutcome": 0.6428571428571429
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 187,
+              "avgPred": 0.7554893048128348,
+              "avgOutcome": 0.6844919786096256
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 254,
+              "avgPred": 0.8533051181102362,
+              "avgOutcome": 0.7440944881889764
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 366,
+              "avgPred": 0.9552199453551921,
+              "avgOutcome": 0.7841530054644809
+            }
+          ],
+          "meanP": 0.7324956964006248,
+          "meanY": 0.702660406885759,
+          "bias": 0.029835289514865804
+        },
+        "v1_frac": {
+          "n": 1278,
+          "brier": 0.20825798122065725,
+          "logLoss": 0.6414304674938756,
+          "ece": 0.0953043818466354,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 1,
+              "avgPred": 0.1565,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 2,
+              "avgPred": 0.27249999999999996,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 14,
+              "avgPred": 0.34314285714285714,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 37,
+              "avgPred": 0.46309459459459457,
+              "avgOutcome": 0.4594594594594595
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 101,
+              "avgPred": 0.5563564356435645,
+              "avgOutcome": 0.6336633663366337
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 194,
+              "avgPred": 0.6563273195876287,
+              "avgOutcome": 0.5412371134020618
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 285,
+              "avgPred": 0.7541175438596492,
+              "avgOutcome": 0.6947368421052632
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 337,
+              "avgPred": 0.8499658753709202,
+              "avgOutcome": 0.7537091988130564
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 307,
+              "avgPred": 0.9520179153094462,
+              "avgOutcome": 0.8241042345276873
+            }
+          ],
+          "meanP": 0.782309076682316,
+          "meanY": 0.702660406885759,
+          "bias": 0.07964866979655694
+        },
+        "baseline_hist": {
+          "n": 1278,
+          "brier": 0.21087435944249297,
+          "logLoss": 0.6275825767962991,
+          "ece": 0.03638708627624274,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 1,
+              "avgPred": 1e-9,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 4,
+              "avgPred": 0.5439814814814815,
+              "avgOutcome": 0.75
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 693,
+              "avgPred": 0.6865396770029951,
+              "avgOutcome": 0.7229437229437229
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 575,
+              "avgPred": 0.7100611168009802,
+              "avgOutcome": 0.6782608695652174
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 5,
+              "avgPred": 0.8330952380952381,
+              "avgOutcome": 0.6
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.6967124729585629,
+          "meanY": 0.702660406885759,
+          "bias": -0.0059479339271961695
+        },
+        "baseline_coin": {
+          "n": 1278,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599231,
+          "ece": 0.20266040688575904,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1278,
+              "avgPred": 0.5,
+              "avgOutcome": 0.702660406885759
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.702660406885759,
+          "bias": -0.20266040688575904
+        }
+      }
+    },
+    {
+      "key": "spread:h1",
+      "family": "spread",
+      "period": "h1",
+      "engines": {
+        "v2_joint": {
+          "n": 1278,
+          "brier": 0.2674431651017213,
+          "logLoss": 0.7967624947537375,
+          "ece": 0.16606885758998435,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 257,
+              "avgPred": 0.043054474708171225,
+              "avgOutcome": 0.2918287937743191
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 207,
+              "avgPred": 0.15158454106280186,
+              "avgOutcome": 0.357487922705314
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 198,
+              "avgPred": 0.2508080808080808,
+              "avgOutcome": 0.494949494949495
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 129,
+              "avgPred": 0.34158139534883714,
+              "avgOutcome": 0.4496124031007752
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 122,
+              "avgPred": 0.4466639344262294,
+              "avgOutcome": 0.47540983606557374
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 98,
+              "avgPred": 0.5462755102040815,
+              "avgOutcome": 0.6224489795918368
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 100,
+              "avgPred": 0.6433199999999999,
+              "avgOutcome": 0.61
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 83,
+              "avgPred": 0.7476987951807232,
+              "avgOutcome": 0.6024096385542169
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 56,
+              "avgPred": 0.8513124999999999,
+              "avgOutcome": 0.6785714285714286
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 28,
+              "avgPred": 0.9416607142857142,
+              "avgOutcome": 0.6785714285714286
+            }
+          ],
+          "meanP": 0.3479076682316116,
+          "meanY": 0.46322378716744916,
+          "bias": -0.11531611893583754
+        },
+        "v1_frac": {
+          "n": 1278,
+          "brier": 0.24254547065727713,
+          "logLoss": 0.7000371889388554,
+          "ece": 0.10919327073552423,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 108,
+              "avgPred": 0.055319444444444435,
+              "avgOutcome": 0.25
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 165,
+              "avgPred": 0.1550151515151515,
+              "avgOutcome": 0.3090909090909091
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 240,
+              "avgPred": 0.2496354166666668,
+              "avgOutcome": 0.37083333333333335
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 260,
+              "avgPred": 0.3503423076923078,
+              "avgOutcome": 0.4461538461538462
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 219,
+              "avgPred": 0.4471392694063925,
+              "avgOutcome": 0.547945205479452
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 142,
+              "avgPred": 0.5441830985915493,
+              "avgOutcome": 0.6338028169014085
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 86,
+              "avgPred": 0.6428837209302327,
+              "avgOutcome": 0.6511627906976745
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 39,
+              "avgPred": 0.7453333333333333,
+              "avgOutcome": 0.6666666666666666
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 14,
+              "avgPred": 0.8470000000000002,
+              "avgOutcome": 0.8571428571428571
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 5,
+              "avgPred": 0.9244,
+              "avgOutcome": 1
+            }
+          ],
+          "meanP": 0.3588317683881061,
+          "meanY": 0.46322378716744916,
+          "bias": -0.10439201877934307
+        },
+        "baseline_hist": {
+          "n": 1278,
+          "brier": 0.25105026215755866,
+          "logLoss": 0.709879153489386,
+          "ece": 0.01431019412957704,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 1,
+              "avgPred": 1e-9,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 1,
+              "avgPred": 0.391304347826087,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 1253,
+              "avgPred": 0.4535511617698094,
+              "avgOutcome": 0.46368715083798884
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 16,
+              "avgPred": 0.5097949435236054,
+              "avgOutcome": 0.375
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 4,
+              "avgPred": 0.6395833333333333,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 2,
+              "avgPred": 0.7321428571428572,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 1,
+              "avgPred": 0.8,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.4551410392726089,
+          "meanY": 0.46322378716744916,
+          "bias": -0.008082747894840259
+        },
+        "baseline_coin": {
+          "n": 1278,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599231,
+          "ece": 0.036776212832550836,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1278,
+              "avgPred": 0.5,
+              "avgOutcome": 0.46322378716744916
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.46322378716744916,
+          "bias": 0.036776212832550836
+        }
+      }
+    },
+    {
+      "key": "total:fg",
+      "family": "total",
+      "period": "fg",
+      "engines": {
+        "v2_joint": {
+          "n": 6390,
+          "brier": 0.21579362691705806,
+          "logLoss": 0.6287616528699929,
+          "ece": 0.06226369327073562,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 381,
+              "avgPred": 0.059001312335958,
+              "avgOutcome": 0.13123359580052493
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 626,
+              "avgPred": 0.14995926517571878,
+              "avgOutcome": 0.21405750798722045
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 673,
+              "avgPred": 0.25020133729569066,
+              "avgOutcome": 0.3179791976225854
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 731,
+              "avgPred": 0.3499473324213405,
+              "avgOutcome": 0.3679890560875513
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 684,
+              "avgPred": 0.44948391812865446,
+              "avgOutcome": 0.4502923976608187
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 722,
+              "avgPred": 0.5509328254847651,
+              "avgOutcome": 0.5207756232686981
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 708,
+              "avgPred": 0.6503057909604518,
+              "avgOutcome": 0.5677966101694916
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 714,
+              "avgPred": 0.7489859943977591,
+              "avgOutcome": 0.6610644257703081
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 686,
+              "avgPred": 0.8496749271137022,
+              "avgOutcome": 0.7536443148688047
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 465,
+              "avgPred": 0.9398279569892473,
+              "avgOutcome": 0.8064516129032258
+            }
+          ],
+          "meanP": 0.5103068857589986,
+          "meanY": 0.4877934272300469,
+          "bias": 0.022513458528951702
+        },
+        "v1_frac": {
+          "n": 6390,
+          "brier": 0.21303165923317624,
+          "logLoss": 0.6202898383035839,
+          "ece": 0.029446478873239434,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 257,
+              "avgPred": 0.05138326848249026,
+              "avgOutcome": 0.14007782101167315
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 423,
+              "avgPred": 0.15159810874704474,
+              "avgOutcome": 0.17966903073286053
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 653,
+              "avgPred": 0.2504732006125572,
+              "avgOutcome": 0.26339969372128635
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 831,
+              "avgPred": 0.35105655836341765,
+              "avgOutcome": 0.3345367027677497
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 910,
+              "avgPred": 0.44980329670329655,
+              "avgOutcome": 0.43626373626373627
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 984,
+              "avgPred": 0.5502891260162603,
+              "avgOutcome": 0.5304878048780488
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 931,
+              "avgPred": 0.6487261009667019,
+              "avgOutcome": 0.6219119226638024
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 739,
+              "avgPred": 0.7480696887686064,
+              "avgOutcome": 0.7239512855209743
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 460,
+              "avgPred": 0.8447152173913048,
+              "avgOutcome": 0.7717391304347826
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 202,
+              "avgPred": 0.9414034653465342,
+              "avgOutcome": 0.8267326732673267
+            }
+          ],
+          "meanP": 0.503747104851331,
+          "meanY": 0.4877934272300469,
+          "bias": 0.01595367762128408
+        },
+        "baseline_hist": {
+          "n": 6390,
+          "brier": 0.21941938766571445,
+          "logLoss": 0.6439216219855816,
+          "ece": 0.007559180405745201,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 10,
+              "avgPred": 1.0000000000000003e-9,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 23,
+              "avgPred": 0.1515056322045732,
+              "avgOutcome": 0.391304347826087
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 1279,
+              "avgPred": 0.2252545957404844,
+              "avgOutcome": 0.22673964034401878
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 1093,
+              "avgPred": 0.3691665745437626,
+              "avgOutcome": 0.36688014638609334
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 525,
+              "avgPred": 0.4707202990486518,
+              "avgOutcome": 0.4838095238095238
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1753,
+              "avgPred": 0.5503396661354613,
+              "avgOutcome": 0.5521962350256703
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 452,
+              "avgPred": 0.6217417653294166,
+              "avgOutcome": 0.5752212389380531
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 1240,
+              "avgPred": 0.7418145839471261,
+              "avgOutcome": 0.7419354838709677
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 15,
+              "avgPred": 0.8057168147139895,
+              "avgOutcome": 0.6666666666666666
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.4882505523410347,
+          "meanY": 0.4877934272300469,
+          "bias": 0.0004571251109877772
+        },
+        "baseline_coin": {
+          "n": 6390,
+          "brier": 0.25,
+          "logLoss": 0.6931471805600191,
+          "ece": 0.012206572769953072,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 6390,
+              "avgPred": 0.5,
+              "avgOutcome": 0.4877934272300469
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.4877934272300469,
+          "bias": 0.012206572769953072
+        }
+      }
+    },
+    {
+      "key": "total:h1",
+      "family": "total",
+      "period": "h1",
+      "engines": {
+        "v2_joint": {
+          "n": 1278,
+          "brier": 0.2609350224960877,
+          "logLoss": 0.7319022745699355,
+          "ece": 0.12792057902973386,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 8,
+              "avgPred": 0.061437500000000006,
+              "avgOutcome": 0.25
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 23,
+              "avgPred": 0.1545869565217391,
+              "avgOutcome": 0.391304347826087
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 41,
+              "avgPred": 0.2536219512195122,
+              "avgOutcome": 0.3902439024390244
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 90,
+              "avgPred": 0.35955000000000004,
+              "avgOutcome": 0.4111111111111111
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 148,
+              "avgPred": 0.45163175675675665,
+              "avgOutcome": 0.527027027027027
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 181,
+              "avgPred": 0.5502237569060773,
+              "avgOutcome": 0.5193370165745856
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 239,
+              "avgPred": 0.6490418410041837,
+              "avgOutcome": 0.5648535564853556
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 259,
+              "avgPred": 0.7508822393822393,
+              "avgOutcome": 0.5405405405405406
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 220,
+              "avgPred": 0.8479295454545455,
+              "avgOutcome": 0.6363636363636364
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 69,
+              "avgPred": 0.9332536231884057,
+              "avgOutcome": 0.8115942028985508
+            }
+          ],
+          "meanP": 0.6367570422535213,
+          "meanY": 0.55320813771518,
+          "bias": 0.0835489045383413
+        },
+        "v1_frac": {
+          "n": 1278,
+          "brier": 0.24627424021909208,
+          "logLoss": 0.6921973760951597,
+          "ece": 0.06771283255086072,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 5,
+              "avgPred": 0.0596,
+              "avgOutcome": 0.2
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 11,
+              "avgPred": 0.15540909090909089,
+              "avgOutcome": 0.2727272727272727
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 23,
+              "avgPred": 0.25869565217391305,
+              "avgOutcome": 0.4782608695652174
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 96,
+              "avgPred": 0.35923437500000005,
+              "avgOutcome": 0.3854166666666667
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 184,
+              "avgPred": 0.45549456521739135,
+              "avgOutcome": 0.4891304347826087
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 317,
+              "avgPred": 0.5505630914826499,
+              "avgOutcome": 0.5205047318611987
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 323,
+              "avgPred": 0.6480572755417956,
+              "avgOutcome": 0.5758513931888545
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 195,
+              "avgPred": 0.7438820512820512,
+              "avgOutcome": 0.6461538461538462
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 98,
+              "avgPred": 0.8424285714285715,
+              "avgOutcome": 0.7040816326530612
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 26,
+              "avgPred": 0.9356153846153846,
+              "avgOutcome": 0.7307692307692307
+            }
+          ],
+          "meanP": 0.5962809076682328,
+          "meanY": 0.55320813771518,
+          "bias": 0.04307276995305287
+        },
+        "baseline_hist": {
+          "n": 1278,
+          "brier": 0.2490567412842075,
+          "logLoss": 0.7059985116936436,
+          "ece": 0.005906733878637237,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 1,
+              "avgPred": 1e-9,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 3,
+              "avgPred": 0.14484126984126985,
+              "avgOutcome": 0.3333333333333333
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 4,
+              "avgPred": 0.23623737373737375,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 10,
+              "avgPred": 0.3531283812805552,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 26,
+              "avgPred": 0.46091753235929456,
+              "avgOutcome": 0.5769230769230769
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1234,
+              "avgPred": 0.5531252683496606,
+              "avgOutcome": 0.553484602917342
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5473014038365429,
+          "meanY": 0.55320813771518,
+          "bias": -0.005906733878637049
+        },
+        "baseline_coin": {
+          "n": 1278,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599231,
+          "ece": 0.05320813771517996,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1278,
+              "avgPred": 0.5,
+              "avgOutcome": 0.55320813771518
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.55320813771518,
+          "bias": -0.05320813771517996
+        }
+      }
+    },
+    {
+      "key": "team_total:fg",
+      "family": "team_total",
+      "period": "fg",
+      "extreme": false,
+      "engines": {
+        "v2_joint": {
+          "n": 5112,
+          "brier": 0.22253574163732454,
+          "logLoss": 0.6506920937643385,
+          "ece": 0.0794267410015647,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 72,
+              "avgPred": 0.0642361111111111,
+              "avgOutcome": 0.1527777777777778
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 164,
+              "avgPred": 0.15757926829268287,
+              "avgOutcome": 0.21951219512195122
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 240,
+              "avgPred": 0.25351250000000003,
+              "avgOutcome": 0.31666666666666665
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 350,
+              "avgPred": 0.3508185714285714,
+              "avgOutcome": 0.38571428571428573
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 517,
+              "avgPred": 0.45329593810444896,
+              "avgOutcome": 0.4564796905222437
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 564,
+              "avgPred": 0.5500851063829786,
+              "avgOutcome": 0.4929078014184397
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 744,
+              "avgPred": 0.651625,
+              "avgOutcome": 0.5873655913978495
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 827,
+              "avgPred": 0.7489764207980639,
+              "avgOutcome": 0.6650544135429263
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 889,
+              "avgPred": 0.8495376827896512,
+              "avgOutcome": 0.7131608548931384
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 745,
+              "avgPred": 0.9433308724832217,
+              "avgOutcome": 0.8228187919463087
+            }
+          ],
+          "meanP": 0.6496346830985896,
+          "meanY": 0.5880281690140845,
+          "bias": 0.061606514084505126
+        },
+        "v1_frac": {
+          "n": 5112,
+          "brier": 0.2214034683098595,
+          "logLoss": 0.6662301354302762,
+          "ece": 0.04910641627543026,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 52,
+              "avgPred": 0.04966346153846154,
+              "avgOutcome": 0.21153846153846154
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 87,
+              "avgPred": 0.16070114942528732,
+              "avgOutcome": 0.21839080459770116
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 168,
+              "avgPred": 0.2560297619047618,
+              "avgOutcome": 0.30357142857142855
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 320,
+              "avgPred": 0.35777499999999984,
+              "avgOutcome": 0.334375
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 612,
+              "avgPred": 0.4537834967320266,
+              "avgOutcome": 0.4150326797385621
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 907,
+              "avgPred": 0.5511085997794918,
+              "avgOutcome": 0.5336273428886439
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 1065,
+              "avgPred": 0.6494971830985917,
+              "avgOutcome": 0.6309859154929578
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 870,
+              "avgPred": 0.7470591954022989,
+              "avgOutcome": 0.7183908045977011
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 587,
+              "avgPred": 0.846810902896082,
+              "avgOutcome": 0.7359454855195912
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 444,
+              "avgPred": 0.9545394144144141,
+              "avgOutcome": 0.7905405405405406
+            }
+          ],
+          "meanP": 0.6287529342723027,
+          "meanY": 0.5880281690140845,
+          "bias": 0.04072476525821822
+        },
+        "baseline_hist": {
+          "n": 5112,
+          "brier": 0.2348540933229099,
+          "logLoss": 0.6766497223711488,
+          "ece": 0.016622342281197536,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 6,
+              "avgPred": 1e-9,
+              "avgOutcome": 0.6666666666666666
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 1,
+              "avgPred": 0.16666666666666666,
+              "avgOutcome": 1
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 5,
+              "avgPred": 0.2371428571428571,
+              "avgOutcome": 0.4
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 17,
+              "avgPred": 0.36019403994299676,
+              "avgOutcome": 0.5294117647058824
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 1259,
+              "avgPred": 0.4495392791147063,
+              "avgOutcome": 0.44797458300238285
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 1634,
+              "avgPred": 0.581071869974321,
+              "avgOutcome": 0.6028151774785802
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 1038,
+              "avgPred": 0.6235748818145945,
+              "avgOutcome": 0.5886319845857418
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 1150,
+              "avgPred": 0.7226756802491839,
+              "avgOutcome": 0.7208695652173913
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 2,
+              "avgPred": 0.8014084507042254,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5874154233357567,
+          "meanY": 0.5880281690140845,
+          "bias": -0.0006127456783278085
+        },
+        "baseline_coin": {
+          "n": 5112,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599945,
+          "ece": 0.0880281690140845,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 5112,
+              "avgPred": 0.5,
+              "avgOutcome": 0.5880281690140845
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.5880281690140845,
+          "bias": -0.0880281690140845
+        }
+      }
+    },
+    {
+      "key": "team_total:fg:extreme",
+      "family": "team_total",
+      "period": "fg",
+      "extreme": true,
+      "engines": {
+        "v2_joint": {
+          "n": 5112,
+          "brier": 0.20507779328051645,
+          "logLoss": 0.6072596383366745,
+          "ece": 0.06326926838810652,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 990,
+              "avgPred": 0.047059595959595996,
+              "avgOutcome": 0.12222222222222222
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 873,
+              "avgPred": 0.14912256586483383,
+              "avgOutcome": 0.2588774341351661
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 831,
+              "avgPred": 0.2481450060168472,
+              "avgOutcome": 0.2996389891696751
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 705,
+              "avgPred": 0.34852411347517726,
+              "avgOutcome": 0.3617021276595745
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 608,
+              "avgPred": 0.4505378289473691,
+              "avgOutcome": 0.4342105263157895
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 430,
+              "avgPred": 0.5488441860465118,
+              "avgOutcome": 0.5
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 345,
+              "avgPred": 0.6454289855072466,
+              "avgOutcome": 0.5594202898550724
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 199,
+              "avgPred": 0.7451180904522611,
+              "avgOutcome": 0.6180904522613065
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 113,
+              "avgPred": 0.8462477876106195,
+              "avgOutcome": 0.7345132743362832
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 18,
+              "avgPred": 0.9231111111111109,
+              "avgOutcome": 0.7777777777777778
+            }
+          ],
+          "meanP": 0.3172563575899845,
+          "meanY": 0.340962441314554,
+          "bias": -0.023706083724569504
+        },
+        "v1_frac": {
+          "n": 5112,
+          "brier": 0.20668933758802835,
+          "logLoss": 0.6496932696003908,
+          "ece": 0.051842429577464676,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 697,
+              "avgPred": 0.041340028694404646,
+              "avgOutcome": 0.1492109038737446
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 657,
+              "avgPred": 0.1515768645357687,
+              "avgOutcome": 0.2115677321156773
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 803,
+              "avgPred": 0.25207160647571586,
+              "avgOutcome": 0.24906600249066002
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 911,
+              "avgPred": 0.3490834248079033,
+              "avgOutcome": 0.31833150384193193
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 866,
+              "avgPred": 0.44945381062355644,
+              "avgOutcome": 0.4006928406466513
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 586,
+              "avgPred": 0.5476288395904435,
+              "avgOutcome": 0.5068259385665529
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 340,
+              "avgPred": 0.6428735294117647,
+              "avgOutcome": 0.5852941176470589
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 148,
+              "avgPred": 0.7465810810810813,
+              "avgOutcome": 0.668918918918919
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 75,
+              "avgPred": 0.84408,
+              "avgOutcome": 0.6666666666666666
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 29,
+              "avgPred": 0.9474310344827587,
+              "avgOutcome": 0.6206896551724138
+            }
+          ],
+          "meanP": 0.3479691901408447,
+          "meanY": 0.340962441314554,
+          "bias": 0.00700674882629071
+        },
+        "baseline_hist": {
+          "n": 5112,
+          "brier": 0.21764139565620116,
+          "logLoss": 0.6400092042835704,
+          "ece": 0.007953227021865225,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 19,
+              "avgPred": 0.009797221218272955,
+              "avgOutcome": 0.2631578947368421
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 116,
+              "avgPred": 0.18448224816086917,
+              "avgOutcome": 0.3017241379310345
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 1265,
+              "avgPred": 0.22445825282293475,
+              "avgOutcome": 0.22450592885375495
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 2413,
+              "avgPred": 0.3350794361372372,
+              "avgOutcome": 0.33319519270617487
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 1208,
+              "avgPred": 0.47073745636661934,
+              "avgOutcome": 0.4776490066225166
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 90,
+              "avgPred": 0.518001950796129,
+              "avgOutcome": 0.4222222222222222
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 1,
+              "avgPred": 0.6666666666666666,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.33842139020719464,
+          "meanY": 0.340962441314554,
+          "bias": -0.00254105110735936
+        },
+        "baseline_coin": {
+          "n": 5112,
+          "brier": 0.25,
+          "logLoss": 0.6931471805599945,
+          "ece": 0.159037558685446,
+          "reliability": [
+            {
+              "lo": 0,
+              "hi": 0.1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.1,
+              "hi": 0.2,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.2,
+              "hi": 0.3,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.3,
+              "hi": 0.4,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.4,
+              "hi": 0.5,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.5,
+              "hi": 0.6,
+              "count": 5112,
+              "avgPred": 0.5,
+              "avgOutcome": 0.340962441314554
+            },
+            {
+              "lo": 0.6,
+              "hi": 0.7,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.7,
+              "hi": 0.8,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.8,
+              "hi": 0.9,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            },
+            {
+              "lo": 0.9,
+              "hi": 1,
+              "count": 0,
+              "avgPred": 0,
+              "avgOutcome": 0
+            }
+          ],
+          "meanP": 0.5,
+          "meanY": 0.340962441314554,
+          "bias": 0.159037558685446
+        }
+      }
+    }
+  ],
+  "scoreAccuracy": [
+    {
+      "engine": "v2_joint",
+      "period": "fg",
+      "n": 1278,
+      "maeHome": 10.255982394366189,
+      "maeAway": 9.549211267605633,
+      "maeTotal": 13.215116197183104,
+      "rmseTotal": 16.594085824578652
+    },
+    {
+      "engine": "v2_joint",
+      "period": "q1",
+      "n": 1278,
+      "maeHome": 4.520262910798116,
+      "maeAway": 4.3811854460093915,
+      "maeTotal": 5.765987480438188,
+      "rmseTotal": 7.267282040559749
+    },
+    {
+      "engine": "v2_joint",
+      "period": "q2",
+      "n": 1278,
+      "maeHome": 5.393368935837246,
+      "maeAway": 4.894032081377144,
+      "maeTotal": 6.620378325508611,
+      "rmseTotal": 8.24458338642813
+    },
+    {
+      "engine": "v2_joint",
+      "period": "q3",
+      "n": 1278,
+      "maeHome": 4.632636150234751,
+      "maeAway": 4.481482785602508,
+      "maeTotal": 6.199809859154925,
+      "rmseTotal": 7.623637495600067
+    },
+    {
+      "engine": "v2_joint",
+      "period": "q4",
+      "n": 1278,
+      "maeHome": 4.749320031298903,
+      "maeAway": 4.651126760563384,
+      "maeTotal": 6.7120367762128454,
+      "rmseTotal": 8.408174144861231
+    },
+    {
+      "engine": "v2_joint",
+      "period": "h1",
+      "n": 1278,
+      "maeHome": 7.127465962441313,
+      "maeAway": 6.672979655712045,
+      "maeTotal": 8.829249217527389,
+      "rmseTotal": 11.198374725519464
+    },
+    {
+      "engine": "v2_joint",
+      "period": "h2",
+      "n": 1278,
+      "maeHome": 6.509843505477308,
+      "maeAway": 6.575062597809067,
+      "maeTotal": 8.99704068857589,
+      "rmseTotal": 11.28832879108063
+    },
+    {
+      "engine": "v1_frac",
+      "period": "fg",
+      "n": 1278,
+      "maeHome": 10.288157783074713,
+      "maeAway": 9.49954761170697,
+      "maeTotal": 13.138414667777859,
+      "rmseTotal": 16.537028764687197
+    },
+    {
+      "engine": "v1_frac",
+      "period": "q1",
+      "n": 1278,
+      "maeHome": 4.463192605633795,
+      "maeAway": 4.40666561815337,
+      "maeTotal": 6.068465758998436,
+      "rmseTotal": 7.459189761359868
+    },
+    {
+      "engine": "v1_frac",
+      "period": "q2",
+      "n": 1278,
+      "maeHome": 5.285731369327076,
+      "maeAway": 4.5735999569640065,
+      "maeTotal": 6.599299417057912,
+      "rmseTotal": 8.370069182944967
+    },
+    {
+      "engine": "v1_frac",
+      "period": "q3",
+      "n": 1278,
+      "maeHome": 4.521990226917063,
+      "maeAway": 4.515901592331768,
+      "maeTotal": 6.229449597026603,
+      "rmseTotal": 7.563165167879803
+    },
+    {
+      "engine": "v1_frac",
+      "period": "q4",
+      "n": 1278,
+      "maeHome": 4.502215884194055,
+      "maeAway": 4.33521816901409,
+      "maeTotal": 6.386965688575905,
+      "rmseTotal": 8.058847315295491
+    },
+    {
+      "engine": "v1_frac",
+      "period": "h1",
+      "n": 1278,
+      "maeHome": 7.027978266823164,
+      "maeAway": 6.356168865414709,
+      "maeTotal": 8.509354761345842,
+      "rmseTotal": 10.842510419351235
+    },
+    {
+      "engine": "v1_frac",
+      "period": "h2",
+      "n": 1278,
+      "maeHome": 6.331323849765259,
+      "maeAway": 6.396085179968695,
+      "maeTotal": 8.836486009389692,
+      "rmseTotal": 10.940640213763595
+    }
+  ],
+  "extremeAltSpreads": {
+    "v2": {
+      "n": 2556,
+      "brier": 0.19083672251564965,
+      "logLoss": 0.6909364294839175,
+      "ece": 0.13694033646322373,
+      "reliability": [
+        {
+          "lo": 0,
+          "hi": 0.1,
+          "count": 1535,
+          "avgPred": 0.03029609120521178,
+          "avgOutcome": 0.15960912052117263
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "count": 437,
+          "avgPred": 0.14404576659038903,
+          "avgOutcome": 0.33638443935926776
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "count": 238,
+          "avgPred": 0.24351680672268897,
+          "avgOutcome": 0.3907563025210084
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 149,
+          "avgPred": 0.34354026845637586,
+          "avgOutcome": 0.46308724832214765
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 93,
+          "avgPred": 0.4471451612903227,
+          "avgOutcome": 0.5483870967741935
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 43,
+          "avgPred": 0.5496744186046513,
+          "avgOutcome": 0.4883720930232558
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 33,
+          "avgPred": 0.6437121212121213,
+          "avgOutcome": 0.6060606060606061
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 20,
+          "avgPred": 0.7462250000000001,
+          "avgOutcome": 0.8
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 8,
+          "avgPred": 0.844125,
+          "avgOutcome": 0.875
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        }
+      ],
+      "meanP": 0.1278315727699525,
+      "meanY": 0.26173708920187794,
+      "bias": -0.13390551643192544
+    },
+    "v1": {
+      "n": 2556,
+      "brier": 0.17680901379107994,
+      "logLoss": 0.5724070481581288,
+      "ece": 0.05999197965571204,
+      "reliability": [
+        {
+          "lo": 0,
+          "hi": 0.1,
+          "count": 714,
+          "avgPred": 0.04559523809523811,
+          "avgOutcome": 0.10784313725490197
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "count": 708,
+          "avgPred": 0.14859745762711865,
+          "avgOutcome": 0.2175141242937853
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "count": 508,
+          "avgPred": 0.2476200787401576,
+          "avgOutcome": 0.30118110236220474
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 340,
+          "avgPred": 0.3433470588235294,
+          "avgOutcome": 0.37058823529411766
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 174,
+          "avgPred": 0.44287643678160904,
+          "avgOutcome": 0.5402298850574713
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 70,
+          "avgPred": 0.5433428571428572,
+          "avgOutcome": 0.5142857142857142
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 31,
+          "avgPred": 0.6446451612903227,
+          "avgOutcome": 0.5806451612903226
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 9,
+          "avgPred": 0.7438333333333333,
+          "avgOutcome": 1
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 2,
+          "avgPred": 0.81625,
+          "avgOutcome": 1
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        }
+      ],
+      "meanP": 0.20488908450704194,
+      "meanY": 0.26173708920187794,
+      "bias": -0.056848004694836
+    },
+    "hist": {
+      "n": 2556,
+      "brier": 0.1949548096310922,
+      "logLoss": 0.5934735717538437,
+      "ece": 0.01961292911456568,
+      "reliability": [
+        {
+          "lo": 0,
+          "hi": 0.1,
+          "count": 2,
+          "avgPred": 1e-9,
+          "avgOutcome": 1
+        },
+        {
+          "lo": 0.1,
+          "hi": 0.2,
+          "count": 20,
+          "avgPred": 0.1613875957056541,
+          "avgOutcome": 0.25
+        },
+        {
+          "lo": 0.2,
+          "hi": 0.3,
+          "count": 2278,
+          "avgPred": 0.25237453028442075,
+          "avgOutcome": 0.26382791922739246
+        },
+        {
+          "lo": 0.3,
+          "hi": 0.4,
+          "count": 246,
+          "avgPred": 0.309488802388293,
+          "avgOutcome": 0.23983739837398374
+        },
+        {
+          "lo": 0.4,
+          "hi": 0.5,
+          "count": 2,
+          "avgPred": 0.4,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.6,
+          "count": 6,
+          "avgPred": 0.5,
+          "avgOutcome": 0.3333333333333333
+        },
+        {
+          "lo": 0.6,
+          "hi": 0.7,
+          "count": 2,
+          "avgPred": 0.6666666666666666,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.8,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.8,
+          "hi": 0.9,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        },
+        {
+          "lo": 0.9,
+          "hi": 1,
+          "count": 0,
+          "avgPred": 0,
+          "avgOutcome": 0
+        }
+      ],
+      "meanP": 0.2579829853774946,
+      "meanY": 0.26173708920187794,
+      "bias": -0.003754103824383348
+    }
+  },
+  "acceptanceGates": [
+    {
+      "family": "ncaaf:ml",
+      "period": "fg",
+      "n": 1278,
+      "accepted": false,
+      "reasons": [
+        "ece_0.10135093896713615_gt_0.04",
+        "shadow_soak_incomplete"
+      ],
+      "metrics": {
+        "brier": 0.21723085035211273,
+        "logLoss": 0.6356521730596819,
+        "ece": 0.10135093896713615,
+        "n": 1278
+      },
+      "thresholds": {
+        "minOosSample": 500,
+        "maxEce": 0.04,
+        "maxIntegrityRejectRate": 0,
+        "minCorrectRejectLabelRate": 0.99,
+        "maxDeepP95Ms": 800,
+        "forbidModelIdPrefixes": [
+          "fixture."
+        ]
+      }
+    },
+    {
+      "family": "ncaaf:spread",
+      "period": "fg",
+      "n": 7668,
+      "accepted": false,
+      "reasons": [
+        "ece_0.11149008868022957_gt_0.04",
+        "shadow_soak_incomplete"
+      ],
+      "metrics": {
+        "brier": 0.20482725828116918,
+        "logLoss": 0.6531161827335067,
+        "ece": 0.11149008868022957,
+        "n": 7668
+      },
+      "thresholds": {
+        "minOosSample": 500,
+        "maxEce": 0.04,
+        "maxIntegrityRejectRate": 0,
+        "minCorrectRejectLabelRate": 0.99,
+        "maxDeepP95Ms": 800,
+        "forbidModelIdPrefixes": [
+          "fixture."
+        ]
+      }
+    },
+    {
+      "family": "ncaaf:total",
+      "period": "fg",
+      "n": 6390,
+      "accepted": false,
+      "reasons": [
+        "ece_0.06226369327073562_gt_0.04",
+        "shadow_soak_incomplete"
+      ],
+      "metrics": {
+        "brier": 0.21579362691705806,
+        "logLoss": 0.6287616528699929,
+        "ece": 0.06226369327073562,
+        "n": 6390
+      },
+      "thresholds": {
+        "minOosSample": 500,
+        "maxEce": 0.04,
+        "maxIntegrityRejectRate": 0,
+        "minCorrectRejectLabelRate": 0.99,
+        "maxDeepP95Ms": 800,
+        "forbidModelIdPrefixes": [
+          "fixture."
+        ]
+      }
+    },
+    {
+      "family": "ncaaf:team_total",
+      "period": "fg",
+      "n": 10224,
+      "accepted": false,
+      "reasons": [
+        "ece_0.07102601721439744_gt_0.04",
+        "shadow_soak_incomplete"
+      ],
+      "metrics": {
+        "brier": 0.2138067674589203,
+        "logLoss": 0.6289758660505064,
+        "ece": 0.07102601721439744,
+        "n": 10224
+      },
+      "thresholds": {
+        "minOosSample": 500,
+        "maxEce": 0.04,
+        "maxIntegrityRejectRate": 0,
+        "minCorrectRejectLabelRate": 0.99,
+        "maxDeepP95Ms": 800,
+        "forbidModelIdPrefixes": [
+          "fixture."
+        ]
+      }
+    }
+  ],
+  "elapsedMs": 9506
+}

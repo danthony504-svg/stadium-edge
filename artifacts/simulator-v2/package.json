@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
-    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'"
+    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'",
+    "eval:historical": "node --import ./test/register-hooks.mjs ./eval/runHistoricalValidation.ts"
   },
   "dependencies": {
     "zod": "catalog:"

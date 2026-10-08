@@ -39,3 +39,14 @@ Periods are the generative process (Poisson quarter scoring + shared pace). Ther
 pnpm --filter @workspace/simulator-v2 test
 pnpm --filter @workspace/simulator-v2 typecheck
 ```
+
+## Historical validation (Phase B)
+
+Walk-forward NFL/NCAAF eval against ESPN completed games (leak-free L4 form):
+
+```bash
+pnpm --filter @workspace/simulator-v2 eval:historical
+# optional: -- --sport=nfl --maxGames=50 --draws=1000 --refresh
+```
+
+Report: `eval/report/HISTORICAL_VALIDATION.md`. V2 stays shadow-only; gates are not auto-flipped by this script.
