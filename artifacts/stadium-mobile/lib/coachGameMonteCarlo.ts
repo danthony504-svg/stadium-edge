@@ -44,6 +44,38 @@ export type GameTeamIds = {
   awayTeam: string;
 };
 
+/**
+ * Board-scan and pick-supplement paths must share this step: when ESPN period
+ * linescores exist, re-derive period coverHitRates with offense/defense shares
+ * so Q2/1H/etc. grades match production (frac-only server rates alone understate
+ * asymmetric period scoring — e.g. Bucs Q2 +3.5 0.86 vs period-OD ~0.95).
+ */
+export function applyPeriodOffenseDefenseCoverRates(
+  entry: CoachGameSimEntry,
+  coverQueries: readonly GameCoverQuery[],
+  sportKey: string,
+  homePeriodAverages: Record<string, { scored: number; allowed: number }> | null | undefined,
+  awayPeriodAverages: Record<string, { scored: number; allowed: number }> | null | undefined,
+): CoachGameSimEntry {
+  const profile = buildPeriodOffenseDefenseProfile(
+    homePeriodAverages,
+    awayPeriodAverages,
+  );
+  if (!profile || !entry.outcomes?.homeScores?.length) return entry;
+  const periodQueries = coverQueries.filter((q) => q.period && q.period !== "fg");
+  if (!periodQueries.length) return entry;
+  const periodRates = deriveCoverHitRatesFromOutcomes(
+    entry.outcomes,
+    periodQueries,
+    sportKey,
+    profile,
+  );
+  return {
+    ...entry,
+    coverHitRates: { ...(entry.coverHitRates ?? {}), ...periodRates },
+  };
+}
+
 /** Map "Away @ Home" labels to ESPN team ids from a games fetch. */
 export function buildGameTeamIdMap(games: EspnGame[]): Map<string, GameTeamIds> {
   return buildCoachGameTeamIdMap(games) as Map<string, GameTeamIds>;
@@ -157,19 +189,30 @@ export async function fetchCoachGameSimulationsForPicks(
       if (!ids) return;
       const coverQueries = uniqueCoverQueries(legs, realOdds, evalLinesByGame);
       const sportKey = (ids.sport || sport || "mlb").toLowerCase();
-      let result = await fetchGameOutcomeSimulation(
-        {
-          sport: ids.sport || sport || "mlb",
-          homeTeamId: ids.homeTeamId || undefined,
-          awayTeamId: ids.awayTeamId || undefined,
-          homeTeam: ids.homeTeam,
-          awayTeam: ids.awayTeam,
-          simulations: COACH_GAME_SIMS,
-          coverQueries,
-          retainOutcomes: true,
-        },
-        signal,
-      );
+      const wantsPeriodStats =
+        sportKey === "ncaaf" || sportKey === "nfl" || sportKey === "nba";
+      const [resultRaw, homePeriod, awayPeriod] = await Promise.all([
+        fetchGameOutcomeSimulation(
+          {
+            sport: ids.sport || sport || "mlb",
+            homeTeamId: ids.homeTeamId || undefined,
+            awayTeamId: ids.awayTeamId || undefined,
+            homeTeam: ids.homeTeam,
+            awayTeam: ids.awayTeam,
+            simulations: COACH_GAME_SIMS,
+            coverQueries,
+            retainOutcomes: true,
+          },
+          signal,
+        ),
+        wantsPeriodStats && ids.homeTeamId
+          ? fetchTeamPeriodStats(sportKey, ids.homeTeamId, signal)
+          : Promise.resolve(null),
+        wantsPeriodStats && ids.awayTeamId
+          ? fetchTeamPeriodStats(sportKey, ids.awayTeamId, signal)
+          : Promise.resolve(null),
+      ]);
+      let result = resultRaw;
       if (
         !result &&
         (sportKey === "ufc" || sportKey === "mma") &&
@@ -192,7 +235,13 @@ export async function fetchCoachGameSimulationsForPicks(
         );
       }
       if (result) {
-        const sim = result as CoachGameSimEntry;
+        const sim = applyPeriodOffenseDefenseCoverRates(
+          result as CoachGameSimEntry,
+          coverQueries,
+          sportKey,
+          homePeriod?.periodAverages,
+          awayPeriod?.periodAverages,
+        );
         out.set(gameLabel, sim);
         for (const leg of legs) {
           if (leg.game !== gameLabel) out.set(leg.game, sim);
@@ -372,28 +421,13 @@ export async function fetchSlateGameSimulationsWithStatus(
         );
       }
       if (result) {
-        let entry = result as CoachGameSimEntry;
-        // Re-derive period cover rates with real period offense vs opp period
-        // defense when ESPN linescores exist — never invent period averages.
-        const profile = buildPeriodOffenseDefenseProfile(
+        const entry = applyPeriodOffenseDefenseCoverRates(
+          result as CoachGameSimEntry,
+          coverQueries,
+          sportKey,
           homePeriod?.periodAverages,
           awayPeriod?.periodAverages,
         );
-        if (profile && entry.outcomes?.homeScores?.length) {
-          const periodQueries = coverQueries.filter((q) => q.period && q.period !== "fg");
-          if (periodQueries.length) {
-            const periodRates = deriveCoverHitRatesFromOutcomes(
-              entry.outcomes,
-              periodQueries,
-              sportKey,
-              profile,
-            );
-            entry = {
-              ...entry,
-              coverHitRates: { ...(entry.coverHitRates ?? {}), ...periodRates },
-            };
-          }
-        }
         out.set(gameLabel, entry);
         statuses.push({
           gameLabel,
