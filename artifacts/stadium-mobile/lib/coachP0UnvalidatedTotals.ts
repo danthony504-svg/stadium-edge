@@ -10,8 +10,13 @@
 /** Sports whose team-scoring engines are unvalidated for totals (P0). */
 export const P0_UNVALIDATED_SCORING_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
 
-/** FG game totals share the inflated nfl-drive distribution — fail closed too. */
-export const P0_UNVALIDATED_FG_GAME_TOTAL_SPORTS = new Set(["nfl", "ncaaf"]);
+/**
+ * FG game totals that settle from the same unvalidated team-scoring engines.
+ * NFL/NCAAF: inflated nfl-drive distribution.
+ * NHL: nhl-shift applies (1−save%) on top of already-realized goal means, so
+ * FG totals (not only team/period) are unsafe — fail closed too.
+ */
+export const P0_UNVALIDATED_FG_GAME_TOTAL_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
 
 export const P0_UNVALIDATED_TOTAL_REASON =
   "unvalidated_period_or_team_total_calibration";

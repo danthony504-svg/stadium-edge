@@ -29,15 +29,36 @@ test("P0 blocks NFL/NCAAF/NHL team totals (any period)", () => {
   }
 });
 
-test("P0 blocks NFL/NCAAF period game totals and FG game totals", () => {
+test("P0 blocks NFL/NCAAF/NHL period game totals and FG game totals", () => {
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Total", sport: "nfl" }), true);
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Alt Total", sport: "ncaaf" }), true);
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "1H Total", sport: "nfl" }), true);
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "2H Alt Total", sport: "ncaaf" }), true);
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Q1 Total", sport: "nfl" }), true);
-  // NHL FG game total not in P0 FG set — only team/period totals for NHL.
-  assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Total", sport: "nhl" }), false);
+  // NHL FG totals settle from the same broken nhl-shift scores — fail closed.
+  assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Total", sport: "nhl" }), true);
+  assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Alt Total", sport: "nhl" }), true);
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "1H Total", sport: "nhl" }), true);
+  assert.equal(isP0UnvalidatedSimTotalMarket({ market: "P1 Total", sport: "nhl" }), true);
+});
+
+test("assessSimMarketIntegrity fail-closes NHL FG total from nhl-shift", () => {
+  const ctx = {
+    market: "Total",
+    sport: "nhl",
+    period: "fg",
+    periodUsed: "fg",
+    line: 5.5,
+    odds: -110,
+    simulationStatKey: "fg:game_total:over",
+    expectedStatKey: "fg:game_total:over",
+    simulatedMean: 4.2,
+    simulatedStdev: 1.8,
+  };
+  const d = assessSimMarketIntegrity(0.72, ctx);
+  assert.equal(d.accept, false);
+  assert.equal(d.reason, P0_UNVALIDATED_TOTAL_REASON);
+  assert.equal(sanitizeSimHitForGrade(0.72, ctx), null);
 });
 
 test("P0 does not block props, spreads, moneylines, or NBA totals", () => {
