@@ -1,0 +1,154 @@
+{
+  "protocol": "nhl_prop_diagnose_v1",
+  "shadowOnly": true,
+  "rootCause": "boxscore_sog_path_miss_shotsTotal",
+  "keyAudit": {
+    "legacySkaterSogIndex": -1,
+    "fixedSkaterSogIndex": 12,
+    "fixedSkaterSogKey": "shotsTotal",
+    "goalsIndex": 9,
+    "goalieSavesIndex": 4,
+    "isGoalieGrp": true
+  },
+  "identity": {
+    "idOk": 2281,
+    "sideHome": 1141,
+    "sideAway": 1140,
+    "skaterN": 2157,
+    "goalieN": 124,
+    "toiKnown": 2281,
+    "sogPositive": 1602
+  },
+  "games": 60,
+  "broken": {
+    "n": 840,
+    "ece": 0.39692857142857146,
+    "bias": 0.39582976190476216,
+    "verdict": "FAIL",
+    "bySlice": [
+      {
+        "slice": "prop_goals_0.5",
+        "n": 240,
+        "meanP": 0.24164166666666664,
+        "meanY": 0.17083333333333334,
+        "bias": 0.0708083333333333,
+        "ece": 0.07465416666666658,
+        "actualMean": 0.1875,
+        "simMean": 0.293825,
+        "actualVar": 0.18567708333333333,
+        "simVar": 0.0010055193750000007,
+        "actualZeroRate": 0.8291666666666667,
+        "overconf80Rate": 0
+      },
+      {
+        "slice": "prop_sog_2.5",
+        "n": 240,
+        "meanP": 0.678,
+        "meanY": 0,
+        "bias": 0.678,
+        "ece": 0.6780000000000002,
+        "actualMean": 0,
+        "simMean": 3.5816895833333318,
+        "actualVar": 0,
+        "simVar": 0.010384077599826383,
+        "actualZeroRate": 1,
+        "overconf80Rate": 0
+      },
+      {
+        "slice": "alt_prop_sog_3.5",
+        "n": 240,
+        "meanP": 0.48817083333333344,
+        "meanY": 0,
+        "bias": 0.48817083333333344,
+        "ece": 0.4881708333333332,
+        "actualMean": 0,
+        "simMean": 3.5816895833333318,
+        "actualVar": 0,
+        "simVar": 0.010384077599826383,
+        "actualZeroRate": 1,
+        "overconf80Rate": 0
+      },
+      {
+        "slice": "prop_saves_24.5",
+        "n": 120,
+        "meanP": 0.8551833333333334,
+        "meanY": 0.5583333333333333,
+        "bias": 0.29685000000000006,
+        "ece": 0.29685000000000006,
+        "actualMean": 25.733333333333334,
+        "simMean": 31.054491666666667,
+        "actualVar": 50.84555555555559,
+        "simVar": 0.23748789993055566,
+        "actualZeroRate": 0,
+        "overconf80Rate": 1
+      }
+    ]
+  },
+  "fixed": {
+    "n": 840,
+    "ece": 0.28264285714285714,
+    "bias": 0.28154404761904783,
+    "verdict": "FAIL",
+    "reasons": [
+      "ece_0.2826_gt_0.04"
+    ],
+    "bySlice": [
+      {
+        "slice": "prop_goals_0.5",
+        "n": 240,
+        "meanP": 0.24164166666666664,
+        "meanY": 0.17083333333333334,
+        "bias": 0.0708083333333333,
+        "ece": 0.07465416666666658,
+        "actualMean": 0.1875,
+        "simMean": 0.293825,
+        "actualVar": 0.18567708333333333,
+        "simVar": 0.0010055193750000007,
+        "actualZeroRate": 0.8291666666666667,
+        "overconf80Rate": 0
+      },
+      {
+        "slice": "prop_sog_2.5",
+        "n": 240,
+        "meanP": 0.678,
+        "meanY": 0.275,
+        "bias": 0.403,
+        "ece": 0.40300000000000014,
+        "actualMean": 1.7708333333333333,
+        "simMean": 3.5816895833333318,
+        "actualVar": 2.1849826388888887,
+        "simVar": 0.010384077599826383,
+        "actualZeroRate": 0.22083333333333333,
+        "overconf80Rate": 0
+      },
+      {
+        "slice": "alt_prop_sog_3.5",
+        "n": 240,
+        "meanP": 0.48817083333333344,
+        "meanY": 0.125,
+        "bias": 0.36317083333333344,
+        "ece": 0.3631708333333332,
+        "actualMean": 1.7708333333333333,
+        "simMean": 3.5816895833333318,
+        "actualVar": 2.1849826388888887,
+        "simVar": 0.010384077599826383,
+        "actualZeroRate": 0.22083333333333333,
+        "overconf80Rate": 0
+      },
+      {
+        "slice": "prop_saves_24.5",
+        "n": 120,
+        "meanP": 0.8551833333333334,
+        "meanY": 0.5583333333333333,
+        "bias": 0.29685000000000006,
+        "ece": 0.29685000000000006,
+        "actualMean": 25.733333333333334,
+        "simMean": 31.054491666666667,
+        "actualVar": 50.84555555555559,
+        "simVar": 0.23748789993055566,
+        "actualZeroRate": 0,
+        "overconf80Rate": 1
+      }
+    ]
+  }
+}
