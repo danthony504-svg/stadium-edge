@@ -19,7 +19,7 @@ import {
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
-import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { dedupePicksByMarketLadder, wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import { wouldStackSameTeamTeamTotals } from "./coachP0UnvalidatedTotals.ts";
 import {
   selectCorrelationAwareBoardLegs,
@@ -276,7 +276,8 @@ export function topUpTicketFromQualifiedScored(
   // Mix tickets: do not re-run same-team period collapse on the whole ticket —
   // that would wipe Q1+1H seats the per-game cap intentionally allows.
   // Game-lines-only already collapsed inside appendExtras.
-  return tagTicketRoles(merged.slice(0, target));
+  // Always enforce one rung per normalized market ladder after top-up.
+  return tagTicketRoles(dedupePicksByMarketLadder(merged.slice(0, target)));
 }
 
 /** Hard cap on niche stat markets so SB stacks cannot dominate a ticket. */

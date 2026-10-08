@@ -808,12 +808,19 @@ export async function buildCoachParlay(opts: {
   );
   // Lock ML / puck-line / spread sides to real mlLean when present — opponent
   // comparison like NFL, not freeform chat inventing home-ice one-liners.
+  // Substitutions must already be staging-qualified with preserved finalAiScore.
   let mlLeanNote = "";
   if (!propsOnly && matchupHistory && picks.some((p) => !p.isProp)) {
+    const qualifiedCandidates = [
+      ...(scan?.qualifiedCandidates ?? []),
+      ...(latest?.qualifiedCandidates ?? []),
+      ...picks,
+    ];
     const enforced = enforceMlLeanOnPicks(picks, {
       matchupHistory,
       realOdds: scanRealOdds,
       gameMeta: [],
+      qualifiedCandidates,
     });
     picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(enforced.picks, marketConstraint),

@@ -2,7 +2,7 @@
 // staging, and delivery gates. Never pad tickets with ungraded posted lines.
 
 export const COACH_FULL_BOARD_SCAN_POLICY =
-  "Scan every available market and every player prop — not just the top few. Score each market the same way (EV, edge, confidence, AI grade, and 10,000 simulations). Keep separate ranked pools for player props, game lines, team totals, and alternate lines. Build a balanced ticket (~50% player props, ~20–30% game lines, ~10–20% team totals, ~10–20% alternate lines). Only add more game lines when there truly are not enough qualified player props. Never lower AI standards to hit the leg count — every pick must have positive EV, positive edge, pass simulation, and meet the confidence threshold. Return fewer legs instead of weak filler.";
+  "Scan every available market and every player prop — not just the top few. Score discovered markets with EV, edge, confidence, and AI grade; run shared Monte Carlo (typically 10k draws per game, capped prop batches) where the market is supported. Keep separate ranked pools for player props, game lines, team totals, and alternate lines. Build a balanced ticket (~50% player props, ~20–30% game lines, ~10–20% team totals, ~10–20% alternate lines). Only add more game lines when there truly are not enough qualified player props. Never lower AI standards to hit the leg count — every pick must have positive EV, positive edge, pass simulation, and meet the confidence threshold. Return fewer legs instead of weak filler.";
 
 /** User-facing fixed-leg ticket policy (3, 5, 6, 10, 15, …). */
 export const COACH_FIXED_LEG_TICKET_POLICY =

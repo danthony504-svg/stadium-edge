@@ -508,11 +508,13 @@ test("college team-market top-up keeps FG + Q2 + team total toward N", () => {
       88,
       mainScore,
     ),
+    // P0 blocks NCAAF team/FG totals — use 1H spreads as the additional
+    // period stack so college FG+period seating stays covered.
     leg(
       {
         game: g1,
-        market: "Team Total",
-        pick: "Iowa Hawkeyes Under 17.5",
+        market: "1H Spread",
+        pick: "Iowa Hawkeyes +7.5",
         odds: -115,
         sport: "ncaaf",
       },
@@ -527,8 +529,8 @@ test("college team-market top-up keeps FG + Q2 + team total toward N", () => {
     leg(
       {
         game: g2,
-        market: "Team Total",
-        pick: "UConn Huskies Over 24.5",
+        market: "1H Spread",
+        pick: "UConn Huskies +3.5",
         odds: -110,
         sport: "ncaaf",
       },
@@ -544,11 +546,11 @@ test("college team-market top-up keeps FG + Q2 + team total toward N", () => {
   const iowa = topped.filter((p) => /iowa/i.test(p.pick ?? "") && /ohio state/i.test(p.game ?? ""));
   assert.ok(
     iowa.length >= 2,
-    `expected Iowa FG+period/team stacks, got ${iowa.map((p) => `${p.market}:${p.pick}`)}`,
+    `expected Iowa FG+period stacks, got ${iowa.map((p) => `${p.market}:${p.pick}`)}`,
   );
   assert.ok(
-    topped.some((p) => /q2/i.test(p.market ?? "")),
-    "expected a Q2 period stack on the college ticket",
+    topped.some((p) => /q2|1h/i.test(p.market ?? "")),
+    "expected a period stack on the college ticket",
   );
 });
 
@@ -720,15 +722,22 @@ test("top-up after excluded-matchup filter never reintroduces Florida @ Anaheim"
       98,
       mainScore,
     ),
+    // Prefer ML / puck-line leftovers — NHL FG totals are P0-blocked.
     leg(
-      { game: "Ottawa Senators @ Boston Bruins", market: "Moneyline", pick: "Bruins", odds: -130, sport: "nhl" },
+      { game: "Ottawa Senators @ Boston Bruins", market: "Moneyline", pick: "Bruins", odds: -105, sport: "nhl" },
       70,
-      mainScore,
+      { ...mainScore, simHit: 0.62 },
     ),
     leg(
-      { game: "Winnipeg Jets @ Pittsburgh Penguins", market: "Total", pick: "Under 6.5", odds: -110, sport: "nhl" },
+      {
+        game: "Winnipeg Jets @ Pittsburgh Penguins",
+        market: "Puck Line",
+        pick: "Penguins +1.5",
+        odds: -110,
+        sport: "nhl",
+      },
       65,
-      mainScore,
+      { ...mainScore, simHit: 0.62 },
     ),
   ];
   // Mirror buildScanResult exclusion belt before top-up.

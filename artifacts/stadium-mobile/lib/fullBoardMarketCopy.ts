@@ -56,9 +56,7 @@ export function fullBoardScanShortfallNote(
       pickCount <= 0
         ? `You asked for ${requested} legs. No qualified picks were available, so no filler was added.`
         : `You asked for ${requested} legs. ${pickCount} qualified picks were available, so no filler was added.`;
-    const scanCtx = `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). ${COACH_NO_FILLER_SHORTFALL}_`;
-    // Intentionally omit mainQualified/altQualified pool sizes here — those are
-    // intermediate candidate counts and disagree with final ticket length.
+    const scanCtx = `_Evaluated ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES}. Supported markets use shared game/prop Monte Carlo (typically 10k draws per game or capped prop batch), cross-book line shopping, correlation scoring, and historical learning. ${COACH_NO_FILLER_SHORTFALL}_`;
     void totalQualified;
     return `${lead}${finalRoleDetail}\n\n${scanCtx}`;
   }
@@ -71,5 +69,5 @@ export function fullBoardScanShortfallNote(
       : ` ${mainOn} main pick${mainOn === 1 ? "" : "s"} on the ticket.`
     : "";
   void totalQualified;
-  return `_Scanned the entire board — ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied).${composed} These ${pickCount} are the top sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
+  return `_Evaluated ${totalScanned} posted lines across ${FULL_BOARD_MARKET_FAMILIES}. Supported markets use shared game/prop Monte Carlo (typically 10k draws per game or capped prop batch), cross-book line shopping, correlation scoring, and historical learning.${composed} These ${pickCount} are the top sim-aligned legs by EV, edge, confidence, and AI grade. ${COACH_NO_FILLER_SHORTFALL}_`;
 }
