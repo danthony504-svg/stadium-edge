@@ -661,6 +661,20 @@ async function main() {
     const run02 = runs.get("v0.2")!;
     const run032 = runs.get("v0.3.2")!;
 
+    // Keep only observation keys present in BOTH profiles (identical graded set).
+    const obsKey = (o: CalibObs) =>
+      `${o.eventId}|${o.playerId}|${o.slice}|${o.line ?? ""}|${o.isAlt ? "alt" : "main"}`;
+    const keys02 = new Set(run02.obs.map(obsKey));
+    const keys032 = new Set(run032.obs.map(obsKey));
+    const shared = new Set([...keys02].filter((k) => keys032.has(k)));
+    const dropped02 = run02.obs.length - shared.size;
+    const dropped032 = run032.obs.length - shared.size;
+    run02.obs = run02.obs.filter((o) => shared.has(obsKey(o)));
+    run032.obs = run032.obs.filter((o) => shared.has(obsKey(o)));
+    if (run02.obs.length !== run032.obs.length) {
+      throw new Error(`${sport}: paired_obs_mismatch_${run02.obs.length}_vs_${run032.obs.length}`);
+    }
+
     // Proxy confirmation: zero graded obs with non-named ids.
     for (const run of [run02, run032]) {
       const bad = run.obs.filter((o) => !o.namedPlayer || !isNamedEspnAthleteId(o.playerId));
@@ -692,7 +706,7 @@ async function main() {
       `- Rejected proxy/missing identity (not graded): v0.2=${run02.rejectedProxyOrMissing} / v0.3.2=${run032.rejectedProxyOrMissing}`,
     );
     holdoutParts.push(
-      `- Settled obs: v0.2=${run02.obs.length} / v0.3.2=${run032.obs.length} (must match event×player×line set)`,
+      `- Settled obs (paired): ${run02.obs.length} (dropped unpaired v0.2=${dropped02} v0.3.2=${dropped032})`,
     );
     holdoutParts.push(
       `- Runtime p95 ms/game: v0.2=${percentile(run02.gameMs, 0.95).toFixed(1)} / v0.3.2=${percentile(run032.gameMs, 0.95).toFixed(1)}`,
