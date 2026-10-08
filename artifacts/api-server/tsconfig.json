@@ -12,6 +12,9 @@
     },
     {
       "path": "../../lib/api-zod"
+    },
+    {
+      "path": "../simulator-v2"
     }
   ]
 }

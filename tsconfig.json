@@ -14,6 +14,9 @@
     },
     {
       "path": "./lib/api-zod"
+    },
+    {
+      "path": "./artifacts/simulator-v2"
     }
   ]
 }
