@@ -34,3 +34,14 @@ pnpm eval:prop-oos
 
 ## Non-goals
 Serve flags, family allowlists, Coach wiring, production OTA.
+
+## Holdout results (prop model 0.3.2)
+| Sport | Family | n | ECE | Verdict |
+|-------|--------|---|-----|---------|
+| NFL | player_prop | 6833 | 0.0375 | FAIL (p95 overconf band; ECE≤0.04) |
+| NFL | pass_yds | 2280 | 0.0252 | PASS |
+| NCAAF | player_prop | 9688 | 0.0742 | FAIL |
+| both | closing_line_* | 0 | — | INSUFFICIENT_DATA |
+
+Prior proxy-identity ECE was ~0.112 / 0.127 on n≪500. Named-player + val mean scales cleared NFL pass_yds and brought NFL overall ECE under 0.04; family still gated by extreme-alt p95 hit rate and NCAAF residual bias.
+

@@ -153,7 +153,7 @@ export function evaluateFamilyGate(
   if (opts?.requireNamedPlayer && rows.some((r) => !r.namedPlayer)) {
     reasons.push("named_player_grounding_incomplete");
   }
-  if (opts?.requireRealBook && rows.some((r) => !r.realBookLine)) {
+  if (opts?.requireRealBook && (rows.length === 0 || rows.some((r) => !r.realBookLine))) {
     reasons.push("closing_line_unavailable_unlicensed");
   }
   if (m.n < SIM_V2_ACCEPTANCE_THRESHOLDS.minOosSample) {
