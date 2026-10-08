@@ -45,7 +45,7 @@ Full tables: `eval/report/MLB_CHRONO_OOS.md`, `eval/report/MLB_FAMILY_GATES.md`.
 
 ## SHAs
 - Code (familyCalibration + joint v0.3 + OOS harness): `fe22154d8cd255b95e82135ad5f1ff53c8916b53`
-- Reports + this milestone: _(filled after push)_
+- Reports + this milestone: `75044b5e00685e3a3de3b178a3f7e525f21920f7`
 
 ## Isolation
 - Production allowlists empty; serve flag off.
