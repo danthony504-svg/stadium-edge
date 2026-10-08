@@ -1,6 +1,7 @@
 /**
- * Milestone D.1 — NHL joint period goals model (shadow-only).
- * P1+P2+P3 = FG on every draw. No football imports / params.
+ * Milestone D.2 — NHL joint model with regulation / OT / SO layers (shadow-only).
+ * P1+P2+P3 = regulation FG. Final scores add OT goal or SO winner (+1).
+ * No football imports.
  */
 
 import { SIM_V2_DEEP_DRAWS, SIM_V2_SCHEMA_VERSION } from "../../version.js";
@@ -9,7 +10,7 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { NHL_PERIOD_SHARES, NHL_TEAM_FG_MEAN, isHockeySport, type HockeySport } from "./priors.js";
 
 export const HOCKEY_JOINT_MODEL_ID = "hockey.joint.v0" as const;
-export const HOCKEY_JOINT_MODEL_VERSION = "0.1.0" as const;
+export const HOCKEY_JOINT_MODEL_VERSION = "0.2.0" as const;
 export const HOCKEY_JOINT_MODEL_IDS = [HOCKEY_JOINT_MODEL_ID] as const;
 
 export type HockeyTeamInput = {
@@ -17,6 +18,15 @@ export type HockeyTeamInput = {
   goalsFor?: number | null;
   goalsAgainst?: number | null;
   recentFgGoals?: number[];
+};
+
+export type HockeyPropPlayerInput = {
+  playerId: string;
+  teamSide: "home" | "away";
+  usage: number;
+  participateProb?: number;
+  /** Goalie flag for saves markets. */
+  isGoalie?: boolean;
 };
 
 export type JointHockeyInput = {
@@ -27,14 +37,6 @@ export type JointHockeyInput = {
   away: HockeyTeamInput;
   nDraws?: number;
   players?: HockeyPropPlayerInput[];
-};
-
-export type HockeyPropPlayerInput = {
-  playerId: string;
-  teamSide: "home" | "away";
-  /** Share of team goals / SOG volume. */
-  usage: number;
-  participateProb?: number;
 };
 
 function avg(vals: number[] | undefined, fallback: number): number {
@@ -71,10 +73,10 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
   }
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const homeMean = teamFgMean(input.home, input.away) + 0.15; // mild HFA
+  const homeMean = teamFgMean(input.home, input.away) + 0.15;
   const awayMean = teamFgMean(input.away, input.home);
 
-  const homeFg = new Float64Array(n);
+  const homeFg = new Float64Array(n); // regulation
   const awayFg = new Float64Array(n);
   const homeP: [Float64Array, Float64Array, Float64Array] = [
     new Float64Array(n),
@@ -86,6 +88,12 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
     new Float64Array(n),
     new Float64Array(n),
   ];
+  const homeOt = new Float64Array(n);
+  const awayOt = new Float64Array(n);
+  const homeSo = new Float64Array(n); // 1 if won SO
+  const awaySo = new Float64Array(n);
+  const wentOt = new Float64Array(n);
+  const wentSo = new Float64Array(n);
 
   for (let i = 0; i < n; i++) {
     let hs = 0;
@@ -100,10 +108,27 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
     }
     homeFg[i] = hs;
     awayFg[i] = as;
+
+    if (hs === as) {
+      wentOt[i] = 1;
+      // 5-on-5 / 3-on-3 OT: low-scoring sudden death
+      const hot = next() < 0.35 ? 1 : 0;
+      const aot = hot === 1 ? 0 : next() < 0.35 ? 1 : 0;
+      if (hot === 1) {
+        homeOt[i] = 1;
+      } else if (aot === 1) {
+        awayOt[i] = 1;
+      } else {
+        // still tied → SO
+        wentSo[i] = 1;
+        if (next() < 0.52) homeSo[i] = 1;
+        else awaySo[i] = 1;
+      }
+    }
   }
 
   const players: SimV2ScenarioTensor["players"] = {};
-  const playerStatKeys = ["goals", "assists", "points", "shots_on_goal"];
+  const playerStatKeys = ["goals", "assists", "points", "shots_on_goal", "saves"];
   for (const pl of input.players ?? []) {
     const usage = clamp(pl.usage, 0, 1);
     const partP = clamp(pl.participateProb ?? 0.95, 0, 1);
@@ -112,19 +137,28 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
     const assists = new Float64Array(n);
     const points = new Float64Array(n);
     const sog = new Float64Array(n);
+    const saves = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const inGame = next() < partP ? 1 : 0;
       participated[i] = inGame;
       if (!inGame) continue;
       const teamG = pl.teamSide === "home" ? homeFg[i]! : awayFg[i]!;
-      goals[i] = poissonSample(teamG * usage * 0.35, next);
-      assists[i] = poissonSample(teamG * usage * 0.4, next);
-      points[i] = goals[i]! + assists[i]!;
-      sog[i] = poissonSample(2.8 + teamG * usage * 1.1, next);
+      const oppG = pl.teamSide === "home" ? awayFg[i]! : homeFg[i]!;
+      if (pl.isGoalie) {
+        // Saves ≈ opponent SOG − goals; proxy opponent SOG from goals
+        const oppSog = poissonSample(28 + oppG * 2.5, next);
+        saves[i] = Math.max(0, oppSog - oppG);
+        sog[i] = 0;
+      } else {
+        goals[i] = poissonSample(teamG * usage * 0.35, next);
+        assists[i] = poissonSample(teamG * usage * 0.4, next);
+        points[i] = goals[i]! + assists[i]!;
+        sog[i] = poissonSample(2.8 + teamG * usage * 1.1, next);
+      }
     }
     players[pl.playerId] = {
       participated,
-      stats: { goals, assists, points, shots_on_goal: sog },
+      stats: { goals, assists, points, shots_on_goal: sog, saves },
     };
   }
 
@@ -151,7 +185,11 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
       quality: {
         status: "pass",
         missingFields: [],
-        warnings: ["hockey_v0_shadow_only", "not_accepted_for_production_serve"],
+        warnings: [
+          "hockey_v0_shadow_only",
+          "not_accepted_for_production_serve",
+          "fg_is_regulation_use_nhl_final_paths",
+        ],
         participationReady: (input.players?.length ?? 0) > 0,
         oddsReady: true,
       },
@@ -168,9 +206,44 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
     team: {
       homeFg,
       awayFg,
-      homeByPeriod: { p1: homeP[0], p2: homeP[1], p3: homeP[2] },
-      awayByPeriod: { p1: awayP[0], p2: awayP[1], p3: awayP[2] },
+      homeByPeriod: {
+        p1: homeP[0],
+        p2: homeP[1],
+        p3: homeP[2],
+        ot: homeOt,
+        so: homeSo,
+        went_ot: wentOt,
+        went_so: wentSo,
+      },
+      awayByPeriod: {
+        p1: awayP[0],
+        p2: awayP[1],
+        p3: awayP[2],
+        ot: awayOt,
+        so: awaySo,
+        went_ot: wentOt,
+        went_so: wentSo,
+      },
     },
     players,
   };
+}
+
+/** Final home goals including OT goal or SO win (+1). */
+export function nhlFinalHomeSeries(tensor: SimV2ScenarioTensor): Float64Array {
+  const n = tensor.meta.nDraws;
+  const out = new Float64Array(n);
+  const ot = tensor.team.homeByPeriod.ot ?? new Float64Array(n);
+  const so = tensor.team.homeByPeriod.so ?? new Float64Array(n);
+  for (let i = 0; i < n; i++) out[i] = tensor.team.homeFg[i]! + ot[i]! + so[i]!;
+  return out;
+}
+
+export function nhlFinalAwaySeries(tensor: SimV2ScenarioTensor): Float64Array {
+  const n = tensor.meta.nDraws;
+  const out = new Float64Array(n);
+  const ot = tensor.team.awayByPeriod.ot ?? new Float64Array(n);
+  const so = tensor.team.awayByPeriod.so ?? new Float64Array(n);
+  for (let i = 0; i < n; i++) out[i] = tensor.team.awayFg[i]! + ot[i]! + so[i]!;
+  return out;
 }

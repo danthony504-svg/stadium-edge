@@ -7,6 +7,10 @@ import { americanToDecimal } from "../schemas/odds.js";
 import { validateScenarioConsistency } from "../validation/consistency.js";
 import { isMarketFamilySupported, missingDataReject } from "../validation/unsupported.js";
 import { validateSimHitProbability } from "../validation/probability.js";
+import {
+  nhlFinalAwaySeries,
+  nhlFinalHomeSeries,
+} from "../models/hockey/jointHockey.js";
 
 export type SettleRequest = {
   tensor: SimV2ScenarioTensor;
@@ -56,6 +60,25 @@ function resolveSeries(tensor: SimV2ScenarioTensor, market: SimV2Market): Float6
   const playerStat = /^players\.([^.]+)\.stats\.([^.]+)$/.exec(path);
   if (playerStat) {
     return tensor.players[playerStat[1]]?.stats[playerStat[2]] ?? null;
+  }
+  // NHL: fg columns are regulation; final includes OT/SO.
+  if (tensor.meta.sport === "nhl") {
+    if (path === "team.nhlFinalHome") return nhlFinalHomeSeries(tensor);
+    if (path === "team.nhlFinalAway") return nhlFinalAwaySeries(tensor);
+    if (path === "team.nhlFinalTotal") {
+      const h = nhlFinalHomeSeries(tensor);
+      const a = nhlFinalAwaySeries(tensor);
+      const out = new Float64Array(h.length);
+      for (let i = 0; i < out.length; i++) out[i] = h[i]! + a[i]!;
+      return out;
+    }
+    if (path === "team.nhlFinalMargin") {
+      const h = nhlFinalHomeSeries(tensor);
+      const a = nhlFinalAwaySeries(tensor);
+      const out = new Float64Array(h.length);
+      for (let i = 0; i < out.length; i++) out[i] = h[i]! - a[i]!;
+      return out;
+    }
   }
   return null;
 }
