@@ -9,6 +9,7 @@ import {
   buildFootballPlayerPropMarket,
   buildJointFootballTensor,
   DEFAULT_SIM_V2_FLAGS,
+  footballPropModelVersionForProfile,
   footballPropSupportsAlternate,
   impliedProbFromAmerican,
   isMarketFamilySupported,
@@ -19,6 +20,7 @@ import {
   validateScenarioConsistency,
   type SimV2Odds,
 } from "../src/index.js";
+import { isNamedEspnAthleteId } from "../eval/footballPropIdentity.js";
 
 const now = new Date().toISOString();
 
@@ -242,5 +244,64 @@ describe("Phase C.2.2 prop calibration knobs", () => {
     for (let i = 0; i < yds.length; i++) var_ += (yds[i]! - m) ** 2;
     var_ /= yds.length;
     assert.ok(var_ > 100, "pass yards should have material dispersion after budget shock");
+  });
+
+  it("propCalibrationProfile v0.2 vs v0.3.2 changes means, shock, and reported version", () => {
+    assert.equal(footballPropModelVersionForProfile("v0.2"), "0.2.0");
+    assert.equal(footballPropModelVersionForProfile("v0.3.2"), "0.3.2");
+    assert.equal(footballPropModelVersionForProfile(), "0.3.2");
+
+    const players = [
+      { playerId: "3139477", teamSide: "home" as const, role: "qb" as const, usage: 0.95, participationStatus: "confirmed_starter" as const },
+    ];
+    const prior = attachFootballPlayerProps({
+      tensor: baseTensor(2000),
+      players,
+      propCalibrationProfile: "v0.2",
+    });
+    const cal = attachFootballPlayerProps({
+      tensor: baseTensor(2000),
+      players,
+      propCalibrationProfile: "v0.3.2",
+    });
+
+    assert.ok(prior.meta.quality.warnings.some((w) => w === "football_prop_model_0.2.0"));
+    assert.ok(prior.meta.quality.warnings.some((w) => w === "prop_yard_budget_shock_none"));
+    assert.ok(prior.meta.quality.warnings.some((w) => w === "prop_calibration_profile_v0.2"));
+    assert.ok(cal.meta.quality.warnings.some((w) => w === "football_prop_model_0.3.2"));
+    assert.ok(cal.meta.quality.warnings.some((w) => w.includes("prop_yard_budget_shock_0.12")));
+
+    const meanOf = (xs: Float64Array) => {
+      let s = 0;
+      for (let i = 0; i < xs.length; i++) s += xs[i]!;
+      return s / xs.length;
+    };
+    const varOf = (xs: Float64Array) => {
+      const m = meanOf(xs);
+      let s = 0;
+      for (let i = 0; i < xs.length; i++) s += (xs[i]! - m) ** 2;
+      return s / xs.length;
+    };
+    const priorYds = prior.players["3139477"]!.stats.pass_yds;
+    const calYds = cal.players["3139477"]!.stats.pass_yds;
+    const priorMean = meanOf(priorYds);
+    const calMean = meanOf(calYds);
+    // v0.2 pass budget 8.5·pts+120 > v0.3.2 5.8·pts+90 → higher prior mean.
+    assert.ok(priorMean > calMean + 20, `expected prior mean ${priorMean} >> cal ${calMean}`);
+    // Shock adds multiplicative noise; CV should be higher on calibrated profile
+    // even though absolute variance tracks the (lower) Poisson mean.
+    const priorCv = Math.sqrt(varOf(priorYds)) / Math.max(1e-6, priorMean);
+    const calCv = Math.sqrt(varOf(calYds)) / Math.max(1e-6, calMean);
+    assert.ok(calCv > priorCv, `expected cal CV ${calCv} > prior CV ${priorCv}`);
+  });
+
+  it("rejects proxy athlete ids for named-player A/B grounding", () => {
+    assert.equal(isNamedEspnAthleteId("3139477"), true);
+    assert.equal(isNamedEspnAthleteId("home_qb"), false);
+    assert.equal(isNamedEspnAthleteId("away_rb"), false);
+    assert.equal(isNamedEspnAthleteId("home_wr"), false);
+    assert.equal(isNamedEspnAthleteId(""), false);
+    assert.equal(isNamedEspnAthleteId(undefined), false);
+    assert.equal(isNamedEspnAthleteId("qb1"), false);
   });
 });

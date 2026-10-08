@@ -6,6 +6,9 @@
  * C.2.2 calibration: multiplicative yard-budget shock (σ≈0.12) + val-fold
  * mean scales for pass/rush/rec after named-player OOS (proxy identity was
  * primary eval defect; holdout never used for coefficient fitting).
+ *
+ * `propCalibrationProfile` selects prior (v0.2) vs current (v0.3.2) means/shock
+ * for shadow A/B holdout only — default remains 0.3.2.
  */
 
 import type { SimV2ScenarioTensor } from "../../schemas/scenarioTensor.js";
@@ -14,8 +17,17 @@ import { poissonSample } from "./jointFootball.js";
 
 /** Bump when prop generative assumptions change incompatibly for OOS. */
 export const FOOTBALL_PROP_MODEL_VERSION = "0.3.2" as const;
-/** Per-draw lognormal σ on pass/rush/rec team yard budgets. */
+/** Per-draw lognormal σ on pass/rush/rec team yard budgets (v0.3.2 profile). */
 export const FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA = 0.12 as const;
+
+/** Shadow A/B prior (v0.2) vs calibrated (v0.3.2) yard-budget profile. */
+export type PropCalibrationProfile = "v0.2" | "v0.3.2";
+
+export function footballPropModelVersionForProfile(
+  profile: PropCalibrationProfile = "v0.3.2",
+): "0.2.0" | "0.3.2" {
+  return profile === "v0.2" ? "0.2.0" : "0.3.2";
+}
 
 export const FOOTBALL_PROP_STAT_KEYS = [
   "pass_yds",
@@ -79,6 +91,11 @@ export type AttachFootballPlayerPropsInput = {
   tensor: SimV2ScenarioTensor;
   players: FootballPropPlayerInput[];
   propSeedSuffix?: string;
+  /**
+   * Yard-budget mean/shock profile for shadow A/B.
+   * Default `"v0.3.2"` (current). `"v0.2"` restores pre-shock coeffs.
+   */
+  propCalibrationProfile?: PropCalibrationProfile;
 };
 
 function clamp01(n: number): number {
@@ -107,8 +124,18 @@ function statusToParticipateProb(
   }
 }
 
-function teamYardBudget(points: number, kind: "pass" | "rush" | "rec"): number {
+function teamYardBudget(
+  points: number,
+  kind: "pass" | "rush" | "rec",
+  profile: PropCalibrationProfile,
+): number {
   const pts = Math.max(0, points);
+  if (profile === "v0.2") {
+    // Pre-calibration C.1 / early C.2 means (no yard-budget shock).
+    if (kind === "pass") return 8.5 * pts + 120;
+    if (kind === "rush") return 3.2 * pts + 60;
+    return 5.5 * pts + 80;
+  }
   // C.2.2: val-fold mean scales (holdout unused). Pass slightly lower than C.1;
   // rush/rec scaled so game-leader means track ESPN leaders (shared-budget starters).
   if (kind === "pass") return 5.8 * pts + 90;
@@ -139,7 +166,10 @@ function emptyStats(n: number): Record<string, Float64Array> {
 export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput): SimV2ScenarioTensor {
   const base = input.tensor;
   const n = base.meta.nDraws;
-  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}`;
+  const profile: PropCalibrationProfile = input.propCalibrationProfile ?? "v0.3.2";
+  const modelVersion = footballPropModelVersionForProfile(profile);
+  const useShock = profile === "v0.3.2";
+  const seed = `${base.meta.seed}|props|${input.propSeedSuffix ?? "c2.2"}|${profile}`;
   const { next } = createSeededRng(seed);
 
   const players: SimV2ScenarioTensor["players"] = { ...base.players };
@@ -147,9 +177,14 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
     ...base.meta.quality.warnings,
     "phase_c2_player_props_shadow",
     "shared_team_skill_budgets",
-    `prop_yard_budget_shock_${FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA}`,
-    `football_prop_model_${FOOTBALL_PROP_MODEL_VERSION}`,
+    `prop_calibration_profile_${profile}`,
+    `football_prop_model_${modelVersion}`,
   ];
+  if (useShock) {
+    warnings.push(`prop_yard_budget_shock_${FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA}`);
+  } else {
+    warnings.push("prop_yard_budget_shock_none");
+  }
   const outPlayerIds: string[] = [];
 
   const bySide = {
@@ -183,9 +218,12 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
       const qShare = teamPts > 0 ? q1 / teamPts : 0.25;
       const hShare = teamPts > 0 ? h1 / teamPts : 0.5;
 
-      const passBud = teamYardBudget(teamPts, "pass") * yardBudgetShock(next);
-      const rushBud = teamYardBudget(teamPts, "rush") * yardBudgetShock(next);
-      const recBud = teamYardBudget(teamPts, "rec") * yardBudgetShock(next);
+      const passShock = useShock ? yardBudgetShock(next) : 1;
+      const rushShock = useShock ? yardBudgetShock(next) : 1;
+      const recShock = useShock ? yardBudgetShock(next) : 1;
+      const passBud = teamYardBudget(teamPts, "pass", profile) * passShock;
+      const rushBud = teamYardBudget(teamPts, "rush", profile) * rushShock;
+      const recBud = teamYardBudget(teamPts, "rec", profile) * recShock;
 
       // Participation draws first.
       for (const row of prepared) {
@@ -298,8 +336,9 @@ export function attachFootballPlayerProps(input: AttachFootballPlayerPropsInput)
   const dataFingerprint = fingerprintPayload([
     base.meta.dataFingerprint,
     "football_props_c2_2",
-    FOOTBALL_PROP_MODEL_VERSION,
-    FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA,
+    modelVersion,
+    profile,
+    useShock ? FOOTBALL_PROP_YARD_BUDGET_SHOCK_SIGMA : 0,
     input.players,
     seed,
   ]);
