@@ -81,7 +81,11 @@ test("assessSimMarketIntegrity rejects period→full-game fallback", () => {
     mappingFallbackChangesMeaning: true,
   });
   assert.equal(d.accept, false);
-  assert.match(d.reason, /period_mapped_to_full_game|mapping_fallback/);
+  // P0 unvalidated NFL period totals reject first; mapping fallback still fail-closed.
+  assert.match(
+    d.reason,
+    /unvalidated_period_or_team_total_calibration|period_mapped_to_full_game|mapping_fallback/,
+  );
 });
 
 test("assessSimMarketIntegrity rejects NFL game total outside plausible band", () => {
@@ -98,7 +102,11 @@ test("assessSimMarketIntegrity rejects NFL game total outside plausible band", (
     simulatedStdev: 6,
   });
   assert.equal(d.accept, false);
-  assert.match(d.reason, /line_outside_reasonable_range_for_game_total/);
+  // P0 blocks NFL FG totals before line-band checks (same fail-closed outcome).
+  assert.match(
+    d.reason,
+    /unvalidated_period_or_team_total_calibration|line_outside_reasonable_range_for_game_total/,
+  );
 });
 
 test("assessSimMarketIntegrity accepts legitimate extreme prop", () => {

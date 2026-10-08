@@ -33,6 +33,7 @@ import {
   type CoachParlayVarietyContext,
 } from "./parlayVarietyMemory.ts";
 import { wouldRepeatMarketLadder, dedupePicksByMarketLadder } from "./marketLadderKey.ts";
+import { wouldStackSameTeamTeamTotals } from "./coachP0UnvalidatedTotals.ts";
 import { pickUsageSignature } from "./pickUsageSignature.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
@@ -321,6 +322,7 @@ function pickDiverseLegsFromPool(
       if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
       if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
       if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
+      if (wouldStackSameTeamTeamTotals(row.pick, onTicket)) continue;
       if (
         config.hardAvoidRecentLegs &&
         config.recentLegKeys?.has(parlayLegKey(row.pick))
@@ -354,6 +356,7 @@ function pickDiverseLegsFromPool(
       if (wouldRepeatPlayerProp(alt.pick, [...ticket, ...selected])) continue;
       if (wouldExceedMaxPropsPerGame(alt.pick, [...ticket, ...selected], maxProps)) continue;
       if (wouldRepeatMarketLadder(alt.pick, [...ticket, ...selected])) continue;
+      if (wouldStackSameTeamTeamTotals(alt.pick, [...ticket, ...selected])) continue;
       if (
         config.hardAvoidRecentLegs &&
         config.recentLegKeys?.has(parlayLegKey(alt.pick))
@@ -463,6 +466,7 @@ function tryAppendBackfillLeg(
   if (wouldRepeatPlayerProp(row.pick, current)) return null;
   if (wouldExceedMaxPropsPerGame(row.pick, current, maxPropsPerGame(target))) return null;
   if (wouldRepeatMarketLadder(row.pick, current)) return null;
+  if (wouldStackSameTeamTeamTotals(row.pick, current)) return null;
   const corr = parlayCorrelationPenalty(row.pick, current);
   const repeat = samePlayerRepeatPenalty(row, ranked, current, []);
   const recent = recentLegPenalty(row, ranked, current, [], config.recentLegKeys);

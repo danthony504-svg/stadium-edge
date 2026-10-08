@@ -20,6 +20,7 @@ import {
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { wouldStackSameTeamTeamTotals } from "./coachP0UnvalidatedTotals.ts";
 import {
   selectCorrelationAwareBoardLegs,
   maxLegsPerThinStatMarket,
@@ -166,6 +167,7 @@ export function selectGreedyBoardLegs(
     if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
     if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
     if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
+    if (wouldStackSameTeamTeamTotals(row.pick, onTicket)) continue;
     seen.add(fp);
     out.push(row.pick);
     if (out.length >= target) break;
@@ -385,6 +387,7 @@ function applyCapAndBackfillToTarget(
     if (wouldRepeatPlayerProp(row.pick, current)) continue;
     if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
     if (wouldRepeatMarketLadder(row.pick, current)) continue;
+    if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
     const trial = capThinStatMarketsOnTicket(
       [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
       target,
@@ -408,6 +411,7 @@ function applyCapAndBackfillToTarget(
       if (wouldRepeatPlayerProp(row.pick, current)) return false;
       if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) return false;
       if (wouldRepeatMarketLadder(row.pick, current)) return false;
+      if (wouldStackSameTeamTeamTotals(row.pick, current)) return false;
       return boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
     });
     for (const row of nonThin) {
@@ -418,6 +422,7 @@ function applyCapAndBackfillToTarget(
       if (wouldRepeatPlayerProp(row.pick, current)) continue;
       if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
       if (wouldRepeatMarketLadder(row.pick, current)) continue;
+      if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
       const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
       const trial = capThinStatMarketsOnTicket(
         [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
@@ -453,6 +458,7 @@ function appendPicksFromPool(
   const remaining = pool.filter((row) => {
     if (used.has(pickLegFingerprint(row.pick))) return false;
     if (wouldRepeatMarketLadder(row.pick, out)) return false;
+    if (wouldStackSameTeamTeamTotals(row.pick, out)) return false;
     return true;
   });
   const pickFrom = (candidates: BoardScoredLeg[], n: number): ParsedPick[] => {
@@ -539,6 +545,7 @@ function applyBalancedCapAndBackfill(
         const fp = pickLegFingerprint(row.pick);
         if (used.has(fp)) continue;
         if (wouldRepeatMarketLadder(row.pick, current)) continue;
+        if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
         if (!role) continue;
         const trial = capThinStatMarketsOnTicket(

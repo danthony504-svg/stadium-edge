@@ -4,6 +4,7 @@
 
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { wouldStackSameTeamTeamTotals } from "./coachP0UnvalidatedTotals.ts";
 
 type CorrelationPick = {
   game: string;
@@ -351,6 +352,8 @@ export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
       if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
       if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
       if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
+      // P0: hard-block same-team FG/1H/2H team-total stacks (all sports).
+      if (wouldStackSameTeamTeamTotals(row.pick, onTicket)) continue;
       const effective = row.rankScore - parlayCorrelationPenalty(row.pick, onTicket);
       if (effective > bestScore) {
         bestScore = effective;
