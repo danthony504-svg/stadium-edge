@@ -234,10 +234,10 @@ test("selectBoardPropSimCandidates keeps multiple alt yard rungs per player ladd
   }
   const { selected } = selectBoardPropSimCandidates(ranked, 8);
   const barkley = selected.filter((p) => p.player === "Barkley");
-  assert.equal(barkley.length, 3, "main + two alt yard numbers reach deep sim");
+  assert.equal(barkley.length, 3, "main + nearest + farthest alt yard numbers reach deep sim");
   assert.deepEqual(
-    barkley.map((p) => p.propLine),
-    [67.5, 99.5, 124.5],
+    barkley.map((p) => p.propLine).sort((a, b) => (a ?? 0) - (b ?? 0)),
+    [67.5, 99.5, 174.5],
   );
 });
 

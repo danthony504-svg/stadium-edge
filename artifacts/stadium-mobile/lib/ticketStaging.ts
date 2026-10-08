@@ -300,8 +300,12 @@ export function selectTopBoardLegs(
   target: number,
   varietySeed?: string,
   legsPerGameCap?: number | null,
+  /** Legs already on the ticket from prior category fills — correlation applies. */
+  existing: ParsedPick[] = [],
 ): ParsedPick[] {
-  if (target < 3) return selectGreedyBoardLegs(ranked, target, varietySeed, [], target, legsPerGameCap);
+  if (target < 3) {
+    return selectGreedyBoardLegs(ranked, target, varietySeed, existing, target, legsPerGameCap);
+  }
 
   const out: ParsedPick[] = [];
   const usedFp = new Set<string>();
@@ -312,8 +316,8 @@ export function selectTopBoardLegs(
     if (!remaining.length) break;
 
     const next = selectCorrelationAwareBoardLegs(remaining, 1, {
-      ticketTarget: target,
-      existing: out,
+      ticketTarget: Math.max(target, existing.length + target),
+      existing: [...existing, ...out],
       legsPerGameCap,
     });
     if (!next.length) break;
@@ -337,8 +341,8 @@ export function selectTopBoardLegs(
       remaining,
       target - out.length,
       varietySeed,
-      out,
-      target,
+      [...existing, ...out],
+      Math.max(target, existing.length + target),
       legsPerGameCap,
     );
     if (greedy.length) {
@@ -380,6 +384,7 @@ function applyCapAndBackfillToTarget(
     if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
     if (wouldRepeatPlayerProp(row.pick, current)) continue;
     if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
+    if (wouldRepeatMarketLadder(row.pick, current)) continue;
     const trial = capThinStatMarketsOnTicket(
       [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
       target,
@@ -402,6 +407,7 @@ function applyCapAndBackfillToTarget(
       if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) return false;
       if (wouldRepeatPlayerProp(row.pick, current)) return false;
       if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) return false;
+      if (wouldRepeatMarketLadder(row.pick, current)) return false;
       return boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
     });
     for (const row of nonThin) {
@@ -411,6 +417,7 @@ function applyCapAndBackfillToTarget(
       if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
       if (wouldRepeatPlayerProp(row.pick, current)) continue;
       if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
+      if (wouldRepeatMarketLadder(row.pick, current)) continue;
       const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
       const trial = capThinStatMarketsOnTicket(
         [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
@@ -441,12 +448,19 @@ function appendPicksFromPool(
   balancePropSides = false,
 ): number {
   if (want <= 0) return 0;
-  const remaining = pool.filter((row) => !used.has(pickLegFingerprint(row.pick)));
+  // Exclude fingerprints already seated AND correlated ladder rungs already on
+  // the ticket (props vs alternateLines pools can hold the same player/side).
+  const remaining = pool.filter((row) => {
+    if (used.has(pickLegFingerprint(row.pick))) return false;
+    if (wouldRepeatMarketLadder(row.pick, out)) return false;
+    return true;
+  });
   const pickFrom = (candidates: BoardScoredLeg[], n: number): ParsedPick[] => {
     if (n <= 0 || !candidates.length) return [];
+    // Pass existing ticket so correlation-aware selection sees prior category fills.
     return target >= 3
-      ? selectTopBoardLegs(candidates, n, varietySeed)
-      : selectGreedyBoardLegs(candidates, n, varietySeed);
+      ? selectTopBoardLegs(candidates, n, varietySeed, undefined, out)
+      : selectGreedyBoardLegs(candidates, n, varietySeed, out, target);
   };
 
   // Sides-first: fill reserved game-line / alt slots from spreads & ML before
@@ -524,6 +538,7 @@ function applyBalancedCapAndBackfill(
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
         if (used.has(fp)) continue;
+        if (wouldRepeatMarketLadder(row.pick, current)) continue;
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
         if (!role) continue;
         const trial = capThinStatMarketsOnTicket(
@@ -636,7 +651,7 @@ export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   collegeTeamMarketStacks?: boolean;
 };
 
-/** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
+/** Stage a ticket from scored legs — fair rank competition (no mains-first seat priority). */
 export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
@@ -680,64 +695,43 @@ export function buildStagedTicketFromScan(
     });
   }
 
-  const mains: BoardScoredLeg[] = [];
-  const alts: BoardScoredLeg[] = [];
-
+  // Fair competition: all qualifying legs compete by validated rankScore.
+  // ticketRole (main/alt) is a badge only — not a seating priority.
+  const qualifying: BoardScoredLeg[] = [];
   for (const leg of scored) {
     const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);
-    if (role === "main") mains.push(leg);
-    else if (role === "alt") alts.push(leg);
+    if (role === "main" || role === "alt") qualifying.push(leg);
   }
+  qualifying.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
 
-  mains.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
-  alts.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
-
-  const mainPicks = selectTopBoardLegs(mains, target, varietySeed).map((p) => ({
-    ...p,
-    ticketRole: "main" as const,
-  }));
-  let allPicks = [...mainPicks];
-  const used = new Set(allPicks.map(pickLegFingerprint));
-  const altPool = alts.filter((l) => !used.has(pickLegFingerprint(l.pick)));
-
-  const gap = Math.max(0, target - allPicks.length);
-  if (gap > 0 && altPool.length > 0) {
-    const altPicks = (
-      target >= 3
-        ? selectTopBoardLegs(altPool, gap, varietySeed)
-        : selectGreedyBoardLegs(altPool, gap, varietySeed)
-    ).map((p) => ({
+  const selected = (
+    target >= 3
+      ? selectTopBoardLegs(qualifying, target, varietySeed)
+      : selectGreedyBoardLegs(qualifying, target, varietySeed)
+  ).map((p) => {
+    const role = boardLegPoolRole(p, p.finalAiScore) ?? "main";
+    return {
       ...p,
-      ticketRole: "alt" as const,
+      ticketRole: role,
       highRiskValuePlay: false,
-    }));
-    allPicks = [...allPicks, ...altPicks];
-  }
+    };
+  });
 
-  const mainGap = Math.max(0, target - allPicks.length);
-  if (mainGap > 0) {
-    const usedFp = new Set(allPicks.map(pickLegFingerprint));
-    const remainingMains = mains.filter((l) => !usedFp.has(pickLegFingerprint(l.pick)));
-    const extraMains = (
-      target >= 3
-        ? selectTopBoardLegs(remainingMains, mainGap, varietySeed)
-        : selectGreedyBoardLegs(remainingMains, mainGap, varietySeed)
-    ).map((p) => ({ ...p, ticketRole: "main" as const, highRiskValuePlay: false }));
-    allPicks = [...allPicks, ...extraMains];
-  }
-
-  let finalPicks = applyCapAndBackfillToTarget(allPicks.slice(0, target), target, [
-    ...mains,
-    ...alts,
-  ]);
+  let finalPicks = applyCapAndBackfillToTarget(selected.slice(0, target), target, qualifying);
   if (finalPicks.length < target) {
     finalPicks = tieredBackfillStagedTicket(finalPicks, target, scored, ticketStyle, varietySeed);
   }
+  const mainQualified = qualifying.filter(
+    (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore) === "main",
+  ).length;
+  const altQualified = qualifying.filter(
+    (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore) === "alt",
+  ).length;
   return {
     picks: finalPicks,
     breakdown: {
-      mainQualified: mains.length,
-      altQualified: alts.length,
+      mainQualified,
+      altQualified,
       mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
       altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
     },

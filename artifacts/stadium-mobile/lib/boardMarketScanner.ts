@@ -583,10 +583,16 @@ function prescorePropRank(pick: ParsedPick, opts?: { hrBoard?: boolean }): numbe
   if (opts?.hrBoard || isBatterHomeRunPick(pick)) {
     return hrBoardPrescoreRank(pick);
   }
+  // Alts often lack two-sided book EV before MC. Use neutral 0 so missing EV
+  // does not double-penalize them in the sim queue vs mains with book edges.
+  // Post-sim qualification / EV gates are unchanged.
+  const rawEdge = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null;
+  const isAlt = !!pick.propIsAlt || /\balt\b/i.test(String(pick.market ?? ""));
+  const edgeForPrescore = rawEdge != null ? rawEdge : isAlt ? 0 : null;
   const leg: BoardScoredLeg = {
     pick,
-    evPct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
-    edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+    evPct: edgeForPrescore,
+    edgePct: edgeForPrescore,
     confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
     impliedProbPct: null,
     lineShoppingScore:

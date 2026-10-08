@@ -101,3 +101,53 @@ test("default trim drops far pass TD alts", () => {
   const trimmed = trimAlternatePropRungs(rows);
   assert.equal(trimmed.some((r) => r.line === 20.5), false);
 });
+
+test("fullBoard trim keeps basketball point milestones", () => {
+  assert.ok(isMilestonePropLine(29.5, "player_points"));
+  assert.ok(isMilestonePropLine(34.5, "player_points"));
+  const rows: Row[] = [
+    row("Tatum", "player_points", 24.5, false),
+    row("Tatum", "player_points", 25.5, true),
+    row("Tatum", "player_points", 29.5, true, 180),
+    row("Tatum", "player_points", 34.5, true, 280),
+    row("Tatum", "player_points", 39.5, true, 450),
+  ];
+  const trimmed = trimAlternatePropRungs(rows, { fullBoard: true });
+  const lines = trimmed.map((r) => r.line);
+  assert.ok(lines.includes(29.5));
+  assert.ok(lines.includes(34.5));
+  assert.ok(lines.includes(39.5));
+});
+
+test("fullBoard trim keeps baseball strikeout and total-base milestones", () => {
+  assert.ok(isMilestonePropLine(7.5, "pitcher_strikeouts"));
+  assert.ok(isMilestonePropLine(2.5, "batter_total_bases"));
+  const rows: Row[] = [
+    row("Skenes", "pitcher_strikeouts", 5.5, false),
+    row("Skenes", "pitcher_strikeouts", 6.5, true, 140),
+    row("Skenes", "pitcher_strikeouts", 7.5, true, 220),
+    row("Skenes", "pitcher_strikeouts", 8.5, true, 350),
+    row("Judge", "batter_total_bases", 1.5, false),
+    row("Judge", "batter_total_bases", 2.5, true, 150),
+    row("Judge", "batter_total_bases", 3.5, true, 280),
+  ];
+  const trimmed = trimAlternatePropRungs(rows, { fullBoard: true });
+  assert.ok(trimmed.some((r) => r.player === "Skenes" && r.line === 7.5));
+  assert.ok(trimmed.some((r) => r.player === "Judge" && r.line === 2.5));
+});
+
+test("fullBoard trim keeps hockey shot and point milestones", () => {
+  assert.ok(isMilestonePropLine(3.5, "player_shots_on_goal"));
+  assert.ok(isMilestonePropLine(1.5, "player_points"), "hockey points must not be dropped by basketball band");
+  const rows: Row[] = [
+    row("McDavid", "player_shots_on_goal", 2.5, false),
+    row("McDavid", "player_shots_on_goal", 3.5, true, 140),
+    row("McDavid", "player_shots_on_goal", 4.5, true, 220),
+    row("McDavid", "player_points", 0.5, false),
+    row("McDavid", "player_points", 1.5, true, 160),
+    row("McDavid", "player_points", 2.5, true, 300),
+  ];
+  const trimmed = trimAlternatePropRungs(rows, { fullBoard: true });
+  assert.ok(trimmed.some((r) => r.market === "player_shots_on_goal" && r.line === 3.5));
+  assert.ok(trimmed.some((r) => r.market === "player_points" && r.line === 1.5));
+});

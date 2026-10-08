@@ -2,6 +2,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { collapseScoredLegsByMarketLadder, marketLadderKey } from "./marketLadderExhaustion.ts";
+import { dedupePicksByMarketLadder } from "./marketLadderKey.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
 import {
@@ -26,7 +27,8 @@ export function isRealisticBoardPropCandidate(pick: ParsedPick): boolean {
 export function countQualifiedBoardLegs(scored: BoardScoredLeg[], target: number): number {
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   const { picks } = buildStagedTicketFromScan(collapsed, target);
-  return picks.length;
+  // Belt-and-suspenders: correlated alt/main rungs never inflate fill counts.
+  return dedupePicksByMarketLadder(picks).length;
 }
 
 /** First prop-sim wave — wide enough to surface early qualifiers quickly. */
@@ -58,7 +60,7 @@ export function boardPropSlotTarget(target: number): number {
 export function countStagedPropLegs(scored: BoardScoredLeg[], target: number): number {
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   const { picks } = buildStagedTicketFromScan(collapsed, target);
-  return picks.filter((p) => !!p.isProp).length;
+  return dedupePicksByMarketLadder(picks).filter((p) => !!p.isProp).length;
 }
 
 /**
@@ -88,7 +90,58 @@ export function shouldStopPropSimForTicketMix(opts: {
 /** How many posted lines per player/market to deep-sim (main + alt numbers). */
 export const BOARD_PROP_SIM_RUNGS_PER_LADDER = 3;
 
+/**
+ * Floor share of the mixed/generic deep-sim set reserved for alternate props
+ * when enough alts exist — prevents main O/U from exhausting the ≤96 budget.
+ * Does not raise the cap; does not force unsupported markets.
+ */
+export const BOARD_PROP_SIM_ALT_QUOTA_FRACTION = 0.3;
+
 export type FootballMixSimFamily = "yards" | "td" | "volume" | "other";
+
+function isAltSimCandidate(pick: { propIsAlt?: boolean; market?: string | null }): boolean {
+  if (pick.propIsAlt) return true;
+  return /\balt\b/i.test(String(pick.market ?? ""));
+}
+
+/**
+ * Within one correlation ladder, prefer main + nearest + farthest posted lines
+ * so milestone thresholds still reach deep sim inside the 3-rung budget.
+ */
+export function pickDiverseLadderRungsForSim<T extends {
+  propLine?: number | null;
+  propIsAlt?: boolean;
+  market?: string | null;
+}>(rungs: readonly T[], maxRungs: number): T[] {
+  if (maxRungs <= 0 || rungs.length === 0) return [];
+  if (rungs.length <= maxRungs) return [...rungs];
+  const mains = rungs.filter((r) => !isAltSimCandidate(r));
+  const alts = rungs.filter((r) => isAltSimCandidate(r));
+  const mainLine =
+    mains.find((r) => r.propLine != null)?.propLine ??
+    rungs.find((r) => r.propLine != null)?.propLine ??
+    null;
+  const altsByDist = [...alts].sort((a, b) => {
+    const da = a.propLine != null && mainLine != null ? Math.abs(a.propLine - mainLine) : 0;
+    const db = b.propLine != null && mainLine != null ? Math.abs(b.propLine - mainLine) : 0;
+    return da - db;
+  });
+  const picked: T[] = [];
+  const used = new Set<T>();
+  const take = (r: T | undefined) => {
+    if (!r || used.has(r) || picked.length >= maxRungs) return;
+    used.add(r);
+    picked.push(r);
+  };
+  take(mains[0]);
+  take(altsByDist[0]);
+  take(altsByDist[altsByDist.length - 1]);
+  for (const r of rungs) {
+    if (picked.length >= maxRungs) break;
+    take(r);
+  }
+  return picked;
+}
 
 /** Bucket for football mix deep-sim quotas — yards must not be starved by TD rows. */
 export function footballMixSimFamily(pick: {
@@ -160,43 +213,82 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
     });
   }
 
+  const altFloor = Math.min(
+    maxToSim,
+    Math.max(0, Math.round(maxToSim * BOARD_PROP_SIM_ALT_QUOTA_FRACTION)),
+  );
   const selected: T[] = [];
   const ladderCounts = new Map<string, number>();
   let dstTaken = 0;
-  const takeFrom = (list: T[], limit: number) => {
-    for (const pick of list) {
-      if (selected.length >= maxToSim || limit <= 0) return;
-      const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
-      if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) continue;
-      const ladder = marketLadderKey(pick);
-      const used = ladderCounts.get(ladder) ?? 0;
-      if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) continue;
-      ladderCounts.set(ladder, used + 1);
-      selected.push(pick);
-      if (dst) dstTaken += 1;
-      limit -= 1;
+  let altTaken = 0;
+
+  const tryTake = (pick: T): boolean => {
+    if (selected.length >= maxToSim) return false;
+    const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
+    if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) return false;
+    const ladder = marketLadderKey(pick);
+    const used = ladderCounts.get(ladder) ?? 0;
+    if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) return false;
+    ladderCounts.set(ladder, used + 1);
+    selected.push(pick);
+    if (dst) dstTaken += 1;
+    if (isAltSimCandidate(pick)) altTaken += 1;
+    return true;
+  };
+
+  const takeFrom = (list: T[], limit: number, preferAlt?: boolean) => {
+    const ordered = preferAlt
+      ? [...list].sort((a, b) => Number(isAltSimCandidate(b)) - Number(isAltSimCandidate(a)))
+      : list;
+    let left = limit;
+    for (const pick of ordered) {
+      if (selected.length >= maxToSim || left <= 0) return;
+      if (tryTake(pick)) left -= 1;
     }
   };
 
-  takeFrom(buckets.yards, yardsQuota);
-  takeFrom(buckets.td, tdQuota);
-  takeFrom(buckets.volume, volumeQuota);
-  takeFrom(buckets.other, maxToSim - selected.length);
+  // Within each family: reserve ~30% of that family's quota for alts first.
+  const takeFamilyWithAltFloor = (list: T[], quota: number) => {
+    if (quota <= 0 || list.length === 0) return;
+    const famAltFloor = Math.min(quota, Math.round(quota * BOARD_PROP_SIM_ALT_QUOTA_FRACTION));
+    const byLadder = new Map<string, T[]>();
+    for (const p of list) {
+      const k = marketLadderKey(p);
+      const arr = byLadder.get(k) ?? [];
+      arr.push(p);
+      byLadder.set(k, arr);
+    }
+    const diverse: T[] = [];
+    for (const rungs of byLadder.values()) {
+      diverse.push(...pickDiverseLadderRungsForSim(rungs, BOARD_PROP_SIM_RUNGS_PER_LADDER));
+    }
+    const diverseAlts = diverse.filter((p) => isAltSimCandidate(p));
+    const diverseMains = diverse.filter((p) => !isAltSimCandidate(p));
+    const before = selected.length;
+    const remaining = () => Math.max(0, quota - (selected.length - before));
+    takeFrom(diverseAlts, Math.min(famAltFloor, remaining()), true);
+    takeFrom(diverseMains, remaining(), false);
+    takeFrom(diverse, remaining(), false);
+  };
+
+  takeFamilyWithAltFloor(buckets.yards, yardsQuota);
+  takeFamilyWithAltFloor(buckets.td, tdQuota);
+  takeFamilyWithAltFloor(buckets.volume, volumeQuota);
+  takeFamilyWithAltFloor(buckets.other, maxToSim - selected.length);
+
+  // Global alt floor: if still short on alts, pull remaining alts within cap.
+  if (altTaken < altFloor && selected.length < maxToSim) {
+    const taken = new Set(selected);
+    const moreAlts = rankedProps.filter((p) => isAltSimCandidate(p) && !taken.has(p));
+    takeFrom(moreAlts, altFloor - altTaken, true);
+  }
   if (selected.length < maxToSim) {
     const taken = new Set(selected);
     for (const fam of ["yards", "volume", "td", "other"] as const) {
       for (const pick of buckets[fam]) {
         if (selected.length >= maxToSim) break;
         if (taken.has(pick)) continue;
-        const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
-        if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) continue;
-        const ladder = marketLadderKey(pick);
-        const used = ladderCounts.get(ladder) ?? 0;
-        if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) continue;
-        ladderCounts.set(ladder, used + 1);
-        selected.push(pick);
-        taken.add(pick);
-        if (dst) dstTaken += 1;
+        tryTake(pick);
       }
     }
   }
@@ -250,36 +342,67 @@ export function selectBoardPropSimCandidates<T extends ParsedPick>(
     return { selected: [], skippedCount: rankedProps.length };
   }
 
+  const altFloor = Math.min(
+    maxToSim,
+    Math.max(0, Math.round(maxToSim * BOARD_PROP_SIM_ALT_QUOTA_FRACTION)),
+  );
   const selected: T[] = [];
   const ladderCounts = new Map<string, number>();
-  const deferred: T[] = [];
   let dstTaken = 0;
+  let altTaken = 0;
 
-  const tryTake = (pick: T, into: T[]): boolean => {
+  const tryTake = (pick: T): boolean => {
+    if (selected.length >= maxToSim) return false;
     const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
     if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) return false;
-    into.push(pick);
+    const ladder = marketLadderKey(pick);
+    const used = ladderCounts.get(ladder) ?? 0;
+    if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) return false;
+    ladderCounts.set(ladder, used + 1);
+    selected.push(pick);
     if (dst) dstTaken += 1;
+    if (isAltSimCandidate(pick)) altTaken += 1;
     return true;
   };
 
+  // Group by correlation ladder, pick diverse rungs, then fill with alt floor.
+  const byLadder = new Map<string, T[]>();
   for (const pick of rankedProps) {
-    const ladder = marketLadderKey(pick);
-    const used = ladderCounts.get(ladder) ?? 0;
-    if (used < BOARD_PROP_SIM_RUNGS_PER_LADDER) {
-      if (!tryTake(pick, selected)) continue;
-      ladderCounts.set(ladder, used + 1);
-      if (selected.length >= maxToSim) {
-        return { selected, skippedCount: rankedProps.length - selected.length };
-      }
-    } else {
-      deferred.push(pick);
-    }
+    const k = marketLadderKey(pick);
+    const arr = byLadder.get(k) ?? [];
+    arr.push(pick);
+    byLadder.set(k, arr);
   }
+  const diversePool: T[] = [];
+  for (const rungs of byLadder.values()) {
+    diversePool.push(...pickDiverseLadderRungsForSim(rungs, BOARD_PROP_SIM_RUNGS_PER_LADDER));
+  }
+  // Preserve original rank order among diverse picks.
+  const rankIndex = new Map(rankedProps.map((p, i) => [p, i]));
+  diversePool.sort((a, b) => (rankIndex.get(a) ?? 0) - (rankIndex.get(b) ?? 0));
 
-  for (const pick of deferred) {
-    if (!tryTake(pick, selected)) continue;
+  const alts = diversePool.filter((p) => isAltSimCandidate(p));
+  const mains = diversePool.filter((p) => !isAltSimCandidate(p));
+  for (const pick of alts) {
+    if (altTaken >= altFloor) break;
+    tryTake(pick);
+  }
+  for (const pick of mains) {
     if (selected.length >= maxToSim) break;
+    tryTake(pick);
+  }
+  for (const pick of diversePool) {
+    if (selected.length >= maxToSim) break;
+    tryTake(pick);
+  }
+  // Remaining ranked rows (beyond diverse set) if cap not full.
+  if (selected.length < maxToSim) {
+    const taken = new Set(selected);
+    for (const pick of rankedProps) {
+      if (selected.length >= maxToSim) break;
+      if (taken.has(pick)) continue;
+      tryTake(pick);
+    }
   }
 
   return { selected, skippedCount: rankedProps.length - selected.length };

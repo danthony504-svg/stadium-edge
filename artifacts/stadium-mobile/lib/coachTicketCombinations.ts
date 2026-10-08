@@ -462,6 +462,7 @@ function tryAppendBackfillLeg(
   }
   if (wouldRepeatPlayerProp(row.pick, current)) return null;
   if (wouldExceedMaxPropsPerGame(row.pick, current, maxPropsPerGame(target))) return null;
+  if (wouldRepeatMarketLadder(row.pick, current)) return null;
   const corr = parlayCorrelationPenalty(row.pick, current);
   const repeat = samePlayerRepeatPenalty(row, ranked, current, []);
   const recent = recentLegPenalty(row, ranked, current, [], config.recentLegKeys);
