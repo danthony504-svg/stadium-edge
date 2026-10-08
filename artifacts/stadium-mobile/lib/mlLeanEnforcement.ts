@@ -1,6 +1,10 @@
-// Hard-lock game-side moneyline / spread legs to matchupHistory.mlLean.side when
+// Prefer matchupHistory.mlLean.side for game-side moneyline / spread legs when
 // present. Substitutions MUST already be fully qualified (finalAiScore + staging
 // gates); never promote a score-less rebuild from raw odds.
+//
+// When a lean-side qualified replacement exists → swap.
+// When it does not → preserve an already-qualified original (do not destroy
+// valid seats). Ungraded / unqualified anti-lean originals are still dropped.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
@@ -115,6 +119,52 @@ function findQualifiedLeanReplacement(
   return onLean.find((r) => !/\balt\b/i.test(r.market)) ?? onLean[0]!;
 }
 
+/** Try to seat a pick; returns false when ladder/dup blocks it. */
+function trySeat(
+  pick: ParsedPick,
+  out: ParsedPick[],
+  seen: Set<string>,
+): boolean {
+  if (wouldRepeatMarketLadder(pick, out)) return false;
+  const k = legKey(pick);
+  if (seen.has(k)) return false;
+  seen.add(k);
+  out.push(pick);
+  return true;
+}
+
+/**
+ * Final belt after swaps/preserves: drop game-side legs that lost qualification
+ * or violate P0 / ladder uniqueness. Props and totals pass through unchanged.
+ * Never pads to a requested leg count.
+ */
+function finalizeLeanTicket(
+  picks: ParsedPick[],
+): { picks: ParsedPick[]; removed: number } {
+  const out: ParsedPick[] = [];
+  const seen = new Set<string>();
+  let removed = 0;
+  for (const pick of picks) {
+    if (isGameSideMlOrSpread(pick)) {
+      if (p0UnvalidatedSimTotalDecision(pick)) {
+        removed += 1;
+        continue;
+      }
+      // Scored game-side legs must still clear staging gates after substitution.
+      if (pick.finalAiScore && !isLeanQualifiedSubstitute(pick)) {
+        removed += 1;
+        continue;
+      }
+      // Ungraded anti-lean must not survive finalize (aligned ungraded may pass
+      // earlier keep path only when no lean conflict — belt here is P0 + ladder).
+    }
+    if (!trySeat(pick, out, seen)) {
+      removed += 1;
+    }
+  }
+  return { picks: out, removed };
+}
+
 export type MlLeanEnforcementResult = {
   picks: ParsedPick[];
   swapped: number;
@@ -122,9 +172,12 @@ export type MlLeanEnforcementResult = {
 };
 
 /**
- * Swap or drop game-side ML/spread legs that oppose matchupHistory.mlLean. Props
- * and totals are untouched. Replacement MUST come from qualifiedCandidates with
- * preserved finalAiScore — otherwise the opposing leg is dropped.
+ * Prefer lean-side ML/spread legs when a qualified substitute exists. Props and
+ * totals are untouched. Replacement MUST come from qualifiedCandidates with
+ * preserved finalAiScore.
+ *
+ * Missing replacement: preserve an already-qualified original; drop only
+ * unqualified / ungraded anti-lean originals. Never invent grades or pad to N.
  */
 export function enforceMlLeanOnPicks(
   picks: ParsedPick[],
@@ -147,10 +200,9 @@ export function enforceMlLeanOnPicks(
 
   for (const pick of picks) {
     if (!isGameSideMlOrSpread(pick)) {
-      const k = legKey(pick);
-      if (!seen.has(k) && !wouldRepeatMarketLadder(pick, out)) {
-        seen.add(k);
-        out.push(pick);
+      if (!trySeat(pick, out, seen)) {
+        // Ladder collision on props/totals — count as drop for observability.
+        dropped += 1;
       }
       continue;
     }
@@ -158,63 +210,45 @@ export function enforceMlLeanOnPicks(
     const entry = findHistoryEntry(pick.game, opts.matchupHistory);
     const leanSide = entry?.mlLean?.side;
     if (!leanSide) {
-      const k = legKey(pick);
-      if (!seen.has(k) && !wouldRepeatMarketLadder(pick, out)) {
-        seen.add(k);
-        out.push(pick);
-      } else if (wouldRepeatMarketLadder(pick, out)) {
-        dropped += 1;
-      }
+      if (!trySeat(pick, out, seen)) dropped += 1;
       continue;
     }
 
     const team = pickSideTeam(pick);
     if (!team || teamsMatch(team, leanSide)) {
       // Aligned — keep only if still unique on ladder and (if scored) still eligible.
-      if (wouldRepeatMarketLadder(pick, out)) {
-        dropped += 1;
-        continue;
-      }
       if (pick.finalAiScore && !isLeanQualifiedSubstitute(pick)) {
         dropped += 1;
         continue;
       }
-      const k = legKey(pick);
-      if (!seen.has(k)) {
-        seen.add(k);
-        out.push(pick);
-      }
+      if (!trySeat(pick, out, seen)) dropped += 1;
       continue;
     }
 
+    // Anti-lean: prefer a qualified lean-side replacement.
     const replacement = findQualifiedLeanReplacement(pick, leanSide, qualified, out);
-    if (!replacement) {
-      dropped += 1;
+    if (
+      replacement &&
+      isLeanQualifiedSubstitute(replacement) &&
+      trySeat(replacement, out, seen)
+    ) {
+      swapped += 1;
       continue;
     }
 
-    // Re-check eligibility after selection — never ship an unverified substitute.
-    if (!isLeanQualifiedSubstitute(replacement)) {
-      dropped += 1;
+    // No valid replacement — preserve already-qualified original; drop invalid.
+    if (isLeanQualifiedSubstitute(pick) && trySeat(pick, out, seen)) {
       continue;
     }
-    if (wouldRepeatMarketLadder(replacement, out)) {
-      dropped += 1;
-      continue;
-    }
-
-    const k = legKey(replacement);
-    if (seen.has(k)) {
-      dropped += 1;
-      continue;
-    }
-    seen.add(k);
-    swapped += 1;
-    // Preserve grading evidence on the qualified replacement — no fabricated score.
-    out.push(replacement);
+    dropped += 1;
   }
 
-  return { picks: out, swapped, dropped };
+  const finalized = finalizeLeanTicket(out);
+  return {
+    picks: finalized.picks,
+    swapped,
+    dropped: dropped + finalized.removed,
+  };
 }
 
 export function mlLeanEnforcementNote(result: MlLeanEnforcementResult): string {
@@ -229,7 +263,7 @@ export function mlLeanEnforcementNote(result: MlLeanEnforcementResult): string {
   if (result.dropped > 0) {
     const n = result.dropped;
     parts.push(
-      `Dropped ${n} moneyline/spread ${n === 1 ? "pick" : "picks"} that opposed the analytics lean and had no qualified lean-side replacement.`,
+      `Dropped ${n} moneyline/spread ${n === 1 ? "pick" : "picks"} that opposed the analytics lean and were not staging-qualified for a lean-side seat.`,
     );
   }
   return parts.join("\n\n");
