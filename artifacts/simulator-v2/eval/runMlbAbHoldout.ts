@@ -30,7 +30,8 @@ import {
 } from "./familyCalibration.js";
 
 const REPORT_DIR = join(import.meta.dirname, "report");
-const PROFILES: BaseballCalibrationProfile[] = ["v0.2", "v0.3"];
+type AbProfile = Extract<BaseballCalibrationProfile, "v0.2" | "v0.3">;
+const PROFILES: AbProfile[] = ["v0.2", "v0.3"];
 const MIN_OOS = SIM_V2_ACCEPTANCE_THRESHOLDS.minOosSample;
 const MAX_ECE = SIM_V2_ACCEPTANCE_THRESHOLDS.maxEce;
 
@@ -408,7 +409,7 @@ async function main() {
     simMarginVars: number[];
   };
   const byProfile: Record<
-    BaseballCalibrationProfile,
+    AbProfile,
     {
       obs: CalibObs[];
       propObs: CalibObs[];
@@ -777,7 +778,7 @@ async function main() {
     "player_prop_named",
   ] as const;
 
-  const metricsByProfile: Record<BaseballCalibrationProfile, AbMetrics[]> = {
+  const metricsByProfile: Record<AbProfile, AbMetrics[]> = {
     "v0.2": [],
     "v0.3": [],
   };

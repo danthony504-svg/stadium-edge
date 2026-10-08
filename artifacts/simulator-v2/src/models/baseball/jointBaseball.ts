@@ -1,5 +1,5 @@
 /**
- * Milestone F.1 — MLB joint runs model (shadow-only).
+ * Milestone F.1 / F.5 — MLB joint runs model (shadow-only).
  * Samples 9 inning run vectors; F5 = sum(i1..i5); FG = sum(i1..i9).
  * Guarantees F5 ≤ FG on every draw. No football reuse.
  *
@@ -7,7 +7,10 @@
  *   - "v0.2" pre-correction: no shrink, no lognormal shock, HFA 0.1
  *   - "v0.3" aggressive correction: shrink 0.4, σ0.18 shock, HFA 0.05
  *     (A/B ECE↓ but VAL ML separation↓ / holdout shrink-to-50 — not accepted for ml/team_total)
- *   - "v0.3.1" default: less shrink / more variance (VAL-informed Option B)
+ *   - "v0.3.1" prior default: less shrink / more variance (Option B)
+ *   - "v0.3.2" candidate: strength-preserving form (less shrink + raw blend +
+ *     recent residual) — promote to default only if holdout ML ECE improves
+ *     without shrink-to-50 and without Brier/LL regression vs v0.3.1
  */
 
 import { SIM_V2_DEEP_DRAWS, SIM_V2_SCHEMA_VERSION } from "../../version.js";
@@ -16,11 +19,15 @@ import { createSeededRng, fingerprintPayload } from "../../seed/mulberry32.js";
 import { MLB_TEAM_FG_MEAN, isBaseballSport, type BaseballSport } from "./priors.js";
 
 export const BASEBALL_JOINT_MODEL_ID = "baseball.joint.v0" as const;
-/** Default / current published version string (v0.3.1 profile). */
+/**
+ * Default published version string. Starts as v0.3.1; F.5 acceptance may
+ * promote to 0.3.2 when holdout ML criteria clear (see runMlbF5Acceptance).
+ * Keep in sync with baseballProfileLevers() default + package.json version.
+ */
 export const BASEBALL_JOINT_MODEL_VERSION = "0.3.1" as const;
 export const BASEBALL_JOINT_MODEL_IDS = [BASEBALL_JOINT_MODEL_ID] as const;
 
-export type BaseballCalibrationProfile = "v0.2" | "v0.3" | "v0.3.1";
+export type BaseballCalibrationProfile = "v0.2" | "v0.3" | "v0.3.1" | "v0.3.2";
 
 export type BaseballProfileLevers = {
   profile: BaseballCalibrationProfile;
@@ -28,13 +35,20 @@ export type BaseballProfileLevers = {
   shrinkWeight: number;
   gameShockSigma: number;
   homeEdge: number;
+  /**
+   * Blend weight toward unshrunk season rates (between-game strength preserve).
+   * 0 = fully use shrunk rates; 1 = fully use raw rates.
+   */
+  strengthPreserve: number;
+  /** Weight on (recent − season) residual, clamped ±0.5 runs. */
+  formResidualWeight: number;
 };
 
 /**
- * Profile levers. Default v0.3.1 (Option B from VAL discrimination audit):
- * half the v0.3 form shrink (preserve separation), slightly higher game shock
- * (within-draw variance / tails), HFA midway. Single VAL-informed step — not
- * iterated on holdout.
+ * Profile levers. Default remains v0.3.1 until F.5 holdout promotion of v0.3.2.
+ * v0.3.2 (VAL-informed): less shrink + strengthPreserve raw blend + mild recent
+ * residual — restores between-game discrimination without shrink-to-50.
+ * Tuned on VAL only; holdout applied once in runMlbF5Acceptance.
  */
 export function baseballProfileLevers(
   profile: BaseballCalibrationProfile = "v0.3.1",
@@ -46,6 +60,8 @@ export function baseballProfileLevers(
       shrinkWeight: 0,
       gameShockSigma: 0,
       homeEdge: 0.1,
+      strengthPreserve: 0,
+      formResidualWeight: 0,
     };
   }
   if (profile === "v0.3") {
@@ -55,6 +71,19 @@ export function baseballProfileLevers(
       shrinkWeight: 0.4,
       gameShockSigma: 0.18,
       homeEdge: 0.05,
+      strengthPreserve: 0,
+      formResidualWeight: 0,
+    };
+  }
+  if (profile === "v0.3.2") {
+    return {
+      profile: "v0.3.2",
+      modelVersion: "0.3.2",
+      shrinkWeight: 0.1,
+      gameShockSigma: 0.24,
+      homeEdge: 0.08,
+      strengthPreserve: 0.45,
+      formResidualWeight: 0.3,
     };
   }
   return {
@@ -63,6 +92,8 @@ export function baseballProfileLevers(
     shrinkWeight: 0.2,
     gameShockSigma: 0.22,
     homeEdge: 0.07,
+    strengthPreserve: 0,
+    formResidualWeight: 0,
   };
 }
 
@@ -112,8 +143,8 @@ export type JointBaseballInput = {
   nDraws?: number;
   players?: BaseballPropPlayerInput[];
   /**
-   * A/B calibration profile. Default "v0.3.1" (less shrink / more variance).
-   * "v0.2" = pre-correction; "v0.3" = aggressive shrink (not default after disc audit).
+   * A/B calibration profile. Default "v0.3.1" until F.5 promotes v0.3.2.
+   * "v0.2" = pre-correction; "v0.3" = aggressive shrink; "v0.3.2" = strength-preserve.
    */
   calibrationProfile?: BaseballCalibrationProfile;
 };
@@ -140,22 +171,28 @@ function poissonSample(lambda: number, rng: () => number): number {
   return k - 1;
 }
 
+/**
+ * Team FG mean runs. v0.3.2 preserves between-game strength via strengthPreserve
+ * (blend toward unshrunk season rates) and a capped recent-form residual.
+ */
 function teamMean(
   team: BaseballTeamInput,
   opp: BaseballTeamInput,
-  shrinkWeight: number,
+  levers: BaseballProfileLevers,
 ): number {
-  const offense = shrinkToLeague(
-    team.runsFor ?? avg(team.recentFgRuns, MLB_TEAM_FG_MEAN),
-    MLB_TEAM_FG_MEAN,
-    shrinkWeight,
-  );
-  const defense = shrinkToLeague(
-    opp.runsAgainst ?? MLB_TEAM_FG_MEAN,
-    MLB_TEAM_FG_MEAN,
-    shrinkWeight,
-  );
-  return clamp(0.55 * offense + 0.45 * defense, 2.0, 7.5);
+  const rawOff = team.runsFor ?? avg(team.recentFgRuns, MLB_TEAM_FG_MEAN);
+  const rawDef = opp.runsAgainst ?? MLB_TEAM_FG_MEAN;
+  const shrunkOff = shrinkToLeague(rawOff, MLB_TEAM_FG_MEAN, levers.shrinkWeight);
+  const shrunkDef = shrinkToLeague(rawDef, MLB_TEAM_FG_MEAN, levers.shrinkWeight);
+  const sp = clamp(levers.strengthPreserve, 0, 1);
+  const offense = (1 - sp) * shrunkOff + sp * rawOff;
+  const defense = (1 - sp) * shrunkDef + sp * rawDef;
+  let mean = 0.55 * offense + 0.45 * defense;
+  if (levers.formResidualWeight > 0 && team.recentFgRuns?.length) {
+    const recent = avg(team.recentFgRuns, rawOff);
+    mean += clamp((recent - rawOff) * levers.formResidualWeight, -0.5, 0.5);
+  }
+  return clamp(mean, 2.0, 7.5);
 }
 
 export function buildJointBaseballTensor(input: JointBaseballInput): SimV2ScenarioTensor {
@@ -165,8 +202,8 @@ export function buildJointBaseballTensor(input: JointBaseballInput): SimV2Scenar
   const levers = baseballProfileLevers(input.calibrationProfile ?? "v0.3.1");
   const n = input.nDraws ?? SIM_V2_DEEP_DRAWS;
   const { next } = createSeededRng(input.seed);
-  const homeBase = teamMean(input.home, input.away, levers.shrinkWeight) + levers.homeEdge;
-  const awayBase = teamMean(input.away, input.home, levers.shrinkWeight);
+  const homeBase = teamMean(input.home, input.away, levers) + levers.homeEdge;
+  const awayBase = teamMean(input.away, input.home, levers);
 
   const homeFg = new Float64Array(n);
   const awayFg = new Float64Array(n);

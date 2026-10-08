@@ -52,10 +52,12 @@ describe("MLB joint milestone F.2 (shadow)", () => {
     const v02 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.2" });
     const v03 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.3" });
     const v031 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.3.1" });
+    const v032 = buildJointBaseballTensor({ ...base, calibrationProfile: "v0.3.2" });
     const def = buildJointBaseballTensor(base);
     assert.equal(v02.meta.modelVersion, "0.2.0");
     assert.equal(v03.meta.modelVersion, "0.3.0");
     assert.equal(v031.meta.modelVersion, "0.3.1");
+    assert.equal(v032.meta.modelVersion, "0.3.2");
     assert.equal(def.meta.modelVersion, "0.3.1");
     assert.equal(baseballProfileLevers("v0.2").shrinkWeight, 0);
     assert.equal(baseballProfileLevers("v0.2").gameShockSigma, 0);
@@ -66,15 +68,23 @@ describe("MLB joint milestone F.2 (shadow)", () => {
     assert.equal(baseballProfileLevers("v0.3.1").shrinkWeight, 0.2);
     assert.equal(baseballProfileLevers("v0.3.1").gameShockSigma, 0.22);
     assert.equal(baseballProfileLevers("v0.3.1").homeEdge, 0.07);
+    assert.equal(baseballProfileLevers("v0.3.2").shrinkWeight, 0.1);
+    assert.equal(baseballProfileLevers("v0.3.2").strengthPreserve, 0.45);
+    assert.equal(baseballProfileLevers("v0.3.2").formResidualWeight, 0.3);
+    assert.equal(baseballProfileLevers("v0.3.2").gameShockSigma, 0.24);
+    assert.equal(baseballProfileLevers("v0.3.2").homeEdge, 0.08);
     assert.equal(baseballProfileLevers().profile, "v0.3.1");
     assert.doesNotThrow(() => assertBaseballF5Conserved(v02));
     assert.doesNotThrow(() => assertBaseballF5Conserved(v03));
     assert.doesNotThrow(() => assertBaseballF5Conserved(v031));
+    assert.doesNotThrow(() => assertBaseballF5Conserved(v032));
     assert.notEqual(v02.meta.dataFingerprint, v03.meta.dataFingerprint);
     assert.notEqual(v03.meta.dataFingerprint, v031.meta.dataFingerprint);
+    assert.notEqual(v031.meta.dataFingerprint, v032.meta.dataFingerprint);
     const var02 = totalDrawVariance(v02);
     const var03 = totalDrawVariance(v03);
     const var031 = totalDrawVariance(v031);
+    const var032 = totalDrawVariance(v032);
     assert.ok(
       var03 > var02 * 1.05,
       `expected v0.3 draw var > v0.2: v02=${var02.toFixed(3)} v03=${var03.toFixed(3)}`,
@@ -83,6 +93,25 @@ describe("MLB joint milestone F.2 (shadow)", () => {
       var031 > var02 * 1.05,
       `expected v0.3.1 draw var > v0.2: v02=${var02.toFixed(3)} v031=${var031.toFixed(3)}`,
     );
+    assert.ok(
+      var032 > var02 * 1.05,
+      `expected v0.3.2 draw var > v0.2: v02=${var02.toFixed(3)} v032=${var032.toFixed(3)}`,
+    );
+  });
+
+  it("F5⊆FG conserved on 10k deep draws (settlement integrity)", () => {
+    assert.equal(SIM_V2_DEEP_DRAWS, 10_000);
+    const tensor = buildJointBaseballTensor({
+      sport: "mlb",
+      eventId: "mlb-f5-10k",
+      seed: "mlb-f5-10k-conservation",
+      nDraws: SIM_V2_DEEP_DRAWS,
+      home: { teamId: "h", runsFor: 5.5, runsAgainst: 3.9, recentFgRuns: [7, 3, 6, 5, 8, 4] },
+      away: { teamId: "a", runsFor: 3.8, runsAgainst: 5.0, recentFgRuns: [2, 4, 3, 5, 1, 6] },
+      calibrationProfile: "v0.3.2",
+    });
+    assert.equal(tensor.meta.nDraws, 10_000);
+    assert.doesNotThrow(() => assertBaseballF5Conserved(tensor));
   });
 
   it("F5≤FG; settles ML/RL/totals/TT/F5 + props; rejects non-starter pitcher", () => {

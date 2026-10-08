@@ -80,13 +80,14 @@ describe("MLB discrimination metrics", () => {
     assert.ok(rSep > rFlat);
   });
 
-  it("default baseball profile is v0.3.1 (Option B — less shrink / more variance)", () => {
+  it("default baseball profile is v0.3.1 until F.5 promotes v0.3.2", () => {
     const d = baseballProfileLevers();
     assert.equal(d.profile, "v0.3.1");
     assert.equal(d.modelVersion, "0.3.1");
     assert.equal(d.shrinkWeight, 0.2);
     assert.equal(d.gameShockSigma, 0.22);
     assert.equal(d.homeEdge, 0.07);
+    assert.equal(d.strengthPreserve, 0);
     const v03 = baseballProfileLevers("v0.3");
     assert.equal(v03.shrinkWeight, 0.4);
     assert.ok(d.shrinkWeight < v03.shrinkWeight);
@@ -94,5 +95,11 @@ describe("MLB discrimination metrics", () => {
     const v02 = baseballProfileLevers("v0.2");
     assert.equal(v02.shrinkWeight, 0);
     assert.equal(v02.gameShockSigma, 0);
+    const v032 = baseballProfileLevers("v0.3.2");
+    assert.equal(v032.profile, "v0.3.2");
+    assert.equal(v032.shrinkWeight, 0.1);
+    assert.ok(v032.strengthPreserve > 0);
+    assert.ok(v032.formResidualWeight > 0);
+    assert.ok(v032.shrinkWeight < d.shrinkWeight);
   });
 });

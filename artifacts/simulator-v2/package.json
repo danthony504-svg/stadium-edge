@@ -15,7 +15,8 @@
     "eval:chrono-oos": "node --import ./test/register-hooks.mjs ./eval/runChronologicalOos.ts",
     "eval:mlb-oos": "node --import ./test/register-hooks.mjs ./eval/runMlbChronoOos.ts",
     "eval:mlb-ab": "node --import ./test/register-hooks.mjs ./eval/runMlbAbHoldout.ts",
-    "eval:mlb-disc": "node --import ./test/register-hooks.mjs ./eval/runMlbDiscriminationAudit.ts"
+    "eval:mlb-disc": "node --import ./test/register-hooks.mjs ./eval/runMlbDiscriminationAudit.ts",
+    "eval:mlb-f5": "node --import ./test/register-hooks.mjs ./eval/runMlbF5Acceptance.ts"
   },
   "dependencies": {
     "zod": "catalog:"
