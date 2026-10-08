@@ -3,7 +3,7 @@
  * P1+P2+P3 = regulation FG. Final scores add OT goal or SO winner (+1).
  * calibrationProfile:
  *   v0.2 — no shrink, no shock, HFA 0.15 (baseline)
- *   v0.3 — form shrink 0.4 + lognormal σ0.15 + HFA 0.08 (default)
+ *   v0.3 — form shrink 0.45 + lognormal σ0.15 + HFA 0.08 (default)
  * No football imports.
  */
 
@@ -19,8 +19,11 @@ export const HOCKEY_JOINT_MODEL_IDS = [HOCKEY_JOINT_MODEL_ID] as const;
 
 export type HockeyCalibrationProfile = "v0.2" | "v0.3";
 
-/** Shrink raw form 40% toward league mean (v0.3; reduces form overconfidence). */
-export const NHL_FORM_SHRINK_TO_LEAGUE = 0.4 as const;
+/**
+ * Shrink raw form toward league mean (v0.3; reduces form overconfidence).
+ * 0.45 locked from early-2024 val-only screen (was 0.40); holdout re-graded.
+ */
+export const NHL_FORM_SHRINK_TO_LEAGUE = 0.45 as const;
 /** Per-draw lognormal σ on team means (v0.3; adds overdispersion vs thin Poisson). */
 export const NHL_MEAN_SHOCK_SIGMA = 0.15 as const;
 /** Milder home-ice advantage (goals) for v0.3 vs v0.2's 0.15. */
@@ -252,7 +255,7 @@ export function buildJointHockeyTensor(input: JointHockeyInput): SimV2ScenarioTe
           "hockey_v0_shadow_only",
           "not_accepted_for_production_serve",
           "fg_is_regulation_use_nhl_final_paths",
-          "form_shrink_0.4_league_plus_lognormal_shock",
+          "form_shrink_0.45_league_plus_lognormal_shock",
         ]
       : [
           "hockey_v0_shadow_only",

@@ -1,0 +1,114 @@
+{
+  "protocol": "nhl_ml_reg_diagnose_v1",
+  "shadowOnly": true,
+  "holdoutKnown": {
+    "n": 650,
+    "eceReg": 0.0439,
+    "eceFin": 0.0313,
+    "note": "from NHL_ML_N_EXPAND.md — not re-tuned here"
+  },
+  "valN": 650,
+  "levers": [
+    {
+      "id": "v0.3_default",
+      "note": "baseline (shrink0.4 shock0.15 hfa0.08)",
+      "nReg": 650,
+      "eceReg": 0.04182692307692306,
+      "brierReg": 0.2419011034615383,
+      "llReg": 0.6771659911449913,
+      "madReg": 0.09349153846153847,
+      "nFin": 650,
+      "eceFin": 0.041446923076923006,
+      "verdictReg": "FAIL",
+      "verdictFin": "FAIL"
+    },
+    {
+      "id": "shrink_0.45",
+      "note": "slightly more form shrink",
+      "nReg": 650,
+      "eceReg": 0.03631846153846173,
+      "brierReg": 0.24221272076923067,
+      "llReg": 0.677801591682049,
+      "madReg": 0.0878892307692308,
+      "nFin": 650,
+      "eceFin": 0.03512538461538442,
+      "verdictReg": "PASS",
+      "verdictFin": "PASS"
+    },
+    {
+      "id": "shrink_0.50",
+      "note": "more form shrink",
+      "nReg": 650,
+      "eceReg": 0.03624692307692325,
+      "brierReg": 0.24084411115384635,
+      "llReg": 0.6748037761630821,
+      "madReg": 0.08443000000000003,
+      "nFin": 650,
+      "eceFin": 0.03500999999999999,
+      "verdictReg": "PASS",
+      "verdictFin": "PASS"
+    },
+    {
+      "id": "hfa_0.06",
+      "note": "milder HFA",
+      "nReg": 650,
+      "eceReg": 0.040549230769230823,
+      "brierReg": 0.24206407615384662,
+      "llReg": 0.6775723428495687,
+      "madReg": 0.09488769230769235,
+      "nFin": 650,
+      "eceFin": 0.038573846153846146,
+      "verdictReg": "FAIL",
+      "verdictFin": "PASS"
+    },
+    {
+      "id": "hfa_0.10",
+      "note": "stronger HFA",
+      "nReg": 650,
+      "eceReg": 0.04848769230769235,
+      "brierReg": 0.2425082261538463,
+      "llReg": 0.6784763225854545,
+      "madReg": 0.0912323076923076,
+      "nFin": 650,
+      "eceFin": 0.042183846153846016,
+      "verdictReg": "FAIL",
+      "verdictFin": "FAIL"
+    },
+    {
+      "id": "shock_0.18",
+      "note": "more mean shock",
+      "nReg": 650,
+      "eceReg": 0.044917692307692485,
+      "brierReg": 0.24175163346153855,
+      "llReg": 0.6767581026571,
+      "madReg": 0.09231923076923076,
+      "nFin": 650,
+      "eceFin": 0.034430000000000155,
+      "verdictReg": "FAIL",
+      "verdictFin": "PASS"
+    },
+    {
+      "id": "shock_0.12",
+      "note": "less mean shock",
+      "nReg": 650,
+      "eceReg": 0.04245615384615384,
+      "brierReg": 0.24139973807692316,
+      "llReg": 0.6761801657701489,
+      "madReg": 0.0944392307692309,
+      "nFin": 650,
+      "eceFin": 0.03426230769230773,
+      "verdictReg": "FAIL",
+      "verdictFin": "PASS"
+    }
+  ],
+  "decision": {
+    "status": "CLEAR_VAL_LEVER_APPLIED",
+    "lever": "shrink_0.45",
+    "action": "Applied NHL_FORM_SHRINK_TO_LEAGUE=0.45; holdout re-grade ml_regulation ECE=0.0380 PASS, ml_final ECE=0.0308 PASS",
+    "holdoutAfter": { "ml_regulation_ece": 0.0380, "ml_final_ece": 0.0308 }
+  },
+  "gatesUnchanged": {
+    "maxEce": 0.04,
+    "minOos": 500
+  }
+}

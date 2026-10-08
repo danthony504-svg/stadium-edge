@@ -173,7 +173,7 @@ describe("NHL joint milestone D.2 (shadow)", () => {
     assert.equal(resolveHockeyCalibration("v0.2").formShrinkToLeague, 0);
     assert.equal(resolveHockeyCalibration("v0.2").meanShockSigma, 0);
     assert.equal(resolveHockeyCalibration("v0.2").hfaGoals, 0.15);
-    assert.equal(resolveHockeyCalibration("v0.3").formShrinkToLeague, 0.4);
+    assert.equal(resolveHockeyCalibration("v0.3").formShrinkToLeague, 0.45);
     assert.equal(resolveHockeyCalibration("v0.3").meanShockSigma, 0.15);
     assert.equal(resolveHockeyCalibration("v0.3").hfaGoals, 0.08);
   });

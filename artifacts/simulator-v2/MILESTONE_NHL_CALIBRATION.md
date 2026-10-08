@@ -6,7 +6,7 @@ Holdout ECE ≈ 0.10 on v0.2.0 came from **form overconfidence** (raw recent GF/
 ## Corrections (hockey.joint.v0 @ 0.3.0)
 | Lever | Before | After |
 |-------|--------|-------|
-| Form → league shrink | none | 40% toward `NHL_TEAM_FG_MEAN` |
+| Form → league shrink | none | 45% toward `NHL_TEAM_FG_MEAN` (was 40%; val lever + holdout confirm) |
 | Per-draw mean shock | none | lognormal σ≈0.15 on each team λ |
 | HFA (goals) | 0.15 | 0.08 |
 

@@ -192,6 +192,8 @@ async function main() {
     verdictFin: string;
   };
   const rows: Row[] = [];
+  let baselineObsReg: CalibObs[] = [];
+  let baselineObsFin: CalibObs[] = [];
 
   for (const lever of LEVERS) {
     const obsReg: CalibObs[] = [];
@@ -200,6 +202,10 @@ async function main() {
     console.log(`nhl-ml-reg-diag lever=${lever.id} val n=${valPool.length}`);
     for (const g of valPool) {
       if (gradeMl(g, all, lever, obsReg, obsFin)) used += 1;
+    }
+    if (lever.id === "v0.3_default") {
+      baselineObsReg = obsReg;
+      baselineObsFin = obsFin;
     }
     const gReg = evaluateFamilyGate(`nhl:ml_regulation:${lever.id}`, obsReg);
     const gFin = evaluateFamilyGate(`nhl:ml_final:${lever.id}`, obsFin);
@@ -244,7 +250,8 @@ async function main() {
       ? {
           status: "CLEAR_VAL_LEVER" as const,
           lever: clear[0]!.id,
-          action: "Candidate for train/val lock then holdout re-grade (not applied this pass)",
+          action:
+            "Smallest clear val lever applied to NHL_FORM_SHRINK_TO_LEAGUE when shrink_*; then holdout re-grade via eval:nhl-ml-expand.",
         }
       : {
           status: "FAIL" as const,
@@ -294,21 +301,14 @@ async function main() {
     "",
   ].join("\n");
 
-  // Attach baseline reliability for the val screen.
-  const baseObsReg: CalibObs[] = [];
-  const baseObsFin: CalibObs[] = [];
-  for (const g of valPool) {
-    gradeMl(g, all, LEVERS[0]!, baseObsReg, baseObsFin);
-  }
-
   const mdFull = [
     md,
     "## Val reliability (v0.3 default)",
-    ...formatReliability(baseObsReg),
+    ...formatReliability(baselineObsReg),
     "",
     ...formatGateTable([
-      evaluateFamilyGate("nhl:ml_regulation:val", baseObsReg),
-      evaluateFamilyGate("nhl:ml_final:val", baseObsFin),
+      evaluateFamilyGate("nhl:ml_regulation:val", baselineObsReg),
+      evaluateFamilyGate("nhl:ml_final:val", baselineObsFin),
     ]),
     "",
   ].join("\n");

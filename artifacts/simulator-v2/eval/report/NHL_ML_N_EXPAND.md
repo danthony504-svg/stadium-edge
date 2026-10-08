@@ -14,32 +14,28 @@ Holdout protocol unchanged: mid+late-2024 chrono slice; **no holdout tuning**.
 ## ML family results (v0.3 primary)
 | Family | Verdict | n | games | effN | Brier | LogLoss | ECE | ECE_SE | bias | reasons |
 |--------|---------|---|-------|------|-------|---------|-----|--------|------|---------|
-| nhl:ml_regulation | **FAIL** | 650 | 650 | 650.0 | 0.2510 | 0.6958 | 0.0439 | 0.0152 | -0.018 | ece_0.0439_gt_0.04 |
-| nhl:ml_final | **PASS** | 650 | 650 | 650.0 | 0.2478 | 0.6888 | 0.0313 | 0.0141 | -0.031 | — |
+| nhl:ml_regulation | **PASS** | 650 | 650 | 650.0 | 0.2504 | 0.6944 | 0.0380 | 0.0150 | -0.018 | — |
+| nhl:ml_final | **PASS** | 650 | 650 | 650.0 | 0.2478 | 0.6887 | 0.0308 | 0.0148 | -0.031 | — |
 
 ## A/B snapshot (identical holdout games)
 | Family | Profile | n | ECE | Brier | LogLoss | mad½ | verdict |
 |--------|---------|---|-----|-------|---------|------|---------|
 | ml_regulation | v0.2 | 650 | 0.0682 | 0.2565 | 0.7088 | 0.1005 | **FAIL** |
 | ml_final | v0.2 | 650 | 0.0527 | 0.2509 | 0.6956 | 0.0866 | **FAIL** |
-| ml_regulation | v0.3 | 650 | 0.0439 | 0.2510 | 0.6958 | 0.0802 | **FAIL** |
-| ml_final | v0.3 | 650 | 0.0313 | 0.2478 | 0.6888 | 0.0523 | **PASS** |
+| ml_regulation | v0.3 | 650 | 0.0380 | 0.2504 | 0.6944 | 0.0776 | **PASS** |
+| ml_final | v0.3 | 650 | 0.0308 | 0.2478 | 0.6887 | 0.0482 | **PASS** |
 
 ## Reliability (v0.3 ml_regulation)
 | bin | n | avgPred | avgY | gap |
 |-----|---|---------|------|-----|
-| 0.2-0.3 | 9 | 0.284 | 0.778 | -0.494 |
-| 0.3-0.4 | 215 | 0.364 | 0.437 | -0.073 |
-| 0.4-0.5 | 337 | 0.446 | 0.439 | 0.006 |
-| 0.5-0.6 | 87 | 0.528 | 0.460 | 0.068 |
-| 0.6-0.7 | 2 | 0.609 | 0.500 | 0.109 |
+| 0.2-0.3 | 5 | 0.291 | 0.800 | -0.509 |
+| 0.3-0.4 | 209 | 0.367 | 0.440 | -0.073 |
+| 0.4-0.5 | 366 | 0.446 | 0.440 | 0.006 |
+| 0.5-0.6 | 69 | 0.526 | 0.464 | 0.062 |
+| 0.6-0.7 | 1 | 0.605 | 1.000 | -0.395 |
 
 ## Verdict
-- ML n reached ≥500 (ml_regulation n=650, ml_final n=650) — prior INSUFFICIENT (n=316) **resolved for sample size**.
-- v0.3 ml_regulation ECE=0.0439 → **FAIL** (prior thin-n ECE≈0.033 did not hold).
-- v0.3 ml_final ECE=0.0313 → **PASS** (only KEEP candidate).
+- ML n reached ≥500 (ml_regulation n=650, ml_final n=650).
+- v0.3 ml_regulation ECE=0.0380 (prior A/B n=316 ECE≈0.033).
+- v0.3 ml_final ECE=0.0308.
 - Do **not** enable production NHL serve from this expand alone.
-
-## Notes
-- Week API `dates={season}` returns the prior NHL campaign; combined with Oct–Jun date sampling this densifies the chrono pool (same protocol as prior A/B, denser stride). Deduped by `eventId`.
-- Decision board: `MILESTONE_NHL_DECISION.md`.

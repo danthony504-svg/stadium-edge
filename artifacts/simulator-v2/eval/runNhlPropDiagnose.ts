@@ -33,7 +33,8 @@ import {
 } from "./nhlEspnShared.js";
 
 const REPORT_DIR = join(import.meta.dirname, "report");
-const PROP_GAME_CAP = 60;
+/** Target ~500+ skater-prop obs per main family (4 skaters/game). */
+const PROP_GAME_CAP = 130;
 
 type PropStat = "goals" | "assists" | "points" | "shots_on_goal" | "saves";
 
