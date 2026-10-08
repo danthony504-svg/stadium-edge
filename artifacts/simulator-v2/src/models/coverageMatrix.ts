@@ -117,8 +117,8 @@ export const COVERAGE_MATRIX: readonly CoverageMatrixRow[] = [
     dims: {
       provider: "Y",
       normalize: "Y",
-      simMap: "V1",
-      settle: "N",
+      simMap: "Y",
+      settle: "V2s",
       qualify: "V1",
       hist: "Y",
       calib: "N",
@@ -134,8 +134,8 @@ export const COVERAGE_MATRIX: readonly CoverageMatrixRow[] = [
     dims: {
       provider: "Y",
       normalize: "Y",
-      simMap: "V1",
-      settle: "N",
+      simMap: "Y",
+      settle: "V2s",
       qualify: "V1",
       hist: "P",
       calib: "N",
