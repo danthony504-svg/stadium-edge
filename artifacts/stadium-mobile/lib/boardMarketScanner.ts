@@ -199,6 +199,11 @@ export type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 
 export type FullBoardScanResult = {
   picks: ParsedPick[];
+  /**
+   * Staging-qualified scored picks (mains + alts) available for lean substitution
+   * and post-seat integrity checks. May be larger than `picks`.
+   */
+  qualifiedCandidates?: ParsedPick[];
   evalLinesByGame: Map<string, RealOddsEntry[]>;
   gameSimulations: Map<string, CoachGameSimEntry>;
   totalScanned: number;
@@ -902,8 +907,8 @@ export function buildScanResult(
   if (opts.gameLinesOnly && !opts.collegeTeamMarketStacks) {
     picks = collapseSameTeamGameLineSides(picks);
   }
-  // Always collapse same-team same-period sides on mix tickets too — FG+Q2 stay
-  // (different period buckets); Colts +4.5/+3.5 1H alts do not.
+  // Collapse same-team game-line nick buckets (FG + period share a nick bucket).
+  // College team-market boards intentionally keep period stacks via top-up opts.
   if (!opts.gameLinesOnly) {
     picks = collapseSameTeamGameLineSides(picks);
   }
@@ -936,6 +941,9 @@ export function buildScanResult(
       picks = fillReservedPeriodSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
       picks = fillReservedTeamTotalSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
     }
+    // Hard seating constraints after every fill path — nickname-normalized
+    // ladder keys block Cowboys -5.5 / Dallas Cowboys -8.5 reintroduction.
+    picks = dedupePicksByMarketLadder(picks);
   }
   // Football mix finals: hold reserved prop seats while props are incomplete;
   // deliver cleared GLs only after the prop phase finished with 0 props.
@@ -1060,8 +1068,13 @@ export function buildScanResult(
     hrRankDiagnostics = hrSelectionDiagnostics(scored, picks, componentsByFp);
   }
 
+  const qualifiedCandidates = stagePool
+    .filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null)
+    .map((leg) => leg.pick);
+
   return {
     picks,
+    qualifiedCandidates,
     evalLinesByGame: opts.evalLinesByGame,
     gameSimulations: opts.gameSimulations,
     totalScanned: opts.totalScanned,

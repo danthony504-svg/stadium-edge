@@ -1,8 +1,12 @@
 // Stable per-market ladder keys — shared by exhaustion collapse and ticket
 // assembly so two alt rungs of the same side never share a Coach ticket.
+// Identity uses canonical game + team nickname so "Cowboys -5.5" and
+// "Dallas Cowboys -8.5" collapse to one full-game seating ladder.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
+import { isTeamTotalMarket } from "./coachP0UnvalidatedTotals.ts";
+import { canonicalGameKey } from "./gameSimScoring.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -11,6 +15,15 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+function teamNick(team: string): string {
+  const parts = norm(team).split(" ").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+/**
+ * Side identity for ladder seating — over/under or team nickname.
+ * Full names ("Dallas Cowboys") and nicknames ("Cowboys") share one key.
+ */
 function pickSideKey(pick: string): string {
   const p = norm(pick);
   if (/\bover\b/.test(p)) return "over";
@@ -19,7 +32,19 @@ function pickSideKey(pick: string): string {
     .replace(/\s*(ml|moneyline)\s*$/i, "")
     .replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "")
     .trim();
-  return norm(t);
+  const nick = teamNick(t);
+  return nick || norm(t);
+}
+
+/** Team-total side: nickname + over/under (not bare over/under). */
+function teamTotalSideKey(pick: string): string {
+  const side = /\bunder\b/i.test(pick) ? "under" : /\bover\b/i.test(pick) ? "over" : "na";
+  const stripped = pick
+    .replace(/\b(over|under|o|u)\b/gi, " ")
+    .replace(/[+-]?\d+(?:\.\d+)?/g, " ")
+    .trim();
+  const nick = teamNick(stripped);
+  return `${nick || "team"}|${side}`;
 }
 
 /** Extract posted line/point from a pick label for score-key uniqueness. */
@@ -43,15 +68,23 @@ export function marketLadderKey(pick: {
   player?: string | null;
   propSide?: string | null;
 }): string {
+  const gameKey = canonicalGameKey(pick.game);
   if (pick.isProp) {
     const player = norm(pick.player ?? pick.pick.split(/\s+/)[0] ?? "");
     const market = norm(pick.market);
     const side =
       pick.propSide ??
       (/\bover\b/i.test(pick.pick) ? "Over" : /\bunder\b/i.test(pick.pick) ? "Under" : "");
-    return `${norm(pick.game)}|prop|${player}|${market}|${side}`.toLowerCase();
+    return `${gameKey}|prop|${player}|${market}|${side}`.toLowerCase();
   }
-  return `${norm(pick.game)}|${marketFamily(pick.market)}|${pickSideKey(pick.pick)}`.toLowerCase();
+  const fam = marketFamily(pick.market);
+  // Team totals are a distinct settlement family from game totals.
+  if (isTeamTotalMarket(pick.market)) {
+    const period = fam.includes(":") ? fam.split(":")[0] + ":" : "";
+    return `${gameKey}|${period}teamtotal|${teamTotalSideKey(pick.pick)}`.toLowerCase();
+  }
+  // Period + settlement family from marketFamily (e.g. spread, q2:spread).
+  return `${gameKey}|${fam}|${pickSideKey(pick.pick)}`.toLowerCase();
 }
 
 /**
@@ -99,6 +132,7 @@ export function wouldRepeatMarketLadder(
 /**
  * Keep one rung per market ladder on a finished ticket (highest composite wins).
  * Phone: Colts +4.5 and Colts +3.5 1H alt spreads on the same ticket.
+ * Phone: Cowboys -5.5 FG and Dallas Cowboys -8.5 FG on the same ticket.
  */
 export function dedupePicksByMarketLadder<T extends ParsedPick>(picks: T[]): T[] {
   if (picks.length <= 1) return picks;

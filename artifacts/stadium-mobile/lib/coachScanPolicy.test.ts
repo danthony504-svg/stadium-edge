@@ -98,7 +98,8 @@ test("shouldPromoteQualifyingAltsForFixedLegTicket gates fixed-leg parlay builds
 test("COACH_FULL_BOARD_SCAN_POLICY documents balanced scan and no filler", () => {
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /every available market/i);
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /every player prop/i);
-  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /10,000 simulations/i);
+  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /10k draws per game/i);
+  assert.doesNotMatch(COACH_FULL_BOARD_SCAN_POLICY, /every posted market received 10,000/i);
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /separate ranked pools/i);
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /50%/i);
   assert.match(COACH_FULL_BOARD_SCAN_POLICY, /fewer legs instead of weak filler/i);

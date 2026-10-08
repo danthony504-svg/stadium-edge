@@ -19,7 +19,7 @@ type StageTicketFn = (
 
 function scanNote(target: number, picks: number, totalScanned: number, qualified: number): string {
   return picks >= target
-    ? `Server precomputed ${picks} AI-simulated legs from ${totalScanned} posted markets (10k sim each).`
+    ? `Server precomputed ${picks} AI-simulated legs from ${totalScanned} posted markets (${qualified} qualified; shared game/prop Monte Carlo where supported).`
     : `Server scan: ${picks} AI Recommended legs after evaluating ${totalScanned} markets (${qualified} qualified) — no filler added.`;
 }
 

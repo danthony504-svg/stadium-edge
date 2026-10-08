@@ -226,8 +226,9 @@ export function buildFullBoardShortfallNote(
   const mainOn = staging?.mainOnTicket ?? 0;
   const altOn = staging?.altOnTicket ?? 0;
   const rolesMatchFinal = actual > 0 && mainOn + altOn === actual;
-  const scanLead = `${exclusion}I scanned ${totalScanned} posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
-  void totalQualified;
+  // Full-ticket copy: cite discovered line count only — not intermediate
+  // qualified pools (those can exceed the delivered ticket).
+  const scanLeadFull = `${exclusion}I evaluated ${totalScanned} posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES}. Game sims and capped prop sims use shared 10k-draw Monte Carlo where supported, plus cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
   void staging?.mainQualified;
   void staging?.altQualified;
 
@@ -238,7 +239,7 @@ export function buildFullBoardShortfallNote(
         : ` ${mainOn} main pick${mainOn === 1 ? "" : "s"}.`
       : "";
     return [
-      scanLead,
+      scanLeadFull,
       `These ${actual} are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.${fill}`,
     ].join("\n\n");
   }
@@ -254,7 +255,9 @@ export function buildFullBoardShortfallNote(
       ? ` Ticket composition: ${mainOn} main pick${mainOn === 1 ? "" : "s"} and ${altOn} alt pick${altOn === 1 ? "" : "s"} (labeled ALT PICK).`
       : ` Ticket composition: ${mainOn} main pick${mainOn === 1 ? "" : "s"}.`
     : "";
-  return [lead + roleDetail, scanLead].join("\n\n");
+  const scanLeadShort = `${exclusion}I evaluated ${totalScanned} posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES}. Game sims and capped prop sims use shared 10k-draw Monte Carlo where supported, plus cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
+  void totalQualified;
+  return [lead + roleDetail, scanLeadShort].join("\n\n");
 }
 
 export function buildQualifyingAltShortfallNote(
@@ -270,11 +273,11 @@ export function buildQualifyingAltShortfallNote(
       : "";
   const altDetail =
     altCount > 0
-      ? ` ${altCount} alternate line${altCount === 1 ? "" : "s"} on the ticket passed 10k sim grading with positive edge — each is labeled ALT PICK and graded separately.`
+      ? ` ${altCount} alternate line${altCount === 1 ? "" : "s"} on the ticket cleared sim grading with positive edge — each is labeled ALT PICK and graded separately.`
       : "";
   const shortfallLead = buildFixedLegCountShortfallLead(requested, actual);
   return [
     shortfallLead,
-    `${exclusion}I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, then seated the highest-ranked qualifying legs (mains and alternates compete on the same ranking).${altDetail} These ${actual} are every sim-aligned leg that cleared the quality bar.`,
+    `${exclusion}I evaluated posted spreads, totals, alt rungs, and props on ${oddsPhrase}, then seated the highest-ranked qualifying legs (mains and alternates compete on the same ranking).${altDetail} These ${actual} are every sim-aligned leg that cleared the quality bar.`,
   ].join("\n\n");
 }
