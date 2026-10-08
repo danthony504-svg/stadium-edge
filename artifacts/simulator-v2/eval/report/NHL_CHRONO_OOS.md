@@ -8,7 +8,7 @@ Root cause (ECE≈0.10): form overconfidence + Poisson underdispersion on regula
 - Fetch: ESPN date-sample + week fill (2023 n=1998, 2024 n=2032)
 - Splits: train=2023 (1998), val=early-2024 diagnostic (1117), holdout pool mid+late-2024 (915)
 - Holdout graded: 316 games → obs=2844; clusters=316; val diagnostic obs=720
-- Mean runtime/game: 27.8 ms
+- Mean runtime/game: 28.6 ms
 - Val ECE (diagnostic only): 0.0361 | Holdout ECE: 0.0393
 - Closing-line benchmark: **INSUFFICIENT_DATA** (unlicensed / no archive)
 - Named player props: boxscore athlete IDs on 60 holdout games → prop obs=840
