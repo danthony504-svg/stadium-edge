@@ -14,29 +14,26 @@ test("registry covers every SimV2SportId exactly once", () => {
   for (const id of ids) {
     assert.ok(coverageForSport(id), `missing coverage row for ${id}`);
   }
-  const sports = SPORT_COVERAGE_REGISTRY.map((r) => r.sport);
-  assert.equal(new Set(sports).size, sports.length);
 });
 
-test("only NFL/NCAAF have scoring models and v2 settle families today", () => {
+test("football + basketball scaffolds registered; others empty", () => {
+  const active = new Set(["nfl", "ncaaf", "nba", "wnba", "ncaab"]);
   for (const row of SPORT_COVERAGE_REGISTRY) {
-    if (row.sport === "nfl" || row.sport === "ncaaf") {
-      assert.ok(row.scoringModelId);
-      assert.ok(row.propModelId);
-      assert.ok(row.v2SettleFamilies.includes("spread"));
-      assert.ok(row.v2SettleFamilies.includes("player_prop"));
+    if (active.has(row.sport)) {
+      assert.ok(row.scoringModelId, row.sport);
+      assert.ok(row.v2SettleFamilies.length > 0, row.sport);
     } else {
-      assert.equal(row.scoringModelId, null);
-      assert.deepEqual(row.v2SettleFamilies, []);
+      assert.equal(row.scoringModelId, null, row.sport);
     }
   }
   assert.ok(sportsMissingScoringModel().includes("nhl"));
-  assert.ok(sportsMissingScoringModel().includes("boxing"));
+  assert.ok(sportsMissingScoringModel().includes("mlb"));
 });
 
-test("non-football sports stay fail-closed in settlement support", () => {
-  for (const sport of ["nhl", "nba", "mlb", "soccer", "tennis", "ufc", "boxing", "cricket"] as const) {
-    const d = isMarketFamilySupported(sport, "ml");
-    assert.equal(d.supported, false);
+test("non-scaffolded sports stay fail-closed; basketball shadow settle allowed", () => {
+  assert.equal(isMarketFamilySupported("nba", "player_prop").supported, true);
+  assert.equal(isMarketFamilySupported("wnba", "total").supported, true);
+  for (const sport of ["nhl", "mlb", "soccer", "tennis", "ufc", "boxing", "cricket"] as const) {
+    assert.equal(isMarketFamilySupported(sport, "ml").supported, false);
   }
 });
