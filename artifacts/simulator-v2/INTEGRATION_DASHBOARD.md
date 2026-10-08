@@ -7,9 +7,9 @@
 | Stream | Branch | PR | Milestone | Markets complete (shadow) | Missing deps | Unit tests | Chrono OOS / gates | Prod ready |
 |--------|--------|-----|-----------|---------------------------|--------------|------------|--------------------|------------|
 | Football B+C | `cursor/simulator-v2-phase-b-correct-def8` | #651 | **C.1** props on joint tensor | FG/Q/H ml-spread-total-tt; core skill props + alt ladder builders | Prop chrono OOS ≥500; DST/QH props; Coach path audit | footballJoint + footballPlayerProps | B holdout partial; C calib **N** | **N** |
-| Hockey | `cursor/sim-v2-nhl-scaffold-def8` | *(open)* | **D.1** joint P1–P3 + props | ml/total + goals/ast/pts/sog (+ alt keys) | Spread/team_total builders; hist OOS; OT/SO layer | hockeyJoint | **N** | **N** |
-| Basketball | `cursor/sim-v2-basketball-scaffold-def8` | *(open)* | **E.1** joint Q/H + props | totals + points/reb/ast/threes alts; NBA/WNBA/NCAAB params | ml/spread builders; per-sport OOS | basketballJoint | **N** | **N** |
-| Baseball | `cursor/sim-v2-mlb-scaffold-def8` | *(open)* | **F.1** F5⊆FG + props | FG/F5 totals; batter/pitcher props + alts | Spread/ML; starter confirmation features; OOS | baseballJoint | **N** | **N** |
+| Hockey | `cursor/sim-v2-nhl-scaffold-def8` | #653 | **D.1** joint P1–P3 + props | ml/total + goals/ast/pts/sog (+ alt keys) | Spread/team_total builders; hist OOS; OT/SO layer | hockeyJoint | **N** | **N** |
+| Basketball | `cursor/sim-v2-basketball-scaffold-def8` | #652 | **E.1** joint Q/H + props | totals + points/reb/ast/threes alts; NBA/WNBA/NCAAB params | ml/spread builders; per-sport OOS | basketballJoint | **N** | **N** |
+| Baseball | `cursor/sim-v2-mlb-scaffold-def8` | #654 | **F.1** F5⊆FG + props | FG/F5 totals; batter/pitcher props + alts | Spread/ML; starter confirmation features; OOS | baseballJoint | **N** | **N** |
 | Soccer | — | — | P2 contract pending | — | League settlePaths; BTTS/DNB/DC; sparse props | — | — | **N** |
 | Tennis | — | — | P2 contract pending | — | Set/game coupling; dynamic keys | — | — | **N** |
 | Combat | — | — | P2 contract pending | — | Method×rounds exclusion | — | — | **N** |
