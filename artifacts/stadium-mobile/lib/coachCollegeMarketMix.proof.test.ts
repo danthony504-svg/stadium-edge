@@ -132,12 +132,43 @@ function collegeQualifiedBoard(): BoardScoredLeg[] {
     scored({ game: g2, market: "Q2 Spread", pick: "Minnesota Golden Gophers +3.5", odds: -110 }, next()),
     scored({ game: g3, market: "Q1 Spread", pick: "UConn Huskies +2.5", odds: -105 }, next()),
     scored({ game: g4, market: "1H Total", pick: "Under 27.5", odds: -110 }, next()),
-    // Alternate FG spreads (genuinely supplied)
-    scored({ game: g3, market: "Alt Spread", pick: "UConn Huskies +6.5", odds: -101 }, next()),
+    // Alternate FG spreads (genuinely supplied) — distinct games so they do not
+    // share a correlation ladder with the main spreads above.
+    scored({ game: g4, market: "Alt Spread", pick: "UCLA Bruins +6.5", odds: -101 }, next()),
     scored({ game: g5, market: "Alt Spread", pick: "Alabama Crimson Tide +3", odds: +102 }, next()),
-    // Extra FG sides for deep fills
+    // Extra FG / period sides for deep 15-leg fills. Prefer spreads over FG/1H
+    // totals — P0 fail-closed unvalidated NCAAF totals (boardLegPoolRole null).
     scored({ game: g4, market: "Spread", pick: "UCLA Bruins +3.5", odds: -110 }, next()),
     scored({ game: g5, market: "Spread", pick: "Alabama Crimson Tide +7.5", odds: -110 }, next()),
+    scored({ game: g5, market: "1H Spread", pick: "Georgia Bulldogs -3.5", odds: -110 }, next()),
+    scored({ game: g4, market: "Q1 Spread", pick: "UCLA Bruins +1.5", odds: -105 }, next()),
+    scored({ game: g1, market: "Q2 Spread", pick: "Iowa Hawkeyes +3.5", odds: -110 }, next()),
+    scored({ game: g2, market: "1H Spread", pick: "Minnesota Golden Gophers +2.5", odds: -110 }, next()),
+    // Additional Saturday games so 15 independent ladders clear P0 + caps.
+    scored(
+      { game: "Penn State Nittany Lions @ Oregon Ducks", market: "Spread", pick: "Penn State Nittany Lions +7.5", odds: -110 },
+      next(),
+    ),
+    scored(
+      { game: "Penn State Nittany Lions @ Oregon Ducks", market: "1H Spread", pick: "Penn State Nittany Lions +3.5", odds: -110 },
+      next(),
+    ),
+    scored(
+      { game: "Texas Longhorns @ Oklahoma Sooners", market: "Spread", pick: "Oklahoma Sooners +3.5", odds: -115 },
+      next(),
+    ),
+    scored(
+      { game: "Texas Longhorns @ Oklahoma Sooners", market: "Q1 Spread", pick: "Oklahoma Sooners +1.5", odds: -105 },
+      next(),
+    ),
+    scored(
+      { game: "LSU Tigers @ Florida Gators", market: "Spread", pick: "Florida Gators +6.5", odds: -110 },
+      next(),
+    ),
+    scored(
+      { game: "LSU Tigers @ Florida Gators", market: "1H Spread", pick: "Florida Gators +3", odds: -110 },
+      next(),
+    ),
   ];
 }
 
@@ -254,7 +285,9 @@ test("proof: 5/10/15 college fills toward N from team markets without inventing 
 });
 
 test("proof: team totals stage when seats remain (alts compete by rank, not invented)", () => {
-  const board = collegeQualifiedBoard();
+  // Bare-college boards filter player props before top-up (gameLinesOnly). Keep
+  // the same filter here so prop shortfall exhaust cannot crowd out team totals.
+  const board = collegeQualifiedBoard().filter((l) => !l.pick.isProp);
   assert.ok(board.some((l) => /team total/i.test(l.pick.market ?? "")));
   assert.ok(board.some((l) => /^alt /i.test(l.pick.market ?? "") || /alt spread/i.test(l.pick.market ?? "")));
   // Short ticket with room under cap 4 — top-up must accept team total from leftovers.
@@ -262,10 +295,13 @@ test("proof: team totals stage when seats remain (alts compete by rank, not inve
     board.find((l) => l.pick.market === "Spread" && /iowa/i.test(l.pick.pick))!.pick,
     board.find((l) => l.pick.market === "Spread" && /minnesota/i.test(l.pick.pick))!.pick,
   ];
-  const topped = topUpTicketFromQualifiedScored(short, board, 8, "proof-tt", 4, {
+  let topped = topUpTicketFromQualifiedScored(short, board, 8, "proof-tt", 4, {
     collapseSameTeamSides: false,
     collegeTeamMarketStacks: true,
   });
+  // Mirror Coach bare-college seat reservation so team totals are not starved
+  // by higher-ranked FG/period spreads in fair rank competition.
+  topped = fillReservedTeamTotalSlots(topped, board, 8, 4);
   assert.equal(topped.length, 8);
   assert.ok(
     topped.some((p) => /team total/i.test(p.market ?? "")),
