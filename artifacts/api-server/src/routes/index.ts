@@ -30,11 +30,14 @@ import coachSlateRouter from "./coachSlate";
 import fantasyRouter from "./fantasy";
 import subscriptionsRouter from "./subscriptions";
 import appReviewAuthRouter from "./appReviewAuth";
+import simulatorV2ShadowRouter from "./simulatorV2Shadow";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(appReviewAuthRouter);
+/** Simulator V2 Phase A — shadow/diagnostics only; does not feed Coach seating. */
+router.use(simulatorV2ShadowRouter);
 router.use(oddsRouter);
 router.use(propsRouter);
 router.use(gamesRouter);
