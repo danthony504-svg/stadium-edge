@@ -150,10 +150,15 @@ export function pickDiverseLadderRungsForSim<T extends {
   take(mains[0]);
   take(belowMain[0]); // lowest underside milestone (40+, 5+, 20+, 2+, …)
   take(aboveMain[0]); // highest upside milestone
-  // Fill remaining seats from any milestone, then nearest alts, then any rung.
+  // Fill remaining seats from any milestone, then farthest (ladder span),
+  // then nearest alts, then any rung. Farthest preserves non-milestone diversity
+  // when no upside N+ threshold is posted.
   for (const r of milestoneAlts) {
     if (picked.length >= maxRungs) break;
     take(r);
+  }
+  if (altsByDist.length > 0) {
+    take(altsByDist[altsByDist.length - 1]);
   }
   for (const r of altsByDist) {
     if (picked.length >= maxRungs) break;
@@ -241,12 +246,13 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
     Math.max(0, Math.round(maxToSim * BOARD_PROP_SIM_ALT_QUOTA_FRACTION)),
   );
   const selected: T[] = [];
+  const taken = new Set<T>();
   const ladderCounts = new Map<string, number>();
   let dstTaken = 0;
   let altTaken = 0;
 
   const tryTake = (pick: T): boolean => {
-    if (selected.length >= maxToSim) return false;
+    if (selected.length >= maxToSim || taken.has(pick)) return false;
     const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
     if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) return false;
     const ladder = marketLadderKey(pick);
@@ -254,6 +260,7 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
     if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) return false;
     ladderCounts.set(ladder, used + 1);
     selected.push(pick);
+    taken.add(pick);
     if (dst) dstTaken += 1;
     if (isAltSimCandidate(pick)) altTaken += 1;
     return true;
@@ -301,16 +308,13 @@ export function selectFootballMixPropSimCandidates<T extends ParsedPick>(
 
   // Global alt floor: if still short on alts, pull remaining alts within cap.
   if (altTaken < altFloor && selected.length < maxToSim) {
-    const taken = new Set(selected);
     const moreAlts = rankedProps.filter((p) => isAltSimCandidate(p) && !taken.has(p));
     takeFrom(moreAlts, altFloor - altTaken, true);
   }
   if (selected.length < maxToSim) {
-    const taken = new Set(selected);
     for (const fam of ["yards", "volume", "td", "other"] as const) {
       for (const pick of buckets[fam]) {
         if (selected.length >= maxToSim) break;
-        if (taken.has(pick)) continue;
         tryTake(pick);
       }
     }
@@ -370,12 +374,13 @@ export function selectBoardPropSimCandidates<T extends ParsedPick>(
     Math.max(0, Math.round(maxToSim * BOARD_PROP_SIM_ALT_QUOTA_FRACTION)),
   );
   const selected: T[] = [];
+  const taken = new Set<T>();
   const ladderCounts = new Map<string, number>();
   let dstTaken = 0;
   let altTaken = 0;
 
   const tryTake = (pick: T): boolean => {
-    if (selected.length >= maxToSim) return false;
+    if (selected.length >= maxToSim || taken.has(pick)) return false;
     const dst = isFootballDstPropMarket(pick.propMarketKey ?? pick.market);
     if (dst && dstTaken >= FOOTBALL_DST_PROP_SIM_CAP) return false;
     const ladder = marketLadderKey(pick);
@@ -383,6 +388,7 @@ export function selectBoardPropSimCandidates<T extends ParsedPick>(
     if (used >= BOARD_PROP_SIM_RUNGS_PER_LADDER) return false;
     ladderCounts.set(ladder, used + 1);
     selected.push(pick);
+    taken.add(pick);
     if (dst) dstTaken += 1;
     if (isAltSimCandidate(pick)) altTaken += 1;
     return true;
@@ -420,10 +426,8 @@ export function selectBoardPropSimCandidates<T extends ParsedPick>(
   }
   // Remaining ranked rows (beyond diverse set) if cap not full.
   if (selected.length < maxToSim) {
-    const taken = new Set(selected);
     for (const pick of rankedProps) {
       if (selected.length >= maxToSim) break;
-      if (taken.has(pick)) continue;
       tryTake(pick);
     }
   }
