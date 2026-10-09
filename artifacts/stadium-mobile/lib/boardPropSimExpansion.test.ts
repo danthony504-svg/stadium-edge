@@ -336,6 +336,8 @@ test("alt sim selection counts by sport/family include milestones when budget al
     assert.ok(row.simulated > 0, `${sport}: alts must reach deep-sim set`);
     assert.ok(row.milestones > 0, `${sport}: milestone alts must be among simulated`);
   }
+  // Same object must never occupy two deep-sim slots (wastes ladder budget).
+  assert.equal(selected.length, new Set(selected).size, "no duplicate main/alt rows in sim set");
   // Surface exact counts in assertion message for the release report.
   assert.ok(
     true,
