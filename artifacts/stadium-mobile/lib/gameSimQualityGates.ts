@@ -82,6 +82,20 @@ export function deriveGameSimLineMetrics(row: EvaluatedGameLine): GameSimLineMet
   if (!grade) return null;
   if (confidencePct == null || !Number.isFinite(confidencePct)) return null;
 
+  // Exact-line pricing: spread pick handicap must match the odds row's printed line.
+  if (/spread/i.test(String(row.entry.market ?? row.pick?.market ?? ""))) {
+    const pickLine = spreadPointsFromPick(String(row.pick?.pick ?? row.entry.pick ?? ""));
+    const entryLine = spreadPointsFromPick(String(row.entry.pick ?? ""));
+    if (
+      pickLine == null ||
+      entryLine == null ||
+      Math.abs(pickLine - entryLine) > 1e-9 ||
+      !oddsRowMatchesExactSpreadLine(row.entry, pickLine)
+    ) {
+      return null;
+    }
+  }
+
   const fairOdds = fairOddsFromProb(simHit);
   const evPct = simEvPct(simHit, bookOdds);
   const edgePct =

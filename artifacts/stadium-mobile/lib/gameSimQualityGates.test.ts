@@ -142,6 +142,20 @@ test("projectedScoreMargin", () => {
   assert.ok(projectedScoreMargin(tightSim) < 0.5);
 });
 
+test("deriveGameSimLineMetrics rejects mismatched spread line vs odds row", () => {
+  const row = mockRow({ edge: 8, hit: 0.59, grade: "A", conf: 70 });
+  // Pretend pick asks +2 while the odds entry is still +3 @ -105.
+  row.pick = { ...row.pick, pick: "Iowa Hawkeyes +2", odds: -105, sport: "ncaaf" };
+  row.entry = {
+    ...row.entry,
+    sport: "ncaaf",
+    market: "Spread",
+    pick: "Iowa Hawkeyes +3",
+    odds: -105,
+  };
+  assert.equal(deriveGameSimLineMetrics(row), null);
+});
+
 test("exact-line pricing: never transfer +3 price onto +2", () => {
   const rows = [
     { market: "Spread", pick: "Iowa Hawkeyes +3", odds: -105 },

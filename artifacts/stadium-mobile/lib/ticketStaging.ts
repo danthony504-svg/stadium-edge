@@ -460,7 +460,11 @@ function applyCapAndBackfillToTarget(
 }
 
 function qualifyingScoredLegs(scored: BoardScoredLeg[]): BoardScoredLeg[] {
-  return scored.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null);
+  return scored.filter(
+    (leg) =>
+      !p0UnvalidatedSimDecision(leg.pick) &&
+      boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null,
+  );
 }
 
 function appendPicksFromPool(

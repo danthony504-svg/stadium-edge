@@ -6,7 +6,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { p0UnvalidatedSimTotalDecision } from "./coachP0UnvalidatedTotals.ts";
+import {
+  p0UnvalidatedSimDecision,
+  p0UnvalidatedSimTotalDecision,
+  P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+} from "./coachP0UnvalidatedTotals.ts";
+import { pickHasSimGrade } from "./simMarketSupport.ts";
 import { COACH_FULL_BOARD_SCAN_POLICY } from "./coachScanPolicy.ts";
 import { fullBoardScanShortfallNote } from "./fullBoardMarketCopy.ts";
 import {
@@ -384,6 +389,62 @@ test("P0 blocked NFL team total cannot qualify as lean substitute", () => {
   };
   assert.ok(p0UnvalidatedSimTotalDecision(blocked));
   assert.equal(isLeanQualifiedSubstitute(blocked), false);
+});
+
+test("P0 NCAAF spreads/ML cannot lean-swap, top-up, or keep final seats", () => {
+  const g = "Iowa Hawkeyes @ Washington Huskies";
+  const ncaafSpread: ParsedPick = {
+    game: g,
+    market: "Spread",
+    pick: "Iowa Hawkeyes +3",
+    odds: -105,
+    sport: "ncaaf",
+    isProp: false,
+    finalAiScore: qualifiedScore({ simHit: 0.62, edgePct: 10.8, grade: "A", confidencePct: 88 }) as never,
+  };
+  const ncaafMl: ParsedPick = {
+    game: g,
+    market: "Moneyline",
+    pick: "Iowa Hawkeyes ML",
+    odds: 130,
+    sport: "ncaaf",
+    isProp: false,
+    finalAiScore: qualifiedScore({ simHit: 0.53, edgePct: 9, grade: "B+", confidencePct: 70 }) as never,
+  };
+  assert.equal(
+    p0UnvalidatedSimDecision(ncaafSpread)?.reason,
+    P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+  );
+  assert.equal(pickHasSimGrade(ncaafSpread, 0.62), false);
+  assert.equal(isLeanQualifiedSubstitute(ncaafSpread), false);
+  assert.equal(isLeanQualifiedSubstitute(ncaafMl), false);
+
+  const topped = topUpTicketFromQualifiedScored(
+    [ncaafSpread, ncaafMl],
+    [ncaafSpread, ncaafMl].map((p, i) => ({
+      pick: p,
+      evPct: 10,
+      edgePct: 10,
+      confidencePct: 80,
+      impliedProbPct: 50,
+      lineShoppingScore: 1,
+      grade: "A",
+      simHit: 0.62,
+      composite: 9,
+      rankScore: 100 - i,
+    })) as BoardScoredLeg[],
+    7,
+  );
+  assert.equal(topped.length, 0, "NCAAF game lines must shortfall, not seat");
+
+  const lean = enforceMlLeanOnPicks([ncaafSpread], {
+    matchupHistory: {
+      [g]: { mlLean: { side: "Washington Huskies", edge: 5, reasons: ["form"] } },
+    } as never,
+    qualifiedCandidates: [ncaafMl],
+  });
+  assert.equal(lean.picks.length, 0);
+  assert.ok(lean.dropped >= 1);
 });
 
 test("scan copy no longer claims 10k sim on every posted market", () => {

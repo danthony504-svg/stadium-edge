@@ -91,17 +91,28 @@ test("P0 does not block props, NFL spreads/ML, or NBA totals", () => {
   );
 });
 
-test("P0 fail-closes NCAAF spreads and moneylines (FG + period + alt)", () => {
-  for (const market of [
+test("P0 fail-closes every NCAAF spread / alt / ML / period-side market", () => {
+  const blocked = [
     "Spread",
     "Alt Spread",
     "Moneyline",
     "1H Spread",
+    "2H Spread",
+    "Q1 Spread",
     "Q2 Spread",
-    "spreads_q2",
-    "h2h",
+    "Q3 Spread",
+    "Q4 Spread",
     "1H Moneyline",
-  ]) {
+    "2H Moneyline",
+    "Q1 Moneyline",
+    "spreads",
+    "spreads_q2",
+    "spreads_h1",
+    "h2h",
+    "h2h_h1",
+    "alternate_spreads",
+  ];
+  for (const market of blocked) {
     assert.equal(
       isP0UnvalidatedNcaafGameLineMarket({ market, sport: "ncaaf" }),
       true,
@@ -112,10 +123,25 @@ test("P0 fail-closes NCAAF spreads and moneylines (FG + period + alt)", () => {
       P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
       market,
     );
+    assert.equal(
+      pickHasSimGrade({ market, sport: "ncaaf" }, 0.74),
+      false,
+      `pickHasSimGrade ${market}`,
+    );
+    assert.equal(
+      p0UnvalidatedSimDecision({ market, sport: "ncaaf" })?.reason,
+      P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+      `combined ${market}`,
+    );
   }
   // NFL game lines remain open.
   assert.equal(isP0UnvalidatedNcaafGameLineMarket({ market: "Spread", sport: "nfl" }), false);
   assert.equal(isP0UnvalidatedNcaafGameLineMarket({ market: "Moneyline", sport: "nfl" }), false);
+  // NCAAF totals stay on the totals P0 reason (not game-line reason).
+  assert.equal(
+    p0UnvalidatedSimDecision({ market: "Total", sport: "ncaaf" })?.reason,
+    P0_UNVALIDATED_TOTAL_REASON,
+  );
 });
 
 test("assessSimMarketIntegrity / pickHasSimGrade reject NCAAF Sac-style extreme game lines", () => {
