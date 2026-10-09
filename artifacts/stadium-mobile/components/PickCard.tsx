@@ -105,6 +105,16 @@ export type ParsedPick = {
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
   propSide?: string; // "Over" | "Under" | "Yes"
+  /**
+   * Odds API event id for provider provenance on seated props. Optional on
+   * game lines; required (with sportsbook) for final player-prop seats.
+   */
+  eventId?: string | null;
+  /**
+   * Best-price sportsbook for THIS prop side (never inferred from the other
+   * side). Required for final player-prop seats — see propProviderProvenance.
+   */
+  sportsbook?: string | null;
   // True while a server-side Monte Carlo run is still refining this prop leg's
   // simulation sub-score. Picks render immediately; the grade updates when done.
   simulationPending?: boolean;

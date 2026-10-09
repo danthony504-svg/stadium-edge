@@ -2027,6 +2027,16 @@ export type PropPoolEntry = {
   marketKey?: string;
   /** True for alternate-ladder rungs (5+/10+/15+ points, alt total bases, etc.). */
   alt?: boolean;
+  /**
+   * Odds API event id for this matchup. Required for seated-prop provenance
+   * (see propProviderProvenance.ts). Null when the fetch path lacked an id.
+   */
+  eventId?: string | null;
+  /**
+   * Best-price sportsbook for THIS side only (overBook / underBook). Never
+   * inferred from the opposite side. Null when the feed omitted it.
+   */
+  sportsbook?: string | null;
 };
 
 export type PropSimulationResult = {
@@ -4030,6 +4040,9 @@ async function buildLightParlayContext(
             alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
+            eventId: g.id,
+            // Side-specific book only — never invent from Under or aggregate list.
+            sportsbook: p.overBook ?? null,
           });
         }
         if (p.line != null && p.underPrice != null) {
@@ -4048,6 +4061,8 @@ async function buildLightParlayContext(
             alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
+            eventId: g.id,
+            sportsbook: p.underBook ?? null,
           });
         }
       }
@@ -4737,10 +4752,44 @@ export async function buildChatContext(
             const marketLabel = propMarketLabel(p.market);
             const athleteId = p.athleteId ?? null;
             if (overQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Over" ? (p.edge ?? null) : null, bookSpread: p.overSpread ?? null });
+              propPool.push({
+                sport,
+                game,
+                marketLabel,
+                player: p.player,
+                line: p.line,
+                side: "Over",
+                odds: p.overPrice!,
+                headshot,
+                teamAbbr,
+                athleteId,
+                marketKey: p.market,
+                alt: !!p.alt,
+                edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+                bookSpread: p.overSpread ?? null,
+                eventId: g.id,
+                sportsbook: p.overBook ?? null,
+              });
             }
             if (p.line != null && underQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Under" ? (p.edge ?? null) : null, bookSpread: p.underSpread ?? null });
+              propPool.push({
+                sport,
+                game,
+                marketLabel,
+                player: p.player,
+                line: p.line,
+                side: "Under",
+                odds: p.underPrice!,
+                headshot,
+                teamAbbr,
+                athleteId,
+                marketKey: p.market,
+                alt: !!p.alt,
+                edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+                bookSpread: p.underSpread ?? null,
+                eventId: g.id,
+                sportsbook: p.underBook ?? null,
+              });
             }
           }
         }
@@ -5102,11 +5151,41 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
     if (!p) continue;
     const marketLabel = propMarketLabel(p.market);
     const athleteId = p.athleteId ?? null;
+    // RealPropEntry is AI-lean (no per-side book / eventId). Leave those null
+    // so seated-prop provenance fail-closes rather than inventing books.
     if (p.over != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over, athleteId, marketKey: p.market, startsAt: p.startsAt, alt: p.alt });
+      out.push({
+        sport: p.sport,
+        game: p.game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Over",
+        odds: p.over,
+        athleteId,
+        marketKey: p.market,
+        startsAt: p.startsAt,
+        alt: p.alt,
+        eventId: null,
+        sportsbook: null,
+      });
     }
     if (p.line != null && p.under != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market, startsAt: p.startsAt, alt: p.alt });
+      out.push({
+        sport: p.sport,
+        game: p.game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Under",
+        odds: p.under,
+        athleteId,
+        marketKey: p.market,
+        startsAt: p.startsAt,
+        alt: p.alt,
+        eventId: null,
+        sportsbook: null,
+      });
     }
   }
   return out;
@@ -5213,6 +5292,7 @@ export async function fetchFullBoardPropPool(
           alt: !!p.alt,
           headshot: p.headshot ?? null,
           teamAbbr,
+          eventId: g.id,
         };
         if (p.overPrice != null) {
           const row: PropPoolEntry = {
@@ -5221,6 +5301,7 @@ export async function fetchFullBoardPropPool(
             odds: p.overPrice,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
+            sportsbook: p.overBook ?? null,
           };
           const k = poolKey(row);
           if (!seen.has(k)) {
@@ -5235,6 +5316,7 @@ export async function fetchFullBoardPropPool(
             odds: p.underPrice,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
+            sportsbook: p.underBook ?? null,
           };
           const k = poolKey(row);
           if (!seen.has(k)) {
