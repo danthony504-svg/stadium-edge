@@ -32,6 +32,7 @@ function clampLiveCount(n: number): number {
  * Parse Live Coach asks:
  * - "best live bets" / "live bets" → all sports, default 3
  * - "5 leg live" / "5 live legs" / "5 live picks" → count 5
+ * - "5 leg NFL live" / "5 legs NBA live" → count 5 (sport between leg and live)
  * - "3 live NHL picks" → nhl, 3
  * - "5 leg NHL" → wantsLive false (pregame)
  *
@@ -52,10 +53,13 @@ export function parseLiveCoachIntent(text?: string | null): LiveCoachIntent {
   else if (/\bnhl\b/.test(t)) sport = "nhl";
 
   let count = DEFAULT_LIVE_COUNT;
-  // Order: more specific "N leg(s) live" / "N live leg(s)" before bare "N live".
+  // Order: more specific patterns first. Include "N leg SPORT live" (sport between
+  // leg and live) — "5 leg NFL live" must not fall through to default 3.
   const numbered =
     t.match(/\b(\d{1,3})\s+legs?\s+live\b/) ||
+    t.match(/\b(\d{1,3})\s+legs?\s+(?:nba|wnba|nfl|nhl)\s+live\b/) ||
     t.match(/\b(\d{1,3})\s+live\s+legs?\b/) ||
+    t.match(/\b(\d{1,3})\s+live\s+(?:nba|wnba|nfl|nhl)\b/) ||
     t.match(/\b(\d{1,3})\s+live\b/) ||
     t.match(/\blive\s+(\d{1,3})\b/) ||
     t.match(/\b(\d{1,3})\s+(?:live\s+)?(?:nba|wnba|nfl|nhl)\s+picks?\b/) ||

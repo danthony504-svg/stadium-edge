@@ -157,6 +157,9 @@ export type ParsedPick = {
     price: number;
     freshness: string;
     ageMs: number | null;
+    /** providerLastUpdate = sportsbook sync; fetchedAt = poll age only. */
+    ageSource?: "providerLastUpdate" | "fetchedAt" | "none";
+    providerLastUpdate?: string | null;
     edgePct: number;
     fairProb: number;
     impliedProb: number;
@@ -753,10 +756,25 @@ export function PickCard({
     tone: "grade" as const,
   };
   const liveMeta = pick.liveCoach;
+  const liveAgeCaption = (() => {
+    if (!liveMeta) return "";
+    const sec =
+      liveMeta.ageMs != null && Number.isFinite(liveMeta.ageMs)
+        ? `${Math.round(liveMeta.ageMs / 1000)}s`
+        : "age ?";
+    // ESPN pickcenter often omits providerLastUpdate — fetchedAt is poll assembly
+    // time (~0s) and must not read as a sportsbook-synced "0s fresh" quote.
+    if (liveMeta.ageSource === "fetchedAt" || !liveMeta.providerLastUpdate) {
+      return `${sec} poll`;
+    }
+    if (liveMeta.freshness === "fresh") return `${sec} fresh`;
+    if (liveMeta.freshness === "stale") return `${sec} stale`;
+    return sec;
+  })();
   const livePickBadge = liveMeta
     ? {
         text: "LIVE",
-        caption: `${liveMeta.score} · ${liveMeta.periodLabel ?? (liveMeta.period != null ? `Q${liveMeta.period}` : "")}${liveMeta.clock ? ` ${liveMeta.clock}` : ""} · edge ${liveMeta.edgePct > 0 ? "+" : ""}${liveMeta.edgePct.toFixed(1)}% · ${liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"}${liveMeta.freshness === "fresh" ? " fresh" : ""}`.replace(/\s+/g, " ").trim(),
+        caption: `${liveMeta.score} · ${liveMeta.periodLabel ?? (liveMeta.period != null ? `Q${liveMeta.period}` : "")}${liveMeta.clock ? ` ${liveMeta.clock}` : ""} · edge ${liveMeta.edgePct > 0 ? "+" : ""}${liveMeta.edgePct.toFixed(1)}% · ${liveAgeCaption}`.replace(/\s+/g, " ").trim(),
         tone: "value" as const,
       }
     : null;
@@ -936,8 +954,8 @@ export function PickCard({
               {pick.market}
               {liveMeta.line != null ? ` ${liveMeta.line}` : ""} · {formatAmerican(liveMeta.price)}
               {" · "}
-              {liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"}{" "}
-              ({liveMeta.freshness})
+              {liveAgeCaption ||
+                `${liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"} (${liveMeta.freshness})`}
               {" · "}
               edge {liveMeta.edgePct > 0 ? "+" : ""}
               {liveMeta.edgePct.toFixed(1)}% · conf {liveMeta.confidencePct}%

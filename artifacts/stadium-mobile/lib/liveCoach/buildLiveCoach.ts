@@ -32,6 +32,7 @@ import {
   type RemainingGameSimResult,
 } from "./remainingGameSim.ts";
 import type { LiveGameStateRecord, NormalizedLiveMarket } from "./types.ts";
+import { liveCandidateConflictsTicket } from "./liveTicketCorrelation.ts";
 
 export type LiveCoachTeamBaseline = {
   eventId: string;
@@ -120,6 +121,14 @@ export function liveRecommendationToPick(
       price: grade.price,
       freshness: m.freshness,
       ageMs: m.ageMs,
+      /** provider = sportsbook sync; fetchedAt = poll assembly only (not quote age). */
+      ageSource:
+        m.providerLastUpdate != null && String(m.providerLastUpdate).trim() !== ""
+          ? "providerLastUpdate"
+          : m.fetchedAt != null && String(m.fetchedAt).trim() !== ""
+            ? "fetchedAt"
+            : "none",
+      providerLastUpdate: m.providerLastUpdate,
       edgePct: grade.edgePct,
       fairProb: grade.fairProb,
       impliedProb: grade.impliedProb,
@@ -367,11 +376,26 @@ export async function buildLiveCoachRecommendations(
     picked.push(row);
   }
 
-  // If still short and other same-event markets qualify, fill without lowering gates.
+  // Same-event fill only when still short — never lower grade gates, and never
+  // stack overlapping outcomes (ML+ML, spread+spread, over+under, same-team ML+spread).
   if (picked.length < intent.count) {
     for (const row of graded) {
       if (picked.length >= intent.count) break;
       if (picked.some((p) => p.pick.pick === row.pick.pick && p.pick.game === row.pick.game)) {
+        continue;
+      }
+      const ticket = picked.map((p) => ({
+        eventId: p.market.eventId,
+        market: p.market.market,
+        pick: p.market.pick,
+      }));
+      if (
+        liveCandidateConflictsTicket(ticket, {
+          eventId: row.market.eventId,
+          market: row.market.market,
+          pick: row.market.pick,
+        })
+      ) {
         continue;
       }
       picked.push(row);

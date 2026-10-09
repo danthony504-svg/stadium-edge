@@ -26,6 +26,11 @@ export {
 
 export { parseLiveCoachIntent } from "./liveCoachIntent.ts";
 export {
+  livePicksConflictSameEvent,
+  liveCandidateConflictsTicket,
+  liveSideTeamKey,
+} from "./liveTicketCorrelation.ts";
+export {
   runRemainingGameSim,
   remainingMinutesFromState,
   elapsedMinutesFromState,
