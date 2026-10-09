@@ -1,0 +1,60 @@
+{
+  "title": "Where sportsbook odds and provider outcome identity are lost",
+  "oddsApiHasStableOutcomeId": false,
+  "note": "The Odds API outcomes are {name, description, price, point} — no stable outcome id. Stadium uses a composite providerOutcomeKey instead.",
+  "stages": [
+    {
+      "stage": "1_raw_odds_api",
+      "keeps": ["bookmaker.title", "market.key", "outcome.name/description", "outcome.price", "outcome.point", "event id"],
+      "drops": []
+    },
+    {
+      "stage": "2_props_ts_normalize",
+      "keeps": ["overPrice", "underPrice", "overBook", "underBook", "market", "line", "alt", "athleteId (ESPN roster join)", "playerTeamId"],
+      "drops": ["raw outcome objects", "per-book full ladder (collapsed to best price per side)"]
+    },
+    {
+      "stage": "3_prop_pool_entry_pre_fix",
+      "keeps": ["side", "odds (that side only)", "athleteId", "marketKey", "line", "alt"],
+      "drops": ["overBook/underBook → sportsbook (WAS DROPPED)", "eventId (WAS DROPPED)"],
+      "fix": "api.ts now copies eventId + side-specific sportsbook onto PropPoolEntry"
+    },
+    {
+      "stage": "4_parsed_pick_from_pool",
+      "keeps": ["odds", "propSide", "propLine", "athleteId", "propMarketKey"],
+      "drops": ["sportsbook/eventId before fix"],
+      "fix": "parsedPickFromPoolEntry now copies eventId + sportsbook"
+    },
+    {
+      "stage": "5_simulation_grade",
+      "keeps": ["odds on pick for EV/implied", "simHit", "grade"],
+      "drops": ["sportsbook not used by sim", "no outcome id required by sim"]
+    },
+    {
+      "stage": "6_reject_audit_serialization",
+      "keeps": ["pick", "propLine", "propIsAlt", "grade", "simHit", "reasons"],
+      "drops": ["odds (omitted on rejectedProps only)", "athleteId", "propMarketKey", "eventId", "sportsbook"],
+      "finding": "Ticket legs in the same audit retained odds (e.g. Williams -116). Rejected rows omitted odds — diagnostic omission, not proof of missing books."
+    },
+    {
+      "stage": "7_final_ticket",
+      "keeps": ["odds when seated"],
+      "drops": ["athleteId/eventId/sportsbook/propMarketKey often absent from audit dumps"],
+      "fix": "buildScanResult now fail-closes seated props missing complete provenance"
+    }
+  ],
+  "bainDanielsUnderClassification": {
+    "Rueben Bain Jr. Under 0.25": {
+      "status": "UNVERIFIED",
+      "codePathImpliesUnderPriceExisted": true,
+      "reason": "Under sides only enter propPool when underPrice != null; reject-audit omitted odds; no numeric Under retained",
+      "excludeFromReleaseEvidence": true
+    },
+    "Jalon Daniels Under 1.5 Pass TDs": {
+      "status": "UNVERIFIED",
+      "codePathImpliesUnderPriceExisted": true,
+      "reason": "Same audit omission; confirmed provider rows are Over 1.5 +230 (alt) and Under 0.5 +201 — not Under 1.5",
+      "excludeFromReleaseEvidence": true
+    }
+  }
+}

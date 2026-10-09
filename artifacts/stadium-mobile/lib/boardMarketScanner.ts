@@ -53,6 +53,7 @@ import {
   shouldDropPropMissingOppDefense,
 } from "./footballRushDefense.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
+import { enforceSeatedPropProviderProvenance } from "./propProviderProvenance.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
 import {
@@ -982,6 +983,18 @@ export function buildScanResult(
   // counts match the delivered ticket. staged.breakdown.mainOnTicket is an
   // intermediate staged snapshot (phone: Filled 3+1 while These 7…).
   picks = tagTicketRoles(picks);
+  // Fail-closed: seated player props must retain provider side/line/price/book/
+  // eventId/athleteId/marketKey. Never invent Under from Over. Game lines pass.
+  {
+    const provenanced = enforceSeatedPropProviderProvenance(picks);
+    if (provenanced.stripped.length > 0) {
+      console.warn(
+        "[coach-prop-provenance] stripped seated props missing provider fields",
+        provenanced.stripped.slice(0, 12),
+      );
+    }
+    picks = provenanced.picks;
+  }
   const breakdown: TicketStagingBreakdown = {
     mainQualified: staged.breakdown.mainQualified,
     altQualified: staged.breakdown.altQualified,

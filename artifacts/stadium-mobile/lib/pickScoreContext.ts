@@ -441,6 +441,7 @@ export function propPoolFromPlayerProps(
     homeAbbr?: string | null;
     awayAbbr?: string | null;
   },
+  eventId?: string | null,
 ): PropPoolEntry[] {
   const out: PropPoolEntry[] = [];
   for (const p of props) {
@@ -467,6 +468,8 @@ export function propPoolFromPlayerProps(
         marketKey: p.market,
         headshot: p.headshot,
         teamAbbr,
+        eventId: eventId ?? null,
+        sportsbook: p.overBook ?? null,
       });
     }
     if (p.underPrice != null) {
@@ -484,6 +487,8 @@ export function propPoolFromPlayerProps(
         marketKey: p.market,
         headshot: p.headshot,
         teamAbbr,
+        eventId: eventId ?? null,
+        sportsbook: p.underBook ?? null,
       });
     }
   }
