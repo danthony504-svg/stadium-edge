@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  isP0UnvalidatedNcaafGameLineMarket,
   isP0UnvalidatedSimTotalMarket,
+  p0UnvalidatedNcaafGameLineDecision,
+  p0UnvalidatedSimDecision,
   p0UnvalidatedSimTotalDecision,
+  P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
   P0_UNVALIDATED_TOTAL_REASON,
   wouldStackSameTeamTeamTotals,
 } from "./coachP0UnvalidatedTotals.ts";
@@ -12,6 +16,7 @@ import {
   sanitizeSimHitForGrade,
 } from "./simMarketSupport.ts";
 import { selectCorrelationAwareBoardLegs } from "./parlayCorrelationScore.ts";
+import { explainBoardLegQualification } from "./boardLegQualification.ts";
 
 test("P0 blocks NFL/NCAAF/NHL team totals (any period)", () => {
   for (const sport of ["nfl", "ncaaf", "nhl"] as const) {
@@ -61,7 +66,7 @@ test("assessSimMarketIntegrity fail-closes NHL FG total from nhl-shift", () => {
   assert.equal(sanitizeSimHitForGrade(0.72, ctx), null);
 });
 
-test("P0 does not block props, spreads, moneylines, or NBA totals", () => {
+test("P0 does not block props, NFL spreads/ML, or NBA totals", () => {
   assert.equal(
     isP0UnvalidatedSimTotalMarket({
       market: "Passing Yards",
@@ -75,6 +80,107 @@ test("P0 does not block props, spreads, moneylines, or NBA totals", () => {
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Team Total", sport: "nba" }), false);
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "Total", sport: "nba" }), false);
   assert.equal(isP0UnvalidatedSimTotalMarket({ market: "1H Total", sport: "mlb" }), false);
+  // NCAAF props stay open (game-line gate is separate).
+  assert.equal(
+    isP0UnvalidatedNcaafGameLineMarket({
+      market: "Passing Yards",
+      sport: "ncaaf",
+      isProp: true,
+    }),
+    false,
+  );
+});
+
+test("P0 fail-closes NCAAF spreads and moneylines (FG + period + alt)", () => {
+  for (const market of [
+    "Spread",
+    "Alt Spread",
+    "Moneyline",
+    "1H Spread",
+    "Q2 Spread",
+    "spreads_q2",
+    "h2h",
+    "1H Moneyline",
+  ]) {
+    assert.equal(
+      isP0UnvalidatedNcaafGameLineMarket({ market, sport: "ncaaf" }),
+      true,
+      market,
+    );
+    assert.equal(
+      p0UnvalidatedNcaafGameLineDecision({ market, sport: "ncaaf" })?.reason,
+      P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+      market,
+    );
+  }
+  // NFL game lines remain open.
+  assert.equal(isP0UnvalidatedNcaafGameLineMarket({ market: "Spread", sport: "nfl" }), false);
+  assert.equal(isP0UnvalidatedNcaafGameLineMarket({ market: "Moneyline", sport: "nfl" }), false);
+});
+
+test("assessSimMarketIntegrity / pickHasSimGrade reject NCAAF Sac-style extreme game lines", () => {
+  const spreadCtx = {
+    market: "Spread",
+    sport: "ncaaf",
+    period: "fg" as const,
+    periodUsed: "fg" as const,
+    line: 7.5,
+    odds: 100,
+    simulationStatKey: "fg:spread:away",
+    expectedStatKey: "fg:spread",
+  };
+  const d = assessSimMarketIntegrity(0.741, spreadCtx);
+  assert.equal(d.accept, false);
+  assert.equal(d.reason, P0_UNVALIDATED_NCAAF_GAME_LINE_REASON);
+  assert.equal(sanitizeSimHitForGrade(0.741, spreadCtx), null);
+  assert.equal(pickHasSimGrade({ market: "Spread", sport: "ncaaf" }, 0.741), false);
+  assert.equal(pickHasSimGrade({ market: "Moneyline", sport: "ncaaf" }, 0.519), false);
+
+  // Missing injury context does not reopen the gate.
+  assert.equal(
+    p0UnvalidatedSimDecision({ market: "Spread", sport: "ncaaf" })?.reason,
+    P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+  );
+
+  // NCAAF props and NFL spreads still grade.
+  assert.equal(
+    pickHasSimGrade({ market: "Rushing Yards", sport: "ncaaf", isProp: true }, 0.58),
+    true,
+  );
+  assert.equal(pickHasSimGrade({ market: "Spread", sport: "nfl" }, 0.61), true);
+});
+
+test("NCAAF game-line shortfall: board qualification fails closed without inventing grade", () => {
+  const q = explainBoardLegQualification(
+    {
+      game: "Sacramento State Hornets @ Bowling Green Falcons",
+      market: "Spread",
+      pick: "Sacramento State Hornets +7.5",
+      odds: 100,
+      sport: "ncaaf",
+      isProp: false,
+    },
+    {
+      composite: 9,
+      grade: "A",
+      confidencePct: 88,
+      edgePct: 24.1,
+      simHit: 0.741,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: {
+        composite: 9,
+        grade: "A",
+        confidencePct: 88,
+        edgePct: 24.1,
+        scores: {} as never,
+      },
+    },
+  );
+  assert.equal(q.qualifies, false);
+  assert.equal(q.gate, "no_sim_grade");
 });
 
 test("assessSimMarketIntegrity / sanitize fail closed on Bucs-style NFL TT", () => {

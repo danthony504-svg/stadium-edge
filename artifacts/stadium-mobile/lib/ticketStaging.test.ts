@@ -542,15 +542,12 @@ test("college team-market top-up keeps FG + Q2 + team total toward N", () => {
     collapseSameTeamSides: false,
     collegeTeamMarketStacks: true,
   });
-  assert.equal(topped.length, 7, `expected 7 college team-market legs, got ${topped.length}`);
-  const iowa = topped.filter((p) => /iowa/i.test(p.pick ?? "") && /ohio state/i.test(p.game ?? ""));
-  assert.ok(
-    iowa.length >= 2,
-    `expected Iowa FG+period stacks, got ${iowa.map((p) => `${p.market}:${p.pick}`)}`,
-  );
-  assert.ok(
-    topped.some((p) => /q2|1h/i.test(p.market ?? "")),
-    "expected a period stack on the college ticket",
+  // P0: NCAAF spreads/ML fail closed — top-up strips unvalidated sides and
+  // shortfalls rather than seating unsupported high-confidence edges.
+  assert.equal(
+    topped.length,
+    0,
+    `expected empty NCAAF game-line shortfall, got ${topped.length}: ${topped.map((p) => p.market).join(",")}`,
   );
 });
 

@@ -1,8 +1,12 @@
-// P0 emergency fail-closed for unvalidated team-total / period-total sims.
+// P0 emergency fail-closed for unvalidated scoring sims.
 // Production nfl-drive / nhl-shift engines inflate or collapse scoring means;
 // periodScoresForDraw also breaks FG = 1H + 2H. Until P1 recalibration lands,
 // block simulation-derived grades for affected markets and hard-stop same-team
 // team-total stacks. Does not invent odds, probs, or replacement sims.
+//
+// NCAAF game lines (spread / ML / alt / period sides) are also fail-closed:
+// nfl-drive TD/FG rate caps make cover probs insensitive to offense/QB shocks,
+// and matchup defense packs never enter score draws. Player props stay open.
 //
 // Standalone (no import from simMarketSupport) to avoid circular deps with
 // assessSimMarketIntegrity.
@@ -18,8 +22,18 @@ export const P0_UNVALIDATED_SCORING_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
  */
 export const P0_UNVALIDATED_FG_GAME_TOTAL_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
 
+/**
+ * NCAAF only — full-game and period game-side markets that settle from
+ * unvalidated nfl-drive score draws. NFL game lines remain open for now;
+ * NCAAF props are untouched.
+ */
+export const P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS = new Set(["ncaaf"]);
+
 export const P0_UNVALIDATED_TOTAL_REASON =
   "unvalidated_period_or_team_total_calibration";
+
+export const P0_UNVALIDATED_NCAAF_GAME_LINE_REASON =
+  "unvalidated_ncaaf_game_line_simulation";
 
 function sportKey(sport?: string | null): string {
   return String(sport ?? "")
@@ -62,8 +76,28 @@ export function isGameTotalMarket(
 }
 
 /**
- * True when this pick must not receive a simulation-derived grade under P0.
- * Player props, spreads, moneylines, and other non-total markets are untouched.
+ * Team game-side markets (spread / ML / run line / puck line) — not totals, not props.
+ * Includes period-suffixed and Odds API underscore keys (spreads_q2, h2h_h1).
+ */
+export function isGameLineSideMarket(
+  market: string | null | undefined,
+  isProp?: boolean,
+): boolean {
+  if (isProp) return false;
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!m || isTeamTotalMarket(m) || isGameTotalMarket(m, isProp)) return false;
+  if (/moneyline|\bh2h\b|\bml\b/.test(m)) return true;
+  if (/spread|run line|puck line|alt spread/.test(m)) return true;
+  return false;
+}
+
+/**
+ * True when this pick must not receive a simulation-derived grade under P0 totals.
+ * Player props and (non-NCAAF) spreads/moneylines are untouched here.
  */
 export function isP0UnvalidatedSimTotalMarket(pick: {
   market?: string | null;
@@ -89,6 +123,21 @@ export function isP0UnvalidatedSimTotalMarket(pick: {
   return false;
 }
 
+/**
+ * True when NCAAF spread/ML (any period/alt) must not receive a sim-derived grade.
+ * Does not touch NCAAF player props or NFL/NBA/etc. game lines.
+ */
+export function isP0UnvalidatedNcaafGameLineMarket(pick: {
+  market?: string | null;
+  sport?: string | null;
+  isProp?: boolean;
+}): boolean {
+  if (pick.isProp) return false;
+  const sport = sportKey(pick.sport);
+  if (!P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) return false;
+  return isGameLineSideMarket(pick.market, pick.isProp);
+}
+
 export function p0UnvalidatedSimTotalDecision(pick: {
   market?: string | null;
   sport?: string | null;
@@ -96,6 +145,24 @@ export function p0UnvalidatedSimTotalDecision(pick: {
 }): { accept: false; reason: string } | null {
   if (!isP0UnvalidatedSimTotalMarket(pick)) return null;
   return { accept: false, reason: P0_UNVALIDATED_TOTAL_REASON };
+}
+
+export function p0UnvalidatedNcaafGameLineDecision(pick: {
+  market?: string | null;
+  sport?: string | null;
+  isProp?: boolean;
+}): { accept: false; reason: string } | null {
+  if (!isP0UnvalidatedNcaafGameLineMarket(pick)) return null;
+  return { accept: false, reason: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON };
+}
+
+/** Combined P0 reject for totals + unvalidated NCAAF game lines. */
+export function p0UnvalidatedSimDecision(pick: {
+  market?: string | null;
+  sport?: string | null;
+  isProp?: boolean;
+}): { accept: false; reason: string } | null {
+  return p0UnvalidatedSimTotalDecision(pick) ?? p0UnvalidatedNcaafGameLineDecision(pick);
 }
 
 function teamNickFromTotalPick(pickText: string): string {

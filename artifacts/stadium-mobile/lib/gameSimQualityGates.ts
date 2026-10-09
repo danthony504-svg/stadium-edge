@@ -159,6 +159,50 @@ export function spreadPointsFromPick(pick: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Exact-line price binding: a posted odds row may only price the handicap
+ * printed on its own pick string. Never transfer a +3 price onto a +2 query
+ * (or any other neighboring rung). Returns null when the requested line is
+ * not posted — callers must fail closed, not nearest-neighbor.
+ */
+export function exactSpreadOddsForLine(
+  entries: readonly { market?: string; pick?: string; odds?: number | null }[],
+  opts: {
+    teamHint: string;
+    line: number;
+    market?: string | RegExp;
+  },
+): { pick: string; odds: number; line: number } | null {
+  const hint = String(opts.teamHint ?? "").toLowerCase();
+  const marketRe =
+    opts.market instanceof RegExp
+      ? opts.market
+      : new RegExp(opts.market ?? "^spread$", "i");
+  for (const e of entries) {
+    if (!marketRe.test(String(e.market ?? ""))) continue;
+    const pick = String(e.pick ?? "");
+    if (hint && !pick.toLowerCase().includes(hint)) continue;
+    const pts = spreadPointsFromPick(pick);
+    if (pts == null || Math.abs(pts - opts.line) > 1e-9) continue;
+    if (e.odds == null || !Number.isFinite(e.odds) || e.odds === 0) continue;
+    return { pick, odds: e.odds, line: pts };
+  }
+  return null;
+}
+
+/** True when an odds row's printed handicap matches the requested line exactly. */
+export function oddsRowMatchesExactSpreadLine(
+  entry: { pick?: string; odds?: number | null },
+  line: number,
+): boolean {
+  const pts = spreadPointsFromPick(String(entry.pick ?? ""));
+  if (pts == null) return false;
+  if (entry.odds == null || !Number.isFinite(entry.odds) || entry.odds === 0) {
+    return false;
+  }
+  return Math.abs(pts - line) < 1e-9;
+}
+
 /** Alt spreads beyond ±1.5 (e.g. +2.5, -3.5). */
 export function isAggressiveAltSpread(market: string, pick: string): boolean {
   const m = String(market ?? "").trim().toLowerCase();

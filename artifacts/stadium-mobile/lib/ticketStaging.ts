@@ -20,7 +20,10 @@ import {
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { dedupePicksByMarketLadder, wouldRepeatMarketLadder } from "./marketLadderKey.ts";
-import { wouldStackSameTeamTeamTotals } from "./coachP0UnvalidatedTotals.ts";
+import {
+  p0UnvalidatedSimDecision,
+  wouldStackSameTeamTeamTotals,
+} from "./coachP0UnvalidatedTotals.ts";
 import {
   selectCorrelationAwareBoardLegs,
   maxLegsPerThinStatMarket,
@@ -197,17 +200,23 @@ export function topUpTicketFromQualifiedScored(
     collegeTeamMarketStacks?: boolean;
   },
 ): ParsedPick[] {
-  if (target < 3 || picks.length >= target) return picks.slice(0, Math.max(0, target));
+  // Drop P0-blocked legs already on the ticket (NCAAF spreads/ML, unvalidated
+  // totals). Do not re-litigate AI-recommend thresholds for already-staged
+  // validated sports — only integrity fail-closed strips seats.
+  const cleared = picks.filter((p) => !p0UnvalidatedSimDecision(p));
+  if (target < 3) return cleared.slice(0, Math.max(0, target));
+  if (cleared.length >= target) return cleared.slice(0, target);
   const collapseSameTeam = !!opts?.collapseSameTeamSides;
-  const used = new Set(picks.map(pickLegFingerprint));
+  const used = new Set(cleared.map(pickLegFingerprint));
   const leftover: BoardScoredLeg[] = [];
   for (const leg of scored) {
     const fp = pickLegFingerprint(leg.pick);
     if (used.has(fp)) continue;
+    if (p0UnvalidatedSimDecision(leg.pick)) continue;
     if (boardLegPoolRole(leg.pick, leg.pick.finalAiScore) == null) continue;
     leftover.push(leg);
   }
-  if (!leftover.length) return picks.slice(0, target);
+  if (!leftover.length) return cleared.slice(0, target);
 
   const appendExtras = (
     current: ParsedPick[],
@@ -246,11 +255,11 @@ export function topUpTicketFromQualifiedScored(
   };
 
   // (1) Props-first when qualified props remain and ticket is under the mix floor.
-  const propFraction = isFootballHeavyPickList(picks) || isFootballHeavyScoredPool(leftover)
+  const propFraction = isFootballHeavyPickList(cleared) || isFootballHeavyScoredPool(leftover)
     ? 0.4
     : 0.5;
   const propFloor = boardScanPropSlotCount(target, propFraction);
-  let merged = picks.slice();
+  let merged = cleared.slice();
   if (
     !collapseSameTeam &&
     merged.filter((p) => p.isProp).length < propFloor &&
