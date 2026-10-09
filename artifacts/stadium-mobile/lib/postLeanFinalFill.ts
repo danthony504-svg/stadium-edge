@@ -8,7 +8,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
-import { p0UnvalidatedSimTotalDecision } from "./coachP0UnvalidatedTotals.ts";
+import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
@@ -99,7 +99,7 @@ export function scoredLegFromQualifiedCandidate(pick: ParsedPick): BoardScoredLe
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return null;
   if (!pick.game || !pick.market || !pick.pick) return null;
   if (isPostLeanFillBlockedPeriodMarket(pick)) return null;
-  if (p0UnvalidatedSimTotalDecision(pick)) return null;
+  if (p0UnvalidatedSimDecision(pick)) return null;
   const score = pick.finalAiScore;
   if (!score) return null;
   if (boardLegPoolRole(pick, score) == null) return null;

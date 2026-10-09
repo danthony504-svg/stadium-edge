@@ -12,7 +12,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
 import type { GameMeta, MatchupHistoryEntry, RealOddsEntry } from "./api.ts";
-import { p0UnvalidatedSimTotalDecision } from "./coachP0UnvalidatedTotals.ts";
+import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { gameLabelsMatch } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import {
@@ -98,7 +98,7 @@ export function isLeanQualifiedSubstitute(pick: ParsedPick): boolean {
   if (!pick.finalAiScore) return false;
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return false;
   // P0 blocked totals must never re-enter via lean (belt; lean skips totals).
-  if (p0UnvalidatedSimTotalDecision(pick)) return false;
+  if (p0UnvalidatedSimDecision(pick)) return false;
   if (!pickHasSimGrade(pick, pick.finalAiScore.simHit)) return false;
   return boardLegPoolRole(pick, pick.finalAiScore) != null;
 }
@@ -143,7 +143,7 @@ export function passesLeanTicketConstraints(
 ): boolean {
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return false;
   if (!pick.game || !pick.market || !pick.pick) return false;
-  if (p0UnvalidatedSimTotalDecision(pick)) return false;
+  if (p0UnvalidatedSimDecision(pick)) return false;
 
   if (isGameSideMlOrSpread(pick)) {
     if (!pick.finalAiScore) return false;

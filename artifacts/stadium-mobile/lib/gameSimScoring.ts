@@ -629,17 +629,22 @@ function sanitizeGameSimHit(
   // cache; coverHitRates / periodScoresForDraw / raceToHits stay unchanged.
   const dist = withFgDistSeriesReuse(query, sim, () => distributionForQuery(query, sim));
   const simStat = simulatedStatisticForQuery(query);
+  // Resolve sport from pick first, then trusted sim/event metadata — never invent.
+  const resolvedSport = pick.sport || sim.sport || undefined;
   return sanitizeSimHitForGrade(hit, {
     market: pick.market,
-    sport: pick.sport,
+    sport: resolvedSport,
+    providerSport: sim.sport,
+    eventSport: sim.sport,
     isProp: !!pick.isProp,
+    propMarketKey: pick.propMarketKey,
     period: periodClaimed,
     periodUsed,
     line: query.line ?? query.raceTarget ?? null,
     odds: odds ?? null,
     normalizedMarketKey: normalizeMarketKey(pick.market ?? "", {
       isProp: !!pick.isProp,
-      sport: pick.sport,
+      sport: resolvedSport,
     }),
     expectedStatKey: simStat,
     simulationStatKey: simStat,

@@ -3,14 +3,17 @@ import test from "node:test";
 import {
   classifyGameSimRecommendation,
   deriveGameSimLineMetrics,
+  exactSpreadOddsForLine,
   filterEvalLinesForProjectedMargin,
   hasCompleteEvaluatedLine,
   isAggressiveAltSpread,
+  oddsRowMatchesExactSpreadLine,
   passesCoachSimQualityGate,
   projectedScoreMargin,
   qualifiesForBestLines,
   simEdgeFromHit,
   simEvPct,
+  spreadPointsFromPick,
 } from "./gameSimQualityGates.ts";
 import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 
@@ -137,4 +140,68 @@ test("passesCoachSimQualityGate requires edge, grade, confidence, and sim above 
 
 test("projectedScoreMargin", () => {
   assert.ok(projectedScoreMargin(tightSim) < 0.5);
+});
+
+test("deriveGameSimLineMetrics rejects mismatched spread line vs odds row", () => {
+  const row = mockRow({ edge: 8, hit: 0.59, grade: "A", conf: 70 });
+  // Pretend pick asks +2 while the odds entry is still +3 @ -105.
+  row.pick = { ...row.pick, pick: "Iowa Hawkeyes +2", odds: -105, sport: "ncaaf" };
+  row.entry = {
+    ...row.entry,
+    sport: "ncaaf",
+    market: "Spread",
+    pick: "Iowa Hawkeyes +3",
+    odds: -105,
+  };
+  assert.equal(deriveGameSimLineMetrics(row), null);
+});
+
+test("exact-line pricing: never transfer +3 price onto +2", () => {
+  const rows = [
+    { market: "Spread", pick: "Iowa Hawkeyes +3", odds: -105 },
+    { market: "Spread", pick: "Washington Huskies -3", odds: -115 },
+    { market: "Moneyline", pick: "Iowa Hawkeyes ML", odds: 131 },
+  ];
+  assert.equal(spreadPointsFromPick("Iowa Hawkeyes +3"), 3);
+  assert.equal(oddsRowMatchesExactSpreadLine(rows[0]!, 3), true);
+  assert.equal(oddsRowMatchesExactSpreadLine(rows[0]!, 2), false);
+
+  const at3 = exactSpreadOddsForLine(rows, { teamHint: "iowa", line: 3 });
+  assert.deepEqual(at3, { pick: "Iowa Hawkeyes +3", odds: -105, line: 3 });
+
+  // Requested +2 is not posted — fail closed (null), do NOT return -105 from +3.
+  assert.equal(exactSpreadOddsForLine(rows, { teamHint: "iowa", line: 2 }), null);
+});
+
+test("exact-line binder mirrors buildRealOdds shape: each point has its own price row", () => {
+  // Shape produced by buildRealOdds for a main spread outcome (point baked into pick).
+  const real = [
+    {
+      sport: "ncaaf",
+      game: "Iowa Hawkeyes @ Washington Huskies",
+      market: "Spread",
+      pick: "Iowa Hawkeyes +3",
+      odds: -105,
+      startsAt: "2026-10-10T01:00:00Z",
+    },
+    {
+      sport: "ncaaf",
+      game: "Iowa Hawkeyes @ Washington Huskies",
+      market: "Moneyline",
+      pick: "Iowa Hawkeyes ML",
+      odds: 131,
+      startsAt: "2026-10-10T01:00:00Z",
+    },
+  ];
+  assert.equal(spreadPointsFromPick(real[0]!.pick), 3);
+  assert.equal(
+    exactSpreadOddsForLine(real, { teamHint: "iowa hawkeyes", line: 2 }),
+    null,
+    "unposted +2 must not inherit +3's -105",
+  );
+  assert.deepEqual(exactSpreadOddsForLine(real, { teamHint: "iowa hawkeyes", line: 3 }), {
+    pick: "Iowa Hawkeyes +3",
+    odds: -105,
+    line: 3,
+  });
 });

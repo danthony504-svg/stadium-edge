@@ -91,7 +91,7 @@ test("college mix floors team-total seats and keeps props at 0; NFL still budget
   );
 });
 
-test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () => {
+test("fillReservedTeamTotalSlots: NCAAF team totals stay P0-blocked (honest shortfall)", () => {
   assert.equal(boardScanTeamTotalSlotCount(7), 1);
   assert.equal(isCollegeTeamTotalPick({ market: "Team Total" }), true);
   assert.equal(isCollegeTeamTotalPick({ market: "Alt Team Total" }), true);
@@ -106,7 +106,7 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
     odds: number;
     isProp?: boolean;
     sport?: string;
-    finalAiScore?: { composite: number };
+    finalAiScore?: { composite: number; simHit?: number };
   };
   const ticket: P[] = [
     {
@@ -115,7 +115,7 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
       pick: "Iowa Hawkeyes +14.5",
       odds: -110,
       sport: "ncaaf",
-      finalAiScore: { composite: 6 },
+      finalAiScore: { composite: 6, simHit: 0.58 },
     },
     {
       game: g2,
@@ -123,7 +123,7 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
       pick: "Duke Blue Devils +3.5",
       odds: -110,
       sport: "ncaaf",
-      finalAiScore: { composite: 5.5 },
+      finalAiScore: { composite: 5.5, simHit: 0.57 },
     },
     {
       game: "A @ B",
@@ -131,7 +131,7 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
       pick: "A +7.5",
       odds: -110,
       sport: "ncaaf",
-      finalAiScore: { composite: 5 },
+      finalAiScore: { composite: 5, simHit: 0.56 },
     },
     {
       game: "C @ D",
@@ -139,7 +139,7 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
       pick: "C +1.5",
       odds: -110,
       sport: "ncaaf",
-      finalAiScore: { composite: 4.5 },
+      finalAiScore: { composite: 4.5, simHit: 0.55 },
     },
     {
       game: "E @ F",
@@ -147,7 +147,7 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
       pick: "E +3.5",
       odds: -110,
       sport: "ncaaf",
-      finalAiScore: { composite: 4 },
+      finalAiScore: { composite: 4, simHit: 0.54 },
     },
     {
       game: "G @ H",
@@ -155,7 +155,7 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
       pick: "G +6.5",
       odds: -110,
       sport: "ncaaf",
-      finalAiScore: { composite: 3.5 },
+      finalAiScore: { composite: 3.5, simHit: 0.53 },
     },
     {
       game: "I @ J",
@@ -163,11 +163,11 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
       pick: "I +2.5",
       odds: -110,
       sport: "ncaaf",
-      finalAiScore: { composite: 3 },
+      finalAiScore: { composite: 3, simHit: 0.52 },
     },
   ];
   const scored = [
-    ...ticket.map((pick, i) => ({ pick, rankScore: 100 - i })),
+    ...ticket.map((pick, i) => ({ pick, rankScore: 100 - i, simHit: 0.58 })),
     {
       pick: {
         game: g1,
@@ -175,14 +175,17 @@ test("fillReservedTeamTotalSlots swaps FG spreads for posted team totals", () =>
         pick: "Minnesota Golden Gophers Over 24.5",
         odds: -105,
         sport: "ncaaf",
-        finalAiScore: { composite: 8 },
+        finalAiScore: { composite: 8, simHit: 0.72 },
       },
       rankScore: 99,
+      simHit: 0.72,
     },
   ];
   const out = fillReservedTeamTotalSlots(ticket, scored, 7, 4);
-  assert.ok(
-    out.some((p) => /team total/i.test(p.market)),
-    `expected a team total seat, got ${out.map((p) => p.market).join(",")}`,
+  // P0: NCAAF team totals + game-line sides fail closed — do not seat unvalidated edges.
+  assert.equal(
+    out.filter((p) => /team total/i.test(p.market)).length,
+    0,
+    "NCAAF team totals must not seat under P0",
   );
 });

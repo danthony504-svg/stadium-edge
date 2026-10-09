@@ -127,6 +127,8 @@ function simHitForLine(
       pick: line.pick,
       odds: line.odds,
       isProp: false,
+      // Trusted sim/event sport — never invent from team names.
+      sport: sim.sport,
     },
     sim,
   );

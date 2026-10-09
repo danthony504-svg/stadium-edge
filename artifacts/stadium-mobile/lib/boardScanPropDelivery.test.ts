@@ -137,7 +137,7 @@ test("filterNcaafPlayerPropsUnlessAsked strips CFB yards on bare college; keeps 
   );
 });
 
-test("fillReservedPeriodSlots swaps FG alts for half/quarter on college tickets", () => {
+test("fillReservedPeriodSlots: NCAAF period spreads stay P0-blocked (honest shortfall)", () => {
   const target = 8;
   const fgHeavy = Array.from({ length: 8 }, (_, i) => ({
     isProp: false,
@@ -146,10 +146,10 @@ test("fillReservedPeriodSlots swaps FG alts for half/quarter on college tickets"
     pick: `Team${i} +3.5`,
     game: `Away${i} @ Home${i}`,
     odds: -110,
-    finalAiScore: { composite: 50 + i },
+    finalAiScore: { composite: 50 + i, simHit: 0.58 },
   }));
   const scored = [
-    ...fgHeavy.map((pick, i) => ({ pick, rankScore: 50 + i })),
+    ...fgHeavy.map((pick, i) => ({ pick, rankScore: 50 + i, simHit: 0.58 })),
     {
       pick: {
         isProp: false,
@@ -158,9 +158,10 @@ test("fillReservedPeriodSlots swaps FG alts for half/quarter on college tickets"
         pick: "Iowa Hawkeyes +7.5",
         game: "Ohio State Buckeyes @ Iowa Hawkeyes",
         odds: -110,
-        finalAiScore: { composite: 80 },
+        finalAiScore: { composite: 80, simHit: 0.62 },
       },
       rankScore: 90,
+      simHit: 0.62,
     },
     {
       pick: {
@@ -170,16 +171,19 @@ test("fillReservedPeriodSlots swaps FG alts for half/quarter on college tickets"
         pick: "UConn Huskies +3.5",
         game: "Syracuse Orange @ UConn Huskies",
         odds: -110,
-        finalAiScore: { composite: 78 },
+        finalAiScore: { composite: 78, simHit: 0.6 },
       },
       rankScore: 88,
+      simHit: 0.6,
     },
   ];
   const filled = fillReservedPeriodSlots(fgHeavy, scored, target, 4);
-  const periods = filled.filter((p) => /q2|1h/i.test(p.market ?? ""));
-  assert.ok(
-    periods.length >= 2,
-    `expected ≥2 period seats, got ${periods.map((p) => p.market).join(",")}`,
+  // FG spreads stripped + period leftovers blocked → empty shortfall.
+  assert.equal(filled.length, 0);
+  assert.equal(
+    filled.filter((p) => /q2|1h/i.test(p.market ?? "")).length,
+    0,
+    "NCAAF period sides must not seat under P0",
   );
 });
 

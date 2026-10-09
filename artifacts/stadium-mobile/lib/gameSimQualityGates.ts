@@ -5,6 +5,7 @@ import type { RealOddsEntry } from "./api.ts";
 import { americanToDecimal, decimalToAmerican, impliedProb } from "./format.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
+import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import {
   gameSimHasValidRun,
   gameSimHitForPick,
@@ -82,6 +83,20 @@ export function deriveGameSimLineMetrics(row: EvaluatedGameLine): GameSimLineMet
   if (!grade) return null;
   if (confidencePct == null || !Number.isFinite(confidencePct)) return null;
 
+  // Exact-line pricing: spread pick handicap must match the odds row's printed line.
+  if (/spread/i.test(String(row.entry.market ?? row.pick?.market ?? ""))) {
+    const pickLine = spreadPointsFromPick(String(row.pick?.pick ?? row.entry.pick ?? ""));
+    const entryLine = spreadPointsFromPick(String(row.entry.pick ?? ""));
+    if (
+      pickLine == null ||
+      entryLine == null ||
+      Math.abs(pickLine - entryLine) > 1e-9 ||
+      !oddsRowMatchesExactSpreadLine(row.entry, pickLine)
+    ) {
+      return null;
+    }
+  }
+
   const fairOdds = fairOddsFromProb(simHit);
   const evPct = simEvPct(simHit, bookOdds);
   const edgePct =
@@ -113,6 +128,24 @@ export function qualifiesCoachSimLineMetrics(m: GameSimLineMetrics): boolean {
 }
 
 export function qualifiesCoachSimEvalLine(row: EvaluatedGameLine): boolean {
+  // P0: NCAAF/unknown-sport game lines and unvalidated totals never qualify
+  // for Best Lines / alt selection, regardless of simHit/edge.
+  const market = row.pick?.market ?? row.entry.market;
+  const sport = row.pick?.sport ?? row.entry.sport;
+  if (
+    p0UnvalidatedSimDecision({
+      market,
+      sport,
+      isProp: row.pick?.isProp,
+      propMarketKey: row.pick?.propMarketKey,
+      providerSport: (row.pick as { providerSport?: string | null } | undefined)?.providerSport
+        ?? (row.entry as { providerSport?: string | null }).providerSport,
+      eventSport: (row.pick as { eventSport?: string | null } | undefined)?.eventSport
+        ?? (row.entry as { eventSport?: string | null }).eventSport,
+    })
+  ) {
+    return false;
+  }
   const m = deriveGameSimLineMetrics(row);
   return m != null && qualifiesCoachSimLineMetrics(m);
 }
@@ -157,6 +190,50 @@ export function spreadPointsFromPick(pick: string): number | null {
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Exact-line price binding: a posted odds row may only price the handicap
+ * printed on its own pick string. Never transfer a +3 price onto a +2 query
+ * (or any other neighboring rung). Returns null when the requested line is
+ * not posted — callers must fail closed, not nearest-neighbor.
+ */
+export function exactSpreadOddsForLine(
+  entries: readonly { market?: string; pick?: string; odds?: number | null }[],
+  opts: {
+    teamHint: string;
+    line: number;
+    market?: string | RegExp;
+  },
+): { pick: string; odds: number; line: number } | null {
+  const hint = String(opts.teamHint ?? "").toLowerCase();
+  const marketRe =
+    opts.market instanceof RegExp
+      ? opts.market
+      : new RegExp(opts.market ?? "^spread$", "i");
+  for (const e of entries) {
+    if (!marketRe.test(String(e.market ?? ""))) continue;
+    const pick = String(e.pick ?? "");
+    if (hint && !pick.toLowerCase().includes(hint)) continue;
+    const pts = spreadPointsFromPick(pick);
+    if (pts == null || Math.abs(pts - opts.line) > 1e-9) continue;
+    if (e.odds == null || !Number.isFinite(e.odds) || e.odds === 0) continue;
+    return { pick, odds: e.odds, line: pts };
+  }
+  return null;
+}
+
+/** True when an odds row's printed handicap matches the requested line exactly. */
+export function oddsRowMatchesExactSpreadLine(
+  entry: { pick?: string; odds?: number | null },
+  line: number,
+): boolean {
+  const pts = spreadPointsFromPick(String(entry.pick ?? ""));
+  if (pts == null) return false;
+  if (entry.odds == null || !Number.isFinite(entry.odds) || entry.odds === 0) {
+    return false;
+  }
+  return Math.abs(pts - line) < 1e-9;
 }
 
 /** Alt spreads beyond ±1.5 (e.g. +2.5, -3.5). */

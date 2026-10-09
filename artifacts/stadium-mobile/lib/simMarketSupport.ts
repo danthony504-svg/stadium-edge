@@ -1,7 +1,11 @@
 // Which markets have a dedicated Monte Carlo model — only these get AI recommendations.
 
 import { sportSimModelForSport, type SportSimModelId } from "./sportSimModels.ts";
-import { p0UnvalidatedSimTotalDecision } from "./coachP0UnvalidatedTotals.ts";
+import {
+  canonicalizeCoachSport,
+  p0UnvalidatedSimDecision,
+  resolveCoachPickSport,
+} from "./coachP0UnvalidatedTotals.ts";
 import { isRareCountPropMarket } from "./rareCountPropModel.ts";
 
 export type { SportSimModelId };
@@ -172,9 +176,7 @@ export function normalizeMarketKey(
 }
 
 function sportKey(sport?: string | null): string {
-  return String(sport ?? "")
-    .toLowerCase()
-    .trim();
+  return canonicalizeCoachSport(sport);
 }
 
 function marketFamilyFromKey(statKey: string | undefined): "game_total" | "team_total" | "prop" | "other" {
@@ -191,11 +193,27 @@ function marketFamilyFromKey(statKey: string | undefined): "game_total" | "team_
  */
 export function assessSimMarketIntegrity(
   simHit: number,
-  ctx: Omit<SimHitSanityContext, "simHit" | "reason" | "decision">,
+  ctx: Omit<SimHitSanityContext, "simHit" | "reason" | "decision"> & {
+    providerSport?: string | null;
+    eventSport?: string | null;
+    propMarketKey?: string | null;
+  },
 ): SimIntegrityDecision {
   const market = ctx.market ?? "";
-  const sport = sportKey(ctx.sport);
-  const pick = { market, sport: ctx.sport, isProp: ctx.isProp };
+  const resolvedSport = resolveCoachPickSport({
+    sport: ctx.sport,
+    providerSport: ctx.providerSport,
+    eventSport: ctx.eventSport,
+  });
+  const sport = resolvedSport || sportKey(ctx.sport);
+  const pick = {
+    market,
+    sport: resolvedSport || ctx.sport,
+    providerSport: ctx.providerSport,
+    eventSport: ctx.eventSport,
+    isProp: ctx.isProp,
+    propMarketKey: ctx.propMarketKey,
+  };
   const periodClaimed = (ctx.period ?? parseMarketPeriod(market)) as SimPeriodScope;
   const periodUsed = (ctx.periodUsed ?? periodClaimed) as SimPeriodScope;
   const expectedKind = simModelForMarket(market, pick);
@@ -212,9 +230,10 @@ export function assessSimMarketIntegrity(
             : `${periodClaimed}:${expectedKind}`
           : `${periodClaimed}:${expectedKind}`);
 
-  // P0: fail closed on unvalidated NFL/NCAAF/NHL team/period totals (and
-  // NFL/NCAAF FG game totals) before extreme-hit accept paths can grade them.
-  const p0 = p0UnvalidatedSimTotalDecision(pick);
+  // P0: fail closed on unvalidated NFL/NCAAF/NHL team/period totals,
+  // NFL/NCAAF/NHL FG game totals, and NCAAF (incl. cfb) / unknown-sport
+  // spread/ML game lines before extreme-hit accept paths.
+  const p0 = p0UnvalidatedSimDecision(pick);
   if (p0) return p0;
 
   if (!simMarketMappingIsValid(pick)) {
@@ -442,17 +461,33 @@ export function simMarketMappingIsValid(pick: {
 
 /** True when a pick has a real sim-backed grade (not rubric-only). */
 export function pickHasSimGrade(
-  pick: { market?: string; isProp?: boolean; sport?: string },
+  pick: {
+    market?: string;
+    isProp?: boolean;
+    sport?: string;
+    providerSport?: string | null;
+    eventSport?: string | null;
+    propMarketKey?: string | null;
+  },
   simHit: number | null | undefined,
 ): boolean {
   if (!simMarketMappingIsValid(pick)) return false;
+  const resolved = resolveCoachPickSport(pick);
+  // Player-prop identity (market key) — not the isProp flag — drives prop mapping.
+  const propIdentity =
+    !!pick.propMarketKey ||
+    (!!pick.isProp &&
+      !/spread|moneyline|\bh2h\b|\bml\b|total/i.test(String(pick.market ?? "")));
   const hit = sanitizeSimHitForGrade(simHit, {
     market: pick.market,
-    sport: pick.sport,
-    isProp: pick.isProp,
+    sport: resolved || pick.sport,
+    providerSport: pick.providerSport,
+    eventSport: pick.eventSport,
+    isProp: propIdentity,
+    propMarketKey: pick.propMarketKey,
     period: parseMarketPeriod(pick.market ?? ""),
-    simulationStatKey: pick.isProp ? "player_prop" : undefined,
-    expectedStatKey: pick.isProp ? "player_prop" : undefined,
+    simulationStatKey: propIdentity ? "player_prop" : undefined,
+    expectedStatKey: propIdentity ? "player_prop" : undefined,
   });
   return hit != null;
 }

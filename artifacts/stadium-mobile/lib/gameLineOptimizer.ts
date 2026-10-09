@@ -21,7 +21,9 @@ import {
   filterEvalLinesForProjectedMargin,
   hasCompleteEvaluatedLine,
   qualifiesCoachSimEvalLine,
+  spreadPointsFromPick,
 } from "./gameSimQualityGates.ts";
+import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { pickIsAiRecommended } from "./pickRecommendation.ts";
 import { mergeOddsEntries as mergeOddsEntrySources, oddsEntryKey, type OddsMergeEntry } from "./oddsMerge.ts";
 
@@ -531,10 +533,21 @@ function probeSimHitFromEvalLadder(
   evalLines: RealOddsEntry[],
 ): number | null {
   if (!sim) return null;
+  // Never attach a simulated edge to P0-blocked NCAAF / unknown-sport game lines.
+  if (p0UnvalidatedSimDecision(pick)) return null;
   const direct = gameSimHitForPick(pick, sim);
   if (direct != null) return direct;
+  const wantSpreadLine = /spread/i.test(String(pick.market ?? ""))
+    ? spreadPointsFromPick(String(pick.pick ?? ""))
+    : null;
   for (const row of evalLines) {
     if (!/spread|moneyline|total/i.test(row.market)) continue;
+    // Exact-line only: never attach Iowa +3 cover/odds to an Iowa +2 pick.
+    if (wantSpreadLine != null) {
+      if (!/spread/i.test(row.market)) continue;
+      const rowLine = spreadPointsFromPick(String(row.pick ?? ""));
+      if (rowLine == null || Math.abs(rowLine - wantSpreadLine) > 1e-9) continue;
+    }
     const hit = gameSimHitForPick(
       {
         ...pick,

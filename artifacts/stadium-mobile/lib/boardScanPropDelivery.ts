@@ -11,7 +11,8 @@ import {
 import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import { COACH_PRIORITY_SPORTS } from "./coachPrioritySports.ts";
 import { isPeriodMainMarket } from "./altLinePool.ts";
-import { parseMarketPeriod } from "./simMarketSupport.ts";
+import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
+import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 
@@ -545,14 +546,22 @@ type PropFillPick = {
   sport?: string | null;
   propLine?: number | null;
   propMarketKey?: string | null;
-  finalAiScore?: { composite?: number } | null;
+  finalAiScore?: { composite?: number; simHit?: number | null } | null;
   scores?: { composite?: number } | null;
 };
 
 type PropFillLeg<T extends PropFillPick> = {
   pick: T;
   rankScore?: number;
+  simHit?: number | null;
 };
+
+/** Fail-closed: P0 unvalidated sims and missing sim grades never seat. */
+function propFillLegClearsSimIntegrity<T extends PropFillPick>(leg: PropFillLeg<T>): boolean {
+  if (p0UnvalidatedSimDecision(leg.pick)) return false;
+  const simHit = leg.simHit ?? leg.pick.finalAiScore?.simHit ?? null;
+  return pickHasSimGrade(leg.pick, simHit);
+}
 
 /**
  * Enforce ~50% player-prop slots on a staged ticket when qualified props exist.
@@ -731,7 +740,10 @@ export function fillReservedPeriodSlots<T extends PropFillPick>(
   const periodSlots = boardScanPeriodSlotCount(target);
   if (periodSlots <= 0) return picks.slice(0, target);
 
-  let out = picks.slice(0, target);
+  // Strip unvalidated NCAAF game lines already seated before reserving periods.
+  let out = picks
+    .filter((p) => !p0UnvalidatedSimDecision(p))
+    .slice(0, target);
   const used = new Set(out.map(propFillFingerprint));
   let periodCount = out.filter((p) => isCollegePeriodMarketPick(p)).length;
   if (periodCount >= periodSlots) return out;
@@ -739,6 +751,7 @@ export function fillReservedPeriodSlots<T extends PropFillPick>(
   const remaining = () =>
     scored.filter((leg) => {
       if (!isCollegePeriodMarketPick(leg.pick)) return false;
+      if (!propFillLegClearsSimIntegrity(leg)) return false;
       return !used.has(propFillFingerprint(leg.pick));
     });
 
@@ -809,7 +822,9 @@ export function fillReservedTeamTotalSlots<T extends PropFillPick>(
   const seats = boardScanTeamTotalSlotCount(target);
   if (seats <= 0) return picks.slice(0, target);
 
-  let out = picks.slice(0, target);
+  let out = picks
+    .filter((p) => !p0UnvalidatedSimDecision(p))
+    .slice(0, target);
   const used = new Set(out.map(propFillFingerprint));
   let ttCount = out.filter((p) => isCollegeTeamTotalPick(p)).length;
   if (ttCount >= seats) return out;
@@ -817,6 +832,7 @@ export function fillReservedTeamTotalSlots<T extends PropFillPick>(
   const remaining = () =>
     scored.filter((leg) => {
       if (!isCollegeTeamTotalPick(leg.pick)) return false;
+      if (!propFillLegClearsSimIntegrity(leg)) return false;
       return !used.has(propFillFingerprint(leg.pick));
     });
 

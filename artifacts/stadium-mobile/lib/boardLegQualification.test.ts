@@ -9,6 +9,7 @@ test("explainBoardLegQualification rejects game line with edge but no AI recomme
       market: "Moneyline",
       pick: "A ML",
       odds: 207,
+      sport: "mlb",
       isProp: false,
     },
     {
@@ -35,6 +36,7 @@ test("explainBoardLegQualification accepts qualifying alt spread", () => {
       market: "Alt Spread",
       pick: "A -1.5",
       odds: -105,
+      sport: "mlb",
       isProp: false,
     },
     {

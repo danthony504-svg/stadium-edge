@@ -1,8 +1,11 @@
 /**
- * Proof: NCAAF Coach can fill 5/10/15 from a legitimate mix of qualified
- * provider TEAM markets — FG spread/total, team totals, 1H/Q, alts —
- * without inventing lines, staging player props on bare college, or
- * collapsing same-game period sides.
+ * Proof: NCAAF Coach team-market fill behavior under P0 integrity gates.
+ *
+ * Football totals remain P0-blocked. NCAAF spreads/ML are also fail-closed
+ * until nfl-drive is recalibrated (rate-cap / missing matchup inputs). Bare
+ * college (gameLinesOnly) therefore shortfalls rather than seating unsupported
+ * high-confidence edges. Player props stay eligible when the ask allows them.
+ * Correlation / per-game caps are unchanged.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -211,14 +214,8 @@ test("proof: bare college routing is team markets + period stacks; explicit prop
   assert.equal(askAllowsCollegeTeamMarketStacks("10 leg nfl"), false);
 });
 
-test("proof: 5/10/15 college fills toward N from team markets without inventing or player props", () => {
-  const boardFps = new Set(
-    collegeQualifiedBoard()
-      .filter((l) => !l.pick.isProp)
-      .map((l) => `${l.pick.game}|${l.pick.market}|${l.pick.pick}|${l.pick.odds}`),
-  );
-
-  // Bare college is gameLinesOnly + stacks → college floor ≥4.
+test("proof: bare college shortfalls when NCAAF game lines are P0 fail-closed", () => {
+  // Bare college is gameLinesOnly + stacks → college floor ≥4 (caps unchanged).
   const collegeCap = legsPerGameCapForAsk(10, {
     gameLinesOnly: true,
     collegeTeamMarketStacks: true,
@@ -227,37 +224,20 @@ test("proof: 5/10/15 college fills toward N from team markets without inventing 
 
   for (const target of [5, 10, 15]) {
     const picks = fillCollegeTicket(target, collegeCap);
+    // Spreads/ML/totals all fail closed — shortfall, never invent filler.
     assert.equal(
       picks.length,
-      Math.min(target, boardFps.size),
-      `${target}-leg: expected full fill from qualified pool, got ${picks.length}`,
+      0,
+      `${target}-leg: expected empty shortfall (no validated NCAAF game lines), got ${picks.length}`,
     );
-
-    // Every leg must be one of the qualified provider rows (no synthetic markets/lines).
-    for (const p of picks) {
-      const fp = `${p.game}|${p.market}|${p.pick}|${p.odds}`;
-      assert.ok(boardFps.has(fp), `invented or mutated line: ${fp}`);
-      assert.equal(p.isProp, false, `${target}: bare college must not stage player props (${p.pick})`);
-    }
-
-    const kinds = marketKinds(picks);
-    assert.ok(!kinds.has("player_yards"), `${target}: unexpected player yards — ${[...kinds]}`);
-    assert.ok(kinds.has("fg_spread"), `${target}: missing FG spread — ${[...kinds]}`);
-    assert.ok(
-      kinds.has("period_spread") || kinds.has("period_total"),
-      `${target}: missing half/quarter — ${[...kinds]}`,
-    );
-    if (target >= 10) {
-      assert.ok(kinds.has("fg_total") || kinds.has("team_total"), `${target}: missing team/FG total — ${[...kinds]}`);
-    }
+    assert.ok(!marketKinds(picks).has("player_yards"), "bare college must not invent props");
   }
 });
 
-test("proof: team totals stage when seats remain (alts compete by rank, not invented)", () => {
-  const board = collegeQualifiedBoard();
+test("proof: team totals stay P0-blocked; top-up does not seat unvalidated NCAAF sides", () => {
+  const board = collegeQualifiedBoard().filter((l) => !l.pick.isProp);
   assert.ok(board.some((l) => /team total/i.test(l.pick.market ?? "")));
   assert.ok(board.some((l) => /^alt /i.test(l.pick.market ?? "") || /alt spread/i.test(l.pick.market ?? "")));
-  // Short ticket with room under cap 4 — top-up must accept team total from leftovers.
   const short = [
     board.find((l) => l.pick.market === "Spread" && /iowa/i.test(l.pick.pick))!.pick,
     board.find((l) => l.pick.market === "Spread" && /minnesota/i.test(l.pick.pick))!.pick,
@@ -266,12 +246,22 @@ test("proof: team totals stage when seats remain (alts compete by rank, not inve
     collapseSameTeamSides: false,
     collegeTeamMarketStacks: true,
   });
-  assert.equal(topped.length, 8);
+  // Unvalidated NCAAF spreads stripped; team totals remain P0-blocked → shortfall.
+  assert.equal(topped.length, 0);
   assert.ok(
-    topped.some((p) => /team total/i.test(p.market ?? "")),
-    `expected team total on topped ticket, got ${topped.map((p) => p.market).join(",")}`,
+    !topped.some((p) => /team total/i.test(p.market ?? "")),
+    "P0 team totals must not re-enter via top-up",
   );
-  // Odds/lines unchanged vs provider board fingerprint.
+});
+
+test("proof: NCAAF player props still stage when ask allows them", () => {
+  const board = collegeQualifiedBoard().filter((l) => l.pick.isProp);
+  assert.ok(board.length >= 3, "fixture must include provider props");
+  const topped = topUpTicketFromQualifiedScored([], board, 5, "proof-props", 2, {
+    collapseSameTeamSides: false,
+  });
+  assert.ok(topped.length >= 3, `expected prop shortfall fill, got ${topped.length}`);
+  assert.ok(topped.every((p) => p.isProp), "only player props may seat");
   for (const p of topped) {
     assert.ok(
       board.some(
@@ -281,25 +271,12 @@ test("proof: team totals stage when seats remain (alts compete by rank, not inve
           l.pick.pick === p.pick &&
           l.pick.odds === p.odds,
       ),
-      `mutated provider line: ${p.market} ${p.pick} ${p.odds}`,
+      `mutated provider prop: ${p.market} ${p.pick}`,
     );
   }
 });
 
-test("proof: Over and Under both survive when supplied", () => {
-  const picks = fillCollegeTicket(10, 4);
-  const labels = picks.map((p) => p.pick);
-  assert.ok(
-    labels.some((p) => /\bover\b/i.test(p ?? "")),
-    `expected an Over leg, got ${labels.join(" | ")}`,
-  );
-  assert.ok(
-    labels.some((p) => /\bunder\b/i.test(p ?? "")),
-    `expected an Under leg, got ${labels.join(" | ")}`,
-  );
-});
-
-test("proof: same-game FG + Q2 / 1H are not collapsed on college stacks", () => {
+test("proof: same-game FG + Q2 / 1H collapse helper unchanged; college fill stays empty under P0", () => {
   const g = "Ohio State Buckeyes @ Iowa Hawkeyes";
   const stacked = collapseSameTeamGameLineSides([
     {
@@ -334,13 +311,7 @@ test("proof: same-game FG + Q2 / 1H are not collapsed on college stacks", () => 
   assert.equal(stacked.length, 1, "collapse helper itself still collapses; college must not invoke it");
 
   const picks = fillCollegeTicket(10, 4);
-  const iowa = picks.filter((p) => /iowa/i.test(p.game ?? ""));
-  const iowaMarkets = iowa.map((p) => p.market);
-  assert.ok(
-    iowa.filter((p) => !p.isProp).length >= 2 ||
-      iowaMarkets.some((m) => /q2|1h/i.test(m ?? "")),
-    `college fill should keep multi-market Iowa seats when qualified, got ${iowaMarkets.join(",")}`,
-  );
+  assert.equal(picks.length, 0, "P0 NCAAF game lines → bare college shortfall");
 });
 
 test("proof: per-game caps still block unsafe over-stacking", () => {
