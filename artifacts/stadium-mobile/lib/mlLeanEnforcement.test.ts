@@ -85,6 +85,7 @@ test("T4: qualified opposing spread with no lean replacement → preserve origin
     market: "Spread",
     pick: "Yankees -1.5",
     odds: 165,
+    sport: "mlb",
     finalAiScore: qualifiedScore({ simHit: 0.52 }) as never,
   };
   const picks: ParsedPick[] = [original];
@@ -107,6 +108,7 @@ test("ungraded/invalid opposing with no lean replacement → still drop", () => 
       market: "Spread",
       pick: "Yankees -1.5",
       odds: 165,
+      sport: "mlb",
       // Has a score object but fails staging gates (no recommend / weak sim).
       finalAiScore: qualifiedScore({
         simHit: 0.4,
@@ -139,6 +141,7 @@ test("T5: qualified lean-side candidate swap preserves finalAiScore", () => {
     market: "Spread",
     pick: "Sox +1.5",
     odds: -110,
+    sport: "mlb",
     finalAiScore: leanScore as never,
     eventId: "mlb-1",
     sportsbook: "DraftKings",
@@ -150,6 +153,7 @@ test("T5: qualified lean-side candidate swap preserves finalAiScore", () => {
       market: "Spread",
       pick: "Yankees -1.5",
       odds: 165,
+      sport: "mlb",
       finalAiScore: qualifiedScore({ simHit: 0.4 }) as never,
     },
   ];
@@ -167,7 +171,7 @@ test("T5: qualified lean-side candidate swap preserves finalAiScore", () => {
 
 test("ungraded opposing lean is never promoted from raw odds", () => {
   const picks: ParsedPick[] = [
-    { game: GAME, market: "Moneyline", pick: "Yankees ML", odds: -104 },
+    { game: GAME, market: "Moneyline", pick: "Yankees ML", odds: -104, sport: "mlb" },
   ];
   const { picks: out, swapped, dropped } = enforceMlLeanOnPicks(picks, {
     matchupHistory: HISTORY as never,
@@ -187,6 +191,7 @@ test("enforceMlLeanOnPicks: leaves aligned Sox legs untouched", () => {
       market: "Spread",
       pick: "Sox +1.5",
       odds: -110,
+      sport: "mlb",
       finalAiScore: qualifiedScore({ simHit: 0.62 }) as never,
     },
   ];
@@ -201,12 +206,13 @@ test("enforceMlLeanOnPicks: leaves aligned Sox legs untouched", () => {
 
 test("enforceMlLeanOnPicks: totals and props pass through", () => {
   const picks: ParsedPick[] = [
-    { game: GAME, market: "Total", pick: "Over 8.5", odds: -110 },
+    { game: GAME, market: "Total", pick: "Over 8.5", odds: -110, sport: "mlb" },
     {
       game: GAME,
       market: "Strikeouts",
       pick: "Cole Over 6.5 Strikeouts",
       odds: -120,
+      sport: "mlb",
       isProp: true,
     },
   ];
@@ -641,6 +647,7 @@ test("lean replacement without grading evidence is rejected; qualified original 
     market: "Spread",
     pick: "Yankees -1.5",
     odds: 165,
+    sport: "mlb",
     finalAiScore: qualifiedScore({ simHit: 0.55 }) as never,
   };
   const ungradedLean: ParsedPick = {
@@ -648,6 +655,7 @@ test("lean replacement without grading evidence is rejected; qualified original 
     market: "Spread",
     pick: "Sox +1.5",
     odds: -110,
+    sport: "mlb",
   };
   const { picks: out, swapped, dropped } = enforceMlLeanOnPicks([opposing], {
     matchupHistory: HISTORY as never,

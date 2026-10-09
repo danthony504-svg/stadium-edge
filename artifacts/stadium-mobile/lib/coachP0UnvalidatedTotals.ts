@@ -8,6 +8,10 @@
 // nfl-drive TD/FG rate caps make cover probs insensitive to offense/QB shocks,
 // and matchup defense packs never enter score draws. Player props stay open.
 //
+// Sport aliases (cfb → ncaaf) are normalized before the gate. Missing sport is
+// resolved only from trusted provider/event fields — never guessed from team
+// names. Game-line identity comes from market keys, not the isProp flag.
+//
 // Standalone (no import from simMarketSupport) to avoid circular deps with
 // assessSimMarketIntegrity.
 
@@ -29,16 +33,64 @@ export const P0_UNVALIDATED_FG_GAME_TOTAL_SPORTS = new Set(["nfl", "ncaaf", "nhl
  */
 export const P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS = new Set(["ncaaf"]);
 
+/** College-football aliases that must canonicalize to ncaaf before P0. */
+const NCAAF_SPORT_ALIASES = new Set([
+  "ncaaf",
+  "cfb",
+  "college-football",
+  "college_football",
+  "collegefootball",
+  "ncaafb",
+  "ncaa-football",
+  "ncaa_football",
+]);
+
 export const P0_UNVALIDATED_TOTAL_REASON =
   "unvalidated_period_or_team_total_calibration";
 
 export const P0_UNVALIDATED_NCAAF_GAME_LINE_REASON =
   "unvalidated_ncaaf_game_line_simulation";
 
-function sportKey(sport?: string | null): string {
-  return String(sport ?? "")
+/** Game-line with no trusted sport — fail closed (do not invent NCAAF/NFL). */
+export const P0_UNVALIDATED_UNKNOWN_SPORT_GAME_LINE_REASON =
+  "unvalidated_unknown_sport_game_line";
+
+export type CoachSportResolveInput = {
+  sport?: string | null;
+  /** Trusted Odds API / event sport when pick.sport is missing. */
+  providerSport?: string | null;
+  /** Trusted event metadata sport (same authority as provider). */
+  eventSport?: string | null;
+};
+
+/**
+ * Canonical sport id for Coach gates. College-football aliases → ncaaf.
+ * Does not invent a sport from team names or market text.
+ */
+export function canonicalizeCoachSport(sport?: string | null): string {
+  const s = String(sport ?? "")
     .toLowerCase()
-    .trim();
+    .trim()
+    .replace(/\s+/g, "-");
+  if (!s) return "";
+  if (NCAAF_SPORT_ALIASES.has(s)) return "ncaaf";
+  if (s === "cbb" || s === "college-basketball" || s === "college_basketball") {
+    return "ncaab";
+  }
+  return s;
+}
+
+/**
+ * Resolve sport from the pick and trusted provider/event metadata only.
+ * Order: sport → providerSport → eventSport. Empty when still unknown.
+ */
+export function resolveCoachPickSport(pick: CoachSportResolveInput): string {
+  return (
+    canonicalizeCoachSport(pick.sport) ||
+    canonicalizeCoachSport(pick.providerSport) ||
+    canonicalizeCoachSport(pick.eventSport) ||
+    ""
+  );
 }
 
 /** Lightweight period detect — mirrors parseMarketPeriod for totals only. */
@@ -64,54 +116,88 @@ export function isTeamTotalMarket(market: string | null | undefined): boolean {
   return /team total/i.test(String(market ?? ""));
 }
 
-/** Posted game total / alt total — not team total, not props. */
+/**
+ * Posted game total / alt total — not team total.
+ * Market identity only — ignore isProp (a mis-tagged Total must not clear P0).
+ */
 export function isGameTotalMarket(
   market: string | null | undefined,
-  isProp?: boolean,
+  _isProp?: boolean,
 ): boolean {
-  if (isProp) return false;
   const m = String(market ?? "");
   if (!m || isTeamTotalMarket(m)) return false;
   return /\btotals?\b|alt total|o\/u/i.test(m);
 }
 
 /**
- * Team game-side markets (spread / ML / run line / puck line) — not totals, not props.
- * Includes period-suffixed and Odds API underscore keys (spreads_q2, h2h_h1).
+ * Team game-side markets (spread / ML / run line / puck line).
+ * Market / Odds API key identity only — isProp must NOT clear this.
+ * Includes period-suffixed and underscore keys (spreads_q2, h2h_h1).
  */
 export function isGameLineSideMarket(
   market: string | null | undefined,
-  isProp?: boolean,
+  _isProp?: boolean,
 ): boolean {
-  if (isProp) return false;
   const m = String(market ?? "")
     .toLowerCase()
     .replace(/_/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!m || isTeamTotalMarket(m) || isGameTotalMarket(m, isProp)) return false;
-  if (/moneyline|\bh2h\b|\bml\b/.test(m)) return true;
+  if (!m || isTeamTotalMarket(m) || isGameTotalMarket(m)) return false;
+  // Avoid matching prop labels that merely contain "ml" as a substring of a word.
+  if (/moneyline|\bh2h\b|(?:^|[\s/])ml(?:$|[\s/])/.test(m)) return true;
   if (/spread|run line|puck line|alt spread/.test(m)) return true;
   return false;
 }
 
+/** True when market identity is a player-prop family (not a team game line/total). */
+export function isPlayerPropMarketIdentity(
+  market: string | null | undefined,
+  opts?: { propMarketKey?: string | null },
+): boolean {
+  const key = String(opts?.propMarketKey ?? "").toLowerCase();
+  if (key.startsWith("player_") || key.startsWith("batter_") || key.startsWith("pitcher_")) {
+    return true;
+  }
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .trim();
+  if (!m) return false;
+  if (isGameLineSideMarket(m) || isTeamTotalMarket(m) || isGameTotalMarket(m)) return false;
+  if (/^player[\s_]|yards|receptions|rushing|passing|receiving|strikeouts|points\+|\btd\b|touchdown|assists|rebounds|goals|saves|shots/.test(m)) {
+    return true;
+  }
+  return false;
+}
+
+export type P0PickInput = CoachSportResolveInput & {
+  market?: string | null;
+  isProp?: boolean;
+  propMarketKey?: string | null;
+};
+
 /**
  * True when this pick must not receive a simulation-derived grade under P0 totals.
- * Player props and (non-NCAAF) spreads/moneylines are untouched here.
+ * Market identity wins over isProp.
  */
-export function isP0UnvalidatedSimTotalMarket(pick: {
-  market?: string | null;
-  sport?: string | null;
-  isProp?: boolean;
-}): boolean {
-  if (pick.isProp) return false;
-  const sport = sportKey(pick.sport);
+export function isP0UnvalidatedSimTotalMarket(pick: P0PickInput): boolean {
+  const sport = resolveCoachPickSport(pick);
   const market = String(pick.market ?? "");
   if (!market) return false;
+  // Verified player-prop identity is never a team/FG total.
+  if (isPlayerPropMarketIdentity(market, { propMarketKey: pick.propMarketKey })) {
+    return false;
+  }
 
   const fullGame = marketPeriodIsFullGame(market);
   const teamTotal = isTeamTotalMarket(market);
-  const gameTotal = isGameTotalMarket(market, pick.isProp);
+  const gameTotal = isGameTotalMarket(market);
+
+  if (!sport) {
+    // Unknown sport + total market → fail closed (do not invent nfl/ncaaf/nhl).
+    return teamTotal || gameTotal;
+  }
 
   if (teamTotal && P0_UNVALIDATED_SCORING_SPORTS.has(sport)) return true;
   if (gameTotal && !fullGame && P0_UNVALIDATED_SCORING_SPORTS.has(sport)) {
@@ -124,44 +210,45 @@ export function isP0UnvalidatedSimTotalMarket(pick: {
 }
 
 /**
- * True when NCAAF spread/ML (any period/alt) must not receive a sim-derived grade.
- * Does not touch NCAAF player props or NFL/NBA/etc. game lines.
+ * True when NCAAF (incl. cfb alias) spread/ML must not receive a sim-derived grade.
+ * Also true for game-line markets with unknown sport (fail closed).
+ * isProp does not clear a game-line market identity.
  */
-export function isP0UnvalidatedNcaafGameLineMarket(pick: {
-  market?: string | null;
-  sport?: string | null;
-  isProp?: boolean;
-}): boolean {
-  if (pick.isProp) return false;
-  const sport = sportKey(pick.sport);
-  if (!P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) return false;
-  return isGameLineSideMarket(pick.market, pick.isProp);
+export function isP0UnvalidatedNcaafGameLineMarket(pick: P0PickInput): boolean {
+  const market = String(pick.market ?? "");
+  if (!market) return false;
+  if (isPlayerPropMarketIdentity(market, { propMarketKey: pick.propMarketKey })) {
+    return false;
+  }
+  if (!isGameLineSideMarket(market)) return false;
+
+  const sport = resolveCoachPickSport(pick);
+  if (!sport) return true; // unknown sport + game line → fail closed
+  return P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport);
 }
 
-export function p0UnvalidatedSimTotalDecision(pick: {
-  market?: string | null;
-  sport?: string | null;
-  isProp?: boolean;
-}): { accept: false; reason: string } | null {
+export function p0UnvalidatedSimTotalDecision(
+  pick: P0PickInput,
+): { accept: false; reason: string } | null {
   if (!isP0UnvalidatedSimTotalMarket(pick)) return null;
   return { accept: false, reason: P0_UNVALIDATED_TOTAL_REASON };
 }
 
-export function p0UnvalidatedNcaafGameLineDecision(pick: {
-  market?: string | null;
-  sport?: string | null;
-  isProp?: boolean;
-}): { accept: false; reason: string } | null {
+export function p0UnvalidatedNcaafGameLineDecision(
+  pick: P0PickInput,
+): { accept: false; reason: string } | null {
   if (!isP0UnvalidatedNcaafGameLineMarket(pick)) return null;
+  const sport = resolveCoachPickSport(pick);
+  if (!sport) {
+    return { accept: false, reason: P0_UNVALIDATED_UNKNOWN_SPORT_GAME_LINE_REASON };
+  }
   return { accept: false, reason: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON };
 }
 
-/** Combined P0 reject for totals + unvalidated NCAAF game lines. */
-export function p0UnvalidatedSimDecision(pick: {
-  market?: string | null;
-  sport?: string | null;
-  isProp?: boolean;
-}): { accept: false; reason: string } | null {
+/** Combined P0 reject for totals + unvalidated NCAAF/unknown-sport game lines. */
+export function p0UnvalidatedSimDecision(
+  pick: P0PickInput,
+): { accept: false; reason: string } | null {
   return p0UnvalidatedSimTotalDecision(pick) ?? p0UnvalidatedNcaafGameLineDecision(pick);
 }
 
@@ -200,13 +287,14 @@ export function wouldStackSameTeamTeamTotals(
   candidate: StackPick,
   ticket: readonly StackPick[],
 ): boolean {
-  if (candidate.isProp || !isTeamTotalMarket(candidate.market)) return false;
+  if (!isTeamTotalMarket(candidate.market)) return false;
+  // Market identity: mis-tagged isProp must not allow stacking team totals.
   const candGame = normGame(candidate.game);
   const candNick = teamNickFromTotalPick(candidate.pick);
   if (!candGame || !candNick) return false;
 
   return ticket.some((leg) => {
-    if (leg.isProp || !isTeamTotalMarket(leg.market)) return false;
+    if (!isTeamTotalMarket(leg.market)) return false;
     if (normGame(leg.game) !== candGame) return false;
     const nick = teamNickFromTotalPick(leg.pick);
     return !!nick && nick === candNick;

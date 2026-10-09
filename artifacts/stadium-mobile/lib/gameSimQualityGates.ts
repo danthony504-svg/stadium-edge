@@ -5,6 +5,7 @@ import type { RealOddsEntry } from "./api.ts";
 import { americanToDecimal, decimalToAmerican, impliedProb } from "./format.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
+import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import {
   gameSimHasValidRun,
   gameSimHitForPick,
@@ -127,6 +128,24 @@ export function qualifiesCoachSimLineMetrics(m: GameSimLineMetrics): boolean {
 }
 
 export function qualifiesCoachSimEvalLine(row: EvaluatedGameLine): boolean {
+  // P0: NCAAF/unknown-sport game lines and unvalidated totals never qualify
+  // for Best Lines / alt selection, regardless of simHit/edge.
+  const market = row.pick?.market ?? row.entry.market;
+  const sport = row.pick?.sport ?? row.entry.sport;
+  if (
+    p0UnvalidatedSimDecision({
+      market,
+      sport,
+      isProp: row.pick?.isProp,
+      propMarketKey: row.pick?.propMarketKey,
+      providerSport: (row.pick as { providerSport?: string | null } | undefined)?.providerSport
+        ?? (row.entry as { providerSport?: string | null }).providerSport,
+      eventSport: (row.pick as { eventSport?: string | null } | undefined)?.eventSport
+        ?? (row.entry as { eventSport?: string | null }).eventSport,
+    })
+  ) {
+    return false;
+  }
   const m = deriveGameSimLineMetrics(row);
   return m != null && qualifiesCoachSimLineMetrics(m);
 }
