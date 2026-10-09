@@ -6,7 +6,10 @@ import {
   COACH_PRIORITY_SPORTS,
   enforceMultiSportFloorOnTicket,
   injectPrioritySportsIntoTicket,
+  interleaveEntriesBySport,
   reservedCrossSportSeats,
+  slateAwarePrioritySports,
+  sportsPresentOnSlate,
 } from "./coachPrioritySports.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -210,3 +213,168 @@ test("enforceMultiSportFloorOnTicket does not invent sports absent from the pool
     ["mlb"],
   );
 });
+
+test("slateAwarePrioritySports expands to NHL/WNBA/tennis when football is empty", () => {
+  const askPri = ["nfl", "ncaaf"];
+  const slate = ["nhl", "wnba", "tennis", "ncaaf"];
+  // NCAAF present → keep it; also include other slate sports.
+  const out = slateAwarePrioritySports(askPri, slate);
+  assert.ok(out.includes("ncaaf"), `expected ncaaf in ${out}`);
+  assert.ok(!out.includes("nfl"), "empty NFL must not stay priority");
+  assert.ok(
+    out.some((s) => s === "nhl" || s === "wnba" || s === "tennis"),
+    `expected non-football slate sport in ${out}`,
+  );
+});
+
+test("slateAwarePrioritySports on thin tonight slate (no football) prioritizes live sports", () => {
+  const out = slateAwarePrioritySports(
+    ["nfl", "ncaaf"],
+    ["nhl", "wnba", "tennis"],
+  );
+  assert.deepEqual(
+    [...out].sort(),
+    ["nhl", "tennis", "wnba"].sort(),
+  );
+  assert.ok(!out.includes("nfl"));
+  assert.ok(!out.includes("ncaaf"));
+});
+
+test("slateAwarePrioritySports does not invent sports absent from slate", () => {
+  const out = slateAwarePrioritySports(["nfl", "ncaaf"], ["nhl"]);
+  assert.deepEqual([...out], ["nhl"]);
+});
+
+test("slateAwarePrioritySports keeps hard-named CFB ask exclusive", () => {
+  const out = slateAwarePrioritySports(["ncaaf"], ["ncaaf", "nhl", "tennis"]);
+  assert.deepEqual([...out], ["ncaaf"]);
+});
+
+test("sportsPresentOnSlate dedupes provider sports", () => {
+  assert.deepEqual(
+    sportsPresentOnSlate([
+      { sport: "nhl" },
+      { sport: "NHL" },
+      { sport: "wnba" },
+      { sport: "" },
+    ]),
+    ["nhl", "wnba"],
+  );
+});
+
+test("interleaveEntriesBySport round-robins sim coverage across leagues", () => {
+  const entries: Array<[string, { sport: string }[]]> = [
+    ["A @ B", [{ sport: "tennis" }]],
+    ["C @ D", [{ sport: "tennis" }]],
+    ["E @ F", [{ sport: "tennis" }]],
+    ["G @ H", [{ sport: "nhl" }]],
+    ["I @ J", [{ sport: "wnba" }]],
+  ];
+  const out = interleaveEntriesBySport(entries, (_g, lines) => lines[0]!.sport);
+  const sports = out.map(([, lines]) => lines[0]!.sport);
+  // First three slots should cover three distinct sports when available.
+  assert.deepEqual(new Set(sports.slice(0, 3)).size, 3);
+  assert.ok(sports.includes("nhl"));
+  assert.ok(sports.includes("wnba"));
+  assert.ok(sports.includes("tennis"));
+});
+
+test("injectPrioritySportsIntoTicket pulls NHL/WNBA when they are priority on thin slate", () => {
+  const tennisHeavy = Array.from({ length: 6 }, (_, i) =>
+    makePick({
+      sport: "tennis",
+      game: `P${i} @ Q${i}`,
+      pick: `P${i} +3.5`,
+      composite: 8 - i * 0.1,
+    }),
+  );
+  const nhl = makePick({
+    sport: "nhl",
+    game: "Bruins @ Leafs",
+    pick: "Bruins +1.5",
+    composite: 7.4,
+  });
+  const wnba = makePick({
+    sport: "wnba",
+    game: "Aces @ Liberty",
+    pick: "Aces -3.5",
+    composite: 7.3,
+  });
+  const pool = [
+    ...tennisHeavy.map((p, i) => scored(p, 90 - i)),
+    scored(nhl, 85),
+    scored(wnba, 84),
+  ];
+  const priority = slateAwarePrioritySports(
+    ["nfl", "ncaaf"],
+    ["tennis", "nhl", "wnba"],
+  );
+  const out = injectPrioritySportsIntoTicket(tennisHeavy, pool, 6, priority);
+  const sports = new Set(out.map((p) => p.sport));
+  assert.ok(sports.has("nhl"), `expected NHL on ticket, got ${[...sports]}`);
+  assert.ok(sports.has("wnba"), `expected WNBA on ticket, got ${[...sports]}`);
+  assert.equal(out.length, 6);
+});
+
+/** Deterministic mixed-sport fixtures for 5 / 9 / 15-leg all-sports asks. */
+function mixedSportPool(target: number): {
+  ticket: ParsedPick[];
+  pool: BoardScoredLeg[];
+  priority: readonly string[];
+} {
+  const tennis = Array.from({ length: target }, (_, i) =>
+    makePick({
+      sport: "tennis",
+      game: `T${i}a @ T${i}b`,
+      pick: `T${i}a +2.5`,
+      composite: 9 - i * 0.05,
+    }),
+  );
+  const extras = [
+    makePick({ sport: "nhl", game: "Rangers @ Caps", pick: "Rangers ML", composite: 7.5 }),
+    makePick({ sport: "wnba", game: "Sky @ Sun", pick: "Sky +4.5", composite: 7.4 }),
+    makePick({
+      sport: "ncaaf",
+      game: "Alabama @ Georgia",
+      pick: "J. Milroe Over 224.5 Pass Yds",
+      composite: 7.3,
+      isProp: true,
+    }),
+    makePick({ sport: "nba", game: "Lakers @ Celtics", pick: "Lakers +3.5", composite: 7.2 }),
+  ];
+  const pool = [
+    ...tennis.map((p, i) => scored(p, 100 - i)),
+    ...extras.map((p, i) => scored(p, 80 - i)),
+  ];
+  const priority = slateAwarePrioritySports(
+    ["nfl", "ncaaf"],
+    sportsPresentOnSlate([...tennis, ...extras]),
+  );
+  return { ticket: tennis, pool, priority };
+}
+
+for (const n of [5, 9, 15] as const) {
+  test(`${n}-leg all-sports: slate-aware inject surfaces non-tennis qualified sports`, () => {
+    const { ticket, pool, priority } = mixedSportPool(n);
+    assert.ok(priority.includes("nhl") || priority.includes("wnba") || priority.includes("ncaaf"));
+    const injected = injectPrioritySportsIntoTicket(ticket, pool, n, priority);
+    const floored =
+      n >= 6
+        ? enforceMultiSportFloorOnTicket(injected, pool, n, priority)
+        : injected;
+    const sports = new Set(floored.map((p) => p.sport));
+    assert.equal(floored.length, n);
+    assert.ok(
+      sports.size >= 2 || n < 6,
+      `${n}-leg expected multi-sport mix, got ${[...sports]}`,
+    );
+    if (n >= 6) {
+      assert.ok(
+        [...sports].some((s) => s !== "tennis"),
+        `${n}-leg must not remain tennis-only when NHL/WNBA/NCAAF qualify`,
+      );
+    }
+    // Never invent NFL when absent from the qualified pool.
+    assert.ok(!sports.has("nfl") || pool.some((l) => l.pick.sport === "nfl"));
+  });
+}

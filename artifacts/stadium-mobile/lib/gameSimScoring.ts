@@ -15,6 +15,7 @@ import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeri
 import { withFgDistSeriesReuse } from "./gameSimDistReuse.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
 import { parsePickLineNumber } from "./pickLineParse.ts";
+import { gateTennisCoverHit, isTennisHandicapOrTotal } from "./tennisHandicapSim.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
 function gameMarketFamily(market: string): string {
@@ -631,7 +632,12 @@ function sanitizeGameSimHit(
   const simStat = simulatedStatisticForQuery(query);
   // Resolve sport from pick first, then trusted sim/event metadata — never invent.
   const resolvedSport = pick.sport || sim.sport || undefined;
-  return sanitizeSimHitForGrade(hit, {
+  // Tennis game handicaps/totals: fail closed on ML substitutes and
+  // uncalibrated edges vs the posted price (match-win must never grade).
+  const gatedHit =
+    isTennisHandicapOrTotal(pick) ? gateTennisCoverHit(pick, hit, sim) : hit;
+  if (gatedHit == null) return null;
+  return sanitizeSimHitForGrade(gatedHit, {
     market: pick.market,
     sport: resolvedSport,
     providerSport: sim.sport,
@@ -692,6 +698,7 @@ export function gameSimHitForPick(
   }
 
   // Fallback when cover rates were not requested — ML only from win probs.
+  // Tennis game handicaps/totals must NEVER take this path (or any ML substitute).
   if (query.kind === "ml" && query.teamSide) {
     const mlHit =
       query.teamSide === "home" ? sim!.homeWinProbability : sim!.awayWinProbability;
