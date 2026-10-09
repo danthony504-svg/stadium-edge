@@ -61,6 +61,7 @@ import {
   lookupGameSim,
   type CoachGameSimEntry,
 } from "@/lib/gameSimScoring";
+import { isTennisPick, resolveTennisSimHit } from "@/lib/tennisHandicapSim";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
 import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
 import { parseMarketPeriod } from "@/lib/simMarketSupport";
@@ -280,14 +281,12 @@ export function scoreGameLinePick(
         : fight.simulation.homeWinProbability
       : null;
 
-  const tennisSimHit =
-    tennis?.simulation && pickSide
-      ? pickSide === "away"
-        ? tennis.simulation.awayWinProbability
-        : tennis.simulation.homeWinProbability
-      : null;
-
-  const simHit = gameSimHitForPick(pick, gameSim) ?? fightSimHit ?? tennisSimHit;
+  // Tennis: moneyline may use match-win; game handicaps/totals require a
+  // verified cover rate and fail closed on book/sim disagreement (never
+  // substitute match-win — Struff +3.5 @ +160 pathology).
+  const simHit = isTennisPick(pick)
+    ? resolveTennisSimHit(pick, gameSim, tennis, realOdds)
+    : gameSimHitForPick(pick, gameSim) ?? fightSimHit ?? null;
   // Period markets: prefer book/no-vig edge (see edgePctFromPick). Full-game
   // keeps sim-aligned edge so Coach gates match the 10k Monte Carlo.
   const edgePct = edgePctFromPick(pick, ro?.edge, simHit);

@@ -48,6 +48,10 @@ import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
+import {
+  slateAwarePrioritySports,
+  sportsPresentOnSlate,
+} from "@/lib/coachPrioritySports";
 import { coachBoardSportsForAsk } from "@/lib/coachPropBoardCoverage";
 import {
   coachAskTeamMissNote,
@@ -156,7 +160,7 @@ async function loadScanInputs(
   // Named league(s) scope the board (CFB stays CFB). Generic asks union every
   // player-prop league (incl. ncaab) so mains+alts across sports enter the pool.
   const sports = coachBoardSportsForAsk(askText, requestedLegs, DEFAULT_SPORTS);
-  const prioritySports = prioritySportsForAsk(askText);
+  const askPrioritySports = prioritySportsForAsk(askText);
   onStatus?.(
     sports.length === 1
       ? `Loading ${sports[0]!.toUpperCase()} board…`
@@ -188,6 +192,13 @@ async function loadScanInputs(
   const slateDay = slateDayFromThread(askText ?? "", priorUserTexts);
   oddsGames = filterOddsGamesForSlateDay(oddsGames, slateDay);
   espnGames = filterOddsForSlateDay(espnGames, slateDay);
+
+  // Generic asks: prioritize leagues that actually have upcoming events + odds
+  // (NHL/WNBA/tennis on a thin tonight slate — not empty NFL/NCAAF inject).
+  const prioritySports = slateAwarePrioritySports(
+    askPrioritySports,
+    sportsPresentOnSlate(oddsGames),
+  );
 
   onStatus?.("Loading player props and alt lines across the board…");
   let propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(

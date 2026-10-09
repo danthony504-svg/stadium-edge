@@ -16,6 +16,7 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
+import { isTennisPick, resolveTennisSimHit } from "./tennisHandicapSim.ts";
 import { pickHasSimGrade, sanitizeSimHitForGrade, parseMarketPeriod, clipPropSimHitForGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import {
@@ -124,6 +125,8 @@ export function simHitForPick(
     });
   }
   if (!isGameLinePick(pick)) return null;
+  // Tennis handicaps fail closed without a verified cover (no match-win).
+  if (isTennisPick(pick)) return resolveTennisSimHit(pick, gameSim, null);
   return gameSimHitForPick(pick, gameSim);
 }
 

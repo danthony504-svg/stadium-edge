@@ -59,6 +59,7 @@ import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
 import {
   enforceMultiSportFloorOnTicket,
   injectPrioritySportsIntoTicket,
+  interleaveEntriesBySport,
 } from "./coachPrioritySports.ts";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
@@ -1235,7 +1236,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let gameLegsScored = 0;
   let gameLegsDroppedNoSim = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
-  const gameEntries = [...evalLinesByGame.entries()];
+  // Round-robin by sport so NHL/WNBA/tennis receive sim coverage on thin
+  // multi-sport slates instead of starving behind one league's Map order.
+  const gameEntries = interleaveEntriesBySport(
+    [...evalLinesByGame.entries()],
+    (_game, lines) => String(lines?.[0]?.sport ?? "").toLowerCase(),
+  );
   // Phase 2.3: outer batch 4 matches inner SLATE_SIM_CONCURRENCY (was effective 2).
   // Progressive partials preserved — still awaited per batch; scoring order follows
   // gameEntries insertion order independent of Promise completion order.
