@@ -64,11 +64,13 @@ test("injects NFL and NCAAF when ticket is all MLB but football qualifies", () =
     pick: "Chiefs +3.5",
     composite: 7.2,
   });
+  // P0 blocks NCAAF game-line sides — priority inject must use eligible props.
   const ncaaf = makePick({
     sport: "ncaaf",
     game: "Alabama @ Georgia",
-    pick: "Alabama +7.5",
+    pick: "J. Milroe Over 224.5 Pass Yds",
     composite: 7.1,
+    isProp: true,
   });
   const pool = [
     ...mlb.map((p, i) => scored(p, 90 - i)),
@@ -79,7 +81,11 @@ test("injects NFL and NCAAF when ticket is all MLB but football qualifies", () =
   const out = injectPrioritySportsIntoTicket(mlb, pool, 6);
   const sports = new Set(out.map((p) => p.sport));
   assert.ok(sports.has("nfl"), "expected NFL leg on ticket");
-  assert.ok(sports.has("ncaaf"), "expected NCAAF leg on ticket");
+  assert.ok(sports.has("ncaaf"), "expected NCAAF prop leg on ticket");
+  assert.ok(
+    out.some((p) => p.sport === "ncaaf" && p.isProp),
+    "NCAAF seat must be a player prop under P0",
+  );
   assert.equal(out.length, 6);
   assert.deepEqual([...COACH_PRIORITY_SPORTS], ["nfl", "ncaaf"]);
 });
@@ -157,11 +163,13 @@ test("enforceMultiSportFloorOnTicket breaks all-MLB 9-leg when NFL/NCAAF qualify
     composite: 7.2,
     isProp: true,
   });
+  // P0: NCAAF spreads cannot qualify — use an eligible NCAAF prop for the floor.
   const ncaaf = makePick({
     sport: "ncaaf",
     game: "Alabama @ Georgia",
-    pick: "Alabama +7.5",
+    pick: "R. Williams Over 74.5 Rush Yds",
     composite: 7.0,
+    isProp: true,
   });
   const nba = makePick({
     sport: "nba",
