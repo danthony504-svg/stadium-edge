@@ -85,3 +85,37 @@ test("the deferred runtime is what pulls expo-updates in", () => {
   const runtime = readFileSync(join(ROOT, "components/OtaRuntime.tsx"), "utf8");
   assert.match(runtime, /from "@\/lib\/otaUpdater"/, "OtaRuntime should own the updater hook");
 });
+
+test("Home discover cache does not statically import expo-updates", () => {
+  const src = readFileSync(join(ROOT, "lib/discoverSessionCache.ts"), "utf8");
+  assert.doesNotMatch(
+    src,
+    /(?:^|\n)\s*import\s+\*\s+as\s+Updates\s+from\s+["']expo-updates["']/,
+    "discoverSessionCache must dynamic-import expo-updates (Home mounts it before DeferredOtaRuntime)",
+  );
+  assert.match(src, /import\(["']expo-updates["']\)/);
+});
+
+test("ErrorFallback keeps expo-updates behind a dynamic import", () => {
+  const src = readFileSync(join(ROOT, "components/ErrorFallback.tsx"), "utf8");
+  assert.doesNotMatch(
+    src,
+    /(?:^|\n)\s*import\s+[^;]*from\s+["']expo-updates["']/,
+    "ErrorFallback is in the root static graph — Updates must stay dynamic",
+  );
+  assert.match(src, /import\(["']expo-updates["']\)/);
+});
+
+test("HomeSportFeed ErrorBoundary wraps the component from the parent", () => {
+  const src = readFileSync(join(ROOT, "app/(tabs)/index.tsx"), "utf8");
+  // Parent wrap catches hook/render throws; an inner wrap around only the
+  // returned JSX lets Object.entries crashes escape to the root ErrorFallback.
+  assert.match(
+    src,
+    /ErrorBoundary FallbackComponent=\{HomeFeedErrorFallback\}>\s*<HomeSportFeed/s,
+  );
+  assert.doesNotMatch(
+    src,
+    /function HomeSportFeed[\s\S]*return \(\s*<ErrorBoundary FallbackComponent=\{HomeFeedErrorFallback\}>/,
+  );
+});

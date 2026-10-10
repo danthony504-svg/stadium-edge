@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Updates from "expo-updates";
 
 import type { EspnGame, OddsGame, PlayerProp } from "./api";
 
@@ -42,10 +41,20 @@ function upcomingKey(sport: string) {
 type Stored<T> = { at: number; data: T };
 type StoredHero = { at: number; legs: CachedPropEntry[] };
 
-function currentOtaGeneration(): string {
+/**
+ * Resolve the running OTA generation without a static expo-updates import.
+ * Home imports this module; a static Updates require would evaluate the native
+ * module while the first tab mounts — before DeferredOtaRuntime's own boundary.
+ */
+async function currentOtaGeneration(): Promise<string> {
   if (__DEV__) return "dev";
-  if (!Updates.isEnabled) return "embedded";
-  return Updates.updateId ?? Updates.runtimeVersion ?? "embedded";
+  try {
+    const Updates = await import("expo-updates");
+    if (!Updates.isEnabled) return "embedded";
+    return Updates.updateId ?? Updates.runtimeVersion ?? "embedded";
+  } catch {
+    return "embedded";
+  }
 }
 
 async function readStored<T>(key: string): Promise<T | null> {
@@ -121,7 +130,7 @@ export async function clearDiscoverCache(): Promise<void> {
 }
 
 async function ensureCacheGeneration(): Promise<boolean> {
-  const gen = currentOtaGeneration();
+  const gen = await currentOtaGeneration();
   try {
     const stored = await AsyncStorage.getItem(GEN_KEY);
     if (stored === gen) return true;
