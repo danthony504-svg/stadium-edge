@@ -14,20 +14,24 @@ import {
   planFromProductId,
   resolveTrustedEntitlementForClientSync,
 } from "../lib/subscriptionSync";
+import {
+  isRevenueCatServerVerifyConfigured,
+  verifyRevenueCatSubscriber,
+} from "../lib/revenueCatSubscriber";
 
 /**
  * Apple / RevenueCat subscription sync.
  *
  * - POST /subscriptions/sync — signed-in client may refresh metadata; NEVER
  *   grants Go/Pro from client planId / storeKitActive / catalog claims.
- *   Paid access comes only from RevenueCat webhooks → DB (fail-closed).
+ * - POST /subscriptions/restore-verify — server fetches RevenueCat subscriber
+ *   with the secret API key and upserts a trusted DB entitlement (fail-closed).
  * - GET  /subscriptions/entitlement — signed-in client reads server copy
  * - POST /subscriptions/webhooks/revenuecat — RevenueCat server notifications
  *   (Authorization: Bearer $REVENUECAT_WEBHOOK_SECRET)
  *
  * Appearance under iOS Settings → Subscriptions is owned by Apple StoreKit
  * auto-renewables; this route only mirrors entitlement state for the backend.
- * Restore Purchases remains client StoreKit/RevenueCat; webhooks update DB.
  */
 
 const syncLimiter = rateLimit({
@@ -40,6 +44,12 @@ const entitlementLimiter = rateLimit({
   windowMs: 60_000,
   max: 60,
   name: "subscriptions-entitlement",
+});
+
+const restoreVerifyLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  name: "subscriptions-restore-verify",
 });
 
 const webhookLimiter = rateLimit({
@@ -209,6 +219,120 @@ router.post("/subscriptions/sync", syncLimiter, async (req, res) => {
     res.status(500).json({ error: "sync failed" });
   }
 });
+
+/**
+ * After client Restore Purchases: verify entitlement via RevenueCat REST
+ * (secret key) and persist a trusted DB row for Coach Q&A. Ignores body planId.
+ * Fail closed when RC secret missing, HTTP fails, or subscriber is inactive.
+ */
+router.post(
+  "/subscriptions/restore-verify",
+  restoreVerifyLimiter,
+  async (req, res) => {
+    const userId = clerkUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "auth required" });
+      return;
+    }
+    try {
+      // Never trust client grant fields — they are ignored for entitlement.
+      const body = req.body ?? {};
+      void body.planId;
+      void body.storeKitActive;
+
+      if (!isRevenueCatServerVerifyConfigured()) {
+        // Fail closed: keep existing trusted row if any; do not grant from client.
+        const rows = await db
+          .select()
+          .from(subscriptionEntitlementsTable)
+          .where(eq(subscriptionEntitlementsTable.userId, userId))
+          .limit(1);
+        const row = rows[0];
+        const active = isActivePaidEntitlement(row);
+        res.status(503).json({
+          ok: false,
+          error: "revenuecat_verify_unavailable",
+          planId: active && row ? row.planId : "free",
+          storeKitActive: active,
+        });
+        return;
+      }
+
+      const verified = await verifyRevenueCatSubscriber(userId);
+      if (!verified.ok) {
+        // Inactive / error — clear paid access when RC says inactive; otherwise keep prior trusted row.
+        if (verified.reason === "inactive") {
+          await upsertEntitlement({
+            userId,
+            planId: "free",
+            productId: null,
+            status: "expired",
+            expiresAt: null,
+            managementUrl: null,
+            originalAppUserId: userId,
+            source: "revenuecat_api",
+            storeKitActive: false,
+          });
+          await recordEvent({
+            eventKey: `rc_restore_verify:${userId}:${Date.now()}`,
+            userId,
+            eventType: "RESTORE_VERIFY_INACTIVE",
+            payload: JSON.stringify({ reason: verified.reason }).slice(0, 2000),
+          });
+          res.json({ ok: true, planId: "free", storeKitActive: false, source: "revenuecat_api" });
+          return;
+        }
+        const rows = await db
+          .select()
+          .from(subscriptionEntitlementsTable)
+          .where(eq(subscriptionEntitlementsTable.userId, userId))
+          .limit(1);
+        const row = rows[0];
+        const active = isActivePaidEntitlement(row);
+        res.status(502).json({
+          ok: false,
+          error: "revenuecat_verify_failed",
+          reason: verified.reason,
+          planId: active && row ? row.planId : "free",
+          storeKitActive: active,
+        });
+        return;
+      }
+
+      await upsertEntitlement({
+        userId,
+        planId: verified.planId,
+        productId: verified.productId,
+        status: verified.status,
+        expiresAt: verified.expiresAt,
+        managementUrl: verified.managementUrl,
+        originalAppUserId: userId,
+        source: "revenuecat_api",
+        storeKitActive: true,
+      });
+      await recordEvent({
+        eventKey: `rc_restore_verify:${userId}:${Date.now()}`,
+        userId,
+        eventType: "RESTORE_VERIFY_ACTIVE",
+        payload: JSON.stringify({
+          planId: verified.planId,
+          productId: verified.productId,
+          entitlementIds: verified.entitlementIds,
+        }).slice(0, 4000),
+      });
+      res.json({
+        ok: true,
+        planId: verified.planId,
+        storeKitActive: true,
+        source: "revenuecat_api",
+        expiresAt: verified.expiresAt ? verified.expiresAt.toISOString() : null,
+      });
+    } catch (err) {
+      logger.error({ err }, "subscription restore-verify failed");
+      res.status(500).json({ error: "restore verify failed" });
+    }
+  },
+);
 
 router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) => {
   const userId = clerkUserId(req);
