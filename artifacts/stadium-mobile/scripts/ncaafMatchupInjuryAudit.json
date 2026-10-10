@@ -1,0 +1,563 @@
+{
+  "generatedAt": "2026-10-09T02:01:42.544Z",
+  "domain": "stadium-edge.onrender.com",
+  "injuryTeamCount": 3,
+  "games": {
+    "iowa_washington": {
+      "game": "Iowa Hawkeyes @ Washington Huskies",
+      "startsAt": "2026-10-10T01:00Z",
+      "homeTeamId": "264",
+      "awayTeamId": "2294",
+      "homeAbbr": "WASH",
+      "awayAbbr": "IOWA",
+      "sources": {
+        "defense": "GET /sports/team-defense?sport=ncaaf&teamId= (ESPN team stats + last\u22645 box scores)",
+        "injuries": "GET /sports/injuries?sport=ncaaf (ESPN college-football injuries)",
+        "matchupHistory": "GET /sports/matchup-history?sport=ncaaf&homeTeamId=&awayTeamId=",
+        "coaches": "static footballCoachTendencies.ts tables",
+        "weather": "GET /weather/parks?sport=ncaaf when scan context loads"
+      },
+      "homeDefense": {
+        "teamName": "Washington Huskies",
+        "teamId": "264",
+        "fetchedShape": [
+          "avgPointsAgainst",
+          "avgPointsFor",
+          "defensive",
+          "offensive",
+          "passDefense",
+          "pointDifferential",
+          "rushDefense",
+          "sport",
+          "teamId",
+          "teamName"
+        ],
+        "rushDefense": {
+          "rushingYardsAllowedPerGame": 111.4,
+          "yardsPerRushAllowed": 3.2,
+          "sampleSize": 5
+        },
+        "passDefense": {
+          "passingYardsAllowedPerGame": 192,
+          "yardsPerPassAllowed": null,
+          "sampleSize": 5
+        },
+        "pointsAgainst": 18.4,
+        "pointsFor": 26.6,
+        "sacks": null,
+        "interceptions": null,
+        "passesDefended": null,
+        "stuffs": null,
+        "gamesPlayed": null,
+        "sacksAllowed": null,
+        "sackYardsLost": null,
+        "interceptionPct": null,
+        "intsThrown": null,
+        "ownRushYpc": null,
+        "passingYardsPerGame": null
+      },
+      "awayDefense": {
+        "teamName": "Iowa Hawkeyes",
+        "teamId": "2294",
+        "fetchedShape": [
+          "avgPointsAgainst",
+          "avgPointsFor",
+          "defensive",
+          "offensive",
+          "passDefense",
+          "pointDifferential",
+          "rushDefense",
+          "sport",
+          "teamId",
+          "teamName"
+        ],
+        "rushDefense": {
+          "rushingYardsAllowedPerGame": 102.2,
+          "yardsPerRushAllowed": 2.89,
+          "sampleSize": 5
+        },
+        "passDefense": {
+          "passingYardsAllowedPerGame": 186.4,
+          "yardsPerPassAllowed": null,
+          "sampleSize": 5
+        },
+        "pointsAgainst": 12.6,
+        "pointsFor": 29,
+        "sacks": null,
+        "interceptions": null,
+        "passesDefended": null,
+        "stuffs": null,
+        "gamesPlayed": null,
+        "sacksAllowed": null,
+        "sackYardsLost": null,
+        "interceptionPct": null,
+        "intsThrown": null,
+        "ownRushYpc": null,
+        "passingYardsPerGame": null
+      },
+      "matchupHistory": {
+        "url": "https://stadium-edge.onrender.com/api/sports/matchup-history?sport=ncaaf&homeTeamId=264&awayTeamId=2294",
+        "keys": [
+          "away",
+          "h2h",
+          "home",
+          "lastMeeting",
+          "sport"
+        ],
+        "homeL10": {
+          "games": 5,
+          "wins": 3,
+          "losses": 2,
+          "ptsFor": 26.6,
+          "ptsAgainst": 18.4,
+          "avgMargin": 8.2
+        },
+        "awayL10": {
+          "games": 5,
+          "wins": 4,
+          "losses": 1,
+          "ptsFor": 29,
+          "ptsAgainst": 12.6,
+          "avgMargin": 16.4
+        },
+        "homeSplit": {
+          "games": 4,
+          "wins": 3,
+          "losses": 1,
+          "ptsFor": 28,
+          "ptsAgainst": 16.8,
+          "avgMargin": 11.3
+        },
+        "awaySplit": {
+          "games": 1,
+          "wins": 1,
+          "losses": 0,
+          "ptsFor": 20,
+          "ptsAgainst": 19,
+          "avgMargin": 1
+        },
+        "h2h": {
+          "meetings": [],
+          "homeWins": 0,
+          "awayWins": 0
+        },
+        "lastMeeting": null,
+        "mlLean": null,
+        "pace": null
+      },
+      "homeInjuries": {
+        "status": "unknown_no_team_report",
+        "note": "No ESPN injury team row matched \u2014 do NOT treat as healthy",
+        "players": []
+      },
+      "awayInjuries": {
+        "status": "unknown_no_team_report",
+        "note": "No ESPN injury team row matched \u2014 do NOT treat as healthy",
+        "players": []
+      },
+      "coaches": {
+        "home": null,
+        "away": null
+      },
+      "exampleTilts": {
+        "awayRushOverVsHomeRushD": {
+          "tilt": 0,
+          "blockOver": false,
+          "display": null
+        },
+        "homePassOverVsAwayPassD": {
+          "tilt": 0,
+          "blockOver": false,
+          "display": null
+        }
+      },
+      "injuryBeforeAfter": {
+        "method": "buildProjectionMean (api-server monteCarlo) \u2014 illustrative with synthetic recentValues; not a live player log",
+        "disclaimer": "Uses real injury weight formula only. recentValues are illustrative placeholders because athlete game-log join was not bound for a named starter in this audit window.",
+        "meanHealthy": 74.84,
+        "meanOwnKeyStarterOut_weight3": 70.3496,
+        "meanOppKeyInjuries_weight3": 78.20779999999999,
+        "formula": "mean *= clamp(1 + oppInj*0.015 - ownInj*0.02, 0.88, 1.12)"
+      },
+      "propSample": {
+        "eventId": "a168f1bed30ce7d56dc2b77dbfe37705",
+        "n": 236,
+        "markets": [
+          "player_anytime_td",
+          "player_reception_yds",
+          "player_receptions",
+          "player_rush_yds",
+          "player_first_td",
+          "player_pass_yds",
+          "player_rush_attempts",
+          "player_pass_tds"
+        ],
+        "sample": [
+          {
+            "player": "Kamari Moulton",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 100,
+            "under": null,
+            "athleteId": "5093886"
+          },
+          {
+            "player": "Brian Bonner Jr.",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 130,
+            "under": null,
+            "athleteId": "5200430"
+          },
+          {
+            "player": "Dezmen Roebuck",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 320,
+            "under": null,
+            "athleteId": "5166797"
+          },
+          {
+            "player": "Trey Cooley",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 500,
+            "under": null,
+            "athleteId": "4601283"
+          },
+          {
+            "player": "Hank Brown",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 310,
+            "under": null,
+            "athleteId": "5089314"
+          },
+          {
+            "player": "Nathan McNeil",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 235,
+            "under": null,
+            "athleteId": "5246572"
+          },
+          {
+            "player": "Tony Diaz",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 260,
+            "under": null,
+            "athleteId": "5300856"
+          },
+          {
+            "player": "Braeden Jackson",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 300,
+            "under": null,
+            "athleteId": "5295539"
+          }
+        ]
+      },
+      "missingFields": {
+        "pace": true,
+        "depthChart": true,
+        "startingQbFeed": true,
+        "olineIndividualGrades": true,
+        "epaEfficiency": true,
+        "providerInjuryTimestamp": "ESPN report has no per-row quote timestamp; freshness = fetch time",
+        "homeDefenseRushSample": false,
+        "awayDefenseRushSample": false,
+        "homeDefensePassSample": false,
+        "awayDefensePassSample": false
+      }
+    },
+    "sac_bg": {
+      "game": "Sacramento State Hornets @ Bowling Green Falcons",
+      "startsAt": "2026-10-10T16:00Z",
+      "homeTeamId": "189",
+      "awayTeamId": "16",
+      "homeAbbr": "BGSU",
+      "awayAbbr": "SAC",
+      "sources": {
+        "defense": "GET /sports/team-defense?sport=ncaaf&teamId= (ESPN team stats + last\u22645 box scores)",
+        "injuries": "GET /sports/injuries?sport=ncaaf (ESPN college-football injuries)",
+        "matchupHistory": "GET /sports/matchup-history?sport=ncaaf&homeTeamId=&awayTeamId=",
+        "coaches": "static footballCoachTendencies.ts tables",
+        "weather": "GET /weather/parks?sport=ncaaf when scan context loads"
+      },
+      "homeDefense": {
+        "teamName": "Bowling Green Falcons",
+        "teamId": "189",
+        "fetchedShape": [
+          "avgPointsAgainst",
+          "avgPointsFor",
+          "defensive",
+          "offensive",
+          "passDefense",
+          "pointDifferential",
+          "rushDefense",
+          "sport",
+          "teamId",
+          "teamName"
+        ],
+        "rushDefense": {
+          "rushingYardsAllowedPerGame": 231.4,
+          "yardsPerRushAllowed": 6.09,
+          "sampleSize": 5
+        },
+        "passDefense": {
+          "passingYardsAllowedPerGame": 176,
+          "yardsPerPassAllowed": null,
+          "sampleSize": 5
+        },
+        "pointsAgainst": 33,
+        "pointsFor": 11.4,
+        "sacks": null,
+        "interceptions": null,
+        "passesDefended": null,
+        "stuffs": null,
+        "gamesPlayed": null,
+        "sacksAllowed": null,
+        "sackYardsLost": null,
+        "interceptionPct": null,
+        "intsThrown": null,
+        "ownRushYpc": null,
+        "passingYardsPerGame": null
+      },
+      "awayDefense": {
+        "teamName": "Sacramento State Hornets",
+        "teamId": "16",
+        "fetchedShape": [
+          "avgPointsAgainst",
+          "avgPointsFor",
+          "defensive",
+          "offensive",
+          "passDefense",
+          "pointDifferential",
+          "rushDefense",
+          "sport",
+          "teamId",
+          "teamName"
+        ],
+        "rushDefense": {
+          "rushingYardsAllowedPerGame": 150,
+          "yardsPerRushAllowed": 4.46,
+          "sampleSize": 5
+        },
+        "passDefense": {
+          "passingYardsAllowedPerGame": 196.4,
+          "yardsPerPassAllowed": null,
+          "sampleSize": 5
+        },
+        "pointsAgainst": 28.6,
+        "pointsFor": 17.6,
+        "sacks": null,
+        "interceptions": null,
+        "passesDefended": null,
+        "stuffs": null,
+        "gamesPlayed": null,
+        "sacksAllowed": null,
+        "sackYardsLost": null,
+        "interceptionPct": null,
+        "intsThrown": null,
+        "ownRushYpc": null,
+        "passingYardsPerGame": null
+      },
+      "matchupHistory": {
+        "url": "https://stadium-edge.onrender.com/api/sports/matchup-history?sport=ncaaf&homeTeamId=189&awayTeamId=16",
+        "keys": [
+          "away",
+          "h2h",
+          "home",
+          "lastMeeting",
+          "sport"
+        ],
+        "homeL10": {
+          "games": 5,
+          "wins": 1,
+          "losses": 4,
+          "ptsFor": 11.4,
+          "ptsAgainst": 33,
+          "avgMargin": -21.6
+        },
+        "awayL10": {
+          "games": 5,
+          "wins": 1,
+          "losses": 4,
+          "ptsFor": 17.6,
+          "ptsAgainst": 28.6,
+          "avgMargin": -11
+        },
+        "homeSplit": {
+          "games": 2,
+          "wins": 0,
+          "losses": 2,
+          "ptsFor": 9.5,
+          "ptsAgainst": 17,
+          "avgMargin": -7.5
+        },
+        "awaySplit": {
+          "games": 2,
+          "wins": 0,
+          "losses": 2,
+          "ptsFor": 10,
+          "ptsAgainst": 38.5,
+          "avgMargin": -28.5
+        },
+        "h2h": {
+          "meetings": [],
+          "homeWins": 0,
+          "awayWins": 0
+        },
+        "lastMeeting": null,
+        "mlLean": null,
+        "pace": null
+      },
+      "homeInjuries": {
+        "status": "unknown_no_team_report",
+        "note": "No ESPN injury team row matched \u2014 do NOT treat as healthy",
+        "players": []
+      },
+      "awayInjuries": {
+        "status": "unknown_no_team_report",
+        "note": "No ESPN injury team row matched \u2014 do NOT treat as healthy",
+        "players": []
+      },
+      "coaches": {
+        "home": null,
+        "away": null
+      },
+      "exampleTilts": {
+        "awayRushOverVsHomeRushD": {
+          "tilt": 0,
+          "blockOver": false,
+          "display": null
+        },
+        "homePassOverVsAwayPassD": {
+          "tilt": 0,
+          "blockOver": false,
+          "display": null
+        }
+      },
+      "injuryBeforeAfter": {
+        "method": "buildProjectionMean (api-server monteCarlo) \u2014 illustrative with synthetic recentValues; not a live player log",
+        "disclaimer": "Uses real injury weight formula only. recentValues are illustrative placeholders because athlete game-log join was not bound for a named starter in this audit window.",
+        "meanHealthy": 74.84,
+        "meanOwnKeyStarterOut_weight3": 70.3496,
+        "meanOppKeyInjuries_weight3": 78.20779999999999,
+        "formula": "mean *= clamp(1 + oppInj*0.015 - ownInj*0.02, 0.88, 1.12)"
+      },
+      "propSample": {
+        "eventId": "5a88faaeb5fcbb11e975498eca213c27",
+        "n": 13,
+        "markets": [
+          "player_anytime_td"
+        ],
+        "sample": [
+          {
+            "player": "Jackson Sharman",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 350,
+            "under": null,
+            "athleteId": "5158748"
+          },
+          {
+            "player": "Nakai Amachree",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": -200,
+            "under": null,
+            "athleteId": "5219017"
+          },
+          {
+            "player": "Brennan Ridley",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 650,
+            "under": null,
+            "athleteId": "5226453"
+          },
+          {
+            "player": "Austyn Dendy",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": -200,
+            "under": null,
+            "athleteId": "5147347"
+          },
+          {
+            "player": "Cincere Rhaney",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 300,
+            "under": null,
+            "athleteId": "5084459"
+          },
+          {
+            "player": "Jamar Curtis",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 240,
+            "under": null,
+            "athleteId": "5083848"
+          },
+          {
+            "player": "Matt Coleman",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 100,
+            "under": null,
+            "athleteId": "5082587"
+          },
+          {
+            "player": "Daniel Swinney",
+            "market": "player_anytime_td",
+            "line": null,
+            "over": 200,
+            "under": null,
+            "athleteId": "5310132"
+          }
+        ]
+      },
+      "missingFields": {
+        "pace": true,
+        "depthChart": true,
+        "startingQbFeed": true,
+        "olineIndividualGrades": true,
+        "epaEfficiency": true,
+        "providerInjuryTimestamp": "ESPN report has no per-row quote timestamp; freshness = fetch time",
+        "homeDefenseRushSample": false,
+        "awayDefenseRushSample": false,
+        "homeDefensePassSample": false,
+        "awayDefensePassSample": false
+      }
+    }
+  },
+  "p0": {
+    "ncaafFgTotalBlocked": true,
+    "ncaafTeamTotalBlocked": true,
+    "ncaafPropNotBlocked": false,
+    "nflFgTotalBlocked": true
+  },
+  "simWiring": {
+    "propOppDefenseTiltAdjustsSimHit": true,
+    "mcInjuryAdjustsMean": true,
+    "gameDriveSimUsesInjuries": false,
+    "gameDriveSimUsesOlinePassRush": false,
+    "paceFootball": false,
+    "depthChart": false,
+    "startingQbFeed": false
+  },
+  "injuryHonesty": {
+    "rule": "findPlayerInjury \u2192 none | ambiguous | found; scoreInjury(null) omits subscore; missing \u2260 healthy in rubric",
+    "uiCaveat": "prop page may show OK when not on ESPN report \u2014 UI-only, not sim healthy",
+    "teamsOnFeed": 3,
+    "teamNamesSample": [
+      "Florida Gators",
+      "Rice Owls",
+      "Virginia Cavaliers"
+    ]
+  }
+}
