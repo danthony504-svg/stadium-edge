@@ -55,7 +55,7 @@ test("local trial helpers never grant access", () => {
   );
 });
 
-test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; admin ok", () => {
+test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; client admin ignored", () => {
   const start = 1_700_000_000_000;
   assert.equal(CUSTOM_PROMO_UNLOCKS_ENABLED, false);
   assert.equal(
@@ -89,10 +89,17 @@ test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; ad
     ),
     false,
   );
+  // Adversarial: EXPO_PUBLIC_ADMIN_EMAILS / forged client email must not unlock.
   assert.equal(
     hasProAccess(baseState({ planId: "free" }), start, {
       email: "owner@example.com",
-      adminEmails: ["owner@example.com"],
+      adminEmails: ["owner@example.com", "danthony504@gmail.com"],
+    }),
+    false,
+  );
+  assert.equal(
+    hasProAccess(baseState({ planId: "free" }), start, {
+      serverOwnerAccess: true,
     }),
     true,
   );
@@ -239,11 +246,19 @@ test("buildEntitlementView labels admin / free (promo unlock disabled)", () => {
   const start = 1_700_000_000_000;
   const admin = buildEntitlementView(baseState({ trialStartedAtMs: start }), start + 10 * DAY, {
     email: "admin@x.com",
-    adminEmails: ["admin@x.com"],
+    adminEmails: ["admin@x.com"], // ignored
+    serverOwnerAccess: true,
   });
   assert.equal(admin.isAdmin, true);
   assert.equal(admin.unlockSource, "admin");
   assert.equal(admin.statusLabel, "Admin");
+  // Client admin allowlist alone → Free
+  const forgedAdmin = buildEntitlementView(baseState({ planId: "free" }), start, {
+    email: "danthony504@gmail.com",
+    adminEmails: ["danthony504@gmail.com"],
+  });
+  assert.equal(forgedAdmin.isPro, false);
+  assert.equal(forgedAdmin.statusLabel, "Free");
 
   const promo = buildEntitlementView(
     baseState({

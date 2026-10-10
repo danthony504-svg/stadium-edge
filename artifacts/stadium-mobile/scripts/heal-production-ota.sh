@@ -15,7 +15,6 @@ export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
 export EXPO_PUBLIC_OTA_BOOTSTRAP="${EXPO_PUBLIC_OTA_BOOTSTRAP:-true}"
-export RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
 export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo unknown)}"
 STAMP="$(date -u +%Y-%m-%dT%H:%MZ)"
 export EXPO_PUBLIC_DEPLOY_MESSAGE="HEAL-EMBEDDED ${EXPO_PUBLIC_GIT_COMMIT} ${STAMP}"
@@ -23,7 +22,13 @@ export EXPO_PUBLIC_DEPLOY_MESSAGE="HEAL-EMBEDDED ${EXPO_PUBLIC_GIT_COMMIT} ${STA
 # Fail closed if APP_REVIEW_MODE is true — including explicit overrides.
 bash scripts/verify-production-env.sh
 
-echo "══ Step 1/2: Roll back production to embedded (build #62 AppHeader) ══"
+# shellcheck disable=SC1091
+source scripts/lib/resolve-runtime-version.sh
+RUNTIME_VERSION="$(resolve_production_runtime_version)"
+export RUNTIME_VERSION
+echo "Heal targeting runtimeVersion=${RUNTIME_VERSION}"
+
+echo "══ Step 1/2: Roll back production to embedded (runtime ${RUNTIME_VERSION}) ══"
 bash scripts/rollback-production-ota.sh "HEAL rollback to embedded ${STAMP}"
 
 echo

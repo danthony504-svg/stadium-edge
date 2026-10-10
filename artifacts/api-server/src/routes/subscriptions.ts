@@ -9,6 +9,7 @@ import {
 import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
 import { isDesignatedAppReviewUser } from "../lib/appReviewAccess";
+import { isDesignatedOwnerTestUser } from "../lib/ownerTestAccess";
 import { isActivePaidEntitlement } from "../lib/subscriptionEntitlement";
 import {
   planFromEntitlementIds,
@@ -342,9 +343,12 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
     return;
   }
   try {
-    // Server-verified review flag from Clerk userId + APP_REVIEW_EMAIL.
-    // Never derived from client body / client email claims.
-    const appReviewAccess = await isDesignatedAppReviewUser(userId);
+    // Server-verified flags from Clerk userId + server env allowlists.
+    // Never derived from client body / EXPO_PUBLIC email claims.
+    const [appReviewAccess, ownerAccess] = await Promise.all([
+      isDesignatedAppReviewUser(userId),
+      isDesignatedOwnerTestUser(userId),
+    ]);
     const rows = await db
       .select()
       .from(subscriptionEntitlementsTable)
@@ -352,14 +356,15 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       .limit(1);
     const row = rows[0];
     if (!row) {
-      res.json({ ok: true, entitlement: null, appReviewAccess });
+      res.json({ ok: true, entitlement: null, appReviewAccess, ownerAccess });
       return;
     }
     const active = isActivePaidEntitlement(row);
     res.json({
       ok: true,
-      // appReviewAccess is orthogonal to paid plan — never fabricates Go/Pro.
+      // Orthogonal to paid plan — never fabricates Go/Pro StoreKit rows.
       appReviewAccess,
+      ownerAccess,
       entitlement: {
         planId: active && (row.planId === "go" || row.planId === "pro") ? row.planId : null,
         productId: row.productId,

@@ -8,24 +8,31 @@ import {
   isDesignatedAppReviewUser,
   resolvePremiumApiAccess,
 } from "./appReviewAccess.js";
+import { isDesignatedOwnerTestUser } from "./ownerTestAccess.js";
 import { isActivePaidEntitlement } from "./subscriptionEntitlement.js";
 
 export { isActivePaidEntitlement } from "./subscriptionEntitlement.js";
 export type { ServerEntitlementRow } from "./subscriptionEntitlement.js";
 
 /**
- * Coach / premium API access: RevenueCat-backed paid entitlement OR
- * server-verified designated App Review account (Clerk userId → APP_REVIEW_EMAIL).
- * Never trusts client planId / email / premium flags.
+ * Coach / premium API access:
+ *   - RevenueCat-backed paid entitlement, OR
+ *   - server-verified App Review account, OR
+ *   - server-verified owner test account (OWNER_TEST_EMAILS / ADMIN_EMAILS).
+ * Never trusts client planId / email / premium flags / EXPO_PUBLIC allowlists.
  */
 export async function userHasCoachPremiumAccess(userId: string | null): Promise<boolean> {
   if (!userId) return false;
   try {
-    const designatedAppReview = await isDesignatedAppReviewUser(userId);
-    if (designatedAppReview) {
+    const [designatedAppReview, designatedOwnerTest] = await Promise.all([
+      isDesignatedAppReviewUser(userId),
+      isDesignatedOwnerTestUser(userId),
+    ]);
+    if (designatedAppReview || designatedOwnerTest) {
       return resolvePremiumApiAccess({
         paidEntitlement: false,
-        designatedAppReview: true,
+        designatedAppReview,
+        designatedOwnerTest,
       });
     }
     const rows = await db
@@ -36,6 +43,7 @@ export async function userHasCoachPremiumAccess(userId: string | null): Promise<
     return resolvePremiumApiAccess({
       paidEntitlement: isActivePaidEntitlement(rows[0]),
       designatedAppReview: false,
+      designatedOwnerTest: false,
     });
   } catch {
     return false;

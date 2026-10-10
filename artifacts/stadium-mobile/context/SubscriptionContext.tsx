@@ -23,7 +23,6 @@ import {
   clearCustomPromoUnlock,
   clearLocalTrialEntitlement,
   clearUnverifiedPaidPlan,
-  parseAdminEmails,
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
@@ -106,10 +105,6 @@ function nowMs() {
   return Date.now();
 }
 
-function readAdminEmails(): string[] {
-  return parseAdminEmails(process.env.EXPO_PUBLIC_ADMIN_EMAILS);
-}
-
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isSignedIn, userId } = useAuth();
@@ -121,15 +116,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [tick, setTick] = useState(0);
   const [billingBusy, setBillingBusy] = useState(false);
   const [storeKitReady, setStoreKitReady] = useState(false);
-  /** Server-verified App Review access — never derived from client email. */
+  /** Server-verified App Review / owner access — never from EXPO_PUBLIC emails. */
   const [serverAppReviewAccess, setServerAppReviewAccess] = useState(false);
+  const [serverOwnerAccess, setServerOwnerAccess] = useState(false);
   const loaded = useRef(false);
 
   const email =
     user?.primaryEmailAddress?.emailAddress ??
     user?.emailAddresses?.[0]?.emailAddress ??
     null;
-  const adminEmails = useMemo(() => readAdminEmails(), []);
   // Do not probe Purchases during first render — NativeModules read is sync/safe;
   // memoize so we never accidentally re-enter require paths.
   const storeKitBlockedReason = useMemo(() => storeKitUnavailableReason(), []);
@@ -197,11 +192,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     });
   }, [hydrated, storeKitReady, applySnapshot]);
 
-  // Server-verified App Review + entitlement flags (fail closed when unsigned / error).
+  // Server-verified privileged flags (fail closed when unsigned / error).
   useEffect(() => {
     if (!hydrated) return;
     if (!isSignedIn || !userId) {
       setServerAppReviewAccess(false);
+      setServerOwnerAccess(false);
       return;
     }
     let cancelled = false;
@@ -209,6 +205,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       const flags = await fetchServerAccessFlags();
       if (cancelled) return;
       setServerAppReviewAccess(flags?.appReviewAccess === true);
+      setServerOwnerAccess(flags?.ownerAccess === true);
     })();
     return () => {
       cancelled = true;
@@ -225,28 +222,28 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     () =>
       buildEntitlementView(state, nowMs(), {
         email: isSignedIn ? email : null,
-        adminEmails,
         serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
+        serverOwnerAccess: isSignedIn && serverOwnerAccess,
         // Legacy flag ignored inside hasProAccess — proves old OTAs stay locked.
         appReviewMode:
           (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
       }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails, serverAppReviewAccess],
+    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
   );
 
-  /** Coach premium: StoreKit / admin / server-verified App Review only. */
+  /** Coach premium: StoreKit / server-verified owner or App Review only. */
   const coachPremiumUnlocked = useMemo(
     () =>
       hasCoachPremiumAccess(state, nowMs(), {
         signedIn: !!isSignedIn,
         email: isSignedIn ? email : null,
-        adminEmails,
         serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
+        serverOwnerAccess: isSignedIn && serverOwnerAccess,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails, serverAppReviewAccess],
+    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
   );
 
   const selectPlan = useCallback(

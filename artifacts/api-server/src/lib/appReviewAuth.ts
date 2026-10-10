@@ -50,6 +50,28 @@ export function readAppReviewEnv(
 }
 
 /**
+ * True when any Clerk-linked email matches one of the designated allowlist
+ * emails. Pure helper — callers must supply emails from Clerk (authenticated userId).
+ */
+export function clerkEmailsMatchAllowlist(
+  clerkEmails: readonly (string | null | undefined)[] | null | undefined,
+  allowlist: readonly (string | null | undefined)[] | null | undefined,
+): boolean {
+  const targets = (allowlist ?? [])
+    .map((e) => normalizeReviewEmail(e))
+    .filter((e) => e.includes("@"));
+  if (targets.length === 0) return false;
+  for (const raw of clerkEmails ?? []) {
+    const email = normalizeReviewEmail(raw);
+    if (!email) continue;
+    for (const target of targets) {
+      if (safeEqualUtf8(email, target)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * True when any Clerk-linked email matches the server APP_REVIEW_EMAIL.
  * Pure helper — callers must supply emails from Clerk (authenticated userId).
  */
@@ -57,14 +79,7 @@ export function clerkEmailsMatchDesignatedReview(
   clerkEmails: readonly (string | null | undefined)[] | null | undefined,
   designatedEmail: string | null | undefined,
 ): boolean {
-  const target = normalizeReviewEmail(designatedEmail);
-  if (!target || !target.includes("@")) return false;
-  for (const raw of clerkEmails ?? []) {
-    const email = normalizeReviewEmail(raw);
-    if (!email) continue;
-    if (safeEqualUtf8(email, target)) return true;
-  }
-  return false;
+  return clerkEmailsMatchAllowlist(clerkEmails, [designatedEmail]);
 }
 
 /**

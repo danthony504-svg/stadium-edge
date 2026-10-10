@@ -13,12 +13,17 @@ import {
 } from "./appReviewAuth.js";
 import { logger } from "./logger.js";
 
-/** Pure combine of RevenueCat paid access + designated review account. */
+/** Pure combine of RevenueCat paid access + designated review / owner test. */
 export function resolvePremiumApiAccess(opts: {
   paidEntitlement: boolean;
   designatedAppReview: boolean;
+  designatedOwnerTest?: boolean;
 }): boolean {
-  return opts.paidEntitlement === true || opts.designatedAppReview === true;
+  return (
+    opts.paidEntitlement === true ||
+    opts.designatedAppReview === true ||
+    opts.designatedOwnerTest === true
+  );
 }
 
 function emailsFromClerkUser(user: {

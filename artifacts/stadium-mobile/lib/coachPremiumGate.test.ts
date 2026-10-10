@@ -68,21 +68,32 @@ test("APP_REVIEW_MODE does not unlock Coach premium via verified helpers", () =>
   );
 });
 
-test("adversarial: forged review email does not unlock Coach without server flag", () => {
+test("adversarial: forged review/admin emails do not unlock Coach without server flag", () => {
   const free = state({ planId: "free" });
   assert.equal(
     hasCoachPremiumAccess(free, NOW, {
       signedIn: true,
       email: "apple@stadiumedge.app",
       appReviewAccountEmails: ["apple@stadiumedge.app"],
+      adminEmails: ["danthony504@gmail.com", "apple@stadiumedge.app"],
       appReviewMode: true,
       serverAppReviewAccess: false,
+      serverOwnerAccess: false,
+    }),
+    false,
+  );
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "danthony504@gmail.com",
+      adminEmails: ["danthony504@gmail.com"],
+      serverOwnerAccess: false,
     }),
     false,
   );
 });
 
-test("server-verified App Review access unlocks Coach; ordinary free stays locked", () => {
+test("server-verified App Review / owner access unlocks Coach; ordinary free stays locked", () => {
   const free = state({ planId: "free" });
   assert.equal(
     hasCoachPremiumAccess(free, NOW, {
@@ -97,7 +108,16 @@ test("server-verified App Review access unlocks Coach; ordinary free stays locke
     hasCoachPremiumAccess(free, NOW, {
       signedIn: true,
       email: "fan@example.com",
+      serverOwnerAccess: true,
+    }),
+    true,
+  );
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "fan@example.com",
       serverAppReviewAccess: false,
+      serverOwnerAccess: false,
       appReviewMode: true,
     }),
     false,

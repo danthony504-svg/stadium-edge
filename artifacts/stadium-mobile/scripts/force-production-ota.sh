@@ -25,9 +25,15 @@ export EXPO_PUBLIC_DEPLOY_MESSAGE="${MESSAGE}"
 # Fail closed if APP_REVIEW_MODE is true — including explicit overrides.
 bash scripts/verify-production-env.sh
 
+# shellcheck disable=SC1091
+source scripts/lib/resolve-runtime-version.sh
+RUNTIME_VERSION="$(resolve_production_runtime_version)"
+export RUNTIME_VERSION
+
 echo "Publish dir: $(pwd)"
 echo "Git commit: ${GIT_FULL}"
 echo "Message: ${MESSAGE}"
+echo "runtimeVersion: ${RUNTIME_VERSION}"
 
 echo "Linking production channel → production branch…"
 pnpm exec eas channel:edit production --branch production --non-interactive

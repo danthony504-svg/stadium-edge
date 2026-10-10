@@ -24,13 +24,18 @@ export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
 export EXPO_PUBLIC_OTA_BOOTSTRAP="${EXPO_PUBLIC_OTA_BOOTSTRAP:-true}"
-export EXPO_PUBLIC_ADMIN_EMAILS="${EXPO_PUBLIC_ADMIN_EMAILS:-danthony504@gmail.com}"
-export RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
 export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo unknown)}"
 export EXPO_PUBLIC_DEPLOY_MESSAGE="${EXPO_PUBLIC_DEPLOY_MESSAGE:-DEPLOY-VERIFY $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null)-$(date -u +%Y%m%d-%H%M%S)}"
 
 # Fail closed if APP_REVIEW_MODE is true — including explicit overrides.
 bash scripts/verify-production-env.sh
+
+# Runtime must match app.json (currently 1.1.0). Reject stale overrides.
+# shellcheck disable=SC1091
+source scripts/lib/resolve-runtime-version.sh
+RUNTIME_VERSION="$(resolve_production_runtime_version)"
+export RUNTIME_VERSION
+echo "Publishing OTA for runtimeVersion=${RUNTIME_VERSION}"
 
 echo "Linking production channel → production branch…"
 pnpm exec eas channel:edit production --branch production --non-interactive
@@ -47,6 +52,6 @@ pnpm exec eas update \
   --message "$MESSAGE" \
   --non-interactive
 
-echo "OTA published. Devices on this runtimeVersion pick it up on next open."
-echo "NOTE: runtime 1.0.3 binaries do NOT include RNPurchases — purchases.ts must"
-echo "guard NativeModules.RNPurchases before require (see lib/purchases.ts)."
+echo "OTA published for runtime ${RUNTIME_VERSION}. Matching devices pick it up on next open."
+echo "NOTE: This publish targets app.json runtime only (currently 1.1.0)."
+echo "Do not use this path for legacy 1.0.3 force-update OTAs."

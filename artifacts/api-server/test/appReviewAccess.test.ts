@@ -3,10 +3,12 @@ import test from "node:test";
 
 import { resolvePremiumApiAccess } from "../src/lib/appReviewAccess.ts";
 import {
+  clerkEmailsMatchAllowlist,
   clerkEmailsMatchDesignatedReview,
   readAppReviewEmail,
   readAppReviewEnv,
 } from "../src/lib/appReviewAuth.ts";
+import { readOwnerTestEmails } from "../src/lib/ownerTestAccess.ts";
 import { isActivePaidEntitlement } from "../src/lib/subscriptionEntitlement.ts";
 
 test("readAppReviewEmail does not require code; readAppReviewEnv still does", () => {
@@ -50,29 +52,79 @@ test("clerkEmailsMatchDesignatedReview rejects forged / mismatched emails", () =
     clerkEmailsMatchDesignatedReview(["apple@stadiumedge.app"], null),
     false,
   );
-  // Client-supplied email alone is meaningless without designated server config.
   assert.equal(
     clerkEmailsMatchDesignatedReview(["apple@stadiumedge.app"], ""),
     false,
   );
 });
 
-test("resolvePremiumApiAccess: review OR paid; never invents paid from review alone in flags", () => {
+test("owner allowlist: only server env emails; forged non-owner rejected", () => {
+  assert.deepEqual(
+    readOwnerTestEmails({ OWNER_TEST_EMAILS: "danthony504@gmail.com" }),
+    ["danthony504@gmail.com"],
+  );
+  assert.deepEqual(
+    readOwnerTestEmails({ ADMIN_EMAILS: "danthony504@gmail.com, other@x.com" }),
+    ["danthony504@gmail.com", "other@x.com"],
+  );
+  // EXPO_PUBLIC_ADMIN_EMAILS must never be read by server owner helper.
+  assert.deepEqual(
+    readOwnerTestEmails({
+      EXPO_PUBLIC_ADMIN_EMAILS: "danthony504@gmail.com",
+    }),
+    [],
+  );
   assert.equal(
-    resolvePremiumApiAccess({ paidEntitlement: false, designatedAppReview: true }),
+    clerkEmailsMatchAllowlist(
+      ["danthony504@gmail.com"],
+      readOwnerTestEmails({ OWNER_TEST_EMAILS: "danthony504@gmail.com" }),
+    ),
     true,
   );
   assert.equal(
-    resolvePremiumApiAccess({ paidEntitlement: true, designatedAppReview: false }),
-    true,
-  );
-  assert.equal(
-    resolvePremiumApiAccess({ paidEntitlement: false, designatedAppReview: false }),
+    clerkEmailsMatchAllowlist(
+      ["fan@example.com"],
+      readOwnerTestEmails({ OWNER_TEST_EMAILS: "danthony504@gmail.com" }),
+    ),
     false,
   );
 });
 
-test("expired paid entitlement stays locked even if client claims review email", () => {
+test("resolvePremiumApiAccess: review OR owner OR paid; free stays locked", () => {
+  assert.equal(
+    resolvePremiumApiAccess({
+      paidEntitlement: false,
+      designatedAppReview: true,
+    }),
+    true,
+  );
+  assert.equal(
+    resolvePremiumApiAccess({
+      paidEntitlement: false,
+      designatedAppReview: false,
+      designatedOwnerTest: true,
+    }),
+    true,
+  );
+  assert.equal(
+    resolvePremiumApiAccess({
+      paidEntitlement: true,
+      designatedAppReview: false,
+      designatedOwnerTest: false,
+    }),
+    true,
+  );
+  assert.equal(
+    resolvePremiumApiAccess({
+      paidEntitlement: false,
+      designatedAppReview: false,
+      designatedOwnerTest: false,
+    }),
+    false,
+  );
+});
+
+test("expired paid entitlement stays locked without server privileged flags", () => {
   const expired = isActivePaidEntitlement({
     planId: "go",
     storeKitActive: false,
@@ -84,6 +136,7 @@ test("expired paid entitlement stays locked even if client claims review email",
     resolvePremiumApiAccess({
       paidEntitlement: expired,
       designatedAppReview: false,
+      designatedOwnerTest: false,
     }),
     false,
   );

@@ -13,7 +13,7 @@ on:
         required: false
         default: "0"
       runtime_version:
-        description: Optional Expo runtimeVersion override for this run only (blank = use app.json, currently 1.0.0)
+        description: Optional Expo runtimeVersion override for this run only (blank = use app.json, currently 1.1.0). Mismatch fails closed.
         required: false
         default: ""
 
@@ -40,7 +40,9 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
-      # Runner-local only: never commit/push. Blank/default leaves app.json as checked out (1.0.0).
+      # Runner-local only: never commit/push. Blank leaves app.json (currently 1.1.0).
+      # Refuse patching to a value that would desync publish scripts from app.json
+      # without an intentional tree change — mismatch fails closed in resolve-runtime-version.sh.
       - name: Optionally override Expo runtimeVersion (runner only)
         if: ${{ github.event.inputs.runtime_version != '' }}
         working-directory: ${{ github.workspace }}
@@ -54,6 +56,11 @@ jobs:
           if (!next) {
             console.log("runtime_version empty; leaving app.json unchanged");
             process.exit(0);
+          }
+          if (next === "1.0.3") {
+            console.error("FAIL: refusing runtime_version=1.0.3 on the 1.1.0 production publish path");
+            console.error("Use prepare-force-update-ota-103.sh for legacy 1.0.3 force-update OTAs only");
+            process.exit(1);
           }
           const app = JSON.parse(fs.readFileSync(path, "utf8"));
           const prev = app.expo.runtimeVersion;

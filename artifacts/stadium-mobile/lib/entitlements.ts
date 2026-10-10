@@ -423,12 +423,21 @@ export function hasPromoOrPlanAccess(
 
 export type EntitlementAccessOpts = {
   email?: string | null;
+  /**
+   * @deprecated Ignored. EXPO_PUBLIC_ADMIN_EMAILS must never grant premium.
+   * Use serverOwnerAccess from api-server instead.
+   */
   adminEmails?: readonly string[];
   /**
    * Server-verified App Review access from GET /subscriptions/entitlement
    * (`appReviewAccess`). Never set from a client-typed email or local flag.
    */
   serverAppReviewAccess?: boolean;
+  /**
+   * Server-verified owner/test access from GET /subscriptions/entitlement
+   * (`ownerAccess`). Never set from EXPO_PUBLIC_ADMIN_EMAILS.
+   */
+  serverOwnerAccess?: boolean;
   /**
    * @deprecated Ignored. Client email allowlists must not grant premium.
    */
@@ -441,9 +450,9 @@ export type EntitlementAccessOpts = {
 };
 
 /**
- * Soft Pro access: verified Apple StoreKit plan, admin email, or
- * server-verified App Review access. Custom promo codes never unlock.
- * Client email / APP_REVIEW_MODE never unlock (even when true on an old bundle).
+ * Soft Pro access: verified Apple StoreKit plan, or server-verified
+ * App Review / owner access. Custom promo codes never unlock.
+ * Client email allowlists / APP_REVIEW_MODE never unlock.
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
@@ -452,8 +461,10 @@ export function hasProAccess(
 ): boolean {
   void opts.appReviewMode; // ignored — no global review bypass
   void opts.appReviewAccountEmails; // ignored — never trust client email lists
+  void opts.adminEmails; // ignored — never trust EXPO_PUBLIC_ADMIN_EMAILS
+  void opts.email; // ignored for unlock — identity is server-verified
   if (opts.serverAppReviewAccess === true) return true;
-  if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
+  if (opts.serverOwnerAccess === true) return true;
   return hasPromoOrPlanAccess(state, nowMs);
 }
 
@@ -488,8 +499,10 @@ export function resolveUnlockSource(
 ): UnlockSource {
   void opts.appReviewMode; // ignored — global flag must never unlock
   void opts.appReviewAccountEmails; // ignored — never trust client email lists
-  if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
-  // Server-verified review access is not a fake Go/Pro StoreKit plan.
+  void opts.adminEmails; // ignored — never trust EXPO_PUBLIC_ADMIN_EMAILS
+  void opts.email;
+  // Server-verified owner/review access is not a fake Go/Pro StoreKit plan.
+  if (opts.serverOwnerAccess === true) return "admin";
   if (opts.serverAppReviewAccess === true) return "review";
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
@@ -567,8 +580,8 @@ export function buildEntitlementView(
 ): EntitlementView {
   const planId = isPlanId(state.planId) ? state.planId : "free";
   const plan = planById(planId);
-  const isAdmin = isAdminEmail(opts.email, opts.adminEmails ?? []);
   const unlockSource = resolveUnlockSource(state, nowMs, opts);
+  const isAdmin = unlockSource === "admin";
   const isPro = unlockSource !== "none";
 
   let statusLabel: string;
@@ -579,7 +592,7 @@ export function buildEntitlementView(
     statusDetail = "Designated review account · not a consumer subscription";
   } else if (isAdmin) {
     statusLabel = "Admin";
-    statusDetail = "Full access · admin account";
+    statusDetail = "Full access · owner test account (server-verified)";
   } else if (unlockSource === "storekit") {
     statusLabel = plan.name;
     statusDetail = `${plan.note || plan.priceLabel} · Apple subscription`;

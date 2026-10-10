@@ -11,7 +11,6 @@
  */
 
 import {
-  isAdminEmail,
   planById,
   type EntitlementAccessOpts,
   type SubscriptionPersistedState,
@@ -42,7 +41,7 @@ export function hasVerifiedStoreKitPaidPlan(
 /**
  * Verified entitlement for Coach premium identity + Q&A.
  * Global APP_REVIEW_MODE and client email allowlists never unlock.
- * Server-verified appReviewAccess (from api-server) may unlock narrowly.
+ * Server-verified appReviewAccess / ownerAccess (from api-server) may unlock.
  */
 export function hasVerifiedCoachEntitlement(
   state: SubscriptionPersistedState,
@@ -51,8 +50,10 @@ export function hasVerifiedCoachEntitlement(
 ): boolean {
   void opts.appReviewMode; // ignored — no global review bypass
   void opts.appReviewAccountEmails; // ignored — never trust client email lists
+  void opts.adminEmails; // ignored — never trust EXPO_PUBLIC_ADMIN_EMAILS
+  void opts.email;
   if (opts.serverAppReviewAccess === true) return true;
-  if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
+  if (opts.serverOwnerAccess === true) return true;
   return hasVerifiedStoreKitPaidPlan(state);
 }
 

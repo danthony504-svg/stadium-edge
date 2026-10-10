@@ -29,6 +29,11 @@ export type ServerAccessFlags = {
    * Never trust a client email claim for this flag.
    */
   appReviewAccess: boolean;
+  /**
+   * Server-verified owner/test account (Clerk userId → OWNER_TEST_EMAILS / ADMIN_EMAILS).
+   * Never trust EXPO_PUBLIC_ADMIN_EMAILS for this flag.
+   */
+  ownerAccess: boolean;
 };
 
 async function subFetch(
@@ -124,11 +129,13 @@ export async function fetchServerAccessFlags(): Promise<ServerAccessFlags | null
       ok?: boolean;
       entitlement?: ServerSubscriptionEntitlement | null;
       appReviewAccess?: boolean;
+      ownerAccess?: boolean;
     };
     return {
       entitlement: json.entitlement ?? null,
-      // Only the server boolean grants review access — ignore any other fields.
+      // Only server booleans grant privileged access — ignore client claims.
       appReviewAccess: json.appReviewAccess === true,
+      ownerAccess: json.ownerAccess === true,
     };
   } catch {
     return null;
