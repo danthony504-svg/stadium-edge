@@ -2,7 +2,9 @@
  * Soft subscription entitlements for stadium-mobile.
  *
  * Design rules (App Store + OTA-safe):
- * - Guest browsing + Coach stay freely usable (App Store 5.1.1(v)).
+ * - Guest browsing + Coach chat stay usable (App Store 5.1.1(v)).
+ * - Coach premium fields (pick side/line/odds/grades/breakdowns) require
+ *   verified StoreKit Go/Pro or admin — see coachPremiumGate.ts.
  * - Secondary tools may soft-gate without an Apple/admin unlock
  *   (Edge Lock, Steals, Simulator, Report).
  * - Custom promo/redeem unlocks are DISABLED (Guideline 3.1.1) — use Apple
@@ -87,6 +89,7 @@ export const SOFT_PRO_FEATURE_LABELS = [
   "Simulator",
   "Model Report",
   "AI Grade & Edge",
+  "Unlock AI Picks",
 ] as const;
 
 export type SoftProFeatureLabel = (typeof SOFT_PRO_FEATURE_LABELS)[number] | string;
@@ -110,8 +113,8 @@ export const PREMIUM_FEATURES: Record<
   steals: { label: "+500 Steals", routes: ["/steals"] },
   simulator: { label: "Simulator", routes: ["/simulator"] },
   model_report: { label: "Model Report", routes: ["/report"] },
-  // No dedicated route — soft-locked tiles on Coach / pick cards.
-  coach_ai_metrics: { label: "AI Grade & Edge", routes: [] },
+  // Soft-locked tiles on Coach / pick cards (verified StoreKit Go/Pro or admin).
+  coach_ai_metrics: { label: "Unlock AI Picks", routes: [] },
 };
 
 export function premiumFeatureForRoute(route: string): PremiumFeatureId | null {

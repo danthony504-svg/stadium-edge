@@ -265,11 +265,133 @@ export function resolveSlateBoardScan(
   return null;
 }
 
-/** Client-facing snapshot with boardScan resolved to the requested ticket. */
+const PREMIUM_PICK_MASK = "••••••";
+
+/** Strip pick/odds/grade/sim fields while keeping public matchup metadata. */
+export function redactPremiumPickForClient(pick: ParsedPick): ParsedPick {
+  return {
+    game: pick.game,
+    market: pick.market,
+    pick: PREMIUM_PICK_MASK,
+    odds: 0,
+    sport: pick.sport,
+    isProp: pick.isProp,
+    startsAt: pick.startsAt,
+    headshot: pick.headshot,
+    teamLogo: pick.teamLogo,
+    teamAbbr: pick.teamAbbr,
+    awayLogo: pick.awayLogo,
+    homeLogo: pick.homeLogo,
+    awayAbbr: pick.awayAbbr,
+    homeAbbr: pick.homeAbbr,
+    player: pick.player,
+    athleteId: pick.athleteId,
+    propMarketKey: pick.propMarketKey,
+    // Premium — omitted / null
+    propLine: null,
+    propSide: undefined,
+    edge: undefined,
+    scores: undefined,
+    finalAiScore: undefined,
+    propIsAlt: undefined,
+    ticketRole: undefined,
+    highRiskValuePlay: undefined,
+  };
+}
+
+function redactBoardScan(scan: SerializedBoardScan | null): SerializedBoardScan | null {
+  if (!scan) return null;
+  return {
+    ...scan,
+    picks: (scan.picks ?? []).map(redactPremiumPickForClient),
+    // Odds ladders + sims are premium — empty for non-subscribers.
+    evalLinesByGame: {},
+    gameSimulations: {},
+    note: scan.note,
+  };
+}
+
+function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
+  return {
+    ...built,
+    context: {
+      ...built.context,
+      realOdds: (built.context.realOdds ?? []).map((o) => ({
+        sport: o.sport,
+        game: o.game,
+        market: o.market,
+        pick: PREMIUM_PICK_MASK,
+        odds: 0,
+        startsAt: o.startsAt,
+        noVigFair: null,
+        edge: null,
+        bookSpread: null,
+      })),
+      realProps: (built.context.realProps ?? []).map((p) => ({
+        sport: p.sport,
+        game: p.game,
+        startsAt: p.startsAt,
+        player: p.player,
+        athleteId: p.athleteId,
+        market: p.market,
+        line: null,
+        over: null,
+        under: null,
+        alt: p.alt,
+        ev: null,
+        evSide: null,
+        fairProb: null,
+        edge: null,
+        simHitPct: undefined,
+        selectionScore: undefined,
+      })),
+    },
+    propPool: (built.propPool ?? []).map((p) => ({
+      ...p,
+      line: null,
+      odds: 0,
+      edge: null,
+      bookSpread: null,
+      side: p.side,
+    })),
+  };
+}
+
+/**
+ * Client-facing snapshot with boardScan resolved to the requested ticket.
+ * When `premiumUnlocked` is false, pick sides/lines/odds/grades/sims are redacted.
+ */
 export function snapshotForClient(
   snapshot: SlatePreAnalysisSnapshot,
-  opts?: { legs?: number; sport?: string | null },
+  opts?: { legs?: number; sport?: string | null; premiumUnlocked?: boolean },
 ): SlatePreAnalysisSnapshot {
   const boardScan = resolveSlateBoardScan(snapshot, opts);
-  return { ...snapshot, boardScan };
+  if (opts?.premiumUnlocked) {
+    return { ...snapshot, boardScan };
+  }
+  let tickets: SlateTicketsIndex | null | undefined = snapshot.tickets;
+  if (snapshot.tickets) {
+    const global: SlateTicketsIndex["global"] = {};
+    for (const [k, v] of Object.entries(snapshot.tickets.global ?? {})) {
+      const size = Number(k) as SlateParlayLegCount;
+      global[size] = redactBoardScan(v ?? null) ?? undefined;
+    }
+    const bySport: SlateTicketsIndex["bySport"] = {};
+    for (const [sport, byLegs] of Object.entries(snapshot.tickets.bySport ?? {})) {
+      const next: Partial<Record<SlateParlayLegCount, SerializedBoardScan>> = {};
+      for (const [k, v] of Object.entries(byLegs ?? {})) {
+        const size = Number(k) as SlateParlayLegCount;
+        next[size] = redactBoardScan(v ?? null) ?? undefined;
+      }
+      bySport[sport] = next;
+    }
+    tickets = { global, bySport };
+  }
+  return {
+    ...snapshot,
+    built: redactBuiltContext(snapshot.built),
+    propSimulations: [],
+    boardScan: redactBoardScan(boardScan),
+    tickets: tickets ?? null,
+  };
 }

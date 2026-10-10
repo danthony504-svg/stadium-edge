@@ -27,6 +27,7 @@ import {
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
+import { hasCoachPremiumAccess } from "@/lib/coachPremiumGate";
 import {
   addCustomerInfoListener,
   configurePurchases,
@@ -50,6 +51,11 @@ type PurchaseActionResult =
 type SubscriptionContextValue = {
   hydrated: boolean;
   entitlement: EntitlementView;
+  /**
+   * Coach premium (picks/lines/odds/grades/breakdowns): signed-in + verified
+   * StoreKit Go/Pro or admin. Never unlocked by APP_REVIEW_MODE alone.
+   */
+  coachPremiumUnlocked: boolean;
   /** True when this native build can open Apple StoreKit billing. */
   storeKitReady: boolean;
   /** Why StoreKit is unavailable (null when ready). */
@@ -207,6 +213,18 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     [state, tick, isSignedIn, email, adminEmails, appReviewMode],
   );
 
+  /** Coach premium ignores review-mode unlock — Apple StoreKit / admin only. */
+  const coachPremiumUnlocked = useMemo(
+    () =>
+      hasCoachPremiumAccess(state, nowMs(), {
+        signedIn: !!isSignedIn,
+        email: isSignedIn ? email : null,
+        adminEmails,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, tick, isSignedIn, email, adminEmails],
+  );
+
   const selectPlan = useCallback(
     async (planId: PlanId): Promise<PurchaseActionResult> => {
       if (planId === "free") {
@@ -325,6 +343,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     () => ({
       hydrated,
       entitlement,
+      coachPremiumUnlocked,
       storeKitReady,
       storeKitBlockedReason,
       storeKitManagementUrl: state.storeKitManagementUrl,
@@ -339,6 +358,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     [
       hydrated,
       entitlement,
+      coachPremiumUnlocked,
       storeKitReady,
       storeKitBlockedReason,
       state.storeKitManagementUrl,

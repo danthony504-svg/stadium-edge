@@ -96,8 +96,8 @@ export function SoftPaywallModal({
               color: colors.mutedForeground,
             }}
           >
-            Unlock with Stadium Edge Go or Pro — billed through Apple. Browse and Coach keep
-            working either way; this sheet is optional.
+            Unlock with Stadium Edge Go or Pro — billed through Apple. Matchups stay visible;
+            AI picks, lines, odds, and grades unlock with an active subscription.
           </Text>
 
           <View style={{ gap: 10, marginTop: 4 }}>

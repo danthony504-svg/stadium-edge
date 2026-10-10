@@ -1,4 +1,5 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
+import { getAuth } from "@clerk/express";
 import {
   isCoachSlateJobRunning,
   runCoachSlateJob,
@@ -12,6 +13,7 @@ import {
   SLATE_PARLAY_SIZES,
   snapshotForClient,
 } from "../lib/coachSlateTypes.js";
+import { userHasCoachPremiumAccess } from "../lib/subscriptionAccess.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
@@ -28,12 +30,22 @@ function parseSportQuery(raw: unknown): string | null {
   return s && s !== "global" && s !== "all" ? s : null;
 }
 
+function clerkUserId(req: Request): string | null {
+  try {
+    return getAuth(req)?.userId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Instant precomputed Coach slate — optional ?legs=5&sport=mlb for exact ticket. */
 router.get("/coach/slate", async (req, res): Promise<void> => {
   try {
     const legs = parseLegsQuery(req.query.legs);
     const sport = parseSportQuery(req.query.sport);
     const row = await getCoachPrecomputedSlate();
+    const userId = clerkUserId(req);
+    const premiumUnlocked = await userHasCoachPremiumAccess(userId);
 
     const hasUsableSnapshot = row.snapshot && (row.fresh || row.instantServe);
     const needsRefresh = !row.fresh && (!row.snapshot || row.instantServe);
@@ -44,7 +56,7 @@ router.get("/coach/slate", async (req, res): Promise<void> => {
 
     const clientSnapshot =
       row.snapshot && hasUsableSnapshot
-        ? snapshotForClient(row.snapshot, { legs, sport })
+        ? snapshotForClient(row.snapshot, { legs, sport, premiumUnlocked })
         : null;
 
     res.json({
@@ -60,6 +72,7 @@ router.get("/coach/slate", async (req, res): Promise<void> => {
       resolvedLegCount: legs ? nearestSlateParlaySize(legs) : undefined,
       resolvedSport: sport ?? undefined,
       activeSports: row.snapshot?.activeSports ?? [],
+      premiumUnlocked,
     });
   } catch (err) {
     logger.error({ err }, "coach slate GET failed");

@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
+import { isActivePaidEntitlement } from "../lib/subscriptionEntitlement";
 
 /**
  * Apple / RevenueCat subscription sync.
@@ -214,15 +215,17 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       res.json({ ok: true, entitlement: null });
       return;
     }
+    const active = isActivePaidEntitlement(row);
     res.json({
       ok: true,
       entitlement: {
-        planId: row.planId === "go" || row.planId === "pro" ? row.planId : null,
+        planId: active && (row.planId === "go" || row.planId === "pro") ? row.planId : null,
         productId: row.productId,
         status: row.status,
         expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
         managementUrl: row.managementUrl,
         source: row.source,
+        storeKitActive: active,
       },
     });
   } catch (err) {
@@ -286,42 +289,17 @@ router.post(
           ? event.entitlementIds.map(String)
           : [];
 
-      const expiredTypes = new Set([
-        "EXPIRATION",
-        "CANCELLATION",
-        "SUBSCRIPTION_PAUSED",
-      ]);
+      const revokeTypes = new Set(["EXPIRATION", "REFUND", "REVOKE", "REVOCATION"]);
+      const pauseTypes = new Set(["SUBSCRIPTION_PAUSED"]);
       const activeTypes = new Set([
         "INITIAL_PURCHASE",
         "RENEWAL",
         "UNCANCELLATION",
         "PRODUCT_CHANGE",
         "NON_RENEWING_PURCHASE",
+        "TRANSFER",
+        "TEMPORARY_ENTITLEMENT_GRANT",
       ]);
-
-      let planId: "free" | "go" | "pro" = "free";
-      let storeKitActive = false;
-      let status = "unknown";
-
-      if (expiredTypes.has(eventType)) {
-        planId = "free";
-        storeKitActive = false;
-        status = eventType === "CANCELLATION" ? "cancelled" : "expired";
-      } else if (activeTypes.has(eventType) || eventType === "TRANSFER") {
-        planId =
-          planFromEntitlementIds(entitlementIds) ??
-          planFromProductId(productId) ??
-          "pro";
-        storeKitActive = planId !== "free";
-        status = "active";
-      } else if (eventType === "BILLING_ISSUE") {
-        status = "billing_issue";
-        planId =
-          planFromEntitlementIds(entitlementIds) ??
-          planFromProductId(productId) ??
-          "free";
-        storeKitActive = planId !== "free";
-      }
 
       const expirationMs =
         typeof event.expiration_at_ms === "number"
@@ -329,6 +307,56 @@ router.post(
           : typeof event.expirationAtMs === "number"
             ? event.expirationAtMs
             : null;
+      const expiresInFuture =
+        expirationMs != null && Number.isFinite(expirationMs) && expirationMs > Date.now();
+
+      let planId: "free" | "go" | "pro" = "free";
+      let storeKitActive = false;
+      let status = "unknown";
+
+      if (revokeTypes.has(eventType)) {
+        // Fully ended — refund / revoke / natural expiration remove access now.
+        planId = "free";
+        storeKitActive = false;
+        status =
+          eventType === "REFUND"
+            ? "refunded"
+            : eventType === "REVOKE" || eventType === "REVOCATION"
+              ? "revoked"
+              : "expired";
+      } else if (pauseTypes.has(eventType)) {
+        planId = "free";
+        storeKitActive = false;
+        status = "paused";
+      } else if (eventType === "CANCELLATION") {
+        // Auto-renew off; access continues until period end when expiration is future.
+        const paid =
+          planFromEntitlementIds(entitlementIds) ?? planFromProductId(productId);
+        if (expiresInFuture && paid) {
+          planId = paid;
+          storeKitActive = true;
+          status = "cancelled";
+        } else {
+          planId = "free";
+          storeKitActive = false;
+          status = "cancelled";
+        }
+      } else if (activeTypes.has(eventType)) {
+        planId =
+          planFromEntitlementIds(entitlementIds) ??
+          planFromProductId(productId) ??
+          "pro";
+        storeKitActive = planId !== "free";
+        status = "active";
+      } else if (eventType === "BILLING_ISSUE") {
+        // Grace / billing retry — keep access when RC still reports a paid plan.
+        status = "billing_issue";
+        planId =
+          planFromEntitlementIds(entitlementIds) ??
+          planFromProductId(productId) ??
+          "free";
+        storeKitActive = planId !== "free";
+      }
 
       await upsertEntitlement({
         userId,

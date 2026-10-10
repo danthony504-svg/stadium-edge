@@ -34,7 +34,9 @@ import {
   type ParsedPick,
 } from "@/components/PickCard";
 import { FONT } from "@/components/ui";
+import { useSubscriptionOptional } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
+import { COACH_PREMIUM_FEATURE_LABEL } from "@/lib/coachPremiumGate";
 import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } from "@/lib/api";
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
 import { isParlayBuildAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
@@ -94,6 +96,8 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const sub = useSubscriptionOptional();
+  const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
@@ -846,8 +850,41 @@ export default function CoachScreen() {
                         lineHeight: 22,
                       }}
                     >
-                      {item.text.trim()}
+                      {/* Avoid leaking pick/line/odds prose when premium is locked. */}
+                      {!coachPremiumUnlocked && item.picks && item.picks.length > 0
+                        ? "Your ticket matchups are ready below. Subscribe to unlock AI picks, lines, odds, and grades."
+                        : item.text.trim()}
                     </Text>
+                    {!coachPremiumUnlocked && item.picks && item.picks.length > 0 ? (
+                      <Pressable
+                        onPress={() => sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Unlock AI Picks"
+                        style={({ pressed }) => ({
+                          marginTop: 10,
+                          alignSelf: "flex-start",
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                          paddingVertical: 10,
+                          paddingHorizontal: 14,
+                          borderRadius: 12,
+                          backgroundColor: colors.primary,
+                          opacity: pressed ? 0.88 : 1,
+                        })}
+                      >
+                        <Feather name="unlock" size={14} color={colors.primaryForeground} />
+                        <Text
+                          style={{
+                            color: colors.primaryForeground,
+                            fontFamily: FONT.bold,
+                            fontSize: 13,
+                          }}
+                        >
+                          Unlock AI Picks
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 ) : null}
                 {item.picks?.map((pick, idx) => (
