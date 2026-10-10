@@ -42,6 +42,9 @@ export default function AccountScreen() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  // MUST stay above the !isSignedIn early return — otherwise sign-out flips
+  // hook count ("Rendered fewer hooks than expected", fp_a3422557).
+  const [copied, setCopied] = React.useState(false);
 
   const onConfirmDelete = async () => {
     setDeleting(true);
@@ -103,7 +106,6 @@ export default function AccountScreen() {
   // real account id. We only render the card when we can build a real, openable
   // URL (id + domain) — never a code-only or placeholder fallback.
   const referralLink = buildReferralLink(user?.id, process.env.EXPO_PUBLIC_DOMAIN);
-  const [copied, setCopied] = React.useState(false);
 
   const onCopyReferral = async () => {
     if (!referralLink) return;
