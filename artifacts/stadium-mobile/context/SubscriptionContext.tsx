@@ -23,7 +23,6 @@ import {
   clearCustomPromoUnlock,
   clearLocalTrialEntitlement,
   clearUnverifiedPaidPlan,
-  parseAdminEmails,
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
@@ -39,6 +38,7 @@ import {
   type StoreKitCustomerSnapshot,
 } from "@/lib/purchases";
 import {
+  fetchServerAccessFlags,
   syncSubscriptionToServer,
   verifyRestoredSubscriptionOnServer,
 } from "@/lib/subscriptionApi";
@@ -56,7 +56,8 @@ type SubscriptionContextValue = {
   entitlement: EntitlementView;
   /**
    * Coach premium (picks/lines/odds/grades/breakdowns): signed-in + verified
-   * StoreKit Go/Pro or admin. Never unlocked by APP_REVIEW_MODE alone.
+   * StoreKit Go/Pro, admin, or designated App Review account. Never unlocked
+   * by EXPO_PUBLIC_APP_REVIEW_MODE.
    */
   coachPremiumUnlocked: boolean;
   /** True when this native build can open Apple StoreKit billing. */
@@ -104,10 +105,6 @@ function nowMs() {
   return Date.now();
 }
 
-function readAdminEmails(): string[] {
-  return parseAdminEmails(process.env.EXPO_PUBLIC_ADMIN_EMAILS);
-}
-
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isSignedIn, userId } = useAuth();
@@ -119,18 +116,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [tick, setTick] = useState(0);
   const [billingBusy, setBillingBusy] = useState(false);
   const [storeKitReady, setStoreKitReady] = useState(false);
+  /** Server-verified App Review / owner access — never from EXPO_PUBLIC emails. */
+  const [serverAppReviewAccess, setServerAppReviewAccess] = useState(false);
+  const [serverOwnerAccess, setServerOwnerAccess] = useState(false);
   const loaded = useRef(false);
 
   const email =
     user?.primaryEmailAddress?.emailAddress ??
     user?.emailAddresses?.[0]?.emailAddress ??
     null;
-  const adminEmails = useMemo(() => readAdminEmails(), []);
-  /** Temporary full unlock until Apple approves StoreKit / the next build. */
-  const appReviewMode = useMemo(
-    () => (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
-    [],
-  );
   // Do not probe Purchases during first render — NativeModules read is sync/safe;
   // memoize so we never accidentally re-enter require paths.
   const storeKitBlockedReason = useMemo(() => storeKitUnavailableReason(), []);
@@ -198,6 +192,26 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     });
   }, [hydrated, storeKitReady, applySnapshot]);
 
+  // Server-verified privileged flags (fail closed when unsigned / error).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isSignedIn || !userId) {
+      setServerAppReviewAccess(false);
+      setServerOwnerAccess(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const flags = await fetchServerAccessFlags();
+      if (cancelled) return;
+      setServerAppReviewAccess(flags?.appReviewAccess === true);
+      setServerOwnerAccess(flags?.ownerAccess === true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, isSignedIn, userId]);
+
   // Refresh trial/promo countdown roughly once an hour while mounted.
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 60 * 60 * 1000);
@@ -208,24 +222,28 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     () =>
       buildEntitlementView(state, nowMs(), {
         email: isSignedIn ? email : null,
-        adminEmails,
-        appReviewMode,
+        serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
+        serverOwnerAccess: isSignedIn && serverOwnerAccess,
+        // Legacy flag ignored inside hasProAccess — proves old OTAs stay locked.
+        appReviewMode:
+          (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
       }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails, appReviewMode],
+    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
   );
 
-  /** Coach premium ignores review-mode unlock — Apple StoreKit / admin only. */
+  /** Coach premium: StoreKit / server-verified owner or App Review only. */
   const coachPremiumUnlocked = useMemo(
     () =>
       hasCoachPremiumAccess(state, nowMs(), {
         signedIn: !!isSignedIn,
         email: isSignedIn ? email : null,
-        adminEmails,
+        serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
+        serverOwnerAccess: isSignedIn && serverOwnerAccess,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails],
+    [state, tick, isSignedIn, email, serverAppReviewAccess, serverOwnerAccess],
   );
 
   const selectPlan = useCallback(

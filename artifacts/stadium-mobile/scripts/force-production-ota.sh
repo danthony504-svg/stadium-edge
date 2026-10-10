@@ -17,14 +17,23 @@ MESSAGE="${1:-Force latest Stadium Edge UI ${GIT_SHORT} ${STAMP}}"
 export EAS_NO_VCS=1
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
-export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-true}"
+export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
 export EXPO_PUBLIC_OTA_BOOTSTRAP="${EXPO_PUBLIC_OTA_BOOTSTRAP:-true}"
 export EXPO_PUBLIC_GIT_COMMIT="${GIT_FULL}"
 export EXPO_PUBLIC_DEPLOY_MESSAGE="${MESSAGE}"
 
+# Fail closed if APP_REVIEW_MODE is true — including explicit overrides.
+bash scripts/verify-production-env.sh
+
+# shellcheck disable=SC1091
+source scripts/lib/resolve-runtime-version.sh
+RUNTIME_VERSION="$(resolve_production_runtime_version)"
+export RUNTIME_VERSION
+
 echo "Publish dir: $(pwd)"
 echo "Git commit: ${GIT_FULL}"
 echo "Message: ${MESSAGE}"
+echo "runtimeVersion: ${RUNTIME_VERSION}"
 
 echo "Linking production channel → production branch…"
 pnpm exec eas channel:edit production --branch production --non-interactive

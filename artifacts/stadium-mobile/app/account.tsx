@@ -275,9 +275,11 @@ export default function AccountScreen() {
           >
             {entitlement.isAdmin
               ? "Signed in as admin — full access on this account."
-              : entitlement.unlockSource === "storekit"
-                ? "Billed through Apple — cancel or change in Settings → Subscriptions."
-                : "Go and Pro bill through Apple StoreKit on a native build. Coach and browse stay free."}
+              : entitlement.unlockSource === "review"
+                ? "Signed in as the designated App Store review account."
+                : entitlement.unlockSource === "storekit"
+                  ? "Billed through Apple — cancel or change in Settings → Subscriptions."
+                  : "Go and Pro bill through Apple StoreKit on a native build. Coach and browse stay free."}
           </Text>
         </View>
 

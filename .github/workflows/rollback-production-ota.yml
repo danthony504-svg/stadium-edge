@@ -8,9 +8,9 @@ on:
         required: false
         default: "Emergency rollback to embedded bundle"
       runtime_version:
-        description: Runtime version (must match installed app — production phones are 1.0.3)
+        description: Optional runtime override (blank = app.json, currently 1.1.0). Must match installed binary. Do not use 1.0.3 for 1.1.0 devices.
         required: false
-        default: "1.0.3"
+        default: ""
   push:
     branches: [main]
     paths:
@@ -25,23 +25,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: ${{ github.workspace }}
 
       - name: Roll back production to embedded bundle
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          # Push trigger has no inputs — default to the production App Store runtime.
-          RUNTIME_VERSION: ${{ github.event.inputs.runtime_version || '1.0.3' }}
-          OTA_MESSAGE: ${{ github.event.inputs.message || 'Emergency rollback to embedded — clear StoreKit OTA crash on 1.0.3' }}
-        run: bash scripts/rollback-production-ota.sh "$OTA_MESSAGE"
+          # Blank → resolve from app.json (1.1.0). Explicit mismatch fails closed.
+          RUNTIME_VERSION: ${{ github.event.inputs.runtime_version || '' }}
+          OTA_MESSAGE: ${{ github.event.inputs.message || 'Emergency rollback to embedded — clear bad OTA on app.json runtime' }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "Add EXPO_TOKEN to repo secrets"
+            exit 1
+          fi
+          bash scripts/rollback-production-ota.sh "$OTA_MESSAGE"

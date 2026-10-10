@@ -20,7 +20,8 @@ type PremiumFeatureGateProps = {
 
 /**
  * Soft gate for secondary premium tabs. Discover / Coach / Plans / Account never use this.
- * Logged out → Sign In. Logged in without sub → Subscribe. App Review / admin / Go/Pro → open.
+ * Logged out → Sign In. Logged in without sub → Subscribe.
+ * Open only for verified Go/Pro, admin, or designated App Review account email.
  */
 export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGateProps) {
   const colors = useColors();

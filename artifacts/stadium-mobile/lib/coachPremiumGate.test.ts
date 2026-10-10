@@ -68,6 +68,62 @@ test("APP_REVIEW_MODE does not unlock Coach premium via verified helpers", () =>
   );
 });
 
+test("adversarial: forged review/admin emails do not unlock Coach without server flag", () => {
+  const free = state({ planId: "free" });
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "apple@stadiumedge.app",
+      appReviewAccountEmails: ["apple@stadiumedge.app"],
+      adminEmails: ["danthony504@gmail.com", "apple@stadiumedge.app"],
+      appReviewMode: true,
+      serverAppReviewAccess: false,
+      serverOwnerAccess: false,
+    }),
+    false,
+  );
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "danthony504@gmail.com",
+      adminEmails: ["danthony504@gmail.com"],
+      serverOwnerAccess: false,
+    }),
+    false,
+  );
+});
+
+test("server-verified App Review / owner access unlocks Coach; ordinary free stays locked", () => {
+  const free = state({ planId: "free" });
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "fan@example.com",
+      serverAppReviewAccess: true,
+      appReviewMode: true,
+    }),
+    true,
+  );
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "fan@example.com",
+      serverOwnerAccess: true,
+    }),
+    true,
+  );
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "fan@example.com",
+      serverAppReviewAccess: false,
+      serverOwnerAccess: false,
+      appReviewMode: true,
+    }),
+    false,
+  );
+});
+
 test("parlay asks allowed for everyone; general questions gated", () => {
   for (const ask of ["1 leg MLB", "2 leg parlay", "5 leg NFL parlay", "9 leg", "15 leg parlay"]) {
     assert.deepEqual(

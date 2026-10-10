@@ -18,6 +18,22 @@ export type ServerSubscriptionEntitlement = {
   expiresAt: string | null;
   managementUrl: string | null;
   source: string;
+  storeKitActive?: boolean;
+};
+
+export type ServerAccessFlags = {
+  /** RevenueCat / DB paid entitlement when present. */
+  entitlement: ServerSubscriptionEntitlement | null;
+  /**
+   * Server-verified designated App Review account (Clerk userId → APP_REVIEW_EMAIL).
+   * Never trust a client email claim for this flag.
+   */
+  appReviewAccess: boolean;
+  /**
+   * Server-verified owner/test account (Clerk userId → OWNER_TEST_EMAILS / ADMIN_EMAILS).
+   * Never trust EXPO_PUBLIC_ADMIN_EMAILS for this flag.
+   */
+  ownerAccess: boolean;
 };
 
 async function subFetch(
@@ -97,14 +113,30 @@ export async function verifyRestoredSubscriptionOnServer(): Promise<{
 }
 
 export async function fetchServerSubscription(): Promise<ServerSubscriptionEntitlement | null> {
+  const flags = await fetchServerAccessFlags();
+  return flags?.entitlement ?? null;
+}
+
+/**
+ * Authenticated access flags from api-server. Fail closed (null) when unsigned
+ * or the request fails — callers must not invent appReviewAccess locally.
+ */
+export async function fetchServerAccessFlags(): Promise<ServerAccessFlags | null> {
   const res = await subFetch("/subscriptions/entitlement");
   if (!res || !res.ok) return null;
   try {
     const json = (await res.json()) as {
       ok?: boolean;
       entitlement?: ServerSubscriptionEntitlement | null;
+      appReviewAccess?: boolean;
+      ownerAccess?: boolean;
     };
-    return json.entitlement ?? null;
+    return {
+      entitlement: json.entitlement ?? null,
+      // Only server booleans grant privileged access — ignore client claims.
+      appReviewAccess: json.appReviewAccess === true,
+      ownerAccess: json.ownerAccess === true,
+    };
   } catch {
     return null;
   }

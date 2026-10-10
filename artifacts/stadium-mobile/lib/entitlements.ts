@@ -99,9 +99,10 @@ export const SOFT_PRO_FEATURE_LABELS = [
 export type SoftProFeatureLabel = (typeof SOFT_PRO_FEATURE_LABELS)[number] | string;
 
 /**
- * Premium secondary surfaces — soft-gated unless subscribed / admin / App Review.
- * Always open: Discover, Coach, Plans, Account (and Slip when enabled).
- * Coach pick identity still uses coachPremiumGate (verified StoreKit), not isPro alone.
+ * Premium secondary surfaces — soft-gated unless subscribed / admin / designated
+ * App Review account. Always open: Discover, Coach, Plans, Account (and Slip).
+ * Coach pick identity still uses coachPremiumGate (verified StoreKit / allowlist),
+ * not isPro alone. EXPO_PUBLIC_APP_REVIEW_MODE never unlocks.
  */
 export type PremiumFeatureId =
   | "edge_lock"
@@ -364,15 +365,30 @@ export function redeemPromoFailureMessage(reason: RedeemPromoFailReason): string
 }
 
 /**
- * Parse EXPO_PUBLIC_ADMIN_EMAILS (comma/space separated).
- * Example: "you@stadiumedge.com,owner@gmail.com"
+ * Parse comma/space/semicolon email allowlists from public env values.
+ * Used for EXPO_PUBLIC_ADMIN_EMAILS and EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL.
  */
-export function parseAdminEmails(envValue: string | null | undefined): string[] {
+export function parseEmailAllowlist(envValue: string | null | undefined): string[] {
   if (!envValue || typeof envValue !== "string") return [];
   return envValue
     .split(/[,;\s]+/)
     .map((e) => e.trim().toLowerCase())
     .filter((e) => e.includes("@"));
+}
+
+/** Parse EXPO_PUBLIC_ADMIN_EMAILS (comma/space separated). */
+export function parseAdminEmails(envValue: string | null | undefined): string[] {
+  return parseEmailAllowlist(envValue);
+}
+
+/**
+ * @deprecated Client email allowlists must not grant premium. Kept for
+ * sanitize/tests only — use serverAppReviewAccess from api-server instead.
+ */
+export function parseAppReviewAccountEmails(
+  envValue: string | null | undefined,
+): string[] {
+  return parseEmailAllowlist(envValue);
 }
 
 export function isAdminEmail(
@@ -382,6 +398,16 @@ export function isAdminEmail(
   const normalized = (email ?? "").trim().toLowerCase();
   if (!normalized || allowlist.length === 0) return false;
   return allowlist.includes(normalized);
+}
+
+/**
+ * @deprecated Never use for unlock. Client-forged emails are not authoritative.
+ */
+export function isAppReviewAccountEmail(
+  email: string | null | undefined,
+  reviewEmails: readonly string[],
+): boolean {
+  return isAdminEmail(email, reviewEmails);
 }
 
 export function hasPromoOrPlanAccess(
@@ -397,26 +423,48 @@ export function hasPromoOrPlanAccess(
 
 export type EntitlementAccessOpts = {
   email?: string | null;
+  /**
+   * @deprecated Ignored. EXPO_PUBLIC_ADMIN_EMAILS must never grant premium.
+   * Use serverOwnerAccess from api-server instead.
+   */
   adminEmails?: readonly string[];
   /**
-   * Temporary full unlock while Apple IAP / App Review is pending.
-   * Driven by EXPO_PUBLIC_APP_REVIEW_MODE=true — flip off after approval.
+   * Server-verified App Review access from GET /subscriptions/entitlement
+   * (`appReviewAccess`). Never set from a client-typed email or local flag.
+   */
+  serverAppReviewAccess?: boolean;
+  /**
+   * Server-verified owner/test access from GET /subscriptions/entitlement
+   * (`ownerAccess`). Never set from EXPO_PUBLIC_ADMIN_EMAILS.
+   */
+  serverOwnerAccess?: boolean;
+  /**
+   * @deprecated Ignored. Client email allowlists must not grant premium.
+   */
+  appReviewAccountEmails?: readonly string[];
+  /**
+   * @deprecated Ignored. Legacy EXPO_PUBLIC_APP_REVIEW_MODE must never grant
+   * premium — kept so old OTA/native builds that still pass the flag stay locked.
    */
   appReviewMode?: boolean;
 };
 
 /**
- * Soft Pro access: verified Apple StoreKit plan, admin email, or temporary
- * App Review unlock. Custom promo codes never unlock. Local / preview paid
- * planId without StoreKit does not unlock Pro.
+ * Soft Pro access: verified Apple StoreKit plan, or server-verified
+ * App Review / owner access. Custom promo codes never unlock.
+ * Client email allowlists / APP_REVIEW_MODE never unlock.
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
   nowMs: number,
   opts: EntitlementAccessOpts = {},
 ): boolean {
-  if (opts.appReviewMode) return true;
-  if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
+  void opts.appReviewMode; // ignored — no global review bypass
+  void opts.appReviewAccountEmails; // ignored — never trust client email lists
+  void opts.adminEmails; // ignored — never trust EXPO_PUBLIC_ADMIN_EMAILS
+  void opts.email; // ignored for unlock — identity is server-verified
+  if (opts.serverAppReviewAccess === true) return true;
+  if (opts.serverOwnerAccess === true) return true;
   return hasPromoOrPlanAccess(state, nowMs);
 }
 
@@ -449,8 +497,13 @@ export function resolveUnlockSource(
   nowMs: number,
   opts: EntitlementAccessOpts = {},
 ): UnlockSource {
-  if (opts.appReviewMode) return "review";
-  if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
+  void opts.appReviewMode; // ignored — global flag must never unlock
+  void opts.appReviewAccountEmails; // ignored — never trust client email lists
+  void opts.adminEmails; // ignored — never trust EXPO_PUBLIC_ADMIN_EMAILS
+  void opts.email;
+  // Server-verified owner/review access is not a fake Go/Pro StoreKit plan.
+  if (opts.serverOwnerAccess === true) return "admin";
+  if (opts.serverAppReviewAccess === true) return "review";
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
   return "none";
@@ -527,18 +580,19 @@ export function buildEntitlementView(
 ): EntitlementView {
   const planId = isPlanId(state.planId) ? state.planId : "free";
   const plan = planById(planId);
-  const isAdmin = isAdminEmail(opts.email, opts.adminEmails ?? []);
   const unlockSource = resolveUnlockSource(state, nowMs, opts);
+  const isAdmin = unlockSource === "admin";
   const isPro = unlockSource !== "none";
 
   let statusLabel: string;
   let statusDetail: string;
   if (unlockSource === "review") {
-    statusLabel = "Temporary unlock";
-    statusDetail = "Full access · pending App Store approval";
+    // Account-specific ASC review allowlist only — never a global mode flag.
+    statusLabel = "App Review";
+    statusDetail = "Designated review account · not a consumer subscription";
   } else if (isAdmin) {
     statusLabel = "Admin";
-    statusDetail = "Full access · admin account";
+    statusDetail = "Full access · owner test account (server-verified)";
   } else if (unlockSource === "storekit") {
     statusLabel = plan.name;
     statusDetail = `${plan.note || plan.priceLabel} · Apple subscription`;

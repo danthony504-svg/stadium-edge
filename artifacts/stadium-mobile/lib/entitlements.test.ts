@@ -14,10 +14,12 @@ import {
   findPromoDefinition,
   hasProAccess,
   isAdminEmail,
+  isAppReviewAccountEmail,
   isPlanId,
   isPromoUnlockActive,
   isTrialActive,
   parseAdminEmails,
+  parseAppReviewAccountEmails,
   planById,
   premiumFeatureForRoute,
   redeemPromoCode,
@@ -25,6 +27,7 @@ import {
   softRequirePro,
   trialDaysRemaining,
   applyStoreKitSnapshot,
+  type PremiumFeatureId,
 } from "./entitlements.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -52,7 +55,7 @@ test("local trial helpers never grant access", () => {
   );
 });
 
-test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; admin ok", () => {
+test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; client admin ignored", () => {
   const start = 1_700_000_000_000;
   assert.equal(CUSTOM_PROMO_UNLOCKS_ENABLED, false);
   assert.equal(
@@ -86,38 +89,176 @@ test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; ad
     ),
     false,
   );
+  // Adversarial: EXPO_PUBLIC_ADMIN_EMAILS / forged client email must not unlock.
   assert.equal(
     hasProAccess(baseState({ planId: "free" }), start, {
       email: "owner@example.com",
-      adminEmails: ["owner@example.com"],
+      adminEmails: ["owner@example.com", "danthony504@gmail.com"],
+    }),
+    false,
+  );
+  assert.equal(
+    hasProAccess(baseState({ planId: "free" }), start, {
+      serverOwnerAccess: true,
     }),
     true,
   );
 });
 
-test("hasProAccess: app review mode unlocks everything temporarily", () => {
+test("hasProAccess: legacy APP_REVIEW_MODE flag never unlocks (old OTA/native)", () => {
   const start = 1_700_000_000_000;
+  const free = baseState({ planId: "free" });
+  assert.equal(hasProAccess(free, start, { appReviewMode: true }), false);
+  const view = buildEntitlementView(free, start, { appReviewMode: true });
+  assert.equal(view.isPro, false);
+  assert.equal(view.unlockSource, "none");
+  assert.equal(view.statusLabel, "Free");
+  assert.notEqual(view.statusLabel, "Temporary unlock");
+  assert.doesNotMatch(view.statusDetail, /pending App Store approval/i);
+});
+
+test("adversarial: forged client email / allowlist cannot unlock without server flag", () => {
+  const start = 1_700_000_000_000;
+  const free = baseState({ planId: "free" });
+  const forgedAllowlist = parseAppReviewAccountEmails("apple@stadiumedge.app");
   assert.equal(
-    hasProAccess(baseState({ planId: "free" }), start, { appReviewMode: true }),
+    isAppReviewAccountEmail("apple@stadiumedge.app", forgedAllowlist),
     true,
   );
-  const view = buildEntitlementView(baseState({ planId: "free" }), start, {
+  // Client claims the review email + allowlist + legacy mode — still locked.
+  assert.equal(
+    hasProAccess(free, start, {
+      email: "apple@stadiumedge.app",
+      appReviewAccountEmails: forgedAllowlist,
+      appReviewMode: true,
+      serverAppReviewAccess: false,
+    }),
+    false,
+  );
+  const forgedView = buildEntitlementView(free, start, {
+    email: "apple@stadiumedge.app",
+    appReviewAccountEmails: forgedAllowlist,
     appReviewMode: true,
   });
-  assert.equal(view.isPro, true);
+  assert.equal(forgedView.isPro, false);
+  assert.equal(forgedView.unlockSource, "none");
+  assert.equal(forgedView.statusLabel, "Free");
+});
+
+test("server-verified App Review access unlocks without fabricating Go/Pro", () => {
+  const start = 1_700_000_000_000;
+  const free = baseState({ planId: "free", storeKitActive: false });
+  assert.equal(
+    hasProAccess(free, start, { serverAppReviewAccess: true }),
+    true,
+  );
+  const view = buildEntitlementView(free, start, {
+    serverAppReviewAccess: true,
+    appReviewMode: true,
+    email: "not-the-reviewer@example.com",
+    appReviewAccountEmails: ["apple@stadiumedge.app"],
+  });
   assert.equal(view.unlockSource, "review");
-  assert.equal(view.statusLabel, "Temporary unlock");
+  assert.equal(view.statusLabel, "App Review");
+  assert.equal(view.planId, "free");
+  assert.equal(view.isPro, true);
+  assert.notEqual(view.statusLabel, "Temporary unlock");
+  assert.notEqual(view.statusLabel, "Stadium Edge Go");
+  assert.notEqual(view.statusLabel, "Stadium Edge Pro");
+});
+
+test("ordinary free account stays Free; expired StoreKit stays locked", () => {
+  const start = 1_700_000_000_000;
+  const freeView = buildEntitlementView(baseState({ planId: "free" }), start, {
+    email: "fan@example.com",
+    appReviewMode: true,
+    appReviewAccountEmails: ["apple@stadiumedge.app"],
+  });
+  assert.equal(freeView.statusLabel, "Free");
+  assert.equal(freeView.isPro, false);
+
+  const expired = baseState({
+    planId: "go",
+    storeKitActive: false,
+    storeKitProductId: "com.stadiumedge.app.go.weekly",
+  });
+  assert.equal(hasProAccess(expired, start, { appReviewMode: true }), false);
+  assert.equal(
+    buildEntitlementView(expired, start, { serverAppReviewAccess: false }).unlockSource,
+    "none",
+  );
+});
+
+test("active Go/Pro StoreKit retains access; old OTA flag cannot substitute", () => {
+  const start = 1_700_000_000_000;
+  const go = baseState({
+    planId: "go",
+    storeKitActive: true,
+    storeKitProductId: "com.stadiumedge.app.go.weekly",
+  });
+  const goView = buildEntitlementView(go, start, { appReviewMode: false });
+  assert.equal(goView.unlockSource, "storekit");
+  assert.equal(goView.statusLabel, "Stadium Edge Go");
+  assert.equal(goView.isPro, true);
+
+  // Simulates old native env still embedding APP_REVIEW_MODE=true while new
+  // OTA JS ignores it — free user must stay locked.
+  const freeOnOldNativeNewOta = buildEntitlementView(
+    baseState({ planId: "free" }),
+    start,
+    { appReviewMode: true, serverAppReviewAccess: false },
+  );
+  assert.equal(freeOnOldNativeNewOta.isPro, false);
+  assert.equal(freeOnOldNativeNewOta.statusLabel, "Free");
+});
+
+test("premium pages stay locked when APP_REVIEW_MODE=true without server flag", () => {
+  const start = 1_700_000_000_000;
+  const view = buildEntitlementView(baseState({ planId: "free" }), start, {
+    email: "user@example.com",
+    appReviewMode: true,
+    appReviewAccountEmails: ["apple@stadiumedge.app"],
+    serverAppReviewAccess: false,
+  });
+  assert.equal(view.isPro, false);
+  assert.equal(softRequirePro(view.isPro), false);
+  const features: PremiumFeatureId[] = [
+    "edge_lock",
+    "steals",
+    "simulator",
+    "model_report",
+    "fantasy",
+    "weather",
+    "props",
+    "notifications",
+    "coach_ai_metrics",
+  ];
+  for (const id of features) {
+    assert.equal(
+      canAccessPremiumFeature(id, view.isPro),
+      false,
+      `${id} must stay locked under legacy APP_REVIEW_MODE`,
+    );
+  }
 });
 
 test("buildEntitlementView labels admin / free (promo unlock disabled)", () => {
   const start = 1_700_000_000_000;
   const admin = buildEntitlementView(baseState({ trialStartedAtMs: start }), start + 10 * DAY, {
     email: "admin@x.com",
-    adminEmails: ["admin@x.com"],
+    adminEmails: ["admin@x.com"], // ignored
+    serverOwnerAccess: true,
   });
   assert.equal(admin.isAdmin, true);
   assert.equal(admin.unlockSource, "admin");
   assert.equal(admin.statusLabel, "Admin");
+  // Client admin allowlist alone → Free
+  const forgedAdmin = buildEntitlementView(baseState({ planId: "free" }), start, {
+    email: "danthony504@gmail.com",
+    adminEmails: ["danthony504@gmail.com"],
+  });
+  assert.equal(forgedAdmin.isPro, false);
+  assert.equal(forgedAdmin.statusLabel, "Free");
 
   const promo = buildEntitlementView(
     baseState({

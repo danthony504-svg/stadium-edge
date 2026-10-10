@@ -10,7 +10,10 @@ fi
 
 export EAS_NO_VCS=1
 BRANCH="${PRODUCTION_BRANCH:-production}"
-RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
+# shellcheck disable=SC1091
+source scripts/lib/resolve-runtime-version.sh
+RUNTIME_VERSION="$(resolve_production_runtime_version)"
+export RUNTIME_VERSION
 PROJECT_ID="9af36ab9-f953-4879-9dd2-82807ef7430c"
 UPDATE_URL="https://u.expo.dev/${PROJECT_ID}"
 REPO_ROOT="$(git -C "$(dirname "$0")/../.." rev-parse --show-toplevel 2>/dev/null || pwd)"
