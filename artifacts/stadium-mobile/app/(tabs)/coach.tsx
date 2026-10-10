@@ -64,6 +64,10 @@ import {
   upgradeCoachSessionOutcome,
 } from "@/lib/coach/session";
 import {
+  clearPendingTicketPicks,
+  drainPendingTicketPicks,
+} from "@/lib/coach/pendingTicketPicks";
+import {
   resolveCoachTerminalPicks,
   shouldPublishCoachTicketPicks,
 } from "@/lib/coachTicketHold";
@@ -478,7 +482,8 @@ export default function CoachScreen() {
         // Do NOT call finishSession/setMessages inside a setMessages updater —
         // React can drop the nested update, leaving building:true forever while
         // the composer unlocks (stuck "Scoring ticket… N legs" card).
-        const buffered = pendingTicketPicksRef.current;
+        // Drain+clear so raw pending identity cannot linger after budget terminal.
+        const buffered = drainPendingTicketPicks(pendingTicketPicksRef);
         const ask = sessionAskTextRef.current || text;
         const propsPending = propsIncompleteForFlush(ask, buffered);
         const picks = resolveCoachTerminalPicks({
@@ -803,6 +808,7 @@ export default function CoachScreen() {
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      clearPendingTicketPicks(pendingTicketPicksRef);
       if (sessionRef.current.outcome === "open") {
         latchCoachSession(sessionRef.current, "failed");
       }
