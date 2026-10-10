@@ -1,0 +1,74 @@
+name: Reliability Phase A CI
+
+# Critical crash-protection tests — required before production OTA (see publish workflows).
+on:
+  pull_request:
+    paths:
+      - "artifacts/stadium-mobile/lib/crashReporter*"
+      - "artifacts/stadium-mobile/lib/crashDiagnostics*"
+      - "artifacts/stadium-mobile/lib/scoreBreakdownCrash*"
+      - "artifacts/stadium-mobile/lib/pickScore*"
+      - "artifacts/stadium-mobile/lib/startupCrashPath*"
+      - "artifacts/stadium-mobile/components/ErrorBoundary.tsx"
+      - "artifacts/stadium-mobile/components/ErrorFallback.tsx"
+      - "artifacts/stadium-mobile/components/ScoreBreakdown.tsx"
+      - "artifacts/stadium-mobile/components/PickCard.tsx"
+      - "artifacts/api-server/src/lib/reliability*"
+      - "artifacts/api-server/src/lib/telegramAlert.ts"
+      - "artifacts/api-server/src/routes/reliability.ts"
+      - "artifacts/api-server/test/reliability*"
+      - "artifacts/api-server/test/telegramAlert*"
+      - "lib/db/src/schema/reliabilityEvents.ts"
+      - ".github/workflows/reliability-phase-a-ci.yml"
+      - ".github/workflows/publish-production-ota.yml"
+      - ".github/workflows/force-production-ota.yml"
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/lib/crashReporter*"
+      - "artifacts/stadium-mobile/lib/scoreBreakdownCrash*"
+      - "artifacts/stadium-mobile/lib/pickScore*"
+      - "artifacts/stadium-mobile/lib/startupCrashPath*"
+      - "artifacts/api-server/src/lib/reliability*"
+      - "artifacts/api-server/src/lib/telegramAlert.ts"
+      - "artifacts/api-server/src/routes/reliability.ts"
+      - "artifacts/api-server/test/reliability*"
+      - "artifacts/api-server/test/telegramAlert*"
+
+jobs:
+  critical-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Mobile crash / ScoreBreakdown / startup regression
+        working-directory: artifacts/stadium-mobile
+        run: |
+          node --import ./test/register-hooks.mjs --test \
+            lib/crashReporter.test.ts \
+            lib/crashDiagnostics.test.ts \
+            lib/scoreBreakdownCrash.test.ts \
+            lib/startupCrashPath.test.ts
+          node --import ./test/register-hooks.mjs --test \
+            --test-name-pattern='normalizeCombinedPickScore|ScoreBreakdown crash|mixed list|reproduces device|fix:|mixed VirtualizedList' \
+            lib/pickScore.test.ts
+
+      - name: API reliability sanitize / Telegram / abuse
+        working-directory: artifacts/api-server
+        run: |
+          node --import ./test/register-hooks.mjs --test \
+            test/reliabilitySanitize.test.ts \
+            test/reliabilityAbuse.test.ts \
+            test/telegramAlert.test.ts

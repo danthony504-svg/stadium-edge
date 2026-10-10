@@ -30,6 +30,12 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
+      # Phase A reliability gate — same critical suite as publish-production-ota.
+      # Emergency without publishing new JS: rollback-production-ota / heal workflows.
+      - name: Reliability critical tests (required)
+        working-directory: ${{ github.workspace }}
+        run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh
+
       - name: Diagnose channel and branch
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

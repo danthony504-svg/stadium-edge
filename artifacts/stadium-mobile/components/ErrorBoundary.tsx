@@ -1,6 +1,7 @@
 import React, { Component, ComponentType, PropsWithChildren } from "react";
 
 import { ErrorFallback, ErrorFallbackProps } from "@/components/ErrorFallback";
+import { reportCrash } from "@/lib/crashReporter";
 
 export type ErrorBoundaryProps = PropsWithChildren<{
   FallbackComponent?: ComponentType<ErrorFallbackProps>;
@@ -31,6 +32,16 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: { componentStack: string }): void {
     this.setState({ componentStack: info.componentStack ?? null });
+    // Phase A: non-blocking remote report (works even when Home/Coach fail to mount).
+    try {
+      reportCrash({
+        errorMessage: error?.message ?? String(error),
+        errorStack: error?.stack ?? null,
+        componentStack: info.componentStack ?? null,
+      });
+    } catch {
+      // Never let reporting break the fallback UI.
+    }
     if (typeof this.props.onError === "function") {
       this.props.onError(error, info.componentStack);
     }
