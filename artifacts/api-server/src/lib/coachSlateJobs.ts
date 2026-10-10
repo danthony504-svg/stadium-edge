@@ -53,7 +53,10 @@ function ticketsHaveMinCoverage(tickets: SlateTicketsIndex | null | undefined): 
 }
 
 /** 24/7 AI Coach slate pre-analysis — warms caches, scans board, persists all ticket sizes. */
-export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlateJobSummary }> {
+export async function runCoachSlateJob(): Promise<{
+  ok: boolean;
+  summary: CoachSlateJobSummary;
+}> {
   if (jobRunning) {
     return { ok: true, summary: { skipped: true, reason: "already-running" } };
   }
@@ -152,8 +155,9 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
     return { ok: true, summary };
   } catch (err) {
     logger.error({ err }, "coach slate job failed");
+    // ok:false so cron HTTP handlers / GH Actions cannot report success on failure.
     return {
-      ok: true,
+      ok: false,
       summary: {
         skipped: true,
         reason: "error",

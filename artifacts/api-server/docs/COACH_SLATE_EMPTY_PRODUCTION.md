@@ -82,11 +82,13 @@ Genuinely unavailable in-horizon: NBA/WNBA/NCAAB at probe time (0 pickable) — 
 
 ## Ops fix (manual approval required — not executed here)
 
-1. Set on **Render**: `COACH_SLATE_CRON_KEY` (or reuse `PREBUILD_CRON_KEY` / `NOTIFY_CRON_KEY`) to a strong secret.  
-2. Set matching **GitHub Actions secrets**: `COACH_SLATE_CRON_KEY` + optional `COACH_SLATE_CRON_URL=https://stadium-edge.onrender.com/api/coach/slate/cron`.  
-3. Confirm DB table `coach_precomputed_slate` exists on the Render Postgres (`pnpm --filter @workspace/db run push` if missing — **approval**).  
-4. Manually `workflow_dispatch` Coach slate cron **once**; expect JSON summary with `oddsCount` / `boardScanPicks` / `sports` > 0 when markets exist.  
-5. Re-probe `GET /api/coach/slate` → `computedAt` set, `activeSports` non-empty when pickable games exist, `refreshing` false when fresh.  
+See **`COACH_SLATE_CRON_OPS.md`** for exact Render + GitHub secret steps, DB verify script, and first-refresh curl.
+
+1. Set on **Render** web service (`stadium-edge.onrender.com`): `COACH_SLATE_CRON_KEY`.  
+2. Set matching **GitHub Actions secrets**: `COACH_SLATE_CRON_KEY` + `COACH_SLATE_CRON_URL`.  
+3. Confirm DB table with `verify-coach-slate-db.mjs` (`pnpm --filter @workspace/db run push` if missing — **approval**).  
+4. `workflow_dispatch` Coach slate cron **once** (must fail closed on missing secrets / non-2xx / `ok!==true`).  
+5. Re-probe with `scripts/verify-coach-slate-get.sh`.  
 6. If job 502s the service, run cron off-peak / raise Render resources; do **not** lower qualification bars to “fill” the slate.
 
 ---
