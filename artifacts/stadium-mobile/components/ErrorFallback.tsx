@@ -1,5 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
-import React, { useState } from "react";
+import * as Clipboard from "expo-clipboard";
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   Platform,
@@ -13,19 +14,79 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import {
+  formatCrashDiagnosticReport,
+  sanitizeCrashText,
+  type CrashOtaIdentity,
+} from "@/lib/crashDiagnostics";
 import { looksLikeCorruptOtaBundle } from "@/lib/otaCorruptBundle";
 
 export type ErrorFallbackProps = {
   error: Error;
   resetError: () => void;
+  /** React component stack from componentDidCatch — optional for nested fallbacks. */
+  componentStack?: string | null;
 };
 
-export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
+async function loadCrashOtaIdentity(): Promise<CrashOtaIdentity> {
+  try {
+    // Dynamic import keeps expo-updates out of the root static evaluation graph.
+    const Updates = await import("expo-updates");
+    let channelHeader: string | undefined;
+    try {
+      const Constants = (await import("expo-constants")).default;
+      const hdr = Constants?.expoConfig?.updates?.requestHeaders?.["expo-channel-name"];
+      if (typeof hdr === "string" && hdr.trim()) channelHeader = hdr.trim();
+    } catch {
+      // Constants optional — Updates.channel is enough when present.
+    }
+    const channel =
+      (Updates.channel && String(Updates.channel)) || channelHeader || "—";
+    const bundleSource: CrashOtaIdentity["bundleSource"] = !Updates.isEnabled
+      ? "unknown"
+      : Updates.isEmbeddedLaunch
+        ? "embedded"
+        : "ota";
+    return {
+      updateId: Updates.updateId
+        ? String(Updates.updateId)
+        : Updates.isEmbeddedLaunch
+          ? "embedded"
+          : "—",
+      runtimeVersion: Updates.runtimeVersion ? String(Updates.runtimeVersion) : "—",
+      channel,
+      bundleSource,
+      isEmergencyLaunch: !!Updates.isEmergencyLaunch,
+    };
+  } catch {
+    return {
+      updateId: "—",
+      runtimeVersion: "—",
+      channel: "—",
+      bundleSource: "unknown",
+      isEmergencyLaunch: false,
+    };
+  }
+}
+
+export function ErrorFallback({ error, resetError, componentStack }: ErrorFallbackProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const corruptBundle = looksLikeCorruptOtaBundle(error.message);
 
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [ota, setOta] = useState<CrashOtaIdentity | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadCrashOtaIdentity().then((id) => {
+      if (!cancelled) setOta(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Loaded on tap, not at import time: this component sits in the root bundle's
   // static graph, and expo-updates must not be evaluated during startup.
@@ -57,13 +118,24 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
     }
   };
 
-  const formatErrorDetails = (): string => {
-    let details = `Error: ${error.message}\n\n`;
-    if (error.stack) {
-      details += `Stack Trace:\n${error.stack}`;
+  const report = formatCrashDiagnosticReport({
+    errorMessage: error.message,
+    errorStack: error.stack,
+    componentStack,
+    ota,
+  });
+
+  const copyDiagnostics = async () => {
+    try {
+      await Clipboard.setStringAsync(report);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — text below remains selectable.
     }
-    return details;
   };
+
+  const formatErrorDetails = (): string => report;
 
   const monoFont = Platform.select({
     ios: "Menlo",
@@ -73,23 +145,21 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {__DEV__ ? (
-        <Pressable
-          onPress={() => setIsModalVisible(true)}
-          accessibilityLabel="View error details"
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.topButton,
-            {
-              top: insets.top + 16,
-              backgroundColor: colors.card,
-              opacity: pressed ? 0.8 : 1,
-            },
-          ]}
-        >
-          <Feather name="alert-circle" size={20} color={colors.foreground} />
-        </Pressable>
-      ) : null}
+      <Pressable
+        onPress={() => setIsModalVisible(true)}
+        accessibilityLabel="View crash diagnostics"
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.topButton,
+          {
+            top: insets.top + 16,
+            backgroundColor: colors.card,
+            opacity: pressed ? 0.8 : 1,
+          },
+        ]}
+      >
+        <Feather name="alert-circle" size={20} color={colors.foreground} />
+      </Pressable>
 
       <View style={styles.content}>
         <Text style={[styles.title, { color: colors.foreground }]}>
@@ -112,9 +182,55 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
             }}
             numberOfLines={4}
           >
-            {error.message}
+            {sanitizeCrashText(error.message, 280)}
           </Text>
         ) : null}
+
+        <View
+          style={{
+            width: "100%",
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 10,
+            padding: 12,
+            gap: 4,
+          }}
+        >
+          <Text
+            selectable
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: monoFont,
+              fontSize: 11,
+              lineHeight: 16,
+            }}
+          >
+            {`updateId: ${ota?.updateId ?? "…"}`}
+          </Text>
+          <Text
+            selectable
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: monoFont,
+              fontSize: 11,
+              lineHeight: 16,
+            }}
+          >
+            {`runtime: ${ota?.runtimeVersion ?? "…"} · channel: ${ota?.channel ?? "…"}`}
+          </Text>
+          <Text
+            selectable
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: monoFont,
+              fontSize: 11,
+              lineHeight: 16,
+            }}
+          >
+            {`bundle: ${ota?.bundleSource ?? "…"}${ota?.isEmergencyLaunch ? " · emergency" : ""}`}
+          </Text>
+        </View>
 
         {corruptBundle ? (
           <Text
@@ -132,6 +248,22 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
             use Try Again — it downloads another partial bundle and makes this worse.
           </Text>
         ) : null}
+
+        <Pressable
+          onPress={copyDiagnostics}
+          style={({ pressed }) => [
+            styles.button,
+            {
+              backgroundColor: colors.secondary,
+              opacity: pressed ? 0.9 : 1,
+              transform: [{ scale: pressed ? 0.98 : 1 }],
+            },
+          ]}
+        >
+          <Text style={[styles.buttonText, { color: colors.secondaryForeground }]}>
+            {copied ? "Copied" : "Copy Diagnostics"}
+          </Text>
+        </Pressable>
 
         {!corruptBundle ? (
           <Pressable
@@ -170,74 +302,72 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         )}
       </View>
 
-      {__DEV__ ? (
-        <Modal
-          visible={isModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setIsModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
+      <Modal
+        visible={isModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContainer,
+              { backgroundColor: colors.background },
+            ]}
+          >
             <View
               style={[
-                styles.modalContainer,
-                { backgroundColor: colors.background },
+                styles.modalHeader,
+                { borderBottomColor: colors.border },
               ]}
+            >
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                Crash Diagnostics
+              </Text>
+              <Pressable
+                onPress={() => setIsModalVisible(false)}
+                accessibilityLabel="Close crash diagnostics"
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Feather name="x" size={24} color={colors.foreground} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.modalScrollView}
+              contentContainerStyle={[
+                styles.modalScrollContent,
+                { paddingBottom: insets.bottom + 16 },
+              ]}
+              showsVerticalScrollIndicator
             >
               <View
                 style={[
-                  styles.modalHeader,
-                  { borderBottomColor: colors.border },
+                  styles.errorContainer,
+                  { backgroundColor: colors.card },
                 ]}
               >
-                <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                  Error Details
-                </Text>
-                <Pressable
-                  onPress={() => setIsModalVisible(false)}
-                  accessibilityLabel="Close error details"
-                  accessibilityRole="button"
-                  style={({ pressed }) => [
-                    styles.closeButton,
-                    { opacity: pressed ? 0.6 : 1 },
-                  ]}
-                >
-                  <Feather name="x" size={24} color={colors.foreground} />
-                </Pressable>
-              </View>
-
-              <ScrollView
-                style={styles.modalScrollView}
-                contentContainerStyle={[
-                  styles.modalScrollContent,
-                  { paddingBottom: insets.bottom + 16 },
-                ]}
-                showsVerticalScrollIndicator
-              >
-                <View
+                <Text
                   style={[
-                    styles.errorContainer,
-                    { backgroundColor: colors.card },
+                    styles.errorText,
+                    {
+                      color: colors.foreground,
+                      fontFamily: monoFont,
+                    },
                   ]}
+                  selectable
                 >
-                  <Text
-                    style={[
-                      styles.errorText,
-                      {
-                        color: colors.foreground,
-                        fontFamily: monoFont,
-                      },
-                    ]}
-                    selectable
-                  >
-                    {formatErrorDetails()}
-                  </Text>
-                </View>
-              </ScrollView>
-            </View>
+                  {formatErrorDetails()}
+                </Text>
+              </View>
+            </ScrollView>
           </View>
-        </Modal>
-      ) : null}
+        </View>
+      </Modal>
     </View>
   );
 }

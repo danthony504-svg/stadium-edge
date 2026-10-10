@@ -1000,8 +1000,10 @@ function HomeSportFeed({
     },
   ];
 
+  // ErrorBoundary must wrap THIS component from the parent (HomeScreen).
+  // A boundary around only the returned JSX does not catch throws in the
+  // hooks/useMemos above — those escape to the root ErrorFallback.
   return (
-    <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
       <ScrollView
         contentContainerStyle={{
           paddingBottom: insets.bottom + 24 + slipClearance,
@@ -1831,7 +1833,6 @@ function HomeSportFeed({
           </View>
         ) : null}
       </ScrollView>
-    </ErrorBoundary>
   );
 }
 
@@ -1992,19 +1993,21 @@ export default function HomeScreen() {
           />
         </ErrorBoundary>
       ) : (
-        <HomeSportFeed
-          key={sport}
-          sport={sport}
-          sportFetchGenRef={sportFetchGenRef}
-          colors={colors}
-          insets={insets}
-          slipClearance={slipClearance}
-          router={router}
-          width={width}
-          isWideLayout={isWideLayout}
-          hotCardWidth={hotCardWidth}
-          quickCardWidth={quickCardWidth}
-        />
+        <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
+          <HomeSportFeed
+            key={sport}
+            sport={sport}
+            sportFetchGenRef={sportFetchGenRef}
+            colors={colors}
+            insets={insets}
+            slipClearance={slipClearance}
+            router={router}
+            width={width}
+            isWideLayout={isWideLayout}
+            hotCardWidth={hotCardWidth}
+            quickCardWidth={quickCardWidth}
+          />
+        </ErrorBoundary>
       )}
     </View>
   );
