@@ -10,6 +10,11 @@ import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
 import { isDesignatedAppReviewUser } from "../lib/appReviewAccess";
 import {
+  clerkJwtKeyConfigured,
+  clerkPublishableKeyMode,
+  clerkSecretKeyMode,
+} from "../lib/clerkLookupDiag";
+import {
   diagnoseOwnerTestAccess,
   isDesignatedOwnerTestUser,
 } from "../lib/ownerTestAccess";
@@ -343,16 +348,15 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
   const userId = clerkUserId(req);
   const authUserPresent = !!userId;
 
-  /** Temporary sanitized probe — booleans only; never userId/email/token. */
-  const logEntitlementDiag = (diag: {
-    authUserPresent: boolean;
-    clerkUserLookupSucceeded: boolean;
-    emailResolved: boolean;
-    allowlistMatched: boolean;
-    ownerAccess: boolean;
-    responseStatus: number;
-  }) => {
+  /** Temporary sanitized probe — never userId/email/token/secret. */
+  const logEntitlementDiag = (diag: Record<string, unknown>) => {
     logger.info({ entitlementDiag: diag }, "entitlement_diag");
+  };
+
+  const clerkEnvDiag = {
+    secretKeyMode: clerkSecretKeyMode(),
+    publishableKeyMode: clerkPublishableKeyMode(),
+    jwtKeyConfigured: clerkJwtKeyConfigured(),
   };
 
   if (!userId) {
@@ -363,25 +367,42 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       allowlistMatched: false,
       ownerAccess: false,
       responseStatus: 401,
+      routeFailureStage: "auth",
+      clerkHttpStatus: null,
+      clerkErrorCode: null,
+      clerkFailureCategory: "none",
+      ...clerkEnvDiag,
     });
     res.status(401).json({ error: "auth required" });
     return;
   }
+
+  let ownerDiag: Awaited<ReturnType<typeof diagnoseOwnerTestAccess>> | null =
+    null;
+  let routeFailureStage: "none" | "clerk_parallel" | "db_read" | "response" =
+    "none";
+
   try {
     // Server-verified flags from Clerk userId + server env allowlists.
     // Never derived from client body / EXPO_PUBLIC email claims.
     // Diagnose in parallel with the real owner check (same inputs; no logic change).
-    const [appReviewAccess, ownerAccess, ownerDiag] = await Promise.all([
+    routeFailureStage = "clerk_parallel";
+    const [appReviewAccess, ownerAccess, diag] = await Promise.all([
       isDesignatedAppReviewUser(userId),
       isDesignatedOwnerTestUser(userId),
       diagnoseOwnerTestAccess(userId),
     ]);
+    ownerDiag = diag;
+
+    routeFailureStage = "db_read";
     const rows = await db
       .select()
       .from(subscriptionEntitlementsTable)
       .where(eq(subscriptionEntitlementsTable.userId, userId))
       .limit(1);
     const row = rows[0];
+
+    routeFailureStage = "response";
     logEntitlementDiag({
       authUserPresent,
       clerkUserLookupSucceeded: ownerDiag.clerkUserLookupSucceeded,
@@ -389,6 +410,11 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       allowlistMatched: ownerDiag.allowlistMatched,
       ownerAccess: ownerAccess === true,
       responseStatus: 200,
+      routeFailureStage: "none",
+      clerkHttpStatus: ownerDiag.clerkHttpStatus,
+      clerkErrorCode: ownerDiag.clerkErrorCode,
+      clerkFailureCategory: ownerDiag.clerkFailureCategory,
+      ...clerkEnvDiag,
     });
     if (!row) {
       res.json({ ok: true, entitlement: null, appReviewAccess, ownerAccess });
@@ -411,14 +437,36 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       },
     });
   } catch (err) {
-    logger.error({ err }, "subscription entitlement read failed");
+    // Sanitized DB/route failure — never userId/email/token/secret/full payload.
+    const dbErrorCode =
+      err && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
+        ? String((err as { code: string }).code).slice(0, 32)
+        : null;
+    const dbErrorName =
+      err instanceof Error ? err.name.slice(0, 64) : null;
+    logger.error(
+      {
+        path: "subscriptions-entitlement",
+        routeFailureStage,
+        dbErrorCode,
+        dbErrorName,
+      },
+      "subscription entitlement read failed",
+    );
     logEntitlementDiag({
       authUserPresent,
-      clerkUserLookupSucceeded: false,
-      emailResolved: false,
-      allowlistMatched: false,
+      clerkUserLookupSucceeded: ownerDiag?.clerkUserLookupSucceeded ?? false,
+      emailResolved: ownerDiag?.emailResolved ?? false,
+      allowlistMatched: ownerDiag?.allowlistMatched ?? false,
       ownerAccess: false,
       responseStatus: 500,
+      routeFailureStage,
+      dbErrorCode,
+      dbErrorName,
+      clerkHttpStatus: ownerDiag?.clerkHttpStatus ?? null,
+      clerkErrorCode: ownerDiag?.clerkErrorCode ?? null,
+      clerkFailureCategory: ownerDiag?.clerkFailureCategory ?? "none",
+      ...clerkEnvDiag,
     });
     res.status(500).json({ error: "entitlement read failed" });
   }
