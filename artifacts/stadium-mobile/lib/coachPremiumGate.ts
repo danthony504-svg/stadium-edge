@@ -7,12 +7,11 @@
  *   - Lock detailed AI breakdowns
  *
  * Non-parlay Coach Q&A requires signed-in + verified Go/Pro (or admin /
- * designated App Review account). APP_REVIEW_MODE / local planId never unlock.
+ * server-verified App Review access). APP_REVIEW_MODE / client email never unlock.
  */
 
 import {
   isAdminEmail,
-  isAppReviewAccountEmail,
   planById,
   type EntitlementAccessOpts,
   type SubscriptionPersistedState,
@@ -42,8 +41,8 @@ export function hasVerifiedStoreKitPaidPlan(
 
 /**
  * Verified entitlement for Coach premium identity + Q&A.
- * Global APP_REVIEW_MODE never unlocks. Admin / designated review account
- * allowlists unlock only for the matching signed-in email.
+ * Global APP_REVIEW_MODE and client email allowlists never unlock.
+ * Server-verified appReviewAccess (from api-server) may unlock narrowly.
  */
 export function hasVerifiedCoachEntitlement(
   state: SubscriptionPersistedState,
@@ -51,10 +50,9 @@ export function hasVerifiedCoachEntitlement(
   opts: CoachPremiumAccessOpts = {},
 ): boolean {
   void opts.appReviewMode; // ignored — no global review bypass
+  void opts.appReviewAccountEmails; // ignored — never trust client email lists
+  if (opts.serverAppReviewAccess === true) return true;
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
-  if (isAppReviewAccountEmail(opts.email, opts.appReviewAccountEmails ?? [])) {
-    return true;
-  }
   return hasVerifiedStoreKitPaidPlan(state);
 }
 

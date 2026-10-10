@@ -19,9 +19,11 @@ export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
 export EXPO_PUBLIC_OTA_BOOTSTRAP="${EXPO_PUBLIC_OTA_BOOTSTRAP:-true}"
-export EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL="${EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL:-apple@stadiumedge.app}"
 export EXPO_PUBLIC_GIT_COMMIT="${GIT_FULL}"
 export EXPO_PUBLIC_DEPLOY_MESSAGE="${MESSAGE}"
+
+# Fail closed if APP_REVIEW_MODE is true — including explicit overrides.
+bash scripts/verify-production-env.sh
 
 echo "Publish dir: $(pwd)"
 echo "Git commit: ${GIT_FULL}"

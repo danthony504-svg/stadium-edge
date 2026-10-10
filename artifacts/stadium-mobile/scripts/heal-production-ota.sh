@@ -20,6 +20,9 @@ export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0
 STAMP="$(date -u +%Y-%m-%dT%H:%MZ)"
 export EXPO_PUBLIC_DEPLOY_MESSAGE="HEAL-EMBEDDED ${EXPO_PUBLIC_GIT_COMMIT} ${STAMP}"
 
+# Fail closed if APP_REVIEW_MODE is true — including explicit overrides.
+bash scripts/verify-production-env.sh
+
 echo "══ Step 1/2: Roll back production to embedded (build #62 AppHeader) ══"
 bash scripts/rollback-production-ota.sh "HEAL rollback to embedded ${STAMP}"
 

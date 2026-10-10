@@ -382,8 +382,8 @@ export function parseAdminEmails(envValue: string | null | undefined): string[] 
 }
 
 /**
- * Parse EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL — designated App Store review
- * account(s) only. Never a global unlock; signed-in email must match.
+ * @deprecated Client email allowlists must not grant premium. Kept for
+ * sanitize/tests only — use serverAppReviewAccess from api-server instead.
  */
 export function parseAppReviewAccountEmails(
   envValue: string | null | undefined,
@@ -400,7 +400,9 @@ export function isAdminEmail(
   return allowlist.includes(normalized);
 }
 
-/** True when the signed-in email is a designated ASC review account. */
+/**
+ * @deprecated Never use for unlock. Client-forged emails are not authoritative.
+ */
 export function isAppReviewAccountEmail(
   email: string | null | undefined,
   reviewEmails: readonly string[],
@@ -423,8 +425,12 @@ export type EntitlementAccessOpts = {
   email?: string | null;
   adminEmails?: readonly string[];
   /**
-   * Designated App Store review account emails (account-specific unlock).
-   * From EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL — never a global flag.
+   * Server-verified App Review access from GET /subscriptions/entitlement
+   * (`appReviewAccess`). Never set from a client-typed email or local flag.
+   */
+  serverAppReviewAccess?: boolean;
+  /**
+   * @deprecated Ignored. Client email allowlists must not grant premium.
    */
   appReviewAccountEmails?: readonly string[];
   /**
@@ -435,21 +441,19 @@ export type EntitlementAccessOpts = {
 };
 
 /**
- * Soft Pro access: verified Apple StoreKit plan, admin email, or designated
- * App Review account email. Custom promo codes never unlock. Local / preview
- * paid planId without StoreKit does not unlock Pro. Public APP_REVIEW_MODE
- * never unlocks (even when true on an old bundle).
+ * Soft Pro access: verified Apple StoreKit plan, admin email, or
+ * server-verified App Review access. Custom promo codes never unlock.
+ * Client email / APP_REVIEW_MODE never unlock (even when true on an old bundle).
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
   nowMs: number,
   opts: EntitlementAccessOpts = {},
 ): boolean {
-  void opts.appReviewMode; // explicitly ignored — no global review bypass
+  void opts.appReviewMode; // ignored — no global review bypass
+  void opts.appReviewAccountEmails; // ignored — never trust client email lists
+  if (opts.serverAppReviewAccess === true) return true;
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
-  if (isAppReviewAccountEmail(opts.email, opts.appReviewAccountEmails ?? [])) {
-    return true;
-  }
   return hasPromoOrPlanAccess(state, nowMs);
 }
 
@@ -483,10 +487,10 @@ export function resolveUnlockSource(
   opts: EntitlementAccessOpts = {},
 ): UnlockSource {
   void opts.appReviewMode; // ignored — global flag must never unlock
+  void opts.appReviewAccountEmails; // ignored — never trust client email lists
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
-  if (isAppReviewAccountEmail(opts.email, opts.appReviewAccountEmails ?? [])) {
-    return "review";
-  }
+  // Server-verified review access is not a fake Go/Pro StoreKit plan.
+  if (opts.serverAppReviewAccess === true) return "review";
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
   return "none";

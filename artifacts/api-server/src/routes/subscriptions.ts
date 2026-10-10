@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
+import { isDesignatedAppReviewUser } from "../lib/appReviewAccess";
 import { isActivePaidEntitlement } from "../lib/subscriptionEntitlement";
 import {
   planFromEntitlementIds,
@@ -341,6 +342,9 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
     return;
   }
   try {
+    // Server-verified review flag from Clerk userId + APP_REVIEW_EMAIL.
+    // Never derived from client body / client email claims.
+    const appReviewAccess = await isDesignatedAppReviewUser(userId);
     const rows = await db
       .select()
       .from(subscriptionEntitlementsTable)
@@ -348,12 +352,14 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       .limit(1);
     const row = rows[0];
     if (!row) {
-      res.json({ ok: true, entitlement: null });
+      res.json({ ok: true, entitlement: null, appReviewAccess });
       return;
     }
     const active = isActivePaidEntitlement(row);
     res.json({
       ok: true,
+      // appReviewAccess is orthogonal to paid plan — never fabricates Go/Pro.
+      appReviewAccess,
       entitlement: {
         planId: active && (row.planId === "go" || row.planId === "pro") ? row.planId : null,
         productId: row.productId,

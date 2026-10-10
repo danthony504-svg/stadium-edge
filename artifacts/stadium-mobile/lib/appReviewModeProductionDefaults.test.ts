@@ -1,5 +1,6 @@
 /**
- * Guardrail: production EAS / OTA / CI must never default APP_REVIEW_MODE on.
+ * Guardrail: production EAS / OTA / CI must never default APP_REVIEW_MODE on,
+ * and every production publish path must run verify-production-env.sh.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -25,16 +26,18 @@ test("eas.json production profile sets APP_REVIEW_MODE false", () => {
   };
   const env = eas.build?.production?.env ?? {};
   assert.equal(env.EXPO_PUBLIC_APP_REVIEW_MODE, "false");
-  assert.ok(
-    (env.EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL ?? "").includes("@"),
-    "production should list a designated review account email",
+  assert.equal(
+    env.EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL,
+    undefined,
+    "client must not ship a review-email unlock allowlist",
   );
 });
 
-test("production OTA scripts default APP_REVIEW_MODE to false", () => {
+test("production OTA scripts default APP_REVIEW_MODE to false and verify env", () => {
   for (const rel of [
     "scripts/publish-production-ota.sh",
     "scripts/force-production-ota.sh",
+    "scripts/heal-production-ota.sh",
   ]) {
     const src = readMobile(rel);
     assert.match(
@@ -46,6 +49,11 @@ test("production OTA scripts default APP_REVIEW_MODE to false", () => {
       src,
       /EXPO_PUBLIC_APP_REVIEW_MODE:-\s*true/,
       `${rel} must not default APP_REVIEW_MODE to true`,
+    );
+    assert.match(
+      src,
+      /verify-production-env\.sh/,
+      `${rel} must run verify-production-env.sh`,
     );
   }
 });

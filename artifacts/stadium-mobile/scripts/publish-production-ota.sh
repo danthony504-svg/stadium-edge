@@ -25,10 +25,12 @@ export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-p
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
 export EXPO_PUBLIC_OTA_BOOTSTRAP="${EXPO_PUBLIC_OTA_BOOTSTRAP:-true}"
 export EXPO_PUBLIC_ADMIN_EMAILS="${EXPO_PUBLIC_ADMIN_EMAILS:-danthony504@gmail.com}"
-export EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL="${EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL:-apple@stadiumedge.app}"
 export RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
 export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo unknown)}"
 export EXPO_PUBLIC_DEPLOY_MESSAGE="${EXPO_PUBLIC_DEPLOY_MESSAGE:-DEPLOY-VERIFY $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null)-$(date -u +%Y%m%d-%H%M%S)}"
+
+# Fail closed if APP_REVIEW_MODE is true — including explicit overrides.
+bash scripts/verify-production-env.sh
 
 echo "Linking production channel → production branch…"
 pnpm exec eas channel:edit production --branch production --non-interactive

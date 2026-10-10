@@ -24,7 +24,6 @@ import {
   clearLocalTrialEntitlement,
   clearUnverifiedPaidPlan,
   parseAdminEmails,
-  parseAppReviewAccountEmails,
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
@@ -40,6 +39,7 @@ import {
   type StoreKitCustomerSnapshot,
 } from "@/lib/purchases";
 import {
+  fetchServerAccessFlags,
   syncSubscriptionToServer,
   verifyRestoredSubscriptionOnServer,
 } from "@/lib/subscriptionApi";
@@ -110,11 +110,6 @@ function readAdminEmails(): string[] {
   return parseAdminEmails(process.env.EXPO_PUBLIC_ADMIN_EMAILS);
 }
 
-/** Designated ASC review account(s) — account-specific, never a global unlock. */
-function readAppReviewAccountEmails(): string[] {
-  return parseAppReviewAccountEmails(process.env.EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL);
-}
-
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isSignedIn, userId } = useAuth();
@@ -126,6 +121,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [tick, setTick] = useState(0);
   const [billingBusy, setBillingBusy] = useState(false);
   const [storeKitReady, setStoreKitReady] = useState(false);
+  /** Server-verified App Review access — never derived from client email. */
+  const [serverAppReviewAccess, setServerAppReviewAccess] = useState(false);
   const loaded = useRef(false);
 
   const email =
@@ -133,7 +130,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     user?.emailAddresses?.[0]?.emailAddress ??
     null;
   const adminEmails = useMemo(() => readAdminEmails(), []);
-  const appReviewAccountEmails = useMemo(() => readAppReviewAccountEmails(), []);
   // Do not probe Purchases during first render — NativeModules read is sync/safe;
   // memoize so we never accidentally re-enter require paths.
   const storeKitBlockedReason = useMemo(() => storeKitUnavailableReason(), []);
@@ -201,6 +197,24 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     });
   }, [hydrated, storeKitReady, applySnapshot]);
 
+  // Server-verified App Review + entitlement flags (fail closed when unsigned / error).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isSignedIn || !userId) {
+      setServerAppReviewAccess(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const flags = await fetchServerAccessFlags();
+      if (cancelled) return;
+      setServerAppReviewAccess(flags?.appReviewAccess === true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, isSignedIn, userId]);
+
   // Refresh trial/promo countdown roughly once an hour while mounted.
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 60 * 60 * 1000);
@@ -212,27 +226,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       buildEntitlementView(state, nowMs(), {
         email: isSignedIn ? email : null,
         adminEmails,
-        appReviewAccountEmails,
-        // Legacy flag ignored inside hasProAccess — pass-through proves old OTAs stay locked.
+        serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
+        // Legacy flag ignored inside hasProAccess — proves old OTAs stay locked.
         appReviewMode:
           (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
       }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails, appReviewAccountEmails],
+    [state, tick, isSignedIn, email, adminEmails, serverAppReviewAccess],
   );
 
-  /** Coach premium: StoreKit / admin / designated review account only. */
+  /** Coach premium: StoreKit / admin / server-verified App Review only. */
   const coachPremiumUnlocked = useMemo(
     () =>
       hasCoachPremiumAccess(state, nowMs(), {
         signedIn: !!isSignedIn,
         email: isSignedIn ? email : null,
         adminEmails,
-        appReviewAccountEmails,
+        serverAppReviewAccess: isSignedIn && serverAppReviewAccess,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails, appReviewAccountEmails],
+    [state, tick, isSignedIn, email, adminEmails, serverAppReviewAccess],
   );
 
   const selectPlan = useCallback(

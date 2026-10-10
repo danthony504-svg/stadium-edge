@@ -27,14 +27,44 @@ export type AppReviewEnv = {
   code: string;
 };
 
+/**
+ * Designated review account email only (no code). Used for authenticated
+ * premium authorization after Clerk sign-in — never trust client-supplied email.
+ */
+export function readAppReviewEmail(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const email = normalizeReviewEmail(env.APP_REVIEW_EMAIL);
+  if (!email || !email.includes("@")) return null;
+  return email;
+}
+
 /** Read configured review credentials from process env. Empty = path disabled. */
 export function readAppReviewEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): AppReviewEnv | null {
-  const email = normalizeReviewEmail(env.APP_REVIEW_EMAIL);
+  const email = readAppReviewEmail(env);
   const code = normalizeReviewCode(env.APP_REVIEW_CODE);
-  if (!email || !email.includes("@") || !code) return null;
+  if (!email || !code) return null;
   return { email, code };
+}
+
+/**
+ * True when any Clerk-linked email matches the server APP_REVIEW_EMAIL.
+ * Pure helper — callers must supply emails from Clerk (authenticated userId).
+ */
+export function clerkEmailsMatchDesignatedReview(
+  clerkEmails: readonly (string | null | undefined)[] | null | undefined,
+  designatedEmail: string | null | undefined,
+): boolean {
+  const target = normalizeReviewEmail(designatedEmail);
+  if (!target || !target.includes("@")) return false;
+  for (const raw of clerkEmails ?? []) {
+    const email = normalizeReviewEmail(raw);
+    if (!email) continue;
+    if (safeEqualUtf8(email, target)) return true;
+  }
+  return false;
 }
 
 /**

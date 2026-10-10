@@ -68,13 +68,27 @@ test("APP_REVIEW_MODE does not unlock Coach premium via verified helpers", () =>
   );
 });
 
-test("designated App Review account can unlock Coach; other emails cannot", () => {
+test("adversarial: forged review email does not unlock Coach without server flag", () => {
   const free = state({ planId: "free" });
   assert.equal(
     hasCoachPremiumAccess(free, NOW, {
       signedIn: true,
       email: "apple@stadiumedge.app",
       appReviewAccountEmails: ["apple@stadiumedge.app"],
+      appReviewMode: true,
+      serverAppReviewAccess: false,
+    }),
+    false,
+  );
+});
+
+test("server-verified App Review access unlocks Coach; ordinary free stays locked", () => {
+  const free = state({ planId: "free" });
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "fan@example.com",
+      serverAppReviewAccess: true,
       appReviewMode: true,
     }),
     true,
@@ -83,7 +97,7 @@ test("designated App Review account can unlock Coach; other emails cannot", () =
     hasCoachPremiumAccess(free, NOW, {
       signedIn: true,
       email: "fan@example.com",
-      appReviewAccountEmails: ["apple@stadiumedge.app"],
+      serverAppReviewAccess: false,
       appReviewMode: true,
     }),
     false,
