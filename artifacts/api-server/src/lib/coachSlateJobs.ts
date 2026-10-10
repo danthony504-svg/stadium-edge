@@ -61,8 +61,12 @@ function ticketsHaveMinCoverage(tickets: SlateTicketsIndex | null | undefined): 
  * Full slate pre-analysis (odds fan-out, board scan, deep sim, DB persist).
  * Call only from authenticated POST /api/coach/slate/cron (or an equivalent worker).
  * Concurrent callers get `{ skipped: true, reason: "already-running" }` — single-flight.
+ * On failure returns ok:false so cron HTTP / GH Actions fail closed.
  */
-export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlateJobSummary }> {
+export async function runCoachSlateJob(): Promise<{
+  ok: boolean;
+  summary: CoachSlateJobSummary;
+}> {
   if (jobRunning) {
     return { ok: true, summary: { skipped: true, reason: "already-running" } };
   }
@@ -161,8 +165,9 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
     return { ok: true, summary };
   } catch (err) {
     logger.error({ err }, "coach slate job failed");
+    // ok:false so cron HTTP handlers / GH Actions cannot report success on failure.
     return {
-      ok: true,
+      ok: false,
       summary: {
         skipped: true,
         reason: "error",

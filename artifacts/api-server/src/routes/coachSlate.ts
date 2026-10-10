@@ -143,10 +143,19 @@ router.post("/coach/slate/cron", async (req, res): Promise<void> => {
   }
   try {
     const result = await runCoachSlateJob();
-    res.json(result);
+    // Fail closed: job errors and empty bodies must not look like a healthy cron to GH Actions.
+    if (!result?.ok || result.summary?.reason === "error") {
+      res.status(500).json({
+        error: "slate refresh failed",
+        ok: false,
+        summary: result?.summary ?? null,
+      });
+      return;
+    }
+    res.status(200).json(result);
   } catch (err) {
     logger.error({ err }, "coach slate cron failed");
-    res.status(500).json({ error: "cron failed" });
+    res.status(500).json({ error: "cron failed", ok: false });
   }
 });
 
