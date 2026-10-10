@@ -79,9 +79,16 @@ export function stealScanStatsAreConsistent(meta: StealScanMeta | null | undefin
   return meta.booksScanned > 0;
 }
 
+function isPlainSportCounts(value: unknown): value is Record<string, number> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 /** Fill missing book counts from legacy scan payloads so UI stats stay honest. */
 export function normalizeStealScanMeta(meta: StealScanMeta | null | undefined): StealScanMeta | undefined {
   if (!meta) return undefined;
+  // Incomplete API meta (missing sportCounts) must not reach Object.entries in Steals UI —
+  // Hermes throws "Cannot convert undefined value to object".
+  if (!isPlainSportCounts(meta.sportCounts)) return undefined;
   if (meta.marketsChecked > 0 && meta.booksScanned <= 0) {
     return {
       ...meta,

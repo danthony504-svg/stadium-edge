@@ -17,7 +17,7 @@ import type { MatchupHistoryEntry } from "./api.ts";
 import { DEFAULT_SPORTS } from "./sports.ts";
 import {
   computeSlateFingerprint,
-  deserializeBoardScan,
+  tryDeserializeBoardScan,
   getSlatePreAnalysisSnapshot,
   isSlatePreAnalysisFresh,
   patchSlatePreAnalysisBoardScan,
@@ -164,8 +164,9 @@ function seedFromSnapshot(
   return {
     built: clean.built,
     propSimulations: new Map(clean.propSimulations),
+    // Incomplete cached/API maps → unavailable slate (null), not a Hermes Object.entries crash.
     boardScan: boardRaw
-      ? deserializeBoardScan({
+      ? tryDeserializeBoardScan({
           ...boardRaw,
           requestedLegs: boardRaw.requestedLegs ?? boardRaw.picks.length,
           // Cached slate seeds are preview-only until a live scan for this leg count completes.

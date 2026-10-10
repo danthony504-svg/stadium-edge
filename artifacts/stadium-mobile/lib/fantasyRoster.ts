@@ -45,6 +45,25 @@ export type FantasyRostersSync = {
 
 export const DEFAULT_FANTASY_ROSTER_ID = "default";
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Runtime guard for AsyncStorage / sync payloads.
+ * `typeof null === "object"` must NOT pass — Object.entries(null) throws
+ * Hermes "Cannot convert undefined value to object" on the Fantasy hydrate path.
+ */
+export function isFantasyRostersSync(value: unknown): value is FantasyRostersSync {
+  if (!isPlainObject(value)) return false;
+  if (!isPlainObject(value.rosters)) return false;
+  for (const roster of Object.values(value.rosters)) {
+    if (!isPlainObject(roster)) return false;
+    if (!Array.isArray(roster.players)) return false;
+  }
+  return true;
+}
+
 export function createDefaultFantasyRosters(): FantasyRostersSync {
   const now = Date.now();
   return {
@@ -65,10 +84,18 @@ export function createDefaultFantasyRosters(): FantasyRostersSync {
 }
 
 export function defaultFantasyRoster(data: FantasyRostersSync): FantasyRoster {
-  return data.rosters[data.defaultRosterId] ?? createDefaultFantasyRosters().rosters.default!;
+  if (!isPlainObject(data.rosters)) {
+    return createDefaultFantasyRosters().rosters[DEFAULT_FANTASY_ROSTER_ID]!;
+  }
+  return data.rosters[data.defaultRosterId] ?? createDefaultFantasyRosters().rosters[DEFAULT_FANTASY_ROSTER_ID]!;
 }
 
 export function repairFantasyRosterSlots(data: FantasyRostersSync): FantasyRostersSync {
+  if (!isFantasyRostersSync(data)) {
+    throw new TypeError(
+      "repairFantasyRosterSlots: expected FantasyRostersSync with a plain rosters object",
+    );
+  }
   return {
     ...data,
     rosters: Object.fromEntries(Object.entries(data.rosters).map(([id, roster]) => [id, {

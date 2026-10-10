@@ -6,6 +6,7 @@ import {
   formatOdds,
   formatPct,
   inStealBand,
+  normalizeStealScanMeta,
   recordLabel,
   recordWinPct,
   stealScanIsComplete,
@@ -107,4 +108,41 @@ test("stealScanIsComplete honors scanComplete flag", () => {
     true,
   );
   assert.equal(stealScanIsComplete(undefined, true), false);
+});
+
+test("normalizeStealScanMeta rejects incomplete sportCounts (Object.entries crash)", () => {
+  assert.equal(
+    normalizeStealScanMeta({
+      booksScanned: 12,
+      marketsChecked: 100,
+      longshotsAnalyzed: 10,
+      stealsFound: 3,
+      sportCounts: undefined as never,
+      totalOpportunities: 3,
+      scanComplete: true,
+    }),
+    undefined,
+  );
+  assert.equal(
+    normalizeStealScanMeta({
+      booksScanned: 12,
+      marketsChecked: 100,
+      longshotsAnalyzed: 10,
+      stealsFound: 3,
+      sportCounts: null as never,
+      totalOpportunities: 3,
+      scanComplete: true,
+    }),
+    undefined,
+  );
+  const ok = normalizeStealScanMeta({
+    booksScanned: 12,
+    marketsChecked: 100,
+    longshotsAnalyzed: 10,
+    stealsFound: 3,
+    sportCounts: { nba: 2 },
+    totalOpportunities: 3,
+    scanComplete: true,
+  });
+  assert.deepEqual(ok?.sportCounts, { nba: 2 });
 });

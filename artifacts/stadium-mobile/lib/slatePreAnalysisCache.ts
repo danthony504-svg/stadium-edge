@@ -141,7 +141,21 @@ export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardSc
   };
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Restore a serialized board scan. Requires evalLinesByGame + gameSimulations
+ * as plain objects — Object.entries(undefined) crashes Hermes with
+ * "Cannot convert undefined value to object".
+ */
 export function deserializeBoardScan(raw: SerializedBoardScan): FullBoardScanResult {
+  if (!isPlainRecord(raw.evalLinesByGame) || !isPlainRecord(raw.gameSimulations)) {
+    throw new TypeError(
+      "deserializeBoardScan: evalLinesByGame and gameSimulations must be plain objects",
+    );
+  }
   return {
     picks: raw.picks,
     evalLinesByGame: new Map(Object.entries(raw.evalLinesByGame)),
@@ -154,6 +168,18 @@ export function deserializeBoardScan(raw: SerializedBoardScan): FullBoardScanRes
     requestedLegs: raw.requestedLegs,
     ...(raw.manifest ? { manifest: raw.manifest } : {}),
   };
+}
+
+/** Fail closed to null when cache/API board scan maps are incomplete. */
+export function tryDeserializeBoardScan(
+  raw: SerializedBoardScan | null | undefined,
+): FullBoardScanResult | null {
+  if (!raw?.picks || !Array.isArray(raw.picks)) return null;
+  try {
+    return deserializeBoardScan(raw);
+  } catch {
+    return null;
+  }
 }
 
 export function propSimMapFromSnapshot(

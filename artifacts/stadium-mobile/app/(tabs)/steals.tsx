@@ -473,7 +473,13 @@ function RadarScan() {
 function StealsFoundToday({ meta }: { meta?: StealScanMeta }) {
   const colors = useColors();
   if (!meta) return null;
-  const entries = Object.entries(meta.sportCounts).sort((a, b) => b[1] - a[1]);
+  // Defense in depth: never Object.entries(undefined) — root ErrorBoundary crash.
+  const sportCounts =
+    meta.sportCounts && typeof meta.sportCounts === "object" && !Array.isArray(meta.sportCounts)
+      ? meta.sportCounts
+      : null;
+  if (!sportCounts) return null;
+  const entries = Object.entries(sportCounts).sort((a, b) => b[1] - a[1]);
   if (!entries.length && meta.stealsFound === 0) return null;
 
   return (

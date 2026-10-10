@@ -6,6 +6,7 @@ import {
   FANTASY_ROSTER_SLOTS,
   createDefaultFantasyRosters,
   defaultFantasyRoster,
+  isFantasyRostersSync,
   positionEligibleForSlot,
   repairFantasyRosterSlots,
 } from "./fantasyRoster.ts";
@@ -40,4 +41,43 @@ test("repairFantasyRosterSlots moves illegal starters to Bench", () => {
   });
   const repaired = repairFantasyRosterSlots(data);
   assert.equal(defaultFantasyRoster(repaired).players[0]!.rosterSlot, "Bench");
+});
+
+test("isFantasyRostersSync rejects null/undefined rosters (Hermes Object.entries crash)", () => {
+  // Regression: typeof null === "object" made the old guard accept this payload,
+  // then repairFantasyRosterSlots → Object.entries(null) threw
+  // "Cannot convert undefined value to object" under FantasyRosterProvider.
+  assert.equal(isFantasyRostersSync({ rosters: null }), false);
+  assert.equal(isFantasyRostersSync({ rosters: undefined }), false);
+  assert.equal(isFantasyRostersSync({ rosters: [] }), false);
+  assert.equal(isFantasyRostersSync(null), false);
+  assert.equal(isFantasyRostersSync({ rosters: { default: { players: null } } }), false);
+  assert.equal(isFantasyRostersSync(createDefaultFantasyRosters()), true);
+
+  assert.throws(
+    () => repairFantasyRosterSlots({ version: 1, defaultRosterId: "default", rosters: null as never }),
+    (err: unknown) =>
+      err instanceof TypeError &&
+      /rosters/i.test((err as Error).message),
+  );
+
+  // Reproduce the historical throw site when validation is skipped.
+  assert.throws(
+    () => Object.entries(null as never),
+    (err: unknown) =>
+      err instanceof TypeError &&
+      /Cannot convert undefined or null to object|Cannot convert undefined value to object/i.test(
+        (err as Error).message,
+      ),
+  );
+});
+
+test("defaultFantasyRoster survives missing rosters map without throwing", () => {
+  const roster = defaultFantasyRoster({
+    version: 1,
+    defaultRosterId: DEFAULT_FANTASY_ROSTER_ID,
+    rosters: null as never,
+  });
+  assert.equal(roster.id, DEFAULT_FANTASY_ROSTER_ID);
+  assert.equal(roster.players.length, 0);
 });

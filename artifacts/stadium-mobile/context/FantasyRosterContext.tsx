@@ -6,6 +6,7 @@ import { getSync, putSync } from "@/lib/api";
 import {
   createDefaultFantasyRosters,
   defaultFantasyRoster,
+  isFantasyRostersSync,
   positionEligibleForSlot,
   repairFantasyRosterSlots,
   type FantasyRosterPlayer,
@@ -30,9 +31,18 @@ type FantasyRosterState = {
 
 const FantasyRosterContext = createContext<FantasyRosterState | null>(null);
 
-function isRosterSync(value: unknown): value is FantasyRostersSync {
-  return !!value && typeof value === "object" && "rosters" in value &&
-    typeof (value as { rosters?: unknown }).rosters === "object";
+/** Apply a validated sync payload; reject corrupt shapes without throwing into React. */
+function applyRosterSync(
+  data: unknown,
+  setRosters: React.Dispatch<React.SetStateAction<FantasyRostersSync>>,
+): boolean {
+  if (!isFantasyRostersSync(data)) return false;
+  try {
+    setRosters(repairFantasyRosterSlots(data));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function FantasyRosterProvider({ children }: { children: React.ReactNode }) {
@@ -54,7 +64,7 @@ export function FantasyRosterProvider({ children }: { children: React.ReactNode 
       if (raw) {
         try {
           const data: unknown = JSON.parse(raw);
-          if (isRosterSync(data)) setRosters(repairFantasyRosterSlots(data));
+          applyRosterSync(data, setRosters);
         } catch { /* Ignore corrupt local cache. */ }
       }
     }).catch(() => {}).finally(() => {
@@ -77,8 +87,7 @@ export function FantasyRosterProvider({ children }: { children: React.ReactNode 
     let retry: ReturnType<typeof setTimeout> | null = null;
     void getSync<FantasyRostersSync>("fantasyRosters").then(({ data }) => {
       if (cancelled) return;
-      if (isRosterSync(data)) setRosters(repairFantasyRosterSlots(data));
-      else {
+      if (!applyRosterSync(data, setRosters)) {
         dirtyRef.current = true; // first signed-in roster: seed the account once
         setRosters((current) => ({ ...current }));
       }

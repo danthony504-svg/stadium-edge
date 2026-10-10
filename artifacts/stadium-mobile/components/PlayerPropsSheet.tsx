@@ -97,6 +97,10 @@ function buildGrid(
 ): { cells: GridCell[]; mode: "avg" | "total" } {
   const cfg = GRID_BY_SPORT[sport] ?? { mode: "avg" as const, labels: [] };
   const source = cfg.mode === "avg" ? summary.averages : summary.totals;
+  // Missing season averages/totals stay empty — never Object.entries(undefined).
+  if (!source || typeof source !== "object") {
+    return { cells: [], mode: cfg.mode };
+  }
   const cells: GridCell[] = [];
   const usedKeys = new Set<string>();
   const usedFamilies = new Set<string>();
