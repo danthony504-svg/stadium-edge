@@ -267,35 +267,49 @@ export function resolveSlateBoardScan(
 
 const PREMIUM_PICK_MASK = "••••••";
 
-/** Strip pick/odds/grade/sim fields while keeping public matchup metadata. */
+/**
+ * Strip identity / lines / odds for non-subscribers.
+ * Keep AI grade / confidence / edge metrics for the teaser strip.
+ */
 export function redactPremiumPickForClient(pick: ParsedPick): ParsedPick {
+  const grade = pick.finalAiScore;
+  const scores = pick.scores;
   return {
-    game: pick.game,
+    game: PREMIUM_PICK_MASK,
     market: pick.market,
     pick: PREMIUM_PICK_MASK,
     odds: 0,
     sport: pick.sport,
     isProp: pick.isProp,
-    startsAt: pick.startsAt,
-    headshot: pick.headshot,
-    teamLogo: pick.teamLogo,
-    teamAbbr: pick.teamAbbr,
-    awayLogo: pick.awayLogo,
-    homeLogo: pick.homeLogo,
-    awayAbbr: pick.awayAbbr,
-    homeAbbr: pick.homeAbbr,
-    player: pick.player,
-    athleteId: pick.athleteId,
+    startsAt: null,
+    headshot: null,
+    teamLogo: null,
+    teamAbbr: null,
+    awayLogo: null,
+    homeLogo: null,
+    awayAbbr: null,
+    homeAbbr: null,
+    player: undefined,
+    athleteId: null,
     propMarketKey: pick.propMarketKey,
-    // Premium — omitted / null
     propLine: null,
     propSide: undefined,
     edge: undefined,
-    scores: undefined,
-    finalAiScore: undefined,
     propIsAlt: undefined,
     ticketRole: undefined,
     highRiskValuePlay: undefined,
+    scores: scores
+      ? { composite: scores.composite ?? null }
+      : grade
+        ? { composite: grade.composite ?? null }
+        : undefined,
+    finalAiScore: grade
+      ? {
+          composite: grade.composite ?? null,
+          grade: grade.grade ?? null,
+          simHit: grade.simHit ?? null,
+        }
+      : undefined,
   };
 }
 
@@ -304,7 +318,7 @@ function redactBoardScan(scan: SerializedBoardScan | null): SerializedBoardScan 
   return {
     ...scan,
     picks: (scan.picks ?? []).map(redactPremiumPickForClient),
-    // Odds ladders + sims are premium — empty for non-subscribers.
+    // Identity-bearing ladders / sims stay empty for non-subscribers.
     evalLinesByGame: {},
     gameSimulations: {},
     note: scan.note,
@@ -318,21 +332,21 @@ function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
       ...built.context,
       realOdds: (built.context.realOdds ?? []).map((o) => ({
         sport: o.sport,
-        game: o.game,
+        game: PREMIUM_PICK_MASK,
         market: o.market,
         pick: PREMIUM_PICK_MASK,
         odds: 0,
-        startsAt: o.startsAt,
+        startsAt: undefined,
         noVigFair: null,
         edge: null,
         bookSpread: null,
       })),
       realProps: (built.context.realProps ?? []).map((p) => ({
         sport: p.sport,
-        game: p.game,
-        startsAt: p.startsAt,
-        player: p.player,
-        athleteId: p.athleteId,
+        game: PREMIUM_PICK_MASK,
+        startsAt: undefined,
+        player: PREMIUM_PICK_MASK,
+        athleteId: null,
         market: p.market,
         line: null,
         over: null,
@@ -345,14 +359,35 @@ function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
         simHitPct: undefined,
         selectionScore: undefined,
       })),
+      realGames: (built.context.realGames ?? []).map((g) => ({
+        sport: g.sport,
+        game: PREMIUM_PICK_MASK,
+        status: g.status,
+        startsAt: undefined,
+      })),
     },
     propPool: (built.propPool ?? []).map((p) => ({
       ...p,
+      game: PREMIUM_PICK_MASK,
+      player: PREMIUM_PICK_MASK,
       line: null,
       odds: 0,
       edge: null,
       bookSpread: null,
+      startsAt: undefined,
+      headshot: null,
+      teamAbbr: null,
+      athleteId: null,
       side: p.side,
+    })),
+    gameMeta: (built.gameMeta ?? []).map((g) => ({
+      game: PREMIUM_PICK_MASK,
+      sport: g.sport,
+      startsAt: undefined,
+      homeAbbr: null,
+      awayAbbr: null,
+      homeLogo: null,
+      awayLogo: null,
     })),
   };
 }

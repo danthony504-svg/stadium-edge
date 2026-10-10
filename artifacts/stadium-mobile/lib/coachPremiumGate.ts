@@ -1,11 +1,13 @@
 /**
  * Coach premium visibility — verified entitlement only.
  *
- * Public/non-subscribed: teams, players, matchups, sport, kickoff stay visible.
- * Pick side/line/odds, AI Grade/Confidence/Edge/EV/sim, and breakdowns stay locked.
+ * Non-subscribed parlay view:
+ *   - Show AI Grade, Confidence, Edge %, and qualifying pick counts
+ *   - Blur team/player names, event times, sportsbook odds, exact lines
+ *   - Lock detailed AI breakdowns
  *
- * Unlock requires signed-in + (Apple StoreKit Go|Pro with storeKitActive) or admin.
- * APP_REVIEW_MODE / local planId / purchase-screen booleans never unlock Coach premium.
+ * Non-parlay Coach Q&A requires signed-in + verified Go/Pro (or admin).
+ * APP_REVIEW_MODE / local planId never unlock Coach premium.
  */
 
 import {
@@ -15,9 +17,11 @@ import {
   type SubscriptionPersistedState,
 } from "./entitlements.ts";
 
-export const COACH_PREMIUM_FEATURE_LABEL = "Unlock AI Picks";
+export const COACH_PREMIUM_FEATURE_LABEL = "Sign In / Subscribe to Reveal Picks";
+export const COACH_QA_SIGN_IN_MESSAGE = "Sign in to ask AI Coach questions.";
+export const COACH_QA_SUBSCRIBE_MESSAGE = "Subscribe to unlock AI Coach answers.";
 
-/** Mask shown instead of pick text / odds when locked. */
+/** Mask shown instead of identity / line / odds when locked. */
 export const PREMIUM_VALUE_MASK = "••••••";
 
 export type CoachPremiumAccessOpts = EntitlementAccessOpts & {
@@ -36,7 +40,7 @@ export function hasVerifiedStoreKitPaidPlan(
 }
 
 /**
- * Verified entitlement for Coach premium content (no review-mode bypass).
+ * Verified entitlement for Coach premium identity + Q&A (no review-mode bypass).
  * Admin allowlist still unlocks for signed-in allowlisted accounts.
  */
 export function hasVerifiedCoachEntitlement(
@@ -50,7 +54,7 @@ export function hasVerifiedCoachEntitlement(
 
 /**
  * Full Coach premium gate: authentication + verified entitlement.
- * Logged-out and signed-in free users stay locked.
+ * Logged-out and signed-in free users stay locked for identity/Q&A.
  */
 export function hasCoachPremiumAccess(
   state: SubscriptionPersistedState,
@@ -61,7 +65,7 @@ export function hasCoachPremiumAccess(
   return hasVerifiedCoachEntitlement(state, nowMs, opts);
 }
 
-/** Soft-lock helper: true → blur/lock premium Coach fields. */
+/** Soft-lock helper: true → blur identity / lock breakdowns / gate Q&A. */
 export function isCoachPremiumLocked(
   state: SubscriptionPersistedState,
   nowMs: number,
@@ -69,6 +73,30 @@ export function isCoachPremiumLocked(
 ): boolean {
   if (opts.hydrated === false) return true;
   return !hasCoachPremiumAccess(state, nowMs, opts);
+}
+
+export type CoachAskAccess =
+  | { allowed: true }
+  | { allowed: false; reason: "sign_in" | "subscribe"; message: string };
+
+/**
+ * Non-parlay Coach questions require auth + active subscription.
+ * Parlay / leg-build asks are always allowed to run (identity blurred in UI).
+ */
+export function resolveCoachAskAccess(opts: {
+  askText: string;
+  isParlayBuild: boolean;
+  signedIn: boolean;
+  premiumUnlocked: boolean;
+}): CoachAskAccess {
+  if (opts.isParlayBuild) return { allowed: true };
+  if (!opts.signedIn) {
+    return { allowed: false, reason: "sign_in", message: COACH_QA_SIGN_IN_MESSAGE };
+  }
+  if (!opts.premiumUnlocked) {
+    return { allowed: false, reason: "subscribe", message: COACH_QA_SUBSCRIBE_MESSAGE };
+  }
+  return { allowed: true };
 }
 
 export type PublicPickSurface = {
@@ -83,27 +111,48 @@ export type PublicPickSurface = {
   homeAbbr?: string | null;
 };
 
-/** Labels safe to show when premium is locked (no side/line/odds). */
+/** Labels safe when identity is locked — market type only, no names/lines. */
 export function publicCoachPickSummary(pick: PublicPickSurface): {
   title: string;
   subtitle: string;
 } {
-  const player = (pick.player ?? "").trim();
   const market = (pick.market ?? "").trim() || "Market";
-  if (player) {
-    return { title: player, subtitle: market };
-  }
-  return { title: market, subtitle: "AI pick locked" };
+  const sport = (pick.sport ?? "").trim().toUpperCase();
+  return {
+    title: sport ? `${sport} · ${market}` : market,
+    subtitle: "Identity locked",
+  };
 }
+
+type GradeKeep = {
+  composite?: number | null;
+  grade?: string | null;
+  confidencePct?: number | null;
+  edgePct?: number | null;
+  simHit?: number | null;
+  [k: string]: unknown;
+};
 
 type RedactablePick = {
   pick: string;
   odds: number;
+  game: string;
+  market: string;
   edge?: string;
+  sport?: string;
+  player?: string;
+  startsAt?: string | null;
   propLine?: number | null;
   propSide?: string;
-  scores?: unknown;
-  finalAiScore?: unknown;
+  headshot?: string | null;
+  teamLogo?: string | null;
+  teamAbbr?: string | null;
+  awayLogo?: string | null;
+  homeLogo?: string | null;
+  awayAbbr?: string | null;
+  homeAbbr?: string | null;
+  scores?: GradeKeep | null;
+  finalAiScore?: GradeKeep | null;
   altOptions?: unknown;
   simAltLines?: unknown;
   liveCoach?: {
@@ -122,39 +171,68 @@ type RedactablePick = {
   highRiskValuePlay?: boolean;
   coachFillTier?: unknown;
   ticketRole?: unknown;
+  athleteId?: string | null;
   [k: string]: unknown;
 };
 
+function keepGradeSlice(src: GradeKeep | null | undefined): GradeKeep | undefined {
+  if (!src || typeof src !== "object") return undefined;
+  return {
+    composite: src.composite ?? null,
+    grade: src.grade ?? null,
+    confidencePct: src.confidencePct ?? null,
+    edgePct: src.edgePct ?? null,
+    simHit: src.simHit ?? null,
+  };
+}
+
 /**
- * Strip premium fields from a pick for API / non-subscriber clients.
- * Keeps matchup, player, sport, market type, and start time.
+ * Strip identity / line / odds for non-subscribers while keeping grade metrics.
+ * Used for API responses and client-side fail-closed rendering.
  */
 export function redactPremiumPickFields<T extends RedactablePick>(pick: T): T {
   const live = pick.liveCoach;
   const redactedLive = live
     ? {
-        ...live,
+        score: PREMIUM_VALUE_MASK,
+        period: live.period ?? null,
+        periodLabel: live.periodLabel ?? null,
+        clock: null,
         line: null,
         price: 0,
-        edgePct: 0,
-        confidencePct: 0,
+        edgePct: typeof live.edgePct === "number" ? live.edgePct : 0,
+        confidencePct: typeof live.confidencePct === "number" ? live.confidencePct : 0,
+        ageMs: null,
+        freshness: live.freshness,
       }
     : live;
   return {
     ...pick,
+    game: PREMIUM_VALUE_MASK,
     pick: PREMIUM_VALUE_MASK,
     odds: 0,
+    player: undefined,
+    startsAt: null,
     edge: undefined,
     propLine: null,
     propSide: undefined,
-    scores: undefined,
-    finalAiScore: undefined,
+    headshot: null,
+    teamLogo: null,
+    teamAbbr: null,
+    awayLogo: null,
+    homeLogo: null,
+    awayAbbr: null,
+    homeAbbr: null,
+    athleteId: null,
     altOptions: undefined,
     simAltLines: undefined,
     liveCoach: redactedLive,
     highRiskValuePlay: undefined,
     coachFillTier: undefined,
     ticketRole: undefined,
+    // Keep grade / confidence / edge for the teaser strip.
+    scores: keepGradeSlice(pick.scores as GradeKeep | null) as T["scores"],
+    finalAiScore: keepGradeSlice(pick.finalAiScore as GradeKeep | null) as T["finalAiScore"],
   };
 }
 

@@ -919,7 +919,7 @@ export function PickCard({
         accessibilityRole={premiumLocked || onPress ? "button" : undefined}
         accessibilityLabel={
           premiumLocked
-            ? `${publicSummary.title}. ${pick.game}. Unlock AI Picks`
+            ? `${publicSummary.title}. ${COACH_PREMIUM_FEATURE_LABEL}`
             : undefined
         }
         style={({ pressed }) => ({
@@ -972,11 +972,7 @@ export function PickCard({
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
-            {premiumLocked
-              ? pick.player
-                ? `${pick.player} · ${PREMIUM_VALUE_MASK}`
-                : `${publicSummary.title} · ${PREMIUM_VALUE_MASK}`
-              : pick.pick}
+            {premiumLocked ? `${publicSummary.title} · ${PREMIUM_VALUE_MASK}` : pick.pick}
           </Text>
           {!premiumLocked && homeAwayTag ? (
             <View
@@ -1001,20 +997,35 @@ export function PickCard({
             </View>
           ) : null}
         </View>
-        <MatchupLine game={pick.game} />
+        {premiumLocked ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 13 }}>
+            {PREMIUM_VALUE_MASK} @ {PREMIUM_VALUE_MASK}
+          </Text>
+        ) : (
+          <MatchupLine game={pick.game} />
+        )}
         {liveMeta ? (
           <View style={{ gap: 2, marginTop: -2 }}>
             <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12 }}>
-              LIVE · {liveMeta.score}
-              {liveMeta.periodLabel || liveMeta.period != null
-                ? ` · ${liveMeta.periodLabel ?? `Q${liveMeta.period}`}`
-                : ""}
-              {liveMeta.clock ? ` ${liveMeta.clock}` : ""}
+              {premiumLocked
+                ? `LIVE · ${PREMIUM_VALUE_MASK}`
+                : `LIVE · ${liveMeta.score}${
+                    liveMeta.periodLabel || liveMeta.period != null
+                      ? ` · ${liveMeta.periodLabel ?? `Q${liveMeta.period}`}`
+                      : ""
+                  }${liveMeta.clock ? ` ${liveMeta.clock}` : ""}`}
             </Text>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
               {premiumLocked
-                ? `${pick.market} · ${PREMIUM_VALUE_MASK}`
+                ? `${marketDisplayLabel(pick.market, pick.sport)} · ${PREMIUM_VALUE_MASK}`
                 : `${pick.market}${liveMeta.line != null ? ` ${liveMeta.line}` : ""} · ${formatAmerican(liveMeta.price)} · ${liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"} (${liveMeta.freshness}) · edge ${liveMeta.edgePct > 0 ? "+" : ""}${liveMeta.edgePct.toFixed(1)}% · conf ${liveMeta.confidencePct}%`}
+            </Text>
+          </View>
+        ) : premiumLocked ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
+            <Feather name="clock" size={11} color={colors.mutedForeground} />
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {PREMIUM_VALUE_MASK}
             </Text>
           </View>
         ) : formatGameTime(pick.startsAt) ? (
@@ -1029,7 +1040,7 @@ export function PickCard({
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 }}>
             <Feather name="lock" size={12} color={colors.primary} />
             <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
-              Unlock AI Picks
+              Sign In / Subscribe to Reveal Picks
             </Text>
             <Feather name="chevron-right" size={13} color={colors.primary} />
           </View>
@@ -1048,10 +1059,11 @@ export function PickCard({
 
       <LineLadder pick={pick} locked={premiumLocked} />
 
-      {hideReadout ? null : premiumLocked ? (
-        <LockedAiMetricsTeaser dense />
-      ) : pick.scores ||
+      {hideReadout ? null : pick.scores ||
         pick.finalAiScore?.rubric ||
+        pick.finalAiScore?.grade ||
+        pick.finalAiScore?.confidencePct != null ||
+        pick.finalAiScore?.edgePct != null ||
         ((pick.isProp || pick.player) &&
           (pick.finalAiScore?.simHit != null || pick.finalAiScore?.propHolistic)) ? (
         <ScoreBreakdown
@@ -1076,12 +1088,17 @@ export function PickCard({
             edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
           }}
           variant="compact"
-          pick={pick}
+          pick={premiumLocked ? undefined : pick}
           propHolistic={
-            pick.isProp || pick.player ? buildCoachCardHolistic(pick) : undefined
+            premiumLocked
+              ? undefined
+              : pick.isProp || pick.player
+                ? buildCoachCardHolistic(pick)
+                : undefined
           }
           simulationPending={pick.simulationPending}
           simGradePending={
+            !premiumLocked &&
             marketSupportsSimulation(pick.market ?? "", pick) &&
             !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
           }
@@ -1093,12 +1110,16 @@ export function PickCard({
               : undefined
           }
           gradeCaption={
-            marketSupportsSimulation(pick.market ?? "", pick) &&
-            !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+            premiumLocked
               ? undefined
-              : pickGradeDisplayCaption(pick, pick.finalAiScore)
+              : marketSupportsSimulation(pick.market ?? "", pick) &&
+                  !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+                ? undefined
+                : pickGradeDisplayCaption(pick, pick.finalAiScore)
           }
         />
+      ) : premiumLocked ? (
+        <LockedAiMetricsTeaser dense />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}

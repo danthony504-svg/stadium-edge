@@ -89,7 +89,7 @@ test("isActivePaidEntitlement: cancelled-at-expiration still active before expir
   );
 });
 
-test("redactPremiumPickForClient keeps public fields, strips premium", () => {
+test("redactPremiumPickForClient keeps grades; strips identity/lines/odds", () => {
   const out = redactPremiumPickForClient({
     game: "Lakers @ Celtics",
     market: "Spread",
@@ -104,14 +104,15 @@ test("redactPremiumPickForClient keeps public fields, strips premium", () => {
     propLine: 3.5,
     propSide: "home",
   });
-  assert.equal(out.game, "Lakers @ Celtics");
+  assert.equal(out.game, "••••••");
   assert.equal(out.sport, "nba");
-  assert.equal(out.startsAt, "2026-10-10T00:00:00Z");
+  assert.equal(out.startsAt, null);
   assert.equal(out.pick, "••••••");
   assert.equal(out.odds, 0);
   assert.equal(out.edge, undefined);
-  assert.equal(out.scores, undefined);
-  assert.equal(out.finalAiScore, undefined);
+  assert.equal(out.scores?.composite, 7.5);
+  assert.equal(out.finalAiScore?.grade, "A-");
+  assert.equal(out.finalAiScore?.composite, 7.5);
   assert.equal(out.propLine, null);
 });
 
@@ -177,20 +178,22 @@ function minimalSnapshot(): SlatePreAnalysisSnapshot {
   };
 }
 
-test("snapshotForClient redacts premium when locked", () => {
+test("snapshotForClient redacts identity when locked but keeps grades", () => {
   const client = snapshotForClient(minimalSnapshot(), {
     legs: 1,
     premiumUnlocked: false,
   });
   assert.equal(client.boardScan?.picks[0]?.pick, "••••••");
   assert.equal(client.boardScan?.picks[0]?.odds, 0);
-  assert.equal(client.boardScan?.picks[0]?.game, "Lakers @ Celtics");
-  assert.equal(client.boardScan?.picks[0]?.startsAt, "2026-10-10T00:00:00Z");
+  assert.equal(client.boardScan?.picks[0]?.game, "••••••");
+  assert.equal(client.boardScan?.picks[0]?.startsAt, null);
+  assert.equal(client.boardScan?.picks[0]?.finalAiScore?.grade, "A");
   assert.deepEqual(client.boardScan?.evalLinesByGame, {});
   assert.deepEqual(client.boardScan?.gameSimulations, {});
   assert.equal(client.propSimulations.length, 0);
   assert.equal(client.built.context.realOdds[0]?.pick, "••••••");
   assert.equal(client.built.context.realOdds[0]?.odds, 0);
+  assert.equal(client.built.context.realOdds[0]?.game, "••••••");
 });
 
 test("snapshotForClient keeps premium when unlocked", () => {

@@ -364,23 +364,18 @@ export function ScoreBreakdown({
       ? buildCoachCardHolistic(pick) ?? propHolistic ?? null
       : propHolistic ?? null;
 
-  // Compact (cards): show nothing when the pick can't be graded at all, so a
-  // card never carries an empty rubric.
+  // Compact (cards): grades stay visible when locked; detailed factors stay locked.
   if (variant === "compact") {
     if (data.composite == null && !isPropCard) return null;
     if (data.composite == null && isPropCard && !holisticDisplay) return null;
     return (
       <View style={{ gap: 8 }}>
-        {metricsLocked ? (
-          <LockedAiMetricsTeaser dense />
-        ) : (
-          <HeaderTiles
-            data={data}
-            gradeLabel={gradeLabel}
-            gradeCaption={gradeCaption}
-            simGradePending={simGradePending}
-          />
-        )}
+        <HeaderTiles
+          data={data}
+          gradeLabel={gradeLabel}
+          gradeCaption={gradeCaption}
+          simGradePending={simGradePending}
+        />
         {simulationPending && !simGradePending && !metricsLocked ? (
           <Text
             style={{
@@ -394,11 +389,12 @@ export function ScoreBreakdown({
           </Text>
         ) : null}
         {holisticDisplay && !metricsLocked ? <HolisticFactorStrip holistic={holisticDisplay} /> : null}
+        {metricsLocked ? <LockedAiMetricsTeaser dense /> : null}
       </View>
     );
   }
 
-  // Full (detail pages): header tiles + all five bars + an honest footer note.
+  // Full (detail pages): grades always; factor bars only when unlocked.
   return (
     <View
       style={{
@@ -421,16 +417,12 @@ export function ScoreBreakdown({
       >
         {title ?? "Pick Score"}
       </Text>
-      {metricsLocked ? (
-        <LockedAiMetricsTeaser />
-      ) : (
-        <HeaderTiles
-          data={data}
-          gradeLabel={gradeLabel}
-          gradeCaption={gradeCaption}
-          simGradePending={simGradePending}
-        />
-      )}
+      <HeaderTiles
+        data={data}
+        gradeLabel={gradeLabel}
+        gradeCaption={gradeCaption}
+        simGradePending={simGradePending}
+      />
       {simulationPending && !simGradePending && !metricsLocked ? (
         <Text
           style={{
@@ -443,7 +435,9 @@ export function ScoreBreakdown({
           Simulation updating…
         </Text>
       ) : null}
-      {metricsLocked ? null : (
+      {metricsLocked ? (
+        <LockedAiMetricsTeaser />
+      ) : (
         <View style={{ marginTop: 2 }}>
           {FACTORS.map((f) => (
             <FactorBar key={f.key} icon={f.icon} label={f.label} score={data.scores[f.key]} />
