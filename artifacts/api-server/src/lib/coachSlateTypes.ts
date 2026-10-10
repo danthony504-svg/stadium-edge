@@ -349,15 +349,38 @@ function redactBoardScan(scan: SerializedBoardScan | null): SerializedBoardScan 
   };
 }
 
-function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
+const EMPTY_BUILT_CONTEXT: BuiltChatContext["context"] = {
+  selectedSports: [],
+  currentSlip: [],
+  realGames: [],
+  realOdds: [],
+  realProps: [],
+};
+
+/**
+ * Redact identity-bearing built context for non-subscribers.
+ * Tolerates malformed / partial snapshots so free-user reads never 500.
+ */
+function redactBuiltContext(built: BuiltChatContext | null | undefined): BuiltChatContext {
+  const ctx =
+    built && typeof built === "object" && built.context && typeof built.context === "object"
+      ? built.context
+      : EMPTY_BUILT_CONTEXT;
+  const propPool = Array.isArray(built?.propPool) ? built!.propPool : [];
+  const gameMeta = Array.isArray(built?.gameMeta) ? built!.gameMeta : [];
   return {
-    ...built,
+    upsetSpots: Array.isArray(built?.upsetSpots) ? built!.upsetSpots : [],
+    todayOnly: built?.todayOnly === true,
+    tomorrowOnly: built?.tomorrowOnly === true,
     context: {
-      ...built.context,
-      realOdds: (built.context.realOdds ?? []).map((o) => ({
-        sport: o.sport,
+      ...EMPTY_BUILT_CONTEXT,
+      ...ctx,
+      selectedSports: Array.isArray(ctx.selectedSports) ? ctx.selectedSports : [],
+      currentSlip: Array.isArray(ctx.currentSlip) ? ctx.currentSlip : [],
+      realOdds: (Array.isArray(ctx.realOdds) ? ctx.realOdds : []).map((o) => ({
+        sport: o?.sport ?? "",
         game: PREMIUM_PICK_MASK,
-        market: o.market,
+        market: o?.market ?? "",
         pick: PREMIUM_PICK_MASK,
         odds: 0,
         startsAt: undefined,
@@ -365,17 +388,17 @@ function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
         edge: null,
         bookSpread: null,
       })),
-      realProps: (built.context.realProps ?? []).map((p) => ({
-        sport: p.sport,
+      realProps: (Array.isArray(ctx.realProps) ? ctx.realProps : []).map((p) => ({
+        sport: p?.sport ?? "",
         game: PREMIUM_PICK_MASK,
         startsAt: undefined,
         player: PREMIUM_PICK_MASK,
         athleteId: null,
-        market: p.market,
+        market: p?.market ?? "",
         line: null,
         over: null,
         under: null,
-        alt: p.alt,
+        alt: p?.alt,
         ev: null,
         evSide: null,
         fairProb: null,
@@ -383,14 +406,14 @@ function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
         simHitPct: undefined,
         selectionScore: undefined,
       })),
-      realGames: (built.context.realGames ?? []).map((g) => ({
-        sport: g.sport,
+      realGames: (Array.isArray(ctx.realGames) ? ctx.realGames : []).map((g) => ({
+        sport: g?.sport ?? "",
         game: PREMIUM_PICK_MASK,
-        status: g.status,
+        status: g?.status,
         startsAt: undefined,
       })),
     },
-    propPool: (built.propPool ?? []).map((p) => ({
+    propPool: propPool.map((p) => ({
       ...p,
       game: PREMIUM_PICK_MASK,
       player: PREMIUM_PICK_MASK,
@@ -402,11 +425,11 @@ function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
       headshot: null,
       teamAbbr: null,
       athleteId: null,
-      side: p.side,
+      side: p?.side ?? "Over",
     })),
-    gameMeta: (built.gameMeta ?? []).map((g) => ({
+    gameMeta: gameMeta.map((g) => ({
       game: PREMIUM_PICK_MASK,
-      sport: g.sport,
+      sport: g?.sport ?? "",
       startsAt: undefined,
       homeAbbr: null,
       awayAbbr: null,
@@ -419,38 +442,63 @@ function redactBuiltContext(built: BuiltChatContext): BuiltChatContext {
 /**
  * Client-facing snapshot with boardScan resolved to the requested ticket.
  * When `premiumUnlocked` is false, pick sides/lines/odds/grades/sims are redacted.
+ * Never throws on malformed snapshot rows — returns a safe empty redacted shell.
  */
 export function snapshotForClient(
   snapshot: SlatePreAnalysisSnapshot,
   opts?: { legs?: number; sport?: string | null; premiumUnlocked?: boolean },
 ): SlatePreAnalysisSnapshot {
-  const boardScan = resolveSlateBoardScan(snapshot, opts);
-  if (opts?.premiumUnlocked) {
-    return { ...snapshot, boardScan };
-  }
-  let tickets: SlateTicketsIndex | null | undefined = snapshot.tickets;
-  if (snapshot.tickets) {
-    const global: SlateTicketsIndex["global"] = {};
-    for (const [k, v] of Object.entries(snapshot.tickets.global ?? {})) {
-      const size = Number(k) as SlateParlayLegCount;
-      global[size] = redactBoardScan(v ?? null) ?? undefined;
+  try {
+    if (!snapshot || typeof snapshot !== "object") {
+      return emptyRedactedSnapshot();
     }
-    const bySport: SlateTicketsIndex["bySport"] = {};
-    for (const [sport, byLegs] of Object.entries(snapshot.tickets.bySport ?? {})) {
-      const next: Partial<Record<SlateParlayLegCount, SerializedBoardScan>> = {};
-      for (const [k, v] of Object.entries(byLegs ?? {})) {
+    const boardScan = resolveSlateBoardScan(snapshot, opts);
+    if (opts?.premiumUnlocked) {
+      return { ...snapshot, boardScan };
+    }
+    let tickets: SlateTicketsIndex | null | undefined = snapshot.tickets;
+    if (snapshot.tickets) {
+      const global: SlateTicketsIndex["global"] = {};
+      for (const [k, v] of Object.entries(snapshot.tickets.global ?? {})) {
         const size = Number(k) as SlateParlayLegCount;
-        next[size] = redactBoardScan(v ?? null) ?? undefined;
+        global[size] = redactBoardScan(v ?? null) ?? undefined;
       }
-      bySport[sport] = next;
+      const bySport: SlateTicketsIndex["bySport"] = {};
+      for (const [sport, byLegs] of Object.entries(snapshot.tickets.bySport ?? {})) {
+        if (!byLegs || typeof byLegs !== "object") continue;
+        const next: Partial<Record<SlateParlayLegCount, SerializedBoardScan>> = {};
+        for (const [k, v] of Object.entries(byLegs ?? {})) {
+          const size = Number(k) as SlateParlayLegCount;
+          next[size] = redactBoardScan(v ?? null) ?? undefined;
+        }
+        bySport[sport] = next;
+      }
+      tickets = { global, bySport };
     }
-    tickets = { global, bySport };
+    return {
+      ...snapshot,
+      built: redactBuiltContext(snapshot.built),
+      propSimulations: [],
+      boardScan: redactBoardScan(boardScan),
+      tickets: tickets ?? null,
+    };
+  } catch {
+    // Fail closed on identity: never surface a partial/raw snapshot after a redact error.
+    return emptyRedactedSnapshot(snapshot);
   }
+}
+
+function emptyRedactedSnapshot(
+  seed?: SlatePreAnalysisSnapshot | null,
+): SlatePreAnalysisSnapshot {
   return {
-    ...snapshot,
-    built: redactBuiltContext(snapshot.built),
+    at: typeof seed?.at === "number" ? seed.at : 0,
+    fingerprint: typeof seed?.fingerprint === "string" ? seed.fingerprint : "",
+    built: redactBuiltContext(seed?.built),
     propSimulations: [],
-    boardScan: redactBoardScan(boardScan),
-    tickets: tickets ?? null,
+    boardScan: null,
+    tickets: null,
+    activeSports: Array.isArray(seed?.activeSports) ? seed!.activeSports : [],
+    deepSimComplete: false,
   };
 }
