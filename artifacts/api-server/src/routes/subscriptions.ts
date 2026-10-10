@@ -9,7 +9,10 @@ import {
 import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
 import { isDesignatedAppReviewUser } from "../lib/appReviewAccess";
-import { isDesignatedOwnerTestUser } from "../lib/ownerTestAccess";
+import {
+  diagnoseOwnerTestAccess,
+  isDesignatedOwnerTestUser,
+} from "../lib/ownerTestAccess";
 import { isActivePaidEntitlement } from "../lib/subscriptionEntitlement";
 import {
   planFromEntitlementIds,
@@ -338,16 +341,40 @@ router.post(
 
 router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) => {
   const userId = clerkUserId(req);
+  const authUserPresent = !!userId;
+
+  /** Temporary sanitized probe — booleans only; never userId/email/token. */
+  const logEntitlementDiag = (diag: {
+    authUserPresent: boolean;
+    clerkUserLookupSucceeded: boolean;
+    emailResolved: boolean;
+    allowlistMatched: boolean;
+    ownerAccess: boolean;
+    responseStatus: number;
+  }) => {
+    logger.info({ entitlementDiag: diag }, "entitlement_diag");
+  };
+
   if (!userId) {
+    logEntitlementDiag({
+      authUserPresent: false,
+      clerkUserLookupSucceeded: false,
+      emailResolved: false,
+      allowlistMatched: false,
+      ownerAccess: false,
+      responseStatus: 401,
+    });
     res.status(401).json({ error: "auth required" });
     return;
   }
   try {
     // Server-verified flags from Clerk userId + server env allowlists.
     // Never derived from client body / EXPO_PUBLIC email claims.
-    const [appReviewAccess, ownerAccess] = await Promise.all([
+    // Diagnose in parallel with the real owner check (same inputs; no logic change).
+    const [appReviewAccess, ownerAccess, ownerDiag] = await Promise.all([
       isDesignatedAppReviewUser(userId),
       isDesignatedOwnerTestUser(userId),
+      diagnoseOwnerTestAccess(userId),
     ]);
     const rows = await db
       .select()
@@ -355,6 +382,14 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
       .where(eq(subscriptionEntitlementsTable.userId, userId))
       .limit(1);
     const row = rows[0];
+    logEntitlementDiag({
+      authUserPresent,
+      clerkUserLookupSucceeded: ownerDiag.clerkUserLookupSucceeded,
+      emailResolved: ownerDiag.emailResolved,
+      allowlistMatched: ownerDiag.allowlistMatched,
+      ownerAccess: ownerAccess === true,
+      responseStatus: 200,
+    });
     if (!row) {
       res.json({ ok: true, entitlement: null, appReviewAccess, ownerAccess });
       return;
@@ -377,6 +412,14 @@ router.get("/subscriptions/entitlement", entitlementLimiter, async (req, res) =>
     });
   } catch (err) {
     logger.error({ err }, "subscription entitlement read failed");
+    logEntitlementDiag({
+      authUserPresent,
+      clerkUserLookupSucceeded: false,
+      emailResolved: false,
+      allowlistMatched: false,
+      ownerAccess: false,
+      responseStatus: 500,
+    });
     res.status(500).json({ error: "entitlement read failed" });
   }
 });

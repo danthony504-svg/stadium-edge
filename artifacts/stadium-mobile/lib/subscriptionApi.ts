@@ -36,30 +36,52 @@ export type ServerAccessFlags = {
   ownerAccess: boolean;
 };
 
+type SubFetchResult = {
+  response: Response | null;
+  tokenPresent: boolean;
+  requestStarted: boolean;
+};
+
 async function subFetch(
   path: string,
   init?: { method?: string; body?: string },
 ): Promise<Response | null> {
+  const result = await subFetchDetailed(path, init);
+  return result.response;
+}
+
+/** Internal fetch with sanitized timing/token presence (no token values). */
+async function subFetchDetailed(
+  path: string,
+  init?: { method?: string; body?: string },
+): Promise<SubFetchResult> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...appVersionRequestHeaders(),
   };
+  let tokenPresent = false;
+  let requestStarted = false;
   try {
     const getter = getAuthTokenGetter();
     const token = getter ? await getter() : null;
-    if (!token) return null;
+    tokenPresent = typeof token === "string" && token.length > 0;
+    if (!tokenPresent) {
+      return { response: null, tokenPresent: false, requestStarted: false };
+    }
     headers.Authorization = `Bearer ${token}`;
   } catch {
-    return null;
+    return { response: null, tokenPresent: false, requestStarted: false };
   }
   try {
-    return (await expoFetch(`${API_BASE}${path}`, {
+    requestStarted = true;
+    const response = (await expoFetch(`${API_BASE}${path}`, {
       method: init?.method ?? "GET",
       headers,
       body: init?.body,
     })) as unknown as Response;
+    return { response, tokenPresent, requestStarted };
   } catch {
-    return null;
+    return { response: null, tokenPresent, requestStarted };
   }
 }
 
@@ -117,13 +139,61 @@ export async function fetchServerSubscription(): Promise<ServerSubscriptionEntit
   return flags?.entitlement ?? null;
 }
 
+/** Temporary sanitized mobile entitlement probe (booleans only). */
+export type EntitlementFetchDiag = {
+  tokenPresent: boolean;
+  requestStarted: boolean;
+  responseStatus: number | null;
+  responseOk: boolean;
+  flagsReceived: boolean;
+  ownerAccessReceived: boolean;
+  /** True when getToken was missing and fetch aborted (no retry in this call). */
+  abortedBeforeRequestNoToken: boolean;
+};
+
+function logEntitlementFetchDiag(diag: EntitlementFetchDiag): void {
+  try {
+    console.info("[entitlement-diag]", JSON.stringify(diag));
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Authenticated access flags from api-server. Fail closed (null) when unsigned
  * or the request fails — callers must not invent appReviewAccess locally.
  */
 export async function fetchServerAccessFlags(): Promise<ServerAccessFlags | null> {
-  const res = await subFetch("/subscriptions/entitlement");
-  if (!res || !res.ok) return null;
+  const { response: res, tokenPresent, requestStarted } = await subFetchDetailed(
+    "/subscriptions/entitlement",
+  );
+  const abortedBeforeRequestNoToken = !tokenPresent && !requestStarted;
+  if (!res) {
+    logEntitlementFetchDiag({
+      tokenPresent,
+      requestStarted,
+      responseStatus: null,
+      responseOk: false,
+      flagsReceived: false,
+      ownerAccessReceived: false,
+      abortedBeforeRequestNoToken,
+    });
+    return null;
+  }
+  const responseStatus = typeof res.status === "number" ? res.status : null;
+  const responseOk = !!res.ok;
+  if (!res.ok) {
+    logEntitlementFetchDiag({
+      tokenPresent,
+      requestStarted,
+      responseStatus,
+      responseOk: false,
+      flagsReceived: false,
+      ownerAccessReceived: false,
+      abortedBeforeRequestNoToken: false,
+    });
+    return null;
+  }
   try {
     const json = (await res.json()) as {
       ok?: boolean;
@@ -131,13 +201,32 @@ export async function fetchServerAccessFlags(): Promise<ServerAccessFlags | null
       appReviewAccess?: boolean;
       ownerAccess?: boolean;
     };
+    const ownerAccessReceived = json.ownerAccess === true;
+    logEntitlementFetchDiag({
+      tokenPresent,
+      requestStarted,
+      responseStatus,
+      responseOk: true,
+      flagsReceived: true,
+      ownerAccessReceived,
+      abortedBeforeRequestNoToken: false,
+    });
     return {
       entitlement: json.entitlement ?? null,
       // Only server booleans grant privileged access — ignore client claims.
       appReviewAccess: json.appReviewAccess === true,
-      ownerAccess: json.ownerAccess === true,
+      ownerAccess: ownerAccessReceived,
     };
   } catch {
+    logEntitlementFetchDiag({
+      tokenPresent,
+      requestStarted,
+      responseStatus,
+      responseOk: true,
+      flagsReceived: false,
+      ownerAccessReceived: false,
+      abortedBeforeRequestNoToken: false,
+    });
     return null;
   }
 }
