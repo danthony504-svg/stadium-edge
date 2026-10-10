@@ -1,4 +1,9 @@
-import { pooled, slateLoopbackPost } from "./coachSlateLoopback.js";
+import {
+  coachSlateSimsInProcess,
+  pooled,
+  slateLoopbackPost,
+} from "./coachSlateLoopback.js";
+import { runPropSimsInProcess } from "./coachSlateInProcessSims.js";
 import {
   fetchServerGameSimulations,
   qualifiesServerAiLine,
@@ -157,17 +162,20 @@ async function fetchPropSimulationsDeep(
     }));
     if (!props.length) continue;
     const parts = sportEntries[0]!.game.split(" @ ");
-    const resp = await slateLoopbackPost<{ props?: PropSimRow[] }>(
-      "/sports/simulate/props",
-      {
-        sport,
-        tier,
-        homeTeam: parts[1]?.trim(),
-        awayTeam: parts[0]?.trim(),
-        props,
-      },
-      tier === "deep" ? 180_000 : 45_000,
-    );
+    const payload = {
+      sport,
+      tier,
+      homeTeam: parts[1]?.trim(),
+      awayTeam: parts[0]?.trim(),
+      props,
+    };
+    const resp = coachSlateSimsInProcess()
+      ? await runPropSimsInProcess(payload)
+      : await slateLoopbackPost<{ props?: PropSimRow[] }>(
+          "/sports/simulate/props",
+          payload,
+          tier === "deep" ? 180_000 : 45_000,
+        );
     for (const row of resp?.props ?? []) {
       out.set(propSimKey(row.player, row.market, row.line, row.side), row.hitProbability ?? null);
     }
@@ -243,11 +251,20 @@ async function fetchQuickPropSims(
       athleteId: e.athleteId ?? null,
     }));
     const parts = entries[0]?.game.split(" @ ") ?? [];
-    const resp = await slateLoopbackPost<{ props?: PropSimRow[] }>(
-      "/sports/simulate/props",
-      { sport, tier: "quick", homeTeam: parts[1]?.trim(), awayTeam: parts[0]?.trim(), props },
-      45_000,
-    );
+    const payload = {
+      sport,
+      tier: "quick" as const,
+      homeTeam: parts[1]?.trim(),
+      awayTeam: parts[0]?.trim(),
+      props,
+    };
+    const resp = coachSlateSimsInProcess()
+      ? await runPropSimsInProcess(payload)
+      : await slateLoopbackPost<{ props?: PropSimRow[] }>(
+          "/sports/simulate/props",
+          payload,
+          45_000,
+        );
     for (const row of resp?.props ?? []) {
       out.set(propSimKey(row.player, row.market, row.line, row.side), row.hitProbability ?? null);
     }

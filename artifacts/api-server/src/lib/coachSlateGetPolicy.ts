@@ -11,24 +11,34 @@ export type CoachSlateRowFlags = {
   snapshot: unknown | null;
   fresh: boolean;
   instantServe: boolean;
+  /** Published rows must be deep-sim complete; incomplete must not be served as usable. */
+  deepSimComplete?: boolean;
 };
 
-/** True when a client-usable snapshot can be served (fresh or instant-serve). */
+/**
+ * True when a client-usable complete snapshot can be served.
+ * Incomplete (deepSimComplete !== true) snapshots are never treated as usable.
+ */
 export function hasUsableCoachSlateSnapshot(row: CoachSlateRowFlags): boolean {
-  return !!(row.snapshot && (row.fresh || row.instantServe));
+  return !!(
+    row.snapshot &&
+    row.deepSimComplete === true &&
+    (row.fresh || row.instantServe)
+  );
 }
 
 /**
- * True when the persisted slate is missing or past fresh TTL.
+ * True when the persisted slate is missing, incomplete, or past fresh TTL.
  * Used only as a UI/ops signal (`refreshing`) — does NOT authorize job start.
  */
 export function coachSlateNeedsRefresh(row: CoachSlateRowFlags): boolean {
-  return !row.fresh && (!row.snapshot || row.instantServe);
+  if (!row.snapshot || row.deepSimComplete !== true) return true;
+  return !row.fresh;
 }
 
 /**
  * GET handlers must never start slate generation.
- * Generation is reserved for POST /api/coach/slate/cron (x-cron-key).
+ * Generation is reserved for the Render Cron Job worker (or explicit web override).
  */
 export function coachSlateGetMayStartJob(_row: CoachSlateRowFlags): false {
   return false;
