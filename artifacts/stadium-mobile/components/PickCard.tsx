@@ -772,6 +772,8 @@ export function PickCard({
   onPress,
   hideReadout,
   badge,
+  /** Coach cards: also blur pick side/line/odds (not just AI metrics). */
+  lockPickDetails,
 }: {
   pick: ParsedPick;
   // When set, the card's header/info area becomes tappable (e.g. to open the
@@ -786,10 +788,12 @@ export function PickCard({
   // underdog. The caption states what the badge MEANS in plain English so it
   // never reads as a fabricated rating.
   badge?: { text: string; caption?: string; tone: "grade" | "upset" | "value" } | null;
+  lockPickDetails?: boolean;
 }) {
   const colors = useColors();
   const sub = useSubscriptionOptional();
-  const premiumLocked = useAiMetricsLocked();
+  const metricsLocked = useAiMetricsLocked();
+  const premiumLocked = !!lockPickDetails && metricsLocked;
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
