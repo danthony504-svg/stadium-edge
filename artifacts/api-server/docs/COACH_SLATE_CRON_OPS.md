@@ -34,11 +34,26 @@ Expected schema (`lib/db/src/schema/coachPrecomputedSlate.ts`):
 - Exit **2** = table OK but no `id=global` row yet (run cron once)  
 - Exit **0** = table + snapshot row OK  
 
-If the table is missing (with approval):
+If the table is missing (with approval), prefer the **create-only** SQL (does not
+touch other tables). Do **not** use `drizzle-kit push` for this recovery — that
+can create/alter every table in `lib/db/src/schema`.
 
 ```bash
-DATABASE_URL='…' pnpm --filter @workspace/db run push
+# Render Web Shell (or psql) — apply ONLY after explicit approval:
+# File: lib/db/migrations/20261010_create_coach_precomputed_slate.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f lib/db/migrations/20261010_create_coach_precomputed_slate.sql
+
+# Read-only verification:
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f lib/db/migrations/20261010_create_coach_precomputed_slate_VERIFY.sql
+
+# Or from repo (ops machine):
+DATABASE_URL='…' node artifacts/api-server/scripts/verify-coach-slate-db.mjs
 ```
+
+See `artifacts/api-server/docs/COACH_SLATE_TABLE_MIGRATION.md` for the full
+safety review and post-create cron persist checks.
 
 ---
 
