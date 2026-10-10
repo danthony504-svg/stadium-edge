@@ -17,11 +17,15 @@ jobs:
           PREBUILD_CRON_KEY: ${{ secrets.PREBUILD_CRON_KEY }}
           NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
         run: |
-          URL="${COACH_SLATE_CRON_URL:-https://stadium-edge-1.replit.app/api/coach/slate/cron}"
+          # Default host = current Render production API (not legacy Replit).
+          URL="${COACH_SLATE_CRON_URL:-https://stadium-edge.onrender.com/api/coach/slate/cron}"
           KEY="${COACH_SLATE_CRON_KEY:-${PREBUILD_CRON_KEY:-${NOTIFY_CRON_KEY:-}}}"
           if [ -z "$KEY" ]; then
-            echo "No cron key configured — set COACH_SLATE_CRON_KEY or PREBUILD_CRON_KEY in repo secrets."
-            exit 0
+            echo "FAIL: No cron key configured."
+            echo "Set GitHub secrets COACH_SLATE_CRON_KEY (or PREBUILD_CRON_KEY / NOTIFY_CRON_KEY)"
+            echo "AND the matching env on Render so POST /api/coach/slate/cron does not return 503."
+            echo "Silent success previously hid a broken slate refresh pipeline."
+            exit 1
           fi
           echo "POST $URL"
           curl -fsS --max-time 300 -X POST -H "x-cron-key: $KEY" "$URL"
