@@ -16,7 +16,11 @@ import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { marketSupportsSimulation, pickHasSimGrade } from "@/lib/simMarketSupport";
 import { buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
-import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
+import {
+  normalizeCombinedPickScore,
+  scoreLineValue,
+  type CombinedPickScore,
+} from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { FILLER_BACKFILL_EDGE_NOTE } from "@/lib/coachScanPolicy";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
@@ -1067,8 +1071,15 @@ export function PickCard({
         ((pick.isProp || pick.player) &&
           (pick.finalAiScore?.simHit != null || pick.finalAiScore?.propHolistic)) ? (
         <ScoreBreakdown
-          data={{
-            ...(pick.finalAiScore?.rubric ?? pick.scores ?? {
+          data={
+            normalizeCombinedPickScore({
+              ...(pick.finalAiScore?.rubric ?? pick.scores ?? {}),
+              composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
+              grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
+              confidencePct:
+                pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
+              edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+            }) ?? {
               scores: {
                 matchup: null,
                 trend: null,
@@ -1081,12 +1092,8 @@ export function PickCard({
               grade: pick.finalAiScore?.grade ?? null,
               confidencePct: pick.finalAiScore?.confidencePct ?? null,
               edgePct: pick.finalAiScore?.edgePct ?? null,
-            }),
-            composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
-            grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
-            confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
-            edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
-          }}
+            }
+          }
           variant="compact"
           pick={premiumLocked ? undefined : pick}
           propHolistic={

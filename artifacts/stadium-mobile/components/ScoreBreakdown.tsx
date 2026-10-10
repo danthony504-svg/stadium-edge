@@ -5,6 +5,7 @@ import { FONT } from "@/components/ui";
 import { LockedAiMetricsTeaser, useAiMetricsLocked } from "@/components/LockedAiMetrics";
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
+import { normalizeCombinedPickScore } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
@@ -60,7 +61,8 @@ function stripSlotFactor(
 function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
-  const factors = holistic.factors;
+  // Partial / legacy holistic payloads may omit factors — never .find on undefined.
+  const factors = Array.isArray(holistic.factors) ? holistic.factors : [];
   const topKeys = new Set(
     COACH_CARD_STRIP.map((slot) => {
       const { score, present } = stripSlotFactor(factors, slot);
@@ -357,21 +359,56 @@ export function ScoreBreakdown({
 }) {
   const colors = useColors();
   const metricsLocked = useAiMetricsLocked();
-  const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
+  // Crash site (device stack): FACTORS.filter → data.scores[f.key] when scores is
+  // undefined (Hermes ToObject → "Cannot convert undefined value to object").
+  const safe = normalizeCombinedPickScore(data);
   const isPropCard = !!(pick?.isProp || pick?.player);
-  const holisticDisplay =
-    isPropCard && pick
-      ? buildCoachCardHolistic(pick) ?? propHolistic ?? null
-      : propHolistic ?? null;
+  let holisticDisplay: PropHolisticScore | null = null;
+  try {
+    holisticDisplay =
+      isPropCard && pick
+        ? buildCoachCardHolistic(pick) ?? propHolistic ?? null
+        : propHolistic ?? null;
+    if (holisticDisplay && !Array.isArray(holisticDisplay.factors)) {
+      holisticDisplay = { ...holisticDisplay, factors: [] };
+    }
+  } catch {
+    holisticDisplay = null;
+  }
+
+  if (!safe) {
+    if (variant === "compact") return null;
+    return (
+      <View
+        style={{
+          gap: 8,
+          padding: 14,
+          borderRadius: 16,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>
+          {title ?? "Pick Score"}
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          Breakdown unavailable
+        </Text>
+      </View>
+    );
+  }
+
+  const present = FACTORS.filter((f) => safe.scores[f.key] != null).length;
 
   // Compact (cards): grades stay visible when locked; detailed factors stay locked.
   if (variant === "compact") {
-    if (data.composite == null && !isPropCard) return null;
-    if (data.composite == null && isPropCard && !holisticDisplay) return null;
+    if (safe.composite == null && !isPropCard) return null;
+    if (safe.composite == null && isPropCard && !holisticDisplay) return null;
     return (
       <View style={{ gap: 8 }}>
         <HeaderTiles
-          data={data}
+          data={safe}
           gradeLabel={gradeLabel}
           gradeCaption={gradeCaption}
           simGradePending={simGradePending}
@@ -418,7 +455,7 @@ export function ScoreBreakdown({
         {title ?? "Pick Score"}
       </Text>
       <HeaderTiles
-        data={data}
+        data={safe}
         gradeLabel={gradeLabel}
         gradeCaption={gradeCaption}
         simGradePending={simGradePending}
@@ -440,16 +477,18 @@ export function ScoreBreakdown({
       ) : (
         <View style={{ marginTop: 2 }}>
           {FACTORS.map((f) => (
-            <FactorBar key={f.key} icon={f.icon} label={f.label} score={data.scores[f.key]} />
+            <FactorBar key={f.key} icon={f.icon} label={f.label} score={safe.scores[f.key]} />
           ))}
         </View>
       )}
       {!metricsLocked ? (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10.5, lineHeight: 15 }}>
           {note ??
-            (present === FACTORS.length
-              ? "Grade blends all five signals from real feed data."
-              : `Grade blends the ${present} signal${present === 1 ? "" : "s"} we could ground from real data; the rest are shown as no-data.`)}
+            (present === 0
+              ? "Breakdown signals unavailable for this pick."
+              : present === FACTORS.length
+                ? "Grade blends all five signals from real feed data."
+                : `Grade blends the ${present} signal${present === 1 ? "" : "s"} we could ground from real data; the rest are shown as no-data.`)}
         </Text>
       ) : null}
     </View>

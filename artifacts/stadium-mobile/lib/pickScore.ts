@@ -48,6 +48,81 @@ export type CombinedPickScore = {
   edgePct: number | null;
 };
 
+const SUB_SCORE_KEYS = [
+  "matchup",
+  "trend",
+  "lineValue",
+  "injury",
+  "lineShopping",
+  "simulation",
+] as const satisfies ReadonlyArray<keyof PickSubScores>;
+
+/** Empty rubric — every signal explicitly null (unavailable), never invented. */
+export function emptyPickSubScores(): PickSubScores {
+  return {
+    matchup: null,
+    trend: null,
+    lineValue: null,
+    injury: null,
+    lineShopping: null,
+    simulation: null,
+  };
+}
+
+function subScoreOrNull(value: unknown): SubScore {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Validate / coerce a PickSubScores map. Missing maps become empty nulls so
+ * ScoreBreakdown never does `undefined[key]` (Hermes: "Cannot convert undefined
+ * value to object" inside Array#filter).
+ */
+export function normalizePickSubScores(raw: unknown): PickSubScores {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return emptyPickSubScores();
+  }
+  const obj = raw as Record<string, unknown>;
+  const out = emptyPickSubScores();
+  for (const key of SUB_SCORE_KEYS) {
+    out[key] = subScoreOrNull(obj[key]);
+  }
+  return out;
+}
+
+/**
+ * Normalize a CombinedPickScore for UI. Preserves real numbers; never fabricates
+ * composites/grades from missing data. Returns null when `raw` is not an object.
+ */
+export function normalizeCombinedPickScore(
+  raw: unknown,
+): CombinedPickScore | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  // Accept either a proper CombinedPickScore or a bare PickSubScores blob that
+  // was mistakenly assigned to pick.scores / rubric (legacy / partial payloads).
+  const nestedScores = obj.scores;
+  const looksLikeBareSubscores = SUB_SCORE_KEYS.some((k) => k in obj);
+  const scores = normalizePickSubScores(
+    nestedScores != null
+      ? nestedScores
+      : looksLikeBareSubscores
+        ? obj
+        : null,
+  );
+  const numOrNull = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const grade =
+    typeof obj.grade === "string" && obj.grade.trim() ? obj.grade.trim() : null;
+  return {
+    scores,
+    composite: numOrNull(obj.composite),
+    grade,
+    confidencePct: numOrNull(obj.confidencePct),
+    edgePct: numOrNull(obj.edgePct),
+  };
+}
+
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const round1 = (n: number) => Math.round(n * 10) / 10;
 // Trim float noise on the -1..1 momentum/favor reads (e.g. (0.8-0.5)*2).
