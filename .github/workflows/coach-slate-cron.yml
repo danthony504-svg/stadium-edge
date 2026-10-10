@@ -17,13 +17,135 @@ jobs:
           PREBUILD_CRON_KEY: ${{ secrets.PREBUILD_CRON_KEY }}
           NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
         run: |
-          URL="${COACH_SLATE_CRON_URL:-https://stadium-edge-1.replit.app/api/coach/slate/cron}"
+          set -euo pipefail
+
+          # Production Render API (web service behind stadium-edge.onrender.com).
+          DEFAULT_URL="https://stadium-edge.onrender.com/api/coach/slate/cron"
+          URL="${COACH_SLATE_CRON_URL:-}"
           KEY="${COACH_SLATE_CRON_KEY:-${PREBUILD_CRON_KEY:-${NOTIFY_CRON_KEY:-}}}"
-          if [ -z "$KEY" ]; then
-            echo "No cron key configured — set COACH_SLATE_CRON_KEY or PREBUILD_CRON_KEY in repo secrets."
-            exit 0
+
+          if [ -z "$URL" ]; then
+            echo "WARN: COACH_SLATE_CRON_URL secret unset — using default $DEFAULT_URL"
+            URL="$DEFAULT_URL"
           fi
+
+          case "$URL" in
+            https://stadium-edge.onrender.com/api/coach/slate/cron|https://stadium-edge.onrender.com/api/coach/slate/cron/)
+              ;;
+            *)
+              echo "FAIL: COACH_SLATE_CRON_URL must be the production Render cron endpoint."
+              echo "Expected: $DEFAULT_URL"
+              echo "Got:      $URL"
+              echo "Legacy Replit hosts are not valid for this workflow."
+              exit 1
+              ;;
+          esac
+
+          if [ -z "$KEY" ]; then
+            echo "FAIL: No cron key configured."
+            echo "Set GitHub Actions secret COACH_SLATE_CRON_KEY (preferred)"
+            echo "  or PREBUILD_CRON_KEY / NOTIFY_CRON_KEY as fallback."
+            echo "Set the SAME value on the Render web service env as COACH_SLATE_CRON_KEY"
+            echo "(or PREBUILD_CRON_KEY / NOTIFY_CRON_KEY) so POST does not return 503."
+            exit 1
+          fi
+
+          BODY_FILE="$(mktemp)"
+          CODE_FILE="$(mktemp)"
+          trap 'rm -f "$BODY_FILE" "$CODE_FILE"' EXIT
+
           echo "POST $URL"
-          curl -fsS --max-time 300 -X POST -H "x-cron-key: $KEY" "$URL"
+          # -f fails on HTTP >=400; still capture body for diagnostics via || true then validate.
+          set +e
+          HTTP_CODE=$(curl -sS --max-time 300 -X POST \
+            -H "x-cron-key: $KEY" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -o "$BODY_FILE" \
+            -w "%{http_code}" \
+            "$URL")
+          CURL_EC=$?
+          set -e
+          echo "$HTTP_CODE" > "$CODE_FILE"
+
+          echo "curl_exit=$CURL_EC http_status=$HTTP_CODE"
+          echo "response_bytes=$(wc -c < "$BODY_FILE" | tr -d ' ')"
+          head -c 2000 "$BODY_FILE" || true
           echo
-          echo "coach slate cron: done"
+
+          if [ "$CURL_EC" -ne 0 ]; then
+            echo "FAIL: curl transport error (exit $CURL_EC)"
+            exit 1
+          fi
+
+          if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+            echo "FAIL: empty/zero HTTP status"
+            exit 1
+          fi
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "FAIL: non-2xx HTTP status $HTTP_CODE"
+            exit 1
+          fi
+
+          if [ ! -s "$BODY_FILE" ]; then
+            echo "FAIL: empty response body"
+            exit 1
+          fi
+
+          python3 - "$BODY_FILE" <<'PY'
+          import json, sys
+          path = sys.argv[1]
+          raw = open(path, "rb").read()
+          if not raw.strip():
+              print("FAIL: empty body after strip")
+              sys.exit(1)
+          try:
+              data = json.loads(raw)
+          except Exception as e:
+              print("FAIL: response is not JSON:", e)
+              sys.exit(1)
+          if not isinstance(data, dict):
+              print("FAIL: JSON root must be object")
+              sys.exit(1)
+          if data.get("ok") is not True:
+              print("FAIL: ok !== true:", data)
+              sys.exit(1)
+          summary = data.get("summary")
+          if not isinstance(summary, dict):
+              print("FAIL: missing summary object:", data)
+              sys.exit(1)
+          if summary.get("reason") == "error":
+              print("FAIL: summary.reason=error (refresh failed):", summary)
+              sys.exit(1)
+          # Successful non-skip runs should surface scan metrics for ops visibility.
+          skipped = bool(summary.get("skipped"))
+          reason = summary.get("reason")
+          print(
+              "OK cron body:",
+              {
+                  "skipped": skipped,
+                  "reason": reason,
+                  "durationMs": summary.get("durationMs"),
+                  "sports": summary.get("sports"),
+                  "oddsCount": summary.get("oddsCount"),
+                  "propPoolCount": summary.get("propPoolCount"),
+                  "boardScanPicks": summary.get("boardScanPicks"),
+                  "ticketSizes": summary.get("ticketSizes"),
+                  "deepSimComplete": summary.get("deepSimComplete"),
+              },
+          )
+          if not skipped and reason not in (None, "unchanged-fresh", "already-running"):
+              # Fresh compute: require evidence the job scanned something when markets exist.
+              # Zero sports+odds can be a genuine empty horizon — warn but still pass HTTP ok.
+              sports = summary.get("sports") or 0
+              odds = summary.get("oddsCount") or 0
+              picks = summary.get("boardScanPicks") or 0
+              if sports == 0 and odds == 0 and picks == 0:
+                  print(
+                      "WARN: refresh completed with zero sports/odds/picks "
+                      "(possible empty horizon or upstream odds failure)."
+                  )
+          PY
+
+          echo "coach slate cron: done (validated 2xx + ok:true)"

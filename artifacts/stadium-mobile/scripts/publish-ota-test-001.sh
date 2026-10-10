@@ -14,6 +14,11 @@ GIT_SHORT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 STAMP="$(date -u +%Y-%m-%dT%H:%MZ)"
 MESSAGE="PLAYER PROPS — OTA TEST 001 ${GIT_SHORT} ${STAMP}"
 
+# shellcheck disable=SC1091
+source scripts/lib/resolve-runtime-version.sh
+RUNTIME_VERSION="$(resolve_production_runtime_version)"
+export RUNTIME_VERSION
+
 export EAS_NO_VCS=1
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
@@ -25,7 +30,7 @@ echo "══ OTA TEST 001 publish ══"
 echo "Publish dir: $(pwd)"
 echo "Git commit: ${GIT_FULL}"
 echo "Message: ${MESSAGE}"
-echo "Runtime: 1.0.0"
+echo "Runtime: ${RUNTIME_VERSION} (from app.json; mismatches fail closed)"
 echo "Channel: production"
 echo "Branch: production"
 echo "Platform: ios"
