@@ -11,6 +11,10 @@ import {
   clerkEmailsMatchAllowlist,
   normalizeReviewEmail,
 } from "./appReviewAuth.js";
+import {
+  classifyClerkLookupError,
+  type ClerkLookupFailureDiag,
+} from "./clerkLookupDiag.js";
 import { logger } from "./logger.js";
 
 /** Parse server-only owner/admin email allowlist. */
@@ -47,20 +51,31 @@ export type OwnerTestAccessDiag = {
   emailResolved: boolean;
   allowlistMatched: boolean;
   ownerAccess: boolean;
+} & ClerkLookupFailureDiag;
+
+const noFailure: ClerkLookupFailureDiag = {
+  clerkHttpStatus: null,
+  clerkErrorCode: null,
+  clerkFailureCategory: "none",
 };
 
 export async function diagnoseOwnerTestAccess(
   userId: string | null | undefined,
 ): Promise<OwnerTestAccessDiag> {
-  const fail: OwnerTestAccessDiag = {
+  const fail = (
+    failure: ClerkLookupFailureDiag = noFailure,
+  ): OwnerTestAccessDiag => ({
     clerkUserLookupSucceeded: false,
     emailResolved: false,
     allowlistMatched: false,
     ownerAccess: false,
-  };
-  if (!userId) return fail;
+    ...failure,
+  });
+  if (!userId) return fail({ ...noFailure, clerkFailureCategory: "config" });
   const allowlist = readOwnerTestEmails();
-  if (allowlist.length === 0) return fail;
+  if (allowlist.length === 0) {
+    return fail({ ...noFailure, clerkFailureCategory: "config" });
+  }
   try {
     const user = await clerkClient.users.getUser(userId);
     const emails = emailsFromClerkUser(user);
@@ -71,9 +86,21 @@ export async function diagnoseOwnerTestAccess(
       emailResolved,
       allowlistMatched,
       ownerAccess: allowlistMatched,
+      ...noFailure,
     };
-  } catch {
-    return fail;
+  } catch (err) {
+    // Sanitized only — never userId / email / token / secret.
+    const classified = classifyClerkLookupError(err);
+    logger.warn(
+      {
+        path: "owner-test-access",
+        clerkHttpStatus: classified.clerkHttpStatus,
+        clerkErrorCode: classified.clerkErrorCode,
+        clerkFailureCategory: classified.clerkFailureCategory,
+      },
+      "owner test access: Clerk user lookup failed",
+    );
+    return fail(classified);
   }
 }
 
@@ -91,8 +118,14 @@ export async function isDesignatedOwnerTestUser(
     const user = await clerkClient.users.getUser(userId);
     return clerkEmailsMatchAllowlist(emailsFromClerkUser(user), allowlist);
   } catch (err) {
+    const classified = classifyClerkLookupError(err);
     logger.warn(
-      { err, path: "owner-test-access" },
+      {
+        path: "owner-test-access",
+        clerkHttpStatus: classified.clerkHttpStatus,
+        clerkErrorCode: classified.clerkErrorCode,
+        clerkFailureCategory: classified.clerkFailureCategory,
+      },
       "owner test access: Clerk user lookup failed",
     );
     return false;
