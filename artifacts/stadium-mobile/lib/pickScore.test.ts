@@ -5,11 +5,14 @@ import {
   americanToImplied,
   combinePickScore,
   confidenceFromSignals,
+  emptyPickSubScores,
   gradeFromComposite,
   injuryFavorGame,
   injuryFavorProp,
   lineShoppingAdvantage,
   matchupAlignment,
+  normalizeCombinedPickScore,
+  normalizePickSubScores,
   playerTrendMomentum,
   scoreInjury,
   scoreLineShopping,
@@ -19,6 +22,7 @@ import {
   scoreTrend,
   teamTrendMomentum,
   winChancePct,
+  type CombinedPickScore,
   type PickSubScores,
 } from "./pickScore.ts";
 
@@ -247,4 +251,174 @@ test("gradeFromComposite: threshold boundaries", () => {
   assert.equal(gradeFromComposite(5.5), "C");
   assert.equal(gradeFromComposite(4.0), "D");
   assert.equal(gradeFromComposite(3.9), "F");
+});
+
+// ---------- ScoreBreakdown crash regression (device stack OTA 01a126f2) ----------
+// Crash: FACTORS.filter((f) => data.scores[f.key] != null) when data.scores is
+// undefined → Hermes "Cannot convert undefined value to object".
+
+const FACTOR_KEYS = [
+  "matchup",
+  "trend",
+  "lineValue",
+  "injury",
+  "lineShopping",
+  "simulation",
+] as const;
+
+/** Mirrors ScoreBreakdown's present-count filter (the throw site). */
+function countPresentFactors(data: { scores?: PickSubScores | undefined }) {
+  return FACTOR_KEYS.filter((key) => data.scores![key] != null).length;
+}
+
+test("ScoreBreakdown crash: property access on undefined scores throws", () => {
+  // Exact device failure shape: grade/confidence without nested scores map
+  // (legacy pick, partial API, or PickCard spread of bare/partial payload).
+  const malformed = {
+    composite: 7.2,
+    grade: "B",
+    confidencePct: 61,
+    edgePct: 3.4,
+  } as unknown as CombinedPickScore;
+  assert.equal(malformed.scores, undefined);
+  assert.throws(
+    () => countPresentFactors(malformed),
+    (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Node: "Cannot read properties of undefined (reading 'matchup')"
+      // Hermes: "Cannot convert undefined value to object"
+      return /undefined/i.test(msg);
+    },
+  );
+});
+
+test("normalizeCombinedPickScore: missing scores → null map, filter safe", () => {
+  const safe = normalizeCombinedPickScore({
+    composite: 7.2,
+    grade: "B",
+    confidencePct: 61,
+    edgePct: 3.4,
+  });
+  assert.ok(safe);
+  assert.deepEqual(safe!.scores, emptyPickSubScores());
+  assert.equal(safe!.composite, 7.2);
+  assert.equal(safe!.grade, "B");
+  assert.equal(safe!.confidencePct, 61);
+  assert.equal(safe!.edgePct, 3.4);
+  // Does not invent factor scores — all null.
+  assert.equal(countPresentFactors(safe!), 0);
+});
+
+test("normalizeCombinedPickScore: bare PickSubScores (legacy pick.scores)", () => {
+  const bare = {
+    matchup: 7,
+    trend: null,
+    lineValue: 8.1,
+    injury: null,
+    lineShopping: 5,
+    simulation: null,
+  };
+  const safe = normalizeCombinedPickScore(bare);
+  assert.ok(safe);
+  assert.equal(safe!.scores.matchup, 7);
+  assert.equal(safe!.scores.lineValue, 8.1);
+  assert.equal(safe!.scores.trend, null);
+  assert.equal(safe!.composite, null); // never fabricated
+  assert.equal(safe!.grade, null);
+  assert.equal(countPresentFactors(safe!), 3);
+});
+
+test("normalizeCombinedPickScore: nested scores:undefined still safe", () => {
+  const safe = normalizeCombinedPickScore({
+    scores: undefined,
+    composite: 6.5,
+    grade: "B-",
+    confidencePct: null,
+    edgePct: null,
+  });
+  assert.ok(safe);
+  assert.deepEqual(safe!.scores, emptyPickSubScores());
+  assert.equal(safe!.composite, 6.5);
+  assert.equal(safe!.grade, "B-");
+  assert.doesNotThrow(() => countPresentFactors(safe!));
+});
+
+test("normalizeCombinedPickScore: valid CombinedPickScore unchanged (numbers)", () => {
+  const valid = combinePickScore(
+    {
+      matchup: 7,
+      trend: 6,
+      lineValue: 8,
+      injury: 5.5,
+      lineShopping: 5,
+      simulation: null,
+    },
+    6.8,
+    -110,
+  );
+  const safe = normalizeCombinedPickScore(valid);
+  assert.deepEqual(safe, valid);
+  assert.equal(countPresentFactors(safe!), 5);
+});
+
+test("normalizeCombinedPickScore: rejects non-objects; coerces junk sub-scores", () => {
+  assert.equal(normalizeCombinedPickScore(null), null);
+  assert.equal(normalizeCombinedPickScore(undefined), null);
+  assert.equal(normalizeCombinedPickScore("B"), null);
+  assert.equal(normalizeCombinedPickScore([]), null);
+  const junk = normalizePickSubScores({
+    matchup: "hot",
+    trend: NaN,
+    lineValue: 8,
+    injury: {},
+    lineShopping: Infinity,
+    simulation: 4.2,
+  });
+  assert.equal(junk.matchup, null);
+  assert.equal(junk.trend, null);
+  assert.equal(junk.lineValue, 8);
+  assert.equal(junk.injury, null);
+  assert.equal(junk.lineShopping, null);
+  assert.equal(junk.simulation, 4.2);
+});
+
+test("mixed list: one malformed pick cannot poison valid neighbors", () => {
+  // Simulates VirtualizedList of PickCards — each payload normalized independently.
+  const payloads: unknown[] = [
+    combinePickScore(
+      {
+        matchup: 8,
+        trend: 7,
+        lineValue: 7.5,
+        injury: 6,
+        lineShopping: 5,
+        simulation: 6.5,
+      },
+      5.2,
+    ),
+    { composite: 7, grade: "B", confidencePct: 55 }, // missing scores
+    {
+      matchup: 6,
+      trend: 6,
+      lineValue: null,
+      injury: null,
+      lineShopping: null,
+      simulation: null,
+    }, // bare legacy
+    null,
+    { scores: undefined, grade: "C+", composite: 5.8 },
+  ];
+  const normalized = payloads.map((p) => normalizeCombinedPickScore(p));
+  assert.equal(normalized[0]!.scores.matchup, 8);
+  assert.equal(normalized[0]!.grade, "B");
+  assert.deepEqual(normalized[1]!.scores, emptyPickSubScores());
+  assert.equal(normalized[1]!.grade, "B");
+  assert.equal(normalized[2]!.scores.matchup, 6);
+  assert.equal(normalized[2]!.composite, null);
+  assert.equal(normalized[3], null);
+  assert.deepEqual(normalized[4]!.scores, emptyPickSubScores());
+  for (const row of normalized) {
+    if (!row) continue;
+    assert.doesNotThrow(() => countPresentFactors(row));
+  }
 });
