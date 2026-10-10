@@ -71,11 +71,24 @@ export function isParlayBuildAsk(text: string): boolean {
   return PARLAY_BUILD_RE.test(t);
 }
 
+/** Max open (no-subscription) Coach parlay size — matches product HARD cap. */
+export const COACH_OPEN_PARLAY_MAX_LEGS = 15;
+
 export function resolveBuildLegTarget(text: string): number {
   const explicit = parseRequestedLegs(text);
-  if (explicit > 0) return Math.min(explicit, 25);
+  if (explicit > 0) return Math.min(explicit, COACH_OPEN_PARLAY_MAX_LEGS);
   if (isParlayBuildAsk(text)) return 6;
   return 0;
+}
+
+/**
+ * True when a 1–15-leg parlay build may run without a subscription.
+ * Live / photo asks are never open (caller must also check those).
+ */
+export function isOpenCoachParlayAsk(text: string): boolean {
+  if (!isParlayBuildAsk(text)) return false;
+  const legs = resolveBuildLegTarget(text);
+  return legs >= 1 && legs <= COACH_OPEN_PARLAY_MAX_LEGS;
 }
 
 /** True when a staged pick is a team/game line (spread/total/ML), not a player prop. */

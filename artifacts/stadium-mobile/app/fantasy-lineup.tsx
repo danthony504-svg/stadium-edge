@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { AppHeader } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, FONT } from "@/components/ui";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
@@ -12,7 +13,7 @@ import { selectFantasyStarter } from "@/lib/fantasyRecommendation";
 
 const STARTER_SLOTS: FantasyRosterSlot[] = ["QB", "RB", "WR", "TE", "FLEX", "K", "DEF"];
 
-export default function FantasyLineupScreen() {
+function FantasyLineupScreen() {
   const colors = useColors(); const router = useRouter(); const { defaultRoster, hydrated } = useFantasyRoster();
   const [analysis, setAnalysis] = useState<Record<string, HistoricalFantasyAnalysis | undefined>>({});
   const [injuries, setInjuries] = useState<Record<string, string | undefined>>({});
@@ -37,4 +38,12 @@ export default function FantasyLineupScreen() {
     <Card><Text style={{color:colors.mutedForeground}}>Matchup ranking unavailable — recommendations use saved-roster eligibility. Add supported player data for production, usage, injury, opponent, and projections.</Text></Card>
     <Pressable onPress={()=>router.back()} style={{borderWidth:1,borderColor:colors.border,borderRadius:10,minHeight:46,alignItems:"center",justifyContent:"center"}}><Text style={{color:colors.primary,fontFamily:FONT.semibold}}>Back to My Fantasy Team</Text></Pressable>
   </ScrollView></View>;
+}
+
+export default function FantasyLineupScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="fantasy">
+      <FantasyLineupScreen />
+    </PremiumFeatureGate>
+  );
 }

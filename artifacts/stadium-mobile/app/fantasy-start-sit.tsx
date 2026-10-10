@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { AppHeader } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, FONT, Pill } from "@/components/ui";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
@@ -16,7 +17,7 @@ type ComparisonRow = {
   stats: HistoricalFantasyAnalysis | null;
 };
 
-export default function FantasyStartSitScreen() {
+function FantasyStartSitScreen() {
   const colors = useColors();
   const router = useRouter();
   const { playerAId } = useLocalSearchParams<{ playerAId?: string }>();
@@ -95,5 +96,13 @@ export default function FantasyStartSitScreen() {
         </Pressable>
       </ScrollView>
     </View>
+  );
+}
+
+export default function FantasyStartSitScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="fantasy">
+      <FantasyStartSitScreen />
+    </PremiumFeatureGate>
   );
 }

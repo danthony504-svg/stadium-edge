@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { GameCard } from "@/components/GameCard";
 import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { MiniStat } from "@/components/PropVisuals";
@@ -385,7 +386,7 @@ function TeamResultRow({
   );
 }
 
-export default function PropsScreen() {
+function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
@@ -1670,5 +1671,13 @@ export default function PropsScreen() {
       />
       <TeamPropsSheet data={teamSheet} onClose={() => setTeamSheet(null)} />
     </View>
+  );
+}
+
+export default function PropsScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="props">
+      <PropsScreen />
+    </PremiumFeatureGate>
   );
 }

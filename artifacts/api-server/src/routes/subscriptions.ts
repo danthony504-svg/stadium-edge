@@ -9,17 +9,25 @@ import {
 import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
 import { isActivePaidEntitlement } from "../lib/subscriptionEntitlement";
+import {
+  planFromEntitlementIds,
+  planFromProductId,
+  resolveTrustedEntitlementForClientSync,
+} from "../lib/subscriptionSync";
 
 /**
  * Apple / RevenueCat subscription sync.
  *
- * - POST /subscriptions/sync — signed-in client pushes StoreKit snapshot
+ * - POST /subscriptions/sync — signed-in client may refresh metadata; NEVER
+ *   grants Go/Pro from client planId / storeKitActive / catalog claims.
+ *   Paid access comes only from RevenueCat webhooks → DB (fail-closed).
  * - GET  /subscriptions/entitlement — signed-in client reads server copy
  * - POST /subscriptions/webhooks/revenuecat — RevenueCat server notifications
  *   (Authorization: Bearer $REVENUECAT_WEBHOOK_SECRET)
  *
  * Appearance under iOS Settings → Subscriptions is owned by Apple StoreKit
  * auto-renewables; this route only mirrors entitlement state for the backend.
+ * Restore Purchases remains client StoreKit/RevenueCat; webhooks update DB.
  */
 
 const syncLimiter = rateLimit({
@@ -46,30 +54,6 @@ function clerkUserId(req: Request): string | null {
   } catch {
     return null;
   }
-}
-
-function isPlanId(value: unknown): value is "free" | "go" | "pro" {
-  return value === "free" || value === "go" || value === "pro";
-}
-
-/** Map RevenueCat product identifiers → plan. */
-function planFromProductId(productId: string | null | undefined): "go" | "pro" | null {
-  if (!productId) return null;
-  if (productId === "com.stadiumedge.app.pro.monthly") return "pro";
-  if (productId === "com.stadiumedge.app.go.weekly") return "go";
-  // Loose fallbacks for RC sandbox aliases
-  const lower = productId.toLowerCase();
-  if (lower.includes("pro.monthly") || lower.endsWith(".pro.monthly")) return "pro";
-  if (lower.includes("go.weekly") || lower.endsWith(".go.weekly")) return "go";
-  return null;
-}
-
-function planFromEntitlementIds(ids: unknown): "go" | "pro" | null {
-  if (!Array.isArray(ids)) return null;
-  const lower = ids.map((id) => String(id).toLowerCase());
-  if (lower.includes("pro")) return "pro";
-  if (lower.includes("go")) return "go";
-  return null;
 }
 
 function webhookAuthorized(req: Request): boolean {
@@ -156,42 +140,70 @@ router.post("/subscriptions/sync", syncLimiter, async (req, res) => {
   }
   try {
     const body = req.body ?? {};
-    const fromEntitlements = planFromEntitlementIds(body.entitlementIds);
     const productIds: string[] = Array.isArray(body.productIds)
       ? body.productIds.map(String)
       : [];
-    const fromProducts =
-      productIds.map(planFromProductId).find((p) => p != null) ?? null;
-    let planId: "free" | "go" | "pro" = "free";
-    if (isPlanId(body.planId) && body.planId !== "free") {
-      planId = body.planId;
-    } else if (fromEntitlements) {
-      planId = fromEntitlements;
-    } else if (fromProducts) {
-      planId = fromProducts;
-    }
-    const productId = productIds[0] ?? null;
-    const storeKitActive = planId !== "free";
-    await upsertEntitlement({
-      userId,
-      planId,
-      productId,
-      status: storeKitActive ? "active" : "expired",
-      expiresAt: null,
-      managementUrl:
-        typeof body.managementUrl === "string" ? body.managementUrl : null,
-      originalAppUserId:
-        typeof body.originalAppUserId === "string" ? body.originalAppUserId : null,
-      source: "client_sync",
-      storeKitActive,
+    const existingRows = await db
+      .select()
+      .from(subscriptionEntitlementsTable)
+      .where(eq(subscriptionEntitlementsTable.userId, userId))
+      .limit(1);
+    const existing = existingRows[0] ?? null;
+    const trusted = resolveTrustedEntitlementForClientSync({
+      existing: existing
+        ? {
+            planId: existing.planId,
+            storeKitActive: existing.storeKitActive,
+            status: existing.status,
+            expiresAt: existing.expiresAt,
+            productId: existing.productId,
+            managementUrl: existing.managementUrl,
+            originalAppUserId: existing.originalAppUserId,
+            source: existing.source,
+          }
+        : null,
+      body,
     });
+
+    // Only persist when we already have a row, or when refreshing metadata for
+    // an existing locked user. Never insert a forged paid grant from the client.
+    if (existing || trusted.managementUrl || trusted.originalAppUserId) {
+      await upsertEntitlement({
+        userId,
+        planId: trusted.planId,
+        productId: trusted.productId,
+        status: trusted.status,
+        expiresAt: trusted.expiresAt,
+        managementUrl: trusted.managementUrl,
+        originalAppUserId: trusted.originalAppUserId,
+        source: trusted.source,
+        storeKitActive: trusted.storeKitActive,
+      });
+    }
+
     await recordEvent({
       eventKey: `client_sync:${userId}:${Date.now()}`,
       userId,
       eventType: "CLIENT_SYNC",
-      payload: JSON.stringify({ planId, productIds }).slice(0, 4000),
+      payload: JSON.stringify({
+        planId: trusted.planId,
+        storeKitActive: trusted.storeKitActive,
+        productIds,
+        claimedPlanFromCatalog: trusted.claimedPlanFromCatalog,
+        ignoredClientGrantFields: trusted.ignoredClientGrantFields,
+        bodyPlanId: body.planId ?? null,
+        bodyStoreKitActive: body.storeKitActive ?? null,
+      }).slice(0, 4000),
     });
-    res.json({ ok: true, planId, storeKitActive });
+
+    const active = trusted.storeKitActive && isActivePaidEntitlement(trusted);
+    res.json({
+      ok: true,
+      planId: active ? trusted.planId : "free",
+      storeKitActive: active,
+      source: trusted.source,
+      ignoredClientGrantFields: trusted.ignoredClientGrantFields,
+    });
   } catch (err) {
     logger.error({ err }, "subscription sync failed");
     res.status(500).json({ error: "sync failed" });

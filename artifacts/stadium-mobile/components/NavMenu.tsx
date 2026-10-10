@@ -67,14 +67,19 @@ export function NavMenu() {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
     const premiumId = premiumFeatureForRoute(route);
-    // Navigate into the tab; PremiumFeatureGate shows unlock UI when locked.
-    // Also nudge the soft sheet so upgrade is one tap away.
-    if (premiumId && !entitlement.isPro) {
+    // Navigate into the tab; PremiumFeatureGate shows Sign In / Subscribe when locked.
+    // Nudge soft paywall for signed-in free users (logged-out users get Sign In on the gate).
+    if (premiumId && !entitlement.isPro && isSignedIn) {
       requirePro(PREMIUM_FEATURES[premiumId].label);
     }
     if (!isActive(pathname, route)) {
       router.navigate(route as any);
     }
+  };
+
+  const isRouteLocked = (route: string) => {
+    const premiumId = premiumFeatureForRoute(route);
+    return !!premiumId && !entitlement.isPro;
   };
 
   const panelTop = insets.top + 50;
@@ -157,10 +162,12 @@ export function NavMenu() {
             >
               {DESTINATIONS.map((d) => {
                 const active = isActive(pathname, d.route);
+                const locked = isRouteLocked(d.route);
                 return (
                   <Pressable
                     key={d.route}
                     onPress={() => go(d.route)}
+                    accessibilityLabel={locked ? `${d.label}, locked` : d.label}
                     style={({ pressed }) => ({
                       flexDirection: "row",
                       alignItems: "center",
@@ -201,6 +208,8 @@ export function NavMenu() {
                           {legs.length}
                         </Text>
                       </View>
+                    ) : locked ? (
+                      <Feather name="lock" size={14} color={colors.mutedForeground} />
                     ) : active ? (
                       <View
                         style={{
@@ -254,39 +263,43 @@ export function NavMenu() {
                   {plans.label}
                 </Text>
               </Pressable>
-              {isSignedIn ? (
-                <Pressable
-                  onPress={() => go("/notifications")}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 12,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    backgroundColor: pressed ? colors.background : "transparent",
-                  })}
+              <Pressable
+                onPress={() => go("/notifications")}
+                accessibilityLabel={
+                  isRouteLocked("/notifications") ? "Notifications, locked" : "Notifications"
+                }
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  backgroundColor: pressed ? colors.background : "transparent",
+                })}
+              >
+                <Feather
+                  name="bell"
+                  size={18}
+                  color={
+                    isActive(pathname, "/notifications") ? colors.primary : colors.mutedForeground
+                  }
+                />
+                <Text
+                  style={{
+                    flex: 1,
+                    color: isActive(pathname, "/notifications")
+                      ? colors.foreground
+                      : colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 15,
+                  }}
                 >
-                  <Feather
-                    name="bell"
-                    size={18}
-                    color={
-                      isActive(pathname, "/notifications") ? colors.primary : colors.mutedForeground
-                    }
-                  />
-                  <Text
-                    style={{
-                      flex: 1,
-                      color: isActive(pathname, "/notifications")
-                        ? colors.foreground
-                        : colors.mutedForeground,
-                      fontFamily: FONT.medium,
-                      fontSize: 15,
-                    }}
-                  >
-                    Notifications
-                  </Text>
-                </Pressable>
-              ) : null}
+                  Notifications
+                </Text>
+                {isRouteLocked("/notifications") ? (
+                  <Feather name="lock" size={14} color={colors.mutedForeground} />
+                ) : null}
+              </Pressable>
               {showOtaDiagnostics ? (
                 <Pressable
                   onPress={() => go("/ota-debug")}

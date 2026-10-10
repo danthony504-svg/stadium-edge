@@ -22,6 +22,8 @@ import {
 } from "../lib/coachUnsupportedMarkets.js";
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
 import { EXPLICIT_MARKET_LOCK_RULES } from "../lib/explicitMarketLock.js";
+import { resolveCoachQaGate } from "../lib/coachAskAccess.js";
+import { userHasCoachPremiumAccess } from "../lib/subscriptionAccess.js";
 
 const router: IRouter = Router();
 const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
@@ -649,6 +651,7 @@ function chatUserId(req: Request): string | null {
 
 /** Upload a large Coach build context once; stream /chat with contextStashId only. */
 router.post("/chat/context-stash", chatLimiter, async (req, res): Promise<void> => {
+  // Open to guests — logged-out parlay builds stash large context. Q&A is gated on /chat.
   const body = (req.body ?? {}) as { context?: unknown; stashId?: unknown };
   if (!body.context || typeof body.context !== "object" || Array.isArray(body.context)) {
     res.status(400).json({ error: "context object required" });
@@ -666,6 +669,32 @@ router.post("/chat", async (req, res): Promise<void> => {
   const parsed = SendChatMessageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  // Fail-closed premium Q&A: non-parlay asks need login + verified Go/Pro.
+  // Open 1–15-leg parlay builds stay available without a subscription.
+  const gateAskText =
+    [...parsed.data.messages].reverse().find((m) => m.role === "user")?.content || "";
+  const gateImageCandidates = [
+    ...(Array.isArray(parsed.data.imageDataUrls) ? parsed.data.imageDataUrls : []),
+    parsed.data.imageDataUrl,
+  ].filter((c): c is string => typeof c === "string" && c.length > 0);
+  const gateUserId = chatUserId(req);
+  const gatePremium =
+    gateUserId != null ? await userHasCoachPremiumAccess(gateUserId) : false;
+  const qaGate = resolveCoachQaGate({
+    askText: gateAskText,
+    hasImages: gateImageCandidates.length > 0,
+    signedIn: !!gateUserId,
+    premiumUnlocked: gatePremium,
+  });
+  if (!qaGate.allowed) {
+    res.status(qaGate.status).json({
+      error: qaGate.message,
+      reason: qaGate.reason,
+      code: "coach_premium_required",
+    });
     return;
   }
 

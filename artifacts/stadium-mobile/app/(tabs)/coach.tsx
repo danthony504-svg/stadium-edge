@@ -44,7 +44,7 @@ import {
 } from "@/lib/coachPremiumGate";
 import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } from "@/lib/api";
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
-import { isParlayBuildAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
+import { isOpenCoachParlayAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
 import {
   buildLiveCoachRecommendations,
   wantsLiveCoachAsk,
@@ -376,8 +376,9 @@ export default function CoachScreen() {
       const liveAsk = wantsLiveCoachAsk(text);
       const requestedLegs = resolveBuildLegTarget(text);
       // Live Coach asks never enter pregame buildParlay — even when they look like N-pick counts.
+      // 1–15-leg parlay builds stay open to everyone (identity blurred without a sub).
       const parlayBuild =
-        !liveAsk && isParlayBuildAsk(text) && requestedLegs >= 3 && !hasOutgoingImages;
+        !liveAsk && isOpenCoachParlayAsk(text) && !hasOutgoingImages;
 
       // Non-parlay Q&A (and live/photo analysis) requires auth + active subscription.
       const askAccess = resolveCoachAskAccess({

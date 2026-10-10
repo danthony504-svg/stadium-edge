@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { AppHeader } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, FONT, Pill } from "@/components/ui";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
@@ -16,7 +17,7 @@ export function canAnalyzeTrade(giveCount: number, receiveCount: number) {
   return giveCount > 0 && receiveCount > 0;
 }
 
-export default function FantasyTradeScreen() {
+function FantasyTradeScreen() {
   const colors = useColors(); const router = useRouter();
   const { defaultRoster, rosters, saveTradeAnalysis } = useFantasyRoster();
   const { giveId } = useLocalSearchParams<{ giveId?: string }>();
@@ -38,4 +39,12 @@ export default function FantasyTradeScreen() {
     {(rosters.tradeHistory??[]).length>0&&<Card><Text style={{color:colors.foreground,fontFamily:FONT.bold}}>Recent Trades</Text>{rosters.tradeHistory!.map(t=><Pressable key={t.id} onPress={()=>setTrade(t)}><Text style={{color:colors.primary}}>{new Date(t.createdAt).toLocaleDateString()} · {t.verdict}</Text></Pressable>)}</Card>}
     <Pressable accessibilityLabel="Back to My Fantasy Team" onPress={()=>router.back()} style={{borderWidth:1,borderColor:colors.border,borderRadius:10,minHeight:46,alignItems:"center",justifyContent:"center"}}><Text style={{color:colors.primary,fontFamily:FONT.semibold}}>Back to My Fantasy Team</Text></Pressable>
   </ScrollView></View>;
+}
+
+export default function FantasyTradeScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="fantasy">
+      <FantasyTradeScreen />
+    </PremiumFeatureGate>
+  );
 }
