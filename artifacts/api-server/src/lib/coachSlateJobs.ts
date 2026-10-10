@@ -20,12 +20,17 @@ export function isCoachSlateJobRunning(): boolean {
   return jobRunning;
 }
 
-/** Fire-and-forget refresh when GET serves a stale snapshot — keeps slate warm 24/7. */
+/**
+ * @deprecated Do not call from GET /coach/slate.
+ * Starting a full slate job after the HTTP response caused Render edge 502s
+ * (~20–25s later) via in-process cold-miss generation. Generation is cron-only.
+ * This no-op remains so accidental callers cannot relaunch expensive work.
+ */
 export function scheduleCoachSlateRefresh(reason = "stale-serve"): void {
-  if (jobRunning) return;
-  void runCoachSlateJob()
-    .then((r) => logger.info({ reason, summary: r.summary }, "coach slate background refresh"))
-    .catch((err) => logger.warn({ err, reason }, "coach slate background refresh failed"));
+  logger.warn(
+    { reason, jobRunning },
+    "coach slate: scheduleCoachSlateRefresh is a no-op — use POST /api/coach/slate/cron",
+  );
 }
 
 export type CoachSlateJobSummary = {
@@ -52,7 +57,11 @@ function ticketsHaveMinCoverage(tickets: SlateTicketsIndex | null | undefined): 
   );
 }
 
-/** 24/7 AI Coach slate pre-analysis — warms caches, scans board, persists all ticket sizes. */
+/**
+ * Full slate pre-analysis (odds fan-out, board scan, deep sim, DB persist).
+ * Call only from authenticated POST /api/coach/slate/cron (or an equivalent worker).
+ * Concurrent callers get `{ skipped: true, reason: "already-running" }` — single-flight.
+ */
 export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlateJobSummary }> {
   if (jobRunning) {
     return { ok: true, summary: { skipped: true, reason: "already-running" } };
