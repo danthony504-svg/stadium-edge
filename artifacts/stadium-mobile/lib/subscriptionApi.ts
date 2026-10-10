@@ -6,6 +6,7 @@
 import { fetch as expoFetch } from "expo/fetch";
 
 import { API_BASE } from "./apiBase";
+import { appVersionRequestHeaders } from "./appVersionGate";
 import { getAuthTokenGetter } from "./authToken";
 import type { PlanId } from "./entitlements";
 import type { StoreKitCustomerSnapshot } from "./purchases";
