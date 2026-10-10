@@ -9,6 +9,7 @@ import {
   CRASH_MAX_BODY_BYTES,
   parseAndSanitizeCrashBody,
 } from "../lib/reliabilitySanitize";
+import { coachReliabilityDigestStats } from "../lib/coachReliabilityStore";
 import {
   ingestSanitizedCrash,
   pruneReliabilityEvents,
@@ -124,12 +125,14 @@ router.post("/reliability/cron/digest", async (req, res) => {
     // Prune first — retention must run even if Telegram is off.
     const pruned = await pruneReliabilityEvents();
     const stats = await reliabilityDigestStats(24);
-    const text = formatDailyHealthySummary(stats);
+    const coach = await coachReliabilityDigestStats(24);
+    const text = formatDailyHealthySummary({ ...stats, coach });
     const sent = await sendTelegramMessage(text);
     res.json({
       ok: true,
       pruned,
       stats,
+      coach,
       telegram: sent,
       durationMs: Date.now() - started,
       model: reliabilitySecurityModelSummary(),

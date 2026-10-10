@@ -43,17 +43,92 @@ export function formatCriticalCrashAlert(event: {
     .join("\n");
 }
 
+export type CoachDigestTelegramStats = {
+  totalRequests: number;
+  successfulRequests: number;
+  fulfillmentPct: number | null;
+  underfillCount: number;
+  zeroResultCount: number;
+  questionFailureCount: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  topFailureReasons: Array<{ reason: string; count: number }>;
+};
+
+export function formatCoachReliabilityAlert(event: {
+  eventType: string;
+  summary: string;
+  sportCategory: string;
+  requestedLegCount: number | null;
+  returnedLegCount: number | null;
+  durationMs: number | null;
+  failureReason: string;
+  realOddsAvailable: boolean | null;
+  qualificationFiltersEliminated: boolean | null;
+  occurrenceCount?: number;
+}): string {
+  const n = event.occurrenceCount ?? 1;
+  const legs =
+    event.requestedLegCount != null
+      ? `${event.returnedLegCount ?? 0}/${event.requestedLegCount}`
+      : "—";
+  return [
+    "⚠️ Stadium Edge Coach alert",
+    `type: ${event.eventType}`,
+    `summary: ${event.summary}`,
+    `sport: ${event.sportCategory}`,
+    `legs: ${legs}`,
+    `reason: ${event.failureReason}`,
+    event.durationMs != null ? `durationMs: ${event.durationMs}` : null,
+    event.realOddsAvailable != null
+      ? `realOddsAvailable: ${event.realOddsAvailable}`
+      : null,
+    event.qualificationFiltersEliminated != null
+      ? `qualificationFiltersEliminated: ${event.qualificationFiltersEliminated}`
+      : null,
+    n > 1 ? `occurrences: ${n} (deduped)` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatCoachDailyDigestSection(
+  coach: CoachDigestTelegramStats,
+): string {
+  const top =
+    coach.topFailureReasons.length > 0
+      ? coach.topFailureReasons
+          .map((r) => `${r.reason}:${r.count}`)
+          .join(", ")
+      : "—";
+  return [
+    "🤖 Coach fulfillment",
+    `requests: ${coach.totalRequests}`,
+    `successful parlays: ${coach.successfulRequests}`,
+    `fulfillment: ${coach.fulfillmentPct == null ? "—" : `${coach.fulfillmentPct}%`}`,
+    `underfill: ${coach.underfillCount} · zero: ${coach.zeroResultCount}`,
+    `question failures: ${coach.questionFailureCount}`,
+    `p50/p95 ms: ${coach.p50Ms ?? "—"} / ${coach.p95Ms ?? "—"}`,
+    `top failures: ${top}`,
+  ].join("\n");
+}
+
 export function formatDailyHealthySummary(stats: {
   windowHours: number;
   criticalCount: number;
   distinctFingerprints: number;
   lastCriticalAt: string | null;
+  coach?: CoachDigestTelegramStats | null;
 }): string {
+  const coachBlock = stats.coach
+    ? ["", formatCoachDailyDigestSection(stats.coach)]
+    : [];
   if (stats.criticalCount === 0) {
     return [
       "✅ Stadium Edge reliability — healthy",
       `Last ${stats.windowHours}h: 0 critical crashes`,
       "Ingest + Telegram path OK",
+      ...coachBlock,
     ].join("\n");
   }
   return [
@@ -61,6 +136,7 @@ export function formatDailyHealthySummary(stats: {
     `Last ${stats.windowHours}h: ${stats.criticalCount} critical report(s)`,
     `Distinct fingerprints: ${stats.distinctFingerprints}`,
     `Last critical: ${stats.lastCriticalAt ?? "—"}`,
+    ...coachBlock,
   ].join("\n");
 }
 
