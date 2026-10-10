@@ -22,11 +22,21 @@ import {
 } from "../lib/coachUnsupportedMarkets.js";
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
 import { EXPLICIT_MARKET_LOCK_RULES } from "../lib/explicitMarketLock.js";
-import { resolveCoachQaGate } from "../lib/coachAskAccess.js";
+import {
+  resolveBuildLegTarget,
+  resolveCoachQaGate,
+} from "../lib/coachAskAccess.js";
 import {
   assertLockedPreviewSafe,
   buildLockedOpenParlayPreview,
 } from "../lib/coachOpenParlayPreview.js";
+import {
+  classifyCoachQuestionKind,
+  classifyCoachSportCategory,
+  classifyParlayOutcome,
+  countCoachPickLines,
+} from "../lib/coachReliabilitySanitize.js";
+import { reportCoachReliability } from "../lib/coachReliabilityStore.js";
 import { userHasCoachPremiumAccess } from "../lib/subscriptionAccess.js";
 import { logger } from "../lib/logger.js";
 
@@ -707,17 +717,60 @@ router.post("/chat", async (req, res): Promise<void> => {
   // with PICK: identity, props frames, or unredacted context. Serve a locked
   // slate preview only (count + genuine grades/conf/edge) before any model call.
   if (qaGate.openParlay && !gatePremium) {
+    const lockedStarted = Date.now();
+    const lockedSport = classifyCoachSportCategory(gateAskText);
+    const lockedRequested = resolveBuildLegTarget(gateAskText) || 6;
+    reportCoachReliability({
+      eventType: "parlay_requested",
+      sportCategory: lockedSport,
+      questionKind: "parlay_build",
+      requestedLegCount: lockedRequested,
+      failureReason: "none",
+    });
     try {
       const preview = await buildLockedOpenParlayPreview({ askText: gateAskText });
       const leaks = assertLockedPreviewSafe(preview);
       if (leaks.length > 0) {
         // Fail closed — do not stream a leaking payload.
+        reportCoachReliability({
+          eventType: "parlay_zero_results",
+          sportCategory: lockedSport,
+          questionKind: "parlay_build",
+          requestedLegCount: lockedRequested,
+          returnedLegCount: 0,
+          durationMs: Date.now() - lockedStarted,
+          failureReason: "preview_unsafe",
+          realOddsAvailable: null,
+          qualificationFiltersEliminated: true,
+        });
         res.status(503).json({
           error: "Parlay preview unavailable.",
           code: "coach_preview_unsafe",
         });
         return;
       }
+      const returned = preview.pickCount;
+      const requested = preview.requestedLegs || lockedRequested;
+      const outcome = classifyParlayOutcome({
+        requestedLegCount: requested,
+        returnedLegCount: returned,
+      });
+      reportCoachReliability({
+        eventType: outcome,
+        sportCategory: lockedSport,
+        questionKind: "parlay_build",
+        requestedLegCount: requested,
+        returnedLegCount: returned,
+        durationMs: Date.now() - lockedStarted,
+        failureReason:
+          outcome === "parlay_fulfilled"
+            ? "none"
+            : outcome === "parlay_zero_results"
+              ? "zero_results"
+              : "underfilled",
+        realOddsAvailable: returned > 0,
+        qualificationFiltersEliminated: returned < requested,
+      });
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
@@ -749,6 +802,25 @@ router.post("/chat", async (req, res): Promise<void> => {
     } catch (err) {
       // Never HTML-500 free open-parlay — serve an empty locked preview instead.
       logger.error({ err }, "open-parlay locked preview path failed");
+      reportCoachReliability({
+        eventType: "coach_exception",
+        sportCategory: lockedSport,
+        questionKind: "parlay_build",
+        requestedLegCount: lockedRequested,
+        returnedLegCount: 0,
+        durationMs: Date.now() - lockedStarted,
+        failureReason: "preview_degraded",
+      });
+      reportCoachReliability({
+        eventType: "parlay_zero_results",
+        sportCategory: lockedSport,
+        questionKind: "parlay_build",
+        requestedLegCount: lockedRequested,
+        returnedLegCount: 0,
+        durationMs: Date.now() - lockedStarted,
+        failureReason: "preview_degraded",
+        qualificationFiltersEliminated: true,
+      });
       const fallbackCta = "Sign In / Subscribe to Reveal Picks";
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -780,6 +852,20 @@ router.post("/chat", async (req, res): Promise<void> => {
 
   const aiConfig = resolveOpenAIConfig();
   if ("error" in aiConfig) {
+    const sport = classifyCoachSportCategory(gateAskText);
+    const kind = classifyCoachQuestionKind(gateAskText, {
+      hasImages: gateImageCandidates.length > 0,
+    });
+    const legs = resolveBuildLegTarget(gateAskText);
+    reportCoachReliability({
+      eventType: legs > 0 ? "parlay_zero_results" : "coach_question_failed",
+      sportCategory: sport,
+      questionKind: kind,
+      requestedLegCount: legs > 0 ? legs : null,
+      returnedLegCount: legs > 0 ? 0 : null,
+      failureReason: "ai_config",
+      answered: false,
+    });
     res.status(502).json({ error: aiConfig.error });
     return;
   }
@@ -2315,6 +2401,39 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
     }),
   ];
 
+  // Observe-only Coach reliability markers (no selection / odds / sim changes).
+  const coachRelStarted = Date.now();
+  const coachRelSport = classifyCoachSportCategory(gateAskText);
+  const coachRelKind = classifyCoachQuestionKind(gateAskText, {
+    hasImages: gateImageCandidates.length > 0,
+  });
+  const coachRelRequestedLegs = resolveBuildLegTarget(gateAskText);
+  const coachRelIsParlay = coachRelRequestedLegs > 0 || qaGate.openParlay;
+  const coachRelOddsCount = Array.isArray(
+    (lockedContext as { realOdds?: unknown[] } | null | undefined)?.realOdds,
+  )
+    ? ((lockedContext as { realOdds?: unknown[] }).realOdds?.length ?? 0)
+    : 0;
+  const coachRelRealOddsAvailable = coachRelOddsCount > 0;
+  if (coachRelIsParlay) {
+    reportCoachReliability({
+      eventType: "parlay_requested",
+      sportCategory: coachRelSport,
+      questionKind: "parlay_build",
+      requestedLegCount: coachRelRequestedLegs || 6,
+      realOddsAvailable: coachRelRealOddsAvailable,
+      failureReason: "none",
+    });
+  } else {
+    reportCoachReliability({
+      eventType: "coach_question_received",
+      sportCategory: coachRelSport,
+      questionKind: coachRelKind,
+      realOddsAvailable: coachRelRealOddsAvailable,
+      failureReason: "none",
+    });
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   // "no-transform" is the HTTP-standard directive that forbids intermediary
   // proxies from TRANSFORMING the body — crucially, from gzip-compressing it.
@@ -2547,6 +2666,47 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     }
+    // Observe-only fulfillment / Q&A outcome (after stream completes).
+    {
+      const durationMs = Date.now() - coachRelStarted;
+      const pickCount = countCoachPickLines(fullText);
+      const trimmed = fullText.trim();
+      if (coachRelIsParlay) {
+        const requested = coachRelRequestedLegs || 6;
+        const outcome = classifyParlayOutcome({
+          requestedLegCount: requested,
+          returnedLegCount: pickCount,
+        });
+        reportCoachReliability({
+          eventType: outcome,
+          sportCategory: coachRelSport,
+          questionKind: "parlay_build",
+          requestedLegCount: requested,
+          returnedLegCount: pickCount,
+          durationMs,
+          failureReason:
+            outcome === "parlay_fulfilled"
+              ? "none"
+              : outcome === "parlay_zero_results"
+                ? "zero_results"
+                : "underfilled",
+          realOddsAvailable: coachRelRealOddsAvailable,
+          qualificationFiltersEliminated:
+            pickCount < requested && coachRelRealOddsAvailable,
+        });
+      } else if (!trimmed) {
+        reportCoachReliability({
+          eventType: "coach_empty_response",
+          sportCategory: coachRelSport,
+          questionKind: coachRelKind,
+          durationMs,
+          failureReason: "empty_response",
+          realOddsAvailable: coachRelRealOddsAvailable,
+          answered: false,
+        });
+      }
+      // Successful Q&A: counted via coach_question_received at stream start (no alert).
+    }
     if (bgUserId) {
       // Persist the terminal outcome of a completed background-eligible build:
       // stash the ready ticket (user walked away), stash a terminal failure
@@ -2586,6 +2746,48 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
       watchdogAborted,
       log: req.log,
     });
+    // Observe-only timeout / exception — skip silent client disconnects.
+    {
+      const durationMs = Date.now() - coachRelStarted;
+      if (watchdogAborted || outcome.kind === "stashFailure") {
+        reportCoachReliability({
+          eventType: watchdogAborted ? "coach_timeout" : "coach_exception",
+          sportCategory: coachRelSport,
+          questionKind: coachRelIsParlay ? "parlay_build" : coachRelKind,
+          requestedLegCount: coachRelIsParlay
+            ? coachRelRequestedLegs || 6
+            : null,
+          returnedLegCount: coachRelIsParlay ? 0 : null,
+          durationMs,
+          failureReason: watchdogAborted ? "timeout" : "upstream_error",
+          realOddsAvailable: coachRelRealOddsAvailable,
+          answered: false,
+        });
+      } else if (outcome.kind !== "silent") {
+        if (coachRelIsParlay) {
+          reportCoachReliability({
+            eventType: "coach_exception",
+            sportCategory: coachRelSport,
+            questionKind: "parlay_build",
+            requestedLegCount: coachRelRequestedLegs || 6,
+            returnedLegCount: 0,
+            durationMs,
+            failureReason: "upstream_error",
+            realOddsAvailable: coachRelRealOddsAvailable,
+          });
+        } else {
+          reportCoachReliability({
+            eventType: "coach_question_failed",
+            sportCategory: coachRelSport,
+            questionKind: coachRelKind,
+            durationMs,
+            failureReason: "exception",
+            realOddsAvailable: coachRelRealOddsAvailable,
+            answered: false,
+          });
+        }
+      }
+    }
     // Background build the user walked away from — terminal status persisted and
     // the socket is already gone, so there's nothing more to send.
     if (outcome.kind === "stashFailure") return;
