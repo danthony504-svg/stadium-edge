@@ -69,6 +69,7 @@ export function isMinVersionExemptPath(path: string): boolean {
   }
   if (p === "/app/config" || p.endsWith("/app/config")) return true;
   if (p.includes("/subscriptions")) return true;
-  if (p.includes("/app-review")) return true;
+  // App Review ticket helper is /auth/app-review-ticket (not /app-review/…).
+  if (p.includes("/app-review") || p.includes("/auth/app-review")) return true;
   return false;
 }

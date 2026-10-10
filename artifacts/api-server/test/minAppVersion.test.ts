@@ -34,11 +34,12 @@ test("default min iOS version is 1.1.0 and App Store id is correct", () => {
   assert.match(cfg.updateRequiredMessage, /1\.1\.0/);
 });
 
-test("exempt paths include health, app config, subscriptions", () => {
+test("exempt paths include health, app config, subscriptions, app-review auth", () => {
   assert.equal(isMinVersionExemptPath("/healthz"), true);
   assert.equal(isMinVersionExemptPath("/app/config"), true);
   assert.equal(isMinVersionExemptPath("/subscriptions/sync"), true);
   assert.equal(isMinVersionExemptPath("/subscriptions/webhooks/revenuecat"), true);
+  assert.equal(isMinVersionExemptPath("/auth/app-review-ticket"), true);
   assert.equal(isMinVersionExemptPath("/odds?sport=nba"), false);
   assert.equal(isMinVersionExemptPath("/chat"), false);
 });

@@ -26,6 +26,7 @@ async function subFetch(
 ): Promise<Response | null> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...appVersionRequestHeaders(),
   };
   try {
     const getter = getAuthTokenGetter();
