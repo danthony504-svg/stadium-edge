@@ -130,7 +130,12 @@ router.get("/coach/slate", async (req, res): Promise<void> => {
   }
 });
 
-/** Cron entry — scheduled deployment POSTs here every few minutes. */
+/**
+ * Legacy HTTP cron entry.
+ * Production generation runs on the Render Cron Job worker (coachSlateWorker).
+ * Set COACH_SLATE_RUN_ON_WEB=1 only for emergency override — still holds the
+ * advisory lock but can OOM the web dyno (see run #1405).
+ */
 router.post("/coach/slate/cron", async (req, res): Promise<void> => {
   const key = process.env.COACH_SLATE_CRON_KEY || process.env.PREBUILD_CRON_KEY || process.env.NOTIFY_CRON_KEY;
   if (!key) {
@@ -139,6 +144,14 @@ router.post("/coach/slate/cron", async (req, res): Promise<void> => {
   }
   if (req.get("x-cron-key") !== key) {
     res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  if (process.env.COACH_SLATE_RUN_ON_WEB !== "1") {
+    res.status(410).json({
+      ok: false,
+      error: "slate cron moved to Render Cron Job worker",
+      code: "use_render_cron_worker",
+    });
     return;
   }
   try {

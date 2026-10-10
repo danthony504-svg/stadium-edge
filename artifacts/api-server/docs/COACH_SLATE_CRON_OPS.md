@@ -1,9 +1,9 @@
 # Coach slate cron — Render + GitHub configuration
 
-**Service that serves the cron endpoint:** the Render **web service** for Stadium Edge API  
-(public host `stadium-edge.onrender.com`, Express `api-server`, header `x-render-origin-server: Render`).  
-Route: `POST /api/coach/slate/cron` in `artifacts/api-server/src/routes/coachSlate.ts`.  
-There is **no** separate Render Cron Job required if GitHub Actions posts every 2 minutes; the **same web service** runs `runCoachSlateJob()` in-process.
+**Preferred generation path:** a dedicated Render **Cron Job** running  
+`node --enable-source-maps ./dist/coachSlateWorker.mjs` (see  
+`COACH_SLATE_RENDER_CRON_WORKER.md`). The web service GET remains read-only;  
+`POST /api/coach/slate/cron` returns **410** unless `COACH_SLATE_RUN_ON_WEB=1`.
 
 **Not a native rollback asset:** any uploaded `stadium_edge_mobile_final_v11*.zip` is a **web asset package**, not a verified iOS embedded rollback build. Do not treat it as known-good native recovery.
 

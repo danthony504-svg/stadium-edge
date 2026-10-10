@@ -1,8 +1,24 @@
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Base URL for slate odds/games/props HTTP reads.
+ * Standalone Render Cron Job must set COACH_SLATE_API_BASE to the production
+ * web API (e.g. https://stadium-edge.onrender.com/api) — never rely on
+ * 127.0.0.1 inside the worker process.
+ */
 export function coachSlateApiBase(): string {
+  const fromEnv = (process.env.COACH_SLATE_API_BASE || "").trim().replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  // Legacy in-process web path only (not valid for the standalone cron worker).
   const port = process.env.PORT || "5000";
   return `http://127.0.0.1:${port}/api`;
+}
+
+/** True when heavy prop/game sims must run in this process (cron worker). */
+export function coachSlateSimsInProcess(): boolean {
+  if (process.env.COACH_SLATE_WORKER === "1") return true;
+  const mode = (process.env.COACH_SLATE_SIM_MODE || "").trim().toLowerCase();
+  return mode === "inprocess" || mode === "in-process";
 }
 
 export async function slateLoopbackGet<T>(path: string, attempts = 3): Promise<T | null> {
@@ -17,7 +33,6 @@ export async function slateLoopbackGet<T>(path: string, attempts = 3): Promise<T
         await r.text().catch(() => {});
         return null;
       }
-      await r.text().catch(() => {});
     } catch {
       if (i === attempts - 1) return null;
     }

@@ -1,4 +1,10 @@
-import { pooled, slateLoopbackGet, slateLoopbackPost } from "./coachSlateLoopback.js";
+import {
+  coachSlateSimsInProcess,
+  pooled,
+  slateLoopbackGet,
+  slateLoopbackPost,
+} from "./coachSlateLoopback.js";
+import { runGameOutcomeSimInProcess } from "./coachSlateInProcessSims.js";
 import type { CoachGameSimEntry, RealOddsEntry } from "./coachSlateTypes.js";
 
 type EspnGame = {
@@ -126,11 +132,13 @@ export async function fetchServerGameSimulations(
       body.awayTeamId = espn.awayTeamId;
     }
 
-    const resp = await slateLoopbackPost<GameOutcomeResponse>(
-      "/sports/simulate/game-outcome",
-      body,
-      120_000,
-    );
+    const resp = coachSlateSimsInProcess()
+      ? await runGameOutcomeSimInProcess(body)
+      : await slateLoopbackPost<GameOutcomeResponse>(
+          "/sports/simulate/game-outcome",
+          body,
+          120_000,
+        );
     if (!resp) return;
     out.set(game, {
       winProbHome: resp.homeWinProbability ?? null,

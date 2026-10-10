@@ -2,12 +2,14 @@ import { eq } from "drizzle-orm";
 import { coachPrecomputedSlateTable, db } from "@workspace/db";
 import { logger } from "./logger.js";
 import { normalizeCoachPrecomputedSlateRow } from "./coachSlateRow.js";
+import { shouldPublishCoachSlateSnapshot } from "./coachSlatePublish.js";
 import {
   COACH_SLATE_ROW_ID,
   type SlatePreAnalysisSnapshot,
 } from "./coachSlateTypes.js";
 
 export { normalizeCoachPrecomputedSlateRow } from "./coachSlateRow.js";
+export { shouldPublishCoachSlateSnapshot } from "./coachSlatePublish.js";
 
 export async function getCoachPrecomputedSlate(): Promise<{
   snapshot: SlatePreAnalysisSnapshot | null;
@@ -36,9 +38,20 @@ export async function getCoachPrecomputedSlate(): Promise<{
   }
 }
 
+/**
+ * Atomically publish a complete slate snapshot to id=global.
+ * Incomplete snapshots are rejected so a prior successful row is preserved.
+ */
 export async function persistCoachPrecomputedSlate(
   snapshot: SlatePreAnalysisSnapshot,
 ): Promise<void> {
+  if (!shouldPublishCoachSlateSnapshot(snapshot)) {
+    logger.info(
+      { fingerprint: snapshot.fingerprint, deepSimComplete: snapshot.deepSimComplete },
+      "coach slate: refusing to publish incomplete snapshot (preserving prior global row)",
+    );
+    return;
+  }
   const now = new Date();
   await db
     .insert(coachPrecomputedSlateTable)
@@ -46,7 +59,7 @@ export async function persistCoachPrecomputedSlate(
       id: COACH_SLATE_ROW_ID,
       fingerprint: snapshot.fingerprint,
       data: snapshot,
-      deepSimComplete: snapshot.deepSimComplete,
+      deepSimComplete: true,
       computedAt: now,
       updatedAt: now,
     })
@@ -55,7 +68,8 @@ export async function persistCoachPrecomputedSlate(
       set: {
         fingerprint: snapshot.fingerprint,
         data: snapshot,
-        deepSimComplete: snapshot.deepSimComplete,
+        deepSimComplete: true,
+        computedAt: now,
         updatedAt: now,
       },
     });
