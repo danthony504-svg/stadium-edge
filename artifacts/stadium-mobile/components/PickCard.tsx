@@ -36,6 +36,12 @@ import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { LockedAiMetricsTeaser, useAiMetricsLocked } from "@/components/LockedAiMetrics";
 import { FONT } from "@/components/ui";
 import { SLIP_UI_ENABLED } from "@/lib/slipUi";
+import {
+  COACH_PREMIUM_FEATURE_LABEL,
+  PREMIUM_VALUE_MASK,
+  publicCoachPickSummary,
+} from "@/lib/coachPremiumGate";
+import { useSubscriptionOptional } from "@/context/SubscriptionContext";
 
 export type AltRungOption = {
   side: string;
@@ -378,9 +384,47 @@ function simAltTone(label: SimAltTierLabel): "safe" | "best" | "value" | "confid
 }
 
 // Line ladder: heuristic Safe/Best/Value before sim; labeled 10k alt lines after.
-function LineLadder({ pick }: { pick: ParsedPick }) {
+function LineLadder({ pick, locked }: { pick: ParsedPick; locked?: boolean }) {
   const colors = useColors();
+  const sub = useSubscriptionOptional();
   const simAlts = pick.simAltLines ?? [];
+
+  if (locked) {
+    return (
+      <Pressable
+        onPress={() => sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL)}
+        accessibilityRole="button"
+        accessibilityLabel="Unlock AI Picks"
+        style={{
+          gap: 6,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          borderRadius: 12,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Feather name="lock" size={12} color={colors.mutedForeground} />
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.bold,
+              fontSize: 11,
+              letterSpacing: 0.4,
+              textTransform: "uppercase",
+            }}
+          >
+            Lines & odds locked
+          </Text>
+        </View>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          {PREMIUM_VALUE_MASK} · Unlock AI Picks to see recommended lines
+        </Text>
+      </Pressable>
+    );
+  }
 
   if (simAlts.length > 0) {
     return (
@@ -728,6 +772,8 @@ export function PickCard({
   onPress,
   hideReadout,
   badge,
+  /** Coach cards: also blur pick side/line/odds (not just AI metrics). */
+  lockPickDetails,
 }: {
   pick: ParsedPick;
   // When set, the card's header/info area becomes tappable (e.g. to open the
@@ -742,26 +788,42 @@ export function PickCard({
   // underdog. The caption states what the badge MEANS in plain English so it
   // never reads as a fabricated rating.
   badge?: { text: string; caption?: string; tone: "grade" | "upset" | "value" } | null;
+  lockPickDetails?: boolean;
 }) {
   const colors = useColors();
+  const sub = useSubscriptionOptional();
+  const metricsLocked = useAiMetricsLocked();
+  const premiumLocked = !!lockPickDetails && metricsLocked;
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
+  const publicSummary = publicCoachPickSummary(pick);
   const altPickBadge = {
     text: "ALT PICK",
-    caption: "Alternate rung — positive EV, edge, and sim grade",
+    caption: premiumLocked
+      ? "Alternate line — unlock to view"
+      : "Alternate rung — positive EV, edge, and sim grade",
     tone: "grade" as const,
   };
   const liveMeta = pick.liveCoach;
   const livePickBadge = liveMeta
     ? {
         text: "LIVE",
-        caption: `${liveMeta.score} · ${liveMeta.periodLabel ?? (liveMeta.period != null ? `Q${liveMeta.period}` : "")}${liveMeta.clock ? ` ${liveMeta.clock}` : ""} · edge ${liveMeta.edgePct > 0 ? "+" : ""}${liveMeta.edgePct.toFixed(1)}% · ${liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"}${liveMeta.freshness === "fresh" ? " fresh" : ""}`.replace(/\s+/g, " ").trim(),
+        caption: premiumLocked
+          ? `${liveMeta.score} · ${liveMeta.periodLabel ?? (liveMeta.period != null ? `Q${liveMeta.period}` : "")}${liveMeta.clock ? ` ${liveMeta.clock}` : ""}`.replace(/\s+/g, " ").trim()
+          : `${liveMeta.score} · ${liveMeta.periodLabel ?? (liveMeta.period != null ? `Q${liveMeta.period}` : "")}${liveMeta.clock ? ` ${liveMeta.clock}` : ""} · edge ${liveMeta.edgePct > 0 ? "+" : ""}${liveMeta.edgePct.toFixed(1)}% · ${liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"}${liveMeta.freshness === "fresh" ? " fresh" : ""}`.replace(/\s+/g, " ").trim(),
         tone: "value" as const,
       }
     : null;
   const isAltLeg = pickShowsAltBadge(pick);
   const cardBadge = livePickBadge ?? (isAltLeg ? altPickBadge : badge);
+  const headerPress = () => {
+    if (premiumLocked) {
+      sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL);
+      return;
+    }
+    onPress?.();
+  };
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
   // FULL team name (multi-word national teams) on a 3-way line, so "Canada -0.5"
@@ -852,9 +914,18 @@ export function PickCard({
         </View>
       ) : null}
       <Pressable
-        onPress={onPress}
-        disabled={!onPress}
-        style={({ pressed }) => ({ gap: 8, opacity: pressed && onPress ? 0.7 : 1 })}
+        onPress={premiumLocked || onPress ? headerPress : undefined}
+        disabled={!premiumLocked && !onPress}
+        accessibilityRole={premiumLocked || onPress ? "button" : undefined}
+        accessibilityLabel={
+          premiumLocked
+            ? `${publicSummary.title}. ${COACH_PREMIUM_FEATURE_LABEL}`
+            : undefined
+        }
+        style={({ pressed }) => ({
+          gap: 8,
+          opacity: pressed && (premiumLocked || onPress) ? 0.7 : 1,
+        })}
       >
         <View
           style={{
@@ -890,16 +961,20 @@ export function PickCard({
               {marketDisplayLabel(pick.market, pick.sport)}
             </Text>
           </View>
-          <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
-            {formatAmerican(pick.odds)}
+          <Text
+            style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}
+            accessibilityElementsHidden={premiumLocked}
+            importantForAccessibility={premiumLocked ? "no" : "auto"}
+          >
+            {premiumLocked ? PREMIUM_VALUE_MASK : formatAmerican(pick.odds)}
           </Text>
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
-            {pick.pick}
+            {premiumLocked ? `${publicSummary.title} · ${PREMIUM_VALUE_MASK}` : pick.pick}
           </Text>
-          {homeAwayTag ? (
+          {!premiumLocked && homeAwayTag ? (
             <View
               style={{
                 paddingHorizontal: 7,
@@ -922,25 +997,35 @@ export function PickCard({
             </View>
           ) : null}
         </View>
-        <MatchupLine game={pick.game} />
+        {premiumLocked ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 13 }}>
+            {PREMIUM_VALUE_MASK} @ {PREMIUM_VALUE_MASK}
+          </Text>
+        ) : (
+          <MatchupLine game={pick.game} />
+        )}
         {liveMeta ? (
           <View style={{ gap: 2, marginTop: -2 }}>
             <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12 }}>
-              LIVE · {liveMeta.score}
-              {liveMeta.periodLabel || liveMeta.period != null
-                ? ` · ${liveMeta.periodLabel ?? `Q${liveMeta.period}`}`
-                : ""}
-              {liveMeta.clock ? ` ${liveMeta.clock}` : ""}
+              {premiumLocked
+                ? `LIVE · ${PREMIUM_VALUE_MASK}`
+                : `LIVE · ${liveMeta.score}${
+                    liveMeta.periodLabel || liveMeta.period != null
+                      ? ` · ${liveMeta.periodLabel ?? `Q${liveMeta.period}`}`
+                      : ""
+                  }${liveMeta.clock ? ` ${liveMeta.clock}` : ""}`}
             </Text>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-              {pick.market}
-              {liveMeta.line != null ? ` ${liveMeta.line}` : ""} · {formatAmerican(liveMeta.price)}
-              {" · "}
-              {liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"}{" "}
-              ({liveMeta.freshness})
-              {" · "}
-              edge {liveMeta.edgePct > 0 ? "+" : ""}
-              {liveMeta.edgePct.toFixed(1)}% · conf {liveMeta.confidencePct}%
+              {premiumLocked
+                ? `${marketDisplayLabel(pick.market, pick.sport)} · ${PREMIUM_VALUE_MASK}`
+                : `${pick.market}${liveMeta.line != null ? ` ${liveMeta.line}` : ""} · ${formatAmerican(liveMeta.price)} · ${liveMeta.ageMs != null ? `${Math.round(liveMeta.ageMs / 1000)}s` : "age ?"} (${liveMeta.freshness}) · edge ${liveMeta.edgePct > 0 ? "+" : ""}${liveMeta.edgePct.toFixed(1)}% · conf ${liveMeta.confidencePct}%`}
+            </Text>
+          </View>
+        ) : premiumLocked ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
+            <Feather name="clock" size={11} color={colors.mutedForeground} />
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {PREMIUM_VALUE_MASK}
             </Text>
           </View>
         ) : formatGameTime(pick.startsAt) ? (
@@ -951,7 +1036,15 @@ export function PickCard({
             </Text>
           </View>
         ) : null}
-        {onPress ? (
+        {premiumLocked ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 }}>
+            <Feather name="lock" size={12} color={colors.primary} />
+            <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
+              Sign In / Subscribe to Reveal Picks
+            </Text>
+            <Feather name="chevron-right" size={13} color={colors.primary} />
+          </View>
+        ) : onPress ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 }}>
             <Feather name="bar-chart-2" size={12} color={colors.primary} />
             <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
@@ -964,12 +1057,15 @@ export function PickCard({
 
       <View style={{ height: 1, backgroundColor: colors.border, marginTop: 1 }} />
 
-      <LineLadder pick={pick} />
+      <LineLadder pick={pick} locked={premiumLocked} />
 
       {hideReadout ? null : pick.scores ||
-      pick.finalAiScore?.rubric ||
-      ((pick.isProp || pick.player) &&
-        (pick.finalAiScore?.simHit != null || pick.finalAiScore?.propHolistic)) ? (
+        pick.finalAiScore?.rubric ||
+        pick.finalAiScore?.grade ||
+        pick.finalAiScore?.confidencePct != null ||
+        pick.finalAiScore?.edgePct != null ||
+        ((pick.isProp || pick.player) &&
+          (pick.finalAiScore?.simHit != null || pick.finalAiScore?.propHolistic)) ? (
         <ScoreBreakdown
           data={{
             ...(pick.finalAiScore?.rubric ?? pick.scores ?? {
@@ -992,12 +1088,17 @@ export function PickCard({
             edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
           }}
           variant="compact"
-          pick={pick}
+          pick={premiumLocked ? undefined : pick}
           propHolistic={
-            pick.isProp || pick.player ? buildCoachCardHolistic(pick) : undefined
+            premiumLocked
+              ? undefined
+              : pick.isProp || pick.player
+                ? buildCoachCardHolistic(pick)
+                : undefined
           }
           simulationPending={pick.simulationPending}
           simGradePending={
+            !premiumLocked &&
             marketSupportsSimulation(pick.market ?? "", pick) &&
             !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
           }
@@ -1009,17 +1110,21 @@ export function PickCard({
               : undefined
           }
           gradeCaption={
-            marketSupportsSimulation(pick.market ?? "", pick) &&
-            !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+            premiumLocked
               ? undefined
-              : pickGradeDisplayCaption(pick, pick.finalAiScore)
+              : marketSupportsSimulation(pick.market ?? "", pick) &&
+                  !pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+                ? undefined
+                : pickGradeDisplayCaption(pick, pick.finalAiScore)
           }
         />
+      ) : premiumLocked ? (
+        <LockedAiMetricsTeaser dense />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}
 
-      {pick.edge ? (
+      {pick.edge && !premiumLocked ? (
         <View>
           <Pressable
             onPress={toggleEdge}

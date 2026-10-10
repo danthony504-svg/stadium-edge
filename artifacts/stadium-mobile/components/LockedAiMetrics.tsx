@@ -1,103 +1,89 @@
 import Feather from "@expo/vector-icons/Feather";
+import { useAuth } from "@clerk/expo";
 import React from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { useSubscriptionOptional } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
+import { COACH_PREMIUM_FEATURE_LABEL } from "@/lib/coachPremiumGate";
 
 /**
- * Soft-lock AI Grade / Confidence / Edge on pick cards for free users.
- * Pick text and odds stay visible (Coach remains usable).
- * Add to slip is gated by SLIP_UI_ENABLED.
+ * Soft-lock for Coach identity / detailed breakdowns.
+ * Grade / Confidence / Edge stay visible on cards when data is present;
+ * this teaser is the CTA + locked-breakdown placeholder.
  */
 export function useAiMetricsLocked(): boolean {
   const sub = useSubscriptionOptional();
-  if (!sub?.hydrated) return false;
-  return !sub.entitlement.isPro;
+  if (!sub?.hydrated) return true;
+  return !sub.coachPremiumUnlocked;
 }
 
+/** CTA to reveal blurred identity / lines (not used to hide grades). */
 export function LockedAiMetricsTeaser({ dense }: { dense?: boolean }) {
   const colors = useColors();
   const sub = useSubscriptionOptional();
-
-  const cell = (label: string) => (
-    <View
-      key={label}
-      style={{
-        flex: 1,
-        minWidth: dense ? 88 : 96,
-        paddingVertical: dense ? 10 : 12,
-        paddingHorizontal: 11,
-        borderRadius: 14,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
-        opacity: 0.92,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-        <Feather name="lock" size={12} color={colors.mutedForeground} />
-        <Text
-          numberOfLines={1}
-          style={{
-            flexShrink: 1,
-            color: colors.mutedForeground,
-            fontFamily: FONT.medium,
-            fontSize: 9.5,
-            letterSpacing: 0.3,
-            textTransform: "uppercase",
-          }}
-        >
-          {label}
-        </Text>
-      </View>
-      <Text
-        style={{
-          marginTop: 6,
-          color: colors.mutedForeground,
-          fontFamily: FONT.bold,
-          fontSize: 18,
-        }}
-      >
-        •••
-      </Text>
-      <Text
-        style={{
-          marginTop: 4,
-          color: colors.mutedForeground,
-          fontFamily: FONT.medium,
-          fontSize: 11,
-        }}
-      >
-        Pro unlock
-      </Text>
-    </View>
-  );
+  const { isSignedIn } = useAuth();
+  const label = COACH_PREMIUM_FEATURE_LABEL;
+  const cta = isSignedIn ? "Subscribe to Reveal Picks" : "Sign In / Subscribe to Reveal Picks";
 
   return (
     <Pressable
-      onPress={() => sub?.openSoftPaywall("AI Grade & Edge")}
+      onPress={() => sub?.openSoftPaywall(label)}
       accessibilityRole="button"
-      accessibilityLabel="Unlock AI Grade, Confidence, and Edge"
+      accessibilityLabel={cta}
+      accessibilityHint="Opens sign in or subscription plans to reveal picks"
       style={{ gap: 8 }}
     >
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        {cell("AI Grade")}
-        {cell("Confidence")}
-        {cell("Edge")}
-      </View>
-      <Text
+      <View
         style={{
-          color: colors.mutedForeground,
-          fontFamily: FONT.medium,
-          fontSize: 12,
-          lineHeight: 17,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: dense ? 10 : 12,
+          paddingHorizontal: 12,
+          borderRadius: 12,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
         }}
       >
-        Pick stays free — unlock AI Grade, Confidence, and Edge with Go, Pro, a promo, or
-        admin.
-      </Text>
+        <Feather name="lock" size={14} color={colors.mutedForeground} />
+        <Text
+          style={{
+            flex: 1,
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 12,
+            lineHeight: 17,
+          }}
+        >
+          Teams, players, lines, and odds are hidden. AI Grade, Confidence, and
+          Edge stay visible above.
+        </Text>
+      </View>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          paddingVertical: dense ? 10 : 12,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+        }}
+      >
+        <Feather name="unlock" size={14} color={colors.primaryForeground} />
+        <Text
+          style={{
+            color: colors.primaryForeground,
+            fontFamily: FONT.bold,
+            fontSize: 13,
+          }}
+        >
+          {cta}
+        </Text>
+      </View>
     </Pressable>
   );
 }

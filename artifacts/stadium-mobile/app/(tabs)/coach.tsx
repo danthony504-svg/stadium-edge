@@ -34,7 +34,14 @@ import {
   type ParsedPick,
 } from "@/components/PickCard";
 import { FONT } from "@/components/ui";
+import { useAuth } from "@clerk/expo";
+import { useSubscriptionOptional } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
+import {
+  COACH_PREMIUM_FEATURE_LABEL,
+  redactPremiumPickFields,
+  resolveCoachAskAccess,
+} from "@/lib/coachPremiumGate";
 import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } from "@/lib/api";
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
 import { isParlayBuildAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
@@ -94,6 +101,9 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isSignedIn } = useAuth();
+  const sub = useSubscriptionOptional();
+  const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
       id: "welcome",
@@ -181,6 +191,10 @@ export default function CoachScreen() {
    */
   const statsHandlerFor = useCallback(
     (p: ParsedPick): (() => void) | undefined => {
+      // Fail-closed: never navigate with identity / line / odds when locked.
+      if (!coachPremiumUnlocked) {
+        return () => sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL);
+      }
       if (p.isProp) {
         if (!p.player && !p.athleteId) return undefined;
         return () => {
@@ -250,7 +264,7 @@ export default function CoachScreen() {
         });
       };
     },
-    [router],
+    [router, coachPremiumUnlocked, sub],
   );
 
   const patchAssistant = useCallback((id: string, patch: Partial<CoachMessage>) => {
@@ -364,6 +378,54 @@ export default function CoachScreen() {
       // Live Coach asks never enter pregame buildParlay — even when they look like N-pick counts.
       const parlayBuild =
         !liveAsk && isParlayBuildAsk(text) && requestedLegs >= 3 && !hasOutgoingImages;
+
+      // Non-parlay Q&A (and live/photo analysis) requires auth + active subscription.
+      const askAccess = resolveCoachAskAccess({
+        askText: text,
+        isParlayBuild: parlayBuild,
+        signedIn: !!isSignedIn,
+        premiumUnlocked: coachPremiumUnlocked,
+      });
+      if (!askAccess.allowed && !hasOutgoingImages && !liveAsk) {
+        const assistantId = uid("a");
+        setMessages((prev) => [
+          ...prev,
+          { id: uid("u"), role: "user", text },
+          {
+            id: assistantId,
+            role: "assistant",
+            text: askAccess.message,
+          },
+        ]);
+        setDraft("");
+        if (askAccess.reason === "subscribe" || askAccess.reason === "sign_in") {
+          sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL);
+        }
+        return;
+      }
+      // Live / photo paths are also premium detailed answers when not a parlay build.
+      if (!askAccess.allowed && (hasOutgoingImages || liveAsk)) {
+        const assistantId = uid("a");
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: uid("u"),
+            role: "user",
+            text: text || (hasOutgoingImages ? "Analyze this ticket" : ""),
+            imageUris: previewUris,
+          },
+          {
+            id: assistantId,
+            role: "assistant",
+            text: askAccess.message,
+          },
+        ]);
+        setDraft("");
+        setAttachedImages([]);
+        sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL);
+        return;
+      }
+
       sessionAskTextRef.current = text;
       beginCoachSession(sessionRef.current, {
         sendGen,
@@ -836,7 +898,7 @@ export default function CoachScreen() {
                     </View>
                   </View>
                 ) : null}
-                {item.text.trim() ? (
+                {item.text.trim() || (item.picks && item.picks.length > 0) ? (
                   <View style={{ paddingHorizontal: 16 }}>
                     <Text
                       style={{
@@ -846,15 +908,58 @@ export default function CoachScreen() {
                         lineHeight: 22,
                       }}
                     >
-                      {item.text.trim()}
+                      {!coachPremiumUnlocked && item.picks && item.picks.length > 0
+                        ? `${item.picks.length} qualifying pick${item.picks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
+                        : item.text.trim()}
                     </Text>
+                    {!coachPremiumUnlocked && item.picks && item.picks.length > 0 ? (
+                      <Pressable
+                        onPress={() => sub?.openSoftPaywall(COACH_PREMIUM_FEATURE_LABEL)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Sign In / Subscribe to Reveal Picks"
+                        style={({ pressed }) => ({
+                          marginTop: 10,
+                          alignSelf: "flex-start",
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                          paddingVertical: 10,
+                          paddingHorizontal: 14,
+                          borderRadius: 12,
+                          backgroundColor: colors.primary,
+                          opacity: pressed ? 0.88 : 1,
+                        })}
+                      >
+                        <Feather name="unlock" size={14} color={colors.primaryForeground} />
+                        <Text
+                          style={{
+                            color: colors.primaryForeground,
+                            fontFamily: FONT.bold,
+                            fontSize: 13,
+                          }}
+                        >
+                          {isSignedIn
+                            ? "Subscribe to Reveal Picks"
+                            : "Sign In / Subscribe to Reveal Picks"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 ) : null}
-                {item.picks?.map((pick, idx) => (
-                  <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
-                    <PickCard pick={pick} onPress={statsHandlerFor(pick)} />
-                  </View>
-                ))}
+                {item.picks?.map((pick, idx) => {
+                  const displayPick = coachPremiumUnlocked
+                    ? pick
+                    : (redactPremiumPickFields(pick as never) as ParsedPick);
+                  return (
+                    <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
+                      <PickCard
+                        pick={displayPick}
+                        onPress={statsHandlerFor(pick)}
+                        lockPickDetails
+                      />
+                    </View>
+                  );
+                })}
               </View>
             );
           }}
