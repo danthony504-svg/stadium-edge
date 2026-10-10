@@ -4,7 +4,6 @@
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
-import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
 import {
   CRASH_MAX_BODY_BYTES,
@@ -16,19 +15,24 @@ import {
   reliabilityDigestStats,
 } from "../lib/reliabilityCrashStore";
 import {
+  checkReliabilityHourlyBudget,
+  crashIngestRateLimit,
+} from "../lib/reliabilityIngestGuard";
+import { reliabilitySecurityModelSummary } from "../lib/reliabilityPolicy";
+import {
   formatDailyHealthySummary,
   sendTelegramMessage,
 } from "../lib/telegramAlert";
 
 const router: IRouter = Router();
 
-const crashLimiter = rateLimit({
+const crashLimiter = crashIngestRateLimit({
   windowMs: 10 * 60 * 1000,
   max: 10,
   name: "reliability-crashes",
 });
 
-const crashHourlyLimiter = rateLimit({
+const crashHourlyLimiter = crashIngestRateLimit({
   windowMs: 60 * 60 * 1000,
   max: 30,
   name: "reliability-crashes-hour",
@@ -64,8 +68,28 @@ router.post(
       res.status(400).json({ error: "invalid crash payload" });
       return;
     }
+
+    const budget = await checkReliabilityHourlyBudget();
+    if (!budget.ok) {
+      res.status(429).json({
+        error: "ingest shed",
+        reason: budget.reason,
+        model: reliabilitySecurityModelSummary(),
+      });
+      return;
+    }
+
     try {
       const outcome = await ingestSanitizedCrash(event);
+      if (outcome.shed) {
+        res.status(202).json({
+          ok: true,
+          accepted: false,
+          deduped: false,
+          shed: true,
+        });
+        return;
+      }
       res.status(202).json({
         ok: true,
         accepted: outcome.accepted,
@@ -83,8 +107,10 @@ router.post(
  * POST /api/reliability/cron/digest
  * Daily healthy (or summary) Telegram + retention prune.
  * Guarded by NOTIFY_CRON_KEY (same as notifications cron).
+ * Prune always runs even when Telegram is disabled / skipped.
  */
 router.post("/reliability/cron/digest", async (req, res) => {
+  const started = Date.now();
   const key = process.env.NOTIFY_CRON_KEY;
   if (!key) {
     res.status(503).json({ error: "cron not configured" });
@@ -95,6 +121,7 @@ router.post("/reliability/cron/digest", async (req, res) => {
     return;
   }
   try {
+    // Prune first — retention must run even if Telegram is off.
     const pruned = await pruneReliabilityEvents();
     const stats = await reliabilityDigestStats(24);
     const text = formatDailyHealthySummary(stats);
@@ -104,6 +131,8 @@ router.post("/reliability/cron/digest", async (req, res) => {
       pruned,
       stats,
       telegram: sent,
+      durationMs: Date.now() - started,
+      model: reliabilitySecurityModelSummary(),
     });
   } catch (err) {
     logger.error({ err }, "reliability digest cron failed");

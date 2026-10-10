@@ -47,6 +47,9 @@ type CrashEnvelope = {
 let sessionId: string | null = null;
 let inFlight = 0;
 const recentFingerprints = new Map<string, number>();
+/** Errors already reported by ErrorBoundary — global handler skips these. */
+const boundaryReported = new Map<string, number>();
+const BOUNDARY_MARK_MS = 15_000;
 
 export function getAnonymousSessionId(): string {
   if (sessionId) return sessionId;
@@ -59,6 +62,7 @@ export function _resetCrashReporterForTests(): void {
   sessionId = null;
   inFlight = 0;
   recentFingerprints.clear();
+  boundaryReported.clear();
 }
 
 function clientFingerprint(message: string, stack: string): string {
@@ -69,6 +73,32 @@ function clientFingerprint(message: string, stack: string): string {
     .slice(0, 3)
     .join("|");
   return `${message}|${head}`.slice(0, 240);
+}
+
+/** Mark a crash as already reported by ErrorBoundary (prevents global double-post). */
+export function markBoundaryReported(
+  message: string,
+  stack?: string | null,
+  now = Date.now(),
+): void {
+  const fp = clientFingerprint(String(message ?? ""), String(stack ?? ""));
+  boundaryReported.set(fp, now);
+  if (boundaryReported.size > 40) {
+    const cutoff = now - BOUNDARY_MARK_MS;
+    for (const [k, t] of boundaryReported) {
+      if (t < cutoff) boundaryReported.delete(k);
+    }
+  }
+}
+
+export function wasBoundaryReported(
+  message: string,
+  stack?: string | null,
+  now = Date.now(),
+): boolean {
+  const fp = clientFingerprint(String(message ?? ""), String(stack ?? ""));
+  const last = boundaryReported.get(fp);
+  return last != null && now - last < BOUNDARY_MARK_MS;
 }
 
 function shouldSkipClientDedupe(fp: string, now = Date.now()): boolean {

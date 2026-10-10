@@ -1,0 +1,48 @@
+name: Reliability digest + prune cron
+
+# Daily authenticated prune + Telegram digest for Phase A crash reporting.
+# Prune runs server-side even when Telegram is disabled.
+# NOTIFY_CRON_KEY stays in GitHub Actions secrets — never shipped to clients.
+
+on:
+  schedule:
+    # 13:00 UTC daily
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: POST /api/reliability/cron/digest
+        env:
+          NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
+          DIGEST_URL: ${{ vars.RELIABILITY_DIGEST_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NOTIFY_CRON_KEY:-}" ]; then
+            echo "FAIL: NOTIFY_CRON_KEY secret is not configured"
+            exit 1
+          fi
+          URL="${DIGEST_URL:-https://stadium-edge.onrender.com/api/reliability/cron/digest}"
+          echo "POST $URL"
+          BODY="$(mktemp)"
+          CODE=$(curl -sS --max-time 60 \
+            -o "$BODY" -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-cron-key: ${NOTIFY_CRON_KEY}" \
+            "$URL")
+          echo "http=$CODE"
+          head -c 800 "$BODY" || true
+          echo
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "FAIL: digest cron non-2xx"
+            exit 1
+          fi
+          if ! grep -q '"ok":true\|"ok": true' "$BODY"; then
+            echo "FAIL: digest response missing ok:true"
+            exit 1
+          fi
+          echo "Reliability digest/prune cron OK"

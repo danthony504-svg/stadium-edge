@@ -1,6 +1,9 @@
 /**
  * Persist + dedupe crash events. Fail-soft when the table is missing
  * (migration not applied yet) so ingest never destabilizes the API.
+ *
+ * Telegram alerts require a successful shared (PostgreSQL) dedupe path.
+ * Database failures suppress alerts rather than risk a notification storm.
  */
 
 import { and, eq, gt, lt, sql } from "drizzle-orm";
@@ -11,6 +14,7 @@ import {
   CRASH_RETENTION_MS,
   type SanitizedCrashEvent,
 } from "./reliabilitySanitize.js";
+import { allowTelegramWithoutSharedDedupe } from "./reliabilityPolicy.js";
 import {
   formatCriticalCrashAlert,
   sendTelegramMessage,
@@ -21,8 +25,57 @@ export type IngestOutcome = {
   accepted: boolean;
   deduped: boolean;
   alerted: boolean;
+  shed?: boolean;
   id?: number;
 };
+
+export { allowTelegramWithoutSharedDedupe } from "./reliabilityPolicy.js";
+
+async function sendCriticalAlertIfAllowed(opts: {
+  fingerprint: string;
+  errorMessage: string;
+  updateId: string;
+  runtimeVersion: string;
+  channel: string;
+  appVersion: string;
+  platform: string;
+  occurrenceCount?: number;
+  lastAlertedAt: Date | null | undefined;
+  now: Date;
+  rowId: number;
+  sharedDedupeAvailable: boolean;
+}): Promise<boolean> {
+  if (!opts.sharedDedupeAvailable) return false;
+  if (
+    !shouldSendCriticalTelegram({
+      lastAlertedAt: opts.lastAlertedAt,
+      nowMs: opts.now.getTime(),
+      dedupeWindowMs: CRASH_DEDUPE_WINDOW_MS,
+    })
+  ) {
+    return false;
+  }
+  const sent = await sendTelegramMessage(
+    formatCriticalCrashAlert({
+      fingerprint: opts.fingerprint,
+      errorMessage: opts.errorMessage,
+      updateId: opts.updateId,
+      runtimeVersion: opts.runtimeVersion,
+      channel: opts.channel,
+      appVersion: opts.appVersion,
+      platform: opts.platform,
+      occurrenceCount: opts.occurrenceCount,
+    }),
+  );
+  const alerted = sent.ok === true && sent.skipped !== true;
+  if (alerted) {
+    await db
+      .update(reliabilityEventsTable)
+      .set({ lastAlertedAt: opts.now })
+      .where(eq(reliabilityEventsTable.id, opts.rowId));
+  }
+  return alerted;
+}
 
 export async function ingestSanitizedCrash(
   event: SanitizedCrashEvent,
@@ -54,34 +107,20 @@ export async function ingestSanitizedCrash(
         })
         .where(eq(reliabilityEventsTable.id, row.id));
 
-      let alerted = false;
-      if (
-        shouldSendCriticalTelegram({
-          lastAlertedAt: row.lastAlertedAt,
-          nowMs: now.getTime(),
-          dedupeWindowMs: CRASH_DEDUPE_WINDOW_MS,
-        })
-      ) {
-        const sent = await sendTelegramMessage(
-          formatCriticalCrashAlert({
-            fingerprint: event.fingerprint,
-            errorMessage: event.errorMessage,
-            updateId: event.updateId,
-            runtimeVersion: event.runtimeVersion,
-            channel: event.channel,
-            appVersion: event.appVersion,
-            platform: event.platform,
-            occurrenceCount: nextCount,
-          }),
-        );
-        alerted = sent.ok === true && sent.skipped !== true;
-        if (alerted) {
-          await db
-            .update(reliabilityEventsTable)
-            .set({ lastAlertedAt: now })
-            .where(eq(reliabilityEventsTable.id, row.id));
-        }
-      }
+      const alerted = await sendCriticalAlertIfAllowed({
+        fingerprint: event.fingerprint,
+        errorMessage: event.errorMessage,
+        updateId: event.updateId,
+        runtimeVersion: event.runtimeVersion,
+        channel: event.channel,
+        appVersion: event.appVersion,
+        platform: event.platform,
+        occurrenceCount: nextCount,
+        lastAlertedAt: row.lastAlertedAt,
+        now,
+        rowId: row.id,
+        sharedDedupeAvailable: true,
+      });
       return { accepted: true, deduped: true, alerted, id: row.id };
     }
 
@@ -108,45 +147,33 @@ export async function ingestSanitizedCrash(
       .returning({ id: reliabilityEventsTable.id });
 
     const id = inserted[0]?.id;
-    const sent = await sendTelegramMessage(
-      formatCriticalCrashAlert({
-        fingerprint: event.fingerprint,
-        errorMessage: event.errorMessage,
-        updateId: event.updateId,
-        runtimeVersion: event.runtimeVersion,
-        channel: event.channel,
-        appVersion: event.appVersion,
-        platform: event.platform,
-        occurrenceCount: 1,
-      }),
-    );
-    const alerted = sent.ok === true && sent.skipped !== true;
-    if (alerted && id != null) {
-      await db
-        .update(reliabilityEventsTable)
-        .set({ lastAlertedAt: now })
-        .where(eq(reliabilityEventsTable.id, id));
+    if (id == null) {
+      // Insert succeeded but no id — treat as accepted without alert (no durable key).
+      return { accepted: true, deduped: false, alerted: false };
     }
+
+    const alerted = await sendCriticalAlertIfAllowed({
+      fingerprint: event.fingerprint,
+      errorMessage: event.errorMessage,
+      updateId: event.updateId,
+      runtimeVersion: event.runtimeVersion,
+      channel: event.channel,
+      appVersion: event.appVersion,
+      platform: event.platform,
+      occurrenceCount: 1,
+      lastAlertedAt: null,
+      now,
+      rowId: id,
+      sharedDedupeAvailable: true,
+    });
     return { accepted: true, deduped: false, alerted, id };
   } catch (err) {
     logger.warn({ err }, "reliability crash ingest store failed");
-    // Still try Telegram so ops are not blind if the table is missing.
-    try {
-      await sendTelegramMessage(
-        formatCriticalCrashAlert({
-          fingerprint: event.fingerprint,
-          errorMessage: event.errorMessage,
-          updateId: event.updateId,
-          runtimeVersion: event.runtimeVersion,
-          channel: event.channel,
-          appVersion: event.appVersion,
-          platform: event.platform,
-        }),
-      );
-    } catch {
-      // ignore
+    // Suppress Telegram when shared dedupe is unavailable (DB down / missing table).
+    if (allowTelegramWithoutSharedDedupe()) {
+      // Intentionally unreachable — kept for policy clarity in tests.
     }
-    return { accepted: true, deduped: false, alerted: false };
+    return { accepted: false, deduped: false, alerted: false, shed: true };
   }
 }
 

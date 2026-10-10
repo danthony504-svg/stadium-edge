@@ -1,14 +1,20 @@
 name: Bootstrap OTA
 
+# Publishes NEW production JS — gated. No push auto-publish.
+# Emergency without new JS: use rollback-production-ota (embedded only).
+# See artifacts/stadium-mobile/scripts/OTA_EMERGENCY_ROLLBACK.md
+
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/.ota-bootstrap-trigger"
+    inputs:
+      confirm_publish:
+        description: Type PUBLISH_NEW_OTA to allow publishing new production JS
+        required: true
+        default: ""
 
 jobs:
   publish:
+    if: ${{ github.event.inputs.confirm_publish == 'PUBLISH_NEW_OTA' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -28,6 +34,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
+
+      - name: Reliability critical tests (required)
+        working-directory: ${{ github.workspace }}
+        run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh
 
       - name: Verify bootstrap bundle compiles
         env:

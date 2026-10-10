@@ -29,10 +29,18 @@ import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { FantasyRosterProvider } from "@/context/FantasyRosterContext";
 import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
+import { installGlobalCrashHandlers } from "@/lib/installGlobalCrashHandlers";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
 } from "@/lib/notifications";
+
+// Chain RN ErrorUtils + unhandledrejection early. Never throws; preserves prior handler.
+try {
+  installGlobalCrashHandlers();
+} catch {
+  // ignore
+}
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 const proxyUrl = publishableKey.startsWith("pk_live")

@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 MOBILE="$ROOT/artifacts/stadium-mobile"
 API="$ROOT/artifacts/api-server"
 
-echo "== Mobile crash / ScoreBreakdown / startup =="
+echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
 (
   cd "$MOBILE"
   # register-hooks rewrites relative .ts / extensionless imports for node:test
@@ -14,19 +14,24 @@ echo "== Mobile crash / ScoreBreakdown / startup =="
     lib/crashReporter.test.ts \
     lib/crashDiagnostics.test.ts \
     lib/scoreBreakdownCrash.test.ts \
-    lib/startupCrashPath.test.ts
+    lib/startupCrashPath.test.ts \
+    lib/installGlobalCrashHandlers.test.ts
   node --import ./test/register-hooks.mjs --test \
     --test-name-pattern='normalizeCombinedPickScore|ScoreBreakdown crash|mixed list|reproduces device|fix:|mixed VirtualizedList' \
     lib/pickScore.test.ts
 )
 
-echo "== API reliability sanitize / Telegram / abuse =="
+echo "== API reliability sanitize / Telegram / abuse / gates =="
 (
   cd "$API"
   node --import ./test/register-hooks.mjs --test \
     test/reliabilitySanitize.test.ts \
     test/reliabilityAbuse.test.ts \
-    test/telegramAlert.test.ts
+    test/telegramAlert.test.ts \
+    test/reliabilityCrashStorePolicy.test.ts \
+    test/reliabilityBodyLimit.test.ts \
+    test/reliabilityOtaWorkflowGates.test.ts \
+    test/reliabilityPolicy.test.ts
 )
 
 echo "Reliability critical tests PASSED."

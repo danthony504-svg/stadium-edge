@@ -11,6 +11,10 @@ import {
 import router from "./routes";
 import legalPagesRouter from "./routes/legalPages";
 import { minAppVersionMiddleware } from "./middlewares/minAppVersion";
+import {
+  reliabilityCrashBodyLimitEarly,
+  skipJsonIfCrashBodyParsed,
+} from "./middlewares/reliabilityCrashBodyLimit";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -62,7 +66,9 @@ app.use(
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 app.use(cors({ credentials: true, origin: true }));
-app.use(express.json({ limit: "5mb" }));
+// Crash ingest: enforce ~8kb BEFORE the global 5mb JSON parser allocates.
+app.use(reliabilityCrashBodyLimitEarly);
+app.use(skipJsonIfCrashBodyParsed(express.json({ limit: "5mb" })));
 app.use(express.urlencoded({ extended: true }));
 
 // Resolve the publishable key from the incoming request host so the same

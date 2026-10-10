@@ -80,3 +80,27 @@ test("fingerprint is stable for same message/stack head", () => {
 test("body size constant is bounded", () => {
   assert.ok(CRASH_MAX_BODY_BYTES <= 8192);
 });
+
+test("sanitize handles Unicode, unusual stacks, and nested secrets via reject", () => {
+  const cleaned = sanitizeReliabilityText(
+    "💥 boom café 東京\n    at Object.<anonymous> (native)\nBearer tok_abc",
+    400,
+  );
+  assert.match(cleaned, /boom/);
+  assert.equal(cleaned.includes("tok_abc"), false);
+  assert.equal(
+    parseAndSanitizeCrashBody({
+      errorMessage: "nested-secret",
+      sessionId: "s_abcdef12",
+      meta: { Authorization: "Bearer nested" },
+    }),
+    null,
+  );
+  const weird = parseAndSanitizeCrashBody({
+    errorMessage: "Hermes bytecode 0xdead",
+    errorStack: "\u0000\n\tat eval (unknown:1:1)\n\tat 中国",
+    sessionId: "s_abcdef12",
+  });
+  assert.ok(weird);
+  assert.ok((weird!.errorStack?.length ?? 0) <= 1801);
+});
