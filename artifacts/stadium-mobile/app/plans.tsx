@@ -1,5 +1,6 @@
+import { useAuth } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import {
   ActivityIndicator,
@@ -16,6 +17,19 @@ import { FONT } from "@/components/ui";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import { PAID_SUBSCRIPTION_PLANS, type PlanId } from "@/lib/entitlements";
+import {
+  draftPlanFromReturnParams,
+  isPaidPlanId,
+  signInHrefForSubscriptionIntent,
+  type PaidPlanId,
+  type SubscriptionIntent,
+} from "@/lib/pendingSubscriptionIntent";
+import {
+  clearPendingSubscriptionIntent,
+  loadPendingSubscriptionIntent,
+  savePendingSubscriptionIntent,
+} from "@/lib/pendingSubscriptionIntentStorage";
+import { isBillingAuthBlocked } from "@/lib/purchaseAuthGate";
 import {
   fetchStoreKitCatalog,
   type StoreKitCatalog,
@@ -39,6 +53,7 @@ function planNote(
     : planId === "go"
       ? "$9.99/week"
       : "$29.99/month";
+  // Only promise a trial when StoreKit reports a free introductory offer.
   if (row.hasFreeTrial) {
     const days = row.freeTrialDays ?? 7;
     return `${days}-day free trial, then ${price}`;
@@ -48,14 +63,15 @@ function planNote(
 
 /**
  * Plans screen — Go/Pro via Apple StoreKit (auto-renewable).
- * Trial copy is shown only when StoreKit reports a free introductory offer.
- * Native rebuild + RevenueCat key required for real billing.
- * Custom promo/redeem unlocks removed for App Store Guideline 3.1.1.
+ * Logged-out users may browse prices; Subscribe / Restore require Clerk sign-in.
+ * Never auto-starts StoreKit after returning from auth — user must tap again.
  */
 export default function PlansScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ plan?: string; intent?: string }>();
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
   const {
     entitlement,
     selectPlan,
@@ -65,10 +81,40 @@ export default function PlansScreen() {
     storeKitManagementUrl,
     billingBusy,
   } = useSubscription();
-  const defaultPaid: PlanId =
+  const defaultPaid: PaidPlanId =
     entitlement.planId === "pro" || entitlement.planId === "go" ? entitlement.planId : "go";
-  const [draft, setDraft] = React.useState<PlanId>(defaultPaid);
+  const [draft, setDraft] = React.useState<PaidPlanId>(defaultPaid);
   const [catalog, setCatalog] = React.useState<StoreKitCatalog | null>(null);
+  const authBlocked = isBillingAuthBlocked({
+    authLoaded: !!authLoaded,
+    isSignedIn: !!isSignedIn,
+    userId,
+  });
+  const ctaDisabled = billingBusy || !authLoaded;
+
+  // Apply return-from-sign-in selection (URL + storage). Never auto-purchase.
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const stored = await loadPendingSubscriptionIntent();
+      if (cancelled) return;
+      const next = draftPlanFromReturnParams({
+        plan: typeof params.plan === "string" ? params.plan : null,
+        intent: typeof params.intent === "string" ? params.intent : null,
+        stored,
+        fallback: defaultPaid,
+      });
+      setDraft(next);
+      // Clear pending intent after applying UI selection so a later visit
+      // does not surprise-select — and never triggers StoreKit.
+      if (stored) await clearPendingSubscriptionIntent();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only on mount / param change — not when entitlement flips mid-session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.plan, params.intent]);
 
   React.useEffect(() => {
     if (entitlement.planId === "go" || entitlement.planId === "pro") {
@@ -91,11 +137,25 @@ export default function PlansScreen() {
     };
   }, [storeKitReady]);
 
+  const beginSignInForIntent = async (intent: SubscriptionIntent) => {
+    await savePendingSubscriptionIntent(intent);
+    router.push(signInHrefForSubscriptionIntent(intent) as never);
+  };
+
   const onContinue = async () => {
-    const planId: PlanId = draft === "pro" ? "pro" : "go";
+    const planId: PaidPlanId = draft === "pro" ? "pro" : "go";
+    if (!authLoaded) return;
+    if (!isSignedIn || !userId) {
+      await beginSignInForIntent({ intent: "purchase", planId });
+      return;
+    }
     const result = await selectPlan(planId);
     if (!result.ok) {
       if (result.cancelled) return;
+      if (result.needsSignIn) {
+        await beginSignInForIntent({ intent: "purchase", planId });
+        return;
+      }
       Alert.alert("Couldn’t continue", result.message);
       return;
     }
@@ -104,8 +164,20 @@ export default function PlansScreen() {
   };
 
   const onRestore = async () => {
+    if (!authLoaded) return;
+    if (!isSignedIn || !userId) {
+      await beginSignInForIntent({
+        intent: "restore",
+        planId: isPaidPlanId(draft) ? draft : undefined,
+      });
+      return;
+    }
     const result = await restorePurchasesAction();
     if (!result.ok) {
+      if (result.needsSignIn) {
+        await beginSignInForIntent({ intent: "restore", planId: draft });
+        return;
+      }
       Alert.alert("Restore failed", result.message);
       return;
     }
@@ -124,7 +196,9 @@ export default function PlansScreen() {
   };
 
   const selectedPlan = PAID_SUBSCRIPTION_PLANS.find((p) => p.id === draft);
-  const continueLabel = `Subscribe · ${selectedPlan?.priceLabel ?? ""}`;
+  const continueLabel = authBlocked
+    ? `Sign in to subscribe · ${selectedPlan?.priceLabel ?? ""}`
+    : `Subscribe · ${selectedPlan?.priceLabel ?? ""}`;
   const anyFreeTrial = !!(catalog?.go?.hasFreeTrial || catalog?.pro?.hasFreeTrial);
 
   return (
@@ -204,7 +278,7 @@ export default function PlansScreen() {
             }}
           >
             {anyFreeTrial
-              ? "Eligible plans may include a free trial from the App Store. Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."
+              ? "Eligible App Store accounts may include a free trial when Apple shows an introductory offer. Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."
               : "Discover + Coach + Props + Slip stay free; Edge Lock, Steals, Simulator, and Model Report need a plan. Billed through Apple — manage under Settings → Subscriptions."}
           </Text>
         </View>
@@ -223,7 +297,7 @@ export default function PlansScreen() {
           return (
             <Pressable
               key={plan.id}
-              onPress={() => setDraft(plan.id)}
+              onPress={() => setDraft(plan.id as PaidPlanId)}
               accessibilityRole="radio"
               accessibilityState={{ selected }}
               disabled={billingBusy}
@@ -294,7 +368,7 @@ export default function PlansScreen() {
 
         <Pressable
           onPress={onContinue}
-          disabled={billingBusy}
+          disabled={ctaDisabled}
           style={({ pressed }) => ({
             marginTop: 8,
             alignItems: "center",
@@ -302,11 +376,11 @@ export default function PlansScreen() {
             backgroundColor: colors.primary,
             borderRadius: 12,
             paddingVertical: 15,
-            opacity: pressed || billingBusy ? 0.85 : 1,
+            opacity: pressed || ctaDisabled ? 0.85 : 1,
             minHeight: 52,
           })}
         >
-          {billingBusy ? (
+          {billingBusy || !authLoaded ? (
             <ActivityIndicator color={colors.primaryForeground} />
           ) : (
             <Text
@@ -324,7 +398,7 @@ export default function PlansScreen() {
         <View style={{ flexDirection: "row", gap: 10, marginTop: 2 }}>
           <Pressable
             onPress={onRestore}
-            disabled={billingBusy}
+            disabled={ctaDisabled}
             style={({ pressed }) => ({
               flex: 1,
               alignItems: "center",
@@ -334,7 +408,7 @@ export default function PlansScreen() {
               borderWidth: 1,
               borderColor: colors.border,
               backgroundColor: colors.card,
-              opacity: pressed || billingBusy ? 0.85 : 1,
+              opacity: pressed || ctaDisabled ? 0.85 : 1,
             })}
           >
             <Text
@@ -344,7 +418,7 @@ export default function PlansScreen() {
                 color: colors.foreground,
               }}
             >
-              Restore purchases
+              {authBlocked ? "Sign in to restore" : "Restore purchases"}
             </Text>
           </Pressable>
           <Pressable
@@ -384,7 +458,7 @@ export default function PlansScreen() {
           }}
         >
           {storeKitReady
-            ? "Billed by Apple · Cancel anytime in Settings → Subscriptions · 21+ · Hypothetical analysis only"
+            ? "Billed by Apple · Cancel anytime in Settings → Subscriptions · Sign in required to subscribe · 21+ · Hypothetical analysis only"
             : `${storeKitBlockedReason ?? "Apple billing unlocks after a StoreKit-enabled iOS rebuild."} · 21+ · Hypothetical analysis only`}
         </Text>
       </ScrollView>

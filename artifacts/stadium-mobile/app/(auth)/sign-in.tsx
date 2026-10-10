@@ -1,7 +1,7 @@
 import { useSignIn } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import { type Href, Link, useFocusEffect, useRouter } from "expo-router";
+import { type Href, Link, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
@@ -25,6 +25,11 @@ import {
   runBiometricGate,
   saveBiometricLogin,
 } from "@/lib/biometricLogin";
+import {
+  resolvePostAuthHref,
+  signUpHrefPreservingReturn,
+} from "@/lib/pendingSubscriptionIntent";
+import { loadPendingSubscriptionIntent } from "@/lib/pendingSubscriptionIntentStorage";
 import {
   freshSignInLocalState,
   shouldArmSecondFactor,
@@ -128,6 +133,11 @@ function FeatureRow() {
 export default function SignInScreen() {
   const colors = useColors();
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    returnTo?: string;
+    plan?: string;
+    intent?: string;
+  }>();
   const { signIn, errors, fetchStatus } = useSignIn();
 
   const [mode, setMode] = React.useState<Mode>("signin");
@@ -147,6 +157,14 @@ export default function SignInScreen() {
   const [awaitingSecondFactor, setAwaitingSecondFactor] = React.useState(false);
   const signInRef = React.useRef(signIn);
   signInRef.current = signIn;
+  const signUpHref = React.useMemo(() => {
+    const q = new URLSearchParams();
+    if (params.returnTo) q.set("returnTo", String(params.returnTo));
+    if (params.plan) q.set("plan", String(params.plan));
+    if (params.intent) q.set("intent", String(params.intent));
+    const s = q.toString();
+    return signUpHrefPreservingReturn(s);
+  }, [params.returnTo, params.plan, params.intent]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -193,7 +211,17 @@ export default function SignInScreen() {
     decorateUrl: (url: string) => string;
   }) => {
     if (session?.currentTask) return;
-    router.replace(decorateUrl("/") as Href);
+    // Return to Plans with selection preserved — never auto-start StoreKit.
+    void (async () => {
+      const stored = await loadPendingSubscriptionIntent();
+      const target = resolvePostAuthHref({
+        returnTo: typeof params.returnTo === "string" ? params.returnTo : null,
+        plan: typeof params.plan === "string" ? params.plan : null,
+        intent: typeof params.intent === "string" ? params.intent : null,
+        stored,
+      });
+      router.replace(decorateUrl(target) as Href);
+    })();
   };
 
   // After a successful password sign-in, offer to remember the credentials
@@ -625,7 +653,7 @@ export default function SignInScreen() {
         <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}>
           New here?{" "}
         </Text>
-        <Link href="/sign-up" replace>
+        <Link href={signUpHref as Href} replace>
           <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}>
             Create an account
           </Text>

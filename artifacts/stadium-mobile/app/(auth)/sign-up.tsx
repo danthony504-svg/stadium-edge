@@ -1,5 +1,5 @@
 import { useSignUp } from "@clerk/expo";
-import { type Href, Link, useRouter } from "expo-router";
+import { type Href, Link, useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import { Text, View } from "react-native";
 
@@ -13,10 +13,17 @@ import {
 } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { resolvePostAuthHref } from "@/lib/pendingSubscriptionIntent";
+import { loadPendingSubscriptionIntent } from "@/lib/pendingSubscriptionIntentStorage";
 
 export default function SignUpScreen() {
   const colors = useColors();
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    returnTo?: string;
+    plan?: string;
+    intent?: string;
+  }>();
   const { signUp, errors, fetchStatus } = useSignUp();
 
   const [emailAddress, setEmailAddress] = React.useState("");
@@ -31,7 +38,16 @@ export default function SignUpScreen() {
     decorateUrl: (url: string) => string;
   }) => {
     if (session?.currentTask) return;
-    router.replace(decorateUrl("/") as Href);
+    void (async () => {
+      const stored = await loadPendingSubscriptionIntent();
+      const target = resolvePostAuthHref({
+        returnTo: typeof params.returnTo === "string" ? params.returnTo : null,
+        plan: typeof params.plan === "string" ? params.plan : null,
+        intent: typeof params.intent === "string" ? params.intent : null,
+        stored,
+      });
+      router.replace(decorateUrl(target) as Href);
+    })();
   };
 
   const handleSubmit = async () => {
