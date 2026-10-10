@@ -28,6 +28,44 @@ export type ErrorFallbackProps = {
   componentStack?: string | null;
 };
 
+async function loadFailedLaunchFlags(runningUpdateId: string): Promise<{
+  updatePreviouslyFailed: boolean;
+  failedLaunchCount: number;
+}> {
+  try {
+    // Dynamic imports only — ErrorFallback must not pull these into root eval.
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const {
+      OTA_FAILED_LAUNCH_KEY,
+      readFailedLaunchRecord,
+      isUpdatePreviouslyFailed,
+      failedLaunchCount,
+    } = await import("@/lib/otaFailedLaunch");
+    const { readOtaRecoverySnapshot } = await import("@/lib/otaRecoveryState");
+    const storage = {
+      read: () => AsyncStorage.getItem(OTA_FAILED_LAUNCH_KEY),
+    };
+    const record = await readFailedLaunchRecord(storage);
+    const recovery = readOtaRecoverySnapshot();
+    const id = runningUpdateId && runningUpdateId !== "—" && runningUpdateId !== "embedded"
+      ? runningUpdateId
+      : "";
+    const count = id
+      ? failedLaunchCount(record, id)
+      : Object.values(record.failures ?? {}).reduce((n, e) => Math.max(n, e?.count ?? 0), 0);
+    const previously =
+      recovery.updatePreviouslyFailed ||
+      (id ? isUpdatePreviouslyFailed(record, id) : count > 0) ||
+      !!record.pendingTargetId;
+    return {
+      updatePreviouslyFailed: previously,
+      failedLaunchCount: Math.max(count, recovery.failedLaunchCount || 0),
+    };
+  } catch {
+    return { updatePreviouslyFailed: false, failedLaunchCount: 0 };
+  }
+}
+
 async function loadCrashOtaIdentity(): Promise<CrashOtaIdentity> {
   try {
     // Dynamic import keeps expo-updates out of the root static evaluation graph.
@@ -42,21 +80,27 @@ async function loadCrashOtaIdentity(): Promise<CrashOtaIdentity> {
     }
     const channel =
       (Updates.channel && String(Updates.channel)) || channelHeader || "—";
+    const isEmbeddedLaunch = !!Updates.isEmbeddedLaunch;
     const bundleSource: CrashOtaIdentity["bundleSource"] = !Updates.isEnabled
       ? "unknown"
-      : Updates.isEmbeddedLaunch
+      : isEmbeddedLaunch
         ? "embedded"
         : "ota";
+    const updateId = Updates.updateId
+      ? String(Updates.updateId)
+      : isEmbeddedLaunch
+        ? "embedded"
+        : "—";
+    const failed = await loadFailedLaunchFlags(updateId);
     return {
-      updateId: Updates.updateId
-        ? String(Updates.updateId)
-        : Updates.isEmbeddedLaunch
-          ? "embedded"
-          : "—",
+      updateId,
       runtimeVersion: Updates.runtimeVersion ? String(Updates.runtimeVersion) : "—",
       channel,
       bundleSource,
+      isEmbeddedLaunch,
       isEmergencyLaunch: !!Updates.isEmergencyLaunch,
+      updatePreviouslyFailed: failed.updatePreviouslyFailed,
+      failedLaunchCount: failed.failedLaunchCount,
     };
   } catch {
     return {
@@ -64,7 +108,10 @@ async function loadCrashOtaIdentity(): Promise<CrashOtaIdentity> {
       runtimeVersion: "—",
       channel: "—",
       bundleSource: "unknown",
+      isEmbeddedLaunch: true,
       isEmergencyLaunch: false,
+      updatePreviouslyFailed: false,
+      failedLaunchCount: 0,
     };
   }
 }
@@ -228,7 +275,18 @@ export function ErrorFallback({ error, resetError, componentStack }: ErrorFallba
               lineHeight: 16,
             }}
           >
-            {`bundle: ${ota?.bundleSource ?? "…"}${ota?.isEmergencyLaunch ? " · emergency" : ""}`}
+            {`isEmbeddedLaunch: ${ota ? String(ota.isEmbeddedLaunch) : "…"} · bundle: ${ota?.bundleSource ?? "…"}${ota?.isEmergencyLaunch ? " · emergency" : ""}`}
+          </Text>
+          <Text
+            selectable
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: monoFont,
+              fontSize: 11,
+              lineHeight: 16,
+            }}
+          >
+            {`updatePreviouslyFailed: ${ota ? String(ota.updatePreviouslyFailed) : "…"} (${ota?.failedLaunchCount ?? "…"})`}
           </Text>
         </View>
 

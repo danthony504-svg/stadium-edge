@@ -16,6 +16,7 @@ test("sanitizeCrashText redacts JWT, Bearer, emails, RC keys, Clerk ids", () => 
     "sess_2abcdefghijklmnopqrst",
     "pk_live_abcdef123456",
     "password: hunter2",
+    "payload " + "A".repeat(90),
   ].join("\n");
   const cleaned = sanitizeCrashText(raw);
   assert.equal(cleaned.includes("eyJhbGci"), false);
@@ -24,6 +25,7 @@ test("sanitizeCrashText redacts JWT, Bearer, emails, RC keys, Clerk ids", () => 
   assert.equal(cleaned.includes("user_2abcdefghijklmnopqrst"), false);
   assert.equal(cleaned.includes("pk_live_abcdef123456"), false);
   assert.equal(cleaned.includes("hunter2"), false);
+  assert.equal(cleaned.includes("A".repeat(90)), false);
   assert.match(cleaned, /\[redacted\]/);
 });
 
@@ -32,24 +34,32 @@ test("sanitizeCrashText preserves Hermes Object.entries crash message", () => {
   assert.equal(sanitizeCrashText(msg), msg);
 });
 
-test("formatCrashDiagnosticReport never embeds secrets from stacks", () => {
+test("formatCrashDiagnosticReport includes required OTA identity fields", () => {
   const report = formatCrashDiagnosticReport({
     errorMessage: "Cannot convert undefined value to object",
-    errorStack: "at foo (app.js:1)\nAuthorization: Bearer eyJhbGciOiJIUzI1NiJ9.x.y",
-    componentStack: "\n    in HomeSportFeed\n    in ErrorBoundary",
+    errorStack:
+      "TypeError: Cannot convert undefined value to object\n    at Object.entries (native)\n    at HomeSportFeed (app/(tabs)/index.tsx:700:12)",
+    componentStack: "\n    in HomeSportFeed\n    in ErrorBoundary\n    in RootLayoutContent",
     ota: {
       updateId: "01a126ae-b6f5-739e-b6c7-80087b7cea25",
       runtimeVersion: "1.1.0",
       channel: "production",
       bundleSource: "ota",
+      isEmbeddedLaunch: false,
       isEmergencyLaunch: false,
+      updatePreviouslyFailed: true,
+      failedLaunchCount: 2,
     },
   });
   assert.match(report, /updateId: 01a126ae/);
   assert.match(report, /runtimeVersion: 1\.1\.0/);
   assert.match(report, /channel: production/);
+  assert.match(report, /isEmbeddedLaunch: false/);
+  assert.match(report, /updatePreviouslyFailed: true/);
+  assert.match(report, /failedLaunchCount: 2/);
   assert.match(report, /Cannot convert undefined value to object/);
   assert.match(report, /HomeSportFeed/);
+  assert.match(report, /Object\.entries/);
   assert.equal(report.includes("eyJhbGci"), false);
   assert.equal(report.includes("Bearer eyJ"), false);
 });

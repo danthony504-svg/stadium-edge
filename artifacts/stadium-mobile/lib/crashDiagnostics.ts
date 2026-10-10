@@ -8,7 +8,11 @@ export type CrashOtaIdentity = {
   runtimeVersion: string;
   channel: string;
   bundleSource: "ota" | "embedded" | "unknown";
+  isEmbeddedLaunch: boolean;
   isEmergencyLaunch: boolean;
+  /** True when the failed-launch ledger or native recovery marks a refused update. */
+  updatePreviouslyFailed: boolean;
+  failedLaunchCount: number;
 };
 
 const REDACT = "[redacted]";
@@ -26,6 +30,8 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bstadium-edge:[^\s"']+/gi, // AsyncStorage key payloads in stacks
   /\buser_[A-Za-z0-9]{20,}\b/g, // Clerk user ids
   /\bsess_[A-Za-z0-9]{20,}\b/g,
+  // Long base64-ish blobs that often carry session/API payloads in stacks.
+  /\b[A-Za-z0-9+\/=]{80,}\b/g,
 ];
 
 export function sanitizeCrashText(input: string | null | undefined, maxLen = 2400): string {
@@ -53,8 +59,11 @@ export function formatCrashDiagnosticReport(opts: {
     `updateId: ${ota?.updateId ?? "—"}`,
     `runtimeVersion: ${ota?.runtimeVersion ?? "—"}`,
     `channel: ${ota?.channel ?? "—"}`,
+    `isEmbeddedLaunch: ${ota ? String(ota.isEmbeddedLaunch) : "—"}`,
     `bundleSource: ${ota?.bundleSource ?? "—"}`,
     `isEmergencyLaunch: ${ota ? String(ota.isEmergencyLaunch) : "—"}`,
+    `updatePreviouslyFailed: ${ota ? String(ota.updatePreviouslyFailed) : "—"}`,
+    `failedLaunchCount: ${ota != null ? String(ota.failedLaunchCount) : "—"}`,
     "",
     `error: ${sanitizeCrashText(opts.errorMessage, 400)}`,
     "",
