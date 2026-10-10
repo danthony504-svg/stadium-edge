@@ -71,6 +71,7 @@ import {
   filterOddsForSlateDay,
   filterOddsGamesForSlateDay,
   filterPicksForSlateDay,
+  resolveTodayOnly,
   slateDayFromThread,
   type SlateDay,
 } from "@/lib/slate";
@@ -189,7 +190,21 @@ async function loadScanInputs(
   // "7 leg for today" / "tonight" / "tomorrow" — restrict the board BEFORE props
   // and game lines are discovered so recovery/top-up cannot reintroduce other days.
   // Bare "7 leg" keeps the existing 48h bettable window (slateDay null).
-  const slateDay = slateDayFromThread(askText ?? "", priorUserTexts);
+  // Sport-scoped asks without date do not inherit prior tonight (slateDayFromThread).
+  let slateDay = slateDayFromThread(askText ?? "", priorUserTexts);
+  // Same salvage as chat context (`resolveTodayOnly`): when tonight/today is
+  // requested but this sport-scoped board has zero still-upcoming today games
+  // (Sunday evening NFL), drop the day filter and keep the 48h window — do not
+  // return an empty board blamed on the quality bar.
+  if (slateDay === "tonight") {
+    const startTimes = [
+      ...oddsGames.map((g) => g.commenceTime),
+      ...espnGames.map((g) => g.startsAt),
+    ];
+    if (!resolveTodayOnly(true, startTimes)) {
+      slateDay = null;
+    }
+  }
   oddsGames = filterOddsGamesForSlateDay(oddsGames, slateDay);
   espnGames = filterOddsForSlateDay(espnGames, slateDay);
 
