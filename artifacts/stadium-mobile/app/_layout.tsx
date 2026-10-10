@@ -23,6 +23,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { DeferredOtaRuntime } from "@/components/DeferredOtaRuntime";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { MinVersionGate } from "@/components/MinVersionGate";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { FantasyRosterProvider } from "@/context/FantasyRosterContext";
@@ -165,8 +166,10 @@ function AppShell() {
               <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
                 <KeyboardProvider>
                   <StatusBar style="light" />
-                  <RootLayoutNav />
-                  <DeferredOtaRuntime />
+                  <MinVersionGate>
+                    <RootLayoutNav />
+                    <DeferredOtaRuntime />
+                  </MinVersionGate>
                 </KeyboardProvider>
               </GestureHandlerRootView>
             </FantasyRosterProvider>

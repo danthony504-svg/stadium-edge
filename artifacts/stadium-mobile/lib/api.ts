@@ -248,7 +248,14 @@ async function getJsonUncached<T>(
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new Error(`aborted: ${path}`);
     try {
-      const res = await withTimeout(expoFetch(`${API_BASE}${path}`, { signal }), timeoutMs, path);
+      const res = await withTimeout(
+        expoFetch(`${API_BASE}${path}`, {
+          signal,
+          headers: appVersionRequestHeaders(),
+        }),
+        timeoutMs,
+        path,
+      );
       if (res.ok) {
         return await withTimeout(res.json() as Promise<T>, timeoutMs, `${path} (body)`);
       }
@@ -294,12 +301,16 @@ async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUES
 
 import { getAuthTokenGetter, setAuthTokenGetter } from "./authToken";
 export { setAuthTokenGetter };
+import { appVersionRequestHeaders } from "./appVersionGate";
 
 async function authedFetch(
   path: string,
   init?: { method?: string; body?: string; headers?: Record<string, string> },
 ): Promise<Response> {
-  const headers: Record<string, string> = { ...(init?.headers ?? {}) };
+  const headers: Record<string, string> = {
+    ...appVersionRequestHeaders(),
+    ...(init?.headers ?? {}),
+  };
   let token: string | null = null;
   try {
     const getter = getAuthTokenGetter();

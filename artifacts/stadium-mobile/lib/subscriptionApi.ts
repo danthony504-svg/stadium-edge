@@ -6,6 +6,7 @@
 import { fetch as expoFetch } from "expo/fetch";
 
 import { API_BASE } from "./apiBase";
+import { appVersionRequestHeaders } from "./appVersionGate";
 import { getAuthTokenGetter } from "./authToken";
 import type { PlanId } from "./entitlements";
 import type { StoreKitCustomerSnapshot } from "./purchases";
@@ -25,6 +26,7 @@ async function subFetch(
 ): Promise<Response | null> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...appVersionRequestHeaders(),
   };
   try {
     const getter = getAuthTokenGetter();

@@ -10,6 +10,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
 import legalPagesRouter from "./routes/legalPages";
+import { minAppVersionMiddleware } from "./middlewares/minAppVersion";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -78,6 +79,9 @@ app.use(
 
 // Public Support / Privacy / Terms (App Store Support URL) — no sign-in.
 app.use(legalPagesRouter);
+
+// Minimum native version gate (iOS). Exempts health/config/subscriptions.
+app.use("/api", minAppVersionMiddleware);
 
 app.use("/api", router);
 

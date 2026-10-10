@@ -30,10 +30,12 @@ import coachSlateRouter from "./coachSlate";
 import fantasyRouter from "./fantasy";
 import subscriptionsRouter from "./subscriptions";
 import appReviewAuthRouter from "./appReviewAuth";
+import appConfigRouter from "./appConfig";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(appConfigRouter);
 router.use(appReviewAuthRouter);
 router.use(oddsRouter);
 router.use(propsRouter);
