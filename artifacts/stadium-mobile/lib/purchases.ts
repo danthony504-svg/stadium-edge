@@ -147,6 +147,8 @@ function snapshotFromCustomerInfo(info: CustomerInfo): StoreKitCustomerSnapshot 
 /**
  * Configure Purchases once per process. Safe to call repeatedly.
  * Pass Clerk user id when signed in so purchases attach to the account.
+ * Anonymous configure (null) is allowed for catalog/price display only —
+ * purchase and restore must call ensurePurchasesIdentity first.
  */
 export async function configurePurchases(
   appUserId: string | null | undefined,
@@ -178,6 +180,52 @@ export async function configurePurchases(
     configureAttempted = true;
     configured = false;
     return false;
+  }
+}
+
+/**
+ * Identify RevenueCat with the authenticated Clerk user id before buy/restore.
+ * Aliases any current anonymous RC user onto this Clerk id (same-device resume).
+ * Does not invent a user id and refuses empty ids so purchases cannot attach
+ * to an anonymous bucket after sign-in.
+ */
+export async function ensurePurchasesIdentity(
+  appUserId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const id = typeof appUserId === "string" ? appUserId.trim() : "";
+  if (!id) {
+    return {
+      ok: false,
+      message: "Sign in required before Apple billing can start.",
+    };
+  }
+  const unavailable = storeKitUnavailableReason();
+  if (unavailable) return { ok: false, message: unavailable };
+  try {
+    const ready = await configurePurchases(id);
+    if (!ready) {
+      return {
+        ok: false,
+        message: "Could not connect Apple billing to your account.",
+      };
+    }
+    const Purchases = loadPurchases();
+    if (!Purchases || !(await Purchases.isConfigured())) {
+      return {
+        ok: false,
+        message: "Could not connect Apple billing to your account.",
+      };
+    }
+    // Always logIn when already configured so we never purchase as anonymous
+    // after the user has authenticated.
+    await Purchases.logIn(id);
+    return { ok: true };
+  } catch (err: unknown) {
+    const message =
+      err && typeof err === "object" && "message" in err
+        ? String((err as { message: unknown }).message)
+        : "Could not connect Apple billing to your account.";
+    return { ok: false, message };
   }
 }
 
@@ -273,18 +321,27 @@ export async function fetchStoreKitCatalog(): Promise<StoreKitCatalog> {
   }
 }
 
+export type PurchaseIdentityOpts = {
+  /** Authenticated Clerk user id — required. */
+  appUserId: string;
+};
+
 /**
  * Start an Apple StoreKit purchase for Go or Pro.
  * Free trial is an Apple introductory offer on Go/Pro (ASC) — not a local product.
+ * Requires an authenticated Clerk user id so RevenueCat never bills anonymously.
  */
-export async function purchasePlan(planId: PlanId): Promise<PurchaseResult> {
+export async function purchasePlan(
+  planId: PlanId,
+  opts: PurchaseIdentityOpts,
+): Promise<PurchaseResult> {
   const productId = productIdForPlan(planId);
   if (!productId) {
     return { ok: false, cancelled: false, message: "That plan does not require Apple billing." };
   }
-  const unavailable = storeKitUnavailableReason();
-  if (unavailable) {
-    return { ok: false, cancelled: false, message: unavailable };
+  const identified = await ensurePurchasesIdentity(opts.appUserId);
+  if (!identified.ok) {
+    return { ok: false, cancelled: false, message: identified.message };
   }
   const Purchases = loadPurchases();
   if (!Purchases) {
@@ -295,16 +352,6 @@ export async function purchasePlan(planId: PlanId): Promise<PurchaseResult> {
     };
   }
   try {
-    if (!(await Purchases.isConfigured())) {
-      const ok = await configurePurchases(null);
-      if (!ok) {
-        return {
-          ok: false,
-          cancelled: false,
-          message: "Could not start Apple billing on this device.",
-        };
-      }
-    }
     const product = await findStoreProduct(productId);
     if (!product) {
       return {
@@ -321,28 +368,41 @@ export async function purchasePlan(planId: PlanId): Promise<PurchaseResult> {
     if (anyErr?.userCancelled) {
       return { ok: false, cancelled: true, message: "Purchase cancelled." };
     }
+    // Common when the Apple ID already owns the subscription — surface restore.
+    const code = String(anyErr?.code ?? "");
+    const msg = anyErr?.message || "Purchase failed. Try again or restore purchases.";
+    if (/already\s+purchased|productAlreadyPurchased|RECEIPT_ALREADY_IN_USE/i.test(`${code} ${msg}`)) {
+      return {
+        ok: false,
+        cancelled: false,
+        message:
+          "This Apple ID already has a Stadium Edge subscription. Use Restore Purchases.",
+      };
+    }
     return {
       ok: false,
       cancelled: false,
-      message: anyErr?.message || "Purchase failed. Try again or restore purchases.",
+      message: msg,
     };
   }
 }
 
-export async function restorePurchases(): Promise<RestoreResult> {
-  const unavailable = storeKitUnavailableReason();
-  if (unavailable) {
-    return { ok: false, message: unavailable };
+/**
+ * Restore App Store purchases for the authenticated Clerk user.
+ * Identifies RevenueCat with appUserId first so restores attach to that account.
+ */
+export async function restorePurchases(
+  opts: PurchaseIdentityOpts,
+): Promise<RestoreResult> {
+  const identified = await ensurePurchasesIdentity(opts.appUserId);
+  if (!identified.ok) {
+    return { ok: false, message: identified.message };
   }
   const Purchases = loadPurchases();
   if (!Purchases) {
     return { ok: false, message: "StoreKit is unavailable on this build." };
   }
   try {
-    if (!(await Purchases.isConfigured())) {
-      const ok = await configurePurchases(null);
-      if (!ok) return { ok: false, message: "Could not restore on this device." };
-    }
     const info = await Purchases.restorePurchases();
     const snapshot = snapshotFromCustomerInfo(info);
     return {

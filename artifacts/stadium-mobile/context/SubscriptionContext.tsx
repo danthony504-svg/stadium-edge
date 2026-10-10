@@ -38,6 +38,10 @@ import {
   type StoreKitCustomerSnapshot,
 } from "@/lib/purchases";
 import {
+  resolveBillingAuth,
+  shouldUnlockFromServerVerify,
+} from "@/lib/purchaseAuthGate";
+import {
   fetchServerAccessFlags,
   syncSubscriptionToServer,
   verifyRestoredSubscriptionOnServer,
@@ -49,7 +53,13 @@ type RedeemResult =
 
 type PurchaseActionResult =
   | { ok: true; message: string }
-  | { ok: false; cancelled?: boolean; message: string };
+  | {
+      ok: false;
+      cancelled?: boolean;
+      /** Caller should open Clerk sign-in (do not start StoreKit). */
+      needsSignIn?: boolean;
+      message: string;
+    };
 
 type SubscriptionContextValue = {
   hydrated: boolean;
@@ -107,7 +117,7 @@ function nowMs() {
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isSignedIn, userId } = useAuth();
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
   const { user } = useUser();
   const [state, setState] = useState<SubscriptionPersistedState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
@@ -131,8 +141,39 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const applySnapshot = useCallback((snapshot: StoreKitCustomerSnapshot) => {
     setState((prev) => applyStoreKitSnapshot(prev, snapshot));
-    void syncSubscriptionToServer(snapshot);
   }, []);
+
+  /**
+   * Sync + server-verify before unlocking paid UI. Fail closed when verify
+   * cannot confirm Go/Pro — never grant from client claims alone.
+   */
+  const applyVerifiedSnapshot = useCallback(
+    async (
+      snapshot: StoreKitCustomerSnapshot,
+    ): Promise<"unlocked" | "inactive" | "unverified"> => {
+      await syncSubscriptionToServer(snapshot);
+      const verified = await verifyRestoredSubscriptionOnServer();
+      if (shouldUnlockFromServerVerify(verified)) {
+        applySnapshot({
+          ...snapshot,
+          planId: verified.planId,
+        });
+        return "unlocked";
+      }
+      if (snapshot.planId == null || verified.storeKitActive === false) {
+        applySnapshot({
+          planId: null,
+          activeProductIds: [],
+          activeEntitlementIds: [],
+          originalAppUserId: snapshot.originalAppUserId,
+          managementUrl: snapshot.managementUrl,
+        });
+        return "inactive";
+      }
+      return "unverified";
+    },
+    [applySnapshot],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -169,28 +210,44 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [state]);
 
   // Configure RevenueCat / StoreKit once hydrated; re-login when Clerk user changes.
+  // Signed-out: anonymous configure is OK for catalog prices only — do not unlock paid.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !authLoaded) return;
     let cancelled = false;
     (async () => {
       const ready = await configurePurchases(isSignedIn ? userId : null);
       if (cancelled) return;
       setStoreKitReady(ready && isStoreKitAvailable());
       if (!ready) return;
+      if (!isSignedIn || !userId) {
+        // Drop any stale local paid unlock when signed out.
+        setState((prev) =>
+          prev.storeKitActive
+            ? applyStoreKitSnapshot(prev, {
+                planId: null,
+                activeProductIds: [],
+                managementUrl: prev.storeKitManagementUrl,
+              })
+            : prev,
+        );
+        return;
+      }
       const snapshot = await refreshCustomerSnapshot();
-      if (!cancelled && snapshot) applySnapshot(snapshot);
+      if (!cancelled && snapshot) {
+        await applyVerifiedSnapshot(snapshot);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [hydrated, isSignedIn, userId, applySnapshot]);
+  }, [hydrated, authLoaded, isSignedIn, userId, applyVerifiedSnapshot]);
 
   useEffect(() => {
-    if (!hydrated || !storeKitReady) return;
+    if (!hydrated || !storeKitReady || !isSignedIn || !userId) return;
     return addCustomerInfoListener((snapshot) => {
-      applySnapshot(snapshot);
+      void applyVerifiedSnapshot(snapshot);
     });
-  }, [hydrated, storeKitReady, applySnapshot]);
+  }, [hydrated, storeKitReady, isSignedIn, userId, applyVerifiedSnapshot]);
 
   // Server-verified privileged flags (fail closed when unsigned / error).
   useEffect(() => {
@@ -249,15 +306,22 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const selectPlan = useCallback(
     async (planId: PlanId): Promise<PurchaseActionResult> => {
       if (planId === "free") {
-        if (storeKitReady) {
+        const auth = resolveBillingAuth({
+          authLoaded: !!authLoaded,
+          isSignedIn: !!isSignedIn,
+          userId,
+        });
+        if (auth.ok && storeKitReady) {
           const snapshot = await refreshCustomerSnapshot();
           if (snapshot?.planId) {
-            applySnapshot(snapshot);
-            return {
-              ok: true,
-              message:
-                "You still have an active Apple subscription. Manage it in Settings → Subscriptions.",
-            };
+            const outcome = await applyVerifiedSnapshot(snapshot);
+            if (outcome === "unlocked") {
+              return {
+                ok: true,
+                message:
+                  "You still have an active Apple subscription. Manage it in Settings → Subscriptions.",
+              };
+            }
           }
         }
         setState((prev) => ({
@@ -267,6 +331,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           storeKitProductId: null,
         }));
         return { ok: true, message: "Free plan selected." };
+      }
+
+      const auth = resolveBillingAuth({
+        authLoaded: !!authLoaded,
+        isSignedIn: !!isSignedIn,
+        userId,
+      });
+      if (!auth.ok) {
+        return {
+          ok: false,
+          needsSignIn: auth.reason === "signed_out" || auth.reason === "missing_user_id",
+          message: auth.message,
+        };
       }
 
       if (!storeKitReady) {
@@ -281,7 +358,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       setBillingBusy(true);
       try {
-        const result = await purchasePlan(planId);
+        const result = await purchasePlan(planId, { appUserId: auth.userId });
         if (!result.ok) {
           return {
             ok: false,
@@ -289,7 +366,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             message: result.message,
           };
         }
-        applySnapshot(result.snapshot);
+        const outcome = await applyVerifiedSnapshot(result.snapshot);
+        if (outcome !== "unlocked") {
+          return {
+            ok: false,
+            message:
+              "Purchase completed but entitlement verification is still pending. Tap Restore Purchases in a moment.",
+          };
+        }
         const name = planId === "pro" ? "Stadium Edge Pro" : "Stadium Edge Go";
         return {
           ok: true,
@@ -299,10 +383,29 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         setBillingBusy(false);
       }
     },
-    [storeKitReady, storeKitBlockedReason, applySnapshot],
+    [
+      authLoaded,
+      isSignedIn,
+      userId,
+      storeKitReady,
+      storeKitBlockedReason,
+      applyVerifiedSnapshot,
+    ],
   );
 
   const restorePurchasesAction = useCallback(async (): Promise<PurchaseActionResult> => {
+    const auth = resolveBillingAuth({
+      authLoaded: !!authLoaded,
+      isSignedIn: !!isSignedIn,
+      userId,
+    });
+    if (!auth.ok) {
+      return {
+        ok: false,
+        needsSignIn: auth.reason === "signed_out" || auth.reason === "missing_user_id",
+        message: auth.message,
+      };
+    }
     if (!storeKitReady) {
       return {
         ok: false,
@@ -313,17 +416,22 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
     setBillingBusy(true);
     try {
-      const result = await restorePurchases();
+      const result = await restorePurchases({ appUserId: auth.userId });
       if (!result.ok) return { ok: false, message: result.message };
-      applySnapshot(result.snapshot);
-      // Server-side RC verify so Coach Q&A unlocks without waiting on webhooks.
-      // Failures never revoke the local StoreKit snapshot; Q&A stays fail-closed
-      // until a trusted DB row exists.
-      if (isSignedIn) {
-        void verifyRestoredSubscriptionOnServer();
-      }
       if (!result.restored) {
-        return { ok: true, message: "No active Apple subscriptions found for this Apple ID." };
+        await applyVerifiedSnapshot(result.snapshot);
+        return {
+          ok: true,
+          message: "No active Apple subscriptions found for this Apple ID.",
+        };
+      }
+      const outcome = await applyVerifiedSnapshot(result.snapshot);
+      if (outcome !== "unlocked") {
+        return {
+          ok: false,
+          message:
+            "Apple returned a purchase but server verification failed. Try again shortly.",
+        };
       }
       return {
         ok: true,
@@ -332,7 +440,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     } finally {
       setBillingBusy(false);
     }
-  }, [storeKitReady, storeKitBlockedReason, applySnapshot, isSignedIn]);
+  }, [
+    authLoaded,
+    isSignedIn,
+    userId,
+    storeKitReady,
+    storeKitBlockedReason,
+    applyVerifiedSnapshot,
+  ]);
 
   const redeemPromo = useCallback((_code: string): RedeemResult => {
     // Guideline 3.1.1 — no custom redeem path; use Apple Offer Codes in ASC.
