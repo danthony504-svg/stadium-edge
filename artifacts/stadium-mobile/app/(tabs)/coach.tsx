@@ -303,18 +303,24 @@ export default function CoachScreen() {
               propsPending: opts.propsPending,
             })
           : "";
+      // Free users: store redacted picks in message state (not full identity).
+      const storedPicks = coachPremiumUnlocked
+        ? picks
+        : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
+      const storedText =
+        !coachPremiumUnlocked && storedPicks.length > 0
+          ? `${storedPicks.length} qualifying pick${storedPicks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
+          : sanitizeCoachUserNote([shortfall, opts.text].filter(Boolean).join("\n\n"));
       patchAssistant(assistantId, {
         building: false,
         buildStatus: undefined,
-        picks,
-        text: sanitizeCoachUserNote(
-          [shortfall, opts.text].filter(Boolean).join("\n\n"),
-        ),
+        picks: storedPicks,
+        text: storedText,
         requestedLegs: opts.requestedLegs || undefined,
       });
       unlockComposer();
     },
-    [patchAssistant, unlockComposer],
+    [patchAssistant, unlockComposer, coachPremiumUnlocked],
   );
 
   const send = useCallback(
@@ -622,7 +628,7 @@ export default function CoachScreen() {
             },
             onPartialPicks: (picks) => {
               if (sendGenRef.current !== sendGen) return;
-              // Buffer only — do not paint cards mid-build (trickle). Status still updates.
+              // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
               pendingTicketPicksRef.current = [...picks];
               // Belts: if scoring started without onReadyToScan, still arm the wall clock.
               if (
@@ -632,7 +638,10 @@ export default function CoachScreen() {
                 armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
               }
               if (shouldPublishCoachTicketPicks("building")) {
-                patchAssistant(assistantId, { picks: [...picks] });
+                const stored = coachPremiumUnlocked
+                  ? [...picks]
+                  : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
+                patchAssistant(assistantId, { picks: stored });
               }
             },
             onReadyToScan: () => {
@@ -682,12 +691,18 @@ export default function CoachScreen() {
               });
               upgradeCoachSessionOutcome(sessionRef.current, outcome);
               terminalShownPickCountRef.current = picks.length;
+              const storedLate = coachPremiumUnlocked
+                ? picks
+                : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
               patchAssistant(assistantId, {
                 building: false,
                 buildStatus: undefined,
-                picks,
+                picks: storedLate,
                 // Clear the empty-budget copy once a real ticket lands.
-                text: sanitizeCoachUserNote(result.note),
+                text:
+                  !coachPremiumUnlocked && storedLate.length > 0
+                    ? `${storedLate.length} qualifying pick${storedLate.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
+                    : sanitizeCoachUserNote(result.note),
                 requestedLegs: requestedLegs || undefined,
               });
               unlockComposer();
@@ -769,7 +784,7 @@ export default function CoachScreen() {
         });
       }
     },
-    [attachedImages, busy, finishSession, patchAssistant, unlockComposer],
+    [attachedImages, busy, finishSession, patchAssistant, unlockComposer, coachPremiumUnlocked],
   );
 
   useEffect(() => {

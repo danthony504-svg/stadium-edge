@@ -38,7 +38,10 @@ import {
   storeKitUnavailableReason,
   type StoreKitCustomerSnapshot,
 } from "@/lib/purchases";
-import { syncSubscriptionToServer } from "@/lib/subscriptionApi";
+import {
+  syncSubscriptionToServer,
+  verifyRestoredSubscriptionOnServer,
+} from "@/lib/subscriptionApi";
 
 type RedeemResult =
   | { ok: true; message: string }
@@ -295,6 +298,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       const result = await restorePurchases();
       if (!result.ok) return { ok: false, message: result.message };
       applySnapshot(result.snapshot);
+      // Server-side RC verify so Coach Q&A unlocks without waiting on webhooks.
+      // Failures never revoke the local StoreKit snapshot; Q&A stays fail-closed
+      // until a trusted DB row exists.
+      if (isSignedIn) {
+        void verifyRestoredSubscriptionOnServer();
+      }
       if (!result.restored) {
         return { ok: true, message: "No active Apple subscriptions found for this Apple ID." };
       }
@@ -305,7 +314,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     } finally {
       setBillingBusy(false);
     }
-  }, [storeKitReady, storeKitBlockedReason, applySnapshot]);
+  }, [storeKitReady, storeKitBlockedReason, applySnapshot, isSignedIn]);
 
   const redeemPromo = useCallback((_code: string): RedeemResult => {
     // Guideline 3.1.1 — no custom redeem path; use Apple Offer Codes in ASC.

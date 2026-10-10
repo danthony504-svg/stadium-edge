@@ -64,6 +64,38 @@ export async function syncSubscriptionToServer(
   return res != null && res.ok;
 }
 
+/**
+ * Ask the server to verify this Clerk user against RevenueCat REST (secret key)
+ * and persist a trusted entitlement for Coach Q&A. Never grants from local claims.
+ */
+export async function verifyRestoredSubscriptionOnServer(): Promise<{
+  ok: boolean;
+  storeKitActive: boolean;
+  planId: PlanId | null;
+}> {
+  const res = await subFetch("/subscriptions/restore-verify", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  if (!res) return { ok: false, storeKitActive: false, planId: null };
+  try {
+    const json = (await res.json()) as {
+      ok?: boolean;
+      storeKitActive?: boolean;
+      planId?: PlanId | "free" | null;
+    };
+    const planId =
+      json.planId === "go" || json.planId === "pro" ? json.planId : null;
+    return {
+      ok: res.ok && json.ok !== false,
+      storeKitActive: !!json.storeKitActive && !!planId,
+      planId,
+    };
+  } catch {
+    return { ok: false, storeKitActive: false, planId: null };
+  }
+}
+
 export async function fetchServerSubscription(): Promise<ServerSubscriptionEntitlement | null> {
   const res = await subFetch("/subscriptions/entitlement");
   if (!res || !res.ok) return null;

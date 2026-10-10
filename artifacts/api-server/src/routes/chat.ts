@@ -23,6 +23,10 @@ import {
 import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
 import { EXPLICIT_MARKET_LOCK_RULES } from "../lib/explicitMarketLock.js";
 import { resolveCoachQaGate } from "../lib/coachAskAccess.js";
+import {
+  assertLockedPreviewSafe,
+  buildLockedOpenParlayPreview,
+} from "../lib/coachOpenParlayPreview.js";
 import { userHasCoachPremiumAccess } from "../lib/subscriptionAccess.js";
 
 const router: IRouter = Router();
@@ -695,6 +699,50 @@ router.post("/chat", async (req, res): Promise<void> => {
       reason: qaGate.reason,
       code: "coach_premium_required",
     });
+    return;
+  }
+
+  // CRITICAL: free / logged-out open-parlay callers must NEVER receive LLM SSE
+  // with PICK: identity, props frames, or unredacted context. Serve a locked
+  // slate preview only (count + genuine grades/conf/edge) before any model call.
+  if (qaGate.openParlay && !gatePremium) {
+    const preview = await buildLockedOpenParlayPreview({ askText: gateAskText });
+    const leaks = assertLockedPreviewSafe(preview);
+    if (leaks.length > 0) {
+      // Fail closed — do not stream a leaking payload.
+      res.status(503).json({
+        error: "Parlay preview unavailable.",
+        code: "coach_preview_unsafe",
+      });
+      return;
+    }
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+    res.write(`:${" ".repeat(2048)}\n\n`);
+    // Safe frames only — never emit { props }, raw PICK lines, or unredacted picks.
+    res.write(
+      `data: ${JSON.stringify({
+        status: "Locked parlay preview",
+        lockedPreview: true,
+        pickCount: preview.pickCount,
+        requestedLegs: preview.requestedLegs,
+        cta: preview.cta,
+      })}\n\n`,
+    );
+    res.write(`data: ${JSON.stringify({ content: preview.content })}\n\n`);
+    if (preview.picks.length > 0) {
+      res.write(
+        `data: ${JSON.stringify({
+          lockedPicks: preview.picks,
+          pickCount: preview.pickCount,
+        })}\n\n`,
+      );
+    }
+    res.write(`data: ${JSON.stringify({ done: true, lockedPreview: true })}\n\n`);
+    res.end();
     return;
   }
 
