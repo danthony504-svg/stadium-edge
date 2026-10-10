@@ -1,11 +1,13 @@
 import { eq } from "drizzle-orm";
 import { coachPrecomputedSlateTable, db } from "@workspace/db";
+import { logger } from "./logger.js";
+import { normalizeCoachPrecomputedSlateRow } from "./coachSlateRow.js";
 import {
   COACH_SLATE_ROW_ID,
   type SlatePreAnalysisSnapshot,
-  isSlateSnapshotFresh,
-  isSlateSnapshotInstantServe,
 } from "./coachSlateTypes.js";
+
+export { normalizeCoachPrecomputedSlateRow } from "./coachSlateRow.js";
 
 export async function getCoachPrecomputedSlate(): Promise<{
   snapshot: SlatePreAnalysisSnapshot | null;
@@ -14,23 +16,24 @@ export async function getCoachPrecomputedSlate(): Promise<{
   computedAt: string | null;
   deepSimComplete: boolean;
 }> {
-  const rows = await db
-    .select()
-    .from(coachPrecomputedSlateTable)
-    .where(eq(coachPrecomputedSlateTable.id, COACH_SLATE_ROW_ID))
-    .limit(1);
-  const row = rows[0];
-  if (!row) {
-    return { snapshot: null, fresh: false, instantServe: false, computedAt: null, deepSimComplete: false };
+  try {
+    const rows = await db
+      .select()
+      .from(coachPrecomputedSlateTable)
+      .where(eq(coachPrecomputedSlateTable.id, COACH_SLATE_ROW_ID))
+      .limit(1);
+    return normalizeCoachPrecomputedSlateRow(rows[0]);
+  } catch (err) {
+    // Degrade to empty slate — callers must not 500 free-user Coach paths.
+    logger.error({ err }, "coach slate: failed to read precomputed row");
+    return {
+      snapshot: null,
+      fresh: false,
+      instantServe: false,
+      computedAt: null,
+      deepSimComplete: false,
+    };
   }
-  const snapshot = row.data as SlatePreAnalysisSnapshot;
-  return {
-    snapshot,
-    fresh: isSlateSnapshotFresh(snapshot),
-    instantServe: isSlateSnapshotInstantServe(snapshot),
-    computedAt: row.updatedAt.toISOString(),
-    deepSimComplete: row.deepSimComplete,
-  };
 }
 
 export async function persistCoachPrecomputedSlate(

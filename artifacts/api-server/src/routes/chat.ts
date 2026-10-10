@@ -28,6 +28,7 @@ import {
   buildLockedOpenParlayPreview,
 } from "../lib/coachOpenParlayPreview.js";
 import { userHasCoachPremiumAccess } from "../lib/subscriptionAccess.js";
+import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 const chatLimiter = rateLimit({ windowMs: 60_000, max: 240, name: "chat" });
@@ -706,44 +707,75 @@ router.post("/chat", async (req, res): Promise<void> => {
   // with PICK: identity, props frames, or unredacted context. Serve a locked
   // slate preview only (count + genuine grades/conf/edge) before any model call.
   if (qaGate.openParlay && !gatePremium) {
-    const preview = await buildLockedOpenParlayPreview({ askText: gateAskText });
-    const leaks = assertLockedPreviewSafe(preview);
-    if (leaks.length > 0) {
-      // Fail closed — do not stream a leaking payload.
-      res.status(503).json({
-        error: "Parlay preview unavailable.",
-        code: "coach_preview_unsafe",
-      });
-      return;
-    }
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-    res.write(`:${" ".repeat(2048)}\n\n`);
-    // Safe frames only — never emit { props }, raw PICK lines, or unredacted picks.
-    res.write(
-      `data: ${JSON.stringify({
-        status: "Locked parlay preview",
-        lockedPreview: true,
-        pickCount: preview.pickCount,
-        requestedLegs: preview.requestedLegs,
-        cta: preview.cta,
-      })}\n\n`,
-    );
-    res.write(`data: ${JSON.stringify({ content: preview.content })}\n\n`);
-    if (preview.picks.length > 0) {
+    try {
+      const preview = await buildLockedOpenParlayPreview({ askText: gateAskText });
+      const leaks = assertLockedPreviewSafe(preview);
+      if (leaks.length > 0) {
+        // Fail closed — do not stream a leaking payload.
+        res.status(503).json({
+          error: "Parlay preview unavailable.",
+          code: "coach_preview_unsafe",
+        });
+        return;
+      }
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+      res.write(`:${" ".repeat(2048)}\n\n`);
+      // Safe frames only — never emit { props }, raw PICK lines, or unredacted picks.
       res.write(
         `data: ${JSON.stringify({
-          lockedPicks: preview.picks,
+          status: "Locked parlay preview",
+          lockedPreview: true,
           pickCount: preview.pickCount,
+          requestedLegs: preview.requestedLegs,
+          cta: preview.cta,
         })}\n\n`,
       );
+      res.write(`data: ${JSON.stringify({ content: preview.content })}\n\n`);
+      if (preview.picks.length > 0) {
+        res.write(
+          `data: ${JSON.stringify({
+            lockedPicks: preview.picks,
+            pickCount: preview.pickCount,
+          })}\n\n`,
+        );
+      }
+      res.write(`data: ${JSON.stringify({ done: true, lockedPreview: true })}\n\n`);
+      res.end();
+      return;
+    } catch (err) {
+      // Never HTML-500 free open-parlay — serve an empty locked preview instead.
+      logger.error({ err }, "open-parlay locked preview path failed");
+      const fallbackCta = "Sign In / Subscribe to Reveal Picks";
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+      res.write(`:${" ".repeat(2048)}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          status: "Locked parlay preview",
+          lockedPreview: true,
+          pickCount: 0,
+          requestedLegs: 6,
+          cta: fallbackCta,
+          degraded: true,
+        })}\n\n`,
+      );
+      res.write(
+        `data: ${JSON.stringify({
+          content:
+            "Parlay preview is locked. Sign in or subscribe to reveal picks.",
+        })}\n\n`,
+      );
+      res.write(`data: ${JSON.stringify({ done: true, lockedPreview: true })}\n\n`);
+      res.end();
+      return;
     }
-    res.write(`data: ${JSON.stringify({ done: true, lockedPreview: true })}\n\n`);
-    res.end();
-    return;
   }
 
   const aiConfig = resolveOpenAIConfig();

@@ -40,24 +40,56 @@ function clerkUserId(req: Request): string | null {
 
 /** Instant precomputed Coach slate — optional ?legs=5&sport=mlb for exact ticket. */
 router.get("/coach/slate", async (req, res): Promise<void> => {
+  const legs = parseLegsQuery(req.query.legs);
+  const sport = parseSportQuery(req.query.sport);
   try {
-    const legs = parseLegsQuery(req.query.legs);
-    const sport = parseSportQuery(req.query.sport);
     const row = await getCoachPrecomputedSlate();
     const userId = clerkUserId(req);
-    const premiumUnlocked = await userHasCoachPremiumAccess(userId);
+    // Fail closed on auth errors — never unlock premium from a thrown lookup.
+    let premiumUnlocked = false;
+    try {
+      premiumUnlocked = await userHasCoachPremiumAccess(userId);
+    } catch (err) {
+      logger.warn({ err }, "coach slate: premium lookup failed; treating as locked");
+      premiumUnlocked = false;
+    }
 
-    const hasUsableSnapshot = row.snapshot && (row.fresh || row.instantServe);
+    const hasUsableSnapshot = !!(row.snapshot && (row.fresh || row.instantServe));
     const needsRefresh = !row.fresh && (!row.snapshot || row.instantServe);
 
     if (needsRefresh && !isCoachSlateJobRunning()) {
       scheduleCoachSlateRefresh(hasUsableSnapshot ? "stale-while-revalidate" : "cold-miss");
     }
 
-    const clientSnapshot =
-      row.snapshot && hasUsableSnapshot
-        ? snapshotForClient(row.snapshot, { legs, sport, premiumUnlocked })
-        : null;
+    let clientSnapshot = null;
+    if (row.snapshot && hasUsableSnapshot) {
+      try {
+        clientSnapshot = snapshotForClient(row.snapshot, {
+          legs,
+          sport,
+          premiumUnlocked,
+        });
+        // Never send an unlocked snapshot if redaction somehow failed open.
+        if (!premiumUnlocked && clientSnapshot?.boardScan?.picks?.length) {
+          const leak = clientSnapshot.boardScan.picks.some(
+            (p) =>
+              (p.game && p.game !== "••••••") ||
+              (p.pick && p.pick !== "••••••") ||
+              (typeof p.odds === "number" && p.odds !== 0),
+          );
+          if (leak) {
+            logger.error(
+              { path: "coach-slate", outcome: "redact_leak" },
+              "coach slate: refusing to serve identity-bearing locked snapshot",
+            );
+            clientSnapshot = null;
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, "coach slate: snapshotForClient failed");
+        clientSnapshot = null;
+      }
+    }
 
     res.json({
       snapshot: clientSnapshot,
@@ -75,8 +107,24 @@ router.get("/coach/slate", async (req, res): Promise<void> => {
       premiumUnlocked,
     });
   } catch (err) {
+    // Last-resort degrade: 200 + empty slate so free Coach UI does not hard-fail.
     logger.error({ err }, "coach slate GET failed");
-    res.status(500).json({ error: "failed to load coach slate" });
+    res.status(200).json({
+      snapshot: null,
+      fresh: false,
+      instantServe: false,
+      refreshing: true,
+      computedAt: null,
+      deepSimComplete: false,
+      maxAgeMs: SLATE_PRE_ANALYSIS_MAX_MS,
+      instantServeMaxMs: SLATE_INSTANT_SERVE_MAX_MS,
+      supportedLegCounts: [...SLATE_PARLAY_SIZES],
+      resolvedLegCount: legs ? nearestSlateParlaySize(legs) : undefined,
+      resolvedSport: sport ?? undefined,
+      activeSports: [],
+      premiumUnlocked: false,
+      degraded: true,
+    });
   }
 });
 
