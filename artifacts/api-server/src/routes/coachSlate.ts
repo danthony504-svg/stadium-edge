@@ -1,11 +1,11 @@
 import { Router, type IRouter, type Request } from "express";
 import { getAuth } from "@clerk/express";
 import {
-  isCoachSlateJobRunning,
-  runCoachSlateJob,
-  scheduleCoachSlateRefresh,
-  SLATE_PRE_ANALYSIS_MAX_MS,
-} from "../lib/coachSlateJobs.js";
+  coachSlateGetMayStartJob,
+  coachSlateNeedsRefresh,
+  hasUsableCoachSlateSnapshot,
+} from "../lib/coachSlateGetPolicy.js";
+import { runCoachSlateJob, SLATE_PRE_ANALYSIS_MAX_MS } from "../lib/coachSlateJobs.js";
 import { getCoachPrecomputedSlate } from "../lib/coachSlateStore.js";
 import {
   nearestSlateParlaySize,
@@ -54,11 +54,13 @@ router.get("/coach/slate", async (req, res): Promise<void> => {
       premiumUnlocked = false;
     }
 
-    const hasUsableSnapshot = !!(row.snapshot && (row.fresh || row.instantServe));
-    const needsRefresh = !row.fresh && (!row.snapshot || row.instantServe);
-
-    if (needsRefresh && !isCoachSlateJobRunning()) {
-      scheduleCoachSlateRefresh(hasUsableSnapshot ? "stale-while-revalidate" : "cold-miss");
+    // READ-ONLY: never start runCoachSlateJob / simulations from GET.
+    // Cold-miss / stale rows return refreshing=true; cron warms the snapshot.
+    const hasUsableSnapshot = hasUsableCoachSlateSnapshot(row);
+    const needsRefresh = coachSlateNeedsRefresh(row);
+    if (coachSlateGetMayStartJob(row)) {
+      // Unreachable by design — guard documents the invariant for reviewers.
+      logger.error("coach slate GET attempted to start a generation job");
     }
 
     let clientSnapshot = null;
