@@ -26,6 +26,12 @@ import {
   saveBiometricLogin,
 } from "@/lib/biometricLogin";
 import {
+  AUTH_CURRENT_PASSWORD_AUTOFILL,
+  AUTH_EMAIL_AUTOFILL,
+  AUTH_NEW_PASSWORD_AUTOFILL,
+  AUTH_OTP_AUTOFILL,
+} from "@/lib/authFieldAutofill";
+import {
   resolvePostAuthHref,
   signUpHrefPreservingReturn,
 } from "@/lib/pendingSubscriptionIntent";
@@ -443,8 +449,7 @@ export default function SignInScreen() {
           // Default keyboard: App Review may use an alphanumeric server code;
           // normal users still type emailed numeric OTPs fine.
           keyboardType="default"
-          autoCapitalize="none"
-          autoCorrect={false}
+          {...AUTH_OTP_AUTOFILL}
           error={errors.fields.code?.message || formError || undefined}
         />
         <PrimaryButton
@@ -469,9 +474,8 @@ export default function SignInScreen() {
           value={emailAddress}
           onChangeText={setEmailAddress}
           placeholder="you@email.com"
-          autoCapitalize="none"
-          autoComplete="email"
           keyboardType="email-address"
+          {...AUTH_EMAIL_AUTOFILL}
           error={errors.fields.identifier?.message}
         />
         <PrimaryButton
@@ -500,6 +504,7 @@ export default function SignInScreen() {
           onChangeText={setCode}
           placeholder="123456"
           keyboardType="number-pad"
+          {...AUTH_OTP_AUTOFILL}
           error={errors.fields.code?.message}
         />
         <AuthField
@@ -509,6 +514,7 @@ export default function SignInScreen() {
           onChangeText={setNewPassword}
           placeholder="Your new password"
           secureTextEntry
+          {...AUTH_NEW_PASSWORD_AUTOFILL}
           error={errors.fields.password?.message}
         />
         <PrimaryButton
@@ -608,9 +614,8 @@ export default function SignInScreen() {
         value={emailAddress}
         onChangeText={setEmailAddress}
         placeholder="you@email.com"
-        autoCapitalize="none"
-        autoComplete="email"
         keyboardType="email-address"
+        {...AUTH_EMAIL_AUTOFILL}
         error={errors.fields.identifier?.message}
       />
       <AuthField
@@ -620,6 +625,7 @@ export default function SignInScreen() {
         onChangeText={setPassword}
         placeholder="Your password"
         secureTextEntry
+        {...AUTH_CURRENT_PASSWORD_AUTOFILL}
         error={errors.fields.password?.message}
       />
       <View style={{ marginTop: -4, marginBottom: 8 }}>
@@ -639,7 +645,11 @@ export default function SignInScreen() {
       {APPLE_SIGN_IN_ENABLED ? (
         <>
           <AuthDivider />
-          <AppleAuthButton />
+          <AppleAuthButton
+            returnTo={typeof params.returnTo === "string" ? params.returnTo : null}
+            plan={typeof params.plan === "string" ? params.plan : null}
+            intent={typeof params.intent === "string" ? params.intent : null}
+          />
         </>
       ) : null}
 

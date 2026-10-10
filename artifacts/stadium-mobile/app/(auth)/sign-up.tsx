@@ -13,7 +13,15 @@ import {
 } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { resolvePostAuthHref } from "@/lib/pendingSubscriptionIntent";
+import {
+  AUTH_EMAIL_AUTOFILL,
+  AUTH_NEW_PASSWORD_AUTOFILL,
+  AUTH_OTP_AUTOFILL,
+} from "@/lib/authFieldAutofill";
+import {
+  resolvePostAuthHref,
+  signInHrefPreservingReturn,
+} from "@/lib/pendingSubscriptionIntent";
 import { loadPendingSubscriptionIntent } from "@/lib/pendingSubscriptionIntentStorage";
 
 export default function SignUpScreen() {
@@ -29,6 +37,14 @@ export default function SignUpScreen() {
   const [emailAddress, setEmailAddress] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [code, setCode] = React.useState("");
+
+  const signInHref = React.useMemo(() => {
+    const q = new URLSearchParams();
+    if (params.returnTo) q.set("returnTo", String(params.returnTo));
+    if (params.plan) q.set("plan", String(params.plan));
+    if (params.intent) q.set("intent", String(params.intent));
+    return signInHrefPreservingReturn(q.toString());
+  }, [params.returnTo, params.plan, params.intent]);
 
   const goHome = ({
     session,
@@ -77,6 +93,7 @@ export default function SignUpScreen() {
           onChangeText={setCode}
           placeholder="123456"
           keyboardType="number-pad"
+          {...AUTH_OTP_AUTOFILL}
           error={errors.fields.code?.message}
         />
         <PrimaryButton
@@ -104,9 +121,8 @@ export default function SignUpScreen() {
         value={emailAddress}
         onChangeText={setEmailAddress}
         placeholder="you@email.com"
-        autoCapitalize="none"
-        autoComplete="email"
         keyboardType="email-address"
+        {...AUTH_EMAIL_AUTOFILL}
         error={errors.fields.emailAddress?.message}
       />
       <AuthField
@@ -115,6 +131,7 @@ export default function SignUpScreen() {
         onChangeText={setPassword}
         placeholder="Create a password"
         secureTextEntry
+        {...AUTH_NEW_PASSWORD_AUTOFILL}
         error={errors.fields.password?.message}
       />
       <PrimaryButton
@@ -127,7 +144,11 @@ export default function SignUpScreen() {
       {APPLE_SIGN_IN_ENABLED ? (
         <>
           <AuthDivider />
-          <AppleAuthButton />
+          <AppleAuthButton
+            returnTo={typeof params.returnTo === "string" ? params.returnTo : null}
+            plan={typeof params.plan === "string" ? params.plan : null}
+            intent={typeof params.intent === "string" ? params.intent : null}
+          />
         </>
       ) : null}
 
@@ -141,7 +162,7 @@ export default function SignUpScreen() {
         <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}>
           Already have an account?{" "}
         </Text>
-        <Link href="/sign-in" replace>
+        <Link href={signInHref as Href} replace>
           <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.primary }}>
             Sign in
           </Text>

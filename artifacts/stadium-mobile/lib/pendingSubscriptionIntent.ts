@@ -79,6 +79,9 @@ export function plansHrefForSubscriptionIntent(
 /**
  * Resolve post-auth navigation target.
  * Prefers URL params (returnTo=plans); merges stored plan when URL omits it.
+ *
+ * Also used after Sign in with Apple — same contract: return to `/plans?…`
+ * for selection only; never auto-start StoreKit.
  */
 export function resolvePostAuthHref(opts: {
   returnTo?: string | null;
@@ -133,4 +136,30 @@ export function signUpHrefPreservingReturn(signInSearch: string): string {
       ? q.slice("sign-in?".length)
       : q;
   return query ? `/sign-up?${query}` : "/sign-up";
+}
+
+/** Sign-in link that keeps Plans returnTo/plan/intent from the current sign-up URL. */
+export function signInHrefPreservingReturn(signUpSearch: string): string {
+  const q = signUpSearch.startsWith("?")
+    ? signUpSearch.slice(1)
+    : signUpSearch.replace(/^\//, "");
+  const query = q.includes("returnTo=")
+    ? q
+    : q.startsWith("sign-up?")
+      ? q.slice("sign-up?".length)
+      : q;
+  return query ? `/sign-in?${query}` : "/sign-in";
+}
+
+/**
+ * Alias used by AppleAuthButton — identical to {@link resolvePostAuthHref}.
+ * Kept named so Apple return-to-Plans regressions are easy to find/test.
+ */
+export function resolveAppleAuthNavigateHref(opts: {
+  returnTo?: string | null;
+  plan?: string | null;
+  intent?: string | null;
+  stored?: SubscriptionIntent | null;
+}): string {
+  return resolvePostAuthHref(opts);
 }

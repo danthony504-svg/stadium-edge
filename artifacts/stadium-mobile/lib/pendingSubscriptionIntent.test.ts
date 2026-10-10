@@ -6,8 +6,10 @@ import {
   parseSubscriptionIntent,
   parseSubscriptionIntentJson,
   plansHrefForSubscriptionIntent,
+  resolveAppleAuthNavigateHref,
   resolvePostAuthHref,
   signInHrefForSubscriptionIntent,
+  signInHrefPreservingReturn,
   signUpHrefPreservingReturn,
 } from "./pendingSubscriptionIntent.ts";
 
@@ -94,5 +96,49 @@ describe("pendingSubscriptionIntent", () => {
       "/sign-up?returnTo=plans&plan=go&intent=purchase",
     );
     assert.equal(signUpHrefPreservingReturn(""), "/sign-up");
+  });
+
+  it("preserves return query when linking sign-up back to sign-in", () => {
+    assert.equal(
+      signInHrefPreservingReturn("returnTo=plans&plan=pro&intent=purchase"),
+      "/sign-in?returnTo=plans&plan=pro&intent=purchase",
+    );
+    assert.equal(signInHrefPreservingReturn(""), "/sign-in");
+  });
+
+  it("Apple auth navigate honors Plans intent and never auto-buys", () => {
+    assert.equal(
+      resolveAppleAuthNavigateHref({
+        returnTo: "plans",
+        plan: "go",
+        intent: "purchase",
+        stored: null,
+      }),
+      "/plans?plan=go",
+    );
+    assert.equal(
+      resolveAppleAuthNavigateHref({
+        returnTo: "plans",
+        plan: "pro",
+        intent: "purchase",
+        stored: { intent: "purchase", planId: "go" },
+      }),
+      "/plans?plan=pro",
+    );
+    const href = resolveAppleAuthNavigateHref({
+      returnTo: "plans",
+      intent: "restore",
+      stored: { intent: "restore" },
+    });
+    assert.equal(href, "/plans?intent=restore");
+    assert.doesNotMatch(href, /autoBuy|autostart|purchaseNow|startPurchase/i);
+    // Unrelated Apple sign-in (no returnTo) must not hijack via storage alone.
+    assert.equal(
+      resolveAppleAuthNavigateHref({
+        returnTo: null,
+        stored: { intent: "purchase", planId: "pro" },
+      }),
+      "/",
+    );
   });
 });

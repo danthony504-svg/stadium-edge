@@ -20,6 +20,8 @@ import Svg, { Path } from "react-native-svg";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { resolveAppleAuthNavigateHref } from "@/lib/pendingSubscriptionIntent";
+import { loadPendingSubscriptionIntent } from "@/lib/pendingSubscriptionIntentStorage";
 
 // Blue accent used across the auth screens to match the "Welcome back" mockup.
 export const AUTH_ACCENT = "#3b82f6";
@@ -292,9 +294,17 @@ function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: strin
 /**
  * Apple SSO is temporarily hidden — Clerk rejects `oauth_apple`
  * (`form_param_value_invalid`) until the provider is enabled/configured.
- * Flip to true once Apple is live in the Clerk dashboard.
+ * Flip to true only after Clerk Dashboard Apple is live AND the flow is
+ * device-tested (Phase 2). Do not show the button earlier.
  */
 export const APPLE_SIGN_IN_ENABLED = false;
+
+export type AppleAuthReturnParams = {
+  /** From Plans → sign-in (`returnTo=plans`). */
+  returnTo?: string | null;
+  plan?: string | null;
+  intent?: string | null;
+};
 
 // Sign in with Apple button. Required by App Store Guideline 4.8 as an equivalent
 // privacy-focused login option whenever third-party/social sign-in is offered. Uses Clerk's
@@ -324,12 +334,15 @@ function describeSsoError(err: unknown): string {
   return "Unknown error";
 }
 
-export function AppleAuthButton() {
+export function AppleAuthButton(props: AppleAuthReturnParams = {}) {
   useWarmUpBrowser();
   const router = useRouter();
   const { startSSOFlow } = useSSO();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const returnTo = props.returnTo;
+  const plan = props.plan;
+  const intent = props.intent;
 
   const finishSession = useCallback(
     async (createdSessionId: string | null | undefined, setActive: ((...args: any[]) => Promise<void>) | undefined) => {
@@ -338,12 +351,22 @@ export function AppleAuthButton() {
           session: createdSessionId,
           navigate: async ({ session, decorateUrl }: { session?: { currentTask?: unknown }; decorateUrl: (path: string) => string }) => {
             if (session?.currentTask) return;
-            router.replace(decorateUrl("/") as Href);
+            // Selection-only return to Plans when the auth URL (or storage
+            // merged via returnTo=plans) carried a Go/Pro intent. Never
+            // auto-start StoreKit / RevenueCat purchase here.
+            const stored = await loadPendingSubscriptionIntent();
+            const target = resolveAppleAuthNavigateHref({
+              returnTo,
+              plan,
+              intent,
+              stored,
+            });
+            router.replace(decorateUrl(target) as Href);
           },
         });
       }
     },
-    [router],
+    [router, returnTo, plan, intent],
   );
 
   const onPress = useCallback(async () => {
