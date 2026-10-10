@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { AppHeader } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Badge, Card, FONT, Pill } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
@@ -15,7 +16,7 @@ import { fantasyCompareRoute } from "@/lib/fantasyCompareRoute";
 
 const SLOT_LABEL: Record<FantasyRosterSlot, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", FLEX: "FLEX", K: "K", DEF: "DST", Bench: "Bench", IR: "IR" };
 
-export default function FantasyTeamScreen() {
+function FantasyTeamScreen() {
   const colors = useColors();
   const clearance = useSlipClearance();
   const router = useRouter();
@@ -97,4 +98,12 @@ export default function FantasyTeamScreen() {
       })}
     </ScrollView>
   </View>;
+}
+
+export default function FantasyTeamScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="fantasy">
+      <FantasyTeamScreen />
+    </PremiumFeatureGate>
+  );
 }

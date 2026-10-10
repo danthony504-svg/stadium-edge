@@ -34,8 +34,20 @@ export type ParsedPick = {
   propSide?: string;
   ticketRole?: "main" | "alt";
   highRiskValuePlay?: boolean;
-  scores?: { composite?: number | null };
-  finalAiScore?: { composite?: number | null; grade?: string | null; simHit?: number | null };
+  scores?: {
+    composite?: number | null;
+    grade?: string | null;
+    confidencePct?: number | null;
+    edgePct?: number | null;
+    simHit?: number | null;
+  };
+  finalAiScore?: {
+    composite?: number | null;
+    grade?: string | null;
+    simHit?: number | null;
+    confidencePct?: number | null;
+    edgePct?: number | null;
+  };
 };
 
 export type RealOddsEntry = {
@@ -267,9 +279,30 @@ export function resolveSlateBoardScan(
 
 const PREMIUM_PICK_MASK = "••••••";
 
+type GradeKeep = {
+  composite?: number | null;
+  grade?: string | null;
+  confidencePct?: number | null;
+  edgePct?: number | null;
+  simHit?: number | null;
+};
+
+/** Keep teaser metrics only — never invent confidence/edge when absent. */
+function keepGradeSlice(src: GradeKeep | null | undefined): GradeKeep | undefined {
+  if (!src || typeof src !== "object") return undefined;
+  return {
+    composite: src.composite ?? null,
+    grade: src.grade ?? null,
+    confidencePct: src.confidencePct ?? null,
+    edgePct: src.edgePct ?? null,
+    simHit: src.simHit ?? null,
+  };
+}
+
 /**
  * Strip identity / lines / odds for non-subscribers.
  * Keep AI grade / confidence / edge metrics for the teaser strip.
+ * Aligned with stadium-mobile `redactPremiumPickFields`.
  */
 export function redactPremiumPickForClient(pick: ParsedPick): ParsedPick {
   const grade = pick.finalAiScore;
@@ -291,25 +324,16 @@ export function redactPremiumPickForClient(pick: ParsedPick): ParsedPick {
     homeAbbr: null,
     player: undefined,
     athleteId: null,
-    propMarketKey: pick.propMarketKey,
+    // Clear market keys that can re-identify a prop selection.
+    propMarketKey: undefined,
     propLine: null,
     propSide: undefined,
     edge: undefined,
     propIsAlt: undefined,
     ticketRole: undefined,
     highRiskValuePlay: undefined,
-    scores: scores
-      ? { composite: scores.composite ?? null }
-      : grade
-        ? { composite: grade.composite ?? null }
-        : undefined,
-    finalAiScore: grade
-      ? {
-          composite: grade.composite ?? null,
-          grade: grade.grade ?? null,
-          simHit: grade.simHit ?? null,
-        }
-      : undefined,
+    scores: keepGradeSlice(scores) ?? keepGradeSlice(grade),
+    finalAiScore: keepGradeSlice(grade),
   };
 }
 

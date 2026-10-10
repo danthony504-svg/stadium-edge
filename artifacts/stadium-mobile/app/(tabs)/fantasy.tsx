@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 
 import { AppHeader } from "@/components/AppHeader";
 import { FantasyPlayerCard } from "@/components/FantasyPlayerCard";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Badge, Card, FONT, Pill } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
@@ -23,7 +24,7 @@ const features: Array<{ id: FantasyView; title: string; body: string; icon: Reac
   { id: "trade", title: "Trade Analyzer", body: "Compare Side A and Side B rest-of-season value.", icon: "repeat" },
 ];
 
-export default function FantasyScreen() {
+function FantasyScreen() {
   const colors = useColors();
   const clearance = useSlipClearance();
   const router = useRouter();
@@ -206,5 +207,13 @@ export default function FantasyScreen() {
         )}
       </ScrollView>
     </View>
+  );
+}
+
+export default function FantasyScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="fantasy">
+      <FantasyScreen />
+    </PremiumFeatureGate>
   );
 }

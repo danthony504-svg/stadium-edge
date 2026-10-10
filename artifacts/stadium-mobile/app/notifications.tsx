@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -84,7 +85,7 @@ const CATEGORIES: { key: CategoryKey; icon: FeatherName; title: string; subtitle
   },
 ];
 
-export default function NotificationsScreen() {
+function NotificationsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -156,7 +157,7 @@ export default function NotificationsScreen() {
     }
   }, []);
 
-  // Notification prefs are per-account; require sign-in.
+  // Subscription soft-gate is on the default export. Prefs still need an account.
   if (!isSignedIn) return <Redirect href="/sign-in" />;
 
   const masterOn = prefs.master;
@@ -346,5 +347,13 @@ export default function NotificationsScreen() {
         </View>
       )}
     </View>
+  );
+}
+
+export default function NotificationsScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="notifications">
+      <NotificationsScreen />
+    </PremiumFeatureGate>
   );
 }

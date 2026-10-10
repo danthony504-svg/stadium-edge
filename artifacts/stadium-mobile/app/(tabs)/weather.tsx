@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
+import { PremiumFeatureGate } from "@/components/PremiumFeatureGate";
 import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getParkWeather, type ParkWeatherReport } from "@/lib/api";
@@ -58,7 +59,7 @@ function fmtFirstPitch(iso: string): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export default function WeatherScreen() {
+function WeatherScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -207,6 +208,14 @@ export default function WeatherScreen() {
         )}
       </ScrollView>
     </View>
+  );
+}
+
+export default function WeatherScreenGated() {
+  return (
+    <PremiumFeatureGate featureId="weather">
+      <WeatherScreen />
+    </PremiumFeatureGate>
   );
 }
 

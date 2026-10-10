@@ -69,6 +69,18 @@ test("APP_REVIEW_MODE does not unlock Coach premium via verified helpers", () =>
 });
 
 test("parlay asks allowed for everyone; general questions gated", () => {
+  for (const ask of ["1 leg MLB", "2 leg parlay", "5 leg NFL parlay", "9 leg", "15 leg parlay"]) {
+    assert.deepEqual(
+      resolveCoachAskAccess({
+        askText: ask,
+        isParlayBuild: true,
+        signedIn: false,
+        premiumUnlocked: false,
+      }),
+      { allowed: true },
+      ask,
+    );
+  }
   assert.deepEqual(
     resolveCoachAskAccess({
       askText: "5 leg NFL parlay",
@@ -141,6 +153,7 @@ test("redaction keeps grades; strips identity, lines, odds, times", () => {
   assert.equal(redacted.finalAiScore?.confidencePct, 62);
   assert.equal(redacted.finalAiScore?.edgePct, 4.2);
   assert.equal(redacted.scores?.composite, 8.1);
+  assert.equal((redacted as { propMarketKey?: string }).propMarketKey, undefined);
 
   const scan = redactPremiumBoardScanPicks({
     picks: [

@@ -210,9 +210,15 @@ test("premium routes map to gated features; Coach stays free", () => {
   assert.equal(premiumFeatureForRoute("/steals"), "steals");
   assert.equal(premiumFeatureForRoute("/simulator"), "simulator");
   assert.equal(premiumFeatureForRoute("/report"), "model_report");
+  assert.equal(premiumFeatureForRoute("/fantasy"), "fantasy");
+  assert.equal(premiumFeatureForRoute("/fantasy-lineup"), "fantasy");
+  assert.equal(premiumFeatureForRoute("/weather"), "weather");
+  assert.equal(premiumFeatureForRoute("/props"), "props");
+  assert.equal(premiumFeatureForRoute("/notifications"), "notifications");
   assert.equal(premiumFeatureForRoute("/coach"), null);
   assert.equal(premiumFeatureForRoute("/"), null);
-  assert.equal(premiumFeatureForRoute("/props"), null);
+  assert.equal(premiumFeatureForRoute("/plans"), null);
+  assert.equal(premiumFeatureForRoute("/account"), null);
   assert.equal(canAccessPremiumFeature("edge_lock", false), false);
   assert.equal(canAccessPremiumFeature("edge_lock", true), true);
   assert.equal(canAccessPremiumFeature("coach_ai_metrics", false), false);

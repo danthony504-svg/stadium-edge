@@ -88,6 +88,10 @@ export const SOFT_PRO_FEATURE_LABELS = [
   "+500 Steals",
   "Simulator",
   "Model Report",
+  "Fantasy Football",
+  "Park Weather",
+  "Props",
+  "Notifications",
   "AI Grade & Edge",
   "Unlock AI Picks",
 ] as const;
@@ -95,14 +99,19 @@ export const SOFT_PRO_FEATURE_LABELS = [
 export type SoftProFeatureLabel = (typeof SOFT_PRO_FEATURE_LABELS)[number] | string;
 
 /**
- * Premium secondary surfaces — soft-gated after trial unless subscribed / admin / promo.
- * Discover, Coach, Props, Slip, Weather, Fantasy stay free for guests.
+ * Premium secondary surfaces — soft-gated unless subscribed / admin / App Review.
+ * Always open: Discover, Coach, Plans, Account (and Slip when enabled).
+ * Coach pick identity still uses coachPremiumGate (verified StoreKit), not isPro alone.
  */
 export type PremiumFeatureId =
   | "edge_lock"
   | "steals"
   | "simulator"
   | "model_report"
+  | "fantasy"
+  | "weather"
+  | "props"
+  | "notifications"
   | "coach_ai_metrics";
 
 export const PREMIUM_FEATURES: Record<
@@ -113,6 +122,13 @@ export const PREMIUM_FEATURES: Record<
   steals: { label: "+500 Steals", routes: ["/steals"] },
   simulator: { label: "Simulator", routes: ["/simulator"] },
   model_report: { label: "Model Report", routes: ["/report"] },
+  fantasy: {
+    label: "Fantasy Football",
+    routes: ["/fantasy", "/fantasy-lineup", "/fantasy-team", "/fantasy-start-sit", "/fantasy-trade"],
+  },
+  weather: { label: "Park Weather", routes: ["/weather"] },
+  props: { label: "Props", routes: ["/props"] },
+  notifications: { label: "Notifications", routes: ["/notifications"] },
   // Soft-locked tiles on Coach / pick cards (verified StoreKit Go/Pro or admin).
   coach_ai_metrics: { label: "Unlock AI Picks", routes: [] },
 };

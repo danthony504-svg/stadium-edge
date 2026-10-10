@@ -89,7 +89,7 @@ test("isActivePaidEntitlement: cancelled-at-expiration still active before expir
   );
 });
 
-test("redactPremiumPickForClient keeps grades; strips identity/lines/odds", () => {
+test("redactPremiumPickForClient keeps grades/confidence/edge; strips identity/lines/odds", () => {
   const out = redactPremiumPickForClient({
     game: "Lakers @ Celtics",
     market: "Spread",
@@ -99,10 +99,17 @@ test("redactPremiumPickForClient keeps grades; strips identity/lines/odds", () =
     sport: "nba",
     player: undefined,
     startsAt: "2026-10-10T00:00:00Z",
-    scores: { composite: 7.5 },
-    finalAiScore: { grade: "A-", composite: 7.5, simHit: 0.55 },
+    scores: { composite: 7.5, grade: "A-", confidencePct: 61, edgePct: 3.1 },
+    finalAiScore: {
+      grade: "A-",
+      composite: 7.5,
+      simHit: 0.55,
+      confidencePct: 61,
+      edgePct: 3.1,
+    },
     propLine: 3.5,
     propSide: "home",
+    propMarketKey: "spreads",
   });
   assert.equal(out.game, "••••••");
   assert.equal(out.sport, "nba");
@@ -110,10 +117,28 @@ test("redactPremiumPickForClient keeps grades; strips identity/lines/odds", () =
   assert.equal(out.pick, "••••••");
   assert.equal(out.odds, 0);
   assert.equal(out.edge, undefined);
+  assert.equal(out.propMarketKey, undefined);
   assert.equal(out.scores?.composite, 7.5);
+  assert.equal(out.scores?.confidencePct, 61);
+  assert.equal(out.scores?.edgePct, 3.1);
   assert.equal(out.finalAiScore?.grade, "A-");
   assert.equal(out.finalAiScore?.composite, 7.5);
+  assert.equal(out.finalAiScore?.confidencePct, 61);
+  assert.equal(out.finalAiScore?.edgePct, 3.1);
   assert.equal(out.propLine, null);
+});
+
+test("redaction never fabricates confidence or edge", () => {
+  const out = redactPremiumPickForClient({
+    game: "A @ B",
+    market: "Total",
+    pick: "Over 220.5",
+    odds: -110,
+    finalAiScore: { grade: "B", composite: 6 },
+  });
+  assert.equal(out.finalAiScore?.confidencePct, null);
+  assert.equal(out.finalAiScore?.edgePct, null);
+  assert.equal(out.finalAiScore?.grade, "B");
 });
 
 function minimalSnapshot(): SlatePreAnalysisSnapshot {

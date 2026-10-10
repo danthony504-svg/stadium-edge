@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/expo";
 import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
 import React from "react";
@@ -18,12 +19,13 @@ type PremiumFeatureGateProps = {
 };
 
 /**
- * Soft gate for secondary premium tabs. Core browse/Coach never use this.
- * When locked, shows an upgrade CTA instead of the tool — dismissible via Plans.
+ * Soft gate for secondary premium tabs. Discover / Coach / Plans / Account never use this.
+ * Logged out → Sign In. Logged in without sub → Subscribe. App Review / admin / Go/Pro → open.
  */
 export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGateProps) {
   const colors = useColors();
   const router = useRouter();
+  const { isSignedIn } = useAuth();
   const { entitlement, openSoftPaywall, hydrated } = useSubscription();
   const meta = PREMIUM_FEATURES[featureId];
   const allowed = canAccessPremiumFeature(featureId, entitlement.isPro);
@@ -33,6 +35,12 @@ export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGatePr
   }
 
   if (allowed) return <>{children}</>;
+
+  const needsSignIn = !isSignedIn;
+  const primaryLabel = needsSignIn ? "Sign In" : `Subscribe to unlock ${meta.label}`;
+  const body = needsSignIn
+    ? `Sign in, then subscribe to Stadium Edge Go ($9.99/wk) or Pro ($29.99/mo) via Apple to use ${meta.label}. Discover, Coach, Plans, and Account stay free.`
+    : `Included with Go ($9.99/wk) or Pro ($29.99/mo) via Apple. Discover, Coach, Plans, and Account stay free — Coach pick details unlock with a verified subscription.`;
 
   return (
     <View
@@ -78,11 +86,16 @@ export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGatePr
           textAlign: "center",
         }}
       >
-        Included with Go ($9.99/wk) or Pro ($29.99/mo) via Apple, or an admin account.
-        Discover, Coach, Props, and Slip stay free.
+        {body}
       </Text>
       <Pressable
-        onPress={() => openSoftPaywall(meta.label)}
+        onPress={() => {
+          if (needsSignIn) {
+            router.push("/sign-in" as never);
+            return;
+          }
+          openSoftPaywall(meta.label);
+        }}
         style={({ pressed }) => ({
           alignItems: "center",
           backgroundColor: colors.primary,
@@ -92,11 +105,11 @@ export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGatePr
         })}
       >
         <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.primaryForeground }}>
-          Unlock {meta.label}
+          {primaryLabel}
         </Text>
       </Pressable>
       <Pressable
-        onPress={() => router.push("/plans" as never)}
+        onPress={() => router.push((needsSignIn ? "/sign-in" : "/plans") as never)}
         style={({ pressed }) => ({
           alignItems: "center",
           paddingVertical: 10,
@@ -104,7 +117,7 @@ export function PremiumFeatureGate({ featureId, children }: PremiumFeatureGatePr
         })}
       >
         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.mutedForeground }}>
-          See plans or enter a promo code
+          {needsSignIn ? "Create an account" : "See plans"}
         </Text>
       </Pressable>
     </View>

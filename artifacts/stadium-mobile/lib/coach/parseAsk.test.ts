@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  isOpenCoachParlayAsk,
   isParlayBuildAsk,
   parseRequestedLegs,
   resolveBuildLegTarget,
@@ -118,6 +119,16 @@ test("isParlayBuildAsk detects build intent", () => {
   assert.equal(isParlayBuildAsk("build me a parlay"), true);
   assert.equal(isParlayBuildAsk("6-leg NFL ticket"), true);
   assert.equal(isParlayBuildAsk("who wins tonight"), false);
+});
+
+test("isOpenCoachParlayAsk allows 1–15 legs without subscription", () => {
+  for (const n of [1, 2, 5, 9, 15]) {
+    assert.equal(isOpenCoachParlayAsk(`${n} leg parlay`), true, String(n));
+    assert.equal(resolveBuildLegTarget(`${n} leg parlay`), n, String(n));
+  }
+  assert.equal(isOpenCoachParlayAsk("who wins tonight"), false);
+  assert.equal(resolveBuildLegTarget("20 leg parlay"), 15);
+  assert.equal(isOpenCoachParlayAsk("20 leg parlay"), true);
 });
 
 test("give me N UFC/tennis picks resolves legs for every N 2–15", () => {
