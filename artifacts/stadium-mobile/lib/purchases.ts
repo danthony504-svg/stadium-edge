@@ -123,10 +123,12 @@ export function storeKitUnavailableReason(): string | null {
 }
 
 function snapshotFromCustomerInfo(info: CustomerInfo): StoreKitCustomerSnapshot {
-  const activeEntitlementIds = Object.keys(info.entitlements.active ?? {});
+  // RC payloads occasionally omit entitlements entirely — Object.keys(undefined) crashes Hermes.
+  const active = info.entitlements?.active ?? {};
+  const activeEntitlementIds = Object.keys(active);
   const activeProductIds = [
     ...new Set(
-      Object.values(info.entitlements.active ?? {})
+      Object.values(active)
         .map((e) => e.productIdentifier)
         .filter((id): id is string => typeof id === "string" && id.length > 0),
     ),
