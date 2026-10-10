@@ -14,10 +14,12 @@ import {
   findPromoDefinition,
   hasProAccess,
   isAdminEmail,
+  isAppReviewAccountEmail,
   isPlanId,
   isPromoUnlockActive,
   isTrialActive,
   parseAdminEmails,
+  parseAppReviewAccountEmails,
   planById,
   premiumFeatureForRoute,
   redeemPromoCode,
@@ -25,6 +27,7 @@ import {
   softRequirePro,
   trialDaysRemaining,
   applyStoreKitSnapshot,
+  type PremiumFeatureId,
 } from "./entitlements.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -95,18 +98,80 @@ test("hasProAccess: paid requires storeKitActive; custom promo never unlocks; ad
   );
 });
 
-test("hasProAccess: app review mode unlocks everything temporarily", () => {
+test("hasProAccess: legacy APP_REVIEW_MODE flag never unlocks (old OTA/native)", () => {
   const start = 1_700_000_000_000;
+  const free = baseState({ planId: "free" });
+  assert.equal(hasProAccess(free, start, { appReviewMode: true }), false);
+  const view = buildEntitlementView(free, start, { appReviewMode: true });
+  assert.equal(view.isPro, false);
+  assert.equal(view.unlockSource, "none");
+  assert.equal(view.statusLabel, "Free");
+  assert.notEqual(view.statusLabel, "Temporary unlock");
+  assert.doesNotMatch(view.statusDetail, /pending App Store approval/i);
+});
+
+test("hasProAccess: designated App Review account email unlocks only that account", () => {
+  const start = 1_700_000_000_000;
+  const free = baseState({ planId: "free" });
+  const reviewEmails = parseAppReviewAccountEmails("apple@stadiumedge.app");
+  assert.deepEqual(reviewEmails, ["apple@stadiumedge.app"]);
   assert.equal(
-    hasProAccess(baseState({ planId: "free" }), start, { appReviewMode: true }),
+    isAppReviewAccountEmail("Apple@Stadiumedge.app", reviewEmails),
     true,
   );
-  const view = buildEntitlementView(baseState({ planId: "free" }), start, {
-    appReviewMode: true,
+  assert.equal(
+    hasProAccess(free, start, {
+      email: "apple@stadiumedge.app",
+      appReviewAccountEmails: reviewEmails,
+      appReviewMode: true, // still must not be a global grant
+    }),
+    true,
+  );
+  assert.equal(
+    hasProAccess(free, start, {
+      email: "random@consumer.com",
+      appReviewAccountEmails: reviewEmails,
+      appReviewMode: true,
+    }),
+    false,
+  );
+  const view = buildEntitlementView(free, start, {
+    email: "apple@stadiumedge.app",
+    appReviewAccountEmails: reviewEmails,
   });
-  assert.equal(view.isPro, true);
   assert.equal(view.unlockSource, "review");
-  assert.equal(view.statusLabel, "Temporary unlock");
+  assert.equal(view.statusLabel, "App Review");
+  assert.equal(view.isPro, true);
+  assert.notEqual(view.statusLabel, "Temporary unlock");
+});
+
+test("premium pages stay locked when APP_REVIEW_MODE=true without trusted entitlement", () => {
+  const start = 1_700_000_000_000;
+  const view = buildEntitlementView(baseState({ planId: "free" }), start, {
+    email: "user@example.com",
+    appReviewMode: true,
+    appReviewAccountEmails: ["apple@stadiumedge.app"],
+  });
+  assert.equal(view.isPro, false);
+  assert.equal(softRequirePro(view.isPro), false);
+  const features: PremiumFeatureId[] = [
+    "edge_lock",
+    "steals",
+    "simulator",
+    "model_report",
+    "fantasy",
+    "weather",
+    "props",
+    "notifications",
+    "coach_ai_metrics",
+  ];
+  for (const id of features) {
+    assert.equal(
+      canAccessPremiumFeature(id, view.isPro),
+      false,
+      `${id} must stay locked under legacy APP_REVIEW_MODE`,
+    );
+  }
 });
 
 test("buildEntitlementView labels admin / free (promo unlock disabled)", () => {

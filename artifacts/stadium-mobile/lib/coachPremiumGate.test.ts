@@ -68,6 +68,28 @@ test("APP_REVIEW_MODE does not unlock Coach premium via verified helpers", () =>
   );
 });
 
+test("designated App Review account can unlock Coach; other emails cannot", () => {
+  const free = state({ planId: "free" });
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "apple@stadiumedge.app",
+      appReviewAccountEmails: ["apple@stadiumedge.app"],
+      appReviewMode: true,
+    }),
+    true,
+  );
+  assert.equal(
+    hasCoachPremiumAccess(free, NOW, {
+      signedIn: true,
+      email: "fan@example.com",
+      appReviewAccountEmails: ["apple@stadiumedge.app"],
+      appReviewMode: true,
+    }),
+    false,
+  );
+});
+
 test("parlay asks allowed for everyone; general questions gated", () => {
   for (const ask of ["1 leg MLB", "2 leg parlay", "5 leg NFL parlay", "9 leg", "15 leg parlay"]) {
     assert.deepEqual(

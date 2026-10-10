@@ -6,12 +6,13 @@
  *   - Blur team/player names, event times, sportsbook odds, exact lines
  *   - Lock detailed AI breakdowns
  *
- * Non-parlay Coach Q&A requires signed-in + verified Go/Pro (or admin).
- * APP_REVIEW_MODE / local planId never unlock Coach premium.
+ * Non-parlay Coach Q&A requires signed-in + verified Go/Pro (or admin /
+ * designated App Review account). APP_REVIEW_MODE / local planId never unlock.
  */
 
 import {
   isAdminEmail,
+  isAppReviewAccountEmail,
   planById,
   type EntitlementAccessOpts,
   type SubscriptionPersistedState,
@@ -40,15 +41,20 @@ export function hasVerifiedStoreKitPaidPlan(
 }
 
 /**
- * Verified entitlement for Coach premium identity + Q&A (no review-mode bypass).
- * Admin allowlist still unlocks for signed-in allowlisted accounts.
+ * Verified entitlement for Coach premium identity + Q&A.
+ * Global APP_REVIEW_MODE never unlocks. Admin / designated review account
+ * allowlists unlock only for the matching signed-in email.
  */
 export function hasVerifiedCoachEntitlement(
   state: SubscriptionPersistedState,
   _nowMs: number,
   opts: CoachPremiumAccessOpts = {},
 ): boolean {
+  void opts.appReviewMode; // ignored — no global review bypass
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
+  if (isAppReviewAccountEmail(opts.email, opts.appReviewAccountEmails ?? [])) {
+    return true;
+  }
   return hasVerifiedStoreKitPaidPlan(state);
 }
 

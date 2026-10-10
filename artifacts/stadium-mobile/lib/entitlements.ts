@@ -99,9 +99,10 @@ export const SOFT_PRO_FEATURE_LABELS = [
 export type SoftProFeatureLabel = (typeof SOFT_PRO_FEATURE_LABELS)[number] | string;
 
 /**
- * Premium secondary surfaces — soft-gated unless subscribed / admin / App Review.
- * Always open: Discover, Coach, Plans, Account (and Slip when enabled).
- * Coach pick identity still uses coachPremiumGate (verified StoreKit), not isPro alone.
+ * Premium secondary surfaces — soft-gated unless subscribed / admin / designated
+ * App Review account. Always open: Discover, Coach, Plans, Account (and Slip).
+ * Coach pick identity still uses coachPremiumGate (verified StoreKit / allowlist),
+ * not isPro alone. EXPO_PUBLIC_APP_REVIEW_MODE never unlocks.
  */
 export type PremiumFeatureId =
   | "edge_lock"
@@ -364,15 +365,30 @@ export function redeemPromoFailureMessage(reason: RedeemPromoFailReason): string
 }
 
 /**
- * Parse EXPO_PUBLIC_ADMIN_EMAILS (comma/space separated).
- * Example: "you@stadiumedge.com,owner@gmail.com"
+ * Parse comma/space/semicolon email allowlists from public env values.
+ * Used for EXPO_PUBLIC_ADMIN_EMAILS and EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL.
  */
-export function parseAdminEmails(envValue: string | null | undefined): string[] {
+export function parseEmailAllowlist(envValue: string | null | undefined): string[] {
   if (!envValue || typeof envValue !== "string") return [];
   return envValue
     .split(/[,;\s]+/)
     .map((e) => e.trim().toLowerCase())
     .filter((e) => e.includes("@"));
+}
+
+/** Parse EXPO_PUBLIC_ADMIN_EMAILS (comma/space separated). */
+export function parseAdminEmails(envValue: string | null | undefined): string[] {
+  return parseEmailAllowlist(envValue);
+}
+
+/**
+ * Parse EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL — designated App Store review
+ * account(s) only. Never a global unlock; signed-in email must match.
+ */
+export function parseAppReviewAccountEmails(
+  envValue: string | null | undefined,
+): string[] {
+  return parseEmailAllowlist(envValue);
 }
 
 export function isAdminEmail(
@@ -382,6 +398,14 @@ export function isAdminEmail(
   const normalized = (email ?? "").trim().toLowerCase();
   if (!normalized || allowlist.length === 0) return false;
   return allowlist.includes(normalized);
+}
+
+/** True when the signed-in email is a designated ASC review account. */
+export function isAppReviewAccountEmail(
+  email: string | null | undefined,
+  reviewEmails: readonly string[],
+): boolean {
+  return isAdminEmail(email, reviewEmails);
 }
 
 export function hasPromoOrPlanAccess(
@@ -399,24 +423,33 @@ export type EntitlementAccessOpts = {
   email?: string | null;
   adminEmails?: readonly string[];
   /**
-   * Temporary full unlock while Apple IAP / App Review is pending.
-   * Driven by EXPO_PUBLIC_APP_REVIEW_MODE=true — flip off after approval.
+   * Designated App Store review account emails (account-specific unlock).
+   * From EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL — never a global flag.
+   */
+  appReviewAccountEmails?: readonly string[];
+  /**
+   * @deprecated Ignored. Legacy EXPO_PUBLIC_APP_REVIEW_MODE must never grant
+   * premium — kept so old OTA/native builds that still pass the flag stay locked.
    */
   appReviewMode?: boolean;
 };
 
 /**
- * Soft Pro access: verified Apple StoreKit plan, admin email, or temporary
- * App Review unlock. Custom promo codes never unlock. Local / preview paid
- * planId without StoreKit does not unlock Pro.
+ * Soft Pro access: verified Apple StoreKit plan, admin email, or designated
+ * App Review account email. Custom promo codes never unlock. Local / preview
+ * paid planId without StoreKit does not unlock Pro. Public APP_REVIEW_MODE
+ * never unlocks (even when true on an old bundle).
  */
 export function hasProAccess(
   state: SubscriptionPersistedState,
   nowMs: number,
   opts: EntitlementAccessOpts = {},
 ): boolean {
-  if (opts.appReviewMode) return true;
+  void opts.appReviewMode; // explicitly ignored — no global review bypass
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return true;
+  if (isAppReviewAccountEmail(opts.email, opts.appReviewAccountEmails ?? [])) {
+    return true;
+  }
   return hasPromoOrPlanAccess(state, nowMs);
 }
 
@@ -449,8 +482,11 @@ export function resolveUnlockSource(
   nowMs: number,
   opts: EntitlementAccessOpts = {},
 ): UnlockSource {
-  if (opts.appReviewMode) return "review";
+  void opts.appReviewMode; // ignored — global flag must never unlock
   if (isAdminEmail(opts.email, opts.adminEmails ?? [])) return "admin";
+  if (isAppReviewAccountEmail(opts.email, opts.appReviewAccountEmails ?? [])) {
+    return "review";
+  }
   if (state.storeKitActive && planById(state.planId).paid) return "storekit";
   if (isPromoUnlockActive(state, nowMs)) return "promo";
   return "none";
@@ -534,8 +570,9 @@ export function buildEntitlementView(
   let statusLabel: string;
   let statusDetail: string;
   if (unlockSource === "review") {
-    statusLabel = "Temporary unlock";
-    statusDetail = "Full access · pending App Store approval";
+    // Account-specific ASC review allowlist only — never a global mode flag.
+    statusLabel = "App Review";
+    statusDetail = "Designated review account · not a consumer subscription";
   } else if (isAdmin) {
     statusLabel = "Admin";
     statusDetail = "Full access · admin account";

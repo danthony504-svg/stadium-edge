@@ -21,6 +21,16 @@ for key in "${REQUIRED[@]}"; do
   fi
 done
 
+# Global App Review Mode must never unlock production soft-premium.
+MODE_NORM="$(printf '%s' "${EXPO_PUBLIC_APP_REVIEW_MODE:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+if [[ "$MODE_NORM" == "true" ]]; then
+  echo "INVALID: EXPO_PUBLIC_APP_REVIEW_MODE must be false in production (got '${EXPO_PUBLIC_APP_REVIEW_MODE}')."
+  echo "Premium access is StoreKit / admin / designated review account only."
+  MISSING=1
+elif [[ -n "${EXPO_PUBLIC_APP_REVIEW_MODE:-}" ]]; then
+  echo "OK: EXPO_PUBLIC_APP_REVIEW_MODE is not a global unlock ($MODE_NORM)."
+fi
+
 if [[ "$MISSING" -ne 0 ]]; then
   echo ""
   echo "Set all EXPO_PUBLIC_* vars (see eas.json production profile + publish scripts)."

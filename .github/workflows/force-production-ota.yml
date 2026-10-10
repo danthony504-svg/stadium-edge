@@ -39,7 +39,7 @@ jobs:
         env:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
-          EXPO_PUBLIC_APP_REVIEW_MODE: "true"
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: Force latest Stadium Edge UI
         run: pnpm exec expo export --platform ios --output-dir /tmp/expo-force-ota
@@ -49,7 +49,7 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
-          EXPO_PUBLIC_APP_REVIEW_MODE: "true"
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
         run: |
           MSG="Force latest Stadium Edge UI ${{ github.sha }} $(date -u +%Y-%m-%dT%H:%MZ)"
           bash scripts/force-production-ota.sh "$MSG"

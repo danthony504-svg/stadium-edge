@@ -24,6 +24,7 @@ import {
   clearLocalTrialEntitlement,
   clearUnverifiedPaidPlan,
   parseAdminEmails,
+  parseAppReviewAccountEmails,
   sanitizeSubscriptionState,
   softRequirePro,
 } from "@/lib/entitlements";
@@ -56,7 +57,8 @@ type SubscriptionContextValue = {
   entitlement: EntitlementView;
   /**
    * Coach premium (picks/lines/odds/grades/breakdowns): signed-in + verified
-   * StoreKit Go/Pro or admin. Never unlocked by APP_REVIEW_MODE alone.
+   * StoreKit Go/Pro, admin, or designated App Review account. Never unlocked
+   * by EXPO_PUBLIC_APP_REVIEW_MODE.
    */
   coachPremiumUnlocked: boolean;
   /** True when this native build can open Apple StoreKit billing. */
@@ -108,6 +110,11 @@ function readAdminEmails(): string[] {
   return parseAdminEmails(process.env.EXPO_PUBLIC_ADMIN_EMAILS);
 }
 
+/** Designated ASC review account(s) — account-specific, never a global unlock. */
+function readAppReviewAccountEmails(): string[] {
+  return parseAppReviewAccountEmails(process.env.EXPO_PUBLIC_APP_REVIEW_ACCOUNT_EMAIL);
+}
+
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isSignedIn, userId } = useAuth();
@@ -126,11 +133,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     user?.emailAddresses?.[0]?.emailAddress ??
     null;
   const adminEmails = useMemo(() => readAdminEmails(), []);
-  /** Temporary full unlock until Apple approves StoreKit / the next build. */
-  const appReviewMode = useMemo(
-    () => (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
-    [],
-  );
+  const appReviewAccountEmails = useMemo(() => readAppReviewAccountEmails(), []);
   // Do not probe Purchases during first render — NativeModules read is sync/safe;
   // memoize so we never accidentally re-enter require paths.
   const storeKitBlockedReason = useMemo(() => storeKitUnavailableReason(), []);
@@ -209,23 +212,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       buildEntitlementView(state, nowMs(), {
         email: isSignedIn ? email : null,
         adminEmails,
-        appReviewMode,
+        appReviewAccountEmails,
+        // Legacy flag ignored inside hasProAccess — pass-through proves old OTAs stay locked.
+        appReviewMode:
+          (process.env.EXPO_PUBLIC_APP_REVIEW_MODE ?? "").trim().toLowerCase() === "true",
       }),
     // tick forces recompute after long sessions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails, appReviewMode],
+    [state, tick, isSignedIn, email, adminEmails, appReviewAccountEmails],
   );
 
-  /** Coach premium ignores review-mode unlock — Apple StoreKit / admin only. */
+  /** Coach premium: StoreKit / admin / designated review account only. */
   const coachPremiumUnlocked = useMemo(
     () =>
       hasCoachPremiumAccess(state, nowMs(), {
         signedIn: !!isSignedIn,
         email: isSignedIn ? email : null,
         adminEmails,
+        appReviewAccountEmails,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, tick, isSignedIn, email, adminEmails],
+    [state, tick, isSignedIn, email, adminEmails, appReviewAccountEmails],
   );
 
   const selectPlan = useCallback(
