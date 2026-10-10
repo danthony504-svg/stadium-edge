@@ -261,8 +261,22 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     (async () => {
       const flags = await fetchServerAccessFlags();
       if (cancelled) return;
+      const appliedOwner = flags?.ownerAccess === true;
       setServerAppReviewAccess(flags?.appReviewAccess === true);
-      setServerOwnerAccess(flags?.ownerAccess === true);
+      setServerOwnerAccess(appliedOwner);
+      // Temporary sanitized Context probe — no email / userId / tokens.
+      try {
+        console.info(
+          "[entitlement-diag]",
+          JSON.stringify({
+            contextAppliedOwnerAccess: appliedOwner,
+            flagsReceived: flags != null,
+            ownerAccessReceived: flags?.ownerAccess === true,
+          }),
+        );
+      } catch {
+        // ignore
+      }
     })();
     return () => {
       cancelled = true;

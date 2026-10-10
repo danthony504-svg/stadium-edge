@@ -39,6 +39,45 @@ function emailsFromClerkUser(user: {
 }
 
 /**
+ * Temporary sanitized owner-access probe (no userId / email / tokens logged).
+ * Does not change entitlement outcomes — diagnostics only.
+ */
+export type OwnerTestAccessDiag = {
+  clerkUserLookupSucceeded: boolean;
+  emailResolved: boolean;
+  allowlistMatched: boolean;
+  ownerAccess: boolean;
+};
+
+export async function diagnoseOwnerTestAccess(
+  userId: string | null | undefined,
+): Promise<OwnerTestAccessDiag> {
+  const fail: OwnerTestAccessDiag = {
+    clerkUserLookupSucceeded: false,
+    emailResolved: false,
+    allowlistMatched: false,
+    ownerAccess: false,
+  };
+  if (!userId) return fail;
+  const allowlist = readOwnerTestEmails();
+  if (allowlist.length === 0) return fail;
+  try {
+    const user = await clerkClient.users.getUser(userId);
+    const emails = emailsFromClerkUser(user);
+    const emailResolved = emails.some((e) => normalizeReviewEmail(e).includes("@"));
+    const allowlistMatched = clerkEmailsMatchAllowlist(emails, allowlist);
+    return {
+      clerkUserLookupSucceeded: true,
+      emailResolved,
+      allowlistMatched,
+      ownerAccess: allowlistMatched,
+    };
+  } catch {
+    return fail;
+  }
+}
+
+/**
  * True when the authenticated Clerk user matches a server owner-test email.
  * Fail closed when unset, Clerk errors, or no match.
  */
@@ -53,7 +92,7 @@ export async function isDesignatedOwnerTestUser(
     return clerkEmailsMatchAllowlist(emailsFromClerkUser(user), allowlist);
   } catch (err) {
     logger.warn(
-      { err, path: "owner-test-access", userId },
+      { err, path: "owner-test-access" },
       "owner test access: Clerk user lookup failed",
     );
     return false;
