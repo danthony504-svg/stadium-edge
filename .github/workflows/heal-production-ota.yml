@@ -1,11 +1,20 @@
 name: Heal corrupt production OTA
 
-# FROZEN: heal disabled on push — use workflow_dispatch only after TestFlight verification.
+# Publishes NEW production JS after embedded rollback — gated.
+# Emergency without new JS: use rollback-production-ota only.
+# See artifacts/stadium-mobile/scripts/OTA_EMERGENCY_ROLLBACK.md
+
 on:
   workflow_dispatch:
+    inputs:
+      confirm_publish:
+        description: Type PUBLISH_NEW_OTA to allow publishing new production JS after heal rollback
+        required: true
+        default: ""
 
 jobs:
   heal:
+    if: ${{ github.event.inputs.confirm_publish == 'PUBLISH_NEW_OTA' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,6 +34,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
+
+      - name: Reliability critical tests (required)
+        working-directory: ${{ github.workspace }}
+        run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh
 
       - name: Verify bundle compiles
         env:

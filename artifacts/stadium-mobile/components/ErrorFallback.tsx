@@ -19,6 +19,7 @@ import {
   sanitizeCrashText,
   type CrashOtaIdentity,
 } from "@/lib/crashDiagnostics";
+import { reportCrash } from "@/lib/crashReporter";
 import { looksLikeCorruptOtaBundle } from "@/lib/otaCorruptBundle";
 
 export type ErrorFallbackProps = {
@@ -128,12 +129,24 @@ export function ErrorFallback({ error, resetError, componentStack }: ErrorFallba
   useEffect(() => {
     let cancelled = false;
     void loadCrashOtaIdentity().then((id) => {
-      if (!cancelled) setOta(id);
+      if (cancelled) return;
+      setOta(id);
+      // Enrich the root ErrorBoundary report with OTA identity once available.
+      try {
+        reportCrash({
+          errorMessage: error.message,
+          errorStack: error.stack,
+          componentStack,
+          ota: id,
+        });
+      } catch {
+        // ignore
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [error.message, error.stack, componentStack]);
 
   // Loaded on tap, not at import time: this component sits in the root bundle's
   // static graph, and expo-updates must not be evaluated during startup.

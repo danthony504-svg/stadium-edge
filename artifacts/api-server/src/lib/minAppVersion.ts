@@ -80,5 +80,7 @@ export function isMinVersionExemptPath(path: string): boolean {
   if (p.includes("/subscriptions")) return true;
   // App Review ticket helper is /auth/app-review-ticket (not /app-review/…).
   if (p.includes("/app-review") || p.includes("/auth/app-review")) return true;
+  // Crash ingest must work even when the binary is below the floor.
+  if (p.includes("/reliability/crashes")) return true;
   return false;
 }

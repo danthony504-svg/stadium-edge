@@ -41,6 +41,7 @@ test("exempt paths include health, app config, subscriptions, app-review auth", 
   assert.equal(isMinVersionExemptPath("/subscriptions/sync"), true);
   assert.equal(isMinVersionExemptPath("/subscriptions/webhooks/revenuecat"), true);
   assert.equal(isMinVersionExemptPath("/auth/app-review-ticket"), true);
+  assert.equal(isMinVersionExemptPath("/reliability/crashes"), true);
   assert.equal(isMinVersionExemptPath("/odds?sport=nba"), false);
   assert.equal(isMinVersionExemptPath("/chat"), false);
 });

@@ -1,0 +1,77 @@
+name: Reliability Phase A CI
+
+# Critical crash-protection tests — required before production OTA (see publish workflows).
+on:
+  pull_request:
+    paths:
+      - "artifacts/stadium-mobile/lib/crashReporter*"
+      - "artifacts/stadium-mobile/lib/crashDiagnostics*"
+      - "artifacts/stadium-mobile/lib/installGlobalCrashHandlers*"
+      - "artifacts/stadium-mobile/lib/scoreBreakdownCrash*"
+      - "artifacts/stadium-mobile/lib/pickScore*"
+      - "artifacts/stadium-mobile/lib/startupCrashPath*"
+      - "artifacts/stadium-mobile/components/ErrorBoundary.tsx"
+      - "artifacts/stadium-mobile/components/ErrorFallback.tsx"
+      - "artifacts/stadium-mobile/components/ScoreBreakdown.tsx"
+      - "artifacts/stadium-mobile/components/PickCard.tsx"
+      - "artifacts/stadium-mobile/app/_layout.tsx"
+      - "artifacts/api-server/src/lib/reliability*"
+      - "artifacts/api-server/src/lib/telegramAlert.ts"
+      - "artifacts/api-server/src/middlewares/reliabilityCrashBodyLimit.ts"
+      - "artifacts/api-server/src/app.ts"
+      - "artifacts/api-server/src/routes/reliability.ts"
+      - "artifacts/api-server/test/reliability*"
+      - "artifacts/api-server/test/telegramAlert*"
+      - "lib/db/src/schema/reliabilityEvents.ts"
+      - ".github/workflows/reliability-phase-a-ci.yml"
+      - ".github/workflows/reliability-digest-cron.yml"
+      - ".github/workflows/publish-production-ota.yml"
+      - ".github/workflows/force-production-ota.yml"
+      - ".github/workflows/bootstrap-ota.yml"
+      - ".github/workflows/heal-production-ota.yml"
+      - ".github/workflows/ota-test-001.yml"
+      - ".github/workflows/ota-test-002.yml"
+      - ".github/workflows/republish-stable-production-ota.yml"
+      - ".github/workflows/rollback-production-ota.yml"
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/lib/crashReporter*"
+      - "artifacts/stadium-mobile/lib/installGlobalCrashHandlers*"
+      - "artifacts/stadium-mobile/lib/scoreBreakdownCrash*"
+      - "artifacts/stadium-mobile/lib/pickScore*"
+      - "artifacts/stadium-mobile/lib/startupCrashPath*"
+      - "artifacts/api-server/src/lib/reliability*"
+      - "artifacts/api-server/src/lib/telegramAlert.ts"
+      - "artifacts/api-server/src/middlewares/reliabilityCrashBodyLimit.ts"
+      - "artifacts/api-server/src/app.ts"
+      - "artifacts/api-server/src/routes/reliability.ts"
+      - "artifacts/api-server/test/reliability*"
+      - "artifacts/api-server/test/telegramAlert*"
+      - ".github/workflows/reliability-digest-cron.yml"
+      - ".github/workflows/bootstrap-ota.yml"
+      - ".github/workflows/heal-production-ota.yml"
+      - ".github/workflows/ota-test-*.yml"
+      - ".github/workflows/republish-stable-production-ota.yml"
+
+jobs:
+  critical-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Reliability critical suite
+        working-directory: ${{ github.workspace }}
+        run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh

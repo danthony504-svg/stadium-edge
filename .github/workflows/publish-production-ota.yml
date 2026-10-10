@@ -40,6 +40,12 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
+      # Phase A reliability gate — blocks publish when critical crash tests fail.
+      # Emergency: use rollback-production-ota / heal workflows (no new publish).
+      - name: Reliability critical tests (required)
+        working-directory: ${{ github.workspace }}
+        run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh
+
       # Runner-local only: never commit/push. Blank leaves app.json (currently 1.1.0).
       # Refuse patching to a value that would desync publish scripts from app.json
       # without an intentional tree change — mismatch fails closed in resolve-runtime-version.sh.

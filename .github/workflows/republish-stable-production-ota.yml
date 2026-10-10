@@ -1,11 +1,16 @@
 name: Republish stable production OTA
 
 # Manual only — republish an explicitly chosen update group for app.json runtime
-# (currently 1.1.0). Runtime mismatches fail closed in resolve-runtime-version.sh.
-# Requires repo variable/secret STABLE_UPDATE_GROUP; no implicit known-good default.
+# (currently 1.1.0). Does not build new JS from HEAD; still requires critical tests
+# + confirm so an untested group cannot be promoted silently.
+# See artifacts/stadium-mobile/scripts/OTA_EMERGENCY_ROLLBACK.md
 on:
   workflow_dispatch:
     inputs:
+      confirm_publish:
+        description: Type REPUBLISH_STABLE to republish an existing update group
+        required: true
+        default: ""
       message:
         description: Republish message
         required: false
@@ -16,6 +21,7 @@ on:
 
 jobs:
   republish:
+    if: ${{ github.event.inputs.confirm_publish == 'REPUBLISH_STABLE' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,6 +41,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
+
+      - name: Reliability critical tests (required)
+        working-directory: ${{ github.workspace }}
+        run: bash artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh
 
       - name: Republish OTA group to production channel
         env:

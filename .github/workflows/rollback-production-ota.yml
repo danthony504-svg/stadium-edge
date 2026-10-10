@@ -1,5 +1,9 @@
 name: Rollback production OTA (embedded)
 
+# EMERGENCY: clears bad OTA by pointing the channel at the embedded binary bundle.
+# Does NOT publish new JavaScript from HEAD (eas update:roll-back-to-embedded only).
+# See artifacts/stadium-mobile/scripts/OTA_EMERGENCY_ROLLBACK.md
+
 on:
   workflow_dispatch:
     inputs:
@@ -38,6 +42,14 @@ jobs:
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "Add EXPO_TOKEN to repo secrets"
+            exit 1
+          fi
+          # Guard: rollback script must only roll back to embedded (no new publish).
+          if grep -nE 'update:roll-back-to-embedded' scripts/rollback-production-ota.sh >/dev/null \
+            && ! grep -nE 'eas[[:space:]]+update[[:space:]]|publish-production-ota|publish-bootstrap|heal-production' scripts/rollback-production-ota.sh >/dev/null; then
+            :
+          else
+            echo "FAIL: rollback script must not publish new JS"
             exit 1
           fi
           bash scripts/rollback-production-ota.sh "$OTA_MESSAGE"

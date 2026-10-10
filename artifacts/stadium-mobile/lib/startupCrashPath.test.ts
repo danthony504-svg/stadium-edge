@@ -12,6 +12,11 @@ import test from "node:test";
 import { isFantasyRostersSync, repairFantasyRosterSlots } from "./fantasyRoster.ts";
 import { normalizeStealScanMeta } from "./steals.ts";
 import { sanitizeSubscriptionState, clearCustomPromoUnlock } from "./entitlements.ts";
+import {
+  _resetCrashReporterForTests,
+  buildCrashEnvelope,
+  reportCrash,
+} from "./crashReporter.ts";
 
 const ROOT = process.cwd();
 
@@ -103,5 +108,43 @@ test("reproduction: Object.entries(undefined) matches Hermes crash message", () 
       /Cannot convert undefined( value)? to object|Cannot convert undefined or null to object/i.test(
         String((err as Error).message),
       ),
+  );
+});
+
+test("root ErrorBoundary wires reportCrash for startup/render failures", () => {
+  const src = readFileSync(join(ROOT, "components/ErrorBoundary.tsx"), "utf8");
+  assert.match(src, /reportCrash/);
+  assert.match(src, /componentDidCatch/);
+  const layout = readFileSync(join(ROOT, "app/_layout.tsx"), "utf8");
+  // Root boundary wraps RootLayoutContent (fonts/Clerk/Home/Coach).
+  assert.match(layout, /<ErrorBoundary>\s*\n\s*<RootLayoutContent/);
+});
+
+test("startup crash report envelope includes session + OTA fields without PII", () => {
+  _resetCrashReporterForTests();
+  const env = buildCrashEnvelope({
+    errorMessage: "render boom user@stadiumedge.app",
+    errorStack: "Error: render boom\n    at RootLayoutContent",
+    appVersion: "1.1.0",
+    ota: {
+      updateId: "01a12704-7361-7771-b8e6-13a7bbc65cd0",
+      runtimeVersion: "1.1.0",
+      channel: "production",
+      bundleSource: "ota",
+      isEmbeddedLaunch: false,
+      isEmergencyLaunch: false,
+      updatePreviouslyFailed: false,
+      failedLaunchCount: 0,
+    },
+  });
+  assert.equal(env.errorMessage.includes("user@stadiumedge.app"), false);
+  assert.equal(env.updateId.startsWith("01a12704"), true);
+  assert.equal(env.runtimeVersion, "1.1.0");
+  assert.match(env.sessionId, /^s_/);
+  assert.doesNotThrow(() =>
+    reportCrash({
+      errorMessage: "startup-render-fail",
+      errorStack: "Error: startup-render-fail",
+    }),
   );
 });
