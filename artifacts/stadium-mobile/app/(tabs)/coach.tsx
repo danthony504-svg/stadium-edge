@@ -889,7 +889,11 @@ export default function CoachScreen() {
                 ) : null}
                 {item.picks?.map((pick, idx) => (
                   <View key={`${item.id}-pick-${idx}`} style={{ paddingHorizontal: 12 }}>
-                    <PickCard pick={pick} onPress={statsHandlerFor(pick)} />
+                    <PickCard
+                      pick={pick}
+                      onPress={statsHandlerFor(pick)}
+                      lockPickDetails
+                    />
                   </View>
                 ))}
               </View>
