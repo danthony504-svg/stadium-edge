@@ -3,17 +3,21 @@ import {
   buildAppConfigPayload,
   getMinIosVersion,
   isAppVersionBelow,
+  isMinIosVersionEnforcementEnabled,
   isMinVersionExemptPath,
 } from "../lib/minAppVersion.js";
 
 /**
- * Enforce MIN_IOS_APP_VERSION on protected /api routes via X-App-Version.
- * Missing header → allow (web / older clients without the header) so Apple
- * review web paths and server-to-server calls are not broken. Explicit old
- * versions are rejected with 426 + App Store URL.
+ * Optionally enforce MIN_IOS_APP_VERSION on protected /api routes via
+ * X-App-Version. Disabled unless MIN_IOS_VERSION_ENFORCEMENT=true so 1.0.3
+ * migration can complete before API blocking. Missing header → allow.
  */
 export function minAppVersionMiddleware(req: Request, res: Response, next: NextFunction): void {
   try {
+    if (!isMinIosVersionEnforcementEnabled()) {
+      next();
+      return;
+    }
     const path = req.path || req.url || "";
     if (isMinVersionExemptPath(path)) {
       next();

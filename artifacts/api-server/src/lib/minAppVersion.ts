@@ -42,6 +42,15 @@ export function getMinIosVersion(): string {
   return fromEnv || DEFAULT_MIN_IOS_VERSION;
 }
 
+/**
+ * 426 enforcement is OFF by default until the 1.0.3 force-update OTA path is
+ * verified. Set MIN_IOS_VERSION_ENFORCEMENT=true to enable API blocking.
+ * /app/config remains available either way.
+ */
+export function isMinIosVersionEnforcementEnabled(): boolean {
+  return (process.env.MIN_IOS_VERSION_ENFORCEMENT ?? "").trim().toLowerCase() === "true";
+}
+
 export type AppConfigPayload = {
   minIosVersion: string;
   appStoreUrl: string;

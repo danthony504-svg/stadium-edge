@@ -7,6 +7,7 @@ import {
   buildAppConfigPayload,
   compareAppVersions,
   isAppVersionBelow,
+  isMinIosVersionEnforcementEnabled,
   isMinVersionExemptPath,
 } from "../src/lib/minAppVersion.ts";
 
@@ -42,4 +43,16 @@ test("exempt paths include health, app config, subscriptions, app-review auth", 
   assert.equal(isMinVersionExemptPath("/auth/app-review-ticket"), true);
   assert.equal(isMinVersionExemptPath("/odds?sport=nba"), false);
   assert.equal(isMinVersionExemptPath("/chat"), false);
+});
+
+test("426 enforcement is disabled unless MIN_IOS_VERSION_ENFORCEMENT=true", () => {
+  const prev = process.env.MIN_IOS_VERSION_ENFORCEMENT;
+  delete process.env.MIN_IOS_VERSION_ENFORCEMENT;
+  assert.equal(isMinIosVersionEnforcementEnabled(), false);
+  process.env.MIN_IOS_VERSION_ENFORCEMENT = "true";
+  assert.equal(isMinIosVersionEnforcementEnabled(), true);
+  process.env.MIN_IOS_VERSION_ENFORCEMENT = "false";
+  assert.equal(isMinIosVersionEnforcementEnabled(), false);
+  if (prev == null) delete process.env.MIN_IOS_VERSION_ENFORCEMENT;
+  else process.env.MIN_IOS_VERSION_ENFORCEMENT = prev;
 });
