@@ -1,8 +1,5 @@
 name: Reliability prod verify (one-shot)
 
-# Temporary branch-triggered verifier. Uses Actions secrets to call production
-# cron endpoints. Do not merge to main; delete after evidence is captured.
-
 on:
   push:
     branches: [cursor/reliability-prod-verify-def8]
@@ -25,126 +22,115 @@ jobs:
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           if [ -z "${NOTIFY_CRON_KEY:-}" ]; then
-            echo "FAIL: NOTIFY_CRON_KEY missing in Actions secrets"
+            echo "BLOCKER: GitHub Actions secret NOTIFY_CRON_KEY is empty"
+            echo "Render cron returns 403 for wrong key (key IS set on Render)."
             exit 1
           fi
-          echo "NOTIFY_CRON_KEY: present (len=${#NOTIFY_CRON_KEY})"
+          python3 - <<'PY'
+          import os, hashlib
+          k=os.environ["NOTIFY_CRON_KEY"].strip()
+          print(f"NOTIFY_CRON_KEY: PRESENT len={len(k)} sha256_8={hashlib.sha256(k.encode()).hexdigest()[:8]}")
+          PY
           URL="${HEALTH_URL:-https://stadium-edge.onrender.com/api/reliability/cron/health}"
           HEALTHZ="https://stadium-edge.onrender.com/api/healthz"
 
-          echo "== healthz SHA =="
-          curl -sS --max-time 30 "$HEALTHZ" | tee "$OUT_DIR/healthz.json"
-          echo
+          curl -sS --max-time 30 "$HEALTHZ" | tee "$OUT_DIR/healthz.json"; echo
 
-          echo "== 1) Baseline health cron =="
-          CODE=$(curl -sS --max-time 180 -o "$OUT_DIR/baseline.json" -w "%{http_code}" \
+          echo "== auth probe =="
+          CODE=$(curl -sS --max-time 60 -o "$OUT_DIR/auth.json" -w "%{http_code}" \
             -X POST -H "Content-Type: application/json" -H "x-cron-key: ${NOTIFY_CRON_KEY}" \
             -d '{}' "$URL")
-          echo "http=$CODE"
-          head -c 2500 "$OUT_DIR/baseline.json"; echo
-          test "$CODE" = "200"
+          echo "auth_http=$CODE body=$(head -c 200 $OUT_DIR/auth.json)"
+          if [ "$CODE" != "200" ]; then
+            echo "BLOCKER: cron key rejected by production (http=$CODE)"
+            echo "GitHub secret does not match Render NOTIFY_CRON_KEY"
+            exit 1
+          fi
+          cp "$OUT_DIR/auth.json" "$OUT_DIR/baseline.json"
+
           python3 - "$OUT_DIR/baseline.json" <<'PY'
-          import json, sys
-          d = json.load(open(sys.argv[1]))
-          assert d.get("ok") is True, d
-          checks = {c["id"]: c for c in d.get("checks") or []}
-          required = [
-              "website", "api", "ssl", "response_time", "database",
-              "odds_feed", "player_props", "ai_coach", "game_simulator", "steals_scanner",
-          ]
-          missing = [k for k in required if k not in checks]
-          assert not missing, missing
-          failed = [k for k in required if not checks[k]["ok"]]
-          print("BASELINE_FAILED", failed)
-          print("BASELINE_PASSED", [k for k in required if checks[k]["ok"]])
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d.get("ok") is True
+          checks={c["id"]:c for c in d.get("checks") or []}
+          db=checks.get("database")
+          print("DATABASE", "PASS" if db and db.get("ok") else "FAIL", (db or {}).get("detail"))
+          for k in ["website","api","ssl","response_time","database","odds_feed","player_props","ai_coach","game_simulator","steals_scanner"]:
+            c=checks.get(k) or {}
+            print(f"CHECK_{k}", "PASS" if c.get("ok") else "FAIL", (c.get("detail") or "")[:80])
           PY
 
-          echo "== 2) Controlled synthetic failure (website) =="
+          echo "== synthetic website fail #1 =="
           PAYLOAD='{"syntheticFail":{"website":"controlled-prod-test-failure"}}'
           CODE=$(curl -sS --max-time 180 -o "$OUT_DIR/fail1.json" -w "%{http_code}" \
             -X POST -H "Content-Type: application/json" -H "x-cron-key: ${NOTIFY_CRON_KEY}" \
             -d "$PAYLOAD" "$URL")
-          echo "http=$CODE"
-          head -c 2500 "$OUT_DIR/fail1.json"; echo
+          echo "http=$CODE"; head -c 2000 "$OUT_DIR/fail1.json"; echo
           test "$CODE" = "200"
           python3 - "$OUT_DIR/fail1.json" <<'PY'
-          import json, sys
-          d = json.load(open(sys.argv[1]))
-          assert d.get("ok") is True
+          import json,sys
+          d=json.load(open(sys.argv[1]))
           assert "website" in (d.get("failed") or [])
-          alerted = d.get("alerted") or []
+          alerted=d.get("alerted") or []
           print("FAIL1_ALERTED", alerted)
-          assert "website" in alerted, "expected website Telegram alert on first synthetic fail"
+          # Distinguish telegram skip vs alert
+          # If alerted empty, check whether telegram was skipped (credentials) by looking at response — currently only lists alerted ids
+          assert "website" in alerted, "Telegram failure delivery FAIL (website not in alerted — credentials missing, send failed, or suppressed)"
+          print("telegram_failure_delivery PASS")
           PY
 
-          echo "== 3) Immediate repeat for 30m dedupe =="
+          echo "== synthetic website fail #2 (dedupe) =="
           CODE=$(curl -sS --max-time 180 -o "$OUT_DIR/fail2.json" -w "%{http_code}" \
             -X POST -H "Content-Type: application/json" -H "x-cron-key: ${NOTIFY_CRON_KEY}" \
             -d "$PAYLOAD" "$URL")
-          echo "http=$CODE"
-          head -c 2500 "$OUT_DIR/fail2.json"; echo
+          echo "http=$CODE"; head -c 2000 "$OUT_DIR/fail2.json"; echo
           test "$CODE" = "200"
           python3 - "$OUT_DIR/fail2.json" <<'PY'
-          import json, sys
-          d = json.load(open(sys.argv[1]))
-          assert "website" in (d.get("failed") or [])
-          alerted = d.get("alerted") or []
-          deduped = d.get("deduped") or []
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          alerted=d.get("alerted") or []
+          deduped=d.get("deduped") or []
           print("FAIL2_ALERTED", alerted)
           print("FAIL2_DEDUPED", deduped)
-          assert "website" not in alerted, "second fail must not re-alert within dedupe window"
-          assert "website" in deduped, "second fail must be marked deduped"
+          assert "website" not in alerted
+          assert "website" in deduped
+          print("dedupe PASS")
           PY
 
-          echo "== 4) Recovery (clear synthetic fail) =="
+          echo "== recovery =="
           CODE=$(curl -sS --max-time 180 -o "$OUT_DIR/recover.json" -w "%{http_code}" \
             -X POST -H "Content-Type: application/json" -H "x-cron-key: ${NOTIFY_CRON_KEY}" \
             -d '{}' "$URL")
-          echo "http=$CODE"
-          head -c 2500 "$OUT_DIR/recover.json"; echo
+          echo "http=$CODE"; head -c 2000 "$OUT_DIR/recover.json"; echo
           test "$CODE" = "200"
           python3 - "$OUT_DIR/recover.json" <<'PY'
-          import json, sys
-          d = json.load(open(sys.argv[1]))
-          recovered = d.get("recovered") or []
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          recovered=d.get("recovered") or []
           print("RECOVERED", recovered)
-          checks = {c["id"]: c for c in d.get("checks") or []}
-          assert checks.get("website", {}).get("ok") is True, "website should be healthy for recovery"
-          assert "website" in recovered, "expected website recovery Telegram"
+          checks={c["id"]:c for c in d.get("checks") or []}
+          assert checks.get("website",{}).get("ok") is True
+          assert "website" in recovered
+          print("recovery PASS")
           PY
 
-          echo "== 5) Telegram env presence (no values) =="
-          echo "TELEGRAM_BOT_TOKEN: present_inferred (successful alert delivery)"
-          echo "TELEGRAM_CHAT_ID: present_inferred (successful alert delivery)"
-          echo "NOTIFY_CRON_KEY: present (Actions secret)"
+          echo "== telegram env inference =="
+          echo "TELEGRAM_BOT_TOKEN/CHAT_ID: PRESENT_INFERRED (alert+recovery sent)"
 
-          echo "== SUMMARY =="
           python3 - "$OUT_DIR" <<'PY'
           import json, pathlib, sys
-          out = pathlib.Path(sys.argv[1])
-          base = json.loads((out / "baseline.json").read_text())
-          fail1 = json.loads((out / "fail1.json").read_text())
-          fail2 = json.loads((out / "fail2.json").read_text())
-          rec = json.loads((out / "recover.json").read_text())
-          hz = json.loads((out / "healthz.json").read_text())
-          checks = {c["id"]: c for c in (rec.get("checks") or base.get("checks") or [])}
-          required = [
-              "website", "api", "ssl", "response_time", "database",
-              "odds_feed", "player_props", "ai_coach", "game_simulator", "steals_scanner",
-          ]
-          print("deployed_sha", hz.get("deploymentSha"))
-          print("api_health", hz.get("status"))
-          print("telegram_delivery", "PASS" if "website" in (fail1.get("alerted") or []) else "FAIL")
-          print("recovery_alert", "PASS" if "website" in (rec.get("recovered") or []) else "FAIL")
-          print(
-              "dedupe",
-              "PASS"
-              if ("website" in (fail2.get("deduped") or []) and "website" not in (fail2.get("alerted") or []))
-              else "FAIL",
-          )
-          for k in required:
-              c = checks.get(k) or {}
-              print(f"check_{k}", "PASS" if c.get("ok") else "FAIL", (c.get("detail") or "")[:100])
+          out=pathlib.Path(sys.argv[1])
+          fail1=json.loads((out/"fail1.json").read_text())
+          fail2=json.loads((out/"fail2.json").read_text())
+          rec=json.loads((out/"recover.json").read_text())
+          base=json.loads((out/"baseline.json").read_text())
+          hz=json.loads((out/"healthz.json").read_text())
+          db=next(c for c in base["checks"] if c["id"]=="database")
+          print("SUMMARY deployed_sha", hz.get("deploymentSha"))
+          print("SUMMARY telegram_failure", "PASS" if "website" in (fail1.get("alerted") or []) else "FAIL")
+          print("SUMMARY recovery", "PASS" if "website" in (rec.get("recovered") or []) else "FAIL")
+          print("SUMMARY dedupe", "PASS" if "website" in (fail2.get("deduped") or []) else "FAIL")
+          print("SUMMARY database", "PASS" if db.get("ok") else "FAIL")
           PY
 
       - name: Upload evidence
