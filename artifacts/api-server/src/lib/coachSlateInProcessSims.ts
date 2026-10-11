@@ -102,12 +102,19 @@ export async function runPropSimsInProcess(body: {
   awayTeam?: string;
   homeTeamId?: string;
   awayTeamId?: string;
+  defenseIndex?: number | null;
+  defenseIndexByFamily?: Record<string, number> | null;
   props: Array<{
     player: string;
     market: string;
     line: number;
     side: string;
     athleteId?: string | null;
+    playerTeamId?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    isHome?: boolean | null;
+    opponentTeamId?: string | null;
   }>;
   simulations?: number;
 }): Promise<{ props: InProcessPropSimRow[]; simulations: number } | null> {
@@ -123,6 +130,8 @@ export async function runPropSimsInProcess(body: {
   const propsIn = props.map((p) => ({
     ...p,
     sport,
+    homeTeamId: (p.homeTeamId ?? homeTeamId) || null,
+    awayTeamId: (p.awayTeamId ?? awayTeamId) || null,
   })) as SimPropRequest[];
   const propsResolved = await resolvePropAthleteIds(sport, propsIn, {
     homeTeamId,
@@ -179,13 +188,21 @@ export async function runPropSimsInProcess(body: {
     ownKeyInjuries: homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0,
     weatherImpact: null as number | null,
     opportunityShiftInputs,
+    defenseIndex: body.defenseIndex ?? null,
+    defenseIndexByFamily: body.defenseIndexByFamily ?? null,
   };
+
+  // Props already carry isHome from team-id stamping; empty map is fine.
+  const isHomeByPlayer: Record<string, boolean> = {};
+  for (const p of propsResolved) {
+    if (p.isHome === true || p.isHome === false) isHomeByPlayer[p.player] = p.isHome;
+  }
 
   const { rows } = await runPropSims(
     propsResolved,
     tier,
     gameCtx,
-    {},
+    isHomeByPlayer,
     body.simulations,
   );
   return {

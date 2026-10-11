@@ -313,6 +313,20 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
         }
       : null;
 
+  // Optional defense indices supplied by the client (already fetched elsewhere).
+  // Do not fetch defense on this hot path — missing keys stay null → matchup
+  // hierarchy falls back to vs-opp (n≥3) or 1.0.
+  const defenseIndexByFamily =
+    req.body?.defenseIndexByFamily &&
+    typeof req.body.defenseIndexByFamily === "object" &&
+    !Array.isArray(req.body.defenseIndexByFamily)
+      ? (req.body.defenseIndexByFamily as Record<string, number>)
+      : null;
+  const defenseIndex =
+    req.body?.defenseIndex != null && Number.isFinite(Number(req.body.defenseIndex))
+      ? Number(req.body.defenseIndex)
+      : null;
+
   const gameCtx: PropSimGameContext = {
     sport,
     oppPace,
@@ -321,6 +335,8 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     ownKeyInjuries,
     weatherImpact,
     opportunityShiftInputs,
+    defenseIndex,
+    defenseIndexByFamily,
   };
 
   const { rows, deepPending, distStats, propSimElapsedMs, playerHistories, historyShared, historyCoalesced } =

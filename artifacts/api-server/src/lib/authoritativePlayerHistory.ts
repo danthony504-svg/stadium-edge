@@ -42,12 +42,27 @@ type GameLog = {
   >;
   seasonTypes?: Array<{
     categories?: Array<{
+      name?: string;
+      displayName?: string;
       events?: Array<{ eventId?: string; stats?: string[] }>;
     }>;
   }>;
   names?: string[];
   labels?: string[];
 };
+
+const PERIOD_CATEGORY_RE =
+  /(^|[^a-z0-9])(1h|2h|h1|h2|1st\s*half|2nd\s*half|first\s*half|second\s*half|q1|q2|q3|q4|period\s*[123]|p1|p2|p3|f5)([^a-z0-9]|$)/i;
+
+function periodTagFromCategory(name: string | null | undefined): string {
+  const raw = String(name ?? "").trim();
+  if (!raw) return "full";
+  const key = raw.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  if (PERIOD_CATEGORY_RE.test(raw) || /(^|_)(1h|2h|q1|q2|q3|q4|p1|p2|p3|f5)(_|$)/i.test(key)) {
+    return key;
+  }
+  return "full";
+}
 
 export type AuthoritativeFlatGame = {
   eventId: string;
@@ -56,6 +71,8 @@ export type AuthoritativeFlatGame = {
   opponentName: string | null;
   isHome: boolean | null;
   stats: Record<string, string>;
+  /** "full" or a period token (1h, q1, …) when the source category is period-scoped. */
+  periodTag: string;
 };
 
 export type AuthoritativePlayerHistory = {
@@ -122,6 +139,7 @@ function flattenGameLog(log: GameLog): { labels: string[]; flat: AuthoritativeFl
   const flat: AuthoritativeFlatGame[] = [];
   for (const st of log.seasonTypes ?? []) {
     for (const cat of st.categories ?? []) {
+      const periodTag = periodTagFromCategory(cat.name ?? cat.displayName);
       for (const ev of cat.events ?? []) {
         if (!ev.eventId) continue;
         const meta = eventMeta[ev.eventId];
@@ -139,6 +157,7 @@ function flattenGameLog(log: GameLog): { labels: string[]; flat: AuthoritativeFl
           opponentName: meta?.opponent?.displayName ?? null,
           isHome,
           stats,
+          periodTag,
         });
       }
     }
@@ -223,12 +242,16 @@ export function toPropSimHistoryShape(
   auth: AuthoritativePlayerHistory,
   opponentTeamId?: string,
 ): PlayerHistoryShape {
-  const recent = auth.flat.slice(0, 10);
+  // Prefer full-game rows; period-tagged categories stay available for period markets.
+  const fullGames = auth.flat.filter((g) => (g.periodTag ?? "full") === "full");
+  const pool = fullGames.length ? fullGames : auth.flat;
+  const recent = pool.slice(0, 10);
   const vsOpponent = opponentTeamId
-    ? auth.flat.filter((g) => g.opponentId === opponentTeamId).slice(0, 10)
+    ? pool.filter((g) => g.opponentId === opponentTeamId).slice(0, 10)
     : [];
-  const homeGames = recent.filter((g) => g.isHome === true);
-  const awayGames = recent.filter((g) => g.isHome === false);
+  // Full-season venue samples (not truncated to last 10).
+  const homeGames = pool.filter((g) => g.isHome === true);
+  const awayGames = pool.filter((g) => g.isHome === false);
   const sumStats = (games: AuthoritativeFlatGame[]) => {
     const sums: Record<string, number> = {};
     const counts: Record<string, number> = {};
@@ -246,14 +269,19 @@ export function toPropSimHistoryShape(
     }
     return { games: games.length, averages };
   };
+  const mapGame = (g: AuthoritativeFlatGame) => ({
+    stats: g.stats,
+    isHome: g.isHome,
+    opponentId: g.opponentId,
+    periodTag: g.periodTag,
+  });
   return {
     labels: auth.labels,
-    recent: recent.map((g) => ({
-      stats: g.stats,
-      isHome: g.isHome,
-      opponentId: g.opponentId,
-    })),
-    vsOpponent: vsOpponent.map((g) => ({ stats: g.stats })),
+    recent: recent.map(mapGame),
+    vsOpponent: vsOpponent.map((g) => ({ stats: g.stats, periodTag: g.periodTag })),
+    seasonGames: pool.map(mapGame),
+    seasonHome: homeGames.map(mapGame),
+    seasonAway: awayGames.map(mapGame),
     homeSplit: sumStats(homeGames),
     awaySplit: sumStats(awayGames),
   };

@@ -18,6 +18,7 @@ import {
 } from "./athleteIdentityStore.js";
 import { withInflightCoalesce } from "./propSimDedicatedStore.js";
 import { mapWithConcurrency } from "./propSimCtxCache.js";
+import { stampPropSideContext } from "./propSimSideContext.js";
 
 const LEAGUE_TO_SPORT: Record<string, string> = {
   nba: "nba",
@@ -197,8 +198,17 @@ export async function resolvePropAthleteIdsDetailed(
   };
 
   if (!ESPN_SPORT_PATHS[sport]) {
+    const home = String(opts?.homeTeamId ?? "").trim();
+    const away = String(opts?.awayTeamId ?? "").trim();
     return {
-      props: props.map((p) => ({ ...p, sport: String(p.sport ?? sport).toLowerCase() })),
+      props: props.map((p) =>
+        stampPropSideContext(
+          { ...p, sport: String(p.sport ?? sport).toLowerCase() },
+          home || null,
+          away || null,
+          p.playerTeamId,
+        ),
+      ),
       stats,
     };
   }
@@ -342,5 +352,61 @@ export async function resolvePropAthleteIdsDetailed(
     };
   });
 
-  return { props: out, stats };
+  // Stamp isHome + opponentTeamId from roster team ids (never from player names).
+  const stamped = await stampSideContextFromRoster(
+    sport,
+    out,
+    defaultHome,
+    defaultAway,
+    loadRosterMap,
+  );
+
+  return { props: stamped, stats };
+}
+
+async function stampSideContextFromRoster(
+  sport: string,
+  props: SimPropRequest[],
+  defaultHome: string,
+  defaultAway: string,
+  loadRosterMap: (
+    homeTeamId: string,
+    awayTeamId: string,
+  ) => Promise<Map<string, { athleteId: string; teamId: string }>>,
+): Promise<SimPropRequest[]> {
+  // Group by game team-id pair so we load each roster at most once.
+  const byGame = new Map<string, SimPropRequest[]>();
+  for (const p of props) {
+    const home = String(p.homeTeamId ?? defaultHome).trim();
+    const away = String(p.awayTeamId ?? defaultAway).trim();
+    const key = `${home}|${away}`;
+    const arr = byGame.get(key) ?? [];
+    arr.push(p);
+    byGame.set(key, arr);
+  }
+
+  const out: SimPropRequest[] = [];
+  for (const [key, group] of byGame) {
+    const [home, away] = key.split("|");
+    if (!home || !away) {
+      out.push(...group.map((p) => stampPropSideContext(p, home || null, away || null)));
+      continue;
+    }
+    let byAthlete = new Map<string, string>();
+    try {
+      const byName = await loadRosterMap(home, away);
+      for (const v of byName.values()) {
+        if (v.athleteId) byAthlete.set(v.athleteId, v.teamId);
+      }
+    } catch {
+      byAthlete = new Map();
+    }
+    for (const p of group) {
+      const athleteId = String(p.athleteId ?? "").trim();
+      const fromRoster = athleteId ? byAthlete.get(athleteId) ?? null : null;
+      const playerTeamId = p.playerTeamId ?? fromRoster;
+      out.push(stampPropSideContext(p, home, away, playerTeamId));
+    }
+  }
+  return out;
 }

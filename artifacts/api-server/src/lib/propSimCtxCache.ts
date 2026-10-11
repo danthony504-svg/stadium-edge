@@ -24,6 +24,7 @@ import {
   lookupOpportunityShift,
   type OpportunityShiftTable,
 } from "./opportunityShift/index.js";
+import { buildPreSimShiftFactors } from "./preSimShift/index.js";
 
 /** Align with ESPN player-history cachedJson TTL. */
 export const PROPSIM_CTX_TTL_MS = 30 * 60_000;
@@ -38,9 +39,13 @@ export const PROPSIM_CTX_LOAD_CONCURRENCY = 4;
 export type CachedPropSimCtx = {
   fingerprint: string;
   recentValues: number[];
+  /** Full-season (or best available) baseline for venue/matchup ratios. */
+  seasonValues?: number[];
   vsOpponentValues: number[];
   homeValues: number[];
   awayValues: number[];
+  recentHomeValues?: number[];
+  recentAwayValues?: number[];
   minutesL5: number | null;
   minutesSeason: number | null;
   minutesDirection: "up" | "down" | "steady" | undefined;
@@ -82,6 +87,12 @@ export function cachedPropSimCtxFromContext(ctx: PropSimulationContext): CachedP
   return {
     fingerprint,
     recentValues: [...(ctx.recentValues ?? [])],
+    // home/away on ctx are full-season venue series after wiring; season baseline
+    // falls back to recent when seasonGames were unavailable.
+    seasonValues: [
+      ...(ctx.homeValues ?? []),
+      ...(ctx.awayValues ?? []),
+    ],
     vsOpponentValues: [...(ctx.vsOpponentValues ?? [])],
     homeValues: [...(ctx.homeValues ?? [])],
     awayValues: [...(ctx.awayValues ?? [])],
@@ -113,6 +124,9 @@ export function propSimulationContextFromCached(
     ownKeyInjuries?: number;
     weatherImpact?: number | null;
     opportunityShift?: OpportunityShiftTable | null;
+    defenseIndex?: number | null;
+    defenseIndexByFamily?: Record<string, number> | null;
+    coupledReceivingMatchupByTeam?: Map<string, number> | null;
   },
 ): PropSimulationContext {
   const opp = lookupOpportunityShift(game.opportunityShift, {
@@ -120,6 +134,36 @@ export function propSimulationContextFromCached(
     athleteId: req.athleteId,
     market: req.market,
     sport: req.sport,
+  });
+  const sideKey =
+    req.isHome === true ? "home" : req.isHome === false ? "away" : "";
+  const coupledReceiving =
+    (sideKey && game.coupledReceivingMatchupByTeam?.get(sideKey)) || null;
+  const family = opp.family;
+  const defenseIndex =
+    (family && game.defenseIndexByFamily?.[family]) ?? game.defenseIndex ?? null;
+  const seasonValues =
+    cached.seasonValues?.length ? cached.seasonValues : cached.recentValues;
+  const recentVenue =
+    req.isHome === true
+      ? cached.recentHomeValues ?? []
+      : req.isHome === false
+        ? cached.recentAwayValues ?? []
+        : [];
+  const pre = buildPreSimShiftFactors({
+    sport: req.sport,
+    market: req.market,
+    isHome: req.isHome,
+    seasonValues,
+    homeValues: cached.homeValues,
+    awayValues: cached.awayValues,
+    vsOpponentValues: cached.vsOpponentValues,
+    recentVenueValues: recentVenue,
+    opportunityShift: opp.multiplier,
+    opportunityExplain: opp.explanation,
+    opportunityFamily: opp.family,
+    defenseIndex,
+    coupledReceivingMatchup: coupledReceiving,
   });
   return {
     sport: req.sport,
@@ -141,10 +185,21 @@ export function propSimulationContextFromCached(
     weatherImpact: game.weatherImpact ?? null,
     discrete: cached.discrete,
     additionalLines: req.additionalLines,
-    opportunityFamilyMult: opp.multiplier,
-    opportunityFamily: opp.family,
-    opportunityExplain: opp.explanation,
+    opportunityFamilyMult: pre.opportunityShift,
+    opportunityFamily: pre.family ?? opp.family,
+    opportunityExplain: pre.opportunityExplain ?? opp.explanation,
     opportunitySuppressOwnInjuries: opp.suppressOwnKeyInjuries,
+    venueFamilyMult: pre.venueShift,
+    matchupFamilyMult: pre.opponentMatchupShift,
+    combinedPreSimMult: pre.combinedShift,
+    volumePreSimMult: pre.volumeShift,
+    efficiencyPreSimMult: pre.efficiencyShift,
+    preSimShiftKind: pre.shiftKind,
+    venueExplain: pre.venueExplain,
+    matchupExplain: pre.matchupExplain,
+    combinedPreSimExplain: pre.combinedExplain,
+    suppressSoftVenueBlend: pre.suppressSoftVenueBlend,
+    suppressSoftVsOpponentBlend: pre.suppressSoftVsOpponentBlend,
   };
 }
 

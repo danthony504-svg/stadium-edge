@@ -42,10 +42,17 @@ import {
 import {
   buildOpportunityShiftForGame,
   deriveChannelUsageFromHistory,
+  opportunityMarketFamily,
   type EspnInjuryTeamLike,
   type OpportunityShiftTable,
   type PropPlayerLike,
 } from "./opportunityShift/index.js";
+import {
+  aggregateReceivingMatchupForQb,
+  buildPreSimShiftFactors,
+  isReceivingFamilyForQbCoupling,
+} from "./preSimShift/index.js";
+import { computeAmbiguous, gameValueForMarket } from "./propStatValue.js";
 
 export type OpportunityShiftBuildInputs = {
   gameKey: string;
@@ -70,6 +77,12 @@ export type PropSimGameContext = {
   opportunityShift?: OpportunityShiftTable | null;
   /** Preferred: build Opp Shift after parallel history wave (HTTP + Coach). */
   opportunityShiftInputs?: OpportunityShiftBuildInputs | null;
+  /** Opp defense / league index (~1) for Opponent Matchup Shift. */
+  defenseIndex?: number | null;
+  /** Optional per-family defense indices already on the request (no new I/O). */
+  defenseIndexByFamily?: Record<string, number> | null;
+  /** Side ("home"|"away") → receiving matchup for QB pass coupling. */
+  coupledReceivingMatchupByTeam?: Map<string, number> | null;
 };
 
 export type PropSimRow = BuiltSimPropRow & {
@@ -95,6 +108,104 @@ function resolveIsHome(
 }
 
 type HistoryCache = Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>;
+
+/** Sync: usage-weighted receiving matchup factors for QB←WR coupling. */
+function buildCoupledReceivingBySide(
+  indexed: Array<{ prop: SimPropRequest; isHome: boolean | null }>,
+  gameCtx: PropSimGameContext,
+  historyCache: HistoryCache,
+): Map<string, number> {
+  type CouplingRow = {
+    factor: number;
+    expectedTargets: number | null;
+    recentTargets: number | null;
+    receivingYards: number | null;
+  };
+  const bySide = new Map<string, CouplingRow[]>();
+  // Prefer one row per athlete (highest-usage receiving market).
+  const seenAthlete = new Set<string>();
+
+  for (const item of indexed) {
+    const fam = opportunityMarketFamily(item.prop.market, propSport(item.prop, gameCtx));
+    if (!isReceivingFamilyForQbCoupling(fam)) continue;
+    const side =
+      item.isHome === true ? "home" : item.isHome === false ? "away" : null;
+    if (!side) continue;
+    const athleteId = String(item.prop.athleteId ?? "").trim();
+    if (!athleteId) continue;
+    const dedupe = `${side}:${athleteId}`;
+    if (seenAthlete.has(dedupe)) continue;
+    seenAthlete.add(dedupe);
+
+    const sportKey = propSport(item.prop, gameCtx);
+    let history: Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null = null;
+    const prefix = `${sportKey}:${athleteId}:`;
+    for (const [k, v] of historyCache) {
+      if (k.startsWith(prefix)) {
+        history = v;
+        break;
+      }
+    }
+    if (!history?.recent?.length) continue;
+    const labels = history.labels ?? [];
+    const amb = computeAmbiguous(labels);
+    const seasonPool = history.seasonGames?.length ? history.seasonGames : history.recent;
+    const seasonHome = history.seasonHome?.length
+      ? history.seasonHome
+      : history.recent.filter((g) => g.isHome === true);
+    const seasonAway = history.seasonAway?.length
+      ? history.seasonAway
+      : history.recent.filter((g) => g.isHome === false);
+
+    const pull = (market: string, games: typeof history.recent) => {
+      const out: number[] = [];
+      for (const g of games) {
+        const v = gameValueForMarket(market, g.stats, amb);
+        if (v != null && Number.isFinite(v)) out.push(v);
+      }
+      return out;
+    };
+
+    const market = item.prop.market;
+    const seasonValues = pull(market, seasonPool);
+    const homeValues = pull(market, seasonHome);
+    const awayValues = pull(market, seasonAway);
+    const vsOpponentValues = pull(market, history.vsOpponent ?? []);
+    const targetSeries = pull("player_targets", history.recent);
+    const recYdsSeries = pull("player_reception_yds", history.recent);
+
+    const pre = buildPreSimShiftFactors({
+      sport: sportKey,
+      market,
+      isHome: item.isHome,
+      seasonValues,
+      homeValues,
+      awayValues,
+      vsOpponentValues,
+      opportunityShift: 1,
+      defenseIndex:
+        (fam && gameCtx.defenseIndexByFamily?.[fam]) ?? gameCtx.defenseIndex ?? null,
+    });
+    if (pre.opponentMatchupShift === 1) continue;
+
+    const mean = (xs: number[]) =>
+      xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+    const arr = bySide.get(side) ?? [];
+    arr.push({
+      factor: pre.opponentMatchupShift,
+      expectedTargets: null, // no projected targets on hot path without new I/O
+      recentTargets: mean(targetSeries),
+      receivingYards: mean(recYdsSeries),
+    });
+    bySide.set(side, arr);
+  }
+  const out = new Map<string, number>();
+  for (const [side, rows] of bySide) {
+    const agg = aggregateReceivingMatchupForQb(rows);
+    if (agg != null) out.set(side, agg);
+  }
+  return out;
+}
 
 async function loadPropHistory(
   p: SimPropRequest,
@@ -130,6 +241,9 @@ function gameCtxForSimulate(gameCtx: PropSimGameContext) {
     weatherImpact: gameCtx.weatherImpact,
     playerHistories: new Map(),
     opportunityShift: gameCtx.opportunityShift ?? null,
+    defenseIndex: gameCtx.defenseIndex ?? null,
+    defenseIndexByFamily: gameCtx.defenseIndexByFamily ?? null,
+    coupledReceivingMatchupByTeam: gameCtx.coupledReceivingMatchupByTeam ?? null,
   };
 }
 
@@ -226,6 +340,15 @@ export async function runPropSims(
         injuries: inputs.injuries,
         players: playersWithUsage,
       }),
+    };
+  }
+
+  // Sync: QB←receiving coupling from already-loaded WR/TE histories (no new I/O).
+  const coupledReceiving = buildCoupledReceivingBySide(indexed, gameCtx, historyCache);
+  if (coupledReceiving.size) {
+    gameCtx = {
+      ...gameCtx,
+      coupledReceivingMatchupByTeam: coupledReceiving,
     };
   }
 
