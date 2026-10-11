@@ -276,6 +276,27 @@ test("ingest body maps scan codes and rejects junk", () => {
   assert.equal(parseCoachReliabilityIngestBody({ eventType: "nope" }), null);
 });
 
+test("temporary correlationId is parsed for coach-events diagnostics only", () => {
+  const parsed = parseCoachReliabilityIngestBody({
+    eventType: "parlay_underfilled",
+    failureReason: "legitimate_underfill",
+    sportCategory: "nfl",
+    questionKind: "parlay_build",
+    requestedLegCount: 8,
+    returnedLegCount: 5,
+    requestId: "greenfield-diag",
+    correlationId: "crdiag-123-abcd",
+    affectedGame: "Minnesota Vikings @ New Orleans Saints",
+  });
+  assert.ok(parsed);
+  assert.equal(parsed!.correlationId, "crdiag-123-abcd");
+  assert.equal(parsed!.eventType, "parlay_underfilled");
+  assert.equal(parsed!.failureReason, "legitimate_underfill");
+  assert.equal(parsed!.requestId, "greenfield-diag");
+  // Classification unchanged — correlationId is observe-only.
+  assert.equal(parsed!.failureCategory, "fulfillment");
+});
+
 test("chat route wires observe-only coach reliability hooks", () => {
   const src = readFileSync(join(process.cwd(), "src/routes/chat.ts"), "utf8");
   assert.match(src, /reportCoachReliability/);
@@ -288,6 +309,19 @@ test("chat route wires observe-only coach reliability hooks", () => {
   // Must not log raw ask text or userId into reliability reports.
   assert.equal(/reportCoachReliability\(\{[\s\S]{0,200}userId/.test(src), false);
   assert.equal(/reportCoachReliability\(\{[\s\S]{0,200}gateAskText/.test(src), false);
+});
+
+test("temporary coach-rel-diag logs are wired on coach-events path", () => {
+  const route = readFileSync(join(process.cwd(), "src/routes/reliability.ts"), "utf8");
+  const store = readFileSync(
+    join(process.cwd(), "src/lib/coachReliabilityStore.ts"),
+    "utf8",
+  );
+  assert.match(route, /\[coach-rel-diag\] coach-events route/);
+  assert.match(store, /\[coach-rel-diag\] coach-event/);
+  assert.match(store, /telegramEligible/);
+  assert.match(store, /dedupeSuppressed/);
+  assert.match(store, /correlationId/);
 });
 
 test("digest + health cron routes exist", () => {

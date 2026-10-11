@@ -230,3 +230,94 @@ test("buildParlay wires observe-only reporter after finalize (main + props-only)
   // Main path still passes picks for grounding classification.
   assert.match(src, /picks,\s*\n\s*timedOut:/);
 });
+
+test("temporary coach-rel-diag: correlationId rides on alertable bodies only", () => {
+  const body = buildCoachReliabilityBody({
+    requestedLegCount: 8,
+    returnedLegCount: 5,
+    realOddsAvailable: true,
+    requestId: "greenfield-diag",
+    correlationId: "crdiag-fixed-1",
+    sportCategory: "nfl",
+    picks: [
+      {
+        game: "Minnesota Vikings @ New Orleans Saints",
+        player: "Kyler Murray",
+        teamAbbr: "MIN",
+        isProp: true,
+        market: "Pass TDs",
+      },
+    ],
+  });
+  assert.equal(body?.eventType, "parlay_underfilled");
+  assert.equal(body?.correlationId, "crdiag-fixed-1");
+  // Full ticket + grounded pick → no body (classification unchanged).
+  const full = buildCoachReliabilityBody({
+    requestedLegCount: 8,
+    returnedLegCount: 8,
+    realOddsAvailable: true,
+    requestId: "greenfield-diag-full",
+    correlationId: "crdiag-fixed-2",
+    picks: [
+      {
+        game: "Minnesota Vikings @ New Orleans Saints",
+        player: "Kyler Murray",
+        teamAbbr: "MIN",
+        isProp: true,
+        market: "Pass TDs",
+      },
+    ],
+  });
+  assert.equal(full, null);
+});
+
+test("temporary coach-rel-diag logs call + post without throwing", async () => {
+  const prevFetch = globalThis.fetch;
+  const prevOptIn = process.env.EXPO_PUBLIC_CRASH_REPORTING;
+  const prevDisabled = process.env.CRASH_REPORTING_DISABLED;
+  const lines: string[] = [];
+  const prevInfo = console.info;
+  console.info = (...args: unknown[]) => {
+    lines.push(
+      args
+        .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+        .join(" "),
+    );
+  };
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ ok: true }), { status: 202 })) as typeof fetch;
+  try {
+    process.env.EXPO_PUBLIC_CRASH_REPORTING = "1";
+    delete process.env.CRASH_REPORTING_DISABLED;
+    reportCoachScanReliability({
+      requestedLegCount: 8,
+      returnedLegCount: 5,
+      realOddsAvailable: true,
+      requestId: "greenfield-diag-log",
+      correlationId: "crdiag-log-1",
+      sportCategory: "nfl",
+      picks: [
+        {
+          game: "Minnesota Vikings @ New Orleans Saints",
+          player: "Kyler Murray",
+          teamAbbr: "MIN",
+          isProp: true,
+          market: "Pass TDs",
+        },
+      ],
+    });
+    await new Promise((r) => setTimeout(r, 40));
+    assert.ok(lines.some((l) => l.includes("[coach-rel-diag]") && l.includes("call")));
+    assert.ok(lines.some((l) => l.includes("[coach-rel-diag]") && l.includes("post")));
+    assert.ok(lines.some((l) => l.includes("crdiag-log-1")));
+    assert.ok(lines.some((l) => l.includes("Kyler Murray")));
+    assert.ok(lines.some((l) => l.includes("MIN")));
+  } finally {
+    console.info = prevInfo;
+    globalThis.fetch = prevFetch;
+    if (prevOptIn === undefined) delete process.env.EXPO_PUBLIC_CRASH_REPORTING;
+    else process.env.EXPO_PUBLIC_CRASH_REPORTING = prevOptIn;
+    if (prevDisabled === undefined) delete process.env.CRASH_REPORTING_DISABLED;
+    else process.env.CRASH_REPORTING_DISABLED = prevDisabled;
+  }
+});
