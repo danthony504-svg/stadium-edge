@@ -120,14 +120,26 @@ import {
 import { dedupePicksByMarketLadder } from "./marketLadderKey.ts";
 import { interleaveSidesWithProps } from "./boardMarketPools.ts";
 import {
+  boardScanFootballMixOverlapGameBudgetMs,
   boardScanGamePhaseBudgetMs,
   boardScanMaxPropsToSim,
   boardScanMaxPropsToSimForMix,
   boardScanMixGamePhaseBudgetMs,
   boardScanPropPhaseDeadlineMs,
   boardScanPropSimBatchTimeoutMs,
+  shouldOverlapFootballMixSims,
   shouldOverlapPropPhaseWithGames,
 } from "./boardScanScope.ts";
+import {
+  beginCoachSimulateSession,
+  endCoachSimulateSession,
+  type CoachSimulateOverlapMetrics,
+} from "./coachSimulateLimiter.ts";
+import {
+  coachAbsoluteBudgetMs,
+  coachFinalizationReserveMs,
+  coachScoringWorkBudgetMs,
+} from "./coach/session.ts";
 export {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
@@ -257,6 +269,8 @@ export type FullBoardScanResult = {
   };
   /** HR board ranking diagnostics — selected vs next-best components. */
   hrRankDiagnostics?: ReturnType<typeof hrSelectionDiagnostics>;
+  /** Football mix prop∥game overlap timings (request-scoped). */
+  simulateOverlapMetrics?: CoachSimulateOverlapMetrics;
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -1399,10 +1413,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     );
   };
 
-  // Football mix rebuild: PROPS-FIRST on a finishable skill set (~80 rows with
-  // yards/TD quotas), THEN game lines. Parallel props∥games (#530/#533) let GLs
-  // clear while the 360-row deep-sim timed out → phone "holding reserved prop
-  // seats" with 0 skill props. Serial on a huge cap (#532) never finished either.
+  // Football mix: overlap finishable skill deep-sim (≤72/96) with game lines
+  // under a prop-priority shared simulate limiter. The old 360-row parallel path
+  // starved props; the finishable cap + prop priority keeps both phases complete.
+  // Game completion never aborts the prop phase — we always await propPhaseP.
   let propPhaseP: Promise<{
     propScored: BoardScoredLeg[];
     propHits: Map<string, { hitProbability: number | null }>;
@@ -1411,16 +1425,27 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   } | null> | null = null;
   const propsOnlyPath = !!opts.propsOnly;
   const footballMixPath = !!opts.requirePropMix && !propsOnlyPath;
+  const footballMixOverlap = shouldOverlapFootballMixSims(
+    opts.requirePropMix,
+    opts.propsOnly,
+    pool.length,
+  );
+  // Limiter + overlap metrics are football-mix-only. Non-football overlapProps
+  // must keep its pre-PR unbounded-simulate timing (no shared session).
+  const simulateSession = footballMixOverlap ? beginCoachSimulateSession() : null;
 
-  if (footballMixPath && pool.length > 0) {
-    try {
-      const propResult = await runPropPhase(pool);
-      propScoredAcc = propResult.propScored;
-      propSimEvaluatedAcc += propResult.simEvaluated;
-      if (propResult.incomplete) propPhaseIncomplete = true;
-    } catch {
-      propPhaseIncomplete = true;
-    }
+  if (footballMixOverlap) {
+    simulateSession!.markPropPhaseStart();
+    propPhaseP = runPropPhase(pool)
+      .then((r) => {
+        simulateSession?.markPropPhaseEnd();
+        return r;
+      })
+      .catch(() => {
+        simulateSession?.markPropPhaseEnd();
+        propPhaseIncomplete = true;
+        return null;
+      });
   } else if (propsOnlyPath) {
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
@@ -1432,7 +1457,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     // Team props / bare college — never score player props.
     propPhaseP = null;
   } else if (overlapProps) {
-    // Prefetched non-football pools still overlap props with games.
+    // Prefetched non-football pools — baseline overlap (no simulate limiter).
     propPhaseP = runPropPhase(pool)
       .then((r) => r)
       .catch(() => {
@@ -1447,8 +1472,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let slateUnresolved = 0;
   if (!opts.propsOnly) {
     gameSimsAttempted = gameEntries.length > 0;
-    const gamePhaseBudgetMs =
-      footballMixPath || overlapProps
+    const gamePhaseBudgetMs = footballMixOverlap
+      ? boardScanFootballMixOverlapGameBudgetMs(
+          opts.target,
+          coachAbsoluteBudgetMs(opts.target),
+          coachFinalizationReserveMs(),
+        )
+      : footballMixPath || overlapProps
         ? Math.max(
             footballMixPath
               ? boardScanMixGamePhaseBudgetMs(opts.target)
@@ -1456,10 +1486,27 @@ export async function buildTopLegsFromFullBoardScan(opts: {
             footballMixPath ? 36_000 : 48_000,
           )
         : null;
+    // Football-mix finalization reserve only — non-football keeps prior timing.
+    const scoringWorkBudgetMs = footballMixOverlap
+      ? coachScoringWorkBudgetMs(opts.target)
+      : null;
     const gamePhaseStartedAt = Date.now();
+    const scoringStartedAt = simulateSession?.scoringStartedAtMs ?? gamePhaseStartedAt;
+    if (footballMixOverlap && gameEntries.length > 0) {
+      simulateSession?.markGamePhaseStart();
+    }
     const SLATE_SIM_BATCH_REBUILD = footballMixPath || opts.requirePropMix ? 4 : SLATE_SIM_BATCH;
     for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH_REBUILD) {
       if (opts.signal?.aborted) break;
+      // Football mix only: stop starting new game simulate work so staging
+      // still runs inside the absolute budget. Does not abort in-flight props.
+      if (
+        scoringWorkBudgetMs != null &&
+        Date.now() - scoringStartedAt >= scoringWorkBudgetMs
+      ) {
+        gameSimsTimedOut += gameEntries.length - i;
+        break;
+      }
       if (gamePhaseBudgetMs != null && Date.now() - gamePhaseStartedAt >= gamePhaseBudgetMs) {
         gameSimsTimedOut += gameEntries.length - i;
         break;
@@ -1484,6 +1531,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         continue;
       }
     }
+    if (footballMixOverlap && gameEntries.length > 0) {
+      simulateSession?.markGamePhaseEnd();
+    }
   }
 
   const expandedPool = await Promise.race([
@@ -1493,14 +1543,28 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   if (expandedPool?.length) pool = expandedPool;
 
   if (footballMixPath) {
-    // Props already ran first; only rescore if expand grew an empty skill wave.
+    // Await overlapped prop phase — never cancelled by game completion above.
+    if (propPhaseP) {
+      const propResult = await propPhaseP;
+      if (propResult) {
+        propScoredAcc = propResult.propScored;
+        propSimEvaluatedAcc += propResult.simEvaluated;
+        if (propResult.incomplete) propPhaseIncomplete = true;
+      } else {
+        propPhaseIncomplete = true;
+      }
+    }
+    // Only rescore if expand grew an empty skill wave after the overlapped pass.
     if (propScoredAcc.length === 0 && pool.length > 0 && expandedPool?.length) {
       try {
+        simulateSession?.markPropPhaseStart();
         const propResult = await runPropPhase(pool);
+        simulateSession?.markPropPhaseEnd();
         propScoredAcc = propResult.propScored;
         propSimEvaluatedAcc += propResult.simEvaluated;
         if (propResult.incomplete) propPhaseIncomplete = true;
       } catch {
+        simulateSession?.markPropPhaseEnd();
         propPhaseIncomplete = true;
       }
     }
@@ -1553,6 +1617,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   }
 
   totalScanned += pool.length;
+  simulateSession?.markFinalizationStart();
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
@@ -1598,6 +1663,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     prioritySports: opts.prioritySports,
     excludedTeams,
   });
+  simulateSession?.markFinalizationEnd();
+  const overlapMetrics = simulateSession ? endCoachSimulateSession() : null;
+  if (overlapMetrics) {
+    result.simulateOverlapMetrics = overlapMetrics;
+  }
   if (opts.onPartial) opts.onPartial(result);
   return result;
 }
@@ -1664,6 +1734,8 @@ export async function tryReachFullBoardScan(
   try {
     return await buildTopLegsFromFullBoardScan(opts);
   } catch {
+    // Clear any leaked simulate session if the scan threw mid-overlap.
+    endCoachSimulateSession();
     return null;
   }
 }

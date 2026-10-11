@@ -30,8 +30,9 @@ export function boardScanPropSimBatchTimeoutMs(): number {
  * When the prop pool is prefetched, this phase overlaps game-line sims so the
  * absolute Coach budget cannot starve player props (7-leg → 3 F5 game lines).
  *
- * Football mix asks get a dedicated longer window — props must clear before
- * we spend wall clock on game-line sims (rebuild: parallel starved NFL props).
+ * Football mix asks get a dedicated longer window. Game lines may overlap the
+ * finishable ≤72/96 skill wave under a prop-priority simulate limiter; the
+ * prop phase is never cancelled when games finish.
  */
 export function boardScanPropPhaseDeadlineMs(
   targetLegs: number,
@@ -44,8 +45,8 @@ export function boardScanPropPhaseDeadlineMs(
     if (targetLegs >= 6) return 75_000;
     return 55_000;
   }
-  // Football mix: finishable skill-prop wave (≤96 rows) must complete before
-  // game lines — phone "holding reserved seats" was an unfinished 360-row deep sim.
+  // Football mix: finishable skill-prop wave (≤96 rows). Overlaps game lines
+  // with prop-priority shared simulate concurrency (not the old 360-row starve).
   if (opts?.requirePropMix) {
     if (targetLegs >= 15) return 85_000;
     if (targetLegs >= 9) return 75_000;
@@ -71,13 +72,40 @@ export function boardScanGamePhaseBudgetMs(targetLegs: number): number {
 }
 
 /**
- * After props-first for football mix, leftover wall for game-line sims.
- * Kept short so absolute budget is not burned on spreads after props.
+ * Football mix game-line sim budget (soft ceiling). When overlapping the prop
+ * phase, wall is measured from the shared scoring start and further capped by
+ * the absolute budget minus finalization reserve.
  */
 export function boardScanMixGamePhaseBudgetMs(targetLegs: number): number {
   if (targetLegs >= 9) return 28_000;
   if (targetLegs >= 6) return 24_000;
   return 20_000;
+}
+
+/**
+ * Football mix: overlap prop deep-sim/enrich with game-line sims when the
+ * finishable skill set is in play (≤72 for 9 legs). Props-only stays prop-only.
+ */
+export function shouldOverlapFootballMixSims(
+  requirePropMix: boolean | undefined,
+  propsOnly: boolean | undefined,
+  propPoolSize: number,
+): boolean {
+  return !!requirePropMix && !propsOnly && propPoolSize > 0;
+}
+
+/**
+ * Game-phase wall for overlapped football mix: at least the mix soft ceiling
+ * (and the historical 36s floor), but never past absolute − finalization reserve.
+ */
+export function boardScanFootballMixOverlapGameBudgetMs(
+  targetLegs: number,
+  absoluteBudgetMs: number,
+  finalizationReserveMs: number,
+): number {
+  const mixFloor = Math.max(boardScanMixGamePhaseBudgetMs(targetLegs), 36_000);
+  const scoringCap = Math.max(0, absoluteBudgetMs - finalizationReserveMs);
+  return Math.min(mixFloor, scoringCap);
 }
 
 /**

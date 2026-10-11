@@ -4,7 +4,9 @@ import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
   coachAbsoluteBudgetMs,
+  coachFinalizationReserveMs,
   coachPropLoadFailsafeMs,
+  coachScoringWorkBudgetMs,
   coachSessionIsTerminal,
   coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
@@ -77,6 +79,13 @@ test("resolveCoachOutcome maps pick counts", () => {
 test("8-leg scoring budget is longer than 6-leg", () => {
   assert.equal(coachAbsoluteBudgetMs(8), 110_000);
   assert.ok(coachAbsoluteBudgetMs(8) > coachAbsoluteBudgetMs(6));
+});
+
+test("finalization reserve sits inside the absolute budget (3–5s)", () => {
+  const reserve = coachFinalizationReserveMs();
+  assert.ok(reserve >= 3_000 && reserve <= 5_000);
+  assert.equal(coachScoringWorkBudgetMs(9), coachAbsoluteBudgetMs(9) - reserve);
+  assert.equal(coachAbsoluteBudgetMs(9), 110_000);
 });
 
 test("10-leg football mix budget covers props-first skill wave + games", () => {
