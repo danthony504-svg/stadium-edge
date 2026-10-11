@@ -74,13 +74,16 @@ test("board scan game phase continues after a thrown slate batch", () => {
   assert.match(src, /Keep scanning remaining games \+ props/);
   assert.match(src, /incomplete: boolean/);
   assert.match(src, /Start the prop MC clock AFTER sync ranking/);
-  // Rebuild: football mix runs finishable skill props FIRST, then games.
+  // Rebuild: football mix overlaps finishable skill props with games
+  // under a prop-priority shared simulate limiter.
   assert.match(src, /fetchSlateGameSimulationsWithStatus/);
   assert.match(src, /selectFootballMixPropSimCandidates/);
   assert.match(src, /shouldUseFootballSkillPropSim/);
   assert.match(src, /finalizeFootballPropMixPicks/);
   assert.match(src, /finalizeGeneralPropMixPicks/);
-  assert.match(src, /footballMixPath && pool\.length > 0/);
+  assert.match(src, /shouldOverlapFootballMixSims/);
+  assert.match(src, /footballMixOverlap/);
+  assert.match(src, /beginCoachSimulateSession/);
   assert.match(src, /boardPropSimMixBatchSize/);
   assert.doesNotMatch(src, /game-sim-batch-timeout/);
 });test("board scan passes liveOdds as one mergeOddsEntries source (SCAN_THREW)", () => {

@@ -27,14 +27,31 @@ export type CoachSession = {
  * Deep tickets (8+) get more wall time; production 8-leg asks were latching
  * empty before the board finished.
  */
+/**
+ * Wall reserved inside the absolute budget for staging / correlation /
+ * final ticket assembly after prop+game sim phases. Does not lower sim counts
+ * or skip grading — only constrains when new simulate work may start.
+ */
+export const COACH_FINALIZATION_RESERVE_MS = 4_000;
+
+export function coachFinalizationReserveMs(): number {
+  return COACH_FINALIZATION_RESERVE_MS;
+}
+
 export function coachAbsoluteBudgetMs(requestedLegs: number): number {
-  // Sized for football mix props-first (~75s skill wave) then game lines.
+  // Sized for football mix skill wave (≤72) overlapping game lines, plus
+  // finalization reserve inside the same absolute window.
   if (requestedLegs >= 15) return 130_000;
   if (requestedLegs >= 10) return 120_000;
   if (requestedLegs >= 8) return 110_000;
   if (requestedLegs >= 6) return 90_000;
   if (requestedLegs >= 3) return 75_000;
   return 45_000;
+}
+
+/** Absolute budget minus finalization reserve — last moment to start new sim work. */
+export function coachScoringWorkBudgetMs(requestedLegs: number): number {
+  return Math.max(0, coachAbsoluteBudgetMs(requestedLegs) - coachFinalizationReserveMs());
 }
 
 /**

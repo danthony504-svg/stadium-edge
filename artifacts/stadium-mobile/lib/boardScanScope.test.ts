@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  boardScanFootballMixOverlapGameBudgetMs,
   boardScanGamePhaseBudgetMs,
+  boardScanMaxPropsToSimForMix,
   boardScanPropPhaseDeadlineMs,
   boardScanPropSimBatchTimeoutMs,
+  shouldOverlapFootballMixSims,
   shouldOverlapPropPhaseWithGames,
 } from "./boardScanScope.ts";
 
@@ -13,6 +16,15 @@ test("prefetched prop pools overlap prop scoring with game lines", () => {
   assert.equal(shouldOverlapPropPhaseWithGames(true, 0), false);
   assert.equal(shouldOverlapPropPhaseWithGames(false, 120), false);
   assert.equal(shouldOverlapPropPhaseWithGames(true, 120, true), false);
+});
+
+test("football mix overlaps prop∥game sims with finishable ≤72 deep-sim cap", () => {
+  assert.equal(shouldOverlapFootballMixSims(true, false, 500), true);
+  assert.equal(boardScanMaxPropsToSimForMix(9, 5000), 72);
+  assert.equal(
+    boardScanFootballMixOverlapGameBudgetMs(9, 110_000, 4_000),
+    36_000,
+  );
 });
 
 test("game-phase budget leaves room for prop-phase deadline inside Coach wall", () => {
