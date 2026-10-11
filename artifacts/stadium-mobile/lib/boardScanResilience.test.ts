@@ -83,7 +83,12 @@ test("board scan game phase continues after a thrown slate batch", () => {
   assert.match(src, /finalizeGeneralPropMixPicks/);
   assert.match(src, /shouldOverlapFootballMixSims/);
   assert.match(src, /footballMixOverlap/);
-  assert.match(src, /beginCoachSimulateSession/);
+  // Limiter session is football-mix-only — not overlapProps || footballMix.
+  assert.match(
+    src,
+    /const simulateSession = footballMixOverlap \? beginCoachSimulateSession\(\) : null/,
+  );
+  assert.doesNotMatch(src, /footballMixOverlap \|\| overlapProps/);
   assert.match(src, /boardPropSimMixBatchSize/);
   assert.doesNotMatch(src, /game-sim-batch-timeout/);
 });test("board scan passes liveOdds as one mergeOddsEntries source (SCAN_THREW)", () => {

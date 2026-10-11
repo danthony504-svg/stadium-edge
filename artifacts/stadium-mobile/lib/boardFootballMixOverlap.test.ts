@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
   boardScanFootballMixOverlapGameBudgetMs,
   boardScanMaxPropsToSimForMix,
   shouldOverlapFootballMixSims,
+  shouldOverlapPropPhaseWithGames,
 } from "./boardScanScope.ts";
 import {
   coachAbsoluteBudgetMs,
@@ -19,6 +23,9 @@ import {
 } from "./coachSimulateLimiter.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const scannerSrc = () => readFileSync(join(root, "lib/boardMarketScanner.ts"), "utf8");
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -194,4 +201,69 @@ test("finalization reserve leaves room before the absolute 110s deadline for 9-l
   assert.ok((m!.finalizationStartMs ?? 0) <= work);
   assert.ok((m!.finalizationEndMs ?? 0) <= abs);
   assert.ok((m!.finalizationEndMs ?? 0) > (m!.finalizationStartMs ?? 0));
+});
+
+test("football 9-leg mix wires overlap limiter + finalization reserve; non-football does not", () => {
+  const src = scannerSrc();
+  // Football mix: session only when footballMixOverlap.
+  assert.match(
+    src,
+    /const simulateSession = footballMixOverlap \? beginCoachSimulateSession\(\) : null/,
+  );
+  assert.doesNotMatch(src, /footballMixOverlap \|\| overlapProps/);
+  // Finalization reserve / scoringWorkBudgetMs gated to football mix only.
+  assert.match(
+    src,
+    /const scoringWorkBudgetMs = footballMixOverlap\s*\?\s*coachScoringWorkBudgetMs\(opts\.target\)\s*:\s*null/,
+  );
+  assert.match(src, /scoringWorkBudgetMs != null/);
+  assert.match(src, /boardScanFootballMixOverlapGameBudgetMs/);
+  // 9-leg mix decision + cap still hold.
+  assert.equal(shouldOverlapFootballMixSims(true, false, 4000), true);
+  assert.equal(boardScanMaxPropsToSimForMix(9, 5000), 72);
+  assert.equal(coachScoringWorkBudgetMs(9), 106_000);
+});
+
+test("non-football overlapProps orchestration stays baseline (no limiter / no 106s cutoff)", () => {
+  const src = scannerSrc();
+  // Prefetch overlap still exists for non-football.
+  assert.equal(shouldOverlapPropPhaseWithGames(true, 120, false), true);
+  assert.equal(shouldOverlapFootballMixSims(false, false, 120), false);
+
+  // Baseline overlapProps branch: start propPhaseP without session markers.
+  const overlapIdx = src.indexOf("} else if (overlapProps) {");
+  assert.ok(overlapIdx >= 0, "overlapProps branch present");
+  const overlapSlice = src.slice(overlapIdx, overlapIdx + 450);
+  assert.match(overlapSlice, /baseline overlap \(no simulate limiter\)/);
+  assert.match(overlapSlice, /propPhaseP = runPropPhase\(pool\)\s*\.then\(\(r\) => r\)/);
+  assert.doesNotMatch(overlapSlice, /markPropPhaseStart|beginCoachSimulateSession|simulateSession/);
+
+  // Non-football game budget path still uses boardScanGamePhaseBudgetMs + 48s floor.
+  assert.match(
+    src,
+    /boardScanGamePhaseBudgetMs\(opts\.target\),\s*footballMixPath \? 36_000 : 48_000/,
+  );
+  // scoringWorkBudgetMs is null outside football mix — no unconditional 106s cutoff.
+  assert.match(
+    src,
+    /const scoringWorkBudgetMs = footballMixOverlap\s*\?\s*coachScoringWorkBudgetMs\(opts\.target\)\s*:\s*null/,
+  );
+  assert.match(
+    src,
+    /scoringWorkBudgetMs != null &&\s*Date\.now\(\) - scoringStartedAt >= scoringWorkBudgetMs/s,
+  );
+});
+
+test("propsOnly path unchanged (no football-mix overlap / no game slate)", () => {
+  assert.equal(shouldOverlapFootballMixSims(true, true, 4000), false);
+  assert.equal(shouldOverlapPropPhaseWithGames(true, 4000, true), false);
+  const src = scannerSrc();
+  assert.match(src, /const propsOnlyPath = !!opts\.propsOnly/);
+  const propsIdx = src.indexOf("} else if (propsOnlyPath) {");
+  assert.ok(propsIdx >= 0);
+  const propsSlice = src.slice(propsIdx, propsIdx + 280);
+  assert.match(propsSlice, /propPhaseP = runPropPhase\(pool\)\s*\.then\(\(r\) => r\)/);
+  assert.doesNotMatch(propsSlice, /simulateSession|beginCoachSimulateSession/);
+  // Game sims still skipped when propsOnly.
+  assert.match(src, /if \(!opts\.propsOnly\) \{\s*gameSimsAttempted = gameEntries\.length > 0/s);
 });
