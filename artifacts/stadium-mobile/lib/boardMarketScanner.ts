@@ -6,6 +6,11 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
+import {
+  createCoachPropSimHistoryMemo,
+  type CoachPropSimHistoryMemo,
+  type CoachPropSimHistoryMemoStats,
+} from "./coachPropSimHistoryMemo.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
   createCoachBoardScanManifestRecorder,
@@ -62,12 +67,14 @@ import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
   boardPropSimExpansionBatchSize,
+  boardPropSimFillCapacity,
   boardPropSimInitialBatchSize,
-  countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
 } from "./boardPropSimExpansion.ts";
 export {
+  boardPropSimEarlyStopReserve,
   boardPropSimExpansionBatchSize,
+  boardPropSimFillCapacity,
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
@@ -132,6 +139,29 @@ function aliasPropSimHitsForBatch(
 
 export type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 
+/** Request-scoped board-scan speed diagnostics (no cross-request state). */
+export type BoardScanPerfDiagnostics = {
+  historyCacheHits: number;
+  historyCacheMisses: number;
+  historyFetches: number;
+  athleteIdCacheHits: number;
+  athleteIdCacheMisses: number;
+  fallbackSkippedServerHit: number;
+  /** Ranked realistic prop candidates considered for MC. */
+  propCandidatesConsidered: number;
+  /** Props that actually ran DEEP (10k) MC this request. */
+  propsSimulated: number;
+  /** simIndex where staging-aware early-stop fired; null if pool exhausted. */
+  earlyStopFiredAt: number | null;
+  earlyStopEnabled: boolean;
+  earlyStopSeated: number | null;
+  earlyStopNeed: number | null;
+  /** Wall overlap of gameSim work with prop expand/sim waves (ms). */
+  gameSimPropSimOverlapMs: number;
+  gameSimMs: number;
+  propSimMs: number;
+};
+
 export type FullBoardScanResult = {
   picks: ParsedPick[];
   evalLinesByGame: Map<string, RealOddsEntry[]>;
@@ -148,6 +178,8 @@ export type FullBoardScanResult = {
   scanComplete?: boolean;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
   manifest?: CoachBoardScanManifest;
+  /** Speed-pass diagnostics for history memo / overlap / early-stop. */
+  perfDiagnostics?: BoardScanPerfDiagnostics;
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -248,13 +280,16 @@ async function simPropBatch(
   pool: PropPoolEntry[],
   teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
+  historyMemo?: CoachPropSimHistoryMemo,
 ): Promise<{
   hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
   timedOut: boolean;
   playerHistory: Record<string, PlayerHistorySlice>;
+  memo: CoachPropSimHistoryMemo;
 }> {
+  const memo = historyMemo ?? createCoachPropSimHistoryMemo();
   const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
-  if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
+  if (!batch.length) return { hits: out, timedOut: false, playerHistory: { ...memo.playerHistory }, memo };
   let timedOut = false;
   try {
     const rows = await Promise.race([
@@ -274,8 +309,14 @@ async function simPropBatch(
   } catch {
     timedOut = true;
   }
-  const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
-  return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory };
+  const enriched = await enrichCoachPropSimHits(
+    batch,
+    pool,
+    aliasPropSimHitsForBatch(batch, out),
+    signal,
+    memo,
+  );
+  return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory, memo: enriched.memo };
 }
 
 function appendPropScoredLegs(
@@ -349,11 +390,11 @@ function prescorePropRank(pick: ParsedPick): number {
   );
 }
 
-/** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
+/** Fast-rank every prop, then expand MC in batches until staging fill capacity or pool exhausted. */
 async function simPropPoolUntilQualified(
   pool: PropPoolEntry[],
   mergedOdds: RealOddsEntry[],
-  gameScored: BoardScoredLeg[],
+  getGameScored: () => BoardScoredLeg[],
   opts: {
     target: number;
     matchupHistory?: Record<string, MatchupHistoryEntry>;
@@ -367,12 +408,34 @@ async function simPropPoolUntilQualified(
     onPropBatch?: (size: number, timedOut: boolean) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     teamIdsByGame?: Map<string, GameTeamIds>;
+    historyMemo?: CoachPropSimHistoryMemo;
+    /** Await before first early-stop check so game legs participate in staging. */
+    gamesCompleteP?: Promise<void>;
+    isGamesComplete?: () => boolean;
+    varietySeed?: string;
+    varietyContext?: CoachTicketStagingContext;
+    /**
+     * Staging-aware early-stop. Disabled when false — e.g. when we cannot prove
+     * post-correlation seating capacity for the request.
+     */
+    earlyStopEnabled?: boolean;
   },
   signal?: AbortSignal,
-): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
+): Promise<{
+  propScored: BoardScoredLeg[];
+  propHits: Map<string, { hitProbability: number | null }>;
+  simEvaluated: number;
+  propCandidatesConsidered: number;
+  earlyStopFiredAt: number | null;
+  earlyStopSeated: number | null;
+  earlyStopNeed: number | null;
+  historyStats: CoachPropSimHistoryMemoStats;
+}> {
   const propHits = new Map<string, { hitProbability: number | null }>();
   const propScored: BoardScoredLeg[] = [];
   const seenFp = new Set<string>();
+  const memo = opts.historyMemo ?? createCoachPropSimHistoryMemo();
+  const earlyStopEnabled = opts.earlyStopEnabled !== false;
 
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
     realOdds: mergedOdds,
@@ -401,21 +464,36 @@ async function simPropPoolUntilQualified(
     manifestRecorder: opts.manifestRecorder,
   };
 
-  const combinedScored = () => [...gameScored, ...propScored];
+  const combinedScored = () => [...getGameScored(), ...propScored];
+
+  const emptyDiag = {
+    propScored,
+    propHits,
+    simEvaluated: 0,
+    propCandidatesConsidered: rankedProps.length,
+    earlyStopFiredAt: null as number | null,
+    earlyStopSeated: null as number | null,
+    earlyStopNeed: null as number | null,
+    historyStats: { ...memo.stats },
+  };
 
   if (rankedProps.length === 0) {
-    return { propScored, propHits, simEvaluated: 0 };
+    return emptyDiag;
   }
 
   let simIndex = 0;
   let batchSize = boardPropSimInitialBatchSize(opts.target);
+  let earlyStopFiredAt: number | null = null;
+  let earlyStopSeated: number | null = null;
+  let earlyStopNeed: number | null = null;
+  let awaitedGamesForStop = false;
 
   while (simIndex < rankedProps.length) {
     if (signal?.aborted) break;
 
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
-    const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal);
+    const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal, memo);
     for (const [k, v] of wave.hits) propHits.set(k, v);
     for (const [k, v] of Object.entries(wave.playerHistory)) {
       scoreOpts.playerHistory[k] = v;
@@ -439,10 +517,43 @@ async function simPropPoolUntilQualified(
 
     if (simIndex >= rankedProps.length) break;
 
+    if (earlyStopEnabled) {
+      // Do not early-stop until game legs are scored — staging must see the full
+      // mixed pool (ladder / correlation / seating). Await once when props look dense.
+      if (!opts.isGamesComplete?.()) {
+        if (!awaitedGamesForStop && opts.gamesCompleteP && propScored.length >= opts.target) {
+          awaitedGamesForStop = true;
+          await opts.gamesCompleteP;
+        } else if (!opts.isGamesComplete?.()) {
+          batchSize = boardPropSimExpansionBatchSize(opts.target);
+          continue;
+        }
+      }
+      const fill = boardPropSimFillCapacity(combinedScored(), opts.target, {
+        varietySeed: opts.varietySeed,
+        varietyContext: opts.varietyContext,
+      });
+      earlyStopNeed = fill.need;
+      if (fill.ready) {
+        earlyStopFiredAt = simIndex;
+        earlyStopSeated = fill.seated;
+        break;
+      }
+    }
+
     batchSize = boardPropSimExpansionBatchSize(opts.target);
   }
 
-  return { propScored, propHits, simEvaluated: simIndex };
+  return {
+    propScored,
+    propHits,
+    simEvaluated: simIndex,
+    propCandidatesConsidered: rankedProps.length,
+    earlyStopFiredAt,
+    earlyStopSeated,
+    earlyStopNeed,
+    historyStats: { ...memo.stats },
+  };
 }
 
 function buildScanResult(
@@ -454,11 +565,14 @@ function buildScanResult(
     totalScanned: number;
     preview?: boolean;
     boardExhausted?: boolean;
+    /** Staging-aware early-stop finished the scan without exhausting the prop pool. */
+    earlyStopped?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     varietySeed?: string;
     varietyContext?: CoachTicketStagingContext;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
+    perfDiagnostics?: BoardScanPerfDiagnostics;
   },
 ): FullBoardScanResult {
   const stagingCtx: CoachTicketStagingContext = {
@@ -475,7 +589,9 @@ function buildScanResult(
   const breakdown = staged.breakdown;
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
-  const scanComplete = !opts.preview && opts.boardExhausted === true;
+  // Early-stop is a finished scan even when the prop board was not fully exhausted.
+  const scanComplete =
+    !opts.preview && (opts.boardExhausted === true || opts.earlyStopped === true);
   const manifest = opts.manifestRecorder.finalize({
     scanComplete,
     boardExhausted: opts.boardExhausted === true,
@@ -507,7 +623,11 @@ function buildScanResult(
     requestedLegs: opts.target,
     pickIds: picks,
     source: opts.preview ? "buildScanResult-preview" : "buildScanResult-final",
-    extra: { scanComplete: !opts.preview && opts.boardExhausted === true },
+    extra: {
+      scanComplete,
+      earlyStopped: opts.earlyStopped === true,
+      boardExhausted: opts.boardExhausted === true,
+    },
   });
   return {
     picks,
@@ -521,6 +641,7 @@ function buildScanResult(
     requestedLegs: opts.target,
     requestId: opts.requestId,
     manifest,
+    perfDiagnostics: opts.perfDiagnostics,
   };
 }
 
@@ -566,9 +687,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
+  // liveOdds is RealOddsEntry[] — pass as one source list (do not spread entries).
   const mergedOdds = mergeOddsEntries(
     opts.realOdds,
-    ...(opts.liveOdds ?? []),
+    opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
 
@@ -578,7 +700,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
         .then((rows) => filterBettablePropPool(rows))
         .catch(() => null)
-    : null;
+    : Promise.resolve(null);
 
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
@@ -586,6 +708,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 2;
   const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+  const historyMemo = createCoachPropSimHistoryMemo();
 
   for (const [, lines] of gameEntries) {
     for (const entry of lines ?? []) {
@@ -648,18 +771,28 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     emitBoardScanPartial();
   };
 
-  for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
-    if (opts.signal?.aborted) break;
-    const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
-    const batchSims = await fetchSlateGameSimulations(
-      new Map(batch),
-      opts.teamIdMap,
-      opts.signal,
-    );
-    for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
-    scoreGamesAndMaybePartial(batch.map(([game]) => game));
-  }
+  const gameSimStartedAt = Date.now();
+  let gameSimFinishedAt = 0;
+  let gamesComplete = false;
 
+  // Start game sims immediately — overlap with pool expand + first prop waves.
+  const gameWorkP = (async () => {
+    for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
+      if (opts.signal?.aborted) break;
+      const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
+      const batchSims = await fetchSlateGameSimulations(
+        new Map(batch),
+        opts.teamIdMap,
+        opts.signal,
+      );
+      for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
+      scoreGamesAndMaybePartial(batch.map(([game]) => game));
+    }
+    gamesComplete = true;
+    gameSimFinishedAt = Date.now();
+  })();
+
+  // Pool expand runs concurrently with game sims (no duplicate game-sim work).
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
 
@@ -679,14 +812,25 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     calibration: opts.calibration,
   };
 
-  const { propScored } = await simPropPoolUntilQualified(
+  // Early-stop is enabled when we can run the same staging path as final delivery
+  // (ladder + correlation + seating via buildStagedTicketFromScan at target+reserve).
+  const earlyStopEnabled = true;
+
+  const propSimStartedAt = Date.now();
+  const propResultP = simPropPoolUntilQualified(
     pool,
     mergedOdds,
-    scored,
+    () => scored,
     {
       target: opts.target,
       ...propScoreOpts,
       teamIdsByGame: opts.teamIdMap,
+      historyMemo,
+      gamesCompleteP: gameWorkP,
+      isGamesComplete: () => gamesComplete,
+      varietySeed: opts.varietySeed,
+      varietyContext: opts.varietyContext,
+      earlyStopEnabled,
       onWave: () => {
         emitBoardScanPartial();
       },
@@ -698,23 +842,67 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     opts.signal,
   );
 
+  // Preserve finalization ordering: games must finish before we seal the ticket,
+  // while prop waves may already have overlapped gameSim wall time.
+  await gameWorkP;
+  const {
+    propScored,
+    simEvaluated,
+    propCandidatesConsidered,
+    earlyStopFiredAt,
+    earlyStopSeated,
+    earlyStopNeed,
+    historyStats,
+  } = await propResultP;
+  const propSimFinishedAt = Date.now();
+
   scored.push(...propScored);
+
+  const gameSimMs = Math.max(0, gameSimFinishedAt - gameSimStartedAt);
+  const propSimMs = Math.max(0, propSimFinishedAt - propSimStartedAt);
+  const overlapStart = Math.max(gameSimStartedAt, propSimStartedAt);
+  const overlapEnd = Math.min(gameSimFinishedAt || propSimFinishedAt, propSimFinishedAt);
+  const gameSimPropSimOverlapMs = Math.max(0, overlapEnd - overlapStart);
+
+  const earlyStopped = earlyStopFiredAt != null;
+  const boardExhausted = !earlyStopped;
 
   totalScanned += pool.length;
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+
+  const perfDiagnostics: BoardScanPerfDiagnostics = {
+    historyCacheHits: historyStats.historyCacheHits,
+    historyCacheMisses: historyStats.historyCacheMisses,
+    historyFetches: historyStats.historyFetches,
+    athleteIdCacheHits: historyStats.athleteIdCacheHits,
+    athleteIdCacheMisses: historyStats.athleteIdCacheMisses,
+    fallbackSkippedServerHit: historyStats.fallbackSkippedServerHit,
+    propCandidatesConsidered,
+    propsSimulated: simEvaluated,
+    earlyStopFiredAt,
+    earlyStopEnabled,
+    earlyStopSeated,
+    earlyStopNeed,
+    gameSimPropSimOverlapMs,
+    gameSimMs,
+    propSimMs,
+  };
+
   const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,
     totalScanned,
-    boardExhausted: true,
+    boardExhausted,
+    earlyStopped,
     manifestRecorder,
     varietySeed: opts.varietySeed,
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
     requestId: opts.requestId,
+    perfDiagnostics,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;
