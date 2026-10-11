@@ -1,12 +1,19 @@
 /**
  * Phase A pure-JS crash reporter (OTA-safe, runtime 1.1.0).
  * Non-blocking, short timeout, no infinite retries, no backend secrets in the app.
+ *
+ * Network POSTs are gated: React Native / Hermes production stays on;
+ * Node tests, CI, and cloud agents never reach production ingest.
  */
 
 import {
   sanitizeCrashText,
   type CrashOtaIdentity,
 } from "./crashDiagnostics.ts";
+import {
+  hasRealOtaIdentity,
+  shouldSendCrashReports,
+} from "./crashReportingGate.ts";
 
 /** Same rule as apiBase.ts — inlined so node:test needs no extension rewrite. */
 const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN;
@@ -47,6 +54,8 @@ type CrashEnvelope = {
 let sessionId: string | null = null;
 let inFlight = 0;
 const recentFingerprints = new Map<string, number>();
+/** One metadata-enrichment POST allowed per fingerprint within the quiet window. */
+const recentEnrichments = new Map<string, number>();
 /** Errors already reported by ErrorBoundary — global handler skips these. */
 const boundaryReported = new Map<string, number>();
 const BOUNDARY_MARK_MS = 15_000;
@@ -62,6 +71,7 @@ export function _resetCrashReporterForTests(): void {
   sessionId = null;
   inFlight = 0;
   recentFingerprints.clear();
+  recentEnrichments.clear();
   boundaryReported.clear();
 }
 
@@ -101,17 +111,34 @@ export function wasBoundaryReported(
   return last != null && now - last < BOUNDARY_MARK_MS;
 }
 
-function shouldSkipClientDedupe(fp: string, now = Date.now()): boolean {
+function pruneMap(map: Map<string, number>, now: number, windowMs: number): void {
+  if (map.size <= 40) return;
+  const cutoff = now - windowMs;
+  for (const [k, t] of map) {
+    if (t < cutoff) map.delete(k);
+  }
+}
+
+/**
+ * Skip duplicate posts. Metadata enrichment (ErrorFallback with real OTA) may
+ * bypass once so blank update/runtime/channel/app can be filled server-side.
+ */
+function shouldSkipClientDedupe(
+  fp: string,
+  isEnrichment: boolean,
+  now = Date.now(),
+): boolean {
+  if (isEnrichment) {
+    const last = recentEnrichments.get(fp);
+    if (last != null && now - last < CLIENT_DEDUPE_MS) return true;
+    recentEnrichments.set(fp, now);
+    pruneMap(recentEnrichments, now, CLIENT_DEDUPE_MS);
+    return false;
+  }
   const last = recentFingerprints.get(fp);
   if (last != null && now - last < CLIENT_DEDUPE_MS) return true;
   recentFingerprints.set(fp, now);
-  // Bound map size.
-  if (recentFingerprints.size > 40) {
-    const cutoff = now - CLIENT_DEDUPE_MS;
-    for (const [k, t] of recentFingerprints) {
-      if (t < cutoff) recentFingerprints.delete(k);
-    }
-  }
+  pruneMap(recentFingerprints, now, CLIENT_DEDUPE_MS);
   return false;
 }
 
@@ -187,15 +214,22 @@ async function resolveOtaIdentity(): Promise<CrashOtaIdentity | null> {
 /**
  * Fire-and-forget crash report. Never throws. At most one in-flight POST.
  * No retries — server dedupes; client quiet-window prevents loops.
+ * Never recursively throws into ErrorBoundary.
  */
 export function reportCrash(input: CrashReportInput): void {
   try {
+    if (!shouldSendCrashReports()) return;
+
     const fp = clientFingerprint(
       String(input.errorMessage ?? ""),
       String(input.errorStack ?? ""),
     );
-    if (shouldSkipClientDedupe(fp)) return;
-    if (inFlight >= MAX_IN_FLIGHT) return;
+    const isEnrichment = hasRealOtaIdentity(input.ota);
+    if (shouldSkipClientDedupe(fp, isEnrichment)) return;
+    // Allow one enrichment alongside an in-flight initial report so ErrorFallback
+    // can fill blank OTA fields; still cap concurrent POSTs.
+    if (!isEnrichment && inFlight >= MAX_IN_FLIGHT) return;
+    if (isEnrichment && inFlight >= MAX_IN_FLIGHT + 1) return;
     inFlight += 1;
     void (async () => {
       try {
