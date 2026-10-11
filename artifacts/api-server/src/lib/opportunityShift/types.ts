@@ -90,6 +90,8 @@ export type BeneficiaryUsageInput = {
   position?: string | null;
   /** Recent per-channel usage when known (from already-loaded history). */
   channelUsage?: Partial<Record<WorkloadChannel, number>>;
+  /** Sample sizes (games count) parallel to channelUsage — for weak-evidence caps. */
+  channelUsageSamples?: Partial<Record<WorkloadChannel, number>>;
   minutesL5?: number | null;
   minutesSeason?: number | null;
   /**

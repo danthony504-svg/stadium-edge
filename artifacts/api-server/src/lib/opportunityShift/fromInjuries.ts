@@ -41,6 +41,7 @@ export type PropPlayerLike = {
   isHome?: boolean | null;
   pricedInFactor?: number;
   channelUsage?: BeneficiaryUsageInput["channelUsage"];
+  channelUsageSamples?: BeneficiaryUsageInput["channelUsageSamples"];
   minutesL5?: number | null;
   minutesSeason?: number | null;
 };
@@ -97,6 +98,7 @@ export function buildOpportunityShiftForGame(opts: {
         team: String(p.team),
         position: p.position ?? positionByPlayer.get(key) ?? null,
         channelUsage: p.channelUsage,
+        channelUsageSamples: p.channelUsageSamples,
         minutesL5: p.minutesL5,
         minutesSeason: p.minutesSeason,
         pricedInFactor: p.pricedInFactor,
