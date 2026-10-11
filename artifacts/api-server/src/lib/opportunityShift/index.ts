@@ -60,3 +60,17 @@ export {
   type EspnInjuryTeamLike,
   type PropPlayerLike,
 } from "./fromInjuries.js";
+
+export {
+  deriveChannelUsageFromHistory,
+  normalizeUsageWeights,
+  groundedUsageFromSeries,
+  winsorizeSeries,
+  USAGE_MIN_GAMES,
+  USAGE_L5_PREFERRED_MIN,
+  USAGE_SEASON_FALLBACK_MIN,
+  USAGE_MISSING_PRIOR_FRAC,
+  USAGE_WEAK_DOMINANCE_CAP,
+  USAGE_STRONG_DOMINANCE_CAP,
+  type ChannelUsageDeriveResult,
+} from "./channelUsageFromHistory.js";

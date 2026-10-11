@@ -10,6 +10,7 @@ import {
   isLowConfidenceVacancy,
   type SportOpportunityAdapter,
 } from "./adapters.js";
+import { normalizeUsageWeights } from "./channelUsageFromHistory.js";
 import {
   beneficiaryId,
   classifyVacancyConfirmation,
@@ -64,8 +65,6 @@ function shareWeights(
   channel: WorkloadChannel,
   adapter: SportOpportunityAdapter,
 ): Map<string, number> {
-  const weights = new Map<string, number>();
-  let sum = 0;
   const allowed = adapter.beneficiaryRoles(channel);
   const roleCompatible = candidates.filter((b) =>
     allowed.includes(adapter.roleOf(b.position)),
@@ -80,30 +79,17 @@ function shareWeights(
           return role === "unknown" || allowed.includes(role);
         });
 
-  for (const b of pool) {
-    const usage = b.channelUsage?.[channel];
-    const recent = usage != null && usage > 0 ? usage : 1;
-    const healthPenalty = 1; // beneficiary health already filtered upstream if Out
-    const w = recent * healthPenalty;
-    const id = beneficiaryId(b.player, b.athleteId);
-    weights.set(id, (weights.get(id) ?? 0) + w);
-    sum += w;
-  }
-  if (sum <= 0) {
-    // Fallback: equal tiny shares among role-compatible, else empty.
-    const compat = roleCompatible.length
-      ? roleCompatible
-      : candidates.filter((b) =>
-          allowed.includes(adapter.roleOf(b.position)),
-        );
-    const eq = compat.length ? 1 / compat.length : 0;
-    for (const b of compat) {
-      weights.set(beneficiaryId(b.player, b.athleteId), eq);
-    }
-    return weights;
-  }
-  for (const [id, w] of weights) weights.set(id, w / sum);
-  return weights;
+  if (!pool.length) return new Map();
+
+  // Grounded hierarchy: weight_i = usage_i / Σ usage (with missing prior + caps).
+  // Equal split only when no reliable usage exists on the pool.
+  return normalizeUsageWeights(
+    pool.map((b) => ({
+      id: beneficiaryId(b.player, b.athleteId),
+      usage: b.channelUsage?.[channel] ?? null,
+      sampleSize: b.channelUsageSamples?.[channel] ?? 0,
+    })),
+  );
 }
 
 /** Normalize vacated units into a relative volume delta share for a beneficiary. */

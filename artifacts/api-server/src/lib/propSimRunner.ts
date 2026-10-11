@@ -39,7 +39,22 @@ import {
   type PropSimEnrichmentHistory,
 } from "./authoritativePlayerHistory.js";
 
-import type { OpportunityShiftTable } from "./opportunityShift/index.js";
+import {
+  buildOpportunityShiftForGame,
+  deriveChannelUsageFromHistory,
+  type EspnInjuryTeamLike,
+  type OpportunityShiftTable,
+  type PropPlayerLike,
+} from "./opportunityShift/index.js";
+
+export type OpportunityShiftBuildInputs = {
+  gameKey: string;
+  homeTeam: string;
+  awayTeam: string;
+  injuries: readonly EspnInjuryTeamLike[];
+  /** Prop/beneficiary stubs — channelUsage filled from histories inside runPropSims. */
+  players: readonly PropPlayerLike[];
+};
 
 export type PropSimGameContext = {
   sport: string;
@@ -48,8 +63,13 @@ export type PropSimGameContext = {
   oppKeyInjuries: number;
   ownKeyInjuries: number;
   weatherImpact: number | null;
-  /** Built once per game from already-loaded injuries — reused across candidates. */
+  /**
+   * Pre-built table (tests / callers that already have usage). When
+   * `opportunityShiftInputs` is set, runPropSims rebuilds after history load.
+   */
   opportunityShift?: OpportunityShiftTable | null;
+  /** Preferred: build Opp Shift after parallel history wave (HTTP + Coach). */
+  opportunityShiftInputs?: OpportunityShiftBuildInputs | null;
 };
 
 export type PropSimRow = BuiltSimPropRow & {
@@ -146,6 +166,68 @@ export async function runPropSims(
     prop,
     isHome: resolveIsHome(prop, isHomeByPlayer),
   }));
+
+  // --- Wave 0: parallel history prefetch for unique athletes (no new I/O beyond
+  // the same loads propsim already needs). Sync Opp Shift build uses this cache.
+  const prefetchKeys = new Map<string, SimPropRequest>();
+  for (const item of indexed) {
+    const athleteId = String(item.prop.athleteId ?? "").trim();
+    if (!athleteId) continue;
+    const sportKey = propSport(item.prop, gameCtx);
+    const key = `${sportKey}:${athleteId}`;
+    if (!prefetchKeys.has(key)) prefetchKeys.set(key, item.prop);
+  }
+  if (prefetchKeys.size) {
+    await mapWithConcurrency(
+      [...prefetchKeys.values()],
+      PROPSIM_CTX_LOAD_CONCURRENCY,
+      async (p) => loadPropHistory(p, gameCtx, historyCache),
+    );
+  }
+
+  // Sync: build Opportunity Shift from already-loaded histories (identical for
+  // HTTP simulate + Coach in-process when opportunityShiftInputs is provided).
+  if (gameCtx.opportunityShiftInputs) {
+    const inputs = gameCtx.opportunityShiftInputs;
+    const playersWithUsage: PropPlayerLike[] = inputs.players.map((p) => {
+      const athleteId = String(p.athleteId ?? "").trim();
+      const sportKey = String(gameCtx.sport ?? "").toLowerCase();
+      // Any cached hist for this athlete (opponent suffix varies).
+      let history: Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null = null;
+      if (athleteId) {
+        const prefix = `${sportKey}:${athleteId}:`;
+        for (const [k, v] of historyCache) {
+          if (k.startsWith(prefix)) {
+            history = v;
+            break;
+          }
+        }
+      }
+      const derived = deriveChannelUsageFromHistory(history);
+      return {
+        ...p,
+        channelUsage: {
+          ...(p.channelUsage ?? {}),
+          ...derived.channelUsage,
+        },
+        channelUsageSamples: {
+          ...(p.channelUsageSamples ?? {}),
+          ...derived.channelUsageSamples,
+        },
+      };
+    });
+    gameCtx = {
+      ...gameCtx,
+      opportunityShift: buildOpportunityShiftForGame({
+        sport: gameCtx.sport,
+        gameKey: inputs.gameKey,
+        homeTeam: inputs.homeTeam,
+        awayTeam: inputs.awayTeam,
+        injuries: inputs.injuries,
+        players: playersWithUsage,
+      }),
+    };
+  }
 
   const groups = new Map<string, Indexed[]>();
   for (const item of indexed) {

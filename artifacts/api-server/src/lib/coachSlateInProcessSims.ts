@@ -5,7 +5,6 @@
 import { keyInjuryWeight, type SimPropRequest } from "./monteCarloBuild.js";
 import { DEEP_SIMULATIONS } from "./monteCarlo.js";
 import { runPropSims, tierSimCount } from "./propSimRunner.js";
-import { buildOpportunityShiftForGame } from "./opportunityShift/index.js";
 import type { SimTier } from "./simCache.js";
 import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
 import { fetchEspnInjuries } from "./espnInjuries.js";
@@ -151,10 +150,10 @@ export async function runPropSimsInProcess(body: {
 
   const injuries = await fetchEspnInjuries(sport);
   const gameKey = `${awayTeam || "away"} @ ${homeTeam || "home"}`;
-  const opportunityShift =
+  // Same Opp Shift inputs as HTTP /sports/simulate — weighting built in runPropSims.
+  const opportunityShiftInputs =
     homeTeam && awayTeam
-      ? buildOpportunityShiftForGame({
-          sport,
+      ? {
           gameKey,
           homeTeam,
           awayTeam,
@@ -168,9 +167,9 @@ export async function runPropSimsInProcess(body: {
                 : p.isHome === false
                   ? awayTeam
                   : homeTeam,
-            position: null,
+            position: null as string | null,
           })),
-        })
+        }
       : null;
   const gameCtx = {
     sport,
@@ -179,7 +178,7 @@ export async function runPropSimsInProcess(body: {
     oppKeyInjuries: awayTeam ? teamInjuryWeight(injuries, awayTeam) : 0,
     ownKeyInjuries: homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0,
     weatherImpact: null as number | null,
-    opportunityShift,
+    opportunityShiftInputs,
   };
 
   const { rows } = await runPropSims(

@@ -2,7 +2,6 @@ import { type SimTier } from "../lib/simCache.js";
 import { DEEP_SIMULATIONS } from "../lib/monteCarlo.js";
 import { keyInjuryWeight, type SimPropRequest } from "../lib/monteCarloBuild.js";
 import { runPropSims, tierSimCount, type PropSimGameContext } from "../lib/propSimRunner.js";
-import { buildOpportunityShiftForGame } from "../lib/opportunityShift/index.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
@@ -290,12 +289,12 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
       ? Number(req.body.weatherImpact)
       : null;
 
-  // Opportunity Shift — sync, once per game, from already-loaded injuries + prop list.
+  // Opportunity Shift inputs — table built inside runPropSims after parallel
+  // history load so beneficiary weights use grounded same-family usage.
   const gameKey = `${awayTeam || "away"} @ ${homeTeam || "home"}`;
-  const opportunityShift =
+  const opportunityShiftInputs =
     homeTeam && awayTeam
-      ? buildOpportunityShiftForGame({
-          sport,
+      ? {
           gameKey,
           homeTeam,
           awayTeam,
@@ -309,9 +308,9 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
                 : p.isHome === false
                   ? awayTeam
                   : homeTeam,
-            position: null,
+            position: null as string | null,
           })),
-        })
+        }
       : null;
 
   const gameCtx: PropSimGameContext = {
@@ -321,7 +320,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     oppKeyInjuries,
     ownKeyInjuries,
     weatherImpact,
-    opportunityShift,
+    opportunityShiftInputs,
   };
 
   const { rows, deepPending, distStats, propSimElapsedMs, playerHistories, historyShared, historyCoalesced } =
