@@ -1,0 +1,78 @@
+{
+  "title": "QB pass pre-sim ~1.21× inflate — root cause and fix",
+  "rootCause": [
+    "Post-elasticity normalMax/lowConf clamp equalized volume and efficiency families (attempts/completions/yards all hit 1.08 or 1.22).",
+    "Ungrounded Out QB vacancyChannels invented starter-level pass_attempts=32, redistributing onto the current starter whose recent form already included that role (lowConf ×1.08).",
+    "opportunitySuppressOwnInjuries zeroed ownKeyInjuries but left oppKeyInjuries active → blunt inj factor clamped at ×1.12.",
+    "Product path: opportunity ×1.08 × inj(opp) ×1.12 = 1.2096 unexplained pre-sim inflate (matches Shough RED fixtures)."
+  ],
+  "doubleCounting": [
+    {
+      "overlap": "Opportunity uplift + oppKeyInjuries blunt scalar",
+      "independent": false,
+      "note": "Same injury context counted twice when suppress cleared only ownKeyInjuries."
+    },
+    {
+      "overlap": "Demoted/backup QB season volume + starter recent form baseline",
+      "independent": false,
+      "note": "Starter baseline already reflects exclusive QB role; stacking vacated mass double-counted volume."
+    },
+    {
+      "overlap": "pass_attempts vacancy elasticity on yards/completions vs post-elasticity cap",
+      "independent": false,
+      "note": "Elasticity 0.7/0.75 was erased when clamp ran after product, forcing same ceiling as volume."
+    }
+  ],
+  "volumeVsEfficiency": {
+    "before": { "pass_attempts": 1.22, "pass_completions": 1.22, "pass_yds": 1.22 },
+    "after": { "pass_attempts": 1.22, "pass_completions": 1.165, "pass_yds": 1.154 },
+    "note": "Volume capped before elasticity: attempts keep normalMax; completions/yards scale by elasticity."
+  },
+  "multiplierDecomposition": {
+    "beforeBugStack": [
+      { "component": "baseline_form", "transformed": 1.0, "running": 1.0 },
+      { "component": "opportunity_lowConf", "raw": 1.08, "transformed": 1.08, "running": 1.08 },
+      { "component": "injuries_opp_only_after_suppress_own", "raw": { "oppKeyInjuries": 9 }, "transformed": 1.12, "running": 1.2096 },
+      { "component": "venue", "transformed": 1.0, "running": 1.2096 },
+      { "component": "matchup", "transformed": 1.0, "running": 1.2096 }
+    ],
+    "afterFix": [
+      { "component": "baseline_form", "transformed": 1.0, "running": 1.0 },
+      { "component": "ungrounded_QB_vacancy", "transformed": 1.0, "running": 1.0, "note": "no synthetic 32-attempt channels" },
+      { "component": "injuries_blunt", "raw": { "own": 3.5, "opp": 0 }, "transformed": 0.93, "running": 0.93 },
+      { "component": "venue", "transformed": 1.0, "running": 0.93 },
+      { "component": "matchup", "transformed": 1.0, "running": 0.93 }
+    ]
+  },
+  "crossPlayer": {
+    "nflQbs": "5/5 ungrounded backup Out → multiplier 1.0",
+    "ncaafQbs": "3/3 ungrounded backup Out → multiplier 1.0",
+    "rbCommittee": "RB Out still uplifts lead back rush_attempts (>1.05)",
+    "wrVacancy": "WR IR uplifts Olave receptions; QB pass markets unchanged"
+  },
+  "codeChanged": [
+    "artifacts/api-server/src/lib/opportunityShift/aggregate.ts",
+    "artifacts/api-server/src/lib/opportunityShift/adapters.ts",
+    "artifacts/api-server/src/lib/opportunityShift/engine.ts",
+    "artifacts/api-server/src/lib/monteCarlo.ts",
+    "artifacts/api-server/src/lib/preSimShift/volumeEfficiency.ts",
+    "artifacts/api-server/test/qbPassPreSimInflate.test.ts",
+    "artifacts/api-server/test/opportunityShift.test.ts",
+    "artifacts/api-server/test/preSimShift.wiring.test.ts",
+    "artifacts/api-server/test/propSimSanityAudit.test.ts",
+    "artifacts/api-server/test/fixtures/propSimSanity/nfl-saints-extremes.json"
+  ],
+  "latencyAfterMs": {
+    "avgTableBuild": 0.14,
+    "avgTotalFactorPath": 0.19,
+    "p95TotalFactorPath": 0.28,
+    "extraMcPasses": 0,
+    "newHotPathIo": 0
+  },
+  "sanityAfter": {
+    "saints": { "PASS": 6, "YELLOW": 0, "RED": 0 },
+    "crossSport": "NFL/NCAAF/NBA/WNBA/NCAAB/MLB/NHL/soccer all PASS on fixtures"
+  },
+  "mergeSafe": true,
+  "mergeNote": "Do not merge/deploy/OTA from this agent turn — ready for human review."
+}

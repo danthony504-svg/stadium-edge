@@ -202,12 +202,24 @@ test("Saints extreme recorded props — explain PASS/YELLOW/RED", () => {
     });
   }
 
-  // Shough trio: ~1.21× pre-sim inflate + sim ≫ historical clear → RED
+  // Shough trio: after QB pre-sim factor fix — no unexplained ~1.21× inflate.
   for (const line of [27.5, 44.5, 266.5]) {
-    const r = byKey("Tyler Shough", line === 266.5 ? "player_pass_yds" : line === 44.5 ? "player_pass_attempts" : "player_pass_completions", line);
-    assert.equal(r.status, "RED", `Shough ${line} expected RED`);
-    assert.ok(r.flags.includes("extreme_multiplier"), `Shough ${line} extreme_multiplier`);
-    assert.ok(r.flags.includes("extreme_sim_vs_history"), `Shough ${line} extreme_sim_vs_history`);
+    const r = byKey(
+      "Tyler Shough",
+      line === 266.5
+        ? "player_pass_yds"
+        : line === 44.5
+          ? "player_pass_attempts"
+          : "player_pass_completions",
+      line,
+    );
+    assert.equal(r.status, "PASS", `Shough ${line} expected PASS after factor fix`);
+    assert.ok(!r.flags.includes("extreme_multiplier"), `Shough ${line} no extreme_multiplier`);
+    assert.ok(!r.flags.includes("extreme_sim_vs_history"), `Shough ${line} no extreme_sim_vs_history`);
+    assert.ok(
+      r.combinedPreSimMultiplier != null && r.combinedPreSimMultiplier < 1.12,
+      `Shough ${line} combined mult in band`,
+    );
   }
 
   // Olave / Juwan: high sim hit is supported by 100% historical clear + means
