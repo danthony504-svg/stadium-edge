@@ -29,6 +29,18 @@ cron slot had not occurred yet after merge. This PR also hardens the workflow
 Both require header `x-cron-key: $NOTIFY_CRON_KEY` (Actions secret / Render env).
 Optional URL overrides: `vars.RELIABILITY_DIGEST_URL`, `vars.RELIABILITY_HEALTH_URL`.
 
+### Cron auth contract (must stay in sync)
+
+| Layer | Expectation |
+|-------|-------------|
+| Header | `x-cron-key: <secret>` (also accepts `Authorization: Bearer <secret>`) |
+| Env | Render `NOTIFY_CRON_KEY` (trimmed) |
+| GitHub Actions | repository secret `NOTIFY_CRON_KEY` **identical** to Render |
+| Unauthorized body | `403` with safe diag: `authHeaderPresent`, `expectedSecretConfigured`, `authSchemeRecognized`, `fingerprintMatch`, `rejectionLayer` — **never** the secret |
+
+If Actions secret is empty, workflows fail closed before calling production.
+If Actions/Replit key ≠ Render key, production returns `403` with `fingerprintMatch: false`.
+
 ## 90-minute health checks
 
 | Check id | What |

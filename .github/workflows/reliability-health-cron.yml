@@ -59,6 +59,15 @@ jobs:
           echo
           if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
             echo "FAIL: health cron non-2xx"
+            # Safe auth diagnostics only (no secret values) when 403.
+            if [ "$CODE" = "403" ]; then
+              python3 - "$BODY_FILE" <<'PY' || true
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          for k in ("authHeaderPresent","expectedSecretConfigured","authSchemeRecognized","fingerprintMatch","lengthMatch","providedLength","expectedLength","rejectionLayer"):
+            if k in d: print(f"auth_diag_{k}={d[k]}")
+          PY
+            fi
             exit 1
           fi
           if ! grep -q '"ok":true\|"ok": true' "$BODY_FILE"; then

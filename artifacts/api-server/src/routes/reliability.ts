@@ -38,6 +38,7 @@ import {
   sendTelegramMessage,
 } from "../lib/telegramAlert";
 import type { HealthCheckId } from "../lib/reliabilityHealthChecks";
+import { authorizeCronRequest } from "../lib/cronAuth";
 
 const router: IRouter = Router();
 
@@ -68,19 +69,6 @@ function rawBodyTooLarge(req: Request, maxBytes: number): boolean {
   } catch {
     return true;
   }
-}
-
-function cronAuthorized(req: Request, res: Response): boolean {
-  const key = process.env.NOTIFY_CRON_KEY;
-  if (!key) {
-    res.status(503).json({ error: "cron not configured" });
-    return false;
-  }
-  if (req.get("x-cron-key") !== key) {
-    res.status(403).json({ error: "forbidden" });
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -188,7 +176,7 @@ router.post(
  */
 router.post("/reliability/cron/digest", async (req, res) => {
   const started = Date.now();
-  if (!cronAuthorized(req, res)) return;
+  if (!authorizeCronRequest(req, res)) return;
   try {
     // Prune first — retention must run even if Telegram is off.
     const pruned = await pruneReliabilityEvents();
@@ -237,7 +225,7 @@ router.post("/reliability/cron/digest", async (req, res) => {
  */
 router.post("/reliability/cron/health", async (req, res) => {
   const started = Date.now();
-  if (!cronAuthorized(req, res)) return;
+  if (!authorizeCronRequest(req, res)) return;
   try {
     const synthetic =
       req.body &&
