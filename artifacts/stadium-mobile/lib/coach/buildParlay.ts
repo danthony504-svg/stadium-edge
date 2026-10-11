@@ -48,6 +48,8 @@ import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
+import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
+import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
 import {
   slateAwarePrioritySports,
   sportsPresentOnSlate,
@@ -679,6 +681,10 @@ export async function buildCoachParlay(opts: {
     shouldSkipScannerPropExpand(propPoolSize);
 
   let latest: FullBoardScanResult | null = null;
+  // Observe-only reliability markers — never touch selection / UI.
+  const coachRelStarted = Date.now();
+  const coachRelRequestId = `greenfield-${Date.now()}`;
+  const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
   const scanPromise = tryReachFullBoardScan({
     target,
     oddsGames: inputs.oddsGames,
@@ -745,7 +751,7 @@ export async function buildCoachParlay(opts: {
         );
       }
     },
-    requestId: `greenfield-${Date.now()}`,
+    requestId: coachRelRequestId,
   });
 
   const timed = await Promise.race([
@@ -950,6 +956,20 @@ export async function buildCoachParlay(opts: {
     gamesBeforeFilter: inputs.oddsGamesBeforeTeamFilter,
     gamesAfterFilter: inputs.oddsGames,
     finalLegCount: picks.length,
+  });
+
+  // Fire-and-forget reliability — after ticket is finalized; never awaits.
+  reportCoachScanReliability({
+    requestId: coachRelRequestId,
+    sportCategory: coachRelSport,
+    requestedLegCount: target,
+    returnedLegCount: picks.length,
+    durationMs: Date.now() - coachRelStarted,
+    realOddsAvailable: (scanRealOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
+    scanFailureCode: scan?.failureReason?.code ?? null,
+    scanFailureDetail: scan?.failureReason?.detail ?? null,
+    timedOut: timed.timedOut,
+    scanMissing: !scan,
   });
 
   return {

@@ -1,0 +1,68 @@
+name: Reliability 90-minute health cron
+
+# Probes website, API, SSL, latency, DB, odds, props, AI Coach, simulator, +500 scanner.
+# Telegram alerts only on failure / recovery (server-side). NOTIFY_CRON_KEY is
+# Actions/server secret only — never shipped to clients.
+
+on:
+  schedule:
+    # Every ~90 minutes (GitHub cron has no */90; two schedules cover the grid).
+    - cron: "0 0,3,6,9,12,15,18,21 * * *"
+    - cron: "30 1,4,7,10,13,16,19,22 * * *"
+  workflow_dispatch:
+    inputs:
+      synthetic_fail:
+        description: "Optional JSON object of checkId→detail to force synthetic failures (staging only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-health-cron
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: POST /api/reliability/cron/health
+        env:
+          NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
+          HEALTH_URL: ${{ vars.RELIABILITY_HEALTH_URL }}
+          SYNTHETIC_FAIL: ${{ github.event.inputs.synthetic_fail || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NOTIFY_CRON_KEY:-}" ]; then
+            echo "FAIL: NOTIFY_CRON_KEY secret is not configured"
+            exit 1
+          fi
+          URL="${HEALTH_URL:-https://stadium-edge.onrender.com/api/reliability/cron/health}"
+          echo "POST $URL"
+          BODY_FILE="$(mktemp)"
+          PAYLOAD='{}'
+          if [ -n "${SYNTHETIC_FAIL}" ]; then
+            # Wrap operator-supplied JSON as { "syntheticFail": ... }
+            PAYLOAD=$(python3 -c 'import json,os; print(json.dumps({"syntheticFail": json.loads(os.environ["SYNTHETIC_FAIL"])}))')
+          fi
+          CODE=$(curl -sS --max-time 120 \
+            -o "$BODY_FILE" -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-cron-key: ${NOTIFY_CRON_KEY}" \
+            -d "$PAYLOAD" \
+            "$URL")
+          echo "http=$CODE"
+          head -c 1200 "$BODY_FILE" || true
+          echo
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "FAIL: health cron non-2xx"
+            exit 1
+          fi
+          if ! grep -q '"ok":true\|"ok": true' "$BODY_FILE"; then
+            echo "FAIL: health response missing ok:true"
+            exit 1
+          fi
+          echo "Reliability health cron OK"
