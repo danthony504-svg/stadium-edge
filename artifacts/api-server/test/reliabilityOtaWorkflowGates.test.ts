@@ -115,3 +115,13 @@ test("health cron workflow is scheduled ~90m and uses secret cron key (not clien
   assert.match(src, /reliability\/cron\/health/);
   assert.equal(src.includes("EXPO_PUBLIC_"), false);
 });
+
+test("telegram probe workflow is dispatch-only and never uses health syntheticFail", () => {
+  const src = readWf("reliability-telegram-probe.yml");
+  assert.match(src, /workflow_dispatch/);
+  assert.equal(/^\s*schedule:/m.test(src), false);
+  assert.match(src, /NOTIFY_CRON_KEY/);
+  assert.match(src, /reliability\/cron\/telegram-probe/);
+  assert.equal(src.includes("syntheticFail"), false);
+  assert.equal(src.includes("EXPO_PUBLIC_"), false);
+});

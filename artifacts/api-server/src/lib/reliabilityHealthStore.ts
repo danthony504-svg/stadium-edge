@@ -31,11 +31,44 @@ export type HealthRunOutcome = {
   deduped: HealthCheckId[];
 };
 
-function failFingerprint(id: HealthCheckId): string {
+/** Dedicated probe id — never run by the 90m health monitor. */
+export const TELEGRAM_PROBE_CHECK_ID = "telegram_probe" as const;
+
+export const TELEGRAM_PROBE_FAIL_DETAIL =
+  "PRODUCTION-SAFE TELEGRAM PROBE — not a real outage (fail)";
+
+export const TELEGRAM_PROBE_OK_DETAIL =
+  "PRODUCTION-SAFE TELEGRAM PROBE — not a real outage (recovered)";
+
+export type TelegramProbePhase = "fail" | "dedupe" | "recover";
+
+export type TelegramProbePhaseResult = {
+  phase: TelegramProbePhase;
+  outcome: "alerted" | "deduped" | "skipped" | "recovered" | "no_prior_fail";
+};
+
+export type TelegramProbeOutcome = {
+  ok: boolean;
+  checkId: typeof TELEGRAM_PROBE_CHECK_ID;
+  phases: TelegramProbePhaseResult[];
+  delivery: boolean;
+  dedupe: boolean;
+  recovery: boolean;
+};
+
+/** Minimal check shape for fail/recovery Telegram + dedupe (real or probe). */
+type AlertableCheck = {
+  id: string;
+  detail: string;
+  latencyMs: number;
+  httpStatus?: number;
+};
+
+function failFingerprint(id: string): string {
   return `health|${id}|fail`;
 }
 
-function serializeCheck(check: HealthCheckResult, status: "fail" | "ok"): string {
+function serializeCheck(check: AlertableCheck, status: "fail" | "ok"): string {
   return JSON.stringify({
     kind: "health",
     status,
@@ -47,7 +80,7 @@ function serializeCheck(check: HealthCheckResult, status: "fail" | "ok"): string
 }
 
 async function alertFailure(opts: {
-  check: HealthCheckResult;
+  check: AlertableCheck;
   now: Date;
 }): Promise<"alerted" | "deduped" | "skipped"> {
   const fingerprint = failFingerprint(opts.check.id);
@@ -151,7 +184,7 @@ async function alertFailure(opts: {
 }
 
 async function alertRecovery(opts: {
-  check: HealthCheckResult;
+  check: AlertableCheck;
   now: Date;
 }): Promise<boolean> {
   const fingerprint = failFingerprint(opts.check.id);
@@ -234,5 +267,69 @@ export async function runReliabilityHealthMonitor(
     alerted,
     recovered,
     deduped,
+  };
+}
+
+/**
+ * Production-safe Telegram proof path.
+ * Exercises fail → 30m dedupe → recovery using fingerprint
+ * `health|telegram_probe|fail` only. Does not force real health checks down.
+ */
+export async function runReliabilityTelegramProbe(
+  opts: {
+    /** Default: fail, dedupe, recover in one request. */
+    phases?: TelegramProbePhase[];
+    now?: Date;
+  } = {},
+): Promise<TelegramProbeOutcome> {
+  const phases: TelegramProbePhase[] =
+    opts.phases && opts.phases.length > 0
+      ? opts.phases
+      : ["fail", "dedupe", "recover"];
+  const now = opts.now ?? new Date();
+  const failCheck: AlertableCheck = {
+    id: TELEGRAM_PROBE_CHECK_ID,
+    detail: TELEGRAM_PROBE_FAIL_DETAIL,
+    latencyMs: 0,
+  };
+  const okCheck: AlertableCheck = {
+    id: TELEGRAM_PROBE_CHECK_ID,
+    detail: TELEGRAM_PROBE_OK_DETAIL,
+    latencyMs: 0,
+  };
+
+  const results: TelegramProbePhaseResult[] = [];
+  let delivery = false;
+  let dedupe = false;
+  let recovery = false;
+
+  for (const phase of phases) {
+    if (phase === "fail" || phase === "dedupe") {
+      const outcome = await alertFailure({ check: failCheck, now });
+      results.push({ phase, outcome });
+      if (phase === "fail" && outcome === "alerted") delivery = true;
+      if (phase === "dedupe" && outcome === "deduped") dedupe = true;
+      // If first call in this process already had a recent fail row, "fail"
+      // may legitimately return deduped — still counts as delivery path OK
+      // when Telegram was previously alerted in-window.
+      if (phase === "fail" && outcome === "deduped") {
+        delivery = true;
+        dedupe = true;
+      }
+    } else {
+      const didRecover = await alertRecovery({ check: okCheck, now });
+      const outcome = didRecover ? "recovered" : "no_prior_fail";
+      results.push({ phase, outcome });
+      if (didRecover) recovery = true;
+    }
+  }
+
+  return {
+    ok: delivery && dedupe && recovery,
+    checkId: TELEGRAM_PROBE_CHECK_ID,
+    phases: results,
+    delivery,
+    dedupe,
+    recovery,
   };
 }

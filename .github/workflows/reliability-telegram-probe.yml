@@ -1,0 +1,67 @@
+name: Reliability Telegram probe (manual)
+
+# Production-safe proof of Telegram fail → 30m dedupe → recovery.
+# Uses POST /api/reliability/cron/telegram-probe only — never forceFail on
+# real health checks. Manual dispatch only (no schedule).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-telegram-probe
+  cancel-in-progress: false
+
+jobs:
+  telegram-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: POST /api/reliability/cron/telegram-probe
+        env:
+          NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
+          PROBE_URL: ${{ vars.RELIABILITY_TELEGRAM_PROBE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NOTIFY_CRON_KEY:-}" ]; then
+            echo "FAIL: NOTIFY_CRON_KEY secret is not configured"
+            exit 1
+          fi
+          URL="${PROBE_URL:-https://stadium-edge.onrender.com/api/reliability/cron/telegram-probe}"
+          echo "POST $URL"
+          BODY="$(mktemp)"
+          CODE=$(curl -sS --max-time 120 \
+            -o "$BODY" -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-cron-key: ${NOTIFY_CRON_KEY}" \
+            -d '{"phases":["fail","dedupe","recover"]}' \
+            "$URL")
+          echo "http=$CODE"
+          head -c 2000 "$BODY" || true
+          echo
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "FAIL: telegram probe non-2xx"
+            exit 1
+          fi
+          python3 - "$BODY" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          p=d.get("probe") or {}
+          print(f"delivery={p.get('delivery')}")
+          print(f"dedupe={p.get('dedupe')}")
+          print(f"recovery={p.get('recovery')}")
+          print(f"probe_ok={p.get('ok')}")
+          print(f"phases={p.get('phases')}")
+          if not d.get("ok"):
+            raise SystemExit("FAIL: response ok!=true")
+          if not p.get("delivery"):
+            raise SystemExit("FAIL: Telegram delivery not proven")
+          if not p.get("dedupe"):
+            raise SystemExit("FAIL: 30m dedupe not proven")
+          if not p.get("recovery"):
+            raise SystemExit("FAIL: recovery not proven")
+          print("Reliability Telegram probe OK")
+          PY

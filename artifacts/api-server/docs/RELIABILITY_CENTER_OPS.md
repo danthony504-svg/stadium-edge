@@ -59,8 +59,27 @@ If Actions/Replit key ≠ Render key, production returns `403` with `fingerprint
 Telegram: **fail** and **recovery** only (fingerprint-deduped, 30m quiet window).
 Daily healthy summary is the digest — health cron does not spam "all OK".
 
-Synthetic failures (staging): `workflow_dispatch` input `synthetic_fail` JSON
-object of `checkId → detail`, posted as `{ "syntheticFail": … }`.
+### Production-safe Telegram proof (prefer this)
+
+Do **not** use health cron `synthetic_fail` / `syntheticFail` against production —
+that forces real check ids (website, api, database, …) into a failed state.
+
+Use the dedicated probe instead (same Telegram + PG dedupe path, isolated
+fingerprint `health|telegram_probe|fail`):
+
+| | |
+|--|--|
+| Endpoint | `POST /api/reliability/cron/telegram-probe` |
+| Auth | `x-cron-key: $NOTIFY_CRON_KEY` |
+| Body (full proof) | `{"phases":["fail","dedupe","recover"]}` |
+| Workflow | `.github/workflows/reliability-telegram-probe.yml` (`workflow_dispatch` only) |
+| Optional URL override | `vars.RELIABILITY_TELEGRAM_PROBE_URL` |
+
+Expected JSON: `probe.delivery`, `probe.dedupe`, `probe.recovery` all `true`,
+plus Telegram messages labeled `check: telegram_probe` /
+`PRODUCTION-SAFE TELEGRAM PROBE — not a real outage`.
+
+Staging-only: health workflow `synthetic_fail` JSON → `{ "syntheticFail": … }`.
 
 ## Coach monitoring
 
