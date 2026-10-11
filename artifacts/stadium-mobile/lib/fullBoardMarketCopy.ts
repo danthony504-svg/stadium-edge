@@ -7,6 +7,11 @@ export type TicketStagingBreakdown = {
   altOnTicket: number;
   /** Present when single-event seating underfills with an explicit limiter. */
   limitingRule?: string | null;
+  /**
+   * Qualified selections in the active event/team scope (not seated count).
+   * When set, shortfall copy must use this — never call seated picks "eligible".
+   */
+  qualifiedInScope?: number;
 };
 
 export const FULL_BOARD_MARKET_FAMILIES =

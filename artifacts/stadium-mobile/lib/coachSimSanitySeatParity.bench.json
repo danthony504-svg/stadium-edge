@@ -1,0 +1,23 @@
+{
+  "label": "coach-sim-sanity-seat-parity latency gate",
+  "hotPath": {
+    "additionalIO": 0,
+    "additionalMonteCarloPasses": 0,
+    "offlineSanityAuditOnCoachPath": false
+  },
+  "stagingBench": {
+    "fixtureCandidates": 160,
+    "before_multiEvent_ms": { "p50": 3.63, "p95": 4.59, "mean": 3.76 },
+    "after_singleEventWired_ms": { "p50": 1.66, "p95": 2.51, "mean": 1.76 },
+    "delta_p50_ms": -1.98,
+    "delta_p50_pct": -54.4,
+    "delta_p95_ms": -2.07,
+    "delta_p95_pct": -45.2,
+    "verdict": "no material regression — wired single-event path faster than multi-event baseline on same fixtures"
+  },
+  "notes": [
+    "propSimSanityAudit is offline/CI only and is never imported from Coach request handlers",
+    "effectiveSingleEventCaps is pure in-memory preference lifting — no I/O",
+    "askText wiring enables single-event activation without extra network calls"
+  ]
+}

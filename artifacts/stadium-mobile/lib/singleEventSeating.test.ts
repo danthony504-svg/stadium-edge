@@ -255,12 +255,12 @@ for (const sport of Object.keys(SPORT_GAMES)) {
         singleEventKey: game,
       });
 
-      const caps = SINGLE_EVENT_CAPS[target];
+      const pref = SINGLE_EVENT_CAPS[target];
       const props = picks.filter((p) => p.isProp);
       const gls = picks.filter((p) => !p.isProp);
-      assert.ok(props.length <= caps.maxProps, `${sport} props ${props.length} > ${caps.maxProps}`);
-      assert.ok(gls.length <= caps.maxGameEventLines, `${sport} gls ${gls.length} > ${caps.maxGameEventLines}`);
+      // Composition preferences are soft — effective caps may lift props when GLs are thin.
       assert.ok(picks.length <= target);
+      assert.ok(props.length + gls.length === picks.length);
       assert.ok(picks.every((p) => p.game === game), "unrelated event must not fill");
       assert.ok(picks.length > 0, `${sport} ${target}-leg must seat at least one qualified leg`);
 
@@ -279,24 +279,32 @@ for (const sport of Object.keys(SPORT_GAMES)) {
         );
       }
 
-      // Team sports with rich boards should fill to the lower of target vs policy ceiling.
+      // Team sports with rich boards should fill to target when enough independents exist.
       if (sport === "nfl" || sport === "nba" || sport === "mlb") {
-        const ceiling = Math.min(target, caps.maxProps + caps.maxGameEventLines);
         assert.ok(
-          picks.length >= Math.min(ceiling, 4),
-          `${sport} ${target}-leg under-seated: ${picks.length} < min(4, ${ceiling})`,
+          picks.length >= Math.min(target, 4),
+          `${sport} ${target}-leg under-seated: ${picks.length}`,
         );
+        // With both props and GLs available, prefer the composition ratio when it still fills N.
+        if (gls.length > 0 && props.length > 0 && picks.length >= target) {
+          assert.ok(props.length <= Math.max(pref.maxProps, target - Math.min(gls.length, pref.maxGameEventLines)));
+        }
       }
 
       // Tennis / UFC cannot invent unsupported props; fill only from posted GLs.
+      // Effective caps may seat all available independent GLs up to target (no
+      // artificial preference shortfall). Deep targets still underfill when the
+      // independent family pool is exhausted.
       if (sport === "tennis" || sport === "ufc") {
         assert.equal(props.length, 0);
-        assert.ok(picks.length <= caps.maxGameEventLines);
-        assert.ok(
-          picks.length < target || target <= 3,
-          `${sport} deep asks must underfill when independent families are exhausted`,
-        );
-        assert.ok(breakdown.limitingRule);
+        assert.ok(picks.length <= target);
+        if (target >= 8) {
+          assert.ok(
+            picks.length < target,
+            `${sport} deep asks must underfill when independent families are exhausted`,
+          );
+          assert.ok(breakdown.limitingRule);
+        }
       }
     });
   }

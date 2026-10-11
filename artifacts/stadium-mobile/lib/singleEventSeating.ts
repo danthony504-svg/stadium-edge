@@ -14,6 +14,7 @@ import { marketLadderKey } from "./marketLadderKey.ts";
 import { propPlayerKey } from "./parlayCorrelationScore.ts";
 // wouldRepeatPlayerProp / wouldRepeatMarketLadder identities are preserved via
 // propPlayerKey + marketLadderKey Sets in the seat loop (same helpers).
+import { isPeriodPropMarketKey } from "./propStats.ts";
 import { explicitSingleGameIntent } from "./slate.ts";
 import {
   getSportSeatingAdapter,
@@ -24,7 +25,11 @@ import {
   type SportSeatingAdapter,
 } from "./sportSeatingAdapters.ts";
 
-/** Approved ticket-level single-event ceilings (not guarantees). */
+/**
+ * Composition preferences for single-event tickets (not hard shortage ceilings).
+ * When enough legitimate qualified selections exist, staging may seat up to N
+ * even if that exceeds these preference ratios.
+ */
 export const SINGLE_EVENT_CAPS = {
   4: { maxProps: 3, maxGameEventLines: 3 },
   5: { maxProps: 4, maxGameEventLines: 3 },
@@ -74,6 +79,49 @@ export function singleEventCapsForTarget(target: number): SingleEventSeatCaps {
   if (target >= 5) return { ...SINGLE_EVENT_CAPS[5] };
   if (target >= 4) return { ...SINGLE_EVENT_CAPS[4] };
   return { maxProps: Math.max(1, target), maxGameEventLines: Math.max(1, target) };
+}
+
+/**
+ * Lift composition preferences into effective seat budgets when enough
+ * legitimate selections exist. Pure — no I/O, no threshold weakening.
+ *
+ * - maxProps is a preference, not a hard shortage ceiling.
+ * - maxGameEventLines must not force shortfall when GLs are unavailable
+ *   and enough distinct qualified props remain.
+ */
+export function effectiveSingleEventCaps(opts: {
+  target: number;
+  preference?: SingleEventSeatCaps | null;
+  /** Distinct seatable prop participants (one prop per player). */
+  distinctQualifiedProps: number;
+  /** Count of seatable game-event lines in the prepared pool. */
+  availableGameEventLines: number;
+}): SingleEventSeatCaps {
+  const target = Math.max(0, opts.target);
+  const pref = opts.preference ?? singleEventCapsForTarget(target);
+  const propSlots = Math.max(0, opts.distinctQualifiedProps);
+  const glSlots = Math.max(0, opts.availableGameEventLines);
+
+  const preferredGlBudget = Math.min(pref.maxGameEventLines, glSlots);
+  let maxProps = Math.min(target, Math.max(pref.maxProps, target - preferredGlBudget));
+  maxProps = Math.min(maxProps, propSlots);
+
+  let maxGameEventLines = Math.min(target, Math.max(pref.maxGameEventLines, target - maxProps));
+  maxGameEventLines = Math.min(maxGameEventLines, glSlots);
+
+  // Guarantee the pool can be used up to min(target, available) without a
+  // preference-ratio artificial shortfall.
+  const pool = propSlots + glSlots;
+  const capacityTarget = Math.min(target, pool);
+  if (maxProps + maxGameEventLines < capacityTarget) {
+    maxProps = Math.min(propSlots, Math.max(maxProps, capacityTarget - maxGameEventLines));
+    maxGameEventLines = Math.min(glSlots, Math.max(maxGameEventLines, capacityTarget - maxProps));
+  }
+
+  return {
+    maxProps: Math.max(0, maxProps),
+    maxGameEventLines: Math.max(0, maxGameEventLines),
+  };
 }
 
 /**
@@ -183,7 +231,7 @@ export function seatSingleEventTicket<T extends SeatPick>(
     existing?: readonly T[];
   },
 ): SingleEventSeatResult<T> {
-  const caps = singleEventCapsForTarget(opts.target);
+  const preferenceCaps = singleEventCapsForTarget(opts.target);
   const adapter = getSportSeatingAdapter(opts.sport);
   const eventKey = canonicalGameKey(opts.eventKey);
   const existing = opts.existing ?? [];
@@ -193,6 +241,8 @@ export function seatSingleEventTicket<T extends SeatPick>(
   const prepared: PreparedSeat<T>[] = [];
   for (const row of ranked) {
     if (canonicalGameKey(row.pick.game) !== eventKey) continue;
+    // Period player props are unsimulatable without periodTag series — never seat.
+    if (row.pick.isProp && isPeriodPropMarketKey(row.pick.market)) continue;
     const fam = familyFor(adapter, row.pick);
     if (!isFamilySeatable(adapter, fam)) continue;
     if (row.pick.isProp && !adapter.supportsParticipantProps) continue;
@@ -224,6 +274,17 @@ export function seatSingleEventTicket<T extends SeatPick>(
       isProp: !!row.pick.isProp,
     });
   }
+
+  const distinctPropParticipants = new Set(
+    prepared.filter((p) => p.isProp && p.participant).map((p) => p.participant),
+  ).size;
+  const availableGameEventLines = prepared.filter((p) => !p.isProp).length;
+  const caps = effectiveSingleEventCaps({
+    target: opts.target,
+    preference: preferenceCaps,
+    distinctQualifiedProps: distinctPropParticipants,
+    availableGameEventLines,
+  });
 
   if (!prepared.length) {
     return {

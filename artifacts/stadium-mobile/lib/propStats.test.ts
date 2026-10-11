@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
+import { computeAmbiguous, gameValueForMarket, isPeriodPropMarketKey } from "./propStats.ts";
 
 const NONE = new Set<string>();
 
@@ -81,4 +81,34 @@ test("football props fail closed when the unique ESPN field is unavailable", () 
   const ambiguousYards = computeAmbiguous(["YDS", "YDS"]);
   assert.equal(gameValueForMarket("player_pass_yds", { YDS: "278" }, ambiguousYards), null);
   assert.equal(gameValueForMarket("player_rush_yds", { YDS: "18" }, ambiguousYards), null);
+});
+
+test("parity markets: TD combos, FG, MLB, double-double, soccer first goal, period fail-closed", () => {
+  const fb = {
+    passingYards: "200",
+    rushingYards: "40",
+    receivingYards: "60",
+    passingTouchdowns: "1",
+    rushingTouchdowns: "1",
+    receivingTouchdowns: "1",
+    fieldGoalsMade: "2",
+    extraPointsMade: "1",
+  };
+  assert.equal(gameValueForMarket("player_anytime_td", fb, NONE), 3);
+  assert.equal(gameValueForMarket("player_pass_rush_reception_yds", fb, NONE), 300);
+  assert.equal(gameValueForMarket("player_field_goals", fb, NONE), 2);
+  assert.equal(gameValueForMarket("batter_rbis", { RBI: "2" }, NONE), 2);
+  assert.equal(gameValueForMarket("batter_runs_scored", { R: "1" }, NONE), 1);
+  assert.equal(gameValueForMarket("pitcher_outs", { IP: "5.1" }, NONE), 16);
+  assert.equal(
+    gameValueForMarket(
+      "player_double_double",
+      { PTS: "12", REB: "10", AST: "2", STL: "0", BLK: "1" },
+      NONE,
+    ),
+    1,
+  );
+  assert.equal(gameValueForMarket("player_first_goal_scorer", { G: "1" }, NONE), 1);
+  assert.equal(isPeriodPropMarketKey("player_points_q1"), true);
+  assert.equal(gameValueForMarket("player_points_q1", { PTS: "28" }, NONE), null);
 });

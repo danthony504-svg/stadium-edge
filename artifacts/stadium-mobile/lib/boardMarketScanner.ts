@@ -47,7 +47,13 @@ import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
+  type CoachTicketStagingContext,
 } from "./ticketStaging.ts";
+import {
+  coachAskTeamScope,
+  coachAskTeamShortfallNote,
+} from "./coachAskTeamScope.ts";
+import { shouldActivateSingleEventSeating } from "./singleEventSeating.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
@@ -450,19 +456,20 @@ function buildScanResult(
     boardExhausted?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     varietySeed?: string;
-    varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+    varietyContext?: CoachTicketStagingContext;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
   },
 ): FullBoardScanResult {
+  const stagingCtx: CoachTicketStagingContext = {
+    ...opts.varietyContext,
+    ticketStyle: opts.ticketStyle,
+  };
   const staged = buildStagedTicketFromScan(
     scored,
     opts.target,
     opts.varietySeed,
-    {
-      ...opts.varietyContext,
-      ticketStyle: opts.ticketStyle,
-    },
+    stagingCtx,
   );
   const picks = staged.picks;
   const breakdown = staged.breakdown;
@@ -474,12 +481,28 @@ function buildScanResult(
     boardExhausted: opts.boardExhausted === true,
     deliveredLegs: scanComplete ? picks.length : 0,
   });
-  const note =
-    picks.length >= opts.target
-      ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
-      : picks.length > 0 && opts.preview
-        ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
-        : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+  let note: string;
+  if (picks.length >= opts.target) {
+    note = fullBoardScanSuccessNote(opts.totalScanned, picks.length);
+  } else if (picks.length > 0 && opts.preview) {
+    note = `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`;
+  } else {
+    const askText = stagingCtx.askText;
+    const teamScope = coachAskTeamScope(askText);
+    const teamNote =
+      teamScope && shouldActivateSingleEventSeating(askText)
+        ? coachAskTeamShortfallNote(teamScope, opts.target, {
+            qualifiedInScope: breakdown.qualifiedInScope ?? totalQualified,
+            seatedCount: picks.length,
+            // Single-event activation implies the scoped matchup was on the board.
+            matchedGameCount: 1,
+            limitingRule: breakdown.limitingRule,
+          })
+        : "";
+    note = teamNote
+      ? `${teamNote}\n\n${fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown)}`
+      : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+  }
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.target,
     pickIds: picks,
@@ -521,7 +544,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
-  varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+  varietyContext?: CoachTicketStagingContext;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
 }): Promise<FullBoardScanResult> {

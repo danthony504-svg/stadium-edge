@@ -27,6 +27,9 @@ export type CoachTeamGameScopeDiagnostics = {
   candidateCountBeforeGameFilter: number;
   candidateCountAfterGameFilter: number;
   finalLegCount: number;
+  /** Qualified selections in scope (not seated count). */
+  qualifiedInScope?: number;
+  seatedCount?: number;
 };
 
 /** Explicit negative franchise constraint — exclude the entire matchup. */
@@ -941,23 +944,45 @@ export function coachAskTeamMissNote(
   return `No ${nick} matchup is on tonight's ${scope.sport.toUpperCase()} board — won't fill with other games.`;
 }
 
+export type CoachAskTeamShortfallCounts = {
+  /** Genuinely qualified selections in scope (after sim/edge/grade/confidence/dedupe). */
+  qualifiedInScope: number;
+  /** Legs actually seated on the ticket (may be lower due to staging limits). */
+  seatedCount: number;
+  matchedGameCount: number;
+  /** Optional single-event limiting rule when staging capped the ticket. */
+  limitingRule?: string | null;
+};
+
 /**
- * When the team's game is on the board but fewer than N legs qualify, do not
- * fill with other games — tell the user the shortfall is team-scoped.
+ * When the team's game is on the board but fewer than N legs are delivered,
+ * do not fill with other games — distinguish true qualification shortage from
+ * staging/correlation/diversity limits. Never call seatedCount "eligible"
+ * unless it equals the full qualified pool.
  */
 export function coachAskTeamShortfallNote(
   scope: CoachAskTeamScope | null,
   requestedLegs: number,
-  finalLegCount: number,
-  matchedGameCount: number,
+  counts: CoachAskTeamShortfallCounts,
 ): string {
+  const matchedGameCount = counts.matchedGameCount;
+  const seatedCount = counts.seatedCount;
+  const qualifiedInScope = counts.qualifiedInScope;
   if (!scope || matchedGameCount <= 0) return "";
-  if (finalLegCount >= requestedLegs) return "";
+  if (seatedCount >= requestedLegs) return "";
   const nick = scope.displayName ?? scope.parsedTeam ?? scope.matchTokens[0] ?? "that team";
-  if (finalLegCount <= 0) {
+  if (qualifiedInScope <= 0 && seatedCount <= 0) {
     return `No eligible real markets cleared for ${nick} — won't fill a ${requestedLegs}-leg ticket with other games.`;
   }
-  return `Only ${finalLegCount} eligible real-market selection${finalLegCount === 1 ? "" : "s"} for ${nick} — not enough for a ${requestedLegs}-leg ticket. Won't fill with other games.`;
+  // True qualification shortage: not enough selections cleared quality filters.
+  if (qualifiedInScope < requestedLegs) {
+    return `Only ${qualifiedInScope} qualified real-market selection${qualifiedInScope === 1 ? "" : "s"} for ${nick} — not enough for a ${requestedLegs}-leg ticket. Won't fill with other games.`;
+  }
+  // Staging/correlation/diversity limitation despite a full qualified pool.
+  const limiter = counts.limitingRule
+    ? ` (${String(counts.limitingRule).replace(/^single_event_/, "").replace(/_/g, " ")})`
+    : "";
+  return `${qualifiedInScope} qualified real-market selections for ${nick}, but staging seated ${seatedCount} of ${requestedLegs}${limiter} — correlation, ladder, or diversity limits blocked a full ticket. Won't fill with other games.`;
 }
 
 /**
@@ -984,6 +1009,8 @@ export function buildCoachTeamGameScopeDiagnostics(opts: {
     awayTeamId?: string | null;
   }[];
   finalLegCount?: number;
+  qualifiedInScope?: number;
+  seatedCount?: number;
 }): CoachTeamGameScopeDiagnostics {
   const scope = opts.scope;
   const matched = opts.gamesAfterFilter[0] ?? null;
@@ -1000,6 +1027,7 @@ export function buildCoachTeamGameScopeDiagnostics(opts: {
   const gameLabel = matched
     ? `${matched.awayTeam ?? ""} @ ${matched.homeTeam ?? ""}`.trim()
     : null;
+  const seated = opts.seatedCount ?? opts.finalLegCount ?? 0;
   return {
     requestedLegs: opts.requestedLegs,
     parsedTeam: scope?.parsedTeam ?? scope?.matchTokens?.[0] ?? null,
@@ -1009,7 +1037,9 @@ export function buildCoachTeamGameScopeDiagnostics(opts: {
     resolvedGameId: matched?.id != null ? String(matched.id) : gameLabel,
     candidateCountBeforeGameFilter: opts.gamesBeforeFilter.length,
     candidateCountAfterGameFilter: opts.gamesAfterFilter.length,
-    finalLegCount: opts.finalLegCount ?? 0,
+    finalLegCount: seated,
+    qualifiedInScope: opts.qualifiedInScope,
+    seatedCount: seated,
   };
 }
 

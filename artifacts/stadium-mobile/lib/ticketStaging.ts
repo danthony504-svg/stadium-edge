@@ -479,6 +479,8 @@ function tryBuildSingleEventStagedTicket(
 
   const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
   const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
+  // In-scope qualified count = event-filtered ranked pool (not seated picks).
+  const qualifiedInScope = ranked.length;
   return {
     picks,
     breakdown: {
@@ -487,6 +489,7 @@ function tryBuildSingleEventStagedTicket(
       mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
       altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
       limitingRule: seated.limitingRule,
+      qualifiedInScope,
     },
   };
 }

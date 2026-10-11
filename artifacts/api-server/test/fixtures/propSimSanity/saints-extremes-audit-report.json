@@ -1,0 +1,204 @@
+{
+  "worstStatus": "PASS",
+  "counts": {
+    "PASS": 6,
+    "YELLOW": 0,
+    "RED": 0
+  },
+  "explanations": [
+    {
+      "key": "Tyler Shough player_pass_completions",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Tyler Shough player_pass_attempts",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Tyler Shough player_pass_yds",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Chris Olave player_receptions",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Juwan Johnson player_reception_yds",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Juwan Johnson player_reception_longest",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    }
+  ],
+  "reports": [
+    {
+      "athlete": "Tyler Shough",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_pass_completions",
+      "normalizedMarket": "playerProp|fg|player_pass_completions",
+      "side": "Over",
+      "line": 27.5,
+      "price": 442,
+      "historicalMean": 30.25,
+      "recentMean": 30.25,
+      "relevantVenueSplit": 29.5,
+      "historicalClearRate": 0.75,
+      "bareProjectionMean": 30.25,
+      "finalProjectionMean": 28.14,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.57,
+      "impliedProbability": 0.1845,
+      "edge": 0.385,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    },
+    {
+      "athlete": "Tyler Shough",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_pass_attempts",
+      "normalizedMarket": "playerProp|fg|player_pass_attempts",
+      "side": "Over",
+      "line": 44.5,
+      "price": 600,
+      "historicalMean": 45,
+      "recentMean": 45,
+      "relevantVenueSplit": 45,
+      "historicalClearRate": 0.5,
+      "bareProjectionMean": 45,
+      "finalProjectionMean": 41.87,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.387,
+      "impliedProbability": 0.1429,
+      "edge": 0.244,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    },
+    {
+      "athlete": "Tyler Shough",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_pass_yds",
+      "normalizedMarket": "playerProp|fg|player_pass_yds",
+      "side": "Over",
+      "line": 266.5,
+      "price": 175,
+      "historicalMean": 300.75,
+      "recentMean": 300.75,
+      "relevantVenueSplit": 270.5,
+      "historicalClearRate": 0.5,
+      "bareProjectionMean": 300.75,
+      "finalProjectionMean": 279.84,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.566,
+      "impliedProbability": 0.3636,
+      "edge": 0.202,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    },
+    {
+      "athlete": "Chris Olave",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_receptions",
+      "normalizedMarket": "playerProp|fg|player_receptions",
+      "side": "Over",
+      "line": 6.5,
+      "price": -105,
+      "historicalMean": 8.75,
+      "recentMean": 8.75,
+      "relevantVenueSplit": 8.5,
+      "historicalClearRate": 1,
+      "bareProjectionMean": 8.75,
+      "finalProjectionMean": 8.14,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.953,
+      "impliedProbability": 0.5122,
+      "edge": 0.441,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    },
+    {
+      "athlete": "Juwan Johnson",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_reception_yds",
+      "normalizedMarket": "playerProp|fg|player_reception_yds",
+      "side": "Over",
+      "line": 42.5,
+      "price": -113,
+      "historicalMean": 58,
+      "recentMean": 58,
+      "relevantVenueSplit": 56,
+      "historicalClearRate": 1,
+      "bareProjectionMean": 58,
+      "finalProjectionMean": 53.88,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.929,
+      "simulatedHitProbability": 0.962,
+      "impliedProbability": 0.5305,
+      "edge": 0.431,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    },
+    {
+      "athlete": "Juwan Johnson",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_reception_longest",
+      "normalizedMarket": "playerProp|fg|player_reception_longest",
+      "side": "Over",
+      "line": 17.5,
+      "price": -120,
+      "historicalMean": 24.25,
+      "recentMean": 24.25,
+      "relevantVenueSplit": 22.5,
+      "historicalClearRate": 1,
+      "bareProjectionMean": 24.25,
+      "finalProjectionMean": 22.58,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.931,
+      "simulatedHitProbability": 0.971,
+      "impliedProbability": 0.5455,
+      "edge": 0.426,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    }
+  ]
+}

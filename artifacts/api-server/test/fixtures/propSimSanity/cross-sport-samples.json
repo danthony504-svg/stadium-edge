@@ -1,0 +1,265 @@
+{
+  "suites": [
+    {
+      "sport": "nfl",
+      "label": "NFL volume prop — healthy Over",
+      "props": [
+        {
+          "athlete": "Generic QB",
+          "athleteId": "nfl-qb-1",
+          "team": "Home Team",
+          "opponent": "Away Team",
+          "providerMarket": "player_pass_yds",
+          "normalizedMarket": "playerProp|fg|player_pass_yds",
+          "side": "Over",
+          "line": 249.5,
+          "price": -110,
+          "histValues": [260, 245, 255, 270, 240],
+          "histMean": 254,
+          "recentMean": 254,
+          "venueSplit": { "home": 258, "away": 250, "isHome": true },
+          "histClearRate": 0.6,
+          "bareProjectionMean": 254,
+          "finalProjectionMean": 256,
+          "opportunityMultiplier": 1.01,
+          "efficiencyMultiplier": 1.0,
+          "combinedPreSimMultiplier": 1.01,
+          "simHitProbability": 0.58,
+          "impliedProbability": 0.5238,
+          "edge": 0.056,
+          "expectedAthleteId": "nfl-qb-1",
+          "expectedStatKey": "passingYards",
+          "resolvedStatKey": "passingYards"
+        }
+      ]
+    },
+    {
+      "sport": "ncaaf",
+      "label": "NCAAF rush yards",
+      "props": [
+        {
+          "athlete": "College RB",
+          "athleteId": "ncaaf-rb-1",
+          "team": "Home College",
+          "opponent": "Away College",
+          "providerMarket": "player_rush_yds",
+          "normalizedMarket": "playerProp|fg|player_rush_yds",
+          "side": "Over",
+          "line": 85.5,
+          "price": -115,
+          "histValues": [90, 78, 102, 88],
+          "histMean": 89.5,
+          "recentMean": 89.5,
+          "venueSplit": { "home": 92, "away": 87, "isHome": true },
+          "histClearRate": 0.75,
+          "bareProjectionMean": 89.5,
+          "finalProjectionMean": 91,
+          "combinedPreSimMultiplier": 1.017,
+          "simHitProbability": 0.61,
+          "impliedProbability": 0.5349,
+          "edge": 0.075,
+          "expectedAthleteId": "ncaaf-rb-1",
+          "expectedStatKey": "rushingYards",
+          "resolvedStatKey": "rushingYards"
+        }
+      ]
+    },
+    {
+      "sport": "nba",
+      "label": "NBA points",
+      "props": [
+        {
+          "athlete": "Wing Scorer",
+          "athleteId": "nba-1",
+          "team": "Lakers",
+          "opponent": "Celtics",
+          "providerMarket": "player_points",
+          "normalizedMarket": "playerProp|fg|player_points",
+          "side": "Over",
+          "line": 24.5,
+          "price": -105,
+          "histValues": [22, 28, 25, 27, 23],
+          "histMean": 25,
+          "recentMean": 25,
+          "venueSplit": { "home": 26, "away": 24, "isHome": false },
+          "histClearRate": 0.6,
+          "bareProjectionMean": 25,
+          "finalProjectionMean": 25.4,
+          "combinedPreSimMultiplier": 1.016,
+          "simHitProbability": 0.55,
+          "impliedProbability": 0.5122,
+          "edge": 0.038,
+          "expectedAthleteId": "nba-1",
+          "expectedStatKey": "PTS",
+          "resolvedStatKey": "PTS"
+        }
+      ]
+    },
+    {
+      "sport": "wnba",
+      "label": "WNBA rebounds",
+      "props": [
+        {
+          "athlete": "Frontcourt",
+          "athleteId": "wnba-1",
+          "team": "Aces",
+          "opponent": "Liberty",
+          "providerMarket": "player_rebounds",
+          "normalizedMarket": "playerProp|fg|player_rebounds",
+          "side": "Under",
+          "line": 9.5,
+          "price": -120,
+          "histValues": [8, 7, 10, 6, 9],
+          "histMean": 8,
+          "recentMean": 8,
+          "venueSplit": { "home": 8.2, "away": 7.8, "isHome": true },
+          "histClearRate": 0.6,
+          "bareProjectionMean": 8,
+          "finalProjectionMean": 7.9,
+          "combinedPreSimMultiplier": 0.987,
+          "simHitProbability": 0.62,
+          "impliedProbability": 0.5455,
+          "edge": 0.074,
+          "oppositeSideHitProbability": 0.38,
+          "expectedAthleteId": "wnba-1",
+          "expectedStatKey": "REB",
+          "resolvedStatKey": "REB"
+        }
+      ]
+    },
+    {
+      "sport": "ncaab",
+      "label": "NCAAB assists",
+      "props": [
+        {
+          "athlete": "Point Guard",
+          "athleteId": "ncaab-1",
+          "team": "Home U",
+          "opponent": "Away U",
+          "providerMarket": "player_assists",
+          "normalizedMarket": "playerProp|fg|player_assists",
+          "side": "Over",
+          "line": 5.5,
+          "price": -110,
+          "histValues": [6, 4, 7, 5, 6],
+          "histMean": 5.6,
+          "recentMean": 5.6,
+          "venueSplit": { "home": 5.8, "away": 5.4, "isHome": true },
+          "histClearRate": 0.6,
+          "bareProjectionMean": 5.6,
+          "finalProjectionMean": 5.7,
+          "combinedPreSimMultiplier": 1.018,
+          "simHitProbability": 0.54,
+          "impliedProbability": 0.5238,
+          "edge": 0.016,
+          "expectedAthleteId": "ncaab-1",
+          "expectedStatKey": "AST",
+          "resolvedStatKey": "AST"
+        }
+      ]
+    },
+    {
+      "sport": "mlb",
+      "label": "MLB pitcher strikeouts",
+      "props": [
+        {
+          "athlete": "Starter",
+          "athleteId": "mlb-p-1",
+          "team": "Yankees",
+          "opponent": "Red Sox",
+          "providerMarket": "pitcher_strikeouts",
+          "normalizedMarket": "playerProp|fg|pitcher_strikeouts",
+          "side": "Over",
+          "line": 5.5,
+          "price": -105,
+          "histValues": [6, 7, 4, 8, 5],
+          "histMean": 6,
+          "recentMean": 6,
+          "venueSplit": { "home": 6.2, "away": 5.8, "isHome": true },
+          "histClearRate": 0.6,
+          "bareProjectionMean": 6,
+          "finalProjectionMean": 6.1,
+          "combinedPreSimMultiplier": 1.017,
+          "simHitProbability": 0.57,
+          "impliedProbability": 0.5122,
+          "edge": 0.058,
+          "expectedAthleteId": "mlb-p-1",
+          "expectedStatKey": "K",
+          "resolvedStatKey": "K"
+        }
+      ]
+    },
+    {
+      "sport": "nhl",
+      "label": "NHL shots on goal",
+      "props": [
+        {
+          "athlete": "Winger",
+          "athleteId": "nhl-1",
+          "team": "Bruins",
+          "opponent": "Rangers",
+          "providerMarket": "player_shots_on_goal",
+          "normalizedMarket": "playerProp|fg|player_shots_on_goal",
+          "side": "Over",
+          "line": 2.5,
+          "price": -115,
+          "histValues": [3, 2, 4, 3, 1],
+          "histMean": 2.6,
+          "recentMean": 2.6,
+          "venueSplit": { "home": 2.8, "away": 2.4, "isHome": false },
+          "histClearRate": 0.6,
+          "bareProjectionMean": 2.6,
+          "finalProjectionMean": 2.65,
+          "combinedPreSimMultiplier": 1.019,
+          "simHitProbability": 0.53,
+          "impliedProbability": 0.5349,
+          "edge": -0.005,
+          "expectedAthleteId": "nhl-1",
+          "expectedStatKey": "SOG",
+          "resolvedStatKey": "SOG"
+        }
+      ]
+    },
+    {
+      "sport": "soccer",
+      "label": "Soccer shots on target",
+      "props": [
+        {
+          "athlete": "Forward",
+          "athleteId": "soccer-1",
+          "team": "France",
+          "opponent": "Brazil",
+          "providerMarket": "player_shots_on_target",
+          "normalizedMarket": "playerProp|fg|player_shots_on_target",
+          "side": "Over",
+          "line": 1.5,
+          "price": 120,
+          "histValues": [2, 1, 3, 2, 0],
+          "histMean": 1.6,
+          "recentMean": 1.6,
+          "venueSplit": { "home": 1.7, "away": 1.5, "isHome": true },
+          "histClearRate": 0.6,
+          "bareProjectionMean": 1.6,
+          "finalProjectionMean": 1.62,
+          "combinedPreSimMultiplier": 1.012,
+          "simHitProbability": 0.48,
+          "impliedProbability": 0.4545,
+          "edge": 0.025,
+          "expectedAthleteId": "soccer-1",
+          "expectedStatKey": "SOT",
+          "resolvedStatKey": "SOT"
+        }
+      ]
+    },
+    {
+      "sport": "tennis",
+      "label": "Tennis — game-line style only (not applicable for player-prop audit)",
+      "props": []
+    },
+    {
+      "sport": "ufc",
+      "label": "UFC — fight markets not in prop-stat audit scope",
+      "props": []
+    }
+  ]
+}
