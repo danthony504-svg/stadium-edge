@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  boardPropSimEarlyStopReserve,
   boardPropSimExpansionBatchSize,
+  boardPropSimFillCapacity,
   boardPropSimInitialBatchSize,
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
@@ -98,4 +100,38 @@ test("countQualifiedBoardLegs collapses duplicate ladder rungs before counting f
   }
   assert.equal(scored.length, 10, "ten qualifying rungs before ladder collapse");
   assert.equal(countQualifiedBoardLegs(scored, 9), 5, "only one rung per player/market ladder counts");
+});
+
+test("boardPropSimEarlyStopReserve scales with target", () => {
+  assert.equal(boardPropSimEarlyStopReserve(4), 2);
+  assert.equal(boardPropSimEarlyStopReserve(7), 3);
+  assert.equal(boardPropSimEarlyStopReserve(10), 3);
+});
+
+test("boardPropSimFillCapacity requires target+reserve after ladder collapse — not raw qualified count", () => {
+  const players = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+  const scored: BoardScoredLeg[] = [];
+  for (const [i, player] of players.entries()) {
+    scored.push(propLeg(player, 1.5, 130 + i, false, 90 - i));
+    scored.push(propLeg(player, 2.5, 250 + i, true, 80 - i));
+  }
+  // 20 raw qualifying rungs, but only 10 after ladder/one-player collapse.
+  assert.equal(scored.length, 20);
+  const target = 7;
+  const fill = boardPropSimFillCapacity(scored, target);
+  assert.equal(fill.need, target + boardPropSimEarlyStopReserve(target));
+  assert.equal(fill.ready, fill.seated >= fill.need);
+  assert.ok(fill.seated >= target, "staging can seat at least the ask");
+  // Raw count would say 20 >= need; fill capacity must use staging (≤10 unique).
+  assert.ok(fill.seated <= 10, "ladder/one-player collapse bounds seated capacity");
+});
+
+test("boardPropSimFillCapacity not ready when staged pool is short of target+reserve", () => {
+  const scored: BoardScoredLeg[] = [
+    propLeg("Only", 1.5, 130, false, 90),
+    propLeg("Only", 2.5, 250, true, 80),
+  ];
+  const fill = boardPropSimFillCapacity(scored, 7);
+  assert.equal(fill.ready, false);
+  assert.ok(fill.seated < fill.need);
 });
