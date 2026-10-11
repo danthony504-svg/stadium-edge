@@ -13,7 +13,17 @@ import {
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
-import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
+import {
+  selectCorrelationAwareBoardLegs,
+  maxLegsPerThinStatMarket,
+  isThinPropStatMarket,
+  maxLegsPerGame,
+  maxPropsPerGame,
+  wouldExceedMaxLegsPerGame,
+  wouldExceedMaxPropsPerGame,
+  wouldRepeatPlayerProp,
+} from "./parlayCorrelationScore.ts";
+import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
@@ -29,6 +39,13 @@ import {
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
+import { canonicalGameKey } from "./gameSimScoring.ts";
+import { coachAskTeamScope } from "./coachAskTeamScope.ts";
+import {
+  inferSingleEventKeyFromPool,
+  resolveSingleEventSeatingContext,
+  seatSingleEventTicket,
+} from "./singleEventSeating.ts";
 
 function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
@@ -107,22 +124,36 @@ export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
   return picks.map((p) => ({ ...p, ticketRole: ticketRoleForPick(p) }));
 }
 
-/** Greedy top-N by rank — no correlation penalty (used to fill alt gaps to reach N). */
+/** Greedy top-N by rank — no correlation penalty (used to fill alt gaps to reach N).
+ * Still respects multi-event per-game prop/GL caps + player/ladder hard gates.
+ */
 export function selectGreedyBoardLegs(
   ranked: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  existing: ParsedPick[] = [],
+  ticketTarget?: number,
+  legsPerGameCap?: number | null,
 ): ParsedPick[] {
-  const seen = new Set<string>();
+  const seen = new Set(existing.map(pickLegFingerprint));
   const out: ParsedPick[] = [];
+  const effectiveTarget = ticketTarget ?? Math.max(target, existing.length + target);
+  const maxPerGame = maxLegsPerGame(effectiveTarget, legsPerGameCap);
+  const maxProps = maxPropsPerGame(effectiveTarget);
   const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
   for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
     if (seen.has(fp)) continue;
+    const onTicket = [...existing, ...out];
+    if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
+    if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
+    if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
+    if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
     seen.add(fp);
     out.push(row.pick);
     if (out.length >= target) break;
   }
+  if (existing.length > 0) return out.slice(0, target);
   return dedupeSameTeamGameLegsLite(out).slice(0, target);
 }
 
@@ -148,8 +179,12 @@ export function selectTopBoardLegs(
   ranked: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  legsPerGameCap?: number | null,
+  existing: ParsedPick[] = [],
 ): ParsedPick[] {
-  if (target < 3) return selectGreedyBoardLegs(ranked, target, varietySeed);
+  if (target < 3) {
+    return selectGreedyBoardLegs(ranked, target, varietySeed, existing, target, legsPerGameCap);
+  }
 
   const out: ParsedPick[] = [];
   const usedFp = new Set<string>();
@@ -159,7 +194,11 @@ export function selectTopBoardLegs(
     const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
     if (!remaining.length) break;
 
-    const next = selectCorrelationAwareBoardLegs(remaining, 1);
+    const next = selectCorrelationAwareBoardLegs(remaining, 1, {
+      ticketTarget: Math.max(target, existing.length + target),
+      existing: [...existing, ...out],
+      legsPerGameCap,
+    });
     if (!next.length) break;
 
     const pick = next[0]!;
@@ -177,7 +216,14 @@ export function selectTopBoardLegs(
   if (out.length < target) {
     const usedFpFinal = new Set(out.map(pickLegFingerprint));
     const remaining = sorted.filter((r) => !usedFpFinal.has(pickLegFingerprint(r.pick)));
-    const greedy = selectGreedyBoardLegs(remaining, target - out.length, varietySeed);
+    const greedy = selectGreedyBoardLegs(
+      remaining,
+      target - out.length,
+      varietySeed,
+      [...existing, ...out],
+      Math.max(target, existing.length + target),
+      legsPerGameCap,
+    );
     if (greedy.length) {
       return dedupeSameTeamGameLegsLite([...out, ...greedy]).slice(0, target);
     }
@@ -362,7 +408,88 @@ export function buildBalancedStagedTicketFromScan(
 
 export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
+  /** Raw ask text — required to activate single-event seating. */
+  askText?: string | null;
+  /** Optional pre-resolved event key / sport for scoped asks. */
+  singleEventKey?: string | null;
+  singleEventSport?: string | null;
 };
+
+function tryBuildSingleEventStagedTicket(
+  scored: BoardScoredLeg[],
+  target: number,
+  varietyContext?: CoachTicketStagingContext,
+): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } | null {
+  const ctx = resolveSingleEventSeatingContext({
+    askText: varietyContext?.askText,
+    target,
+    eventKey: varietyContext?.singleEventKey,
+    sport: varietyContext?.singleEventSport,
+  });
+  if (!ctx.active) return null;
+
+  const qualifying = qualifyingScoredLegs(scored);
+  const games = [
+    ...new Set(qualifying.map((l) => l.pick.game).filter(Boolean)),
+  ];
+  const eventKey =
+    ctx.eventKey ??
+    inferSingleEventKeyFromPool(varietyContext?.askText, games);
+  // Explicit activation without a resolvable event → honest empty shortfall
+  // (do not widen to unrelated games).
+  if (!eventKey) {
+    const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
+    const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
+    return {
+      picks: [],
+      breakdown: {
+        mainQualified: mains.length,
+        altQualified: alts.length,
+        mainOnTicket: 0,
+        altOnTicket: 0,
+        limitingRule: "single_event_quality_pool_short",
+      },
+    };
+  }
+
+  const sport =
+    ctx.sport ??
+    varietyContext?.singleEventSport ??
+    coachAskTeamScope(varietyContext?.askText)?.sport ??
+    qualifying.find((l) => canonicalGameKey(l.pick.game) === eventKey)?.pick.sport ??
+    "nfl";
+
+  const eventCanon = canonicalGameKey(eventKey);
+  const ranked = qualifying
+    .filter((l) => canonicalGameKey(l.pick.game) === eventCanon)
+    .map((l) => ({ pick: l.pick, rankScore: l.rankScore }));
+
+  const seated = seatSingleEventTicket(ranked, {
+    target,
+    // Pass an original game label from the pool when possible so canonicalization
+    // stays idempotent with candidate game strings.
+    eventKey: ranked[0]?.pick.game ?? eventKey,
+    sport,
+  });
+
+  const picks = seated.picks.map((p) => {
+    const role = boardLegPoolRole(p, p.finalAiScore) ?? (p.isProp ? "main" : "main");
+    return { ...p, ticketRole: role as "main" | "alt", highRiskValuePlay: false };
+  });
+
+  const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
+  const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
+  return {
+    picks,
+    breakdown: {
+      mainQualified: mains.length,
+      altQualified: alts.length,
+      mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
+      altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+      limitingRule: seated.limitingRule,
+    },
+  };
+}
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
 export function buildStagedTicketFromScan(
@@ -371,6 +498,9 @@ export function buildStagedTicketFromScan(
   varietySeed?: string,
   varietyContext?: CoachTicketStagingContext,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+  const single = tryBuildSingleEventStagedTicket(scored, target, varietyContext);
+  if (single) return single;
+
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
   if (target >= 3 && varietySeed) {
     return buildIndependentCoachTicket(scored, target, {
