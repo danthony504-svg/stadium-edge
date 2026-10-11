@@ -9,6 +9,7 @@ import { Inter_600SemiBold } from "@expo-google-fonts/inter/600SemiBold";
 import { Inter_700Bold } from "@expo-google-fonts/inter/700Bold";
 import { useFonts } from "@expo-google-fonts/inter/useFonts";
 import { ClerkLoaded, ClerkLoading, ClerkProvider, useAuth } from "@clerk/expo";
+import { passkeys } from "@clerk/expo/passkeys";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
@@ -224,7 +225,12 @@ function RootLayoutContent() {
   }
 
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
+    <ClerkProvider
+      publishableKey={publishableKey}
+      tokenCache={tokenCache}
+      proxyUrl={proxyUrl}
+      __experimental_passkeys={passkeys}
+    >
       <ClerkLoading>
         <BootScreen />
       </ClerkLoading>

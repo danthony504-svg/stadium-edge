@@ -257,6 +257,55 @@ export function PrimaryButton({
   );
 }
 
+/** Outlined secondary CTA (passkey / alternate auth methods). */
+export function SecondaryButton({
+  label,
+  onPress,
+  disabled,
+  loading,
+  leftIcon,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  leftIcon?: FeatherName;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+        borderRadius: 12,
+        marginTop: 10,
+        paddingVertical: 15,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: AUTH_ACCENT,
+        opacity: disabled ? 0.45 : pressed || loading ? 0.85 : 1,
+      })}
+    >
+      {loading ? (
+        <ActivityIndicator color={AUTH_ACCENT} />
+      ) : (
+        <>
+          {leftIcon ? <Feather name={leftIcon} size={18} color={AUTH_ACCENT} /> : null}
+          <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
+            {label}
+          </Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
 export function AuthDivider() {
   const colors = useColors();
   return (
