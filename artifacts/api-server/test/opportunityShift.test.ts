@@ -476,4 +476,78 @@ describe("Opportunity Shift — sim integration", () => {
     assert.equal(rec!.kind, "E");
     assert.ok(rec!.elasticity < 1);
   });
+
+  it("injuries without position create no vacancies (sim-path regression)", () => {
+    const table = buildOpportunityShiftForGame({
+      sport: "nfl",
+      gameKey: saintsGame,
+      homeTeam: "Saints",
+      awayTeam: "Vikings",
+      injuries: [
+        {
+          team: "Saints",
+          entries: [{ player: "Saquon Barkley", status: "Out" }],
+        },
+      ],
+      players: nflRoster().map((p) => ({ ...p, position: null })),
+    });
+    assert.equal(table.vacancies.length, 0);
+    const rush = lookupOpportunityShift(table, {
+      player: "Backup RB",
+      athleteId: "brb",
+      market: "rush_attempts",
+      sport: "nfl",
+    });
+    assert.equal(rush.multiplier, 1);
+  });
+
+  it("IR/Out non-skill players do not absorb RB carry shares", () => {
+    const table = buildOpportunityShiftForGame({
+      sport: "nfl",
+      gameKey: "CHI @ GB",
+      homeTeam: "Packers",
+      awayTeam: "Bears",
+      injuries: [
+        {
+          team: "Packers",
+          entries: [
+            { player: "Chris Brooks", status: "Injured Reserve", position: "RB" },
+            { player: "Edgerrin Cooper", status: "Injured Reserve", position: "LB" },
+            { player: "Micah Parsons", status: "Out", position: "DE" },
+          ],
+        },
+        {
+          team: "Bears",
+          entries: [
+            { player: "Kyle Monangai", status: "Out", position: "RB" },
+            { player: "D'Andre Swift", status: "Active", position: "RB" },
+            { player: "Roschon Johnson", status: "Active", position: "RB" },
+          ],
+        },
+      ],
+      players: [
+        {
+          player: "D'Andre Swift",
+          athleteId: "4259545",
+          team: "Bears",
+          position: null,
+        },
+        {
+          player: "Roschon Johnson",
+          athleteId: "4426386",
+          team: "Bears",
+          position: null,
+        },
+      ],
+    });
+    assert.ok(!table.byBeneficiaryFamily.has("name:edgerrin cooper"));
+    assert.ok(!table.byBeneficiaryFamily.has("name:micah parsons"));
+    const swift = lookupOpportunityShift(table, {
+      player: "D'Andre Swift",
+      athleteId: "4259545",
+      market: "rush_attempts",
+      sport: "nfl",
+    });
+    assert.ok(swift.multiplier > 1);
+  });
 });

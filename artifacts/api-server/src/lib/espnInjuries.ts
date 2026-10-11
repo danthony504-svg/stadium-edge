@@ -2,19 +2,33 @@ import { ESPN_SPORT_PATHS, cachedJson } from "./sports.js";
 
 export type InjuryTeam = {
   team?: string;
-  entries?: Array<{ player?: string; status?: string }>;
+  entries?: Array<{
+    player?: string;
+    status?: string;
+    position?: string | null;
+    athleteId?: string | null;
+  }>;
 };
 
 type RawInjuries = {
   injuries?: Array<{
     displayName?: string;
     injuries?: Array<{
-      athlete?: { displayName?: string };
+      athlete?: {
+        id?: string | number;
+        displayName?: string;
+        position?: { abbreviation?: string };
+      };
       status?: string;
     }>;
   }>;
 };
 
+/**
+ * ESPN injuries for prop-sim / Opportunity Shift.
+ * Must include position (+ athleteId when present) so vacancy roles resolve;
+ * without position the Opportunity Shift engine creates zero vacancies.
+ */
 export async function fetchEspnInjuries(sport: string): Promise<InjuryTeam[]> {
   const path = ESPN_SPORT_PATHS[sport];
   if (!path) return [];
@@ -30,6 +44,11 @@ export async function fetchEspnInjuries(sport: string): Promise<InjuryTeam[]> {
       entries: (team.injuries ?? []).map((inj) => ({
         player: inj.athlete?.displayName ?? "Unknown",
         status: inj.status ?? "Unknown",
+        position: inj.athlete?.position?.abbreviation ?? null,
+        athleteId:
+          inj.athlete?.id != null && String(inj.athlete.id).trim()
+            ? String(inj.athlete.id)
+            : null,
       })),
     }));
   } catch {
