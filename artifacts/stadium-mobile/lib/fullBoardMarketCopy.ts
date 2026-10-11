@@ -5,6 +5,8 @@ export type TicketStagingBreakdown = {
   altQualified: number;
   mainOnTicket: number;
   altOnTicket: number;
+  /** Present when single-event seating underfills with an explicit limiter. */
+  limitingRule?: string | null;
 };
 
 export const FULL_BOARD_MARKET_FAMILIES =

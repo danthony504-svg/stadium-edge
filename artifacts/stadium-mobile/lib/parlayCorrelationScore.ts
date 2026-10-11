@@ -2,6 +2,7 @@
 // stacks, duplicate player exposure, and anti-correlated game-line combos so the
 // full-board ranker prefers independent legs. Pure module — no React imports.
 
+import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 
 type CorrelationPick = {
@@ -12,6 +13,7 @@ type CorrelationPick = {
   isProp?: boolean;
   player?: string;
   sport?: string;
+  propSide?: string | null;
 };
 
 const normGame = (g: string) =>
@@ -23,6 +25,99 @@ const normGame = (g: string) =>
 
 function isGameSideLeg(p: CorrelationPick): boolean {
   return !p.isProp && /moneyline|spread|total|run line|puck line/i.test(p.market);
+}
+
+/**
+ * Hard cap on **game-line** legs from one matchup (multi-event default).
+ * Single-event asks use SINGLE_EVENT_CAPS via singleEventSeating instead.
+ */
+export function maxLegsPerGame(target: number, override?: number | null): number {
+  if (override != null && override > 0) return override;
+  if (target >= 8) return 2;
+  if (target >= 5) return 2;
+  if (target >= 3) return 3;
+  return 99;
+}
+
+export function countLegsForGame(
+  ticket: readonly CorrelationPick[],
+  game: string,
+  opts?: { includeProps?: boolean },
+): number {
+  const g = normGame(game);
+  if (!g) return 0;
+  return ticket.filter((l) => {
+    if (normGame(l.game) !== g) return false;
+    if (!opts?.includeProps && l.isProp) return false;
+    return true;
+  }).length;
+}
+
+export function wouldExceedMaxLegsPerGame(
+  candidate: CorrelationPick,
+  ticket: readonly CorrelationPick[],
+  maxPerGame: number,
+): boolean {
+  if (maxPerGame >= 99) return false;
+  if (candidate.isProp) return false;
+  return countLegsForGame(ticket, candidate.game) >= maxPerGame;
+}
+
+/** Normalize player identity for same-player prop stacking. */
+export function propPlayerKey(pick: { player?: string | null; pick?: string | null }): string {
+  const named = String(pick.player ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (named) return named;
+  const fromPick = String(pick.pick ?? "")
+    .toLowerCase()
+    .replace(/\b(over|under|o|u)\b.*$/i, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .join(" ");
+  return fromPick;
+}
+
+/**
+ * Hard block: at most one player-prop leg per athlete on a ticket.
+ */
+export function wouldRepeatPlayerProp(
+  candidate: CorrelationPick,
+  ticket: readonly CorrelationPick[],
+): boolean {
+  if (!candidate.isProp) return false;
+  const key = propPlayerKey(candidate);
+  if (!key) return false;
+  return ticket.some((l) => l.isProp && propPlayerKey(l) === key);
+}
+
+/** Max player-prop legs from one matchup (multi-event default). */
+export function maxPropsPerGame(target: number): number {
+  if (target >= 8) return 2;
+  if (target >= 5) return 2;
+  return 3;
+}
+
+export function countPropsForGame(
+  ticket: readonly CorrelationPick[],
+  game: string,
+): number {
+  const g = normGame(game);
+  if (!g) return 0;
+  return ticket.filter((l) => l.isProp && normGame(l.game) === g).length;
+}
+
+export function wouldExceedMaxPropsPerGame(
+  candidate: CorrelationPick,
+  ticket: readonly CorrelationPick[],
+  maxProps: number,
+): boolean {
+  if (!candidate.isProp) return false;
+  if (maxProps >= 99) return false;
+  return countPropsForGame(ticket, candidate.game) >= maxProps;
 }
 
 /** Niche stat props (SB, etc.) — low volume, high variance; cap per ticket. */
@@ -99,21 +194,44 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
 export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
   ranked: Array<{ pick: T; rankScore: number }>,
   target: number,
+  opts?: {
+    ticketTarget?: number;
+    existing?: readonly T[];
+    legsPerGameCap?: number | null;
+    /** When set, overrides multi-event maxPropsPerGame for this selection. */
+    maxPropsOverride?: number | null;
+  },
 ): T[] {
-  const selected: T[] = [];
+  const ticketTarget = opts?.ticketTarget ?? target;
+  const maxPerGame = maxLegsPerGame(ticketTarget, opts?.legsPerGameCap);
+  const maxProps =
+    opts?.maxPropsOverride != null && opts.maxPropsOverride > 0
+      ? opts.maxPropsOverride
+      : maxPropsPerGame(ticketTarget);
+  const existing = opts?.existing ?? [];
+  const added: T[] = [];
   const pool = [...ranked];
 
-  while (selected.length < target && pool.length > 0) {
+  while (added.length < target && pool.length > 0) {
     let bestIdx = -1;
     let bestScore = -Infinity;
+    const onTicket = [...existing, ...added];
 
     for (let i = 0; i < pool.length; i++) {
       const row = pool[i]!;
       const fp = pickLegFingerprint(row.pick as Parameters<typeof pickLegFingerprint>[0]);
-      if (selected.some((s) => pickLegFingerprint(s as Parameters<typeof pickLegFingerprint>[0]) === fp)) {
+      if (
+        onTicket.some(
+          (s) => pickLegFingerprint(s as Parameters<typeof pickLegFingerprint>[0]) === fp,
+        )
+      ) {
         continue;
       }
-      const effective = row.rankScore - parlayCorrelationPenalty(row.pick, selected);
+      if (wouldExceedMaxLegsPerGame(row.pick, onTicket, maxPerGame)) continue;
+      if (wouldRepeatPlayerProp(row.pick, onTicket)) continue;
+      if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
+      if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
+      const effective = row.rankScore - parlayCorrelationPenalty(row.pick, onTicket);
       if (effective > bestScore) {
         bestScore = effective;
         bestIdx = i;
@@ -121,9 +239,9 @@ export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
     }
 
     if (bestIdx < 0) break;
-    selected.push(pool[bestIdx]!.pick);
+    added.push(pool[bestIdx]!.pick);
     pool.splice(bestIdx, 1);
   }
 
-  return selected.slice(0, target);
+  return added.slice(0, target);
 }
