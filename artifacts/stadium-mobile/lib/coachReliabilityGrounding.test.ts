@@ -74,3 +74,111 @@ test("affectedGameFromPicks prefers mismatch game then first game", () => {
     "Away @ Home",
   );
 });
+
+test("teamAbbr present + game missing => no mismatch", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      teamAbbr: "ARI",
+      player: "Kyler Murray",
+      isProp: true,
+      market: "Pass TDs",
+    }),
+    false,
+  );
+});
+
+test("teamAbbr present + game empty => no mismatch", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "",
+      teamAbbr: "ARI",
+      player: "Kyler Murray",
+      isProp: true,
+      market: "Pass TDs",
+    }),
+    false,
+  );
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "   ",
+      teamAbbr: "ARI",
+      player: "Kyler Murray",
+      isProp: true,
+      market: "Pass TDs",
+    }),
+    false,
+  );
+});
+
+test("teamAbbr present + malformed game string => no mismatch", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Saints",
+      teamAbbr: "NO",
+      player: "Alvin Kamara",
+      isProp: true,
+      market: "Rush Yds",
+    }),
+    false,
+  );
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Vikings vs Saints",
+      teamAbbr: "MIN",
+      player: "JJ McCarthy",
+      isProp: true,
+      market: "Pass Yds",
+    }),
+    false,
+  );
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Minnesota Vikings @",
+      teamAbbr: "MIN",
+      isProp: true,
+      player: "X",
+      market: "Pass Yds",
+    }),
+    false,
+  );
+});
+
+test("valid parse + team matches away => no mismatch", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Minnesota Vikings @ New Orleans Saints",
+      teamAbbr: "MIN",
+      player: "Justin Jefferson",
+      isProp: true,
+      market: "Rec Yds",
+    }),
+    false,
+  );
+});
+
+test("valid parse + team matches home => no mismatch", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Minnesota Vikings @ New Orleans Saints",
+      teamAbbr: "NO",
+      player: "Alvin Kamara",
+      isProp: true,
+      market: "Rush Yds",
+    }),
+    false,
+  );
+});
+
+test("valid parse + team matches neither => mismatch", () => {
+  assert.equal(
+    pickHasPlayerGameGroundingMismatch({
+      game: "Minnesota Vikings @ New Orleans Saints",
+      teamAbbr: "ARI",
+      player: "Kyler Murray",
+      isProp: true,
+      market: "Pass TDs",
+      propMarketKey: "player_pass_tds",
+    }),
+    true,
+  );
+});

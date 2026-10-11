@@ -103,23 +103,31 @@ function isLikelyPlayerProp(pick: CoachReliabilityGroundingPick): boolean {
 }
 
 /**
- * Player prop whose teamAbbr does not resolve onto either side of `Away @ Home`.
- * Missing teamAbbr → cannot prove mismatch (not flagged).
+ * Player prop whose known teamAbbr does not resolve onto either side of a
+ * confidently parsed `Away @ Home` label.
+ *
+ * Unknown / incomplete metadata → false (not a confirmed mismatch):
+ * - missing/empty teamAbbr
+ * - missing/empty game
+ * - unparseable / non-standard game (not exactly two non-empty sides)
+ * - ambiguous match to both sides
  */
 export function pickHasPlayerGameGroundingMismatch(
   pick: CoachReliabilityGroundingPick,
 ): boolean {
   if (!isLikelyPlayerProp(pick)) return false;
-  const game = String(pick.game ?? "").trim();
-  if (!game) return true;
-  const parts = game.split(/\s+@\s+/);
-  if (parts.length !== 2) return true;
-  const away = parts[0]!.trim();
-  const home = parts[1]!.trim();
-  if (!away || !home) return true;
 
   const ab = String(pick.teamAbbr ?? "").trim();
-  if (!ab) return false;
+  if (!ab) return false; // unknown team identity
+
+  const game = String(pick.game ?? "").trim();
+  if (!game) return false; // unknown game
+
+  const parts = game.split(/\s+@\s+/);
+  if (parts.length !== 2) return false; // unparseable / non-standard
+  const away = parts[0]!.trim();
+  const home = parts[1]!.trim();
+  if (!away || !home) return false;
 
   // Prefer existing side resolver (MLB / soft abbrs), then NFL token map.
   const sides = resolvePropPlayerSides({
@@ -133,7 +141,8 @@ export function pickHasPlayerGameGroundingMismatch(
   const homeHit = abbrMatchesTeamName(ab, home);
   if (awayHit && !homeHit) return false;
   if (homeHit && !awayHit) return false;
-  // Neither side (or both — ambiguous) → treat as grounding mismatch.
+  if (awayHit && homeHit) return false; // ambiguous → unknown, not mismatch
+  // Confident parse + known team + matches neither side → confirmed mismatch.
   return true;
 }
 
