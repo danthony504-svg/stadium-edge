@@ -26,6 +26,8 @@ export type PropSharedDistributionParts = {
   oppKeyInjuries?: number | null;
   ownKeyInjuries?: number | null;
   weatherImpact?: number | null;
+  /** Compact Opportunity Shift table fingerprint (family mults). */
+  opportunityShiftFingerprint?: string | null;
 };
 
 /**
@@ -56,5 +58,6 @@ export function propSharedDistributionKey(parts: PropSharedDistributionParts): s
     String(parts.oppKeyInjuries ?? 0),
     String(parts.ownKeyInjuries ?? 0),
     wx(parts.weatherImpact),
+    String(parts.opportunityShiftFingerprint ?? ""),
   ].join("|");
 }

@@ -16,6 +16,10 @@ import {
 } from "./propSharedDistribution.js";
 import type { CachedPropDistribution } from "./propDistributionCache.js";
 import type { SimTier } from "./simCache.js";
+import {
+  lookupOpportunityShift,
+  type OpportunityShiftTable,
+} from "./opportunityShift/index.js";
 
 export type PropSimNullReason =
   | "missing_athlete_id"
@@ -64,6 +68,8 @@ export type GameSimContext = {
   ownKeyInjuries?: number;
   weatherImpact?: number | null;
   playerHistories?: Map<string, PlayerHistoryShape>;
+  /** Built once per game — family-specific Opportunity Shift table. */
+  opportunityShift?: OpportunityShiftTable | null;
 };
 
 /** Minimal game/context fields required to decide distribution sharing. */
@@ -74,6 +80,8 @@ export type SharedDistGameContext = {
   oppKeyInjuries?: number;
   ownKeyInjuries?: number;
   weatherImpact?: number | null;
+  opportunityShiftFingerprint?: string | null;
+  opportunityShift?: OpportunityShiftTable | null;
 };
 
 function statSeries(
@@ -128,6 +136,13 @@ export function buildPropSimulationContext(
   const homeGames = history.recent.filter((g) => g.isHome === true);
   const awayGames = history.recent.filter((g) => g.isHome === false);
 
+  const opp = lookupOpportunityShift(game.opportunityShift, {
+    player: req.player,
+    athleteId: req.athleteId,
+    market: req.market,
+    sport: req.sport,
+  });
+
   return {
     sport: req.sport,
     market: req.market,
@@ -148,6 +163,10 @@ export function buildPropSimulationContext(
     weatherImpact: game.weatherImpact ?? null,
     discrete: isDiscreteCountMarket(req.market),
     additionalLines: req.additionalLines,
+    opportunityFamilyMult: opp.multiplier,
+    opportunityFamily: opp.family,
+    opportunityExplain: opp.explanation,
+    opportunitySuppressOwnInjuries: opp.suppressOwnKeyInjuries,
   };
 }
 
@@ -217,6 +236,10 @@ export function sharedDistributionPartsForProp(
     oppKeyInjuries: game.oppKeyInjuries ?? 0,
     ownKeyInjuries: game.ownKeyInjuries ?? 0,
     weatherImpact: game.weatherImpact ?? null,
+    opportunityShiftFingerprint:
+      game.opportunityShiftFingerprint ??
+      game.opportunityShift?.tableFingerprint ??
+      null,
   };
 }
 

@@ -1,7 +1,8 @@
 import { type SimTier } from "../lib/simCache.js";
 import { DEEP_SIMULATIONS } from "../lib/monteCarlo.js";
 import { keyInjuryWeight, type SimPropRequest } from "../lib/monteCarloBuild.js";
-import { runPropSims, tierSimCount } from "../lib/propSimRunner.js";
+import { runPropSims, tierSimCount, type PropSimGameContext } from "../lib/propSimRunner.js";
+import { buildOpportunityShiftForGame } from "../lib/opportunityShift/index.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
@@ -54,15 +55,6 @@ function parseCoverQueries(raw: unknown): GameCoverQuery[] | undefined {
   }
   return out.length ? out : undefined;
 }
-
-type GameSimContext = {
-  sport: string;
-  oppPace: number | null;
-  leaguePace: number | null;
-  oppKeyInjuries: number;
-  ownKeyInjuries: number;
-  weatherImpact: number | null;
-};
 
 function teamInjuryWeight(teams: Awaited<ReturnType<typeof fetchEspnInjuries>>, teamName: string): number {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").trim();
@@ -298,13 +290,38 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
       ? Number(req.body.weatherImpact)
       : null;
 
-  const gameCtx: GameSimContext = {
+  // Opportunity Shift — sync, once per game, from already-loaded injuries + prop list.
+  const gameKey = `${awayTeam || "away"} @ ${homeTeam || "home"}`;
+  const opportunityShift =
+    homeTeam && awayTeam
+      ? buildOpportunityShiftForGame({
+          sport,
+          gameKey,
+          homeTeam,
+          awayTeam,
+          injuries,
+          players: propsResolved.map((p) => ({
+            player: p.player,
+            athleteId: p.athleteId,
+            team:
+              p.isHome === true
+                ? homeTeam
+                : p.isHome === false
+                  ? awayTeam
+                  : homeTeam,
+            position: null,
+          })),
+        })
+      : null;
+
+  const gameCtx: PropSimGameContext = {
     sport,
     oppPace,
     leaguePace,
     oppKeyInjuries,
     ownKeyInjuries,
     weatherImpact,
+    opportunityShift,
   };
 
   const { rows, deepPending, distStats, propSimElapsedMs, playerHistories, historyShared, historyCoalesced } =

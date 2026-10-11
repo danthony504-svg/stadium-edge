@@ -20,6 +20,10 @@ import {
   setPropSimCtxStore,
   withInflightCoalesce,
 } from "./propSimDedicatedStore.js";
+import {
+  lookupOpportunityShift,
+  type OpportunityShiftTable,
+} from "./opportunityShift/index.js";
 
 /** Align with ESPN player-history cachedJson TTL. */
 export const PROPSIM_CTX_TTL_MS = 30 * 60_000;
@@ -99,6 +103,8 @@ export function propSimulationContextFromCached(
     side: "Over" | "Under";
     isHome?: boolean | null;
     additionalLines?: number[];
+    player?: string;
+    athleteId?: string | null;
   },
   game: {
     oppPace?: number | null;
@@ -106,8 +112,15 @@ export function propSimulationContextFromCached(
     oppKeyInjuries?: number;
     ownKeyInjuries?: number;
     weatherImpact?: number | null;
+    opportunityShift?: OpportunityShiftTable | null;
   },
 ): PropSimulationContext {
+  const opp = lookupOpportunityShift(game.opportunityShift, {
+    player: req.player ?? "",
+    athleteId: req.athleteId,
+    market: req.market,
+    sport: req.sport,
+  });
   return {
     sport: req.sport,
     market: req.market,
@@ -128,6 +141,10 @@ export function propSimulationContextFromCached(
     weatherImpact: game.weatherImpact ?? null,
     discrete: cached.discrete,
     additionalLines: req.additionalLines,
+    opportunityFamilyMult: opp.multiplier,
+    opportunityFamily: opp.family,
+    opportunityExplain: opp.explanation,
+    opportunitySuppressOwnInjuries: opp.suppressOwnKeyInjuries,
   };
 }
 
