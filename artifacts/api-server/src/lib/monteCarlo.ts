@@ -46,6 +46,20 @@ export type PropSimulationContext = {
   opportunityExplain?: string | null;
   /** When true, skip own-team key-injury mean tilt (same absence fingerprint). */
   opportunitySuppressOwnInjuries?: boolean;
+  /**
+   * Venue Shift + Opponent Matchup Shift (PR follow-on to Opportunity Shift).
+   * Combined with opportunity in log-space; applied once before the 10k draw.
+   */
+  venueFamilyMult?: number | null;
+  matchupFamilyMult?: number | null;
+  combinedPreSimMult?: number | null;
+  venueExplain?: string | null;
+  matchupExplain?: string | null;
+  combinedPreSimExplain?: string | null;
+  /** Skip soft home/away blend — already captured in venueFamilyMult. */
+  suppressSoftVenueBlend?: boolean;
+  /** Skip soft vsOpponent blend — already captured in matchupFamilyMult. */
+  suppressSoftVsOpponentBlend?: boolean;
 };
 
 export type PropSimulationResult = {
@@ -158,15 +172,21 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   const meanSeason = avg(vals);
   let mean = 0.4 * mean5 + 0.3 * mean10 + 0.3 * meanSeason;
 
-  const vs = (ctx.vsOpponentValues ?? []).filter((v) => Number.isFinite(v));
-  if (vs.length >= 2) mean = 0.78 * mean + 0.22 * avg(vs);
+  // Soft vsOpponent / venue blends are suppressed when formal Venue/Matchup
+  // shifts already encode those series (prevents double-counting).
+  if (!ctx.suppressSoftVsOpponentBlend) {
+    const vs = (ctx.vsOpponentValues ?? []).filter((v) => Number.isFinite(v));
+    if (vs.length >= 2) mean = 0.78 * mean + 0.22 * avg(vs);
+  }
 
-  if (ctx.isHome === true) {
-    const hv = (ctx.homeValues ?? []).filter((v) => Number.isFinite(v));
-    if (hv.length >= 3) mean = 0.88 * mean + 0.12 * avg(hv);
-  } else if (ctx.isHome === false) {
-    const av = (ctx.awayValues ?? []).filter((v) => Number.isFinite(v));
-    if (av.length >= 3) mean = 0.88 * mean + 0.12 * avg(av);
+  if (!ctx.suppressSoftVenueBlend) {
+    if (ctx.isHome === true) {
+      const hv = (ctx.homeValues ?? []).filter((v) => Number.isFinite(v));
+      if (hv.length >= 3) mean = 0.88 * mean + 0.12 * avg(hv);
+    } else if (ctx.isHome === false) {
+      const av = (ctx.awayValues ?? []).filter((v) => Number.isFinite(v));
+      if (av.length >= 3) mean = 0.88 * mean + 0.12 * avg(av);
+    }
   }
 
   if (
@@ -196,10 +216,16 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
     else if (/strikeout|pitcher/i.test(ctx.market)) mean *= 1 - w * 0.06;
   }
 
-  // Family-specific Opportunity Shift (pre-sim). Caps enforced by the engine.
-  const oppMult = ctx.opportunityFamilyMult;
-  if (oppMult != null && Number.isFinite(oppMult) && oppMult > 0 && oppMult !== 1) {
-    mean *= clamp(oppMult, 0.82, 1.28);
+  // Pre-sim: Opportunity × Venue × Opponent Matchup (log-combined, capped).
+  // Prefer combinedPreSimMult when present; else Opportunity-only (legacy).
+  const combined = ctx.combinedPreSimMult;
+  if (combined != null && Number.isFinite(combined) && combined > 0 && combined !== 1) {
+    mean *= clamp(combined, 0.78, 1.35);
+  } else {
+    const oppMult = ctx.opportunityFamilyMult;
+    if (oppMult != null && Number.isFinite(oppMult) && oppMult > 0 && oppMult !== 1) {
+      mean *= clamp(oppMult, 0.82, 1.28);
+    }
   }
 
   return Math.max(0, mean);

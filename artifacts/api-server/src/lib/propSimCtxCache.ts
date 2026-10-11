@@ -24,6 +24,7 @@ import {
   lookupOpportunityShift,
   type OpportunityShiftTable,
 } from "./opportunityShift/index.js";
+import { buildPreSimShiftFactors } from "./preSimShift/index.js";
 
 /** Align with ESPN player-history cachedJson TTL. */
 export const PROPSIM_CTX_TTL_MS = 30 * 60_000;
@@ -113,6 +114,8 @@ export function propSimulationContextFromCached(
     ownKeyInjuries?: number;
     weatherImpact?: number | null;
     opportunityShift?: OpportunityShiftTable | null;
+    defenseIndex?: number | null;
+    coupledReceivingMatchupByTeam?: Map<string, number> | null;
   },
 ): PropSimulationContext {
   const opp = lookupOpportunityShift(game.opportunityShift, {
@@ -120,6 +123,24 @@ export function propSimulationContextFromCached(
     athleteId: req.athleteId,
     market: req.market,
     sport: req.sport,
+  });
+  const sideKey =
+    req.isHome === true ? "home" : req.isHome === false ? "away" : "";
+  const coupledReceiving =
+    (sideKey && game.coupledReceivingMatchupByTeam?.get(sideKey)) || null;
+  const pre = buildPreSimShiftFactors({
+    sport: req.sport,
+    market: req.market,
+    isHome: req.isHome,
+    seasonValues: cached.recentValues,
+    homeValues: cached.homeValues,
+    awayValues: cached.awayValues,
+    vsOpponentValues: cached.vsOpponentValues,
+    opportunityShift: opp.multiplier,
+    opportunityExplain: opp.explanation,
+    opportunityFamily: opp.family,
+    defenseIndex: game.defenseIndex ?? null,
+    coupledReceivingMatchup: coupledReceiving,
   });
   return {
     sport: req.sport,
@@ -141,10 +162,18 @@ export function propSimulationContextFromCached(
     weatherImpact: game.weatherImpact ?? null,
     discrete: cached.discrete,
     additionalLines: req.additionalLines,
-    opportunityFamilyMult: opp.multiplier,
-    opportunityFamily: opp.family,
-    opportunityExplain: opp.explanation,
+    opportunityFamilyMult: pre.opportunityShift,
+    opportunityFamily: pre.family ?? opp.family,
+    opportunityExplain: pre.opportunityExplain ?? opp.explanation,
     opportunitySuppressOwnInjuries: opp.suppressOwnKeyInjuries,
+    venueFamilyMult: pre.venueShift,
+    matchupFamilyMult: pre.opponentMatchupShift,
+    combinedPreSimMult: pre.combinedShift,
+    venueExplain: pre.venueExplain,
+    matchupExplain: pre.matchupExplain,
+    combinedPreSimExplain: pre.combinedExplain,
+    suppressSoftVenueBlend: pre.suppressSoftVenueBlend,
+    suppressSoftVsOpponentBlend: pre.suppressSoftVsOpponentBlend,
   };
 }
 

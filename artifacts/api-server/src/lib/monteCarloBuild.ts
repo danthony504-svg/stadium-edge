@@ -20,6 +20,10 @@ import {
   lookupOpportunityShift,
   type OpportunityShiftTable,
 } from "./opportunityShift/index.js";
+import {
+  buildPreSimShiftFactors,
+  type PreSimShiftFactors,
+} from "./preSimShift/index.js";
 
 export type PropSimNullReason =
   | "missing_athlete_id"
@@ -70,6 +74,13 @@ export type GameSimContext = {
   playerHistories?: Map<string, PlayerHistoryShape>;
   /** Built once per game — family-specific Opportunity Shift table. */
   opportunityShift?: OpportunityShiftTable | null;
+  /**
+   * Optional team-key → receiving matchup factor for QB pass coupling
+   * (built once per simulate batch from WR/TE histories).
+   */
+  coupledReceivingMatchupByTeam?: Map<string, number> | null;
+  /** Optional opp defense / league index (~1.0) for matchup shift. */
+  defenseIndex?: number | null;
 };
 
 /** Minimal game/context fields required to decide distribution sharing. */
@@ -143,6 +154,30 @@ export function buildPropSimulationContext(
     sport: req.sport,
   });
 
+  const homeValues = statSeries(req.market, homeGames, labels);
+  const awayValues = statSeries(req.market, awayGames, labels);
+
+  // Side key: "home" | "away" — populated by runPropSims for QB←WR coupling.
+  const sideKey =
+    req.isHome === true ? "home" : req.isHome === false ? "away" : "";
+  const coupledReceiving =
+    (sideKey && game.coupledReceivingMatchupByTeam?.get(sideKey)) || null;
+
+  const pre: PreSimShiftFactors = buildPreSimShiftFactors({
+    sport: req.sport,
+    market: req.market,
+    isHome: req.isHome,
+    seasonValues: recentValues,
+    homeValues,
+    awayValues,
+    vsOpponentValues,
+    opportunityShift: opp.multiplier,
+    opportunityExplain: opp.explanation,
+    opportunityFamily: opp.family,
+    defenseIndex: game.defenseIndex ?? null,
+    coupledReceivingMatchup: coupledReceiving,
+  });
+
   return {
     sport: req.sport,
     market: req.market,
@@ -150,8 +185,8 @@ export function buildPropSimulationContext(
     side: req.side,
     recentValues,
     vsOpponentValues,
-    homeValues: statSeries(req.market, homeGames, labels),
-    awayValues: statSeries(req.market, awayGames, labels),
+    homeValues,
+    awayValues,
     isHome: req.isHome ?? null,
     minutesL5: history.minutesTrend?.l5 ?? null,
     minutesSeason: history.minutesTrend?.season ?? null,
@@ -163,10 +198,18 @@ export function buildPropSimulationContext(
     weatherImpact: game.weatherImpact ?? null,
     discrete: isDiscreteCountMarket(req.market),
     additionalLines: req.additionalLines,
-    opportunityFamilyMult: opp.multiplier,
-    opportunityFamily: opp.family,
-    opportunityExplain: opp.explanation,
+    opportunityFamilyMult: pre.opportunityShift,
+    opportunityFamily: pre.family ?? opp.family,
+    opportunityExplain: pre.opportunityExplain ?? opp.explanation,
     opportunitySuppressOwnInjuries: opp.suppressOwnKeyInjuries,
+    venueFamilyMult: pre.venueShift,
+    matchupFamilyMult: pre.opponentMatchupShift,
+    combinedPreSimMult: pre.combinedShift,
+    venueExplain: pre.venueExplain,
+    matchupExplain: pre.matchupExplain,
+    combinedPreSimExplain: pre.combinedExplain,
+    suppressSoftVenueBlend: pre.suppressSoftVenueBlend,
+    suppressSoftVsOpponentBlend: pre.suppressSoftVsOpponentBlend,
   };
 }
 
