@@ -14,6 +14,7 @@ import {
   CRASH_RETENTION_MS,
   type SanitizedCrashEvent,
 } from "./reliabilitySanitize.js";
+import { mergeCrashMetadata } from "./reliabilityCrashMeta.js";
 import { allowTelegramWithoutSharedDedupe } from "./reliabilityPolicy.js";
 import {
   formatCriticalCrashAlert,
@@ -25,6 +26,7 @@ export type IngestOutcome = {
   accepted: boolean;
   deduped: boolean;
   alerted: boolean;
+  enriched?: boolean;
   shed?: boolean;
   id?: number;
 };
@@ -96,6 +98,45 @@ export async function ingestSanitizedCrash(
 
     if (existing[0]) {
       const row = existing[0];
+      const { patch, enriched } = mergeCrashMetadata(
+        {
+          updateId: row.updateId,
+          runtimeVersion: row.runtimeVersion,
+          channel: row.channel,
+          appVersion: row.appVersion,
+          bundleSource: row.bundleSource,
+          componentStack: row.componentStack,
+        },
+        {
+          updateId: event.updateId,
+          runtimeVersion: event.runtimeVersion,
+          channel: event.channel,
+          appVersion: event.appVersion,
+          bundleSource: event.bundleSource,
+          componentStack: event.componentStack,
+        },
+      );
+
+      // Metadata-only enrichment (ErrorFallback second pass): fill blanks, no
+      // occurrence bump, no Telegram — avoids paging twice for the same crash.
+      if (enriched && event.errorMessage === row.errorMessage) {
+        await db
+          .update(reliabilityEventsTable)
+          .set({
+            updatedAt: now,
+            errorStack: event.errorStack || row.errorStack,
+            ...patch,
+          })
+          .where(eq(reliabilityEventsTable.id, row.id));
+        return {
+          accepted: true,
+          deduped: true,
+          alerted: false,
+          enriched: true,
+          id: row.id,
+        };
+      }
+
       const nextCount = (row.occurrenceCount ?? 1) + 1;
       await db
         .update(reliabilityEventsTable)
@@ -104,16 +145,17 @@ export async function ingestSanitizedCrash(
           updatedAt: now,
           errorMessage: event.errorMessage,
           errorStack: event.errorStack || row.errorStack,
+          ...patch,
         })
         .where(eq(reliabilityEventsTable.id, row.id));
 
       const alerted = await sendCriticalAlertIfAllowed({
         fingerprint: event.fingerprint,
         errorMessage: event.errorMessage,
-        updateId: event.updateId,
-        runtimeVersion: event.runtimeVersion,
-        channel: event.channel,
-        appVersion: event.appVersion,
+        updateId: patch.updateId ?? event.updateId,
+        runtimeVersion: patch.runtimeVersion ?? event.runtimeVersion,
+        channel: patch.channel ?? event.channel,
+        appVersion: patch.appVersion ?? event.appVersion,
         platform: event.platform,
         occurrenceCount: nextCount,
         lastAlertedAt: row.lastAlertedAt,
@@ -121,7 +163,7 @@ export async function ingestSanitizedCrash(
         rowId: row.id,
         sharedDedupeAvailable: true,
       });
-      return { accepted: true, deduped: true, alerted, id: row.id };
+      return { accepted: true, deduped: true, alerted, enriched, id: row.id };
     }
 
     const inserted = await db

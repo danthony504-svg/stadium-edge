@@ -26,6 +26,19 @@
 
 Crash ingest rate limiting **fails closed** (503) if the limiter store errors. Hourly budget check **fails closed** (429 shed) if Postgres is unavailable.
 
+## Test / CI ingest hardening
+
+Mobile `reportCrash` **must not POST** from Node unit tests, CI, or cloud agents — even when `EXPO_PUBLIC_DOMAIN` is the production host. Gates:
+
+| Control | Where |
+|---------|--------|
+| RN/Hermes runtime detection | `artifacts/stadium-mobile/lib/crashReportingGate.ts` |
+| `CRASH_REPORTING_DISABLED=1` / `NODE_ENV=test` | `test/register-hooks.mjs`, `run-reliability-critical-tests.sh` |
+| Known fixture reject (`startup-render-fail` sentinel) | API `isKnownCrashTestFixture` (defense-in-depth) |
+| Metadata enrichment without Telegram re-alert | `mergeCrashMetadata` on dedupe path |
+
+Production iOS/Android reporting is unchanged (Hermes / `navigator.product === "ReactNative"`).
+
 ## Daily maintenance
 
 - Workflow: `.github/workflows/reliability-digest-cron.yml` (`0 13 * * *` UTC + `workflow_dispatch`)

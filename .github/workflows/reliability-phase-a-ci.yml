@@ -5,11 +5,14 @@ on:
   pull_request:
     paths:
       - "artifacts/stadium-mobile/lib/crashReporter*"
+      - "artifacts/stadium-mobile/lib/crashReportingGate*"
       - "artifacts/stadium-mobile/lib/crashDiagnostics*"
       - "artifacts/stadium-mobile/lib/installGlobalCrashHandlers*"
       - "artifacts/stadium-mobile/lib/scoreBreakdownCrash*"
       - "artifacts/stadium-mobile/lib/pickScore*"
       - "artifacts/stadium-mobile/lib/startupCrashPath*"
+      - "artifacts/stadium-mobile/test/register-hooks.mjs"
+      - "artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh"
       - "artifacts/stadium-mobile/components/ErrorBoundary.tsx"
       - "artifacts/stadium-mobile/components/ErrorFallback.tsx"
       - "artifacts/stadium-mobile/components/ScoreBreakdown.tsx"
@@ -37,10 +40,13 @@ on:
     branches: [main]
     paths:
       - "artifacts/stadium-mobile/lib/crashReporter*"
+      - "artifacts/stadium-mobile/lib/crashReportingGate*"
       - "artifacts/stadium-mobile/lib/installGlobalCrashHandlers*"
       - "artifacts/stadium-mobile/lib/scoreBreakdownCrash*"
       - "artifacts/stadium-mobile/lib/pickScore*"
       - "artifacts/stadium-mobile/lib/startupCrashPath*"
+      - "artifacts/stadium-mobile/test/register-hooks.mjs"
+      - "artifacts/stadium-mobile/scripts/run-reliability-critical-tests.sh"
       - "artifacts/api-server/src/lib/reliability*"
       - "artifacts/api-server/src/lib/telegramAlert.ts"
       - "artifacts/api-server/src/middlewares/reliabilityCrashBodyLimit.ts"

@@ -3,6 +3,11 @@ import module from "node:module";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+// Belt-and-suspenders: never let reportCrash POST to production during node:test,
+// even when the cloud-agent / CI env sets EXPO_PUBLIC_DOMAIN to the live API host.
+process.env.CRASH_REPORTING_DISABLED = "1";
+if (!process.env.NODE_ENV) process.env.NODE_ENV = "test";
+
 const ROOT = new URL("../", import.meta.url).href;
 const FAKE_EXPO_FETCH = new URL("./fakes/expo-fetch.ts", import.meta.url).href;
 const PICKCARD_STUB = new URL("./fakes/PickCardStub.ts", import.meta.url).href;

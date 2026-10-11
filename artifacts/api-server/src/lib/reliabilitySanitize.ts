@@ -3,6 +3,8 @@
  * Never persist emails, tokens, secrets, or oversized blobs.
  */
 
+import { isKnownCrashTestFixture } from "./reliabilityCrashMeta.js";
+
 const REDACT = "[redacted]";
 
 const SECRET_PATTERNS: RegExp[] = [
@@ -121,6 +123,8 @@ export function parseAndSanitizeCrashBody(
   if (!errorMessage) return null;
   const errorStack = shortField(body.errorStack, CRASH_MAX_STACK);
   const componentStack = shortField(body.componentStack, CRASH_MAX_COMPONENT);
+  // Defense-in-depth: drop known unit-test fixture payloads if a harness leaks.
+  if (isKnownCrashTestFixture(errorMessage, errorStack)) return null;
   const sessionId = shortField(body.sessionId, 64);
   if (!sessionId || !/^[A-Za-z0-9_-]{8,64}$/.test(sessionId)) return null;
 

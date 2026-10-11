@@ -54,6 +54,14 @@ test("anonymous session id is stable within process", () => {
 
 test("reportCrash is nonblocking and never throws; dedupes identical crashes", async () => {
   _resetCrashReporterForTests();
+  const previousFlag = process.env.EXPO_PUBLIC_CRASH_REPORTING;
+  const previousDisable = process.env.CRASH_REPORTING_DISABLED;
+  const previousNodeEnv = process.env.NODE_ENV;
+  // Opt into network so we can assert client dedupe against a mock fetch.
+  process.env.EXPO_PUBLIC_CRASH_REPORTING = "1";
+  delete process.env.CRASH_REPORTING_DISABLED;
+  delete process.env.NODE_ENV;
+
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = (async () => {
@@ -75,6 +83,80 @@ test("reportCrash is nonblocking and never throws; dedupes identical crashes", a
     assert.equal(calls, 1, "client dedupe must send at most one POST");
   } finally {
     globalThis.fetch = originalFetch;
+    if (previousFlag === undefined) delete process.env.EXPO_PUBLIC_CRASH_REPORTING;
+    else process.env.EXPO_PUBLIC_CRASH_REPORTING = previousFlag;
+    if (previousDisable === undefined) delete process.env.CRASH_REPORTING_DISABLED;
+    else process.env.CRASH_REPORTING_DISABLED = previousDisable;
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+});
+
+test("OTA enrichment bypasses message dedupe once (fail-soft, non-recursive)", async () => {
+  _resetCrashReporterForTests();
+  const previousFlag = process.env.EXPO_PUBLIC_CRASH_REPORTING;
+  const previousDisable = process.env.CRASH_REPORTING_DISABLED;
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.EXPO_PUBLIC_CRASH_REPORTING = "1";
+  delete process.env.CRASH_REPORTING_DISABLED;
+  delete process.env.NODE_ENV;
+
+  const originalFetch = globalThis.fetch;
+  const bodies: Array<{ updateId?: string }> = [];
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body || "{}")));
+    return new Response(JSON.stringify({ ok: true }), { status: 202 });
+  }) as typeof fetch;
+  try {
+    reportCrash({
+      errorMessage: "render boom",
+      errorStack: "Error: render boom",
+    });
+    reportCrash({
+      errorMessage: "render boom",
+      errorStack: "Error: render boom",
+      ota: {
+        updateId: "01a1283b-9959-701e-aa25-63ef471e321f",
+        runtimeVersion: "1.1.0",
+        channel: "production",
+        bundleSource: "ota",
+        isEmbeddedLaunch: false,
+        isEmergencyLaunch: false,
+        updatePreviouslyFailed: false,
+        failedLaunchCount: 0,
+      },
+      appVersion: "1.1.0",
+    });
+    // Second enrichment with same OTA must not storm.
+    reportCrash({
+      errorMessage: "render boom",
+      errorStack: "Error: render boom",
+      ota: {
+        updateId: "01a1283b-9959-701e-aa25-63ef471e321f",
+        runtimeVersion: "1.1.0",
+        channel: "production",
+        bundleSource: "ota",
+        isEmbeddedLaunch: false,
+        isEmergencyLaunch: false,
+        updatePreviouslyFailed: false,
+        failedLaunchCount: 0,
+      },
+      appVersion: "1.1.0",
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(bodies.length, 2, "initial + one enrichment");
+    assert.ok(
+      bodies.some((b) => String(b.updateId ?? "").startsWith("01a1283b")),
+      "enrichment POST must carry real updateId",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousFlag === undefined) delete process.env.EXPO_PUBLIC_CRASH_REPORTING;
+    else process.env.EXPO_PUBLIC_CRASH_REPORTING = previousFlag;
+    if (previousDisable === undefined) delete process.env.CRASH_REPORTING_DISABLED;
+    else process.env.CRASH_REPORTING_DISABLED = previousDisable;
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
   }
 });
 
