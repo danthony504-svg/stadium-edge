@@ -252,7 +252,12 @@ export async function reliabilityDigestStats(
         lastCriticalAt: sql<Date | null>`max(${reliabilityEventsTable.updatedAt})`,
       })
       .from(reliabilityEventsTable)
-      .where(gt(reliabilityEventsTable.updatedAt, since));
+      .where(
+        and(
+          eq(reliabilityEventsTable.severity, "critical"),
+          gt(reliabilityEventsTable.updatedAt, since),
+        ),
+      );
     const row = rows[0];
     const last = row?.lastCriticalAt;
     return {

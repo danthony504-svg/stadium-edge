@@ -1,0 +1,86 @@
+# Reliability Center — ops model (Phases 1–3)
+
+Extends Phase A crash Telegram with **90-minute health monitoring** and
+**AI Coach fulfillment / integrity** alerts. Observe-only for Coach — no
+selection, grading, simulation, or UI logic changes.
+
+## Why the daily digest had 0 GitHub Actions runs
+
+| Fact | Detail |
+|------|--------|
+| Workflow | `.github/workflows/reliability-digest-cron.yml` |
+| GitHub state | `active` on default branch `main` |
+| Schedule | `0 13 * * *` UTC (+ `workflow_dispatch`) |
+| Landed on main | 2026-10-10 ~19:19 UTC (`1080dd8e`) — **after** that day's 13:00 slot |
+| First scheduled fire | Next 13:00 UTC **on or after** the day the workflow reached `main` |
+| Manual dispatch | Requires repo `actions: write` — cloud agent token got HTTP 403 |
+
+So zero runs was **not** a missing secret or disabled workflow — the first
+cron slot had not occurred yet after merge. This PR also hardens the workflow
+(`permissions`, `concurrency`, longer curl timeout) and adds the 90m health cron.
+
+## Schedules
+
+| Job | Workflow | Cadence | Endpoint |
+|-----|----------|---------|----------|
+| Daily digest + prune | `reliability-digest-cron.yml` | 13:00 UTC daily | `POST /api/reliability/cron/digest` |
+| Health monitor | `reliability-health-cron.yml` | every ~90 min | `POST /api/reliability/cron/health` |
+
+Both require header `x-cron-key: $NOTIFY_CRON_KEY` (Actions secret / Render env).
+Optional URL overrides: `vars.RELIABILITY_DIGEST_URL`, `vars.RELIABILITY_HEALTH_URL`.
+
+## 90-minute health checks
+
+| Check id | What |
+|----------|------|
+| `website` | `https://stadiumedge.app` HTTP |
+| `api` | `/api/healthz` (loopback then public) |
+| `ssl` | TLS handshake via HTTPS healthz |
+| `response_time` | healthz latency vs budget (default 12s) |
+| `database` | `select 1` |
+| `odds_feed` | `/api/sports/odds?sport=nfl` |
+| `player_props` | `/api/sports/props` after odds event id |
+| `ai_coach` | healthz `ai` + `chat` probes |
+| `game_simulator` | `POST /api/sports/simulate/game-outcome` |
+| `steals_scanner` | `/api/sports/live-steals` (+500 scanner) |
+
+Telegram: **fail** and **recovery** only (fingerprint-deduped, 30m quiet window).
+Daily healthy summary is the digest — health cron does not spam "all OK".
+
+Synthetic failures (staging): `workflow_dispatch` input `synthetic_fail` JSON
+object of `checkId → detail`, posted as `{ "syntheticFail": … }`.
+
+## Coach monitoring
+
+| Source | Events |
+|--------|--------|
+| Server `POST /chat` | parlay request/fulfill/underfill/zero, timeout, exception, Q&A |
+| Mobile board scan | grounding, odds mismatch, ALT/props empty, sim failure, scan freeze |
+
+Underfill with real odds present → `legitimate_underfill` (**digest only**).
+System failures page Telegram with `requestId`, `category`, `sport`, optional
+`affectedGame`, sanitized `rootCause` — no emails / Clerk ids / raw asks.
+
+Mobile POST: `POST /api/reliability/coach-events` (rate-limited). Uses the same
+RN/test gate as crash reporting — Node unit tests never hit production.
+
+Test fixtures (`requestId=reliability-synthetic`, `testFixture: true`) are
+accepted with `202` but **never** Telegram-alerted.
+
+## Env
+
+| Env | Purpose |
+|-----|---------|
+| `TELEGRAM_BOT_TOKEN` | Bot API token (server only) |
+| `TELEGRAM_CHAT_ID` | Destination chat |
+| `RELIABILITY_TELEGRAM_ENABLED` | `0` disables sends |
+| `NOTIFY_CRON_KEY` | Cron auth (server + Actions) |
+| `RELIABILITY_PUBLIC_API_BASE` | Override API host for probes |
+| `RELIABILITY_PUBLIC_WEBSITE_URL` | Override marketing site |
+| `RELIABILITY_RESPONSE_TIME_BUDGET_MS` | Latency budget (default 12000) |
+
+## Deploy note
+
+Server routes + workflows take effect after **API deploy** + merge to `main`.
+Mobile Coach scan reporting needs an **OTA** (gated — do not publish without approval).
+Until OTA, server chat-path Coach monitoring still works once the API is deployed.

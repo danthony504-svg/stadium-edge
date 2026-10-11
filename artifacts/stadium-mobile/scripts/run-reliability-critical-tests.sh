@@ -19,13 +19,14 @@ echo "== Mobile crash / ScoreBreakdown / startup / global handlers =="
     lib/crashDiagnostics.test.ts \
     lib/scoreBreakdownCrash.test.ts \
     lib/startupCrashPath.test.ts \
-    lib/installGlobalCrashHandlers.test.ts
+    lib/installGlobalCrashHandlers.test.ts \
+    lib/coachReliabilityReporter.test.ts
   node --import ./test/register-hooks.mjs --test \
     --test-name-pattern='normalizeCombinedPickScore|ScoreBreakdown crash|mixed list|reproduces device|fix:|mixed VirtualizedList' \
     lib/pickScore.test.ts
 )
 
-echo "== API reliability sanitize / Telegram / abuse / gates =="
+echo "== API reliability sanitize / Telegram / abuse / gates / Coach / health =="
 (
   cd "$API"
   node --import ./test/register-hooks.mjs --test \
@@ -36,7 +37,9 @@ echo "== API reliability sanitize / Telegram / abuse / gates =="
     test/reliabilityCrashStorePolicy.test.ts \
     test/reliabilityBodyLimit.test.ts \
     test/reliabilityOtaWorkflowGates.test.ts \
-    test/reliabilityPolicy.test.ts
+    test/reliabilityPolicy.test.ts \
+    test/coachReliability.test.ts \
+    test/reliabilityHealth.test.ts
 )
 
 echo "Reliability critical tests PASSED."

@@ -105,3 +105,13 @@ test("digest cron workflow is scheduled and uses secret cron key (not client)", 
   assert.match(src, /reliability\/cron\/digest/);
   assert.equal(src.includes("EXPO_PUBLIC_"), false);
 });
+
+test("health cron workflow is scheduled ~90m and uses secret cron key (not client)", () => {
+  const src = readWf("reliability-health-cron.yml");
+  assert.match(src, /schedule:/);
+  assert.match(src, /0 0,3,6,9,12,15,18,21/);
+  assert.match(src, /30 1,4,7,10,13,16,19,22/);
+  assert.match(src, /NOTIFY_CRON_KEY/);
+  assert.match(src, /reliability\/cron\/health/);
+  assert.equal(src.includes("EXPO_PUBLIC_"), false);
+});

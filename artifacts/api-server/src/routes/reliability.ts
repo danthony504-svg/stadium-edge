@@ -1,5 +1,5 @@
 /**
- * Phase A reliability ingest — public crash POST (rate-limited), cron digest.
+ * Reliability Center — crash ingest, Coach events, daily digest, 90m health.
  * No owner dashboard in this phase. No secrets required from the mobile client.
  */
 
@@ -10,10 +10,24 @@ import {
   parseAndSanitizeCrashBody,
 } from "../lib/reliabilitySanitize";
 import {
+  COACH_EVENT_MAX_BODY_BYTES,
+  isCoachReliabilityTestFixture,
+  parseCoachReliabilityIngestBody,
+} from "../lib/coachReliabilityIngest";
+import {
+  coachReliabilityDigestStats,
+  recordCoachReliabilityEvent,
+} from "../lib/coachReliabilityStore";
+import {
   ingestSanitizedCrash,
   pruneReliabilityEvents,
   reliabilityDigestStats,
 } from "../lib/reliabilityCrashStore";
+import {
+  runReliabilityHealthChecks,
+  summarizeHealthChecks,
+} from "../lib/reliabilityHealthChecks";
+import { runReliabilityHealthMonitor } from "../lib/reliabilityHealthStore";
 import {
   checkReliabilityHourlyBudget,
   crashIngestRateLimit,
@@ -23,6 +37,7 @@ import {
   formatDailyHealthySummary,
   sendTelegramMessage,
 } from "../lib/telegramAlert";
+import type { HealthCheckId } from "../lib/reliabilityHealthChecks";
 
 const router: IRouter = Router();
 
@@ -38,15 +53,34 @@ const crashHourlyLimiter = crashIngestRateLimit({
   name: "reliability-crashes-hour",
 });
 
-function rawBodyTooLarge(req: Request): boolean {
+const coachEventLimiter = crashIngestRateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  name: "reliability-coach-events",
+});
+
+function rawBodyTooLarge(req: Request, maxBytes: number): boolean {
   const len = Number(req.headers["content-length"] || 0);
-  if (Number.isFinite(len) && len > CRASH_MAX_BODY_BYTES) return true;
+  if (Number.isFinite(len) && len > maxBytes) return true;
   try {
     const encoded = JSON.stringify(req.body ?? {});
-    return Buffer.byteLength(encoded, "utf8") > CRASH_MAX_BODY_BYTES;
+    return Buffer.byteLength(encoded, "utf8") > maxBytes;
   } catch {
     return true;
   }
+}
+
+function cronAuthorized(req: Request, res: Response): boolean {
+  const key = process.env.NOTIFY_CRON_KEY;
+  if (!key) {
+    res.status(503).json({ error: "cron not configured" });
+    return false;
+  }
+  if (req.get("x-cron-key") !== key) {
+    res.status(403).json({ error: "forbidden" });
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -59,7 +93,7 @@ router.post(
   crashLimiter,
   crashHourlyLimiter,
   async (req: Request, res: Response) => {
-    if (rawBodyTooLarge(req)) {
+    if (rawBodyTooLarge(req, CRASH_MAX_BODY_BYTES)) {
       res.status(413).json({ error: "payload too large" });
       return;
     }
@@ -104,6 +138,49 @@ router.post(
 );
 
 /**
+ * POST /api/reliability/coach-events
+ * Observe-only Coach integrity / fulfillment events from mobile scan path.
+ * Never blocks Coach; fixtures are accepted but never Telegram-alerted.
+ */
+router.post(
+  "/reliability/coach-events",
+  coachEventLimiter,
+  async (req: Request, res: Response) => {
+    if (rawBodyTooLarge(req, COACH_EVENT_MAX_BODY_BYTES)) {
+      res.status(413).json({ error: "payload too large" });
+      return;
+    }
+    if (isCoachReliabilityTestFixture(req.body)) {
+      res.status(202).json({
+        ok: true,
+        accepted: false,
+        fixture: true,
+        alerted: false,
+      });
+      return;
+    }
+    const event = parseCoachReliabilityIngestBody(req.body);
+    if (!event) {
+      res.status(400).json({ error: "invalid coach reliability payload" });
+      return;
+    }
+    try {
+      // Fire-and-forget style response: await store but never throw to client.
+      const outcome = await recordCoachReliabilityEvent(event);
+      res.status(202).json({
+        ok: true,
+        accepted: outcome.accepted,
+        deduped: outcome.deduped,
+        alerted: outcome.alerted,
+      });
+    } catch (err) {
+      logger.warn({ err }, "reliability coach-events route failed");
+      res.status(202).json({ ok: true, accepted: false });
+    }
+  },
+);
+
+/**
  * POST /api/reliability/cron/digest
  * Daily healthy (or summary) Telegram + retention prune.
  * Guarded by NOTIFY_CRON_KEY (same as notifications cron).
@@ -111,25 +188,39 @@ router.post(
  */
 router.post("/reliability/cron/digest", async (req, res) => {
   const started = Date.now();
-  const key = process.env.NOTIFY_CRON_KEY;
-  if (!key) {
-    res.status(503).json({ error: "cron not configured" });
-    return;
-  }
-  if (req.get("x-cron-key") !== key) {
-    res.status(403).json({ error: "forbidden" });
-    return;
-  }
+  if (!cronAuthorized(req, res)) return;
   try {
     // Prune first — retention must run even if Telegram is off.
     const pruned = await pruneReliabilityEvents();
     const stats = await reliabilityDigestStats(24);
-    const text = formatDailyHealthySummary(stats);
+    const coach = await coachReliabilityDigestStats(24);
+    // Snapshot only — individual fail/recovery pages come from the 90m monitor.
+    let healthOk: boolean | null = null;
+    let healthFailed: string[] | null = null;
+    try {
+      const checks = await runReliabilityHealthChecks({});
+      const summary = summarizeHealthChecks(checks);
+      healthOk = summary.ok;
+      healthFailed = summary.failed;
+    } catch {
+      healthOk = null;
+      healthFailed = null;
+    }
+
+    const text = formatDailyHealthySummary({
+      ...stats,
+      coach,
+      healthOk,
+      healthFailed,
+    });
     const sent = await sendTelegramMessage(text);
     res.json({
       ok: true,
       pruned,
       stats,
+      coach,
+      healthOk,
+      healthFailed,
       telegram: sent,
       durationMs: Date.now() - started,
       model: reliabilitySecurityModelSummary(),
@@ -137,6 +228,44 @@ router.post("/reliability/cron/digest", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "reliability digest cron failed");
     res.status(500).json({ error: "digest failed" });
+  }
+});
+
+/**
+ * POST /api/reliability/cron/health
+ * 90-minute health monitor — Telegram only on failure / recovery.
+ */
+router.post("/reliability/cron/health", async (req, res) => {
+  const started = Date.now();
+  if (!cronAuthorized(req, res)) return;
+  try {
+    const synthetic =
+      req.body &&
+      typeof req.body === "object" &&
+      (req.body as { syntheticFail?: unknown }).syntheticFail;
+    const forceFail =
+      synthetic && typeof synthetic === "object"
+        ? (synthetic as Record<string, string>)
+        : undefined;
+
+    const outcome = await runReliabilityHealthMonitor({
+      forceFail: forceFail as Partial<Record<HealthCheckId, string>> | undefined,
+    });
+    res.json({
+      ok: true,
+      healthy: outcome.ok,
+      failed: outcome.failed,
+      passed: outcome.passed,
+      alerted: outcome.alerted,
+      recovered: outcome.recovered,
+      deduped: outcome.deduped,
+      checks: outcome.checks,
+      durationMs: Date.now() - started,
+      model: reliabilitySecurityModelSummary(),
+    });
+  } catch (err) {
+    logger.error({ err }, "reliability health cron failed");
+    res.status(500).json({ error: "health cron failed" });
   }
 });
 

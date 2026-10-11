@@ -45,6 +45,7 @@ Production iOS/Android reporting is unchanged (Hermes / `navigator.product === "
 - Endpoint: `POST /api/reliability/cron/digest` with header `x-cron-key: $NOTIFY_CRON_KEY`
 - Server always runs **14-day prune** before Telegram; Telegram may skip when disabled/`RELIABILITY_TELEGRAM_ENABLED=0`
 - `NOTIFY_CRON_KEY` is a server/Actions secret only — never `EXPO_PUBLIC_*`
+- **90-minute health + Coach monitoring:** see `RELIABILITY_CENTER_OPS.md`
 
 ## Telegram
 

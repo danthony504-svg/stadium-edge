@@ -43,25 +43,166 @@ export function formatCriticalCrashAlert(event: {
     .join("\n");
 }
 
+export type CoachDigestTelegramStats = {
+  totalRequests: number;
+  successfulRequests: number;
+  fulfillmentPct: number | null;
+  underfillCount: number;
+  legitimateUnderfillCount?: number;
+  zeroResultCount: number;
+  questionFailureCount: number;
+  groundingFailureCount?: number;
+  altMarketFailureCount?: number;
+  simulationFailureCount?: number;
+  scanFreezeCount?: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  topFailureReasons: Array<{ reason: string; count: number }>;
+};
+
+export function formatCoachReliabilityAlert(event: {
+  eventType: string;
+  summary: string;
+  sportCategory: string;
+  requestedLegCount: number | null;
+  returnedLegCount: number | null;
+  durationMs: number | null;
+  failureReason: string;
+  failureCategory?: string | null;
+  realOddsAvailable: boolean | null;
+  qualificationFiltersEliminated: boolean | null;
+  requestId?: string | null;
+  affectedGame?: string | null;
+  rootCause?: string | null;
+  occurrenceCount?: number;
+}): string {
+  const n = event.occurrenceCount ?? 1;
+  const legs =
+    event.requestedLegCount != null
+      ? `${event.returnedLegCount ?? 0}/${event.requestedLegCount}`
+      : "—";
+  return [
+    "⚠️ Stadium Edge Coach alert",
+    `type: ${event.eventType}`,
+    `category: ${event.failureCategory ?? "—"}`,
+    `summary: ${event.summary}`,
+    `sport: ${event.sportCategory}`,
+    `legs: ${legs}`,
+    `reason: ${event.failureReason}`,
+    event.requestId ? `requestId: ${event.requestId}` : null,
+    event.affectedGame ? `game: ${event.affectedGame}` : null,
+    event.rootCause ? `rootCause: ${event.rootCause}` : null,
+    event.durationMs != null ? `durationMs: ${event.durationMs}` : null,
+    event.realOddsAvailable != null
+      ? `realOddsAvailable: ${event.realOddsAvailable}`
+      : null,
+    event.qualificationFiltersEliminated != null
+      ? `qualificationFiltersEliminated: ${event.qualificationFiltersEliminated}`
+      : null,
+    n > 1 ? `occurrences: ${n} (deduped)` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatCoachDailyDigestSection(
+  coach: CoachDigestTelegramStats,
+): string {
+  const top =
+    coach.topFailureReasons.length > 0
+      ? coach.topFailureReasons
+          .map((r) => `${r.reason}:${r.count}`)
+          .join(", ")
+      : "—";
+  return [
+    "🤖 Coach fulfillment",
+    `requests: ${coach.totalRequests}`,
+    `successful parlays: ${coach.successfulRequests}`,
+    `fulfillment: ${coach.fulfillmentPct == null ? "—" : `${coach.fulfillmentPct}%`}`,
+    `underfill: ${coach.underfillCount}` +
+      (coach.legitimateUnderfillCount != null
+        ? ` (legit ${coach.legitimateUnderfillCount})`
+        : "") +
+      ` · zero: ${coach.zeroResultCount}`,
+    `question failures: ${coach.questionFailureCount}`,
+    `grounding/alt/sim/freeze: ${coach.groundingFailureCount ?? 0}/${coach.altMarketFailureCount ?? 0}/${coach.simulationFailureCount ?? 0}/${coach.scanFreezeCount ?? 0}`,
+    `p50/p95 ms: ${coach.p50Ms ?? "—"} / ${coach.p95Ms ?? "—"}`,
+    `top failures: ${top}`,
+  ].join("\n");
+}
+
+export function formatHealthFailureAlert(event: {
+  checkId: string;
+  detail: string;
+  latencyMs: number;
+  httpStatus?: number;
+  occurrenceCount?: number;
+}): string {
+  const n = event.occurrenceCount ?? 1;
+  return [
+    "🚨 Stadium Edge health check FAILED",
+    `check: ${event.checkId}`,
+    `detail: ${event.detail}`,
+    `latencyMs: ${event.latencyMs}`,
+    event.httpStatus != null ? `http: ${event.httpStatus}` : null,
+    n > 1 ? `occurrences: ${n} (deduped)` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatHealthRecoveryAlert(event: {
+  checkId: string;
+  detail: string;
+  latencyMs: number;
+}): string {
+  return [
+    "✅ Stadium Edge health check RECOVERED",
+    `check: ${event.checkId}`,
+    `detail: ${event.detail}`,
+    `latencyMs: ${event.latencyMs}`,
+  ].join("\n");
+}
+
 export function formatDailyHealthySummary(stats: {
   windowHours: number;
   criticalCount: number;
   distinctFingerprints: number;
   lastCriticalAt: string | null;
+  coach?: CoachDigestTelegramStats | null;
+  healthOk?: boolean | null;
+  healthFailed?: string[] | null;
 }): string {
+  const coachBlock = stats.coach
+    ? ["", formatCoachDailyDigestSection(stats.coach)]
+    : [];
+  const healthLine =
+    stats.healthOk == null
+      ? null
+      : stats.healthOk
+        ? "Health: all checks OK (last 90m window)"
+        : `Health: FAILING ${ (stats.healthFailed ?? []).join(", ") || "checks" }`;
   if (stats.criticalCount === 0) {
     return [
       "✅ Stadium Edge reliability — healthy",
       `Last ${stats.windowHours}h: 0 critical crashes`,
       "Ingest + Telegram path OK",
-    ].join("\n");
+      healthLine,
+      ...coachBlock,
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
   return [
     "⚠️ Stadium Edge reliability — daily summary",
     `Last ${stats.windowHours}h: ${stats.criticalCount} critical report(s)`,
     `Distinct fingerprints: ${stats.distinctFingerprints}`,
     `Last critical: ${stats.lastCriticalAt ?? "—"}`,
-  ].join("\n");
+    healthLine,
+    ...coachBlock,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Pure helper: should we page Telegram for this fingerprint? */

@@ -8,8 +8,10 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Bounded crash / reliability events from the mobile JS reporter.
+ * Bounded crash / reliability events from the mobile JS reporter,
+ * server-side Coach fulfillment monitors, and 90-minute health checks.
  * No emails, tokens, or full API payloads — sanitized fields only.
+ * severity: "critical" | "coach" | "health"
  */
 export const reliabilityEventsTable = pgTable(
   "reliability_events",
@@ -19,6 +21,7 @@ export const reliabilityEventsTable = pgTable(
     fingerprint: text("fingerprint").notNull(),
     severity: text("severity").notNull().default("critical"),
     errorMessage: text("error_message").notNull(),
+    /** Crash stack, or sanitized Coach/health metadata JSON. */
     errorStack: text("error_stack"),
     componentStack: text("component_stack"),
     updateId: text("update_id"),
