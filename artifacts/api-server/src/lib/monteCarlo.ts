@@ -53,6 +53,9 @@ export type PropSimulationContext = {
   venueFamilyMult?: number | null;
   matchupFamilyMult?: number | null;
   combinedPreSimMult?: number | null;
+  volumePreSimMult?: number | null;
+  efficiencyPreSimMult?: number | null;
+  preSimShiftKind?: "volume" | "efficiency" | "neutral" | null;
   venueExplain?: string | null;
   matchupExplain?: string | null;
   combinedPreSimExplain?: string | null;

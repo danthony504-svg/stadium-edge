@@ -9,14 +9,19 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
 
-/** Families that must never receive a shift (unsupported / non-seatable today). */
+/**
+ * Families that must never receive a shift (unsupported / non-seatable today).
+ *
+ * Note: NBA/WNBA "assists" ARE seatable — soccer assists are blocked via the
+ * sport-specific check in opportunityMarketFamily / isFamilyShiftAllowed.
+ * Do not put basketball assists in this global set.
+ */
 export const NON_SEATABLE_FAMILIES: ReadonlySet<string> = new Set([
-  // Soccer
+  // Soccer (assists blocked per-sport below)
   "cards",
   "yellow_cards",
   "red_cards",
-  "assists", // soccer assists unsupported
-  // NHL
+  // NHL — goalie saves not modeled in prop MC today
   "saves",
   "player_saves",
   // MLB
@@ -63,6 +68,9 @@ const DIRECT: Record<string, string> = {
   receptions: "receptions",
   player_reception_longest: "rec_longest",
   rec_longest: "rec_longest",
+  player_targets: "targets",
+  targets: "targets",
+  receiving_targets: "targets",
   player_anytime_td: "anytime_td",
   anytime_td: "anytime_td",
   player_1st_td: "first_td",
@@ -152,6 +160,7 @@ export function opportunityMarketFamily(
     else if (/rush\s*yd|rushing yards/.test(m)) fam = "rush_yds";
     else if (/rec(eption)?\s*yd|receiving yards/.test(m)) fam = "rec_yds";
     else if (/\breceptions?\b/.test(m)) fam = "receptions";
+    else if (/\btargets?\b/.test(m)) fam = "targets";
     else if (/rush\s*attempts?|carries/.test(m)) fam = "rush_attempts";
     else if (/pass\s*attempts?/.test(m)) fam = "pass_attempts";
     else if (/pass\s*completions?/.test(m)) fam = "pass_completions";
@@ -184,6 +193,7 @@ export function isFamilyShiftAllowed(
   const sp = String(sport ?? "").toLowerCase();
   if (sp === "tennis" || sp === "ufc" || sp === "mma") return false;
   if (sp === "ncaaf" && family === "sacks") return false;
+  if (sp === "soccer" && (family === "assists" || family === "cards")) return false;
   if (NON_SEATABLE_FAMILIES.has(family)) return false;
   return true;
 }

@@ -18,10 +18,12 @@ import type { CachedPropDistribution } from "./propDistributionCache.js";
 import type { SimTier } from "./simCache.js";
 import {
   lookupOpportunityShift,
+  opportunityMarketFamily,
   type OpportunityShiftTable,
 } from "./opportunityShift/index.js";
 import {
   buildPreSimShiftFactors,
+  filterSeriesForMarket,
   type PreSimShiftFactors,
 } from "./preSimShift/index.js";
 
@@ -42,14 +44,27 @@ export type SimPropRequest = {
   opponentTeamId?: string | null;
   homeTeamId?: string | null;
   awayTeamId?: string | null;
+  /** ESPN team id for the player's own side (never inferred from name). */
+  playerTeamId?: string | null;
   /** Extra alt rungs scored on the same 10k draw as `line`. */
   additionalLines?: number[];
 };
 
+export type HistoryGameRow = {
+  stats: Record<string, string>;
+  isHome?: boolean | null;
+  opponentId?: string | null;
+  periodTag?: string | null;
+};
+
 export type PlayerHistoryShape = {
   labels: string[];
-  recent: Array<{ stats: Record<string, string>; isHome?: boolean | null; opponentId?: string | null }>;
-  vsOpponent: Array<{ stats: Record<string, string> }>;
+  recent: HistoryGameRow[];
+  vsOpponent: HistoryGameRow[];
+  /** Full-season (or all available) games for venue baseline — preferred over recent-only. */
+  seasonGames?: HistoryGameRow[];
+  seasonHome?: HistoryGameRow[];
+  seasonAway?: HistoryGameRow[];
   homeSplit?: { games: number; averages: Record<string, number> };
   awaySplit?: { games: number; averages: Record<string, number> };
   minutesTrend?: {
@@ -81,6 +96,8 @@ export type GameSimContext = {
   coupledReceivingMatchupByTeam?: Map<string, number> | null;
   /** Optional opp defense / league index (~1.0) for matchup shift. */
   defenseIndex?: number | null;
+  /** Optional per-family defense indices (already normalized ≈1). */
+  defenseIndexByFamily?: Record<string, number> | null;
 };
 
 /** Minimal game/context fields required to decide distribution sharing. */
@@ -97,16 +114,34 @@ export type SharedDistGameContext = {
 
 function statSeries(
   market: string,
-  games: Array<{ stats: Record<string, string> }>,
+  games: Array<{ stats: Record<string, string>; periodTag?: string | null }>,
   labels: string[],
-): number[] {
+): { values: number[]; tags: string[] } {
   const ambiguous = computeAmbiguous(labels);
-  const out: number[] = [];
+  const values: number[] = [];
+  const tags: string[] = [];
   for (const g of games) {
     const v = gameValueForMarket(market, g.stats, ambiguous);
-    if (v != null && Number.isFinite(v)) out.push(v);
+    if (v != null && Number.isFinite(v)) {
+      values.push(v);
+      tags.push(String(g.periodTag ?? "full"));
+    }
   }
-  return out;
+  // Live-path period isolation: drop period-tagged rows for full-game markets.
+  const filtered = filterSeriesForMarket(market, values, tags);
+  // Rebuild tags aligned to filtered values (filterSeriesForMarket drops by index).
+  if (filtered.length === values.length) return { values, tags };
+  const outVals: number[] = [];
+  const outTags: string[] = [];
+  for (let i = 0; i < values.length; i++) {
+    const tag = tags[i] ?? "full";
+    const keep = filterSeriesForMarket(market, [values[i]!], [tag]);
+    if (keep.length) {
+      outVals.push(values[i]!);
+      outTags.push(tag);
+    }
+  }
+  return { values: outVals, tags: outTags };
 }
 
 function keyInjuryWeight(entries: Array<{ status?: string }> | undefined): number {
@@ -127,7 +162,7 @@ export function diagnosePropSimNullReason(
   if (!req.athleteId) return "missing_athlete_id";
   if (!history?.recent?.length) return "no_history";
   const labels = history.labels ?? [];
-  const recentValues = statSeries(req.market, history.recent, labels);
+  const { values: recentValues } = statSeries(req.market, history.recent, labels);
   if (recentValues.length === 0) return "stat_mapping_failed";
   if (recentValues.length < 3) return "insufficient_sample";
   return "insufficient_sample";
@@ -140,12 +175,31 @@ export function buildPropSimulationContext(
 ): PropSimulationContext | null {
   if (!history?.recent?.length) return null;
   const labels = history.labels ?? [];
-  const recentValues = statSeries(req.market, history.recent, labels);
+  const { values: recentValues } = statSeries(req.market, history.recent, labels);
   if (recentValues.length < 3) return null;
 
-  const vsOpponentValues = statSeries(req.market, history.vsOpponent ?? [], labels);
-  const homeGames = history.recent.filter((g) => g.isHome === true);
-  const awayGames = history.recent.filter((g) => g.isHome === false);
+  const seasonGames = history.seasonGames?.length ? history.seasonGames : history.recent;
+  const seasonHome = history.seasonHome?.length
+    ? history.seasonHome
+    : history.recent.filter((g) => g.isHome === true);
+  const seasonAway = history.seasonAway?.length
+    ? history.seasonAway
+    : history.recent.filter((g) => g.isHome === false);
+
+  const seasonSeries = statSeries(req.market, seasonGames, labels);
+  const vsSeries = statSeries(req.market, history.vsOpponent ?? [], labels);
+  const homeSeries = statSeries(req.market, seasonHome, labels);
+  const awaySeries = statSeries(req.market, seasonAway, labels);
+  const recentHome = statSeries(
+    req.market,
+    history.recent.filter((g) => g.isHome === true),
+    labels,
+  );
+  const recentAway = statSeries(
+    req.market,
+    history.recent.filter((g) => g.isHome === false),
+    labels,
+  );
 
   const opp = lookupOpportunityShift(game.opportunityShift, {
     player: req.player,
@@ -154,8 +208,11 @@ export function buildPropSimulationContext(
     sport: req.sport,
   });
 
-  const homeValues = statSeries(req.market, homeGames, labels);
-  const awayValues = statSeries(req.market, awayGames, labels);
+  const family = opp.family ?? opportunityMarketFamily(req.market, req.sport);
+  const defenseIndex =
+    (family && game.defenseIndexByFamily?.[family]) ??
+    game.defenseIndex ??
+    null;
 
   // Side key: "home" | "away" — populated by runPropSims for QB←WR coupling.
   const sideKey =
@@ -163,18 +220,31 @@ export function buildPropSimulationContext(
   const coupledReceiving =
     (sideKey && game.coupledReceivingMatchupByTeam?.get(sideKey)) || null;
 
+  const recentVenue =
+    req.isHome === true
+      ? recentHome
+      : req.isHome === false
+        ? recentAway
+        : { values: [] as number[], tags: [] as string[] };
+
   const pre: PreSimShiftFactors = buildPreSimShiftFactors({
     sport: req.sport,
     market: req.market,
     isHome: req.isHome,
-    seasonValues: recentValues,
-    homeValues,
-    awayValues,
-    vsOpponentValues,
+    seasonValues: seasonSeries.values.length ? seasonSeries.values : recentValues,
+    homeValues: homeSeries.values,
+    awayValues: awaySeries.values,
+    vsOpponentValues: vsSeries.values,
+    recentVenueValues: recentVenue.values,
+    seasonTags: seasonSeries.tags,
+    homeTags: homeSeries.tags,
+    awayTags: awaySeries.tags,
+    recentVenueTags: recentVenue.tags,
+    vsOpponentTags: vsSeries.tags,
     opportunityShift: opp.multiplier,
     opportunityExplain: opp.explanation,
-    opportunityFamily: opp.family,
-    defenseIndex: game.defenseIndex ?? null,
+    opportunityFamily: family,
+    defenseIndex,
     coupledReceivingMatchup: coupledReceiving,
   });
 
@@ -184,9 +254,9 @@ export function buildPropSimulationContext(
     line: req.line,
     side: req.side,
     recentValues,
-    vsOpponentValues,
-    homeValues,
-    awayValues,
+    vsOpponentValues: vsSeries.values,
+    homeValues: homeSeries.values,
+    awayValues: awaySeries.values,
     isHome: req.isHome ?? null,
     minutesL5: history.minutesTrend?.l5 ?? null,
     minutesSeason: history.minutesTrend?.season ?? null,
@@ -205,6 +275,9 @@ export function buildPropSimulationContext(
     venueFamilyMult: pre.venueShift,
     matchupFamilyMult: pre.opponentMatchupShift,
     combinedPreSimMult: pre.combinedShift,
+    volumePreSimMult: pre.volumeShift,
+    efficiencyPreSimMult: pre.efficiencyShift,
+    preSimShiftKind: pre.shiftKind,
     venueExplain: pre.venueExplain,
     matchupExplain: pre.matchupExplain,
     combinedPreSimExplain: pre.combinedExplain,

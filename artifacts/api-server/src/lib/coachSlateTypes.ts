@@ -92,6 +92,10 @@ export type PropPoolEntry = {
   headshot?: string | null;
   teamAbbr?: string | null;
   athleteId?: string | null;
+  /** ESPN team id for the player's own side (from props roster stamp). */
+  playerTeamId?: string | null;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
   marketKey?: string;
   alt?: boolean;
   edge?: number | null;

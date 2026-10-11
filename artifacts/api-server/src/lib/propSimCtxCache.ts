@@ -39,9 +39,13 @@ export const PROPSIM_CTX_LOAD_CONCURRENCY = 4;
 export type CachedPropSimCtx = {
   fingerprint: string;
   recentValues: number[];
+  /** Full-season (or best available) baseline for venue/matchup ratios. */
+  seasonValues?: number[];
   vsOpponentValues: number[];
   homeValues: number[];
   awayValues: number[];
+  recentHomeValues?: number[];
+  recentAwayValues?: number[];
   minutesL5: number | null;
   minutesSeason: number | null;
   minutesDirection: "up" | "down" | "steady" | undefined;
@@ -83,6 +87,12 @@ export function cachedPropSimCtxFromContext(ctx: PropSimulationContext): CachedP
   return {
     fingerprint,
     recentValues: [...(ctx.recentValues ?? [])],
+    // home/away on ctx are full-season venue series after wiring; season baseline
+    // falls back to recent when seasonGames were unavailable.
+    seasonValues: [
+      ...(ctx.homeValues ?? []),
+      ...(ctx.awayValues ?? []),
+    ],
     vsOpponentValues: [...(ctx.vsOpponentValues ?? [])],
     homeValues: [...(ctx.homeValues ?? [])],
     awayValues: [...(ctx.awayValues ?? [])],
@@ -115,6 +125,7 @@ export function propSimulationContextFromCached(
     weatherImpact?: number | null;
     opportunityShift?: OpportunityShiftTable | null;
     defenseIndex?: number | null;
+    defenseIndexByFamily?: Record<string, number> | null;
     coupledReceivingMatchupByTeam?: Map<string, number> | null;
   },
 ): PropSimulationContext {
@@ -128,18 +139,30 @@ export function propSimulationContextFromCached(
     req.isHome === true ? "home" : req.isHome === false ? "away" : "";
   const coupledReceiving =
     (sideKey && game.coupledReceivingMatchupByTeam?.get(sideKey)) || null;
+  const family = opp.family;
+  const defenseIndex =
+    (family && game.defenseIndexByFamily?.[family]) ?? game.defenseIndex ?? null;
+  const seasonValues =
+    cached.seasonValues?.length ? cached.seasonValues : cached.recentValues;
+  const recentVenue =
+    req.isHome === true
+      ? cached.recentHomeValues ?? []
+      : req.isHome === false
+        ? cached.recentAwayValues ?? []
+        : [];
   const pre = buildPreSimShiftFactors({
     sport: req.sport,
     market: req.market,
     isHome: req.isHome,
-    seasonValues: cached.recentValues,
+    seasonValues,
     homeValues: cached.homeValues,
     awayValues: cached.awayValues,
     vsOpponentValues: cached.vsOpponentValues,
+    recentVenueValues: recentVenue,
     opportunityShift: opp.multiplier,
     opportunityExplain: opp.explanation,
     opportunityFamily: opp.family,
-    defenseIndex: game.defenseIndex ?? null,
+    defenseIndex,
     coupledReceivingMatchup: coupledReceiving,
   });
   return {
@@ -169,6 +192,9 @@ export function propSimulationContextFromCached(
     venueFamilyMult: pre.venueShift,
     matchupFamilyMult: pre.opponentMatchupShift,
     combinedPreSimMult: pre.combinedShift,
+    volumePreSimMult: pre.volumeShift,
+    efficiencyPreSimMult: pre.efficiencyShift,
+    preSimShiftKind: pre.shiftKind,
     venueExplain: pre.venueExplain,
     matchupExplain: pre.matchupExplain,
     combinedPreSimExplain: pre.combinedExplain,

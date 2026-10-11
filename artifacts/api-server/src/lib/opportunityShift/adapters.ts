@@ -141,6 +141,7 @@ const FOOTBALL_SHARED = {
       case "targets":
         // targets → target volume is internal V; receptions use catch conversion (E)
         return rules([
+          ["targets", "V", 1],
           ["receptions", "E", 0.75],
           ["rec_yds", "E", 0.65],
           ["rec_longest", "E", 0.15],

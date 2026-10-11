@@ -159,14 +159,23 @@ async function fetchPropSimulationsDeep(
       line: e.line!,
       side: e.side,
       athleteId: e.athleteId ?? null,
+      playerTeamId: e.playerTeamId ?? null,
+      homeTeamId: e.homeTeamId ?? null,
+      awayTeamId: e.awayTeamId ?? null,
     }));
     if (!props.length) continue;
     const parts = sportEntries[0]!.game.split(" @ ");
+    const homeTeamId =
+      sportEntries.find((e) => e.homeTeamId)?.homeTeamId ?? undefined;
+    const awayTeamId =
+      sportEntries.find((e) => e.awayTeamId)?.awayTeamId ?? undefined;
     const payload = {
       sport,
       tier,
       homeTeam: parts[1]?.trim(),
       awayTeam: parts[0]?.trim(),
+      homeTeamId,
+      awayTeamId,
       props,
     };
     const resp = coachSlateSimsInProcess()

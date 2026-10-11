@@ -1,14 +1,18 @@
 /**
  * Venue Shift — player/team home vs away split vs season baseline.
  *
- * Formula:
- *   venueRate   = mean(homeValues) if isHome else mean(awayValues)
+ * Formula (full-season venue when available + recent recency component):
+ *
+ *   venueSeason = mean(all homeValues) if isHome else mean(all awayValues)
+ *   venueRecent = mean(recentVenueValues) when nRecent ≥ 1, else venueSeason
+ *   venueRate   = 0.55·venueSeason + 0.45·venueRecent   when nRecent ≥ 3
+ *               = venueSeason                              otherwise
  *   seasonRate  = mean(seasonValues)
  *   raw         = venueRate / seasonRate
- *   venueShift  = clamp( shrink(raw, n, n0=8) , 0.90, 1.12 )
+ *   venueShift  = clamp( shrink(raw, nSeason, n0=8) , 0.90, 1.12 )
  *
- * Sample < 3 → 1.0 (regress fully to season / no shift).
- * Unrelated families stay at 1.0 via caller gating on opportunityMarketFamily.
+ * Sample nSeason < 3 → 1.0.
+ * Period-tagged values are dropped for full-game markets.
  */
 
 import { opportunityMarketFamily, isFamilyShiftAllowed } from "../opportunityShift/marketFamily.js";
@@ -29,14 +33,39 @@ export function computeVenueShift(input: VenueShiftInput): VenueShiftResult {
     return { factor: 1, sample: 0, explain: null, family };
   }
 
-  const season = filterSeriesForMarket(input.market, input.seasonValues);
+  const season = filterSeriesForMarket(
+    input.market,
+    input.seasonValues,
+    input.seasonTags,
+  );
   const venueVals = filterSeriesForMarket(
     input.market,
     input.isHome ? input.homeValues : input.awayValues,
+    input.isHome ? input.homeTags : input.awayTags,
   );
+  const recentVenue = filterSeriesForMarket(
+    input.market,
+    input.recentVenueValues ?? [],
+    input.recentVenueTags,
+  );
+
   const seasonMean = meanFinite(season);
-  const venueMean = meanFinite(venueVals);
-  const raw = safeRatio(venueMean, seasonMean);
+  const venueSeasonMean = meanFinite(venueVals);
+  if (seasonMean == null || venueSeasonMean == null) {
+    return { factor: 1, sample: venueVals.length, explain: null, family };
+  }
+
+  let venueRate = venueSeasonMean;
+  if (recentVenue.length >= 3) {
+    const recentMean = meanFinite(recentVenue);
+    if (recentMean != null) {
+      venueRate =
+        PRE_SIM_SHIFT_CAPS.venueSeasonWeight * venueSeasonMean +
+        PRE_SIM_SHIFT_CAPS.venueRecentWeight * recentMean;
+    }
+  }
+
+  const raw = safeRatio(venueRate, seasonMean);
   if (raw == null) {
     return { factor: 1, sample: venueVals.length, explain: null, family };
   }

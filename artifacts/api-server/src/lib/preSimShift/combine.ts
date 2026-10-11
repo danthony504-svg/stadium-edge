@@ -1,12 +1,11 @@
 /**
- * Log-space combination of Opportunity × Venue × Opponent Matchup.
+ * Log-space combination of Opportunity × Venue × Opponent Matchup
+ * with volume vs efficiency kind-weighting.
  *
- *   combined = exp( log(opp) + log(venue) + log(matchup) )
+ *   combined = exp( log(opp) + log(venueAdj) + log(matchupAdj) )
  *   combined = clamp(combined, 0.78, 1.35)
  *
- * Each factor is already individually capped; the combined cap proves
- * family-level movement cannot explode even if all three are at their max:
- *   1.28 × 1.12 × 1.14 = 1.634 → clamped to 1.35
+ * Cap proof: 1.28 × 1.12 × 1.14 = 1.634 → clamped to 1.35
  */
 
 import {
@@ -14,6 +13,7 @@ import {
   type CombinePreSimInput,
   type PreSimShiftFactors,
 } from "./types.js";
+import { kindWeightedVenueMatchup, type ShiftKind } from "./volumeEfficiency.js";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -30,7 +30,7 @@ export function combinedCapProof(): {
   rawProduct: number;
   capped: number;
 } {
-  const oppMax = 1.28; // Opportunity Shift absoluteMax
+  const oppMax = 1.28;
   const venueMax = PRE_SIM_SHIFT_CAPS.venueMax;
   const matchupMax = PRE_SIM_SHIFT_CAPS.matchupMax;
   const rawProduct = oppMax * venueMax * matchupMax;
@@ -45,8 +45,13 @@ export function combinedCapProof(): {
 
 export function combinePreSimShifts(input: CombinePreSimInput): PreSimShiftFactors {
   const opportunityShift = pos(input.opportunityShift, 1);
-  const venueShift = pos(input.venueShift, 1);
-  const opponentMatchupShift = pos(input.opponentMatchupShift, 1);
+  const venueRaw = pos(input.venueRaw ?? input.venueShift, 1);
+  const matchupRaw = pos(input.matchupRaw ?? input.opponentMatchupShift, 1);
+  const kind: ShiftKind = input.shiftKind ?? "neutral";
+
+  const weighted = kindWeightedVenueMatchup(venueRaw, matchupRaw, kind);
+  const venueShift = weighted.venueShift;
+  const opponentMatchupShift = weighted.opponentMatchupShift;
 
   const logSum =
     Math.log(opportunityShift) +
@@ -59,11 +64,30 @@ export function combinePreSimShifts(input: CombinePreSimInput): PreSimShiftFacto
     PRE_SIM_SHIFT_CAPS.combinedMax,
   );
 
+  // Explicit volume / efficiency paths for explainability + tests.
+  const volW = kindWeightedVenueMatchup(venueRaw, matchupRaw, "volume");
+  const effW = kindWeightedVenueMatchup(venueRaw, matchupRaw, "efficiency");
+  const volumeShift = clamp(
+    opportunityShift * volW.venueShift * volW.opponentMatchupShift,
+    PRE_SIM_SHIFT_CAPS.combinedMin,
+    PRE_SIM_SHIFT_CAPS.combinedMax,
+  );
+  const efficiencyShift = clamp(
+    opportunityShift * effW.venueShift * effW.opponentMatchupShift,
+    PRE_SIM_SHIFT_CAPS.combinedMin,
+    PRE_SIM_SHIFT_CAPS.combinedMax,
+  );
+
   const parts: string[] = [];
-  if (opportunityShift !== 1) parts.push(`opp×${opportunityShift.toFixed(3)}`);
+  if (opportunityShift !== 1) {
+    parts.push(`opportunity×${opportunityShift.toFixed(3)}`);
+  }
   if (venueShift !== 1) parts.push(`venue×${venueShift.toFixed(3)}`);
   if (opponentMatchupShift !== 1) {
     parts.push(`matchup×${opponentMatchupShift.toFixed(3)}`);
+  }
+  if (kind === "volume" && (venueRaw !== venueShift || matchupRaw !== opponentMatchupShift)) {
+    parts.push(`volDamp`);
   }
 
   return {
@@ -71,17 +95,20 @@ export function combinePreSimShifts(input: CombinePreSimInput): PreSimShiftFacto
     venueShift,
     opponentMatchupShift,
     combinedShift,
+    volumeShift,
+    efficiencyShift,
+    shiftKind: kind,
     family: input.family,
     opportunityExplain: input.opportunityExplain ?? null,
     venueExplain: input.venueExplain ?? null,
     matchupExplain: input.matchupExplain ?? null,
     combinedExplain:
       parts.length > 0
-        ? `Pre-sim combined: ${parts.join(" · ")} → ×${combinedShift.toFixed(3)}`
+        ? `Pre-sim combined(${kind}): ${parts.join(" · ")} → ×${combinedShift.toFixed(3)}`
         : null,
-    suppressSoftVenueBlend: Boolean(input.suppressSoftVenueBlend && venueShift !== 1),
+    suppressSoftVenueBlend: Boolean(input.suppressSoftVenueBlend && venueRaw !== 1),
     suppressSoftVsOpponentBlend: Boolean(
-      input.suppressSoftVsOpponentBlend && opponentMatchupShift !== 1,
+      input.suppressSoftVsOpponentBlend && matchupRaw !== 1,
     ),
     venueSample: input.venueSample ?? 0,
     matchupSample: input.matchupSample ?? 0,
@@ -94,6 +121,9 @@ export function identityPreSimFactors(family: string | null = null): PreSimShift
     venueShift: 1,
     opponentMatchupShift: 1,
     combinedShift: 1,
+    volumeShift: 1,
+    efficiencyShift: 1,
+    shiftKind: "neutral",
     family,
     opportunityExplain: null,
     venueExplain: null,

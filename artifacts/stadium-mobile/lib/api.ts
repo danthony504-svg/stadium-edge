@@ -2036,6 +2036,8 @@ export type PropPoolEntry = {
   // market key (e.g. "player_points") the stat page reads to grade the line.
   // Both are render-only — NEVER sent to the AI.
   athleteId?: string | null;
+  /** ESPN team id for the player's own side — used to derive isHome / opponentTeamId. */
+  playerTeamId?: string | null;
   marketKey?: string;
   /** True for alternate-ladder rungs (5+/10+/15+ points, alt total bases, etc.). */
   alt?: boolean;
@@ -2187,6 +2189,11 @@ export async function fetchPropSimulations(
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
+    playerTeamId?: string | null;
+    isHome?: boolean | null;
+    opponentTeamId?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
     sport: string;
     game: string;
     additionalLines?: number[];
@@ -2231,6 +2238,7 @@ export async function fetchPropSimulations(
       line: p.propLine,
       side,
       athleteId: p.athleteId ?? pool?.athleteId,
+      playerTeamId: pool?.playerTeamId ?? null,
       sport,
       game,
       ...(additionalLines.length ? { additionalLines } : {}),
@@ -2294,7 +2302,29 @@ export async function fetchPropSimulations(
         chunks.map((chunk) =>
           fetchPropSimulationsBatch(
             sport,
-            chunk.map(({ game: _g, ...r }) => r),
+            chunk.map(({ game: _g, ...r }) => {
+              const own = String(r.playerTeamId ?? "").trim();
+              const hId = String(homeTeamId ?? "").trim();
+              const aId = String(awayTeamId ?? "").trim();
+              let isHome: boolean | null = null;
+              let opponentTeamId: string | null = null;
+              if (own && hId && aId) {
+                if (own === hId) {
+                  isHome = true;
+                  opponentTeamId = aId;
+                } else if (own === aId) {
+                  isHome = false;
+                  opponentTeamId = hId;
+                }
+              }
+              return {
+                ...r,
+                homeTeamId: hId || null,
+                awayTeamId: aId || null,
+                isHome,
+                opponentTeamId,
+              };
+            }),
             batchOpts,
             signal,
           ),
@@ -2532,6 +2562,11 @@ export async function fetchPropSimulationsBatch(
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
+    playerTeamId?: string | null;
+    isHome?: boolean | null;
+    opponentTeamId?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
     additionalLines?: number[];
   }>,
   opts?: {
@@ -2542,6 +2577,8 @@ export async function fetchPropSimulationsBatch(
     weatherImpact?: number | null;
     simulations?: number;
     tier?: "quick" | "deep";
+    defenseIndex?: number | null;
+    defenseIndexByFamily?: Record<string, number> | null;
   },
   signal?: AbortSignal,
 ): Promise<{
@@ -2564,6 +2601,11 @@ async function fetchPropSimulationsBatchUnlim(
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
+    playerTeamId?: string | null;
+    isHome?: boolean | null;
+    opponentTeamId?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
     additionalLines?: number[];
   }>,
   opts?: {
@@ -2574,6 +2616,8 @@ async function fetchPropSimulationsBatchUnlim(
     weatherImpact?: number | null;
     simulations?: number;
     tier?: "quick" | "deep";
+    defenseIndex?: number | null;
+    defenseIndexByFamily?: Record<string, number> | null;
   },
   signal?: AbortSignal,
 ): Promise<{
@@ -2584,11 +2628,36 @@ async function fetchPropSimulationsBatchUnlim(
 }> {
   const path = "/sports/simulate/props";
   const tier = opts?.tier ?? "quick";
+  const homeId = String(opts?.homeTeamId ?? "").trim();
+  const awayId = String(opts?.awayTeamId ?? "").trim();
+  // Derive isHome / opponentTeamId from ESPN team ids only (never from names).
+  const stamped = props.map((p) => {
+    const own = String(p.playerTeamId ?? "").trim();
+    let isHome: boolean | null = p.isHome ?? null;
+    let opponentTeamId: string | null = p.opponentTeamId ?? null;
+    if (own && homeId && awayId) {
+      if (own === homeId) {
+        isHome = true;
+        opponentTeamId = awayId;
+      } else if (own === awayId) {
+        isHome = false;
+        opponentTeamId = homeId;
+      }
+    }
+    return {
+      ...p,
+      homeTeamId: (p.homeTeamId ?? homeId) || null,
+      awayTeamId: (p.awayTeamId ?? awayId) || null,
+      playerTeamId: own || null,
+      isHome,
+      opponentTeamId,
+    };
+  });
   const res = await withTimeout(
     expoFetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sport, tier, ...opts, props }),
+      body: JSON.stringify({ sport, tier, ...opts, props: stamped }),
       signal,
     }),
     tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
@@ -4825,6 +4894,7 @@ export async function buildChatContext(
                 headshot,
                 teamAbbr,
                 athleteId,
+                playerTeamId: p.playerTeamId ?? null,
                 marketKey: p.market,
                 alt: !!p.alt,
                 edge: p.evSide === "Over" ? (p.edge ?? null) : null,
@@ -4845,6 +4915,7 @@ export async function buildChatContext(
                 headshot,
                 teamAbbr,
                 athleteId,
+                playerTeamId: p.playerTeamId ?? null,
                 marketKey: p.market,
                 alt: !!p.alt,
                 edge: p.evSide === "Under" ? (p.edge ?? null) : null,

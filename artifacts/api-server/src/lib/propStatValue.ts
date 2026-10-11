@@ -49,6 +49,8 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_reception_yds: ["receivingYards"],
   player_receptions: ["receptions"],
   player_reception_longest: ["longReception"],
+  // ESPN gamelog exposes TGTS / receivingTargets — never invent when absent.
+  player_targets: ["receivingTargets", "TGTS", "targets"],
 };
 
 const MARKET_MADE: Record<string, string[]> = {
