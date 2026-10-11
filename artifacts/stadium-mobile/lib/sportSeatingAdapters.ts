@@ -75,6 +75,7 @@ export function resolveMarketFamilyId(
   const m = raw.toLowerCase();
   if (opts?.isProp) {
     if (/pass\s*yd|passing yards/.test(m)) return "pass_yds";
+    if (/rush\s*attempts?|rushing attempts?/.test(m)) return "rush_attempts";
     if (/rush\s*yd|rushing yards/.test(m)) return "rush_yds";
     if (/rec(eption)?\s*yd|receiving yards/.test(m)) return "rec_yds";
     if (/\breceptions?\b/.test(m)) return "receptions";
@@ -82,6 +83,7 @@ export function resolveMarketFamilyId(
     if (/first\s*td|1st\s*td/.test(m)) return "first_td";
     if (/\bsacks?\b/.test(m)) return "sacks";
     if (/pass\s*td|passing touchdown/.test(m)) return "pass_tds";
+    if (/field\s*goals?/.test(m)) return "field_goals";
     if (/\bpoints?\b/.test(m) && !/team/.test(m)) return "points";
     if (/\brebounds?\b/.test(m)) return "rebounds";
     if (/\bassists?\b/.test(m)) return "assists";
@@ -100,7 +102,7 @@ export function resolveMarketFamilyId(
     if (/shots on (goal|target)/.test(m)) return "shots_on_goal";
     if (/\bshots?\b/.test(m)) return "shots";
     if (/\bgoals?\b/.test(m) && !/anytime|first/.test(m)) return "goals";
-    if (/anytime.*scorer|goal scorer anytime/.test(m)) return "anytime_goal";
+    if (/anytime\s*goal|anytime.*scorer|goal scorer anytime/.test(m)) return "anytime_goal";
     if (/first.*scorer|first goal/.test(m)) return "first_goal";
     return null;
   }
@@ -272,7 +274,7 @@ function footballFamilyMap(includeSacks: boolean): ReadonlyMap<string, MarketFam
     [["player_pass_interceptions"], "pass_interceptions"],
     [["player_pass_longest_completion"], "pass_longest"],
     [["player_rush_yds", "rush yds", "rushing yards"], "rush_yds"],
-    [["player_rush_attempts"], "rush_attempts"],
+    [["player_rush_attempts", "rush attempts", "rushing attempts"], "rush_attempts"],
     [["player_rush_longest"], "rush_longest"],
     [["player_reception_yds", "rec yds", "receiving yards"], "rec_yds"],
     [["player_receptions", "receptions"], "receptions"],

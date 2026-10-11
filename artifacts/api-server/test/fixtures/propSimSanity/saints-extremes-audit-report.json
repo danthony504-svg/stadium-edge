@@ -1,0 +1,216 @@
+{
+  "worstStatus": "RED",
+  "counts": {
+    "PASS": 3,
+    "YELLOW": 0,
+    "RED": 3
+  },
+  "explanations": [
+    {
+      "key": "Shough completions O27.5",
+      "status": "RED",
+      "why": "Combined pre-sim multiplier 1.209 is extreme (≥1.18× or ≤0.847×). Sim hit 97.9% vs historical clear 75.0% (gap 22.9 pts)."
+    },
+    {
+      "key": "Shough attempts O44.5",
+      "status": "RED",
+      "why": "Combined pre-sim multiplier 1.206 is extreme (≥1.18× or ≤0.847×). Sim hit 85.4% materially above historical clear 50.0%."
+    },
+    {
+      "key": "Shough pass yards O266.5",
+      "status": "RED",
+      "why": "Combined pre-sim multiplier 1.212 is extreme (≥1.18× or ≤0.847×). Sim hit 90.3% vs historical clear 50.0% (gap 40.3 pts)."
+    },
+    {
+      "key": "Olave receptions O6.5",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Juwan rec yards O42.5",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Juwan longest rec O17.5",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    }
+  ],
+  "reports": [
+    {
+      "athlete": "Tyler Shough",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_pass_completions",
+      "normalizedMarket": "playerProp|fg|player_pass_completions",
+      "side": "Over",
+      "line": 27.5,
+      "price": 442,
+      "historicalMean": 30.25,
+      "recentMean": 30.25,
+      "relevantVenueSplit": 29.5,
+      "historicalClearRate": 0.75,
+      "bareProjectionMean": 30.26,
+      "finalProjectionMean": 36.59,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 1.209,
+      "simulatedHitProbability": 0.979,
+      "impliedProbability": 0.1845,
+      "edge": 0.794,
+      "flags": [
+        "extreme_multiplier",
+        "extreme_sim_vs_history"
+      ],
+      "status": "RED",
+      "reasons": [
+        "Combined pre-sim multiplier 1.209 is extreme (≥1.18× or ≤0.847×).",
+        "Sim hit 97.9% vs historical clear 75.0% (gap 22.9 pts)."
+      ]
+    },
+    {
+      "athlete": "Tyler Shough",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_pass_attempts",
+      "normalizedMarket": "playerProp|fg|player_pass_attempts",
+      "side": "Over",
+      "line": 44.5,
+      "price": 600,
+      "historicalMean": 45,
+      "recentMean": 45,
+      "relevantVenueSplit": 45,
+      "historicalClearRate": 0.5,
+      "bareProjectionMean": 44.93,
+      "finalProjectionMean": 54.17,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 1.206,
+      "simulatedHitProbability": 0.854,
+      "impliedProbability": 0.1429,
+      "edge": 0.711,
+      "flags": [
+        "extreme_multiplier",
+        "extreme_sim_vs_history"
+      ],
+      "status": "RED",
+      "reasons": [
+        "Combined pre-sim multiplier 1.206 is extreme (≥1.18× or ≤0.847×).",
+        "Sim hit 85.4% materially above historical clear 50.0%."
+      ]
+    },
+    {
+      "athlete": "Tyler Shough",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_pass_yds",
+      "normalizedMarket": "playerProp|fg|player_pass_yds",
+      "side": "Over",
+      "line": 266.5,
+      "price": 175,
+      "historicalMean": 300.75,
+      "recentMean": 300.75,
+      "relevantVenueSplit": 270.5,
+      "historicalClearRate": 0.5,
+      "bareProjectionMean": 300.05,
+      "finalProjectionMean": 363.61,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 1.212,
+      "simulatedHitProbability": 0.903,
+      "impliedProbability": 0.3636,
+      "edge": 0.539,
+      "flags": [
+        "extreme_multiplier",
+        "extreme_sim_vs_history"
+      ],
+      "status": "RED",
+      "reasons": [
+        "Combined pre-sim multiplier 1.212 is extreme (≥1.18× or ≤0.847×).",
+        "Sim hit 90.3% vs historical clear 50.0% (gap 40.3 pts)."
+      ]
+    },
+    {
+      "athlete": "Chris Olave",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_receptions",
+      "normalizedMarket": "playerProp|fg|player_receptions",
+      "side": "Over",
+      "line": 6.5,
+      "price": -105,
+      "historicalMean": 8.75,
+      "recentMean": 8.75,
+      "relevantVenueSplit": 8.5,
+      "historicalClearRate": 1,
+      "bareProjectionMean": 8.75,
+      "finalProjectionMean": 8.14,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.953,
+      "impliedProbability": 0.5122,
+      "edge": 0.441,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    },
+    {
+      "athlete": "Juwan Johnson",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_reception_yds",
+      "normalizedMarket": "playerProp|fg|player_reception_yds",
+      "side": "Over",
+      "line": 42.5,
+      "price": -113,
+      "historicalMean": 58,
+      "recentMean": 58,
+      "relevantVenueSplit": 56,
+      "historicalClearRate": 1,
+      "bareProjectionMean": 58,
+      "finalProjectionMean": 53.88,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.929,
+      "simulatedHitProbability": 0.962,
+      "impliedProbability": 0.5305,
+      "edge": 0.431,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    },
+    {
+      "athlete": "Juwan Johnson",
+      "team": "New Orleans Saints",
+      "opponent": "Minnesota Vikings",
+      "providerMarket": "player_reception_longest",
+      "normalizedMarket": "playerProp|fg|player_reception_longest",
+      "side": "Over",
+      "line": 17.5,
+      "price": -120,
+      "historicalMean": 24.25,
+      "recentMean": 24.25,
+      "relevantVenueSplit": 22.5,
+      "historicalClearRate": 1,
+      "bareProjectionMean": 24.25,
+      "finalProjectionMean": 22.58,
+      "opportunityMultiplier": null,
+      "efficiencyMultiplier": null,
+      "combinedPreSimMultiplier": 0.931,
+      "simulatedHitProbability": 0.971,
+      "impliedProbability": 0.5455,
+      "edge": 0.426,
+      "flags": [],
+      "status": "PASS",
+      "reasons": [
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+      ]
+    }
+  ]
+}

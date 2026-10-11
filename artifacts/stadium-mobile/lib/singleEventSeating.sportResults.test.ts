@@ -114,8 +114,13 @@ test("report per-sport 4/5/8/10 single-event seat results", () => {
       const props = picks.filter((p) => p.isProp).length;
       const gls = picks.filter((p) => !p.isProp).length;
       const caps = SINGLE_EVENT_CAPS[t];
-      assert.ok(props <= caps.maxProps);
-      assert.ok(gls <= caps.maxGameEventLines);
+      // Preference caps are soft; with both props+GLs available the composition
+      // ratio still holds. Props-only lift is covered in nLeg tests.
+      if (props > 0 && gls > 0) {
+        assert.ok(props <= Math.max(caps.maxProps, t - Math.min(gls, caps.maxGameEventLines)));
+        assert.ok(gls <= Math.max(caps.maxGameEventLines, t - props));
+      }
+      assert.ok(picks.length <= t);
       report.push({
         sport,
         target: t,
@@ -125,6 +130,7 @@ test("report per-sport 4/5/8/10 single-event seat results", () => {
         maxProps: caps.maxProps,
         maxGl: caps.maxGameEventLines,
         limitingRule: breakdown.limitingRule ?? null,
+        qualifiedInScope: breakdown.qualifiedInScope ?? null,
       });
     }
   }

@@ -2643,7 +2643,10 @@ export default function CoachScreen() {
           const coachTicketStyle = detectCoachTicketStyle(trimmed);
           const boardScanVariety = {
             varietySeed,
-            varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
+            varietyContext: {
+              ...varietyContextWithLastDelivered(recentParlayVarietyContext()),
+              askText: trimmed,
+            },
             requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
             ticketStyle: coachTicketStyle,
           };
@@ -3157,7 +3160,10 @@ export default function CoachScreen() {
                 calibration: modelCalibration,
                 onPartial: onBoardScanPartial,
                 varietySeed,
-                varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
+                varietyContext: {
+                  ...varietyContextWithLastDelivered(recentParlayVarietyContext()),
+                  askText: trimmed,
+                },
                 ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
               }),
@@ -3613,7 +3619,10 @@ export default function CoachScreen() {
               signal: abortRef.current?.signal,
               onPartial: onBoardScanPartial,
               varietySeed,
-              varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
+              varietyContext: {
+                ...varietyContextWithLastDelivered(recentParlayVarietyContext()),
+                askText: trimmed,
+              },
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
             }),

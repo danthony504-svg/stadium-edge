@@ -1,4 +1,9 @@
-import { computeAmbiguous, gameValueForMarket, isDiscreteCountMarket } from "./propStatValue.js";
+import {
+  computeAmbiguous,
+  gameValueForMarket,
+  isDiscreteCountMarket,
+  isPeriodPropMarketKey,
+} from "./propStatValue.js";
 import {
   type PropSimulationContext,
   type PropSimulationResult,
@@ -11,7 +16,8 @@ export type PropSimNullReason =
   | "missing_athlete_id"
   | "no_history"
   | "insufficient_sample"
-  | "stat_mapping_failed";
+  | "stat_mapping_failed"
+  | "period_prop_unsimulatable";
 
 export type SimPropRequest = {
   player: string;
@@ -86,6 +92,7 @@ export function diagnosePropSimNullReason(
   history: PlayerHistoryShape | null | undefined,
 ): PropSimNullReason {
   if (!req.athleteId) return "missing_athlete_id";
+  if (isPeriodPropMarketKey(req.market)) return "period_prop_unsimulatable";
   if (!history?.recent?.length) return "no_history";
   const labels = history.labels ?? [];
   const recentValues = statSeries(req.market, history.recent, labels);
@@ -99,6 +106,8 @@ export function buildPropSimulationContext(
   history: PlayerHistoryShape | null | undefined,
   game: GameSimContext,
 ): PropSimulationContext | null {
+  // Fail closed: never strip period suffixes and grade full-game history.
+  if (isPeriodPropMarketKey(req.market)) return null;
   if (!history?.recent?.length) return null;
   const labels = history.labels ?? [];
   const recentValues = statSeries(req.market, history.recent, labels);
