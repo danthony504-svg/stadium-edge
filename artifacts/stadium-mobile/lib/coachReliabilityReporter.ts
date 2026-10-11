@@ -6,6 +6,11 @@
 
 import { shouldSendCrashReports } from "./crashReportingGate.ts";
 import { mapScanFailureCode } from "./coachReliabilityClassify.ts";
+import {
+  affectedGameFromPicks,
+  evaluateReturnedPicksGrounding,
+  type CoachReliabilityGroundingPick,
+} from "./coachReliabilityGrounding.ts";
 
 const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN;
 const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
@@ -25,6 +30,8 @@ export type CoachReliabilityReportInput = {
   affectedGame?: string | null;
   timedOut?: boolean;
   scanMissing?: boolean;
+  /** Returned ticket picks — used for grounding vs legitimate-underfill. */
+  picks?: readonly CoachReliabilityGroundingPick[] | null;
   /** Explicit event type when not derived from scanFailureCode. */
   eventType?: string | null;
   failureReason?: string | null;
@@ -82,6 +89,13 @@ export function buildCoachReliabilityBody(
   const returned =
     typeof input.returnedLegCount === "number" ? input.returnedLegCount : null;
 
+  const grounding = evaluateReturnedPicksGrounding(input.picks);
+  const affectedGame =
+    (input.affectedGame && String(input.affectedGame).trim()) ||
+    grounding.affectedGame ||
+    affectedGameFromPicks(input.picks) ||
+    null;
+
   if (input.scanMissing || input.timedOut) {
     return {
       scanFailureCode: input.scanMissing ? "SCAN_THREW" : "ABSOLUTE_BUDGET",
@@ -94,8 +108,28 @@ export function buildCoachReliabilityBody(
       durationMs: input.durationMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
-      affectedGame: input.affectedGame ?? null,
+      affectedGame,
       rootCause: input.rootCause ?? null,
+      ...(input.testFixture ? { testFixture: true } : {}),
+    };
+  }
+
+  // Player/team/game mismatch on any returned selection → grounding (Telegram).
+  // Must win over thin-slate / scan underfill classification.
+  if (grounding.hasMismatch) {
+    return {
+      eventType: "coach_grounding_failure",
+      failureReason: "grounding_failure",
+      sportCategory: input.sportCategory ?? "unspecified",
+      questionKind: "parlay_build",
+      requestedLegCount: requested,
+      returnedLegCount: returned ?? 0,
+      durationMs: input.durationMs ?? null,
+      realOddsAvailable: input.realOddsAvailable ?? null,
+      qualificationFiltersEliminated: false,
+      requestId: input.requestId ?? null,
+      affectedGame,
+      rootCause: input.rootCause ?? "player_game_grounding_mismatch",
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -112,13 +146,13 @@ export function buildCoachReliabilityBody(
       durationMs: input.durationMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
-      affectedGame: input.affectedGame ?? null,
+      affectedGame,
       rootCause: input.rootCause ?? input.scanFailureDetail ?? null,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
 
-  // Shortfall without a system failure code → legitimate underfill (digest).
+  // Shortfall with every returned selection grounded → legitimate underfill (digest).
   if (
     requested != null &&
     returned != null &&
@@ -136,7 +170,7 @@ export function buildCoachReliabilityBody(
       realOddsAvailable: input.realOddsAvailable ?? null,
       qualificationFiltersEliminated: true,
       requestId: input.requestId ?? null,
-      affectedGame: input.affectedGame ?? null,
+      affectedGame,
       rootCause: input.rootCause ?? "thin_slate_or_quality_bar",
       ...(input.testFixture ? { testFixture: true } : {}),
     };
@@ -154,6 +188,7 @@ export function buildCoachReliabilityBody(
       durationMs: input.durationMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
+      affectedGame,
       rootCause: input.rootCause ?? "zero_results",
       ...(input.testFixture ? { testFixture: true } : {}),
     };
@@ -170,7 +205,7 @@ export function buildCoachReliabilityBody(
       durationMs: input.durationMs ?? null,
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
-      affectedGame: input.affectedGame ?? null,
+      affectedGame,
       rootCause: input.rootCause ?? null,
       ...(input.testFixture ? { testFixture: true } : {}),
     };

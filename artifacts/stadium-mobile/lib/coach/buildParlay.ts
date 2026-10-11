@@ -416,6 +416,12 @@ export async function buildCoachParlay(opts: {
 
   const teamIdMap = buildGameTeamIdMap(inputs.espnGames);
 
+  // Observe-only reliability markers — never touch selection / UI.
+  // Created before props-only early return so that path can emit coach-events.
+  const coachRelStarted = Date.now();
+  const coachRelRequestId = `greenfield-${Date.now()}`;
+  const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
+
   // Greenfield props-only rebuild — dedicated local-first history/EV pipeline
   // for EVERY props-only ask (NFL, WNBA, multi-sport). The football-only ≥50%
   // gate used to skip this path on afternoon WNBA boards → generic board scan
@@ -649,6 +655,20 @@ export async function buildCoachParlay(opts: {
       gamesAfterFilter: inputs.oddsGames,
       finalLegCount: picks.length,
     });
+    // Fire-and-forget reliability — props-only early return must still emit.
+    // Do not await; grounding vs legitimate-underfill is classified inside.
+    reportCoachScanReliability({
+      requestId: coachRelRequestId,
+      sportCategory: coachRelSport,
+      requestedLegCount: target,
+      returnedLegCount: picks.length,
+      durationMs: Date.now() - coachRelStarted,
+      realOddsAvailable:
+        (inputs.realOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
+      picks,
+      timedOut: false,
+      scanMissing: false,
+    });
     // If post-filters wiped a non-empty ticket, keep the honest empty lead —
     // never append `[POST_FILTER_EMPTY: …]` into the Coach chat bubble.
     if (built.picks.length > 0 && picks.length === 0 && !recoveredNote) {
@@ -681,10 +701,6 @@ export async function buildCoachParlay(opts: {
     shouldSkipScannerPropExpand(propPoolSize);
 
   let latest: FullBoardScanResult | null = null;
-  // Observe-only reliability markers — never touch selection / UI.
-  const coachRelStarted = Date.now();
-  const coachRelRequestId = `greenfield-${Date.now()}`;
-  const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
   const scanPromise = tryReachFullBoardScan({
     target,
     oddsGames: inputs.oddsGames,
@@ -968,6 +984,7 @@ export async function buildCoachParlay(opts: {
     realOddsAvailable: (scanRealOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
     scanFailureCode: scan?.failureReason?.code ?? null,
     scanFailureDetail: scan?.failureReason?.detail ?? null,
+    picks,
     timedOut: timed.timedOut,
     scanMissing: !scan,
   });
