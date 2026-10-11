@@ -1,11 +1,7 @@
 import { type SimTier } from "../lib/simCache.js";
 import { DEEP_SIMULATIONS } from "../lib/monteCarlo.js";
-import {
-  keyInjuryWeight,
-  type GameSimContext,
-  type SimPropRequest,
-} from "../lib/monteCarloBuild.js";
-import { runPropSims, tierSimCount } from "../lib/propSimRunner.js";
+import { keyInjuryWeight, type SimPropRequest } from "../lib/monteCarloBuild.js";
+import { runPropSims, tierSimCount, type PropSimGameContext } from "../lib/propSimRunner.js";
 import { buildOpportunityShiftForGame } from "../lib/opportunityShift/index.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
@@ -318,7 +314,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
         })
       : null;
 
-  const gameCtx: GameSimContext = {
+  const gameCtx: PropSimGameContext = {
     sport,
     oppPace,
     leaguePace,
