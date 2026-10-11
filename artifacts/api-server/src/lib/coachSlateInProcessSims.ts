@@ -5,6 +5,7 @@
 import { keyInjuryWeight, type SimPropRequest } from "./monteCarloBuild.js";
 import { DEEP_SIMULATIONS } from "./monteCarlo.js";
 import { runPropSims, tierSimCount } from "./propSimRunner.js";
+import { buildOpportunityShiftForGame } from "./opportunityShift/index.js";
 import type { SimTier } from "./simCache.js";
 import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
 import { fetchEspnInjuries } from "./espnInjuries.js";
@@ -149,6 +150,28 @@ export async function runPropSimsInProcess(body: {
   }
 
   const injuries = await fetchEspnInjuries(sport);
+  const gameKey = `${awayTeam || "away"} @ ${homeTeam || "home"}`;
+  const opportunityShift =
+    homeTeam && awayTeam
+      ? buildOpportunityShiftForGame({
+          sport,
+          gameKey,
+          homeTeam,
+          awayTeam,
+          injuries,
+          players: propsResolved.map((p) => ({
+            player: p.player,
+            athleteId: p.athleteId,
+            team:
+              p.isHome === true
+                ? homeTeam
+                : p.isHome === false
+                  ? awayTeam
+                  : homeTeam,
+            position: null,
+          })),
+        })
+      : null;
   const gameCtx = {
     sport,
     oppPace,
@@ -156,6 +179,7 @@ export async function runPropSimsInProcess(body: {
     oppKeyInjuries: awayTeam ? teamInjuryWeight(injuries, awayTeam) : 0,
     ownKeyInjuries: homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0,
     weatherImpact: null as number | null,
+    opportunityShift,
   };
 
   const { rows } = await runPropSims(

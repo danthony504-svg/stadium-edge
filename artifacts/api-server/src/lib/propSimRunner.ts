@@ -39,6 +39,8 @@ import {
   type PropSimEnrichmentHistory,
 } from "./authoritativePlayerHistory.js";
 
+import type { OpportunityShiftTable } from "./opportunityShift/index.js";
+
 export type PropSimGameContext = {
   sport: string;
   oppPace: number | null;
@@ -46,6 +48,8 @@ export type PropSimGameContext = {
   oppKeyInjuries: number;
   ownKeyInjuries: number;
   weatherImpact: number | null;
+  /** Built once per game from already-loaded injuries — reused across candidates. */
+  opportunityShift?: OpportunityShiftTable | null;
 };
 
 export type PropSimRow = BuiltSimPropRow & {
@@ -105,6 +109,7 @@ function gameCtxForSimulate(gameCtx: PropSimGameContext) {
     ownKeyInjuries: gameCtx.ownKeyInjuries,
     weatherImpact: gameCtx.weatherImpact,
     playerHistories: new Map(),
+    opportunityShift: gameCtx.opportunityShift ?? null,
   };
 }
 

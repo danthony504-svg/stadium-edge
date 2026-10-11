@@ -37,6 +37,15 @@ export type PropSimulationContext = {
   discrete?: boolean;
   /** Extra lines scored on the SAME 10k draw (alt rungs). */
   additionalLines?: number[];
+  /**
+   * Opportunity Shift — family-specific workload multiplier (never player-wide).
+   * Applied once before the single 10k draw. Default 1.
+   */
+  opportunityFamilyMult?: number | null;
+  opportunityFamily?: string | null;
+  opportunityExplain?: string | null;
+  /** When true, skip own-team key-injury mean tilt (same absence fingerprint). */
+  opportunitySuppressOwnInjuries?: boolean;
 };
 
 export type PropSimulationResult = {
@@ -178,13 +187,19 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   }
 
   const oppInj = ctx.oppKeyInjuries ?? 0;
-  const ownInj = ctx.ownKeyInjuries ?? 0;
+  const ownInj = ctx.opportunitySuppressOwnInjuries ? 0 : (ctx.ownKeyInjuries ?? 0);
   mean *= clamp(1 + oppInj * 0.015 - ownInj * 0.02, 0.88, 1.12);
 
   if (ctx.weatherImpact != null && ctx.sport === "mlb") {
     const w = clamp(ctx.weatherImpact, -1, 1);
     if (/home_run|total_base|hits/i.test(ctx.market)) mean *= 1 + w * 0.1;
     else if (/strikeout|pitcher/i.test(ctx.market)) mean *= 1 - w * 0.06;
+  }
+
+  // Family-specific Opportunity Shift (pre-sim). Caps enforced by the engine.
+  const oppMult = ctx.opportunityFamilyMult;
+  if (oppMult != null && Number.isFinite(oppMult) && oppMult > 0 && oppMult !== 1) {
+    mean *= clamp(oppMult, 0.82, 1.28);
   }
 
   return Math.max(0, mean);
