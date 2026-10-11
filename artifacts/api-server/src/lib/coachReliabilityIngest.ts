@@ -59,11 +59,19 @@ export function isCoachReliabilityTestFixture(body: unknown): boolean {
   return false;
 }
 
+function parseCorrelationId(b: Record<string, unknown>): string | null {
+  // Temporary client↔server match key for coach-events diagnostics only.
+  if (typeof b.correlationId !== "string") return null;
+  const s = sanitizeReliabilityText(b.correlationId, 80);
+  return s || null;
+}
+
 export function parseCoachReliabilityIngestBody(
   body: unknown,
 ): RecordCoachEventInput | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
+  const correlationId = parseCorrelationId(b);
 
   // Prefer structured scan failure codes from mobile.
   if (typeof b.scanFailureCode === "string" && b.scanFailureCode) {
@@ -104,6 +112,7 @@ export function parseCoachReliabilityIngestBody(
             : mapped.failureReason,
         240,
       ),
+      correlationId,
     };
   }
 
@@ -147,5 +156,6 @@ export function parseCoachReliabilityIngestBody(
       typeof b.rootCause === "string"
         ? sanitizeReliabilityText(b.rootCause, 240)
         : null,
+    correlationId,
   };
 }

@@ -11,6 +11,11 @@ import {
   evaluateReturnedPicksGrounding,
   type CoachReliabilityGroundingPick,
 } from "./coachReliabilityGrounding.ts";
+import {
+  logCoachRelDiagCall,
+  logCoachRelDiagPostResult,
+  newCoachRelCorrelationId,
+} from "./coachReliabilityDiag.ts";
 
 const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN;
 const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
@@ -38,7 +43,23 @@ export type CoachReliabilityReportInput = {
   rootCause?: string | null;
   /** Test fixtures — server rejects Telegram for these. */
   testFixture?: boolean;
+  /**
+   * Temporary client↔server correlation id for /reliability/coach-events diagnostics.
+   * Generated when omitted. Does not change classification.
+   */
+  correlationId?: string | null;
 };
+
+function eventTypeCandidateFromBody(
+  body: Record<string, unknown> | null,
+): string | null {
+  if (!body) return null;
+  if (typeof body.eventType === "string" && body.eventType) return body.eventType;
+  if (typeof body.scanFailureCode === "string" && body.scanFailureCode) {
+    return `scan:${body.scanFailureCode}`;
+  }
+  return null;
+}
 
 /**
  * Classify + report a completed board scan / parlay build outcome.
@@ -48,11 +69,60 @@ export function reportCoachScanReliability(
   input: CoachReliabilityReportInput,
 ): void {
   try {
-    if (!shouldSendCrashReports()) return;
-    if (inFlight >= MAX_IN_FLIGHT) return;
+    const correlationId =
+      (input.correlationId && String(input.correlationId).trim()) ||
+      newCoachRelCorrelationId();
+    const requestId =
+      input.requestId != null ? String(input.requestId) : null;
+    const returnedPickCount =
+      typeof input.returnedLegCount === "number"
+        ? input.returnedLegCount
+        : (input.picks?.length ?? 0);
 
-    const body = buildCoachReliabilityBody(input);
-    if (!body) return;
+    const body = buildCoachReliabilityBody({
+      ...input,
+      correlationId,
+    });
+
+    // Temporary diagnostics — log even when body is null (full ticket / no event).
+    logCoachRelDiagCall({
+      correlationId,
+      requestId,
+      eventTypeCandidate: eventTypeCandidateFromBody(body),
+      returnedPickCount,
+      picks: input.picks,
+    });
+
+    if (!shouldSendCrashReports()) {
+      logCoachRelDiagPostResult({
+        correlationId,
+        requestId,
+        httpStatus: null,
+        success: false,
+        error: "reporting_gated",
+      });
+      return;
+    }
+    if (inFlight >= MAX_IN_FLIGHT) {
+      logCoachRelDiagPostResult({
+        correlationId,
+        requestId,
+        httpStatus: null,
+        success: false,
+        error: "in_flight_cap",
+      });
+      return;
+    }
+    if (!body) {
+      logCoachRelDiagPostResult({
+        correlationId,
+        requestId,
+        httpStatus: null,
+        success: false,
+        error: "no_body",
+      });
+      return;
+    }
 
     inFlight += 1;
     void (async () => {
@@ -60,17 +130,29 @@ export function reportCoachScanReliability(
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), REPORT_TIMEOUT_MS);
         try {
-          await fetch(`${API_BASE}/reliability/coach-events`, {
+          const res = await fetch(`${API_BASE}/reliability/coach-events`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
             signal: ac.signal,
           });
+          logCoachRelDiagPostResult({
+            correlationId,
+            requestId,
+            httpStatus: res.status,
+            success: res.ok,
+          });
         } finally {
           clearTimeout(timer);
         }
-      } catch {
-        // Fail soft — never retry, never surface to Coach UI.
+      } catch (err) {
+        logCoachRelDiagPostResult({
+          correlationId,
+          requestId,
+          httpStatus: null,
+          success: false,
+          error: err instanceof Error ? err.name : "fetch_failed",
+        });
       } finally {
         inFlight = Math.max(0, inFlight - 1);
       }
@@ -96,6 +178,12 @@ export function buildCoachReliabilityBody(
     affectedGameFromPicks(input.picks) ||
     null;
 
+  const correlationId =
+    input.correlationId && String(input.correlationId).trim()
+      ? String(input.correlationId).trim().slice(0, 80)
+      : null;
+  const corr = correlationId ? { correlationId } : {};
+
   if (input.scanMissing || input.timedOut) {
     return {
       scanFailureCode: input.scanMissing ? "SCAN_THREW" : "ABSOLUTE_BUDGET",
@@ -110,6 +198,7 @@ export function buildCoachReliabilityBody(
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? null,
+      ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -130,6 +219,7 @@ export function buildCoachReliabilityBody(
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? "player_game_grounding_mismatch",
+      ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -148,6 +238,7 @@ export function buildCoachReliabilityBody(
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? input.scanFailureDetail ?? null,
+      ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -172,6 +263,7 @@ export function buildCoachReliabilityBody(
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? "thin_slate_or_quality_bar",
+      ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -190,6 +282,7 @@ export function buildCoachReliabilityBody(
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? "zero_results",
+      ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -207,6 +300,7 @@ export function buildCoachReliabilityBody(
       requestId: input.requestId ?? null,
       affectedGame,
       rootCause: input.rootCause ?? null,
+      ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }

@@ -158,7 +158,22 @@ router.post(
     }
     try {
       // Fire-and-forget style response: await store but never throw to client.
+      // Store logs [coach-rel-diag] with correlationId / Telegram / dedupe.
       const outcome = await recordCoachReliabilityEvent(event);
+      logger.info(
+        {
+          correlationId: event.correlationId ?? null,
+          requestId: event.requestId ?? null,
+          eventType: event.eventType,
+          failureReason: event.failureReason ?? null,
+          failureCategory: event.failureCategory ?? null,
+          affectedGame: event.affectedGame ?? null,
+          accepted: outcome.accepted,
+          alerted: outcome.alerted,
+          deduped: outcome.deduped,
+        },
+        "[coach-rel-diag] coach-events route",
+      );
       res.status(202).json({
         ok: true,
         accepted: outcome.accepted,

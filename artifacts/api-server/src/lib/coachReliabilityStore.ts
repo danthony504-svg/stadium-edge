@@ -47,6 +47,11 @@ export type RecordCoachEventInput = {
   requestId?: string | null;
   affectedGame?: string | null;
   rootCause?: string | null;
+  /**
+   * Temporary client↔server correlation id for coach-events diagnostics.
+   * Logged only — not used in fingerprint / classification / Telegram rules.
+   */
+  correlationId?: string | null;
 };
 
 export type CoachDigestStats = {
@@ -141,6 +146,34 @@ async function sendCoachAlertIfAllowed(opts: {
   return alerted;
 }
 
+function logCoachRelDiagServer(opts: {
+  correlationId: string | null;
+  requestId: string | null;
+  eventType: string;
+  failureReason: string;
+  failureCategory: string;
+  affectedGame: string | null;
+  telegramEligible: boolean;
+  dedupeSuppressed: boolean;
+  alerted: boolean;
+}): void {
+  // Temporary diagnostics for /reliability/coach-events — no secrets / PII.
+  logger.info(
+    {
+      correlationId: opts.correlationId,
+      requestId: opts.requestId,
+      eventType: opts.eventType,
+      failureReason: opts.failureReason,
+      failureCategory: opts.failureCategory,
+      affectedGame: opts.affectedGame,
+      telegramEligible: opts.telegramEligible,
+      dedupeSuppressed: opts.dedupeSuppressed,
+      alerted: opts.alerted,
+    },
+    "[coach-rel-diag] coach-event",
+  );
+}
+
 /**
  * Record a Coach reliability event. Fail-soft — never throws to Coach routes.
  */
@@ -153,6 +186,9 @@ export async function recordCoachReliabilityEvent(
     const fingerprint = coachAlertFingerprint(meta);
     const summary = coachEventSummary(meta);
     const windowStart = new Date(now.getTime() - CRASH_DEDUPE_WINDOW_MS);
+    const telegramEligible = shouldAlertCoachEvent(meta);
+    const correlationId =
+      typeof input.correlationId === "string" ? input.correlationId : null;
 
     const existing = await db
       .select()
@@ -192,6 +228,18 @@ export async function recordCoachReliabilityEvent(
         rowId: row.id,
         occurrenceCount: nextCount,
       });
+      // Fingerprint hit in window = dedupe suppressed (even if Telegram-eligible).
+      logCoachRelDiagServer({
+        correlationId,
+        requestId: meta.requestId,
+        eventType: meta.eventType,
+        failureReason: meta.failureReason,
+        failureCategory: meta.failureCategory,
+        affectedGame: meta.affectedGame,
+        telegramEligible,
+        dedupeSuppressed: true,
+        alerted,
+      });
       return { accepted: true, alerted, deduped: true };
     }
 
@@ -219,7 +267,20 @@ export async function recordCoachReliabilityEvent(
       .returning({ id: reliabilityEventsTable.id });
 
     const id = inserted[0]?.id;
-    if (id == null) return { accepted: true, alerted: false, deduped: false };
+    if (id == null) {
+      logCoachRelDiagServer({
+        correlationId,
+        requestId: meta.requestId,
+        eventType: meta.eventType,
+        failureReason: meta.failureReason,
+        failureCategory: meta.failureCategory,
+        affectedGame: meta.affectedGame,
+        telegramEligible,
+        dedupeSuppressed: false,
+        alerted: false,
+      });
+      return { accepted: true, alerted: false, deduped: false };
+    }
 
     const alerted = await sendCoachAlertIfAllowed({
       meta: { ...meta, durationSamples: samples },
@@ -229,9 +290,39 @@ export async function recordCoachReliabilityEvent(
       rowId: id,
       occurrenceCount: 1,
     });
+    // New fingerprint: quiet-window skip still counts as dedupe-suppressed for diag.
+    const dedupeSuppressed = telegramEligible && !alerted;
+    logCoachRelDiagServer({
+      correlationId,
+      requestId: meta.requestId,
+      eventType: meta.eventType,
+      failureReason: meta.failureReason,
+      failureCategory: meta.failureCategory,
+      affectedGame: meta.affectedGame,
+      telegramEligible,
+      dedupeSuppressed,
+      alerted,
+    });
     return { accepted: true, alerted, deduped: false };
   } catch (err) {
     logger.warn({ err }, "coach reliability event store failed");
+    try {
+      const meta = buildMeta(input);
+      logCoachRelDiagServer({
+        correlationId:
+          typeof input.correlationId === "string" ? input.correlationId : null,
+        requestId: meta.requestId,
+        eventType: meta.eventType,
+        failureReason: meta.failureReason,
+        failureCategory: meta.failureCategory,
+        affectedGame: meta.affectedGame,
+        telegramEligible: shouldAlertCoachEvent(meta),
+        dedupeSuppressed: false,
+        alerted: false,
+      });
+    } catch {
+      /* ignore diag failure */
+    }
     return { accepted: false, alerted: false, deduped: false };
   }
 }
