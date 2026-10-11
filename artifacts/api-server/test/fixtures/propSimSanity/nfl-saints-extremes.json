@@ -1,6 +1,6 @@
 {
   "sport": "nfl",
-  "label": "recorded Vikings@Saints extreme alt overs",
+  "label": "Vikings@Saints props after QB pre-sim factor fix",
   "props": [
     {
       "sport": "nfl",
@@ -29,16 +29,16 @@
         "isHome": true
       },
       "histClearRate": 0.75,
-      "bareProjectionMean": 30.26,
-      "finalProjectionMean": 36.59,
+      "bareProjectionMean": 30.25,
+      "finalProjectionMean": 28.14,
       "opportunityMultiplier": null,
       "efficiencyMultiplier": null,
-      "combinedPreSimMultiplier": 1.209,
-      "simHitProbability": 0.979,
+      "combinedPreSimMultiplier": 0.93,
+      "simHitProbability": 0.57,
       "impliedProbability": 0.1845,
-      "edge": 0.794,
+      "edge": 0.385,
       "sampleGames": 4,
-      "stdDev": 4.39,
+      "stdDev": 3.4,
       "checks": {
         "playerResolved": true,
         "statFamilyOk": true,
@@ -49,10 +49,7 @@
         "histConsistent": true
       },
       "pairKey": "Tyler Shough|player_pass_completions|27.5",
-      "expectedFlags": [
-        "extreme_multiplier",
-        "extreme_sim_vs_history"
-      ]
+      "expectedFlags": []
     },
     {
       "sport": "nfl",
@@ -81,14 +78,14 @@
         "isHome": true
       },
       "histClearRate": 0.5,
-      "bareProjectionMean": 44.93,
-      "finalProjectionMean": 54.17,
+      "bareProjectionMean": 45,
+      "finalProjectionMean": 41.87,
       "opportunityMultiplier": null,
       "efficiencyMultiplier": null,
-      "combinedPreSimMultiplier": 1.206,
-      "simHitProbability": 0.854,
+      "combinedPreSimMultiplier": 0.93,
+      "simHitProbability": 0.387,
       "impliedProbability": 0.1429,
-      "edge": 0.711,
+      "edge": 0.244,
       "sampleGames": 4,
       "stdDev": 9.31,
       "checks": {
@@ -101,10 +98,7 @@
         "histConsistent": true
       },
       "pairKey": "Tyler Shough|player_pass_attempts|44.5",
-      "expectedFlags": [
-        "extreme_multiplier",
-        "extreme_sim_vs_history"
-      ]
+      "expectedFlags": []
     },
     {
       "sport": "nfl",
@@ -133,14 +127,14 @@
         "isHome": true
       },
       "histClearRate": 0.5,
-      "bareProjectionMean": 300.05,
-      "finalProjectionMean": 363.61,
+      "bareProjectionMean": 300.75,
+      "finalProjectionMean": 279.84,
       "opportunityMultiplier": null,
       "efficiencyMultiplier": null,
-      "combinedPreSimMultiplier": 1.212,
-      "simHitProbability": 0.903,
+      "combinedPreSimMultiplier": 0.93,
+      "simHitProbability": 0.566,
       "impliedProbability": 0.3636,
-      "edge": 0.539,
+      "edge": 0.202,
       "sampleGames": 4,
       "stdDev": 74.44,
       "checks": {
@@ -153,10 +147,7 @@
         "histConsistent": true
       },
       "pairKey": "Tyler Shough|player_pass_yds|266.5",
-      "expectedFlags": [
-        "extreme_multiplier",
-        "extreme_sim_vs_history"
-      ]
+      "expectedFlags": []
     },
     {
       "sport": "nfl",

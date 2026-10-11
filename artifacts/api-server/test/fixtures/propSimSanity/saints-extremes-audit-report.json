@@ -1,38 +1,38 @@
 {
-  "worstStatus": "RED",
+  "worstStatus": "PASS",
   "counts": {
-    "PASS": 3,
+    "PASS": 6,
     "YELLOW": 0,
-    "RED": 3
+    "RED": 0
   },
   "explanations": [
     {
-      "key": "Shough completions O27.5",
-      "status": "RED",
-      "why": "Combined pre-sim multiplier 1.209 is extreme (≥1.18× or ≤0.847×). Sim hit 97.9% vs historical clear 75.0% (gap 22.9 pts)."
-    },
-    {
-      "key": "Shough attempts O44.5",
-      "status": "RED",
-      "why": "Combined pre-sim multiplier 1.206 is extreme (≥1.18× or ≤0.847×). Sim hit 85.4% materially above historical clear 50.0%."
-    },
-    {
-      "key": "Shough pass yards O266.5",
-      "status": "RED",
-      "why": "Combined pre-sim multiplier 1.212 is extreme (≥1.18× or ≤0.847×). Sim hit 90.3% vs historical clear 50.0% (gap 40.3 pts)."
-    },
-    {
-      "key": "Olave receptions O6.5",
+      "key": "Tyler Shough player_pass_completions",
       "status": "PASS",
       "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
     },
     {
-      "key": "Juwan rec yards O42.5",
+      "key": "Tyler Shough player_pass_attempts",
       "status": "PASS",
       "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
     },
     {
-      "key": "Juwan longest rec O17.5",
+      "key": "Tyler Shough player_pass_yds",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Chris Olave player_receptions",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Juwan Johnson player_reception_yds",
+      "status": "PASS",
+      "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
+    },
+    {
+      "key": "Juwan Johnson player_reception_longest",
       "status": "PASS",
       "why": "Identity, units, multipliers, and sim-vs-history checks within tolerance."
     }
@@ -51,22 +51,18 @@
       "recentMean": 30.25,
       "relevantVenueSplit": 29.5,
       "historicalClearRate": 0.75,
-      "bareProjectionMean": 30.26,
-      "finalProjectionMean": 36.59,
+      "bareProjectionMean": 30.25,
+      "finalProjectionMean": 28.14,
       "opportunityMultiplier": null,
       "efficiencyMultiplier": null,
-      "combinedPreSimMultiplier": 1.209,
-      "simulatedHitProbability": 0.979,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.57,
       "impliedProbability": 0.1845,
-      "edge": 0.794,
-      "flags": [
-        "extreme_multiplier",
-        "extreme_sim_vs_history"
-      ],
-      "status": "RED",
+      "edge": 0.385,
+      "flags": [],
+      "status": "PASS",
       "reasons": [
-        "Combined pre-sim multiplier 1.209 is extreme (≥1.18× or ≤0.847×).",
-        "Sim hit 97.9% vs historical clear 75.0% (gap 22.9 pts)."
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
       ]
     },
     {
@@ -82,22 +78,18 @@
       "recentMean": 45,
       "relevantVenueSplit": 45,
       "historicalClearRate": 0.5,
-      "bareProjectionMean": 44.93,
-      "finalProjectionMean": 54.17,
+      "bareProjectionMean": 45,
+      "finalProjectionMean": 41.87,
       "opportunityMultiplier": null,
       "efficiencyMultiplier": null,
-      "combinedPreSimMultiplier": 1.206,
-      "simulatedHitProbability": 0.854,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.387,
       "impliedProbability": 0.1429,
-      "edge": 0.711,
-      "flags": [
-        "extreme_multiplier",
-        "extreme_sim_vs_history"
-      ],
-      "status": "RED",
+      "edge": 0.244,
+      "flags": [],
+      "status": "PASS",
       "reasons": [
-        "Combined pre-sim multiplier 1.206 is extreme (≥1.18× or ≤0.847×).",
-        "Sim hit 85.4% materially above historical clear 50.0%."
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
       ]
     },
     {
@@ -113,22 +105,18 @@
       "recentMean": 300.75,
       "relevantVenueSplit": 270.5,
       "historicalClearRate": 0.5,
-      "bareProjectionMean": 300.05,
-      "finalProjectionMean": 363.61,
+      "bareProjectionMean": 300.75,
+      "finalProjectionMean": 279.84,
       "opportunityMultiplier": null,
       "efficiencyMultiplier": null,
-      "combinedPreSimMultiplier": 1.212,
-      "simulatedHitProbability": 0.903,
+      "combinedPreSimMultiplier": 0.93,
+      "simulatedHitProbability": 0.566,
       "impliedProbability": 0.3636,
-      "edge": 0.539,
-      "flags": [
-        "extreme_multiplier",
-        "extreme_sim_vs_history"
-      ],
-      "status": "RED",
+      "edge": 0.202,
+      "flags": [],
+      "status": "PASS",
       "reasons": [
-        "Combined pre-sim multiplier 1.212 is extreme (≥1.18× or ≤0.847×).",
-        "Sim hit 90.3% vs historical clear 50.0% (gap 40.3 pts)."
+        "Identity, units, multipliers, and sim-vs-history checks within tolerance."
       ]
     },
     {
