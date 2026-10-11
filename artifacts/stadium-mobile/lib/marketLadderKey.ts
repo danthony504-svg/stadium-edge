@@ -71,7 +71,13 @@ export function marketLadderKey(pick: {
   const gameKey = canonicalGameKey(pick.game);
   if (pick.isProp) {
     const player = norm(pick.player ?? pick.pick.split(/\s+/)[0] ?? "");
-    const market = norm(pick.market);
+    // Strip alt suffix so main + alt rungs of the same participant+stat+side
+    // share one seating ladder (score pool still distinguishes via score key).
+    const market = norm(pick.market)
+      .replace(/\balternate\b/g, " ")
+      .replace(/\balt\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     const side =
       pick.propSide ??
       (/\bover\b/i.test(pick.pick) ? "Over" : /\bunder\b/i.test(pick.pick) ? "Under" : "");

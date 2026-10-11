@@ -18,7 +18,7 @@ import {
   COLLEGE_FOOTBALL_BALANCED_MIX_FRACTIONS,
   type BoardMarketCategory,
 } from "./balancedTicketMix.ts";
-import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
+import { canonicalGameKey, gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { dedupePicksByMarketLadder, wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import {
   p0UnvalidatedSimDecision,
@@ -55,6 +55,12 @@ import {
   boardScanPropSlotCount,
   isFootballHeavyPickList,
 } from "./boardScanPropDelivery.ts";
+import { coachAskTeamScope } from "./coachAskTeamScope.ts";
+import {
+  inferSingleEventKeyFromPool,
+  resolveSingleEventSeatingContext,
+  seatSingleEventTicket,
+} from "./singleEventSeating.ts";
 
 function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
@@ -681,7 +687,89 @@ export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
   legsPerGameCap?: number | null;
   collegeTeamMarketStacks?: boolean;
+  /** Raw ask text — required to activate single-event seating. */
+  askText?: string | null;
+  /** Optional pre-resolved event key / sport for scoped asks. */
+  singleEventKey?: string | null;
+  singleEventSport?: string | null;
 };
+
+function tryBuildSingleEventStagedTicket(
+  scored: BoardScoredLeg[],
+  target: number,
+  varietyContext?: CoachTicketStagingContext,
+): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } | null {
+  const ctx = resolveSingleEventSeatingContext({
+    askText: varietyContext?.askText,
+    target,
+    eventKey: varietyContext?.singleEventKey,
+    sport: varietyContext?.singleEventSport,
+  });
+  if (!ctx.active) return null;
+
+  const qualifying = qualifyingScoredLegs(scored);
+  const games = [...new Set(qualifying.map((l) => l.pick.game).filter(Boolean))];
+  const eventKey =
+    ctx.eventKey ?? inferSingleEventKeyFromPool(varietyContext?.askText, games);
+  if (!eventKey) {
+    const mains = qualifying.filter(
+      (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main",
+    );
+    const alts = qualifying.filter(
+      (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt",
+    );
+    return {
+      picks: [],
+      breakdown: {
+        mainQualified: mains.length,
+        altQualified: alts.length,
+        mainOnTicket: 0,
+        altOnTicket: 0,
+        limitingRule: "single_event_quality_pool_short",
+      },
+    };
+  }
+
+  const eventCanon = canonicalGameKey(eventKey);
+  const sport =
+    ctx.sport ??
+    varietyContext?.singleEventSport ??
+    coachAskTeamScope(varietyContext?.askText)?.sport ??
+    qualifying.find((l) => canonicalGameKey(l.pick.game) === eventCanon)?.pick.sport ??
+    "nfl";
+
+  const ranked = qualifying
+    .filter((l) => canonicalGameKey(l.pick.game) === eventCanon)
+    .map((l) => ({ pick: l.pick, rankScore: l.rankScore }));
+
+  const seated = seatSingleEventTicket(ranked, {
+    target,
+    eventKey: ranked[0]?.pick.game ?? eventKey,
+    sport,
+  });
+
+  const picks = seated.picks.map((p) => {
+    const role = boardLegPoolRole(p, p.finalAiScore) ?? "main";
+    return { ...p, ticketRole: role as "main" | "alt", highRiskValuePlay: false };
+  });
+
+  const mains = qualifying.filter(
+    (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main",
+  );
+  const alts = qualifying.filter(
+    (leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt",
+  );
+  return {
+    picks,
+    breakdown: {
+      mainQualified: mains.length,
+      altQualified: alts.length,
+      mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
+      altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+      limitingRule: seated.limitingRule,
+    },
+  };
+}
 
 /** Stage a ticket from scored legs — fair rank competition (no mains-first seat priority). */
 export function buildStagedTicketFromScan(
@@ -690,6 +778,9 @@ export function buildStagedTicketFromScan(
   varietySeed?: string,
   varietyContext?: CoachTicketStagingContext,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+  const single = tryBuildSingleEventStagedTicket(scored, target, varietyContext);
+  if (single) return single;
+
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
 
   // Home-run-only boards: evaluate full ranked pool, take top-N distinct hitters
