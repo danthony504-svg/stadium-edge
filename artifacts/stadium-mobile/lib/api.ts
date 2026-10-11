@@ -115,6 +115,7 @@ export {
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
 import { API_BASE } from "./apiBase";
+import { getActiveCoachSimulateLimiter } from "./coachSimulateLimiter";
 export { API_BASE };
 
 // ---------- Types (mirror lib/api-spec/openapi.yaml) ----------
@@ -2446,6 +2447,25 @@ export async function fetchGameOutcomeSimulation(
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {
+  const limiter = getActiveCoachSimulateLimiter();
+  const run = () => fetchGameOutcomeSimulationUnlim(opts, signal);
+  return limiter ? limiter.run("game", run) : run();
+}
+
+async function fetchGameOutcomeSimulationUnlim(
+  opts: {
+    sport: string;
+    homeTeamId?: string;
+    awayTeamId?: string;
+    homeTeam?: string;
+    awayTeam?: string;
+    simulations?: number;
+    weatherImpact?: number | null;
+    coverQueries?: GameCoverQueryInput[];
+    retainOutcomes?: boolean;
+  },
+  signal?: AbortSignal,
+): Promise<GameSimulationResult | null> {
   const path = "/sports/simulate/game-outcome";
   const body: Record<string, unknown> = {
     sport: opts.sport,
@@ -2531,6 +2551,37 @@ export async function fetchPropSimulationsBatch(
   historyCoalesced?: number;
 }> {
   if (!props.length) return { props: [], playerHistories: {} };
+  const limiter = getActiveCoachSimulateLimiter();
+  const run = () => fetchPropSimulationsBatchUnlim(sport, props, opts, signal);
+  return limiter ? limiter.run("prop", run) : run();
+}
+
+async function fetchPropSimulationsBatchUnlim(
+  sport: string,
+  props: Array<{
+    player: string;
+    market: string;
+    line: number;
+    side: "Over" | "Under";
+    athleteId?: string | null;
+    additionalLines?: number[];
+  }>,
+  opts?: {
+    homeTeam?: string;
+    awayTeam?: string;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    weatherImpact?: number | null;
+    simulations?: number;
+    tier?: "quick" | "deep";
+  },
+  signal?: AbortSignal,
+): Promise<{
+  props: PropSimulationResult[];
+  playerHistories: Record<string, PropSimPlayerHistoryPayload>;
+  historyShared?: number;
+  historyCoalesced?: number;
+}> {
   const path = "/sports/simulate/props";
   const tier = opts?.tier ?? "quick";
   const res = await withTimeout(
