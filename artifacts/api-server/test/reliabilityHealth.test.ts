@@ -106,3 +106,39 @@ test("digest cron workflow documents schedule + uses secret", () => {
   assert.match(src, /reliability\/cron\/digest/);
   assert.match(src, /default branch/);
 });
+
+test("telegram probe workflow is manual-only and uses secret cron key", () => {
+  const src = readFileSync(
+    join(
+      process.cwd(),
+      "../../.github/workflows/reliability-telegram-probe.yml",
+    ),
+    "utf8",
+  );
+  assert.match(src, /workflow_dispatch/);
+  assert.equal(/^\s*schedule:/m.test(src), false);
+  assert.match(src, /NOTIFY_CRON_KEY/);
+  assert.match(src, /reliability\/cron\/telegram-probe/);
+  assert.match(src, /fail.*dedupe.*recover/s);
+  assert.equal(src.includes("syntheticFail"), false);
+  assert.equal(src.includes("EXPO_PUBLIC_"), false);
+});
+
+test("telegram probe route exists and stays off real health forceFail", () => {
+  const route = readFileSync(
+    join(process.cwd(), "src/routes/reliability.ts"),
+    "utf8",
+  );
+  assert.match(route, /\/reliability\/cron\/telegram-probe/);
+  assert.match(route, /runReliabilityTelegramProbe/);
+  const store = readFileSync(
+    join(process.cwd(), "src/lib/reliabilityHealthStore.ts"),
+    "utf8",
+  );
+  assert.match(store, /TELEGRAM_PROBE_CHECK_ID\s*=\s*"telegram_probe"/);
+  assert.match(store, /PRODUCTION-SAFE TELEGRAM PROBE/);
+  assert.match(store, /health\|\$\{id\}\|fail/);
+  assert.match(store, /export async function runReliabilityTelegramProbe/);
+  // Probe must not call the full health monitor / forceFail path.
+  assert.equal(store.includes("forceFail"), false);
+});

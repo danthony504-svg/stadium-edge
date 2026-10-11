@@ -27,7 +27,11 @@ import {
   runReliabilityHealthChecks,
   summarizeHealthChecks,
 } from "../lib/reliabilityHealthChecks";
-import { runReliabilityHealthMonitor } from "../lib/reliabilityHealthStore";
+import {
+  runReliabilityHealthMonitor,
+  runReliabilityTelegramProbe,
+  type TelegramProbePhase,
+} from "../lib/reliabilityHealthStore";
 import {
   checkReliabilityHourlyBudget,
   crashIngestRateLimit,
@@ -254,6 +258,49 @@ router.post("/reliability/cron/health", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "reliability health cron failed");
     res.status(500).json({ error: "health cron failed" });
+  }
+});
+
+/**
+ * POST /api/reliability/cron/telegram-probe
+ * Production-safe Telegram proof: fail → 30m dedupe → recovery for
+ * check id `telegram_probe` only. Does not fail real health checks.
+ * Guarded by NOTIFY_CRON_KEY. Prefer this over health `syntheticFail`.
+ */
+router.post("/reliability/cron/telegram-probe", async (req, res) => {
+  const started = Date.now();
+  if (!authorizeCronRequest(req, res)) return;
+  try {
+    const body =
+      req.body && typeof req.body === "object"
+        ? (req.body as { phases?: unknown; phase?: unknown })
+        : {};
+    let phases: TelegramProbePhase[] | undefined;
+    if (typeof body.phase === "string") {
+      const p = body.phase.trim().toLowerCase();
+      if (p === "fail" || p === "dedupe" || p === "recover") {
+        phases = [p];
+      }
+    } else if (Array.isArray(body.phases)) {
+      const parsed = body.phases
+        .map((p) => String(p).trim().toLowerCase())
+        .filter(
+          (p): p is TelegramProbePhase =>
+            p === "fail" || p === "dedupe" || p === "recover",
+        );
+      if (parsed.length > 0) phases = parsed;
+    }
+
+    const outcome = await runReliabilityTelegramProbe({ phases });
+    res.json({
+      ok: true,
+      probe: outcome,
+      durationMs: Date.now() - started,
+      model: reliabilitySecurityModelSummary(),
+    });
+  } catch (err) {
+    logger.error({ err }, "reliability telegram probe failed");
+    res.status(500).json({ error: "telegram probe failed" });
   }
 });
 
