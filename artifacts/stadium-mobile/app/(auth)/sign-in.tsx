@@ -1,4 +1,5 @@
 import { useSignIn } from "@clerk/expo";
+import { passkeys } from "@clerk/expo/passkeys";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { type Href, Link, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -13,10 +14,17 @@ import {
   AuthField,
   AuthShell,
   PrimaryButton,
+  SecondaryButton,
 } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { requestAppReviewTicket } from "@/lib/appReviewAuth";
+import {
+  AUTH_CURRENT_PASSWORD_AUTOFILL,
+  AUTH_EMAIL_AUTOFILL,
+  AUTH_NEW_PASSWORD_AUTOFILL,
+  AUTH_OTP_AUTOFILL,
+} from "@/lib/authFieldAutofill";
 import {
   clearBiometricLogin,
   getBiometricCapability,
@@ -26,11 +34,9 @@ import {
   saveBiometricLogin,
 } from "@/lib/biometricLogin";
 import {
-  AUTH_CURRENT_PASSWORD_AUTOFILL,
-  AUTH_EMAIL_AUTOFILL,
-  AUTH_NEW_PASSWORD_AUTOFILL,
-  AUTH_OTP_AUTOFILL,
-} from "@/lib/authFieldAutofill";
+  describePasskeyError,
+  isPasskeyCancellation,
+} from "@/lib/passkeyAuth";
 import {
   resolvePostAuthHref,
   signUpHrefPreservingReturn,
@@ -156,7 +162,15 @@ export default function SignInScreen() {
   const [bioLabel, setBioLabel] = React.useState("Face ID");
   const [savedEmail, setSavedEmail] = React.useState<string | null>(null);
   const [bioBusy, setBioBusy] = React.useState(false);
+  const [passkeyBusy, setPasskeyBusy] = React.useState(false);
   const [verifyBusy, setVerifyBusy] = React.useState(false);
+  const passkeySupported = React.useMemo(() => {
+    try {
+      return passkeys.isSupported();
+    } catch {
+      return false;
+    }
+  }, []);
   // Armed only after this visit's password/biometric submit reaches MFA.
   // Prevents stale Clerk needs_second_factor / needs_client_trust from skipping
   // the email/password screen when opening Sign in.
@@ -311,6 +325,50 @@ export default function SignInScreen() {
       setFormError("Incorrect verification code");
     } finally {
       setVerifyBusy(false);
+    }
+  };
+
+  /**
+   * WebAuthn passkey sign-in (Face ID / Touch ID via the credential provider).
+   * Restores the existing Clerk user — does not create a new account.
+   * Distinct from the SecureStore biometric password shortcut above.
+   */
+  const handlePasskeySignIn = async () => {
+    if (passkeyBusy) return;
+    setFormError("");
+    if (!passkeySupported) {
+      setFormError("Passkeys aren't available on this device.");
+      return;
+    }
+    setPasskeyBusy(true);
+    try {
+      const { error } = await signIn.passkey({ flow: "discoverable" });
+      if (error) {
+        if (isPasskeyCancellation(error)) {
+          setFormError(describePasskeyError(error, "sign_in"));
+          return;
+        }
+        setFormError(describePasskeyError(error, "sign_in"));
+        return;
+      }
+      if (signIn.status === "complete") {
+        await signIn.finalize({ navigate: goHome });
+      } else if (shouldArmSecondFactor(signIn.status)) {
+        setAwaitingSecondFactor(true);
+        if (signIn.status === "needs_second_factor") {
+          const emailCodeFactor = signIn.supportedSecondFactors?.find(
+            (f) => f.strategy === "email_code",
+          );
+          if (emailCodeFactor) await signIn.mfa.sendEmailCode();
+        }
+      } else {
+        setFormError("Couldn't finish passkey sign-in. Please try again.");
+      }
+    } catch (err) {
+      // Native cancel / abort must clear busy and show a clean message.
+      setFormError(describePasskeyError(err, "sign_in"));
+    } finally {
+      setPasskeyBusy(false);
     }
   };
 
@@ -546,8 +604,8 @@ export default function SignInScreen() {
 
   return (
     <AuthShell
-      title="Welcome back"
-      subtitle="Sign in to sync your slips, track your picks, and stay ahead across all your devices."
+      title="Sign In"
+      subtitle="Welcome back — restore your Stadium Edge account, profile, and saved data."
     >
       {savedEmail && bioSupported ? (
         <>
@@ -636,11 +694,23 @@ export default function SignInScreen() {
         />
       </View>
       <PrimaryButton
-        label="Sign in"
+        label="Sign In"
         onPress={handleSubmit}
         disabled={!emailAddress || !password}
-        loading={fetchStatus === "fetching"}
+        loading={fetchStatus === "fetching" && !passkeyBusy}
       />
+
+      {passkeySupported ? (
+        <>
+          <AuthDivider />
+          <SecondaryButton
+            label="Sign in with Passkey"
+            leftIcon="smartphone"
+            onPress={handlePasskeySignIn}
+            loading={passkeyBusy}
+          />
+        </>
+      ) : null}
 
       {APPLE_SIGN_IN_ENABLED ? (
         <>
@@ -665,7 +735,7 @@ export default function SignInScreen() {
         </Text>
         <Link href={signUpHref as Href} replace>
           <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}>
-            Create an account
+            Sign Up
           </Text>
         </Link>
       </View>

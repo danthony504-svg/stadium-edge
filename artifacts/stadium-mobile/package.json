@@ -67,6 +67,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@clerk/expo-passkeys": "^2.0.29",
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
     "expo-build-properties": "~1.0.10",
     "expo-clipboard": "~8.0.8",

@@ -25,6 +25,10 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.stadiumedge.app",
+      "associatedDomains": [
+        "applinks:profound-raptor-92.clerk.accounts.dev",
+        "webcredentials:profound-raptor-92.clerk.accounts.dev"
+      ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -83,6 +87,7 @@
         "expo-build-properties",
         {
           "ios": {
+            "deploymentTarget": "16.0",
             "extraPods": [
               { "name": "GoogleUtilities", "modular_headers": true },
               { "name": "RecaptchaInterop", "modular_headers": true }
