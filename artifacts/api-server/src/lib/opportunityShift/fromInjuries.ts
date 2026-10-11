@@ -4,6 +4,10 @@
  */
 
 import {
+  classifyVacancyConfirmation,
+  vacancyFractionForConfirmation,
+} from "./confirmation.js";
+import {
   buildOpportunityShiftTable,
   mergeOpportunityShiftTables,
 } from "./engine.js";
@@ -12,6 +16,12 @@ import type {
   InjuryVacancyInput,
   OpportunityShiftTable,
 } from "./types.js";
+
+function normKey(name: string): string {
+  return String(name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
 
 export type EspnInjuryTeamLike = {
   team?: string;
@@ -63,22 +73,51 @@ export function buildOpportunityShiftForGame(opts: {
     }
   }
 
+  // Enrich prop-player positions from the injury feed when simulate/coach
+  // omit roster position (common on /sports/simulate/props).
+  const positionByPlayer = new Map<string, string>();
+  const athleteIdByPlayer = new Map<string, string>();
+  for (const inj of injuryInputs) {
+    const key = normKey(inj.player);
+    if (inj.position && !positionByPlayer.has(key)) {
+      positionByPlayer.set(key, String(inj.position));
+    }
+    if (inj.athleteId && !athleteIdByPlayer.has(key)) {
+      athleteIdByPlayer.set(key, String(inj.athleteId));
+    }
+  }
+
   const beneficiaries: BeneficiaryUsageInput[] = opts.players
     .filter((p) => p.player && p.team)
-    .map((p) => ({
-      player: p.player,
-      athleteId: p.athleteId,
-      team: String(p.team),
-      position: p.position,
-      channelUsage: p.channelUsage,
-      minutesL5: p.minutesL5,
-      minutesSeason: p.minutesSeason,
-      pricedInFactor: p.pricedInFactor,
-    }));
+    .map((p) => {
+      const key = normKey(p.player);
+      return {
+        player: p.player,
+        athleteId: p.athleteId ?? athleteIdByPlayer.get(key) ?? null,
+        team: String(p.team),
+        position: p.position ?? positionByPlayer.get(key) ?? null,
+        channelUsage: p.channelUsage,
+        minutesL5: p.minutesL5,
+        minutesSeason: p.minutesSeason,
+        pricedInFactor: p.pricedInFactor,
+      };
+    });
 
-  // Also ensure injured players appear as usage sources when listed on injuries only.
+  // Only confirmed vacancies are appended — as usage sources for vacated
+  // channels. Do NOT dump the entire injury report into the beneficiary pool
+  // (that diluted shares onto non-role Active/Q players and broke conservation).
   for (const inj of injuryInputs) {
-    if (!beneficiaries.some((b) => b.player === inj.player && b.team === inj.team)) {
+    const frac = vacancyFractionForConfirmation(
+      classifyVacancyConfirmation(inj.status),
+    );
+    if (frac <= 0) continue;
+    if (
+      !beneficiaries.some(
+        (b) =>
+          normKey(b.player) === normKey(inj.player) &&
+          b.team === inj.team,
+      )
+    ) {
       beneficiaries.push({
         player: inj.player,
         athleteId: inj.athleteId,

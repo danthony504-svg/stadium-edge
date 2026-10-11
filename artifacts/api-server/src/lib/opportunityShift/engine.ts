@@ -66,14 +66,21 @@ function shareWeights(
 ): Map<string, number> {
   const weights = new Map<string, number>();
   let sum = 0;
-  for (const b of candidates) {
-    const role = adapter.roleOf(b.position);
-    const allowed = adapter.beneficiaryRoles(channel);
-    if (!allowed.includes(role) && role !== "unknown") continue;
-    // Unknown role: only allow if channel has broad roles or usage present.
-    if (role === "unknown" && !b.channelUsage?.[channel] && allowed.length > 0) {
-      // Soft-allow unknowns with tiny weight when no better candidates later.
-    }
+  const allowed = adapter.beneficiaryRoles(channel);
+  const roleCompatible = candidates.filter((b) =>
+    allowed.includes(adapter.roleOf(b.position)),
+  );
+  // Prefer role-compatible beneficiaries. Only fall back to unknowns when
+  // no role match exists (avoids kicking carries to PK/CB/etc.).
+  const pool =
+    roleCompatible.length > 0
+      ? roleCompatible
+      : candidates.filter((b) => {
+          const role = adapter.roleOf(b.position);
+          return role === "unknown" || allowed.includes(role);
+        });
+
+  for (const b of pool) {
     const usage = b.channelUsage?.[channel];
     const recent = usage != null && usage > 0 ? usage : 1;
     const healthPenalty = 1; // beneficiary health already filtered upstream if Out
@@ -84,9 +91,11 @@ function shareWeights(
   }
   if (sum <= 0) {
     // Fallback: equal tiny shares among role-compatible, else empty.
-    const compat = candidates.filter((b) =>
-      adapter.beneficiaryRoles(channel).includes(adapter.roleOf(b.position)),
-    );
+    const compat = roleCompatible.length
+      ? roleCompatible
+      : candidates.filter((b) =>
+          allowed.includes(adapter.roleOf(b.position)),
+        );
     const eq = compat.length ? 1 / compat.length : 0;
     for (const b of compat) {
       weights.set(beneficiaryId(b.player, b.athleteId), eq);
@@ -174,8 +183,18 @@ export function buildOpportunityShiftTable(
     return t;
   }
 
-  // Exclude unavailable players from beneficiaries.
+  // Exclude confirmed-unavailable players from beneficiaries — even when their
+  // role produces no vacancy channels (e.g. LB/DE/S). Otherwise IR/Out
+  // non-skill players incorrectly absorb RB carry shares.
+  const unavailable = new Set<string>();
+  for (const inj of teamInjuries) {
+    const frac = vacancyFractionForConfirmation(
+      classifyVacancyConfirmation(inj.status),
+    );
+    if (frac > 0) unavailable.add(normName(inj.player));
+  }
   const activeBeneficiaries = teamBeneficiaries.filter((b) => {
+    if (unavailable.has(normName(b.player))) return false;
     const out = vacancies.some(
       (v) =>
         normName(v.player) === normName(b.player) ||
@@ -197,15 +216,18 @@ export function buildOpportunityShiftTable(
   const LEAKAGE = 0.18;
 
   for (const vac of vacancies) {
-    const hasGrounded = Object.values(vac.channels).some((u) => u != null && u > 0);
-    // Prefer grounded if we had real usage on the absent player row.
+    const hasChannelMass = Object.values(vac.channels).some(
+      (u) => u != null && u > 0,
+    );
+    // Real usage on the absent player row = grounded. Adapter fallback channel
+    // mass alone stays low-confidence (±8% band) by design.
     const selfUsage = teamBeneficiaries.find(
       (b) => normName(b.player) === normName(vac.player),
     )?.channelUsage;
     const grounded = !!(selfUsage && Object.keys(selfUsage).length);
     const confW = confidenceWeightForVacancy(
       vac.confirmation === "out" ? "Out" : vac.confirmation,
-      grounded || hasGrounded,
+      grounded || hasChannelMass,
     );
     const lowConf = isLowConfidenceVacancy(
       vac.confirmation === "out" ? "Out" : vac.confirmation,
