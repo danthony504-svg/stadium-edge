@@ -15,6 +15,7 @@ import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
+import { coachCandidateIsQualified } from "./coach/qualifyCoachCandidate.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
 export function boardScanPropSlotCount(
@@ -597,7 +598,22 @@ export function fillReservedPropSlots<T extends PropFillPick>(
   const remaining = () =>
     scored.filter((leg) => {
       if (!leg.pick?.isProp) return false;
-      return !used.has(propFillFingerprint(leg.pick));
+      if (used.has(propFillFingerprint(leg.pick))) return false;
+      // Shared quality authority — never top-up with floor fails.
+      return coachCandidateIsQualified(
+        {
+          market: leg.pick.market,
+          sport: leg.pick.sport,
+          isProp: true,
+          odds: leg.pick.odds,
+          propsOnlyTicket: (leg.pick as { propsOnlyTicket?: boolean }).propsOnlyTicket,
+          qualificationStatus: (leg.pick as { qualificationStatus?: "qualified" | "rejected" })
+            .qualificationStatus,
+          simHit: leg.simHit ?? leg.pick.finalAiScore?.simHit,
+          finalAiScore: leg.pick.finalAiScore,
+        },
+        { requestStyle: "normal", isProp: true },
+      );
     });
 
   const pickNext = () => {

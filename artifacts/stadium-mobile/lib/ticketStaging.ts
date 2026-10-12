@@ -49,6 +49,13 @@ import {
   propSimEdgeStagingQualifies,
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
+import {
+  coachCandidateIsQualified,
+  resolveCoachRequestStyle,
+  withCoachQualification,
+  type CoachQualificationReason,
+  type CoachRequestStyle,
+} from "./coach/qualifyCoachCandidate.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 import { isHrOnlyScoredPool, selectTopHrQualifiedLegs } from "./coachHrRank.ts";
 import {
@@ -113,7 +120,42 @@ export type BoardScoredLeg = {
 export function boardLegPoolRole(
   pick: ParsedPick,
   score: ParsedPick["finalAiScore"],
+  opts?: { requestStyle?: CoachRequestStyle; ticketStyle?: string | null },
 ): "main" | "alt" | null {
+  // Shared quality authority — rejected candidates are terminally ineligible.
+  // Role labeling below may be stricter; it must never bypass this floor.
+  // Prefer immutable attached status (qualify once); otherwise evaluate with
+  // resolved request style (including explicit longshot).
+  const requestStyle = resolveCoachRequestStyle({
+    propsOnly: pick.propsOnlyTicket,
+    ticketStyle: opts?.ticketStyle,
+    coachRequestStyle:
+      opts?.requestStyle ??
+      (pick as { coachRequestStyle?: CoachRequestStyle }).coachRequestStyle,
+  });
+  if (
+    !coachCandidateIsQualified(
+      {
+        market: pick.market,
+        sport: pick.sport,
+        isProp: !!pick.isProp,
+        odds: pick.odds,
+        propsOnlyTicket: pick.propsOnlyTicket,
+        coachRequestStyle: requestStyle,
+        qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
+          .qualificationStatus,
+        qualificationReason: (pick as { qualificationReason?: CoachQualificationReason })
+          .qualificationReason,
+        finalAiScore: score ?? null,
+      },
+      {
+        requestStyle,
+        isProp: !!pick.isProp,
+      },
+    )
+  ) {
+    return null;
+  }
   if (isMainBoardPick(pick)) {
     if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
     if (pick.isProp && propSimEdgeStagingQualifies(pick, score ?? undefined)) return "main";
@@ -465,12 +507,37 @@ function applyCapAndBackfillToTarget(
   return current;
 }
 
-function qualifyingScoredLegs(scored: BoardScoredLeg[]): BoardScoredLeg[] {
-  return scored.filter(
-    (leg) =>
-      !p0UnvalidatedSimDecision(leg.pick) &&
-      boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null,
-  );
+/**
+ * Qualify once, attach immutable status, then keep only shared-qualified legs.
+ * Downstream staging/backfill must use this pool — never the raw scored set.
+ */
+function qualifyingScoredLegs(
+  scored: BoardScoredLeg[],
+  opts?: { ticketStyle?: string | null; requestStyle?: CoachRequestStyle },
+): BoardScoredLeg[] {
+  const out: BoardScoredLeg[] = [];
+  for (const leg of scored) {
+    if (p0UnvalidatedSimDecision(leg.pick)) continue;
+    const requestStyle = resolveCoachRequestStyle({
+      propsOnly: leg.pick.propsOnlyTicket,
+      ticketStyle: opts?.ticketStyle,
+      coachRequestStyle:
+        opts?.requestStyle ??
+        (leg.pick as { coachRequestStyle?: CoachRequestStyle }).coachRequestStyle,
+    });
+    const tagged = withCoachQualification(
+      {
+        ...leg.pick,
+        coachRequestStyle: requestStyle,
+      } as typeof leg.pick & { coachRequestStyle: CoachRequestStyle },
+      { requestStyle, isProp: !!leg.pick.isProp },
+    );
+    const next = { ...leg, pick: tagged };
+    if (tagged.qualificationStatus !== "qualified") continue;
+    if (boardLegPoolRole(tagged, tagged.finalAiScore, { requestStyle }) == null) continue;
+    out.push(next);
+  }
+  return out;
 }
 
 function appendPicksFromPool(
@@ -590,6 +657,7 @@ function applyBalancedCapAndBackfill(
       }
     }
   }
+  // Tiered backfill may only see already-qualified legs — never raw scored.
   if (allScored?.length && ticketStyle && current.length < target) {
     current = tieredBackfillStagedTicket(current, target, allScored, ticketStyle, varietySeed);
   }
@@ -619,7 +687,7 @@ export function buildBalancedStagedTicketFromScan(
   ticketStyle: CoachTicketStyle = "balanced",
   opts?: { collegeTeamMarketStacks?: boolean },
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
-  const qualifying = qualifyingScoredLegs(scored);
+  const qualifying = qualifyingScoredLegs(scored, { ticketStyle });
   const pools = partitionScoredLegsByCategory(qualifying);
   const ncaafN = qualifying.filter(
     (l) => String(l.pick.sport ?? "").toLowerCase() === "ncaaf",
@@ -665,7 +733,7 @@ export function buildBalancedStagedTicketFromScan(
       target,
       pools,
       varietySeed,
-      scored,
+      qualifying,
       ticketStyle,
     ).slice(0, target),
   );
@@ -707,7 +775,9 @@ function tryBuildSingleEventStagedTicket(
   });
   if (!ctx.active) return null;
 
-  const qualifying = qualifyingScoredLegs(scored);
+  const qualifying = qualifyingScoredLegs(scored, {
+    ticketStyle: varietyContext?.ticketStyle,
+  });
   const games = [...new Set(qualifying.map((l) => l.pick.game).filter(Boolean))];
   const eventKey =
     ctx.eventKey ?? inferSingleEventKeyFromPool(varietyContext?.askText, games);
@@ -820,11 +890,7 @@ export function buildStagedTicketFromScan(
 
   // Fair competition: all qualifying legs compete by validated rankScore.
   // ticketRole (main/alt) is a badge only — not a seating priority.
-  const qualifying: BoardScoredLeg[] = [];
-  for (const leg of scored) {
-    const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);
-    if (role === "main" || role === "alt") qualifying.push(leg);
-  }
+  const qualifying = qualifyingScoredLegs(scored, { ticketStyle });
   qualifying.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
 
   const selected = (
@@ -832,7 +898,7 @@ export function buildStagedTicketFromScan(
       ? selectTopBoardLegs(qualifying, target, varietySeed)
       : selectGreedyBoardLegs(qualifying, target, varietySeed)
   ).map((p) => {
-    const role = boardLegPoolRole(p, p.finalAiScore) ?? "main";
+    const role = boardLegPoolRole(p, p.finalAiScore, { ticketStyle }) ?? "main";
     return {
       ...p,
       ticketRole: role,
@@ -842,7 +908,14 @@ export function buildStagedTicketFromScan(
 
   let finalPicks = applyCapAndBackfillToTarget(selected.slice(0, target), target, qualifying);
   if (finalPicks.length < target) {
-    finalPicks = tieredBackfillStagedTicket(finalPicks, target, scored, ticketStyle, varietySeed);
+    // Only pre-qualified legs — never resurrect from raw scored.
+    finalPicks = tieredBackfillStagedTicket(
+      finalPicks,
+      target,
+      qualifying,
+      ticketStyle,
+      varietySeed,
+    );
   }
   const mainQualified = qualifying.filter(
     (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore) === "main",

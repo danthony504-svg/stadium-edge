@@ -85,6 +85,8 @@ import { useRouter } from "expo-router";
 
 type Role = "user" | "assistant";
 
+type CoachResponseKind = "nleg_ticket" | "recommendation" | "qa";
+
 type CoachMessage = {
   id: string;
   role: Role;
@@ -93,6 +95,11 @@ type CoachMessage = {
   building?: boolean;
   buildStatus?: string;
   requestedLegs?: number;
+  /**
+   * Automatic N-leg builds use nleg_ticket — PickCard must not offer Add-to-slip.
+   * Individual recommendation / Q&A may use recommendation when slip UI is on.
+   */
+  responseKind?: CoachResponseKind;
   /** Local preview URIs for photos the user attached to this bubble. */
   imageUris?: string[];
 };
@@ -321,6 +328,9 @@ export default function CoachScreen() {
         picks: storedPicks,
         text: storedText,
         requestedLegs: opts.requestedLegs || undefined,
+        // Automatic N-leg / multi-leg Coach builds never use the legacy slip CTA.
+        responseKind:
+          opts.requestedLegs >= 3 ? "nleg_ticket" : "recommendation",
       });
       unlockComposer();
     },
@@ -978,6 +988,7 @@ export default function CoachScreen() {
                         pick={displayPick}
                         onPress={statsHandlerFor(pick)}
                         lockPickDetails
+                        allowSlipActions={item.responseKind !== "nleg_ticket"}
                       />
                     </View>
                   );

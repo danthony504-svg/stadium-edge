@@ -34,7 +34,7 @@ import {
   rareCountEvRankWeight,
   rareCountGameFamilyKey,
 } from "./rareCountPropModel.ts";
-import { meetsCoachSimQualityFloor } from "./gameSimQualityGates.ts";
+import { withCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
@@ -208,11 +208,28 @@ function stageFootballPropsOnlyLegsWithCap(
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
     if (!propsOnlyLegClearsOdds(p, leg.simHit, oddsSlack)) continue;
-    // Positive EV/history clear is not enough — enforce shared Coach grade + conf floor.
+    // Shared quality authority — props-only may add stricter constraints above,
+    // but must never replace a shared rejection with a forged "qualified".
     const grade = leg.grade ?? p.finalAiScore?.grade ?? null;
     const confidencePct =
       leg.confidencePct ?? p.finalAiScore?.confidencePct ?? null;
-    if (!meetsCoachSimQualityFloor({ grade, confidencePct })) continue;
+    const edgePct = leg.edgePct ?? p.finalAiScore?.edgePct ?? null;
+    const simHit = leg.simHit ?? p.finalAiScore?.simHit ?? null;
+    const qualified = withCoachQualification(
+      {
+        ...p,
+        isProp: true,
+        propsOnlyTicket: true,
+        grade,
+        confidencePct,
+        edgePct,
+        simHit,
+        odds: p.odds,
+        finalAiScore: p.finalAiScore,
+      },
+      { requestStyle: "props_only", isProp: true },
+    );
+    if (qualified.qualificationStatus !== "qualified") continue;
     // Canonical ladder — main + `_alternate` share one seat per player.
     const pm = propsOnlyCollapseLadderKey(p);
     if (usedPlayerMarket.has(pm)) continue;
@@ -249,9 +266,7 @@ function stageFootballPropsOnlyLegsWithCap(
       }
     }
     picks.push({
-      ...p,
-      // Mark props-only delivery for caption/gate — only legs that already met
-      // meetsCoachSimQualityFloor + clearsOdds reach here.
+      ...qualified,
       propsOnlyTicket: true,
       ticketRole: p.propIsAlt ? "alt" : "main",
       finalAiScore: p.finalAiScore,

@@ -68,6 +68,7 @@ test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter
     market: "Spread",
     pick: "B -3.5",
     odds: -110,
+    sport: "nba",
     ticketRole: "main" as const,
     finalAiScore: {
       composite: 5,
@@ -87,6 +88,7 @@ test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter
     market: "Alt Spread",
     pick: "C +2.5",
     odds: 115,
+    sport: "nba",
     ticketRole: "alt" as const,
     finalAiScore: {
       composite: 6,
@@ -199,6 +201,7 @@ test("coachBoardScanTicketPicks delivers sim-aligned board legs without startsAt
     pick: "B +3.5",
     odds: -105,
     isProp: false,
+    sport: "nba",
     ticketRole: "alt" as const,
     finalAiScore: {
       composite: 6,
@@ -352,6 +355,7 @@ test("filterTicketPicksPreservingTicket keeps sim-aligned positive-edge legs aft
     market: "Moneyline",
     pick: "Brewers ML",
     odds: 130,
+    sport: "mlb",
     ticketRole: "main" as const,
     finalAiScore: {
       composite: 6.2,
@@ -402,6 +406,7 @@ test("filterTicketPicks keeps staged alt legs that fail strict main gate", () =>
     market: "Alt Spread",
     pick: "A +2.5",
     odds: 115,
+    sport: "nba",
     ticketRole: "alt" as const,
     finalAiScore: {
       composite: 6,
@@ -638,9 +643,10 @@ test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic con
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
 });
 
-test("propSimEdgeStagingQualifies uses sim hit floor when holistic confidence collapsed", () => {
+test("propSimEdgeStagingQualifies never lifts collapsed raw confidence via simHit floor", () => {
   const pick = {
     isProp: true,
+    sport: "nba",
     market: "Points",
     odds: -110,
     finalAiScore: {
@@ -666,7 +672,8 @@ test("propSimEdgeStagingQualifies uses sim hit floor when holistic confidence co
       },
     },
   };
-  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
+  // Invariant B: rawConfidence < min cannot be raised just to pass.
+  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), false);
 });
 
 test("propSimEdgeStagingQualifies accepts MC edge when book EV edge on pool row is negative", () => {
@@ -736,7 +743,7 @@ test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holis
   assert.equal(out.length, 1);
 });
 
-test("sanitizeCoachTicketPicks keeps all qualified legs when only some have startsAt", () => {
+test("sanitizeCoachTicketPicks prefers bettable timestamped legs when kickoff mix is partial", () => {
   const future = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
   const baseScore = {
     composite: 6.2,
@@ -773,7 +780,9 @@ test("sanitizeCoachTicketPicks keeps all qualified legs when only some have star
     propPool: [],
     gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: future }],
   });
-  assert.equal(out.length, 2);
+  // preferBettableQualifiedPicks keeps in-window timestamped legs when any kickoff exists.
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.game, "A @ B");
 });
 
 test("boardScanStagedLegQualifies rejects game lines that only have simAligned without full gates", () => {
