@@ -13,6 +13,7 @@ import {
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
 import { isAltBoardPick, isAltPropPick } from "./altLinePool.ts";
+import { coachCandidateIsQualified } from "./coach/qualifyCoachCandidate.ts";
 
 /** User-facing ticket styles — controls how far quality gates relax when filling legs. */
 export type CoachTicketStyle = "safe" | "balanced" | "value" | "longshot";
@@ -73,13 +74,45 @@ export function absoluteFloorForStyle(style: CoachTicketStyle): QualityTierGrade
   return TICKET_STYLE_CONFIG[style].absoluteFloor;
 }
 
-/** Sim + edge + EV gates with a configurable letter-grade floor. */
+/**
+ * Style-tier ranking helper among candidates that already cleared shared
+ * qualification. Must never resurrect a shared rejection or decide terminal
+ * eligibility on its own.
+ */
 export function legQualifiesAtMinGrade(
   pick: ParsedPick,
   score: FinalAiScore | null | undefined,
   minGrade: QualityTierGrade,
 ): boolean {
   if (!score || score.highRiskValuePlay) return false;
+  // Terminal shared status — rejected can never be promoted by tier rules.
+  const status = (pick as { qualificationStatus?: "qualified" | "rejected" }).qualificationStatus;
+  if (status === "rejected") return false;
+  if (
+    status !== "qualified" &&
+    !coachCandidateIsQualified(
+      {
+        market: pick.market,
+        sport: pick.sport,
+        isProp: !!pick.isProp,
+        odds: pick.odds,
+        propsOnlyTicket: pick.propsOnlyTicket,
+        coachRequestStyle: (pick as { coachRequestStyle?: "normal" | "props_only" | "longshot" })
+          .coachRequestStyle,
+        qualificationStatus: status,
+        finalAiScore: score,
+      },
+      {
+        requestStyle: pick.propsOnlyTicket
+          ? "props_only"
+          : (pick as { coachRequestStyle?: "normal" | "props_only" | "longshot" }).coachRequestStyle ??
+            "normal",
+        isProp: !!pick.isProp,
+      },
+    )
+  ) {
+    return false;
+  }
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
 
@@ -91,7 +124,7 @@ export function legQualifiesAtMinGrade(
     if (ev != null && ev <= 0) return false;
   }
 
-  // Strict delivery/staging bar always qualifies.
+  // Among shared-qualified legs, tier by delivery/role helpers (ranking only).
   if (pickQualifiesForBoardDelivery(pick, score)) return true;
 
   if (!pick.isProp) {
@@ -110,6 +143,7 @@ export function legQualifiesAtMinGrade(
   return false;
 }
 
+/** Role label among shared-qualified + tier-eligible legs (not a terminal gate). */
 export function poolRoleAtMinGrade(
   pick: ParsedPick,
   score: FinalAiScore | null | undefined,

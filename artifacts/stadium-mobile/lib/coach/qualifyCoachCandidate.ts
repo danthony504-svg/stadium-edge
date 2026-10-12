@@ -8,6 +8,8 @@
  * - Positive EV alone never qualifies.
  * - Style may add stricter rules; never weaker than the shared floor for
  *   normal / props_only asks.
+ * - Qualify once → attach immutable status → downstream reads it.
+ * - `rejected` is terminal; no seating path may promote it to `qualified`.
  */
 
 import {
@@ -51,7 +53,10 @@ export type CoachQualifyInput = {
   isProp?: boolean | null;
   odds?: number | null;
   propsOnlyTicket?: boolean | null;
+  /** Attached by withCoachQualification — downstream reads; do not forge. */
+  coachRequestStyle?: CoachRequestStyle | null;
   qualificationStatus?: CoachQualificationStatus | null;
+  qualificationReason?: CoachQualificationReason | null;
   finalAiScore?: {
     grade?: string | null;
     confidencePct?: number | null;
@@ -70,6 +75,12 @@ export type CoachQualifyResult = {
   reason: CoachQualificationReason;
   /** Pipeline marker for logs / diagnostics. */
   pipelineVersion: string;
+};
+
+export type CoachQualifiedPick<T> = T & {
+  qualificationStatus: CoachQualificationStatus;
+  qualificationReason: CoachQualificationReason;
+  coachRequestStyle: CoachRequestStyle;
 };
 
 function rawGrade(input: CoachQualifyInput): string | null {
@@ -93,18 +104,48 @@ function rawSimHit(input: CoachQualifyInput): number | null {
 }
 
 /**
- * Shared minimum quality authority for Coach ticket seating.
- * Rejected candidates are terminally ineligible for staging/top-up/fallback.
+ * Map ticket style / props-only flags to the shared request style.
+ * Longshot is explicit only — never inferred from "need N legs".
  */
-export function qualifyCoachCandidate(
+export function resolveCoachRequestStyle(opts: {
+  propsOnly?: boolean | null;
+  ticketStyle?: string | null;
+  coachRequestStyle?: CoachRequestStyle | null;
+}): CoachRequestStyle {
+  if (opts.propsOnly) return "props_only";
+  if (
+    opts.coachRequestStyle === "longshot" ||
+    opts.coachRequestStyle === "props_only" ||
+    opts.coachRequestStyle === "normal"
+  ) {
+    return opts.coachRequestStyle;
+  }
+  if (opts.ticketStyle === "longshot") return "longshot";
+  return "normal";
+}
+
+/**
+ * Full quality evaluation. Ignores a forged `qualified` stamp; honors terminal
+ * `rejected`. Used by withCoachQualification at the attach boundary.
+ */
+export function evaluateCoachQualification(
   input: CoachQualifyInput,
   ctx: CoachQualifyContext = {},
 ): CoachQualifyResult {
   const pipelineVersion = COACH_PIPELINE_VERSION;
-  const style: CoachRequestStyle = ctx.requestStyle ?? "normal";
+  const style: CoachRequestStyle =
+    ctx.requestStyle ??
+    resolveCoachRequestStyle({
+      propsOnly: input.propsOnlyTicket,
+      coachRequestStyle: input.coachRequestStyle,
+    });
 
   if (input.qualificationStatus === "rejected") {
-    return { status: "rejected", reason: "style_blocked", pipelineVersion };
+    return {
+      status: "rejected",
+      reason: input.qualificationReason ?? "style_blocked",
+      pipelineVersion,
+    };
   }
 
   const grade = rawGrade(input);
@@ -150,13 +191,38 @@ export function qualifyCoachCandidate(
     }
   }
 
-  // Longshot may be extended later with an explicit policy; until then it must
-  // not silently weaken the shared floor for normal / props_only asks.
+  // Longshot may add stricter policy later; must never weaken the shared floor.
   if (style === "longshot") {
-    // Same minimum as normal for now (explicit policy placeholder).
+    // Same absolute minimum as normal for now.
   }
 
   return { status: "qualified", reason: "ok", pipelineVersion };
+}
+
+/**
+ * Shared minimum quality authority for Coach ticket seating.
+ * When status is already attached, reads it (no recompute) — qualify once.
+ */
+export function qualifyCoachCandidate(
+  input: CoachQualifyInput,
+  ctx: CoachQualifyContext = {},
+): CoachQualifyResult {
+  const pipelineVersion = COACH_PIPELINE_VERSION;
+  if (input.qualificationStatus === "rejected") {
+    return {
+      status: "rejected",
+      reason: input.qualificationReason ?? "style_blocked",
+      pipelineVersion,
+    };
+  }
+  if (input.qualificationStatus === "qualified") {
+    return {
+      status: "qualified",
+      reason: input.qualificationReason ?? "ok",
+      pipelineVersion,
+    };
+  }
+  return evaluateCoachQualification(input, ctx);
 }
 
 /** True when shared authority accepts the candidate. */
@@ -167,14 +233,40 @@ export function coachCandidateIsQualified(
   return qualifyCoachCandidate(input, ctx).status === "qualified";
 }
 
-/** Tag a pick with terminal qualification status (staging consumes only qualified). */
+/**
+ * Attach immutable qualification from a fresh evaluation.
+ * Never preserves a forged `qualified` stamp — always re-evaluates metrics
+ * (unless already terminal `rejected`).
+ */
 export function withCoachQualification<T extends CoachQualifyInput>(
   pick: T,
   ctx: CoachQualifyContext = {},
-): T & { qualificationStatus: CoachQualificationStatus; qualificationReason: CoachQualificationReason } {
-  const result = qualifyCoachCandidate(pick, ctx);
+): CoachQualifiedPick<T> {
+  const requestStyle = resolveCoachRequestStyle({
+    propsOnly: ctx.requestStyle === "props_only" || !!pick.propsOnlyTicket,
+    ticketStyle: ctx.requestStyle === "longshot" ? "longshot" : undefined,
+    coachRequestStyle: ctx.requestStyle ?? pick.coachRequestStyle,
+  });
+  const effectiveCtx: CoachQualifyContext = {
+    ...ctx,
+    requestStyle,
+    isProp: ctx.isProp ?? !!pick.isProp,
+  };
+  const result = evaluateCoachQualification(
+    {
+      ...pick,
+      // Force fresh metric evaluation (ignore forged qualified).
+      qualificationStatus:
+        pick.qualificationStatus === "rejected" ? "rejected" : undefined,
+      qualificationReason:
+        pick.qualificationStatus === "rejected" ? pick.qualificationReason : undefined,
+      coachRequestStyle: requestStyle,
+    },
+    effectiveCtx,
+  );
   return {
     ...pick,
+    coachRequestStyle: requestStyle,
     qualificationStatus: result.status,
     qualificationReason: result.reason,
   };

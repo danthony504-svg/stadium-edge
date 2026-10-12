@@ -48,6 +48,11 @@ import {
   capThinStatMarketsOnTicket,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
+import {
+  resolveCoachRequestStyle,
+  withCoachQualification,
+  type CoachRequestStyle,
+} from "./coach/qualifyCoachCandidate.ts";
 
 /** Build 25–50 independent candidate tickets per request (user: more variety). */
 export const TICKET_CANDIDATE_COUNT = 40;
@@ -159,8 +164,35 @@ const ASSEMBLY_CATEGORY_ORDERS: readonly (readonly BoardMarketCategory[])[] = [
   ["props", "gameLines", "alternateLines", "teamTotals"],
 ];
 
-function qualifyingScoredLegs(scored: BoardScoredLeg[]): BoardScoredLeg[] {
-  return scored.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null);
+/**
+ * Qualify once + attach immutable status. Tiered backfill / assembly must use
+ * this pool only — never the raw scored set for eligibility.
+ */
+function qualifyingScoredLegs(
+  scored: BoardScoredLeg[],
+  opts?: { ticketStyle?: string | null; requestStyle?: CoachRequestStyle },
+): BoardScoredLeg[] {
+  const out: BoardScoredLeg[] = [];
+  for (const leg of scored) {
+    const requestStyle = resolveCoachRequestStyle({
+      propsOnly: leg.pick.propsOnlyTicket,
+      ticketStyle: opts?.ticketStyle,
+      coachRequestStyle:
+        opts?.requestStyle ??
+        (leg.pick as { coachRequestStyle?: CoachRequestStyle }).coachRequestStyle,
+    });
+    const tagged = withCoachQualification(
+      {
+        ...leg.pick,
+        coachRequestStyle: requestStyle,
+      } as typeof leg.pick & { coachRequestStyle: CoachRequestStyle },
+      { requestStyle, isProp: !!leg.pick.isProp },
+    );
+    if (tagged.qualificationStatus !== "qualified") continue;
+    if (boardLegPoolRole(tagged, tagged.finalAiScore, { requestStyle }) == null) continue;
+    out.push({ ...leg, pick: tagged });
+  }
+  return out;
 }
 
 function legsNearlyEqualEdge(a: BoardScoredLeg, b: BoardScoredLeg): boolean {
@@ -606,11 +638,13 @@ function isFootballHeavyScoredPool(scored: BoardScoredLeg[]): boolean {
 
 function assembleBalancedDiverseTicket(
   qualifying: BoardScoredLeg[],
-  allScored: BoardScoredLeg[],
+  /** @deprecated eligibility must be `qualifying` only — kept for call-site compat. */
+  _allScored: BoardScoredLeg[],
   target: number,
   config: AssemblyConfig,
   ticketStyle: CoachTicketStyle = "balanced",
 ): ParsedPick[] {
+  void _allScored;
   const pools = partitionScoredLegsByCategory(qualifying);
   const rotatedPools: Record<BoardMarketCategory, BoardScoredLeg[]> = {
     props: rotateLegPoolForSize(pools.props, config.poolRotate),
@@ -646,7 +680,8 @@ function assembleBalancedDiverseTicket(
   }
 
   const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
-  return tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
+  // Eligibility pool only — `allScored` must already be pre-qualified callers.
+  return tieredBackfillStagedTicket(afterStrict, target, qualifying, ticketStyle, config.seed);
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
@@ -833,8 +868,9 @@ function generateTicketCandidates(
   target: number,
   opts: CoachTicketBuildOpts,
 ): TicketCandidate[] {
-  const qualifying = qualifyingScoredLegs(scored);
   const ticketStyle = opts.ticketStyle ?? "balanced";
+  // Qualify once here — never pass raw scored into assembly/backfill.
+  const qualifying = qualifyingScoredLegs(scored, { ticketStyle });
   const out: TicketCandidate[] = [];
   const profile = ticketSizeProfile(target);
   const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
@@ -858,7 +894,7 @@ function generateTicketCandidates(
     };
     const picks = assembleBalancedDiverseTicket(
       qualifying,
-      scored,
+      qualifying,
       target,
       config,
       ticketStyle,

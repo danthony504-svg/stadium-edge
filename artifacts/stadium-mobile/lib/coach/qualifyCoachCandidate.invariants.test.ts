@@ -233,3 +233,80 @@ test("qualified B+/52+ clears shared authority", () => {
     "qualified",
   );
 });
+
+test("longshot requestStyle reaches shared qualifier without weakening floor", () => {
+  const weak = makeProp({
+    sport: "mlb",
+    grade: "F",
+    confidencePct: 90,
+    simHit: 0.05,
+    odds: 80000,
+    edgePct: 4,
+  });
+  assert.equal(
+    qualifyCoachCandidate(weak, { requestStyle: "longshot", isProp: true }).status,
+    "rejected",
+  );
+  const tagged = withCoachQualification(weak, { requestStyle: "longshot", isProp: true });
+  assert.equal(tagged.coachRequestStyle, "longshot");
+  assert.equal(tagged.qualificationStatus, "rejected");
+  assert.equal(boardLegPoolRole(tagged as never, tagged.finalAiScore, { requestStyle: "longshot" }), null);
+});
+
+test("withCoachQualification never preserves a forged qualified stamp", () => {
+  const forged = makeProp({
+    sport: "mlb",
+    grade: "F",
+    confidencePct: 10,
+    simHit: 0.04,
+    odds: 25000,
+    edgePct: 3,
+    qualificationStatus: "qualified",
+  });
+  const tagged = withCoachQualification(forged, { requestStyle: "props_only", isProp: true });
+  assert.equal(tagged.qualificationStatus, "rejected");
+});
+
+test("tiered backfill cannot seat shared confidence_floor rejects", async () => {
+  const { tieredBackfillStagedTicket } = await import("../coachTicketCombinations.ts");
+  const { buildStagedTicketFromScan } = await import("../ticketStaging.ts");
+  const gl = {
+    isProp: false as const,
+    sport: "nba",
+    market: "Moneyline",
+    odds: 120,
+    game: "A @ B",
+    pick: "A ML",
+    finalAiScore: {
+      grade: "A",
+      confidencePct: 40,
+      edgePct: 8,
+      simHit: 0.6,
+      simAligned: true,
+      recommends: true,
+      composite: 8,
+    },
+  };
+  const scored = [
+    {
+      pick: gl as never,
+      evPct: 20,
+      edgePct: 8,
+      confidencePct: 40,
+      impliedProbPct: 40,
+      lineShoppingScore: 5,
+      grade: "A",
+      simHit: 0.6,
+      composite: 8,
+      rankScore: 99,
+      hitReliability: 1,
+    },
+  ];
+  const staged = buildStagedTicketFromScan(scored as never, 8, "inv-backfill", {
+    ticketStyle: "balanced",
+  });
+  assert.equal(staged.picks.length, 0);
+  const backfilled = tieredBackfillStagedTicket([], 8, scored as never, "balanced", "inv-bf");
+  // Raw scored without attach still blocked by legQualifiesAtMinGrade → shared qualify.
+  assert.equal(backfilled.length, 0);
+});

@@ -27,6 +27,7 @@ test("legQualifiesAtMinGrade accepts sim-aligned B-grade game lines at B tier", 
     odds: -110,
     isProp: false,
     sport: "mlb",
+    qualificationStatus: "qualified" as const,
   } satisfies Partial<ParsedPick> as ParsedPick;
   const score = {
     composite: 6,
@@ -42,4 +43,29 @@ test("legQualifiesAtMinGrade accepts sim-aligned B-grade game lines at B tier", 
   };
   assert.equal(legQualifiesAtMinGrade(pick, score, "B"), true);
   assert.equal(legQualifiesAtMinGrade(pick, score, "B+"), false);
+});
+
+test("legQualifiesAtMinGrade never resurrects shared confidence_floor rejects", () => {
+  const pick = {
+    game: "A @ B",
+    market: "Moneyline",
+    pick: "A ML",
+    odds: 120,
+    isProp: false,
+    sport: "nfl",
+    qualificationStatus: "rejected" as const,
+  } satisfies Partial<ParsedPick> as ParsedPick;
+  const score = {
+    composite: 8,
+    grade: "A",
+    confidencePct: 40,
+    edgePct: 8,
+    simHit: 0.6,
+    simAligned: true,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: { composite: 8, grade: "A", confidencePct: 40, edgePct: 8, scores: {} as never },
+  };
+  assert.equal(legQualifiesAtMinGrade(pick, score, "B"), false);
 });
