@@ -2,12 +2,23 @@ import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
+import {
+  EXPECTED_HEALTHY_EMBEDDED,
+  EXPECTED_HEALTHY_RUNTIME,
+  EXPECTED_HEALTHY_UPDATE_ID,
+  caseCNativeModuleSafetyReport,
+  classifyDeviceAttestation,
+  expectedHealthyLines,
+  type DeviceAttestationResult,
+} from "./otaDeviceAttestation";
 import { launchOtaCheckFetchReload } from "./otaLaunch";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
 
 export type OtaDebugSnapshot = {
   appVersion: string;
   buildNumber: string;
+  /** CFBundleShortVersionString / expo.version / nativeAppVersion */
+  cfBundleShortVersion: string;
   runtimeVersion: string;
   channel: string;
   updateId: string;
@@ -32,18 +43,31 @@ export type OtaDebugSnapshot = {
   projectId: string;
   deployMessage: string;
   expectedCommit: string;
+  /** Whether NativeModules.RNPurchases is present on this binary (Case C signal). */
+  hasRnPurchasesNative: boolean;
 };
 
 export type OtaProbeResults = {
   checkResult: string;
   fetchResult: string;
   reloadResult: string;
+  /** Parsed from checkResult when possible. */
+  updateAvailable: boolean | null;
+  fetchSucceeded: boolean | null;
+  reloadSucceeded: boolean | null;
 };
 
 export type OtaFullDiagnostics = OtaDebugSnapshot &
   OtaProbeResults & {
     startupLogs: string[];
     jsLaunchLogs: string[];
+    attestation: DeviceAttestationResult;
+    expectedHealthy: {
+      runtimeVersion: string;
+      updateId: string;
+      isEmbeddedLaunch: boolean;
+    };
+    caseCNativeSafety: string;
   };
 
 function str(v: unknown, fallback = "—"): string {
@@ -106,6 +130,7 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
     return {
       appVersion: "—",
       buildNumber: "—",
+      cfBundleShortVersion: "—",
       runtimeVersion: "—",
       channel: "—",
       updateId: "—",
@@ -130,8 +155,81 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
       projectId: "—",
       deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
       expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
+      hasRnPurchasesNative: false,
     };
   }
+}
+
+function readHasRnPurchasesNative(): boolean {
+  try {
+    // Lazy require so Node unit tests that import classify helpers stay clean.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { NativeModules, Platform } = require("react-native") as typeof import("react-native");
+    return Platform.OS !== "web" && !!NativeModules.RNPurchases;
+  } catch {
+    return false;
+  }
+}
+
+function attestationFromSnapshot(snapshot: OtaDebugSnapshot): DeviceAttestationResult {
+  return classifyDeviceAttestation({
+    runtimeVersion: snapshot.runtimeVersion,
+    updateId: snapshot.updateId,
+    isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+    appVersion: snapshot.appVersion,
+  });
+}
+
+/** Console + in-memory log of live device attestation values (read-only). */
+export function logDeviceAttestation(snapshot: OtaDebugSnapshot): DeviceAttestationResult {
+  const attestation = attestationFromSnapshot(snapshot);
+  const lines = [
+    "=== Stadium Edge device attestation ===",
+    `Updates.runtimeVersion: ${snapshot.runtimeVersion}`,
+    `Updates.updateId: ${snapshot.updateId}`,
+    `Updates.isEmbeddedLaunch: ${snapshot.isEmbeddedLaunch}`,
+    `app version / CFBundleShortVersionString: ${snapshot.cfBundleShortVersion}`,
+    `native build number: ${snapshot.buildNumber}`,
+    `update channel: ${snapshot.channel}`,
+    `hasRnPurchasesNative: ${snapshot.hasRnPurchasesNative}`,
+    ...expectedHealthyLines(),
+    `case: ${attestation.caseId} — ${attestation.label}`,
+    `summary: ${attestation.summary}`,
+    `recovery: ${attestation.recoveryPath}`,
+  ];
+  if (attestation.caseId === "C") {
+    lines.push(caseCNativeModuleSafetyReport());
+  }
+  const blob = lines.join("\n");
+  console.log(blob);
+  pushOtaLog("deviceAttestation", true, `${attestation.caseId}:${snapshot.runtimeVersion}:${snapshot.updateId}`);
+  return attestation;
+}
+
+function parseProbeFlags(probe: {
+  checkResult: string;
+  fetchResult: string;
+  reloadResult: string;
+}): Pick<OtaProbeResults, "updateAvailable" | "fetchSucceeded" | "reloadSucceeded"> {
+  let updateAvailable: boolean | null = null;
+  const check = probe.checkResult;
+  if (/isAvailable:\s*true|"isAvailable":\s*true/i.test(check)) updateAvailable = true;
+  else if (/isAvailable:\s*false|"isAvailable":\s*false/i.test(check)) updateAvailable = false;
+  else if (/^ERR:|timed out|skipped:/i.test(check)) updateAvailable = null;
+
+  let fetchSucceeded: boolean | null = null;
+  const fetch = probe.fetchResult;
+  if (/success/i.test(fetch) && !/^ERR:/i.test(fetch)) fetchSucceeded = true;
+  else if (/^ERR:|fail/i.test(fetch)) fetchSucceeded = false;
+  else if (/skipped/i.test(fetch)) fetchSucceeded = null;
+
+  let reloadSucceeded: boolean | null = null;
+  const reload = probe.reloadResult;
+  if (/invoked|reloaded|restart/i.test(reload) && !/^ERR:/i.test(reload)) reloadSucceeded = true;
+  else if (/^ERR:|fail/i.test(reload)) reloadSucceeded = false;
+  else if (/not invoked|skipped/i.test(reload)) reloadSucceeded = null;
+
+  return { updateAvailable, fetchSucceeded, reloadSucceeded };
 }
 
 function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
@@ -154,9 +252,16 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
   const checkErr = ctx?.checkError;
   const downloadErr = ctx?.downloadError;
 
+  const appVersion = str(expo?.version ?? Constants.nativeAppVersion);
+  const cfBundleShortVersion = str(
+    Constants.nativeAppVersion ?? expo?.version,
+    appVersion,
+  );
+
   return {
-    appVersion: str(expo?.version ?? Constants.nativeAppVersion),
+    appVersion,
     buildNumber: str(Constants.nativeBuildVersion),
+    cfBundleShortVersion,
     runtimeVersion: str(Updates.runtimeVersion ?? expo?.runtimeVersion),
     channel,
     updateId: str(Updates.updateId, Updates.isEmbeddedLaunch ? "embedded" : "—"),
@@ -187,6 +292,7 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
     projectId: str(extra?.eas?.projectId),
     deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
     expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
+    hasRnPurchasesNative: readHasRnPurchasesNative(),
   };
 }
 
@@ -212,11 +318,12 @@ async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
 /** Run check only — never fetch on the diagnostics screen (fetch without reload corrupts the in-memory bundle). */
 export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
   if (__DEV__ || !Updates.isEnabled) {
-    return {
+    const base = {
       checkResult: __DEV__ ? "skipped: __DEV__" : "skipped: Updates.isEnabled=false",
       fetchResult: "skipped (probe is check-only — use “Check, fetch & reload”)",
       reloadResult: "skipped (probe does not auto-reload)",
     };
+    return { ...base, ...parseProbeFlags(base) };
   }
 
   let checkResult = "—";
@@ -235,6 +342,10 @@ export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
       isAvailable: check.isAvailable,
       isRollBackToEmbedded: roll === true,
       reason: (check as { reason?: string }).reason ?? null,
+      manifestUpdateId:
+        check.manifest && typeof check.manifest === "object" && "id" in check.manifest
+          ? String((check.manifest as { id?: string }).id ?? "")
+          : null,
     });
     pushOtaLog("checkForUpdateAsync", true, checkResult);
   } catch (e) {
@@ -242,7 +353,8 @@ export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
     pushOtaLog("checkForUpdateAsync", false, checkResult);
   }
 
-  return { checkResult, fetchResult, reloadResult };
+  const base = { checkResult, fetchResult, reloadResult };
+  return { ...base, ...parseProbeFlags(base) };
 }
 
 /** @deprecated Use probeOtaCheckOnly — automatic diagnostics must not fetch without reload. */
@@ -255,27 +367,37 @@ export async function collectOtaFullDiagnostics(
   timeoutMs = OTA_NETWORK_TIMEOUT_MS,
 ): Promise<OtaFullDiagnostics> {
   const snapshot = readOtaDebugSnapshot();
+  const attestation = logDeviceAttestation(snapshot);
   const jsLaunchLogs = formatOtaLogLines();
+
+  const emptyProbe = (partial: {
+    checkResult: string;
+    fetchResult: string;
+    reloadResult: string;
+  }): OtaProbeResults => ({ ...partial, ...parseProbeFlags(partial) });
 
   const probe = await Promise.race([
     probeOtaCheckOnly(),
     new Promise<OtaProbeResults>((resolve) =>
       setTimeout(
         () =>
-          resolve({
-            checkResult: `timeout after ${timeoutMs}ms`,
-            fetchResult: "skipped (probe timeout)",
-            reloadResult: "skipped (probe timeout)",
-          }),
+          resolve(
+            emptyProbe({
+              checkResult: `timeout after ${timeoutMs}ms`,
+              fetchResult: "skipped (probe timeout)",
+              reloadResult: "skipped (probe timeout)",
+            }),
+          ),
         timeoutMs,
       ),
     ),
   ]).catch(
-    (): OtaProbeResults => ({
-      checkResult: "ERR: probe failed",
-      fetchResult: "skipped",
-      reloadResult: "skipped",
-    }),
+    (): OtaProbeResults =>
+      emptyProbe({
+        checkResult: "ERR: probe failed",
+        fetchResult: "skipped",
+        reloadResult: "skipped",
+      }),
   );
 
   let startupLogs: string[] = ["loading…"];
@@ -285,11 +407,28 @@ export async function collectOtaFullDiagnostics(
     startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
   }
 
+  console.log(
+    [
+      "=== OTA probe outcomes ===",
+      `update check available: ${String(probe.updateAvailable)}`,
+      `checkResult: ${probe.checkResult}`,
+      `fetchSucceeded: ${String(probe.fetchSucceeded)} (${probe.fetchResult})`,
+      `reloadSucceeded: ${String(probe.reloadSucceeded)} (${probe.reloadResult})`,
+    ].join("\n"),
+  );
+
   return {
     ...snapshot,
     ...probe,
     startupLogs,
     jsLaunchLogs,
+    attestation,
+    expectedHealthy: {
+      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+      updateId: EXPECTED_HEALTHY_UPDATE_ID,
+      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+    },
+    caseCNativeSafety: caseCNativeModuleSafetyReport(),
   };
 }
 
@@ -297,7 +436,12 @@ export type OtaCheckResult = {
   downloaded: boolean;
   reloaded: boolean;
   reason?: string;
+  checkResult?: string;
+  fetchResult?: string;
   reloadResult?: string;
+  updateAvailable?: boolean | null;
+  fetchSucceeded?: boolean | null;
+  reloadSucceeded?: boolean | null;
 };
 
 /**
@@ -311,24 +455,62 @@ export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
       downloaded: false,
       reloaded: false,
       reason: "Updates disabled (dev build or expo-updates off)",
+      checkResult: "skipped",
+      fetchResult: "skipped",
       reloadResult: "skipped",
-    };
-  }
-  const outcome = await launchOtaCheckFetchReload();
-  if (outcome === "reloaded") {
-    return {
-      downloaded: true,
-      reloaded: true,
-      reloadResult: "reloadAsync invoked (app should restart)",
+      updateAvailable: null,
+      fetchSucceeded: null,
+      reloadSucceeded: null,
     };
   }
 
-  return {
+  // Run a check-only probe first so the UI can show availability even when
+  // launchOtaCheckFetchReload returns idle (no newer update).
+  const preCheck = await probeOtaCheckOnly();
+  const outcome = await launchOtaCheckFetchReload();
+  const logs = formatOtaLogLines();
+  const fetchLog = [...logs].reverse().find((l) => /fetchUpdateAsync/i.test(l));
+  const reloadLog = [...logs].reverse().find((l) => /reloadAsync/i.test(l));
+
+  if (outcome === "reloaded") {
+    const result: OtaCheckResult = {
+      downloaded: true,
+      reloaded: true,
+      checkResult: preCheck.checkResult,
+      fetchResult: fetchLog ?? "success (reload followed fetch)",
+      reloadResult: "reloadAsync invoked (app should restart)",
+      updateAvailable: preCheck.updateAvailable ?? true,
+      fetchSucceeded: true,
+      reloadSucceeded: true,
+    };
+    console.log("=== OTA check/fetch/reload ===", JSON.stringify(result));
+    return result;
+  }
+
+  const fetchFailed = fetchLog != null && /fail|ERR/i.test(fetchLog);
+  const reloadFailed = reloadLog != null && /fail|ERR/i.test(reloadLog);
+  const result: OtaCheckResult = {
     downloaded: false,
     reloaded: false,
-    reason: "Server reports no newer update for this runtime/channel",
-    reloadResult: "not invoked (no update available or pending)",
+    reason: fetchFailed
+      ? `fetch failed: ${fetchLog}`
+      : reloadFailed
+        ? `reload failed: ${reloadLog}`
+        : "Server reports no newer update for this runtime/channel",
+    checkResult: preCheck.checkResult,
+    fetchResult:
+      fetchLog ??
+      (preCheck.updateAvailable === false
+        ? "not attempted (no update available)"
+        : preCheck.fetchResult),
+    reloadResult:
+      reloadLog ?? "not invoked (no update available or pending)",
+    updateAvailable: preCheck.updateAvailable,
+    fetchSucceeded: fetchFailed ? false : fetchLog ? true : null,
+    reloadSucceeded: reloadFailed ? false : null,
   };
+  console.log("=== OTA check/fetch/reload ===", JSON.stringify(result));
+  return result;
 }
 
 /** @deprecated Use forceOtaCheckFetchAndReload */

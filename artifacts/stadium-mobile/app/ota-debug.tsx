@@ -20,16 +20,39 @@ import {
   readOtaDebugSnapshot,
   type OtaFullDiagnostics,
 } from "@/lib/otaDebug";
+import {
+  EXPECTED_HEALTHY_EMBEDDED,
+  EXPECTED_HEALTHY_RUNTIME,
+  EXPECTED_HEALTHY_UPDATE_ID,
+  classifyDeviceAttestation,
+} from "@/lib/otaDeviceAttestation";
 import { formatOtaLogLines } from "@/lib/otaLaunchLog";
 
 function initialDiagnostics(): OtaFullDiagnostics {
+  const snapshot = readOtaDebugSnapshot();
+  const attestation = classifyDeviceAttestation({
+    runtimeVersion: snapshot.runtimeVersion,
+    updateId: snapshot.updateId,
+    isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+    appVersion: snapshot.appVersion,
+  });
   return {
-    ...readOtaDebugSnapshot(),
+    ...snapshot,
     checkResult: "loading…",
     fetchResult: "—",
     reloadResult: "—",
+    updateAvailable: null,
+    fetchSucceeded: null,
+    reloadSucceeded: null,
     startupLogs: ["loading native logs…"],
     jsLaunchLogs: formatOtaLogLines(),
+    attestation,
+    expectedHealthy: {
+      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+      updateId: EXPECTED_HEALTHY_UPDATE_ID,
+      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+    },
+    caseCNativeSafety: "",
   };
 }
 
@@ -77,36 +100,41 @@ function LogBlock({ title, lines }: { title: string; lines: string[] }) {
 
 function buildReport(diag: OtaFullDiagnostics): string {
   return [
-    "=== Stadium Edge OTA Diagnostics ===",
-    `Updates.isEnabled: ${diag.updatesEnabled}`,
-    `Updates.isEmbeddedLaunch: ${diag.isEmbeddedLaunch}`,
-    `Updates.isEmergencyLaunch: ${diag.isEmergencyLaunch}`,
-    `Updates.emergencyLaunchReason: ${diag.emergencyLaunchReason}`,
-    `Updates.updateId: ${diag.updateId}`,
-    `Updates.runtimeVersion: ${diag.runtimeVersion}`,
-    `Updates.channel: ${diag.channel}`,
-    `Updates.createdAt: ${diag.updateCreatedAt}`,
-    `Updates.checkAutomatically: ${diag.checkAutomatically}`,
-    `fallbackToCacheTimeout: ${diag.fallbackToCacheTimeout}`,
-    `Updates.launchDuration (ms): ${diag.launchDurationMs}`,
-    `isUpdatePending: ${diag.isUpdatePending}`,
-    `isStartupProcedureRunning: ${diag.isStartupProcedureRunning}`,
-    `rollback.commitTime: ${diag.rollbackCommitTime}`,
-    `native checkError: ${diag.checkError}`,
-    `native downloadError: ${diag.downloadError}`,
-    `bundle source: ${diag.bundleSource}`,
-    `app version: ${diag.appVersion}`,
-    `iOS build: ${diag.buildNumber}`,
-    `commit (running): ${diag.commitHash}`,
-    `deploy message: ${diag.deployMessage}`,
-    `updates.url: ${diag.updateUrl}`,
-    `requestHeaders: ${diag.requestHeaders}`,
-    `projectId: ${diag.projectId}`,
+    "=== Stadium Edge device attestation ===",
+    `CASE: ${diag.attestation.caseId} — ${diag.attestation.label}`,
+    `summary: ${diag.attestation.summary}`,
+    `recovery: ${diag.attestation.recoveryPath}`,
     "",
+    `Updates.runtimeVersion: ${diag.runtimeVersion}`,
+    `Updates.updateId: ${diag.updateId}`,
+    `Updates.isEmbeddedLaunch: ${diag.isEmbeddedLaunch}`,
+    `app version / CFBundleShortVersionString: ${diag.cfBundleShortVersion}`,
+    `native build number: ${diag.buildNumber}`,
+    `update channel: ${diag.channel}`,
+    `hasRnPurchasesNative: ${diag.hasRnPurchasesNative}`,
+    "",
+    `expected runtimeVersion: ${diag.expectedHealthy.runtimeVersion}`,
+    `expected updateId: ${diag.expectedHealthy.updateId}`,
+    `expected isEmbeddedLaunch: ${diag.expectedHealthy.isEmbeddedLaunch}`,
+    "",
+    `update check finds available update: ${String(diag.updateAvailable)}`,
+    `fetch succeeds: ${String(diag.fetchSucceeded)}`,
+    `reload/apply succeeds: ${String(diag.reloadSucceeded)}`,
     `checkForUpdateAsync: ${diag.checkResult}`,
     `fetchUpdateAsync: ${diag.fetchResult}`,
     `reloadAsync: ${diag.reloadResult}`,
     "",
+    `Updates.isEnabled: ${diag.updatesEnabled}`,
+    `Updates.isEmergencyLaunch: ${diag.isEmergencyLaunch}`,
+    `Updates.emergencyLaunchReason: ${diag.emergencyLaunchReason}`,
+    `Updates.createdAt: ${diag.updateCreatedAt}`,
+    `bundle source: ${diag.bundleSource}`,
+    `commit (running): ${diag.commitHash}`,
+    `deploy message: ${diag.deployMessage}`,
+    `native checkError: ${diag.checkError}`,
+    `native downloadError: ${diag.downloadError}`,
+    "",
+    ...(diag.attestation.caseId === "C" ? [diag.caseCNativeSafety, ""] : []),
     "--- expo-updates native logs (last hour) ---",
     ...diag.startupLogs,
     "",
@@ -145,6 +173,9 @@ function OtaDebugScreenInner() {
         checkResult: `ERR: ${msg}`,
         fetchResult: "skipped (refresh failed)",
         reloadResult: "skipped",
+        updateAvailable: null,
+        fetchSucceeded: null,
+        reloadSucceeded: null,
         startupLogs: [`collectOtaFullDiagnostics ERR: ${msg}`],
       }));
       return null;
@@ -159,8 +190,9 @@ function OtaDebugScreenInner() {
 
   const copyAll = async () => {
     const snap = diag ?? (await refresh());
+    if (!snap) return;
     await Clipboard.setStringAsync(buildReport(snap));
-    setStatus("Copied full report to clipboard");
+    setStatus("Copied full attestation report to clipboard");
   };
 
   const runCheckFetchReload = async () => {
@@ -172,10 +204,20 @@ function OtaDebugScreenInner() {
       return;
     }
     const next = await refresh();
-    setDiag(next);
+    if (next) {
+      setDiag({
+        ...next,
+        checkResult: result.checkResult ?? next.checkResult,
+        fetchResult: result.fetchResult ?? next.fetchResult,
+        reloadResult: result.reloadResult ?? next.reloadResult,
+        updateAvailable: result.updateAvailable ?? next.updateAvailable,
+        fetchSucceeded: result.fetchSucceeded ?? next.fetchSucceeded,
+        reloadSucceeded: result.reloadSucceeded ?? next.reloadSucceeded,
+      });
+    }
     setStatus(
       [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
-        "Probe finished — see reloadAsync row",
+        "Probe finished — see check/fetch/reload rows",
     );
     setBusy(false);
   };
@@ -184,6 +226,15 @@ function OtaDebugScreenInner() {
     diag.isEmbeddedLaunch && diag.updatesEnabled
       ? "Running embedded bundle. If check/fetch succeed but isEmbeddedLaunch stays true after force-reload, error recovery may be rolling back every launch."
       : null;
+
+  const caseColor =
+    diag.attestation.caseId === "A"
+      ? "#86efac"
+      : diag.attestation.caseId === "B"
+        ? "#fde68a"
+        : diag.attestation.caseId === "C"
+          ? "#fca5a5"
+          : "#cbd5e1";
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
@@ -200,7 +251,7 @@ function OtaDebugScreenInner() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </Pressable>
         <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, flex: 1 }}>
-          OTA Diagnostics
+          Device attestation
         </Text>
       </View>
 
@@ -212,16 +263,42 @@ function OtaDebugScreenInner() {
         }}
       >
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
-          Temporary deployment probe. Expected: runtime{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>1.0.0</Text>, channel{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>production</Text>, updates URL{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>u.expo.dev/9af36ab9-…</Text>.
+          Temporary read-only probe for stale Coach UI. Healthy device: runtime{" "}
+          <Text style={{ fontFamily: FONT.semibold }}>{EXPECTED_HEALTHY_RUNTIME}</Text>, updateId{" "}
+          <Text style={{ fontFamily: FONT.semibold }}>{EXPECTED_HEALTHY_UPDATE_ID}</Text>,{" "}
+          isEmbeddedLaunch=
+          <Text style={{ fontFamily: FONT.semibold }}>{String(EXPECTED_HEALTHY_EMBEDDED)}</Text>.
           {probeLoading ? (
             <Text style={{ fontFamily: FONT.medium }}> Live probe still running…</Text>
           ) : null}
-          {" "}
-          Opening this screen only checks for updates — use the button below to download and restart.
         </Text>
+
+        <View
+          style={{
+            backgroundColor: "rgba(15,23,42,0.92)",
+            borderWidth: 1,
+            borderColor: caseColor,
+            borderRadius: 12,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          <Text style={{ color: caseColor, fontFamily: FONT.semibold, fontSize: 14 }}>
+            {diag.attestation.caseId} — {diag.attestation.label}
+          </Text>
+          <Text
+            selectable
+            style={{ color: "#e2e8f0", fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}
+          >
+            {diag.attestation.summary}
+          </Text>
+          <Text
+            selectable
+            style={{ color: "#94a3b8", fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}
+          >
+            Recovery: {diag.attestation.recoveryPath}
+          </Text>
+        </View>
 
         {embeddedWarning ? (
           <View
@@ -250,22 +327,18 @@ function OtaDebugScreenInner() {
           }}
         >
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-            Running bundle (Updates.*)
+            Device attestation values
           </Text>
-          <Row label="Updates.isEnabled" value={String(diag.updatesEnabled)} />
-          <Row label="Updates.isEmbeddedLaunch" value={String(diag.isEmbeddedLaunch)} />
-          <Row label="Updates.isEmergencyLaunch" value={String(diag.isEmergencyLaunch)} />
-          <Row label="Updates.emergencyLaunchReason" value={diag.emergencyLaunchReason} />
-          <Row label="Updates.updateId" value={diag.updateId} />
           <Row label="Updates.runtimeVersion" value={diag.runtimeVersion} />
-          <Row label="Updates.channel" value={diag.channel} />
-          <Row label="Updates.createdAt" value={diag.updateCreatedAt} />
-          <Row label="Updates.checkAutomatically (effective)" value={diag.checkAutomatically} />
-          <Row label="fallbackToCacheTimeout (app.json)" value={String(diag.fallbackToCacheTimeout)} />
-          <Row label="Updates.launchDuration (ms)" value={diag.launchDurationMs} />
-          <Row label="Bundle source" value={diag.bundleSource} />
-          <Row label="Commit hash (running JS)" value={diag.commitHash} />
-          <Row label="Deploy message" value={diag.deployMessage} />
+          <Row label="Updates.updateId" value={diag.updateId} />
+          <Row label="Updates.isEmbeddedLaunch" value={String(diag.isEmbeddedLaunch)} />
+          <Row
+            label="app version / CFBundleShortVersionString"
+            value={diag.cfBundleShortVersion}
+          />
+          <Row label="native build number" value={diag.buildNumber} />
+          <Row label="update channel" value={diag.channel} />
+          <Row label="hasRnPurchasesNative (Case C signal)" value={String(diag.hasRnPurchasesNative)} />
         </View>
 
         <View
@@ -279,14 +352,14 @@ function OtaDebugScreenInner() {
           }}
         >
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-            Native state machine
+            Expected healthy
           </Text>
-          <Row label="isUpdatePending" value={String(diag.isUpdatePending)} />
-          <Row label="isDownloading" value={String(diag.isDownloading)} />
-          <Row label="isStartupProcedureRunning" value={String(diag.isStartupProcedureRunning)} />
-          <Row label="rollback.commitTime" value={diag.rollbackCommitTime} />
-          <Row label="native checkError" value={diag.checkError} />
-          <Row label="native downloadError" value={diag.downloadError} />
+          <Row label="runtimeVersion" value={diag.expectedHealthy.runtimeVersion} />
+          <Row label="updateId" value={diag.expectedHealthy.updateId} />
+          <Row
+            label="isEmbeddedLaunch"
+            value={String(diag.expectedHealthy.isEmbeddedLaunch)}
+          />
         </View>
 
         <View
@@ -300,8 +373,14 @@ function OtaDebugScreenInner() {
           }}
         >
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-            Live probe (JS API)
+            Update check / fetch / reload
           </Text>
+          <Row
+            label="update check finds available update"
+            value={String(diag.updateAvailable)}
+          />
+          <Row label="fetch succeeds" value={String(diag.fetchSucceeded)} />
+          <Row label="reload/apply succeeds" value={String(diag.reloadSucceeded)} />
           <Row label="checkForUpdateAsync()" value={diag.checkResult} />
           <Row label="fetchUpdateAsync()" value={diag.fetchResult} />
           <Row label="reloadAsync()" value={diag.reloadResult} />
@@ -314,15 +393,45 @@ function OtaDebugScreenInner() {
             borderColor: colors.border,
             borderRadius: 12,
             padding: 14,
-            gap: 10,
+            gap: 14,
           }}
         >
-          <Row label="App version" value={diag.appVersion} />
-          <Row label="iOS build number" value={diag.buildNumber} />
-          <Row label="updates.url" value={diag.updateUrl} />
-          <Row label="requestHeaders" value={diag.requestHeaders} />
-          <Row label="Expo project ID" value={diag.projectId} />
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Running bundle (Updates.*)
+          </Text>
+          <Row label="Updates.isEnabled" value={String(diag.updatesEnabled)} />
+          <Row label="Updates.isEmergencyLaunch" value={String(diag.isEmergencyLaunch)} />
+          <Row label="Updates.emergencyLaunchReason" value={diag.emergencyLaunchReason} />
+          <Row label="Updates.createdAt" value={diag.updateCreatedAt} />
+          <Row label="Bundle source" value={diag.bundleSource} />
+          <Row label="Commit hash (running JS)" value={diag.commitHash} />
+          <Row label="Deploy message" value={diag.deployMessage} />
+          <Row label="native checkError" value={diag.checkError} />
+          <Row label="native downloadError" value={diag.downloadError} />
         </View>
+
+        {diag.attestation.caseId === "C" && diag.caseCNativeSafety ? (
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 12,
+              padding: 14,
+              gap: 8,
+            }}
+          >
+            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+              Case C — native-module compatibility
+            </Text>
+            <Text
+              selectable
+              style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
+            >
+              {diag.caseCNativeSafety}
+            </Text>
+          </View>
+        ) : null}
 
         <View
           style={{
@@ -335,7 +444,10 @@ function OtaDebugScreenInner() {
           }}
         >
           <LogBlock title="expo-updates native logs (startup / error recovery)" lines={diag.startupLogs} />
-          <LogBlock title="JS OtaStartupGate / manual logs" lines={diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"]} />
+          <LogBlock
+            title="JS OtaStartupGate / manual logs"
+            lines={diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"]}
+          />
         </View>
 
         {status ? (
@@ -372,7 +484,7 @@ function OtaDebugScreenInner() {
             })}
           >
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-              Refresh probe & logs
+              Refresh attestation & logs
             </Text>
           </Pressable>
 
@@ -385,7 +497,7 @@ function OtaDebugScreenInner() {
             })}
           >
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-              Copy full report
+              Copy full attestation report
             </Text>
           </Pressable>
         </View>

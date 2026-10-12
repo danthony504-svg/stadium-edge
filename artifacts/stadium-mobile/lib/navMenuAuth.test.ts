@@ -31,7 +31,7 @@ test("Plans menu item is always available for soft subscription", () => {
   });
 });
 
-test("OTA Diagnostics menu item is hidden in production builds", () => {
-  assert.equal(shouldShowOtaDiagnosticsMenuItem(false), false);
+test("OTA Diagnostics / device attestation menu item is temporarily visible in production", () => {
+  assert.equal(shouldShowOtaDiagnosticsMenuItem(false), true);
   assert.equal(shouldShowOtaDiagnosticsMenuItem(true), true);
 });

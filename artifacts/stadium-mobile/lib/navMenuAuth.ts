@@ -26,7 +26,11 @@ export function plansMenuItem(): {
   return { route: "/plans", label: "Plans", icon: "zap" };
 }
 
-/** Production side menu must not bury Sign in under debug entries. */
-export function shouldShowOtaDiagnosticsMenuItem(isDev: boolean): boolean {
-  return isDev;
+/**
+ * Temporary: show Device attestation / OTA Diagnostics in production so the
+ * installed binary can report runtime/updateId without a native rebuild.
+ * Revert to `return isDev` after the stale-Coach investigation.
+ */
+export function shouldShowOtaDiagnosticsMenuItem(_isDev: boolean): boolean {
+  return true;
 }

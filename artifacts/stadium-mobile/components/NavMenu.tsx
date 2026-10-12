@@ -327,7 +327,7 @@ export function NavMenu() {
                       fontSize: 15,
                     }}
                   >
-                    OTA Diagnostics
+                    Device attestation
                   </Text>
                 </Pressable>
               ) : null}

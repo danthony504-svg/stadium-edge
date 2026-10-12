@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { AppHeader } from "@/components/AppHeader";
+import { OtaHomeDiagnostics } from "@/components/OtaHomeDiagnostics";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
@@ -1976,6 +1977,9 @@ export default function HomeScreen() {
           })}
         </ScrollView>
       </AppHeader>
+
+      {/* Temporary read-only device attestation strip (stale Coach UI probe). */}
+      <OtaHomeDiagnostics />
 
       {sport === "tennis" ? (
         <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
