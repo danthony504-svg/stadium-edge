@@ -6,9 +6,14 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Updates from "expo-updates";
-import { latestContext } from "expo-updates";
 
+import { tryGetExpoUpdates, tryGetLatestContext } from "./expoUpdatesAccess.ts";
+import {
+  OTA_DEBUG_UNAVAILABLE,
+  safeDiagText,
+  safeFormatCreatedAt,
+  safeLogLines,
+} from "./otaDebugGuards.ts";
 import {
   isGenuinelyPendingOtaUpdate,
   normalizeOtaUpdateId,
@@ -55,30 +60,54 @@ export type OtaBannerTraceSnapshot = {
 };
 
 function strId(v: unknown): string | null {
-  return normalizeOtaUpdateId(typeof v === "string" ? v : v == null ? null : String(v));
+  try {
+    return normalizeOtaUpdateId(typeof v === "string" ? v : v == null ? null : String(v));
+  } catch {
+    return null;
+  }
 }
 
 function formatCreatedAt(): string {
-  const raw =
-    (Updates as { createdAt?: Date | string | null }).createdAt ??
-    (Updates.manifest as { createdAt?: string } | null)?.createdAt;
-  if (!raw) return "—";
-  const d = raw instanceof Date ? raw : new Date(raw);
-  return Number.isFinite(d.getTime()) ? d.toISOString() : String(raw);
+  const Updates = tryGetExpoUpdates();
+  if (!Updates) return OTA_DEBUG_UNAVAILABLE;
+  try {
+    const raw =
+      (Updates as { createdAt?: Date | string | null }).createdAt ??
+      (Updates.manifest as { createdAt?: string } | null | undefined)?.createdAt;
+    return safeFormatCreatedAt(raw);
+  } catch {
+    return OTA_DEBUG_UNAVAILABLE;
+  }
 }
 
 function channelName(): string {
-  return Updates.channel ? String(Updates.channel) : "—";
+  const Updates = tryGetExpoUpdates();
+  if (!Updates) return OTA_DEBUG_UNAVAILABLE;
+  try {
+    return Updates.channel ? String(Updates.channel) : "—";
+  } catch {
+    return OTA_DEBUG_UNAVAILABLE;
+  }
 }
 
-function downloadedIdFromContext(ctx: typeof latestContext): string | null {
-  const id = (ctx?.downloadedManifest as { id?: string } | null | undefined)?.id;
-  return strId(id);
+function downloadedIdFromContext(ctx: unknown): string | null {
+  try {
+    const id = (ctx as { downloadedManifest?: { id?: string } | null } | null | undefined)
+      ?.downloadedManifest?.id;
+    return strId(id);
+  } catch {
+    return null;
+  }
 }
 
-function availableIdFromContext(ctx: typeof latestContext): string | null {
-  const id = (ctx?.latestManifest as { id?: string } | null | undefined)?.id;
-  return strId(id);
+function availableIdFromContext(ctx: unknown): string | null {
+  try {
+    const id = (ctx as { latestManifest?: { id?: string } | null } | null | undefined)
+      ?.latestManifest?.id;
+    return strId(id);
+  } catch {
+    return null;
+  }
 }
 
 export function readOtaBannerTraceSync(opts?: {
@@ -86,8 +115,15 @@ export function readOtaBannerTraceSync(opts?: {
   checkResult?: string | null;
   persistedReadyId?: string | null;
 }): OtaBannerTraceSnapshot {
-  const ctx = latestContext;
-  const runningUpdateId = strId(Updates.updateId);
+  const Updates = tryGetExpoUpdates();
+  const ctx = tryGetLatestContext() as {
+    isUpdatePending?: boolean;
+    isDownloading?: boolean;
+    downloadedManifest?: { id?: string } | null;
+    latestManifest?: { id?: string } | null;
+  } | null;
+
+  const runningUpdateId = strId(Updates?.updateId);
   const downloadedUpdateId = downloadedIdFromContext(ctx);
   const availableUpdateIdFromContext = availableIdFromContext(ctx);
   const nativeIsUpdatePending = !!ctx?.isUpdatePending;
@@ -103,11 +139,26 @@ export function readOtaBannerTraceSync(opts?: {
   // Mirror OtaUpdateBanner render gate exactly (do not change it here).
   const bannerVisible = genuinelyPending || nativeIsDownloading;
 
-  const recovery = readOtaRecoverySnapshot();
+  let recovery = {
+    pending: false,
+    reloadTargetId: "—",
+  };
+  try {
+    recovery = readOtaRecoverySnapshot();
+  } catch {
+    // unhydrated recovery store must not crash diagnostics
+  }
+
   const sessionNotes: string[] = [];
+  if (!Updates) {
+    sessionNotes.push("expo-updates unavailable — banner trace using null fallbacks");
+  }
+  if (ctx == null) {
+    sessionNotes.push("latestContext not hydrated yet");
+  }
   if (recovery.pending) {
     sessionNotes.push(
-      `otaRecoveryState.pending=true reloadTarget=${recovery.reloadTargetId}`,
+      `otaRecoveryState.pending=true reloadTarget=${safeDiagText(recovery.reloadTargetId)}`,
     );
   }
   if (nativeIsUpdatePending && !genuinelyPending) {
@@ -137,9 +188,9 @@ export function readOtaBannerTraceSync(opts?: {
     at: new Date().toISOString(),
     otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
     runningUpdateId,
-    isEmbeddedLaunch: Updates.isEmbeddedLaunch,
+    isEmbeddedLaunch: Updates ? !!Updates.isEmbeddedLaunch : true,
     createdAt: formatCreatedAt(),
-    runtimeVersion: String(Updates.runtimeVersion ?? "—"),
+    runtimeVersion: safeDiagText(Updates?.runtimeVersion, "—"),
     channel: channelName(),
     downloadedUpdateId,
     availableUpdateIdFromContext,
@@ -152,7 +203,7 @@ export function readOtaBannerTraceSync(opts?: {
     bannerVisible,
     bannerExpression,
     recoveryPending: !!recovery.pending,
-    recoveryReloadTargetId: recovery.reloadTargetId,
+    recoveryReloadTargetId: safeDiagText(recovery.reloadTargetId, "—"),
     sessionNotes,
   };
 }
@@ -182,7 +233,7 @@ export function recordOtaBannerTrace(
       `bannerVisible=${snap.bannerVisible}`,
       `recoveryPending=${snap.recoveryPending} target=${snap.recoveryReloadTargetId}`,
       snap.bannerExpression,
-      ...snap.sessionNotes.map((n) => `note: ${n}`),
+      ...safeLogLines(snap.sessionNotes, "").filter(Boolean).map((n) => `note: ${n}`),
     ].join("\n"),
   );
   pushOtaLog(
@@ -219,27 +270,29 @@ export async function collectOtaBannerTrace(opts?: {
   });
 }
 
-export function formatOtaBannerTraceLines(snap: OtaBannerTraceSnapshot): string[] {
+export function formatOtaBannerTraceLines(snap: OtaBannerTraceSnapshot | null | undefined): string[] {
+  if (!snap) return ["bannerTrace unavailable"];
+  const notes = safeLogLines(snap.sessionNotes, "").filter(Boolean);
   return [
-    `OTA_IDENTITY_FIX_VERSION: ${snap.otaIdentityFixVersion}`,
-    `at: ${snap.at}`,
+    `OTA_IDENTITY_FIX_VERSION: ${safeDiagText(snap.otaIdentityFixVersion)}`,
+    `at: ${safeDiagText(snap.at)}`,
     `Updates.updateId (running): ${snap.runningUpdateId ?? "—"}`,
-    `Updates.isEmbeddedLaunch: ${snap.isEmbeddedLaunch}`,
-    `Updates.createdAt: ${snap.createdAt}`,
-    `runtimeVersion: ${snap.runtimeVersion}`,
-    `channel: ${snap.channel}`,
+    `Updates.isEmbeddedLaunch: ${safeDiagText(snap.isEmbeddedLaunch)}`,
+    `Updates.createdAt: ${safeDiagText(snap.createdAt)}`,
+    `runtimeVersion: ${safeDiagText(snap.runtimeVersion)}`,
+    `channel: ${safeDiagText(snap.channel)}`,
     `downloadedManifest.id: ${snap.downloadedUpdateId ?? "—"}`,
     `latestManifest.id: ${snap.availableUpdateIdFromContext ?? "—"}`,
     `check availableUpdateId: ${snap.availableUpdateIdFromCheck ?? "—"}`,
     `checkResult: ${snap.checkResult ?? "—"}`,
     `persisted @stadium/ota-update-ready: ${snap.persistedReadyId ?? "—"}`,
-    `latestContext.isUpdatePending: ${snap.nativeIsUpdatePending}`,
-    `latestContext.isDownloading: ${snap.nativeIsDownloading}`,
-    `genuinelyPending: ${snap.genuinelyPending}`,
-    `bannerVisible: ${snap.bannerVisible}`,
-    `bannerExpression: ${snap.bannerExpression}`,
-    `recovery.pending: ${snap.recoveryPending}`,
-    `recovery.reloadTargetId: ${snap.recoveryReloadTargetId}`,
-    ...snap.sessionNotes.map((n) => `note: ${n}`),
+    `latestContext.isUpdatePending: ${safeDiagText(snap.nativeIsUpdatePending)}`,
+    `latestContext.isDownloading: ${safeDiagText(snap.nativeIsDownloading)}`,
+    `genuinelyPending: ${safeDiagText(snap.genuinelyPending)}`,
+    `bannerVisible: ${safeDiagText(snap.bannerVisible)}`,
+    `bannerExpression: ${safeDiagText(snap.bannerExpression)}`,
+    `recovery.pending: ${safeDiagText(snap.recoveryPending)}`,
+    `recovery.reloadTargetId: ${safeDiagText(snap.recoveryReloadTargetId)}`,
+    ...notes.map((n) => `note: ${n}`),
   ];
 }
