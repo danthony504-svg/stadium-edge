@@ -18,8 +18,21 @@ import {
   type OtaFailedLaunchStorage,
 } from "@/lib/otaFailedLaunch";
 import { pushOtaLog } from "@/lib/otaLaunchLog";
-import { reportOtaRecoveryState } from "@/lib/otaRecoveryState";
-import { resolveReloadTargetId } from "@/lib/otaReloadGuard";
+import {
+  readOtaRecoverySnapshot,
+  reportOtaRecoveryState,
+} from "@/lib/otaRecoveryState";
+import {
+  isIdentifiedReloadTarget,
+  resolveReloadTargetId,
+} from "@/lib/otaReloadGuard";
+import {
+  isGenuinelyPendingOtaUpdate,
+  normalizeOtaUpdateId,
+  OTA_READY_FLAG_KEY,
+  parseOtaReadyFlag,
+  reconcileOtaReadyFlag,
+} from "@/lib/otaUpdateIdentity";
 import {
   prefetchOtaUpdate,
   reloadPendingOtaUpdate,
@@ -59,6 +72,53 @@ function downloadedUpdateId(): string | null {
   return id ? String(id) : null;
 }
 
+/** Native pending only counts when downloaded/available id ≠ running update id. */
+function isNativeUpdatePending(): boolean {
+  return isGenuinelyPendingOtaUpdate({
+    runningUpdateId: runningUpdateId(),
+    downloadedUpdateId: downloadedUpdateId(),
+    isUpdatePending: !!latestContext?.isUpdatePending,
+  });
+}
+
+/**
+ * Clear persisted "update ready" when the flagged update is now the running
+ * bundle. Failed downloads/reloads leave the flag alone (or never set it).
+ */
+async function reconcileOtaReadyFlagStorage(): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(OTA_READY_FLAG_KEY);
+    const next = reconcileOtaReadyFlag(parseOtaReadyFlag(raw), runningUpdateId());
+    if (!next) {
+      if (raw) await AsyncStorage.removeItem(OTA_READY_FLAG_KEY);
+      return;
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+async function markOtaReadyFlag(updateId: string | null | undefined): Promise<void> {
+  const id = normalizeOtaUpdateId(updateId);
+  if (!id || !isIdentifiedReloadTarget(id)) return;
+  // Never mark the currently running update as "ready".
+  if (otaIdsMatchRunning(id)) return;
+  try {
+    await AsyncStorage.setItem(
+      OTA_READY_FLAG_KEY,
+      JSON.stringify({ readyUpdateId: id, markedAt: Date.now() }),
+    );
+  } catch {
+    // best-effort
+  }
+}
+
+function otaIdsMatchRunning(candidateId: string | null | undefined): boolean {
+  const running = normalizeOtaUpdateId(runningUpdateId());
+  const candidate = normalizeOtaUpdateId(candidateId);
+  return !!running && !!candidate && running === candidate;
+}
+
 function rollbackState(): string {
   const parts: string[] = [];
   if (Updates.isEmbeddedLaunch) parts.push("embedded");
@@ -82,6 +142,8 @@ async function reconcileFailedLaunches(): Promise<void> {
   const result = reconcileLaunch(await readFailedLaunchRecord(failedLaunchStorage), running);
   failedLaunchRecord = result.record;
   await writeFailedLaunchRecord(failedLaunchStorage, result.record);
+  // Banner loop: clear sticky ready flag once the fetched update is running.
+  await reconcileOtaReadyFlagStorage();
 
   if (result.observed === "failed") {
     pushOtaLog(
@@ -166,12 +228,20 @@ export async function prefetchAndMaybeApplyOta(
     return "none";
   }
   await reconcileFailedLaunches();
-  return prefetchOtaUpdate(
+  const outcome = await prefetchOtaUpdate(
     timeoutClient,
-    () => !!latestContext?.isUpdatePending,
+    isNativeUpdatePending,
     applyWhenReady,
     updaterOptions(),
   );
+  if (outcome === "pending") {
+    // Prefer the resolved reload target (fetch/check id) over lagging native context.
+    const target = readOtaRecoverySnapshot().reloadTargetId;
+    await markOtaReadyFlag(downloadedUpdateId() ?? target);
+  } else if (outcome === "none") {
+    await reconcileOtaReadyFlagStorage();
+  }
+  return outcome;
 }
 
 /** Background fetch only — never auto-reloads. Banner / safe-reload applies. */
@@ -201,10 +271,15 @@ export function useOtaUpdater(enabled: boolean) {
     reloadTimer.current = null;
   }, []);
 
-  const hasPending = useCallback(
-    () => updatePending.current || !!latestContext?.isUpdatePending,
-    [],
-  );
+  const hasPending = useCallback(() => {
+    const native = isNativeUpdatePending();
+    if (!native) {
+      // Clear sticky session flag once the running id matches the downloaded id.
+      updatePending.current = false;
+      return false;
+    }
+    return updatePending.current || native;
+  }, []);
 
   /**
    * Apply a pending update without re-checking the network. Re-checking here is
