@@ -5,9 +5,14 @@ import { Pressable, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { collectOtaFullDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
+import {
+  EXPECTED_HEALTHY_RUNTIME,
+  EXPECTED_HEALTHY_UPDATE_ID,
+} from "@/lib/otaDeviceAttestation";
 
 /**
- * Compact Home OTA strip — full report at Menu → OTA Diagnostics (/ota-debug).
+ * Temporary Home attestation strip — full report at Menu → Device attestation (/ota-debug).
+ * Read-only; does not change Coach / OTA auto-apply behavior.
  */
 export function OtaHomeDiagnostics() {
   const router = useRouter();
@@ -26,17 +31,29 @@ export function OtaHomeDiagnostics() {
 
   if (__DEV__ || !Updates.isEnabled || !diag) return null;
 
+  const caseColor =
+    diag.attestation.caseId === "A"
+      ? "#86efac"
+      : diag.attestation.caseId === "B"
+        ? "#fde68a"
+        : diag.attestation.caseId === "C"
+          ? "#fca5a5"
+          : "#cbd5e1";
+
   const lines: [string, string][] = [
-    ["isEmbeddedLaunch", String(diag.isEmbeddedLaunch)],
-    ["updateId", diag.updateId],
-    ["runtimeVersion", diag.runtimeVersion],
+    ["CASE", `${diag.attestation.caseId} — ${diag.attestation.label}`],
+    ["Updates.runtimeVersion", diag.runtimeVersion],
+    ["Updates.updateId", diag.updateId],
+    ["Updates.isEmbeddedLaunch", String(diag.isEmbeddedLaunch)],
+    ["CFBundleShortVersionString", diag.cfBundleShortVersion],
+    ["native build", diag.buildNumber],
     ["channel", diag.channel],
-    ["createdAt", diag.updateCreatedAt],
-    ["checkForUpdateAsync", diag.checkResult],
-    ["fetchUpdateAsync", diag.fetchResult],
-    ["reloadAsync", diag.reloadResult],
-    ["isEmergencyLaunch", String(diag.isEmergencyLaunch)],
-    ["startup log lines", String(diag.startupLogs.length)],
+    ["update available?", String(diag.updateAvailable)],
+    ["fetch succeeds?", String(diag.fetchSucceeded)],
+    ["reload/apply succeeds?", String(diag.reloadSucceeded)],
+    ["hasRnPurchasesNative", String(diag.hasRnPurchasesNative)],
+    ["expected runtime", EXPECTED_HEALTHY_RUNTIME],
+    ["expected updateId", EXPECTED_HEALTHY_UPDATE_ID],
   ];
 
   return (
@@ -49,7 +66,7 @@ export function OtaHomeDiagnostics() {
         padding: 10,
         backgroundColor: "rgba(30,41,59,0.95)",
         borderWidth: 1,
-        borderColor: "#475569",
+        borderColor: caseColor,
         borderRadius: 8,
       }}
     >
@@ -58,10 +75,22 @@ export function OtaHomeDiagnostics() {
           color: "#f8fafc",
           fontFamily: FONT.semibold,
           fontSize: 11,
+          marginBottom: 4,
+        }}
+      >
+        Device attestation (tap for full report)
+      </Text>
+      <Text
+        selectable
+        style={{
+          color: caseColor,
+          fontFamily: FONT.medium,
+          fontSize: 10,
+          lineHeight: 14,
           marginBottom: 6,
         }}
       >
-        OTA diagnostics (tap for full report)
+        {diag.attestation.summary}
       </Text>
       {lines.map(([label, value]) => (
         <Text
@@ -77,6 +106,18 @@ export function OtaHomeDiagnostics() {
           {label}: {value}
         </Text>
       ))}
+      <Text
+        selectable
+        style={{
+          color: "#64748b",
+          fontFamily: FONT.body,
+          fontSize: 9,
+          lineHeight: 13,
+          marginTop: 6,
+        }}
+      >
+        Recovery: {diag.attestation.recoveryPath}
+      </Text>
     </Pressable>
   );
 }
