@@ -16,9 +16,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { useColors } from "@/hooks/useColors";
 import {
+  canRunLiveOtaProbe,
   collectOtaLiveProbeDiagnostics,
   collectOtaStaticDiagnostics,
   forceOtaCheckFetchAndReload,
+  LIVE_PROBE_STARTUP_WAIT_MESSAGE,
+  OTA_DEBUG_IDLE_CHECK_RESULT,
   readOtaDebugSnapshot,
   type OtaFullDiagnostics,
 } from "@/lib/otaDebug";
@@ -58,7 +61,7 @@ function initialDiagnostics(): OtaFullDiagnostics {
     });
     return {
       ...snapshot,
-      checkResult: "not run — tap “Run live OTA probe”",
+      checkResult: OTA_DEBUG_IDLE_CHECK_RESULT,
       fetchResult: "not run (live probe is check-only)",
       reloadResult: "not run",
       updateAvailable: null,
@@ -114,7 +117,7 @@ function initialDiagnostics(): OtaFullDiagnostics {
       coachPipelineVersion: OTA_DEBUG_UNAVAILABLE,
       downloadedUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
       availableUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
-      checkResult: "not run — tap “Run live OTA probe”",
+      checkResult: OTA_DEBUG_IDLE_CHECK_RESULT,
       fetchResult: "not run (live probe is check-only)",
       reloadResult: "not run",
       updateAvailable: null,
@@ -331,7 +334,7 @@ function OtaDebugScreenInner() {
         failedLaunchLedgerLines: [`ledger ERR: ${msg}`],
         otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
         liveProbeRan: false,
-        checkResult: "not run — tap “Run live OTA probe”",
+        checkResult: OTA_DEBUG_IDLE_CHECK_RESULT,
         fetchResult: "not run (live probe is check-only)",
         reloadResult: "not run",
       }));
@@ -341,7 +344,13 @@ function OtaDebugScreenInner() {
     }
   }, []);
 
+  const startupBlockingLive = !canRunLiveOtaProbe(!!diag.isStartupProcedureRunning);
+
   const runLiveProbe = useCallback(async () => {
+    if (!canRunLiveOtaProbe(!!diag.isStartupProcedureRunning)) {
+      setStatus(LIVE_PROBE_STARTUP_WAIT_MESSAGE);
+      return null;
+    }
     setLiveProbeLoading(true);
     setStatus("Running live OTA probe (checkForUpdateAsync only)…");
     try {
@@ -370,7 +379,7 @@ function OtaDebugScreenInner() {
     } finally {
       setLiveProbeLoading(false);
     }
-  }, []);
+  }, [diag.isStartupProcedureRunning]);
 
   useEffect(() => {
     // Static state only on open — no automatic checkForUpdateAsync.
@@ -389,6 +398,10 @@ function OtaDebugScreenInner() {
   };
 
   const runCheckFetchReload = async () => {
+    if (!canRunLiveOtaProbe(!!diag.isStartupProcedureRunning)) {
+      setStatus(LIVE_PROBE_STARTUP_WAIT_MESSAGE);
+      return;
+    }
     setBusy(true);
     setStatus("checkForUpdateAsync → fetchUpdateAsync → reloadAsync…");
     try {
@@ -799,15 +812,28 @@ function OtaDebugScreenInner() {
         ) : null}
 
         <View style={{ gap: 10 }}>
+          {startupBlockingLive ? (
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.medium,
+                fontSize: 13,
+                lineHeight: 18,
+              }}
+            >
+              {LIVE_PROBE_STARTUP_WAIT_MESSAGE}
+            </Text>
+          ) : null}
           <Pressable
             onPress={() => void runLiveProbe()}
-            disabled={liveProbeLoading || busy}
+            disabled={liveProbeLoading || busy || startupBlockingLive}
             style={({ pressed }) => ({
               backgroundColor: colors.primary,
               borderRadius: 10,
               paddingVertical: 14,
               alignItems: "center",
-              opacity: pressed || liveProbeLoading || busy ? 0.85 : 1,
+              opacity:
+                pressed || liveProbeLoading || busy || startupBlockingLive ? 0.5 : 1,
             })}
           >
             {liveProbeLoading ? (
@@ -821,7 +847,7 @@ function OtaDebugScreenInner() {
 
           <Pressable
             onPress={() => void runCheckFetchReload()}
-            disabled={busy || liveProbeLoading}
+            disabled={busy || liveProbeLoading || startupBlockingLive}
             style={({ pressed }) => ({
               backgroundColor: colors.card,
               borderWidth: 1,
@@ -829,7 +855,7 @@ function OtaDebugScreenInner() {
               borderRadius: 10,
               paddingVertical: 14,
               alignItems: "center",
-              opacity: pressed || busy || liveProbeLoading ? 0.85 : 1,
+              opacity: pressed || busy || liveProbeLoading || startupBlockingLive ? 0.5 : 1,
             })}
           >
             {busy ? (

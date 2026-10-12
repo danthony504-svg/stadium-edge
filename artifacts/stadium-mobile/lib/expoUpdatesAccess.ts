@@ -24,6 +24,16 @@ export function resetExpoUpdatesAccessForTests(): void {
 }
 
 /**
+ * Inject a fake expo-updates module for Node tests (call-count proofs).
+ * Pass `undefined` to clear and restore lazy require behavior.
+ */
+export function setExpoUpdatesModuleForTests(
+  mod: ExpoUpdatesModule | null | undefined,
+): void {
+  cached = mod;
+}
+
+/**
  * Load expo-updates once. Returns null when native module / manifest parse
  * throws — callers must render fallbacks, never rethrow.
  */
