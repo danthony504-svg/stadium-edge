@@ -17,6 +17,7 @@
 
 import type { OtaRecoverySnapshot } from "./otaRecoveryState.ts";
 import {
+  isIdentifiedReloadTarget,
   MAX_AUTO_RELOADS_PER_UPDATE,
   resolveReloadTargetId,
   SESSION_RELOAD_COOLDOWN_MS,
@@ -151,6 +152,30 @@ export async function reloadPendingOtaUpdate(
       updatePreviouslyFailed: true,
     });
     return "pending";
+  }
+
+  // Never reloadAsync without a concrete newer update id. Sticky isUpdatePending
+  // after launching a tip often leaves target = "running:<id>" or the same UUID —
+  // reloading then aborts the launch before Expo marks it successful
+  // (native reason updatePreviouslyFailed).
+  if (!isIdentifiedReloadTarget(targetId)) {
+    const detail = `blocked: no identified download target (${targetId}) — skip boot reload`;
+    log("reloadAsync", false, detail);
+    report({ reloadBlocked: true, reloadBlockedReason: detail, pending: false });
+    return "none";
+  }
+  const runningId = normalizeOtaUpdateId(options?.reloadUpdateKey);
+  if (
+    runningId &&
+    !isNewerThanRunningUpdate({
+      runningUpdateId: runningId,
+      candidateUpdateId: targetId,
+    })
+  ) {
+    const detail = `blocked: target ${targetId} already running — skip boot reload`;
+    log("reloadAsync", false, detail);
+    report({ reloadBlocked: true, reloadBlockedReason: detail, pending: false });
+    return "none";
   }
 
   if (!shouldAllowAutoReload(sessionReloadGuard, targetId, Date.now(), SESSION_RELOAD_COOLDOWN_MS)) {

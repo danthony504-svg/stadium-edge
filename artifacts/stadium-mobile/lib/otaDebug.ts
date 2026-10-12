@@ -1,6 +1,4 @@
 import Constants from "expo-constants";
-import * as Updates from "expo-updates";
-import { latestContext } from "expo-updates";
 
 import {
   EXPECTED_HEALTHY_EMBEDDED,
@@ -11,15 +9,36 @@ import {
   expectedHealthyLines,
   type DeviceAttestationResult,
 } from "./otaDeviceAttestation";
-import { COACH_PIPELINE_VERSION } from "./coach/qualifyCoachCandidate";
-import { launchOtaCheckFetchReload } from "./otaLaunch";
+import { expoUpdatesLoadError, tryGetExpoUpdates, tryGetLatestContext } from "./expoUpdatesAccess";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
 import {
   collectOtaBannerTrace,
   formatOtaBannerTraceLines,
   type OtaBannerTraceSnapshot,
 } from "./otaBannerTrace";
+import {
+  OTA_DEBUG_UNAVAILABLE,
+  safeDiagText,
+  safeFormatCreatedAt,
+  safeLogLines,
+} from "./otaDebugGuards";
+import { diagnoseEmbeddedApplyState } from "./otaEmbeddedApplyDiagnosis";
+import {
+  OTA_FAILED_LAUNCH_KEY,
+  readFailedLaunchRecord,
+  type OtaFailedLaunchRecord,
+} from "./otaFailedLaunch";
+import { readOtaRecoverySnapshot } from "./otaRecoveryState";
 import { OTA_IDENTITY_FIX_VERSION } from "./otaUpdateIdentity";
+
+/**
+ * Diagnostics-only mirror of coach COACH_PIPELINE_VERSION.
+ * Must NOT import qualifyCoachCandidate — that pulls the sim graph into Home
+ * via OtaHomeDiagnostics and has blacklisted OTA tips (updatePreviouslyFailed).
+ */
+const COACH_PIPELINE_VERSION_DIAG = "unified-quality-v1";
+
+export { diagnoseEmbeddedApplyState } from "./otaEmbeddedApplyDiagnosis";
 
 export type OtaDebugSnapshot = {
   appVersion: string;
@@ -54,6 +73,10 @@ export type OtaDebugSnapshot = {
   hasRnPurchasesNative: boolean;
   /** Coach qualification/render pipeline marker (no network). */
   coachPipelineVersion: string;
+  /** latestContext.downloadedManifest.id (no network). */
+  downloadedUpdateIdFromContext: string;
+  /** latestContext.latestManifest.id (no network). */
+  availableUpdateIdFromContext: string;
 };
 
 export type OtaProbeResults = {
@@ -82,11 +105,25 @@ export type OtaFullDiagnostics = OtaDebugSnapshot &
     bannerTraceLines: string[];
     /** Bundle marker; missing/absent ⇒ pre-identity-fix OTA. */
     otaIdentityFixVersion: number;
+    /** Persisted @stadium/ota-failed-launch ledger (JS-side). */
+    failedLaunchLedgerLines: string[];
+    /** Human diagnosis of why embedded may still be running. */
+    applyDiagnosis: string;
+    /** true when live checkForUpdateAsync has been run this session. */
+    liveProbeRan: boolean;
   };
 
+const IDLE_PROBE: OtaProbeResults = {
+  checkResult: "not run — tap “Run live OTA probe”",
+  fetchResult: "not run (live probe is check-only)",
+  reloadResult: "not run",
+  updateAvailable: null,
+  fetchSucceeded: null,
+  reloadSucceeded: null,
+};
+
 function str(v: unknown, fallback = "—"): string {
-  if (v == null || v === "") return fallback;
-  return String(v);
+  return safeDiagText(v, fallback);
 }
 
 const OTA_NETWORK_TIMEOUT_MS = 12_000;
@@ -114,12 +151,16 @@ export async function withOtaTimeout<T>(
 }
 
 function formatCreatedAt(): string {
-  const raw =
-    (Updates as { createdAt?: Date | string | null }).createdAt ??
-    (Updates.manifest as { createdAt?: string } | null)?.createdAt;
-  if (!raw) return "—";
-  const d = raw instanceof Date ? raw : new Date(raw);
-  return Number.isFinite(d.getTime()) ? d.toISOString() : str(raw);
+  const Updates = tryGetExpoUpdates();
+  if (!Updates) return OTA_DEBUG_UNAVAILABLE;
+  try {
+    const raw =
+      (Updates as { createdAt?: Date | string | null }).createdAt ??
+      (Updates.manifest as { createdAt?: string } | null | undefined)?.createdAt;
+    return safeFormatCreatedAt(raw);
+  } catch {
+    return OTA_DEBUG_UNAVAILABLE;
+  }
 }
 
 function readUpdatesConfig() {
@@ -170,7 +211,9 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
       deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
       expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
       hasRnPurchasesNative: false,
-      coachPipelineVersion: COACH_PIPELINE_VERSION,
+      coachPipelineVersion: COACH_PIPELINE_VERSION_DIAG,
+      downloadedUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
+      availableUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
     };
   }
 }
@@ -251,22 +294,53 @@ function parseProbeFlags(probe: {
 function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
   const { expo, updatesCfg } = readUpdatesConfig();
   const extra = expo?.extra as { eas?: { projectId?: string } } | undefined;
+  const Updates = tryGetExpoUpdates();
+  const loadErr = expoUpdatesLoadError();
 
   const channelHeader = updatesCfg?.requestHeaders?.["expo-channel-name"];
   const channel =
-    str(Updates.channel, "") ||
+    str(Updates?.channel, "") ||
     str(channelHeader, "") ||
-    "embedded-at-build (no channel header in app.json)";
+    (Updates ? "embedded-at-build (no channel header in app.json)" : OTA_DEBUG_UNAVAILABLE);
 
-  const bundleSource: OtaDebugSnapshot["bundleSource"] = !Updates.isEnabled
+  const isEnabled = !!Updates?.isEnabled;
+  const isEmbeddedLaunch = Updates ? !!Updates.isEmbeddedLaunch : true;
+  const bundleSource: OtaDebugSnapshot["bundleSource"] = !Updates
     ? "unknown"
-    : Updates.isEmbeddedLaunch
-      ? "embedded"
-      : "ota";
+    : !isEnabled
+      ? "unknown"
+      : isEmbeddedLaunch
+        ? "embedded"
+        : "ota";
 
-  const ctx = latestContext;
+  const ctx = tryGetLatestContext() as {
+    checkError?: unknown;
+    downloadError?: unknown;
+    isUpdatePending?: boolean;
+    isDownloading?: boolean;
+    isStartupProcedureRunning?: boolean;
+    rollback?: { commitTime?: unknown };
+    downloadedManifest?: { id?: unknown } | null;
+    latestManifest?: { id?: unknown } | null;
+  } | null;
   const checkErr = ctx?.checkError;
   const downloadErr = ctx?.downloadError;
+  const downloadedFromCtx = (() => {
+    try {
+      const id = ctx?.downloadedManifest?.id;
+      return id == null || id === "" ? OTA_DEBUG_UNAVAILABLE : String(id);
+    } catch {
+      return OTA_DEBUG_UNAVAILABLE;
+    }
+  })();
+  const availableFromCtx = (() => {
+    try {
+      const id = ctx?.latestManifest?.id;
+      return id == null || id === "" ? OTA_DEBUG_UNAVAILABLE : String(id);
+    } catch {
+      return OTA_DEBUG_UNAVAILABLE;
+    }
+  })();
 
   const appVersion = str(expo?.version ?? Constants.nativeAppVersion);
   const cfBundleShortVersion = str(
@@ -274,46 +348,111 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
     appVersion,
   );
 
+  let requestHeaders = "— (none in embedded app.json)";
+  try {
+    requestHeaders = updatesCfg?.requestHeaders
+      ? JSON.stringify(updatesCfg.requestHeaders)
+      : requestHeaders;
+  } catch (e) {
+    requestHeaders = `ERR: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
   return {
     appVersion,
     buildNumber: str(Constants.nativeBuildVersion),
     cfBundleShortVersion,
-    runtimeVersion: str(Updates.runtimeVersion ?? expo?.runtimeVersion),
+    runtimeVersion: str(Updates?.runtimeVersion ?? expo?.runtimeVersion, OTA_DEBUG_UNAVAILABLE),
     channel,
-    updateId: str(Updates.updateId, Updates.isEmbeddedLaunch ? "embedded" : "—"),
+    updateId: str(
+      Updates?.updateId,
+      isEmbeddedLaunch ? "embedded" : OTA_DEBUG_UNAVAILABLE,
+    ),
     commitHash: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked",
     updateCreatedAt: formatCreatedAt(),
     bundleSource,
-    updatesEnabled: Updates.isEnabled,
-    isEmbeddedLaunch: Updates.isEmbeddedLaunch,
-    isEmergencyLaunch: Updates.isEmergencyLaunch,
-    emergencyLaunchReason: str(Updates.emergencyLaunchReason, "—"),
-    checkAutomatically: str(Updates.checkAutomatically ?? updatesCfg?.checkAutomatically, "ON_LOAD (native default)"),
+    updatesEnabled: isEnabled,
+    isEmbeddedLaunch,
+    isEmergencyLaunch: !!Updates?.isEmergencyLaunch,
+    emergencyLaunchReason: str(Updates?.emergencyLaunchReason, "—"),
+    checkAutomatically: str(
+      Updates?.checkAutomatically ?? updatesCfg?.checkAutomatically,
+      "ON_LOAD (native default)",
+    ),
     fallbackToCacheTimeout: updatesCfg?.fallbackToCacheTimeout ?? 0,
-    launchDurationMs: Updates.launchDuration != null ? String(Updates.launchDuration) : "—",
+    launchDurationMs:
+      Updates?.launchDuration != null ? String(Updates.launchDuration) : "—",
     isUpdatePending: !!ctx?.isUpdatePending,
     isDownloading: !!ctx?.isDownloading,
     isStartupProcedureRunning: !!ctx?.isStartupProcedureRunning,
     rollbackCommitTime: str(ctx?.rollback?.commitTime, "—"),
-    checkError: checkErr ? (checkErr instanceof Error ? checkErr.message : String(checkErr)) : "—",
+    checkError: loadErr
+      ? loadErr
+      : checkErr
+        ? checkErr instanceof Error
+          ? checkErr.message
+          : String(checkErr)
+        : "—",
     downloadError: downloadErr
       ? downloadErr instanceof Error
         ? downloadErr.message
         : String(downloadErr)
       : "—",
     updateUrl: str(updatesCfg?.url),
-    requestHeaders: updatesCfg?.requestHeaders
-      ? JSON.stringify(updatesCfg.requestHeaders)
-      : "— (none in embedded app.json)",
+    requestHeaders,
     projectId: str(extra?.eas?.projectId),
     deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
     expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
     hasRnPurchasesNative: readHasRnPurchasesNative(),
-    coachPipelineVersion: COACH_PIPELINE_VERSION,
+    coachPipelineVersion: COACH_PIPELINE_VERSION_DIAG,
+    downloadedUpdateIdFromContext: downloadedFromCtx,
+    availableUpdateIdFromContext: availableFromCtx,
   };
 }
 
+async function readFailedLaunchLedgerLines(): Promise<{
+  lines: string[];
+  record: OtaFailedLaunchRecord;
+}> {
+  try {
+    // Lazy require so node:test that only imports classify helpers stays clean.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const AsyncStorage = require("@react-native-async-storage/async-storage").default as {
+      getItem: (key: string) => Promise<string | null>;
+    };
+    const record = await readFailedLaunchRecord({
+      read: () => AsyncStorage.getItem(OTA_FAILED_LAUNCH_KEY),
+    });
+    const entries = Object.entries(record.failures ?? {});
+    const out: string[] = [
+      `pendingTargetId: ${record.pendingTargetId ?? "—"}`,
+      `pendingTargetAt: ${
+        record.pendingTargetAt ? new Date(record.pendingTargetAt).toISOString() : "—"
+      }`,
+    ];
+    if (entries.length === 0) out.push("(no failed-launch entries)");
+    else {
+      for (const [id, e] of entries) {
+        out.push(
+          `failed ${id}: count=${e.count} lastAt=${
+            e.lastAt ? new Date(e.lastAt).toISOString() : "—"
+          }`,
+        );
+      }
+    }
+    return { lines: out, record };
+  } catch (e) {
+    return {
+      lines: [
+        `failed-launch ledger ERR: ${e instanceof Error ? e.message : String(e)}`,
+      ],
+      record: { pendingTargetId: null, pendingTargetAt: null, failures: {} },
+    };
+  }
+}
+
 async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
+  const Updates = tryGetExpoUpdates();
+  if (!Updates) return [expoUpdatesLoadError() ?? "expo-updates unavailable"];
   if (__DEV__ || !Updates.isEnabled) return ["skipped: dev or Updates.isEnabled=false"];
   try {
     const entries = await withOtaTimeout(
@@ -321,11 +460,15 @@ async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
       Updates.readLogEntriesAsync(maxAgeMs),
       8_000,
     );
-    if (entries.length === 0) return ["(no expo-updates log entries in last hour)"];
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return ["(no expo-updates log entries in last hour)"];
+    }
     return entries.map((e) => {
-      const ts = e.timestamp ? new Date(e.timestamp).toISOString() : "?";
-      const stack = e.stacktrace?.length ? ` | stack: ${e.stacktrace.slice(0, 2).join(" → ")}` : "";
-      return `${ts} [${e.level}] ${e.code}: ${e.message}${stack}`;
+      const ts = e?.timestamp ? safeFormatCreatedAt(new Date(e.timestamp)) : "?";
+      const stack = Array.isArray(e?.stacktrace) && e.stacktrace.length
+        ? ` | stack: ${e.stacktrace.slice(0, 2).map((s) => safeDiagText(s)).join(" → ")}`
+        : "";
+      return `${ts} [${safeDiagText(e?.level, "?")}] ${safeDiagText(e?.code, "?")}: ${safeDiagText(e?.message)}${stack}`;
     });
   } catch (e) {
     return [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
@@ -334,6 +477,15 @@ async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
 
 /** Run check only — never fetch on the diagnostics screen (fetch without reload corrupts the in-memory bundle). */
 export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
+  const Updates = tryGetExpoUpdates();
+  if (!Updates) {
+    const base = {
+      checkResult: `skipped: ${expoUpdatesLoadError()}`,
+      fetchResult: "skipped (expo-updates unavailable)",
+      reloadResult: "skipped",
+    };
+    return { ...base, ...parseProbeFlags(base) };
+  }
   if (__DEV__ || !Updates.isEnabled) {
     const base = {
       checkResult: __DEV__ ? "skipped: __DEV__" : "skipped: Updates.isEnabled=false",
@@ -355,14 +507,20 @@ export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
       Updates.checkForUpdateAsync(),
     );
     const roll = (check as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded;
+    let manifestUpdateId: string | null = null;
+    try {
+      if (check?.manifest && typeof check.manifest === "object" && "id" in check.manifest) {
+        const id = (check.manifest as { id?: unknown }).id;
+        manifestUpdateId = id == null || id === "" ? null : String(id);
+      }
+    } catch {
+      manifestUpdateId = null;
+    }
     checkResult = JSON.stringify({
-      isAvailable: check.isAvailable,
+      isAvailable: !!check?.isAvailable,
       isRollBackToEmbedded: roll === true,
-      reason: (check as { reason?: string }).reason ?? null,
-      manifestUpdateId:
-        check.manifest && typeof check.manifest === "object" && "id" in check.manifest
-          ? String((check.manifest as { id?: string }).id ?? "")
-          : null,
+      reason: (check as { reason?: string } | null)?.reason ?? null,
+      manifestUpdateId,
     });
     pushOtaLog("checkForUpdateAsync", true, checkResult);
   } catch (e) {
@@ -379,13 +537,144 @@ export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
   return probeOtaCheckOnly();
 }
 
-/** Full on-device diagnostics: static state, native logs, and live check/fetch probe. */
-export async function collectOtaFullDiagnostics(
-  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
-): Promise<OtaFullDiagnostics> {
+function buildDiagnosticsShell(
+  snapshot: OtaDebugSnapshot,
+  extras: {
+    probe: OtaProbeResults;
+    startupLogs: string[];
+    jsLaunchLogs: string[];
+    bannerTrace: OtaBannerTraceSnapshot | null;
+    bannerTraceLines: string[];
+    failedLaunchLedgerLines: string[];
+    applyDiagnosis: string;
+    liveProbeRan: boolean;
+    attestation: DeviceAttestationResult;
+  },
+): OtaFullDiagnostics {
+  return {
+    ...snapshot,
+    ...extras.probe,
+    startupLogs: safeLogLines(extras.startupLogs, "startup logs unavailable"),
+    jsLaunchLogs: safeLogLines(extras.jsLaunchLogs, "(none)"),
+    attestation: extras.attestation,
+    expectedHealthy: {
+      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+      updateId: EXPECTED_HEALTHY_UPDATE_ID,
+      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+    },
+    caseCNativeSafety: caseCNativeModuleSafetyReport(),
+    bannerTrace: extras.bannerTrace,
+    bannerTraceLines: safeLogLines(extras.bannerTraceLines, "bannerTrace unavailable"),
+    otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+    failedLaunchLedgerLines: safeLogLines(
+      extras.failedLaunchLedgerLines,
+      "(no failed-launch entries)",
+    ),
+    applyDiagnosis: extras.applyDiagnosis,
+    liveProbeRan: extras.liveProbeRan,
+  };
+}
+
+/**
+ * Static-only diagnostics — NO checkForUpdateAsync / fetch.
+ * Safe for /ota-debug initial render and deep-link cold launch.
+ */
+export async function collectOtaStaticDiagnostics(): Promise<OtaFullDiagnostics> {
   const snapshot = readOtaDebugSnapshot();
   const attestation = logDeviceAttestation(snapshot);
   const jsLaunchLogs = formatOtaLogLines();
+
+  let startupLogs: string[] = ["loading…"];
+  try {
+    startupLogs = await readStartupLogs();
+  } catch (e) {
+    startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
+  }
+
+  const { lines: failedLaunchLedgerLines, record: failedLaunchRecord } =
+    await readFailedLaunchLedgerLines();
+
+  let recoveryPending = false;
+  let recoveryReloadTargetId = "—";
+  try {
+    const recovery = readOtaRecoverySnapshot();
+    recoveryPending = !!recovery.pending;
+    recoveryReloadTargetId = recovery.reloadTargetId;
+  } catch {
+    // ignore
+  }
+
+  let bannerTrace: OtaBannerTraceSnapshot | null = null;
+  try {
+    // Persisted ready id + context only — no live check result.
+    bannerTrace = await collectOtaBannerTrace({
+      availableUpdateIdFromCheck: null,
+      checkResult: IDLE_PROBE.checkResult,
+    });
+  } catch (e) {
+    pushOtaLog(
+      "checkForUpdateAsync",
+      false,
+      `bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  const applyDiagnosis = diagnoseEmbeddedApplyState({
+    isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+    isEmergencyLaunch: snapshot.isEmergencyLaunch,
+    emergencyLaunchReason: snapshot.emergencyLaunchReason,
+    isUpdatePending: snapshot.isUpdatePending,
+    isStartupProcedureRunning: snapshot.isStartupProcedureRunning,
+    runningUpdateId: snapshot.updateId,
+    downloadedUpdateIdFromContext: snapshot.downloadedUpdateIdFromContext,
+    availableUpdateIdFromContext: snapshot.availableUpdateIdFromContext,
+    fallbackToCacheTimeout: snapshot.fallbackToCacheTimeout,
+    failedLaunchRecord,
+    recoveryPending,
+    recoveryReloadTargetId,
+  });
+
+  try {
+    console.log(
+      [
+        "=== OTA static diagnostics (no live probe) ===",
+        `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
+        `isEmbeddedLaunch: ${snapshot.isEmbeddedLaunch}`,
+        `updateId: ${snapshot.updateId}`,
+        `downloadedUpdateIdFromContext: ${snapshot.downloadedUpdateIdFromContext}`,
+        `isStartupProcedureRunning: ${snapshot.isStartupProcedureRunning}`,
+        applyDiagnosis,
+        ...failedLaunchLedgerLines,
+      ].join("\n"),
+    );
+  } catch {
+    // ignore
+  }
+
+  return buildDiagnosticsShell(snapshot, {
+    probe: IDLE_PROBE,
+    startupLogs,
+    jsLaunchLogs,
+    bannerTrace,
+    bannerTraceLines: bannerTrace
+      ? formatOtaBannerTraceLines(bannerTrace)
+      : ["bannerTrace unavailable"],
+    failedLaunchLedgerLines,
+    applyDiagnosis,
+    liveProbeRan: false,
+    attestation,
+  });
+}
+
+/**
+ * Manual live probe — checkForUpdateAsync only (no fetch/reload).
+ * Must be user-initiated from /ota-debug so opening diagnostics cannot crash
+ * during/after network probe.
+ */
+export async function collectOtaLiveProbeDiagnostics(
+  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
+): Promise<OtaFullDiagnostics> {
+  const base = await collectOtaStaticDiagnostics();
 
   const emptyProbe = (partial: {
     checkResult: string;
@@ -417,13 +706,6 @@ export async function collectOtaFullDiagnostics(
       }),
   );
 
-  let startupLogs: string[] = ["loading…"];
-  try {
-    startupLogs = await readStartupLogs();
-  } catch (e) {
-    startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
-  }
-
   let availableUpdateIdFromCheck: string | null = null;
   try {
     const parsed = JSON.parse(probe.checkResult) as {
@@ -436,7 +718,7 @@ export async function collectOtaFullDiagnostics(
     // checkResult may be ERR:/skipped
   }
 
-  let bannerTrace: OtaBannerTraceSnapshot | null = null;
+  let bannerTrace: OtaBannerTraceSnapshot | null = base.bannerTrace;
   try {
     bannerTrace = await collectOtaBannerTrace({
       availableUpdateIdFromCheck,
@@ -449,38 +731,43 @@ export async function collectOtaFullDiagnostics(
       `bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
-  const bannerTraceLines = bannerTrace
-    ? formatOtaBannerTraceLines(bannerTrace)
-    : ["bannerTrace unavailable"];
 
-  console.log(
-    [
-      "=== OTA probe outcomes ===",
-      `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
-      `update check available: ${String(probe.updateAvailable)}`,
-      `checkResult: ${probe.checkResult}`,
-      `fetchSucceeded: ${String(probe.fetchSucceeded)} (${probe.fetchResult})`,
-      `reloadSucceeded: ${String(probe.reloadSucceeded)} (${probe.reloadResult})`,
-      ...bannerTraceLines,
-    ].join("\n"),
+  const bannerTraceLines = safeLogLines(
+    bannerTrace ? formatOtaBannerTraceLines(bannerTrace) : null,
+    "bannerTrace unavailable",
   );
 
+  try {
+    console.log(
+      [
+        "=== OTA live probe outcomes ===",
+        `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
+        `update check available: ${String(probe.updateAvailable)}`,
+        `checkResult: ${probe.checkResult}`,
+        ...bannerTraceLines,
+      ].join("\n"),
+    );
+  } catch {
+    // ignore
+  }
+
   return {
-    ...snapshot,
+    ...base,
     ...probe,
-    startupLogs,
-    jsLaunchLogs,
-    attestation,
-    expectedHealthy: {
-      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
-      updateId: EXPECTED_HEALTHY_UPDATE_ID,
-      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
-    },
-    caseCNativeSafety: caseCNativeModuleSafetyReport(),
     bannerTrace,
     bannerTraceLines,
-    otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+    liveProbeRan: true,
   };
+}
+
+/**
+ * @deprecated Prefer collectOtaStaticDiagnostics on open + collectOtaLiveProbeDiagnostics
+ * behind a button. Kept for callers that still want the combined path.
+ */
+export async function collectOtaFullDiagnostics(
+  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
+): Promise<OtaFullDiagnostics> {
+  return collectOtaLiveProbeDiagnostics(timeoutMs);
 }
 
 export type OtaCheckResult = {
@@ -500,12 +787,15 @@ export type OtaCheckResult = {
  * boundaries (that reopens the same in-memory JS bundle).
  */
 export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
-  if (__DEV__ || !Updates.isEnabled) {
+  const Updates = tryGetExpoUpdates();
+  if (!Updates || __DEV__ || !Updates.isEnabled) {
     pushOtaLog("checkForUpdateAsync", false, "manual: dev or Updates disabled");
     return {
       downloaded: false,
       reloaded: false,
-      reason: "Updates disabled (dev build or expo-updates off)",
+      reason: Updates
+        ? "Updates disabled (dev build or expo-updates off)"
+        : expoUpdatesLoadError() ?? "expo-updates unavailable",
       checkResult: "skipped",
       fetchResult: "skipped",
       reloadResult: "skipped",
@@ -517,7 +807,10 @@ export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
 
   // Run a check-only probe first so the UI can show availability even when
   // launchOtaCheckFetchReload returns idle (no newer update).
+  // Dynamic import keeps otaLaunch's static expo-updates graph off the
+  // /ota-debug module-eval path (deep-link cold start).
   const preCheck = await probeOtaCheckOnly();
+  const { launchOtaCheckFetchReload } = await import("./otaLaunch");
   const outcome = await launchOtaCheckFetchReload();
   const logs = formatOtaLogLines();
   const fetchLog = [...logs].reverse().find((l) => /fetchUpdateAsync/i.test(l));

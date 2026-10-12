@@ -13,9 +13,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { useColors } from "@/hooks/useColors";
 import {
-  collectOtaFullDiagnostics,
+  collectOtaLiveProbeDiagnostics,
+  collectOtaStaticDiagnostics,
   forceOtaCheckFetchAndReload,
   readOtaDebugSnapshot,
   type OtaFullDiagnostics,
@@ -26,38 +28,140 @@ import {
   EXPECTED_HEALTHY_UPDATE_ID,
   classifyDeviceAttestation,
 } from "@/lib/otaDeviceAttestation";
+import {
+  buildSafeRequiredFields,
+  OTA_DEBUG_UNAVAILABLE,
+  safeDiagText,
+  safeLogLines,
+} from "@/lib/otaDebugGuards";
 import { formatOtaLogLines } from "@/lib/otaLaunchLog";
 import { OTA_IDENTITY_FIX_VERSION } from "@/lib/otaUpdateIdentity";
 
-function initialDiagnostics(): OtaFullDiagnostics {
-  const snapshot = readOtaDebugSnapshot();
-  const attestation = classifyDeviceAttestation({
-    runtimeVersion: snapshot.runtimeVersion,
-    updateId: snapshot.updateId,
-    isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
-    appVersion: snapshot.appVersion,
+function emptyAttestation() {
+  return classifyDeviceAttestation({
+    runtimeVersion: OTA_DEBUG_UNAVAILABLE,
+    updateId: OTA_DEBUG_UNAVAILABLE,
+    isEmbeddedLaunch: true,
+    appVersion: OTA_DEBUG_UNAVAILABLE,
   });
-  return {
-    ...snapshot,
-    checkResult: "loading…",
-    fetchResult: "—",
-    reloadResult: "—",
-    updateAvailable: null,
-    fetchSucceeded: null,
-    reloadSucceeded: null,
-    startupLogs: ["loading native logs…"],
-    jsLaunchLogs: formatOtaLogLines(),
-    attestation,
-    expectedHealthy: {
-      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
-      updateId: EXPECTED_HEALTHY_UPDATE_ID,
-      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
-    },
-    caseCNativeSafety: "",
-    bannerTrace: null,
-    bannerTraceLines: ["loading banner identity trace…"],
-    otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
-  };
+}
+
+/** Never throw during useState init / deep-link cold launch. */
+function initialDiagnostics(): OtaFullDiagnostics {
+  try {
+    const snapshot = readOtaDebugSnapshot();
+    const attestation = classifyDeviceAttestation({
+      runtimeVersion: snapshot.runtimeVersion,
+      updateId: snapshot.updateId,
+      isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+      appVersion: snapshot.appVersion,
+    });
+    return {
+      ...snapshot,
+      checkResult: "not run — tap “Run live OTA probe”",
+      fetchResult: "not run (live probe is check-only)",
+      reloadResult: "not run",
+      updateAvailable: null,
+      fetchSucceeded: null,
+      reloadSucceeded: null,
+      startupLogs: ["loading native logs…"],
+      jsLaunchLogs: safeLogLines(formatOtaLogLines(), "(none yet)"),
+      attestation,
+      expectedHealthy: {
+        runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+        updateId: EXPECTED_HEALTHY_UPDATE_ID,
+        isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+      },
+      caseCNativeSafety: "",
+      bannerTrace: null,
+      bannerTraceLines: ["loading banner identity trace…"],
+      otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+      failedLaunchLedgerLines: ["loading failed-launch ledger…"],
+      applyDiagnosis: "loading…",
+      liveProbeRan: false,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      appVersion: OTA_DEBUG_UNAVAILABLE,
+      buildNumber: OTA_DEBUG_UNAVAILABLE,
+      cfBundleShortVersion: OTA_DEBUG_UNAVAILABLE,
+      runtimeVersion: OTA_DEBUG_UNAVAILABLE,
+      channel: OTA_DEBUG_UNAVAILABLE,
+      updateId: OTA_DEBUG_UNAVAILABLE,
+      commitHash: "not-baked",
+      updateCreatedAt: OTA_DEBUG_UNAVAILABLE,
+      bundleSource: "unknown",
+      updatesEnabled: false,
+      isEmbeddedLaunch: true,
+      isEmergencyLaunch: false,
+      emergencyLaunchReason: OTA_DEBUG_UNAVAILABLE,
+      checkAutomatically: OTA_DEBUG_UNAVAILABLE,
+      fallbackToCacheTimeout: 0,
+      launchDurationMs: OTA_DEBUG_UNAVAILABLE,
+      isUpdatePending: false,
+      isDownloading: false,
+      isStartupProcedureRunning: false,
+      rollbackCommitTime: OTA_DEBUG_UNAVAILABLE,
+      checkError: `initialDiagnostics ERR: ${msg}`,
+      downloadError: OTA_DEBUG_UNAVAILABLE,
+      updateUrl: OTA_DEBUG_UNAVAILABLE,
+      requestHeaders: OTA_DEBUG_UNAVAILABLE,
+      projectId: OTA_DEBUG_UNAVAILABLE,
+      deployMessage: OTA_DEBUG_UNAVAILABLE,
+      expectedCommit: OTA_DEBUG_UNAVAILABLE,
+      hasRnPurchasesNative: false,
+      coachPipelineVersion: OTA_DEBUG_UNAVAILABLE,
+      downloadedUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
+      availableUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
+      checkResult: "not run — tap “Run live OTA probe”",
+      fetchResult: "not run (live probe is check-only)",
+      reloadResult: "not run",
+      updateAvailable: null,
+      fetchSucceeded: null,
+      reloadSucceeded: null,
+      startupLogs: [`initialDiagnostics ERR: ${msg}`],
+      jsLaunchLogs: ["(none yet)"],
+      attestation: emptyAttestation(),
+      expectedHealthy: {
+        runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+        updateId: EXPECTED_HEALTHY_UPDATE_ID,
+        isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+      },
+      caseCNativeSafety: "",
+      bannerTrace: null,
+      bannerTraceLines: [`bannerTrace unavailable: ${msg}`],
+      otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+      failedLaunchLedgerLines: [`ledger unavailable: ${msg}`],
+      applyDiagnosis: `initialDiagnostics ERR: ${msg}`,
+      liveProbeRan: false,
+    };
+  }
+}
+
+function OtaDiagnosticsErrorFallback({ error }: ErrorFallbackProps) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        justifyContent: "center",
+        padding: 24,
+        backgroundColor: "#0b1220",
+        gap: 10,
+      }}
+    >
+      <Text style={{ color: "#f8fafc", fontSize: 20, fontWeight: "700" }}>
+        OTA Diagnostics unavailable
+      </Text>
+      <Text style={{ color: "#94a3b8", fontSize: 14, lineHeight: 20 }}>
+        This diagnostics-only screen encountered an error. The rest of Stadium Edge remains
+        available — OTA update behavior was not changed.
+      </Text>
+      <Text numberOfLines={4} style={{ color: "#64748b", fontSize: 12, lineHeight: 18 }}>
+        {safeDiagText(error?.message, "Unknown diagnostics error")}
+      </Text>
+    </View>
+  );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -71,22 +175,23 @@ function Row({ label, value }: { label: string; value: string }) {
         selectable
         style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}
       >
-        {value}
+        {safeDiagText(value)}
       </Text>
     </View>
   );
 }
 
-function LogBlock({ title, lines }: { title: string; lines: string[] }) {
+function LogBlock({ title, lines }: { title: string; lines: unknown }) {
   const colors = useColors();
+  const safe = safeLogLines(lines, "(none)");
   return (
     <View style={{ gap: 6 }}>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 12 }}>
         {title}
       </Text>
-      {lines.map((line, i) => (
+      {safe.map((line, i) => (
         <Text
-          key={`${i}-${String(line ?? "").slice(0, 24)}`}
+          key={`${i}-${line.slice(0, 24)}`}
           selectable
           style={{
             color: colors.foreground,
@@ -103,58 +208,94 @@ function LogBlock({ title, lines }: { title: string; lines: string[] }) {
 }
 
 function buildReport(diag: OtaFullDiagnostics): string {
+  const required = buildSafeRequiredFields({
+    updateId: diag.updateId,
+    isEmbeddedLaunch: diag.isEmbeddedLaunch,
+    createdAt: diag.updateCreatedAt,
+    runtimeVersion: diag.runtimeVersion,
+    channel: diag.channel,
+    checkAvailableUpdateId: diag.bannerTrace?.availableUpdateIdFromCheck,
+    downloadedUpdateId: diag.bannerTrace?.downloadedUpdateId,
+    persistedReadyId: diag.bannerTrace?.persistedReadyId,
+    isUpdatePending: diag.bannerTrace?.nativeIsUpdatePending ?? diag.isUpdatePending,
+    recoveryPending: diag.bannerTrace?.recoveryPending,
+    bannerExpression: diag.bannerTrace?.bannerExpression,
+    otaIdentityFixVersion: diag.otaIdentityFixVersion ?? OTA_IDENTITY_FIX_VERSION,
+    contextHydrated: true,
+  });
+  const attestation = diag.attestation ?? emptyAttestation();
   return [
     "=== Stadium Edge device attestation ===",
-    `CASE: ${diag.attestation.caseId} — ${diag.attestation.label}`,
-    `summary: ${diag.attestation.summary}`,
-    `recovery: ${diag.attestation.recoveryPath}`,
+    `CASE: ${safeDiagText(attestation.caseId)} — ${safeDiagText(attestation.label)}`,
+    `summary: ${safeDiagText(attestation.summary)}`,
+    `recovery: ${safeDiagText(attestation.recoveryPath)}`,
     "",
-    `Updates.runtimeVersion: ${diag.runtimeVersion}`,
-    `Updates.updateId: ${diag.updateId}`,
-    `Updates.isEmbeddedLaunch: ${diag.isEmbeddedLaunch}`,
-    `app version / CFBundleShortVersionString: ${diag.cfBundleShortVersion}`,
-    `native build number: ${diag.buildNumber}`,
-    `update channel: ${diag.channel}`,
-    `hasRnPurchasesNative: ${diag.hasRnPurchasesNative}`,
+    `Updates.runtimeVersion: ${required.runtimeVersion}`,
+    `Updates.updateId: ${required.updateId}`,
+    `Updates.isEmbeddedLaunch: ${required.isEmbeddedLaunch}`,
+    `app version / CFBundleShortVersionString: ${safeDiagText(diag.cfBundleShortVersion)}`,
+    `native build number: ${safeDiagText(diag.buildNumber)}`,
+    `update channel: ${required.channel}`,
+    `hasRnPurchasesNative: ${safeDiagText(diag.hasRnPurchasesNative)}`,
     "",
-    `expected runtimeVersion: ${diag.expectedHealthy.runtimeVersion}`,
-    `expected updateId: ${diag.expectedHealthy.updateId}`,
-    `expected isEmbeddedLaunch: ${diag.expectedHealthy.isEmbeddedLaunch}`,
+    `expected runtimeVersion: ${safeDiagText(diag.expectedHealthy?.runtimeVersion)}`,
+    `expected updateId: ${safeDiagText(diag.expectedHealthy?.updateId)}`,
+    `expected isEmbeddedLaunch: ${safeDiagText(diag.expectedHealthy?.isEmbeddedLaunch)}`,
     "",
-    `update check finds available update: ${String(diag.updateAvailable)}`,
-    `fetch succeeds: ${String(diag.fetchSucceeded)}`,
-    `reload/apply succeeds: ${String(diag.reloadSucceeded)}`,
-    `checkForUpdateAsync: ${diag.checkResult}`,
-    `fetchUpdateAsync: ${diag.fetchResult}`,
-    `reloadAsync: ${diag.reloadResult}`,
+    `update check finds available update: ${safeDiagText(diag.updateAvailable)}`,
+    `fetch succeeds: ${safeDiagText(diag.fetchSucceeded)}`,
+    `reload/apply succeeds: ${safeDiagText(diag.reloadSucceeded)}`,
+    `checkForUpdateAsync: ${safeDiagText(diag.checkResult)}`,
+    `fetchUpdateAsync: ${safeDiagText(diag.fetchResult)}`,
+    `reloadAsync: ${safeDiagText(diag.reloadResult)}`,
     "",
-    `Updates.isEnabled: ${diag.updatesEnabled}`,
-    `Updates.isEmergencyLaunch: ${diag.isEmergencyLaunch}`,
-    `Updates.emergencyLaunchReason: ${diag.emergencyLaunchReason}`,
-    `Updates.createdAt: ${diag.updateCreatedAt}`,
-    `bundle source: ${diag.bundleSource}`,
-    `commit (running): ${diag.commitHash}`,
-    `deploy message: ${diag.deployMessage}`,
-    `native checkError: ${diag.checkError}`,
-    `native downloadError: ${diag.downloadError}`,
-    `OTA_IDENTITY_FIX_VERSION: ${diag.otaIdentityFixVersion}`,
-    `latestContext.isUpdatePending: ${diag.isUpdatePending}`,
+    `Updates.isEnabled: ${safeDiagText(diag.updatesEnabled)}`,
+    `Updates.isEmergencyLaunch: ${safeDiagText(diag.isEmergencyLaunch)}`,
+    `Updates.emergencyLaunchReason: ${safeDiagText(diag.emergencyLaunchReason)}`,
+    `Updates.createdAt: ${required.createdAt}`,
+    `bundle source: ${safeDiagText(diag.bundleSource)}`,
+    `commit (running): ${safeDiagText(diag.commitHash)}`,
+    `deploy message: ${safeDiagText(diag.deployMessage)}`,
+    `native checkError: ${safeDiagText(diag.checkError)}`,
+    `native downloadError: ${safeDiagText(diag.downloadError)}`,
+    `OTA_IDENTITY_FIX_VERSION: ${required.otaIdentityFixVersion}`,
+    `latestContext.isUpdatePending: ${required.isUpdatePending}`,
+    `recovery.pending: ${required.recoveryPending}`,
+    `bannerExpression: ${required.bannerExpression}`,
+    `check available update ID: ${required.checkAvailableUpdateId}`,
+    `downloaded update ID: ${required.downloadedUpdateId}`,
+    `persisted ready ID: ${required.persistedReadyId}`,
+    `downloadedManifest.id (context): ${safeDiagText(diag.downloadedUpdateIdFromContext)}`,
+    `latestManifest.id (context): ${safeDiagText(diag.availableUpdateIdFromContext)}`,
+    `isStartupProcedureRunning: ${safeDiagText(diag.isStartupProcedureRunning)}`,
+    `fallbackToCacheTimeout: ${safeDiagText(diag.fallbackToCacheTimeout)}`,
+    `updateUrl: ${safeDiagText(diag.updateUrl)}`,
+    `projectId: ${safeDiagText(diag.projectId)}`,
+    `liveProbeRan: ${safeDiagText(diag.liveProbeRan)}`,
+    "",
+    "--- apply / rollback diagnosis ---",
+    safeDiagText(diag.applyDiagnosis),
+    "",
+    "--- JS failed-launch ledger ---",
+    ...safeLogLines(diag.failedLaunchLedgerLines, "(none)"),
     "",
     "--- banner identity trace (why App update ready shows) ---",
-    ...diag.bannerTraceLines,
+    ...safeLogLines(diag.bannerTraceLines, "bannerTrace unavailable"),
     "",
-    ...(diag.attestation.caseId === "C" ? [diag.caseCNativeSafety, ""] : []),
+    ...(attestation.caseId === "C" && diag.caseCNativeSafety
+      ? [safeDiagText(diag.caseCNativeSafety), ""]
+      : []),
     "--- expo-updates native logs (last hour) ---",
-    ...diag.startupLogs,
+    ...safeLogLines(diag.startupLogs, "(none)"),
     "",
     "--- JS launch OTA logs ---",
-    ...(diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none)"]),
+    ...safeLogLines(diag.jsLaunchLogs, "(none)"),
   ].join("\n");
 }
 
 export default function OtaDebugScreen() {
   return (
-    <ErrorBoundary>
+    <ErrorBoundary FallbackComponent={OtaDiagnosticsErrorFallback}>
       <OtaDebugScreenInner />
     </ErrorBoundary>
   );
@@ -164,75 +305,138 @@ function OtaDebugScreenInner() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // Lazy init is guarded; still prefer effect refresh so deep-link cold launch
+  // can paint a shell before any async Updates / AsyncStorage work.
   const [diag, setDiag] = useState<OtaFullDiagnostics>(initialDiagnostics);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [probeLoading, setProbeLoading] = useState(true);
+  const [staticLoading, setStaticLoading] = useState(true);
+  const [liveProbeLoading, setLiveProbeLoading] = useState(false);
 
-  const refresh = useCallback(async () => {
-    setProbeLoading(true);
+  /** Static-only refresh — never calls checkForUpdateAsync. */
+  const refreshStatic = useCallback(async () => {
+    setStaticLoading(true);
     try {
-      const next = await collectOtaFullDiagnostics();
+      const next = await collectOtaStaticDiagnostics();
       setDiag(next);
       return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setDiag((prev) => ({
-        ...prev,
-        checkResult: `ERR: ${msg}`,
-        fetchResult: "skipped (refresh failed)",
-        reloadResult: "skipped",
-        updateAvailable: null,
-        fetchSucceeded: null,
-        reloadSucceeded: null,
-        startupLogs: [`collectOtaFullDiagnostics ERR: ${msg}`],
+        ...(prev ?? initialDiagnostics()),
+        startupLogs: [`collectOtaStaticDiagnostics ERR: ${msg}`],
         bannerTrace: null,
         bannerTraceLines: [`bannerTrace ERR: ${msg}`],
+        applyDiagnosis: `static diagnostics ERR: ${msg}`,
+        failedLaunchLedgerLines: [`ledger ERR: ${msg}`],
         otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+        liveProbeRan: false,
+        checkResult: "not run — tap “Run live OTA probe”",
+        fetchResult: "not run (live probe is check-only)",
+        reloadResult: "not run",
       }));
       return null;
     } finally {
-      setProbeLoading(false);
+      setStaticLoading(false);
+    }
+  }, []);
+
+  const runLiveProbe = useCallback(async () => {
+    setLiveProbeLoading(true);
+    setStatus("Running live OTA probe (checkForUpdateAsync only)…");
+    try {
+      const next = await collectOtaLiveProbeDiagnostics();
+      setDiag(next);
+      setStatus(
+        next.updateAvailable == null
+          ? "Live probe finished — see check result"
+          : next.updateAvailable
+            ? "Live probe: update available"
+            : "Live probe: no update available",
+      );
+      return next;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDiag((prev) => ({
+        ...(prev ?? initialDiagnostics()),
+        checkResult: `ERR: ${msg}`,
+        fetchResult: "skipped (live probe failed)",
+        reloadResult: "skipped",
+        updateAvailable: null,
+        liveProbeRan: true,
+      }));
+      setStatus(`Live probe ERR: ${msg}`);
+      return null;
+    } finally {
+      setLiveProbeLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    // Static state only on open — no automatic checkForUpdateAsync.
+    void refreshStatic();
+  }, [refreshStatic]);
 
   const copyAll = async () => {
-    const snap = diag ?? (await refresh());
-    if (!snap) return;
-    await Clipboard.setStringAsync(buildReport(snap));
-    setStatus("Copied full attestation report to clipboard");
+    try {
+      const snap = diag ?? (await refreshStatic());
+      if (!snap) return;
+      await Clipboard.setStringAsync(buildReport(snap));
+      setStatus("Copied full attestation report to clipboard");
+    } catch (e) {
+      setStatus(`Copy failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 
   const runCheckFetchReload = async () => {
     setBusy(true);
     setStatus("checkForUpdateAsync → fetchUpdateAsync → reloadAsync…");
-    const result = await forceOtaCheckFetchAndReload();
-    if (result.reloaded) {
-      setStatus(result.reloadResult ?? "Reloading into new bundle…");
-      return;
+    try {
+      const result = await forceOtaCheckFetchAndReload();
+      if (result.reloaded) {
+        setStatus(result.reloadResult ?? "Reloading into new bundle…");
+        return;
+      }
+      const next = await refreshStatic();
+      if (next) {
+        setDiag({
+          ...next,
+          checkResult: result.checkResult ?? next.checkResult,
+          fetchResult: result.fetchResult ?? next.fetchResult,
+          reloadResult: result.reloadResult ?? next.reloadResult,
+          updateAvailable: result.updateAvailable ?? next.updateAvailable,
+          fetchSucceeded: result.fetchSucceeded ?? next.fetchSucceeded,
+          reloadSucceeded: result.reloadSucceeded ?? next.reloadSucceeded,
+          liveProbeRan: true,
+        });
+      }
+      setStatus(
+        [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
+          "Probe finished — see check/fetch/reload rows",
+      );
+    } catch (e) {
+      setStatus(`Probe ERR: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
     }
-    const next = await refresh();
-    if (next) {
-      setDiag({
-        ...next,
-        checkResult: result.checkResult ?? next.checkResult,
-        fetchResult: result.fetchResult ?? next.fetchResult,
-        reloadResult: result.reloadResult ?? next.reloadResult,
-        updateAvailable: result.updateAvailable ?? next.updateAvailable,
-        fetchSucceeded: result.fetchSucceeded ?? next.fetchSucceeded,
-        reloadSucceeded: result.reloadSucceeded ?? next.reloadSucceeded,
-      });
-    }
-    setStatus(
-      [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
-        "Probe finished — see check/fetch/reload rows",
-    );
-    setBusy(false);
   };
+
+  const attestation = diag.attestation ?? emptyAttestation();
+  const required = buildSafeRequiredFields({
+    updateId: diag.updateId,
+    isEmbeddedLaunch: diag.isEmbeddedLaunch,
+    createdAt: diag.updateCreatedAt,
+    runtimeVersion: diag.runtimeVersion,
+    channel: diag.channel,
+    checkAvailableUpdateId: diag.bannerTrace?.availableUpdateIdFromCheck,
+    downloadedUpdateId: diag.bannerTrace?.downloadedUpdateId,
+    persistedReadyId: diag.bannerTrace?.persistedReadyId,
+    isUpdatePending: diag.bannerTrace?.nativeIsUpdatePending ?? diag.isUpdatePending,
+    recoveryPending: diag.bannerTrace?.recoveryPending,
+    bannerExpression: diag.bannerTrace?.bannerExpression,
+    otaIdentityFixVersion: diag.otaIdentityFixVersion ?? OTA_IDENTITY_FIX_VERSION,
+    contextHydrated: diag.bannerTrace != null || !staticLoading,
+  });
 
   const embeddedWarning =
     diag.isEmbeddedLaunch && diag.updatesEnabled
@@ -240,11 +444,11 @@ function OtaDebugScreenInner() {
       : null;
 
   const caseColor =
-    diag.attestation.caseId === "A"
+    attestation.caseId === "A"
       ? "#86efac"
-      : diag.attestation.caseId === "B"
+      : attestation.caseId === "B"
         ? "#fde68a"
-        : diag.attestation.caseId === "C"
+        : attestation.caseId === "C"
           ? "#fca5a5"
           : "#cbd5e1";
 
@@ -280,9 +484,14 @@ function OtaDebugScreenInner() {
           <Text style={{ fontFamily: FONT.semibold }}>{EXPECTED_HEALTHY_UPDATE_ID}</Text>,{" "}
           isEmbeddedLaunch=
           <Text style={{ fontFamily: FONT.semibold }}>{String(EXPECTED_HEALTHY_EMBEDDED)}</Text>.
-          {probeLoading ? (
-            <Text style={{ fontFamily: FONT.medium }}> Live probe still running…</Text>
-          ) : null}
+          {staticLoading ? (
+            <Text style={{ fontFamily: FONT.medium }}> Loading static state…</Text>
+          ) : (
+            <Text style={{ fontFamily: FONT.medium }}>
+              {" "}
+              Static only — live checkForUpdateAsync is manual.
+            </Text>
+          )}
         </Text>
 
         <View
@@ -296,19 +505,19 @@ function OtaDebugScreenInner() {
           }}
         >
           <Text style={{ color: caseColor, fontFamily: FONT.semibold, fontSize: 14 }}>
-            {diag.attestation.caseId} — {diag.attestation.label}
+            {safeDiagText(attestation.caseId)} — {safeDiagText(attestation.label)}
           </Text>
           <Text
             selectable
             style={{ color: "#e2e8f0", fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}
           >
-            {diag.attestation.summary}
+            {safeDiagText(attestation.summary)}
           </Text>
           <Text
             selectable
             style={{ color: "#94a3b8", fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}
           >
-            Recovery: {diag.attestation.recoveryPath}
+            Recovery: {safeDiagText(attestation.recoveryPath)}
           </Text>
         </View>
 
@@ -339,18 +548,95 @@ function OtaDebugScreenInner() {
           }}
         >
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Apply / rollback diagnosis (static)
+          </Text>
+          <Text
+            selectable
+            style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}
+          >
+            {safeDiagText(diag.applyDiagnosis, "—")}
+          </Text>
+          <Row label="Bundle source" value={safeDiagText(diag.bundleSource)} />
+          <Row
+            label="isStartupProcedureRunning"
+            value={safeDiagText(diag.isStartupProcedureRunning)}
+          />
+          <Row
+            label="fallbackToCacheTimeout"
+            value={safeDiagText(diag.fallbackToCacheTimeout)}
+          />
+          <Row label="update URL" value={safeDiagText(diag.updateUrl)} />
+          <Row label="EAS projectId" value={safeDiagText(diag.projectId)} />
+          <Row
+            label="downloadedManifest.id (context)"
+            value={safeDiagText(
+              diag.bannerTrace?.downloadedUpdateId ?? diag.downloadedUpdateIdFromContext,
+            )}
+          />
+          <Row
+            label="latestManifest.id (context)"
+            value={safeDiagText(
+              diag.bannerTrace?.availableUpdateIdFromContext ??
+                diag.availableUpdateIdFromContext,
+            )}
+          />
+          <Row label="native rollback commitTime" value={safeDiagText(diag.rollbackCommitTime)} />
+          <LogBlock title="JS failed-launch ledger" lines={diag.failedLaunchLedgerLines} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 14,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Required OTA identity fields (crash-safe)
+          </Text>
+          <Row label="Updates.updateId" value={required.updateId} />
+          <Row label="Updates.isEmbeddedLaunch" value={required.isEmbeddedLaunch} />
+          <Row label="Updates.createdAt" value={required.createdAt} />
+          <Row label="runtimeVersion" value={required.runtimeVersion} />
+          <Row label="channel" value={required.channel} />
+          <Row label="check/available update ID" value={required.checkAvailableUpdateId} />
+          <Row label="downloaded update ID" value={required.downloadedUpdateId} />
+          <Row label="persisted ready ID" value={required.persistedReadyId} />
+          <Row label="latestContext.isUpdatePending" value={required.isUpdatePending} />
+          <Row label="recovery pending" value={required.recoveryPending} />
+          <Row label="banner expression" value={required.bannerExpression} />
+          <Row label="OTA_IDENTITY_FIX_VERSION" value={required.otaIdentityFixVersion} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 14,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
             Device attestation values
           </Text>
-          <Row label="Updates.runtimeVersion" value={diag.runtimeVersion} />
-          <Row label="Updates.updateId" value={diag.updateId} />
-          <Row label="Updates.isEmbeddedLaunch" value={String(diag.isEmbeddedLaunch)} />
+          <Row label="Updates.runtimeVersion" value={safeDiagText(diag.runtimeVersion)} />
+          <Row label="Updates.updateId" value={safeDiagText(diag.updateId)} />
+          <Row label="Updates.isEmbeddedLaunch" value={safeDiagText(diag.isEmbeddedLaunch)} />
           <Row
             label="app version / CFBundleShortVersionString"
-            value={diag.cfBundleShortVersion}
+            value={safeDiagText(diag.cfBundleShortVersion)}
           />
-          <Row label="native build number" value={diag.buildNumber} />
-          <Row label="update channel" value={diag.channel} />
-          <Row label="hasRnPurchasesNative (Case C signal)" value={String(diag.hasRnPurchasesNative)} />
+          <Row label="native build number" value={safeDiagText(diag.buildNumber)} />
+          <Row label="update channel" value={safeDiagText(diag.channel)} />
+          <Row
+            label="hasRnPurchasesNative (Case C signal)"
+            value={safeDiagText(diag.hasRnPurchasesNative)}
+          />
         </View>
 
         <View
@@ -366,11 +652,14 @@ function OtaDebugScreenInner() {
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
             Expected healthy
           </Text>
-          <Row label="runtimeVersion" value={diag.expectedHealthy.runtimeVersion} />
-          <Row label="updateId" value={diag.expectedHealthy.updateId} />
+          <Row
+            label="runtimeVersion"
+            value={safeDiagText(diag.expectedHealthy?.runtimeVersion)}
+          />
+          <Row label="updateId" value={safeDiagText(diag.expectedHealthy?.updateId)} />
           <Row
             label="isEmbeddedLaunch"
-            value={String(diag.expectedHealthy.isEmbeddedLaunch)}
+            value={safeDiagText(diag.expectedHealthy?.isEmbeddedLaunch)}
           />
         </View>
 
@@ -389,13 +678,13 @@ function OtaDebugScreenInner() {
           </Text>
           <Row
             label="update check finds available update"
-            value={String(diag.updateAvailable)}
+            value={safeDiagText(diag.updateAvailable)}
           />
-          <Row label="fetch succeeds" value={String(diag.fetchSucceeded)} />
-          <Row label="reload/apply succeeds" value={String(diag.reloadSucceeded)} />
-          <Row label="checkForUpdateAsync()" value={diag.checkResult} />
-          <Row label="fetchUpdateAsync()" value={diag.fetchResult} />
-          <Row label="reloadAsync()" value={diag.reloadResult} />
+          <Row label="fetch succeeds" value={safeDiagText(diag.fetchSucceeded)} />
+          <Row label="reload/apply succeeds" value={safeDiagText(diag.reloadSucceeded)} />
+          <Row label="checkForUpdateAsync()" value={safeDiagText(diag.checkResult)} />
+          <Row label="fetchUpdateAsync()" value={safeDiagText(diag.fetchResult)} />
+          <Row label="reloadAsync()" value={safeDiagText(diag.reloadResult)} />
         </View>
 
         <View
@@ -413,43 +702,25 @@ function OtaDebugScreenInner() {
           </Text>
           <Row
             label="OTA_IDENTITY_FIX_VERSION (missing ⇒ pre-fix OTA)"
-            value={String(diag.otaIdentityFixVersion)}
+            value={required.otaIdentityFixVersion}
           />
-          <Row
-            label="running Updates.updateId"
-            value={diag.bannerTrace?.runningUpdateId ?? diag.updateId}
-          />
-          <Row
-            label="downloadedManifest.id"
-            value={diag.bannerTrace?.downloadedUpdateId ?? "—"}
-          />
-          <Row
-            label="check availableUpdateId"
-            value={diag.bannerTrace?.availableUpdateIdFromCheck ?? "—"}
-          />
-          <Row
-            label="persisted @stadium/ota-update-ready"
-            value={diag.bannerTrace?.persistedReadyId ?? "—"}
-          />
-          <Row
-            label="latestContext.isUpdatePending"
-            value={String(diag.bannerTrace?.nativeIsUpdatePending ?? diag.isUpdatePending)}
-          />
+          <Row label="running Updates.updateId" value={required.updateId} />
+          <Row label="downloadedManifest.id" value={required.downloadedUpdateId} />
+          <Row label="check availableUpdateId" value={required.checkAvailableUpdateId} />
+          <Row label="persisted @stadium/ota-update-ready" value={required.persistedReadyId} />
+          <Row label="latestContext.isUpdatePending" value={required.isUpdatePending} />
           <Row
             label="genuinelyPending (identity gate)"
-            value={String(diag.bannerTrace?.genuinelyPending ?? "—")}
+            value={safeDiagText(diag.bannerTrace?.genuinelyPending, "—")}
           />
           <Row
             label="bannerVisible"
-            value={String(diag.bannerTrace?.bannerVisible ?? "—")}
+            value={safeDiagText(diag.bannerTrace?.bannerVisible, "—")}
           />
-          <Row
-            label="bannerExpression"
-            value={diag.bannerTrace?.bannerExpression ?? "—"}
-          />
+          <Row label="bannerExpression" value={required.bannerExpression} />
           <Row
             label="recovery.pending / reloadTarget"
-            value={`${diag.bannerTrace?.recoveryPending ?? "—"} / ${diag.bannerTrace?.recoveryReloadTargetId ?? "—"}`}
+            value={`${required.recoveryPending} / ${safeDiagText(diag.bannerTrace?.recoveryReloadTargetId, "—")}`}
           />
           <LogBlock title="banner trace lines" lines={diag.bannerTraceLines} />
         </View>
@@ -467,18 +738,21 @@ function OtaDebugScreenInner() {
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
             Running bundle (Updates.*)
           </Text>
-          <Row label="Updates.isEnabled" value={String(diag.updatesEnabled)} />
-          <Row label="Updates.isEmergencyLaunch" value={String(diag.isEmergencyLaunch)} />
-          <Row label="Updates.emergencyLaunchReason" value={diag.emergencyLaunchReason} />
-          <Row label="Updates.createdAt" value={diag.updateCreatedAt} />
-          <Row label="Bundle source" value={diag.bundleSource} />
-          <Row label="Commit hash (running JS)" value={diag.commitHash} />
-          <Row label="Deploy message" value={diag.deployMessage} />
-          <Row label="native checkError" value={diag.checkError} />
-          <Row label="native downloadError" value={diag.downloadError} />
+          <Row label="Updates.isEnabled" value={safeDiagText(diag.updatesEnabled)} />
+          <Row label="Updates.isEmergencyLaunch" value={safeDiagText(diag.isEmergencyLaunch)} />
+          <Row
+            label="Updates.emergencyLaunchReason"
+            value={safeDiagText(diag.emergencyLaunchReason)}
+          />
+          <Row label="Updates.createdAt" value={required.createdAt} />
+          <Row label="Bundle source" value={safeDiagText(diag.bundleSource)} />
+          <Row label="Commit hash (running JS)" value={safeDiagText(diag.commitHash)} />
+          <Row label="Deploy message" value={safeDiagText(diag.deployMessage)} />
+          <Row label="native checkError" value={safeDiagText(diag.checkError)} />
+          <Row label="native downloadError" value={safeDiagText(diag.downloadError)} />
         </View>
 
-        {diag.attestation.caseId === "C" && diag.caseCNativeSafety ? (
+        {attestation.caseId === "C" && diag.caseCNativeSafety ? (
           <View
             style={{
               backgroundColor: colors.card,
@@ -496,7 +770,7 @@ function OtaDebugScreenInner() {
               selectable
               style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
             >
-              {diag.caseCNativeSafety}
+              {safeDiagText(diag.caseCNativeSafety)}
             </Text>
           </View>
         ) : null}
@@ -514,37 +788,61 @@ function OtaDebugScreenInner() {
           <LogBlock title="expo-updates native logs (startup / error recovery)" lines={diag.startupLogs} />
           <LogBlock
             title="JS OtaStartupGate / manual logs"
-            lines={diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"]}
+            lines={diag.jsLaunchLogs?.length ? diag.jsLaunchLogs : ["(none yet)"]}
           />
         </View>
 
         {status ? (
-          <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 13 }}>{status}</Text>
+          <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 13 }}>
+            {safeDiagText(status)}
+          </Text>
         ) : null}
 
         <View style={{ gap: 10 }}>
           <Pressable
-            onPress={() => void runCheckFetchReload()}
-            disabled={busy}
+            onPress={() => void runLiveProbe()}
+            disabled={liveProbeLoading || busy}
             style={({ pressed }) => ({
               backgroundColor: colors.primary,
               borderRadius: 10,
               paddingVertical: 14,
               alignItems: "center",
-              opacity: pressed || busy ? 0.85 : 1,
+              opacity: pressed || liveProbeLoading || busy ? 0.85 : 1,
             })}
           >
-            {busy ? (
+            {liveProbeLoading ? (
               <ActivityIndicator color={colors.primaryForeground} />
             ) : (
               <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
+                Run live OTA probe
+              </Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            onPress={() => void runCheckFetchReload()}
+            disabled={busy || liveProbeLoading}
+            style={({ pressed }) => ({
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 10,
+              paddingVertical: 14,
+              alignItems: "center",
+              opacity: pressed || busy || liveProbeLoading ? 0.85 : 1,
+            })}
+          >
+            {busy ? (
+              <ActivityIndicator color={colors.foreground} />
+            ) : (
+              <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
                 Check, fetch & reload (expo-updates)
               </Text>
             )}
           </Pressable>
 
           <Pressable
-            onPress={() => void refresh().then(() => setStatus("Refreshed"))}
+            onPress={() => void refreshStatic().then(() => setStatus("Refreshed static state"))}
             style={({ pressed }) => ({
               paddingVertical: 12,
               alignItems: "center",
@@ -552,7 +850,7 @@ function OtaDebugScreenInner() {
             })}
           >
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-              Refresh attestation & logs
+              Refresh static attestation & logs
             </Text>
           </Pressable>
 
