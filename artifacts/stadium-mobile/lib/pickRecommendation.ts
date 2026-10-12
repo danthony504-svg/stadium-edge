@@ -7,6 +7,9 @@ import {
   meetsCoachSimQualityFloor,
   simEvPct,
 } from "./gameSimQualityGates.ts";
+import {
+  coachCandidateIsQualified,
+} from "./coach/qualifyCoachCandidate.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { enrichPicksWithSport } from "./chatContextPriority.ts";
@@ -186,8 +189,20 @@ function legacyPropStagingQualifies(
   if (!score || !pick.isProp || score.propHolistic) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if (!score.simAligned) return false;
-  if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (
+    !coachCandidateIsQualified(
+      {
+        market: pick.market,
+        sport: pick.sport,
+        isProp: true,
+        odds: pick.odds,
+        finalAiScore: score,
+      },
+      { requestStyle: "normal", isProp: true },
+    )
+  ) {
+    return false;
+  }
   if ((score.edgePct ?? 0) <= 0) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);
@@ -227,17 +242,23 @@ export function propSimEdgeStagingQualifies(
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!score || !pick.isProp) return false;
-  if (!pickHasSimGrade(pick, score.simHit)) return false;
-  if ((score.edgePct ?? 0) <= 0) return false;
-  if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;
-  if (score.simHit != null && pick.odds != null) {
-    const implied = impliedProb(pick.odds);
-    if (score.simHit <= implied) return false;
-    const ev = simEvPct(score.simHit, pick.odds);
-    if (ev != null && ev <= 0) return false;
-  }
-  return true;
+  // Shared authority — raw confidence only (never simHit lift to pass).
+  return coachCandidateIsQualified(
+    {
+      market: pick.market,
+      sport: pick.sport,
+      isProp: true,
+      odds: pick.odds,
+      propsOnlyTicket: pick.propsOnlyTicket,
+      qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
+        .qualificationStatus,
+      finalAiScore: score,
+    },
+    {
+      requestStyle: pick.propsOnlyTicket ? "props_only" : "normal",
+      isProp: true,
+    },
+  );
 }
 
 /** Same role gate as board staging pools — keeps delivery aligned with scan qualification. */
@@ -305,12 +326,34 @@ export function pickIsAiRecommended(
 ): boolean {
   if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
+  // Shared minimum first — stricter holistic rules may still reject below.
+  if (
+    !coachCandidateIsQualified(
+      {
+        market: pick.market,
+        sport: pick.sport,
+        isProp: !!pick.isProp,
+        odds: pick.odds,
+        propsOnlyTicket: pick.propsOnlyTicket,
+        qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
+          .qualificationStatus,
+        finalAiScore: score,
+      },
+      {
+        requestStyle: pick.propsOnlyTicket ? "props_only" : "normal",
+        isProp: !!pick.isProp,
+      },
+    )
+  ) {
+    return false;
+  }
   if (propUsesHolisticGate(pick)) {
     return propHolisticGatePassed(pick, score);
   }
   if (!score.simAligned) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;
+  // Raw confidence only — never raise via simHit floor to clear the bar.
+  if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);
@@ -421,16 +464,19 @@ export function propsOnlyTicketCleared(
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!pick.propsOnlyTicket || !pick.isProp || !score) return false;
-  if (!pickHasSimGrade(pick, score.simHit)) return false;
-  if (!meetsCoachSimQualityFloor(score)) return false;
-  if ((score.edgePct ?? 0) <= 0) return false;
-  if (score.simHit != null && pick.odds != null) {
-    const implied = impliedProb(pick.odds);
-    if (score.simHit <= implied) return false;
-    const ev = simEvPct(score.simHit, pick.odds);
-    if (ev != null && ev <= 0) return false;
-  }
-  return true;
+  return coachCandidateIsQualified(
+    {
+      market: pick.market,
+      sport: pick.sport,
+      isProp: true,
+      odds: pick.odds,
+      propsOnlyTicket: true,
+      qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
+        .qualificationStatus,
+      finalAiScore: score,
+    },
+    { requestStyle: "props_only", isProp: true },
+  );
 }
 
 /** Main legs use the strict gate; staged alt legs use the alt ladder gate (same grade/confidence bar). */
@@ -465,33 +511,45 @@ export function filterTicketPicks<
   });
 }
 
-/** Never zero a grounded ticket — keep qualifying alts or strongest sim-graded edge. */
+/** Never zero a grounded ticket — keep qualifying alts. Never resurrect rejected. */
 export function filterTicketPicksPreservingTicket<
   T extends RecommendablePick & {
     finalAiScore?: FinalAiScore | null;
     ticketRole?: "main" | "alt";
     scores?: { composite?: number | null } | null;
+    qualificationStatus?: "qualified" | "rejected";
   },
 >(picks: T[]): T[] {
-  const filtered = filterTicketPicks(picks);
-  if (filtered.length > 0 || picks.length === 0) return filtered;
-  const altFallback = picks.filter((p) => qualifiesAltPick(p, p.finalAiScore));
-  if (altFallback.length > 0) return altFallback;
-  // Progressive rescoring can flip recommends off while edge + sim stay positive —
-  // keep the strongest sim-graded legs rather than wiping a board-built ticket.
-  const rescoringFallback = [...picks]
-    .filter((p) => {
-      if (!pickHasSimGrade(p, p.finalAiScore?.simHit)) return false;
-      if (!p.finalAiScore?.simAligned) return false;
-      const edge = p.finalAiScore?.edgePct;
-      return edge != null && edge > 0;
-    })
-    .sort(
-      (a, b) =>
-        (b.finalAiScore?.composite ?? b.scores?.composite ?? 0) -
-        (a.finalAiScore?.composite ?? a.scores?.composite ?? 0),
+  const eligible = picks.filter((p) => {
+    if (p.qualificationStatus === "rejected") return false;
+    return coachCandidateIsQualified(
+      {
+        market: p.market,
+        sport: p.sport,
+        isProp: !!p.isProp,
+        odds: p.odds,
+        propsOnlyTicket: p.propsOnlyTicket,
+        qualificationStatus: p.qualificationStatus,
+        finalAiScore: p.finalAiScore,
+      },
+      {
+        requestStyle: p.propsOnlyTicket ? "props_only" : "normal",
+        isProp: !!p.isProp,
+      },
     );
-  return rescoringFallback;
+  });
+  const filtered = filterTicketPicks(eligible);
+  if (filtered.length > 0 || eligible.length === 0) return filtered;
+  const altFallback = eligible.filter((p) => qualifiesAltPick(p, p.finalAiScore));
+  if (altFallback.length > 0) return altFallback;
+  // Progressive rescoring can flip recommends off while shared qualify still holds —
+  // keep strongest shared-qualified legs rather than wiping a board-built ticket.
+  // Positive EV / simAligned alone must never resurrect a floor fail.
+  return [...eligible].sort(
+    (a, b) =>
+      (b.finalAiScore?.composite ?? b.scores?.composite ?? 0) -
+      (a.finalAiScore?.composite ?? a.scores?.composite ?? 0),
+  );
 }
 
 /** Hard delivery filter — positive edge, sim grade, and ticket gate. No Not Rec / negative EV legs. */

@@ -49,6 +49,7 @@ import {
   propSimEdgeStagingQualifies,
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
+import { coachCandidateIsQualified } from "./coach/qualifyCoachCandidate.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 import { isHrOnlyScoredPool, selectTopHrQualifiedLegs } from "./coachHrRank.ts";
 import {
@@ -114,6 +115,28 @@ export function boardLegPoolRole(
   pick: ParsedPick,
   score: ParsedPick["finalAiScore"],
 ): "main" | "alt" | null {
+  // Shared quality authority — rejected candidates are terminally ineligible.
+  // Role labeling below may be stricter; it must never bypass this floor.
+  if (
+    !coachCandidateIsQualified(
+      {
+        market: pick.market,
+        sport: pick.sport,
+        isProp: !!pick.isProp,
+        odds: pick.odds,
+        propsOnlyTicket: pick.propsOnlyTicket,
+        qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
+          .qualificationStatus,
+        finalAiScore: score ?? null,
+      },
+      {
+        requestStyle: pick.propsOnlyTicket ? "props_only" : "normal",
+        isProp: !!pick.isProp,
+      },
+    )
+  ) {
+    return null;
+  }
   if (isMainBoardPick(pick)) {
     if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
     if (pick.isProp && propSimEdgeStagingQualifies(pick, score ?? undefined)) return "main";

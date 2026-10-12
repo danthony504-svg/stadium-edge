@@ -253,6 +253,7 @@ function stageFootballPropsOnlyLegsWithCap(
       // Mark props-only delivery for caption/gate — only legs that already met
       // meetsCoachSimQualityFloor + clearsOdds reach here.
       propsOnlyTicket: true,
+      qualificationStatus: "qualified" as const,
       ticketRole: p.propIsAlt ? "alt" : "main",
       finalAiScore: p.finalAiScore,
     });

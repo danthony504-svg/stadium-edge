@@ -5,7 +5,8 @@
 
 /** Healthy production OTA for runtime 1.1.0 (greenfield Coach). */
 export const EXPECTED_HEALTHY_RUNTIME = "1.1.0";
-export const EXPECTED_HEALTHY_UPDATE_ID = "01a12e0b-2bdc-75dd-944b-310a4eb5add5";
+/** Live production iOS tip (includes #709 quality floor + attestation UI). */
+export const EXPECTED_HEALTHY_UPDATE_ID = "01a13019-8a5f-7f4d-bacb-31b1105de281";
 export const EXPECTED_HEALTHY_EMBEDDED = false;
 
 export type DeviceAttestationCase = "A" | "B" | "C" | "UNKNOWN";

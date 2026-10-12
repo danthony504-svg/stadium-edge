@@ -13,7 +13,7 @@ import {
 
 test("expected healthy constants match ops brief", () => {
   assert.equal(EXPECTED_HEALTHY_RUNTIME, "1.1.0");
-  assert.equal(EXPECTED_HEALTHY_UPDATE_ID, "01a12e0b-2bdc-75dd-944b-310a4eb5add5");
+  assert.equal(EXPECTED_HEALTHY_UPDATE_ID, "01a13019-8a5f-7f4d-bacb-31b1105de281");
   assert.equal(EXPECTED_HEALTHY_EMBEDDED, false);
   assert.ok(expectedHealthyLines().some((l) => l.includes("1.1.0")));
 });

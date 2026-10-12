@@ -778,6 +778,11 @@ export function PickCard({
   badge,
   /** Coach cards: also blur pick side/line/odds (not just AI metrics). */
   lockPickDetails,
+  /**
+   * Automatic N-leg Coach tickets pass false — Add-to-slip is not a ticket
+   * fallback. Individual recommendation mode may pass true when slip UI is on.
+   */
+  allowSlipActions = true,
 }: {
   pick: ParsedPick;
   // When set, the card's header/info area becomes tappable (e.g. to open the
@@ -793,6 +798,7 @@ export function PickCard({
   // never reads as a fabricated rating.
   badge?: { text: string; caption?: string; tone: "grade" | "upset" | "value" } | null;
   lockPickDetails?: boolean;
+  allowSlipActions?: boolean;
 }) {
   const colors = useColors();
   const sub = useSubscriptionOptional();
@@ -1182,7 +1188,7 @@ export function PickCard({
         </View>
       ) : null}
 
-      {SLIP_UI_ENABLED ? (
+      {SLIP_UI_ENABLED && allowSlipActions ? (
       <Pressable
         onPress={onToggle}
         style={({ pressed }) => ({

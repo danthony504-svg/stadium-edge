@@ -11,6 +11,7 @@ import {
   expectedHealthyLines,
   type DeviceAttestationResult,
 } from "./otaDeviceAttestation";
+import { COACH_PIPELINE_VERSION } from "./coach/qualifyCoachCandidate";
 import { launchOtaCheckFetchReload } from "./otaLaunch";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
 
@@ -45,6 +46,8 @@ export type OtaDebugSnapshot = {
   expectedCommit: string;
   /** Whether NativeModules.RNPurchases is present on this binary (Case C signal). */
   hasRnPurchasesNative: boolean;
+  /** Coach qualification/render pipeline marker (no network). */
+  coachPipelineVersion: string;
 };
 
 export type OtaProbeResults = {
@@ -156,6 +159,7 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
       deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
       expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
       hasRnPurchasesNative: false,
+      coachPipelineVersion: COACH_PIPELINE_VERSION,
     };
   }
 }
@@ -192,6 +196,7 @@ export function logDeviceAttestation(snapshot: OtaDebugSnapshot): DeviceAttestat
     `native build number: ${snapshot.buildNumber}`,
     `update channel: ${snapshot.channel}`,
     `hasRnPurchasesNative: ${snapshot.hasRnPurchasesNative}`,
+    `coachPipelineVersion: ${snapshot.coachPipelineVersion}`,
     ...expectedHealthyLines(),
     `case: ${attestation.caseId} — ${attestation.label}`,
     `summary: ${attestation.summary}`,
@@ -293,6 +298,7 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
     deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
     expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
     hasRnPurchasesNative: readHasRnPurchasesNative(),
+    coachPipelineVersion: COACH_PIPELINE_VERSION,
   };
 }
 
