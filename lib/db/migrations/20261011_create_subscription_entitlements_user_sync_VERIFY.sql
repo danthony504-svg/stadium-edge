@@ -120,6 +120,8 @@ WHERE table_schema = 'public'
   )
 ORDER BY table_name;
 
--- Note: subscription_events is intentionally NOT created by this migration.
+-- Note: subscription_events was intentionally NOT created by this migration.
+-- See 20261012_create_subscription_events.sql (required after RESTORE_VERIFY_ACTIVE
+-- 500s from missing relation "subscription_events").
 -- restore-verify records events there; if that table is also missing, event
 -- logging may fail even after entitlements exist (separate follow-up).
