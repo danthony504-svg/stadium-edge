@@ -157,8 +157,8 @@ router.post("/notifications/test", limiter, async (req, res) => {
     return;
   }
   try {
-    const sent = await sendTestToUser(userId);
-    res.json({ ok: true, sent });
+    const { sent, devices } = await sendTestToUser(userId);
+    res.json({ ok: true, sent, devices, userId });
   } catch (err) {
     logger.error({ err }, "test push failed");
     res.status(500).json({ error: "test push failed" });

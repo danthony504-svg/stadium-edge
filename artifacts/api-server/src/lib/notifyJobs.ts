@@ -7,7 +7,11 @@ import {
   appKvTable,
 } from "@workspace/db";
 import { logger } from "./logger";
-import { sendPush, type PushMessage } from "./push";
+import {
+  sendPush,
+  scheduleExpoReceiptCheck,
+  type PushMessage,
+} from "./push";
 import { sweepAbandonedCoachBuilds, pruneOldCoachBuilds } from "./coachBuild";
 import { runLiveStealsJob } from "./liveSteals";
 import {
@@ -992,28 +996,39 @@ export async function runNotificationJobs(): Promise<{
   }
 
   if (messages.length) {
-    const { sent, invalidTokens } = await sendPush(messages);
+    const { sent, invalidTokens, pendingReceipts } = await sendPush(messages);
     summary.sent = sent;
     if (invalidTokens.length) {
       await db
         .delete(pushTokensTable)
         .where(inArray(pushTokensTable.token, invalidTokens));
     }
+    // Receipt poll is async — do not delay the cron response.
+    scheduleExpoReceiptCheck(pendingReceipts, async (dead) => {
+      await db.delete(pushTokensTable).where(inArray(pushTokensTable.token, dead));
+    });
   }
 
   return { summary };
 }
 
+async function pruneDeadPushTokens(tokens: string[]): Promise<void> {
+  if (!tokens.length) return;
+  await db.delete(pushTokensTable).where(inArray(pushTokensTable.token, tokens));
+}
+
 // Send a one-off test push to all of a single user's devices. Used by the
 // in-app "Send test notification" button to prove the pipeline end-to-end.
-export async function sendTestToUser(userId: string): Promise<number> {
+export async function sendTestToUser(
+  userId: string,
+): Promise<{ sent: number; devices: number }> {
   const rows = await db
     .select()
     .from(pushTokensTable)
     .where(eq(pushTokensTable.userId, userId));
   const tokens = rows.map((r) => r.token);
-  if (!tokens.length) return 0;
-  const { sent, invalidTokens } = await sendPush(
+  if (!tokens.length) return { sent: 0, devices: 0 };
+  const { sent, invalidTokens, pendingReceipts } = await sendPush(
     tokens.map((t) => ({
       to: t,
       title: "Stadium Edge ✅",
@@ -1022,9 +1037,9 @@ export async function sendTestToUser(userId: string): Promise<number> {
     })),
   );
   if (invalidTokens.length) {
-    await db
-      .delete(pushTokensTable)
-      .where(inArray(pushTokensTable.token, invalidTokens));
+    await pruneDeadPushTokens(invalidTokens);
   }
-  return sent;
+  // Receipts are checked off the request path so the client gets {ok,sent} immediately.
+  scheduleExpoReceiptCheck(pendingReceipts, pruneDeadPushTokens);
+  return { sent, devices: tokens.length };
 }

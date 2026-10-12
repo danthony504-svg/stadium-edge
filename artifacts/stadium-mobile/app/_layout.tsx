@@ -17,7 +17,7 @@ import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -42,10 +42,22 @@ const proxyUrl = publishableKey.startsWith("pk_live")
 
 function AuthTokenBridge() {
   const { getToken } = useAuth();
+  // Keep a stable getter for the lifetime of the signed-in tree. Re-binding on
+  // every Clerk `getToken` identity change previously cleared the module getter
+  // in effect cleanup, so authedFetch could race and POST with no Bearer → 401
+  // ("Couldn't send" on Send test notification).
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
   useEffect(() => {
-    setAuthTokenGetter(() => getToken());
+    setAuthTokenGetter(async (opts) => {
+      try {
+        return await getTokenRef.current({ skipCache: opts?.skipCache === true });
+      } catch {
+        return null;
+      }
+    });
     return () => setAuthTokenGetter(null);
-  }, [getToken]);
+  }, []);
   return null;
 }
 
