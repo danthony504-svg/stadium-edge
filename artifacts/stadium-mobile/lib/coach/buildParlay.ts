@@ -454,7 +454,11 @@ export async function buildCoachParlay(opts: {
       allowRareCountFamilyStack,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
-          filterPicksByAskMarketConstraint(picks, marketConstraint),
+          filterPicksForCoachAskTeams(
+            filterPicksByAskMarketConstraint(picks, marketConstraint),
+            inputs.teamScope,
+            inputs.excludedTeams,
+          ),
         );
       },
     });
@@ -515,8 +519,13 @@ export async function buildCoachParlay(opts: {
         allowRareCountFamilyStack,
         onPartialPicks: (partial) => {
           // Preserve the original market lock when present.
+          // Scope filter before UI buffer — same as primary props-only path.
           opts.onPartialPicks?.(
-            filterPicksByAskMarketConstraint(partial, marketConstraint),
+            filterPicksForCoachAskTeams(
+              filterPicksByAskMarketConstraint(partial, marketConstraint),
+              inputs.teamScope,
+              inputs.excludedTeams,
+            ),
           );
         },
       });
@@ -562,7 +571,11 @@ export async function buildCoachParlay(opts: {
           allowRareCountFamilyStack,
           onPartialPicks: (partial) => {
             opts.onPartialPicks?.(
-              filterPicksByAskMarketConstraint(partial, marketConstraint),
+              filterPicksForCoachAskTeams(
+                filterPicksByAskMarketConstraint(partial, marketConstraint),
+                inputs.teamScope,
+                inputs.excludedTeams,
+              ),
             );
           },
         });
@@ -729,13 +742,28 @@ export async function buildCoachParlay(opts: {
     playerHistory,
     matchupHistory,
     varietySeed: `greenfield-${target}-${Date.now()}`,
+    teamScope: inputs.teamScope,
     varietyContext: {
       ...recentParlayVarietyContext(),
       ...(askWantsAllNewPicks(opts.askText) ? { hardAvoidRecentLegs: true } : {}),
+      // Carry include-scope so single-event seating activates and staging
+      // cannot fall back to a multi-game / multi-sport board.
+      askText: opts.askText ?? null,
+      singleEventSport: inputs.teamScope?.sport ?? null,
+      singleEventKey:
+        inputs.teamScope && inputs.oddsGames[0]
+          ? `${inputs.oddsGames[0].awayTeam ?? ""} @ ${inputs.oddsGames[0].homeTeam ?? ""}`
+          : null,
     },
     onPartial: (partial) => {
       latest = partial;
-      const propLike = countPropLike(partial.picks ?? []);
+      // Scope filter before any UI buffer — foreign legs must never paint mid-scan.
+      const scopedPartialPicks = filterPicksForCoachAskTeams(
+        partial.picks ?? [],
+        inputs.teamScope,
+        inputs.excludedTeams,
+      );
+      const propLike = countPropLike(scopedPartialPicks);
       if (partial.awaitingPropSlots && propLike === 0) {
         // Reserved game-line preview (often exactly 2 on a 5/6-leg) must not paint
         // as the ticket before props/alts have had a chance to score.
@@ -744,26 +772,26 @@ export async function buildCoachParlay(opts: {
         opts.onStatus?.(
           propPoolSize > 0
             ? `Scoring game lines… props/alts next (${propPoolSize} posted)`
-            : `Scoring game lines… ${partial.picks?.length ?? 0} so far`,
+            : `Scoring game lines… ${scopedPartialPicks.length} so far`,
         );
         // Still buffer reserved game lines for the absolute-budget hang guard —
         // UI publish policy keeps cards hidden until terminal, but an empty
         // buffer was latching "delivery budget… composer unlocked" with 0 cards.
-        if (partial.picks?.length) {
-          opts.onPartialPicks?.(partial.picks);
+        if (scopedPartialPicks.length) {
+          opts.onPartialPicks?.(scopedPartialPicks);
         }
         return;
       }
-      if (partial.picks?.length) {
+      if (scopedPartialPicks.length) {
         opts.onStatus?.(
           propLike > 0
-            ? `Scoring ticket… ${partial.picks.length} legs (${propLike} props/alts)`
-            : `Scoring game lines… ${partial.picks.length} so far — props next`,
+            ? `Scoring ticket… ${scopedPartialPicks.length} legs (${propLike} props/alts)`
+            : `Scoring game lines… ${scopedPartialPicks.length} so far — props next`,
         );
         opts.onPartialPicks?.(
           propsOnly
-            ? filterPicksByAskMarketConstraint(partial.picks, marketConstraint)
-            : partial.picks,
+            ? filterPicksByAskMarketConstraint(scopedPartialPicks, marketConstraint)
+            : scopedPartialPicks,
         );
       }
     },
