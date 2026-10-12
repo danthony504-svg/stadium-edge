@@ -64,6 +64,10 @@ const NICK_TO_SPORT: Record<string, NickEntry> = {
   saints: { sport: "nfl", tokens: ["saints", "new orleans"] },
   chiefs: { sport: "nfl", tokens: ["chiefs", "kansas city"] },
   bills: { sport: "nfl", tokens: ["bills", "buffalo"] },
+  // Bare "buffalo" / "buffalo bills" → NFL Bills for Coach parlays.
+  // Explicit "sabres" / "buffalo sabres" stay NHL (longer nick wins).
+  buffalo: { sport: "nfl", tokens: ["bills", "buffalo"] },
+  "buffalo bills": { sport: "nfl", tokens: ["bills", "buffalo"] },
   bengals: { sport: "nfl", tokens: ["bengals", "cincinnati"] },
   ravens: { sport: "nfl", tokens: ["ravens", "baltimore"] },
   cowboys: { sport: "nfl", tokens: ["cowboys", "dallas"] },
@@ -756,18 +760,29 @@ function resolveNickEntryForPhrase(
 ): { nick: string; entry: NickEntry } | null {
   const p = phrase.toLowerCase().trim();
   if (!p || TEAM_PHRASE_STOPWORDS.has(p) || AMBIGUOUS_NICKNAMES.has(p)) return null;
-  // Exact nick key.
+  // Exact nick key (includes bare "buffalo" → Bills, "buffalo sabres" → Sabres).
   if (NICK_TO_SPORT[p] && !AMBIGUOUS_NICKNAMES.has(p)) {
     return { nick: p, entry: NICK_TO_SPORT[p]! };
   }
   // Match against longer nick keys / tokens (longest first).
+  // Prefer nick-key equality and "phrase includes nick" before bare city-token
+  // matches so "buffalo" does not steal Sabres via the shared city token when
+  // the Bills nick key already handled it above.
   for (const nick of nickKeysLongestFirst()) {
     if (AMBIGUOUS_NICKNAMES.has(nick)) continue;
     const entry = NICK_TO_SPORT[nick]!;
     if (nick === p) return { nick, entry };
-    if (entry.tokens.some((tok) => tok === p)) return { nick, entry };
     // "troy trojans" phrase ↔ nick "troy"
     if (p.includes(nick) && nick.length >= 3) return { nick, entry };
+  }
+  for (const nick of nickKeysLongestFirst()) {
+    if (AMBIGUOUS_NICKNAMES.has(nick)) continue;
+    const entry = NICK_TO_SPORT[nick]!;
+    // City-only token match — skip when the nick key is a multi-word city+club
+    // form already handled by includes() (e.g. do not map bare "buffalo" to
+    // Sabres via tokens; Bills owns bare "buffalo" via the nick key above).
+    if (nick.includes(" ")) continue;
+    if (entry.tokens.some((tok) => tok === p)) return { nick, entry };
   }
   return null;
 }
@@ -793,6 +808,40 @@ function labelMatchesTeamTokens(
 ): boolean {
   const g = label.toLowerCase();
   return tokens.some((tok) => tok.length > 0 && g.includes(tok));
+}
+
+/**
+ * Include-scope match for a pick/game label.
+ * When the franchise shares a city token (buffalo → bills vs sabres), require the
+ * distinctive nickname (matchTokens[0]) so the other club cannot leak in.
+ */
+export function pickMatchesAskTeamScope(
+  pick: { game?: string | null; sport?: string | null },
+  scope: CoachAskTeamScope | null | undefined,
+): boolean {
+  if (!scope) return true;
+  if (pick.sport && pick.sport !== scope.sport) return false;
+  const label = String(pick.game ?? "");
+  if (!labelMatchesTeamTokens(label, scope.matchTokens)) return false;
+  const primary = scope.matchTokens[0];
+  if (primary && scope.matchTokens.length > 1) {
+    if (!labelMatchesTeamTokens(label, [primary])) return false;
+  }
+  return true;
+}
+
+export function gameMatchesAskTeamScope(
+  game: {
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    sport?: string | null;
+  },
+  scope: CoachAskTeamScope | null | undefined,
+): boolean {
+  if (!scope) return true;
+  if (game.sport && game.sport !== scope.sport) return false;
+  const label = `${game.awayTeam ?? ""} @ ${game.homeTeam ?? ""}`;
+  return pickMatchesAskTeamScope({ game: label, sport: game.sport }, scope);
 }
 
 /** True when a game/pick label involves any excluded franchise (entire matchup). */
@@ -879,11 +928,7 @@ export function filterOddsGamesForAskTeam<
   },
 >(games: T[], scope: CoachAskTeamScope | null): T[] {
   if (!scope || !games.length) return games;
-  return games.filter((g) => {
-    if (g.sport && g.sport !== scope.sport) return false;
-    const label = `${g.awayTeam ?? ""} @ ${g.homeTeam ?? ""}`;
-    return labelMatchesTeamTokens(label, scope.matchTokens);
-  });
+  return games.filter((g) => gameMatchesAskTeamScope(g, scope));
 }
 
 /** Final ticket defense: drop legs outside the named franchise's game. Strict. */
@@ -891,10 +936,15 @@ export function filterPicksForAskTeam<
   T extends { game?: string | null; sport?: string | null },
 >(picks: T[], scope: CoachAskTeamScope | null): T[] {
   if (!scope || !picks.length) return picks;
-  return picks.filter((p) => {
-    if (p.sport && p.sport !== scope.sport) return false;
-    return labelMatchesTeamTokens(String(p.game ?? ""), scope.matchTokens);
-  });
+  return picks.filter((p) => pickMatchesAskTeamScope(p, scope));
+}
+
+/** Filter scored board legs to the include-scope (seating constraint, not a grade gate). */
+export function filterScoredLegsForAskTeam<
+  T extends { pick: { game?: string | null; sport?: string | null } },
+>(legs: T[], scope: CoachAskTeamScope | null | undefined): T[] {
+  if (!scope || !legs.length) return legs;
+  return legs.filter((leg) => pickMatchesAskTeamScope(leg.pick, scope));
 }
 
 /**
