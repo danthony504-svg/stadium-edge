@@ -24,6 +24,11 @@ import {
 } from "./otaDebugGuards";
 import { diagnoseEmbeddedApplyState } from "./otaEmbeddedApplyDiagnosis";
 import {
+  canRunLiveOtaProbe,
+  LIVE_PROBE_STARTUP_WAIT_MESSAGE,
+  OTA_DEBUG_IDLE_CHECK_RESULT,
+} from "./otaDebugOpenPolicy";
+import {
   OTA_FAILED_LAUNCH_KEY,
   readFailedLaunchRecord,
   type OtaFailedLaunchRecord,
@@ -39,6 +44,7 @@ import { OTA_IDENTITY_FIX_VERSION } from "./otaUpdateIdentity";
 const COACH_PIPELINE_VERSION_DIAG = "unified-quality-v1";
 
 export { diagnoseEmbeddedApplyState } from "./otaEmbeddedApplyDiagnosis";
+export { canRunLiveOtaProbe, LIVE_PROBE_STARTUP_WAIT_MESSAGE, OTA_DEBUG_IDLE_CHECK_RESULT };
 
 export type OtaDebugSnapshot = {
   appVersion: string;
@@ -114,7 +120,7 @@ export type OtaFullDiagnostics = OtaDebugSnapshot &
   };
 
 const IDLE_PROBE: OtaProbeResults = {
-  checkResult: "not run — tap “Run live OTA probe”",
+  checkResult: OTA_DEBUG_IDLE_CHECK_RESULT,
   fetchResult: "not run (live probe is check-only)",
   reloadResult: "not run",
   updateAvailable: null,
@@ -454,6 +460,16 @@ async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
   const Updates = tryGetExpoUpdates();
   if (!Updates) return [expoUpdatesLoadError() ?? "expo-updates unavailable"];
   if (__DEV__ || !Updates.isEnabled) return ["skipped: dev or Updates.isEnabled=false"];
+  // Native log read during startup procedure has crashed physical devices.
+  // Static /ota-debug open must not touch Updates APIs while startup runs.
+  try {
+    const ctx = tryGetLatestContext() as { isStartupProcedureRunning?: boolean } | null;
+    if (ctx?.isStartupProcedureRunning) {
+      return ["skipped: isStartupProcedureRunning=true (no Updates I/O on open)"];
+    }
+  } catch {
+    // continue — best-effort gate
+  }
   try {
     const entries = await withOtaTimeout(
       "readLogEntriesAsync",
@@ -493,6 +509,21 @@ export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
       reloadResult: "skipped (probe does not auto-reload)",
     };
     return { ...base, ...parseProbeFlags(base) };
+  }
+
+  // Hard gate: never call checkForUpdateAsync while startup is running.
+  try {
+    const ctx = tryGetLatestContext() as { isStartupProcedureRunning?: boolean } | null;
+    if (!canRunLiveOtaProbe(!!ctx?.isStartupProcedureRunning)) {
+      const base = {
+        checkResult: `skipped: ${LIVE_PROBE_STARTUP_WAIT_MESSAGE}`,
+        fetchResult: "skipped (startup running)",
+        reloadResult: "skipped (startup running)",
+      };
+      return { ...base, ...parseProbeFlags(base) };
+    }
+  } catch {
+    // continue
   }
 
   let checkResult = "—";
@@ -576,94 +607,117 @@ function buildDiagnosticsShell(
 }
 
 /**
- * Static-only diagnostics — NO checkForUpdateAsync / fetch.
+ * Static-only diagnostics — NO checkForUpdateAsync / fetch / reload.
  * Safe for /ota-debug initial render and deep-link cold launch.
+ * Never throws — failures are folded into the returned diagnostics object.
  */
 export async function collectOtaStaticDiagnostics(): Promise<OtaFullDiagnostics> {
-  const snapshot = readOtaDebugSnapshot();
-  const attestation = logDeviceAttestation(snapshot);
-  const jsLaunchLogs = formatOtaLogLines();
-
-  let startupLogs: string[] = ["loading…"];
   try {
-    startupLogs = await readStartupLogs();
-  } catch (e) {
-    startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
-  }
+    const snapshot = readOtaDebugSnapshot();
+    const attestation = logDeviceAttestation(snapshot);
+    const jsLaunchLogs = formatOtaLogLines();
 
-  const { lines: failedLaunchLedgerLines, record: failedLaunchRecord } =
-    await readFailedLaunchLedgerLines();
+    let startupLogs: string[] = ["loading…"];
+    try {
+      startupLogs = await readStartupLogs();
+    } catch (e) {
+      startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
+    }
 
-  let recoveryPending = false;
-  let recoveryReloadTargetId = "—";
-  try {
-    const recovery = readOtaRecoverySnapshot();
-    recoveryPending = !!recovery.pending;
-    recoveryReloadTargetId = recovery.reloadTargetId;
-  } catch {
-    // ignore
-  }
+    const { lines: failedLaunchLedgerLines, record: failedLaunchRecord } =
+      await readFailedLaunchLedgerLines();
 
-  let bannerTrace: OtaBannerTraceSnapshot | null = null;
-  try {
-    // Persisted ready id + context only — no live check result.
-    bannerTrace = await collectOtaBannerTrace({
-      availableUpdateIdFromCheck: null,
-      checkResult: IDLE_PROBE.checkResult,
+    let recoveryPending = false;
+    let recoveryReloadTargetId = "—";
+    try {
+      const recovery = readOtaRecoverySnapshot();
+      recoveryPending = !!recovery.pending;
+      recoveryReloadTargetId = recovery.reloadTargetId;
+    } catch {
+      // ignore
+    }
+
+    let bannerTrace: OtaBannerTraceSnapshot | null = null;
+    try {
+      // Persisted ready id + context only — no live check result.
+      bannerTrace = await collectOtaBannerTrace({
+        availableUpdateIdFromCheck: null,
+        checkResult: IDLE_PROBE.checkResult,
+      });
+    } catch (e) {
+      console.warn(
+        `[ota-debug] bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    const applyDiagnosis = diagnoseEmbeddedApplyState({
+      isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+      isEmergencyLaunch: snapshot.isEmergencyLaunch,
+      emergencyLaunchReason: snapshot.emergencyLaunchReason,
+      isUpdatePending: snapshot.isUpdatePending,
+      isStartupProcedureRunning: snapshot.isStartupProcedureRunning,
+      runningUpdateId: snapshot.updateId,
+      downloadedUpdateIdFromContext: snapshot.downloadedUpdateIdFromContext,
+      availableUpdateIdFromContext: snapshot.availableUpdateIdFromContext,
+      fallbackToCacheTimeout: snapshot.fallbackToCacheTimeout,
+      failedLaunchRecord,
+      recoveryPending,
+      recoveryReloadTargetId,
+    });
+
+    try {
+      console.log(
+        [
+          "=== OTA static diagnostics (no live probe) ===",
+          `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
+          `isEmbeddedLaunch: ${snapshot.isEmbeddedLaunch}`,
+          `updateId: ${snapshot.updateId}`,
+          `downloadedUpdateIdFromContext: ${snapshot.downloadedUpdateIdFromContext}`,
+          `isStartupProcedureRunning: ${snapshot.isStartupProcedureRunning}`,
+          applyDiagnosis,
+          ...failedLaunchLedgerLines,
+        ].join("\n"),
+      );
+    } catch {
+      // ignore
+    }
+
+    return buildDiagnosticsShell(snapshot, {
+      probe: IDLE_PROBE,
+      startupLogs,
+      jsLaunchLogs,
+      bannerTrace,
+      bannerTraceLines: bannerTrace
+        ? formatOtaBannerTraceLines(bannerTrace)
+        : ["bannerTrace unavailable"],
+      failedLaunchLedgerLines,
+      applyDiagnosis,
+      liveProbeRan: false,
+      attestation,
     });
   } catch (e) {
-    pushOtaLog(
-      "checkForUpdateAsync",
-      false,
-      `bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    const msg = e instanceof Error ? e.message : String(e);
+    const snapshot = readOtaDebugSnapshot();
+    return buildDiagnosticsShell(snapshot, {
+      probe: {
+        ...IDLE_PROBE,
+        checkResult: OTA_DEBUG_IDLE_CHECK_RESULT,
+      },
+      startupLogs: [`collectOtaStaticDiagnostics ERR: ${msg}`],
+      jsLaunchLogs: formatOtaLogLines(),
+      bannerTrace: null,
+      bannerTraceLines: [`bannerTrace unavailable: ${msg}`],
+      failedLaunchLedgerLines: [`ledger unavailable: ${msg}`],
+      applyDiagnosis: `static diagnostics ERR: ${msg}`,
+      liveProbeRan: false,
+      attestation: classifyDeviceAttestation({
+        runtimeVersion: snapshot.runtimeVersion,
+        updateId: snapshot.updateId,
+        isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+        appVersion: snapshot.appVersion,
+      }),
+    });
   }
-
-  const applyDiagnosis = diagnoseEmbeddedApplyState({
-    isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
-    isEmergencyLaunch: snapshot.isEmergencyLaunch,
-    emergencyLaunchReason: snapshot.emergencyLaunchReason,
-    isUpdatePending: snapshot.isUpdatePending,
-    isStartupProcedureRunning: snapshot.isStartupProcedureRunning,
-    runningUpdateId: snapshot.updateId,
-    downloadedUpdateIdFromContext: snapshot.downloadedUpdateIdFromContext,
-    availableUpdateIdFromContext: snapshot.availableUpdateIdFromContext,
-    fallbackToCacheTimeout: snapshot.fallbackToCacheTimeout,
-    failedLaunchRecord,
-    recoveryPending,
-    recoveryReloadTargetId,
-  });
-
-  try {
-    console.log(
-      [
-        "=== OTA static diagnostics (no live probe) ===",
-        `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
-        `isEmbeddedLaunch: ${snapshot.isEmbeddedLaunch}`,
-        `updateId: ${snapshot.updateId}`,
-        `downloadedUpdateIdFromContext: ${snapshot.downloadedUpdateIdFromContext}`,
-        `isStartupProcedureRunning: ${snapshot.isStartupProcedureRunning}`,
-        applyDiagnosis,
-        ...failedLaunchLedgerLines,
-      ].join("\n"),
-    );
-  } catch {
-    // ignore
-  }
-
-  return buildDiagnosticsShell(snapshot, {
-    probe: IDLE_PROBE,
-    startupLogs,
-    jsLaunchLogs,
-    bannerTrace,
-    bannerTraceLines: bannerTrace
-      ? formatOtaBannerTraceLines(bannerTrace)
-      : ["bannerTrace unavailable"],
-    failedLaunchLedgerLines,
-    applyDiagnosis,
-    liveProbeRan: false,
-    attestation,
-  });
 }
 
 /**
@@ -725,10 +779,8 @@ export async function collectOtaLiveProbeDiagnostics(
       checkResult: probe.checkResult,
     });
   } catch (e) {
-    pushOtaLog(
-      "checkForUpdateAsync",
-      false,
-      `bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
+    console.warn(
+      `[ota-debug] live bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 
@@ -803,6 +855,25 @@ export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
       fetchSucceeded: null,
       reloadSucceeded: null,
     };
+  }
+
+  try {
+    const ctx = tryGetLatestContext() as { isStartupProcedureRunning?: boolean } | null;
+    if (!canRunLiveOtaProbe(!!ctx?.isStartupProcedureRunning)) {
+      return {
+        downloaded: false,
+        reloaded: false,
+        reason: LIVE_PROBE_STARTUP_WAIT_MESSAGE,
+        checkResult: `skipped: ${LIVE_PROBE_STARTUP_WAIT_MESSAGE}`,
+        fetchResult: "skipped (startup running)",
+        reloadResult: "skipped (startup running)",
+        updateAvailable: null,
+        fetchSucceeded: null,
+        reloadSucceeded: null,
+      };
+    }
+  } catch {
+    // continue
   }
 
   // Run a check-only probe first so the UI can show availability even when

@@ -22,7 +22,6 @@ import {
   parseOtaReadyFlag,
 } from "./otaUpdateIdentity.ts";
 import { readOtaRecoverySnapshot } from "./otaRecoveryState.ts";
-import { pushOtaLog } from "./otaLaunchLog.ts";
 
 /** Ring buffer of recent banner-decision snapshots (newest last). */
 const TRACE_CAP = 24;
@@ -236,11 +235,8 @@ export function recordOtaBannerTrace(
       ...safeLogLines(snap.sessionNotes, "").filter(Boolean).map((n) => `note: ${n}`),
     ].join("\n"),
   );
-  pushOtaLog(
-    "checkForUpdateAsync",
-    true,
-    `bannerTrace v${snap.otaIdentityFixVersion} visible=${snap.bannerVisible} running=${snap.runningUpdateId ?? "null"} downloaded=${snap.downloadedUpdateId ?? "null"} nativePending=${snap.nativeIsUpdatePending}`,
-  );
+  // Do not pushOtaLog under checkForUpdateAsync — that made /ota-debug JS logs
+  // look like an automatic live probe on open.
   return snap;
 }
 

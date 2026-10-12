@@ -214,6 +214,8 @@ test("/ota-debug must not auto-call checkForUpdateAsync on open", () => {
   assert.match(screen, /collectOtaStaticDiagnostics/);
   assert.match(screen, /Run live OTA probe/);
   assert.match(screen, /collectOtaLiveProbeDiagnostics/);
+  assert.match(screen, /LIVE_PROBE_STARTUP_WAIT_MESSAGE/);
+  assert.match(screen, /canRunLiveOtaProbe/);
   // Initial mount effect must refresh static only.
   assert.match(
     screen,
@@ -224,4 +226,5 @@ test("/ota-debug must not auto-call checkForUpdateAsync on open", () => {
     /useEffect\(\(\) => \{\s*void collectOtaLiveProbeDiagnostics/,
   );
   assert.doesNotMatch(screen, /useEffect\(\(\) => \{\s*void collectOtaFullDiagnostics/);
+  assert.doesNotMatch(screen, /checkResult:\s*["']loading/);
 });
