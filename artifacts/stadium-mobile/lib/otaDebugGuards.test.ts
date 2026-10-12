@@ -207,3 +207,20 @@ test("/ota-debug static import graph must not evaluate expo-updates", () => {
   const access = readFileSync(join(ROOT, "lib/expoUpdatesAccess.ts"), "utf8");
   assert.match(access, /require\(["']expo-updates["']\)/, "lazy require must remain");
 });
+
+test("/ota-debug must not auto-call checkForUpdateAsync on open", () => {
+  const screen = readFileSync(join(ROOT, "app/ota-debug.tsx"), "utf8");
+  assert.match(screen, /collectOtaStaticDiagnostics/);
+  assert.match(screen, /Run live OTA probe/);
+  assert.match(screen, /collectOtaLiveProbeDiagnostics/);
+  // Initial mount effect must refresh static only.
+  assert.match(
+    screen,
+    /useEffect\(\(\) => \{\s*\/\/ Static state only on open[\s\S]*?void refreshStatic\(\);/,
+  );
+  assert.doesNotMatch(
+    screen,
+    /useEffect\(\(\) => \{\s*void collectOtaLiveProbeDiagnostics/,
+  );
+  assert.doesNotMatch(screen, /useEffect\(\(\) => \{\s*void collectOtaFullDiagnostics/);
+});

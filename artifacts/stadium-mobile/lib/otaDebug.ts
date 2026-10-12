@@ -23,7 +23,16 @@ import {
   safeFormatCreatedAt,
   safeLogLines,
 } from "./otaDebugGuards";
+import { diagnoseEmbeddedApplyState } from "./otaEmbeddedApplyDiagnosis";
+import {
+  OTA_FAILED_LAUNCH_KEY,
+  readFailedLaunchRecord,
+  type OtaFailedLaunchRecord,
+} from "./otaFailedLaunch";
+import { readOtaRecoverySnapshot } from "./otaRecoveryState";
 import { OTA_IDENTITY_FIX_VERSION } from "./otaUpdateIdentity";
+
+export { diagnoseEmbeddedApplyState } from "./otaEmbeddedApplyDiagnosis";
 
 export type OtaDebugSnapshot = {
   appVersion: string;
@@ -58,6 +67,10 @@ export type OtaDebugSnapshot = {
   hasRnPurchasesNative: boolean;
   /** Coach qualification/render pipeline marker (no network). */
   coachPipelineVersion: string;
+  /** latestContext.downloadedManifest.id (no network). */
+  downloadedUpdateIdFromContext: string;
+  /** latestContext.latestManifest.id (no network). */
+  availableUpdateIdFromContext: string;
 };
 
 export type OtaProbeResults = {
@@ -86,7 +99,22 @@ export type OtaFullDiagnostics = OtaDebugSnapshot &
     bannerTraceLines: string[];
     /** Bundle marker; missing/absent ⇒ pre-identity-fix OTA. */
     otaIdentityFixVersion: number;
+    /** Persisted @stadium/ota-failed-launch ledger (JS-side). */
+    failedLaunchLedgerLines: string[];
+    /** Human diagnosis of why embedded may still be running. */
+    applyDiagnosis: string;
+    /** true when live checkForUpdateAsync has been run this session. */
+    liveProbeRan: boolean;
   };
+
+const IDLE_PROBE: OtaProbeResults = {
+  checkResult: "not run — tap “Run live OTA probe”",
+  fetchResult: "not run (live probe is check-only)",
+  reloadResult: "not run",
+  updateAvailable: null,
+  fetchSucceeded: null,
+  reloadSucceeded: null,
+};
 
 function str(v: unknown, fallback = "—"): string {
   return safeDiagText(v, fallback);
@@ -178,6 +206,8 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
       expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
       hasRnPurchasesNative: false,
       coachPipelineVersion: COACH_PIPELINE_VERSION,
+      downloadedUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
+      availableUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
     };
   }
 }
@@ -284,9 +314,27 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
     isDownloading?: boolean;
     isStartupProcedureRunning?: boolean;
     rollback?: { commitTime?: unknown };
+    downloadedManifest?: { id?: unknown } | null;
+    latestManifest?: { id?: unknown } | null;
   } | null;
   const checkErr = ctx?.checkError;
   const downloadErr = ctx?.downloadError;
+  const downloadedFromCtx = (() => {
+    try {
+      const id = ctx?.downloadedManifest?.id;
+      return id == null || id === "" ? OTA_DEBUG_UNAVAILABLE : String(id);
+    } catch {
+      return OTA_DEBUG_UNAVAILABLE;
+    }
+  })();
+  const availableFromCtx = (() => {
+    try {
+      const id = ctx?.latestManifest?.id;
+      return id == null || id === "" ? OTA_DEBUG_UNAVAILABLE : String(id);
+    } catch {
+      return OTA_DEBUG_UNAVAILABLE;
+    }
+  })();
 
   const appVersion = str(expo?.version ?? Constants.nativeAppVersion);
   const cfBundleShortVersion = str(
@@ -350,7 +398,50 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
     expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
     hasRnPurchasesNative: readHasRnPurchasesNative(),
     coachPipelineVersion: COACH_PIPELINE_VERSION,
+    downloadedUpdateIdFromContext: downloadedFromCtx,
+    availableUpdateIdFromContext: availableFromCtx,
   };
+}
+
+async function readFailedLaunchLedgerLines(): Promise<{
+  lines: string[];
+  record: OtaFailedLaunchRecord;
+}> {
+  try {
+    // Lazy require so node:test that only imports classify helpers stays clean.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const AsyncStorage = require("@react-native-async-storage/async-storage").default as {
+      getItem: (key: string) => Promise<string | null>;
+    };
+    const record = await readFailedLaunchRecord({
+      read: () => AsyncStorage.getItem(OTA_FAILED_LAUNCH_KEY),
+    });
+    const entries = Object.entries(record.failures ?? {});
+    const out: string[] = [
+      `pendingTargetId: ${record.pendingTargetId ?? "—"}`,
+      `pendingTargetAt: ${
+        record.pendingTargetAt ? new Date(record.pendingTargetAt).toISOString() : "—"
+      }`,
+    ];
+    if (entries.length === 0) out.push("(no failed-launch entries)");
+    else {
+      for (const [id, e] of entries) {
+        out.push(
+          `failed ${id}: count=${e.count} lastAt=${
+            e.lastAt ? new Date(e.lastAt).toISOString() : "—"
+          }`,
+        );
+      }
+    }
+    return { lines: out, record };
+  } catch (e) {
+    return {
+      lines: [
+        `failed-launch ledger ERR: ${e instanceof Error ? e.message : String(e)}`,
+      ],
+      record: { pendingTargetId: null, pendingTargetAt: null, failures: {} },
+    };
+  }
 }
 
 async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
@@ -440,13 +531,144 @@ export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
   return probeOtaCheckOnly();
 }
 
-/** Full on-device diagnostics: static state, native logs, and live check/fetch probe. */
-export async function collectOtaFullDiagnostics(
-  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
-): Promise<OtaFullDiagnostics> {
+function buildDiagnosticsShell(
+  snapshot: OtaDebugSnapshot,
+  extras: {
+    probe: OtaProbeResults;
+    startupLogs: string[];
+    jsLaunchLogs: string[];
+    bannerTrace: OtaBannerTraceSnapshot | null;
+    bannerTraceLines: string[];
+    failedLaunchLedgerLines: string[];
+    applyDiagnosis: string;
+    liveProbeRan: boolean;
+    attestation: DeviceAttestationResult;
+  },
+): OtaFullDiagnostics {
+  return {
+    ...snapshot,
+    ...extras.probe,
+    startupLogs: safeLogLines(extras.startupLogs, "startup logs unavailable"),
+    jsLaunchLogs: safeLogLines(extras.jsLaunchLogs, "(none)"),
+    attestation: extras.attestation,
+    expectedHealthy: {
+      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+      updateId: EXPECTED_HEALTHY_UPDATE_ID,
+      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+    },
+    caseCNativeSafety: caseCNativeModuleSafetyReport(),
+    bannerTrace: extras.bannerTrace,
+    bannerTraceLines: safeLogLines(extras.bannerTraceLines, "bannerTrace unavailable"),
+    otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+    failedLaunchLedgerLines: safeLogLines(
+      extras.failedLaunchLedgerLines,
+      "(no failed-launch entries)",
+    ),
+    applyDiagnosis: extras.applyDiagnosis,
+    liveProbeRan: extras.liveProbeRan,
+  };
+}
+
+/**
+ * Static-only diagnostics — NO checkForUpdateAsync / fetch.
+ * Safe for /ota-debug initial render and deep-link cold launch.
+ */
+export async function collectOtaStaticDiagnostics(): Promise<OtaFullDiagnostics> {
   const snapshot = readOtaDebugSnapshot();
   const attestation = logDeviceAttestation(snapshot);
   const jsLaunchLogs = formatOtaLogLines();
+
+  let startupLogs: string[] = ["loading…"];
+  try {
+    startupLogs = await readStartupLogs();
+  } catch (e) {
+    startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
+  }
+
+  const { lines: failedLaunchLedgerLines, record: failedLaunchRecord } =
+    await readFailedLaunchLedgerLines();
+
+  let recoveryPending = false;
+  let recoveryReloadTargetId = "—";
+  try {
+    const recovery = readOtaRecoverySnapshot();
+    recoveryPending = !!recovery.pending;
+    recoveryReloadTargetId = recovery.reloadTargetId;
+  } catch {
+    // ignore
+  }
+
+  let bannerTrace: OtaBannerTraceSnapshot | null = null;
+  try {
+    // Persisted ready id + context only — no live check result.
+    bannerTrace = await collectOtaBannerTrace({
+      availableUpdateIdFromCheck: null,
+      checkResult: IDLE_PROBE.checkResult,
+    });
+  } catch (e) {
+    pushOtaLog(
+      "checkForUpdateAsync",
+      false,
+      `bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  const applyDiagnosis = diagnoseEmbeddedApplyState({
+    isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+    isEmergencyLaunch: snapshot.isEmergencyLaunch,
+    emergencyLaunchReason: snapshot.emergencyLaunchReason,
+    isUpdatePending: snapshot.isUpdatePending,
+    isStartupProcedureRunning: snapshot.isStartupProcedureRunning,
+    runningUpdateId: snapshot.updateId,
+    downloadedUpdateIdFromContext: snapshot.downloadedUpdateIdFromContext,
+    availableUpdateIdFromContext: snapshot.availableUpdateIdFromContext,
+    fallbackToCacheTimeout: snapshot.fallbackToCacheTimeout,
+    failedLaunchRecord,
+    recoveryPending,
+    recoveryReloadTargetId,
+  });
+
+  try {
+    console.log(
+      [
+        "=== OTA static diagnostics (no live probe) ===",
+        `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
+        `isEmbeddedLaunch: ${snapshot.isEmbeddedLaunch}`,
+        `updateId: ${snapshot.updateId}`,
+        `downloadedUpdateIdFromContext: ${snapshot.downloadedUpdateIdFromContext}`,
+        `isStartupProcedureRunning: ${snapshot.isStartupProcedureRunning}`,
+        applyDiagnosis,
+        ...failedLaunchLedgerLines,
+      ].join("\n"),
+    );
+  } catch {
+    // ignore
+  }
+
+  return buildDiagnosticsShell(snapshot, {
+    probe: IDLE_PROBE,
+    startupLogs,
+    jsLaunchLogs,
+    bannerTrace,
+    bannerTraceLines: bannerTrace
+      ? formatOtaBannerTraceLines(bannerTrace)
+      : ["bannerTrace unavailable"],
+    failedLaunchLedgerLines,
+    applyDiagnosis,
+    liveProbeRan: false,
+    attestation,
+  });
+}
+
+/**
+ * Manual live probe — checkForUpdateAsync only (no fetch/reload).
+ * Must be user-initiated from /ota-debug so opening diagnostics cannot crash
+ * during/after network probe.
+ */
+export async function collectOtaLiveProbeDiagnostics(
+  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
+): Promise<OtaFullDiagnostics> {
+  const base = await collectOtaStaticDiagnostics();
 
   const emptyProbe = (partial: {
     checkResult: string;
@@ -478,13 +700,6 @@ export async function collectOtaFullDiagnostics(
       }),
   );
 
-  let startupLogs: string[] = ["loading…"];
-  try {
-    startupLogs = await readStartupLogs();
-  } catch (e) {
-    startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
-  }
-
   let availableUpdateIdFromCheck: string | null = null;
   try {
     const parsed = JSON.parse(probe.checkResult) as {
@@ -497,7 +712,7 @@ export async function collectOtaFullDiagnostics(
     // checkResult may be ERR:/skipped
   }
 
-  let bannerTrace: OtaBannerTraceSnapshot | null = null;
+  let bannerTrace: OtaBannerTraceSnapshot | null = base.bannerTrace;
   try {
     bannerTrace = await collectOtaBannerTrace({
       availableUpdateIdFromCheck,
@@ -510,6 +725,7 @@ export async function collectOtaFullDiagnostics(
       `bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+
   const bannerTraceLines = safeLogLines(
     bannerTrace ? formatOtaBannerTraceLines(bannerTrace) : null,
     "bannerTrace unavailable",
@@ -518,35 +734,34 @@ export async function collectOtaFullDiagnostics(
   try {
     console.log(
       [
-        "=== OTA probe outcomes ===",
+        "=== OTA live probe outcomes ===",
         `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
         `update check available: ${String(probe.updateAvailable)}`,
         `checkResult: ${probe.checkResult}`,
-        `fetchSucceeded: ${String(probe.fetchSucceeded)} (${probe.fetchResult})`,
-        `reloadSucceeded: ${String(probe.reloadSucceeded)} (${probe.reloadResult})`,
         ...bannerTraceLines,
       ].join("\n"),
     );
   } catch {
-    // Diagnostics must never crash the app via console formatting.
+    // ignore
   }
 
   return {
-    ...snapshot,
+    ...base,
     ...probe,
-    startupLogs: safeLogLines(startupLogs, "startup logs unavailable"),
-    jsLaunchLogs: safeLogLines(jsLaunchLogs, "(none)"),
-    attestation,
-    expectedHealthy: {
-      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
-      updateId: EXPECTED_HEALTHY_UPDATE_ID,
-      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
-    },
-    caseCNativeSafety: caseCNativeModuleSafetyReport(),
     bannerTrace,
     bannerTraceLines,
-    otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+    liveProbeRan: true,
   };
+}
+
+/**
+ * @deprecated Prefer collectOtaStaticDiagnostics on open + collectOtaLiveProbeDiagnostics
+ * behind a button. Kept for callers that still want the combined path.
+ */
+export async function collectOtaFullDiagnostics(
+  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
+): Promise<OtaFullDiagnostics> {
+  return collectOtaLiveProbeDiagnostics(timeoutMs);
 }
 
 export type OtaCheckResult = {

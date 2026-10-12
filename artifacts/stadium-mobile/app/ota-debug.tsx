@@ -16,7 +16,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { useColors } from "@/hooks/useColors";
 import {
-  collectOtaFullDiagnostics,
+  collectOtaLiveProbeDiagnostics,
+  collectOtaStaticDiagnostics,
   forceOtaCheckFetchAndReload,
   readOtaDebugSnapshot,
   type OtaFullDiagnostics,
@@ -57,9 +58,9 @@ function initialDiagnostics(): OtaFullDiagnostics {
     });
     return {
       ...snapshot,
-      checkResult: "loading…",
-      fetchResult: "—",
-      reloadResult: "—",
+      checkResult: "not run — tap “Run live OTA probe”",
+      fetchResult: "not run (live probe is check-only)",
+      reloadResult: "not run",
       updateAvailable: null,
       fetchSucceeded: null,
       reloadSucceeded: null,
@@ -75,6 +76,9 @@ function initialDiagnostics(): OtaFullDiagnostics {
       bannerTrace: null,
       bannerTraceLines: ["loading banner identity trace…"],
       otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+      failedLaunchLedgerLines: ["loading failed-launch ledger…"],
+      applyDiagnosis: "loading…",
+      liveProbeRan: false,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -108,9 +112,11 @@ function initialDiagnostics(): OtaFullDiagnostics {
       expectedCommit: OTA_DEBUG_UNAVAILABLE,
       hasRnPurchasesNative: false,
       coachPipelineVersion: OTA_DEBUG_UNAVAILABLE,
-      checkResult: `ERR: ${msg}`,
-      fetchResult: "—",
-      reloadResult: "—",
+      downloadedUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
+      availableUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
+      checkResult: "not run — tap “Run live OTA probe”",
+      fetchResult: "not run (live probe is check-only)",
+      reloadResult: "not run",
       updateAvailable: null,
       fetchSucceeded: null,
       reloadSucceeded: null,
@@ -126,6 +132,9 @@ function initialDiagnostics(): OtaFullDiagnostics {
       bannerTrace: null,
       bannerTraceLines: [`bannerTrace unavailable: ${msg}`],
       otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+      failedLaunchLedgerLines: [`ledger unavailable: ${msg}`],
+      applyDiagnosis: `initialDiagnostics ERR: ${msg}`,
+      liveProbeRan: false,
     };
   }
 }
@@ -256,6 +265,19 @@ function buildReport(diag: OtaFullDiagnostics): string {
     `check available update ID: ${required.checkAvailableUpdateId}`,
     `downloaded update ID: ${required.downloadedUpdateId}`,
     `persisted ready ID: ${required.persistedReadyId}`,
+    `downloadedManifest.id (context): ${safeDiagText(diag.downloadedUpdateIdFromContext)}`,
+    `latestManifest.id (context): ${safeDiagText(diag.availableUpdateIdFromContext)}`,
+    `isStartupProcedureRunning: ${safeDiagText(diag.isStartupProcedureRunning)}`,
+    `fallbackToCacheTimeout: ${safeDiagText(diag.fallbackToCacheTimeout)}`,
+    `updateUrl: ${safeDiagText(diag.updateUrl)}`,
+    `projectId: ${safeDiagText(diag.projectId)}`,
+    `liveProbeRan: ${safeDiagText(diag.liveProbeRan)}`,
+    "",
+    "--- apply / rollback diagnosis ---",
+    safeDiagText(diag.applyDiagnosis),
+    "",
+    "--- JS failed-launch ledger ---",
+    ...safeLogLines(diag.failedLaunchLedgerLines, "(none)"),
     "",
     "--- banner identity trace (why App update ready shows) ---",
     ...safeLogLines(diag.bannerTraceLines, "bannerTrace unavailable"),
@@ -288,44 +310,76 @@ function OtaDebugScreenInner() {
   const [diag, setDiag] = useState<OtaFullDiagnostics>(initialDiagnostics);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [probeLoading, setProbeLoading] = useState(true);
+  const [staticLoading, setStaticLoading] = useState(true);
+  const [liveProbeLoading, setLiveProbeLoading] = useState(false);
 
-  const refresh = useCallback(async () => {
-    setProbeLoading(true);
+  /** Static-only refresh — never calls checkForUpdateAsync. */
+  const refreshStatic = useCallback(async () => {
+    setStaticLoading(true);
     try {
-      const next = await collectOtaFullDiagnostics();
+      const next = await collectOtaStaticDiagnostics();
       setDiag(next);
       return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setDiag((prev) => ({
         ...(prev ?? initialDiagnostics()),
-        checkResult: `ERR: ${msg}`,
-        fetchResult: "skipped (refresh failed)",
-        reloadResult: "skipped",
-        updateAvailable: null,
-        fetchSucceeded: null,
-        reloadSucceeded: null,
-        startupLogs: [`collectOtaFullDiagnostics ERR: ${msg}`],
+        startupLogs: [`collectOtaStaticDiagnostics ERR: ${msg}`],
         bannerTrace: null,
         bannerTraceLines: [`bannerTrace ERR: ${msg}`],
+        applyDiagnosis: `static diagnostics ERR: ${msg}`,
+        failedLaunchLedgerLines: [`ledger ERR: ${msg}`],
         otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
+        liveProbeRan: false,
+        checkResult: "not run — tap “Run live OTA probe”",
+        fetchResult: "not run (live probe is check-only)",
+        reloadResult: "not run",
       }));
       return null;
     } finally {
-      setProbeLoading(false);
+      setStaticLoading(false);
+    }
+  }, []);
+
+  const runLiveProbe = useCallback(async () => {
+    setLiveProbeLoading(true);
+    setStatus("Running live OTA probe (checkForUpdateAsync only)…");
+    try {
+      const next = await collectOtaLiveProbeDiagnostics();
+      setDiag(next);
+      setStatus(
+        next.updateAvailable == null
+          ? "Live probe finished — see check result"
+          : next.updateAvailable
+            ? "Live probe: update available"
+            : "Live probe: no update available",
+      );
+      return next;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDiag((prev) => ({
+        ...(prev ?? initialDiagnostics()),
+        checkResult: `ERR: ${msg}`,
+        fetchResult: "skipped (live probe failed)",
+        reloadResult: "skipped",
+        updateAvailable: null,
+        liveProbeRan: true,
+      }));
+      setStatus(`Live probe ERR: ${msg}`);
+      return null;
+    } finally {
+      setLiveProbeLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // Defer probe past first paint so deep-link cold start can hydrate providers
-    // without blocking the diagnostics shell. Read-only — does not mutate OTA apply state.
-    void refresh();
-  }, [refresh]);
+    // Static state only on open — no automatic checkForUpdateAsync.
+    void refreshStatic();
+  }, [refreshStatic]);
 
   const copyAll = async () => {
     try {
-      const snap = diag ?? (await refresh());
+      const snap = diag ?? (await refreshStatic());
       if (!snap) return;
       await Clipboard.setStringAsync(buildReport(snap));
       setStatus("Copied full attestation report to clipboard");
@@ -343,7 +397,7 @@ function OtaDebugScreenInner() {
         setStatus(result.reloadResult ?? "Reloading into new bundle…");
         return;
       }
-      const next = await refresh();
+      const next = await refreshStatic();
       if (next) {
         setDiag({
           ...next,
@@ -353,6 +407,7 @@ function OtaDebugScreenInner() {
           updateAvailable: result.updateAvailable ?? next.updateAvailable,
           fetchSucceeded: result.fetchSucceeded ?? next.fetchSucceeded,
           reloadSucceeded: result.reloadSucceeded ?? next.reloadSucceeded,
+          liveProbeRan: true,
         });
       }
       setStatus(
@@ -380,7 +435,7 @@ function OtaDebugScreenInner() {
     recoveryPending: diag.bannerTrace?.recoveryPending,
     bannerExpression: diag.bannerTrace?.bannerExpression,
     otaIdentityFixVersion: diag.otaIdentityFixVersion ?? OTA_IDENTITY_FIX_VERSION,
-    contextHydrated: diag.bannerTrace != null || !probeLoading,
+    contextHydrated: diag.bannerTrace != null || !staticLoading,
   });
 
   const embeddedWarning =
@@ -429,9 +484,14 @@ function OtaDebugScreenInner() {
           <Text style={{ fontFamily: FONT.semibold }}>{EXPECTED_HEALTHY_UPDATE_ID}</Text>,{" "}
           isEmbeddedLaunch=
           <Text style={{ fontFamily: FONT.semibold }}>{String(EXPECTED_HEALTHY_EMBEDDED)}</Text>.
-          {probeLoading ? (
-            <Text style={{ fontFamily: FONT.medium }}> Live probe still running…</Text>
-          ) : null}
+          {staticLoading ? (
+            <Text style={{ fontFamily: FONT.medium }}> Loading static state…</Text>
+          ) : (
+            <Text style={{ fontFamily: FONT.medium }}>
+              {" "}
+              Static only — live checkForUpdateAsync is manual.
+            </Text>
+          )}
         </Text>
 
         <View
@@ -476,6 +536,53 @@ function OtaDebugScreenInner() {
             </Text>
           </View>
         ) : null}
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 14,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Apply / rollback diagnosis (static)
+          </Text>
+          <Text
+            selectable
+            style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}
+          >
+            {safeDiagText(diag.applyDiagnosis, "—")}
+          </Text>
+          <Row label="Bundle source" value={safeDiagText(diag.bundleSource)} />
+          <Row
+            label="isStartupProcedureRunning"
+            value={safeDiagText(diag.isStartupProcedureRunning)}
+          />
+          <Row
+            label="fallbackToCacheTimeout"
+            value={safeDiagText(diag.fallbackToCacheTimeout)}
+          />
+          <Row label="update URL" value={safeDiagText(diag.updateUrl)} />
+          <Row label="EAS projectId" value={safeDiagText(diag.projectId)} />
+          <Row
+            label="downloadedManifest.id (context)"
+            value={safeDiagText(
+              diag.bannerTrace?.downloadedUpdateId ?? diag.downloadedUpdateIdFromContext,
+            )}
+          />
+          <Row
+            label="latestManifest.id (context)"
+            value={safeDiagText(
+              diag.bannerTrace?.availableUpdateIdFromContext ??
+                diag.availableUpdateIdFromContext,
+            )}
+          />
+          <Row label="native rollback commitTime" value={safeDiagText(diag.rollbackCommitTime)} />
+          <LogBlock title="JS failed-launch ledger" lines={diag.failedLaunchLedgerLines} />
+        </View>
 
         <View
           style={{
@@ -693,27 +800,49 @@ function OtaDebugScreenInner() {
 
         <View style={{ gap: 10 }}>
           <Pressable
-            onPress={() => void runCheckFetchReload()}
-            disabled={busy}
+            onPress={() => void runLiveProbe()}
+            disabled={liveProbeLoading || busy}
             style={({ pressed }) => ({
               backgroundColor: colors.primary,
               borderRadius: 10,
               paddingVertical: 14,
               alignItems: "center",
-              opacity: pressed || busy ? 0.85 : 1,
+              opacity: pressed || liveProbeLoading || busy ? 0.85 : 1,
             })}
           >
-            {busy ? (
+            {liveProbeLoading ? (
               <ActivityIndicator color={colors.primaryForeground} />
             ) : (
               <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
+                Run live OTA probe
+              </Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            onPress={() => void runCheckFetchReload()}
+            disabled={busy || liveProbeLoading}
+            style={({ pressed }) => ({
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 10,
+              paddingVertical: 14,
+              alignItems: "center",
+              opacity: pressed || busy || liveProbeLoading ? 0.85 : 1,
+            })}
+          >
+            {busy ? (
+              <ActivityIndicator color={colors.foreground} />
+            ) : (
+              <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
                 Check, fetch & reload (expo-updates)
               </Text>
             )}
           </Pressable>
 
           <Pressable
-            onPress={() => void refresh().then(() => setStatus("Refreshed"))}
+            onPress={() => void refreshStatic().then(() => setStatus("Refreshed static state"))}
             style={({ pressed }) => ({
               paddingVertical: 12,
               alignItems: "center",
@@ -721,7 +850,7 @@ function OtaDebugScreenInner() {
             })}
           >
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-              Refresh attestation & logs
+              Refresh static attestation & logs
             </Text>
           </Pressable>
 
