@@ -177,10 +177,11 @@ test("normalizeMarketKey is stable for integrity logs", () => {
   );
 });
 
-test("clipPropSimHitForGrade soft-clips binary TD 0/1 so sanitize can grade", () => {
+test("clipPropSimHitForGrade: Anytime TD has no 2% floor; 1 soft-caps", () => {
   const td = { propMarketKey: "player_anytime_td", propLine: 0.5, market: "Anytime TD" };
-  assert.equal(clipPropSimHitForGrade(td, 0), 0.02);
-  assert.equal(clipPropSimHitForGrade(td, 1), 0.98);
+  // Zero evidence must stay ungradeable — no manufactured longshot EV.
+  assert.equal(clipPropSimHitForGrade(td, 0), null);
+  assert.equal(clipPropSimHitForGrade(td, 1), 0.95);
   const clipCtx = {
     market: "Anytime TD",
     sport: "nfl",
@@ -188,10 +189,15 @@ test("clipPropSimHitForGrade soft-clips binary TD 0/1 so sanitize can grade", ()
     simulationStatKey: "player_prop",
     expectedStatKey: "player_prop",
   };
-  assert.equal(sanitizeSimHitForGrade(clipPropSimHitForGrade(td, 0), clipCtx), 0.02);
-  assert.equal(sanitizeSimHitForGrade(clipPropSimHitForGrade(td, 1), clipCtx), 0.98);
+  assert.equal(sanitizeSimHitForGrade(clipPropSimHitForGrade(td, 0), clipCtx), null);
+  assert.equal(sanitizeSimHitForGrade(clipPropSimHitForGrade(td, 1), clipCtx), 0.95);
   assert.equal(
     pickHasSimGrade({ market: "Anytime TD", isProp: true, sport: "nfl" }, clipPropSimHitForGrade(td, 0)),
+    false,
+  );
+  // Shrunk prior mid-rates remain gradeable.
+  assert.equal(
+    pickHasSimGrade({ market: "Anytime TD", isProp: true, sport: "nfl" }, clipPropSimHitForGrade(td, 0.18)),
     true,
   );
   // Continuous yards keep raw mid-range hits; exact 0/1 still rejected by sanitize.

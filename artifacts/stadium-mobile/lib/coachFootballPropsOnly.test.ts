@@ -125,7 +125,7 @@ test("tiny batch size lets local enrich finish (phone wipe was wide-batch timeou
   assert.ok(Math.ceil(max / FOOTBALL_PROPS_ONLY_BATCH) <= 8);
 });
 
-test("binary TD 0/1 soft-clip clears sim grade admission", () => {
+test("binary TD: no 2% floor; shrunk mid-rates remain gradeable", () => {
   const p = {
     market: "Anytime TD",
     propMarketKey: "player_anytime_td",
@@ -134,8 +134,11 @@ test("binary TD 0/1 soft-clip clears sim grade admission", () => {
     sport: "nfl",
   };
   assert.equal(pickHasSimGrade(p, 0), false);
-  assert.equal(pickHasSimGrade(p, clipPropSimHitForGrade(p, 0)), true);
+  // Zero evidence must stay ungradeable — no manufactured longshot EV.
+  assert.equal(clipPropSimHitForGrade(p, 0), null);
+  assert.equal(pickHasSimGrade(p, clipPropSimHitForGrade(p, 0)), false);
   assert.equal(pickHasSimGrade(p, clipPropSimHitForGrade(p, 1)), true);
+  assert.equal(pickHasSimGrade(p, clipPropSimHitForGrade(p, 0.18)), true);
 });
 
 test("#541 empty: null-line anytime TD normalizes to 0.5 and is a candidate", () => {
@@ -187,7 +190,8 @@ test("phone empty after #539: prefetched history grades yards + TD without netwo
 });
 
 test("null-line TD grades from history after normalize (phone #541 path)", () => {
-  const td = pick("player_anytime_td", "Kelce", null, { athleteId: "15847" });
+  // +150 leaves room for Bayesian shrink on a 4/8 scoring log (no 2% floor).
+  const td = pick("player_anytime_td", "Kelce", null, { athleteId: "15847", odds: 150 });
   const hist = {
     recent: Array.from({ length: 8 }, (_, i) => ({
       stats: {
@@ -199,6 +203,10 @@ test("null-line TD grades from history after normalize (phone #541 path)", () =>
   };
   const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
   assert.ok(graded.hitProbability != null, "null-line TD must grade at 0.5");
+  assert.ok(
+    (graded.hitReliability ?? 0) > 0.5,
+    "4/8 scoring games should carry mid/high reliability",
+  );
   assert.equal(propsOnlyLegClearsOdds(normalizePropsOnlyPick(td), graded.hitProbability), true);
 });
 
@@ -664,6 +672,8 @@ test("phone 7-leg thin slate: 1 game with 7 odds-cleared props stages all 7", ()
       simHit: 0.45,
       composite: 7,
       rankScore: 7 + i,
+      // Grounded mid-sample reliability — not the thin longshot path.
+      hitReliability: 0.7,
     } as BoardScoredLeg);
   }
   assert.equal(propsOnlyPerGameCeiling(7, 1), 7);
@@ -744,10 +754,11 @@ test("phone 5-leg touchdown: stingy D cannot wipe graded Anytime TDs with no Und
       sport: "nfl",
     });
     histories[`${name}#${id}`] = {
+      // 6/8 scoring games → shrunk rate still clears +150 implied after prior.
       recent: Array.from({ length: 8 }, (_, g) => ({
         stats: {
           rushingTouchdowns: "0",
-          receivingTouchdowns: g % 2 === 0 ? "1" : "0",
+          receivingTouchdowns: g < 6 ? "1" : "0",
           passingTouchdowns: "0",
         },
       })),
@@ -775,15 +786,30 @@ test("phone 5-leg touchdown: stingy D cannot wipe graded Anytime TDs with no Und
 
   const scored: BoardScoredLeg[] = kept
     .map((p) => {
-      const hit = gradeFootballPropFromHistory(
+      const graded = gradeFootballPropFromHistory(
         p,
         histories[`${p.player}#${p.athleteId}`],
-      ).hitProbability;
+      );
+      const hit = graded.hitProbability;
       if (!propsOnlyLegClearsOdds(p, hit)) return null;
+      // Shrink can sit a hair under raw implied; stage still needs positive edge.
+      const edgePct = Math.max(1.5, ((hit ?? 0) - 0.38) * 100);
       return {
-        pick: { ...p, propsOnlyTicket: true },
-        evPct: ((hit ?? 0) - 0.4) * 100,
-        edgePct: ((hit ?? 0) - 0.4) * 100,
+        pick: {
+          ...p,
+          propsOnlyTicket: true,
+          finalAiScore: {
+            grade: "B",
+            confidencePct: 60,
+            edgePct,
+            simHit: hit,
+            simAligned: true,
+            recommends: true,
+            composite: 7,
+          },
+        },
+        evPct: edgePct,
+        edgePct,
         confidencePct: 60,
         impliedProbPct: 40,
         lineShoppingScore: null,
@@ -791,6 +817,7 @@ test("phone 5-leg touchdown: stingy D cannot wipe graded Anytime TDs with no Und
         simHit: hit,
         composite: 7,
         rankScore: 7,
+        hitReliability: graded.hitReliability ?? 0.7,
       } as BoardScoredLeg;
     })
     .filter((x): x is BoardScoredLeg => !!x);

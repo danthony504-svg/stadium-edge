@@ -36,6 +36,10 @@ import {
 } from "./rareCountPropModel.ts";
 import { withCoachQualification } from "./coach/qualifyCoachCandidate.ts";
 import { rareMultiCountNormalSeatAllowed } from "./rareMultiCountCoachGate.ts";
+import {
+  anytimeTdNormalSeatAllowed,
+  isAnytimeTdPropMarket,
+} from "./anytimeTdPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
@@ -176,7 +180,7 @@ export function propsOnlyPerGameCeiling(
 export function propsOnlyReliabilityWeightedEv(leg: BoardScoredLeg): number {
   const ev = leg.evPct ?? -999;
   const market = leg.pick.propMarketKey ?? leg.pick.market;
-  if (!isRareCountPropMarket(market)) return ev;
+  if (!isRareCountPropMarket(market) && !isAnytimeTdPropMarket(market)) return ev;
   const rel =
     leg.hitReliability != null && Number.isFinite(leg.hitReliability)
       ? leg.hitReliability
@@ -246,6 +250,18 @@ function stageFootballPropsOnlyLegsWithCap(
           ticketStyle: seatOpts?.ticketStyle,
           hitReliability: leg.hitReliability,
           allowLotteryPath: seatOpts?.allowRareMultiCount,
+        },
+      )
+    ) {
+      continue;
+    }
+    if (
+      !anytimeTdNormalSeatAllowed(
+        { ...p, isProp: true },
+        {
+          hitReliability: leg.hitReliability,
+          odds: p.odds,
+          simHit,
         },
       )
     ) {

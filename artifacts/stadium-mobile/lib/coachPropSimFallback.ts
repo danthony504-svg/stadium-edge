@@ -23,6 +23,10 @@ import {
   isRareMultiCountOver,
   rareCountHitReliability,
 } from "./rareCountPropModel.ts";
+import {
+  anytimeTdHitFromValues,
+  isAnytimeTdPropMarket,
+} from "./anytimeTdPropModel.ts";
 import { gameValueForMarket } from "./propStats.ts";
 
 export type PropSimHit = {
@@ -286,15 +290,16 @@ export async function enrichCoachPropSimHits(
       continue;
     }
     let hitReliability: number | null = null;
-    if (
-      isRareMultiCountOver({ market, side, line: pick.propLine }) &&
-      hist?.recent?.length
-    ) {
+    if (hist?.recent?.length) {
       const ambiguous = new Set<string>();
       const vals = hist.recent
         .map((g) => gameValueForMarket(market, g.stats ?? {}, ambiguous))
         .filter((v): v is number => v != null && Number.isFinite(v));
-      hitReliability = rareCountHitReliability(vals, pick.propLine, side);
+      if (isRareMultiCountOver({ market, side, line: pick.propLine })) {
+        hitReliability = rareCountHitReliability(vals, pick.propLine, side);
+      } else if (isAnytimeTdPropMarket(market)) {
+        hitReliability = anytimeTdHitFromValues(vals, side).reliability;
+      }
     }
     out.set(key, {
       hitProbability: local.hitProbability,

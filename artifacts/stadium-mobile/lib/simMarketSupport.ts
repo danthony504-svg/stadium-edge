@@ -402,13 +402,15 @@ export function sanitizeSimHitForGrade(
 }
 
 /**
- * Soft-clip binary yes/no prop rates (Anytime TD Over 0.5, etc.) so exact 0/1
- * empirical hits remain gradeable. sanitizeSimHitForGrade rejects those as
- * unusable for continuous markets — phone PROP_ALL_NO_SIM_GRADE when TD spam
- * filled the deep-sim set with only 0/1 hits.
+ * Soft-clip binary yes/no prop rates so exact 0/1 empirical hits remain
+ * gradeable where appropriate. sanitizeSimHitForGrade rejects exact 0/1 as
+ * unusable for continuous markets.
  *
  * Rare count props (multi-HR / multi-goal / SB) must NOT invent a 2% floor —
  * zero evidence stays ungradeable.
+ *
+ * Anytime TD also must NOT invent a 2% floor — long American odds + fake 2%
+ * manufactured +EV. Use anytimeTdPropModel shrinkage instead; zeros stay null.
  */
 export function clipPropSimHitForGrade(
   pick: {
@@ -425,12 +427,19 @@ export function clipPropSimHitForGrade(
     if (simHit >= 1) return 0.98;
     return simHit;
   }
+  // Lazy import avoided — match Anytime TD keys inline to keep this sync/hot-path cheap.
+  const m = market.toLowerCase().replace(/_/g, " ");
+  const isAnytimeTd =
+    /anytime\s*td|anytime\s*touchdown/.test(m) ||
+    (/\btouchdown\b/.test(m) && !/pass|rush|rec|reception|first/.test(m));
+  if (isAnytimeTd) {
+    if (simHit <= 0) return null;
+    if (simHit >= 1) return 0.95;
+    return simHit;
+  }
   const line = pick.propLine;
   const isBinaryLine = line != null && line > 0 && line <= 0.5;
-  if (
-    isBinaryLine ||
-    /\btd\b|touchdown|goal\s*scorer|anytime/.test(market.toLowerCase())
-  ) {
+  if (isBinaryLine || /\btd\b|goal\s*scorer|anytime/.test(m)) {
     if (simHit <= 0) return 0.02;
     if (simHit >= 1) return 0.98;
   }

@@ -57,6 +57,7 @@ import {
   type CoachRequestStyle,
 } from "./coach/qualifyCoachCandidate.ts";
 import { rareMultiCountNormalSeatAllowed } from "./rareMultiCountCoachGate.ts";
+import { anytimeTdNormalSeatAllowed } from "./anytimeTdPropModel.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 import { isHrOnlyScoredPool, selectTopHrQualifiedLegs } from "./coachHrRank.ts";
 import {
@@ -158,6 +159,23 @@ export function boardLegPoolRole(
         opts?.allowRareMultiCount ||
         !!(pick as { allowRareMultiCount?: boolean }).allowRareMultiCount,
     })
+  ) {
+    return null;
+  }
+  // Anytime TD: extreme market disagreement requires stronger sample reliability.
+  // Positive EV alone never seats a longshot TD.
+  if (
+    !anytimeTdNormalSeatAllowed(
+      { ...pick, isProp: !!pick.isProp },
+      {
+        hitReliability:
+          opts?.hitReliability ??
+          (pick as { hitReliability?: number | null }).hitReliability ??
+          null,
+        odds: pick.odds,
+        simHit: score?.simHit ?? pick.finalAiScore?.simHit ?? null,
+      },
+    )
   ) {
     return null;
   }

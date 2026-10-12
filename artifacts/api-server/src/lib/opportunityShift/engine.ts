@@ -278,6 +278,7 @@ export function buildOpportunityShiftTable(
       lowConfidence: row.lowConfidence,
       teamScalar: row.teamScalar,
       vacancyCount: vacancies.length,
+      family: row.family,
     });
     if (Math.abs(agg.multiplier - 1) < 0.005) continue;
 

@@ -36,6 +36,8 @@ export function aggregateFamilyMultiplier(
     lowConfidence?: boolean;
     teamScalar?: boolean;
     vacancyCount?: number;
+    /** Opportunity market family — anytime_td uses tighter caps. */
+    family?: string | null;
   },
 ): { multiplier: number; volumeDelta: number; elasticity: number; confidenceWeight: number } {
   if (!contributions.length) {
@@ -97,6 +99,19 @@ export function aggregateFamilyMultiplier(
     multiplier = clamp(multiplier, OPP_SHIFT_CAPS.floor, OPP_SHIFT_CAPS.normalMax);
   }
   multiplier = clamp(multiplier, OPP_SHIFT_CAPS.floor, OPP_SHIFT_CAPS.absoluteMax);
+
+  // Anytime TD: cap further — vacancy without RZ/GL support must not mint
+  // elite scoring probabilities from carry/target volume alone.
+  if (opts?.family === "anytime_td" || opts?.family === "first_td") {
+    const hasRz = contributions.some(
+      (c) => c.channel === "rz_carries" || c.channel === "gl_carries",
+    );
+    const tdMax = hasRz
+      ? OPP_SHIFT_CAPS.anytimeTdWithRzMax
+      : OPP_SHIFT_CAPS.anytimeTdNoRzMax;
+    const tdFloor = 2 - tdMax;
+    multiplier = clamp(multiplier, tdFloor, tdMax);
+  }
 
   return {
     multiplier,

@@ -5,6 +5,17 @@
 //
 // Phase 1: one underlying sample draw can score every genuine alternate line
 // (and both Over/Under) for the same player/event/stat/period/context.
+//
+// Anytime TD: mean is grounded in binary scoring frequency P(≥1 TD), converted
+// to Poisson λ = −ln(1−p) so multi-TD games do not inflate the rate.
+
+import {
+  anytimeTdBinarySeries,
+  anytimeTdShrunkScoreRate,
+  capAnytimeTdOpportunityMult,
+  isAnytimeTdMarket,
+  poissonLambdaForAnytimeTd,
+} from "./anytimeTdModel.js";
 
 export const QUICK_SIMULATIONS = 1_000;
 export const DEEP_SIMULATIONS = 10_000;
@@ -165,7 +176,13 @@ function modeRounded(samples: number[], step = 0.5): number {
 }
 
 export function buildProjectionMean(ctx: PropSimulationContext): number | null {
-  const vals = ctx.recentValues.filter((v) => Number.isFinite(v));
+  const rawVals = ctx.recentValues.filter((v) => Number.isFinite(v));
+  if (rawVals.length < 3) return null;
+
+  const anytimeTd = isAnytimeTdMarket(ctx.market);
+  // Anytime TD: model binary scoring events so multi-TD games do not inflate
+  // P(at least one). Downstream Poisson uses λ = −ln(1−p).
+  const vals = anytimeTd ? anytimeTdBinarySeries(rawVals) : rawVals;
   if (vals.length < 3) return null;
 
   const l5 = vals.slice(0, 5);
@@ -175,19 +192,28 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   const meanSeason = avg(vals);
   let mean = 0.4 * mean5 + 0.3 * mean10 + 0.3 * meanSeason;
 
+  if (anytimeTd) {
+    // Anchor thin samples with the same Beta prior as the mobile path.
+    const shrunk = anytimeTdShrunkScoreRate(rawVals);
+    if (shrunk != null) mean = 0.55 * mean + 0.45 * shrunk;
+  }
+
   // Soft vsOpponent / venue blends are suppressed when formal Venue/Matchup
   // shifts already encode those series (prevents double-counting).
   if (!ctx.suppressSoftVsOpponentBlend) {
-    const vs = (ctx.vsOpponentValues ?? []).filter((v) => Number.isFinite(v));
+    const vsRaw = (ctx.vsOpponentValues ?? []).filter((v) => Number.isFinite(v));
+    const vs = anytimeTd ? anytimeTdBinarySeries(vsRaw) : vsRaw;
     if (vs.length >= 2) mean = 0.78 * mean + 0.22 * avg(vs);
   }
 
   if (!ctx.suppressSoftVenueBlend) {
     if (ctx.isHome === true) {
-      const hv = (ctx.homeValues ?? []).filter((v) => Number.isFinite(v));
+      const hvRaw = (ctx.homeValues ?? []).filter((v) => Number.isFinite(v));
+      const hv = anytimeTd ? anytimeTdBinarySeries(hvRaw) : hvRaw;
       if (hv.length >= 3) mean = 0.88 * mean + 0.12 * avg(hv);
     } else if (ctx.isHome === false) {
-      const av = (ctx.awayValues ?? []).filter((v) => Number.isFinite(v));
+      const avRaw = (ctx.awayValues ?? []).filter((v) => Number.isFinite(v));
+      const av = anytimeTd ? anytimeTdBinarySeries(avRaw) : avRaw;
       if (av.length >= 3) mean = 0.88 * mean + 0.12 * avg(av);
     }
   }
@@ -223,12 +249,29 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   // Prefer combinedPreSimMult when present; else Opportunity-only (legacy).
   const combined = ctx.combinedPreSimMult;
   if (combined != null && Number.isFinite(combined) && combined > 0 && combined !== 1) {
-    mean *= clamp(combined, 0.78, 1.35);
+    if (anytimeTd) {
+      // combined already includes opportunity — tighten the whole product for TD.
+      mean *= capAnytimeTdOpportunityMult(clamp(combined, 0.78, 1.35), {
+        hasRedZoneChannel: true,
+      });
+    } else {
+      mean *= clamp(combined, 0.78, 1.35);
+    }
   } else {
     const oppMult = ctx.opportunityFamilyMult;
     if (oppMult != null && Number.isFinite(oppMult) && oppMult > 0 && oppMult !== 1) {
-      mean *= clamp(oppMult, 0.82, 1.28);
+      if (anytimeTd) {
+        mean *= capAnytimeTdOpportunityMult(oppMult, { hasRedZoneChannel: true });
+      } else {
+        mean *= clamp(oppMult, 0.82, 1.28);
+      }
     }
+  }
+
+  if (anytimeTd) {
+    // mean is a scoring probability; convert to Poisson λ so P(X≥1) ≈ p.
+    const p = clamp(mean, 0, 0.95);
+    return poissonLambdaForAnytimeTd(p);
   }
 
   return Math.max(0, mean);
