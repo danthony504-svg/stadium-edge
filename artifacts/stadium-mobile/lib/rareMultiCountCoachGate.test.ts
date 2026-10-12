@@ -33,7 +33,8 @@ import {
   RARE_EV_GRADE_EDGE_CAP,
   RARE_MULTI_COUNT_MIN_RELIABILITY,
 } from "./rareMultiCountCoachGate.ts";
-import { boardLegPoolRole } from "./ticketStaging.ts";
+import { boardLegPoolRole, type BoardScoredLeg } from "./ticketStaging.ts";
+import { buildIndependentCoachTicket } from "./coachTicketCombinations.ts";
 import { simEdgeFromHit, simEvPct } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -284,6 +285,131 @@ test("explicit 2+ HR / lottery path stays open", () => {
       { askText: "multi-HR longshots", hitReliability: 0.1 },
     ),
     true,
+  );
+});
+
+test("2+ HR stamp survives later boardLegPoolRole without askText", () => {
+  // Defect guard: "2+ HR" is balanced style (not longshot). Qualify with
+  // allowRareMultiCount, then a bare boardLegPoolRole() must still allow.
+  const pick = {
+    isProp: true,
+    sport: "mlb",
+    player: "Judge",
+    propMarketKey: "batter_home_runs",
+    market: "Home Runs",
+    propSide: "Over",
+    propLine: 1.5,
+    odds: 30000,
+    game: "A @ B",
+    pick: "Judge Over 1.5 Home Runs",
+    allowRareMultiCount: true,
+    hitReliability: 0.2,
+    finalAiScore: {
+      grade: "C+",
+      confidencePct: 55,
+      edgePct: 2,
+      simHit: 0.03,
+      simAligned: true,
+      recommends: true,
+      composite: 6.1,
+      highRiskValuePlay: false,
+      factors: [],
+      rubric: {
+        composite: 6.1,
+        grade: "C+",
+        confidencePct: 55,
+        edgePct: 2,
+        scores: {} as never,
+      },
+    },
+  } as ParsedPick & { allowRareMultiCount: boolean; hitReliability: number };
+  assert.notEqual(boardLegPoolRole(pick, pick.finalAiScore), null);
+  assert.equal(
+    boardLegPoolRole(
+      { ...pick, allowRareMultiCount: false },
+      pick.finalAiScore,
+    ),
+    null,
+  );
+});
+
+test("combinator path: 2+ HR ask seats rare multi-count (balanced style)", () => {
+  // Main N≥3 path is buildIndependentCoachTicket — must honor askText /
+  // allowRareMultiCount, not only longshot ticketStyle.
+  const score = {
+    grade: "B",
+    confidencePct: 56,
+    edgePct: 4,
+    simHit: 0.04,
+    simAligned: true,
+    recommends: true,
+    composite: 7.2,
+    highRiskValuePlay: false,
+    factors: [],
+    rubric: {
+      composite: 7.2,
+      grade: "B",
+      confidencePct: 56,
+      edgePct: 4,
+      scores: {} as never,
+    },
+  };
+  const mkHr = (player: string, game: string, rank: number): BoardScoredLeg => ({
+    pick: {
+      isProp: true,
+      sport: "mlb",
+      player,
+      propMarketKey: "batter_home_runs",
+      market: "Home Runs",
+      propSide: "Over",
+      propLine: 1.5,
+      odds: 25000,
+      game,
+      pick: `${player} Over 1.5 Home Runs`,
+      finalAiScore: { ...score, composite: rank },
+    } as ParsedPick,
+    evPct: 4,
+    edgePct: 4,
+    confidencePct: 56,
+    impliedProbPct: 4,
+    lineShoppingScore: null,
+    grade: "B",
+    simHit: 0.04,
+    composite: rank,
+    rankScore: rank,
+    hitReliability: 0.2,
+  });
+  const scored = [
+    mkHr("Judge", "NYY @ BOS", 90),
+    mkHr("Ohtani", "LAD @ SF", 88),
+    mkHr("Soto", "NYM @ PHI", 86),
+    mkHr("Harper", "PHI @ WSH", 84),
+    mkHr("Trout", "LAA @ SEA", 82),
+  ];
+  const blocked = buildIndependentCoachTicket(scored, 3, {
+    varietySeed: "rare-2plus-blocked",
+    ticketStyle: "balanced",
+  });
+  assert.equal(
+    blocked.picks.filter((p) => Number(p.propLine) >= 1.5).length,
+    0,
+    "without 2+ ask, combinator must not seat rare multi-count",
+  );
+  const allowed = buildIndependentCoachTicket(scored, 3, {
+    varietySeed: "rare-2plus-open",
+    ticketStyle: "balanced",
+    askText: "2+ home runs",
+    allowRareMultiCount: true,
+  });
+  assert.ok(
+    allowed.picks.some((p) => Number(p.propLine) >= 1.5),
+    "2+ ask must seat rare multi-count on combinator path",
+  );
+  assert.ok(
+    allowed.picks.every(
+      (p) => (p as { allowRareMultiCount?: boolean }).allowRareMultiCount === true,
+    ),
+    "seated picks must carry allowRareMultiCount stamp",
   );
 });
 

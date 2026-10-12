@@ -352,7 +352,12 @@ export function selectTopHrQualifiedLegs(
       ...roleOpts,
       hitReliability: leg.hitReliability,
     })!;
-    out.push({ ...leg.pick, ticketRole: role, highRiskValuePlay: false });
+    out.push({
+      ...leg.pick,
+      ticketRole: role,
+      highRiskValuePlay: false,
+      ...(seatOpts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
+    });
   }
   return out;
 }

@@ -946,11 +946,23 @@ export function buildScanResult(
   // Preview + final: collapse ladder rungs before staging so Colts +4.5 / +3.5
   // cannot both land on the hang-guard buffer or the terminal ticket.
   const ladderCollapsed = collapseScoredLegsByMarketLadder(exclusionSafe);
-  const stagePool = opts.propsOnly
+  const stagePoolRaw = opts.propsOnly
     ? ladderCollapsed.filter((leg) => !!leg.pick.isProp)
     : opts.gameLinesOnly
       ? ladderCollapsed.filter((leg) => !leg.pick.isProp)
       : ladderCollapsed;
+  // Stamp lottery / 2+ intent onto the stage pool so bare boardLegPoolRole
+  // (fill / qualifiedCandidates / priority inject) still allows rare multi-count.
+  const stagePool =
+    opts.varietyContext?.allowRareMultiCount
+      ? stagePoolRaw.map((leg) => ({
+          ...leg,
+          pick: {
+            ...leg.pick,
+            allowRareMultiCount: true as const,
+          },
+        }))
+      : stagePoolRaw;
   const staged = buildStagedTicketFromScan(
     stagePool,
     opts.target,

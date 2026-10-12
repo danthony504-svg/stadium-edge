@@ -151,7 +151,12 @@ export function boardLegPoolRole(
         opts?.hitReliability ??
         (pick as { hitReliability?: number | null }).hitReliability ??
         null,
-      allowLotteryPath: opts?.allowRareMultiCount,
+      // Prefer explicit opts; else honor immutable stamp from qualify/stage so
+      // later boardLegPoolRole() calls without askText still allow 2+/multi-HR
+      // asks (not only lottery/longshot ticketStyle).
+      allowLotteryPath:
+        opts?.allowRareMultiCount ||
+        !!(pick as { allowRareMultiCount?: boolean }).allowRareMultiCount,
     })
   ) {
     return null;
@@ -558,9 +563,11 @@ function qualifyingScoredLegs(
         ...leg.pick,
         coachRequestStyle: requestStyle,
         hitReliability: leg.hitReliability,
+        ...(opts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
       } as typeof leg.pick & {
         coachRequestStyle: CoachRequestStyle;
         hitReliability?: number | null;
+        allowRareMultiCount?: boolean;
       },
       { requestStyle, isProp: !!leg.pick.isProp },
     );

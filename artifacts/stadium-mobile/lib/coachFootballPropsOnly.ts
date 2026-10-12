@@ -291,6 +291,7 @@ function stageFootballPropsOnlyLegsWithCap(
       propsOnlyTicket: true,
       ticketRole: p.propIsAlt ? "alt" : "main",
       finalAiScore: p.finalAiScore,
+      ...(seatOpts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
     });
   }
   return picks;
