@@ -14,8 +14,8 @@ import {
   reconcileOtaReadyFlag,
 } from "./otaUpdateIdentity.ts";
 
-test("OTA_IDENTITY_FIX_VERSION marker is 1", () => {
-  assert.equal(OTA_IDENTITY_FIX_VERSION, 1);
+test("OTA_IDENTITY_FIX_VERSION marker is 2 (boot-reload guard)", () => {
+  assert.equal(OTA_IDENTITY_FIX_VERSION, 2);
 });
 
 const RUNNING = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -95,6 +95,21 @@ test("embedded launch with pending download → banner shown", () => {
       isUpdatePending: true,
     }),
     true,
+  );
+});
+
+test("sticky pending with no downloaded/available id → NOT pending (boot-reload guard)", () => {
+  // After reloadAsync into a tip, native isUpdatePending can stick true while
+  // downloadedManifest is cleared. Treating that as pending re-invokes reload
+  // during tip boot → Expo updatePreviouslyFailed blacklist.
+  assert.equal(
+    isGenuinelyPendingOtaUpdate({
+      runningUpdateId: RUNNING,
+      downloadedUpdateId: null,
+      availableUpdateId: null,
+      isUpdatePending: true,
+    }),
+    false,
   );
 });
 

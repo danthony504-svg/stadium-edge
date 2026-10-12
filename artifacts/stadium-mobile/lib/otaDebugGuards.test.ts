@@ -190,6 +190,7 @@ test("/ota-debug static import graph must not evaluate expo-updates", () => {
     "lib/otaBannerTrace.ts",
     "lib/expoUpdatesAccess.ts",
     "lib/otaDebugGuards.ts",
+    "components/OtaHomeDiagnostics.tsx",
   ];
   for (const rel of files) {
     const src = readFileSync(join(ROOT, rel), "utf8");

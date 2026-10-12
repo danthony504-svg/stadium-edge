@@ -10,7 +10,7 @@ import { formatOtaBannerTraceLines, type OtaBannerTraceSnapshot } from "./otaBan
 function baseSnap(partial: Partial<OtaBannerTraceSnapshot> = {}): OtaBannerTraceSnapshot {
   return {
     at: "2026-10-12T00:00:00.000Z",
-    otaIdentityFixVersion: 1,
+    otaIdentityFixVersion: 2,
     runningUpdateId: null,
     isEmbeddedLaunch: true,
     createdAt: "not available",
@@ -50,7 +50,7 @@ test("formatOtaBannerTraceLines: all ids null / missing manifests", () => {
   );
   assert.ok(lines.some((l) => l.includes("downloadedManifest.id: —")));
   assert.ok(lines.some((l) => l.includes("persisted @stadium/ota-update-ready: —")));
-  assert.ok(lines.some((l) => l.includes("OTA_IDENTITY_FIX_VERSION: 1")));
+  assert.ok(lines.some((l) => l.includes("OTA_IDENTITY_FIX_VERSION: 2")));
 });
 
 test("formatOtaBannerTraceLines: deep-link cold launch notes", () => {

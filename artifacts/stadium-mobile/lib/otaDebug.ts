@@ -9,7 +9,6 @@ import {
   expectedHealthyLines,
   type DeviceAttestationResult,
 } from "./otaDeviceAttestation";
-import { COACH_PIPELINE_VERSION } from "./coach/qualifyCoachCandidate";
 import { expoUpdatesLoadError, tryGetExpoUpdates, tryGetLatestContext } from "./expoUpdatesAccess";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
 import {
@@ -31,6 +30,13 @@ import {
 } from "./otaFailedLaunch";
 import { readOtaRecoverySnapshot } from "./otaRecoveryState";
 import { OTA_IDENTITY_FIX_VERSION } from "./otaUpdateIdentity";
+
+/**
+ * Diagnostics-only mirror of coach COACH_PIPELINE_VERSION.
+ * Must NOT import qualifyCoachCandidate — that pulls the sim graph into Home
+ * via OtaHomeDiagnostics and has blacklisted OTA tips (updatePreviouslyFailed).
+ */
+const COACH_PIPELINE_VERSION_DIAG = "unified-quality-v1";
 
 export { diagnoseEmbeddedApplyState } from "./otaEmbeddedApplyDiagnosis";
 
@@ -205,7 +211,7 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
       deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
       expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
       hasRnPurchasesNative: false,
-      coachPipelineVersion: COACH_PIPELINE_VERSION,
+      coachPipelineVersion: COACH_PIPELINE_VERSION_DIAG,
       downloadedUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
       availableUpdateIdFromContext: OTA_DEBUG_UNAVAILABLE,
     };
@@ -397,7 +403,7 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
     deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
     expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
     hasRnPurchasesNative: readHasRnPurchasesNative(),
-    coachPipelineVersion: COACH_PIPELINE_VERSION,
+    coachPipelineVersion: COACH_PIPELINE_VERSION_DIAG,
     downloadedUpdateIdFromContext: downloadedFromCtx,
     availableUpdateIdFromContext: availableFromCtx,
   };

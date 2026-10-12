@@ -1,9 +1,9 @@
 import { useRouter } from "expo-router";
-import * as Updates from "expo-updates";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
+import { tryGetExpoUpdates } from "@/lib/expoUpdatesAccess";
 import { collectOtaStaticDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
 import {
   EXPECTED_HEALTHY_RUNTIME,
@@ -13,15 +13,20 @@ import {
 /**
  * Temporary Home attestation strip — full report at Menu → Device attestation (/ota-debug).
  * Read-only; does not change Coach / OTA auto-apply behavior.
+ *
+ * Must NOT statically import expo-updates: Home is the cold-start tab, and
+ * requireNativeModule during module eval (before DeferredOtaRuntime) has
+ * contributed to updatePreviouslyFailed blacklists.
  */
 export function OtaHomeDiagnostics() {
   const router = useRouter();
   const [diag, setDiag] = useState<OtaFullDiagnostics | null>(null);
+  const Updates = tryGetExpoUpdates();
 
   useEffect(() => {
     if (__DEV__) return;
     let cancelled = false;
-    // Static only — never auto-run checkForUpdateAsync from Home.
+    // Static only — never auto-run checkForUpdateAsync / reloadAsync from Home.
     void collectOtaStaticDiagnostics().then((d) => {
       if (!cancelled) setDiag(d);
     });
@@ -30,7 +35,7 @@ export function OtaHomeDiagnostics() {
     };
   }, []);
 
-  if (__DEV__ || !Updates.isEnabled || !diag) return null;
+  if (__DEV__ || !Updates?.isEnabled || !diag) return null;
 
   const caseColor =
     diag.attestation.caseId === "A"
