@@ -10,7 +10,6 @@
 // to Poisson λ = −ln(1−p) so multi-TD games do not inflate the rate.
 
 import {
-  anytimeTdBinarySeries,
   anytimeTdShrunkScoreRate,
   capAnytimeTdOpportunityMult,
   isAnytimeTdMarket,
@@ -179,12 +178,34 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   const rawVals = ctx.recentValues.filter((v) => Number.isFinite(v));
   if (rawVals.length < 3) return null;
 
-  const anytimeTd = isAnytimeTdMarket(ctx.market);
-  // Anytime TD: model binary scoring events so multi-TD games do not inflate
-  // P(at least one). Downstream Poisson uses λ = −ln(1−p).
-  const vals = anytimeTd ? anytimeTdBinarySeries(rawVals) : rawVals;
-  if (vals.length < 3) return null;
+  // Anytime TD: exact mobile shrink p=(hits+0.72)/(n+4) from binary scoring
+  // events — never re-inflate via form mean (5/5 must stay ~63.6%, not ~84%).
+  // Opportunity/injury may adjust p within TD caps, then λ=−ln(1−p).
+  if (isAnytimeTdMarket(ctx.market)) {
+    const shrunk = anytimeTdShrunkScoreRate(rawVals);
+    if (shrunk == null) return null;
+    let p = shrunk;
 
+    const oppInj = ctx.oppKeyInjuries ?? 0;
+    const ownInj = ctx.opportunitySuppressOwnInjuries ? 0 : (ctx.ownKeyInjuries ?? 0);
+    p *= clamp(1 + oppInj * 0.015 - ownInj * 0.02, 0.88, 1.12);
+
+    const combined = ctx.combinedPreSimMult;
+    if (combined != null && Number.isFinite(combined) && combined > 0 && combined !== 1) {
+      p *= capAnytimeTdOpportunityMult(clamp(combined, 0.78, 1.35), {
+        hasRedZoneChannel: true,
+      });
+    } else {
+      const oppMult = ctx.opportunityFamilyMult;
+      if (oppMult != null && Number.isFinite(oppMult) && oppMult > 0 && oppMult !== 1) {
+        p *= capAnytimeTdOpportunityMult(oppMult, { hasRedZoneChannel: true });
+      }
+    }
+
+    return poissonLambdaForAnytimeTd(clamp(p, 0, 0.95));
+  }
+
+  const vals = rawVals;
   const l5 = vals.slice(0, 5);
   const l10 = vals.slice(0, 10);
   const mean5 = avg(l5);
@@ -192,28 +213,19 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   const meanSeason = avg(vals);
   let mean = 0.4 * mean5 + 0.3 * mean10 + 0.3 * meanSeason;
 
-  if (anytimeTd) {
-    // Anchor thin samples with the same Beta prior as the mobile path.
-    const shrunk = anytimeTdShrunkScoreRate(rawVals);
-    if (shrunk != null) mean = 0.55 * mean + 0.45 * shrunk;
-  }
-
   // Soft vsOpponent / venue blends are suppressed when formal Venue/Matchup
   // shifts already encode those series (prevents double-counting).
   if (!ctx.suppressSoftVsOpponentBlend) {
-    const vsRaw = (ctx.vsOpponentValues ?? []).filter((v) => Number.isFinite(v));
-    const vs = anytimeTd ? anytimeTdBinarySeries(vsRaw) : vsRaw;
+    const vs = (ctx.vsOpponentValues ?? []).filter((v) => Number.isFinite(v));
     if (vs.length >= 2) mean = 0.78 * mean + 0.22 * avg(vs);
   }
 
   if (!ctx.suppressSoftVenueBlend) {
     if (ctx.isHome === true) {
-      const hvRaw = (ctx.homeValues ?? []).filter((v) => Number.isFinite(v));
-      const hv = anytimeTd ? anytimeTdBinarySeries(hvRaw) : hvRaw;
+      const hv = (ctx.homeValues ?? []).filter((v) => Number.isFinite(v));
       if (hv.length >= 3) mean = 0.88 * mean + 0.12 * avg(hv);
     } else if (ctx.isHome === false) {
-      const avRaw = (ctx.awayValues ?? []).filter((v) => Number.isFinite(v));
-      const av = anytimeTd ? anytimeTdBinarySeries(avRaw) : avRaw;
+      const av = (ctx.awayValues ?? []).filter((v) => Number.isFinite(v));
       if (av.length >= 3) mean = 0.88 * mean + 0.12 * avg(av);
     }
   }
@@ -249,29 +261,12 @@ export function buildProjectionMean(ctx: PropSimulationContext): number | null {
   // Prefer combinedPreSimMult when present; else Opportunity-only (legacy).
   const combined = ctx.combinedPreSimMult;
   if (combined != null && Number.isFinite(combined) && combined > 0 && combined !== 1) {
-    if (anytimeTd) {
-      // combined already includes opportunity — tighten the whole product for TD.
-      mean *= capAnytimeTdOpportunityMult(clamp(combined, 0.78, 1.35), {
-        hasRedZoneChannel: true,
-      });
-    } else {
-      mean *= clamp(combined, 0.78, 1.35);
-    }
+    mean *= clamp(combined, 0.78, 1.35);
   } else {
     const oppMult = ctx.opportunityFamilyMult;
     if (oppMult != null && Number.isFinite(oppMult) && oppMult > 0 && oppMult !== 1) {
-      if (anytimeTd) {
-        mean *= capAnytimeTdOpportunityMult(oppMult, { hasRedZoneChannel: true });
-      } else {
-        mean *= clamp(oppMult, 0.82, 1.28);
-      }
+      mean *= clamp(oppMult, 0.82, 1.28);
     }
-  }
-
-  if (anytimeTd) {
-    // mean is a scoring probability; convert to Poisson λ so P(X≥1) ≈ p.
-    const p = clamp(mean, 0, 0.95);
-    return poissonLambdaForAnytimeTd(p);
   }
 
   return Math.max(0, mean);

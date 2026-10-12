@@ -46,6 +46,31 @@ describe("anytimeTdModel", () => {
 });
 
 describe("buildProjectionMean anytime TD", () => {
+  it("matches exact shrink p=(hits+0.72)/(n+4) with no context", () => {
+    for (const vals of [
+      [0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0],
+      [1, 1, 1, 0, 0],
+      [1, 1, 1, 1, 1],
+      [2, 0, 0, 0, 0],
+    ]) {
+      const shrink = anytimeTdShrunkScoreRate(vals)!;
+      const lam = buildProjectionMean({
+        sport: "nfl",
+        market: "player_anytime_td",
+        line: 0.5,
+        side: "Over",
+        recentValues: vals,
+        discrete: true,
+      })!;
+      const p = 1 - Math.exp(-lam);
+      assert.ok(
+        Math.abs(p - shrink) < 1e-9,
+        `vals=${vals} shrink=${shrink} serverP=${p}`,
+      );
+    }
+  });
+
   it("does not inflate from multi-TD count mean", () => {
     const base: PropSimulationContext = {
       sport: "nfl",
@@ -56,23 +81,58 @@ describe("buildProjectionMean anytime TD", () => {
       discrete: true,
     };
     const mean = buildProjectionMean(base)!;
-    // λ from ~shrunk binary ~0.19 → λ≈0.21, not count-mean 0.4
-    assert.ok(mean < 0.35, `lambda=${mean}`);
+    // λ from exact shrink ~0.191 → not count-mean 0.4
     const p = 1 - Math.exp(-mean);
-    assert.ok(p < 0.3, `P(X>=1)=${p}`);
+    assert.ok(Math.abs(p - anytimeTdShrunkScoreRate([2, 0, 0, 0, 0])!) < 1e-9);
+    assert.ok(p < 0.25, `P(X>=1)=${p}`);
+  });
+
+  it("5/5 scoring stays at exact shrink (~63.6%), not form-inflated ~84%", () => {
+    const shrink = anytimeTdShrunkScoreRate([1, 1, 1, 1, 1])!;
+    const lam = buildProjectionMean({
+      sport: "nfl",
+      market: "player_anytime_td",
+      line: 0.5,
+      side: "Over",
+      recentValues: [1, 1, 1, 1, 1],
+      discrete: true,
+    })!;
+    const p = 1 - Math.exp(-lam);
+    assert.ok(Math.abs(p - shrink) < 1e-9);
+    assert.ok(p < 0.65, `p=${p}`);
   });
 
   it("NCAAF uses the same conversion", () => {
+    const vals = [1, 1, 1, 0, 0];
+    const shrink = anytimeTdShrunkScoreRate(vals)!;
     const mean = buildProjectionMean({
       sport: "ncaaf",
       market: "player_anytime_td",
       line: 0.5,
       side: "Over",
-      recentValues: [1, 1, 1, 0, 0],
+      recentValues: vals,
       discrete: true,
     })!;
     const p = 1 - Math.exp(-mean);
-    assert.ok(p > 0.3 && p < 0.55, `p=${p}`);
+    assert.ok(Math.abs(p - shrink) < 1e-9, `p=${p} shrink=${shrink}`);
+  });
+
+  it("opportunity bump is capped and does not erase shrink base", () => {
+    const vals = [1, 1, 1, 1, 1];
+    const base = anytimeTdShrunkScoreRate(vals)!;
+    const lam = buildProjectionMean({
+      sport: "nfl",
+      market: "player_anytime_td",
+      line: 0.5,
+      side: "Over",
+      recentValues: vals,
+      discrete: true,
+      opportunityFamilyMult: 1.35,
+    })!;
+    const p = 1 - Math.exp(-lam);
+    // Cap 1.10 with RZ default in buildProjectionMean path
+    assert.ok(p <= base * 1.1 + 1e-9, `p=${p} base=${base}`);
+    assert.ok(p < 0.75, "opp shift cannot mint ~98% from 5/5 alone");
   });
 });
 
