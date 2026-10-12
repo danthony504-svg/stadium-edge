@@ -56,6 +56,7 @@ import {
   type CoachQualificationReason,
   type CoachRequestStyle,
 } from "./coach/qualifyCoachCandidate.ts";
+import { rareMultiCountNormalSeatAllowed } from "./rareMultiCountCoachGate.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 import { isHrOnlyScoredPool, selectTopHrQualifiedLegs } from "./coachHrRank.ts";
 import {
@@ -120,7 +121,13 @@ export type BoardScoredLeg = {
 export function boardLegPoolRole(
   pick: ParsedPick,
   score: ParsedPick["finalAiScore"],
-  opts?: { requestStyle?: CoachRequestStyle; ticketStyle?: string | null },
+  opts?: {
+    requestStyle?: CoachRequestStyle;
+    ticketStyle?: string | null;
+    askText?: string | null;
+    hitReliability?: number | null;
+    allowRareMultiCount?: boolean;
+  },
 ): "main" | "alt" | null {
   // Shared quality authority — rejected candidates are terminally ineligible.
   // Role labeling below may be stricter; it must never bypass this floor.
@@ -133,6 +140,27 @@ export function boardLegPoolRole(
       opts?.requestStyle ??
       (pick as { coachRequestStyle?: CoachRequestStyle }).coachRequestStyle,
   });
+  // Rare multi-count Overs: normal Coach fail-closed unless lottery path /
+  // sufficient reliability. Does not weaken #711 grade/conf floors.
+  if (
+    !rareMultiCountNormalSeatAllowed(pick, {
+      askText: opts?.askText,
+      ticketStyle: opts?.ticketStyle ?? requestStyle,
+      requestStyle,
+      hitReliability:
+        opts?.hitReliability ??
+        (pick as { hitReliability?: number | null }).hitReliability ??
+        null,
+      // Prefer explicit opts; else honor immutable stamp from qualify/stage so
+      // later boardLegPoolRole() calls without askText still allow 2+/multi-HR
+      // asks (not only lottery/longshot ticketStyle).
+      allowLotteryPath:
+        opts?.allowRareMultiCount ||
+        !!(pick as { allowRareMultiCount?: boolean }).allowRareMultiCount,
+    })
+  ) {
+    return null;
+  }
   if (
     !coachCandidateIsQualified(
       {
@@ -513,7 +541,12 @@ function applyCapAndBackfillToTarget(
  */
 function qualifyingScoredLegs(
   scored: BoardScoredLeg[],
-  opts?: { ticketStyle?: string | null; requestStyle?: CoachRequestStyle },
+  opts?: {
+    ticketStyle?: string | null;
+    requestStyle?: CoachRequestStyle;
+    askText?: string | null;
+    allowRareMultiCount?: boolean;
+  },
 ): BoardScoredLeg[] {
   const out: BoardScoredLeg[] = [];
   for (const leg of scored) {
@@ -529,12 +562,28 @@ function qualifyingScoredLegs(
       {
         ...leg.pick,
         coachRequestStyle: requestStyle,
-      } as typeof leg.pick & { coachRequestStyle: CoachRequestStyle },
+        hitReliability: leg.hitReliability,
+        ...(opts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
+      } as typeof leg.pick & {
+        coachRequestStyle: CoachRequestStyle;
+        hitReliability?: number | null;
+        allowRareMultiCount?: boolean;
+      },
       { requestStyle, isProp: !!leg.pick.isProp },
     );
     const next = { ...leg, pick: tagged };
     if (tagged.qualificationStatus !== "qualified") continue;
-    if (boardLegPoolRole(tagged, tagged.finalAiScore, { requestStyle }) == null) continue;
+    if (
+      boardLegPoolRole(tagged, tagged.finalAiScore, {
+        requestStyle,
+        ticketStyle: opts?.ticketStyle,
+        askText: opts?.askText,
+        hitReliability: leg.hitReliability,
+        allowRareMultiCount: opts?.allowRareMultiCount,
+      }) == null
+    ) {
+      continue;
+    }
     out.push(next);
   }
   return out;
@@ -685,9 +734,17 @@ export function buildBalancedStagedTicketFromScan(
   target: number,
   varietySeed?: string,
   ticketStyle: CoachTicketStyle = "balanced",
-  opts?: { collegeTeamMarketStacks?: boolean },
+  opts?: {
+    collegeTeamMarketStacks?: boolean;
+    askText?: string | null;
+    allowRareMultiCount?: boolean;
+  },
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
-  const qualifying = qualifyingScoredLegs(scored, { ticketStyle });
+  const qualifying = qualifyingScoredLegs(scored, {
+    ticketStyle,
+    askText: opts?.askText,
+    allowRareMultiCount: opts?.allowRareMultiCount,
+  });
   const pools = partitionScoredLegsByCategory(qualifying);
   const ncaafN = qualifying.filter(
     (l) => String(l.pick.sport ?? "").toLowerCase() === "ncaaf",
@@ -760,6 +817,8 @@ export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   /** Optional pre-resolved event key / sport for scoped asks. */
   singleEventKey?: string | null;
   singleEventSport?: string | null;
+  /** Explicit lottery / 2+ / longshot ask — allows rare multi-count Overs. */
+  allowRareMultiCount?: boolean;
 };
 
 function tryBuildSingleEventStagedTicket(
@@ -777,6 +836,8 @@ function tryBuildSingleEventStagedTicket(
 
   const qualifying = qualifyingScoredLegs(scored, {
     ticketStyle: varietyContext?.ticketStyle,
+    askText: varietyContext?.askText,
+    allowRareMultiCount: varietyContext?.allowRareMultiCount,
   });
   const games = [...new Set(qualifying.map((l) => l.pick.game).filter(Boolean))];
   const eventKey =
@@ -852,17 +913,22 @@ export function buildStagedTicketFromScan(
   if (single) return single;
 
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
+  const seatOpts = {
+    ticketStyle,
+    askText: varietyContext?.askText,
+    allowRareMultiCount: varietyContext?.allowRareMultiCount,
+  };
 
   // Home-run-only boards: evaluate full ranked pool, take top-N distinct hitters
   // by HRScore. Same-game stacks only when they independently rank in the top N.
   // Quality bar unchanged — shortfall returns fewer legs (no filler).
   if (isHrOnlyScoredPool(scored)) {
-    const picks = selectTopHrQualifiedLegs(scored, target);
+    const picks = selectTopHrQualifiedLegs(scored, target, seatOpts);
     const mainQualified = scored.filter(
-      (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore) === "main",
+      (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore, seatOpts) === "main",
     ).length;
     const altQualified = scored.filter(
-      (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore) === "alt",
+      (l) => boardLegPoolRole(l.pick, l.pick.finalAiScore, seatOpts) === "alt",
     ).length;
     return {
       picks,
@@ -885,12 +951,14 @@ export function buildStagedTicketFromScan(
   if (target >= 3) {
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle, {
       collegeTeamMarketStacks: varietyContext?.collegeTeamMarketStacks,
+      askText: varietyContext?.askText,
+      allowRareMultiCount: varietyContext?.allowRareMultiCount,
     });
   }
 
   // Fair competition: all qualifying legs compete by validated rankScore.
   // ticketRole (main/alt) is a badge only — not a seating priority.
-  const qualifying = qualifyingScoredLegs(scored, { ticketStyle });
+  const qualifying = qualifyingScoredLegs(scored, seatOpts);
   qualifying.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
 
   const selected = (
@@ -898,7 +966,7 @@ export function buildStagedTicketFromScan(
       ? selectTopBoardLegs(qualifying, target, varietySeed)
       : selectGreedyBoardLegs(qualifying, target, varietySeed)
   ).map((p) => {
-    const role = boardLegPoolRole(p, p.finalAiScore, { ticketStyle }) ?? "main";
+    const role = boardLegPoolRole(p, p.finalAiScore, seatOpts) ?? "main";
     return {
       ...p,
       ticketRole: role,

@@ -577,6 +577,9 @@ export type FootballPropsOnlyBuildOpts = {
    * same-event rare family seats. Generic mixed asks keep the diversity cap.
    */
   allowRareCountFamilyStack?: boolean;
+  askText?: string | null;
+  ticketStyle?: string | null;
+  allowRareMultiCount?: boolean;
 };
 
 export type FootballPropsOnlyResult = {
@@ -859,6 +862,9 @@ export async function buildFootballPropsOnlyTicket(
 
   const picks = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack, {
     allowRareCountFamilyStack: !!opts.allowRareCountFamilyStack,
+    askText: opts.askText,
+    ticketStyle: opts.ticketStyle,
+    allowRareMultiCount: opts.allowRareMultiCount,
   });
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {

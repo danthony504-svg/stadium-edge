@@ -97,6 +97,12 @@ import {
 } from "./coachHrRank.ts";
 import type { MlbGameEnvSlice, MlbPlatoonSlice } from "./propHolisticRecommendation.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
+import {
+  isRareMultiCountOver,
+  rareHrHardContextOk,
+  rareMultiCountLotteryPathOpen,
+} from "./rareMultiCountCoachGate.ts";
+import { gameValueForMarket } from "./propStats.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -473,6 +479,9 @@ function appendPropScoredLegs(
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    askText?: string | null;
+    allowRareMultiCount?: boolean;
+    ticketStyle?: string | null;
   },
 ): void {
   const pending = rankedProps.filter((p) => {
@@ -565,6 +574,68 @@ function appendPropScoredLegs(
     const simHit = pick.finalAiScore?.simHit ?? null;
     let leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
     if (!leg) continue;
+    // Carry rare-count reliability from enrich (null for ordinary markets).
+    const simKey = propSimKeyForPick(pick, poolRowForPropPick(pick, opts.pool));
+    const hitMeta = simKey ? propHits.get(simKey) : null;
+    if (
+      hitMeta &&
+      "hitReliability" in hitMeta &&
+      (hitMeta as { hitReliability?: number | null }).hitReliability != null
+    ) {
+      leg = {
+        ...leg,
+        hitReliability: (hitMeta as { hitReliability?: number | null }).hitReliability,
+      };
+    }
+    // Normal Coach: rare multi-count HR needs hard context (pitcher/park/history).
+    // Lottery / 2+ asks skip this — still need sim + #711 qualify.
+    if (
+      isRareMultiCountOver({
+        market: pick.propMarketKey ?? pick.market,
+        side: pick.propSide,
+        line: pick.propLine,
+      }) &&
+      isBatterHomeRunPick(pick) &&
+      !rareMultiCountLotteryPathOpen({
+        askText: opts.askText,
+        ticketStyle: opts.ticketStyle,
+        allowLotteryPath: opts.allowRareMultiCount,
+      })
+    ) {
+      const ids = opts.teamIdMap?.get(pick.game);
+      const rawPlatoon =
+        (pick.player &&
+          pick.athleteId &&
+          opts.mlbPlatoon?.[`${pick.player}#${pick.athleteId}`]) ||
+        null;
+      const rawEnv = opts.mlbGameEnv?.[pick.game] ?? null;
+      const ph =
+        (opts.playerHistory &&
+          pick.player &&
+          pick.athleteId &&
+          opts.playerHistory[`${pick.player}#${pick.athleteId}`]) ||
+        null;
+      const ambiguous = new Set<string>();
+      const hrVals =
+        ph?.recent
+          ?.map((g) =>
+            gameValueForMarket("batter_home_runs", g.stats ?? {}, ambiguous),
+          )
+          .filter((v): v is number => v != null && Number.isFinite(v)) ?? [];
+      const pt = String(poolRow?.playerTeamId ?? pick.playerTeamId ?? "").trim();
+      const homeId = String(ids?.homeTeamId ?? "").trim();
+      const isHome = pt && homeId ? pt === homeId : null;
+      const ctx = rareHrHardContextOk({
+        playerTeamId: pt || null,
+        homeTeamId: ids?.homeTeamId,
+        awayTeamId: ids?.awayTeamId,
+        gameEnv: (rawEnv as MlbGameEnvSlice | null) ?? null,
+        platoon: (rawPlatoon as MlbPlatoonSlice | null) ?? null,
+        hrHistoryValues: hrVals,
+        playerTeamIsHome: isHome,
+      });
+      if (!ctx.ok) continue;
+    }
     if (isBatterHomeRunPick(pick)) {
       const rawPlatoon =
         (pick.player &&
@@ -743,6 +814,9 @@ async function simPropPoolUntilQualified(
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
     manifestRecorder: opts.manifestRecorder,
+    askText: opts.varietyContext?.askText ?? null,
+    allowRareMultiCount: opts.varietyContext?.allowRareMultiCount,
+    ticketStyle: opts.ticketStyle ?? opts.varietyContext?.ticketStyle ?? null,
   };
 
   const combinedScored = () => [...gameScored, ...propScored];
@@ -837,20 +911,9 @@ export function buildScanResult(
     boardExhausted?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     varietySeed?: string;
-    varietyContext?: {
-      askText?: string | null;
-      singleEventKey?: string | null;
-      singleEventSport?: string | null;
-      ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
-      legsPerGameCap?: number | null;
-      collegeTeamMarketStacks?: boolean;
-      hardAvoidRecentLegs?: boolean;
-      recentTickets?: readonly (readonly string[])[];
-      recentLeadPlayers?: readonly string[];
-      recentPlayerCounts?: ReadonlyMap<string, number>;
-      recentSignatureCounts?: ReadonlyMap<string, number>;
-      recentTicketsByLegCount?: ReadonlyMap<number, readonly (readonly string[])[]>;
-    };
+    // CoachTicketStagingContext carries askText / single-event scope (#712) and
+    // allowRareMultiCount (#713) — richer than a Partial variety-memory bag.
+    varietyContext?: import("./ticketStaging.ts").CoachTicketStagingContext;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
     /** Stage only player-prop legs (props-only asks). Qual gates unchanged. */
@@ -897,12 +960,25 @@ export function buildScanResult(
   const teamScopedAsk = !!opts.teamScope;
   // Preview + final: collapse ladder rungs before staging so Colts +4.5 / +3.5
   // cannot both land on the hang-guard buffer or the terminal ticket.
+  // Prefer scopeSafe (#712 include-scope) over exclusionSafe alone.
   const ladderCollapsed = collapseScoredLegsByMarketLadder(scopeSafe);
-  const stagePool = opts.propsOnly
+  const stagePoolRaw = opts.propsOnly
     ? ladderCollapsed.filter((leg) => !!leg.pick.isProp)
     : opts.gameLinesOnly
       ? ladderCollapsed.filter((leg) => !leg.pick.isProp)
       : ladderCollapsed;
+  // Stamp lottery / 2+ intent onto the stage pool so bare boardLegPoolRole
+  // (fill / qualifiedCandidates / priority inject) still allows rare multi-count.
+  const stagePool =
+    opts.varietyContext?.allowRareMultiCount
+      ? stagePoolRaw.map((leg) => ({
+          ...leg,
+          pick: {
+            ...leg.pick,
+            allowRareMultiCount: true as const,
+          },
+        }))
+      : stagePoolRaw;
   const staged = buildStagedTicketFromScan(
     stagePool,
     opts.target,
@@ -1184,7 +1260,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
-  varietyContext?: Parameters<typeof buildScanResult>[1]["varietyContext"];
+  varietyContext?: import("./ticketStaging.ts").CoachTicketStagingContext;
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
   propsOnly?: boolean;

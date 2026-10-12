@@ -35,6 +35,7 @@ import {
   rareCountGameFamilyKey,
 } from "./rareCountPropModel.ts";
 import { withCoachQualification } from "./coach/qualifyCoachCandidate.ts";
+import { rareMultiCountNormalSeatAllowed } from "./rareMultiCountCoachGate.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
@@ -196,6 +197,11 @@ function stageFootballPropsOnlyLegsWithCap(
   maxSameGameMarketSide: number,
   oddsSlack: number = PROPS_ONLY_ODDS_SLACK,
   allowRareCountFamilyStack = false,
+  seatOpts?: {
+    askText?: string | null;
+    ticketStyle?: string | null;
+    allowRareMultiCount?: boolean;
+  },
 ): ParsedPick[] {
   const picks: ParsedPick[] = [];
   const usedPlayerMarket = new Set<string>();
@@ -230,6 +236,21 @@ function stageFootballPropsOnlyLegsWithCap(
       { requestStyle: "props_only", isProp: true },
     );
     if (qualified.qualificationStatus !== "qualified") continue;
+    // Rare multi-count Overs: normal props-only fail-closed unless lottery /
+    // explicit 2+ ask or sufficient reliability.
+    if (
+      !rareMultiCountNormalSeatAllowed(
+        { ...p, isProp: true },
+        {
+          askText: seatOpts?.askText,
+          ticketStyle: seatOpts?.ticketStyle,
+          hitReliability: leg.hitReliability,
+          allowLotteryPath: seatOpts?.allowRareMultiCount,
+        },
+      )
+    ) {
+      continue;
+    }
     // Canonical ladder — main + `_alternate` share one seat per player.
     const pm = propsOnlyCollapseLadderKey(p);
     if (usedPlayerMarket.has(pm)) continue;
@@ -270,6 +291,7 @@ function stageFootballPropsOnlyLegsWithCap(
       propsOnlyTicket: true,
       ticketRole: p.propIsAlt ? "alt" : "main",
       finalAiScore: p.finalAiScore,
+      ...(seatOpts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
     });
   }
   return picks;
@@ -278,6 +300,10 @@ function stageFootballPropsOnlyLegsWithCap(
 export type StageFootballPropsOnlyOpts = {
   /** Explicit HR / SB / goals asks may fill multiple rare-family seats. */
   allowRareCountFamilyStack?: boolean;
+  /** Raw ask — opens lottery / 2+ rare multi-count path when matched. */
+  askText?: string | null;
+  ticketStyle?: string | null;
+  allowRareMultiCount?: boolean;
 };
 
 /**
@@ -297,6 +323,11 @@ export function stageFootballPropsOnlyLegs(
   const ceiling = propsOnlyPerGameCeiling(target, uniqueGames || 1);
   const thinSlate = uniqueGames <= 1;
   const allowRare = !!opts?.allowRareCountFamilyStack;
+  const seatOpts = {
+    askText: opts?.askText,
+    ticketStyle: opts?.ticketStyle,
+    allowRareMultiCount: opts?.allowRareMultiCount,
+  };
   // Start at 3 (historic props-only default); raise to ceiling when short.
   // Prefer 1× same market+side per game on multi-game boards; raise only to fill.
   let best: ParsedPick[] = [];
@@ -310,6 +341,7 @@ export function stageFootballPropsOnlyLegs(
         msCap,
         oddsSlack,
         allowRare,
+        seatOpts,
       );
       if (best.length >= target) return best;
     }

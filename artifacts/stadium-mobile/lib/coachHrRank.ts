@@ -21,6 +21,7 @@ import type { PlayerHistorySlice } from "./pickScoreContext.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { boardLegPoolRole } from "./ticketStaging.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { preferAnytimeOverRareMultiCount } from "./rareMultiCountCoachGate.ts";
 
 /** Coach HR rank weights — sum to 1. Sim + matchup lead; EV is tertiary. */
 export const COACH_HR_RANK_WEIGHTS = {
@@ -303,10 +304,34 @@ export function coachHrRankScore(
 export function selectTopHrQualifiedLegs(
   ranked: BoardScoredLeg[],
   target: number,
+  seatOpts?: {
+    askText?: string | null;
+    ticketStyle?: string | null;
+    allowRareMultiCount?: boolean;
+  },
 ): ParsedPick[] {
+  const roleOpts = {
+    askText: seatOpts?.askText,
+    ticketStyle: seatOpts?.ticketStyle,
+    allowRareMultiCount: seatOpts?.allowRareMultiCount,
+  };
+  // Prefer anytime (≤0.5) over multi-count when both exist for a hitter on
+  // normal asks — lottery / 2+ asks keep the full multi-count pool.
+  const preferredPicks = preferAnytimeOverRareMultiCount(
+    ranked.map((l) => l.pick),
+    roleOpts,
+  );
+  const preferredFp = new Set(preferredPicks.map(pickLegFingerprint));
   const qualified = ranked
     .filter((leg) => isBatterHomeRunPick(leg.pick))
-    .filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null)
+    .filter((leg) => preferredFp.has(pickLegFingerprint(leg.pick)))
+    .filter(
+      (leg) =>
+        boardLegPoolRole(leg.pick, leg.pick.finalAiScore, {
+          ...roleOpts,
+          hitReliability: leg.hitReliability,
+        }) != null,
+    )
     .sort((a, b) => b.rankScore - a.rankScore || (b.simHit ?? 0) - (a.simHit ?? 0));
 
   const out: ParsedPick[] = [];
@@ -323,8 +348,16 @@ export function selectTopHrQualifiedLegs(
     if (!hitterKey || seenHitters.has(hitterKey)) continue;
     seenFp.add(fp);
     seenHitters.add(hitterKey);
-    const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore)!;
-    out.push({ ...leg.pick, ticketRole: role, highRiskValuePlay: false });
+    const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore, {
+      ...roleOpts,
+      hitReliability: leg.hitReliability,
+    })!;
+    out.push({
+      ...leg.pick,
+      ticketRole: role,
+      highRiskValuePlay: false,
+      ...(seatOpts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
+    });
   }
   return out;
 }

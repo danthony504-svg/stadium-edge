@@ -44,6 +44,8 @@ import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
 import { isRareCountPropMarket } from "@/lib/rareCountPropModel";
+import { rareMultiCountLotteryPathOpen } from "@/lib/rareMultiCountCoachGate";
+import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
@@ -439,6 +441,11 @@ export async function buildCoachParlay(opts: {
       lockedKeys != null &&
       lockedKeys.length > 0 &&
       lockedKeys.every((k) => isRareCountPropMarket(k));
+    const propsOnlyTicketStyle = detectCoachTicketStyle(opts.askText ?? "");
+    const allowRareMultiCount = rareMultiCountLotteryPathOpen({
+      askText: opts.askText,
+      ticketStyle: propsOnlyTicketStyle,
+    });
     const built = await buildFootballPropsOnlyTicket({
       target,
       pool: activePropPool,
@@ -452,6 +459,9 @@ export async function buildCoachParlay(opts: {
       mlbPlatoon,
       mlbGameEnv,
       allowRareCountFamilyStack,
+      askText: opts.askText,
+      ticketStyle: propsOnlyTicketStyle,
+      allowRareMultiCount,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
           filterPicksForCoachAskTeams(
@@ -742,6 +752,7 @@ export async function buildCoachParlay(opts: {
     playerHistory,
     matchupHistory,
     varietySeed: `greenfield-${target}-${Date.now()}`,
+    ticketStyle: detectCoachTicketStyle(opts.askText ?? ""),
     teamScope: inputs.teamScope,
     varietyContext: {
       ...recentParlayVarietyContext(),
@@ -754,6 +765,11 @@ export async function buildCoachParlay(opts: {
         inputs.teamScope && inputs.oddsGames[0]
           ? `${inputs.oddsGames[0].awayTeam ?? ""} @ ${inputs.oddsGames[0].homeTeam ?? ""}`
           : null,
+      // Rare multi-count lottery / 2+ / longshot path (#713).
+      allowRareMultiCount: rareMultiCountLotteryPathOpen({
+        askText: opts.askText,
+        ticketStyle: detectCoachTicketStyle(opts.askText ?? ""),
+      }),
     },
     onPartial: (partial) => {
       latest = partial;

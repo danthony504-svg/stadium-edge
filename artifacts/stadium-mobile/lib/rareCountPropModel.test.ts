@@ -243,16 +243,18 @@ test("generic 7-leg staging diversifies same-event rare HR family", () => {
   );
   assert.ok(hrOnTicket.length <= 1, `generic ticket rare HR seats=${hrOnTicket.length}`);
 
-  // Explicit HR board: only rare-family candidates, stacking allowed.
+  // Explicit multi-HR / lottery ask: stacking allowed + rare multi-count path open.
   const explicit = stageFootballPropsOnlyLegs(hrScored, 5, undefined, {
     allowRareCountFamilyStack: true,
+    allowRareMultiCount: true,
+    askText: "2+ HR lottery",
   });
   const hrExplicit = explicit.filter((p) =>
     isRareCountPropMarket(p.propMarketKey ?? p.market),
   );
   assert.ok(
     hrExplicit.length >= 2,
-    `explicit HR ask must allow multiple rare seats, got ${hrExplicit.length}`,
+    `explicit multi-HR lottery ask must allow multiple rare seats, got ${hrExplicit.length}`,
   );
 });
 

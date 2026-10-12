@@ -71,6 +71,10 @@ export type CoachTicketBuildOpts = {
   ticketStyle?: CoachTicketStyle;
   /** Override max game-line legs per matchup (game-lines-only / N-game asks). */
   legsPerGameCap?: number | null;
+  /** Raw ask — opens rare multi-count path for 2+ / multi-HR / lottery wording. */
+  askText?: string | null;
+  /** Explicit lottery / 2+ / longshot ask — stamps allowRareMultiCount on qualified picks. */
+  allowRareMultiCount?: boolean;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -170,7 +174,12 @@ const ASSEMBLY_CATEGORY_ORDERS: readonly (readonly BoardMarketCategory[])[] = [
  */
 function qualifyingScoredLegs(
   scored: BoardScoredLeg[],
-  opts?: { ticketStyle?: string | null; requestStyle?: CoachRequestStyle },
+  opts?: {
+    ticketStyle?: string | null;
+    requestStyle?: CoachRequestStyle;
+    askText?: string | null;
+    allowRareMultiCount?: boolean;
+  },
 ): BoardScoredLeg[] {
   const out: BoardScoredLeg[] = [];
   for (const leg of scored) {
@@ -185,11 +194,27 @@ function qualifyingScoredLegs(
       {
         ...leg.pick,
         coachRequestStyle: requestStyle,
-      } as typeof leg.pick & { coachRequestStyle: CoachRequestStyle },
+        hitReliability: (leg as { hitReliability?: number | null }).hitReliability,
+        ...(opts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
+      } as typeof leg.pick & {
+        coachRequestStyle: CoachRequestStyle;
+        hitReliability?: number | null;
+        allowRareMultiCount?: boolean;
+      },
       { requestStyle, isProp: !!leg.pick.isProp },
     );
     if (tagged.qualificationStatus !== "qualified") continue;
-    if (boardLegPoolRole(tagged, tagged.finalAiScore, { requestStyle }) == null) continue;
+    if (
+      boardLegPoolRole(tagged, tagged.finalAiScore, {
+        requestStyle,
+        ticketStyle: opts?.ticketStyle,
+        askText: opts?.askText,
+        hitReliability: (leg as { hitReliability?: number | null }).hitReliability,
+        allowRareMultiCount: opts?.allowRareMultiCount,
+      }) == null
+    ) {
+      continue;
+    }
     out.push({ ...leg, pick: tagged });
   }
   return out;
@@ -870,7 +895,13 @@ function generateTicketCandidates(
 ): TicketCandidate[] {
   const ticketStyle = opts.ticketStyle ?? "balanced";
   // Qualify once here — never pass raw scored into assembly/backfill.
-  const qualifying = qualifyingScoredLegs(scored, { ticketStyle });
+  // Pass askText / allowRareMultiCount so 2+ / multi-HR (balanced style) seats
+  // on the combinator path — longshot ticketStyle alone is not enough.
+  const qualifying = qualifyingScoredLegs(scored, {
+    ticketStyle,
+    askText: opts.askText,
+    allowRareMultiCount: opts.allowRareMultiCount,
+  });
   const out: TicketCandidate[] = [];
   const profile = ticketSizeProfile(target);
   const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
@@ -1052,7 +1083,11 @@ export function buildIndependentCoachTicket(
     if (fresh.length > 0) workScored = fresh;
   }
 
-  const qualifying = qualifyingScoredLegs(workScored);
+  const qualifying = qualifyingScoredLegs(workScored, {
+    ticketStyle: opts.ticketStyle,
+    askText: opts.askText,
+    allowRareMultiCount: opts.allowRareMultiCount,
+  });
   const candidates = generateTicketCandidates(workScored, target, opts);
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
