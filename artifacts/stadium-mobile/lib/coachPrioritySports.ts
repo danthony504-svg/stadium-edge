@@ -165,7 +165,10 @@ export function injectPrioritySportsIntoTicket(
   scored: BoardScoredLeg[],
   target: number,
   prioritySports: readonly string[] = COACH_PRIORITY_SPORTS,
+  /** When true, team/game include-scope is active — never inject cross-sport. */
+  teamScopedAsk = false,
 ): ParsedPick[] {
+  if (teamScopedAsk) return picks.slice(0, Math.max(0, target));
   if (target < 3 || picks.length === 0) return picks;
   let out = picks.slice(0, target);
   const used = new Set(out.map(pickLegFingerprint));
@@ -300,7 +303,10 @@ export function enforceMultiSportFloorOnTicket(
   scored: BoardScoredLeg[],
   target: number,
   prioritySports: readonly string[] = COACH_PRIORITY_SPORTS,
+  /** When true, team/game include-scope is active — never introduce foreign sports. */
+  teamScopedAsk = false,
 ): ParsedPick[] {
+  if (teamScopedAsk) return picks.slice(0, Math.max(0, target));
   if (target < 6 || picks.length === 0) return picks;
   // Re-apply soft priority inject in case prop-slot fill evicted football seats.
   let out = injectPrioritySportsIntoTicket(picks, scored, target, prioritySports);

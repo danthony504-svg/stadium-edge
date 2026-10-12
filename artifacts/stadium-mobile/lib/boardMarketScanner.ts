@@ -10,7 +10,10 @@ import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
   filterOddsGamesExcludingTeams,
   filterPicksExcludingTeams,
+  filterPicksForAskTeam,
+  filterScoredLegsForAskTeam,
   type CoachAskExcludedTeam,
+  type CoachAskTeamScope,
 } from "./coachAskTeamScope.ts";
 import {
   createCoachBoardScanManifestRecorder,
@@ -908,6 +911,8 @@ export function buildScanResult(
     boardExhausted?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     varietySeed?: string;
+    // CoachTicketStagingContext carries askText / single-event scope (#712) and
+    // allowRareMultiCount (#713) — richer than a Partial variety-memory bag.
     varietyContext?: import("./ticketStaging.ts").CoachTicketStagingContext;
     ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
     requestId?: string;
@@ -934,6 +939,12 @@ export function buildScanResult(
     prioritySports?: readonly string[];
     /** Drop scored leftovers from excluded matchups before staging/top-up. */
     excludedTeams?: readonly CoachAskExcludedTeam[];
+    /**
+     * Positive franchise/game include-scope. Immutable seating constraint —
+     * not a grade gate. When set, cross-sport inject/floor is disabled and
+     * every fill helper may only seat matching legs.
+     */
+    teamScope?: CoachAskTeamScope | null;
   },
 ): FullBoardScanResult {
   // Drop excluded-matchup leftovers before staging/top-up can re-seat them.
@@ -943,9 +954,14 @@ export function buildScanResult(
           filterPicksExcludingTeams([leg.pick], opts.excludedTeams).length > 0,
       )
     : scored;
+  // Include-scope before any staging/fill — generic qualified leftovers cannot
+  // re-enter a team-scoped ticket (Buffalo ask must not seat Guardians/Dodgers).
+  const scopeSafe = filterScoredLegsForAskTeam(exclusionSafe, opts.teamScope);
+  const teamScopedAsk = !!opts.teamScope;
   // Preview + final: collapse ladder rungs before staging so Colts +4.5 / +3.5
   // cannot both land on the hang-guard buffer or the terminal ticket.
-  const ladderCollapsed = collapseScoredLegsByMarketLadder(exclusionSafe);
+  // Prefer scopeSafe (#712 include-scope) over exclusionSafe alone.
+  const ladderCollapsed = collapseScoredLegsByMarketLadder(scopeSafe);
   const stagePoolRaw = opts.propsOnly
     ? ladderCollapsed.filter((leg) => !!leg.pick.isProp)
     : opts.gameLinesOnly
@@ -972,27 +988,36 @@ export function buildScanResult(
       ticketStyle: opts.ticketStyle,
       legsPerGameCap: opts.legsPerGameCap,
       collegeTeamMarketStacks: opts.collegeTeamMarketStacks,
+      askText: opts.varietyContext?.askText,
+      singleEventKey: opts.varietyContext?.singleEventKey,
+      singleEventSport:
+        opts.varietyContext?.singleEventSport ?? opts.teamScope?.sport ?? undefined,
     },
   );
-  let picks = injectPrioritySportsIntoTicket(
-    staged.picks,
-    stagePool,
-    opts.target,
-    opts.prioritySports,
-  );
+  let picks = teamScopedAsk
+    ? staged.picks
+    : injectPrioritySportsIntoTicket(
+        staged.picks,
+        stagePool,
+        opts.target,
+        opts.prioritySports,
+      );
   // When qualified props exist, fill ~40–50% reserved prop slots (TD / pass /
   // rec / rush yards preferred) so gameLines-first combinators cannot ship
-  // ML/totals-only tickets.
+  // ML/totals-only tickets. Scoped pool only — never foreign games.
   if (!opts.gameLinesOnly && !opts.propsOnly) {
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
   // Prop-slot fill can evict soft football injects; restore multi-sport floor after.
-  picks = enforceMultiSportFloorOnTicket(
-    picks,
-    stagePool,
-    opts.target,
-    opts.prioritySports ?? undefined,
-  );
+  // Scoped asks disable cross-sport/cross-game variety entirely.
+  if (!teamScopedAsk) {
+    picks = enforceMultiSportFloorOnTicket(
+      picks,
+      stagePool,
+      opts.target,
+      opts.prioritySports ?? undefined,
+    );
+  }
   // Multi-sport floor can displace props — restore the reserved prop mix.
   if (!opts.gameLinesOnly && !opts.propsOnly) {
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
@@ -1016,11 +1041,14 @@ export function buildScanResult(
   }
   // Final safety: one rung per market ladder on the published ticket.
   picks = dedupePicksByMarketLadder(picks);
+  // Include-scope belt — fills must never reintroduce foreign games/sports.
+  picks = filterPicksForAskTeam(picks, opts.teamScope ?? null);
   // Top up from AI-qualified scored leftovers whenever under target — including
   // mid-scan previews. Preview used to skip this then seat-cap to exactly
   // boardScanNonPropPreviewCap(N) (phone 5→2 / 6→3) for the hang-guard buffer.
   // Never invents ungraded filler. Football finalize still re-caps while props
   // are incomplete; non-football keeps every cleared leg for terminal flush.
+  // stagePool is already include-scoped — top-up cannot pull generic leftovers.
   if (picks.length < opts.target) {
     picks = topUpTicketFromQualifiedScored(
       picks,
@@ -1035,6 +1063,7 @@ export function buildScanResult(
           }
         : undefined,
     );
+    picks = filterPicksForAskTeam(picks, opts.teamScope ?? null);
     // Top-up may have added game lines first on short tickets — enforce prop mix again.
     if (!opts.gameLinesOnly && !opts.propsOnly) {
       picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
@@ -1235,6 +1264,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle;
   requestId?: string;
   propsOnly?: boolean;
+  /** Positive franchise/game include-scope for seating (not a grade gate). */
+  teamScope?: CoachAskTeamScope | null;
   /** Simulate every eligible prop (HR boards) — do not stop after N qualify. */
   exhaustPropBoard?: boolean;
   /** When set, overrides default max legs per game (game-lines-only / N-game asks). */
@@ -1384,6 +1415,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       requirePropMix: opts.requirePropMix,
       prioritySports: opts.prioritySports,
       excludedTeams,
+      teamScope: opts.teamScope,
     });
     if (shouldEmitBoardScanPartial(partial)) opts.onPartial(partial);
   };
@@ -1748,6 +1780,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     failureDiagnostics,
     prioritySports: opts.prioritySports,
     excludedTeams,
+    teamScope: opts.teamScope,
   });
   simulateSession?.markFinalizationEnd();
   const overlapMetrics = simulateSession ? endCoachSimulateSession() : null;
