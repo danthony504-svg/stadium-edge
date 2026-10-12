@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql, lt, like, or } from "drizzle-orm";
 import { db, userSyncTable, notifLogTable, pushTokensTable } from "@workspace/db";
-import { sendPush } from "./push.js";
+import { sendPush, scheduleExpoReceiptCheck } from "./push.js";
 import { decideSweepAction, pruneCutoffMs } from "./coachBuildSweep.js";
 import {
   coachReadyDedupeKey,
@@ -181,13 +181,19 @@ export async function stashAndNotifyBackgroundBuild(opts: {
       body: "Your AI Coach finished the ticket you started. Tap to see it.",
       data: { type: "coachReady" as const, buildId },
     }));
-    const { invalidTokens } = await sendPush(messages);
+    const { invalidTokens, pendingReceipts } = await sendPush(messages);
     if (invalidTokens.length > 0) {
       await db
         .delete(pushTokensTable)
         .where(inArray(pushTokensTable.token, invalidTokens))
         .catch(() => {});
     }
+    scheduleExpoReceiptCheck(pendingReceipts, async (dead) => {
+      await db
+        .delete(pushTokensTable)
+        .where(inArray(pushTokensTable.token, dead))
+        .catch(() => {});
+    });
   } catch (err) {
     log.error({ err }, "background coach build stash/notify failed");
   }
@@ -263,13 +269,19 @@ export async function stashBackgroundBuildFailure(opts: {
       // where the client reads the stashed terminal status and shows the retry.
       data: { type: "coachReady" as const, buildId },
     }));
-    const { invalidTokens } = await sendPush(messages);
+    const { invalidTokens, pendingReceipts } = await sendPush(messages);
     if (invalidTokens.length > 0) {
       await db
         .delete(pushTokensTable)
         .where(inArray(pushTokensTable.token, invalidTokens))
         .catch(() => {});
     }
+    scheduleExpoReceiptCheck(pendingReceipts, async (dead) => {
+      await db
+        .delete(pushTokensTable)
+        .where(inArray(pushTokensTable.token, dead))
+        .catch(() => {});
+    });
   } catch (err) {
     log.error({ err }, "background coach build failure stash/notify failed");
   }

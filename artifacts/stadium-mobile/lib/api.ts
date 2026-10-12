@@ -271,24 +271,59 @@ async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUES
 import { getAuthTokenGetter, setAuthTokenGetter } from "./authToken";
 export { setAuthTokenGetter };
 
+async function resolveAuthedBearer(forceFresh: boolean): Promise<string | null> {
+  const getter = getAuthTokenGetter();
+  if (!getter) return null;
+  try {
+    let token = await getter({ skipCache: forceFresh });
+    // First paint / Clerk cache misses often yield null — one forced refresh.
+    if (!token) token = await getter({ skipCache: true });
+    return token;
+  } catch {
+    return null;
+  }
+}
+
 async function authedFetch(
   path: string,
-  init?: { method?: string; body?: string; headers?: Record<string, string> },
+  init?: {
+    method?: string;
+    body?: string;
+    headers?: Record<string, string>;
+    /** Prefer a freshly minted Clerk session JWT (notifications test/register). */
+    forceFreshToken?: boolean;
+  },
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init?.headers ?? {}) };
-  let token: string | null = null;
-  try {
-    const getter = getAuthTokenGetter();
-    token = getter ? await getter() : null;
-  } catch {
-    token = null;
+  const method = init?.method ?? "GET";
+  let token = await resolveAuthedBearer(init?.forceFreshToken === true);
+  // Fail closed: never hit Clerk-protected routes anonymously (server 401 is
+  // indistinguishable from a missing Bearer in the test-notification UI).
+  if (!token) {
+    return new Response(JSON.stringify({ error: "auth required" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
   }
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return expoFetch(`${API_BASE}${path}`, {
-    method: init?.method ?? "GET",
+  headers["Authorization"] = `Bearer ${token}`;
+  let res = (await expoFetch(`${API_BASE}${path}`, {
+    method,
     headers,
     body: init?.body,
-  }) as unknown as Promise<Response>;
+  })) as unknown as Response;
+  // Stale cached JWT → one refresh retry with the same request.
+  if (res.status === 401) {
+    const refreshed = await resolveAuthedBearer(true);
+    if (refreshed && refreshed !== token) {
+      headers["Authorization"] = `Bearer ${refreshed}`;
+      res = (await expoFetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        body: init?.body,
+      })) as unknown as Response;
+    }
+  }
+  return res;
 }
 
 // ---------- Cross-device sync (per signed-in user) ----------
@@ -434,6 +469,7 @@ export async function registerPushToken(token: string, platform?: string): Promi
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, platform }),
+    forceFreshToken: true,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
@@ -444,13 +480,14 @@ export async function unregisterPushToken(token: string): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
+    forceFreshToken: true,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 // Read the signed-in user's notification prefs.
 export async function getNotifPrefs(): Promise<NotifPrefs> {
-  const res = await authedFetch("/notifications/prefs");
+  const res = await authedFetch("/notifications/prefs", { forceFreshToken: true });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = (await res.json()) as { prefs: NotifPrefs };
   return body.prefs;
@@ -462,6 +499,7 @@ export async function putNotifPrefs(prefs: Partial<NotifPrefs>): Promise<NotifPr
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prefs }),
+    forceFreshToken: true,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = (await res.json()) as { prefs: NotifPrefs };
@@ -469,10 +507,25 @@ export async function putNotifPrefs(prefs: Partial<NotifPrefs>): Promise<NotifPr
 }
 
 // Send a test push to all of the caller's registered devices.
-export async function sendTestPush(): Promise<{ ok: boolean; sent: number }> {
-  const res = await authedFetch("/notifications/test", { method: "POST" });
+export async function sendTestPush(): Promise<{
+  ok: boolean;
+  sent: number;
+  devices?: number;
+  userId?: string;
+}> {
+  const res = await authedFetch("/notifications/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+    forceFreshToken: true,
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as { ok: boolean; sent: number };
+  return (await res.json()) as {
+    ok: boolean;
+    sent: number;
+    devices?: number;
+    userId?: string;
+  };
 }
 
 export async function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {

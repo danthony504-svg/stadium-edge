@@ -88,7 +88,7 @@ export default function NotificationsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, getToken } = useAuth();
 
   const [prefs, setPrefs] = useState<NotifPrefs>(DEFAULT_PREFS);
   const [loading, setLoading] = useState(true);
@@ -140,6 +140,18 @@ export default function NotificationsScreen() {
   const onTest = useCallback(async () => {
     setTesting(true);
     try {
+      // Mint a fresh Clerk session JWT before the authed POST. Matches other
+      // working mobile Bearer flows (sync) and avoids a stale/empty bridge race.
+      const sessionJwt = await getToken({ skipCache: true });
+      if (!sessionJwt) {
+        Alert.alert(
+          "Couldn't send",
+          "Your session expired. Sign in again, then retry the test notification.",
+        );
+        return;
+      }
+      // Ensure the device token is registered under this session before testing.
+      await registerForPushAsync();
       const res = await sendTestPush();
       if (res.sent > 0) {
         Alert.alert("Test sent", `Sent to ${res.sent} device${res.sent === 1 ? "" : "s"}.`);
@@ -149,12 +161,20 @@ export default function NotificationsScreen() {
           "This device isn't registered for push yet. Make sure notifications are enabled, then try again.",
         );
       }
-    } catch {
-      Alert.alert("Couldn't send", "The test notification failed. Please try again.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (/\b401\b/.test(msg)) {
+        Alert.alert(
+          "Couldn't send",
+          "Sign-in expired for this request. Sign in again, then retry.",
+        );
+      } else {
+        Alert.alert("Couldn't send", "The test notification failed. Please try again.");
+      }
     } finally {
       setTesting(false);
     }
-  }, []);
+  }, [getToken]);
 
   // Notification prefs are per-account; require sign-in.
   if (!isSignedIn) return <Redirect href="/sign-in" />;
