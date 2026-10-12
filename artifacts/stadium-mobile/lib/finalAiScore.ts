@@ -201,6 +201,13 @@ export function buildFinalAiScore(input: {
       rubricScores: input.rubricScores,
       edgePct: rubric.edgePct,
       simHit,
+      odds: input.pick.odds ?? input.propHolisticContext?.odds ?? null,
+      propLine: input.pick.propLine ?? input.propHolisticContext?.propLine ?? null,
+      marketKey:
+        input.propHolisticContext?.marketKey ??
+        input.pick.propMarketKey ??
+        input.pick.market,
+      propSide: input.propHolisticContext?.propSide ?? input.pick.propSide ?? null,
     });
     for (const hf of propHolistic.factors) {
       if (!hf.applicable) continue;

@@ -19,8 +19,18 @@ import {
   COACH_CONTEXT_TTL_MS,
   rememberCoachContextCache,
 } from "./coachContextCache.ts";
+import {
+  isRareMultiCountOver,
+  rareCountHitReliability,
+} from "./rareCountPropModel.ts";
+import { gameValueForMarket } from "./propStats.ts";
 
-export type PropSimHit = { hitProbability: number | null; nullReason?: string | null };
+export type PropSimHit = {
+  hitProbability: number | null;
+  nullReason?: string | null;
+  /** 0..1 rare-count reliability when computed from logs. */
+  hitReliability?: number | null;
+};
 
 export type EnrichCoachPropSimResult = {
   hits: Map<string, PropSimHit>;
@@ -158,6 +168,20 @@ export async function enrichCoachPropSimHits(
     if (!key) continue;
     const row = out.get(key);
     historyNeeded.push(pick);
+    const poolRow = poolRowForPick(pick, pool);
+    const market = pick.propMarketKey ?? poolRow?.marketKey ?? pick.market;
+    // Rare multi-count Overs (HR/SB/goals ≥1.5): never trust generic boosted
+    // server MC — always recompute via rare-count local model (or null).
+    if (
+      isRareMultiCountOver({
+        market,
+        side: pick.propSide,
+        line: pick.propLine,
+      })
+    ) {
+      pending.push(pick);
+      continue;
+    }
     // Exact 0/1 on binary TD markets is not a usable grade — soft-clip in place
     // (or fall through to local history) instead of treating as "already simulated".
     if (row?.hitProbability != null && Number.isFinite(row.hitProbability)) {
@@ -250,15 +274,33 @@ export async function enrichCoachPropSimHits(
       side,
     });
     if (local?.hitProbability == null) {
-      if (!out.has(key) || out.get(key)?.hitProbability == null) {
-        out.set(key, {
-          hitProbability: null,
-          nullReason: hist?.recent?.length ? "insufficient_game_log" : "no_player_history",
-        });
-      }
+      out.set(key, {
+        hitProbability: null,
+        nullReason: hist?.recent?.length
+          ? isRareMultiCountOver({ market, side, line: pick.propLine })
+            ? "rare_count_insufficient_evidence"
+            : "insufficient_game_log"
+          : "no_player_history",
+        hitReliability: 0,
+      });
       continue;
     }
-    out.set(key, { hitProbability: local.hitProbability, nullReason: null });
+    let hitReliability: number | null = null;
+    if (
+      isRareMultiCountOver({ market, side, line: pick.propLine }) &&
+      hist?.recent?.length
+    ) {
+      const ambiguous = new Set<string>();
+      const vals = hist.recent
+        .map((g) => gameValueForMarket(market, g.stats ?? {}, ambiguous))
+        .filter((v): v is number => v != null && Number.isFinite(v));
+      hitReliability = rareCountHitReliability(vals, pick.propLine, side);
+    }
+    out.set(key, {
+      hitProbability: local.hitProbability,
+      nullReason: null,
+      hitReliability,
+    });
   }
 
   return { hits: out, playerHistory, historyReused, historyFetched };

@@ -22,6 +22,10 @@ import {
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
+import {
+  isRareMultiCountOver,
+  rareMultiCountSportsbookValueScore,
+} from "./rareMultiCountCoachGate.ts";
 
 export type PropHolisticFactorKey =
   | "recentForm"
@@ -138,6 +142,10 @@ export type PropHolisticContext = {
   sport?: string;
   marketKey?: string;
   propSide?: string | null;
+  /** Posted American odds — used to bound lottery EV on rare multi-count Overs. */
+  odds?: number | null;
+  /** Prop line — used with marketKey/side for rare multi-count EV bound. */
+  propLine?: number | null;
   rubricScores?: PickSubScores;
   edgePct?: number | null;
   simHit?: number | null;
@@ -438,9 +446,20 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
   const rubric = ctx.rubricScores;
   const marketKey = (ctx.marketKey ?? "").toLowerCase();
 
-  const sportsbook =
+  // Rare multi-count + tiny implied: bound EV so sportsbookValue cannot alone
+  // manufacture C+. Ordinary markets keep uncapped scoreLineValue(edge).
+  const rareOpts = {
+    market: marketKey || ctx.marketKey,
+    side: ctx.propSide,
+    line: ctx.propLine,
+  };
+  const uncappedSportsbook =
     scoreSportsbookValue(rubric?.lineValue, rubric?.lineShopping) ??
     (ctx.edgePct != null ? scoreLineValue(ctx.edgePct) : null);
+  const sportsbook = isRareMultiCountOver(rareOpts)
+    ? rareMultiCountSportsbookValueScore(ctx.edgePct, ctx.odds, rareOpts) ??
+      uncappedSportsbook
+    : uncappedSportsbook;
   const playing = scorePlayingTime(ctx.minutesTrend, ctx.propSide);
   const weather = weatherApplicable(sport)
     ? scoreWeather(ctx.mlbGameEnv, marketKey, ctx.propSide, sport)
@@ -673,6 +692,8 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     sport: pick.sport,
     marketKey: pick.propMarketKey ?? pick.market,
     propSide: pick.propSide,
+    propLine: pick.propLine,
+    odds: pick.odds,
     rubricScores: rubric ?? {
       matchup: null,
       trend: null,
@@ -700,6 +721,8 @@ export function minimalPropHolisticForPick(pick: ParsedPick): PropHolisticScore 
     sport: pick.sport,
     marketKey: pick.propMarketKey ?? pick.market,
     propSide: pick.propSide,
+    propLine: pick.propLine,
+    odds: pick.odds,
     rubricScores: rubric ?? {
       matchup: null,
       trend: null,
