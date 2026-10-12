@@ -192,3 +192,12 @@ Benchmark hooks: reuse existing coach timing / add optional `performance.now` ar
 | Device pipeline proof | `COACH_PIPELINE_VERSION` on ota-debug snapshot |
 
 **Not done (out of scope / follow-up):** delete dead `shouldUseFullBoardScan` / unused delivery wrappers; OTA publish.
+
+### Bypass closure (post adversarial review)
+
+| Leak | Fix |
+|------|-----|
+| Tiered backfill on raw `scored` via `legQualifiesAtMinGrade` | Assembly/backfill receive **qualifying-only** pool; `legQualifiesAtMinGrade` requires shared qualify / refuses `rejected` |
+| Props-only hardcoded `qualificationStatus: "qualified"` | `withCoachQualification(..., props_only)` — forged qualified stamps stripped |
+| Longshot style not wired | `resolveCoachRequestStyle` + `coachRequestStyle` on picks; `boardLegPoolRole` passes longshot |
+| Nested re-qualify CPU | Qualify once → attach immutable status → downstream reads (~0.2µs vs ~4µs evaluate) |
