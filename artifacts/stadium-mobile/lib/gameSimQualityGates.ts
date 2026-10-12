@@ -43,6 +43,20 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
+/**
+ * Shared Coach quality floor — grade ≥ COACH_SIM_MIN_GRADE and confidence ≥
+ * COACH_SIM_MIN_CONFIDENCE. Props-only history/EV clearance must still meet this;
+ * positive EV alone must never override a failing grade or confidence.
+ */
+export function meetsCoachSimQualityFloor(score: {
+  grade?: string | null;
+  confidencePct?: number | null;
+}): boolean {
+  if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
+  if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
+  return true;
+}
+
 export type GameSimLineMetrics = {
   simHit: number;
   fairOdds: number;

@@ -194,16 +194,17 @@ test("generic 7-leg staging diversifies same-event rare HR family", () => {
         athleteId: String(10 + i),
       }),
       // Clears odds vs extreme longshot implied; reliability stays weak.
+      // Grade stays at the shared Coach floor — F lottery EV must not stage.
       simHit: 0.03,
       evPct: 500 - i,
       hitReliability: 0.25,
       rankScore: 5,
       edgePct: 2,
-      confidencePct: 52,
+      confidencePct: 55,
       impliedProbPct: 0.3,
       lineShoppingScore: null,
-      grade: "F",
-      composite: 3,
+      grade: "C+",
+      composite: 5,
     } as BoardScoredLeg);
   }
   // Mixed board: HR longshots + ordinary yards from other games.

@@ -4,6 +4,7 @@ import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   COACH_SIM_MIN_CONFIDENCE,
   COACH_SIM_MIN_GRADE,
+  meetsCoachSimQualityFloor,
   simEvPct,
 } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
@@ -410,13 +411,18 @@ export function pickGradeDisplayCaption(
   return "Did not pass AI recommendation thresholds";
 }
 
-/** Props-only ticket legs that already cleared history/EV at stage time. */
+/**
+ * Props-only ticket legs that cleared history/EV AND the shared Coach quality
+ * floor (grade ≥ COACH_SIM_MIN_GRADE, confidence ≥ COACH_SIM_MIN_CONFIDENCE).
+ * Positive EV alone must never seat an F/D/C (or below-floor) prop.
+ */
 export function propsOnlyTicketCleared(
   pick: RecommendablePick,
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!pick.propsOnlyTicket || !pick.isProp || !score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (!meetsCoachSimQualityFloor(score)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);

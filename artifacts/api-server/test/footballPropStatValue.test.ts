@@ -60,6 +60,14 @@ test("seven football mains are discrete count markets", () => {
   assert.equal(isDiscreteCountMarket("player_pass_yds"), false);
 });
 
+test("NHL player_points uses P alias; blank/missing fail closed", () => {
+  assert.equal(gameValueForMarket("player_points", { P: "2" }, NONE), 2);
+  assert.equal(gameValueForMarket("player_points", { P: "0" }, NONE), 0);
+  assert.equal(gameValueForMarket("player_points", { G: "1", A: "1" }, NONE), null);
+  assert.equal(gameValueForMarket("player_points", { P: "" }, NONE), null);
+  assert.equal(gameValueForMarket("player_points", { PTS: "21", P: "2" }, NONE), 21);
+});
+
 test("D/ST props map to ESPN defensive / kicking fields", () => {
   assert.equal(gameValueForMarket("player_tackles_assists", { totalTackles: "8" }, NONE), 8);
   assert.equal(gameValueForMarket("player_solo_tackles", { soloTackles: "5" }, NONE), 5);

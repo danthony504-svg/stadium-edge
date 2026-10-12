@@ -539,6 +539,30 @@ test("propsOnlyPriorSeasonYear prefers second available season", () => {
   assert.equal(propsOnlyPriorSeasonYear(["2026"]), "2025");
 });
 
+test("props-only: confidence below COACH_SIM_MIN_CONFIDENCE does not stage", () => {
+  const scored: BoardScoredLeg[] = Array.from({ length: 8 }, (_, i) => {
+    const p = {
+      ...pick("player_points", `W${i}`, 16.5, { athleteId: `w-${i}`, odds: 115 }),
+      sport: "wnba",
+      game: `Away${i} @ Home${i}`,
+      propsOnlyTicket: true,
+    };
+    return {
+      pick: p,
+      evPct: 20,
+      edgePct: 20,
+      confidencePct: 45,
+      impliedProbPct: 46.5,
+      lineShoppingScore: null,
+      grade: "B",
+      simHit: 0.7,
+      composite: 7,
+      rankScore: 7,
+    } as BoardScoredLeg;
+  });
+  assert.equal(stageFootballPropsOnlyLegs(scored, 8).length, 0);
+});
+
 test("phone 3-of-8 rebuild: WNBA points props stage 8 legs via history EV (not confidence bar)", () => {
   const candidates: ParsedPick[] = [];
   const histories: Record<string, { recent: { stats: Record<string, string> }[] }> = {};
@@ -592,12 +616,15 @@ test("phone 3-of-8 rebuild: WNBA points props stage 8 legs via history EV (not c
         histories[`${p.player}#${p.athleteId}`],
       ).hitProbability;
       if (!propsOnlyLegClearsOdds(p, hit)) return null;
-      // Simulate thin context (43% grounded / conf 45) — history EV path still stages.
+      // Genuine conf at the shared floor — weak conf must not be manufactured upward.
       return {
-        pick: { ...p, finalAiScore: { confidencePct: 45 } as never },
+        pick: {
+          ...p,
+          finalAiScore: { grade: "B", confidencePct: 55, edgePct: ((hit ?? 0) - 0.465) * 100 } as never,
+        },
         evPct: ((hit ?? 0) - 0.465) * 100,
         edgePct: ((hit ?? 0) - 0.465) * 100,
-        confidencePct: 45,
+        confidencePct: 55,
         impliedProbPct: 46.5,
         lineShoppingScore: null,
         grade: "B",
