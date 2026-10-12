@@ -1,0 +1,34 @@
+{
+  "capturedAtUtc": "2026-10-12T12:18:00Z",
+  "source": "GET https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c with expo-runtime-version=1.1.0 expo-channel-name=production expo-platform=ios",
+  "id": "01a12e0b-2bdc-75dd-944b-310a4eb5add5",
+  "createdAt": "2026-10-12T02:57:26.492Z",
+  "runtimeVersion": "1.1.0",
+  "metadata": {
+    "updateGroup": "e62da3e0-6a09-424b-898a-50c3090581ec",
+    "branchName": "production"
+  },
+  "extra": {
+    "eas": {
+      "projectId": "9af36ab9-f953-4879-9dd2-82807ef7430c"
+    },
+    "expoClientVersion": "1.1.0",
+    "expoClientRuntimeVersion": "1.1.0",
+    "updates": {
+      "url": "https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      },
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
+  },
+  "launchAsset": {
+    "key": "e06d2d6a4a677ce65337ac7ce6dda708",
+    "hash": "5Vt_BBjCjjw4C7KHQoDbtDiTwxpDxvbp2nyKQwyaoqc",
+    "contentType": "application/javascript"
+  },
+  "assetCount": 55,
+  "ciPublishRun": "38197651441",
+  "ciCommit": "a20c39394f35fd563a5b6483274df142aaed5e7d"
+}
