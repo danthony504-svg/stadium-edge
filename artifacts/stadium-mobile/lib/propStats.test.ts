@@ -69,6 +69,21 @@ test("plain single-column markets are unaffected", () => {
   assert.equal(gameValueForMarket("player_points", {}, NONE), null);
 });
 
+test("NHL player_points: P alias, genuine zero, missing fail-closed", () => {
+  // ESPN NHL skater logs use P (goals+assists), not PTS — same pattern as AST→A.
+  assert.equal(gameValueForMarket("player_points", { P: "2" }, NONE), 2);
+  assert.equal(gameValueForMarket("player_points", { G: "1", A: "1", P: "2" }, NONE), 2);
+  // Genuine 0-point game (field present as "0") stays 0.
+  assert.equal(gameValueForMarket("player_points", { P: "0", G: "0", A: "0" }, NONE), 0);
+  // Missing / blank must NOT become 0 (Brady U0.5 98% zero-fill path).
+  assert.equal(gameValueForMarket("player_points", {}, NONE), null);
+  assert.equal(gameValueForMarket("player_points", { G: "1", A: "1" }, NONE), null);
+  assert.equal(gameValueForMarket("player_points", { P: "" }, NONE), null);
+  assert.equal(gameValueForMarket("player_points", { PTS: "" }, NONE), null);
+  // Basketball PTS still preferred when present.
+  assert.equal(gameValueForMarket("player_points", { PTS: "21", P: "2" }, NONE), 21);
+});
+
 test("football props use unambiguous ESPN machine fields", () => {
   const stats = {
     passingYards: "278",

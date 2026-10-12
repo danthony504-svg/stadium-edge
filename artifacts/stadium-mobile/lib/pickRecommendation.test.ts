@@ -14,7 +14,7 @@ import {
   filterTicketPicksPreservingTicket,
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
-  pickGradeDisplayCaption,
+  pickPassesTicketGate,
   propsOnlyTicketCleared,
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
@@ -909,9 +909,33 @@ test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tic
   assert.equal(topped.length, 1);
 });
 
-test("phone props-only Not Rec: propsOnlyTicket + positive EV shows letter grade", () => {
-  // Phone: RJ Harvey Anytime TD +370 Conf 42 / Not Rec. while note said cleared quality bar.
-  const pick = {
+test("props-only: positive EV cannot clear below COACH_SIM_MIN_GRADE / confidence floor", () => {
+  // Phone: Imama O1.5 Goals +16000 F / conf 52 / ~2% — EV alone must not seat.
+  const imama = {
+    market: "Goals",
+    propMarketKey: "player_goals",
+    isProp: true,
+    sport: "nhl",
+    odds: 16000,
+    propsOnlyTicket: true,
+    ticketRole: "main" as const,
+  };
+  const imamaScore = {
+    grade: "F",
+    confidencePct: 52,
+    edgePct: 1.4,
+    simHit: 0.02,
+    simAligned: true,
+    recommends: true,
+    composite: 3,
+    highRiskValuePlay: false,
+  } as any;
+  assert.equal(propsOnlyTicketCleared(imama, imamaScore), false);
+  assert.equal(pickPassesTicketGate(imama, imamaScore), false);
+
+  // Weak confidence must fail — do not treat lifted/manufactured 52 as a free pass
+  // when the genuine score is below the floor (historical Conf 42 Anytime TD).
+  const weakConf = {
     market: "Anytime TD",
     propMarketKey: "player_anytime_td",
     isProp: true,
@@ -920,7 +944,7 @@ test("phone props-only Not Rec: propsOnlyTicket + positive EV shows letter grade
     propsOnlyTicket: true,
     ticketRole: "main" as const,
   };
-  const score = {
+  const weakScore = {
     grade: "B",
     confidencePct: 42,
     edgePct: 28.7,
@@ -930,8 +954,18 @@ test("phone props-only Not Rec: propsOnlyTicket + positive EV shows letter grade
     composite: 6,
     highRiskValuePlay: false,
   } as any;
-  assert.equal(propsOnlyTicketCleared(pick, score), true);
-  assert.notEqual(pickGradeDisplayLabel(pick, score), "Not AI Recommended");
-  assert.equal(pickGradeDisplayLabel(pick, score), "B");
-  assert.match(pickGradeDisplayCaption(pick, score), /props-only history vs odds/i);
+  assert.equal(propsOnlyTicketCleared(weakConf, weakScore), false);
+
+  // Grade + conf at the shared floor still clears when EV/edge pass.
+  const ok = {
+    ...weakConf,
+  };
+  const okScore = {
+    ...weakScore,
+    grade: "C+",
+    confidencePct: 52,
+  } as any;
+  assert.equal(propsOnlyTicketCleared(ok, okScore), true);
+  assert.equal(pickPassesTicketGate(ok, okScore), true);
+  assert.equal(pickGradeDisplayLabel(ok, okScore), "C+");
 });

@@ -12,7 +12,8 @@ const MARKET_COMBO: Record<string, string[]> = {
 };
 
 const MARKET_SINGLE: Record<string, string[]> = {
-  player_points: ["PTS"],
+  // Basketball logs use PTS; NHL skater logs use P (same pattern as AST → A).
+  player_points: ["PTS", "P"],
   player_rebounds: ["REB"],
   player_assists: ["AST", "A"],
   player_blocks: ["BLK"],
@@ -58,7 +59,13 @@ const MARKET_MADE: Record<string, string[]> = {
 };
 
 function num(stats: Record<string, string>, label: string): number | null {
-  const n = Number(stats[label]);
+  // Missing / blank must stay missing — Number("") === 0 would zero-fill.
+  if (!Object.prototype.hasOwnProperty.call(stats, label)) return null;
+  const raw = stats[label];
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (s === "") return null;
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
 

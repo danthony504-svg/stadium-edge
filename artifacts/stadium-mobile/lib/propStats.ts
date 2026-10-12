@@ -24,7 +24,8 @@ const MARKET_COMBO: Record<string, string[]> = {
 // sport (e.g. assists is "AST" in the NBA log but "A" in the NHL log; shots on
 // goal is "S" in the NHL log).
 const MARKET_SINGLE: Record<string, string[]> = {
-  player_points: ["PTS"],
+  // Basketball logs use PTS; NHL skater logs use P (same pattern as AST → A).
+  player_points: ["PTS", "P"],
   player_rebounds: ["REB"],
   player_assists: ["AST", "A"],
   player_blocks: ["BLK"],
@@ -194,7 +195,14 @@ export function seasonStatFamilyKey(raw: string | null | undefined): string {
 }
 
 function num(stats: Record<string, string>, label: string): number | null {
-  const n = Number(stats[label]);
+  // Missing / blank must stay missing — Number("") === 0 would zero-fill NHL
+  // points and invent Under 0.5 certainty (Brady Tkachuk 98% phone bug).
+  if (!Object.prototype.hasOwnProperty.call(stats, label)) return null;
+  const raw = stats[label];
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (s === "") return null;
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
 

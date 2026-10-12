@@ -34,6 +34,7 @@ import {
   rareCountEvRankWeight,
   rareCountGameFamilyKey,
 } from "./rareCountPropModel.ts";
+import { meetsCoachSimQualityFloor } from "./gameSimQualityGates.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 /** Tiny batches so local history enrich can finish (wide batches were timing out → 0 grades). */
@@ -207,6 +208,11 @@ function stageFootballPropsOnlyLegsWithCap(
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
     if (!propsOnlyLegClearsOdds(p, leg.simHit, oddsSlack)) continue;
+    // Positive EV/history clear is not enough — enforce shared Coach grade + conf floor.
+    const grade = leg.grade ?? p.finalAiScore?.grade ?? null;
+    const confidencePct =
+      leg.confidencePct ?? p.finalAiScore?.confidencePct ?? null;
+    if (!meetsCoachSimQualityFloor({ grade, confidencePct })) continue;
     // Canonical ladder — main + `_alternate` share one seat per player.
     const pm = propsOnlyCollapseLadderKey(p);
     if (usedPlayerMarket.has(pm)) continue;
@@ -244,8 +250,8 @@ function stageFootballPropsOnlyLegsWithCap(
     }
     picks.push({
       ...p,
-      // Mark props-only delivery so PickCard shows the letter grade (not Not Rec.)
-      // when history/EV cleared but holistic confidence sits at 50–51.
+      // Mark props-only delivery for caption/gate — only legs that already met
+      // meetsCoachSimQualityFloor + clearsOdds reach here.
       propsOnlyTicket: true,
       ticketRole: p.propIsAlt ? "alt" : "main",
       finalAiScore: p.finalAiScore,

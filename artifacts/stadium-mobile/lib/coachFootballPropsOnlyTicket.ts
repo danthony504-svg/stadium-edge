@@ -73,7 +73,7 @@ import {
   parseMarketPeriod,
 } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
-import { COACH_SIM_MIN_CONFIDENCE, simEvPct } from "./gameSimQualityGates.ts";
+import { simEvPct } from "./gameSimQualityGates.ts";
 import { isRareCountPropMarket } from "./rareCountPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
@@ -387,19 +387,20 @@ function scoredLegFromHit(
       mlbGameEnv: mlbGameEnv as import("./propHolisticRecommendation.ts").MlbGameEnvSlice | null,
     },
   });
-  // Phone: Anytime TD +370 showed Conf 42 / Not Rec. because sim~50% floors
-  // confidence at 50 (<52) even with +28% edge. Props-only already cleared
-  // history vs odds — lift to the ticket confidence floor so the card grade
-  // matches "cleared the AI quality bar".
-  const confidencePct = Math.max(
-    finalAiScore.confidencePct ?? 0,
-    COACH_SIM_MIN_CONFIDENCE,
-  );
+  // Keep genuine confidence from the Final AI / holistic build — never lift a
+  // weak candidate up to COACH_SIM_MIN_CONFIDENCE so it appears to clear the bar.
+  // Staging + propsOnlyTicketCleared enforce the real floor separately.
+  const confidencePct = finalAiScore.confidencePct ?? 0;
+  const edgeOut = edgePct ?? finalAiScore.edgePct;
+  const simAligned =
+    hit != null && norm.odds != null
+      ? hit > impliedProb(norm.odds)
+      : !!finalAiScore.simAligned;
   const score = {
     ...finalAiScore,
-    recommends: true,
-    simAligned: true,
-    edgePct: edgePct ?? finalAiScore.edgePct,
+    recommends: finalAiScore.recommends === true,
+    simAligned,
+    edgePct: edgeOut,
     simHit: hit,
     confidencePct,
   };
