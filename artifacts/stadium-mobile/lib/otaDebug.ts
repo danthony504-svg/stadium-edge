@@ -14,6 +14,12 @@ import {
 import { COACH_PIPELINE_VERSION } from "./coach/qualifyCoachCandidate";
 import { launchOtaCheckFetchReload } from "./otaLaunch";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
+import {
+  collectOtaBannerTrace,
+  formatOtaBannerTraceLines,
+  type OtaBannerTraceSnapshot,
+} from "./otaBannerTrace";
+import { OTA_IDENTITY_FIX_VERSION } from "./otaUpdateIdentity";
 
 export type OtaDebugSnapshot = {
   appVersion: string;
@@ -71,6 +77,11 @@ export type OtaFullDiagnostics = OtaDebugSnapshot &
       isEmbeddedLaunch: boolean;
     };
     caseCNativeSafety: string;
+    /** Banner identity trace — proves why "App update ready" is visible. */
+    bannerTrace: OtaBannerTraceSnapshot | null;
+    bannerTraceLines: string[];
+    /** Bundle marker; missing/absent ⇒ pre-identity-fix OTA. */
+    otaIdentityFixVersion: number;
   };
 
 function str(v: unknown, fallback = "—"): string {
@@ -413,13 +424,44 @@ export async function collectOtaFullDiagnostics(
     startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
   }
 
+  let availableUpdateIdFromCheck: string | null = null;
+  try {
+    const parsed = JSON.parse(probe.checkResult) as {
+      manifestUpdateId?: string | null;
+    };
+    if (parsed?.manifestUpdateId) {
+      availableUpdateIdFromCheck = String(parsed.manifestUpdateId);
+    }
+  } catch {
+    // checkResult may be ERR:/skipped
+  }
+
+  let bannerTrace: OtaBannerTraceSnapshot | null = null;
+  try {
+    bannerTrace = await collectOtaBannerTrace({
+      availableUpdateIdFromCheck,
+      checkResult: probe.checkResult,
+    });
+  } catch (e) {
+    pushOtaLog(
+      "checkForUpdateAsync",
+      false,
+      `bannerTrace ERR: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  const bannerTraceLines = bannerTrace
+    ? formatOtaBannerTraceLines(bannerTrace)
+    : ["bannerTrace unavailable"];
+
   console.log(
     [
       "=== OTA probe outcomes ===",
+      `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
       `update check available: ${String(probe.updateAvailable)}`,
       `checkResult: ${probe.checkResult}`,
       `fetchSucceeded: ${String(probe.fetchSucceeded)} (${probe.fetchResult})`,
       `reloadSucceeded: ${String(probe.reloadSucceeded)} (${probe.reloadResult})`,
+      ...bannerTraceLines,
     ].join("\n"),
   );
 
@@ -435,6 +477,9 @@ export async function collectOtaFullDiagnostics(
       isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
     },
     caseCNativeSafety: caseCNativeModuleSafetyReport(),
+    bannerTrace,
+    bannerTraceLines,
+    otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
   };
 }
 

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { isGenuinelyPendingOtaUpdate } from "@/lib/otaUpdateIdentity";
+import { recordOtaBannerTrace } from "@/lib/otaBannerTrace";
 
 type OtaUiState = { isUpdatePending: boolean; isDownloading: boolean };
 
@@ -43,8 +44,11 @@ export function OtaUpdateBanner() {
     // Reconcile once on mount — latestContext may still say pending for the
     // update we just reloaded into.
     setOta(otaUiFromContext(latestContext));
+    // Read-only identity trace — does not alter banner show logic.
+    void recordOtaBannerTrace();
     const sub = addUpdatesStateChangeListener((event) => {
       setOta(otaUiFromContext(event.context));
+      void recordOtaBannerTrace();
     });
     return () => sub.remove();
   }, []);
