@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
-import { collectOtaFullDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
+import { collectOtaStaticDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
 import {
   EXPECTED_HEALTHY_RUNTIME,
   EXPECTED_HEALTHY_UPDATE_ID,
@@ -21,7 +21,8 @@ export function OtaHomeDiagnostics() {
   useEffect(() => {
     if (__DEV__) return;
     let cancelled = false;
-    void collectOtaFullDiagnostics().then((d) => {
+    // Static only — never auto-run checkForUpdateAsync from Home.
+    void collectOtaStaticDiagnostics().then((d) => {
       if (!cancelled) setDiag(d);
     });
     return () => {
