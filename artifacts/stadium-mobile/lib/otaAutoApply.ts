@@ -9,6 +9,7 @@ import {
   shouldAllowAutoReload,
   type OtaReloadGuard,
 } from "./otaReloadGuard";
+import { isGenuinelyPendingOtaUpdate } from "./otaUpdateIdentity";
 
 const GUARD_KEY = "@stadium/ota-auto-reload-guard";
 
@@ -16,7 +17,12 @@ export type { OtaReloadGuard } from "./otaReloadGuard";
 export { shouldAllowAutoReload } from "./otaReloadGuard";
 
 export function isOtaUpdatePending(): boolean {
-  return !!latestContext?.isUpdatePending;
+  const downloaded = latestContext?.downloadedManifest as { id?: string } | null | undefined;
+  return isGenuinelyPendingOtaUpdate({
+    runningUpdateId: Updates.updateId ? String(Updates.updateId) : null,
+    downloadedUpdateId: downloaded?.id ? String(downloaded.id) : null,
+    isUpdatePending: !!latestContext?.isUpdatePending,
+  });
 }
 
 /** True when embedded JS has a downloaded OTA waiting — never while already on an OTA bundle. */

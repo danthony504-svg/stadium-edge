@@ -180,3 +180,105 @@ test("unavailable check does not fetch or reload", async () => {
   assert.equal(fetched, 0);
   assert.equal(reloaded, 0);
 });
+
+test("same available update id as running → no fetch, no banner arm", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  const running = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  let fetched = 0;
+  const { entries, log } = logger();
+  const outcome = await prefetchOtaUpdate(
+    client({
+      checkForUpdateAsync: async () => ({
+        isAvailable: true,
+        manifest: { id: running },
+      }),
+      fetchUpdateAsync: async () => {
+        fetched += 1;
+        return { isNew: true, manifest: { id: running } };
+      },
+    }),
+    () => true, // native isUpdatePending stuck true after prior reload
+    false,
+    {
+      log,
+      reloadUpdateKey: running,
+      downloadedUpdateId: () => running,
+    },
+  );
+  assert.equal(outcome, "none");
+  assert.equal(fetched, 0);
+  assert.ok(
+    entries.some(
+      (e) =>
+        e.step === "fetchUpdateAsync" &&
+        !e.ok &&
+        e.detail.includes("already running"),
+    ),
+  );
+});
+
+test("stuck native pending for running id does not stay pending", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  const running = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const outcome = await prefetchOtaUpdate(
+    client({
+      checkForUpdateAsync: async () => ({
+        isAvailable: false,
+        reason: "noUpdateAvailableOnServer",
+      }),
+    }),
+    () => true,
+    false,
+    {
+      log: () => {},
+      reloadUpdateKey: running,
+      downloadedUpdateId: () => running,
+    },
+  );
+  assert.equal(outcome, "none");
+});
+
+test("newer available id still fetches and arms pending", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  const running = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const newer = "ffffffff-1111-2222-3333-444444444444";
+  let fetched = 0;
+  const outcome = await prefetchOtaUpdate(
+    client({
+      checkForUpdateAsync: async () => ({
+        isAvailable: true,
+        manifest: { id: newer },
+      }),
+      fetchUpdateAsync: async () => {
+        fetched += 1;
+        return { isNew: true, manifest: { id: newer } };
+      },
+    }),
+    () => false,
+    false,
+    { log: () => {}, reloadUpdateKey: running },
+  );
+  assert.equal(outcome, "pending");
+  assert.equal(fetched, 1);
+});
+
+test("failed fetch does not mark update applied / pending", async () => {
+  resetOtaUpdaterSessionGuardForTests();
+  const running = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const newer = "ffffffff-1111-2222-3333-444444444444";
+  const outcome = await prefetchOtaUpdate(
+    client({
+      checkForUpdateAsync: async () => ({
+        isAvailable: true,
+        manifest: { id: newer },
+      }),
+      fetchUpdateAsync: async () => {
+        throw new Error("download failed");
+      },
+    }),
+    () => false,
+    false,
+    { log: () => {}, reloadUpdateKey: running },
+  );
+  assert.equal(outcome, "none");
+});

@@ -23,6 +23,11 @@ import {
   shouldAllowAutoReload,
   type OtaReloadGuard,
 } from "./otaReloadGuard.ts";
+import {
+  isGenuinelyPendingOtaUpdate,
+  isNewerThanRunningUpdate,
+  normalizeOtaUpdateId,
+} from "./otaUpdateIdentity.ts";
 
 export type OtaPrefetchOutcome = "applied" | "pending" | "none";
 
@@ -188,7 +193,12 @@ export async function prefetchOtaUpdate(
   const report: OtaRecoveryReporter = options?.report ?? (() => {});
   const runningUpdateId = options?.reloadUpdateKey ?? null;
 
-  const pendingBefore = isPending();
+  const runningId = normalizeOtaUpdateId(runningUpdateId);
+  const pendingBefore = isGenuinelyPendingOtaUpdate({
+    runningUpdateId: runningId,
+    downloadedUpdateId: options?.downloadedUpdateId?.(),
+    isUpdatePending: isPending(),
+  });
   let fetchedPending = false;
   let availableUpdateId: string | null = null;
   let fetchedUpdateId: string | null = null;
@@ -213,15 +223,42 @@ export async function prefetchOtaUpdate(
     report({ checkResult: `ERR: ${detail}`, lastError: `checkForUpdateAsync: ${detail}` });
   }
 
-  if (check && (check.isAvailable || check.isRollBackToEmbedded)) {
+  // Same update id as the running bundle is not a newer OTA — do not re-fetch
+  // or re-arm the banner (close/reopen loop when native pending sticks).
+  const offeredIsNewer =
+    !!check &&
+    (check.isAvailable || !!check.isRollBackToEmbedded) &&
+    isNewerThanRunningUpdate({
+      runningUpdateId: runningId,
+      candidateUpdateId: availableUpdateId,
+      isRollBackToEmbedded: !!check.isRollBackToEmbedded,
+    });
+
+  if (check && (check.isAvailable || check.isRollBackToEmbedded) && !offeredIsNewer) {
+    const detail = `skipped fetch: available id ${availableUpdateId ?? "—"} already running`;
+    log("fetchUpdateAsync", false, detail);
+    report({ fetchResult: detail, pending: false });
+  } else if (check && offeredIsNewer) {
     log("fetchUpdateAsync", true, "start");
     try {
       const fetched = (await client.fetchUpdateAsync()) as OtaFetchResult | undefined;
       const detail = fetchDetail(fetched);
+      fetchedUpdateId = fetched?.manifest?.id?.trim() || null;
       // A fetch that resolves after isAvailable is pending immediately; only an
       // explicit isNew=false (and no rollback) means nothing was staged.
-      fetchedPending = !(fetched && fetched.isNew === false && !fetched.isRollBackToEmbedded);
-      fetchedUpdateId = fetched?.manifest?.id?.trim() || null;
+      const fetchLooksNew = !(
+        fetched &&
+        fetched.isNew === false &&
+        !fetched.isRollBackToEmbedded
+      );
+      // Never treat "fetched" as pending when the payload is the running id.
+      fetchedPending =
+        fetchLooksNew &&
+        isNewerThanRunningUpdate({
+          runningUpdateId: runningId,
+          candidateUpdateId: fetchedUpdateId ?? availableUpdateId,
+          isRollBackToEmbedded: !!fetched?.isRollBackToEmbedded,
+        });
       log("fetchUpdateAsync", true, detail);
       report({ fetchResult: detail });
     } catch (e) {
@@ -235,7 +272,13 @@ export async function prefetchOtaUpdate(
     report({ fetchResult: detail });
   }
 
-  const pending = pendingBefore || isPending() || fetchedPending;
+  const pendingNative = isGenuinelyPendingOtaUpdate({
+    runningUpdateId: runningId,
+    downloadedUpdateId: fetchedUpdateId ?? options?.downloadedUpdateId?.(),
+    availableUpdateId,
+    isUpdatePending: isPending(),
+  });
+  const pending = pendingBefore || pendingNative || fetchedPending;
   report({ pending });
 
   const targetId = resolveReloadTargetId({

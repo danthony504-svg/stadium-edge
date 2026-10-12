@@ -6,6 +6,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { isGenuinelyPendingOtaUpdate } from "@/lib/otaUpdateIdentity";
+
+function pendingFromContext(ctx: typeof latestContext): boolean {
+  const downloaded = (ctx?.downloadedManifest as { id?: string } | null | undefined)?.id;
+  return isGenuinelyPendingOtaUpdate({
+    runningUpdateId: Updates.updateId ? String(Updates.updateId) : null,
+    downloadedUpdateId: downloaded ? String(downloaded) : null,
+    isUpdatePending: !!ctx?.isUpdatePending,
+  });
+}
 
 /**
  * Blocks interaction when a downloaded OTA is waiting to apply. Prevents users
@@ -14,12 +24,13 @@ import { clearDiscoverCache } from "@/lib/discoverSessionCache";
  */
 export function OtaRequiredGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
-  const [pending, setPending] = useState(() => !!latestContext?.isUpdatePending);
+  const [pending, setPending] = useState(() => pendingFromContext(latestContext));
 
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
+    setPending(pendingFromContext(latestContext));
     const sub = addUpdatesStateChangeListener((event) => {
-      setPending(!!event.context.isUpdatePending);
+      setPending(pendingFromContext(event.context));
     });
     return () => sub.remove();
   }, []);

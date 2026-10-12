@@ -6,14 +6,27 @@ import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { isGenuinelyPendingOtaUpdate } from "@/lib/otaUpdateIdentity";
 
 type OtaUiState = { isUpdatePending: boolean; isDownloading: boolean };
 
+function downloadedIdFromContext(ctx: typeof latestContext): string | null {
+  const id = (ctx?.downloadedManifest as { id?: string } | null | undefined)?.id;
+  return id ? String(id) : null;
+}
+
 function otaUiFromContext(ctx: typeof latestContext): OtaUiState {
-  return {
+  const runningUpdateId = Updates.updateId ? String(Updates.updateId) : null;
+  const downloadedUpdateId = downloadedIdFromContext(ctx);
+  const isDownloading = !!ctx?.isDownloading;
+  // Native isUpdatePending alone loops after reload when downloaded id ===
+  // running id. Only show "ready" for a genuinely newer downloaded update.
+  const isUpdatePending = isGenuinelyPendingOtaUpdate({
+    runningUpdateId,
+    downloadedUpdateId,
     isUpdatePending: !!ctx?.isUpdatePending,
-    isDownloading: !!ctx?.isDownloading,
-  };
+  });
+  return { isUpdatePending, isDownloading };
 }
 
 /**
@@ -27,6 +40,9 @@ export function OtaUpdateBanner() {
 
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
+    // Reconcile once on mount — latestContext may still say pending for the
+    // update we just reloaded into.
+    setOta(otaUiFromContext(latestContext));
     const sub = addUpdatesStateChangeListener((event) => {
       setOta(otaUiFromContext(event.context));
     });
