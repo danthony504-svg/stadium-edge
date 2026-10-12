@@ -128,12 +128,20 @@ async function upsertEntitlement(input: {
     });
 }
 
+/**
+ * Audit/event log insert. Must never turn a trusted entitlement outcome into
+ * a 500 — missing tables / DB blips are logged and treated as non-fatal.
+ * Returns:
+ *   - "inserted"  — row written
+ *   - "duplicate" — unique event_key already present (idempotent skip)
+ *   - "failed"    — other DB error (non-fatal; callers continue)
+ */
 async function recordEvent(input: {
   eventKey: string;
   userId: string | null;
   eventType: string;
   payload: string;
-}): Promise<boolean> {
+}): Promise<"inserted" | "duplicate" | "failed"> {
   try {
     await db.insert(subscriptionEventsTable).values({
       eventKey: input.eventKey,
@@ -141,12 +149,17 @@ async function recordEvent(input: {
       eventType: input.eventType,
       payload: input.payload,
     });
-    return true;
+    return "inserted";
   } catch (err) {
-    // Unique violation = already processed
     const msg = err instanceof Error ? err.message : String(err);
-    if (/unique|duplicate/i.test(msg)) return false;
-    throw err;
+    if (/unique|duplicate/i.test(msg)) return "duplicate";
+    // Non-fatal: verified Go/Pro / sync / webhook upserts must still succeed
+    // when audit logging fails (e.g. missing subscription_events relation).
+    logger.error(
+      { err, eventType: input.eventType },
+      "subscription event log failed (non-fatal)",
+    );
+    return "failed";
   }
 }
 
@@ -502,13 +515,15 @@ router.post(
         ? appUserId
         : null;
 
-      const firstInsert = await recordEvent({
+      const eventLog = await recordEvent({
         eventKey: `rc:${eventId}`,
         userId,
         eventType,
         payload: JSON.stringify(body).slice(0, 8000),
       });
-      if (!firstInsert) {
+      // Only skip processing on a confirmed duplicate. "failed" (e.g. missing
+      // audit table) must not block entitlement upsert.
+      if (eventLog === "duplicate") {
         res.json({ ok: true, duplicate: true });
         return;
       }
