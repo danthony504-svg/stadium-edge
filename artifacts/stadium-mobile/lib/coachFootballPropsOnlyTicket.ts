@@ -75,6 +75,7 @@ import {
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
 import { isRareCountPropMarket } from "./rareCountPropModel.ts";
+import { isAnytimeTdPropMarket } from "./anytimeTdPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
@@ -409,8 +410,10 @@ function scoredLegFromHit(
     norm.odds != null ? Math.round(impliedProb(norm.odds) * 1000) / 10 : null;
   const composite = score.composite;
   const rare = isRareCountPropMarket(marketKey);
+  const anytimeTd = isAnytimeTdPropMarket(marketKey);
   const rel = Math.max(0, Math.min(1, hitReliability));
-  const evRankFactor = rare ? 0.05 + 0.95 * rel * rel : 1;
+  const evRankFactor =
+    rare || anytimeTd ? 0.05 + 0.95 * rel * rel : 1;
   return {
     pick: {
       ...norm,
@@ -426,7 +429,8 @@ function scoredLegFromHit(
     grade: score.grade,
     simHit: hit,
     composite,
-    hitReliability: rare ? rel : 1,
+    // Attach real reliability for rare-count + Anytime TD (not a default 1).
+    hitReliability: rare || anytimeTd ? rel : 1,
     // Opp-D tilt + Match-grounded boost; demote NHL scoring without opp context
     // so EV-only Unders don't beat legs that compared the netminder.
     // Rare-count reliability shrinks how much raw EV can inflate rank.

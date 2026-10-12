@@ -5,6 +5,16 @@
 //
 // Phase 1: one underlying sample draw can score every genuine alternate line
 // (and both Over/Under) for the same player/event/stat/period/context.
+//
+// Anytime TD: mean is grounded in binary scoring frequency P(≥1 TD), converted
+// to Poisson λ = −ln(1−p) so multi-TD games do not inflate the rate.
+
+import {
+  anytimeTdShrunkScoreRate,
+  capAnytimeTdOpportunityMult,
+  isAnytimeTdMarket,
+  poissonLambdaForAnytimeTd,
+} from "./anytimeTdModel.js";
 
 export const QUICK_SIMULATIONS = 1_000;
 export const DEEP_SIMULATIONS = 10_000;
@@ -165,9 +175,37 @@ function modeRounded(samples: number[], step = 0.5): number {
 }
 
 export function buildProjectionMean(ctx: PropSimulationContext): number | null {
-  const vals = ctx.recentValues.filter((v) => Number.isFinite(v));
-  if (vals.length < 3) return null;
+  const rawVals = ctx.recentValues.filter((v) => Number.isFinite(v));
+  if (rawVals.length < 3) return null;
 
+  // Anytime TD: exact mobile shrink p=(hits+0.72)/(n+4) from binary scoring
+  // events — never re-inflate via form mean (5/5 must stay ~63.6%, not ~84%).
+  // Opportunity/injury may adjust p within TD caps, then λ=−ln(1−p).
+  if (isAnytimeTdMarket(ctx.market)) {
+    const shrunk = anytimeTdShrunkScoreRate(rawVals);
+    if (shrunk == null) return null;
+    let p = shrunk;
+
+    const oppInj = ctx.oppKeyInjuries ?? 0;
+    const ownInj = ctx.opportunitySuppressOwnInjuries ? 0 : (ctx.ownKeyInjuries ?? 0);
+    p *= clamp(1 + oppInj * 0.015 - ownInj * 0.02, 0.88, 1.12);
+
+    const combined = ctx.combinedPreSimMult;
+    if (combined != null && Number.isFinite(combined) && combined > 0 && combined !== 1) {
+      p *= capAnytimeTdOpportunityMult(clamp(combined, 0.78, 1.35), {
+        hasRedZoneChannel: true,
+      });
+    } else {
+      const oppMult = ctx.opportunityFamilyMult;
+      if (oppMult != null && Number.isFinite(oppMult) && oppMult > 0 && oppMult !== 1) {
+        p *= capAnytimeTdOpportunityMult(oppMult, { hasRedZoneChannel: true });
+      }
+    }
+
+    return poissonLambdaForAnytimeTd(clamp(p, 0, 0.95));
+  }
+
+  const vals = rawVals;
   const l5 = vals.slice(0, 5);
   const l10 = vals.slice(0, 10);
   const mean5 = avg(l5);

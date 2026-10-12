@@ -343,7 +343,9 @@ export function adjustSimHitForOppDefenseTilt(
   if (hit == null || !Number.isFinite(hit)) return hit ?? null;
   if (!Number.isFinite(tilt) || tilt === 0) return hit;
   const adj = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
-  return Math.round(Math.max(0.02, Math.min(0.98, hit + adj)) * 1000) / 1000;
+  // Do not invent a 2% floor — Anytime TD / rare props must stay null/ungradeable
+  // when evidence is zero. Soft-cap only the upper certainty bound.
+  return Math.round(Math.max(0, Math.min(0.98, hit + adj)) * 1000) / 1000;
 }
 
 function sideTilt(magnitude: number, isOver: boolean, isUnder: boolean): number {

@@ -16,6 +16,13 @@ export const OPP_SHIFT_CAPS = {
   teamScalarMaxDelta: 0.12,
   /** Dampen when ≥2 simultaneous vacancies on same team. */
   multiVacancyDamp: 0.7,
+  /**
+   * Anytime TD with red-zone / goal-line channel support — still tighter than
+   * yards so backups cannot become 70%+ scorers from vacancy alone.
+   */
+  anytimeTdWithRzMax: 1.1,
+  /** Anytime TD without RZ/GL channels (targets/carries/designed-run only). */
+  anytimeTdNoRzMax: 1.06,
 } as const;
 
 /** Injury confirmation for redistribution. */

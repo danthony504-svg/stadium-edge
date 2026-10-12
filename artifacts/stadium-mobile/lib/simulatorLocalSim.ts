@@ -1,13 +1,17 @@
 // Client-side prop hit-rate fallback when the simulate API can't ground Monte Carlo
 // (stale deploy, missing athleteId, etc.). Uses the same real ESPN game-log mapping
 // as propGrade — never fabricates numbers.
-import type { PropSimulationResult } from "./api";
-import { computeAmbiguous, gameValueForMarket } from "./propStats";
+import type { PropSimulationResult } from "./api.ts";
+import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 import { PROPS_ONLY_MIN_SAMPLE } from "./coachFootballPropsOnlyGrade.ts";
 import {
   isRareCountPropMarket,
   rareCountHitFromValues,
 } from "./rareCountPropModel.ts";
+import {
+  anytimeTdHitFromValues,
+  isAnytimeTdPropMarket,
+} from "./anytimeTdPropModel.ts";
 
 export type LocalHistorySlice = {
   labels?: string[];
@@ -51,14 +55,19 @@ export function localPropSimulation(
   const median = sorted[Math.floor(sorted.length / 2)] ?? null;
 
   let hitProb: number | null;
+  let tdReliability: number | null = null;
   if (isRareCountPropMarket(args.market)) {
     // Threshold-aware Poisson — 0/N does not become a fake 2% floor.
     hitProb = rareCountHitFromValues(vals, args.line, args.side);
+  } else if (isAnytimeTdPropMarket(args.market)) {
+    // P(at least one TD) via binary scoring frequency + shrinkage — no 2% floor.
+    const td = anytimeTdHitFromValues(vals, args.side);
+    hitProb = td.hit;
+    tdReliability = td.reliability;
   } else {
     const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
     const hitProbRaw = hits / vals.length;
-    // Soft-clip exact 0/1 so binary markets (Anytime TD) remain gradeable after
-    // sanitizeSimHitForGrade — short samples of "never scored" used to wipe every TD.
+    // Soft-clip exact 0/1 so other binary markets remain gradeable after sanitize.
     hitProb = hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
   }
 
@@ -66,8 +75,14 @@ export function localPropSimulation(
   if (vals.length >= 8) confidence += 14;
   else if (vals.length >= 5) confidence += 8;
   else confidence -= 6;
-  if (hitProb != null) confidence += Math.abs(hitProb - 0.5) * 40;
-  else confidence -= 20;
+  if (tdReliability != null) {
+    // Thin TD logs must not mint high confidence from a shrunk prior alone.
+    confidence = Math.round(40 + tdReliability * 45);
+  } else if (hitProb != null) {
+    confidence += Math.abs(hitProb - 0.5) * 40;
+  } else {
+    confidence -= 20;
+  }
   const confidenceScore = Math.max(5, Math.min(95, Math.round(confidence)));
   return {
     hitProbability: hitProb,

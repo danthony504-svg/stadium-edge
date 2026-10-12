@@ -18,6 +18,11 @@ import {
   rareCountHitFromValues,
   rareCountHitReliability,
 } from "./rareCountPropModel.ts";
+import {
+  anytimeTdCalibrateToMarket,
+  anytimeTdHitFromValues,
+  isAnytimeTdPropMarket,
+} from "./anytimeTdPropModel.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
@@ -328,11 +333,18 @@ function localHitFromHistory(
     };
   }
 
+  // Anytime TD: P(at least one score) from binary game indicators + shrinkage.
+  // Multi-TD games must not inflate the rate; no 2% floor.
+  if (isAnytimeTdPropMarket(args.market)) {
+    const td = anytimeTdHitFromValues(vals, args.side);
+    return { hit: td.hit, reliability: td.reliability };
+  }
+
   const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
   const hitProbRaw = hits / vals.length;
   const hit = hitProbRaw <= 0 ? 0.02 : hitProbRaw >= 1 ? 0.98 : hitProbRaw;
   // High-volume yards/points keep full ranking trust once the sample clears the
-  // min gate — reliability shrink is reserved for rare-count longshots.
+  // min gate — reliability shrink is reserved for rare-count / TD longshots.
   return { hit, reliability: 1 };
 }
 
@@ -380,11 +392,18 @@ export function gradeFootballPropFromHistory(
   if (clipped == null) {
     return {
       hitProbability: null,
-      nullReason: "rare_count_insufficient_evidence",
+      nullReason: isAnytimeTdPropMarket(market)
+        ? "anytime_td_insufficient_evidence"
+        : "rare_count_insufficient_evidence",
       hitReliability: reliability,
     };
   }
-  return { hitProbability: clipped, nullReason: null, hitReliability: reliability };
+  // Extreme market disagreement on TD: dampen toward implied when thin.
+  const calibrated =
+    isAnytimeTdPropMarket(market) && norm.odds != null
+      ? anytimeTdCalibrateToMarket(clipped, norm.odds, reliability)
+      : clipped;
+  return { hitProbability: calibrated, nullReason: null, hitReliability: reliability };
 }
 
 export function gradeFootballPropsOnlyFromHistory(
