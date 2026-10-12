@@ -10,8 +10,11 @@
  * Bundle marker proving this JS includes the rare-banner identity gate.
  * Not app version / runtimeVersion — bump only when identity logic changes.
  * Devices without this field are on a pre-fix OTA.
+ *
+ * v2: sticky isUpdatePending with no distinct downloaded/available id must not
+ * arm reload (prevents reloadAsync boot loop → updatePreviouslyFailed).
  */
-export const OTA_IDENTITY_FIX_VERSION = 1;
+export const OTA_IDENTITY_FIX_VERSION = 2;
 
 /** Canonical form for Expo update UUIDs (expo-updates always lowercases). */
 export function normalizeOtaUpdateId(
@@ -55,9 +58,11 @@ export type OtaPendingUiInput = {
  * Whether the UI should show "App update ready" / treat an update as pending.
  *
  * Rules:
- *  - downloading → show download state (caller may still show banner)
  *  - downloaded/available id === running id → NOT pending (already applied)
- *  - otherwise honor native isUpdatePending
+ *  - native isUpdatePending with NO distinct target id → NOT pending
+ *    (sticky flag after reloadAsync into a tip; re-arming reload here is what
+ *    Expo records as updatePreviouslyFailed — see July f16710eb)
+ *  - otherwise honor native isUpdatePending when a distinct target id exists
  */
 export function isGenuinelyPendingOtaUpdate(input: OtaPendingUiInput): boolean {
   const running = normalizeOtaUpdateId(input.runningUpdateId);
@@ -67,6 +72,10 @@ export function isGenuinelyPendingOtaUpdate(input: OtaPendingUiInput): boolean {
   // Already running the downloaded (or offered) update — never show ready.
   if (running && downloaded && running === downloaded) return false;
   if (running && available && running === available) return false;
+
+  // No concrete newer target → ignore sticky native pending. Without this,
+  // useOtaUpdater calls reloadAsync during tip boot and Expo blacklists the tip.
+  if (!downloaded && !available) return false;
 
   return !!input.isUpdatePending;
 }

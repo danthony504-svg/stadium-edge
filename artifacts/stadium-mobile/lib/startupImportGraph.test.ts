@@ -96,6 +96,29 @@ test("Home discover cache does not statically import expo-updates", () => {
   assert.match(src, /import\(["']expo-updates["']\)/);
 });
 
+test("Home attestation strip does not statically import expo-updates", () => {
+  const src = readFileSync(join(ROOT, "components/OtaHomeDiagnostics.tsx"), "utf8");
+  assert.doesNotMatch(
+    src,
+    /(?:^|\n)\s*import\s[^;]*from\s*["']expo-updates["']/,
+    "OtaHomeDiagnostics is on the cold-start Home tab — expo-updates must stay lazy",
+  );
+  assert.doesNotMatch(
+    src,
+    /(?:^|\n)\s*import\s+\*\s+as\s+\w+\s+from\s*["']expo-updates["']/,
+  );
+  assert.match(src, /tryGetExpoUpdates|expoUpdatesAccess/);
+});
+
+test("otaDebug must not import qualifyCoachCandidate (Home cold-start graph)", () => {
+  const src = readFileSync(join(ROOT, "lib/otaDebug.ts"), "utf8");
+  assert.doesNotMatch(
+    src,
+    /(?:^|\n)\s*import\s[^;]*qualifyCoachCandidate/,
+    "otaDebug is pulled by Home via OtaHomeDiagnostics — coach seating must stay off that graph",
+  );
+});
+
 test("ErrorFallback keeps expo-updates behind a dynamic import", () => {
   const src = readFileSync(join(ROOT, "components/ErrorFallback.tsx"), "utf8");
   assert.doesNotMatch(
