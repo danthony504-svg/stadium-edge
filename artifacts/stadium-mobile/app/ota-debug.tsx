@@ -37,8 +37,19 @@ import {
   safeDiagText,
   safeLogLines,
 } from "@/lib/otaDebugGuards";
+import { peekOtaController } from "@/lib/ota/otaControllerSingleton";
+import type { OtaSnapshot } from "@/lib/ota/types";
 import { formatOtaLogLines } from "@/lib/otaLaunchLog";
 import { OTA_IDENTITY_FIX_VERSION } from "@/lib/otaUpdateIdentity";
+
+/** Passive read of production controller — never boots/checks/restarts. */
+function readControllerSnapshotPassive(): OtaSnapshot | null {
+  try {
+    return peekOtaController()?.getSnapshot() ?? null;
+  } catch {
+    return null;
+  }
+}
 
 function emptyAttestation() {
   return classifyDeviceAttestation({
@@ -311,6 +322,9 @@ function OtaDebugScreenInner() {
   // Lazy init is guarded; still prefer effect refresh so deep-link cold launch
   // can paint a shell before any async Updates / AsyncStorage work.
   const [diag, setDiag] = useState<OtaFullDiagnostics>(initialDiagnostics);
+  const [controllerSnap, setControllerSnap] = useState<OtaSnapshot | null>(
+    readControllerSnapshotPassive,
+  );
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [staticLoading, setStaticLoading] = useState(true);
@@ -383,6 +397,8 @@ function OtaDebugScreenInner() {
 
   useEffect(() => {
     // Static state only on open — no automatic checkForUpdateAsync.
+    // Passive controller snapshot refresh (read-only; does not init OTA).
+    setControllerSnap(readControllerSnapshotPassive());
     void refreshStatic();
   }, [refreshStatic]);
 
@@ -549,6 +565,46 @@ function OtaDebugScreenInner() {
             </Text>
           </View>
         ) : null}
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 14,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            OtaController (passive)
+          </Text>
+          <Row
+            label="state"
+            value={safeDiagText(controllerSnap?.state, "not mounted yet")}
+          />
+          <Row
+            label="bannerVisible"
+            value={safeDiagText(controllerSnap?.bannerVisible, "—")}
+          />
+          <Row
+            label="runningUpdateId"
+            value={safeDiagText(controllerSnap?.runningUpdateId)}
+          />
+          <Row
+            label="discoveredUpdateId"
+            value={safeDiagText(controllerSnap?.discoveredUpdateId)}
+          />
+          <Row
+            label="downloadedUpdateId"
+            value={safeDiagText(controllerSnap?.downloadedUpdateId)}
+          />
+          <Row label="lastError" value={safeDiagText(controllerSnap?.lastError)} />
+          <Row
+            label="failedUpdateId"
+            value={safeDiagText(controllerSnap?.failedUpdateId)}
+          />
+        </View>
 
         <View
           style={{

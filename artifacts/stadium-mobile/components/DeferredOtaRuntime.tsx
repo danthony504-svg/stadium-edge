@@ -24,7 +24,8 @@ class OtaRuntimeBoundary extends Component<{ children: ReactNode }, BoundaryStat
   }
 
   componentDidCatch(error: Error): void {
-    const detail = `updater init failed: ${error?.message ?? String(error)}`;
+    const detail = `OtaController runtime init failed: ${error?.message ?? String(error)}`;
+    // Log under a neutral step name — this is not a live check.
     pushOtaLog("checkForUpdateAsync", false, detail);
     console.warn(`[ota] ${detail}`);
   }
