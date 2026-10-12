@@ -1,64 +1,25 @@
-import * as Updates from "expo-updates";
-import { addUpdatesStateChangeListener, latestContext } from "expo-updates";
 import Feather from "@expo/vector-icons/Feather";
-import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
-import { isGenuinelyPendingOtaUpdate } from "@/lib/otaUpdateIdentity";
-import { recordOtaBannerTrace } from "@/lib/otaBannerTrace";
-
-type OtaUiState = { isUpdatePending: boolean; isDownloading: boolean };
-
-function downloadedIdFromContext(ctx: typeof latestContext): string | null {
-  const id = (ctx?.downloadedManifest as { id?: string } | null | undefined)?.id;
-  return id ? String(id) : null;
-}
-
-function otaUiFromContext(ctx: typeof latestContext): OtaUiState {
-  const runningUpdateId = Updates.updateId ? String(Updates.updateId) : null;
-  const downloadedUpdateId = downloadedIdFromContext(ctx);
-  const isDownloading = !!ctx?.isDownloading;
-  // Native isUpdatePending alone loops after reload when downloaded id ===
-  // running id. Only show "ready" for a genuinely newer downloaded update.
-  const isUpdatePending = isGenuinelyPendingOtaUpdate({
-    runningUpdateId,
-    downloadedUpdateId,
-    isUpdatePending: !!ctx?.isUpdatePending,
-  });
-  return { isUpdatePending, isDownloading };
-}
+import type { OtaSnapshot } from "@/lib/ota";
 
 /**
- * Prompts the user when a prefetched OTA is ready — one tap applies it.
- * Uses the updates event listener instead of Updates.useUpdates() so a corrupt
- * mid-session bundle cannot brick the app via a broken hook export.
+ * Blue banner — controller snapshot only.
+ * Visible iff state === "ready" && downloadedUpdateId != runningUpdateId.
+ * Restart is the sole production path to reloadAsync.
  */
-export function OtaUpdateBanner() {
+export function OtaUpdateBanner({
+  snapshot,
+  onRestart,
+}: {
+  snapshot: OtaSnapshot;
+  onRestart: () => void;
+}) {
   const insets = useSafeAreaInsets();
-  const [ota, setOta] = useState<OtaUiState>(() => otaUiFromContext(latestContext));
 
-  useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled) return;
-    // Reconcile once on mount — latestContext may still say pending for the
-    // update we just reloaded into.
-    setOta(otaUiFromContext(latestContext));
-    // Read-only identity trace — does not alter banner show logic.
-    void recordOtaBannerTrace();
-    const sub = addUpdatesStateChangeListener((event) => {
-      setOta(otaUiFromContext(event.context));
-      void recordOtaBannerTrace();
-    });
-    return () => sub.remove();
-  }, []);
-
-  if (__DEV__ || !Updates.isEnabled) return null;
-  if (!ota.isUpdatePending && !ota.isDownloading) return null;
-
-  const apply = () => {
-    void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-  };
+  if (!snapshot.bannerVisible) return null;
 
   return (
     <View
@@ -74,7 +35,7 @@ export function OtaUpdateBanner() {
       }}
     >
       <Pressable
-        onPress={ota.isUpdatePending ? apply : undefined}
+        onPress={onRestart}
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
@@ -85,23 +46,27 @@ export function OtaUpdateBanner() {
           paddingHorizontal: 14,
           maxWidth: 420,
           width: "100%",
-          opacity: pressed && ota.isUpdatePending ? 0.9 : 1,
+          opacity: pressed ? 0.9 : 1,
         })}
       >
-        <Feather name={ota.isUpdatePending ? "download" : "refresh-cw"} size={16} color="#fff" />
+        <Feather name="download" size={16} color="#fff" />
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 13 }}>
-            {ota.isUpdatePending ? "App update ready" : "Downloading update…"}
+            App update ready
           </Text>
-          <Text style={{ color: "rgba(255,255,255,0.85)", fontFamily: FONT.medium, fontSize: 11 }}>
-            {ota.isUpdatePending
-              ? "Tap to restart and load the latest Discover + Coach fixes."
-              : "Keep the app open for a moment."}
+          <Text
+            style={{
+              color: "rgba(255,255,255,0.85)",
+              fontFamily: FONT.medium,
+              fontSize: 11,
+            }}
+          >
+            Tap Restart to load the new update.
           </Text>
         </View>
-        {ota.isUpdatePending ? (
-          <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>Restart</Text>
-        ) : null}
+        <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>
+          Restart
+        </Text>
       </Pressable>
     </View>
   );

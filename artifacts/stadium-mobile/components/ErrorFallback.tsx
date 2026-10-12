@@ -148,34 +148,22 @@ export function ErrorFallback({ error, resetError, componentStack }: ErrorFallba
     };
   }, [error.message, error.stack, componentStack]);
 
-  // Loaded on tap, not at import time: this component sits in the root bundle's
-  // static graph, and expo-updates must not be evaluated during startup.
+  /**
+   * Crash recovery must NOT own OTA network/update actions.
+   * Production apply is exclusively OtaController.restart() via the
+   * "Restart" banner button. Try Again only clears session caches and remounts.
+   */
   const handleRestart = async () => {
     if (corruptBundle) return;
     try {
-      const Updates = await import("expo-updates");
       const { clearDiscoverCache } = await import("@/lib/discoverSessionCache");
       const { clearSlatePreAnalysisCache } = await import("@/lib/slatePreAnalysisCache");
       await clearDiscoverCache();
       await clearSlatePreAnalysisCache();
-      if (Updates.isEnabled) {
-        // Never resetError() in production — that reopens the same in-memory JS.
-        // Always reload through expo-updates so a fetched OTA bundle is used.
-        try {
-          const check = await Updates.checkForUpdateAsync();
-          if (check.isAvailable) {
-            await Updates.fetchUpdateAsync();
-          }
-        } catch {
-          // still attempt reload
-        }
-        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      } else if (__DEV__) {
-        resetError();
-      }
     } catch {
-      if (__DEV__) resetError();
+      // best-effort cache clear
     }
+    resetError();
   };
 
   const report = formatCrashDiagnosticReport({

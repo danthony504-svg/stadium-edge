@@ -83,7 +83,12 @@ test("the deferred runtime is what pulls expo-updates in", () => {
   );
 
   const runtime = readFileSync(join(ROOT, "components/OtaRuntime.tsx"), "utf8");
-  assert.match(runtime, /from "@\/lib\/otaUpdater"/, "OtaRuntime should own the updater hook");
+  assert.match(runtime, /from "@\/lib\/ota"/, "OtaRuntime should own the new OtaController hook");
+  assert.match(runtime, /useOtaController/);
+  assert.doesNotMatch(
+    runtime.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""),
+    /useOtaUpdater/,
+  );
 });
 
 test("Home discover cache does not statically import expo-updates", () => {
@@ -119,14 +124,17 @@ test("otaDebug must not import qualifyCoachCandidate (Home cold-start graph)", (
   );
 });
 
-test("ErrorFallback keeps expo-updates behind a dynamic import", () => {
+test("ErrorFallback must not call expo-updates check/fetch/reload", () => {
   const src = readFileSync(join(ROOT, "components/ErrorFallback.tsx"), "utf8");
   assert.doesNotMatch(
     src,
     /(?:^|\n)\s*import\s+[^;]*from\s+["']expo-updates["']/,
-    "ErrorFallback is in the root static graph — Updates must stay dynamic",
+    "ErrorFallback is in the root static graph — no static Updates import",
   );
-  assert.match(src, /import\(["']expo-updates["']\)/);
+  // Identity read may dynamic-import expo-updates; network/apply APIs must not.
+  assert.doesNotMatch(src, /\.checkForUpdateAsync\s*\(/);
+  assert.doesNotMatch(src, /\.fetchUpdateAsync\s*\(/);
+  assert.doesNotMatch(src, /\.reloadAsync\s*\(/);
 });
 
 test("HomeSportFeed ErrorBoundary wraps the component from the parent", () => {
