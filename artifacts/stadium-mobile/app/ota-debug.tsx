@@ -27,6 +27,7 @@ import {
   classifyDeviceAttestation,
 } from "@/lib/otaDeviceAttestation";
 import { formatOtaLogLines } from "@/lib/otaLaunchLog";
+import { OTA_IDENTITY_FIX_VERSION } from "@/lib/otaUpdateIdentity";
 
 function initialDiagnostics(): OtaFullDiagnostics {
   const snapshot = readOtaDebugSnapshot();
@@ -53,6 +54,9 @@ function initialDiagnostics(): OtaFullDiagnostics {
       isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
     },
     caseCNativeSafety: "",
+    bannerTrace: null,
+    bannerTraceLines: ["loading banner identity trace…"],
+    otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
   };
 }
 
@@ -133,6 +137,11 @@ function buildReport(diag: OtaFullDiagnostics): string {
     `deploy message: ${diag.deployMessage}`,
     `native checkError: ${diag.checkError}`,
     `native downloadError: ${diag.downloadError}`,
+    `OTA_IDENTITY_FIX_VERSION: ${diag.otaIdentityFixVersion}`,
+    `latestContext.isUpdatePending: ${diag.isUpdatePending}`,
+    "",
+    "--- banner identity trace (why App update ready shows) ---",
+    ...diag.bannerTraceLines,
     "",
     ...(diag.attestation.caseId === "C" ? [diag.caseCNativeSafety, ""] : []),
     "--- expo-updates native logs (last hour) ---",
@@ -177,6 +186,9 @@ function OtaDebugScreenInner() {
         fetchSucceeded: null,
         reloadSucceeded: null,
         startupLogs: [`collectOtaFullDiagnostics ERR: ${msg}`],
+        bannerTrace: null,
+        bannerTraceLines: [`bannerTrace ERR: ${msg}`],
+        otaIdentityFixVersion: OTA_IDENTITY_FIX_VERSION,
       }));
       return null;
     } finally {
@@ -384,6 +396,62 @@ function OtaDebugScreenInner() {
           <Row label="checkForUpdateAsync()" value={diag.checkResult} />
           <Row label="fetchUpdateAsync()" value={diag.fetchResult} />
           <Row label="reloadAsync()" value={diag.reloadResult} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 14,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Banner identity trace (read-only)
+          </Text>
+          <Row
+            label="OTA_IDENTITY_FIX_VERSION (missing ⇒ pre-fix OTA)"
+            value={String(diag.otaIdentityFixVersion)}
+          />
+          <Row
+            label="running Updates.updateId"
+            value={diag.bannerTrace?.runningUpdateId ?? diag.updateId}
+          />
+          <Row
+            label="downloadedManifest.id"
+            value={diag.bannerTrace?.downloadedUpdateId ?? "—"}
+          />
+          <Row
+            label="check availableUpdateId"
+            value={diag.bannerTrace?.availableUpdateIdFromCheck ?? "—"}
+          />
+          <Row
+            label="persisted @stadium/ota-update-ready"
+            value={diag.bannerTrace?.persistedReadyId ?? "—"}
+          />
+          <Row
+            label="latestContext.isUpdatePending"
+            value={String(diag.bannerTrace?.nativeIsUpdatePending ?? diag.isUpdatePending)}
+          />
+          <Row
+            label="genuinelyPending (identity gate)"
+            value={String(diag.bannerTrace?.genuinelyPending ?? "—")}
+          />
+          <Row
+            label="bannerVisible"
+            value={String(diag.bannerTrace?.bannerVisible ?? "—")}
+          />
+          <Row
+            label="bannerExpression"
+            value={diag.bannerTrace?.bannerExpression ?? "—"}
+          />
+          <Row
+            label="recovery.pending / reloadTarget"
+            value={`${diag.bannerTrace?.recoveryPending ?? "—"} / ${diag.bannerTrace?.recoveryReloadTargetId ?? "—"}`}
+          />
+          <LogBlock title="banner trace lines" lines={diag.bannerTraceLines} />
         </View>
 
         <View

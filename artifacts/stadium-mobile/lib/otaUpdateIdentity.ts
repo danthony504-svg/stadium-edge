@@ -6,6 +6,13 @@
  * available manifest id), not version strings or a sticky boolean.
  */
 
+/**
+ * Bundle marker proving this JS includes the rare-banner identity gate.
+ * Not app version / runtimeVersion — bump only when identity logic changes.
+ * Devices without this field are on a pre-fix OTA.
+ */
+export const OTA_IDENTITY_FIX_VERSION = 1;
+
 /** Canonical form for Expo update UUIDs (expo-updates always lowercases). */
 export function normalizeOtaUpdateId(
   id: string | null | undefined,

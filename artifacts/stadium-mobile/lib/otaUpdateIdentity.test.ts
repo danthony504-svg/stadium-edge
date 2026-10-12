@@ -8,10 +8,15 @@ import {
   isGenuinelyPendingOtaUpdate,
   isNewerThanRunningUpdate,
   normalizeOtaUpdateId,
+  OTA_IDENTITY_FIX_VERSION,
   otaUpdateIdsEqual,
   parseOtaReadyFlag,
   reconcileOtaReadyFlag,
 } from "./otaUpdateIdentity.ts";
+
+test("OTA_IDENTITY_FIX_VERSION marker is 1", () => {
+  assert.equal(OTA_IDENTITY_FIX_VERSION, 1);
+});
 
 const RUNNING = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const NEWER = "ffffffff-1111-2222-3333-444444444444";
