@@ -21,6 +21,18 @@ module.registerHooks({
       return { url: FAKE_EXPO_FETCH, shortCircuit: true };
     }
 
+    // Date-context regressions import api.ts; stub native version headers only.
+    if (
+      specifier === "./appVersionGate" ||
+      specifier.endsWith("/appVersionGate") ||
+      specifier.endsWith("/appVersionGate.ts")
+    ) {
+      return {
+        url: "data:text/javascript,export function appVersionRequestHeaders(){return {}}",
+        shortCircuit: true,
+      };
+    }
+
     // Keep PickCard off the React Native .tsx path under node --test.
     if (
       specifier === "@/components/PickCard" ||

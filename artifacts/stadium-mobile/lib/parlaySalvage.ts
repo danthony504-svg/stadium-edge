@@ -49,7 +49,7 @@ export async function fetchFreshSalvageOdds(
 
 /**
  * Resolve the real-odds pool for salvage. Uses context first, then a fresh sport
- * fetch, and relaxes tonight-only when that filter empties a thin named slate.
+ * fetch, preserving the requested calendar day even on a thin slate.
  */
 export async function resolveSalvageOddsPool(
   trimmed: string,
@@ -67,14 +67,9 @@ export async function resolveSalvageOddsPool(
   pool = filterSalvageOddsPool(fresh, trimmed, slateDay);
   if (pool.length >= minEntries) return pool;
 
-  // Tonight filter can leave a single WC match while spread/total lines still
-  // support a 2-leg ticket — fall back to the full pregame named-sport window.
-  if (slateDay) {
-    const broad = filterSalvageOddsPool(fresh, trimmed, null);
-    if (broad.length > pool.length) return broad;
-  }
+  // Never widen the requested day to fill a ticket.
+  return pool;
 
-  return pool.length > 0 ? pool : filterSalvageOddsPool(fresh, trimmed, null);
 }
 
 export type ParlaySalvageOpts = {

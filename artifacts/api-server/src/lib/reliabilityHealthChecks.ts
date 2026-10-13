@@ -241,6 +241,45 @@ async function checkDatabase(env: HealthCheckEnv): Promise<HealthCheckResult> {
   }
 }
 
+/** Games that started more than this ago with zero upcoming → stale slate. */
+export const ODDS_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Pure freshness gate for odds health. Empty slate stays OK (off-season).
+ * Non-empty slate must include at least one game that has not been finished
+ * for ODDS_STALE_AFTER_MS (allows live/in-progress; fails all-historical dumps).
+ */
+export function oddsFeedFreshness(
+  games: readonly { commenceTime?: string | null; markets?: unknown[] | null }[],
+  nowMs: number = Date.now(),
+): { ok: boolean; detail: string } {
+  if (!games.length) {
+    return { ok: true, detail: "odds route ok (empty slate)" };
+  }
+  const first = games[0]!;
+  const hasMarkets = Array.isArray(first.markets) && first.markets.length > 0;
+  if (!hasMarkets) {
+    return { ok: false, detail: "odds games missing markets" };
+  }
+  let upcomingOrLive = 0;
+  for (const g of games) {
+    const t = g.commenceTime ? Date.parse(String(g.commenceTime)) : NaN;
+    if (!Number.isFinite(t)) continue;
+    // Still upcoming, or started within the staleness window (live/recent).
+    if (t + ODDS_STALE_AFTER_MS >= nowMs) upcomingOrLive += 1;
+  }
+  if (upcomingOrLive === 0) {
+    return {
+      ok: false,
+      detail: `odds stale — ${games.length} games all older than ${ODDS_STALE_AFTER_MS / 3600000}h`,
+    };
+  }
+  return {
+    ok: true,
+    detail: `odds ok games=${games.length} fresh=${upcomingOrLive}`,
+  };
+}
+
 async function checkOddsFeed(
   env: HealthCheckEnv,
   fetchFn: typeof fetch,
@@ -277,27 +316,15 @@ async function checkOddsFeed(
           detail: "odds payload not array",
         };
       }
-      // Empty slate can be legitimate off-season / early morning — treat as OK
-      // when the route is healthy. Non-empty should include markets.
-      if (arr.length === 0) {
-        return {
-          id,
-          ok: true,
-          latencyMs,
-          httpStatus: res.status,
-          detail: "odds route ok (empty slate)",
-        };
-      }
-      const first = arr[0] as { markets?: unknown[]; id?: string };
-      const hasMarkets = Array.isArray(first?.markets) && first.markets.length > 0;
+      const freshness = oddsFeedFreshness(
+        arr as { commenceTime?: string; markets?: unknown[] }[],
+      );
       return {
         id,
-        ok: hasMarkets,
+        ok: freshness.ok,
         latencyMs,
         httpStatus: res.status,
-        detail: hasMarkets
-          ? `odds ok games=${arr.length}`
-          : "odds games missing markets",
+        detail: freshness.detail,
       };
     } catch {
       return {

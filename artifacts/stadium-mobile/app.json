@@ -25,6 +25,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.stadiumedge.app",
+      "buildNumber": "79",
       "associatedDomains": [
         "applinks:profound-raptor-92.clerk.accounts.dev",
         "webcredentials:profound-raptor-92.clerk.accounts.dev"
@@ -60,7 +61,8 @@
       [
         "expo-notifications",
         {
-          "color": "#3b82f6"
+          "color": "#3b82f6",
+          "mode": "production"
         }
       ],
       [

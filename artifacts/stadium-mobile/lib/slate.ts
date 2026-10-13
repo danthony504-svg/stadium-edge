@@ -420,28 +420,17 @@ export function startsTodayUpcoming(startsAt?: string | null): boolean {
   return localDayDiff(startsAt) === 0;
 }
 
-// Decide whether a "today / tonight" restriction should ACTUALLY be applied to
-// the chat-context pools. It is requested by wantsTodayOnly(focalText), but we
-// drop it when NO candidate game qualifies as today-and-upcoming — i.e. late in
-// the evening, when tonight's slate has already started and the only posted
-// games left in the feed are tomorrow's. Applying the restriction then would
-// empty realOdds/realGames/realProps and make the coach falsely report the live
-// board isn't loaded. Returning false in that case falls back to the normal
-// next-48h pickable window; the games keep their real startsAt, so nothing is
-// fabricated. `startTimes` is the flat list of candidate game start times (odds
-// commence times + non-final game starts) gathered at context-build time.
+// Explicit calendar-day constraints remain binding even on an empty slate.
 export function resolveTodayOnly(
   requested: boolean,
-  startTimes: (string | null | undefined)[],
+  _startTimes: (string | null | undefined)[],
 ): boolean {
-  if (!requested) return false;
-  return startTimes.some((t) => isPickable(t) && startsTodayUpcoming(t));
+  return requested;
 }
 
 // Pick the honest note appended under a "today / tonight" build after the
 // startsTodayUpcoming post-parse filter. This only ever runs when todayOnly is
-// active, which (via resolveTodayOnly) GUARANTEES at least one game is still
-// upcoming today — so we must NEVER tell the user "nothing is upcoming". The
+// active, including when no games remain today. The
 // note must distinguish the two reasons a today build can come back empty:
 //   - before > 0  : legs DID ground in real odds but every one was on a game
 //                   that already kicked off or isn't on today's calendar day,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+  oddsFeedFreshness,
   runReliabilityHealthChecks,
   summarizeHealthChecks,
   type HealthCheckId,
@@ -42,6 +43,51 @@ test("forceFail synthetic failures mark checks failed without network", async ()
     assert.equal(row!.ok, false);
     assert.match(row!.detail, /synthetic/);
   }
+});
+
+test("oddsFeedFreshness: empty OK; all-historical FAIL; live/upcoming OK", () => {
+  const now = Date.parse("2026-10-13T12:00:00.000Z");
+  assert.equal(oddsFeedFreshness([], now).ok, true);
+
+  const stale = oddsFeedFreshness(
+    [
+      {
+        commenceTime: "2026-10-12T00:00:00.000Z",
+        markets: [{ key: "h2h" }],
+      },
+    ],
+    now,
+  );
+  assert.equal(stale.ok, false);
+  assert.match(stale.detail, /stale/);
+
+  const live = oddsFeedFreshness(
+    [
+      {
+        commenceTime: "2026-10-13T10:00:00.000Z",
+        markets: [{ key: "h2h" }],
+      },
+    ],
+    now,
+  );
+  assert.equal(live.ok, true);
+
+  const upcoming = oddsFeedFreshness(
+    [
+      {
+        commenceTime: "2026-10-14T00:00:00.000Z",
+        markets: [{ key: "h2h" }],
+      },
+    ],
+    now,
+  );
+  assert.equal(upcoming.ok, true);
+
+  assert.equal(
+    oddsFeedFreshness([{ commenceTime: "2026-10-14T00:00:00.000Z", markets: [] }], now)
+      .ok,
+    false,
+  );
 });
 
 test("health alert formatters and dedupe helper", () => {

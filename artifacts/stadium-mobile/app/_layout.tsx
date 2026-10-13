@@ -16,7 +16,7 @@ import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -34,6 +34,7 @@ import { installGlobalCrashHandlers } from "@/lib/installGlobalCrashHandlers";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
+  unregisterCurrentPushToken,
 } from "@/lib/notifications";
 
 // Chain RN ErrorUtils + unhandledrejection early. Never throws; preserves prior handler.
@@ -60,10 +61,19 @@ function AuthTokenBridge() {
 function PushNotificationsBridge() {
   const { isSignedIn } = useAuth();
   const router = useRouter();
+  const wasSignedIn = useRef(false);
 
   useEffect(() => {
-    if (!isSignedIn) return;
-    registerForPushAsync().catch(() => {});
+    if (isSignedIn) {
+      wasSignedIn.current = true;
+      registerForPushAsync().catch(() => {});
+      return;
+    }
+    // Account change / logout — detach token so the next user does not inherit pushes.
+    if (wasSignedIn.current) {
+      wasSignedIn.current = false;
+      unregisterCurrentPushToken().catch(() => {});
+    }
   }, [isSignedIn]);
 
   useEffect(() => {

@@ -32,17 +32,14 @@ test("not requested -> always false (no restriction)", () => {
   assert.equal(resolveTodayOnly(false, []), false);
 });
 
-test("late evening, tonight's slate started + rest are tomorrow -> drops restriction", () => {
-  // The exact reported bug: user asks "tonight" at ~8pm. The only game on the
-  // local day already started (1h ago) and everything else is on TOMORROW's
-  // local date. No game qualifies as today-and-upcoming, so the restriction must
-  // be dropped (false) rather than emptying the board.
+test("late evening, tonight's slate started + rest are tomorrow -> keeps restriction", () => {
+  // Empty today pools must not admit tomorrow.
   const startedTonight = at(-1);
   const tomorrowSlate = [tomorrowNoonLocal(), tomorrowNoonLocal()];
   assert.equal(
     resolveTodayOnly(true, [startedTonight, ...tomorrowSlate]),
-    false,
-    "no today-upcoming game -> fall back to the 48h window",
+    true,
+    "no today-upcoming game -> preserve the date constraint",
   );
 });
 
@@ -56,16 +53,16 @@ test("requested with a real today-upcoming game -> keeps restriction", () => {
   );
 });
 
-test("requested but empty pool -> false (nothing to restrict)", () => {
-  assert.equal(resolveTodayOnly(true, []), false);
+test("requested but empty pool -> keeps restriction", () => {
+  assert.equal(resolveTodayOnly(true, []), true);
 });
 
-test("only already-started games -> false", () => {
-  assert.equal(resolveTodayOnly(true, [at(-1), at(-2)]), false);
+test("only already-started games -> keeps restriction", () => {
+  assert.equal(resolveTodayOnly(true, [at(-1), at(-2)]), true);
 });
 
-test("only games beyond the 48h pickable window -> false", () => {
-  assert.equal(resolveTodayOnly(true, [at(60), at(72)]), false);
+test("only games beyond the 48h pickable window -> keeps restriction", () => {
+  assert.equal(resolveTodayOnly(true, [at(60), at(72)]), true);
 });
 
 // isPregameBettable: the coach betting pool gate. STRICTER than isPickable —

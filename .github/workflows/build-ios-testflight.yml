@@ -12,6 +12,10 @@ on:
         description: Auto-submit to App Store Connect when the build finishes
         required: false
         default: "false"
+      preflight_only:
+        description: "If true, only report secret presence + run preflight (no EAS build)"
+        required: false
+        default: "false"
   push:
     branches: [main]
     paths:
@@ -39,6 +43,33 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
+      - name: Report build-secret presence (no secret values)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
+        run: |
+          report() {
+            name="$1"
+            val="$2"
+            if [ -z "$val" ]; then
+              echo "$name=MISSING"
+            else
+              echo "$name=PRESENT"
+            fi
+          }
+          report EXPO_TOKEN "$EXPO_TOKEN"
+          report EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY"
+          report EXPO_PUBLIC_CLERK_PROXY_URL "$EXPO_PUBLIC_CLERK_PROXY_URL"
+          report EXPO_PUBLIC_REVENUECAT_IOS_API_KEY "$EXPO_PUBLIC_REVENUECAT_IOS_API_KEY"
+          echo "Pinned iOS buildNumber (app.json/eas.json)=79 (above proven TestFlight Build 78)"
+          # Configuration-only runs must not pass with a missing build token.
+          if [ -z "$EXPO_TOKEN" ] || [ -z "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" ] || [ -z "$EXPO_PUBLIC_CLERK_PROXY_URL" ] || [ -z "$EXPO_PUBLIC_REVENUECAT_IOS_API_KEY" ]; then
+            echo "FAIL: required build credentials missing"
+            exit 1
+          fi
+
       - name: Verify iOS entitlements (no Sign in with Apple for stale profile)
         run: |
           if pnpm exec expo config --type introspect 2>/dev/null | grep -q "com.apple.developer.applesignin"; then
@@ -48,23 +79,94 @@ jobs:
           fi
           echo "OK: no com.apple.developer.applesignin entitlement"
 
+      - name: Preflight production auth / passkey / APNs / RevenueCat
+        env:
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          # Prefer EAS/repo secrets when cut over; fall back to eas.json values via the script.
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
+        run: node scripts/preflight-ios-release.mjs
+
+      - name: Bake production secrets into eas.json (remote EAS job)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.preflight_only == 'true') }}
+        env:
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
+        run: |
+          # EAS cloud builds bake eas.json env — shell EXPO_PUBLIC_* alone is not enough.
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "eas.json";
+          const eas = JSON.parse(fs.readFileSync(path, "utf8"));
+          const env = (eas.build.production.env ||= {});
+          const pk = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
+          const proxy = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || "";
+          const rc = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || "";
+          if (!pk || pk.startsWith("pk_test_")) {
+            console.error("Refusing to bake pk_test / missing Clerk key into eas.json");
+            process.exit(1);
+          }
+          if (!proxy.includes("/api/__clerk")) {
+            console.error("EXPO_PUBLIC_CLERK_PROXY_URL must include /api/__clerk");
+            process.exit(1);
+          }
+          if (!rc) {
+            console.error("EXPO_PUBLIC_REVENUECAT_IOS_API_KEY missing");
+            process.exit(1);
+          }
+          env.EXPO_PUBLIC_DOMAIN = "stadium-edge.onrender.com";
+          env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = pk;
+          env.EXPO_PUBLIC_CLERK_PROXY_URL = proxy;
+          env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY = rc;
+          env.EXPO_PUBLIC_APP_REVIEW_MODE = "false";
+          env.EXPO_PUBLIC_OTA_BOOTSTRAP = "true";
+          env.EXPO_PUBLIC_OTA_USER_BANNER = "false";
+          fs.writeFileSync(path, JSON.stringify(eas, null, 2) + "\n");
+          console.log(
+            "Baked production env into eas.json:",
+            "Clerk=PRESENT proxy=PRESENT RevenueCat=PRESENT",
+          );
+          NODE
+
       - name: Build iOS (optional App Store Connect submit)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.preflight_only == 'true') }}
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
-          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
+          EXPO_PUBLIC_OTA_USER_BANNER: "false"
           EAS_NO_VCS: "1"
           AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
-            echo "Add EXPO_TOKEN to repo secrets"
+            echo "EXPO_TOKEN missing from GitHub secrets — execution limitation, not a product failure. Add EXPO_TOKEN then re-run."
+            exit 1
+          fi
+          if [ -z "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then
+            echo "Add EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY repo secret (pk_live… for production Clerk)"
+            exit 1
+          fi
+          if [[ "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" == pk_test_* ]]; then
+            echo "Refusing TestFlight build with pk_test — production Clerk cutover incomplete"
+            exit 1
+          fi
+          if [ -z "$EXPO_PUBLIC_CLERK_PROXY_URL" ]; then
+            echo "Add EXPO_PUBLIC_CLERK_PROXY_URL=https://stadium-edge.onrender.com/api/__clerk"
+            exit 1
+          fi
+          if [ -z "$EXPO_PUBLIC_REVENUECAT_IOS_API_KEY" ]; then
+            echo "Add EXPO_PUBLIC_REVENUECAT_IOS_API_KEY repo secret"
             exit 1
           fi
           if [ "${{ github.event_name }}" = "push" ]; then
-            MSG="v1.0.3 embedded diagnostics + home on launch $(git rev-parse --short HEAD)"
-            AUTO_SUBMIT="true"
+            MSG="v1.1.0 release candidate $(git rev-parse --short HEAD)"
+            AUTO_SUBMIT="false"
           else
             MSG="${{ github.event.inputs.message }}"
             AUTO_SUBMIT="${{ github.event.inputs.auto_submit }}"
