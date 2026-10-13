@@ -27,8 +27,7 @@
       "autoIncrement": false,
       "channel": "production",
       "ios": {
-        "resourceClass": "m-medium",
-        "buildNumber": "79"
+        "resourceClass": "m-medium"
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
