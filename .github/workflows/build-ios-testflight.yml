@@ -48,13 +48,25 @@ jobs:
           fi
           echo "OK: no com.apple.developer.applesignin entitlement"
 
+      - name: Preflight production auth / passkey / APNs / RevenueCat
+        env:
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          # Prefer EAS/repo secrets when cut over; fall back to eas.json values via the script.
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
+        run: node scripts/preflight-ios-release.mjs
+
       - name: Build iOS (optional App Store Connect submit)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
-          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
+          EXPO_PUBLIC_OTA_USER_BANNER: "false"
           EAS_NO_VCS: "1"
           AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
         run: |
@@ -62,9 +74,25 @@ jobs:
             echo "Add EXPO_TOKEN to repo secrets"
             exit 1
           fi
+          if [ -z "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then
+            echo "Add EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY repo secret (pk_live… for production Clerk)"
+            exit 1
+          fi
+          if [[ "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" == pk_test_* ]]; then
+            echo "Refusing TestFlight build with pk_test — production Clerk cutover incomplete"
+            exit 1
+          fi
+          if [ -z "$EXPO_PUBLIC_CLERK_PROXY_URL" ]; then
+            echo "Add EXPO_PUBLIC_CLERK_PROXY_URL=https://stadium-edge.onrender.com/api/__clerk"
+            exit 1
+          fi
+          if [ -z "$EXPO_PUBLIC_REVENUECAT_IOS_API_KEY" ]; then
+            echo "Add EXPO_PUBLIC_REVENUECAT_IOS_API_KEY repo secret"
+            exit 1
+          fi
           if [ "${{ github.event_name }}" = "push" ]; then
-            MSG="v1.0.3 embedded diagnostics + home on launch $(git rev-parse --short HEAD)"
-            AUTO_SUBMIT="true"
+            MSG="v1.1.0 release candidate $(git rev-parse --short HEAD)"
+            AUTO_SUBMIT="false"
           else
             MSG="${{ github.event.inputs.message }}"
             AUTO_SUBMIT="${{ github.event.inputs.auto_submit }}"
