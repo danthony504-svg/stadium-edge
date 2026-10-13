@@ -56,8 +56,7 @@ jobs:
             if [ -z "$val" ]; then
               echo "$name=MISSING"
             else
-              prefix=$(printf '%s' "$val" | cut -c1-12)
-              echo "$name=PRESENT prefix=${prefix}… len=${#val}"
+              echo "$name=PRESENT"
             fi
           }
           report EXPO_TOKEN "$EXPO_TOKEN"
@@ -65,6 +64,11 @@ jobs:
           report EXPO_PUBLIC_CLERK_PROXY_URL "$EXPO_PUBLIC_CLERK_PROXY_URL"
           report EXPO_PUBLIC_REVENUECAT_IOS_API_KEY "$EXPO_PUBLIC_REVENUECAT_IOS_API_KEY"
           echo "Pinned iOS buildNumber (app.json/eas.json)=79 (above proven TestFlight Build 78)"
+          # Configuration-only runs must not pass with a missing build token.
+          if [ -z "$EXPO_TOKEN" ] || [ -z "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" ] || [ -z "$EXPO_PUBLIC_CLERK_PROXY_URL" ] || [ -z "$EXPO_PUBLIC_REVENUECAT_IOS_API_KEY" ]; then
+            echo "FAIL: required build credentials missing"
+            exit 1
+          fi
 
       - name: Verify iOS entitlements (no Sign in with Apple for stale profile)
         run: |
@@ -122,9 +126,7 @@ jobs:
           fs.writeFileSync(path, JSON.stringify(eas, null, 2) + "\n");
           console.log(
             "Baked production env into eas.json:",
-            `Clerk=${pk.slice(0, 12)}…`,
-            `proxy=${proxy}`,
-            `RC=${rc.slice(0, 5)}…`,
+            "Clerk=PRESENT proxy=PRESENT RevenueCat=PRESENT",
           );
           NODE
 

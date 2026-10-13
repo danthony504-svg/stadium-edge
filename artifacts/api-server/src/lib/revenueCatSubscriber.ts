@@ -92,9 +92,12 @@ export function parseRevenueCatSubscriberPayload(
   const subscriptions = sub.subscriptions ?? {};
   const productIds: string[] = [];
   for (const [pid, s] of Object.entries(subscriptions)) {
-    productIds.push(pid);
     const expMs = s.expires_date ? Date.parse(s.expires_date) : NaN;
-    const active = !s.expires_date || (Number.isFinite(expMs) && expMs > nowMs);
+    // Auto-renewable subscriptions must have a valid future expiration.
+    // RC retains expired products in this map; they must not restore access.
+    const active = Number.isFinite(expMs) && expMs > nowMs;
+    if (!active) continue;
+    productIds.push(pid);
     if (active && Number.isFinite(expMs)) {
       const d = new Date(expMs);
       if (!latestExpires || d.getTime() > latestExpires.getTime()) latestExpires = d;
@@ -103,9 +106,12 @@ export function parseRevenueCatSubscriberPayload(
   }
 
   const planFromEnt = planFromEntitlementIds(activeEntitlementIds);
-  const planFromProd =
-    productIds.map(planFromProductId).find((p) => p != null) ??
-    planFromProductId(productId);
+  const productPlans = productIds.map(planFromProductId);
+  const planFromProd = productPlans.includes("pro")
+    ? "pro"
+    : productPlans.includes("go")
+      ? "go"
+      : planFromProductId(productId);
   const planId: PlanId = planFromEnt ?? planFromProd ?? "free";
 
   if (planId === "free") {

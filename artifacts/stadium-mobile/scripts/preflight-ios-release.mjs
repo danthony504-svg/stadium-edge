@@ -13,6 +13,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { isIosRevenueCatKey, hasNativeWebCredentials } from "./ios-release-validation.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DOMAIN = (process.env.EXPO_PUBLIC_DOMAIN || "stadium-edge.onrender.com").trim();
@@ -102,8 +104,8 @@ async function main() {
   );
   console.log(`version=${version} runtimeVersion=${runtimeVersion} bundleId=${bundleId}`);
   console.log(`ios.buildNumber=${buildNumber || "(unset)"}`);
-  console.log(`effective Clerk key prefix=${pk.slice(0, 12) || "(missing)"}…`);
-  console.log(`eas.json Clerk key prefix=${easPk.slice(0, 12) || "(missing)"}…`);
+  console.log(`effective Clerk key=${pk ? "PRESENT" : "MISSING"}`);
+  console.log(`eas.json Clerk key=${easPk ? "PRESENT" : "MISSING"}`);
 
   if (bundleId !== "com.stadiumedge.app") {
     fail(`bundleId must be com.stadiumedge.app (got ${bundleId})`);
@@ -152,16 +154,17 @@ async function main() {
       ok(`Clerk proxy URL set (${proxy})`);
     }
   } else {
-    fail(`unrecognized Clerk publishable key shape: ${pk.slice(0, 16)}`);
+    fail("unrecognized Clerk publishable key shape");
   }
 
   if (easPk && pk && easPk !== pk) {
     warn(
-      `eas.json production Clerk key (${easPk.slice(0, 12)}…) differs from effective key — workflow must rewrite eas.json / EAS env before queueing the build so the remote binary does not bake the stale value`,
+      "eas.json production Clerk key differs from effective key — workflow must rewrite eas.json / EAS env before queueing the build",
     );
   }
 
   const keyHost = decodeClerkHost(pk);
+  if (pk && !keyHost) fail("Clerk publishable key does not encode a valid frontend host");
   // app.config.js overrides associatedDomains from the publishable key at build time.
   // Static app.json is only a fallback — require either match or document the override.
   if (keyHost) {
@@ -172,9 +175,24 @@ async function main() {
     if (associated.includes(expectApplinks) && associated.includes(expectWebcred)) {
       ok(`Associated Domains match Clerk host ${keyHost}`);
     } else if (hasDynamicConfig) {
-      ok(
-        `app.config.js will set Associated Domains from publishable key host ${keyHost} (app.json currently: ${associated.join(", ") || "none"})`,
-      );
+      try {
+        const require = createRequire(import.meta.url);
+        const configure = require(appConfigPath);
+        const previous = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+        let resolved;
+        try {
+          process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = pk;
+          resolved = configure().expo?.ios?.associatedDomains ?? [];
+        } finally {
+          if (previous === undefined) delete process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+          else process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = previous;
+        }
+        if (!resolved.includes(expectApplinks) || !resolved.includes(expectWebcred)) {
+          fail("Resolved app.config.js Associated Domains do not match Clerk host");
+        } else ok("Resolved Associated Domains match Clerk host");
+      } catch {
+        fail("Could not resolve app.config.js Associated Domains");
+      }
     } else {
       fail(
         `Associated Domains must include ${expectApplinks} and ${expectWebcred} (have: ${associated.join(", ") || "none"})`,
@@ -186,13 +204,8 @@ async function main() {
     fail(
       "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY missing — bake the RevenueCat iOS public SDK key (appl_…) via GitHub/EAS secret or eas.json before building",
     );
-  } else if (rcKey.length < 8) {
-    fail("EXPO_PUBLIC_REVENUECAT_IOS_API_KEY looks too short");
-  } else if (!rcKey.startsWith("appl_") && !rcKey.startsWith("goog_")) {
-    warn(
-      `RevenueCat key does not start with appl_ (got ${rcKey.slice(0, 5)}…) — confirm this is the iOS public SDK key`,
-    );
-    ok("RevenueCat iOS API key present in build env");
+  } else if (!isIosRevenueCatKey(rcKey)) {
+    fail("RevenueCat iOS SDK key must use appl_ format; Android, test-store and secret keys cannot pass this gate");
   } else {
     ok("RevenueCat iOS API key present in build env");
   }
@@ -229,7 +242,7 @@ async function main() {
       `passkey.attribute.enabled=${passkeyAttr?.enabled ?? "?"} used_for_first_factor=${passkeyAttr?.used_for_first_factor ?? "?"}`,
     );
 
-    if (testMode || instanceType === "development") {
+    if (ac.test_mode !== false || instanceType !== "production") {
       fail(
         "production API Clerk proxy still bound to a development Clerk instance (test_mode/development) — cut over Render CLERK_SECRET_KEY + client pk_live together; do not mix pk_live with a test proxy",
       );
@@ -278,9 +291,7 @@ async function main() {
       try {
         const { status, text, json } = await fetchJson(aasaUrl);
         const body = text || "";
-        const hasAppId =
-          body.includes("com.stadiumedge.app") ||
-          JSON.stringify(json || {}).includes("com.stadiumedge.app");
+        const hasAppId = hasNativeWebCredentials(json, bundleId);
         const emptyObj = body.trim() === "{}" || (json && Object.keys(json).length === 0);
         console.log(`AASA ${aasaUrl} → HTTP ${status} empty=${emptyObj} hasBundle=${hasAppId}`);
         if (status === 200 && hasAppId && !emptyObj) {
@@ -294,7 +305,7 @@ async function main() {
     }
     if (!aasaOk) {
       fail(
-        "Clerk AASA does not include com.stadiumedge.app — register Native Application (bundle ID + Apple Team ID) on the intended Clerk instance",
+        "Clerk AASA lacks a valid TeamID.com.stadiumedge.app entry in webcredentials.apps — register Native Application (bundle ID + Apple Team ID) on the intended Clerk instance",
       );
     }
   }
