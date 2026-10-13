@@ -5,7 +5,76 @@
  * email/password biometric shortcut in biometricLogin.ts). A passkey user does
  * not need to know or remember a password — when Clerk still requires a
  * password field at sign-up we generate a machine secret the UI never shows.
+ *
+ * IMPORTANT: Never statically `import { passkeys } from "@clerk/expo/passkeys"`
+ * at app startup. On Build 78 the native module `ClerkExpoPasskeys` is absent;
+ * a static import evaluates the package immediately and throws
+ * `Cannot find native module 'ClerkExpoPasskeys'`, which expo-updates marks as
+ * a failed launch (`updatePreviouslyFailed`). Always use `getPasskeys()` /
+ * `isPasskeysSupported()` so missing native code fail-softs to null/false.
  */
+
+/** Minimal surface used by ClerkProvider + auth screens. */
+export type PasskeysApi = {
+  isSupported: () => boolean;
+};
+
+type PasskeysModuleShape =
+  | { passkeys?: PasskeysApi; default?: PasskeysApi }
+  | PasskeysApi;
+
+type PasskeysLoader = () => PasskeysModuleShape;
+
+function defaultPasskeysLoader(): PasskeysModuleShape {
+  // Dynamic require — static import crashes when ClerkExpoPasskeys is missing.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("@clerk/expo/passkeys") as PasskeysModuleShape;
+}
+
+let passkeysLoader: PasskeysLoader = defaultPasskeysLoader;
+let cachedPasskeys: PasskeysApi | null | undefined;
+
+function unwrapPasskeys(mod: PasskeysModuleShape): PasskeysApi | null {
+  if (!mod || typeof mod !== "object") return null;
+  const candidate =
+    "passkeys" in mod && mod.passkeys
+      ? mod.passkeys
+      : "default" in mod && mod.default
+        ? mod.default
+        : (mod as PasskeysApi);
+  if (candidate && typeof candidate.isSupported === "function") return candidate;
+  return null;
+}
+
+/**
+ * Lazily load Clerk passkeys. Returns null when the JS package or native
+ * `ClerkExpoPasskeys` module is unavailable (safe for OTA onto older binaries).
+ */
+export function getPasskeys(): PasskeysApi | null {
+  if (cachedPasskeys !== undefined) return cachedPasskeys;
+  try {
+    cachedPasskeys = unwrapPasskeys(passkeysLoader());
+  } catch {
+    cachedPasskeys = null;
+  }
+  return cachedPasskeys;
+}
+
+/** True only when the native passkeys module loaded and reports support. */
+export function isPasskeysSupported(): boolean {
+  try {
+    const api = getPasskeys();
+    return Boolean(api?.isSupported?.());
+  } catch {
+    return false;
+  }
+}
+
+/** Test-only: inject a loader (or null to restore default) and clear cache. */
+export function __setPasskeysLoaderForTests(next: PasskeysLoader | null): void {
+  passkeysLoader = next ?? defaultPasskeysLoader;
+  cachedPasskeys = undefined;
+}
 
 /** Clerk / native cancellation & abort codes that must not freeze the UI. */
 const PASSKEY_CANCEL_CODES = new Set([

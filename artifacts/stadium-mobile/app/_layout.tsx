@@ -9,7 +9,6 @@ import { Inter_600SemiBold } from "@expo-google-fonts/inter/600SemiBold";
 import { Inter_700Bold } from "@expo-google-fonts/inter/700Bold";
 import { useFonts } from "@expo-google-fonts/inter/useFonts";
 import { ClerkLoaded, ClerkLoading, ClerkProvider, useAuth } from "@clerk/expo";
-import { passkeys } from "@clerk/expo/passkeys";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
@@ -31,6 +30,9 @@ import { FantasyRosterProvider } from "@/context/FantasyRosterContext";
 import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
 import { installGlobalCrashHandlers } from "@/lib/installGlobalCrashHandlers";
+// Fail-soft: dynamic load of @clerk/expo/passkeys (never static-import — crashes
+// Build 78 when native ClerkExpoPasskeys is missing; see getPasskeys()).
+import { getPasskeys } from "@/lib/passkeyAuth";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -239,7 +241,7 @@ function RootLayoutContent() {
       publishableKey={publishableKey}
       tokenCache={tokenCache}
       proxyUrl={proxyUrl}
-      __experimental_passkeys={passkeys}
+      __experimental_passkeys={getPasskeys() ?? undefined}
     >
       <ClerkLoading>
         <BootScreen />
