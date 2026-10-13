@@ -24,6 +24,7 @@ import {
   getSavedLoginEmail,
 } from "@/lib/biometricLogin";
 import { deleteAccount } from "@/lib/api";
+import { unregisterCurrentPushToken } from "@/lib/notifications";
 import { buildReferralLink } from "@/lib/referral";
 
 export default function AccountScreen() {
@@ -426,6 +427,8 @@ export default function AccountScreen() {
 
         <Pressable
           onPress={async () => {
+            // Detach Expo push token before Clerk session ends.
+            await unregisterCurrentPushToken().catch(() => {});
             await signOut();
             router.replace("/");
           }}

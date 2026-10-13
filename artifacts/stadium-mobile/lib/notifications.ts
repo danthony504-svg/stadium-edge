@@ -11,7 +11,9 @@ import {
   unregisterPushToken,
   type NotifPrefs,
 } from "./api";
-import { SLIP_UI_ENABLED } from "./slipUi";
+import { routeForNotificationData, type NotifRouteData } from "./notificationsRouting.ts";
+
+export { routeForNotificationData } from "./notificationsRouting.ts";
 
 // Re-export the authed HTTP helpers under the names the settings UI consumes.
 export type { NotifPrefs };
@@ -108,6 +110,24 @@ export async function registerForPushAsync(): Promise<string | null> {
   return token;
 }
 
+/**
+ * Best-effort detach of the device push token from the signed-out account.
+ * Call before/after Clerk signOut so the next account does not inherit pushes.
+ */
+export async function unregisterCurrentPushToken(): Promise<void> {
+  if (!(await ensureNotificationsReady())) return;
+  const Notifications = notificationsMod!;
+  if (!Device.isDevice) return;
+  try {
+    const res = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
+    const token = res?.data;
+    if (!token) return;
+    await unregisterPushToken(token);
+  } catch {
+    // Ignore — sign-out must continue even if unregister fails.
+  }
+}
+
 // Current OS-level permission status (granted / denied / undetermined). Used by
 // the settings screen to surface a "denied — open Settings" hint.
 export async function getPermissionStatus(): Promise<ExpoNotifications.PermissionStatus> {
@@ -120,44 +140,29 @@ type NavFn = (path: string) => void;
 
 // Deep-link a notification tap to the right screen based on data.type. Falls
 // back to home for unknown/absent types. Returns the subscription so the caller
-// can clean it up.
+// can clean it up. Also drains the cold-start last response (terminated → tap).
 export async function addNotificationResponseListener(
   navigate: NavFn,
 ): Promise<{ remove: () => void } | null> {
   if (!(await ensureNotificationsReady())) return null;
 
-  return notificationsMod!.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data as
-      | { type?: string; buildId?: string }
-      | undefined;
-    // Must mirror the `data.type` values the backend sends (see notifyJobs.ts
-    // and the /chat background-finish path):
-    // "dailyPicks" | "result" | "reminder" | "oddsMovement" | "upsetAlert"
-    // | "edgeLock" | "coachReady" | "test".
-    switch (data?.type) {
-      case "dailyPicks":
-        navigate("/props");
-        break;
-      case "result":
-      case "reminder":
-      case "oddsMovement":
-        navigate(SLIP_UI_ENABLED ? "/slip" : "/coach");
-        break;
-      case "upsetAlert":
-        // Upset Watch card lives on the home screen.
-        navigate("/");
-        break;
-      case "edgeLock":
-        // The Edge Lock screen (route file stays `arbitrage`).
-        navigate("/arbitrage");
-        break;
-      case "coachReady":
-        // The AI Coach finished a parlay the user walked away from. Open Coach
-        // with the buildId so it can load + replay the stashed finished ticket.
-        navigate(data.buildId ? `/coach?buildId=${encodeURIComponent(data.buildId)}` : "/coach");
-        break;
-      default:
-        navigate("/");
-    }
+  const Notifications = notificationsMod!;
+
+  const deliver = (response: ExpoNotifications.NotificationResponse | null | undefined) => {
+    if (!response) return;
+    const data = response.notification.request.content.data as NotifRouteData;
+    navigate(routeForNotificationData(data));
+  };
+
+  // Cold start: app was terminated; user tapped a notification to open it.
+  try {
+    const last = await Notifications.getLastNotificationResponseAsync();
+    deliver(last);
+  } catch {
+    // ignore
+  }
+
+  return Notifications.addNotificationResponseReceivedListener((response) => {
+    deliver(response);
   });
 }
