@@ -3608,11 +3608,7 @@ export type BuiltChatContext = {
   // Real upset spots (mlLean on the betting dog), sorted by edge desc. Powers the
   // mobile Upset Watch card; the coach gets the same signal via matchupHistory.
   upsetSpots: UpsetSpot[];
-  // The EFFECTIVE today-only decision actually applied to these pools (after the
-  // resolveTodayOnly late-evening fallback). Callers MUST use this — not a fresh
-  // wantsTodayOnly(text) — when post-filtering parsed picks, or they'd re-impose
-  // the strict today-only filter the context build deliberately relaxed and zero
-  // out the (real, tomorrow) slate again.
+  // Calendar-day restriction applied to these pools, even when empty.
   todayOnly: boolean;
   tomorrowOnly: boolean;
 };
@@ -3991,7 +3987,7 @@ type LightParlayOpts = {
   parallelPropFetch?: boolean;
   /** Float named teams/games to the front of the prop fetch queue. */
   focalText?: string | null;
-  /** Restrict to local-calendar today when games qualify. */
+  /** Restrict to local-calendar today, including an empty today slate. */
   tonightOnly?: boolean;
   /** Soccer scorer/GK "today" asks — keep only today's upcoming kickoffs. */
   todayOnly?: boolean;
@@ -4016,6 +4012,7 @@ async function buildLightParlayContext(
         ]);
         const pickable = o
           .filter((x) => isPregameBettableForSport(x.commenceTime, s))
+          .filter((x) => !(opts.tonightOnly || opts.todayOnly) || startsTodayUpcoming(x.commenceTime))
           .map((x) => ({ ...x, sport: s }));
         return { s, pickable, games: g };
       }),
@@ -4037,6 +4034,7 @@ async function buildLightParlayContext(
       ]);
       const pickable = o
         .filter((x) => isPregameBettableForSport(x.commenceTime, s))
+        .filter((x) => !(opts.tonightOnly || opts.todayOnly) || startsTodayUpcoming(x.commenceTime))
         .map((x) => ({ ...x, sport: s }));
       if (pickable.length > 0) {
         activeSports.push(s);
@@ -4057,27 +4055,12 @@ async function buildLightParlayContext(
     propPool: [],
     gameMeta: [],
     upsetSpots: [],
-    todayOnly: false,
+    todayOnly: Boolean(opts.tonightOnly || opts.todayOnly),
     tomorrowOnly: false,
   };
   if (!allOdds.length) return empty;
 
   allOdds.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  if (opts.tonightOnly) {
-    const tonight = allOdds.filter((g) => startsTodayUpcoming(g.commenceTime));
-    // Only narrow when tonight still has games for the sports we're building.
-    const soccerOnly = activeSports.length === 1 && activeSports[0] === "soccer";
-    if (tonight.length && !soccerOnly) {
-      allOdds.splice(0, allOdds.length, ...tonight);
-    } else if (tonight.length && soccerOnly) {
-      const soccerTonight = tonight.filter((g) => g.sport === "soccer");
-      if (soccerTonight.length) allOdds.splice(0, allOdds.length, ...soccerTonight);
-    }
-  }
-  if (opts.todayOnly) {
-    const today = allOdds.filter((g) => startsTodayUpcoming(g.commenceTime));
-    if (today.length) allOdds.splice(0, allOdds.length, ...today);
-  }
   if (opts.focalText?.trim()) {
     allOdds.sort((a, b) => {
       const ga = `${a.awayTeam} @ ${a.homeTeam}`;
@@ -4257,7 +4240,7 @@ async function buildLightParlayContext(
     propPool,
     gameMeta,
     upsetSpots: [],
-    todayOnly: false,
+    todayOnly: Boolean(opts.tonightOnly || opts.todayOnly),
     tomorrowOnly: false,
   };
 }
@@ -4542,17 +4525,8 @@ export async function buildChatContext(
   // NAMES a sport/game, allow that focal sport's upcoming games a wider horizon
   // into the matchup-history pool, BOUNDED per sport so a non-focal or broad ask
   // never pulls a week of slates and bloats the context.
-  // A "today / tonight" ask restricts every pool to games that tip off later on
-  // the user's LOCAL calendar day. But late in the evening that set is often
-  // EMPTY — tonight's games have all already started, and the next posted slate
-  // in the feed is tomorrow. Applying the restriction then would empty realOdds,
-  // realGames AND realProps, so the coach falsely reports "the live board isn't
-  // loaded — no games tonight" on a full slate. resolveTodayOnly drops the
-  // restriction in exactly that case (asked, but nothing qualifies as
-  // today-and-upcoming) so we fall back to the normal next-48h pickable window.
-  // Every game carries its real startsAt, so the coach can still see (and say)
-  // they're tomorrow's slate — nothing is fabricated; we just stop hiding the
-  // only real games we have.
+  // Explicit today/tonight requests stay on the local calendar day,
+  // even when the only posted games are tomorrow.
   const candidateStartTimes: (string | null | undefined)[] = [
     ...oddsAll.flat().map((g) => g.commenceTime),
     ...gamesAll.flat().filter((g) => g.state !== "post").map((g) => g.startsAt),

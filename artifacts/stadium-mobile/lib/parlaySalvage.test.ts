@@ -21,7 +21,8 @@ const WC_ODDS = [
   },
 ];
 
-test("filterSalvageOddsPool focuses World Cup asks on soccer", () => {
+test("filterSalvageOddsPool focuses World Cup asks on soccer", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 6, 7, 0, 0, 0) });
   const ask = "Build me a 2 leg World Cup parlay for today's matches";
   const pool = filterSalvageOddsPool(WC_ODDS, ask, "tonight");
   assert.equal(pool.length, 2);
