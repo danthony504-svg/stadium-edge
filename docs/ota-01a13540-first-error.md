@@ -68,6 +68,19 @@ class** that produces `updatePreviouslyFailed` for `01a13540`. Diagnostics alone
 would not. The blacklisted id itself cannot be revived — publish a superseding
 production tip, then Restart **or** cold-start after fetch.
 
+## Superseding tip (published)
+
+| Field | Value |
+|-------|-------|
+| iOS update ID | `01a13582-b9f1-72ab-b1c4-d8ed87c1200e` |
+| Update group | `8ab04527-8590-42a2-81b4-63c70d0376c6` |
+| Source | `main` @ `6774d3f3` (merge #724) |
+| Workflow | https://github.com/danthony504-svg/stadium-edge/actions/runs/38407180263 |
+| ROLLBACK_EMBEDDED | `0` |
+
+On-device: Restart (or fetch + cold start) → confirm `isEmbeddedLaunch=false` and
+`updateId=01a13582-…` survives a second cold launch. Preserve login/subs/trials.
+
 ## Preserve
 
 Login/Clerk, subscriptions/StoreKit, both 7-day trial honesty paths. No Build 79.
