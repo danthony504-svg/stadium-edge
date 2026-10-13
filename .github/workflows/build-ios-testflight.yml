@@ -57,6 +57,49 @@ jobs:
           EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
         run: node scripts/preflight-ios-release.mjs
 
+      - name: Bake production secrets into eas.json (remote EAS job)
+        env:
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
+        run: |
+          # EAS cloud builds bake eas.json env — shell EXPO_PUBLIC_* alone is not enough.
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "eas.json";
+          const eas = JSON.parse(fs.readFileSync(path, "utf8"));
+          const env = (eas.build.production.env ||= {});
+          const pk = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
+          const proxy = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || "";
+          const rc = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || "";
+          if (!pk || pk.startsWith("pk_test_")) {
+            console.error("Refusing to bake pk_test / missing Clerk key into eas.json");
+            process.exit(1);
+          }
+          if (!proxy.includes("/api/__clerk")) {
+            console.error("EXPO_PUBLIC_CLERK_PROXY_URL must include /api/__clerk");
+            process.exit(1);
+          }
+          if (!rc) {
+            console.error("EXPO_PUBLIC_REVENUECAT_IOS_API_KEY missing");
+            process.exit(1);
+          }
+          env.EXPO_PUBLIC_DOMAIN = "stadium-edge.onrender.com";
+          env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = pk;
+          env.EXPO_PUBLIC_CLERK_PROXY_URL = proxy;
+          env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY = rc;
+          env.EXPO_PUBLIC_APP_REVIEW_MODE = "false";
+          env.EXPO_PUBLIC_OTA_BOOTSTRAP = "true";
+          env.EXPO_PUBLIC_OTA_USER_BANNER = "false";
+          fs.writeFileSync(path, JSON.stringify(eas, null, 2) + "\n");
+          console.log(
+            "Baked production env into eas.json:",
+            `Clerk=${pk.slice(0, 12)}…`,
+            `proxy=${proxy}`,
+            `RC=${rc.slice(0, 5)}…`,
+          );
+          NODE
+
       - name: Build iOS (optional App Store Connect submit)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -71,7 +114,7 @@ jobs:
           AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
-            echo "Add EXPO_TOKEN to repo secrets"
+            echo "EXPO_TOKEN missing from GitHub secrets — execution limitation, not a product failure. Add EXPO_TOKEN then re-run."
             exit 1
           fi
           if [ -z "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then

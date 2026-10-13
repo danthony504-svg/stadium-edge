@@ -74,11 +74,20 @@ async function main() {
   const eas = readJson(join(ROOT, "eas.json"));
   const app = readJson(join(ROOT, "app.json"));
   const prodEnv = eas.build?.production?.env ?? {};
-  const pk = String(prodEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || "");
-  const proxy = String(prodEnv.EXPO_PUBLIC_CLERK_PROXY_URL || process.env.EXPO_PUBLIC_CLERK_PROXY_URL || "");
-  const rcKey = String(
-    prodEnv.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || "",
+  // Prefer process.env (GitHub/EAS secrets) over committed eas.json so cutover
+  // secrets can gate the build without leaving pk_test baked as the winner.
+  const pk = String(
+    process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || prodEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || "",
   );
+  const proxy = String(
+    process.env.EXPO_PUBLIC_CLERK_PROXY_URL || prodEnv.EXPO_PUBLIC_CLERK_PROXY_URL || "",
+  );
+  const rcKey = String(
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ||
+      prodEnv.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ||
+      "",
+  );
+  const easPk = String(prodEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || "");
   const version = app.expo?.version;
   const runtimeVersion = app.expo?.runtimeVersion;
   const bundleId = app.expo?.ios?.bundleIdentifier;
@@ -89,7 +98,8 @@ async function main() {
   const notifMode = notifPlugin?.[1]?.mode;
 
   console.log(`version=${version} runtimeVersion=${runtimeVersion} bundleId=${bundleId}`);
-  console.log(`eas Clerk key prefix=${pk.slice(0, 12) || "(missing)"}…`);
+  console.log(`effective Clerk key prefix=${pk.slice(0, 12) || "(missing)"}…`);
+  console.log(`eas.json Clerk key prefix=${easPk.slice(0, 12) || "(missing)"}…`);
 
   if (bundleId !== "com.stadiumedge.app") {
     fail(`bundleId must be com.stadiumedge.app (got ${bundleId})`);
@@ -100,23 +110,27 @@ async function main() {
   if (notifMode !== "production") {
     fail(`expo-notifications plugin mode must be "production" (got ${notifMode ?? "unset"})`);
   } else {
-    ok(`expo-notifications mode=production`);
+    ok(`expo-notifications mode=production (aps-environment production via plugin)`);
   }
 
-  if ((prodEnv.EXPO_PUBLIC_OTA_USER_BANNER ?? "false") === "true") {
+  const otaBanner =
+    process.env.EXPO_PUBLIC_OTA_USER_BANNER ?? prodEnv.EXPO_PUBLIC_OTA_USER_BANNER ?? "false";
+  if (otaBanner === "true") {
     warn("EXPO_PUBLIC_OTA_USER_BANNER=true — production users will see the OTA banner");
   } else {
     ok("OTA user banner hidden for production profile");
   }
 
   if (!pk) {
-    fail("EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY missing from eas.json production.env");
+    fail(
+      "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY missing — set GitHub/EAS secret or eas.json production.env",
+    );
   } else if (pk.startsWith("pk_test_")) {
     fail(
-      "eas.json production profile still uses pk_test — TestFlight/App Store must not ship the development Clerk instance",
+      "production build env still uses pk_test — TestFlight/App Store must not ship the development Clerk instance",
     );
   } else if (pk.startsWith("pk_live_")) {
-    ok("eas.json production Clerk key is pk_live");
+    ok("effective Clerk key is pk_live");
     if (!proxy.includes("/api/__clerk")) {
       fail("pk_live requires EXPO_PUBLIC_CLERK_PROXY_URL=https://<domain>/api/__clerk");
     } else {
@@ -126,25 +140,44 @@ async function main() {
     fail(`unrecognized Clerk publishable key shape: ${pk.slice(0, 16)}`);
   }
 
+  if (easPk && pk && easPk !== pk) {
+    warn(
+      `eas.json production Clerk key (${easPk.slice(0, 12)}…) differs from effective key — workflow must rewrite eas.json / EAS env before queueing the build so the remote binary does not bake the stale value`,
+    );
+  }
+
   const keyHost = decodeClerkHost(pk);
+  // app.config.js overrides associatedDomains from the publishable key at build time.
+  // Static app.json is only a fallback — require either match or document the override.
   if (keyHost) {
     const expectApplinks = `applinks:${keyHost}`;
     const expectWebcred = `webcredentials:${keyHost}`;
-    if (!associated.includes(expectApplinks) || !associated.includes(expectWebcred)) {
+    const appConfigPath = join(ROOT, "app.config.js");
+    const hasDynamicConfig = existsSync(appConfigPath);
+    if (associated.includes(expectApplinks) && associated.includes(expectWebcred)) {
+      ok(`Associated Domains match Clerk host ${keyHost}`);
+    } else if (hasDynamicConfig) {
+      ok(
+        `app.config.js will set Associated Domains from publishable key host ${keyHost} (app.json currently: ${associated.join(", ") || "none"})`,
+      );
+    } else {
       fail(
         `Associated Domains must include ${expectApplinks} and ${expectWebcred} (have: ${associated.join(", ") || "none"})`,
       );
-    } else {
-      ok(`Associated Domains match Clerk host ${keyHost}`);
     }
   }
 
   if (!rcKey) {
     fail(
-      "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY missing from eas.json production.env (and process env) — bake the RevenueCat iOS public SDK key before building",
+      "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY missing — bake the RevenueCat iOS public SDK key (appl_…) via GitHub/EAS secret or eas.json before building",
     );
   } else if (rcKey.length < 8) {
     fail("EXPO_PUBLIC_REVENUECAT_IOS_API_KEY looks too short");
+  } else if (!rcKey.startsWith("appl_") && !rcKey.startsWith("goog_")) {
+    warn(
+      `RevenueCat key does not start with appl_ (got ${rcKey.slice(0, 5)}…) — confirm this is the iOS public SDK key`,
+    );
+    ok("RevenueCat iOS API key present in build env");
   } else {
     ok("RevenueCat iOS API key present in build env");
   }
@@ -170,27 +203,37 @@ async function main() {
     const testMode = ac.test_mode === true;
     const factors = Array.isArray(ac.first_factors) ? ac.first_factors : [];
     const passkeySettings = us.passkey_settings || null;
+    const passkeyAttr = us.attributes?.passkey || null;
+    const instanceType = display.instance_environment_type || null;
 
     console.log(
-      `Clerk instance: name=${display.application_name ?? "?"} home=${display.home_url ?? "?"} test_mode=${testMode}`,
+      `Clerk instance: name=${display.application_name ?? "?"} type=${instanceType ?? "?"} home=${display.home_url ?? "?"} test_mode=${testMode}`,
     );
     console.log(`first_factors=${JSON.stringify(factors)}`);
+    console.log(
+      `passkey.attribute.enabled=${passkeyAttr?.enabled ?? "?"} used_for_first_factor=${passkeyAttr?.used_for_first_factor ?? "?"}`,
+    );
 
-    if (testMode) {
+    if (testMode || instanceType === "development") {
       fail(
-        "production API Clerk proxy still reports test_mode:true — Render CLERK_SECRET_KEY is bound to a development instance; cut over server secret + publishable key together",
+        "production API Clerk proxy still bound to a development Clerk instance (test_mode/development) — cut over Render CLERK_SECRET_KEY + client pk_live together; do not mix pk_live with a test proxy",
       );
     } else {
-      ok("Clerk test_mode:false (production instance)");
+      ok("Clerk production instance (test_mode:false)");
     }
 
     const hasPasskeyFactor = factors.some((f) => /passkey|webauthn/i.test(String(f)));
-    if (!hasPasskeyFactor) {
+    const passkeyEnabled = passkeyAttr?.enabled === true;
+    if (!passkeyEnabled && !hasPasskeyFactor) {
       fail(
-        "passkeys not present in Clerk first_factors — enable Passkeys on the intended production Clerk instance before building",
+        "passkeys disabled on Clerk instance (attributes.passkey.enabled=false and not in first_factors) — enable Passkeys on the intended production instance before building",
+      );
+    } else if (!hasPasskeyFactor) {
+      fail(
+        "passkeys not present in Clerk first_factors — enable Passkeys as a sign-in factor on the intended production Clerk instance before building",
       );
     } else {
-      ok("passkeys listed in Clerk first_factors");
+      ok("passkeys enabled and listed in Clerk first_factors");
     }
 
     if (!passkeySettings) {
@@ -263,11 +306,39 @@ async function main() {
         if (!listed) fail("@clerk/expo-passkeys not present in package graph");
         else ok("@clerk/expo-passkeys listed in package graph");
       } else {
-        ok(`@clerk/expo-passkeys present (direct=${direct} nested=${nested})`);
+        ok(`@clerk/expo-passkeys present (direct=${direct} nested=${nested}) — ships ClerkExpoPasskeys + AuthenticationServices`);
       }
     } else {
       ok(`${name} @ ${deps[name]}`);
     }
+  }
+
+  // Confirm passkeys are wired into ClerkProvider (native module required at runtime).
+  try {
+    const layout = readFileSync(join(ROOT, "app/_layout.tsx"), "utf8");
+    if (!layout.includes("__experimental_passkeys") || !layout.includes("@clerk/expo/passkeys")) {
+      fail("app/_layout.tsx must wire @clerk/expo/passkeys into ClerkProvider");
+    } else {
+      ok("ClerkProvider wires __experimental_passkeys");
+    }
+  } catch (e) {
+    warn(`could not read app/_layout.tsx: ${e?.message || e}`);
+  }
+
+  // StoreKit catalog IDs (configuration only — purchases are post-build).
+  try {
+    const storekit = readFileSync(join(ROOT, "lib/storekitProducts.ts"), "utf8");
+    for (const id of ["com.stadiumedge.app.go.weekly", "com.stadiumedge.app.pro.monthly"]) {
+      if (!storekit.includes(id)) fail(`storekitProducts.ts missing ${id}`);
+      else ok(`StoreKit product id ${id} present in client catalog`);
+    }
+    if (!storekit.includes('go: "go"') || !storekit.includes('pro: "pro"')) {
+      warn("RevenueCat entitlement id strings go/pro not found in expected shape — verify RC dashboard mapping");
+    } else {
+      ok("RevenueCat entitlement ids go/pro referenced in client");
+    }
+  } catch (e) {
+    warn(`could not read storekitProducts.ts: ${e?.message || e}`);
   }
 
   const deploymentTarget = app.expo?.plugins?.find?.(
@@ -276,7 +347,16 @@ async function main() {
   if (String(deploymentTarget) !== "16.0") {
     fail(`ios.deploymentTarget must be 16.0 for passkeys (got ${deploymentTarget})`);
   } else {
-    ok("ios.deploymentTarget=16.0");
+    ok("ios.deploymentTarget=16.0 (iOS 16+ for passkeys)");
+  }
+
+  // expo-apple-authentication must stay OUT (stale Sign in with Apple entitlement).
+  if (deps["expo-apple-authentication"]) {
+    fail(
+      "expo-apple-authentication must not be a dependency — regenerates com.apple.developer.applesignin and breaks the current App Store profile",
+    );
+  } else {
+    ok("expo-apple-authentication absent (AuthenticationServices via Clerk passkeys only)");
   }
 
   console.log("");
