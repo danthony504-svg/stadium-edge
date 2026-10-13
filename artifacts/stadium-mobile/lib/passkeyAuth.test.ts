@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  __setPasskeysLoaderForTests,
   classifyPasskeyError,
   clerkAssociatedDomains,
   clerkFrontendApiHost,
   describePasskeyError,
   describeSignupError,
   generateMachinePassword,
+  getPasskeys,
   isDuplicateEmailError,
   isPasskeyCancellation,
+  isPasskeysSupported,
   machinePasswordFromBytes,
 } from "./passkeyAuth.ts";
 
@@ -117,5 +120,46 @@ describe("passkeyAuth account restore invariants", () => {
     // Discoverable passkey sign-in has no password parameter by design.
     const signInParams = { flow: "discoverable" as const };
     assert.equal("password" in signInParams, false);
+  });
+});
+
+describe("passkeyAuth missing ClerkExpoPasskeys (OTA Build 78)", () => {
+  it("fail-softs when native module is absent (OTA #617 fatal)", () => {
+    // Device log: Unhandled JS Exception: Cannot find native module 'ClerkExpoPasskeys'
+    // Static import of @clerk/expo/passkeys crashed the tip; getPasskeys must swallow.
+    __setPasskeysLoaderForTests(() => {
+      throw new Error("Cannot find native module 'ClerkExpoPasskeys'");
+    });
+    try {
+      assert.equal(getPasskeys(), null);
+      assert.equal(isPasskeysSupported(), false);
+      // Second call uses cache — still null, never rethrows.
+      assert.equal(getPasskeys(), null);
+    } finally {
+      __setPasskeysLoaderForTests(null);
+    }
+  });
+
+  it("returns support true when loader yields a working passkeys API", () => {
+    __setPasskeysLoaderForTests(() => ({
+      passkeys: { isSupported: () => true },
+    }));
+    try {
+      assert.equal(isPasskeysSupported(), true);
+      assert.ok(getPasskeys());
+    } finally {
+      __setPasskeysLoaderForTests(null);
+    }
+  });
+
+  it("returns support false when isSupported reports false", () => {
+    __setPasskeysLoaderForTests(() => ({
+      passkeys: { isSupported: () => false },
+    }));
+    try {
+      assert.equal(isPasskeysSupported(), false);
+    } finally {
+      __setPasskeysLoaderForTests(null);
+    }
   });
 });

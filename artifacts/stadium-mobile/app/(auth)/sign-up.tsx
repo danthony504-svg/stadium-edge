@@ -1,5 +1,4 @@
 import { getClerkInstance, useSignUp } from "@clerk/expo";
-import { passkeys } from "@clerk/expo/passkeys";
 import { type Href, Link, useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import { Text, View } from "react-native";
@@ -26,6 +25,7 @@ import {
   generateMachinePassword,
   isDuplicateEmailError,
   isPasskeyCancellation,
+  isPasskeysSupported,
 } from "@/lib/passkeyAuth";
 import {
   resolvePostAuthHref,
@@ -52,13 +52,7 @@ export default function SignUpScreen() {
   // When true, after email verify we create a WebAuthn passkey (Face ID / Touch ID)
   // instead of requiring the user to remember a password.
   const pendingPasskeyRef = React.useRef(false);
-  const passkeySupported = React.useMemo(() => {
-    try {
-      return passkeys.isSupported();
-    } catch {
-      return false;
-    }
-  }, []);
+  const passkeySupported = React.useMemo(() => isPasskeysSupported(), []);
 
   const signInHref = React.useMemo(() => {
     const q = new URLSearchParams();
