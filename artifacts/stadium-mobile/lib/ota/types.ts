@@ -60,6 +60,12 @@ export type OtaClient = {
   isEmbeddedLaunch?: () => boolean;
   isEmergencyLaunch?: () => boolean;
   emergencyLaunchReason?: () => string | null;
+  /**
+   * When true, native startup/relaunch has not finished. Any check/fetch/reload
+   * in this window can race ErrorRecovery and mark the tip failed
+   * (updatePreviouslyFailed) before RCTContentDidAppear.
+   */
+  isStartupProcedureRunning?: () => boolean;
   checkForUpdateAsync: () => Promise<OtaCheckResult>;
   fetchUpdateAsync: () => Promise<OtaFetchResult>;
   reloadAsync: () => Promise<void>;
@@ -83,7 +89,11 @@ export const OTA_PREVIOUSLY_FAILED = "updatePreviouslyFailed";
 export const DEFAULT_FOREGROUND_COOLDOWN_MS = 45_000;
 /**
  * Delay first checkForUpdateAsync after tip boot so expo-updates can mark the
- * launch successful before any Updates.* network work. 400ms was too aggressive
- * on Build 78 and contributed to tip-boot races / silent embedded fallback.
+ * launch successful before any Updates.* network work. Tip `01a13540` used 400ms
+ * and landed in native `updatePreviouslyFailed` (failedLaunchCount>0 before
+ * RCTContentDidAppear). Also wait until `isStartupProcedureRunning` is false.
  */
 export const DEFAULT_LAUNCH_DELAY_MS = 3_500;
+/** Max extra wait for native startup procedure after the launch delay. */
+export const STARTUP_PROCEDURE_WAIT_MS = 10_000;
+export const STARTUP_PROCEDURE_POLL_MS = 250;

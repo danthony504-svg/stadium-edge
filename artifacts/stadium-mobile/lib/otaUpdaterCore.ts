@@ -191,7 +191,8 @@ export async function reloadPendingOtaUpdate(
     await options?.onReloadTarget?.(targetId);
     log("reloadAsync", true, `start target=${targetId}`);
     report({ reloadBlocked: false, reloadBlockedReason: "—" });
-    await client.reloadAsync({ reloadScreenOptions: { fade: true } });
+    // Bare reload — reloadScreenOptions raced Build 78 tip boots (01a13540 class).
+    await client.reloadAsync();
     return "applied";
   } catch (e) {
     const detail = errText(e);

@@ -62,7 +62,8 @@ export async function launchOtaCheckFetchReload(): Promise<LaunchOtaOutcome> {
 
       try {
         pushOtaLog("reloadAsync", true, "manual: calling…");
-        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+        // Bare reload — avoid reloadScreenOptions tip-boot races on Build 78.
+        await Updates.reloadAsync();
         pushOtaLog("reloadAsync", true, "invoked");
         return "reloaded";
       } catch (e) {
@@ -75,7 +76,7 @@ export async function launchOtaCheckFetchReload(): Promise<LaunchOtaOutcome> {
     if (!!latestContext?.isUpdatePending) {
       try {
         pushOtaLog("reloadAsync", true, "manual: pending update…");
-        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+        await Updates.reloadAsync();
         pushOtaLog("reloadAsync", true, "invoked (pending)");
         return "reloaded";
       } catch (e) {

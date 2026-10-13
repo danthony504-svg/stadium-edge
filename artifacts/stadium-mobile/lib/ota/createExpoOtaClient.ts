@@ -52,6 +52,13 @@ export function createExpoOtaClient(): OtaClient {
       return String(reason);
     },
 
+    isStartupProcedureRunning() {
+      const ctx = tryGetLatestContext() as {
+        isStartupProcedureRunning?: boolean;
+      } | null;
+      return !!ctx?.isStartupProcedureRunning;
+    },
+
     async checkForUpdateAsync(): Promise<OtaCheckResult> {
       const Updates = tryGetExpoUpdates();
       if (!Updates) {

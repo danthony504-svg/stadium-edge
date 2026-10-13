@@ -30,6 +30,17 @@ From the copied report / chip `applyOutcome`:
 |---------|---------|
 | `launch_failed` | Restart targeted a tip; boot did not stay on it (ledger failed / emergency / `updatePreviouslyFailed`) |
 | `selection_failed` | Embedded with no successful tip selection / `reloadAsync` threw |
+
+## Tip `01a13540` native first error
+
+Device: embedded + `reason=updatePreviouslyFailed` means Expo already recorded
+`failedLaunchCount>0` for that tip. The **first** native error is the
+`Fatal error:` / `Fatal exception:` line in `expo-error.log` (or
+`readLogEntriesAsync`) immediately before
+`AppController markFailedLaunchForUpdate` for `01a13540…` — written when a
+fatal hit ErrorRecovery **before** `RCTContentDidAppear`. Later
+`updatePreviouslyFailed` is only the blacklist symptom. That tip id cannot be
+recovered; publish a superseding update id.
 | `idle_embedded` | Cold start on embedded, no Restart target recorded this boot |
 | `applied_ok` / `launched` | Tip is running (`isEmbeddedLaunch=false`) |
 

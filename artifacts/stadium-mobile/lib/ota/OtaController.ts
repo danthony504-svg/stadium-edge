@@ -202,6 +202,19 @@ export class OtaController {
     return this.check();
   }
 
+  /**
+   * Block Updates network I/O while native startup/relaunch is still running.
+   * Tip `01a13540` blacklisted after check/reload raced ErrorRecovery before
+   * RCTContentDidAppear → failedLaunchCount>0 → updatePreviouslyFailed.
+   */
+  isStartupBlocking(): boolean {
+    return !!this.client.isStartupProcedureRunning?.();
+  }
+
+  private startupBlocksNetwork(): boolean {
+    return this.isStartupBlocking();
+  }
+
   /** Launch / manual / foreground check path. Never calls reloadAsync. */
   async check(): Promise<OtaSnapshot> {
     if (!this.client.isEnabled()) {
@@ -219,6 +232,15 @@ export class OtaController {
       return this.getSnapshot();
     }
 
+    if (this.startupBlocksNetwork()) {
+      this.state = "idle";
+      this.lastError =
+        "deferred: isStartupProcedureRunning=true (avoid tip-boot Updates I/O)";
+      this.launchOutcomeDetail = this.lastError;
+      this.emit();
+      return this.getSnapshot();
+    }
+
     this.checkInFlight = true;
     this.state = "checking";
     this.lastError = null;
@@ -227,6 +249,17 @@ export class OtaController {
     this.emit();
 
     try {
+      // Re-check immediately before the native call — startup can flip true
+      // between the gate above and here on a slow tip boot.
+      if (this.startupBlocksNetwork()) {
+        this.state = "idle";
+        this.lastError =
+          "deferred: isStartupProcedureRunning=true (avoid tip-boot Updates I/O)";
+        this.launchOutcomeDetail = this.lastError;
+        this.emit();
+        return this.getSnapshot();
+      }
+
       const result = await this.client.checkForUpdateAsync();
       const reason = result.reason ?? null;
       const discovered = result.manifestId ? String(result.manifestId) : null;
@@ -310,6 +343,18 @@ export class OtaController {
     if (snap.state !== "ready") return "rejected";
     if (!snap.downloadedUpdateId) return "rejected";
     if (!isDistinctDownload(snap.downloadedUpdateId, snap.runningUpdateId)) {
+      return "rejected";
+    }
+
+    // Never reload while native startup is still owning the launch — that is
+    // the tip-boot blacklist pattern (01a131bc / 01a13540 class).
+    if (this.startupBlocksNetwork()) {
+      this.state = "error";
+      this.lastError =
+        "restart deferred: isStartupProcedureRunning=true (would blacklist tip)";
+      this.launchOutcome = "selection_failed";
+      this.launchOutcomeDetail = this.lastError;
+      this.emit();
       return "rejected";
     }
 

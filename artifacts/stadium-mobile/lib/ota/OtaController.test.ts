@@ -350,3 +350,52 @@ test("restart rejected when not ready", async () => {
   assert.equal(await c.restart(), "rejected");
   assert.equal(counts.reloadAsync, 0);
 });
+
+test("isStartupProcedureRunning blocks check network I/O (01a13540 class)", async () => {
+  const { client, counts } = makeClient({
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  client.isStartupProcedureRunning = () => true;
+  const c = new OtaController(client);
+  c.boot();
+  const snap = await c.check();
+  assert.equal(snap.state, "idle");
+  assert.match(String(snap.lastError), /isStartupProcedureRunning/);
+  assert.equal(counts.checkForUpdateAsync, 0);
+  assert.equal(counts.fetchUpdateAsync, 0);
+  assert.equal(counts.reloadAsync, 0);
+});
+
+test("isStartupProcedureRunning blocks restart reload (tip-boot blacklist)", async () => {
+  let startup = false;
+  const { client, counts } = makeClient({
+    runningUpdateId: "run-1",
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  client.isStartupProcedureRunning = () => startup;
+  const c = new OtaController(client);
+  c.boot();
+  await c.check();
+  assert.equal(c.getSnapshot().state, "ready");
+  startup = true;
+  assert.equal(await c.restart(), "rejected");
+  assert.equal(counts.reloadAsync, 0);
+  assert.match(String(c.getSnapshot().lastError), /isStartupProcedureRunning/);
+});
+
+test("check proceeds after startup procedure settles", async () => {
+  const { client, counts } = makeClient({
+    runningUpdateId: "run-1",
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  client.isStartupProcedureRunning = () => false;
+  const c = new OtaController(client);
+  c.boot();
+  await c.check();
+  assert.equal(c.getSnapshot().state, "ready");
+  assert.equal(counts.checkForUpdateAsync, 1);
+  assert.equal(counts.reloadAsync, 0);
+});
