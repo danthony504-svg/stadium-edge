@@ -108,6 +108,53 @@ test("Restart action → exactly one reloadAsync", async () => {
   assert.equal(counts.reloadAsync, 1);
 });
 
+test("Restart notes ledger target before reloadAsync", async () => {
+  const noted: string[] = [];
+  const { client, counts } = makeClient({
+    runningUpdateId: "run-1",
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  const c = new OtaController(client, {
+    failedLaunchHooks: {
+      noteReloadTarget: async (id) => {
+        noted.push(id);
+      },
+      reconcileBoot: async () => ({ observed: "no-target" }),
+    },
+  });
+  c.boot();
+  await c.check();
+  await c.restart();
+  assert.deepEqual(noted, ["tip-2"]);
+  assert.equal(c.getSnapshot().lastRestartTargetId, "tip-2");
+  assert.equal(counts.reloadAsync, 1);
+});
+
+test("Boot reconcile launch_failed when ledger target ≠ running", async () => {
+  const { client } = makeClient({
+    runningUpdateId: "embedded-1",
+    enabled: true,
+  });
+  client.isEmbeddedLaunch = () => true;
+  client.isEmergencyLaunch = () => false;
+  const c = new OtaController(client, {
+    failedLaunchHooks: {
+      noteReloadTarget: async () => {},
+      reconcileBoot: async () => ({
+        observed: "failed",
+        failedTargetId: "tip-2",
+        failedCount: 1,
+      }),
+    },
+  });
+  c.boot();
+  await new Promise((r) => setTimeout(r, 20));
+  const snap = c.getSnapshot();
+  assert.equal(snap.launchOutcome, "launch_failed");
+  assert.equal(snap.failedUpdateId, "tip-2");
+});
+
 test("Boot into downloaded OTA: running === downloaded → idle, banner false", () => {
   const { client, counts } = makeClient({
     runningUpdateId: "tip-2",
@@ -301,5 +348,54 @@ test("restart rejected when not ready", async () => {
   const c = new OtaController(client);
   c.boot();
   assert.equal(await c.restart(), "rejected");
+  assert.equal(counts.reloadAsync, 0);
+});
+
+test("isStartupProcedureRunning blocks check network I/O (01a13540 class)", async () => {
+  const { client, counts } = makeClient({
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  client.isStartupProcedureRunning = () => true;
+  const c = new OtaController(client);
+  c.boot();
+  const snap = await c.check();
+  assert.equal(snap.state, "idle");
+  assert.match(String(snap.lastError), /isStartupProcedureRunning/);
+  assert.equal(counts.checkForUpdateAsync, 0);
+  assert.equal(counts.fetchUpdateAsync, 0);
+  assert.equal(counts.reloadAsync, 0);
+});
+
+test("isStartupProcedureRunning blocks restart reload (tip-boot blacklist)", async () => {
+  let startup = false;
+  const { client, counts } = makeClient({
+    runningUpdateId: "run-1",
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  client.isStartupProcedureRunning = () => startup;
+  const c = new OtaController(client);
+  c.boot();
+  await c.check();
+  assert.equal(c.getSnapshot().state, "ready");
+  startup = true;
+  assert.equal(await c.restart(), "rejected");
+  assert.equal(counts.reloadAsync, 0);
+  assert.match(String(c.getSnapshot().lastError), /isStartupProcedureRunning/);
+});
+
+test("check proceeds after startup procedure settles", async () => {
+  const { client, counts } = makeClient({
+    runningUpdateId: "run-1",
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  client.isStartupProcedureRunning = () => false;
+  const c = new OtaController(client);
+  c.boot();
+  await c.check();
+  assert.equal(c.getSnapshot().state, "ready");
+  assert.equal(counts.checkForUpdateAsync, 1);
   assert.equal(counts.reloadAsync, 0);
 });

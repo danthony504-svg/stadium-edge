@@ -5,10 +5,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import type { OtaSnapshot } from "@/lib/ota";
 
+function shortId(id: string | null): string {
+  if (!id) return "—";
+  const s = String(id).trim();
+  if (s.length <= 12) return s;
+  return `${s.slice(0, 8)}…`;
+}
+
 /**
  * Blue banner — controller snapshot only.
  * Visible iff state === "ready" && downloadedUpdateId != runningUpdateId.
  * Restart is the sole production path to reloadAsync.
+ * Shows running + downloaded ids so older menus without Device attestation
+ * can still report identity while an update is staged.
  */
 export function OtaUpdateBanner({
   snapshot,
@@ -55,13 +64,14 @@ export function OtaUpdateBanner({
             App update ready
           </Text>
           <Text
+            selectable
             style={{
               color: "rgba(255,255,255,0.85)",
               fontFamily: FONT.medium,
               fontSize: 11,
             }}
           >
-            Tap Restart to load the new update.
+            {`Tap Restart · running ${shortId(snapshot.runningUpdateId)} → ${shortId(snapshot.downloadedUpdateId)}`}
           </Text>
         </View>
         <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>

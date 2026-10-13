@@ -13,12 +13,12 @@ import {
 
 test("expected healthy constants match ops brief", () => {
   assert.equal(EXPECTED_HEALTHY_RUNTIME, "1.1.0");
-  assert.equal(EXPECTED_HEALTHY_UPDATE_ID, "01a13019-8a5f-7f4d-bacb-31b1105de281");
+  assert.equal(EXPECTED_HEALTHY_UPDATE_ID, "01a13540-fed5-7fbf-baf2-db29681a48fe");
   assert.equal(EXPECTED_HEALTHY_EMBEDDED, false);
   assert.ok(expectedHealthyLines().some((l) => l.includes("1.1.0")));
 });
 
-test("Case A — runtime 1.1.0 + correct updateId + not embedded", () => {
+test("Case A — runtime 1.1.0 + any non-embedded tip id", () => {
   const r = classifyDeviceAttestation({
     runtimeVersion: "1.1.0",
     updateId: EXPECTED_HEALTHY_UPDATE_ID,
@@ -26,8 +26,17 @@ test("Case A — runtime 1.1.0 + correct updateId + not embedded", () => {
   });
   assert.equal(r.caseId, "A");
   assert.equal(r.matchesExpectedUpdateId, true);
-  assert.match(r.recoveryPath, /Do not republish OTA/i);
-  assert.match(r.recoveryPath, /renderer/i);
+  assert.match(r.label, /healthy OTA identity/i);
+});
+
+test("Case A — superseding tip id still healthy when not embedded", () => {
+  const r = classifyDeviceAttestation({
+    runtimeVersion: "1.1.0",
+    updateId: "01a1ffff-0000-0000-0000-000000000001",
+    isEmbeddedLaunch: false,
+  });
+  assert.equal(r.caseId, "A");
+  assert.equal(r.matchesExpectedUpdateId, false);
 });
 
 test("Case A updateId match is case-insensitive", () => {
@@ -49,11 +58,11 @@ test("Case B — matching updateId but embedded launch wins", () => {
   assert.match(r.recoveryPath, /checkForUpdateAsync/i);
 });
 
-test("Case B — runtime 1.1.0 + wrong updateId", () => {
+test("Case B — runtime 1.1.0 + blank updateId + embedded", () => {
   const r = classifyDeviceAttestation({
     runtimeVersion: "1.1.0",
-    updateId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-    isEmbeddedLaunch: false,
+    updateId: "",
+    isEmbeddedLaunch: true,
   });
   assert.equal(r.caseId, "B");
   assert.equal(r.matchesExpectedUpdateId, false);

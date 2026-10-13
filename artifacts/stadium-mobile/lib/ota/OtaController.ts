@@ -9,12 +9,16 @@
  * - reloadAsync only via restart() (Restart button)
  * - Banner only when state===ready && downloadedUpdateId != runningUpdateId
  * - updatePreviouslyFailed → error, never auto-retry that id
+ * - noteReloadTarget BEFORE reloadAsync so boot can distinguish launch vs selection failure
  */
 
+import { classifyOtaApplyFailure } from "../otaApplyFailureClassify.ts";
 import {
   DEFAULT_FOREGROUND_COOLDOWN_MS,
   OTA_PREVIOUSLY_FAILED,
   type OtaClient,
+  type OtaFailedLaunchHooks,
+  type OtaLaunchOutcome,
   type OtaSnapshot,
   type OtaState,
 } from "./types.ts";
@@ -48,6 +52,8 @@ export type OtaControllerOptions = {
   cooldownMs?: number;
   /** Optional clock for tests. */
   now?: () => number;
+  /** JS failed-launch ledger (AsyncStorage-backed in production). */
+  failedLaunchHooks?: OtaFailedLaunchHooks;
 };
 
 export class OtaController {
@@ -58,16 +64,21 @@ export class OtaController {
   private lastError: string | null = null;
   private failedUpdateId: string | null = null;
   private lastCheckedAt: number | null = null;
+  private lastRestartTargetId: string | null = null;
+  private launchOutcome: OtaLaunchOutcome = "unknown";
+  private launchOutcomeDetail: string | null = null;
   private checkInFlight = false;
   private readonly client: OtaClient;
   private readonly cooldownMs: number;
   private readonly now: () => number;
+  private readonly failedLaunchHooks?: OtaFailedLaunchHooks;
   private readonly listeners = new Set<() => void>();
 
   constructor(client: OtaClient, opts?: OtaControllerOptions) {
     this.client = client;
     this.cooldownMs = opts?.cooldownMs ?? DEFAULT_FOREGROUND_COOLDOWN_MS;
     this.now = opts?.now ?? Date.now;
+    this.failedLaunchHooks = opts?.failedLaunchHooks;
   }
 
   subscribe(listener: () => void): () => void {
@@ -91,12 +102,16 @@ export class OtaController {
         downloadedUpdateId: this.downloadedUpdateId,
         runningUpdateId: this.runningUpdateId,
       }),
+      lastRestartTargetId: this.lastRestartTargetId,
+      launchOutcome: this.launchOutcome,
+      launchOutcomeDetail: this.launchOutcomeDetail,
     };
   }
 
   /**
    * After app mount — never reloads. Clears ready if we already boot into the
    * previously downloaded id (or native downloaded id matches running).
+   * Reconciles the JS failed-launch ledger to classify launch vs selection failure.
    */
   boot(): OtaSnapshot {
     this.runningUpdateId = this.client.getRunningUpdateId();
@@ -122,7 +137,52 @@ export class OtaController {
     this.state = "idle";
     this.lastError = null;
     this.emit();
+
+    // Async reconcile — never blocks boot / never reloads.
+    void this.reconcileFailedLaunchLedger();
+
     return this.getSnapshot();
+  }
+
+  private async reconcileFailedLaunchLedger(): Promise<void> {
+    const hooks = this.failedLaunchHooks;
+    let observed: "no-target" | "launched" | "failed" | null = null;
+    let failedTargetId: string | undefined;
+    let failedCount: number | undefined;
+
+    if (hooks) {
+      try {
+        const result = await hooks.reconcileBoot(this.runningUpdateId);
+        observed = result.observed;
+        failedTargetId = result.failedTargetId;
+        failedCount = result.failedCount;
+        if (result.observed === "failed" && result.failedTargetId) {
+          this.failedUpdateId = result.failedTargetId;
+          this.lastRestartTargetId = result.failedTargetId;
+        }
+        if (result.observed === "launched") {
+          this.lastRestartTargetId = this.runningUpdateId;
+        }
+      } catch {
+        observed = null;
+      }
+    }
+
+    const classified = classifyOtaApplyFailure({
+      reconcileObserved: observed,
+      failedTargetId,
+      failedCount,
+      isEmbeddedLaunch: !!this.client.isEmbeddedLaunch?.(),
+      isEmergencyLaunch: !!this.client.isEmergencyLaunch?.(),
+      emergencyLaunchReason: this.client.emergencyLaunchReason?.() ?? null,
+      runningUpdateId: this.runningUpdateId,
+      lastRestartTargetId: this.lastRestartTargetId,
+      updatePreviouslyFailedReason: false,
+    });
+
+    this.launchOutcome = classified.kind;
+    this.launchOutcomeDetail = `${classified.label}: ${classified.summary}`;
+    this.emit();
   }
 
   /**
@@ -142,6 +202,19 @@ export class OtaController {
     return this.check();
   }
 
+  /**
+   * Block Updates network I/O while native startup/relaunch is still running.
+   * Tip `01a13540` blacklisted after check/reload raced ErrorRecovery before
+   * RCTContentDidAppear → failedLaunchCount>0 → updatePreviouslyFailed.
+   */
+  isStartupBlocking(): boolean {
+    return !!this.client.isStartupProcedureRunning?.();
+  }
+
+  private startupBlocksNetwork(): boolean {
+    return this.isStartupBlocking();
+  }
+
   /** Launch / manual / foreground check path. Never calls reloadAsync. */
   async check(): Promise<OtaSnapshot> {
     if (!this.client.isEnabled()) {
@@ -159,6 +232,15 @@ export class OtaController {
       return this.getSnapshot();
     }
 
+    if (this.startupBlocksNetwork()) {
+      this.state = "idle";
+      this.lastError =
+        "deferred: isStartupProcedureRunning=true (avoid tip-boot Updates I/O)";
+      this.launchOutcomeDetail = this.lastError;
+      this.emit();
+      return this.getSnapshot();
+    }
+
     this.checkInFlight = true;
     this.state = "checking";
     this.lastError = null;
@@ -167,6 +249,17 @@ export class OtaController {
     this.emit();
 
     try {
+      // Re-check immediately before the native call — startup can flip true
+      // between the gate above and here on a slow tip boot.
+      if (this.startupBlocksNetwork()) {
+        this.state = "idle";
+        this.lastError =
+          "deferred: isStartupProcedureRunning=true (avoid tip-boot Updates I/O)";
+        this.launchOutcomeDetail = this.lastError;
+        this.emit();
+        return this.getSnapshot();
+      }
+
       const result = await this.client.checkForUpdateAsync();
       const reason = result.reason ?? null;
       const discovered = result.manifestId ? String(result.manifestId) : null;
@@ -176,6 +269,9 @@ export class OtaController {
         this.failedUpdateId = discovered ?? this.failedUpdateId;
         this.lastError = OTA_PREVIOUSLY_FAILED;
         this.discoveredUpdateId = discovered;
+        this.launchOutcome = "launch_failed";
+        this.launchOutcomeDetail =
+          "native checkForUpdateAsync reason=updatePreviouslyFailed";
         this.emit();
         return this.getSnapshot();
       }
@@ -222,6 +318,8 @@ export class OtaController {
         this.downloadedUpdateId = null;
         this.lastError =
           "fetch finished without a distinct downloaded update id";
+        this.launchOutcome = "selection_failed";
+        this.launchOutcomeDetail = this.lastError;
       }
       this.emit();
       return this.getSnapshot();
@@ -237,6 +335,8 @@ export class OtaController {
 
   /**
    * Explicit user Restart only. Exactly one reloadAsync when accepted.
+   * Persists the target id BEFORE reload so the next boot can classify
+   * launch_failed vs selection_failed.
    */
   async restart(): Promise<"reloaded" | "rejected"> {
     const snap = this.getSnapshot();
@@ -246,14 +346,40 @@ export class OtaController {
       return "rejected";
     }
 
+    // Never reload while native startup is still owning the launch — that is
+    // the tip-boot blacklist pattern (01a131bc / 01a13540 class).
+    if (this.startupBlocksNetwork()) {
+      this.state = "error";
+      this.lastError =
+        "restart deferred: isStartupProcedureRunning=true (would blacklist tip)";
+      this.launchOutcome = "selection_failed";
+      this.launchOutcomeDetail = this.lastError;
+      this.emit();
+      return "rejected";
+    }
+
+    const targetId = snap.downloadedUpdateId;
+    this.lastRestartTargetId = targetId;
     this.state = "restarting";
     this.emit();
+
+    // Await ledger write — reloadAsync can tear down JS before a fire-and-forget flush.
+    if (this.failedLaunchHooks) {
+      try {
+        await this.failedLaunchHooks.noteReloadTarget(targetId);
+      } catch {
+        // Non-fatal: still attempt reload; classification may degrade to selection_failed.
+      }
+    }
+
     try {
       await this.client.reloadAsync();
       return "reloaded";
     } catch (e) {
       this.state = "error";
       this.lastError = e instanceof Error ? e.message : String(e);
+      this.launchOutcome = "selection_failed";
+      this.launchOutcomeDetail = `reloadAsync threw: ${this.lastError}`;
       this.emit();
       return "rejected";
     }
@@ -277,6 +403,15 @@ export class OtaController {
     }
     if (partial.lastCheckedAt !== undefined) {
       this.lastCheckedAt = partial.lastCheckedAt;
+    }
+    if (partial.lastRestartTargetId !== undefined) {
+      this.lastRestartTargetId = partial.lastRestartTargetId;
+    }
+    if (partial.launchOutcome !== undefined) {
+      this.launchOutcome = partial.launchOutcome;
+    }
+    if (partial.launchOutcomeDetail !== undefined) {
+      this.launchOutcomeDetail = partial.launchOutcomeDetail;
     }
     this.emit();
   }
