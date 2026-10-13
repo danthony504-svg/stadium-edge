@@ -12,6 +12,10 @@ on:
         description: Auto-submit to App Store Connect when the build finishes
         required: false
         default: "false"
+      preflight_only:
+        description: "If true, only report secret presence + run preflight (no EAS build)"
+        required: false
+        default: "false"
   push:
     branches: [main]
     paths:
@@ -39,6 +43,29 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
+      - name: Report build-secret presence (no secret values)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
+          EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: ${{ secrets.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY }}
+        run: |
+          report() {
+            name="$1"
+            val="$2"
+            if [ -z "$val" ]; then
+              echo "$name=MISSING"
+            else
+              prefix=$(printf '%s' "$val" | cut -c1-12)
+              echo "$name=PRESENT prefix=${prefix}… len=${#val}"
+            fi
+          }
+          report EXPO_TOKEN "$EXPO_TOKEN"
+          report EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY "$EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY"
+          report EXPO_PUBLIC_CLERK_PROXY_URL "$EXPO_PUBLIC_CLERK_PROXY_URL"
+          report EXPO_PUBLIC_REVENUECAT_IOS_API_KEY "$EXPO_PUBLIC_REVENUECAT_IOS_API_KEY"
+          echo "Pinned iOS buildNumber (app.json/eas.json)=79 (above proven TestFlight Build 78)"
+
       - name: Verify iOS entitlements (no Sign in with Apple for stale profile)
         run: |
           if pnpm exec expo config --type introspect 2>/dev/null | grep -q "com.apple.developer.applesignin"; then
@@ -58,6 +85,7 @@ jobs:
         run: node scripts/preflight-ios-release.mjs
 
       - name: Bake production secrets into eas.json (remote EAS job)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.preflight_only == 'true') }}
         env:
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           EXPO_PUBLIC_CLERK_PROXY_URL: ${{ secrets.EXPO_PUBLIC_CLERK_PROXY_URL }}
@@ -101,6 +129,7 @@ jobs:
           NODE
 
       - name: Build iOS (optional App Store Connect submit)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.preflight_only == 'true') }}
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com

@@ -25,6 +25,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.stadiumedge.app",
+      "buildNumber": "79",
       "associatedDomains": [
         "applinks:profound-raptor-92.clerk.accounts.dev",
         "webcredentials:profound-raptor-92.clerk.accounts.dev"

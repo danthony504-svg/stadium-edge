@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 16.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -24,10 +24,11 @@
       }
     },
     "production": {
-      "autoIncrement": true,
+      "autoIncrement": false,
       "channel": "production",
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "buildNumber": "79"
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",

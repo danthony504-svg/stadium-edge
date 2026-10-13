@@ -97,7 +97,11 @@ async function main() {
   );
   const notifMode = notifPlugin?.[1]?.mode;
 
+  const buildNumber = String(
+    eas.build?.production?.ios?.buildNumber || app.expo?.ios?.buildNumber || "",
+  );
   console.log(`version=${version} runtimeVersion=${runtimeVersion} bundleId=${bundleId}`);
+  console.log(`ios.buildNumber=${buildNumber || "(unset)"}`);
   console.log(`effective Clerk key prefix=${pk.slice(0, 12) || "(missing)"}…`);
   console.log(`eas.json Clerk key prefix=${easPk.slice(0, 12) || "(missing)"}…`);
 
@@ -105,6 +109,17 @@ async function main() {
     fail(`bundleId must be com.stadiumedge.app (got ${bundleId})`);
   } else {
     ok(`bundleId ${bundleId}`);
+  }
+
+  // Highest proven shipping native binary is TestFlight/App Store Build 78 (1.1.0).
+  const MIN_NEXT_BUILD = 79;
+  const bn = Number.parseInt(buildNumber, 10);
+  if (!Number.isFinite(bn) || bn < MIN_NEXT_BUILD) {
+    fail(
+      `ios.buildNumber must be >= ${MIN_NEXT_BUILD} (above proven Build 78); got ${buildNumber || "unset"}`,
+    );
+  } else {
+    ok(`ios.buildNumber=${bn} (>= ${MIN_NEXT_BUILD}, above Build 78)`);
   }
 
   if (notifMode !== "production") {
