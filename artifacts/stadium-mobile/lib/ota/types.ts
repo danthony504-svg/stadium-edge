@@ -11,6 +11,15 @@ export type OtaState =
   | "restarting"
   | "error";
 
+/** Post-Restart ledger / native classification (see otaApplyFailureClassify). */
+export type OtaLaunchOutcome =
+  | "unknown"
+  | "launched"
+  | "launch_failed"
+  | "selection_failed"
+  | "idle_embedded"
+  | "applied_ok";
+
 export type OtaSnapshot = {
   state: OtaState;
   runningUpdateId: string | null;
@@ -25,6 +34,11 @@ export type OtaSnapshot = {
    * Equivalent to: state === "ready" && downloadedUpdateId != runningUpdateId
    */
   bannerVisible: boolean;
+  /** Last Restart target written to the JS failed-launch ledger. */
+  lastRestartTargetId: string | null;
+  /** Reconcile / apply classification from the latest boot. */
+  launchOutcome: OtaLaunchOutcome;
+  launchOutcomeDetail: string | null;
 };
 
 export type OtaCheckResult = {
@@ -43,12 +57,33 @@ export type OtaClient = {
   getRunningUpdateId: () => string | null;
   getDownloadedUpdateId: () => string | null;
   isEnabled: () => boolean;
+  isEmbeddedLaunch?: () => boolean;
+  isEmergencyLaunch?: () => boolean;
+  emergencyLaunchReason?: () => string | null;
   checkForUpdateAsync: () => Promise<OtaCheckResult>;
   fetchUpdateAsync: () => Promise<OtaFetchResult>;
   reloadAsync: () => Promise<void>;
 };
 
+/**
+ * Persist Restart target before reloadAsync tears down JS, and reconcile on boot.
+ * Injected from AsyncStorage at the singleton — controller stays pure/testable.
+ */
+export type OtaFailedLaunchHooks = {
+  noteReloadTarget: (targetId: string) => Promise<void>;
+  reconcileBoot: (runningUpdateId: string | null) => Promise<{
+    observed: "no-target" | "launched" | "failed";
+    failedTargetId?: string;
+    failedCount?: number;
+  }>;
+};
+
 export const OTA_PREVIOUSLY_FAILED = "updatePreviouslyFailed";
 
 export const DEFAULT_FOREGROUND_COOLDOWN_MS = 45_000;
-export const DEFAULT_LAUNCH_DELAY_MS = 400;
+/**
+ * Delay first checkForUpdateAsync after tip boot so expo-updates can mark the
+ * launch successful before any Updates.* network work. 400ms was too aggressive
+ * on Build 78 and contributed to tip-boot races / silent embedded fallback.
+ */
+export const DEFAULT_LAUNCH_DELAY_MS = 3_500;

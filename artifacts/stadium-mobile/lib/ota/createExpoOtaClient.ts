@@ -34,6 +34,24 @@ export function createExpoOtaClient(): OtaClient {
       return readManifestId(ctx?.downloadedManifest);
     },
 
+    isEmbeddedLaunch() {
+      const Updates = tryGetExpoUpdates();
+      return !!Updates?.isEmbeddedLaunch;
+    },
+
+    isEmergencyLaunch() {
+      const Updates = tryGetExpoUpdates();
+      return !!Updates?.isEmergencyLaunch;
+    },
+
+    emergencyLaunchReason() {
+      const Updates = tryGetExpoUpdates();
+      const reason = (Updates as { emergencyLaunchReason?: unknown } | null)
+        ?.emergencyLaunchReason;
+      if (reason == null || reason === "") return null;
+      return String(reason);
+    },
+
     async checkForUpdateAsync(): Promise<OtaCheckResult> {
       const Updates = tryGetExpoUpdates();
       if (!Updates) {
@@ -62,7 +80,9 @@ export function createExpoOtaClient(): OtaClient {
     async reloadAsync() {
       const Updates = tryGetExpoUpdates();
       if (!Updates) throw new Error("expo-updates unavailable");
-      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+      // Bare reload — avoid reloadScreenOptions which older Build 78 native
+      // surfaces may reject; maximize apply success on the shipping binary.
+      await Updates.reloadAsync();
     },
   };
 }

@@ -108,6 +108,53 @@ test("Restart action → exactly one reloadAsync", async () => {
   assert.equal(counts.reloadAsync, 1);
 });
 
+test("Restart notes ledger target before reloadAsync", async () => {
+  const noted: string[] = [];
+  const { client, counts } = makeClient({
+    runningUpdateId: "run-1",
+    check: async () => ({ isAvailable: true, manifestId: "tip-2" }),
+    fetch: async () => ({ isNew: true, manifestId: "tip-2" }),
+  });
+  const c = new OtaController(client, {
+    failedLaunchHooks: {
+      noteReloadTarget: async (id) => {
+        noted.push(id);
+      },
+      reconcileBoot: async () => ({ observed: "no-target" }),
+    },
+  });
+  c.boot();
+  await c.check();
+  await c.restart();
+  assert.deepEqual(noted, ["tip-2"]);
+  assert.equal(c.getSnapshot().lastRestartTargetId, "tip-2");
+  assert.equal(counts.reloadAsync, 1);
+});
+
+test("Boot reconcile launch_failed when ledger target ≠ running", async () => {
+  const { client } = makeClient({
+    runningUpdateId: "embedded-1",
+    enabled: true,
+  });
+  client.isEmbeddedLaunch = () => true;
+  client.isEmergencyLaunch = () => false;
+  const c = new OtaController(client, {
+    failedLaunchHooks: {
+      noteReloadTarget: async () => {},
+      reconcileBoot: async () => ({
+        observed: "failed",
+        failedTargetId: "tip-2",
+        failedCount: 1,
+      }),
+    },
+  });
+  c.boot();
+  await new Promise((r) => setTimeout(r, 20));
+  const snap = c.getSnapshot();
+  assert.equal(snap.launchOutcome, "launch_failed");
+  assert.equal(snap.failedUpdateId, "tip-2");
+});
+
 test("Boot into downloaded OTA: running === downloaded → idle, banner false", () => {
   const { client, counts } = makeClient({
     runningUpdateId: "tip-2",

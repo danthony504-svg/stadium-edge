@@ -16,6 +16,7 @@ import {
   PrimaryButton,
   SecondaryButton,
 } from "@/components/auth";
+import { OtaRunningIdentity } from "@/components/OtaRunningIdentity";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { requestAppReviewTicket } from "@/lib/appReviewAuth";
@@ -741,6 +742,8 @@ export default function SignInScreen() {
       </View>
 
       <FeatureRow />
+      {/* Fail-soft updateId readout — no Device attestation menu required */}
+      <OtaRunningIdentity compact />
     </AuthShell>
   );
 }
