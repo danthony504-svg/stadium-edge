@@ -114,9 +114,13 @@ export function formatCoachDailyDigestSection(
           .map((r) => `${r.reason}:${r.count}`)
           .join(", ")
       : "—";
+  const coverageNote =
+    coach.totalRequests === 0
+      ? "coverage: 0 received Coach events ≠ verified zero Coach usage (tip-boot crash can block client; check server chat path separately)"
+      : "coverage: counts are received reliability events only";
   return [
-    "🤖 Coach fulfillment",
-    `requests: ${coach.totalRequests}`,
+    "🤖 Coach activity (received events)",
+    `requests received: ${coach.totalRequests}`,
     `successful parlays: ${coach.successfulRequests}`,
     `fulfillment: ${coach.fulfillmentPct == null ? "—" : `${coach.fulfillmentPct}%`}`,
     `underfill: ${coach.underfillCount}` +
@@ -128,6 +132,7 @@ export function formatCoachDailyDigestSection(
     `grounding/alt/sim/freeze: ${coach.groundingFailureCount ?? 0}/${coach.altMarketFailureCount ?? 0}/${coach.simulationFailureCount ?? 0}/${coach.scanFreezeCount ?? 0}`,
     `p50/p95 ms: ${coach.p50Ms ?? "—"} / ${coach.p95Ms ?? "—"}`,
     `top failures: ${top}`,
+    coverageNote,
   ].join("\n");
 }
 
@@ -176,32 +181,60 @@ export function formatDailyHealthySummary(stats: {
   const coachBlock = stats.coach
     ? ["", formatCoachDailyDigestSection(stats.coach)]
     : [];
-  const healthLine =
+
+  // Server health probes (website/api/db/odds/…) — independent of crash ingest.
+  const healthBlock =
     stats.healthOk == null
-      ? null
+      ? [
+          "🩺 Server health (probes)",
+          "status: probe unavailable this digest run",
+          "note: probe failure ≠ device crash status",
+        ]
       : stats.healthOk
-        ? "Health: all checks OK (last 90m window)"
-        : `Health: FAILING ${ (stats.healthFailed ?? []).join(", ") || "checks" }`;
-  if (stats.criticalCount === 0) {
-    return [
-      "✅ Stadium Edge reliability — healthy",
-      `Last ${stats.windowHours}h: 0 critical crashes`,
-      "Ingest + Telegram path OK",
-      healthLine,
-      ...coachBlock,
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
+        ? [
+            "🩺 Server health (probes)",
+            "status: all checks OK (last probe)",
+            "note: server OK ≠ verified client health",
+          ]
+        : [
+            "🩺 Server health (probes)",
+            `status: FAILING ${(stats.healthFailed ?? []).join(", ") || "checks"}`,
+          ];
+
+  // Crash rows in PG — received JS/client reports only. Tip-boot / native Expo
+  // ErrorRecovery fatals often never reach this path.
+  const crashBlock =
+    stats.criticalCount === 0
+      ? [
+          "📱 Device crash telemetry (JS ingest)",
+          `Last ${stats.windowHours}h: 0 critical crash reports received`,
+          "coverage: 0 received ≠ 0 actual crashes or verified app health",
+          "gap: tip-boot / Expo ErrorRecovery fatals before JS handlers do not POST",
+        ]
+      : [
+          "📱 Device crash telemetry (JS ingest)",
+          `Last ${stats.windowHours}h: ${stats.criticalCount} critical report(s) received`,
+          `Distinct fingerprints: ${stats.distinctFingerprints}`,
+          `Last critical: ${stats.lastCriticalAt ?? "—"}`,
+          "coverage: received client reports only — not a full crash census",
+        ];
+
+  const headline =
+    stats.criticalCount === 0 && stats.healthOk === true
+      ? "📋 Stadium Edge reliability — daily digest (received telemetry)"
+      : stats.criticalCount > 0 || stats.healthOk === false
+        ? "⚠️ Stadium Edge reliability — daily digest"
+        : "📋 Stadium Edge reliability — daily digest (received telemetry)";
+
   return [
-    "⚠️ Stadium Edge reliability — daily summary",
-    `Last ${stats.windowHours}h: ${stats.criticalCount} critical report(s)`,
-    `Distinct fingerprints: ${stats.distinctFingerprints}`,
-    `Last critical: ${stats.lastCriticalAt ?? "—"}`,
-    healthLine,
+    headline,
+    "",
+    ...healthBlock,
+    "",
+    ...crashBlock,
     ...coachBlock,
   ]
-    .filter(Boolean)
+    .filter((line, i, arr) => !(line === "" && arr[i - 1] === ""))
     .join("\n");
 }
 
