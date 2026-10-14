@@ -48,8 +48,12 @@ assert env.get("EXPO_NO_CLERK_PASSKEYS")=="1"
 assert eas["build"]["preview-build78"].get("channel")=="preview"
 print("OK: preview-build78 channel=preview EXPO_NO_CLERK_PASSKEYS=1")
 pkg=json.load(open("artifacts/stadium-mobile/package.json"))
-assert "eas-build-pre-install" in pkg.get("scripts",{})
-print("OK: eas-build-pre-install strip hook registered")
+scripts=pkg.get("scripts",{})
+assert "eas-build-pre-install" in scripts
+assert "eas-build-post-install" in scripts
+# Dep must remain in package.json — removing it breaks pnpm --frozen-lockfile on EAS.
+assert "@clerk/expo-passkeys" in pkg.get("dependencies",{})
+print("OK: eas-build pre/post-install strip hooks registered (dep kept for lockfile)")
 PY
 
 if [[ -z "${EXPO_TOKEN:-}" ]]; then

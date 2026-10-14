@@ -49,9 +49,10 @@ echo "message=${MESSAGE}"
 echo "Linking preview channel → preview branch…"
 pnpm exec eas channel:edit preview --branch preview --non-interactive
 
+# eas update rejects --channel and --branch together; channel already points at
+# branch preview after channel:edit, so publish via --channel only.
 pnpm exec eas update \
   --channel preview \
-  --branch preview \
   --platform ios \
   --message "$MESSAGE" \
   --non-interactive
