@@ -1,8 +1,7 @@
 # Device-test prep — PR #736
 
-**Pinned test commit (fixes + preview/test config):** tip of `cursor/build78-fixpack-def8`  
-Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.  
-**Recorded tip for this docs revision:** see Quick reference (updated when this file changes).
+**Pinned JS tip under test:** `0d10cce7fab76d0c36180f11b80fb282a1078117`  
+Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.
 
 **Goal:** Exercise Build 78 fail-soft + college sport lock + OTA rollback on a **meaningful** binary without exposing production users.
 
@@ -10,46 +9,81 @@ Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.
 
 ---
 
+## Preflight verifications (0d10cce7)
+
+| Check | Result |
+|-------|--------|
+| `eas.json` → `build.preview.channel` | **`preview` only** (`distribution: internal`) |
+| `build.preview-ota.channel` | **`preview` only** |
+| `build.production.channel` | `production` (untouched; freeze armed) |
+| New preview IPA includes `ClerkExpoPasskeys`? | **Yes** — `@clerk/expo-passkeys` autolinks pod `ClerkExpoPasskeys` |
+| Build 78 crash compatibility | **UNVERIFIED** on any new preview/preview-ota binary |
+| Production freeze | **armed** (`.ota-production-freeze`) |
+
+---
+
 ## Pinned commit + exact installation method
 
 | Item | Value |
 |------|--------|
-| **Branch tip under test** | `cursor/build78-fixpack-def8` (confirm with `git rev-parse HEAD`) |
+| **JS tip under test** | `0d10cce7fab76d0c36180f11b80fb282a1078117` |
 | College-sim content (required ancestor) | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
 | Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |
 | Runtime | `1.1.0` |
 | Test channel | `preview` |
 | Production freeze | **armed** (`.ota-production-freeze`) |
+| Prep script | `artifacts/stadium-mobile/scripts/prepare-preview-test.sh` |
 
-### Install method A — preview binary + preview OTA (recommended for JS tip)
+### iPhone install (internal / ad hoc) — device registration required
+
+Profile `preview` uses `"distribution": "internal"`. Apple will only install the IPA on **registered device UDIDs**.
+
+1. On the iPhone: Settings → General → About → copy **UDID** (or plug into Mac / use Apple Configurator).
+2. Register once (Expo/Apple ad hoc provisioning):
+   ```bash
+   cd artifacts/stadium-mobile
+   EXPO_TOKEN=… pnpm exec eas device:create
+   # follow prompts; paste UDID; name the device
+   ```
+3. Rebuild after registering a **new** device (provisioning profile must include it):
+   ```bash
+   git checkout 0d10cce7fab76d0c36180f11b80fb282a1078117
+   cd artifacts/stadium-mobile
+   EXPO_TOKEN=… eas build --profile preview --platform ios --non-interactive
+   ```
+4. Install: open the EAS build page QR code on the iPhone (same Apple ID / device that was registered), or use the install link from `eas build:list`.
+5. Confirm the binary is **preview channel** (not App Store Build 78).
+
+`preview-ota` (`distribution: store`) can go to TestFlight instead — still channel `preview`, still links `ClerkExpoPasskeys` → crash path **UNVERIFIED**.
+
+### Install method A — preview binary + preview OTA (JS tip)
 
 ```bash
-# 1) Checkout branch tip (must include 4738df08)
 git fetch origin cursor/build78-fixpack-def8
-git checkout origin/cursor/build78-fixpack-def8
+git checkout 0d10cce7fab76d0c36180f11b80fb282a1078117
 git merge-base --is-ancestor 4738df08db5fc3425bc1fd317431c52bc5b9c0a8 HEAD
-git rev-parse HEAD   # report this SHA as the install commit
 
-# 2) Build a preview-channel iOS binary (approve before running — agent does not start builds)
+# Device registration (once) + approve build separately:
 cd artifacts/stadium-mobile
-eas build --profile preview --platform ios --non-interactive
-# install via QR / internal distribution
+EXPO_TOKEN=… pnpm exec eas device:create
+EXPO_TOKEN=… eas build --profile preview --platform ios --non-interactive
 
-# 3) Publish JS tip to preview only (message should include the SHA from step 1)
-EXPO_TOKEN=… bash scripts/publish-preview-ota.sh \
-  "PR736 $(git rev-parse --short HEAD) device test — preview only"
+# Publish JS tip to preview only (token never printed by script):
+cd ../..
+EXPO_TOKEN=… PUBLISH_PREVIEW_OTA=1 \
+  bash artifacts/stadium-mobile/scripts/prepare-preview-test.sh \
+  0d10cce7fab76d0c36180f11b80fb282a1078117
 
-# 4) On device: force-quit → reopen → apply tip → cold launch ×2
+# On device: force-quit → reopen → apply tip → cold launch ×2
 ```
 
-### Install method B — Metro on branch tip (no OTA)
+### Install method B — Metro on pinned commit (no OTA)
 
 ```bash
-git fetch origin cursor/build78-fixpack-def8
-git checkout origin/cursor/build78-fixpack-def8
+git checkout 0d10cce7fab76d0c36180f11b80fb282a1078117
 cd artifacts/stadium-mobile
-eas build --profile development --platform ios   # approve first
+EXPO_TOKEN=… eas build --profile development --platform ios   # approve first; register device
 npx expo start --dev-client
 ```
 
@@ -110,7 +144,7 @@ Unit coverage still exists in `passkeyAuth.test.ts` (`describe("passkeyAuth miss
 
 ### C. College Coach (stay on college)
 
-NCAAF game lines remain **P0 fail-closed** (`NCAAF_GAME_LINE_SIM_VALIDATED = false`) until Phase E sign-off. Engine now feeds scoring + defense inputs, but grades stay blocked. Player props alone do **not** lift P0.
+NCAAF game lines remain **P0 fail-closed** (`NCAAF_GAME_LINE_SIM_VALIDATED = false`) until Phase E sign-off. Engine now feeds scoring + defense inputs, but grades stay blocked. Player props alone do **not** lift P0. Phase E checklist: `docs/coach/ncaaf-phase-e-checklist.md` (E2/E4/E6 still OPEN).
 
 | Ask | Expected |
 |-----|----------|
@@ -153,10 +187,12 @@ Same college ask twice; record wall-clock + stage timings. Until measured on dev
 
 | Item | Value |
 |------|--------|
-| Install | `git checkout origin/cursor/build78-fixpack-def8` then `git rev-parse HEAD` |
+| JS tip under test | `0d10cce7fab76d0c36180f11b80fb282a1078117` |
 | Required ancestor | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
+| Build 78 crash on preview IPA | **UNVERIFIED** (ClerkExpoPasskeys linked) |
+| Device registration | `eas device:create` (UDID) before internal install |
+| Phase E | `docs/coach/ncaaf-phase-e-checklist.md` — do not flip flag |
 | Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
-| History | `6f7d4178` → `29fa596b` → `4738df08` → docs tips |
 | Branch | `cursor/build78-fixpack-def8` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |
 | Publish script | `artifacts/stadium-mobile/scripts/publish-preview-ota.sh` |

@@ -60,6 +60,8 @@ All must pass on a frozen out-of-sample window:
 5. **Props / other sports:** NCAAF props, NFL/NHL P0 totals, correlation caps unchanged in regression suite.
 6. **Sign-off:** Explicit human approval to lift `P0_UNVALIDATED_NCAAF_GAME_LINE_*` — no silent restore.
 
+**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md` (E1/E3/E5 unit PASS; E2/E4/E6 OPEN). Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED` from checklist alone.
+
 ## Phase F — Rollout
 
 1. Feature flag / P0 lift on staging only.
