@@ -312,6 +312,12 @@ export function mapScanFailureCode(code: string): {
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    case "P0_UNVALIDATED_MARKETS":
+      return {
+        eventType: "parlay_zero_results",
+        failureReason: "zero_results",
+        alertable: false,
+      };
     default:
       return null;
   }

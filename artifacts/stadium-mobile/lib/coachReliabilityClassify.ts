@@ -61,6 +61,13 @@ export function mapScanFailureCode(
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    case "P0_UNVALIDATED_MARKETS":
+      // Intentional Phase E / totals P0 — not a Telegram crash.
+      return {
+        eventType: "parlay_zero_results",
+        failureReason: "zero_results",
+        alertable: false,
+      };
     default:
       return null;
   }

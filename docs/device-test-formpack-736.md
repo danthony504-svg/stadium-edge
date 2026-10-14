@@ -1,0 +1,33 @@
+# Device test — PR #736 Build78 fixpack
+
+## Intended preview tip (verify BEFORE college timing)
+
+| Field | Value |
+|-------|--------|
+| Tip commit | see latest Preview OTA message (must include SHA) |
+| Full iOS update ID | from EAS publish log / `eas update:list --branch preview` |
+| Channel | `preview` |
+| Native IPA | EAS build `9155c37b-0297-45a7-98fe-ea3f38bea6a9` (`057c9f0d`) |
+| UDID | `00008150-001968CA2280401C` |
+
+**Gate:** On-device `Updates.updateId` must match the tip iOS update ID and deploy message SHA before measuring `7 leg college`. EAS Insights installs=0 ⇒ tip not adopted.
+
+## Two separate tracks (do not conflate)
+
+### A) Early-exit UX (blocked markets)
+
+- Ask-level: bare college / NCAAF `gameLinesOnly` while Phase E armed → prompt Phase E note (no 90s sim wait).
+- Board-level: `gameLinesOnly` + every posted candidate fails `p0UnvalidatedSimDecision` → skip slate MC (`P0_UNVALIDATED_MARKETS`). NFL/NHL with open sides still sim.
+- **Does not** mean college game-line picks work.
+
+### B) College game-line picks (NOT fixed)
+
+- `NCAAF_GAME_LINE_SIM_VALIDATED = false` until Phase E (E2a FAIL home-win bias, E2b/E4 insufficient, E6 open).
+- Do not claim college picks fixed until E2E returns valid simulated NCAAF sides.
+
+## Checklist
+
+1. Cold launch ×2 → confirm `updateId` + commit SHA.
+2. Time early-exit ask `7 leg college` (expect Phase E copy, not quality-bar hang).
+3. Smoke `6 leg nfl` / `6 leg nhl` / `6 leg nba` / `6 leg mlb` (must still scan; no false early exit).
+4. Optional: `7 leg college football player props` (eligible sims — separate from game-line restore).

@@ -295,6 +295,42 @@ export function p0BlockedNcaafGameLineAskNote(requestedLegs: number): string {
   );
 }
 
+/**
+ * True when every posted game-line candidate is P0-blocked (sides and/or totals).
+ * Empty candidate lists return false — that is a thin board, not a P0 gate.
+ * Used for gameLinesOnly scans so NFL/NHL (open sides) still sim, while a board
+ * that only offers blocked markets exits without slate Monte Carlo.
+ */
+export function gameLineCandidatesFullyP0Blocked(
+  candidates: readonly P0PickInput[],
+): boolean {
+  if (!candidates.length) return false;
+  return candidates.every((c) => !!p0UnvalidatedSimDecision(c));
+}
+
+/** User note when the loaded game-line board is entirely P0-blocked. */
+export function p0BlockedGameLineBoardNote(opts: {
+  requestedLegs: number;
+  candidateCount: number;
+  sports?: readonly string[] | null;
+}): string {
+  const n = Math.max(0, Math.floor(opts.requestedLegs));
+  const sports = [...new Set((opts.sports ?? []).map((s) => String(s).toLowerCase()).filter(Boolean))];
+  const sportLabel =
+    sports.length === 1
+      ? sports[0]!.toUpperCase()
+      : sports.length > 1
+        ? sports.map((s) => s.toUpperCase()).join("/")
+        : "this board";
+  return (
+    `${sportLabel} markets on the loaded board are temporarily blocked while their ` +
+    `simulation grades stay unvalidated (${opts.candidateCount} posted line` +
+    `${opts.candidateCount === 1 ? "" : "s"} checked). ` +
+    `You asked for ${n} legs — no ticket was built, and no other sports were used to fill. ` +
+    `Player props or validated game sides for other leagues remain eligible when you ask for them.`
+  );
+}
+
 function teamNickFromTotalPick(pickText: string): string {
   const tokens = String(pickText ?? "")
     .toLowerCase()

@@ -109,6 +109,30 @@ test("P0-blocked NCAAF game-line asks exit before loadScanInputs / slate sims", 
   assert.ok(gateAt > 0 && loadAt > gateAt, "P0 gate must precede loadScanInputs");
 });
 
+test("other sports: ask-level NCAAF P0 gate stays off so eligible sims still run", async () => {
+  const { parseCoachAskMarketConstraint } = await import(
+    "../coachAskMarketFilter.ts"
+  );
+  const { hardLockedSportsFromAsk } = await import("../coachAskSportScope.ts");
+  const { ncaafGameLineAskIsP0Blocked } = await import(
+    "../coachP0UnvalidatedTotals.ts"
+  );
+  for (const ask of [
+    "6 leg nfl",
+    "6 leg nhl",
+    "6 leg nba",
+    "6 leg mlb",
+    "7 leg college football player props",
+  ]) {
+    const market = parseCoachAskMarketConstraint(ask);
+    const blocked = ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: market.gameLinesOnly && !market.propsOnly,
+      lockedSports: hardLockedSportsFromAsk(ask),
+    });
+    assert.equal(blocked, false, ask);
+  }
+});
+
 test("replay: 7 leg college P0 gate + note is ask-only and sub-second", async () => {
   const { performance } = await import("node:perf_hooks");
   const { parseCoachAskMarketConstraint } = await import(

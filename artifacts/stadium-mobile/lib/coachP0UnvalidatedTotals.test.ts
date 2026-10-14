@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canonicalizeCoachSport,
+  gameLineCandidatesFullyP0Blocked,
   isGameLineSideMarket,
   isP0UnvalidatedNcaafGameLineMarket,
   isP0UnvalidatedSimTotalMarket,
   NCAAF_GAME_LINE_SIM_VALIDATED,
   ncaafGameLineAskIsP0Blocked,
+  p0BlockedGameLineBoardNote,
   p0BlockedNcaafGameLineAskNote,
   p0UnvalidatedNcaafGameLineDecision,
   p0UnvalidatedSimDecision,
@@ -630,4 +632,73 @@ test("ncaafGameLineAskIsP0Blocked: bare college game-lines-only while unvalidate
   assert.match(p0BlockedNcaafGameLineAskNote(7), /unvalidated/i);
   assert.match(p0BlockedNcaafGameLineAskNote(7), /player props/i);
   assert.doesNotMatch(p0BlockedNcaafGameLineAskNote(7), /quality bar/i);
+});
+
+test("ask-level P0 early exit does NOT fire for NFL/NHL/NBA/MLB locks", () => {
+  for (const sport of ["nfl", "nhl", "nba", "mlb"] as const) {
+    assert.equal(
+      ncaafGameLineAskIsP0Blocked({
+        gameLinesOnly: true,
+        lockedSports: [sport],
+      }),
+      false,
+      `${sport} gameLinesOnly must still run sims (open sides / no NCAAF P0)`,
+    );
+  }
+});
+
+test("gameLineCandidatesFullyP0Blocked: NCAAF board yes; NFL/NHL/NBA with sides no", () => {
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Spread", sport: "ncaaf" },
+      { market: "Moneyline", sport: "ncaaf" },
+      { market: "Total", sport: "ncaaf" },
+    ]),
+    true,
+  );
+  // NFL / NHL keep open sides even when totals are P0.
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Spread", sport: "nfl" },
+      { market: "Total", sport: "nfl" },
+    ]),
+    false,
+  );
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Puck Line", sport: "nhl" },
+      { market: "Moneyline", sport: "nhl" },
+      { market: "Total", sport: "nhl" },
+    ]),
+    false,
+  );
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Spread", sport: "nba" },
+      { market: "Total", sport: "nba" },
+    ]),
+    false,
+  );
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Run Line", sport: "mlb" },
+      { market: "Total", sport: "mlb" },
+    ]),
+    false,
+  );
+  // Synthetic: NFL board that only posts P0 totals → same unnecessary-wait gate.
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Total", sport: "nfl" },
+      { market: "Team Total", sport: "nfl" },
+      { market: "1H Total", sport: "nfl" },
+    ]),
+    true,
+  );
+  assert.equal(gameLineCandidatesFullyP0Blocked([]), false);
+  assert.match(p0BlockedGameLineBoardNote({ requestedLegs: 6, candidateCount: 12, sports: ["nfl"] }), /NFL/);
+  assert.doesNotMatch(
+    p0BlockedGameLineBoardNote({ requestedLegs: 6, candidateCount: 12, sports: ["nfl"] }),
+    /quality bar/i,
+  );
 });

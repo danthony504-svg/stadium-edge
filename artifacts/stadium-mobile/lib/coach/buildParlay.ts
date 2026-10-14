@@ -1139,23 +1139,27 @@ export async function buildCoachParlay(opts: {
     finalLegCount,
     lockedSports,
   );
-  const body = buildFinalCoachParlayNote({
-    target,
-    picks,
-    propPoolSize,
-    propsPending,
-    shortfallLead: teamMiss || teamShortfall || sportShortfall || shortfall,
-    timedOut: timed.timedOut,
-    budgetMs,
-    scanMissing: !scan,
-    // Drop staging scan notes on shortfall — they can claim a larger "qualified"
-    // count than the post-lean / post-fill ticket actually delivered.
-    scanNote: finalLegCount < target ? undefined : scan?.note,
-    failureReason: scan?.failureReason,
-    failureDiagnostics: scan?.failureDiagnostics,
-    propsOnly,
-    requirePropMix,
-  });
+  // P0 board exit already wrote an honest note — do not replace with quality-bar copy.
+  const p0BoardBlocked = scan?.failureReason?.code === "P0_UNVALIDATED_MARKETS";
+  const body = p0BoardBlocked
+    ? String(scan?.note ?? "").trim()
+    : buildFinalCoachParlayNote({
+        target,
+        picks,
+        propPoolSize,
+        propsPending,
+        shortfallLead: teamMiss || teamShortfall || sportShortfall || shortfall,
+        timedOut: timed.timedOut,
+        budgetMs,
+        scanMissing: !scan,
+        // Drop staging scan notes on shortfall — they can claim a larger "qualified"
+        // count than the post-lean / post-fill ticket actually delivered.
+        scanNote: finalLegCount < target ? undefined : scan?.note,
+        failureReason: scan?.failureReason,
+        failureDiagnostics: scan?.failureDiagnostics,
+        propsOnly,
+        requirePropMix,
+      });
   // Clarification / mismatch leads first — phone shows them above pick cards.
   const note = sanitizeCoachUserNote(
     [collegeClarify, mismatchLead, mlLeanNote, body].filter((s) => s.trim()).join("\n\n"),

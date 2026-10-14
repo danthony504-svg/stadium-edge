@@ -39,6 +39,10 @@ import {
   deriveCoachScanFailureReason,
   type CoachScanFailureReason,
 } from "./coachScanFailureReason.ts";
+import {
+  gameLineCandidatesFullyP0Blocked,
+  p0BlockedGameLineBoardNote,
+} from "./coachP0UnvalidatedTotals.ts";
 import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import {
   deriveGameSimLineMetrics,
@@ -1413,6 +1417,90 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         odds: entry.odds,
         isProp: false,
       } as ParsedPick);
+    }
+  }
+
+  // Game-lines-only + every posted line P0-blocked → skip slate Monte Carlo.
+  // NCAAF bare-college is the main case; NFL/NHL keep open sides so they still
+  // sim. Props-only / mix paths never take this exit (eligible sims must run).
+  if (opts.gameLinesOnly && !opts.propsOnly) {
+    const glCandidates: Array<{
+      market: string;
+      sport: string;
+      providerSport: string;
+      isProp: boolean;
+    }> = [];
+    for (const [, lines] of gameEntries) {
+      for (const entry of lines ?? []) {
+        glCandidates.push({
+          market: String(entry.market ?? ""),
+          sport: String(entry.sport ?? ""),
+          providerSport: String(entry.sport ?? ""),
+          isProp: false,
+        });
+      }
+    }
+    if (gameLineCandidatesFullyP0Blocked(glCandidates)) {
+      const sports = [
+        ...new Set(glCandidates.map((c) => c.sport.toLowerCase()).filter(Boolean)),
+      ];
+      const failureDiagnostics = {
+        oddsGameCount: oddsGames.length,
+        teamIdMapSize: opts.teamIdMap.size,
+        gameEntryCount: gameEntries.length,
+        gameSimsLoaded: 0,
+        gameLegsScored: 0,
+        gameLegsDroppedNoSim: glCandidates.length,
+        propPoolSize: 0,
+        propLegsScored: 0,
+        propPhaseIncomplete: false,
+        scoredBeforeStage: 0,
+        propsOnly: false,
+        requirePropMix: !!opts.requirePropMix,
+        gameSimsAttempted: false,
+        oddsLabelsBound: oddsBind.bound,
+        oddsLabelsUnresolved: oddsBind.unresolved.length,
+        gameSimsFetchNull: 0,
+        gameSimsTimedOut: 0,
+        propSimEvaluated: 0,
+      };
+      const result = buildScanResult([], {
+        target: opts.target,
+        evalLinesByGame,
+        gameSimulations,
+        totalScanned: glCandidates.length,
+        boardExhausted: true,
+        manifestRecorder,
+        varietySeed: opts.varietySeed,
+        varietyContext: opts.varietyContext,
+        ticketStyle: opts.ticketStyle,
+        requestId: opts.requestId,
+        propsOnly: false,
+        gameLinesOnly: true,
+        collegeTeamMarketStacks: opts.collegeTeamMarketStacks,
+        legsPerGameCap: opts.legsPerGameCap,
+        propPhaseIncomplete: false,
+        requirePropMix: opts.requirePropMix,
+        failureDiagnostics,
+        prioritySports: opts.prioritySports,
+        excludedTeams,
+        teamScope: opts.teamScope,
+      });
+      result.note = sanitizeCoachUserNote(
+        p0BlockedGameLineBoardNote({
+          requestedLegs: opts.target,
+          candidateCount: glCandidates.length,
+          sports,
+        }),
+      );
+      result.failureReason = {
+        code: "P0_UNVALIDATED_MARKETS",
+        detail:
+          glCandidates.length +
+          " game-line candidate(s) rejected by p0UnvalidatedSimDecision before slate sims",
+      };
+      if (opts.onPartial) opts.onPartial(result);
+      return result;
     }
   }
 
