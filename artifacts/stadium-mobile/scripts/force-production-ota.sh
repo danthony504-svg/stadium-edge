@@ -3,12 +3,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Repo root is two levels above stadium-mobile (same as publish-production-ota.sh).
+REPO_ROOT="$(cd ../.. && pwd)"
+if [[ -f "$REPO_ROOT/.ota-production-freeze" ]]; then
+  echo "PRODUCTION OTA FROZEN (.ota-production-freeze present)."
+  echo "Force-publish is blocked — including push triggers on .ota-force-publish."
+  echo "See .ota-production-freeze and docs/build78-ips-crash-diagnosis.md"
+  exit 1
+fi
+
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required"
   exit 1
 fi
 
-REPO_ROOT="$(git -C "$(dirname "$0")/../.." rev-parse --show-toplevel 2>/dev/null)"
 GIT_FULL="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 GIT_SHORT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 STAMP="$(date -u +%Y-%m-%dT%H:%MZ)"

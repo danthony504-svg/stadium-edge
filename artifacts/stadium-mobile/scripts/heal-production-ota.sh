@@ -5,6 +5,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+REPO_ROOT="$(cd ../.. && pwd)"
+if [[ -f "$REPO_ROOT/.ota-production-freeze" ]]; then
+  echo "PRODUCTION OTA FROZEN (.ota-production-freeze present)."
+  echo "Heal-publish is blocked. Use rollback-production-ota for embedded-only emergency."
+  exit 1
+fi
+
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required"
   exit 1

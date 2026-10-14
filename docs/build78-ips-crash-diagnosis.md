@@ -13,108 +13,174 @@ Same device (`5DFFD9D0-87A0-4C42-B2EB-20A558D26F3A`), same binary UUID, identica
 
 Constraints honored: no OTA publish, no deploy, no new native build from this investigation.
 
-## Proven cause (what the IPS proves)
+---
+
+## A. Verified server publication history (not device execution)
+
+These facts come only from GitHub Actions / EAS publish logs. They do **not** prove which update the phone was executing at crash time.
+
+### Rollback #5 (embedded directive)
+
+| Field | Value |
+|-------|-------|
+| Workflow | `.github/workflows/rollback-production-ota.yml` — **Rollback production OTA (embedded)** |
+| Run | [#5](https://github.com/danthony504-svg/stadium-edge/actions/runs/38502290200) · id `38502290200` |
+| Event | `workflow_dispatch` |
+| Actor / triggering actor | `danthony504-svg` |
+| Started (UTC) | `2026-10-14T02:40:47Z` (completed `02:41:28Z`) |
+| Checkout commit | `8e7c0dc51d9e39c1ce0b2265835cfcaeef947bd1` — *Merge PR #731 (ota-rollback-pnpm)* |
+| Channel / branch | `production` → `production` |
+| Runtime | `1.1.0` |
+| **iOS update ID** | `01a13849-3796-71b1-9607-fd9cd4493ef8` |
+| **Update group ID** | `9125e6db-6a5e-4e99-820e-d834a382b420` |
+| Message | `Emergency rollback to embedded bundle` |
+| Kind | `eas update:roll-back-to-embedded` (no new JS bundle) |
+
+### Tip published after rollback #5
+
+| Field | Value |
+|-------|-------|
+| Workflow | `.github/workflows/publish-production-ota.yml` — **Publish production OTA** |
+| Run | [#619](https://github.com/danthony504-svg/stadium-edge/actions/runs/38552272849) · id `38552272849` |
+| Event | `workflow_dispatch` (`ROLLBACK_EMBEDDED: 0`) |
+| Actor / triggering actor | `danthony504-svg` |
+| Workflow started (UTC) | `2026-10-14T10:49:39Z` |
+| **EAS ✔ Published!** (UTC) | `2026-10-14T10:52:10Z` |
+| Checkout / published commit | `100b2450c18a74edfc806b6090149b62ad108f96` — *Merge PR #732 — fix(account): scroll so Sign out is reachable above safe area* |
+| Channel / runtime | `production` / `1.1.0` |
+| Env | `EXPO_PUBLIC_OTA_USER_BANNER=true` |
+| **iOS update ID** | `01a13a0a-825f-72b5-8372-76e92d45f5c0` |
+| **Update group ID** | `b76dd8f2-659e-480e-97bf-65b4be083e87` |
+| Message | `fix(account): scroll so Sign out is reachable above safe area` |
+
+No later `publish-production-ota` run was recorded after #619 at investigation time. Channel tip on the server remains this update until another publish or embedded rollback.
+
+### Production publish posture (server)
+
+| Path | Trigger | Freeze status |
+|------|---------|---------------|
+| `publish-production-ota.yml` | **Manual** `workflow_dispatch` only (comment: FROZEN / cold-launch pass) | Script exits if repo-root `.ota-production-freeze` exists |
+| `force-production-ota.yml` | `workflow_dispatch` **or** push to `main` touching `artifacts/stadium-mobile/.ota-force-publish` | Script now also exits on `.ota-production-freeze` (gap closed in this PR) |
+| `heal-production-ota` / `republish-stable-production-ota` | Manual + typed confirm | Scripts now exit on `.ota-production-freeze` |
+| `rollback-production-ota` | Manual (or push trigger file) | **Not** blocked by freeze — emergency embedded-only path |
+
+**Publishing remains active on `main` until `.ota-production-freeze` is present on the ref Actions check out.** This PR prepares that freeze + script gates; it does **not** publish, and freeze is ineffective for Actions until the file lands on `main` (merge this PR or commit the freeze file to `main` without running publish workflows).
+
+Do **not** edit `.ota-force-publish` on `main` while investigating — that path auto-runs Force production OTA on push.
+
+---
+
+## B. Device evidence from the two IPS (proven)
 
 ### Terminal abort class
 
 Both reports are `EXC_CRASH` / `SIGABRT` with `asi: abort() called`, faulting on Expo Updates’ **`expo.controller.errorRecoveryQueue`**.
 
-That queue label is created only in `EXUpdates.ErrorRecovery` (`expo-updates` ErrorRecovery.swift). The terminal pipeline task `.crash` calls `crash()` → `delegate.throwException(NSException…)` → process abort when recovery cannot relaunch a working update.
+That queue label is created only in `EXUpdates.ErrorRecovery`. Terminal task `.crash` → `throwException` → process abort when recovery cannot relaunch a working update.
 
-**The Expo recovery stack is the mechanism of death, not the original app bug.**
+**Proven:** Expo recovery stack is the **mechanism of death**.  
+**Not proven from IPS:** which update id was launched, or the original fatal string.
 
 ### Symbolication (UUID-matched Build 78 binary)
 
-Artifacts used:
+| Image offset | VA (`0x100000000+off`) | Correlation |
+|--------------|------------------------|-------------|
+| **164088** | `0x1000280f8` | Swift block trampoline into `errorRecoveryQueue` |
+| **568448** | `0x10008ac80` | Prior ErrorRecovery pipeline helper |
+| **569024** | `0x10008aec0` | Caller into crash — `runNextTask` → `.crash` |
+| **573640** | `0x10008c0c8` | `ErrorRecovery.crash` / `throwException` body |
 
-- IPA binary: `/tmp/build78-artifacts/ipa-extract/Payload/StadiumEdge.app/StadiumEdge` (Mach-O UUID `90811DE5-15A8-3023-BB9E-1862263245EF`)
-- Companion Apple `.symbols` (same UUID; contains 111 mangled `ErrorRecovery` symbols; address table not decoded on Linux)
-- No DWARF `.dSYM` bundle was present (folder named `dsym-extract` was another IPA unpack)
-
-Binary is stripped (symtab ≈ `__mh_execute_header` only). Offsets were resolved via `LC_FUNCTION_STARTS` + Capstone arm64 disassembly and correlated to `ErrorRecovery.swift` / mangled names in the `.symbols` file:
-
-| Image offset | VA (`0x100000000+off`) | Function start | Correlation |
-|--------------|------------------------|----------------|-------------|
-| **164088** | `0x1000280f8` | `0x1000280dc` | Swift block trampoline (`blr x19`) — dispatch into `errorRecoveryQueue` work |
-| **568448** | `0x10008ac80` | `0x10008abe8` | Epilogue of prior ErrorRecovery pipeline helper |
-| **569024** | `0x10008aec0` | `0x10008ac90` | Caller that `bl`’s into `0x10008b744` (crash body) — matches `runNextTask` → `.crash` |
-| **573640** | `0x10008c0c8` | `0x10008b744` | Inside large frame that builds/raises `NSException` — matches `ErrorRecovery.crash` / `throwException` |
-
-Mangled names present in the UUID-matched `.symbols` file include:
-
-- `_$s9EXUpdates13ErrorRecoveryC5crash33_…LLyyF`
-- `_$s9EXUpdates13ErrorRecoveryC11runNextTask33_…LLyyF`
-- `_$s9EXUpdates13ErrorRecoveryC13startPipeline33_…`
-- `_$s9EXUpdates13ErrorRecoveryC05writeB16OrExceptionToLog__…`
-
-Instant-crash IPS also shows concurrent work on `dev.expo.modules.core.logging` opening a file handle (`fileHandleForWritingAtPath`) while the recovery queue aborts — consistent with `ErrorRecovery.writeErrorOrExceptionToLog` writing **`expo-error.log`** for the *original* fatal (text not embedded in the `.ips`). Mangled name present in the UUID-matched `.symbols` file: `ErrorRecovery.writeErrorOrExceptionToLog`.
-
-### Thread / memory corroboration (re-parsed)
+Instant IPS: concurrent `dev.expo.modules.core.logging` → `fileHandleForWritingAtPath` while aborting — consistent with `writeErrorOrExceptionToLog` writing **`expo-error.log`** (text **not** in the `.ips`).
 
 | | Long (`055739`) | Instant (`055852`) |
 |--|-----------------|--------------------|
 | Fault queue | `expo.controller.errorRecoveryQueue` | same |
-| JS runtime | `com.facebook.react.runtime.JavaScript` + Hermes `hades` alive | same (runtime started) |
-| Extra | — | `dev.expo.modules.core.logging` → `fileHandleForWritingAtPath` + StadiumEdge frames |
+| JS / Hermes | Alive | Alive (runtime started) |
 | Writable VM | **206.7M** | **140.4M** |
 
-Both die via `__pthread_kill` → `abort` → `-[NSException raise]` → StadiumEdge `573640/569024/568448/164088`. Instant death is early-launch class; long death keeps the same recovery stack after a full session.
+### What device evidence does **not** establish
 
-### What is **not** proven from these two IPS files
+- Original JS/native fatal string.
+- That tip `01a13a0a` was the **running** update (no `Updates.updateId` / `isEmbeddedLaunch` in IPS).
+- Passkeys / Coach / Restart banner / Account scroll as the trigger.
+- Automatic mid-session tip apply (`OtaController` forbids auto-`reloadAsync`).
 
-- The **original** JS/native fatal string (e.g. `Cannot find native module 'ClerkExpoPasskeys'`, Coach, Restart banner, Account scroll) is **not** present in either `.ips`.
-- Passkeys / Coach / Restart banner are **not** asserted as the Oct-14 trigger without `expo-error.log` / `readLogEntriesAsync` paste.
-- Mid-session **automatic** tip apply is **not** proven: production `OtaController` documents **no automatic `reloadAsync`** (Restart-only). Temporal tip correlation remains; the apply trigger (Restart tap vs ErrorRecovery relaunch selection vs other) is not in the IPS.
+**Temporal correlation** (tip published 10:52Z; crashes 10:57–10:58Z) is server+clock alignment only — **not** proof the downloaded tip was executing or was the original fatal. Treat “downloaded tip caused the crash” as **hypothesis** until `expo-error.log` / native log paste shows the first `Fatal error:` / `Fatal exception:` (and ideally `markFailedLaunchForUpdate` with an update id).
 
-## Update / channel correlation
+Embedded IPA `main.jsbundle` has no ClerkExpoPasskeys strings — useful for ruling out *embedded* passkey-import crash class, not for proving tip execution.
 
-Re-verified from GitHub Actions logs this session:
+---
 
-| When (UTC) | Event | ID / note |
-|------------|-------|-----------|
-| 2026-10-14 **02:40:47Z** | **Rollback production OTA (embedded) run #5** — success | [run 38502290200](https://github.com/danthony504-svg/stadium-edge/actions/runs/38502290200) → log: `✔ Published!` · iOS update `01a13849-3796-71b1-9607-fd9cd4493ef8` · group `9125e6db-6a5e-4e99-820e-d834a382b420` · message *Emergency rollback to embedded bundle* · channel `production` linked |
-| 2026-10-14 **09:55:19Z** | Long process launches (`procLaunch` CDT 04:55:19) | After rollback #5; healthy ~62 min session |
-| 2026-10-14 **10:52:10Z** | **Publish production OTA** | [run 38552272849](https://github.com/danthony504-svg/stadium-edge/actions/runs/38552272849) @ `100b2450` → log: `✔ Published!` · Runtime `1.1.0` · iOS update **`01a13a0a-825f-72b5-8372-76e92d45f5c0`** · group `b76dd8f2-659e-480e-97bf-65b4be083e87` · channel `production` · `EXPO_PUBLIC_OTA_USER_BANNER=true` |
-| 2026-10-14 **10:57:39Z** | Long process SIGABRT (ErrorRecovery) | ~5 minutes after tip publish |
-| 2026-10-14 **10:58:51Z** | Instant relaunch SIGABRT (0.27 s) | Failed launch + `expo-error.log` write path concurrent |
-| Live check (investigation) | Channel tip | `expo-update-id: 01a13a0a-825f-72b5-8372-76e92d45f5c0` |
+## C. Retrieving `expo-error.log` from TestFlight Build 78
 
-### Embedded vs downloaded
+### Where the file lives (expo-updates 29.0.18)
 
-| Evidence | Conclusion |
-|----------|------------|
-| Rollback #5 published an embedded-rollback directive before the long session | Channel directed clients to **embedded** after 02:41Z |
-| Embedded `main.jsbundle` in Build 78 IPA has **no** `ClerkExpoPasskeys` / `@clerk/expo/passkeys` / `getPasskeys` strings (only legacy `updatePreviouslyFailed` string) | Embedded JS is pre-passkey; a 62‑minute foreground session is consistent with **embedded** (or another non-fatal bundle), not the historical passkey tip crash-on-import |
-| Tip `01a13a0a` published ~5 minutes before the fatal window; instant relaunch dies in ErrorRecovery with log-write side activity | Strong temporal correlation that the device **attempted to launch downloaded tip `01a13a0a`** (in-process `reloadAsync` keeps the same `procLaunch` for the long IPS) |
-| Instant IPS writable VM **140.4M** vs long **206.7M** | Early-launch death vs full session |
-| Tip git tree @ `100b2450` includes fail-soft `getPasskeys()`; merge delta is Account scroll only (`account.tsx` + test) | Account-scroll source change alone is **not** a proven boot fatal; published Hermes blob was not CDN-downloaded here (no `EXPO_TOKEN`) |
+`ErrorRecovery.ErrorLogFile = "expo-error.log"` written under:
 
-**Best-supported narrative:** post–rollback #5 the app ran **embedded** successfully → production tip **`01a13a0a`** was published → device selected/launched that **downloaded** update → original fatal (text unknown) → ErrorRecovery pipeline exhausted → SIGABRT; cold start retried the bad launch and died in 0.27 s while writing `expo-error.log`.
+`Application Support/expo-error.log`
 
-## Prior same-offset class (context only)
+i.e. inside the app container:
 
-Oct 13 Build 78 IPS files on the same device/UUID share offsets `573640/569024/568448/164088`. On-device logs from the `01a13582` era previously showed:
+`Library/Application Support/expo-error.log`
 
-`Unhandled JS Exception: Error: Cannot find native module 'ClerkExpoPasskeys'`
+(not under `.expo-internal`). `consumeErrorLog` **deletes** the file after a later successful read (e.g. FileDownloader path) — capture ASAP after a crash.
 
-That fatal was addressed in tip `01a136bb` / fail-soft `getPasskeys()` (`23550135`). **Oct 14 IPS do not re-prove that string.** Tip `01a13a0a`’s git tree includes fail-soft + tip-boot gates; CDN asset download from this agent was unauthorized, so the published Hermes blob was not re-scanned here.
+### Can in-app Diagnostics export the raw file?
+
+**No — not the raw `expo-error.log` file.**
+
+| Path | What it exports | Feasible on crash-loop? |
+|------|-----------------|-------------------------|
+| Menu → **Device attestation** (`/ota-debug`) → **Copy** full report | `Updates.readLogEntriesAsync` (last ~1h UpdatesLogger ring). The write path also `logger.error`s the serialized fatal, so the **same text may appear** in the “expo-updates native logs” section — but this is **not** a direct file export of `expo-error.log`. | **Only if JS reaches Home / menu.** Instant 0.27s ErrorRecovery death typically **cannot** open Diagnostics. |
+| Home attestation strip → open `/ota-debug` | Same static diagnostics + copy | Same limitation |
+| Deep link `stadium-mobile://ota-debug` | Same | Still needs a successful enough JS boot |
+
+While `isStartupProcedureRunning=true`, Diagnostics **skips** `readLogEntriesAsync` (zero Updates I/O on open).
+
+### Exact feasible retrieval (Mac + this iPhone)
+
+1. Connect the iPhone (the one that produced the IPS; keep the app installed — do not delete).
+2. On Mac: **Xcode → Window → Devices and Simulators**.
+3. Select the device → app **Stadium Edge** (`com.stadiumedge.app`) → **gear / “…” → Download Container…** (or “Download Container”).
+4. Open the `.xcappdata` package →  
+   `AppData/Library/Application Support/expo-error.log`
+5. If the file exists, paste the full contents (look for leading `Fatal error:` or `Fatal exception:`).
+6. If the file is **missing**: it was never written, already consumed/deleted, or the container download is incomplete — fall through to next method.
+
+**Files app / iCloud / TestFlight UI cannot browse Application Support** for this path. There is no in-app “export expo-error.log” button on Build 78.
+
+### Next evidence-collection method if the file is inaccessible
+
+1. **Mac Console.app** (device connected): filter process `StadiumEdge`, reproduce one cold launch, capture lines containing `Fatal error`, `Fatal exception`, `markFailedLaunchForUpdate`, `errorRecovery`.
+2. If the app **can** stay up on embedded after enough failed tip launches: Menu → Device attestation → Copy report → send the `--- expo-updates native logs (last hour) ---` block (and `Updates.updateId` / `isEmbeddedLaunch`).
+3. Optional ops (human): embedded rollback (run #5 workflow) so the device can boot UI for Diagnostics — **not** executed by this investigation.
+
+---
+
+## D. Freeze prepared (no publish)
+
+This branch adds:
+
+- Repo-root **`.ota-production-freeze`** (blocks `publish-production-ota.sh`, and now `force-` / `heal-` / `republish-` scripts).
+- Freeze gates on force/heal/republish scripts (force previously ignored the freeze file).
+
+**To arm the freeze on production Actions:** merge to `main` (or land `.ota-production-freeze` on `main`) **without** running Publish / Force / Heal / Republish workflows. Do not touch `.ota-force-publish` on that commit.
+
+Emergency embedded rollback remains available via `rollback-production-ota` (not gated by the freeze file in that script).
+
+---
 
 ## Remaining gaps
 
-1. **`expo-error.log` / Updates logger paste** from the device for the 10:57–10:58Z window (first `Fatal error:` / `Fatal exception:` before `markFailedLaunchForUpdate`).
-2. Full **DWARF dSYM** (not only Apple `.symbols`) for line-accurate `atos` of `0x8c0c8` / `0x8aec0` / `0x8ac80` / `0x280f8`.
-3. On-device attestation: `isEmbeddedLaunch`, `updateId`, `createdAt` immediately after the crash loop.
-4. Whether `01a13a0a` itself JS-fatals, or a tip-boot / reload race re-entered ErrorRecovery without a new app-level bug.
-5. What **triggered** tip launch on the long PID (Restart vs recovery selection) — not in IPS; app code forbids auto-reload.
+1. Device `expo-error.log` or Console / Diagnostics native-log paste for 10:57–10:58Z.
+2. On-device `isEmbeddedLaunch` + `updateId` after a successful boot.
+3. Full DWARF dSYM for line-accurate `atos`.
+4. Whether tip `01a13a0a` JS-fatals vs tip-boot / recovery race (needs fatal text).
+5. Freeze file effective on `main` (merge/ops).
 
 ## Targeted fix status
 
-**No code fix shipped from this investigation** — original fatal text is not established from the two IPS files. Speculative changes blaming passkeys, Coach, Restart banner, or Account scroll would violate the evidence bar.
-
-Operational options (human / ops — not executed here):
-
-- Capture `expo-error.log` / OTA Diagnostics native log on next repro.
-- If production must stay up: another **embedded rollback** (same workflow as run #5) until the tip fatal is identified — **not** performed by this agent.
+**No speculative app-code fix.** Original fatal not established. Freeze + script gates only.
 
 ## Constraints
 
