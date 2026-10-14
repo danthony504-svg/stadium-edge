@@ -260,14 +260,19 @@ export function propPlayersMatch(
   const bSur = propPlayerSurname(bKey);
   if (!aSur || !bSur || aSur !== bSur) return false;
 
-  // Same surname: treat as same athlete when one name is a suffix/prefix of the
-  // other (Ohtani ⊆ Shohei Ohtani) or a single-initial first token (S Ohtani).
+  // Same surname only. Unify display variants without collapsing distinct
+  // athletes (J. Smith vs T. Smith must stay different).
   const aParts = normalizePlayerNameTokens(aKey);
   const bParts = normalizePlayerNameTokens(bKey);
+  // Surname-only vs full name: "Ohtani" ⊆ "Shohei Ohtani".
   if (aParts.length === 1 || bParts.length === 1) return true;
+
   const aFirst = aParts[0]!;
   const bFirst = bParts[0]!;
-  if (aFirst.length === 1 || bFirst.length === 1) return true;
+  // Initial forms: "S Ohtani" ↔ "Shohei Ohtani"; "J Smith" ↛ "T Smith".
+  if (aFirst.length === 1 && bFirst.length === 1) return aFirst === bFirst;
+  if (aFirst.length === 1) return bFirst.startsWith(aFirst);
+  if (bFirst.length === 1) return aFirst.startsWith(bFirst);
   return aKey.endsWith(` ${bKey}`) || bKey.endsWith(` ${aKey}`);
 }
 

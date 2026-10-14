@@ -377,3 +377,116 @@ test("variety cache from MLB ticket does not steer a college ask", () => {
   assert.ok(collegeCtx.recentTickets[0]!.some((k) => /iowa/i.test(k)));
   assert.ok(!collegeCtx.recentTickets[0]!.some((k) => /nyy|yankees|judge/i.test(k)));
 });
+
+test("every supported named sport locks exclusively (no cross-sport fill)", () => {
+  const cases: Array<{ ask: string; sport: string }> = [
+    { ask: "7 leg college", sport: "ncaaf" },
+    { ask: "7 leg ncaaf", sport: "ncaaf" },
+    { ask: "7 leg nfl", sport: "nfl" },
+    { ask: "7 leg mlb", sport: "mlb" },
+    { ask: "7 leg nhl", sport: "nhl" },
+    { ask: "7 leg nba", sport: "nba" },
+    { ask: "7 leg wnba", sport: "wnba" },
+    { ask: "7 leg soccer", sport: "soccer" },
+    { ask: "7 leg ufc", sport: "ufc" },
+    { ask: "7 leg tennis", sport: "tennis" },
+    { ask: "7 leg ncaab", sport: "ncaab" },
+  ];
+  for (const { ask, sport } of cases) {
+    const locked = hardLockedSportsFromAsk(ask);
+    assert.deepEqual(locked, [sport], ask);
+    const foreign = ALL.filter((s) => s !== sport);
+    const pool = [
+      scored(
+        pick({
+          game: `${sport} A @ ${sport} B`,
+          market: "Spread",
+          pick: "Home +3.5",
+          sport,
+        }),
+        80,
+      ),
+      ...foreign.map((s, i) =>
+        scored(
+          pick({
+            game: `${s} X @ ${s} Y`,
+            market: "Spread",
+            pick: "Away +1.5",
+            sport: s,
+            finalAiScore: qualifiedScore({
+              composite: 99,
+              edgePct: 12,
+              confidencePct: 99,
+              simHit: 0.8,
+              grade: "A+",
+            }),
+          }),
+          99 - i,
+        ),
+      ),
+    ];
+    const topped = topUpTicketFromQualifiedScored([], pool, 7, ask, 4, {
+      allowedSports: locked,
+    });
+    assert.ok(
+      topped.every((p) => p.sport === sport),
+      `${ask}: foreign sports leaked: ${topped.map((p) => p.sport).join(",")}`,
+    );
+    // NCAAF FG game lines are P0 fail-closed — honest empty, never foreign fill.
+    if (sport === "ncaaf") {
+      assert.equal(topped.length, 0, `${ask}: must not invent / cross-fill`);
+      assert.match(
+        sportScopeShortfallNote(ask, 7, 0, locked) ?? "",
+        /No qualifying NCAAF/i,
+        ask,
+      );
+      continue;
+    }
+    assert.equal(topped.length, 1, `${ask}: only in-sport inventory should seat`);
+    const note = sportScopeShortfallNote(ask, 7, topped.length, locked);
+    assert.match(note ?? "", /Only 1 of 7/i, ask);
+    assert.match(note ?? "", /other sports/i, ask);
+  }
+});
+
+test("insufficient locked pool reports shortfall without inventing alts from other sports", () => {
+  const locked = hardLockedSportsFromAsk("7 leg nhl")!;
+  const nhlOnly = [
+    scored(
+      pick({
+        game: "TOR @ BOS",
+        market: "Puck Line",
+        pick: "Maple Leafs +1.5",
+        sport: "nhl",
+      }),
+      70,
+    ),
+    scored(
+      pick({
+        game: "NYY @ BOS",
+        market: "Spread",
+        pick: "Yankees -1.5",
+        sport: "mlb",
+        finalAiScore: qualifiedScore({
+          composite: 95,
+          edgePct: 10,
+          confidencePct: 90,
+          simHit: 0.7,
+          grade: "A",
+        }),
+      }),
+      95,
+    ),
+  ];
+  const afterLean = topUpAfterMlLean({
+    picks: [],
+    qualifiedCandidates: nhlOnly.map((l) => l.pick),
+    target: 7,
+    varietySeed: "nhl-short",
+    legsPerGameCap: 4,
+    allowedSports: locked,
+  });
+  assert.equal(afterLean.length, 1);
+  assert.equal(afterLean[0]!.sport, "nhl");
+  assert.match(sportScopeShortfallNote("7 leg nhl", 7, 1, locked) ?? "", /NHL/);
+});

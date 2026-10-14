@@ -260,10 +260,15 @@ async function loadScanInputs(
   // pool rows so a stale basePool cannot reintroduce an excluded matchup.
   propPool = filterPicksForCoachAskTeams(propPool, teamScope, excludedTeams);
 
-  const liveOdds = filterPicksForCoachAskTeams(
-    filterOddsForSlateDay(liveFeed.odds ?? [], slateDay),
-    teamScope,
-    excludedTeams,
+  // Live odds can carry foreign-tagged rows from a multi-sport feed — belt
+  // hard-locked asks the same way as games/odds so college never merges MLB.
+  const liveOdds = filterPicksForAskSports(
+    filterPicksForCoachAskTeams(
+      filterOddsForSlateDay(liveFeed.odds ?? [], slateDay),
+      teamScope,
+      excludedTeams,
+    ),
+    lockedSports,
   );
 
   return {
@@ -510,21 +515,28 @@ export async function buildCoachParlay(opts: {
       allowRareMultiCount,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
-          filterPicksForCoachAskTeams(
-            filterPicksByAskMarketConstraint(picks, marketConstraint),
-            inputs.teamScope,
-            inputs.excludedTeams,
+          filterPicksForAskSports(
+            filterPicksForCoachAskTeams(
+              filterPicksByAskMarketConstraint(picks, marketConstraint),
+              inputs.teamScope,
+              inputs.excludedTeams,
+            ),
+            hardLockedSportsFromAsk(opts.askText),
           ),
         );
       },
     });
-    let picks = filterPicksForCoachAskTeams(
-      filterPicksByAskMarketConstraint(
-        selectFinalCoachParlayPicks(built.picks),
-        marketConstraint,
+    const lockedSportsPropsOnly = hardLockedSportsFromAsk(opts.askText);
+    let picks = filterPicksForAskSports(
+      filterPicksForCoachAskTeams(
+        filterPicksByAskMarketConstraint(
+          selectFinalCoachParlayPicks(built.picks),
+          marketConstraint,
+        ),
+        inputs.teamScope,
+        inputs.excludedTeams,
       ),
-      inputs.teamScope,
-      inputs.excludedTeams,
+      lockedSportsPropsOnly,
     );
 
     // Locked market family graded but staged 0 — recover with the SAME allowlist
@@ -577,21 +589,27 @@ export async function buildCoachParlay(opts: {
           // Preserve the original market lock when present.
           // Scope filter before UI buffer — same as primary props-only path.
           opts.onPartialPicks?.(
-            filterPicksForCoachAskTeams(
-              filterPicksByAskMarketConstraint(partial, marketConstraint),
-              inputs.teamScope,
-              inputs.excludedTeams,
+            filterPicksForAskSports(
+              filterPicksForCoachAskTeams(
+                filterPicksByAskMarketConstraint(partial, marketConstraint),
+                inputs.teamScope,
+                inputs.excludedTeams,
+              ),
+              lockedSportsPropsOnly,
             ),
           );
         },
       });
-      const recoveredPicks = filterPicksForCoachAskTeams(
-        filterPicksByAskMarketConstraint(
-          selectFinalCoachParlayPicks(recovered.picks),
-          marketConstraint,
+      const recoveredPicks = filterPicksForAskSports(
+        filterPicksForCoachAskTeams(
+          filterPicksByAskMarketConstraint(
+            selectFinalCoachParlayPicks(recovered.picks),
+            marketConstraint,
+          ),
+          inputs.teamScope,
+          inputs.excludedTeams,
         ),
-        inputs.teamScope,
-        inputs.excludedTeams,
+        lockedSportsPropsOnly,
       );
       if (recoveredPicks.length > 0) {
         picks = recoveredPicks;
@@ -627,21 +645,27 @@ export async function buildCoachParlay(opts: {
           allowRareCountFamilyStack,
           onPartialPicks: (partial) => {
             opts.onPartialPicks?.(
-              filterPicksForCoachAskTeams(
-                filterPicksByAskMarketConstraint(partial, marketConstraint),
-                inputs.teamScope,
-                inputs.excludedTeams,
+              filterPicksForAskSports(
+                filterPicksForCoachAskTeams(
+                  filterPicksByAskMarketConstraint(partial, marketConstraint),
+                  inputs.teamScope,
+                  inputs.excludedTeams,
+                ),
+                lockedSportsPropsOnly,
               ),
             );
           },
         });
-        const softPicks = filterPicksForCoachAskTeams(
-          filterPicksByAskMarketConstraint(
-            selectFinalCoachParlayPicks(softPreferred.picks),
-            marketConstraint,
+        const softPicks = filterPicksForAskSports(
+          filterPicksForCoachAskTeams(
+            filterPicksByAskMarketConstraint(
+              selectFinalCoachParlayPicks(softPreferred.picks),
+              marketConstraint,
+            ),
+            inputs.teamScope,
+            inputs.excludedTeams,
           ),
-          inputs.teamScope,
-          inputs.excludedTeams,
+          lockedSportsPropsOnly,
         );
         if (softPicks.length > 0) {
           picks = softPicks;
@@ -685,10 +709,11 @@ export async function buildCoachParlay(opts: {
       picks.length,
       inputs.oddsGames.length,
     );
-    // Final belt — recovery/top-up must not reintroduce another local day
-    // or an explicitly excluded matchup.
+    // Final belt — recovery/top-up must not reintroduce another local day,
+    // excluded matchup, or foreign sport on a hard-locked ask.
     picks = filterPicksForSlateDay(picks, inputs.slateDay);
     picks = filterPicksForCoachAskTeams(picks, inputs.teamScope, inputs.excludedTeams);
+    picks = filterPicksForAskSports(picks, lockedSportsPropsOnly);
     const shortfall = resolveCoachParlayShortfallLead({
       askText: opts.askText ?? "",
       requestedLegs: target,
@@ -696,6 +721,12 @@ export async function buildCoachParlay(opts: {
       analyzed: built.propLegsScored,
       isMarketLocked,
     });
+    const sportShortfall = sportScopeShortfallNote(
+      opts.askText,
+      target,
+      picks.length,
+      lockedSportsPropsOnly,
+    );
     const mismatchLead = coachPropsAskGameLineMismatchNote({
       askText: opts.askText,
       propsOnly: true,
@@ -709,7 +740,7 @@ export async function buildCoachParlay(opts: {
         picks,
         propPoolSize,
         propsPending: false,
-        shortfallLead: teamMiss || teamShortfall || shortfall,
+        shortfallLead: teamMiss || teamShortfall || sportShortfall || shortfall,
         propsOnly: true,
         requirePropMix: false,
       });

@@ -210,6 +210,20 @@ test("hard block: Ohtani name forms and dual unders are same athlete", () => {
   assert.equal(wouldRepeatPlayerProp(byIdB, [byIdA]), true);
 });
 
+test("propPlayersMatch does not collapse distinct same-surname athletes", () => {
+  const g = "Team A @ Team B";
+  const jSmith = leg(g, "Points", "J. Smith Over 20.5", true, "J. Smith");
+  const tSmith = leg(g, "Points", "T. Smith Over 18.5", true, "T. Smith");
+  const johnSmith = leg(g, "Points", "John Smith Over 20.5", true, "John Smith");
+  const tomSmith = leg(g, "Assists", "Tom Smith Over 5.5", true, "Tom Smith");
+  assert.equal(propPlayersMatch(jSmith, tSmith), false);
+  assert.equal(wouldRepeatPlayerProp(tSmith, [jSmith]), false);
+  assert.equal(propPlayersMatch(jSmith, johnSmith), true);
+  assert.equal(propPlayersMatch(tSmith, tomSmith), true);
+  assert.equal(wouldRepeatPlayerProp(johnSmith, [jSmith]), true);
+  assert.equal(wouldRepeatPlayerProp(tomSmith, [jSmith]), false);
+});
+
 test("max 2 props per game on 9-leg mix tickets", () => {
   const g = "Chicago White Sox @ Cleveland Guardians";
   const ticket = [

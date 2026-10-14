@@ -93,30 +93,21 @@ export function createExpoOtaClient(): OtaClient {
     async reloadAsync() {
       const Updates = tryGetExpoUpdates();
       if (!Updates) throw new Error("expo-updates unavailable");
-      // Skip reload when already running the downloaded/pending target — avoids
-      // repeated Restart loops that re-enter ErrorRecovery on Build 78.
-      const running =
-        Updates.updateId != null && Updates.updateId !== ""
-          ? String(Updates.updateId)
-          : null;
       const ctx = tryGetLatestContext() as {
         downloadedManifest?: { id?: string } | null;
         isUpdatePending?: boolean;
       } | null;
-      const downloaded = readManifestId(ctx?.downloadedManifest);
-      if (
-        running &&
-        downloaded &&
-        running.trim().toLowerCase() === downloaded.trim().toLowerCase() &&
-        !Updates.isEmbeddedLaunch
-      ) {
-        return;
-      }
-      if (Updates.isEmbeddedLaunch && !ctx?.isUpdatePending && !downloaded) {
+      const pending = !!ctx?.isUpdatePending;
+      // Already on embedded with nothing pending — skip (true no-op).
+      // Do NOT skip when running tip UUID == downloadedManifest.id: channel
+      // rollBackToEmbedded often leaves that equality while isUpdatePending
+      // is true; a no-op here would strand Restart on the broken tip.
+      if (Updates.isEmbeddedLaunch && !pending) {
         return;
       }
       // Bare reload — avoid reloadScreenOptions which older Build 78 native
       // surfaces may reject; maximize apply success on the shipping binary.
+      // Distinct-target / already-on-target gates live in OtaController.restart.
       await Updates.reloadAsync();
     },
   };
