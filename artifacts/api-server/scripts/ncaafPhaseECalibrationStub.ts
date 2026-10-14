@@ -69,10 +69,10 @@ function main(): number {
 
   if (!fixture) {
     console.error(
-      "OPEN: set NCAAF_PHASE_E_FIXTURE to a frozen out-of-sample CSV before claiming E2/E4 PASS.",
+      "OPEN: prefer scripts/ncaafPhaseEHoldoutCalibration.ts (ESPN 2023–2024 holdout).",
     );
     console.error(
-      "See docs/coach/ncaaf-phase-e-checklist.md for columns and restore rules.",
+      "Or set NCAAF_PHASE_E_FIXTURE to a closing-line CSV for E2b/E4. See docs/coach/ncaaf-phase-e-checklist.md.",
     );
     return 2;
   }

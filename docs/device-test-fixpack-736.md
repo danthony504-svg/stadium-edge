@@ -16,9 +16,10 @@ Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.
 | `eas.json` → `build.preview.channel` | **`preview` only** (`distribution: internal`) |
 | `build.preview-ota.channel` | **`preview` only** |
 | `build.production.channel` | `production` (untouched; freeze armed) |
-| New preview IPA includes `ClerkExpoPasskeys`? | **Yes** — `@clerk/expo-passkeys` autolinks pod `ClerkExpoPasskeys` |
-| Build 78 crash compatibility | **UNVERIFIED** on any new preview/preview-ota binary |
+| Plain `preview` / `preview-ota` IPA | **Includes** `ClerkExpoPasskeys` → crash path **UNVERIFIED** |
+| `preview-build78` IPA | Strips `@clerk/expo-passkeys` via `EXPO_NO_CLERK_PASSKEYS=1` + pre-install hook — **use this for crash-path** |
 | Production freeze | **armed** (`.ota-production-freeze`) |
+| `EXPO_TOKEN` host | Cursor Cloud Agent env secret — see `docs/device-test-expo-token.md` (not GitHub Actions) |
 
 ---
 
@@ -35,47 +36,43 @@ Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.
 | Production freeze | **armed** (`.ota-production-freeze`) |
 | Prep script | `artifacts/stadium-mobile/scripts/prepare-preview-test.sh` |
 
-### iPhone install (internal / ad hoc) — device registration required
+### iPhone install — `preview-build78` (no ClerkExpoPasskeys)
 
-Profile `preview` uses `"distribution": "internal"`. Apple will only install the IPA on **registered device UDIDs**.
+Profile `preview-build78` = `channel: preview` + `distribution: internal` + `EXPO_NO_CLERK_PASSKEYS=1`.  
+Apple installs only on **registered device UDIDs**.
 
-1. On the iPhone: Settings → General → About → copy **UDID** (or plug into Mac / use Apple Configurator).
-2. Register once (Expo/Apple ad hoc provisioning):
+1. On the iPhone: Settings → General → About → copy **UDID**.
+2. On the **Cloud Agent / machine that has `EXPO_TOKEN`** (see `docs/device-test-expo-token.md`):
    ```bash
    cd artifacts/stadium-mobile
-   EXPO_TOKEN=… pnpm exec eas device:create
-   # follow prompts; paste UDID; name the device
+   EXPO_TOKEN=… pnpm exec eas device:create   # paste UDID; name device
    ```
-3. Rebuild after registering a **new** device (provisioning profile must include it):
+3. Build the isolated binary (same environment — token required):
    ```bash
-   git checkout 0d10cce7fab76d0c36180f11b80fb282a1078117
+   git checkout origin/cursor/build78-fixpack-def8
    cd artifacts/stadium-mobile
-   EXPO_TOKEN=… eas build --profile preview --platform ios --non-interactive
+   EXPO_TOKEN=… eas build --profile preview-build78 --platform ios --non-interactive
    ```
-4. Install: open the EAS build page QR code on the iPhone (same Apple ID / device that was registered), or use the install link from `eas build:list`.
-5. Confirm the binary is **preview channel** (not App Store Build 78).
+4. Install via the EAS build **installation link** / QR (registered device only).
+5. Publish JS tip `0d10cce7…` (or branch tip containing it) to **preview** only, then cold-launch ×2, sign-in, college sport lock, full scan timing.
 
-`preview-ota` (`distribution: store`) can go to TestFlight instead — still channel `preview`, still links `ClerkExpoPasskeys` → crash path **UNVERIFIED**.
+**This Cloud Agent cannot complete steps 2–4 until `EXPO_TOKEN` is configured on the Cursor environment and you provide the iPhone UDID** (interactive `eas device:create` needs the device). No GitHub secret will unlock that here.
 
-### Install method A — preview binary + preview OTA (JS tip)
+### Install method A — preview-build78 + preview OTA
 
 ```bash
+# On Cursor agent / laptop with EXPO_TOKEN configured:
 git fetch origin cursor/build78-fixpack-def8
-git checkout 0d10cce7fab76d0c36180f11b80fb282a1078117
-git merge-base --is-ancestor 4738df08db5fc3425bc1fd317431c52bc5b9c0a8 HEAD
-
-# Device registration (once) + approve build separately:
+git checkout origin/cursor/build78-fixpack-def8
 cd artifacts/stadium-mobile
 EXPO_TOKEN=… pnpm exec eas device:create
-EXPO_TOKEN=… eas build --profile preview --platform ios --non-interactive
+EXPO_TOKEN=… eas build --profile preview-build78 --platform ios --non-interactive
+# copy install URL from eas build output
 
-# Publish JS tip to preview only (token never printed by script):
 cd ../..
 EXPO_TOKEN=… PUBLISH_PREVIEW_OTA=1 \
   bash artifacts/stadium-mobile/scripts/prepare-preview-test.sh \
   0d10cce7fab76d0c36180f11b80fb282a1078117
-
-# On device: force-quit → reopen → apply tip → cold launch ×2
 ```
 
 ### Install method B — Metro on pinned commit (no OTA)
@@ -189,9 +186,10 @@ Same college ask twice; record wall-clock + stage timings. Until measured on dev
 |------|--------|
 | JS tip under test | `0d10cce7fab76d0c36180f11b80fb282a1078117` |
 | Required ancestor | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
-| Build 78 crash on preview IPA | **UNVERIFIED** (ClerkExpoPasskeys linked) |
-| Device registration | `eas device:create` (UDID) before internal install |
-| Phase E | `docs/coach/ncaaf-phase-e-checklist.md` — do not flip flag |
+| Crash-path binary | `eas build --profile preview-build78` (no ClerkExpoPasskeys) |
+| Device registration | `eas device:create` (UDID) on host with `EXPO_TOKEN` |
+| EXPO_TOKEN | Cursor env secret — `docs/device-test-expo-token.md` |
+| Phase E | `docs/coach/ncaaf-phase-e-checklist.md` — E2a FAIL / restore NO |
 | Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
 | Branch | `cursor/build78-fixpack-def8` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |

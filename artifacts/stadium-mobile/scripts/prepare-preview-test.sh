@@ -35,13 +35,22 @@ git cat-file -e "${PINNED}^{commit}"
 git merge-base --is-ancestor 4738df08db5fc3425bc1fd317431c52bc5b9c0a8 "$PINNED"
 echo "OK: pinned commit ${PINNED} contains college-sim ancestor 4738df08"
 
-# Autolink proof: preview native tree includes ClerkExpoPasskeys → Build 78 UNVERIFIED
-if [[ -d "$MOBILE/node_modules" ]] || [[ -d "$REPO_ROOT/node_modules" ]]; then
-  if (cd "$MOBILE" && pnpm exec expo-modules-autolinking resolve --platform ios 2>/dev/null | grep -q "ClerkExpoPasskeys"); then
-    echo "NOTE: @clerk/expo-passkeys autolinks ClerkExpoPasskeys into preview binaries."
-    echo "      Build 78 crash compatibility: UNVERIFIED on a new preview IPA."
-  fi
-fi
+echo "OK: use profile preview-build78 (EXPO_NO_CLERK_PASSKEYS=1) for crash-path testing."
+echo "    plain 'preview' still links ClerkExpoPasskeys → Build 78 crash UNVERIFIED."
+# Structural checks (EAS runs eas-build-pre-install → strip-clerk-passkeys-for-build78.mjs).
+test -f "$MOBILE/scripts/strip-clerk-passkeys-for-build78.mjs"
+test -f "$MOBILE/react-native.config.js"
+python3 - <<'PY'
+import json
+eas=json.load(open("artifacts/stadium-mobile/eas.json"))
+env=eas["build"]["preview-build78"]["env"]
+assert env.get("EXPO_NO_CLERK_PASSKEYS")=="1"
+assert eas["build"]["preview-build78"].get("channel")=="preview"
+print("OK: preview-build78 channel=preview EXPO_NO_CLERK_PASSKEYS=1")
+pkg=json.load(open("artifacts/stadium-mobile/package.json"))
+assert "eas-build-pre-install" in pkg.get("scripts",{})
+print("OK: eas-build-pre-install strip hook registered")
+PY
 
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "BLOCKED: EXPO_TOKEN is not set in this environment."

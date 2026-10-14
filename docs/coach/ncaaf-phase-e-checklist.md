@@ -1,42 +1,61 @@
 # NCAAF Phase E — acceptance checklist (do not flip P0)
 
-**Commit under preview test:** `0d10cce7fab76d0c36180f11b80fb282a1078117`  
-**Gate:** `NCAAF_GAME_LINE_SIM_VALIDATED` must stay `false` until every row is PASS + human sign-off.  
-**This document prepares checks only — it does not restore college game-line grades.**
+**Holdout:** ESPN scoreboard 2023–2024 (`test/fixtures/ncaaf-phase-e-games.json`, 1739 games).  
+**Engine under test:** coach `nfl-drive` (`ncaafPhaseEHoldoutCalibration.ts`).  
+**Gate:** `NCAAF_GAME_LINE_SIM_VALIDATED` stays `false` until every restore criterion is PASS + human sign-off.
 
-| # | Criterion | Status | Evidence / remaining work |
-|---|-----------|--------|---------------------------|
-| E1 | Sensitivity: ±3 ppg and QB-out proxy move cover ≥2pp | **PASS (unit)** | `artifacts/api-server/test/ncaafGameLineSimValidation.test.ts` — `+3 ppg` / `QB-out` cases |
-| E2 | Calibration: decile error ≤ market baseline + tolerance; no systematic 70%+ dog covers on +7.5 with ~50% ML | **OPEN** | Needs Phase D frozen out-of-sample backtest (closing lines + outcomes). Harness stub: `scripts/ncaafPhaseECalibrationStub.ts` — fill with slate CSV before claiming PASS |
-| E3 | Exact-line: graded spreads bind `point` + book price from same row; unposted lines stay ungraded | **PASS (unit)** | `artifacts/stadium-mobile/lib/gameSimQualityGates.test.ts` — exact-line pricing / binder cases |
-| E4 | Injury conservatism: missing QB/injury data must not show higher avg \|edge\| than injury-known | **OPEN** | Requires injury-segmented backtest over E2 universe. Stub metrics in calibration stub; do not invent edges |
-| E5 | Props / other sports regressions unchanged | **PASS (unit suite)** | Keep running: `coachP0UnvalidatedTotals.test.ts`, `coachCollegeMarketMix.proof.test.ts`, NFL/NHL totals P0 tests. Re-run before any flag flip |
-| E6 | Explicit human sign-off | **OPEN** | No silent restore. Approver records date + commit SHA in PR before setting `NCAAF_GAME_LINE_SIM_VALIDATED = true` |
+## Latest calibration report (2024 holdout)
 
-## How to run prepared checks (no flag flip)
+Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.json`
+
+| Metric | Value |
+|--------|-------|
+| Holdout games scored | 796 (75 skipped thin form) |
+| Sims / game | 1500 |
+| Brier (engine) | **0.210** |
+| Brier (coin) | 0.250 |
+| Log loss | 0.609 |
+| ECE (10-bin) | 0.116 |
+| meanP / meanY (home ML) | **0.495 / 0.608** (home-win underprediction) |
+| Near-coin-flip ML + away +7.5 cover | 0.547 (n=179) — OK vs 0.70 cap |
+| Closing-line CLV | **INSUFFICIENT_DATA** (no licensed close archive in env) |
+| Injury segments | **INSUFFICIENT_DATA** |
+
+## Criterion board
+
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| E1 | Sensitivity ±3 ppg / QB-out ≥2pp | **PASS (unit)** | `ncaafGameLineSimValidation.test.ts` |
+| E2a | Outcome calibration vs coin (Brier, ECE, dog pathology, bias) | **FAIL** | Beats coin + dog OK, but \|meanP−meanY\|≈0.113 > 0.08 bias cap |
+| E2b | Closing-line / market CLV | **INSUFFICIENT_DATA** | Needs licensed closing spreads/ML |
+| E3 | Exact-line binder | **PASS (unit)** | `gameSimQualityGates.test.ts` |
+| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Scoreboard cache has no QB/injury flags |
+| E5 | Props / other-sport P0 regressions | **PASS (unit suite)** | Re-run before any flag flip |
+| E6 | Human sign-off | **OPEN** | Required after E2a/E2b/E4 PASS |
+
+**Restore readiness:** **NO** — college game lines stay P0-blocked.
+
+## Sign-off criteria before flipping `NCAAF_GAME_LINE_SIM_VALIDATED`
+
+All of the following must be true in a single PR that only flips the flag:
+
+1. **E2a PASS** — holdout report shows Brier < coin, ECE ≤ 0.12, \|meanP−meanY\| ≤ 0.08, near-coin +7.5 dog cover ≤ 0.70 (n≥30).
+2. **E2b PASS** — frozen closing-line archive wired; engine CLV / market-Brier within agreed tolerance vs close (document numbers in the PR).
+3. **E4 PASS** — injury-known vs unknown segments: unknown must not show higher mean \|edge\| than known.
+4. **E5 green** — `coachP0UnvalidatedTotals`, college mix proof, NFL/NHL totals P0 tests pass on that commit.
+5. **E6** — named human approver + date + commit SHA recorded in the PR body.
+6. Totals (FG/team/period) remain on their separate P0 until totals recalibration — this flag only clears **game-side** NCAAF lines.
+
+## Commands
 
 ```bash
-# E1 + seal (flag still false)
+# Rebuild holdout report (keeps flag false; exits 2 while restore blocked)
 cd artifacts/api-server
-node --import ./test/register-hooks.mjs --test test/ncaafGameLineSimValidation.test.ts test/nflDriveSimCaps.test.ts
+NCAAF_PHASE_E_SIMS=1500 node --import ./test/register-hooks.mjs \
+  ./scripts/ncaafPhaseEHoldoutCalibration.ts
 
-# E3 + E5 client gates
-cd artifacts/stadium-mobile
+# Unit gates
 node --import ./test/register-hooks.mjs --test \
-  lib/gameSimQualityGates.test.ts \
-  lib/coachP0UnvalidatedTotals.test.ts \
-  lib/coachCollegeMarketMix.proof.test.ts
-
-# E2/E4 stub (exits non-zero until real fixture provided)
-cd artifacts/api-server
-node --import ./test/register-hooks.mjs ../stadium-mobile/../api-server/scripts/ncaafPhaseECalibrationStub.ts
-# or: npx tsx scripts/ncaafPhaseECalibrationStub.ts
+  test/ncaafGameLineSimValidation.test.ts \
+  test/ncaafPhaseEGates.test.ts
 ```
-
-## Restore rule
-
-Only after E1–E5 are PASS on a frozen window **and** E6 human approval:
-
-1. Set `NCAAF_GAME_LINE_SIM_VALIDATED = true` in a dedicated PR.
-2. Keep FG/team/period totals P0 until separate totals recalibration.
-3. Staging / shadow week before production (Phase F).

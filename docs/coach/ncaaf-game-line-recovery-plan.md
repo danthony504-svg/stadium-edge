@@ -60,7 +60,7 @@ All must pass on a frozen out-of-sample window:
 5. **Props / other sports:** NCAAF props, NFL/NHL P0 totals, correlation caps unchanged in regression suite.
 6. **Sign-off:** Explicit human approval to lift `P0_UNVALIDATED_NCAAF_GAME_LINE_*` — no silent restore.
 
-**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md` (E1/E3/E5 unit PASS; E2/E4/E6 OPEN). Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED` from checklist alone.
+**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md`. Holdout run: E2a **FAIL** (home-win bias), E2b/E4 **INSUFFICIENT_DATA**, E6 **OPEN**. Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Phase F — Rollout
 

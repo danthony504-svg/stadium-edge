@@ -26,9 +26,25 @@ test("Phase E checklist doc exists and forbids silent restore", () => {
     "utf8",
   );
   assert.match(doc, /NCAAF_GAME_LINE_SIM_VALIDATED/);
-  assert.match(doc, /do not flip|must stay `false`|Does not restore/i);
-  assert.match(doc, /E2/);
+  assert.match(doc, /stays `false`|do not flip|Restore readiness:\*\* \*\*NO/i);
+  assert.match(doc, /E2a/);
   assert.match(doc, /E6/);
+  assert.match(doc, /home-win underprediction|bias/i);
+});
+
+test("Phase E calibration report keeps P0 armed", () => {
+  const reportPath = join(
+    here,
+    "../test/fixtures/ncaaf-phase-e-calibration-report.json",
+  );
+  const report = JSON.parse(readFileSync(reportPath, "utf8")) as {
+    keepP0Armed?: boolean;
+    flagFlipAllowed?: boolean;
+    verdicts?: Record<string, string>;
+  };
+  assert.equal(report.keepP0Armed, true);
+  assert.equal(report.flagFlipAllowed, false);
+  assert.match(String(report.verdicts?.NCAAF_GAME_LINE_SIM_VALIDATED), /false/i);
 });
 
 test("Phase E calibration stub refuses empty PASS", async () => {
