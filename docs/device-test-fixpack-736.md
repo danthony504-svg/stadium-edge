@@ -1,6 +1,16 @@
 # Device-test prep — PR #736
 
-**JS tip under test:** branch tip of `cursor/build78-formpack-def8` (must contain college-sim ancestor `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`).
+**Ready for device install** — IPA inspect **PASS** (`channel=preview`, zero `ClerkExpoPasskeys`).
+
+| Item | Value |
+|------|--------|
+| EAS build | https://expo.dev/accounts/danthony504/projects/stadium-edge/builds/9155c37b-0297-45a7-98fe-ea3f38bea6a9 |
+| IPA | https://expo.dev/artifacts/eas/xdt_76YDHDHCwDv-3zYfvzzH6zb57hMGojZV2V0dma0.ipa |
+| Binary commit | `057c9f0ddd42e9309146cc6eb8d3b68f089b4e82` |
+| Branch tip (inspect fix) | `7d711c7e` |
+| Preview OTA group | `ad3cc4af-a734-4375-899c-c3fd0c0f9ec7` |
+| Preview iOS update | `01a13c12-5ea2-77cf-a9f0-af8e5b079c2a` |
+| Device UDID | `00008150-001968CA2280401C` |
 
 **Goal:** Exercise Build 78 fail-soft + college sport lock + OTA rollback on a **meaningful** binary without exposing production users.
 
