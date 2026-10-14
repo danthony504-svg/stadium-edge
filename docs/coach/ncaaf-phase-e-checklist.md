@@ -21,8 +21,8 @@ Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.jso
 | meanP / meanY (home ML) | **0.657 / 0.637** (bias ≈ **+0.020**, within 0.08) |
 | Near-coin-flip ML + away +7.5 cover | 0.683 (n=139) — OK vs 0.70 cap |
 | Close soft gates (not CLV) | **PASS** — n≈713+; marketBrier **~0.179**, engineBrier **~0.219**, both &lt; coin; mean(engine−market)≈**+0.019** prob. points |
-| True price CLV (T−24h→close) | **Computed** — see `ncaaf-phase-e-true-clv-report.json` (not a restore gate by itself) |
-| Injury segments | **INSUFFICIENT_DATA** (null ≠ no-injury; SportsDataIO timing unproven) |
+| Coach pick CLV (10k sims) | **Computed — no PASS label** — `ncaaf-phase-e-coach-pick-clv-report.json` (selection-time sides, not blanket home) |
+| Injury segments | **INSUFFICIENT_DATA** (null ≠ no-injury; collector started; no subscription on unverified timing) |
 
 ### Home-win bias root cause (fixed in calibration)
 
@@ -34,11 +34,12 @@ Prior FAIL used **combined L10 only** (no home/away venue splits) → meanP ≈ 
 |---|-----------|--------|-------|
 | E1 | Sensitivity ±3 ppg / QB-out ≥2pp | **PASS (unit)** | `ncaafGameLineSimValidation.test.ts` |
 | E2a | Outcome calibration vs coin (Brier, ECE, dog pathology, bias) | **PASS** | Venue-aware holdout; \|bias\|≈0.020 ≤ 0.08 |
-| E2b | Close archive + soft gates | **PASS** (soft) | Criteria below — **not** true price CLV |
+| E2b | Close archive + soft gates | **PASS** (soft) | Criteria below — **not** Coach pick CLV |
+| E2b′ | Coach pick CLV @ selection prices | **COMPUTED_NO_PASS_LABEL** | 10k sims; report metrics for E6 — **no CLV PASS** |
 | E3 | Exact-line binder | **PASS (unit)** | `gameSimQualityGates.test.ts` |
-| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Timing evidence missing — [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md) |
+| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Forward ESPN snapshots only — [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md) |
 | E5 | Props / other-sport P0 regressions | **PASS (unit suite)** | Re-run before any flag flip |
-| E6 | Human sign-off | **OPEN** | Named approver + date + commit SHA |
+| E6 | Human sign-off | **OPEN** | Evidence pack: [`ncaaf-e6-signoff-evidence.md`](./ncaaf-e6-signoff-evidence.md) |
 
 **Restore readiness:** **NO** — E4 + E6 still open (`E2_readyForRestore=OPEN_NEEDS_E4_E6`). College game lines stay P0-blocked.
 
@@ -64,21 +65,27 @@ Each must hold on the close-joined scored holdout set:
 | **Meaning** | Engine is, on average, **1.9 pp more bullish on home** than the closing market |
 | **Not CLV** | Does not use an earlier selection price; does not measure beating the close |
 
-### True price CLV (separate computation)
+### Coach pick CLV (selection-time sides — final validation)
 
-Hypothetical **home ML / home spread** selected at Odds historical snap **~24h before kickoff**, graded vs the E2b close:
+Script: `scripts/ncaafPhaseECoachPickClv.ts` → `test/fixtures/ncaaf-phase-e-coach-pick-clv-report.json`.
 
-| Metric | Value (n=705) |
-|--------|---------------|
-| Mean home-ML CLV | **−0.0019** probability points |
-| Mean \|ML CLV\| | 0.016 |
-| % home-ML selections that beat close | 39.4% |
-| Mean home-spread CLV | **−0.063** points |
-| Mean hours before commence | 24.1 |
+Uses **unchanged** sim + qualification rules on historical data available at selection (~24h Odds snap): `simHit≥0.52`, conf≥52, edge/EV&gt;0, sim-favored side when \|Δp\|≥0.03. **Not** blanket home. Graded vs E2b close. **10,000 sims/game.**
 
-Definitions: `homeMlClvProbPoints = p_implied(close) − p_implied(early)`; `homeSpreadClvPoints = early_home_spread − close_home_spread`. Fixtures: `ncaaf-phase-e-true-clv-report.json`, `ncaaf-phase-e-true-clv-t24h.csv`.
+| Metric | Value |
+|--------|------:|
+| Selected picks | **182** (107 home / 75 away; 43 ML / 139 spread) |
+| Mean ML CLV | **−0.0234** probability points (n=43) |
+| % ML picks that beat close | **20.9%** |
+| Mean spread CLV | **−0.094** points |
+| Hit rate (decided) | **0.497** (89–90; Wilson95 **0.425–0.570**) |
+| Untouched-period market Brier | **0.189** (n=391 games after 2024-10-15; no Coach picks) |
+| Verdict | **`COMPUTED_NO_PASS_LABEL`** — do **not** cite as CLV PASS |
 
-**Brier** = outcome calibration of a probability. **Δp (engine−market)** = model vs close disagreement. **CLV** = earlier bet price vs close price.
+Scope: Odds-listed FBS in the close archive. `injuryKnown` remains **null**. Flag stays **false**.
+
+Legacy home-only T−24h study (`ncaaf-phase-e-true-clv-*`) is **not** Coach performance.
+
+**Brier** = outcome calibration of a probability. **Δp (engine−market)** = model vs close disagreement. **Coach pick CLV** = selected side’s selection-time price vs close.
 
 ## E2b closing-line archive (2024 holdout)
 
@@ -104,11 +111,11 @@ Original 93 misses were mostly **name mismatches** (Hawaiʻi / Hawaii, San José
 
 **E4** (see [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md)):
 
-1. Prove pre-kickoff timing (SportsDataIO box-score `InjuryStatus` is **not** yet proven immutable as-of kickoff — **no subscription request yet**).  
+1. Prove pre-kickoff timing **or** accumulate forward snapshots (`ncaafPregameInjurySnapshotCollector.ts`) with `captureTimestamp < kickoffIso` — **do not purchase** SportsDataIO/ScoreTape on unverified archive timing.  
 2. Join `injuryKnown=true|null` (+ optional `qbOut`); never coerce missing → false.  
 3. Conservatism: mean \|edge\| on unknown **≤** mean \|edge\| on known; document n.  
 
-**E6:** Named human approver + approval date + commit SHA in the flag-flip PR body (after E4 + E5 + E2E).
+**E6:** Exact pack in [`ncaaf-e6-signoff-evidence.md`](./ncaaf-e6-signoff-evidence.md). Named human approver + date + commit SHA in the flag-flip PR only (after E4 + E5 + E2E). Keep flag **false** in this draft.
 
 ### Durable Odds secret (ops only)
 
@@ -125,12 +132,13 @@ Exact server env name: **`ODDS_API_KEY`**. Entry steps: [`odds-api-key-cloud-age
 All of the following must be true in a single PR that only flips the flag:
 
 1. **E2a PASS** — holdout report shows Brier < coin, ECE ≤ 0.12, \|meanP−meanY\| ≤ 0.08, near-coin +7.5 dog cover ≤ 0.70 (n≥30).
-2. **E2b PASS** — frozen closing-line archive wired; engine CLV / market-Brier within agreed tolerance vs close (document numbers in the PR).
-3. **E4 PASS** — injury-known vs unknown segments: unknown must not show higher mean \|edge\| than known.
-4. **E5 green** — `coachP0UnvalidatedTotals`, college mix proof, NFL/NHL totals P0 tests pass on that commit.
-5. **E6** — named human approver + date + commit SHA recorded in the PR body.
-6. Totals (FG/team/period) remain on their separate P0 until totals recalibration — this flag only clears **game-side** NCAAF lines.
-7. **E2E** — device/build returns valid, simulated NCAAF spread/ML picks (not early-exit empty notes alone).
+2. **E2b soft gates PASS** — frozen closing-line archive wired; market/engine Brier &lt; coin and \|mean(engine−market)\|≤0.15 on close-joined set (**not** a CLV PASS).
+3. **Coach pick CLV reviewed** — 10k-sim selection-time report attached; human accept/reject (no automatic CLV PASS from soft gates or home-blanket studies).
+4. **E4 PASS** — injury-known vs unknown segments: unknown must not show higher mean \|edge\| than known; `injuryKnown` null when unknown.
+5. **E5 green** — `coachP0UnvalidatedTotals`, college mix proof, NFL/NHL totals P0 tests pass on that commit.
+6. **E6** — named human approver + date + commit SHA recorded in the PR body (template in `ncaaf-e6-signoff-evidence.md`).
+7. Totals (FG/team/period) remain on their separate P0 until totals recalibration — this flag only clears **game-side** NCAAF lines.
+8. **E2E** — device/build returns valid, simulated NCAAF spread/ML picks (not early-exit empty notes alone).
 
 ## Commands
 
@@ -139,6 +147,14 @@ All of the following must be true in a single PR that only flips the flag:
 cd artifacts/api-server
 NCAAF_PHASE_E_SIMS=1500 node --import ./test/register-hooks.mjs \
   ./scripts/ncaafPhaseEHoldoutCalibration.ts
+
+# Coach pick CLV (10k sims; long-running; keeps flag false)
+NCAAF_PHASE_E_SIMS=10000 node --import ./test/register-hooks.mjs \
+  ./scripts/ncaafPhaseECoachPickClv.ts
+
+# E4 forward injury snapshot (does not finish E4 alone)
+node --import ./test/register-hooks.mjs \
+  ./scripts/ncaafPregameInjurySnapshotCollector.ts
 
 # Unit gates
 node --import ./test/register-hooks.mjs --test \
