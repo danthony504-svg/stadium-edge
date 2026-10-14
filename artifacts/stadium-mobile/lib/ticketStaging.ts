@@ -292,12 +292,37 @@ export function topUpTicketFromQualifiedScored(
     collapseSameTeamSides?: boolean;
     /** College team markets: raise period-stack seat budget on thin slates. */
     collegeTeamMarketStacks?: boolean;
+    /**
+     * Hard sport lock (e.g. college → ncaaf). Top-up must never seat foreign
+     * leagues from a contaminated scored pool.
+     */
+    allowedSports?: readonly string[] | null;
   },
 ): ParsedPick[] {
   // Drop P0-blocked legs already on the ticket (NCAAF spreads/ML, unvalidated
   // totals). Do not re-litigate AI-recommend thresholds for already-staged
   // validated sports — only integrity fail-closed strips seats.
-  const cleared = picks.filter((p) => !p0UnvalidatedSimDecision(p));
+  const allowedSports = opts?.allowedSports ?? null;
+  const sportOk = (p: ParsedPick): boolean => {
+    if (!allowedSports?.length) return true;
+    const s = String(p.sport ?? "")
+      .toLowerCase()
+      .trim();
+    if (!s) return false;
+    const canon =
+      s === "cfb" || s.includes("americanfootball_ncaaf")
+        ? "ncaaf"
+        : s === "cbb" || s.includes("basketball_ncaab")
+          ? "ncaab"
+          : s;
+    return allowedSports.some((a) => {
+      const aa = String(a ?? "")
+        .toLowerCase()
+        .trim();
+      return aa === canon;
+    });
+  };
+  const cleared = picks.filter((p) => !p0UnvalidatedSimDecision(p) && sportOk(p));
   if (target < 3) return cleared.slice(0, Math.max(0, target));
   if (cleared.length >= target) return cleared.slice(0, target);
   const collapseSameTeam = !!opts?.collapseSameTeamSides;
@@ -307,6 +332,7 @@ export function topUpTicketFromQualifiedScored(
     const fp = pickLegFingerprint(leg.pick);
     if (used.has(fp)) continue;
     if (p0UnvalidatedSimDecision(leg.pick)) continue;
+    if (!sportOk(leg.pick)) continue;
     if (boardLegPoolRole(leg.pick, leg.pick.finalAiScore) == null) continue;
     leftover.push(leg);
   }
