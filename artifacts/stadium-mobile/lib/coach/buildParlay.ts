@@ -92,6 +92,11 @@ import {
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
 import {
+  ncaafGameLineAskIsP0Blocked,
+  p0BlockedNcaafGameLineAskNote,
+  P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+} from "@/lib/coachP0UnvalidatedTotals";
+import {
   filterPoolForFootballSkillRecovery,
   footballSkillRecoveryNote,
   shouldRecoverPropsOnlyWithFootballSkillBoard,
@@ -300,6 +305,58 @@ export async function buildCoachParlay(opts: {
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
   const budgetMs = coachAbsoluteBudgetMs(target);
+  // Observe-only reliability markers — never touch selection / UI.
+  const coachRelStarted = Date.now();
+  const coachRelRequestId = `greenfield-${Date.now()}`;
+  const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
+
+  // Ask-only gate — before loadScanInputs / slate sims. Bare "7 leg college" is
+  // gameLinesOnly + NCAAF-locked; every FG market is P0 while unvalidated, so
+  // waiting on fetchSlateGameSimulations only stalls the progress card.
+  {
+    const earlyConstraint = parseCoachAskMarketConstraint(
+      opts.askText,
+      opts.priorUserTexts ?? [],
+    );
+    const earlyPropsOnly = earlyConstraint.propsOnly;
+    const earlyGameLinesOnly = earlyConstraint.gameLinesOnly && !earlyPropsOnly;
+    const earlyLockedSports = hardLockedSportsFromAsk(opts.askText);
+    if (
+      ncaafGameLineAskIsP0Blocked({
+        gameLinesOnly: earlyGameLinesOnly,
+        lockedSports: earlyLockedSports,
+      })
+    ) {
+      opts.onStatus?.("College game lines blocked (unvalidated simulation)…");
+      const note = sanitizeCoachUserNote(
+        [
+          bareCollegeClarificationNote(opts.askText),
+          p0BlockedNcaafGameLineAskNote(target),
+        ]
+          .filter((s) => s && String(s).trim())
+          .join("\n\n"),
+      );
+      reportCoachScanReliability({
+        requestId: coachRelRequestId,
+        sportCategory: coachRelSport || "ncaaf",
+        requestedLegCount: target,
+        returnedLegCount: 0,
+        durationMs: Date.now() - coachRelStarted,
+        realOddsAvailable: null,
+        picks: [],
+        eventType: "parlay_zero_results",
+        failureReason: "zero_results",
+        rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+      });
+      return {
+        picks: [],
+        note,
+        scan: null,
+        timedOut: false,
+        propPoolSize: 0,
+      };
+    }
+  }
 
   const inputs = await loadScanInputs(
     opts.signal,
@@ -468,12 +525,6 @@ export async function buildCoachParlay(opts: {
   );
 
   const teamIdMap = buildGameTeamIdMap(inputs.espnGames);
-
-  // Observe-only reliability markers — never touch selection / UI.
-  // Created before props-only early return so that path can emit coach-events.
-  const coachRelStarted = Date.now();
-  const coachRelRequestId = `greenfield-${Date.now()}`;
-  const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
 
   // Greenfield props-only rebuild — dedicated local-first history/EV pipeline
   // for EVERY props-only ask (NFL, WNBA, multi-sport). The football-only ≥50%

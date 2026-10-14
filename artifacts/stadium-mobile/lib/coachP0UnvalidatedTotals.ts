@@ -262,6 +262,39 @@ export function p0UnvalidatedSimDecision(
   return p0UnvalidatedSimTotalDecision(pick) ?? p0UnvalidatedNcaafGameLineDecision(pick);
 }
 
+/**
+ * True when a game-lines-only ask is locked exclusively to NCAAF (or aliases)
+ * while NCAAF_GAME_LINE_SIM_VALIDATED is false — every FG side/total the scan
+ * would seat is P0-blocked, so running slate sims only burns wall clock.
+ *
+ * Props-only / mixed-sport / unlocked boards return false so eligible sims still run.
+ */
+export function ncaafGameLineAskIsP0Blocked(opts: {
+  gameLinesOnly: boolean;
+  lockedSports: readonly string[] | null | undefined;
+}): boolean {
+  if (NCAAF_GAME_LINE_SIM_VALIDATED) return false;
+  if (!opts.gameLinesOnly) return false;
+  const sports = (opts.lockedSports ?? [])
+    .map((s) => String(s ?? "").toLowerCase().trim())
+    .filter(Boolean)
+    .map((s) => (NCAAF_SPORT_ALIASES.has(s) ? "ncaaf" : s));
+  if (sports.length === 0) return false;
+  return sports.every((s) => P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(s));
+}
+
+/** User-facing note when a college game-line ask is P0-blocked before scan. */
+export function p0BlockedNcaafGameLineAskNote(requestedLegs: number): string {
+  const n = Math.max(0, Math.floor(requestedLegs));
+  return (
+    `College football (NCAAF) full-game spreads, moneylines, and totals are temporarily ` +
+    `blocked while the game-line simulation is unvalidated (Phase E). ` +
+    `You asked for ${n} legs of those markets — no ticket was built, and no other sports ` +
+    `were used to fill. Ask for college player props (for example receiving yards) if you ` +
+    `want a scanned NCAAF ticket, or pick another sport.`
+  );
+}
+
 function teamNickFromTotalPick(pickText: string): string {
   const tokens = String(pickText ?? "")
     .toLowerCase()

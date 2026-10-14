@@ -6,6 +6,8 @@ import {
   isP0UnvalidatedNcaafGameLineMarket,
   isP0UnvalidatedSimTotalMarket,
   NCAAF_GAME_LINE_SIM_VALIDATED,
+  ncaafGameLineAskIsP0Blocked,
+  p0BlockedNcaafGameLineAskNote,
   p0UnvalidatedNcaafGameLineDecision,
   p0UnvalidatedSimDecision,
   p0UnvalidatedSimTotalDecision,
@@ -585,4 +587,47 @@ test("P0 bypass seal: final-ticket lean / top-up / post-lean reject sealed vecto
   });
   assert.equal(lean.picks.length, 0);
   assert.ok(lean.dropped >= vectors.length);
+});
+
+test("ncaafGameLineAskIsP0Blocked: bare college game-lines-only while unvalidated", () => {
+  assert.equal(NCAAF_GAME_LINE_SIM_VALIDATED, false);
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: ["ncaaf"],
+    }),
+    true,
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: ["cfb"],
+    }),
+    true,
+  );
+  // Props-only / mixed boards must still run eligible sims.
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: false,
+      lockedSports: ["ncaaf"],
+    }),
+    false,
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: ["ncaaf", "nfl"],
+    }),
+    false,
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: null,
+    }),
+    false,
+  );
+  assert.match(p0BlockedNcaafGameLineAskNote(7), /unvalidated/i);
+  assert.match(p0BlockedNcaafGameLineAskNote(7), /player props/i);
+  assert.doesNotMatch(p0BlockedNcaafGameLineAskNote(7), /quality bar/i);
 });

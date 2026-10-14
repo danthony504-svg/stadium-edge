@@ -92,3 +92,69 @@ test("HR stays on full-board path; both exits share resolveCoachParlayShortfallL
   assert.match(src, /lockedMarketAnalyzedFromBoardDiagnostics/);
   assert.doesNotMatch(src, /buildFixedLegCountShortfallLead/);
 });
+
+test("P0-blocked NCAAF game-line asks exit before loadScanInputs / slate sims", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, join } = await import("node:path");
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "buildParlay.ts"),
+    "utf8",
+  );
+  assert.match(src, /ncaafGameLineAskIsP0Blocked/);
+  assert.match(src, /p0BlockedNcaafGameLineAskNote/);
+  // Gate must appear before loadScanInputs so we never await empty-pool sims.
+  const gateAt = src.indexOf("ncaafGameLineAskIsP0Blocked");
+  const loadAt = src.indexOf("await loadScanInputs");
+  assert.ok(gateAt > 0 && loadAt > gateAt, "P0 gate must precede loadScanInputs");
+});
+
+test("replay: 7 leg college P0 gate + note is ask-only and sub-second", async () => {
+  const { performance } = await import("node:perf_hooks");
+  const { parseCoachAskMarketConstraint } = await import(
+    "../coachAskMarketFilter.ts"
+  );
+  const { hardLockedSportsFromAsk, bareCollegeClarificationNote } =
+    await import("../coachAskSportScope.ts");
+  const {
+    ncaafGameLineAskIsP0Blocked,
+    p0BlockedNcaafGameLineAskNote,
+  } = await import("../coachP0UnvalidatedTotals.ts");
+  const { sanitizeCoachUserNote } = await import("../sanitizeCoachUserNote.ts");
+  const { resolveBuildLegTarget } = await import("./parseAsk.ts");
+
+  const ask = "7 leg college";
+  const t0 = performance.now();
+  const target = resolveBuildLegTarget(ask) ?? 7;
+  const market = parseCoachAskMarketConstraint(ask);
+  const gameLinesOnly = market.gameLinesOnly && !market.propsOnly;
+  const lockedSports = hardLockedSportsFromAsk(ask);
+  const blocked = ncaafGameLineAskIsP0Blocked({ gameLinesOnly, lockedSports });
+  const note = sanitizeCoachUserNote(
+    [bareCollegeClarificationNote(ask), p0BlockedNcaafGameLineAskNote(target)]
+      .filter((s) => s && String(s).trim())
+      .join("\n\n"),
+  );
+  const ms = performance.now() - t0;
+
+  assert.equal(target, 7);
+  assert.equal(gameLinesOnly, true);
+  assert.deepEqual(lockedSports, ["ncaaf"]);
+  assert.equal(blocked, true);
+  assert.match(note, /unvalidated/i);
+  assert.match(note, /player props/i);
+  assert.doesNotMatch(note, /quality bar/i);
+  // Absolute budget for a 7-leg is 75s — this path must not approach it.
+  assert.ok(ms < 500, `ask-only P0 path must be <500ms (got ${ms.toFixed(1)}ms)`);
+  // Props path stays eligible for sims (gate off).
+  const propsAsk = parseCoachAskMarketConstraint(
+    "7 leg college football player props",
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: propsAsk.gameLinesOnly && !propsAsk.propsOnly,
+      lockedSports: hardLockedSportsFromAsk("7 leg college football player props"),
+    }),
+    false,
+  );
+});
