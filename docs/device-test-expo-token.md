@@ -14,8 +14,10 @@ A **GitHub Actions secret named `EXPO_TOKEN` is not injected into this VM**. Cod
 ## Secure configuration (pick one)
 
 1. **Preferred — Cursor environment secret**  
-   Dashboard → Cloud Agents → this environment → Secrets → add `EXPO_TOKEN` (Expo access token with EAS Build + Update scope).  
-   New agent runs that use the environment receive it as an env var. **Do not commit the token.**
+   Open this environment → Secrets → add `EXPO_TOKEN` (Expo access token with EAS Build + Update + device registration scope):  
+   https://cursor.com/dashboard/cloud-agents/environments/e/8c5427d9-a490-11f1-a7d1-d6b4613131ce  
+   Create the token at https://expo.dev/settings/access-tokens (do **not** paste it into chat).  
+   After saving, **start a new agent run** (or re-inject secrets) so `process.env.EXPO_TOKEN` is present — existing pods often do not see secrets added mid-run.
 
 2. **Session-only (manual)**  
    In the agent / local shell (value never pasted into chat):
