@@ -5,11 +5,15 @@
 | Fact | Value |
 |------|--------|
 | Host | **Cursor Cloud Agent VM** (not GitHub Actions) |
-| Run URL | https://cursor.com/agents/bc-01a13b79-7cf6-7aa8-a03f-cdbb25959796 |
-| Repo checkout | `/workspace` on branch `cursor/build78-fixpack-def8` |
-| Commands | `eas device:create`, `eas build --profile preview-build78`, `prepare-preview-test.sh` / `publish-preview-ota.sh` |
+| Run URL | https://cursor.com/agents/bc-01a13bfe-099e-7b4a-a43d-ee439b6c5cb3 |
+| Repo checkout | `/workspace` on branch `cursor/build78-formpack-def8` |
+| Commands | `eas device:list`, `eas build --profile preview-build78`, `prepare-preview-test.sh` / `publish-preview-ota.sh` |
 
 A **GitHub Actions secret named `EXPO_TOKEN` is not injected into this VM**. Codex / Cloud Agent tasks only see secrets configured on the **Cursor environment** (or exported into the shell for that session).
+
+## Status (this run)
+
+`EXPO_TOKEN_configured=True` on the Cloud Agent VM. Authenticated as Expo account `danthony504`. Registered Ad Hoc device UDID `00008150-001968CA2280401C` (Apple team `VQSSG3D637`).
 
 ## Secure configuration (pick one)
 
