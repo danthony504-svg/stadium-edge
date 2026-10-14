@@ -1,0 +1,606 @@
+{
+  "source": "the-odds-api",
+  "endpoint": "/v4/historical/sports/americanfootball_ncaaf/odds",
+  "requestDate": "2024-09-14T17:00:00Z",
+  "snapshotTimestamp": "2024-09-14T16:55:38Z",
+  "previousTimestamp": "2024-09-14T16:50:38Z",
+  "nextTimestamp": "2024-09-14T17:00:38Z",
+  "regions": "us",
+  "markets": [
+    "h2h",
+    "spreads"
+  ],
+  "eventCount": 59,
+  "events": [
+    {
+      "id": "c5989c3e62b33845bd7e6120a1480575",
+      "commenceTime": "2024-09-14T15:11:00Z",
+      "home": "Wisconsin Badgers",
+      "away": "Alabama Crimson Tide",
+      "closeSpreadHome": 20.5,
+      "closeMlHome": 1200,
+      "bookSample": "draftkings",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "4219f417bdd7f4b3f82bd3ab47c211a3",
+      "commenceTime": "2024-09-14T15:59:00Z",
+      "home": "Michigan Wolverines",
+      "away": "Arkansas State Red Wolves",
+      "closeSpreadHome": -23.5,
+      "closeMlHome": -20000,
+      "bookSample": "fanduel",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "13fbcedec841ad34d14e111f7bc0b70d",
+      "commenceTime": "2024-09-14T15:59:00Z",
+      "home": "Florida State Seminoles",
+      "away": "Memphis Tigers",
+      "closeSpreadHome": -1.5,
+      "closeMlHome": -136,
+      "bookSample": "fanduel",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "72cc593efe27fd744150916ff4d25540",
+      "commenceTime": "2024-09-14T15:59:00Z",
+      "home": "South Carolina Gamecocks",
+      "away": "LSU Tigers",
+      "closeSpreadHome": -4.5,
+      "closeMlHome": -220,
+      "bookSample": "draftkings",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "4515a35e01480c91ec20a899578df8c1",
+      "commenceTime": "2024-09-14T16:00:00Z",
+      "home": "NC State Wolfpack",
+      "away": "Louisiana Tech Bulldogs",
+      "closeSpreadHome": -16.5,
+      "closeMlHome": -2500,
+      "bookSample": "fanduel",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "1ce3f7b8a59095eb45f4cffd45772bc0",
+      "commenceTime": "2024-09-14T16:02:00Z",
+      "home": "Texas Tech Red Raiders",
+      "away": "North Texas Mean Green",
+      "closeSpreadHome": -16.5,
+      "closeMlHome": -1450,
+      "bookSample": "draftkings",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "6f83307e1b98d8d73a1f0be00ffb333d",
+      "commenceTime": "2024-09-14T16:02:16Z",
+      "home": "Tulsa Golden Hurricane",
+      "away": "Oklahoma State Cowboys",
+      "closeSpreadHome": 27.5,
+      "closeMlHome": 3500,
+      "bookSample": "draftkings",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "0e308fd9693543b22bd36077d8aa75d8",
+      "commenceTime": "2024-09-14T16:05:41Z",
+      "home": "Illinois Fighting Illini",
+      "away": "Central Michigan Chippewas",
+      "closeSpreadHome": -16.5,
+      "closeMlHome": -1750,
+      "bookSample": "draftkings",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "8576a104af8ad640a3e8f0c0724c8ffa",
+      "commenceTime": "2024-09-14T16:06:00Z",
+      "home": "Miami (OH) RedHawks",
+      "away": "Cincinnati Bearcats",
+      "closeSpreadHome": 3.5,
+      "closeMlHome": 135,
+      "bookSample": "draftkings",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "07ab58f371ba387610afbb3dc669ef52",
+      "commenceTime": "2024-09-14T16:49:00Z",
+      "home": "Missouri Tigers",
+      "away": "Boston College Eagles",
+      "closeSpreadHome": -10.5,
+      "closeMlHome": -440,
+      "bookSample": "fanduel",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "b7d731371bfad1eeaab67782c675a76b",
+      "commenceTime": "2024-09-14T17:00:00Z",
+      "home": "Buffalo Bulls",
+      "away": "UMass Minutemen",
+      "closeSpreadHome": -3.0,
+      "closeMlHome": -155,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "6f07f680981b54a87428a2e10687b122",
+      "commenceTime": "2024-09-14T18:00:00Z",
+      "home": "Temple Owls",
+      "away": "Coastal Carolina Chanticleers",
+      "closeSpreadHome": 17.0,
+      "closeMlHome": 550,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "46868b23792e785cf44db40a8c6f1d7d",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Miami Hurricanes",
+      "away": "Ball State Cardinals",
+      "closeSpreadHome": -36.5,
+      "closeMlHome": null,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "25eb04220b6b5a15ed02509bf651a335",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Florida Gators",
+      "away": "Texas A&M Aggies",
+      "closeSpreadHome": 3.0,
+      "closeMlHome": 130,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "c8113c30e8dca65ee259dd52a430f23b",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Minnesota Golden Gophers",
+      "away": "Nevada Wolf Pack",
+      "closeSpreadHome": -17.0,
+      "closeMlHome": -850,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "fde106a67b7071dd8e20074b59e23759",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Purdue Boilermakers",
+      "away": "Notre Dame Fighting Irish",
+      "closeSpreadHome": 7.0,
+      "closeMlHome": 220,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "9e4a714e4c34635dbeac186d8b07eb84",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Oklahoma Sooners",
+      "away": "Tulane Green Wave",
+      "closeSpreadHome": -12.5,
+      "closeMlHome": -520,
+      "bookSample": "fanduel",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "695b786df9d340454dd222a46d7c383d",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Oregon State Beavers",
+      "away": "Oregon Ducks",
+      "closeSpreadHome": 17.5,
+      "closeMlHome": 625,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "ab3cd0fe1ed805fc1deddc9a0f461950",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Pittsburgh Panthers",
+      "away": "West Virginia Mountaineers",
+      "closeSpreadHome": 2.0,
+      "closeMlHome": 105,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "31747b0f2781fdac95044af5cef25f61",
+      "commenceTime": "2024-09-14T19:30:00Z",
+      "home": "Washington Huskies",
+      "away": "Washington State Cougars",
+      "closeSpreadHome": -6.0,
+      "closeMlHome": -218,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "79ae5398af4b849b74aeee0bc628011e",
+      "commenceTime": "2024-09-14T19:32:00Z",
+      "home": "Georgia Tech Yellow Jackets",
+      "away": "VMI Keydets",
+      "closeSpreadHome": -45.5,
+      "closeMlHome": null,
+      "bookSample": "fanduel",
+      "bookmakerCount": 6
+    },
+    {
+      "id": "bbeec6184453e73bffb917aa3a9796bd",
+      "commenceTime": "2024-09-14T19:32:00Z",
+      "home": "Michigan State Spartans",
+      "away": "Prairie View A&M Panthers",
+      "closeSpreadHome": -42.5,
+      "closeMlHome": null,
+      "bookSample": "fanduel",
+      "bookmakerCount": 6
+    },
+    {
+      "id": "cfb90cf1ba894eec5e7eb2421b109b89",
+      "commenceTime": "2024-09-14T19:32:00Z",
+      "home": "Ohio Bobcats",
+      "away": "Morgan State Bears",
+      "closeSpreadHome": -25.5,
+      "closeMlHome": -4000,
+      "bookSample": "fanduel",
+      "bookmakerCount": 6
+    },
+    {
+      "id": "51334abd7f10ec7cfd2511a7fe8ce005",
+      "commenceTime": "2024-09-14T20:00:00Z",
+      "home": "East Carolina Pirates",
+      "away": "Appalachian State Mountaineers",
+      "closeSpreadHome": 1.0,
+      "closeMlHome": -105,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "66ab070a5a418a17617baf5e397528cd",
+      "commenceTime": "2024-09-14T20:00:00Z",
+      "home": "Iowa Hawkeyes",
+      "away": "Troy Trojans",
+      "closeSpreadHome": -23.5,
+      "closeMlHome": -4500,
+      "bookSample": "fanduel",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "e8b736a15e008bdd44bf3be88e4c58af",
+      "commenceTime": "2024-09-14T20:15:00Z",
+      "home": "Arkansas Razorbacks",
+      "away": "UAB Blazers",
+      "closeSpreadHome": -22.5,
+      "closeMlHome": -1800,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "3d50a1c49af0442b8abbac981591fb3f",
+      "commenceTime": "2024-09-14T20:30:00Z",
+      "home": "Utah State Aggies",
+      "away": "Utah Utes",
+      "closeSpreadHome": 18.5,
+      "closeMlHome": 750,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "f3e086a3d4ee5143b56e3711f777b0c9",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "Akron Zips",
+      "away": "Colgate Raiders",
+      "closeSpreadHome": -13.5,
+      "closeMlHome": -530,
+      "bookSample": "fanduel",
+      "bookmakerCount": 6
+    },
+    {
+      "id": "979161f739991da905d3b3ff94ba6ed4",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "Charlotte 49ers",
+      "away": "Gardner-Webb Runnin Bulldogs",
+      "closeSpreadHome": -13.5,
+      "closeMlHome": -550,
+      "bookSample": "fanduel",
+      "bookmakerCount": 6
+    },
+    {
+      "id": "6f09efae74a95c390041ff487dda3082",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "Duke Blue Devils",
+      "away": "UConn Huskies",
+      "closeSpreadHome": -17.0,
+      "closeMlHome": -850,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "5e03009102ec9d276165aa248f352d68",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "Florida Atlantic Owls",
+      "away": "Florida International Panthers",
+      "closeSpreadHome": -4.0,
+      "closeMlHome": -175,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "d9600fe77bf4680170f2690862e9315b",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "Georgia Southern Eagles",
+      "away": "South Carolina State Bulldogs",
+      "closeSpreadHome": -27.5,
+      "closeMlHome": -7000,
+      "bookSample": "fanduel",
+      "bookmakerCount": 4
+    },
+    {
+      "id": "dda54dec2ce31e2b244e3a8fcbd0e304",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "Liberty Flames",
+      "away": "UTEP Miners",
+      "closeSpreadHome": -24.0,
+      "closeMlHome": -2400,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "960af0a49b394a34c36e06f8947ceb07",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "North Carolina Tar Heels",
+      "away": "North Carolina Central Eagles",
+      "closeSpreadHome": -37.5,
+      "closeMlHome": null,
+      "bookSample": "fanduel",
+      "bookmakerCount": 4
+    },
+    {
+      "id": "f81466234077eecfc820a494ee5a2a27",
+      "commenceTime": "2024-09-14T22:00:00Z",
+      "home": "Old Dominion Monarchs",
+      "away": "Virginia Tech Hokies",
+      "closeSpreadHome": 17.0,
+      "closeMlHome": 600,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "ee044afe887448a6b5c0cd77a95a40b9",
+      "commenceTime": "2024-09-14T22:30:00Z",
+      "home": "Western Michigan Broncos",
+      "away": "Bethune-Cookman Wildcats",
+      "closeSpreadHome": -32.5,
+      "closeMlHome": null,
+      "bookSample": "fanduel",
+      "bookmakerCount": 6
+    },
+    {
+      "id": "c031abd1b35fc611261ffc2b95bdf970",
+      "commenceTime": "2024-09-14T22:30:00Z",
+      "home": "Wake Forest Demon Deacons",
+      "away": "Ole Miss Rebels",
+      "closeSpreadHome": 20.5,
+      "closeMlHome": 860,
+      "bookSample": "fanduel",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "78b6ebae16982fad4add9ba4482221a1",
+      "commenceTime": "2024-09-14T23:00:00Z",
+      "home": "Eastern Michigan Eagles",
+      "away": "Jacksonville State Gamecocks",
+      "closeSpreadHome": 2.0,
+      "closeMlHome": 114,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "720b76271ef3a4a57e05323f90e518ac",
+      "commenceTime": "2024-09-14T23:00:00Z",
+      "home": "Georgia State Panthers",
+      "away": "Vanderbilt Commodores",
+      "closeSpreadHome": 8.5,
+      "closeMlHome": 250,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "47fd8b91f03ba59a0a87174733445973",
+      "commenceTime": "2024-09-14T23:00:00Z",
+      "home": "Sam Houston State Bearkats",
+      "away": "Hawaii Rainbow Warriors",
+      "closeSpreadHome": -4.0,
+      "closeMlHome": -175,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "4ce4439c361dcace8f6f52ec234b10ad",
+      "commenceTime": "2024-09-14T23:00:00Z",
+      "home": "San Jose State Spartans",
+      "away": "Kennesaw State Owls",
+      "closeSpreadHome": -17.5,
+      "closeMlHome": -1100,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "bf088bf8a99f899cc00ee3c5c448a7f5",
+      "commenceTime": "2024-09-14T23:00:00Z",
+      "home": "Middle Tennessee Blue Raiders",
+      "away": "Western Kentucky Hilltoppers",
+      "closeSpreadHome": 7.0,
+      "closeMlHome": 220,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "d76dc3684e0d97e5fee40c9369ad0a6f",
+      "commenceTime": "2024-09-14T23:00:00Z",
+      "home": "Southern Mississippi Golden Eagles",
+      "away": "South Florida Bulls",
+      "closeSpreadHome": 13.0,
+      "closeMlHome": 360,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "101d22eb010c05eb0ea429deae93e107",
+      "commenceTime": "2024-09-14T23:00:00Z",
+      "home": "Texas Longhorns",
+      "away": "UTSA Roadrunners",
+      "closeSpreadHome": -35.5,
+      "closeMlHome": -80000,
+      "bookSample": "fanduel",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "954d384c4f06f663c04269cdf3267747",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "Baylor Bears",
+      "away": "Air Force Falcons",
+      "closeSpreadHome": -16.5,
+      "closeMlHome": -750,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "a074e2f7ec90e7224aef81d438cf9eaa",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "Auburn Tigers",
+      "away": "New Mexico Lobos",
+      "closeSpreadHome": -26.0,
+      "closeMlHome": -3600,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "d6c2c911e21414b4aff9ee40f4ce6bc7",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "Colorado State Rams",
+      "away": "Colorado Buffaloes",
+      "closeSpreadHome": 7.5,
+      "closeMlHome": 250,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "f463c6fb0f1f69919d1f64553957a840",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "Northwestern Wildcats",
+      "away": "Eastern Illinois Panthers",
+      "closeSpreadHome": -25.5,
+      "closeMlHome": -10000,
+      "bookSample": "fanduel",
+      "bookmakerCount": 5
+    },
+    {
+      "id": "3e51b684784efbc72b6cc1d1754f86af",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "Kentucky Wildcats",
+      "away": "Georgia Bulldogs",
+      "closeSpreadHome": 22.0,
+      "closeMlHome": 1300,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "2f3fe2f65dd1824f1ef45fce533cb13d",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "UCLA Bruins",
+      "away": "Indiana Hoosiers",
+      "closeSpreadHome": 3.5,
+      "closeMlHome": 138,
+      "bookSample": "fanduel",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "d7b5ab17ae9bd3db22da990a87bba946",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "Mississippi State Bulldogs",
+      "away": "Toledo Rockets",
+      "closeSpreadHome": -10.5,
+      "closeMlHome": -375,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "dbc97e27ac37b640dd0e9bb000e79589",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "Nebraska Cornhuskers",
+      "away": "Northern Iowa Panthers",
+      "closeSpreadHome": -30.5,
+      "closeMlHome": -10000,
+      "bookSample": "fanduel",
+      "bookmakerCount": 6
+    },
+    {
+      "id": "75b6bbb2a2af151832dbb825f2df4561",
+      "commenceTime": "2024-09-14T23:30:00Z",
+      "home": "TCU Horned Frogs",
+      "away": "UCF Knights",
+      "closeSpreadHome": -3.0,
+      "closeMlHome": -148,
+      "bookSample": "draftkings",
+      "bookmakerCount": 9
+    },
+    {
+      "id": "3ce13f27ef4c9f6ca7b449db492a80d3",
+      "commenceTime": "2024-09-14T23:45:00Z",
+      "home": "Tennessee Volunteers",
+      "away": "Kent State Golden Flashes",
+      "closeSpreadHome": -49.5,
+      "closeMlHome": null,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "82c4d074022f6973e44d368054da7d47",
+      "commenceTime": "2024-09-15T00:00:00Z",
+      "home": "Houston Cougars",
+      "away": "Rice Owls",
+      "closeSpreadHome": -4.5,
+      "closeMlHome": -198,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "65d922b50c50605432e7aa3222a1b53a",
+      "commenceTime": "2024-09-15T00:00:00Z",
+      "home": "Virginia Cavaliers",
+      "away": "Maryland Terrapins",
+      "closeSpreadHome": 1.5,
+      "closeMlHome": -110,
+      "bookSample": "fanduel",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "cbde16e511d8d9b11a446bff43dc8d22",
+      "commenceTime": "2024-09-15T01:00:00Z",
+      "home": "Wyoming Cowboys",
+      "away": "BYU Cougars",
+      "closeSpreadHome": 9.5,
+      "closeMlHome": 280,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "600e589a78995de29b96d05660f5fd23",
+      "commenceTime": "2024-09-15T02:30:00Z",
+      "home": "California Golden Bears",
+      "away": "San Diego State Aztecs",
+      "closeSpreadHome": -17.5,
+      "closeMlHome": -950,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    },
+    {
+      "id": "9b588476085b3d0c6327d39d5f2b76b3",
+      "commenceTime": "2024-09-15T02:30:00Z",
+      "home": "Fresno State Bulldogs",
+      "away": "New Mexico State Aggies",
+      "closeSpreadHome": -19.5,
+      "closeMlHome": -1200,
+      "bookSample": "draftkings",
+      "bookmakerCount": 8
+    }
+  ]
+}

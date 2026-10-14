@@ -8,8 +8,9 @@
  *   0 = E2 metrics meet thresholds (still needs E6 human sign-off)
  *   2 = OPEN / FAIL / insufficient data — keep P0 armed
  *
- * Closing-line CLV requires a licensed odds archive — reported INSUFFICIENT_DATA
- * when absent (ODDS_API_KEY historical not configured here).
+ * Closing-line CLV loads fixtures/ncaaf-phase-e-closing-lines.json when present
+ * (true pre-kickoff Odds API snapshots joined to ESPN finals). Midday slate
+ * dumps alone are not closes. injuryKnown is never inferred as false.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -19,6 +20,36 @@ import { blendVenueAndL10 } from "../src/lib/sportSim/footballDriveMatchup.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../..");
+
+type ClosingRow = {
+  gameId: string;
+  closeSpreadHome: number | null;
+  closeMlHome: number | null;
+  homeScore: number;
+  awayScore: number;
+  closeSnapshotTimestamp?: string;
+  oddsCommenceTime?: string;
+  injuryKnown?: boolean | null;
+};
+
+function mlToProb(american: number): number {
+  if (!Number.isFinite(american) || american === 0) return 0.5;
+  if (american < 0) return (-american) / (-american + 100);
+  return 100 / (american + 100);
+}
+
+function loadClosingLines(): Map<string, ClosingRow> {
+  const path = join(here, "../test/fixtures/ncaaf-phase-e-closing-lines.json");
+  const out = new Map<string, ClosingRow>();
+  if (!existsSync(path)) return out;
+  const raw = JSON.parse(readFileSync(path, "utf8")) as {
+    games?: ClosingRow[];
+  };
+  for (const g of raw.games ?? []) {
+    if (g?.gameId) out.set(String(g.gameId), g);
+  }
+  return out;
+}
 
 type EspnGame = {
   eventId: string;
@@ -192,6 +223,7 @@ function main(): number {
   console.log("NCAAF_GAME_LINE_SIM_VALIDATED is NOT flipped by this script.");
 
   const games = loadGames();
+  const closes = loadClosingLines();
   const forms = new Map<string, TeamForm>();
   const mlP: number[] = [];
   const mlY: number[] = [];
@@ -199,6 +231,12 @@ function main(): number {
   const provenanceCounts: Record<string, number> = {};
   let skippedThin = 0;
   let scored = 0;
+  /** Engine vs close — only holdout games with closing ML + scored sim. */
+  const clvEngineP: number[] = [];
+  const clvMarketP: number[] = [];
+  const clvY: number[] = [];
+  let closeMatched = 0;
+  let closeMissingOnScored = 0;
 
   const emptyForm = (): TeamForm => ({
     ptsFor: [],
@@ -253,6 +291,20 @@ function main(): number {
             const awayCovered = g.awayFg + 7.5 > g.homeFg ? 1 : 0;
             dog75.push({ cover: awayCovered, ml: pHome });
           }
+          const cl = closes.get(String(g.eventId));
+          if (
+            cl &&
+            cl.closeMlHome != null &&
+            Number.isFinite(Number(cl.closeMlHome))
+          ) {
+            closeMatched += 1;
+            const mkt = mlToProb(Number(cl.closeMlHome));
+            clvEngineP.push(pHome);
+            clvMarketP.push(mkt);
+            clvY.push(yHome);
+          } else {
+            closeMissingOnScored += 1;
+          }
         }
       }
     } else if (isHoldout) {
@@ -285,16 +337,22 @@ function main(): number {
     formMethodology:
       "venue_split blended with L10 via blendVenueAndL10 (production footballGameSimInputs parity); no invented HFA constant",
     formProvenanceCounts: provenanceCounts,
-    closingLineData: "INSUFFICIENT_DATA",
-    closingLineNote:
-      "No licensed closing-line archive in this environment; CLV / market-Brier not computed. " +
-      "Dependency: ODDS_API_KEY with The Odds API historical scores access, OR NCAAF_PHASE_E_FIXTURE CSV " +
-      "(columns: gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown).",
+    closingLineData: closes.size
+      ? "LOADED_PREKICKOFF_ODDS_ARCHIVE"
+      : "INSUFFICIENT_DATA",
+    closingLineNote: closes.size
+      ? "ncaaf-phase-e-closing-lines.json — per-game Odds API historical snapshot at date=kickoff (last ≤ commence); midday slate fixtures are not closes."
+      : "No closing-line archive; run scripts/ncaafPhaseE2bClosingLines.py with ODDS_API_KEY.",
+    closingLineJoin: {
+      archiveRows: closes.size,
+      scoredHoldoutWithCloseMl: closeMatched,
+      scoredHoldoutMissingClose: closeMissingOnScored,
+    },
     injurySegmentData: "INSUFFICIENT_DATA",
     injuryNote:
-      "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. " +
-      "Dependency: injury-segmented holdout rows (injuryKnown + optional qbOut) via NCAAF_PHASE_E_FIXTURE, " +
-      "or a historical ESPN injury snapshot keyed by eventId/teamId before kickoff.",
+      "injuryKnown left unset — missing records are NOT treated as no-injury. " +
+      "E4 needs SportsDataIO CFB Vault box-score PlayerGame.InjuryStatus (game-start snapshot, from 2018) " +
+      "or an equivalent licensed pregame archive. CFBD documents no injury family. ESPN live /injuries is current-only.",
     metrics: scored
       ? {
           brier: brier(mlP, mlY),
@@ -355,14 +413,79 @@ function main(): number {
     e2Outcome = beatCoin && eceOk && biasOk && dogOk ? "PASS" : "FAIL";
   }
 
-  // Full E2 for restore also requires closing-line CLV (licensed archive).
+  // E2b soft gates: close archive join + outcome Briers + engine-vs-close Δp.
+  // These are NOT closing-line value. True price CLV is computed separately
+  // (scripts/fixtures ncaaf-phase-e-true-clv-*).
+  let e2bClv: "PASS" | "FAIL" | "INSUFFICIENT_DATA" | "OPEN" = "INSUFFICIENT_DATA";
+  const clvReasons: string[] = [];
+  let clvMetrics: Record<string, number | boolean | null | string> | null = null;
+  if (closeMatched >= 200) {
+    const engBrier = brier(clvEngineP, clvY);
+    const mktBrier = brier(clvMarketP, clvY);
+    const coin = 0.25;
+    let edgeSum = 0;
+    for (let i = 0; i < clvEngineP.length; i++) {
+      edgeSum += clvEngineP[i] - clvMarketP[i];
+    }
+    const meanEdge = edgeSum / clvEngineP.length;
+    clvMetrics = {
+      n: closeMatched,
+      engineBrier: engBrier,
+      marketBrier: mktBrier,
+      coinBrier: coin,
+      engineBeatsCoin: engBrier < coin,
+      marketBeatsCoin: mktBrier < coin,
+      /**
+       * mean(engineP_home − marketP_home_at_close):
+       * unit = probability points in [0,1] (NOT percent, NOT CLV).
+       * For each close-joined scored holdout game i:
+       *   engineP_i = nfl-drive home-ML hit rate
+       *   marketP_i = American close ML → implied win prob
+       *   mean = (1/n) Σ (engineP_i − marketP_i)
+       * Positive ⇒ engine is more bullish on home than the closing market, on average.
+       */
+      meanEngineMinusMarket: meanEdge,
+      meanEngineMinusMarketUnit: "probability_points_0_to_1",
+      isClosingLineValue: false,
+      truePriceClvFixture: "ncaaf-phase-e-true-clv-report.json",
+      absMeanEdgeMax: 0.15,
+    };
+    (report as { metrics: Record<string, unknown> | null }).metrics = {
+      ...(m ?? {}),
+      closingLineSoftGates: clvMetrics,
+      // keep old key as alias for existing tests/docs readers
+      closingLineClv: clvMetrics,
+    };
+    const mktOk = mktBrier < coin;
+    const engOk = engBrier < coin;
+    const edgeOk = Math.abs(meanEdge) <= 0.15;
+    if (!mktOk) clvReasons.push(`marketBrier ${mktBrier.toFixed(4)} did not beat coin`);
+    if (!engOk) clvReasons.push(`engineBrier ${engBrier.toFixed(4)} did not beat coin on close-joined set`);
+    if (!edgeOk)
+      clvReasons.push(
+        `|mean(engineP-marketP)|=${Math.abs(meanEdge).toFixed(4)} > 0.15`,
+      );
+    e2bClv = mktOk && engOk && edgeOk ? "PASS" : "FAIL";
+  } else {
+    clvReasons.push(`need ≥200 close-joined scored games, got ${closeMatched}`);
+  }
+
+  // Soft close-archive gates only. Coach pick CLV is a separate report with no PASS label.
+  // Full restore still needs E4 + E6 (+ human review of coach-pick CLV).
   const e2Restore =
-    e2Outcome === "PASS" ? "OPEN_NEEDS_CLOSING_LINES" : e2Outcome;
+    e2Outcome === "PASS" && e2bClv === "PASS"
+      ? "OPEN_NEEDS_E4_E6"
+      : e2Outcome === "PASS" && e2bClv !== "PASS"
+        ? "OPEN_NEEDS_CLOSE_ARCHIVE_SOFT_GATES"
+        : e2Outcome;
 
   report.verdicts = {
     E2_outcomeVsCoin: e2Outcome,
     E2_reasons: reasons.join("; ") || "ok",
-    E2_closingLineClv: "INSUFFICIENT_DATA",
+    // Soft close-archive gates only — NOT Coach pick CLV. See coach-pick-clv report.
+    E2_closeArchiveSoftGates: e2bClv,
+    E2_closeArchiveSoftGateReasons: clvReasons.join("; ") || "ok",
+    E2_coachPickClv: "see ncaaf-phase-e-coach-pick-clv-report.json — no PASS label here",
     E2_readyForRestore: e2Restore,
     E4_injuryConservatism: "INSUFFICIENT_DATA",
     E6_humanSignOff: "OPEN",
@@ -376,10 +499,17 @@ function main(): number {
   console.log(JSON.stringify(report, null, 2));
   console.log(`Wrote ${outPath}`);
 
-  // Keep P0 armed until outcome calibration + CLV + E4 + E6 all clear.
-  if (e2Outcome === "PASS" && e2Restore === "OPEN_NEEDS_CLOSING_LINES") {
+  // Keep P0 armed until outcome calibration + soft gates + coach-pick CLV review + E4 + E6.
+  if (e2Outcome === "PASS" && e2bClv === "PASS") {
     console.log(
-      "Outcome metrics cleared coin/ECE/dog gates, but closing-line CLV is INSUFFICIENT_DATA.",
+      "E2a + close-archive soft gates cleared (NOT Coach pick CLV). E4/E6 still OPEN.",
+    );
+    console.log("Do not flip NCAAF_GAME_LINE_SIM_VALIDATED.");
+    return 2;
+  }
+  if (e2Outcome === "PASS" && e2bClv !== "PASS") {
+    console.log(
+      `Outcome metrics PASS but E2_closeArchiveSoftGates=${e2bClv}: ${clvReasons.join("; ")}`,
     );
     console.log("E4/E6 still OPEN — do not flip NCAAF_GAME_LINE_SIM_VALIDATED.");
     return 2;

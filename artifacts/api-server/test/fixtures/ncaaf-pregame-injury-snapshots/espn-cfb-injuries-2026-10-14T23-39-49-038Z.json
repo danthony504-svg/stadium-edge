@@ -1,0 +1,45 @@
+{
+  "source": "espn_site_api_college_football_injuries",
+  "captureTimestamp": "2026-10-14T23:39:49.038Z",
+  "captureNote": "Wall-clock capture of the live ESPN injuries feed. Valid as pre-kickoff evidence ONLY for games with kickoffIso > captureTimestamp. Not a historical backfill.",
+  "teamCount": 3,
+  "qbOutOrDoubtfulCount": 0,
+  "teams": [
+    {
+      "team": "Florida Gators",
+      "teamId": "57",
+      "entries": [
+        {
+          "player": "Kahleil Jackson",
+          "status": "Out",
+          "position": "WR",
+          "athleteId": null
+        }
+      ]
+    },
+    {
+      "team": "Rice Owls",
+      "teamId": "242",
+      "entries": [
+        {
+          "player": "Braylen Walker",
+          "status": "Active",
+          "position": "WR",
+          "athleteId": null
+        }
+      ]
+    },
+    {
+      "team": "Virginia Cavaliers",
+      "teamId": "258",
+      "entries": [
+        {
+          "player": "Will Bettridge",
+          "status": "Active",
+          "position": "PK",
+          "athleteId": null
+        }
+      ]
+    }
+  ]
+}
