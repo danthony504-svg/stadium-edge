@@ -41,6 +41,8 @@ export type ParlayBuildRecord = {
   legCount: number;
   leadPlayerKey: string;
   leadLegKey: string;
+  /** Canonical sports on the remembered ticket (blocks cross-sport variety reuse). */
+  sports: string[];
 };
 
 /** Keep the last 40 tickets shown (user: 20–50). */
@@ -147,16 +149,44 @@ export function askWantsAllNewPicks(text?: string | null): boolean {
   return false;
 }
 
+function canonicalizeSportId(sport: string | null | undefined): string {
+  const s = String(sport ?? "")
+    .toLowerCase()
+    .trim();
+  if (!s) return "";
+  if (s === "cfb" || s.includes("americanfootball_ncaaf")) return "ncaaf";
+  if (s === "cbb" || s.includes("basketball_ncaab")) return "ncaab";
+  return s;
+}
+
+function buildsForSportScope(
+  allowedSports: readonly string[] | null | undefined,
+): ParlayBuildRecord[] {
+  if (!allowedSports?.length) return recentBuilds;
+  const allow = new Set(allowedSports.map(canonicalizeSportId).filter(Boolean));
+  // Only reuse variety memory from tickets entirely inside the locked sports.
+  // Untagged / mixed / foreign tickets must not steer a college ask.
+  return recentBuilds.filter((b) => {
+    const sports = Array.isArray(b.sports) ? b.sports : [];
+    // Legacy / untagged tickets: fail closed when a sport lock is active.
+    if (!sports.length) return false;
+    return sports.every((s) => allow.has(canonicalizeSportId(s)));
+  });
+}
+
 /** Full variety context for independent ticket combinator. */
-export function recentParlayVarietyContext(): CoachParlayVarietyContext {
+export function recentParlayVarietyContext(opts?: {
+  allowedSports?: readonly string[] | null;
+}): CoachParlayVarietyContext {
+  const builds = buildsForSportScope(opts?.allowedSports);
   return {
-    recentTickets: recentBuilds.map((b) => b.legKeys),
-    recentLeadPlayers: recentBuilds
+    recentTickets: builds.map((b) => b.legKeys),
+    recentLeadPlayers: builds
       .map((b) => b.leadPlayerKey)
       .filter((p) => p.length > 0),
-    recentPlayerCounts: playerCountsFromBuilds(recentBuilds),
-    recentSignatureCounts: signatureCountsFromBuilds(recentBuilds),
-    recentTicketsByLegCount: ticketsByLegCountFromBuilds(recentBuilds),
+    recentPlayerCounts: playerCountsFromBuilds(builds),
+    recentSignatureCounts: signatureCountsFromBuilds(builds),
+    recentTicketsByLegCount: ticketsByLegCountFromBuilds(builds),
   };
 }
 
@@ -191,6 +221,13 @@ export function rememberParlayBuild(picks: ParsedPick[]): void {
   if (!picks.length) return;
   const legKeys = picks.map((p) => parlayLegKey(p));
   const signatures = picks.map((p) => pickUsageSignature(p));
+  const sports = [
+    ...new Set(
+      picks
+        .map((p) => canonicalizeSportId(p.sport))
+        .filter((s) => s.length > 0),
+    ),
+  ];
   const lead = picks[0]!;
   const record: ParlayBuildRecord = {
     legKeys,
@@ -198,6 +235,7 @@ export function rememberParlayBuild(picks: ParsedPick[]): void {
     legCount: picks.length,
     leadPlayerKey: parlayPlayerKey(lead),
     leadLegKey: parlayLegKey(lead),
+    sports,
   };
   const fingerprint = legKeys.join("||");
   recentBuilds = [
