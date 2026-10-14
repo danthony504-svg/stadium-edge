@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-10-14T22:22:07.230749+00:00",
+  "holdoutSeason": 2024,
+  "closingDefinition": "Per-game last Odds API historical snapshot with date=kickoff (closest snapshot \u2264 kickoff). Midday slate files are not closes.",
+  "bucketsRequested": 327,
+  "apiErrors": 0,
+  "holdoutGames": 871,
+  "matched": 778,
+  "matchedWithFullPrices": 717,
+  "missing": 93,
+  "rejectPostKickoffSnapshot": 1,
+  "missingReasons": {
+    "no_odds_match": 92,
+    "snapshot_not_before_commence": 1
+  },
+  "metrics": {
+    "marketBrierCloseMl": 0.17773330219879008,
+    "marketBrierCoin": 0.25,
+    "marketBrierBeatsCoin": true,
+    "homeMlWinRate": 0.6052998605299861,
+    "homeAtsCoverRateExclPush": 0.4950213371266003,
+    "atsN": 703,
+    "pushes": 14
+  },
+  "middaySlateNotClosingProof": [
+    {
+      "file": "ncaaf-historical-odds-2024-09-14-16z.json",
+      "requestDate": "2024-09-14T16:00:00Z",
+      "snapshotTimestamp": "2024-09-14T15:55:39Z",
+      "events": 69,
+      "eventsKickoffMoreThan2hAfterSnap": 58,
+      "note": "These slate snapshots include many still-open games; not closing lines."
+    },
+    {
+      "file": "ncaaf-historical-odds-2024-09-14-19z.json",
+      "requestDate": "2024-09-14T19:00:00Z",
+      "snapshotTimestamp": "2024-09-14T18:55:38Z",
+      "events": 59,
+      "eventsKickoffMoreThan2hAfterSnap": 32,
+      "note": "These slate snapshots include many still-open games; not closing lines."
+    },
+    {
+      "file": "ncaaf-historical-odds-2024-09-14.json",
+      "requestDate": "2024-09-14T17:00:00Z",
+      "snapshotTimestamp": "2024-09-14T16:55:38Z",
+      "events": 59,
+      "eventsKickoffMoreThan2hAfterSnap": 47,
+      "note": "These slate snapshots include many still-open games; not closing lines."
+    }
+  ],
+  "injuryNote": "injuryKnown/qbOut left null \u2014 missing injury records must NOT be treated as no injuries. E4 requires a documented historical provider.",
+  "verdicts": {
+    "E2b_closingArchive": "PASS",
+    "E2b_marketBrierVsCoin": "PASS",
+    "E2b_engineClv": "PASS",
+    "E2b_engineClvNote": "See ncaaf-phase-e-calibration-report.json metrics.closingLineClv (n=713, sims=1500)",
+    "E4_injuryConservatism": "INSUFFICIENT_DATA",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false \u2014 do not flip"
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

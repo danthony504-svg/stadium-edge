@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-14T21:24:31.034Z",
+  "generatedAt": "2026-10-14T22:24:30.997Z",
   "engine": "nfl-drive",
   "holdoutSeason": 2024,
   "simulationsPerGame": 1500,
@@ -12,21 +12,36 @@
     "last10+venue_split": 1,
     "venue_l10_blend+venue_split": 1
   },
-  "closingLineData": "INSUFFICIENT_DATA",
-  "closingLineNote": "No licensed closing-line archive in this environment; CLV / market-Brier not computed. Dependency: ODDS_API_KEY with The Odds API historical scores access, OR NCAAF_PHASE_E_FIXTURE CSV (columns: gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown).",
+  "closingLineData": "LOADED_PREKICKOFF_ODDS_ARCHIVE",
+  "closingLineNote": "ncaaf-phase-e-closing-lines.json — per-game Odds API historical snapshot at date=kickoff (last ≤ commence); midday slate fixtures are not closes.",
+  "closingLineJoin": {
+    "archiveRows": 778,
+    "scoredHoldoutWithCloseMl": 713,
+    "scoredHoldoutMissingClose": 152
+  },
   "injurySegmentData": "INSUFFICIENT_DATA",
-  "injuryNote": "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. Dependency: injury-segmented holdout rows (injuryKnown + optional qbOut) via NCAAF_PHASE_E_FIXTURE, or a historical ESPN injury snapshot keyed by eventId/teamId before kickoff.",
+  "injuryNote": "injuryKnown left unset — missing records are NOT treated as no-injury. E4 needs SportsDataIO CFB Vault box-score PlayerGame.InjuryStatus (game-start snapshot, from 2018) or an equivalent licensed pregame archive. CFBD documents no injury family. ESPN live /injuries is current-only.",
   "metrics": {
-    "brier": 0.1989518554913293,
+    "brier": 0.19876589595375724,
     "brierCoin": 0.25,
-    "logLoss": 0.5769761385427379,
-    "ece10": 0.04213757225433526,
-    "meanP": 0.6568080924855498,
+    "logLoss": 0.575944409251881,
+    "ece10": 0.041509826589595455,
+    "meanP": 0.6568277456647401,
     "meanY": 0.6369942196531792,
-    "homeWinBias": 0.019813872832370683,
+    "homeWinBias": 0.019833526011560965,
     "nearCoinFlipDog75": {
-      "n": 133,
-      "awayCoverRate": 0.6691729323308271
+      "n": 139,
+      "awayCoverRate": 0.6834532374100719
+    },
+    "closingLineClv": {
+      "n": 713,
+      "engineBrier": 0.21914830434782614,
+      "marketBrier": 0.17858032700949195,
+      "coinBrier": 0.25,
+      "engineBeatsCoin": true,
+      "marketBeatsCoin": true,
+      "meanEngineMinusMarket": 0.019475510541121566,
+      "absMeanEdgeMax": 0.15
     }
   },
   "thresholds": {
@@ -39,8 +54,9 @@
   "verdicts": {
     "E2_outcomeVsCoin": "PASS",
     "E2_reasons": "ok",
-    "E2_closingLineClv": "INSUFFICIENT_DATA",
-    "E2_readyForRestore": "OPEN_NEEDS_CLOSING_LINES",
+    "E2_closingLineClv": "PASS",
+    "E2_closingLineClvReasons": "ok",
+    "E2_readyForRestore": "OPEN_NEEDS_E4_E6",
     "E4_injuryConservatism": "INSUFFICIENT_DATA",
     "E6_humanSignOff": "OPEN",
     "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"

@@ -47,6 +47,45 @@ test("Phase E calibration report keeps P0 armed", () => {
   assert.match(String(report.verdicts?.NCAAF_GAME_LINE_SIM_VALIDATED), /false/i);
 });
 
+test("Phase E2b closing archive uses pre-kickoff snaps (not midday-only)", () => {
+  const archPath = join(here, "../test/fixtures/ncaaf-phase-e-closing-lines.json");
+  const e2bPath = join(here, "../test/fixtures/ncaaf-phase-e-e2b-report.json");
+  const arch = JSON.parse(readFileSync(archPath, "utf8")) as {
+    closingDefinition?: string;
+    games?: Array<{
+      closeSnapshotTimestamp?: string;
+      oddsCommenceTime?: string;
+      injuryKnown?: boolean | null;
+      closeMlHome?: number | null;
+    }>;
+    missing?: unknown[];
+  };
+  const e2b = JSON.parse(readFileSync(e2bPath, "utf8")) as {
+    matchedWithFullPrices?: number;
+    verdicts?: Record<string, string>;
+    keepP0Armed?: boolean;
+  };
+  assert.match(String(arch.closingDefinition), /date=kickoff|pre-kickoff|≤ kickoff/i);
+  assert.ok((arch.games?.length ?? 0) >= 200, "need a meaningful close archive");
+  assert.ok((e2b.matchedWithFullPrices ?? 0) >= 200);
+  assert.equal(e2b.keepP0Armed, true);
+  assert.match(String(e2b.verdicts?.NCAAF_GAME_LINE_SIM_VALIDATED), /false/i);
+  // Missing injury must not be coerced to false on archive rows
+  const coerced = (arch.games ?? []).filter((g) => g.injuryKnown === false);
+  assert.equal(coerced.length, 0, "do not treat missing injury as no-injury");
+  let checked = 0;
+  for (const g of arch.games ?? []) {
+    if (!g.closeSnapshotTimestamp || !g.oddsCommenceTime) continue;
+    assert.ok(
+      g.closeSnapshotTimestamp < g.oddsCommenceTime,
+      `close snap must be before commence: ${g.closeSnapshotTimestamp} < ${g.oddsCommenceTime}`,
+    );
+    checked += 1;
+    if (checked >= 50) break;
+  }
+  assert.ok(checked >= 50);
+});
+
 test("Phase E calibration stub refuses empty PASS", async () => {
   const { spawnSync } = await import("node:child_process");
   const stub = join(here, "../scripts/ncaafPhaseECalibrationStub.ts");

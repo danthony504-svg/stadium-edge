@@ -19,9 +19,9 @@ Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.jso
 | Log loss | 0.577 |
 | ECE (10-bin) | **0.042** |
 | meanP / meanY (home ML) | **0.657 / 0.637** (bias ≈ **+0.020**, within 0.08) |
-| Near-coin-flip ML + away +7.5 cover | 0.669 (n=133) — OK vs 0.70 cap |
-| Closing-line CLV | **INSUFFICIENT_DATA** |
-| Injury segments | **INSUFFICIENT_DATA** |
+| Near-coin-flip ML + away +7.5 cover | 0.683 (n=139) — OK vs 0.70 cap |
+| Closing-line CLV (joined) | **PASS** — n=713; marketBrier **0.179**, engineBrier **0.219**, both &lt; coin; mean(engine−market)≈**+0.019** |
+| Injury segments | **INSUFFICIENT_DATA** (null ≠ no-injury) |
 
 ### Home-win bias root cause (fixed in calibration)
 
@@ -33,41 +33,38 @@ Prior FAIL used **combined L10 only** (no home/away venue splits) → meanP ≈ 
 |---|-----------|--------|-------|
 | E1 | Sensitivity ±3 ppg / QB-out ≥2pp | **PASS (unit)** | `ncaafGameLineSimValidation.test.ts` |
 | E2a | Outcome calibration vs coin (Brier, ECE, dog pathology, bias) | **PASS** | Venue-aware holdout; \|bias\|≈0.020 ≤ 0.08 |
-| E2b | Closing-line / market CLV | **INSUFFICIENT_DATA** | Needs licensed closing spreads/ML |
+| E2b | Closing-line / market CLV | **PASS** | True pre-kickoff Odds closes + finals join; see below |
 | E3 | Exact-line binder | **PASS (unit)** | `gameSimQualityGates.test.ts` |
-| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Scoreboard cache has no QB/injury flags |
+| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Needs SportsDataIO box-score injury archive — [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md) |
 | E5 | Props / other-sport P0 regressions | **PASS (unit suite)** | Re-run before any flag flip |
-| E6 | Human sign-off | **OPEN** | Required after E2b/E4 PASS |
+| E6 | Human sign-off | **OPEN** | Required after E4 PASS |
 
-**Restore readiness:** **NO** — E2b + E4 + E6 still open. College game lines stay P0-blocked.
+**Restore readiness:** **NO** — E4 + E6 still open (`E2_readyForRestore=OPEN_NEEDS_E4_E6`). College game lines stay P0-blocked.
 
-## Unavailable data — exact dependencies
+## E2b closing-line archive (2024 holdout)
 
-| Gap | Dependency |
-|-----|------------|
-| E2b closing lines | Historical Odds snapshots retrieved (see fixtures below). Still need holdout join + CLV wiring, **or** full `NCAAF_PHASE_E_FIXTURE` CSV (`gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown`). |
-| E4 injury / QB | Frozen CSV `injuryKnown` (+ optional `qbOut`) per game, **or** licensed pregame injury archive keyed by `eventId`/`teamId`. No public ESPN/CFBD historical injury archive available in this agent. |
+Built by `scripts/ncaafPhaseE2bClosingLines.py` → `test/fixtures/ncaaf-phase-e-closing-lines.json`.
 
-### Credential + historical probe (Cloud Agent, 2026-10-14)
+**Closing definition:** for each game, Odds API historical odds with `date=kickoff` (closest snapshot ≤ commence). Midday slate files (`ncaaf-historical-odds-2024-09-14*.json`) are **not** closes — e.g. 16z snap still has **58/69** events kicking off &gt;2h later.
 
-Exact server env name: **`ODDS_API_KEY`** (`process.env["ODDS_API_KEY"]`). Secure Cursor entry steps: [`odds-api-key-cloud-agent.md`](./odds-api-key-cloud-agent.md).
+| Join / QA | Count |
+|-----------|------:|
+| Holdout games (2024) | 871 |
+| Kickoff buckets fetched | 327 |
+| Matched with close prices | **778** |
+| Full spread+ML + finals | **717** (calibration join with close ML on scored sims: **713**) |
+| Missing | **93** (92 `no_odds_match` — mostly FCS/unlisted; 1 post-commence reject) |
+| Pre-commence closes | **778/778** (median **262s** before commence; 757 within 10 min) |
 
-| Secret / source | Status |
-|-----------------|--------|
-| Injected secrets | **`EXPO_TOKEN` only** — `ODDS_API_KEY` still **not** in `CLOUD_AGENT_ALL_SECRET_NAMES` / process env on this pod |
-| Provided credential fingerprint | **Valid key** (live `/v4/sports` 200; ~3.99M requests remaining) but **not injected** as an environment secret — ephemeral probe only |
-| Historical NCAAF odds | **SUCCESS** — `GET /v4/historical/sports/americanfootball_ncaaf/odds` → 200 (paid entitlement OK). Sample fixtures under `artifacts/api-server/test/fixtures/ncaaf-historical-odds-*.json` |
-| Historical scores path | `/v4/historical/.../scores` → **404** (not a v4 route); live `/v4/sports/.../scores` works |
-| Render live odds | **Working** — production returns NCAAF books; Render secret values still not readable here |
-| ESPN injuries (live) | Public 200 — **current** season only |
-| ESPN CFB historical injuries | **Unavailable** — core season/athlete injury URLs 404; scoreboard/summary lack injury blocks; athlete `rotowire` is current blurb only |
-| CFBD / other injury APIs | No `CFBD_API_KEY` (or similar) in agent — CFBD without key → 401 |
-| `NCAAF_PHASE_E_FIXTURE` | Unset |
-| `NCAAF_GAME_LINE_SIM_VALIDATED` | Remains **`false`** |
+Market-only (full-price rows): Brier **0.178** vs coin 0.25; home ATS cover excl. push **0.495** (n=703).
 
-**E2b next step:** join historical odds fixtures to holdout games and compute CLV (still do not flip P0).
+## E4 dependency (verified before requesting keys)
 
-**E4 remaining dependency (specific):** `NCAAF_PHASE_E_FIXTURE` with `injuryKnown` (+ optional `qbOut`), or a licensed pregame injury/QB archive. Public ESPN + keyless CFBD cannot supply 2023–2024 holdout injury flags.
+See [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md). **Do not request CFBD** — no injury family in CFBD data-availability. **SportsDataIO** documents historical injuries inside **CFB box scores** (`PlayerGame.InjuryStatus` from 2018) via Vault-enabled stats endpoints; live `InjuredPlayers` is current-only. Missing box-score injury rows stay `injuryKnown=null`.
+
+### Durable Odds secret (separate from E2b work)
+
+Exact server env name: **`ODDS_API_KEY`**. Entry steps: [`odds-api-key-cloud-agent.md`](./odds-api-key-cloud-agent.md). Historical entitlement already proven; inject via Cursor Secrets for new runs — do not paste into chat.
 
 ### Leakage audit (E2a venue/L10)
 
