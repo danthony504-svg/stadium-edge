@@ -1,8 +1,8 @@
 # Device-test prep — PR #736
 
 **Pinned test commit (fixes + preview/test config):**  
-`PLACEHOLDER_FULL_SHA` on branch `cursor/build78-fixpack-def8`  
-(filled after the college-sim + crash-test-doc commit lands — see Quick reference).
+`4738df08db5fc3425bc1fd317431c52bc5b9c0a8` on branch `cursor/build78-fixpack-def8`  
+(College sim + P0 gate + crash-test binary requirements + preview OTA scripts. Prefer branch tip if later docs-only commits exist.)
 
 **Goal:** Exercise Build 78 fail-soft + college sport lock + OTA rollback on a **meaningful** binary without exposing production users.
 
@@ -14,7 +14,7 @@
 
 | Item | Value |
 |------|--------|
-| **Commit under test** | `PLACEHOLDER_FULL_SHA` (contains college sim inputs, P0 gate flag, preview OTA scripts, this doc) |
+| **Commit under test** | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` (contains college sim inputs, P0 gate flag, preview OTA scripts, this doc) |
 | Branch | `cursor/build78-fixpack-def8` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |
 | Runtime | `1.1.0` |
@@ -26,7 +26,7 @@
 ```bash
 # 1) Checkout the pinned commit
 git fetch origin cursor/build78-fixpack-def8
-git checkout PLACEHOLDER_FULL_SHA
+git checkout 4738df08db5fc3425bc1fd317431c52bc5b9c0a8
 
 # 2) Build a preview-channel iOS binary (approve before running — agent does not start builds)
 cd artifacts/stadium-mobile
@@ -35,7 +35,7 @@ eas build --profile preview --platform ios --non-interactive
 
 # 3) Publish JS tip to preview only
 EXPO_TOKEN=… bash scripts/publish-preview-ota.sh \
-  'PR736 PLACEHOLDER_SHORT device test — preview only'
+  'PR736 4738df08 device test — preview only'
 
 # 4) On device: force-quit → reopen → apply tip → cold launch ×2
 ```
@@ -43,7 +43,7 @@ EXPO_TOKEN=… bash scripts/publish-preview-ota.sh \
 ### Install method B — Metro on pinned commit (no OTA)
 
 ```bash
-git checkout PLACEHOLDER_FULL_SHA
+git checkout 4738df08db5fc3425bc1fd317431c52bc5b9c0a8
 cd artifacts/stadium-mobile
 eas build --profile development --platform ios   # approve first
 npx expo start --dev-client
@@ -149,7 +149,7 @@ Same college ask twice; record wall-clock + stage timings. Until measured on dev
 
 | Item | Value |
 |------|--------|
-| Commit under test | `PLACEHOLDER_FULL_SHA` |
+| Commit under test | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
 | Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
 | Preview config landed after | `6f7d4178` → `29fa596b` → this tip |
 | Branch | `cursor/build78-fixpack-def8` |
