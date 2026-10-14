@@ -2,6 +2,7 @@ name: Rollback production OTA (embedded)
 
 # EMERGENCY: clears bad OTA by pointing the channel at the embedded binary bundle.
 # Does NOT publish new JavaScript from HEAD (eas update:roll-back-to-embedded only).
+# Not blocked by .ota-production-freeze — keep available while publishes are frozen.
 # See artifacts/stadium-mobile/scripts/OTA_EMERGENCY_ROLLBACK.md
 
 on:

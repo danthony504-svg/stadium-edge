@@ -4,12 +4,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# shellcheck disable=SC1091
+source scripts/lib/require-ota-unfrozen.sh
+
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required"
   exit 1
 fi
 
-REPO_ROOT="$(git -C "$(dirname "$0")/../.." rev-parse --show-toplevel 2>/dev/null)"
+REPO_ROOT="$(cd ../.. && pwd)"
 GIT_FULL="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 GIT_SHORT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
 STAMP="$(date -u +%Y-%m-%dT%H:%MZ)"

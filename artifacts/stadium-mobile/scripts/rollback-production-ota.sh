@@ -2,6 +2,9 @@
 # Point the production channel at the embedded TestFlight bundle (clears a bad OTA).
 # Targets app.json runtimeVersion (currently 1.1.0) — never hardcodes 1.0.3.
 # Requires EXPO_TOKEN. Fast — no JS bundling.
+#
+# Intentionally does NOT source require-ota-unfrozen.sh / honor .ota-production-freeze.
+# Embedded rollback must remain available while production publishes are frozen.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
