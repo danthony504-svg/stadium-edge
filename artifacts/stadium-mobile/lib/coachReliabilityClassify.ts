@@ -62,11 +62,11 @@ export function mapScanFailureCode(
         alertable: false,
       };
     case "P0_UNVALIDATED_MARKETS":
-      // Intentional Phase E / totals P0 — not a Telegram crash.
+      // Distinct from ordinary quality-bar zero_results — keep Phase E block visible.
       return {
-        eventType: "parlay_zero_results",
-        failureReason: "zero_results",
-        alertable: false,
+        eventType: "coach_simulation_failure",
+        failureReason: "unvalidated_simulation",
+        alertable: true,
       };
     default:
       return null;
@@ -77,7 +77,18 @@ export function classifySportCategoryFromAsk(text: string): string {
   const t = String(text || "").toLowerCase();
   const hits: string[] = [];
   if (/\bnfl\b/.test(t)) hits.push("nfl");
-  if (/\bncaaf\b|\bcfb\b|\bcollege\s+football\b/.test(t)) hits.push("ncaaf");
+  // Bare "college"/"collage" → ncaaf (same default as Coach sport lock). CBB aliases stay out.
+  if (
+    /\bncaaf\b|\bcfb\b|\bcollege\s+football\b|\bcollage\s+football\b/.test(t) ||
+    (/\b(college|collage)\b/.test(t) &&
+      !/\b(college|collage)\s+basketball\b/.test(t) &&
+      !/\bncaab\b|\bcbb\b/.test(t))
+  ) {
+    hits.push("ncaaf");
+  }
+  if (/\bncaab\b|\bcbb\b|\bcollege\s+basketball\b|\bcollage\s+basketball\b/.test(t)) {
+    hits.push("ncaab");
+  }
   if (/\bnba\b/.test(t)) hits.push("nba");
   if (/\bwnba\b/.test(t)) hits.push("wnba");
   if (/\bmlb\b|\bbaseball\b/.test(t)) hits.push("mlb");
@@ -89,4 +100,20 @@ export function classifySportCategoryFromAsk(text: string): string {
   if (unique.length === 0) return "unspecified";
   if (unique.length > 1) return "multi";
   return unique[0]!;
+}
+
+/** True when reliability rootCause / scan code is the Phase E NCAAF game-line block. */
+export function isUnvalidatedNcaafGameLineReliability(input: {
+  rootCause?: string | null;
+  failureReason?: string | null;
+  scanFailureCode?: string | null;
+}): boolean {
+  const root = String(input.rootCause ?? "");
+  const reason = String(input.failureReason ?? "");
+  const code = String(input.scanFailureCode ?? "");
+  return (
+    root === "unvalidated_ncaaf_game_line_simulation" ||
+    reason === "unvalidated_simulation" ||
+    code === "P0_UNVALIDATED_MARKETS"
+  );
 }

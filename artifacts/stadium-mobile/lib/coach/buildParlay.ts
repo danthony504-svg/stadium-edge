@@ -338,14 +338,16 @@ export async function buildCoachParlay(opts: {
       );
       reportCoachScanReliability({
         requestId: coachRelRequestId,
-        sportCategory: coachRelSport || "ncaaf",
+        sportCategory: coachRelSport === "unspecified" ? "ncaaf" : coachRelSport,
         requestedLegCount: target,
         returnedLegCount: 0,
         durationMs: Date.now() - coachRelStarted,
         realOddsAvailable: null,
         picks: [],
-        eventType: "parlay_zero_results",
-        failureReason: "zero_results",
+        scanFailureCode: "P0_UNVALIDATED_MARKETS",
+        scanFailureDetail: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+        eventType: "coach_simulation_failure",
+        failureReason: "unvalidated_simulation",
         rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
       });
       return {

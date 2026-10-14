@@ -46,7 +46,22 @@ Prior FAIL used **combined L10 only** (no home/away venue splits) → meanP ≈ 
 | Gap | Dependency |
 |-----|------------|
 | E2b closing lines | `ODDS_API_KEY` with **The Odds API historical scores** access for `americanfootball_ncaaf`, **or** frozen CSV at `NCAAF_PHASE_E_FIXTURE` with columns `gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown` |
-| E4 injury / QB | Same CSV `injuryKnown` (+ optional `qbOut`) per game, **or** historical ESPN injury snapshots keyed by `eventId`/`teamId` before kickoff. Live `/api/sports/injuries` is not a historical holdout archive. |
+| E4 injury / QB | Same CSV `injuryKnown` (+ optional `qbOut`) per game, **or** historical ESPN injury snapshots keyed by `eventId`/`teamId` before kickoff. Live ESPN `/injuries` (current season only) is **not** a historical holdout archive. |
+
+### Credential probe (Cloud Agent, 2026-10-14)
+
+| Secret / source | Status |
+|-----------------|--------|
+| Injected secrets | **`EXPO_TOKEN` only** (`CLOUD_AGENT_INJECTED_SECRET_NAMES`) |
+| `ODDS_API_KEY` | **Missing** — `GET /v4/historical/sports/americanfootball_ncaaf/odds` → `MISSING_KEY` |
+| ESPN injuries (live) | Public 200 — **current** teams only; no pregame 2023–2024 archive in repo |
+| `NCAAF_PHASE_E_FIXTURE` | Unset |
+
+### Leakage audit (E2a venue/L10)
+
+- Form arrays update **after** each game is scored (chrono season→week→kickoff).
+- Unit proof: `test/ncaafPhaseEHoldoutLeakage.test.ts` — every contributing kickoff `<` evaluated game key.
+- Untouched 2024 holdout (report): **865** scored games, kickoffs **2024-08-24 → 2024-12-08**, E2a **PASS**, bias ≈ +0.020, flag remains **false**.
 
 ## Sign-off criteria before flipping `NCAAF_GAME_LINE_SIM_VALIDATED`
 
