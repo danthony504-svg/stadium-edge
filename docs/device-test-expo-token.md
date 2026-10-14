@@ -5,7 +5,7 @@
 | Fact | Value |
 |------|--------|
 | Host | **Cursor Cloud Agent VM** (not GitHub Actions) |
-| Run URL | https://cursor.com/agents/bc-01a08078-c90e-7d1f-a483-e252c105def8 |
+| Run URL | https://cursor.com/agents/bc-01a13b79-7cf6-7aa8-a03f-cdbb25959796 |
 | Repo checkout | `/workspace` on branch `cursor/build78-fixpack-def8` |
 | Commands | `eas device:create`, `eas build --profile preview-build78`, `prepare-preview-test.sh` / `publish-preview-ota.sh` |
 
