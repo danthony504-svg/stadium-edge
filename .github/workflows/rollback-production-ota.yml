@@ -29,9 +29,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Same pnpm major as every other OTA workflow (version: 10) and lockfileVersion 9.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+
+      # eas-cli lives in the workspace; rollback script uses `pnpm exec eas`.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
 
       - name: Roll back production to embedded bundle
         env:
