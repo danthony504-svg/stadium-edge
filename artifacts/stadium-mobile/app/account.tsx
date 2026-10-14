@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { OtaRunningIdentity } from "@/components/OtaRunningIdentity";
 import { FONT } from "@/components/ui";
 import { useSubscription } from "@/context/SubscriptionContext";
@@ -161,7 +162,23 @@ export default function AccountScreen() {
         </Pressable>
       </View>
 
-      <View style={{ paddingHorizontal: 20, gap: 16 }}>
+      {/*
+        Root cause of clipped Sign out: body was a non-scrolling View. On small
+        phones / Dynamic Type the subscription + referral + bio + OTA blocks push
+        the red Sign out below the fold with no way to reach it. Scroll the body
+        (header stays pinned) and pad past the home-indicator safe area.
+      */}
+      <KeyboardAwareScrollViewCompat
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingBottom: Math.max(insets.bottom, 12) + 28,
+          gap: 16,
+        }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        showsVerticalScrollIndicator
+      >
         <View
           style={{
             flexDirection: "row",
@@ -431,8 +448,10 @@ export default function AccountScreen() {
             // Detach Expo push token before Clerk session ends.
             await unregisterCurrentPushToken().catch(() => {});
             await signOut();
-            router.replace("/");
+            // Land on sign-in so the next account can restore Clerk + subscription.
+            router.replace("/sign-in");
           }}
+          accessibilityLabel="Sign out"
           style={({ pressed }) => ({
             flexDirection: "row",
             alignItems: "center",
@@ -481,7 +500,7 @@ export default function AccountScreen() {
 
         {/* Fail-soft updateId readout — no Device attestation menu required */}
         <OtaRunningIdentity />
-      </View>
+      </KeyboardAwareScrollViewCompat>
 
       <Modal
         visible={confirmDeleteOpen}
