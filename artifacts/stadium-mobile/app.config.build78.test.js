@@ -22,12 +22,15 @@ describe("app.config.js EXPO_NO_CLERK_PASSKEYS", () => {
     delete require.cache[require.resolve("./app.config.js")];
   });
 
-  it("clears associatedDomains when EXPO_NO_CLERK_PASSKEYS=1", () => {
+  it("omits associatedDomains key when EXPO_NO_CLERK_PASSKEYS=1", () => {
     process.env.EXPO_NO_CLERK_PASSKEYS = "1";
     process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY =
       "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ";
     const cfg = require("./app.config.js")();
-    assert.deepEqual(cfg.expo.ios.associatedDomains, []);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(cfg.expo.ios, "associatedDomains"),
+      false,
+    );
   });
 
   it("keeps Clerk host domains when flag unset", () => {

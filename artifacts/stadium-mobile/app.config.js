@@ -30,10 +30,12 @@ module.exports = () => {
   const host = clerkFrontendApiHost(pk);
 
   if (stripPasskeys) {
-    expo.ios = {
-      ...expo.ios,
-      associatedDomains: [],
-    };
+    // Must omit the key entirely — `associatedDomains: []` still makes Expo
+    // prebuild emit com.apple.developer.associated-domains in entitlements,
+    // which Ad Hoc profiles without that capability reject.
+    const ios = { ...(expo.ios || {}) };
+    delete ios.associatedDomains;
+    expo.ios = ios;
   } else if (host) {
     expo.ios = {
       ...expo.ios,
