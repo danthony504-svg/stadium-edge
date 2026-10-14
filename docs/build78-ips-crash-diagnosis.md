@@ -119,16 +119,30 @@ Embedded IPA `main.jsbundle` has no ClerkExpoPasskeys strings — useful for rul
 `Library/Application Support/expo-error.log` (not under `.expo-internal`).  
 `consumeErrorLog` **deletes** the file after a later successful read — capture ASAP.
 
+### Build 78 **embedded** menu — Diagnostics is not listed
+
+Inspected Build 78 IPA embedded `main.jsbundle` (`CFBundleVersion` 78 / UUID `90811DE5-…`):
+
+| Fact | Evidence |
+|------|----------|
+| `/ota-debug` screen exists in the embedded bundle | Route / module string `ota-debug` present; report title `=== Stadium Edge OTA Diagnostics ===` |
+| Menu label **Device attestation** | **Absent** from embedded JS (`count=0`) — that label shipped in later OTA source (Oct 12+) |
+| Production side-menu entry | Gated by `shouldShowOtaDiagnosticsMenuItem(__DEV__)` which was **`return isDev`** on the Build 78–era gate → **hidden in production** |
+| Tip `01a13a0a` (Account scroll @ `100b2450`) | Would show **Device attestation** (`return true`) **if that tip’s JS were running** |
+
+So a running Build 78 app with **no** Diagnostics / Device attestation menu row is consistent with **embedded** (or any tip still using the `isDev` gate) — **not** with tip `01a13a0a` UI. Do not give Menu → Device attestation as the Build 78 embedded path.
+
 ### Can in-app Diagnostics export the raw file?
 
 **No — not the raw `expo-error.log` file.**
 
-| Path | What it exports | Feasible on crash-loop? |
-|------|-----------------|-------------------------|
-| Menu → **Device attestation** (`/ota-debug`) → **Copy** | `Updates.readLogEntriesAsync` (UpdatesLogger ring; may include the same serialized fatal via `logger.error`, but **not** a file export) | **Only if JS reaches Home.** 0.27s ErrorRecovery death typically cannot. |
-| Deep link `stadium-mobile://ota-debug` | Same | Still needs a successful enough JS boot |
+| Path | What it exports | Feasible on Build 78 embedded? |
+|------|-----------------|-------------------------------|
+| Menu → Device attestation / OTA Diagnostics | N/A | **Not shown** in production embedded menu (see above) |
+| Safari deep link `stadium-mobile://ota-debug` → Copy report | `readLogEntriesAsync` / static Updates fields (not the raw file) | **Supported if JS stays up** long enough for the route (scheme `stadium-mobile` is in the binary `Info.plist`) |
+| Error boundary “Something went wrong” | Selectable crash text | Only for caught JS render errors — **not** ErrorRecovery SIGABRT |
 
-While `isStartupProcedureRunning=true`, Diagnostics **skips** `readLogEntriesAsync`.
+While `isStartupProcedureRunning=true`, `/ota-debug` **skips** `readLogEntriesAsync`.
 
 ### Xcode “Download Container” — **not available for this TestFlight install**
 
