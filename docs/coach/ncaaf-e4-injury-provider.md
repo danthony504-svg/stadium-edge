@@ -40,9 +40,29 @@ Obtain **one** of the following in writing from SportsDataIO (or a sample payloa
 
 Until then: **do not request / purchase** a SportsDataIO subscription for E4.
 
+### ScoreTape (documented timestamps — not configured)
+
+[ScoreTape CFB docs](https://scoretape.com/docs) describe `GET /v1/cfb/injuries` with `captured_ms` and as-of reconstruction (`latest row with captured_ms ≤ T`). That **is** the timing shape E4 needs, but no ScoreTape key is present here and this agent must **not** purchase a subscription. Treat as a candidate only after procurement + sample payload review.
+
+### Draft collector (forward evidence)
+
+`scripts/ncaafPregameInjurySnapshotCollector.ts` freezes ESPN’s live CFB injuries feed with an explicit `captureTimestamp` under `test/fixtures/ncaaf-pregame-injury-snapshots/`. Valid as pre-kickoff evidence **only** when `captureTimestamp < game.kickoffIso`. Not a historical backfill.
+
+**Status:** first snapshot recorded in `manifest.json`. Historical holdout backfill is **unavailable** from verified free sources; E4 validation **cannot finish** until the evidence list below accumulates.
+
+## Evidence that must accumulate before E4 validation can finish
+
+Tracked in `test/fixtures/ncaaf-pregame-injury-snapshots/manifest.json` → `evidenceRequiredBeforeE4Validation`:
+
+1. Multiple snapshots spanning a full Odds-listed FBS slate with `captureTimestamp < each game's kickoffIso`.
+2. Join producing `injuryKnown=true|null` and optional `qbOut` — **never** coerce missing → `false`.
+3. Segment conservatism: mean \|edge\| on `injuryKnown=null` ≤ mean \|edge\| on `injuryKnown=true` with documented n.
+4. Competition scope remains Odds-listed FBS only.
+5. Do **not** purchase SportsDataIO/ScoreTape solely on unverified archive timing claims.
+
 ## Precise remaining E4 requirement
 
-1. Licensed **pre-kickoff** injury/QB availability for 2024 holdout games (SportsDataIO only after timing confirmation above, or another archive).
+1. Enough snapshots (collector and/or licensed feed with **documented pre-kickoff timestamps**) covering Odds-listed FBS games with `capture < kickoff`.
 2. Join producing `injuryKnown=true|null` and optional `qbOut` — **never** coerce missing → `false`.
-3. Segment engine \|edge\|: mean \|edge\| on `injuryKnown=null` must **not** exceed mean \|edge\| on `injuryKnown=true` (conservatism). Document n per segment (≥ agreed floor).
+3. Segment engine \|edge\|: mean \|edge\| on `injuryKnown=null` must **not** exceed mean \|edge\| on `injuryKnown=true`. Document n.
 4. Keep `NCAAF_GAME_LINE_SIM_VALIDATED=false` until E4 + E6 (+ E5/E2E) clear.
