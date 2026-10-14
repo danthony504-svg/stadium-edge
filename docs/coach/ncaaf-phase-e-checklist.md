@@ -20,8 +20,9 @@ Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.jso
 | ECE (10-bin) | **0.042** |
 | meanP / meanY (home ML) | **0.657 / 0.637** (bias ≈ **+0.020**, within 0.08) |
 | Near-coin-flip ML + away +7.5 cover | 0.683 (n=139) — OK vs 0.70 cap |
-| Closing-line CLV (joined) | **PASS** — n=713; marketBrier **0.179**, engineBrier **0.219**, both &lt; coin; mean(engine−market)≈**+0.019** |
-| Injury segments | **INSUFFICIENT_DATA** (null ≠ no-injury) |
+| Close soft gates (not CLV) | **PASS** — n≈713+; marketBrier **~0.179**, engineBrier **~0.219**, both &lt; coin; mean(engine−market)≈**+0.019** prob. points |
+| True price CLV (T−24h→close) | **Computed** — see `ncaaf-phase-e-true-clv-report.json` (not a restore gate by itself) |
+| Injury segments | **INSUFFICIENT_DATA** (null ≠ no-injury; SportsDataIO timing unproven) |
 
 ### Home-win bias root cause (fixed in calibration)
 
@@ -33,38 +34,85 @@ Prior FAIL used **combined L10 only** (no home/away venue splits) → meanP ≈ 
 |---|-----------|--------|-------|
 | E1 | Sensitivity ±3 ppg / QB-out ≥2pp | **PASS (unit)** | `ncaafGameLineSimValidation.test.ts` |
 | E2a | Outcome calibration vs coin (Brier, ECE, dog pathology, bias) | **PASS** | Venue-aware holdout; \|bias\|≈0.020 ≤ 0.08 |
-| E2b | Closing-line / market CLV | **PASS** | True pre-kickoff Odds closes + finals join; see below |
+| E2b | Close archive + soft gates | **PASS** (soft) | Criteria below — **not** true price CLV |
 | E3 | Exact-line binder | **PASS (unit)** | `gameSimQualityGates.test.ts` |
-| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Needs SportsDataIO box-score injury archive — [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md) |
+| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Timing evidence missing — [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md) |
 | E5 | Props / other-sport P0 regressions | **PASS (unit suite)** | Re-run before any flag flip |
-| E6 | Human sign-off | **OPEN** | Required after E4 PASS |
+| E6 | Human sign-off | **OPEN** | Named approver + date + commit SHA |
 
 **Restore readiness:** **NO** — E4 + E6 still open (`E2_readyForRestore=OPEN_NEEDS_E4_E6`). College game lines stay P0-blocked.
 
+## E2b — exact acceptance criteria (coded soft gates)
+
+Each must hold on the close-joined scored holdout set:
+
+1. `n ≥ 200` games with pre-kickoff close ML + engine home-ML sim + final scores  
+2. `marketBrier(close ML) < 0.25` (beat coin)  
+3. `engineBrier < 0.25` on the **same** games  
+4. `|mean(engineP_home − marketP_home_at_close)| ≤ 0.15`
+
+**Why it passed (1500-sim report):** n=713; marketBrier≈0.179; engineBrier≈0.219; mean(engine−market)≈**+0.019** (within 0.15).
+
+### What `mean(engine−market)=+0.019` is
+
+| | |
+|--|--|
+| **Symbol** | `(1/n) Σ_i (engineP_i − marketP_i)` |
+| **Unit** | Probability points on **[0, 1]** (not percent; +0.019 ≈ +1.9 percentage points) |
+| **engineP_i** | Coach `nfl-drive` home-ML hit rate for game *i* |
+| **marketP_i** | Implied home win prob from the **closing** American ML |
+| **Meaning** | Engine is, on average, **1.9 pp more bullish on home** than the closing market |
+| **Not CLV** | Does not use an earlier selection price; does not measure beating the close |
+
+### True price CLV (separate computation)
+
+Hypothetical **home ML / home spread** selected at Odds historical snap **~24h before kickoff**, graded vs the E2b close:
+
+| Metric | Value (n=705) |
+|--------|---------------|
+| Mean home-ML CLV | **−0.0019** probability points |
+| Mean \|ML CLV\| | 0.016 |
+| % home-ML selections that beat close | 39.4% |
+| Mean home-spread CLV | **−0.063** points |
+| Mean hours before commence | 24.1 |
+
+Definitions: `homeMlClvProbPoints = p_implied(close) − p_implied(early)`; `homeSpreadClvPoints = early_home_spread − close_home_spread`. Fixtures: `ncaaf-phase-e-true-clv-report.json`, `ncaaf-phase-e-true-clv-t24h.csv`.
+
+**Brier** = outcome calibration of a probability. **Δp (engine−market)** = model vs close disagreement. **CLV** = earlier bet price vs close price.
+
 ## E2b closing-line archive (2024 holdout)
 
-Built by `scripts/ncaafPhaseE2bClosingLines.py` → `test/fixtures/ncaaf-phase-e-closing-lines.json`.
+Built by `scripts/ncaafPhaseE2bClosingLines.py` (+ alias rematch) → `test/fixtures/ncaaf-phase-e-closing-lines.json`.
 
-**Closing definition:** for each game, Odds API historical odds with `date=kickoff` (closest snapshot ≤ commence). Midday slate files (`ncaaf-historical-odds-2024-09-14*.json`) are **not** closes — e.g. 16z snap still has **58/69** events kicking off &gt;2h later.
+**Closing definition:** Odds API historical odds with `date=kickoff` (closest snapshot ≤ commence). Midday slate files are **not** closes.
 
 | Join / QA | Count |
 |-----------|------:|
 | Holdout games (2024) | 871 |
-| Kickoff buckets fetched | 327 |
-| Matched with close prices | **778** |
-| Full spread+ML + finals | **717** (calibration join with close ML on scored sims: **713**) |
-| Missing | **93** (92 `no_odds_match` — mostly FCS/unlisted; 1 post-commence reject) |
-| Pre-commence closes | **778/778** (median **262s** before commence; 757 within 10 min) |
+| Matched after alias rematch | **842** |
+| Full spread+ML + finals | **774** |
+| Still missing | **29** |
+| Alias rematch recovered | **64** of original 93 |
 
-Market-only (full-price rows): Brier **0.178** vs coin 0.25; home ATS cover excl. push **0.495** (n=703).
+### Missing-game coverage bias
 
-## E4 dependency (verified before requesting keys)
+Original 93 misses were mostly **name mismatches** (Hawaiʻi / Hawaii, San José / San Jose, UMass, Sam Houston State, …) plus FCS/unlisted. After rematch, **29** remain — dominated by **App State** (Odds: Appalachian State) and **Southern Miss** (Odds: Southern Mississippi) plus FCS/non-listed opponents (SE Louisiana, Houston Christian, East Texas A&M, LIU, Youngstown State, ETSU).
 
-See [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md). **Do not request CFBD** — no injury family in CFBD data-availability. **SportsDataIO** documents historical injuries inside **CFB box scores** (`PlayerGame.InjuryStatus` from 2018) via Vault-enabled stats endpoints; live `InjuredPlayers` is current-only. Missing box-score injury rows stay `injuryKnown=null`.
+**Validation supports:** FBS regular-season games listed on The Odds API `americanfootball_ncaaf` with matchable names. **Does not support:** FCS-only coverage, or unlisted/unmatchable FBS aliases until rematched.
 
-### Durable Odds secret (separate from E2b work)
+## E4 / E6 — precise remaining requirements
 
-Exact server env name: **`ODDS_API_KEY`**. Entry steps: [`odds-api-key-cloud-agent.md`](./odds-api-key-cloud-agent.md). Historical entitlement already proven; inject via Cursor Secrets for new runs — do not paste into chat.
+**E4** (see [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md)):
+
+1. Prove pre-kickoff timing (SportsDataIO box-score `InjuryStatus` is **not** yet proven immutable as-of kickoff — **no subscription request yet**).  
+2. Join `injuryKnown=true|null` (+ optional `qbOut`); never coerce missing → false.  
+3. Conservatism: mean \|edge\| on unknown **≤** mean \|edge\| on known; document n.  
+
+**E6:** Named human approver + approval date + commit SHA in the flag-flip PR body (after E4 + E5 + E2E).
+
+### Durable Odds secret (ops only)
+
+Exact server env name: **`ODDS_API_KEY`**. Entry steps: [`odds-api-key-cloud-agent.md`](./odds-api-key-cloud-agent.md).
 
 ### Leakage audit (E2a venue/L10)
 

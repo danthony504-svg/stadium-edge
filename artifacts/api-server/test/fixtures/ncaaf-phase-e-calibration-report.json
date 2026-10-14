@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-14T22:24:30.997Z",
+  "generatedAt": "2026-10-14T23:00:46.039Z",
   "engine": "nfl-drive",
   "holdoutSeason": 2024,
   "simulationsPerGame": 1500,
@@ -15,32 +15,48 @@
   "closingLineData": "LOADED_PREKICKOFF_ODDS_ARCHIVE",
   "closingLineNote": "ncaaf-phase-e-closing-lines.json — per-game Odds API historical snapshot at date=kickoff (last ≤ commence); midday slate fixtures are not closes.",
   "closingLineJoin": {
-    "archiveRows": 778,
-    "scoredHoldoutWithCloseMl": 713,
-    "scoredHoldoutMissingClose": 152
+    "archiveRows": 842,
+    "scoredHoldoutWithCloseMl": 770,
+    "scoredHoldoutMissingClose": 95
   },
   "injurySegmentData": "INSUFFICIENT_DATA",
   "injuryNote": "injuryKnown left unset — missing records are NOT treated as no-injury. E4 needs SportsDataIO CFB Vault box-score PlayerGame.InjuryStatus (game-start snapshot, from 2018) or an equivalent licensed pregame archive. CFBD documents no injury family. ESPN live /injuries is current-only.",
   "metrics": {
-    "brier": 0.19876589595375724,
+    "brier": 0.19857494104046244,
     "brierCoin": 0.25,
-    "logLoss": 0.575944409251881,
-    "ece10": 0.041509826589595455,
-    "meanP": 0.6568277456647401,
+    "logLoss": 0.5754021191788783,
+    "ece10": 0.03657109826589579,
+    "meanP": 0.6570843930635849,
     "meanY": 0.6369942196531792,
-    "homeWinBias": 0.019833526011560965,
+    "homeWinBias": 0.020090173410405754,
     "nearCoinFlipDog75": {
-      "n": 139,
-      "awayCoverRate": 0.6834532374100719
+      "n": 145,
+      "awayCoverRate": 0.6620689655172414
     },
-    "closingLineClv": {
-      "n": 713,
-      "engineBrier": 0.21914830434782614,
-      "marketBrier": 0.17858032700949195,
+    "closingLineSoftGates": {
+      "n": 770,
+      "engineBrier": 0.21595067792207795,
+      "marketBrier": 0.1768228726228741,
       "coinBrier": 0.25,
       "engineBeatsCoin": true,
       "marketBeatsCoin": true,
-      "meanEngineMinusMarket": 0.019475510541121566,
+      "meanEngineMinusMarket": 0.019486914933258825,
+      "meanEngineMinusMarketUnit": "probability_points_0_to_1",
+      "isClosingLineValue": false,
+      "truePriceClvFixture": "ncaaf-phase-e-true-clv-report.json",
+      "absMeanEdgeMax": 0.15
+    },
+    "closingLineClv": {
+      "n": 770,
+      "engineBrier": 0.21595067792207795,
+      "marketBrier": 0.1768228726228741,
+      "coinBrier": 0.25,
+      "engineBeatsCoin": true,
+      "marketBeatsCoin": true,
+      "meanEngineMinusMarket": 0.019486914933258825,
+      "meanEngineMinusMarketUnit": "probability_points_0_to_1",
+      "isClosingLineValue": false,
+      "truePriceClvFixture": "ncaaf-phase-e-true-clv-report.json",
       "absMeanEdgeMax": 0.15
     }
   },

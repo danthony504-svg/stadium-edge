@@ -413,10 +413,12 @@ function main(): number {
     e2Outcome = beatCoin && eceOk && biasOk && dogOk ? "PASS" : "FAIL";
   }
 
-  // Closing-line / engine-vs-market block (E2b).
+  // E2b soft gates: close archive join + outcome Briers + engine-vs-close Δp.
+  // These are NOT closing-line value. True price CLV is computed separately
+  // (scripts/fixtures ncaaf-phase-e-true-clv-*).
   let e2bClv: "PASS" | "FAIL" | "INSUFFICIENT_DATA" | "OPEN" = "INSUFFICIENT_DATA";
   const clvReasons: string[] = [];
-  let clvMetrics: Record<string, number | boolean | null> | null = null;
+  let clvMetrics: Record<string, number | boolean | null | string> | null = null;
   if (closeMatched >= 200) {
     const engBrier = brier(clvEngineP, clvY);
     const mktBrier = brier(clvMarketP, clvY);
@@ -433,12 +435,25 @@ function main(): number {
       coinBrier: coin,
       engineBeatsCoin: engBrier < coin,
       marketBeatsCoin: mktBrier < coin,
+      /**
+       * mean(engineP_home − marketP_home_at_close):
+       * unit = probability points in [0,1] (NOT percent, NOT CLV).
+       * For each close-joined scored holdout game i:
+       *   engineP_i = nfl-drive home-ML hit rate
+       *   marketP_i = American close ML → implied win prob
+       *   mean = (1/n) Σ (engineP_i − marketP_i)
+       * Positive ⇒ engine is more bullish on home than the closing market, on average.
+       */
       meanEngineMinusMarket: meanEdge,
-      // Soft gate: market close should be informative; engine should beat coin on same set.
+      meanEngineMinusMarketUnit: "probability_points_0_to_1",
+      isClosingLineValue: false,
+      truePriceClvFixture: "ncaaf-phase-e-true-clv-report.json",
       absMeanEdgeMax: 0.15,
     };
     (report as { metrics: Record<string, unknown> | null }).metrics = {
       ...(m ?? {}),
+      closingLineSoftGates: clvMetrics,
+      // keep old key as alias for existing tests/docs readers
       closingLineClv: clvMetrics,
     };
     const mktOk = mktBrier < coin;
