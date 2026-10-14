@@ -47,22 +47,36 @@ Mangled names present in the UUID-matched `.symbols` file include:
 - `_$s9EXUpdates13ErrorRecoveryC13startPipeline33_…`
 - `_$s9EXUpdates13ErrorRecoveryC05writeB16OrExceptionToLog__…`
 
-Instant-crash IPS also shows concurrent work on `dev.expo.modules.core.logging` opening a file handle (`fileHandleForWritingAtPath`) while the recovery queue aborts — consistent with `ErrorRecovery.writeErrorOrExceptionToLog` writing **`expo-error.log`** for the *original* fatal (text not embedded in the `.ips`).
+Instant-crash IPS also shows concurrent work on `dev.expo.modules.core.logging` opening a file handle (`fileHandleForWritingAtPath`) while the recovery queue aborts — consistent with `ErrorRecovery.writeErrorOrExceptionToLog` writing **`expo-error.log`** for the *original* fatal (text not embedded in the `.ips`). Mangled name present in the UUID-matched `.symbols` file: `ErrorRecovery.writeErrorOrExceptionToLog`.
+
+### Thread / memory corroboration (re-parsed)
+
+| | Long (`055739`) | Instant (`055852`) |
+|--|-----------------|--------------------|
+| Fault queue | `expo.controller.errorRecoveryQueue` | same |
+| JS runtime | `com.facebook.react.runtime.JavaScript` + Hermes `hades` alive | same (runtime started) |
+| Extra | — | `dev.expo.modules.core.logging` → `fileHandleForWritingAtPath` + StadiumEdge frames |
+| Writable VM | **206.7M** | **140.4M** |
+
+Both die via `__pthread_kill` → `abort` → `-[NSException raise]` → StadiumEdge `573640/569024/568448/164088`. Instant death is early-launch class; long death keeps the same recovery stack after a full session.
 
 ### What is **not** proven from these two IPS files
 
 - The **original** JS/native fatal string (e.g. `Cannot find native module 'ClerkExpoPasskeys'`, Coach, Restart banner, Account scroll) is **not** present in either `.ips`.
 - Passkeys / Coach / Restart banner are **not** asserted as the Oct-14 trigger without `expo-error.log` / `readLogEntriesAsync` paste.
+- Mid-session **automatic** tip apply is **not** proven: production `OtaController` documents **no automatic `reloadAsync`** (Restart-only). Temporal tip correlation remains; the apply trigger (Restart tap vs ErrorRecovery relaunch selection vs other) is not in the IPS.
 
 ## Update / channel correlation
 
+Re-verified from GitHub Actions logs this session:
+
 | When (UTC) | Event | ID / note |
 |------------|-------|-----------|
-| 2026-10-14 **02:40:47Z** | **Rollback production OTA (embedded) run #5** — success | [run 38502290200](https://github.com/danthony504-svg/stadium-edge/actions/runs/38502290200) → iOS update `01a13849-3796-71b1-9607-fd9cd4493ef8`, message *Emergency rollback to embedded bundle*, group `9125e6db-…` |
-| 2026-10-14 **09:55:19Z** | Long process launches | After rollback #5; healthy ~62 min session |
-| 2026-10-14 **10:52:10Z** | **Publish production OTA** | [run 38552272849](https://github.com/danthony504-svg/stadium-edge/actions/runs/38552272849) @ `100b2450` — *fix(account): scroll so Sign out…* → iOS update **`01a13a0a-825f-72b5-8372-76e92d45f5c0`**, group `b76dd8f2-…`, channel `production`, `runtimeVersion` `1.1.0`, `EXPO_PUBLIC_OTA_USER_BANNER=true` |
+| 2026-10-14 **02:40:47Z** | **Rollback production OTA (embedded) run #5** — success | [run 38502290200](https://github.com/danthony504-svg/stadium-edge/actions/runs/38502290200) → log: `✔ Published!` · iOS update `01a13849-3796-71b1-9607-fd9cd4493ef8` · group `9125e6db-6a5e-4e99-820e-d834a382b420` · message *Emergency rollback to embedded bundle* · channel `production` linked |
+| 2026-10-14 **09:55:19Z** | Long process launches (`procLaunch` CDT 04:55:19) | After rollback #5; healthy ~62 min session |
+| 2026-10-14 **10:52:10Z** | **Publish production OTA** | [run 38552272849](https://github.com/danthony504-svg/stadium-edge/actions/runs/38552272849) @ `100b2450` → log: `✔ Published!` · Runtime `1.1.0` · iOS update **`01a13a0a-825f-72b5-8372-76e92d45f5c0`** · group `b76dd8f2-659e-480e-97bf-65b4be083e87` · channel `production` · `EXPO_PUBLIC_OTA_USER_BANNER=true` |
 | 2026-10-14 **10:57:39Z** | Long process SIGABRT (ErrorRecovery) | ~5 minutes after tip publish |
-| 2026-10-14 **10:58:51Z** | Instant relaunch SIGABRT (0.27 s) | Classic failed tip boot before `RCTContentDidAppear` |
+| 2026-10-14 **10:58:51Z** | Instant relaunch SIGABRT (0.27 s) | Failed launch + `expo-error.log` write path concurrent |
 | Live check (investigation) | Channel tip | `expo-update-id: 01a13a0a-825f-72b5-8372-76e92d45f5c0` |
 
 ### Embedded vs downloaded
@@ -70,11 +84,12 @@ Instant-crash IPS also shows concurrent work on `dev.expo.modules.core.logging` 
 | Evidence | Conclusion |
 |----------|------------|
 | Rollback #5 published an embedded-rollback directive before the long session | Channel directed clients to **embedded** after 02:41Z |
-| Embedded `main.jsbundle` in Build 78 IPA has **no** `ClerkExpoPasskeys` / `@clerk/expo/passkeys` / `getPasskeys` strings | Embedded JS is pre-passkey; a 62‑minute foreground session is consistent with **embedded** (or another non-fatal bundle), not the historical passkey tip crash-on-import |
-| Tip `01a13a0a` published ~5 minutes before the fatal window; instant relaunch dies in ErrorRecovery | Strong temporal correlation that the device **attempted to launch downloaded tip `01a13a0a`** (in-process `reloadAsync` keeps the same `procLaunch` for the long IPS) |
-| Instant IPS has much smaller `MALLOC` / `mapped file` than the 62‑min IPS | Early-launch death vs full session |
+| Embedded `main.jsbundle` in Build 78 IPA has **no** `ClerkExpoPasskeys` / `@clerk/expo/passkeys` / `getPasskeys` strings (only legacy `updatePreviouslyFailed` string) | Embedded JS is pre-passkey; a 62‑minute foreground session is consistent with **embedded** (or another non-fatal bundle), not the historical passkey tip crash-on-import |
+| Tip `01a13a0a` published ~5 minutes before the fatal window; instant relaunch dies in ErrorRecovery with log-write side activity | Strong temporal correlation that the device **attempted to launch downloaded tip `01a13a0a`** (in-process `reloadAsync` keeps the same `procLaunch` for the long IPS) |
+| Instant IPS writable VM **140.4M** vs long **206.7M** | Early-launch death vs full session |
+| Tip git tree @ `100b2450` includes fail-soft `getPasskeys()`; merge delta is Account scroll only (`account.tsx` + test) | Account-scroll source change alone is **not** a proven boot fatal; published Hermes blob was not CDN-downloaded here (no `EXPO_TOKEN`) |
 
-**Best-supported narrative:** post–rollback #5 the app ran **embedded** successfully → production tip **`01a13a0a`** was published → apply/reload into that downloaded update → fatal before content appeared → ErrorRecovery pipeline exhausted → SIGABRT; cold start retried the bad launch and died in 0.27 s.
+**Best-supported narrative:** post–rollback #5 the app ran **embedded** successfully → production tip **`01a13a0a`** was published → device selected/launched that **downloaded** update → original fatal (text unknown) → ErrorRecovery pipeline exhausted → SIGABRT; cold start retried the bad launch and died in 0.27 s while writing `expo-error.log`.
 
 ## Prior same-offset class (context only)
 
@@ -90,6 +105,7 @@ That fatal was addressed in tip `01a136bb` / fail-soft `getPasskeys()` (`2355013
 2. Full **DWARF dSYM** (not only Apple `.symbols`) for line-accurate `atos` of `0x8c0c8` / `0x8aec0` / `0x8ac80` / `0x280f8`.
 3. On-device attestation: `isEmbeddedLaunch`, `updateId`, `createdAt` immediately after the crash loop.
 4. Whether `01a13a0a` itself JS-fatals, or a tip-boot / reload race re-entered ErrorRecovery without a new app-level bug.
+5. What **triggered** tip launch on the long PID (Restart vs recovery selection) — not in IPS; app code forbids auto-reload.
 
 ## Targeted fix status
 
