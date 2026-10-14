@@ -1,5 +1,14 @@
 # Emergency production OTA rollback (audited)
 
+## Build 78 / runtime 1.1.0 (current)
+
+See **`OTA_BUILD78_ROLLBACK_PREP.md`** for the last verified working tip
+(`01a13019` / group `804902bb-…`), exact `gh workflow run` commands, and how
+rollback reaches devices that crash before Home. Print-only helper:
+`bash scripts/print-build78-rollback-commands.sh`.
+
+PR #729 must not be published for this recovery.
+
 ## Allowed emergency path (no new JS)
 
 Use **Rollback production OTA (embedded)** only:
