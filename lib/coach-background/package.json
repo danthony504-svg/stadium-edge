@@ -1,0 +1,26 @@
+{
+  "name": "@workspace/coach-background",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import ./test/register-hooks.mjs --test 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@workspace/coach-cache": "workspace:*",
+    "@workspace/coach-data": "workspace:*",
+    "@workspace/coach-rank": "workspace:*",
+    "@workspace/coach-scan": "workspace:*",
+    "@workspace/coach-sim": "workspace:*",
+    "@workspace/coach-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@workspace/coach-gates": "workspace:*",
+    "@workspace/coach-sim-cache": "workspace:*"
+  }
+}
