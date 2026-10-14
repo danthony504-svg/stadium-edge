@@ -1,5 +1,4 @@
 import { useSignIn } from "@clerk/expo";
-import { passkeys } from "@clerk/expo/passkeys";
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { type Href, Link, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -16,6 +15,7 @@ import {
   PrimaryButton,
   SecondaryButton,
 } from "@/components/auth";
+import { OtaRunningIdentity } from "@/components/OtaRunningIdentity";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { requestAppReviewTicket } from "@/lib/appReviewAuth";
@@ -36,6 +36,7 @@ import {
 import {
   describePasskeyError,
   isPasskeyCancellation,
+  isPasskeysSupported,
 } from "@/lib/passkeyAuth";
 import {
   resolvePostAuthHref,
@@ -164,13 +165,7 @@ export default function SignInScreen() {
   const [bioBusy, setBioBusy] = React.useState(false);
   const [passkeyBusy, setPasskeyBusy] = React.useState(false);
   const [verifyBusy, setVerifyBusy] = React.useState(false);
-  const passkeySupported = React.useMemo(() => {
-    try {
-      return passkeys.isSupported();
-    } catch {
-      return false;
-    }
-  }, []);
+  const passkeySupported = React.useMemo(() => isPasskeysSupported(), []);
   // Armed only after this visit's password/biometric submit reaches MFA.
   // Prevents stale Clerk needs_second_factor / needs_client_trust from skipping
   // the email/password screen when opening Sign in.
@@ -741,6 +736,8 @@ export default function SignInScreen() {
       </View>
 
       <FeatureRow />
+      {/* Fail-soft updateId readout — no Device attestation menu required */}
+      <OtaRunningIdentity compact />
     </AuthShell>
   );
 }

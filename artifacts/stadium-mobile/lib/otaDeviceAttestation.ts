@@ -5,8 +5,11 @@
 
 /** Healthy production OTA for runtime 1.1.0 (greenfield Coach). */
 export const EXPECTED_HEALTHY_RUNTIME = "1.1.0";
-/** Live production iOS tip (includes #709 quality floor + attestation UI). */
-export const EXPECTED_HEALTHY_UPDATE_ID = "01a13019-8a5f-7f4d-bacb-31b1105de281";
+/**
+ * Production channel tip after #724 tip-boot fix (supersedes blacklisted 01a13540).
+ * Case A no longer requires an exact id match — any non-embedded 1.1.0 tip is healthy.
+ */
+export const EXPECTED_HEALTHY_UPDATE_ID = "01a13582-b9f1-72ab-b1c4-d8ed87c1200e";
 export const EXPECTED_HEALTHY_EMBEDDED = false;
 
 export type DeviceAttestationCase = "A" | "B" | "C" | "UNKNOWN";
@@ -69,27 +72,19 @@ export function classifyDeviceAttestation(
     };
   }
 
-  if (runtime === EXPECTED_HEALTHY_RUNTIME && matchesExpectedUpdateId) {
-    const embeddedNote = input.isEmbeddedLaunch
-      ? " WARNING: isEmbeddedLaunch=true despite matching updateId — treat as Case B until embedded clears."
-      : "";
-    if (input.isEmbeddedLaunch) {
-      return {
-        caseId: "B",
-        label: "Case B — OTA check/apply failing or embedded winning",
-        summary: `Runtime ${runtime} reports expected updateId but isEmbeddedLaunch=true.${embeddedNote}`,
-        recoveryPath: caseBRecoveryPath(),
-        matchesExpectedUpdateId: true,
-        isLegacyRuntime: false,
-      };
-    }
+  // Case A: any non-embedded 1.1.0 tip counts as healthy apply (exact tip id drifts every publish).
+  if (
+    runtime === EXPECTED_HEALTHY_RUNTIME &&
+    !input.isEmbeddedLaunch &&
+    !isBlankUpdateId(updateId)
+  ) {
     return {
       caseId: "A",
-      label: "Case A — healthy OTA identity; stale UI is another code path",
-      summary: `runtime=${EXPECTED_HEALTHY_RUNTIME}, updateId=${EXPECTED_HEALTHY_UPDATE_ID}, isEmbeddedLaunch=false. Add-to-slip must come from a stale Coach renderer/component, not a missing OTA.`,
+      label: "Case A — healthy OTA identity; tip is running",
+      summary: `runtime=${EXPECTED_HEALTHY_RUNTIME}, updateId=${updateId}, isEmbeddedLaunch=false${matchesExpectedUpdateId ? " (matches channel tip constant)" : " (superseding tip — ok)"}.`,
       recoveryPath:
-        "Do not republish OTA. Trace the exact Coach slip/Add-to-slip renderer still mounted (pre-greenfield component, feature flag, or alternate board path). Fix that client code path on main, then publish a new 1.1.0 production OTA only after the renderer is identified.",
-      matchesExpectedUpdateId: true,
+        "OTA apply succeeded. If Coach UI still looks stale, trace the renderer — do not assume a missing OTA.",
+      matchesExpectedUpdateId,
       isLegacyRuntime: false,
     };
   }
@@ -98,7 +93,7 @@ export function classifyDeviceAttestation(
     return {
       caseId: "B",
       label: "Case B — OTA check/apply failing or embedded winning",
-      summary: `Runtime is ${EXPECTED_HEALTHY_RUNTIME} but updateId=${updateId || "—"} (expected ${EXPECTED_HEALTHY_UPDATE_ID}); isEmbeddedLaunch=${String(input.isEmbeddedLaunch)}.`,
+      summary: `Runtime is ${EXPECTED_HEALTHY_RUNTIME} but updateId=${updateId || "—"} (channel tip ${EXPECTED_HEALTHY_UPDATE_ID}); isEmbeddedLaunch=${String(input.isEmbeddedLaunch)}.`,
       recoveryPath: caseBRecoveryPath(),
       matchesExpectedUpdateId: false,
       isLegacyRuntime: false,

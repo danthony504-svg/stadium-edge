@@ -27,15 +27,14 @@
       "autoIncrement": false,
       "channel": "production",
       "ios": {
-        "resourceClass": "m-medium",
-        "buildNumber": "79"
+        "resourceClass": "m-medium"
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
         "EXPO_PUBLIC_APP_REVIEW_MODE": "false",
         "EXPO_PUBLIC_OTA_BOOTSTRAP": "true",
-        "EXPO_PUBLIC_OTA_USER_BANNER": "false"
+        "EXPO_PUBLIC_OTA_USER_BANNER": "true"
       }
     }
   },

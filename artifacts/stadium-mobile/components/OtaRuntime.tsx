@@ -7,13 +7,14 @@ import { useOtaController } from "@/lib/ota";
  *
  * Does NOT use the legacy updater hook / recovery / auto-reload stack.
  *
- * Normal production users do not see the blue update banner — background
- * check/download may still run. Set EXPO_PUBLIC_OTA_USER_BANNER=true (or
- * __DEV__) to show Restart UI. reloadAsync remains explicit-only.
+ * Recovery default: show Restart banner in production unless explicitly
+ * disabled with EXPO_PUBLIC_OTA_USER_BANNER=false. Build 78 apply loops need
+ * a visible Restart path; reloadAsync remains explicit-only.
  */
 function otaUserBannerEnabled(): boolean {
   if (typeof __DEV__ !== "undefined" && __DEV__) return true;
-  return (process.env.EXPO_PUBLIC_OTA_USER_BANNER ?? "").trim() === "true";
+  const raw = (process.env.EXPO_PUBLIC_OTA_USER_BANNER ?? "true").trim().toLowerCase();
+  return raw !== "false" && raw !== "0";
 }
 
 export default function OtaRuntime() {

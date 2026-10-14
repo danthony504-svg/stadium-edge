@@ -1,7 +1,7 @@
 /**
  * Production OTA driver. Mount once from OtaRuntime (after first paint).
  * - boot() with no reload
- * - delayed check once
+ * - delayed check once, and only after native startup procedure settles
  * - foreground check with cooldown (never reload)
  * - restart() only when UI calls it
  */
@@ -14,6 +14,9 @@ import {
   DEFAULT_LAUNCH_DELAY_MS,
   type OtaSnapshot,
 } from "./types.ts";
+import { waitForStartupProcedureIdle } from "./waitForStartupProcedureIdle.ts";
+
+export { waitForStartupProcedureIdle } from "./waitForStartupProcedureIdle.ts";
 
 export function useOtaController(enabled: boolean): {
   snapshot: OtaSnapshot;
@@ -33,10 +36,17 @@ export function useOtaController(enabled: boolean): {
   useEffect(() => {
     if (!enabled) return;
 
-    // Boot first — never reload. Then check after the app is stable.
+    let cancelled = false;
+
+    // Boot first — never reload. Then wait for launch delay + startup idle.
     controller.boot();
+
     const launchTimer = setTimeout(() => {
-      void controller.check();
+      void (async () => {
+        await waitForStartupProcedureIdle(() => controller.isStartupBlocking());
+        if (cancelled) return;
+        await controller.check();
+      })();
     }, DEFAULT_LAUNCH_DELAY_MS);
 
     let backgroundAt = 0;
@@ -53,6 +63,7 @@ export function useOtaController(enabled: boolean): {
     const sub = AppState.addEventListener("change", onAppState);
 
     return () => {
+      cancelled = true;
       clearTimeout(launchTimer);
       sub.remove();
     };

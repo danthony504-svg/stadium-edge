@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { OtaRunningIdentity } from "@/components/OtaRunningIdentity";
 import { FONT } from "@/components/ui";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
@@ -477,6 +478,9 @@ export default function AccountScreen() {
             Delete account
           </Text>
         </Pressable>
+
+        {/* Fail-soft updateId readout — no Device attestation menu required */}
+        <OtaRunningIdentity />
       </View>
 
       <Modal
