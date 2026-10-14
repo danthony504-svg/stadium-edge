@@ -115,15 +115,9 @@ Embedded IPA `main.jsbundle` has no ClerkExpoPasskeys strings — useful for rul
 
 ### Where the file lives (expo-updates 29.0.18)
 
-`ErrorRecovery.ErrorLogFile = "expo-error.log"` written under:
-
-`Application Support/expo-error.log`
-
-i.e. inside the app container:
-
-`Library/Application Support/expo-error.log`
-
-(not under `.expo-internal`). `consumeErrorLog` **deletes** the file after a later successful read (e.g. FileDownloader path) — capture ASAP after a crash.
+`ErrorRecovery.ErrorLogFile = "expo-error.log"` under app-container  
+`Library/Application Support/expo-error.log` (not under `.expo-internal`).  
+`consumeErrorLog` **deletes** the file after a later successful read — capture ASAP.
 
 ### Can in-app Diagnostics export the raw file?
 
@@ -131,42 +125,60 @@ i.e. inside the app container:
 
 | Path | What it exports | Feasible on crash-loop? |
 |------|-----------------|-------------------------|
-| Menu → **Device attestation** (`/ota-debug`) → **Copy** full report | `Updates.readLogEntriesAsync` (last ~1h UpdatesLogger ring). The write path also `logger.error`s the serialized fatal, so the **same text may appear** in the “expo-updates native logs” section — but this is **not** a direct file export of `expo-error.log`. | **Only if JS reaches Home / menu.** Instant 0.27s ErrorRecovery death typically **cannot** open Diagnostics. |
-| Home attestation strip → open `/ota-debug` | Same static diagnostics + copy | Same limitation |
+| Menu → **Device attestation** (`/ota-debug`) → **Copy** | `Updates.readLogEntriesAsync` (UpdatesLogger ring; may include the same serialized fatal via `logger.error`, but **not** a file export) | **Only if JS reaches Home.** 0.27s ErrorRecovery death typically cannot. |
 | Deep link `stadium-mobile://ota-debug` | Same | Still needs a successful enough JS boot |
 
-While `isStartupProcedureRunning=true`, Diagnostics **skips** `readLogEntriesAsync` (zero Updates I/O on open).
+While `isStartupProcedureRunning=true`, Diagnostics **skips** `readLogEntriesAsync`.
 
-### Exact feasible retrieval (Mac + this iPhone)
+### Xcode “Download Container” — **not available for this TestFlight install**
 
-1. Connect the iPhone (the one that produced the IPS; keep the app installed — do not delete).
-2. On Mac: **Xcode → Window → Devices and Simulators**.
-3. Select the device → app **Stadium Edge** (`com.stadiumedge.app`) → **gear / “…” → Download Container…** (or “Download Container”).
-4. Open the `.xcappdata` package →  
-   `AppData/Library/Application Support/expo-error.log`
-5. If the file exists, paste the full contents (look for leading `Fatal error:` or `Fatal exception:`).
-6. If the file is **missing**: it was never written, already consumed/deleted, or the container download is incomplete — fall through to next method.
+Build 78 on the phone is a **TestFlight / App Store distribution** binary (`is_beta: 1` in the IPS). Xcode Devices **Download Container** is supported for **development-signed** installs; App Store / TestFlight sandboxes are **not** reliably downloadable (option missing, greyed out, or “Failed to download application container”). **Do not assume** you can pull `expo-error.log` from this installed TestFlight build via Xcode container download.
 
-**Files app / iCloud / TestFlight UI cannot browse Application Support** for this path. There is no in-app “export expo-error.log” button on Build 78.
+(If you separately install a **Debug** development build of the same app id, container download may work for *that* install — it is a different sandbox and will **not** contain the TestFlight crash’s `expo-error.log`.)
 
-### Next evidence-collection method if the file is inaccessible
+### Supported evidence-collection methods (in order)
 
-1. **Mac Console.app** (device connected): filter process `StadiumEdge`, reproduce one cold launch, capture lines containing `Fatal error`, `Fatal exception`, `markFailedLaunchForUpdate`, `errorRecovery`.
-2. If the app **can** stay up on embedded after enough failed tip launches: Menu → Device attestation → Copy report → send the `--- expo-updates native logs (last hour) ---` block (and `Updates.updateId` / `isEmbeddedLaunch`).
-3. Optional ops (human): embedded rollback (run #5 workflow) so the device can boot UI for Diagnostics — **not** executed by this investigation.
+1. **Mac Console.app** (primary for TestFlight crash-loop)  
+   - Connect the iPhone → open **Console** → select the device → filter process `StadiumEdge` (or subsystem containing `expo` / `EXUpdates`).  
+   - Force-quit Stadium Edge → cold launch once → capture lines with `Fatal error`, `Fatal exception`, `markFailedLaunchForUpdate`, `errorRecovery`, `jsRuntimeError`.  
+   - Optionally: device **sysdiagnose** (Analytics & Improvements / Settings path, or `sysdiagnose` gesture) and search the archive for the same strings.
+
+2. **In-app Diagnostics** — only after the process can reach Home  
+   - Menu → Device attestation → **Copy** → paste `--- expo-updates native logs (last hour) ---` plus `Updates.updateId` / `isEmbeddedLaunch`.  
+   - Prefer this **after** a successful embedded boot (native failed-launch blacklist and/or channel embedded rollback), not during the 0.27s loop.
+
+3. **Ops (human; after freeze is effective on `main`)** — embedded rollback via `rollback-production-ota` so UI can boot for (2). **Not** run by this investigation. Verify freeze on `main` first (see §D).
 
 ---
 
-## D. Freeze prepared (no publish)
+## D. Freeze gates (merge to `main` to arm Actions)
 
-This branch adds:
+| Layer | What |
+|-------|------|
+| Marker | Repo-root `.ota-production-freeze` |
+| Shared script gate | `artifacts/stadium-mobile/scripts/lib/require-ota-unfrozen.sh` |
+| Publish scripts | `publish-production-ota`, `force-production-ota`, `heal-production-ota`, `republish-stable-production-ota`, `publish-bootstrap-ota`, `publish-ota-test-001/002`, `prepare-force-update-ota-103` (publish path only) |
+| Workflow fail-fast | Same set of `.github/workflows/*` refuse immediately after checkout if freeze file present |
+| Ungated | `rollback-production-ota.sh` + `rollback-production-ota.yml` (embedded only) |
+| Gate audit | `bash artifacts/stadium-mobile/scripts/verify-ota-production-freeze-gates.sh` |
 
-- Repo-root **`.ota-production-freeze`** (blocks `publish-production-ota.sh`, and now `force-` / `heal-` / `republish-` scripts).
-- Freeze gates on force/heal/republish scripts (force previously ignored the freeze file).
+**Arming:** merge this PR to `main` **without** running Publish / Force / Heal / Republish / Bootstrap / OTA-TEST workflows. Do **not** edit `.ota-force-publish` on that commit (push auto-runs Force).
 
-**To arm the freeze on production Actions:** merge to `main` (or land `.ota-production-freeze` on `main`) **without** running Publish / Force / Heal / Republish workflows. Do not touch `.ota-force-publish` on that commit.
+### Post-merge checks (before another embedded rollback)
 
-Emergency embedded rollback remains available via `rollback-production-ota` (not gated by the freeze file in that script).
+On `main` after merge (read-only; no publish):
+
+```bash
+git fetch origin main && git show origin/main:.ota-production-freeze | head
+bash artifacts/stadium-mobile/scripts/verify-ota-production-freeze-gates.sh
+# Expect exit 1 with freeze text (proves script gate):
+bash artifacts/stadium-mobile/scripts/publish-production-ota.sh 'should-fail' || true
+bash artifacts/stadium-mobile/scripts/force-production-ota.sh 'should-fail' || true
+# Rollback must still be callable (will need EXPO_TOKEN only if executed — do not run yet):
+grep -n 'ota-production-freeze\|require-ota-unfrozen' artifacts/stadium-mobile/scripts/rollback-production-ota.sh || echo 'rollback ungated OK'
+```
+
+Only after those pass, consider embedded rollback if ops still need a booting device for Diagnostics.
 
 ---
 

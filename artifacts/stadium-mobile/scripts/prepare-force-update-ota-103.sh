@@ -119,6 +119,10 @@ EOF
   exit 0
 fi
 
+# Publish path only — dry-run above is allowed during a freeze.
+# shellcheck disable=SC1091
+source scripts/lib/require-ota-unfrozen.sh
+
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required for FORCE_PUBLISH=1"
   exit 1

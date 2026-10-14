@@ -29,6 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Refuse when production OTA frozen
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -f .ota-production-freeze ]; then
+            echo "PRODUCTION OTA FROZEN — refusing Republish stable production OTA"
+            cat .ota-production-freeze
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10

@@ -3,14 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Repo root is two levels above stadium-mobile (same as publish-production-ota.sh).
+# shellcheck disable=SC1091
+source scripts/lib/require-ota-unfrozen.sh
 REPO_ROOT="$(cd ../.. && pwd)"
-if [[ -f "$REPO_ROOT/.ota-production-freeze" ]]; then
-  echo "PRODUCTION OTA FROZEN (.ota-production-freeze present)."
-  echo "Force-publish is blocked — including push triggers on .ota-force-publish."
-  echo "See .ota-production-freeze and docs/build78-ips-crash-diagnosis.md"
-  exit 1
-fi
 
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required"
