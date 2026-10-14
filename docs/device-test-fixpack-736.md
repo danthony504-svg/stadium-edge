@@ -1,8 +1,8 @@
 # Device-test prep — PR #736
 
-**Pinned test commit (fixes + preview/test config):**  
-`888079438b434cbd0c6cc985fd61e9765f8b9ec1` on branch `cursor/build78-fixpack-def8`  
-(College sim engine + P0 gate + crash-test binary requirements + preview OTA scripts. If branch tip moves, prefer tip as long as it contains `4738df08`.)
+**Pinned test commit (fixes + preview/test config):** tip of `cursor/build78-fixpack-def8`  
+Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.  
+**Recorded tip for this docs revision:** see Quick reference (updated when this file changes).
 
 **Goal:** Exercise Build 78 fail-soft + college sport lock + OTA rollback on a **meaningful** binary without exposing production users.
 
@@ -14,9 +14,9 @@
 
 | Item | Value |
 |------|--------|
-| **Latest full commit** | `888079438b434cbd0c6cc985fd61e9765f8b9ec1` |
-| College-sim content | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
-| Branch | `cursor/build78-fixpack-def8` |
+| **Branch tip under test** | `cursor/build78-fixpack-def8` (confirm with `git rev-parse HEAD`) |
+| College-sim content (required ancestor) | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
+| Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |
 | Runtime | `1.1.0` |
 | Test channel | `preview` |
@@ -25,27 +25,29 @@
 ### Install method A — preview binary + preview OTA (recommended for JS tip)
 
 ```bash
-# 1) Checkout the pinned tip (or newer tip on this branch that contains 4738df08)
+# 1) Checkout branch tip (must include 4738df08)
 git fetch origin cursor/build78-fixpack-def8
-git checkout 888079438b434cbd0c6cc985fd61e9765f8b9ec1
-git rev-parse HEAD   # confirm
+git checkout origin/cursor/build78-fixpack-def8
+git merge-base --is-ancestor 4738df08db5fc3425bc1fd317431c52bc5b9c0a8 HEAD
+git rev-parse HEAD   # report this SHA as the install commit
 
 # 2) Build a preview-channel iOS binary (approve before running — agent does not start builds)
 cd artifacts/stadium-mobile
 eas build --profile preview --platform ios --non-interactive
 # install via QR / internal distribution
 
-# 3) Publish JS tip to preview only
+# 3) Publish JS tip to preview only (message should include the SHA from step 1)
 EXPO_TOKEN=… bash scripts/publish-preview-ota.sh \
-  'PR736 88807943 device test — preview only'
+  "PR736 $(git rev-parse --short HEAD) device test — preview only"
 
 # 4) On device: force-quit → reopen → apply tip → cold launch ×2
 ```
 
-### Install method B — Metro on pinned commit (no OTA)
+### Install method B — Metro on branch tip (no OTA)
 
 ```bash
-git checkout 888079438b434cbd0c6cc985fd61e9765f8b9ec1
+git fetch origin cursor/build78-fixpack-def8
+git checkout origin/cursor/build78-fixpack-def8
 cd artifacts/stadium-mobile
 eas build --profile development --platform ios   # approve first
 npx expo start --dev-client
@@ -151,10 +153,10 @@ Same college ask twice; record wall-clock + stage timings. Until measured on dev
 
 | Item | Value |
 |------|--------|
-| Latest full commit | `888079438b434cbd0c6cc985fd61e9765f8b9ec1` |
-| College-sim content | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
+| Install | `git checkout origin/cursor/build78-fixpack-def8` then `git rev-parse HEAD` |
+| Required ancestor | `4738df08db5fc3425bc1fd317431c52bc5b9c0a8` |
 | Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
-| Preview config landed after | `6f7d4178` → `29fa596b` → `4738df08` → `88807943` |
+| History | `6f7d4178` → `29fa596b` → `4738df08` → docs tips |
 | Branch | `cursor/build78-fixpack-def8` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |
 | Publish script | `artifacts/stadium-mobile/scripts/publish-preview-ota.sh` |
