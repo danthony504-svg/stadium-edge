@@ -24,8 +24,9 @@ Historical closing lines for Phase E E2b use The Odds API:
 |------|--------|
 | Host | **Cursor Cloud Agent VM** (not GitHub Actions, not Render) |
 | Environment | [8c5427d9-a490-11f1-a7d1-d6b4613131ce](https://cursor.com/dashboard/cloud-agents/environments/e/8c5427d9-a490-11f1-a7d1-d6b4613131ce) |
-| Injected secrets (verified) | `EXPO_TOKEN` only (`CLOUD_AGENT_INJECTED_SECRET_NAMES`) |
-| `ODDS_API_KEY` in this VM | **Unset** — historical probe → `MISSING_KEY` (401) |
+| Injected secrets (verified) | `EXPO_TOKEN` only (`CLOUD_AGENT_INJECTED_SECRET_NAMES` / `CLOUD_AGENT_ALL_SECRET_NAMES`) |
+| `ODDS_API_KEY` in this VM | **Still unset** as an injected secret — must be added to Cursor Secrets for durable access |
+| Historical entitlement (ephemeral probe) | **SUCCESS** — paid historical NCAAF odds returned 200; fixtures saved under `artifacts/api-server/test/fixtures/ncaaf-historical-odds-*.json` |
 
 A **GitHub Actions secret** or **Render env var** with the same name is **not** injected into this VM.
 

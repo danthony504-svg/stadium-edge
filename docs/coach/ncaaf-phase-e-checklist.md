@@ -45,24 +45,29 @@ Prior FAIL used **combined L10 only** (no home/away venue splits) → meanP ≈ 
 
 | Gap | Dependency |
 |-----|------------|
-| E2b closing lines | `ODDS_API_KEY` with **The Odds API historical scores** access for `americanfootball_ncaaf`, **or** frozen CSV at `NCAAF_PHASE_E_FIXTURE` with columns `gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown` |
-| E4 injury / QB | Same CSV `injuryKnown` (+ optional `qbOut`) per game, **or** historical ESPN injury snapshots keyed by `eventId`/`teamId` before kickoff. Live ESPN `/injuries` (current season only) is **not** a historical holdout archive. |
+| E2b closing lines | Historical Odds snapshots retrieved (see fixtures below). Still need holdout join + CLV wiring, **or** full `NCAAF_PHASE_E_FIXTURE` CSV (`gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown`). |
+| E4 injury / QB | Frozen CSV `injuryKnown` (+ optional `qbOut`) per game, **or** licensed pregame injury archive keyed by `eventId`/`teamId`. No public ESPN/CFBD historical injury archive available in this agent. |
 
-### Credential probe (Cloud Agent, 2026-10-14)
+### Credential + historical probe (Cloud Agent, 2026-10-14)
 
 Exact server env name: **`ODDS_API_KEY`** (`process.env["ODDS_API_KEY"]`). Secure Cursor entry steps: [`odds-api-key-cloud-agent.md`](./odds-api-key-cloud-agent.md).
 
 | Secret / source | Status |
 |-----------------|--------|
-| Injected secrets | **`EXPO_TOKEN` only** (`CLOUD_AGENT_INJECTED_SECRET_NAMES`) |
-| `ODDS_API_KEY` (this VM) | **Missing** — historical call with empty key → `401 MISSING_KEY` |
-| Render live odds | **Working** — `GET https://stadium-edge.onrender.com/api/sports/odds?sport=ncaaf` → 200 with books. Render secret values / historical plan tier **not** readable from this agent (`RENDER_API_KEY` unset) |
-| ESPN injuries (live) | Public 200 — **current** season only (`?dates=` / `?date=` ignored; still returns live season) |
-| ESPN core historical injuries | **404** — `/seasons/2024/.../injuries` and athlete injury history |
-| ESPN event summary (2024) | 200 but **no `injuries` block** — cannot supply holdout `injuryKnown` / `qbOut` |
+| Injected secrets | **`EXPO_TOKEN` only** — `ODDS_API_KEY` still **not** in `CLOUD_AGENT_ALL_SECRET_NAMES` / process env on this pod |
+| Provided credential fingerprint | **Valid key** (live `/v4/sports` 200; ~3.99M requests remaining) but **not injected** as an environment secret — ephemeral probe only |
+| Historical NCAAF odds | **SUCCESS** — `GET /v4/historical/sports/americanfootball_ncaaf/odds` → 200 (paid entitlement OK). Sample fixtures under `artifacts/api-server/test/fixtures/ncaaf-historical-odds-*.json` |
+| Historical scores path | `/v4/historical/.../scores` → **404** (not a v4 route); live `/v4/sports/.../scores` works |
+| Render live odds | **Working** — production returns NCAAF books; Render secret values still not readable here |
+| ESPN injuries (live) | Public 200 — **current** season only |
+| ESPN CFB historical injuries | **Unavailable** — core season/athlete injury URLs 404; scoreboard/summary lack injury blocks; athlete `rotowire` is current blurb only |
+| CFBD / other injury APIs | No `CFBD_API_KEY` (or similar) in agent — CFBD without key → 401 |
 | `NCAAF_PHASE_E_FIXTURE` | Unset |
+| `NCAAF_GAME_LINE_SIM_VALIDATED` | Remains **`false`** |
 
-**E4 remaining dependency (specific):** a frozen holdout CSV (`NCAAF_PHASE_E_FIXTURE`) with per-game `injuryKnown` (+ optional `qbOut`), **or** a licensed pregame injury archive keyed by `eventId`/`teamId` before kickoff. Live ESPN `/injuries` and historical game summaries are **not** that archive.
+**E2b next step:** join historical odds fixtures to holdout games and compute CLV (still do not flip P0).
+
+**E4 remaining dependency (specific):** `NCAAF_PHASE_E_FIXTURE` with `injuryKnown` (+ optional `qbOut`), or a licensed pregame injury/QB archive. Public ESPN + keyless CFBD cannot supply 2023–2024 holdout injury flags.
 
 ### Leakage audit (E2a venue/L10)
 
