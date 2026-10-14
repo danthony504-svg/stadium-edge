@@ -33,7 +33,8 @@ if grep -E '^[[:space:]]*(source |\. ).*require-ota-unfrozen\.sh|[[:space:]]*\[\
   scripts/rollback-production-ota.sh >/dev/null; then
   echo "FAIL: rollback-production-ota.sh must NOT honor .ota-production-freeze"
   FAIL=1
-elif grep -q 'Refuse when production OTA frozen' .github/workflows/rollback-production-ota.yml; then
+elif grep -q 'Refuse when production OTA frozen' \
+  "$REPO_ROOT/.github/workflows/rollback-production-ota.yml"; then
   echo "FAIL: rollback-production-ota.yml must not fail-fast on freeze"
   FAIL=1
 else
