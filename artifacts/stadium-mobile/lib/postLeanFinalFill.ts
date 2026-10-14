@@ -12,6 +12,7 @@ import { pickMatchesAskSports } from "./coachAskSportScope.ts";
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import {
@@ -143,6 +144,7 @@ function beltTicketCorrelation(picks: ParsedPick[]): ParsedPick[] {
   for (const p of picks) {
     if (wouldConflictOppositeSideSamePeriod(p, out)) continue;
     if (wouldRepeatMarketLadder(p, out)) continue;
+    if (wouldRepeatPlayerProp(p, out)) continue;
     out.push(p);
   }
   return out;
@@ -162,6 +164,7 @@ function buildFillPool(
     if (!pickMatchesAskSports(cand, allowed)) continue;
     if (wouldRepeatMarketLadder(cand, current)) continue;
     if (wouldConflictOppositeSideSamePeriod(cand, current)) continue;
+    if (wouldRepeatPlayerProp(cand, current)) continue;
     const leg = scoredLegFromQualifiedCandidate(cand);
     if (!leg) continue;
     scored.push(leg);

@@ -20,6 +20,7 @@ import {
   filterScoredLegsForAskSports,
   hardLockedSportsFromAsk,
 } from "./coachAskSportScope.ts";
+import { filterPropPoolByAskMarkets } from "./coachAskMarketFilter.ts";
 import {
   createCoachBoardScanManifestRecorder,
   type CoachBoardScanManifest,
@@ -1308,6 +1309,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
    * Fixes greenfield "2 game totals" tickets that latched before props loaded.
    */
   skipPropPoolExpand?: boolean;
+  /**
+   * Ask market allowlist — re-applied after pool expand so a second fan-out
+   * cannot undo filter-before-sim (yards/HR boards).
+   */
+  propMarketAllowlist?: readonly string[] | null;
   /** Limit priority-sport inject to leagues named in the user ask. */
   prioritySports?: readonly string[];
 }): Promise<FullBoardScanResult> {
@@ -1371,6 +1377,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
             );
             if (opts.excludeNcaafPlayerProps) {
               next = filterNcaafPlayerPropsUnlessAsked(next, "team markets only");
+            }
+            // Filter before sim — expand must not reintroduce disallowed markets.
+            if (opts.propMarketAllowlist && opts.propMarketAllowlist.length > 0) {
+              next = filterPropPoolByAskMarkets(next, opts.propMarketAllowlist);
             }
             return next;
           })

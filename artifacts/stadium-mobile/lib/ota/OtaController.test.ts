@@ -5,7 +5,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { OtaController, computeBannerVisible } from "./OtaController.ts";
-import type { OtaCheckResult, OtaClient, OtaFetchResult } from "./types.ts";
+import {
+  OTA_EMBEDDED_TARGET_ID,
+  type OtaCheckResult,
+  type OtaClient,
+  type OtaFetchResult,
+} from "./types.ts";
 
 type Counts = {
   checkForUpdateAsync: number;
@@ -17,6 +22,7 @@ function makeClient(opts: {
   runningUpdateId?: string | null;
   downloadedUpdateId?: string | null;
   enabled?: boolean;
+  embeddedLaunch?: boolean;
   check?: () => Promise<OtaCheckResult>;
   fetch?: () => Promise<OtaFetchResult>;
   reload?: () => Promise<void>;
@@ -31,6 +37,7 @@ function makeClient(opts: {
     isEnabled: () => opts.enabled !== false,
     getRunningUpdateId: () => opts.runningUpdateId ?? "run-1",
     getDownloadedUpdateId: () => downloaded,
+    isEmbeddedLaunch: () => !!opts.embeddedLaunch,
     checkForUpdateAsync: async () => {
       counts.checkForUpdateAsync += 1;
       return opts.check
@@ -398,4 +405,90 @@ test("check proceeds after startup procedure settles", async () => {
   assert.equal(c.getSnapshot().state, "ready");
   assert.equal(counts.checkForUpdateAsync, 1);
   assert.equal(counts.reloadAsync, 0);
+});
+
+test("rollback-to-embedded identifies pending target as embedded (not marketing copy)", async () => {
+  const { client, counts } = makeClient({
+    runningUpdateId: "tip-bad",
+    embeddedLaunch: false,
+    check: async () => ({
+      isAvailable: false,
+      isRollBackToEmbedded: true,
+      manifestId: null,
+    }),
+    fetch: async () => ({
+      isNew: false,
+      isRollBackToEmbedded: true,
+      manifestId: null,
+    }),
+  });
+  const c = new OtaController(client);
+  c.boot();
+  await c.check();
+  const snap = c.getSnapshot();
+  assert.equal(snap.state, "ready");
+  assert.equal(snap.isRollBackToEmbedded, true);
+  assert.equal(snap.downloadedUpdateId, OTA_EMBEDDED_TARGET_ID);
+  assert.equal(snap.bannerVisible, true);
+  assert.equal(counts.reloadAsync, 0);
+});
+
+test("rollback already on embedded → idle, no reload loop", async () => {
+  const { client, counts } = makeClient({
+    runningUpdateId: null,
+    embeddedLaunch: true,
+    check: async () => ({
+      isAvailable: false,
+      isRollBackToEmbedded: true,
+    }),
+    fetch: async () => ({ isNew: false, isRollBackToEmbedded: true }),
+  });
+  const c = new OtaController(client);
+  c.boot();
+  await c.check();
+  const snap = c.getSnapshot();
+  assert.equal(snap.state, "idle");
+  assert.equal(snap.bannerVisible, false);
+  assert.equal(snap.isRollBackToEmbedded, false);
+  assert.equal(counts.fetchUpdateAsync, 0);
+  assert.equal(counts.reloadAsync, 0);
+});
+
+test("restart rejected when already running rollback target (embedded)", async () => {
+  const { client, counts } = makeClient({
+    runningUpdateId: null,
+    embeddedLaunch: true,
+  });
+  const c = new OtaController(client);
+  c.boot();
+  c.replaceSnapshotForTests({
+    state: "ready",
+    downloadedUpdateId: OTA_EMBEDDED_TARGET_ID,
+    isRollBackToEmbedded: true,
+  });
+  assert.equal(await c.restart(), "rejected");
+  assert.equal(counts.reloadAsync, 0);
+});
+
+test("computeBannerVisible hides rollback when already embedded", () => {
+  assert.equal(
+    computeBannerVisible({
+      state: "ready",
+      downloadedUpdateId: OTA_EMBEDDED_TARGET_ID,
+      runningUpdateId: null,
+      isRollBackToEmbedded: true,
+      isEmbeddedLaunch: true,
+    }),
+    false,
+  );
+  assert.equal(
+    computeBannerVisible({
+      state: "ready",
+      downloadedUpdateId: OTA_EMBEDDED_TARGET_ID,
+      runningUpdateId: "tip-bad",
+      isRollBackToEmbedded: true,
+      isEmbeddedLaunch: false,
+    }),
+    true,
+  );
 });

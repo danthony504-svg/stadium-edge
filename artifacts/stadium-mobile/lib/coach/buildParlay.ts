@@ -782,6 +782,8 @@ export async function buildCoachParlay(opts: {
     excludedTeams: inputs.excludedTeams,
     signal: opts.signal,
     skipPropPoolExpand: skipPropExpand,
+    // Belt expand path even if skipPropExpand is false — never sim off-ask markets.
+    propMarketAllowlist: marketConstraint.allowedMarketKeys ?? null,
     prioritySports: inputs.prioritySports,
     propsOnly,
     exhaustPropBoard: hrBoardAsk,

@@ -13,6 +13,8 @@ type CorrelationPick = {
   odds?: number;
   isProp?: boolean;
   player?: string;
+  /** Stable athlete id when present — preferred over display-name forms. */
+  athleteId?: string | null;
   sport?: string;
 };
 
@@ -193,12 +195,37 @@ export function wouldExceedMaxLegsPerGame(
   return countLegsForGame(ticket, candidate.game) >= maxPerGame;
 }
 
-/** Normalize player identity for same-player prop stacking. */
-export function propPlayerKey(pick: { player?: string | null; pick?: string | null }): string {
-  const named = String(pick.player ?? "")
+function normalizePlayerNameTokens(
+  raw: string,
+): string[] {
+  return String(raw ?? "")
     .toLowerCase()
+    .replace(/,/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/** Surname / last token — aligns with propSideConsistency.normPlayer. */
+export function propPlayerSurname(name: string): string {
+  const parts = normalizePlayerNameTokens(name);
+  return parts.length ? parts[parts.length - 1]! : "";
+}
+
+/**
+ * Normalize player identity for same-player prop stacking.
+ * Prefers athleteId; otherwise a stable name key. Matching across name forms
+ * (Shohei Ohtani vs Ohtani vs S. Ohtani) is handled by {@link propPlayersMatch}.
+ */
+export function propPlayerKey(pick: {
+  player?: string | null;
+  pick?: string | null;
+  athleteId?: string | null;
+}): string {
+  const athleteId = String(pick.athleteId ?? "").trim().toLowerCase();
+  if (athleteId) return `id:${athleteId}`;
+  const named = normalizePlayerNameTokens(String(pick.player ?? "")).join(" ");
   if (named) return named;
   // Fallback: first two tokens of the pick label ("Chase Meidroth Over…").
   const fromPick = String(pick.pick ?? "")
@@ -213,9 +240,42 @@ export function propPlayerKey(pick: { player?: string | null; pick?: string | nu
 }
 
 /**
+ * True when two prop legs refer to the same athlete despite display-name
+ * variants ("Shohei Ohtani" / "Ohtani" / "S. Ohtani") or shared athleteId.
+ */
+export function propPlayersMatch(
+  a: { player?: string | null; pick?: string | null; athleteId?: string | null },
+  b: { player?: string | null; pick?: string | null; athleteId?: string | null },
+): boolean {
+  const aId = String(a.athleteId ?? "").trim().toLowerCase();
+  const bId = String(b.athleteId ?? "").trim().toLowerCase();
+  if (aId && bId) return aId === bId;
+
+  const aKey = propPlayerKey({ ...a, athleteId: null });
+  const bKey = propPlayerKey({ ...b, athleteId: null });
+  if (!aKey || !bKey) return false;
+  if (aKey === bKey) return true;
+
+  const aSur = propPlayerSurname(aKey);
+  const bSur = propPlayerSurname(bKey);
+  if (!aSur || !bSur || aSur !== bSur) return false;
+
+  // Same surname: treat as same athlete when one name is a suffix/prefix of the
+  // other (Ohtani ⊆ Shohei Ohtani) or a single-initial first token (S Ohtani).
+  const aParts = normalizePlayerNameTokens(aKey);
+  const bParts = normalizePlayerNameTokens(bKey);
+  if (aParts.length === 1 || bParts.length === 1) return true;
+  const aFirst = aParts[0]!;
+  const bFirst = bParts[0]!;
+  if (aFirst.length === 1 || bFirst.length === 1) return true;
+  return aKey.endsWith(` ${bKey}`) || bKey.endsWith(` ${aKey}`);
+}
+
+/**
  * Hard block: at most one player-prop leg per athlete on a ticket.
  * Phone: "9 leg tonight mixed sports" staged Chase Meidroth Hits + Total Bases
- * + Hits+Runs+RBIs — soft correlation wasn't enough.
+ * + Hits+Runs+RBIs — soft correlation wasn't enough. Also blocks Ohtani name
+ * forms (Shohei Ohtani vs Ohtani) that previously bypassed exact-key equality.
  */
 export function wouldRepeatPlayerProp(
   candidate: CorrelationPick,
@@ -224,7 +284,7 @@ export function wouldRepeatPlayerProp(
   if (!candidate.isProp) return false;
   const key = propPlayerKey(candidate);
   if (!key) return false;
-  return ticket.some((l) => l.isProp && propPlayerKey(l) === key);
+  return ticket.some((l) => l.isProp && propPlayersMatch(candidate, l));
 }
 
 /** Max player-prop legs from one matchup (separate from game-line cap). */
@@ -287,8 +347,7 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
     }
 
     if (leg.isProp && candidate.isProp) {
-      const samePlayer =
-        leg.player && candidate.player && leg.player.toLowerCase() === candidate.player.toLowerCase();
+      const samePlayer = propPlayersMatch(leg, candidate);
       if (samePlayer) {
         penalty += 16;
         if (leg.market.toLowerCase() === candidate.market.toLowerCase()) penalty += 10;

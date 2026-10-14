@@ -737,6 +737,13 @@ function applyBalancedCapAndBackfill(
         if (used.has(fp)) continue;
         if (wouldRepeatMarketLadder(row.pick, current)) continue;
         if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
+        // Same-player / same-game caps — balanced path previously skipped these
+        // and could seat two Ohtani unders (or any dual-prop) on one ticket.
+        if (wouldRepeatPlayerProp(row.pick, current)) continue;
+        if (wouldExceedMaxPropsPerGame(row.pick, current, target)) continue;
+        if (wouldExceedMaxLegsPerGame(row.pick, current, maxLegsPerGame(target))) {
+          continue;
+        }
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
         if (!role) continue;
         const trial = capThinStatMarketsOnTicket(
