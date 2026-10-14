@@ -1,8 +1,53 @@
-# Device-test prep — PR #736 / commit `6f7d4178`
+# Device-test prep — PR #736
 
-**Goal:** Run fixpack commit `6f7d4178dc382332bff87f46984875dabb0d521e` on your iPhone without exposing production users.
+**Pinned test commit (fixes + preview/test config):**  
+`PLACEHOLDER_FULL_SHA` on branch `cursor/build78-fixpack-def8`  
+(filled after the college-sim + crash-test-doc commit lands — see Quick reference).
 
-**Constraints honored:** production OTA freeze stays armed; no merge; no production publish; no build started from this prep (you approve before any EAS build).
+**Goal:** Exercise Build 78 fail-soft + college sport lock + OTA rollback on a **meaningful** binary without exposing production users.
+
+**Constraints:** production OTA freeze stays armed; no merge; no production publish; no EAS build started from this prep (approve explicitly).
+
+---
+
+## Pinned commit + exact installation method
+
+| Item | Value |
+|------|--------|
+| **Commit under test** | `PLACEHOLDER_FULL_SHA` (contains college sim inputs, P0 gate flag, preview OTA scripts, this doc) |
+| Branch | `cursor/build78-fixpack-def8` |
+| PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |
+| Runtime | `1.1.0` |
+| Test channel | `preview` |
+| Production freeze | **armed** (`.ota-production-freeze`) |
+
+### Install method A — preview binary + preview OTA (recommended for JS tip)
+
+```bash
+# 1) Checkout the pinned commit
+git fetch origin cursor/build78-fixpack-def8
+git checkout PLACEHOLDER_FULL_SHA
+
+# 2) Build a preview-channel iOS binary (approve before running — agent does not start builds)
+cd artifacts/stadium-mobile
+eas build --profile preview --platform ios --non-interactive
+# install via QR / internal distribution
+
+# 3) Publish JS tip to preview only
+EXPO_TOKEN=… bash scripts/publish-preview-ota.sh \
+  'PR736 PLACEHOLDER_SHORT device test — preview only'
+
+# 4) On device: force-quit → reopen → apply tip → cold launch ×2
+```
+
+### Install method B — Metro on pinned commit (no OTA)
+
+```bash
+git checkout PLACEHOLDER_FULL_SHA
+cd artifacts/stadium-mobile
+eas build --profile development --platform ios   # approve first
+npx expo start --dev-client
+```
 
 ---
 
@@ -10,133 +55,90 @@
 
 | Fact | Implication |
 |------|-------------|
-| Build 78 / App Store binaries bake `expo-channel-name: **production**` (`app.json` → `updates.requestHeaders`) | They only fetch OTAs from the **production** channel |
-| `.ota-production-freeze` blocks every production publish route | We must not put `6f7d4178` on production |
-| Publishing `6f7d4178` to production would reach all production users | Forbidden |
+| Build 78 / App Store binaries bake `expo-channel-name: **production**` | They only fetch **production** OTAs |
+| `.ota-production-freeze` blocks production publish | Must not put this tip on production |
 | `eas.json` `preview` / `preview-ota` bake channel **preview** | Those binaries fetch preview OTAs only |
 
-**Conclusion:** You cannot load this tip onto existing Build 78 without a production OTA. A **preview-channel binary** (or a development client + Metro) is required. This prep does **not** start that build — approve it explicitly when ready.
-
-Device startup + full Coach scan speed remain **UNVERIFIED** until you measure them on device.
+**Conclusion:** You cannot load this tip onto production Build 78 without a production OTA. A **preview-channel binary** (or development client + Metro) is required.
 
 ---
 
-## Recommended route (preview binary + preview OTA)
+## Crash-test binary requirements (ClerkExpoPasskeys)
 
-### A. One-time: build a preview-channel iOS binary
+A **new preview build that already links `ClerkExpoPasskeys` does not test** the missing-module guard. The OTA Build 78 failure was:
 
-When you approve a build (not started by this agent):
+`Cannot find native module 'ClerkExpoPasskeys'`
 
-```bash
-cd artifacts/stadium-mobile
-# Internal install (ad hoc / internal distribution):
-eas build --profile preview --platform ios --non-interactive
+So the fail-soft path (`hasClerkExpoPasskeysNative` → `getPasskeys() === null`) is only exercised when the **native binary does not include** that module.
 
-# OR TestFlight-style (store distribution) with OTA banner env:
-eas build --profile preview-ota --platform ios --non-interactive
-# then: eas submit --platform ios --latest   # internal TestFlight
-```
+| Binary | Crash-test value |
+|--------|------------------|
+| **Build 78 production IPA** (no ClerkExpoPasskeys) + production OTA of this tip | Real crash-test — **blocked** by production freeze |
+| **Custom test IPA** with Build 78–equivalent natives (no ClerkExpoPasskeys) + preview channel | Meaningful crash-test on preview |
+| New `preview` / `preview-ota` EAS build that **includes** ClerkExpoPasskeys | Exercises sport lock / college / rollback JS only — **Build 78 crash compatibility = UNVERIFIED** |
 
-Install that build on your iPhone (QR / TestFlight). Confirm it is **not** the production Build 78 channel binary.
+### Required for a PASS on Build 78 crash compatibility
 
-Sanity on embedded preview JS before any OTA:
+1. Install a binary **without** native `ClerkExpoPasskeys` (Build 78 itself, or a deliberately stripped/equivalent native set).
+2. Load this tip’s JS (production OTA only if freeze is lifted by humans; otherwise a preview-channel binary built from an older native tree that omits the module).
+3. Cold launch ×2: no `ErrorRecovery` / boot loop; sign-in works; passkey CTA hidden or inert; `getPasskeys()` stays null.
+
+If you only install a modern preview binary that already has ClerkExpoPasskeys:
+
+> **Build 78 compatibility: UNVERIFIED** — missing-module guard not exercised on device.
+
+Unit coverage still exists in `passkeyAuth.test.ts` (`describe("passkeyAuth missing ClerkExpoPasskeys")`), but that is not a device crash-test.
+
+---
+
+## Recommended device checklist (preview tip)
+
+### A. Sanity (any preview binary)
 
 1. Cold launch ×2 — no ErrorRecovery / boot loop  
-2. Email/password sign-in still works (passkey CTA may be hidden if native module absent)  
+2. Email/password sign-in  
 3. Open Coach once  
 
-### B. Publish fixpack JS to **preview only** (from `6f7d4178`)
+### B. Passkeys crash path
 
-```bash
-git fetch origin cursor/build78-fixpack-def8
-git checkout 6f7d4178dc382332bff87f46984875dabb0d521e
-cd artifacts/stadium-mobile
-EXPO_TOKEN=… bash scripts/publish-preview-ota.sh \
-  'PR736 fixpack 6f7d4178 device test — preview only'
-```
+- **If binary lacks ClerkExpoPasskeys:** confirm no crash; passkey CTA fail-soft. → Build 78 crash check can PASS.  
+- **If binary has ClerkExpoPasskeys:** mark **Build 78 compatibility UNVERIFIED**; still run college/sport checks.
 
-Confirm:
+### C. College Coach (stay on college)
 
-```bash
-pnpm exec eas channel:view preview --non-interactive
-# Expect tip message containing 6f7d4178 / PR736; channel must be preview
-```
-
-Production channel must still show the frozen tip (or embedded rollback) — do **not** run any `publish-production-ota` / force / heal / republish script.
-
-### C. Apply the tip on the preview binary
-
-1. Force-quit Stadium Edge  
-2. Re-open (OTA check on load) — or Menu → OTA Diagnostics → check / Restart if banner shows  
-3. Banner should identify running → downloaded ids (or Recovery copy only for rollback) — never “Discover + Coach fixes”  
-4. After Restart: confirm you are on the new tip (Diagnostics / attestation / short update id)  
-5. Cold launch ×2 again — **record startup result** (this is the device PASS/FAIL for startup)
-
-### D. College Coach checks (stay on college — do not switch sports)
-
-NCAAF game lines are **intentionally P0 fail-closed** (see investigation below). Bare `"7 leg college"` is correctly sport-scoped but will **shortfall empty** until college game-line sims are recalibrated. Test both:
+NCAAF game lines remain **P0 fail-closed** (`NCAAF_GAME_LINE_SIM_VALIDATED = false`) until Phase E sign-off. Engine now feeds scoring + defense inputs, but grades stay blocked. Player props alone do **not** lift P0.
 
 | Ask | Expected |
 |-----|----------|
-| `7 leg college` | NCAAF-only scope; clarification note OK; **shortfall / no MLB·NHL·NFL**; may be 0 legs (P0) |
-| `7 leg college football player props` or `7 leg college receiving yards` | Still NCAAF-locked; **usable props** if books post them; no pro-sport fill |
-| Contaminated expectation | Ticket sports ⊆ `{ncaaf}` only |
+| `7 leg college` | NCAAF-only; may shortfall empty (P0 + gameLinesOnly) |
+| `7 leg college football player props` / receiving yards | NCAAF-locked; props may seat; no pro-sport fill |
+| Contaminated expectation | Ticket sports ⊆ `{ncaaf}` |
 
-Also re-check: passkeys fail-soft (no crash), Ohtani dual-unders blocked if MLB props appear in a mixed ask later, rollback banner copy if you stage a preview rollback.
+### D. Full Coach scan timing
 
-### E. Measure full Coach scan (required for speed verification)
-
-On the preview tip, for an identical college ask twice (same wording, same slate window):
-
-1. Note wall-clock from send → terminal ticket/note  
-2. Capture any on-screen / Diagnostics stage timings if available  
-3. Record: simulation, seating/correlation, final selection, ticket paint  
-
-Until those device numbers exist, scan speed stays **UNVERIFIED**.
+Same college ask twice; record wall-clock + stage timings. Until measured on device → **UNVERIFIED**.
 
 ---
 
-## Alternate route (no OTA): development client + Metro
+## NCAAF P0 status (after college sim fix)
 
-If you prefer not to publish any OTA:
+### Engine changes (server)
 
-```bash
-eas build --profile development --platform ios   # approve before starting
-# install dev client, then from artifacts/stadium-mobile on 6f7d4178:
-npx expo start --dev-client
-```
+- Soft monotonic TD/FG rates past former hard caps (`footballDriveMatchup`)
+- Rush/pass yards-allowed packs tilt opposing offense ±8% (`defenseAllowed` on `GameSimTeamInput`)
+- Sparse venue split blends with L10
+- Wired in `simulate.ts` **and** `coachSlateInProcessSims.ts`
 
-JS is served from Metro on that commit; production users never see it. Still a **separate native binary** from Build 78.
+### Client gate (unchanged until validation flag)
 
----
-
-## NCAAF P0 investigation (why college game lines do not seat)
-
-### What is blocked
-
-`coachP0UnvalidatedTotals.ts`:
-
-- `P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS = {"ncaaf"}` → spreads / ML / alt / period **sides** reject with `unvalidated_ncaaf_game_line_simulation`
-- NCAAF team totals + FG/period totals also fail-closed under scoring-engine P0 (`nfl`/`ncaaf`/`nhl`)
-- **NCAAF player props remain open**
-
-### Why (product reason in code)
-
-Comment in that module: nfl-drive TD/FG rate caps make cover probs insensitive to offense/QB shocks; matchup defense packs never enter score draws. Until P1 recalibration, simulation-derived grades for those markets are fail-closed — shortfall instead of inventing.
-
-Proof test: `coachCollegeMarketMix.proof.test.ts` → `"proof: bare college shortfalls when NCAAF game lines are P0 fail-closed"` expects **0** seated legs.
-
-### Interaction with `"7 leg college"`
-
-1. `wantsGameLinesOnlyAsk` → bare college / NCAAF without named player props ⇒ `gameLinesOnly: true` (no prop pool)  
-2. Hard sport lock ⇒ NCAAF only (fixpack)  
-3. Every NCAAF game line fails `p0UnvalidatedSimDecision` ⇒ nothing qualifies  
-
-So a correctly scoped college ask can still return an **honest empty shortfall**. That is not a sport-leak bug; it is the P0 + gameLinesOnly collision. Usable college tickets today require an ask that allows NCAAF player props (yards / player props / etc.) while remaining college-locked.
+- `NCAAF_GAME_LINE_SIM_VALIDATED = false` in `coachP0UnvalidatedTotals.ts`
+- Spreads / ML / alt / period sides still reject with `unvalidated_ncaaf_game_line_simulation`
+- Totals P0 for nfl/ncaaf/nhl unchanged
+- Validation tests: `artifacts/api-server/test/ncaafGameLineSimValidation.test.ts`
 
 ### What this prep does **not** do
 
-- Does not lift P0  
+- Does not set `NCAAF_GAME_LINE_SIM_VALIDATED = true`  
 - Does not publish production OTA  
 - Does not start an EAS build  
 - Does not merge #736  
@@ -147,11 +149,11 @@ So a correctly scoped college ask can still return an **honest empty shortfall**
 
 | Item | Value |
 |------|--------|
-| Commit under test | `6f7d4178dc382332bff87f46984875dabb0d521e` |
+| Commit under test | `PLACEHOLDER_FULL_SHA` |
+| Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
+| Preview config landed after | `6f7d4178` → `29fa596b` → this tip |
 | Branch | `cursor/build78-fixpack-def8` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |
-| Runtime | `1.1.0` |
-| Test channel | `preview` |
-| Production freeze | **armed** (`.ota-production-freeze`) |
 | Publish script | `artifacts/stadium-mobile/scripts/publish-preview-ota.sh` |
-| Build profiles | `preview` (internal) / `preview-ota` (store + OTA banner env) |
+| Build profiles | `preview` (internal) / `preview-ota` (store + OTA banner) |
+| Crash-test binary | **Must omit ClerkExpoPasskeys** or mark Build 78 UNVERIFIED |

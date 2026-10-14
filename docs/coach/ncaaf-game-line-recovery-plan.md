@@ -1,8 +1,8 @@
 # NCAAF game-line recovery plan
 
-**Status:** Planning only — do **not** restore NCAAF spread/ML recommendations until every acceptance gate below passes.  
-**Blocked today:** P0 `unvalidated_ncaaf_game_line_simulation` (PR #662).  
-**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval.
+**Status:** Phase A/B engine work landed on fixpack branch; client P0 still armed (`NCAAF_GAME_LINE_SIM_VALIDATED = false`). Do **not** restore NCAAF spread/ML recommendations until every acceptance gate below passes + human Phase E sign-off.  
+**Blocked today:** P0 `unvalidated_ncaaf_game_line_simulation` (PR #662 / #736).  
+**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval, flipping `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Problem summary
 

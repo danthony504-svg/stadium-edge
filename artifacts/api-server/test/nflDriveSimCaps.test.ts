@@ -9,6 +9,13 @@ import {
   nflDriveScoringRates,
   runNflDriveSim,
 } from "../src/lib/sportSim/nflDriveSim.ts";
+import {
+  FOOTBALL_DRIVE_FG_PPD_DIVISOR,
+  FOOTBALL_DRIVE_SOFT_SLOPE,
+  FOOTBALL_DRIVE_TD_RATE_MAX,
+  applyDefenseTiltToOffenseMean,
+  defenseOffenseMultiplier,
+} from "../src/lib/sportSim/footballDriveMatchup.ts";
 import { teamMean } from "../src/lib/sportSim/shared.ts";
 import { sportSimModelForSport } from "../src/lib/sportSim/registry.ts";
 
@@ -17,48 +24,136 @@ test("ncaaf maps to nfl-drive engine", () => {
   assert.equal(sportSimModelForSport("nfl"), "nfl-drive");
 });
 
-test("nfl-drive TD/FG rate caps saturate at ~11.8 / ~11.2 ppd", () => {
-  const atCap = NFL_DRIVE_TD_RATE_CAP * NFL_DRIVE_TD_PPD_DIVISOR; // 11.76
-  assert.equal(nflDriveScoringRates(atCap).tdRate, NFL_DRIVE_TD_RATE_CAP);
-  assert.equal(nflDriveScoringRates(atCap).fgRate, NFL_DRIVE_FG_RATE_CAP);
-  assert.equal(nflDriveRatesSaturated(atCap), true);
-  assert.equal(nflDriveRatesSaturated(atCap + 20), true);
+test("nfl-drive soft rates: knee still hits former TD cap, then keeps climbing", () => {
+  const atTdKnee = NFL_DRIVE_TD_RATE_CAP * NFL_DRIVE_TD_PPD_DIVISOR; // 11.76
+  assert.equal(nflDriveScoringRates(atTdKnee).tdRate, NFL_DRIVE_TD_RATE_CAP);
+  assert.equal(nflDriveRatesSaturated(atTdKnee), true);
   assert.equal(nflDriveRatesSaturated(10), false);
 
-  // Iowa @ WASH-style means both sit above the floor → identical rates.
-  const iowaHomeOff = teamMean(28, 19, 22); // 23.5
-  const iowaAwayOff = teamMean(20, 16.8, 22); // 18.4
-  assert.ok(iowaHomeOff > atCap);
-  assert.ok(iowaAwayOff > atCap);
-  assert.deepEqual(nflDriveScoringRates(iowaHomeOff), nflDriveScoringRates(iowaHomeOff + 15));
-  assert.deepEqual(nflDriveScoringRates(iowaAwayOff), nflDriveScoringRates(iowaAwayOff - 3));
-  assert.equal(nflDriveScoringRates(iowaAwayOff).tdRate, NFL_DRIVE_TD_RATE_CAP);
+  // FG knee is independent (ppd = 0.28 * 40 = 11.2).
+  const atFgKnee = NFL_DRIVE_FG_RATE_CAP * FOOTBALL_DRIVE_FG_PPD_DIVISOR;
+  assert.equal(nflDriveScoringRates(atFgKnee).fgRate, NFL_DRIVE_FG_RATE_CAP);
+
+  // Past the TD knee, rates must still move (soft slope) — no flat hard ceiling.
+  const past = atTdKnee + 15;
+  const atRates = nflDriveScoringRates(atTdKnee);
+  const pastRates = nflDriveScoringRates(past);
+  assert.ok(pastRates.tdRate > atRates.tdRate, "TD rate must rise past knee");
+  assert.ok(pastRates.tdRate <= FOOTBALL_DRIVE_TD_RATE_MAX);
+
+  const excessLinear = past / NFL_DRIVE_TD_PPD_DIVISOR - NFL_DRIVE_TD_RATE_CAP;
+  const expectedTd = Math.min(
+    FOOTBALL_DRIVE_TD_RATE_MAX,
+    NFL_DRIVE_TD_RATE_CAP + excessLinear * FOOTBALL_DRIVE_SOFT_SLOPE,
+  );
+  assert.ok(Math.abs(pastRates.tdRate - expectedTd) < 1e-9);
 });
 
-test("controlled sensitivity: saturated ppd shocks are NOOP on scoring rates", () => {
-  const base = teamMean(20, 16.8, 22); // 18.4 — Iowa awayOff
-  const qbOut = teamMean(14, 16.8, 22); // 15.4 — still above TD cap
+test("controlled sensitivity: past-knee ppd shocks move scoring rates", () => {
+  const base = teamMean(20, 16.8, 22); // 18.4 — Iowa awayOff (past knee)
+  const qbOut = teamMean(14, 16.8, 22); // 15.4 — still past knee
   const plus3 = teamMean(23, 16.8, 22); // 19.9
   assert.equal(nflDriveRatesSaturated(base), true);
   assert.equal(nflDriveRatesSaturated(qbOut), true);
   assert.equal(nflDriveRatesSaturated(plus3), true);
-  assert.deepEqual(nflDriveScoringRates(base), nflDriveScoringRates(qbOut));
-  assert.deepEqual(nflDriveScoringRates(base), nflDriveScoringRates(plus3));
+  assert.notDeepEqual(nflDriveScoringRates(base), nflDriveScoringRates(qbOut));
+  assert.notDeepEqual(nflDriveScoringRates(base), nflDriveScoringRates(plus3));
+  assert.ok(nflDriveScoringRates(plus3).tdRate > nflDriveScoringRates(base).tdRate);
+  assert.ok(nflDriveScoringRates(qbOut).tdRate < nflDriveScoringRates(base).tdRate);
 });
 
-test("controlled sensitivity: only sub-cap shocks change rates", () => {
+test("controlled sensitivity: sub-knee shocks still change rates", () => {
   const saturated = 18.4;
-  const below = 10.5; // Sac QB-out proxy territory
+  const below = 10.5;
   assert.equal(nflDriveRatesSaturated(saturated), true);
   assert.equal(nflDriveRatesSaturated(below), false);
   assert.ok(nflDriveScoringRates(below).tdRate < NFL_DRIVE_TD_RATE_CAP);
   assert.notDeepEqual(nflDriveScoringRates(saturated), nflDriveScoringRates(below));
 });
 
-test("deterministic seeded draws: saturated home/away means stay near coin-flip ML", () => {
+test("defense yards tilt opposing offense mean within ±8%", () => {
+  const soft = {
+    rushingYardsAllowedPerGame: 100,
+    passingYardsAllowedPerGame: 180,
+    rushSampleSize: 5,
+    passSampleSize: 5,
+  };
+  const leaky = {
+    rushingYardsAllowedPerGame: 160,
+    passingYardsAllowedPerGame: 250,
+    rushSampleSize: 5,
+    passSampleSize: 5,
+  };
+  const thin = {
+    rushingYardsAllowedPerGame: 200,
+    passingYardsAllowedPerGame: 200,
+    rushSampleSize: 1,
+    passSampleSize: 5,
+  };
+  assert.equal(defenseOffenseMultiplier(soft, "nfl"), 0.92);
+  assert.equal(defenseOffenseMultiplier(leaky, "nfl"), 1.08);
+  assert.equal(defenseOffenseMultiplier(thin, "nfl"), 1);
+  assert.equal(defenseOffenseMultiplier(null, "ncaaf"), 1);
+  assert.ok(Math.abs(applyDefenseTiltToOffenseMean(22, soft, "nfl") - 22 * 0.92) < 1e-9);
+});
+
+test("defenseAllowed packs change projected scores under fixed RNG", () => {
+  const realRandom = Math.random;
+  const runWithSeed = (seed: number, defense: boolean) => {
+    let i = seed;
+    Math.random = () => {
+      i = (i * 1664525 + 1013904223) >>> 0;
+      return i / 0x100000000;
+    };
+    return runNflDriveSim({
+      sport: "ncaaf",
+      simulations: 3000,
+      home: {
+        ptsFor: 28,
+        ptsAgainst: 16.8,
+        recentScores: [21, 24, 31, 28, 27],
+        defenseAllowed: defense
+          ? {
+              rushingYardsAllowedPerGame: 90,
+              passingYardsAllowedPerGame: 160,
+              rushSampleSize: 5,
+              passSampleSize: 5,
+            }
+          : null,
+      },
+      away: {
+        ptsFor: 20,
+        ptsAgainst: 19,
+        recentScores: [20, 27, 38, 32, 28],
+        defenseAllowed: defense
+          ? {
+              rushingYardsAllowedPerGame: 180,
+              passingYardsAllowedPerGame: 280,
+              rushSampleSize: 5,
+              passSampleSize: 5,
+            }
+          : null,
+      },
+      retainOutcomes: false,
+    });
+  };
+  try {
+    const plain = runWithSeed(1, false);
+    const tilted = runWithSeed(1, true);
+    assert.ok(plain && tilted);
+    assert.ok(
+      (tilted!.homeProjectedScore ?? 0) !== (plain!.homeProjectedScore ?? 0) ||
+        (tilted!.awayProjectedScore ?? 0) !== (plain!.awayProjectedScore ?? 0),
+      "defense packs must enter score draws",
+    );
+  } finally {
+    Math.random = realRandom;
+  }
+});
+
+test("deterministic seeded draws: soft rates keep ML sensitive to form", () => {
   const realRandom = Math.random;
   let i = 0;
-  // Fixed LCG so cover rates are reproducible across runs.
   Math.random = () => {
     i = (i * 1664525 + 1013904223) >>> 0;
     return i / 0x100000000;
@@ -72,44 +167,18 @@ test("deterministic seeded draws: saturated home/away means stay near coin-flip 
       coverQueries: [
         { id: "away-ml", kind: "ml", teamSide: "away" },
         { id: "away-sp2", kind: "spread", teamSide: "away", line: 2 },
+        { id: "home-ml", kind: "ml", teamSide: "home" },
       ],
       retainOutcomes: false,
     });
     assert.ok(result);
-    const ml = result!.coverHitRates?.["away-ml"] ?? 0;
+    const awayMl = result!.coverHitRates?.["away-ml"] ?? 0;
+    const homeMl = result!.coverHitRates?.["home-ml"] ?? 0;
     const sp = result!.coverHitRates?.["away-sp2"] ?? 0;
-    // Saturated both sides → ML near 50%; +2 dog covers comfortably.
-    assert.ok(ml > 0.4 && ml < 0.6, `expected near coin-flip ML, got ${ml}`);
-    assert.ok(sp > 0.5, `expected +2 dog cover >50%, got ${sp}`);
-    // Inflated scoring means (same integrity issue as P0 totals).
-    assert.ok((result!.homeProjectedScore ?? 0) > 35);
-    assert.ok((result!.awayProjectedScore ?? 0) > 35);
+    assert.ok(homeMl > awayMl, `expected home ML > away ML, got ${homeMl} vs ${awayMl}`);
+    // Soft rates give home a real edge — +2 dog cover sits below coin-flip.
+    assert.ok(sp > 0.28 && sp < 0.72, `expected +2 dog in reasonable band, got ${sp}`);
   } finally {
     Math.random = realRandom;
   }
-});
-
-test("rush/pass defense yards never enter runNflDriveSim inputs", () => {
-  // Structural: ctx only accepts ptsFor/ptsAgainst/recentScores — no defense packs.
-  const ctxKeys = ["ptsFor", "ptsAgainst", "recentScores"] as const;
-  const home = { ptsFor: 9.5, ptsAgainst: 17, recentScores: [7, 10, 14] };
-  assert.deepEqual(Object.keys(home).sort(), [...ctxKeys].sort());
-  const a = runNflDriveSim({
-    sport: "ncaaf",
-    simulations: 200,
-    home,
-    away: { ptsFor: 10, ptsAgainst: 38.5, recentScores: [3, 14, 17] },
-    retainOutcomes: false,
-  });
-  const b = runNflDriveSim({
-    sport: "ncaaf",
-    simulations: 200,
-    home: { ...home /* pretendRushD: 231 would be ignored if present */ },
-    away: { ptsFor: 10, ptsAgainst: 38.5, recentScores: [3, 14, 17] },
-    retainOutcomes: false,
-  });
-  assert.ok(a && b);
-  // Same pts inputs → same model path (RNG differs; just assert model id).
-  assert.equal(a!.simModel, "nfl-drive");
-  assert.equal(b!.simModel, "nfl-drive");
 });

@@ -4,9 +4,9 @@
 // block simulation-derived grades for affected markets and hard-stop same-team
 // team-total stacks. Does not invent odds, probs, or replacement sims.
 //
-// NCAAF game lines (spread / ML / alt / period sides) are also fail-closed:
-// nfl-drive TD/FG rate caps make cover probs insensitive to offense/QB shocks,
-// and matchup defense packs never enter score draws. Player props stay open.
+// NCAAF game lines (spread / ML / alt / period sides) stay fail-closed until
+// NCAAF_GAME_LINE_SIM_VALIDATED is flipped after engine validation (soft rates,
+// defense tilt, spreads/ML/totals checks). Player props stay open either way.
 //
 // Sport aliases (cfb → ncaaf) are normalized before the gate. Missing sport is
 // resolved only from trusted provider/event fields — never guessed from team
@@ -14,6 +14,12 @@
 //
 // Standalone (no import from simMarketSupport) to avoid circular deps with
 // assessSimMarketIntegrity.
+
+/**
+ * Flip only after ncaafGameLineSimValidation (+ human Phase E sign-off).
+ * Default false keeps P0 armed — player props alone do not clear this gate.
+ */
+export const NCAAF_GAME_LINE_SIM_VALIDATED = false;
 
 /** Sports whose team-scoring engines are unvalidated for totals (P0). */
 export const P0_UNVALIDATED_SCORING_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
@@ -28,8 +34,8 @@ export const P0_UNVALIDATED_FG_GAME_TOTAL_SPORTS = new Set(["nfl", "ncaaf", "nhl
 
 /**
  * NCAAF only — full-game and period game-side markets that settle from
- * unvalidated nfl-drive score draws. NFL game lines remain open for now;
- * NCAAF props are untouched.
+ * nfl-drive score draws. Cleared only when NCAAF_GAME_LINE_SIM_VALIDATED.
+ * NFL game lines remain open for now; NCAAF props are untouched.
  */
 export const P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS = new Set(["ncaaf"]);
 
@@ -224,6 +230,10 @@ export function isP0UnvalidatedNcaafGameLineMarket(pick: P0PickInput): boolean {
 
   const sport = resolveCoachPickSport(pick);
   if (!sport) return true; // unknown sport + game line → fail closed
+  // Validated engine + known ncaaf → allow; otherwise keep P0.
+  if (NCAAF_GAME_LINE_SIM_VALIDATED && P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) {
+    return false;
+  }
   return P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport);
 }
 

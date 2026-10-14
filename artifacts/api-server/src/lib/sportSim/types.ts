@@ -1,6 +1,12 @@
 // Sport-specific game simulation inputs — shared contract for every engine.
 
-import type { GameCoverQuery, GameSimTeamInput } from "../gameMonteCarlo.js";
+import type {
+  GameCoverQuery,
+  GameSimDefenseAllowed,
+  GameSimTeamInput,
+} from "../gameMonteCarlo.js";
+
+export type { GameSimDefenseAllowed };
 
 export type SportSimContext = {
   sport: string;

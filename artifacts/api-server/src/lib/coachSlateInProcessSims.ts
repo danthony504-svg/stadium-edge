@@ -10,6 +10,11 @@ import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
 import { fetchEspnInjuries } from "./espnInjuries.js";
 import { teamPace } from "./statmuse.js";
 import { runSportGameMonteCarlo } from "./sportSim/registry.js";
+import {
+  loadFootballDefenseAllowed,
+  teamInputFromHistory,
+  wantsFootballDefensePacks,
+} from "./sportSim/footballGameSimInputs.js";
 import { runTennisMonteCarlo } from "./tennisMonteCarlo.js";
 import { buildFightAnalysis } from "./ufc.js";
 import { coachSlateApiBase } from "./coachSlateLoopback.js";
@@ -30,9 +35,21 @@ function teamInjuryWeight(
 }
 
 type TeamHistoryResp = {
-  homeSplit?: { ptsFor?: number | null; ptsAgainst?: number | null };
-  awaySplit?: { ptsFor?: number | null; ptsAgainst?: number | null };
-  last10?: { ptsFor?: number | null; ptsAgainst?: number | null };
+  homeSplit?: {
+    games?: number | null;
+    ptsFor?: number | null;
+    ptsAgainst?: number | null;
+  };
+  awaySplit?: {
+    games?: number | null;
+    ptsFor?: number | null;
+    ptsAgainst?: number | null;
+  };
+  last10?: {
+    games?: number | null;
+    ptsFor?: number | null;
+    ptsAgainst?: number | null;
+  };
   recent?: Array<{ pts?: number | null }>;
 };
 
@@ -291,26 +308,21 @@ export async function runGameOutcomeSimInProcess(body: {
     fetchTeamHistory(sport, homeTeamId),
     fetchTeamHistory(sport, awayTeamId),
   ]);
+  // Parity with POST /sports/simulate: venue/L10 blend + football defense packs.
+  const [homeDef, awayDef] = wantsFootballDefensePacks(sport)
+    ? await Promise.all([
+        loadFootballDefenseAllowed(sport, homeTeamId),
+        loadFootballDefenseAllowed(sport, awayTeamId),
+      ])
+    : [null, null];
   const result = runSportGameMonteCarlo({
     sport,
     simulations,
     weatherImpact: body.weatherImpact != null ? Number(body.weatherImpact) : null,
     coverQueries,
     retainOutcomes,
-    home: {
-      ptsFor: homeHist?.homeSplit?.ptsFor ?? homeHist?.last10?.ptsFor ?? null,
-      ptsAgainst: homeHist?.homeSplit?.ptsAgainst ?? homeHist?.last10?.ptsAgainst ?? null,
-      recentScores: (homeHist?.recent ?? [])
-        .map((g) => g.pts)
-        .filter((v): v is number => v != null && Number.isFinite(v)),
-    },
-    away: {
-      ptsFor: awayHist?.awaySplit?.ptsFor ?? awayHist?.last10?.ptsFor ?? null,
-      ptsAgainst: awayHist?.awaySplit?.ptsAgainst ?? awayHist?.last10?.ptsAgainst ?? null,
-      recentScores: (awayHist?.recent ?? [])
-        .map((g) => g.pts)
-        .filter((v): v is number => v != null && Number.isFinite(v)),
-    },
+    home: teamInputFromHistory(homeHist, "home", homeDef),
+    away: teamInputFromHistory(awayHist, "away", awayDef),
   });
   if (!result) return null;
   return {
