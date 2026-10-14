@@ -470,19 +470,22 @@ function main(): number {
     clvReasons.push(`need ≥200 close-joined scored games, got ${closeMatched}`);
   }
 
-  // Full E2 for restore requires outcome PASS + closing CLV PASS (+ E4/E6 later).
+  // Soft close-archive gates only. Coach pick CLV is a separate report with no PASS label.
+  // Full restore still needs E4 + E6 (+ human review of coach-pick CLV).
   const e2Restore =
     e2Outcome === "PASS" && e2bClv === "PASS"
       ? "OPEN_NEEDS_E4_E6"
       : e2Outcome === "PASS" && e2bClv !== "PASS"
-        ? "OPEN_NEEDS_CLOSING_LINE_CLV"
+        ? "OPEN_NEEDS_CLOSE_ARCHIVE_SOFT_GATES"
         : e2Outcome;
 
   report.verdicts = {
     E2_outcomeVsCoin: e2Outcome,
     E2_reasons: reasons.join("; ") || "ok",
-    E2_closingLineClv: e2bClv,
-    E2_closingLineClvReasons: clvReasons.join("; ") || "ok",
+    // Soft close-archive gates only — NOT Coach pick CLV. See coach-pick-clv report.
+    E2_closeArchiveSoftGates: e2bClv,
+    E2_closeArchiveSoftGateReasons: clvReasons.join("; ") || "ok",
+    E2_coachPickClv: "see ncaaf-phase-e-coach-pick-clv-report.json — no PASS label here",
     E2_readyForRestore: e2Restore,
     E4_injuryConservatism: "INSUFFICIENT_DATA",
     E6_humanSignOff: "OPEN",
@@ -496,15 +499,17 @@ function main(): number {
   console.log(JSON.stringify(report, null, 2));
   console.log(`Wrote ${outPath}`);
 
-  // Keep P0 armed until outcome calibration + CLV + E4 + E6 all clear.
+  // Keep P0 armed until outcome calibration + soft gates + coach-pick CLV review + E4 + E6.
   if (e2Outcome === "PASS" && e2bClv === "PASS") {
-    console.log("E2a + E2b closing CLV cleared soft gates; E4/E6 still OPEN.");
+    console.log(
+      "E2a + close-archive soft gates cleared (NOT Coach pick CLV). E4/E6 still OPEN.",
+    );
     console.log("Do not flip NCAAF_GAME_LINE_SIM_VALIDATED.");
     return 2;
   }
   if (e2Outcome === "PASS" && e2bClv !== "PASS") {
     console.log(
-      `Outcome metrics PASS but E2_closingLineClv=${e2bClv}: ${clvReasons.join("; ")}`,
+      `Outcome metrics PASS but E2_closeArchiveSoftGates=${e2bClv}: ${clvReasons.join("; ")}`,
     );
     console.log("E4/E6 still OPEN — do not flip NCAAF_GAME_LINE_SIM_VALIDATED.");
     return 2;

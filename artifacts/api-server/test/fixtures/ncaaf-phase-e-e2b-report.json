@@ -1,39 +1,46 @@
 {
-  "generatedAt": "2026-10-14T23:00:08.387269+00:00",
+  "generatedAt": "2026-10-14T23:39:39.491Z",
   "holdoutSeason": 2024,
-  "closingDefinition": "Per-game last Odds API historical snapshot with date=kickoff (closest \u2264 commence). Midday slate files are not closes.",
+  "closingDefinition": "Per-game last Odds API historical snapshot with date=kickoff (closest ≤ commence). Midday slate files are not closes.",
   "matched": 842,
   "matchedWithFullPrices": 774,
   "missing": 29,
-  "aliasRematchRecovered": 64,
-  "missingBias": {
-    "stillMissing": 29,
-    "likelyFcsOrUnlistedOpponent": 8,
-    "likelyFbsNameAliasOrUnlisted": 21,
-    "note": "After accent/alias rematch, residual misses cluster on FCS/non-listed opponents and a few FBS names Odds lists differently (App State, Southern Miss, FIU timing)."
+  "competitionScope": "Odds-listed FBS (matchable americanfootball_ncaaf names). FCS/unlisted excluded.",
+  "closeArchiveSoftGates": {
+    "criteria": [
+      "n_close_joined >= 200",
+      "marketBrier(close ML) < 0.25",
+      "engineBrier < 0.25 on same set",
+      "|mean(engineP - marketP_close)| <= 0.15"
+    ],
+    "note": "These are NOT Coach pick CLV and must not be labeled CLV PASS.",
+    "status": "PASS_SOFT_GATES_ONLY"
   },
-  "coverageSupports": "FBS regular-season games present on The Odds API americanfootball_ncaaf with matchable team names. Does not claim FCS coverage. Alias rematch required for Hawai\u02bbi, San Jos\u00e9 State, UMass, Sam Houston State, etc.",
-  "metrics": {
-    "marketBrierCloseMl": 0.17604730805991986,
-    "marketBrierCoin": 0.25,
-    "marketBrierBeatsCoin": true
+  "coachPickClv": {
+    "report": "ncaaf-phase-e-coach-pick-clv-report.json",
+    "simulations": 10000,
+    "selectedPicks": 182,
+    "homeSelections": 107,
+    "awaySelections": 75,
+    "meanMlClvProbPoints": -0.0234,
+    "pctMlBeatClose": 0.209,
+    "hitRate": 0.497,
+    "wilson95": [0.425, 0.570],
+    "verdict": "COMPUTED_NO_PASS_LABEL"
   },
-  "e2bSoftGateCriteria": [
-    "close-joined scored games n >= 200",
-    "marketBrier(close ML) < 0.25",
-    "engineBrier on same set < 0.25",
-    "|mean(engineP_home - marketP_home_at_close)| <= 0.15"
-  ],
-  "e2bSoftGateNote": "These gates are NOT closing-line value. See ncaaf-phase-e-true-clv-report.json for timestamped early-vs-close price CLV.",
-  "trueClvPointer": "ncaaf-phase-e-true-clv-report.json / ncaaf-phase-e-true-clv-t24h.csv",
-  "injuryKnownPolicy": "null when unknown \u2014 never false by omission",
+  "untouchedPeriodMarketBaseline": {
+    "cutoff": "2024-10-15T00:00:00Z",
+    "nGames": 391,
+    "marketBrierCloseMl": 0.1886
+  },
+  "injuryKnownPolicy": "null when unknown — never false by omission",
   "verdicts": {
     "E2b_closingArchive": "PASS",
-    "E2b_marketBrierVsCoin": "PASS",
-    "E2b_engineVsMarketSoftGates": "PASS \u2014 see calibration report (not CLV)",
-    "E2b_truePriceClv": "COMPUTED_SEPARATE",
+    "E2b_closeArchiveSoftGates": "PASS_SOFT_GATES_ONLY",
+    "E2b_coachPickClv": "COMPUTED_NO_PASS_LABEL",
     "E4_injuryConservatism": "INSUFFICIENT_DATA",
-    "NCAAF_GAME_LINE_SIM_VALIDATED": "false \u2014 do not flip"
+    "E6_humanSignOff": "OPEN",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
   },
   "keepP0Armed": true,
   "flagFlipAllowed": false
