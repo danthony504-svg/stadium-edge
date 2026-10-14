@@ -232,9 +232,27 @@ test("telegram coach alert includes requestId/category without PII", () => {
       topFailureReasons: [],
     },
   });
-  assert.match(daily, /healthy/);
-  assert.match(daily, /Coach fulfillment/);
-  assert.match(daily, /Health: all checks OK/);
+  assert.doesNotMatch(daily, /reliability — healthy/);
+  assert.match(daily, /Coach activity \(received events\)/);
+  assert.match(daily, /Server health \(probes\)/);
+  assert.match(daily, /all checks OK/);
+  assert.match(daily, /0 critical crash reports received/);
+});
+
+test("zero Coach requests in digest is coverage gap, not verified inactivity", () => {
+  const section = formatCoachDailyDigestSection({
+    totalRequests: 0,
+    successfulRequests: 0,
+    fulfillmentPct: null,
+    underfillCount: 0,
+    zeroResultCount: 0,
+    questionFailureCount: 0,
+    p50Ms: null,
+    p95Ms: null,
+    topFailureReasons: [],
+  });
+  assert.match(section, /requests received: 0/);
+  assert.match(section, /0 received Coach events ≠ verified zero Coach usage/);
 });
 
 test("test fixtures never parse as alertable production events", () => {

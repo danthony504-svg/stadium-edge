@@ -72,23 +72,33 @@ test("formatCriticalCrashAlert and daily healthy summary", () => {
   assert.match(critical, /01a12704/);
   assert.match(critical, /occurrences: 3/);
 
-  const healthy = formatDailyHealthySummary({
+  const emptyReceived = formatDailyHealthySummary({
     windowHours: 24,
     criticalCount: 0,
     distinctFingerprints: 0,
     lastCriticalAt: null,
+    healthOk: true,
   });
-  assert.match(healthy, /healthy/);
-  assert.match(healthy, /0 critical/);
+  // Must NOT claim overall app health from zero received crash rows.
+  assert.doesNotMatch(emptyReceived, /reliability — healthy/);
+  assert.match(emptyReceived, /daily digest \(received telemetry\)/);
+  assert.match(emptyReceived, /Server health \(probes\)/);
+  assert.match(emptyReceived, /all checks OK/);
+  assert.match(emptyReceived, /0 critical crash reports received/);
+  assert.match(emptyReceived, /0 received ≠ 0 actual crashes/);
+  assert.match(emptyReceived, /server OK ≠ verified client health/);
 
   const summary = formatDailyHealthySummary({
     windowHours: 24,
     criticalCount: 2,
     distinctFingerprints: 1,
     lastCriticalAt: "2026-10-10T12:00:00.000Z",
+    healthOk: false,
+    healthFailed: ["odds_feed"],
   });
-  assert.match(summary, /daily summary/);
-  assert.match(summary, /2 critical/);
+  assert.match(summary, /daily digest/);
+  assert.match(summary, /2 critical report\(s\) received/);
+  assert.match(summary, /FAILING odds_feed/);
 });
 
 test("sendTelegramMessage skips when unset; posts when configured", async () => {

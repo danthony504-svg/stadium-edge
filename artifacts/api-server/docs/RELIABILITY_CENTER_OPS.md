@@ -57,7 +57,17 @@ If Actions/Replit key ≠ Render key, production returns `403` with `fingerprint
 | `steals_scanner` | `/api/sports/live-steals` (+500 scanner) |
 
 Telegram: **fail** and **recovery** only (fingerprint-deduped, 30m quiet window).
-Daily healthy summary is the digest — health cron does not spam "all OK".
+Daily digest is a **received-telemetry** summary — health cron does not spam "all OK".
+
+### Digest must not conflate three signals
+
+| Section | Meaning | What zero means |
+|---------|---------|-----------------|
+| Server health (probes) | website / API / DB / odds / Coach healthz / … | Probes passed — **not** client crash-free |
+| Device crash telemetry | Rows ingested via `POST /reliability/crashes` (JS handlers) | **0 received reports** — **not** 0 actual crashes |
+| Coach activity | Rows from server `POST /chat` + mobile `coach-events` | **0 received events** — **not** verified zero Coach usage |
+
+**Coverage gap (Build 78 tip-boot):** Expo `ErrorRecovery` / `markFailedLaunchForUpdate` runs **before** JS `installGlobalCrashHandlers` / `reportCrash`. Those fatals appear in device `.ips` / `expo-error.log` but **never** increment digest crash counts. Do not treat an empty digest as verified app health.
 
 ### Production-safe Telegram proof (prefer this)
 
