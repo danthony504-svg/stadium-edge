@@ -6,10 +6,10 @@
 /** Healthy production OTA for runtime 1.1.0 (greenfield Coach). */
 export const EXPECTED_HEALTHY_RUNTIME = "1.1.0";
 /**
- * Last known production channel tip before apply-fix publish (OTA #616).
+ * Current production channel tip (fail-soft ClerkExpoPasskeys @ main 23550135).
  * Case A no longer requires an exact id match — any non-embedded 1.1.0 tip is healthy.
  */
-export const EXPECTED_HEALTHY_UPDATE_ID = "01a13540-fed5-7fbf-baf2-db29681a48fe";
+export const EXPECTED_HEALTHY_UPDATE_ID = "01a136bb-633c-7edf-9d49-9626be829d5f";
 export const EXPECTED_HEALTHY_EMBEDDED = false;
 
 export type DeviceAttestationCase = "A" | "B" | "C" | "UNKNOWN";

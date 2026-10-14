@@ -339,16 +339,25 @@ async function main() {
     }
   }
 
-  // Confirm passkeys are wired into ClerkProvider (native module required at runtime).
+  // Confirm passkeys are wired via fail-soft getPasskeys() — never a static
+  // `@clerk/expo/passkeys` import (Build 78 lacks ClerkExpoPasskeys and that
+  // static import tip-boots with updatePreviouslyFailed).
   try {
     const layout = readFileSync(join(ROOT, "app/_layout.tsx"), "utf8");
-    if (!layout.includes("__experimental_passkeys") || !layout.includes("@clerk/expo/passkeys")) {
-      fail("app/_layout.tsx must wire @clerk/expo/passkeys into ClerkProvider");
+    const passkeyAuth = readFileSync(join(ROOT, "lib/passkeyAuth.ts"), "utf8");
+    if (!layout.includes("__experimental_passkeys") || !layout.includes("getPasskeys")) {
+      fail("app/_layout.tsx must wire getPasskeys() into ClerkProvider.__experimental_passkeys");
+    } else if (
+      /(?:^|\n)\s*import\s[^;]*from\s*["']@clerk\/expo\/passkeys["']/.test(layout)
+    ) {
+      fail("app/_layout.tsx must not statically import @clerk/expo/passkeys (use getPasskeys)");
+    } else if (!passkeyAuth.includes("getPasskeys") || !passkeyAuth.includes("@clerk/expo/passkeys")) {
+      fail("lib/passkeyAuth.ts must dynamically load @clerk/expo/passkeys inside getPasskeys()");
     } else {
-      ok("ClerkProvider wires __experimental_passkeys");
+      ok("ClerkProvider wires __experimental_passkeys via getPasskeys() fail-soft");
     }
   } catch (e) {
-    warn(`could not read app/_layout.tsx: ${e?.message || e}`);
+    warn(`could not read passkey wiring: ${e?.message || e}`);
   }
 
   // StoreKit catalog IDs (configuration only — purchases are post-build).
