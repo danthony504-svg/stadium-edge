@@ -2,6 +2,7 @@ import React, { Component, ComponentType, PropsWithChildren } from "react";
 
 import { ErrorFallback, ErrorFallbackProps } from "@/components/ErrorFallback";
 import { markBoundaryReported, reportCrash } from "@/lib/crashReporter";
+import { captureLastStartupFatal } from "@/lib/lastStartupFatal";
 
 export type ErrorBoundaryProps = PropsWithChildren<{
   FallbackComponent?: ComponentType<ErrorFallbackProps>;
@@ -36,6 +37,13 @@ export class ErrorBoundary extends Component<
     try {
       const errorMessage = error?.message ?? String(error);
       const errorStack = error?.stack ?? null;
+      // Persist for Home copy when /ota-debug itself cannot open.
+      captureLastStartupFatal({
+        message: errorMessage,
+        stack: errorStack,
+        componentStack: info.componentStack ?? null,
+        isFatal: true,
+      });
       // Mark before report so the global ErrorUtils handler does not double-post.
       markBoundaryReported(errorMessage, errorStack);
       reportCrash({

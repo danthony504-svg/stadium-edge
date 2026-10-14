@@ -9,6 +9,7 @@ import {
   reportCrash,
   wasBoundaryReported,
 } from "./crashReporter.ts";
+import { captureLastStartupFatal } from "./lastStartupFatal.ts";
 
 export type RnErrorUtils = {
   getGlobalHandler: () => ((error: Error, isFatal?: boolean) => void) | undefined;
@@ -26,6 +27,14 @@ type InstallOptions = {
   };
   report?: typeof reportCrash;
 };
+
+function persistFatalLocally(error: Error, isFatal?: boolean): void {
+  captureLastStartupFatal({
+    message: error?.message || String(error),
+    stack: error?.stack ?? null,
+    isFatal: isFatal !== false,
+  });
+}
 
 let installed = false;
 let uninstallRejection: (() => void) | null = null;
@@ -51,8 +60,10 @@ function toError(reason: unknown): Error {
 function reportSafely(
   error: Error,
   report: typeof reportCrash,
+  isFatal?: boolean,
 ): void {
   try {
+    persistFatalLocally(error, isFatal);
     if (wasBoundaryReported(error.message, error.stack)) return;
     report({
       errorMessage: error.message || String(error),
@@ -89,7 +100,7 @@ export function installGlobalCrashHandlers(opts: InstallOptions = {}): boolean {
     if (errorUtils && typeof errorUtils.getGlobalHandler === "function") {
       const previous = errorUtils.getGlobalHandler();
       errorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
-        reportSafely(error, report);
+        reportSafely(error, report, isFatal);
         // Never suppress normal fatal-error handling.
         if (typeof previous === "function") {
           previous(error, isFatal);
@@ -114,7 +125,7 @@ export function installGlobalCrashHandlers(opts: InstallOptions = {}): boolean {
           ev && typeof ev === "object" && "reason" in ev
             ? (ev as { reason: unknown }).reason
             : ev;
-        reportSafely(toError(reason), report);
+        reportSafely(toError(reason), report, false);
         // Do not preventDefault — allow default rejection handling to continue.
       };
       target.addEventListener("unhandledrejection", listener);
@@ -128,7 +139,7 @@ export function installGlobalCrashHandlers(opts: InstallOptions = {}): boolean {
           ev && typeof ev === "object" && "reason" in ev
             ? (ev as { reason: unknown }).reason
             : ev;
-        reportSafely(toError(reason), report);
+        reportSafely(toError(reason), report, false);
         if (typeof prev === "function") {
           try {
             prev(ev);

@@ -74,6 +74,30 @@ test("root bundle evaluation never reaches expo-updates", () => {
   );
 });
 
+test("root bundle evaluation never statically imports @clerk/expo/passkeys", () => {
+  // Build 78 IPA has no ClerkExpoPasskeys native module. A static import evaluates
+  // requireNativeModule('ClerkExpoPasskeys') at module scope and throws
+  // `Cannot find native module 'ClerkExpoPasskeys'` before any error boundary —
+  // expo-updates then blacklists the tip (updatePreviouslyFailed).
+  const chains = chainsReaching("@clerk/expo/passkeys");
+  assert.deepEqual(
+    chains,
+    [],
+    `Use getPasskeys() from lib/passkeyAuth.ts instead of static @clerk/expo/passkeys:\n${chains.join("\n")}`,
+  );
+
+  const layout = readFileSync(ENTRY, "utf8");
+  assert.match(
+    layout,
+    /getPasskeys/,
+    "ClerkProvider must wire passkeys via getPasskeys() fail-soft",
+  );
+  assert.doesNotMatch(
+    layout.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""),
+    /from\s+["']@clerk\/expo\/passkeys["']/,
+  );
+});
+
 test("the deferred runtime is what pulls expo-updates in", () => {
   const deferred = readFileSync(join(ROOT, "components/DeferredOtaRuntime.tsx"), "utf8");
   assert.match(
