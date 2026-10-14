@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runNflDriveSim } from "../src/lib/sportSim/nflDriveSim.ts";
+import { blendVenueAndL10 } from "../src/lib/sportSim/footballDriveMatchup.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../..");
@@ -33,7 +34,15 @@ type EspnGame = {
   source?: string;
 };
 
-type TeamForm = { ptsFor: number[]; ptsAgainst: number[] };
+/** Rolling form with venue splits — matches production footballGameSimInputs. */
+type TeamForm = {
+  ptsFor: number[];
+  ptsAgainst: number[];
+  homeFor: number[];
+  homeAgainst: number[];
+  awayFor: number[];
+  awayAgainst: number[];
+};
 
 const SIMS = Number(process.env.NCAAF_PHASE_E_SIMS ?? 2500);
 const HOLDOUT_SEASON = Number(process.env.NCAAF_PHASE_E_HOLDOUT_SEASON ?? 2024);
@@ -76,16 +85,68 @@ function formSlice(form: TeamForm | undefined, n = 10): {
   ptsFor: number | null;
   ptsAgainst: number | null;
   recentScores: number[];
+  games: number;
 } {
   const pf = form?.ptsFor.slice(-n) ?? [];
   const pa = form?.ptsAgainst.slice(-n) ?? [];
   if (pf.length < 2) {
-    return { ptsFor: null, ptsAgainst: null, recentScores: pf.slice() };
+    return { ptsFor: null, ptsAgainst: null, recentScores: pf.slice(), games: pf.length };
   }
   return {
     ptsFor: mean(pf, 24),
     ptsAgainst: mean(pa, 24),
     recentScores: pf.slice(),
+    games: pf.length,
+  };
+}
+
+function venueSlice(
+  forArr: number[] | undefined,
+  againstArr: number[] | undefined,
+  n = 10,
+): { games: number; ptsFor: number | null; ptsAgainst: number | null } {
+  const pf = (forArr ?? []).slice(-n);
+  const pa = (againstArr ?? []).slice(-n);
+  if (!pf.length) return { games: 0, ptsFor: null, ptsAgainst: null };
+  return {
+    games: pf.length,
+    ptsFor: mean(pf, 24),
+    ptsAgainst: pa.length ? mean(pa, 24) : null,
+  };
+}
+
+/** Production-parity inputs: venue split blended with L10 (no invented HFA constant). */
+function teamSimInput(
+  form: TeamForm | undefined,
+  venue: "home" | "away",
+): {
+  ptsFor: number | null;
+  ptsAgainst: number | null;
+  recentScores: number[];
+  provenance: string;
+} {
+  const l10 = formSlice(form);
+  const venueForm =
+    venue === "home"
+      ? venueSlice(form?.homeFor, form?.homeAgainst)
+      : venueSlice(form?.awayFor, form?.awayAgainst);
+  const blended = blendVenueAndL10(
+    {
+      games: venueForm.games,
+      ptsFor: venueForm.ptsFor,
+      ptsAgainst: venueForm.ptsAgainst,
+    },
+    {
+      games: l10.games,
+      ptsFor: l10.ptsFor,
+      ptsAgainst: l10.ptsAgainst,
+    },
+  );
+  return {
+    ptsFor: blended.ptsFor,
+    ptsAgainst: blended.ptsAgainst,
+    recentScores: l10.recentScores,
+    provenance: blended.provenance,
   };
 }
 
@@ -135,31 +196,37 @@ function main(): number {
   const mlP: number[] = [];
   const mlY: number[] = [];
   const dog75: { cover: number; ml: number }[] = [];
+  const provenanceCounts: Record<string, number> = {};
   let skippedThin = 0;
   let scored = 0;
 
+  const emptyForm = (): TeamForm => ({
+    ptsFor: [],
+    ptsAgainst: [],
+    homeFor: [],
+    homeAgainst: [],
+    awayFor: [],
+    awayAgainst: [],
+  });
+
   for (const g of games) {
-    const homeForm = formSlice(forms.get(g.homeTeamId));
-    const awayForm = formSlice(forms.get(g.awayTeamId));
+    const homeIn = teamSimInput(forms.get(g.homeTeamId), "home");
+    const awayIn = teamSimInput(forms.get(g.awayTeamId), "away");
 
     const isHoldout = g.season === HOLDOUT_SEASON;
-    if (
-      isHoldout &&
-      homeForm.ptsFor != null &&
-      awayForm.ptsFor != null
-    ) {
+    if (isHoldout && homeIn.ptsFor != null && awayIn.ptsFor != null) {
       const result = runNflDriveSim({
         sport: "ncaaf",
         simulations: SIMS,
         home: {
-          ptsFor: homeForm.ptsFor,
-          ptsAgainst: homeForm.ptsAgainst,
-          recentScores: homeForm.recentScores,
+          ptsFor: homeIn.ptsFor,
+          ptsAgainst: homeIn.ptsAgainst,
+          recentScores: homeIn.recentScores,
         },
         away: {
-          ptsFor: awayForm.ptsFor,
-          ptsAgainst: awayForm.ptsAgainst,
-          recentScores: awayForm.recentScores,
+          ptsFor: awayIn.ptsFor,
+          ptsAgainst: awayIn.ptsAgainst,
+          recentScores: awayIn.recentScores,
         },
         coverQueries: [
           { id: "home-ml", kind: "ml", teamSide: "home" },
@@ -179,6 +246,8 @@ function main(): number {
           mlP.push(pHome);
           mlY.push(yHome);
           scored += 1;
+          const provKey = `${homeIn.provenance}+${awayIn.provenance}`;
+          provenanceCounts[provKey] = (provenanceCounts[provKey] ?? 0) + 1;
           // Pathology: near coin-flip ML with huge dog — cover must not sit at 70%+.
           if (pHome > 0.45 && pHome < 0.55) {
             const awayCovered = g.awayFg + 7.5 > g.homeFg ? 1 : 0;
@@ -191,13 +260,17 @@ function main(): number {
     }
 
     // Update rolling form AFTER the game (chrono — no leakage).
-    const hf = forms.get(g.homeTeamId) ?? { ptsFor: [], ptsAgainst: [] };
+    const hf = forms.get(g.homeTeamId) ?? emptyForm();
     hf.ptsFor.push(g.homeFg);
     hf.ptsAgainst.push(g.awayFg);
+    hf.homeFor.push(g.homeFg);
+    hf.homeAgainst.push(g.awayFg);
     forms.set(g.homeTeamId, hf);
-    const af = forms.get(g.awayTeamId) ?? { ptsFor: [], ptsAgainst: [] };
+    const af = forms.get(g.awayTeamId) ?? emptyForm();
     af.ptsFor.push(g.awayFg);
     af.ptsAgainst.push(g.homeFg);
+    af.awayFor.push(g.awayFg);
+    af.awayAgainst.push(g.homeFg);
     forms.set(g.awayTeamId, af);
   }
 
@@ -209,12 +282,19 @@ function main(): number {
     simulationsPerGame: SIMS,
     nHoldoutScored: scored,
     nHoldoutSkippedThinForm: skippedThin,
+    formMethodology:
+      "venue_split blended with L10 via blendVenueAndL10 (production footballGameSimInputs parity); no invented HFA constant",
+    formProvenanceCounts: provenanceCounts,
     closingLineData: "INSUFFICIENT_DATA",
     closingLineNote:
-      "No licensed closing-line archive in this environment; CLV / market-Brier not computed.",
+      "No licensed closing-line archive in this environment; CLV / market-Brier not computed. " +
+      "Dependency: ODDS_API_KEY with The Odds API historical scores access, OR NCAAF_PHASE_E_FIXTURE CSV " +
+      "(columns: gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown).",
     injurySegmentData: "INSUFFICIENT_DATA",
     injuryNote:
-      "ESPN scoreboard cache has no QB/injury flags — E4 cannot PASS without an injury-segmented universe.",
+      "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. " +
+      "Dependency: injury-segmented holdout rows (injuryKnown + optional qbOut) via NCAAF_PHASE_E_FIXTURE, " +
+      "or a historical ESPN injury snapshot keyed by eventId/teamId before kickoff.",
     metrics: scored
       ? {
           brier: brier(mlP, mlY),
@@ -223,6 +303,7 @@ function main(): number {
           ece10: ece(mlP, mlY, 10),
           meanP: mean(mlP, 0.5),
           meanY: mean(mlY, 0.5),
+          homeWinBias: mean(mlP, 0.5) - mean(mlY, 0.5),
           nearCoinFlipDog75: {
             n: dog75.length,
             awayCoverRate: dog75.length

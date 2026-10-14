@@ -236,6 +236,53 @@ test("validation: teamInputFromHistory wires defenseAllowed through", () => {
   assert.deepEqual(input.recentScores, [31, 24]);
 });
 
+test("validation: home venue split lifts ML vs last10-only symmetric form", () => {
+  // Holdout bias root cause: combined L10 (no venue) → ~coin home ML.
+  // Production + Phase E holdout use home/away venue blends.
+  const coverIds = [{ id: "home-ml", kind: "ml" as const, teamSide: "home" as const }];
+  const last10Only = withSeededRandom(7, () =>
+    runNflDriveSim({
+      sport: "ncaaf",
+      simulations: 8000,
+      home: { ptsFor: 28, ptsAgainst: 24, recentScores: [28, 27, 31] },
+      away: { ptsFor: 28, ptsAgainst: 24, recentScores: [28, 27, 31] },
+      coverQueries: coverIds,
+      retainOutcomes: false,
+    }),
+  );
+  const venueHome = withSeededRandom(7, () => {
+    const home = teamInputFromHistory(
+      {
+        homeSplit: { games: 4, ptsFor: 34, ptsAgainst: 20 },
+        last10: { games: 10, ptsFor: 28, ptsAgainst: 24 },
+        recent: [{ pts: 31 }, { pts: 28 }],
+      },
+      "home",
+    );
+    const away = teamInputFromHistory(
+      {
+        awaySplit: { games: 4, ptsFor: 22, ptsAgainst: 30 },
+        last10: { games: 10, ptsFor: 28, ptsAgainst: 24 },
+        recent: [{ pts: 21 }, { pts: 24 }],
+      },
+      "away",
+    );
+    return runNflDriveSim({
+      sport: "ncaaf",
+      simulations: 8000,
+      home,
+      away,
+      coverQueries: coverIds,
+      retainOutcomes: false,
+    });
+  });
+  assert.ok(last10Only && venueHome);
+  const pSym = last10Only!.coverHitRates?.["home-ml"] ?? 0;
+  const pVenue = venueHome!.coverHitRates?.["home-ml"] ?? 0;
+  assert.ok(Math.abs(pSym - 0.5) < 0.08, `symmetric L10 should be near coin (got ${pSym})`);
+  assert.ok(pVenue > pSym + 0.05, `venue home edge must lift ML (sym=${pSym} venue=${pVenue})`);
+});
+
 test("validation seal: client P0 flag must stay false until Phase E sign-off", async () => {
   const mod = await import("../../stadium-mobile/lib/coachP0UnvalidatedTotals.ts");
   assert.equal(

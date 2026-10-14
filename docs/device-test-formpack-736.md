@@ -31,3 +31,9 @@
 2. Time early-exit ask `7 leg college` (expect Phase E copy, not quality-bar hang).
 3. Smoke `6 leg nfl` / `6 leg nhl` / `6 leg nba` / `6 leg mlb` (must still scan; no false early exit).
 4. Optional: `7 leg college football player props` (eligible sims — separate from game-line restore).
+
+## Attestation before timing
+
+See `docs/device-test-preview-ota-24d3f800.md` for numbered OTA fetch + Device attestation steps.
+Required running update ID: `01a13c45-995d-7494-b9a5-35f07e96e47d` (commit `24d3f800` tip; tip SHA may advance — always match the published iOS update ID in that doc / latest Preview OTA message).
+Do not infer install from EAS adoption counts.
