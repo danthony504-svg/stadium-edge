@@ -152,16 +152,16 @@ Build 78 on the phone is a **TestFlight / App Store distribution** binary (`is_b
 
 ### Supported evidence-collection methods (in order)
 
-1. **Mac Console.app** (primary for TestFlight crash-loop)  
-   - Connect the iPhone → open **Console** → select the device → filter process `StadiumEdge` (or subsystem containing `expo` / `EXUpdates`).  
-   - Force-quit Stadium Edge → cold launch once → capture lines with `Fatal error`, `Fatal exception`, `markFailedLaunchForUpdate`, `errorRecovery`, `jsRuntimeError`.  
-   - Optionally: device **sysdiagnose** (Analytics & Improvements / Settings path, or `sysdiagnose` gesture) and search the archive for the same strings.
+1. **Mac Console.app** (primary for TestFlight / ErrorRecovery SIGABRT)  
+   - Connect the iPhone → open **Console** → select the device → filter process `StadiumEdge` (or `expo` / `EXUpdates`).  
+   - Force-quit Stadium Edge → cold launch once → capture `Fatal error`, `Fatal exception`, `markFailedLaunchForUpdate`, `errorRecovery`, `jsRuntimeError`.  
+   - Optional: device **sysdiagnose**; search the archive for the same strings.
 
-2. **In-app Diagnostics** — only after the process can reach Home  
-   - Menu → Device attestation → **Copy** → paste `--- expo-updates native logs (last hour) ---` plus `Updates.updateId` / `isEmbeddedLaunch`.  
-   - Prefer this **after** a successful embedded boot (native failed-launch blacklist and/or channel embedded rollback), not during the 0.27s loop.
+2. **Deep link (Build 78 embedded — no menu row)** — only if the app stays up  
+   - Safari → `stadium-mobile://ota-debug` → Copy report if the screen opens.  
+   - Do **not** publish an OTA only to expose a menu item.
 
-3. **Ops (human; after freeze is effective on `main`)** — embedded rollback via `rollback-production-ota` so UI can boot for (2). **Not** run by this investigation. Verify freeze on `main` first (see §D).
+3. **Ops (human; freeze already on `main` after #734)** — embedded rollback if needed so the process can stay up for (2). **Not** required to collect Console fatals. No OTA to add Diagnostics UI.
 
 ---
 
