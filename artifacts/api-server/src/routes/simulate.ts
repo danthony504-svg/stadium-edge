@@ -6,7 +6,7 @@ import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
 import { SPORT_SIM_ENGINE_VERSION } from "../lib/sportSim/gameSimEngineVersion.js";
-import { omitScoreOutcomesForPeriodQueries } from "../lib/gameOutcomePayload.js";
+import { sealPublishedClientPeriodQueries } from "../lib/gameOutcomePayload.js";
 import {
   loadFootballDefenseAllowed,
   teamInputFromHistory,
@@ -162,7 +162,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       return;
     }
     res.json(
-      omitScoreOutcomesForPeriodQueries(
+      sealPublishedClientPeriodQueries(
         {
           sport,
           homeTeam: homeTeam || null,
@@ -193,7 +193,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       simulations,
     );
     res.json(
-      omitScoreOutcomesForPeriodQueries(
+      sealPublishedClientPeriodQueries(
         {
           sport,
           engineVersion: SPORT_SIM_ENGINE_VERSION,
@@ -250,7 +250,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
   }
 
   res.json(
-    omitScoreOutcomesForPeriodQueries(
+    sealPublishedClientPeriodQueries(
       {
         sport,
         homeTeam: req.body?.homeTeam ?? null,

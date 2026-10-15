@@ -10,6 +10,7 @@ import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
 import { fetchEspnInjuries } from "./espnInjuries.js";
 import { teamPace } from "./statmuse.js";
 import { runSportGameMonteCarlo } from "./sportSim/registry.js";
+import { sealPublishedClientPeriodQueries } from "./gameOutcomePayload.js";
 import { SPORT_SIM_ENGINE_VERSION, stampedTeamGameOutcome } from "./sportSim/gameSimEngineVersion.js";
 import {
   loadFootballDefenseAllowed,
@@ -277,13 +278,16 @@ export async function runGameOutcomeSimInProcess(body: {
       retainOutcomes,
     });
     if (!result) return null;
-    return {
-      sport,
-      engineVersion: SPORT_SIM_ENGINE_VERSION,
-      homeWinProbability: result.homeWinProbability ?? null,
-      awayWinProbability: result.awayWinProbability ?? null,
-      coverHitRates: result.coverHitRates ?? {},
-    };
+    return sealPublishedClientPeriodQueries(
+      {
+        sport,
+        engineVersion: SPORT_SIM_ENGINE_VERSION,
+        homeWinProbability: result.homeWinProbability ?? null,
+        awayWinProbability: result.awayWinProbability ?? null,
+        coverHitRates: result.coverHitRates ?? {},
+      },
+      coverQueries,
+    );
   }
 
   if (sport === "ufc" || sport === "mma") {
@@ -301,13 +305,16 @@ export async function runGameOutcomeSimInProcess(body: {
       },
       simulations,
     );
-    return {
-      sport,
-      engineVersion: SPORT_SIM_ENGINE_VERSION,
-      homeWinProbability: sim.homeWinProbability ?? null,
-      awayWinProbability: sim.awayWinProbability ?? null,
-      coverHitRates: sim.coverHitRates ?? {},
-    };
+    return sealPublishedClientPeriodQueries(
+      {
+        sport,
+        engineVersion: SPORT_SIM_ENGINE_VERSION,
+        homeWinProbability: sim.homeWinProbability ?? null,
+        awayWinProbability: sim.awayWinProbability ?? null,
+        coverHitRates: sim.coverHitRates ?? {},
+      },
+      coverQueries,
+    );
   }
 
   if (!homeTeamId || !awayTeamId) return null;
@@ -332,5 +339,5 @@ export async function runGameOutcomeSimInProcess(body: {
     away: teamInputFromHistory(awayHist, "away", awayDef),
   });
   if (!result) return null;
-  return stampedTeamGameOutcome(sport, result);
+  return sealPublishedClientPeriodQueries(stampedTeamGameOutcome(sport, result), coverQueries);
 }
