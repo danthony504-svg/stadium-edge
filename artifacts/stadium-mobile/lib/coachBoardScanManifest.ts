@@ -199,6 +199,8 @@ export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
   recordEvaluatedLeg(leg: BoardScoredLeg): void;
   recordEvaluatedPick(pick: ParsedPick, score: ParsedPick["finalAiScore"]): void;
   recomputeQualificationFromScored(scored: BoardScoredLeg[]): void;
+  /** Scored legs that existed before the ladder role filter. Stops finalize from labeling them no_sim_grade. */
+  recordScoredLegCount(count: number): void;
   /**
    * Observational post-staging funnel for NFL/NCAAF props — does not change
    * which legs were selected; only records counts for the scan manifest.
@@ -524,6 +526,9 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       }
 
       manifest.totalEvaluated = manifest.preScoreEvaluated + scored.length;
+    },
+    recordScoredLegCount(count: number) {
+      manifest.totalEvaluated = manifest.preScoreEvaluated + count;
     },
     recordFootballPropDeliveryFunnel(qualifiedFootballProps, selectedPicks) {
       safeCoachManifestInstrument("football-delivery-funnel", () => {

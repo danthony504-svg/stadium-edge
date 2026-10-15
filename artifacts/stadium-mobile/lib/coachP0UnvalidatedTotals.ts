@@ -61,6 +61,15 @@ export const P0_UNVALIDATED_NCAAF_GAME_LINE_REASON =
 export const P0_UNVALIDATED_UNKNOWN_SPORT_GAME_LINE_REASON =
   "unvalidated_unknown_sport_game_line";
 
+/**
+ * Quarters, halves, periods, and innings are a share of the full-game draw
+ * (flat fraction or ESPN period averages). distributionForQuery reads that
+ * same full-game series. Neither path is a period simulation, and a posted
+ * price is not a validity check. Naming the period does not clear this gate.
+ */
+export const P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON =
+  "unvalidated_period_full_game_decomposition";
+
 export type CoachSportResolveInput = {
   sport?: string | null;
   /** Trusted Odds API / event sport when pick.sport is missing. */
@@ -99,22 +108,50 @@ export function resolveCoachPickSport(pick: CoachSportResolveInput): string {
   );
 }
 
-/** Lightweight period detect — mirrors parseMarketPeriod for totals only. */
+/**
+ * Lightweight period detect — same non-fg scopes as parseMarketPeriod.
+ * Standalone so this module does not import simMarketSupport.
+ * Odds API keys (`spreads_q3`, `totals_1st_5_innings`) are normalized first.
+ * Any numbered inning is a period even when the sim has no scope for it, so
+ * it cannot grade as a full-game side.
+ */
 function marketPeriodIsFullGame(market: string): boolean {
-  const m = market.toLowerCase();
-  if (/\bq[1-4]\b|first quarter|1st quarter|second quarter|2nd quarter|third quarter|3rd quarter|fourth quarter|4th quarter/.test(m)) {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!m) return true;
+  if (
+    /\bq[1-4]\b|first quarter|1st quarter|second quarter|2nd quarter|third quarter|3rd quarter|fourth quarter|4th quarter/.test(
+      m,
+    )
+  ) {
     return false;
   }
-  if (/\b1h\b|\b2h\b|h1|h2|first half|1st half|second half|2nd half/.test(m)) {
+  if (/\b(?:1h|h1|2h|h2)\b|first half|1st half|second half|2nd half/.test(m)) {
     return false;
   }
-  if (/\bf5\b|first 5|1st 5|five innings|1st inning|first inning/.test(m)) {
+  if (/\bf5\b|first 5|1st 5|five innings|first five innings/.test(m)) {
     return false;
   }
-  if (/\b1p\b|\b2p\b|\b3p\b|first period|1st period|second period|2nd period|third period|3rd period/.test(m)) {
+  if (/\b1st 1 innings?\b|\b1st inning\b|first inning/.test(m)) {
     return false;
   }
-  if (/_(q[1-4]|h[12]|p[123])\b/i.test(m)) return false;
+  if (
+    /\b(?:2nd|3rd|4th|5th|6th|7th|8th|9th|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\s+inning\b/.test(
+      m,
+    )
+  ) {
+    return false;
+  }
+  if (
+    /\b(?:1p|p1|2p|p2|3p|p3)\b|first period|1st period|second period|2nd period|third period|3rd period/.test(
+      m,
+    )
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -255,11 +292,48 @@ export function p0UnvalidatedNcaafGameLineDecision(
   return { accept: false, reason: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON };
 }
 
-/** Combined P0 reject for totals + unvalidated NCAAF/unknown-sport game lines. */
+/**
+ * True for quarter / half / period / inning sides and totals.
+ * Player props stay out. Full-game markets stay out.
+ */
+export function isUnvalidatedPeriodDecompositionMarket(pick: P0PickInput): boolean {
+  const market = String(pick.market ?? "");
+  if (!market) return false;
+  if (isPlayerPropMarketIdentity(market, { propMarketKey: pick.propMarketKey })) {
+    return false;
+  }
+  if (marketPeriodIsFullGame(market)) return false;
+  // Odds API keys keep underscores (`totals_1st_1_innings`). Side detection
+  // already normalizes those; total detection must see the same text.
+  const normalized = market.toLowerCase().replace(/_/g, " ");
+  return (
+    isGameLineSideMarket(market) ||
+    isTeamTotalMarket(market) ||
+    isTeamTotalMarket(normalized) ||
+    isGameTotalMarket(market) ||
+    isGameTotalMarket(normalized)
+  );
+}
+
+export function p0UnvalidatedPeriodDecompositionDecision(
+  pick: P0PickInput,
+): { accept: false; reason: string } | null {
+  if (!isUnvalidatedPeriodDecompositionMarket(pick)) return null;
+  return { accept: false, reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON };
+}
+
+/**
+ * Combined P0 reject for totals, unvalidated NCAAF/unknown-sport game lines,
+ * and period markets graded from a full-game decomposition.
+ */
 export function p0UnvalidatedSimDecision(
   pick: P0PickInput,
 ): { accept: false; reason: string } | null {
-  return p0UnvalidatedSimTotalDecision(pick) ?? p0UnvalidatedNcaafGameLineDecision(pick);
+  return (
+    p0UnvalidatedSimTotalDecision(pick) ??
+    p0UnvalidatedNcaafGameLineDecision(pick) ??
+    p0UnvalidatedPeriodDecompositionDecision(pick)
+  );
 }
 
 /**

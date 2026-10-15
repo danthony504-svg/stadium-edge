@@ -65,7 +65,10 @@ function comparePropLadderRungs(a: BoardScoredLeg, b: BoardScoredLeg): number {
  * {@link wouldRepeatMarketLadder} / {@link dedupePicksByMarketLadder} so only
  * one correlated rung per side seats.
  */
-export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): BoardScoredLeg[] {
+export function collapseScoredLegsByMarketLadder(
+  scored: BoardScoredLeg[],
+  onLadderUnqualified?: (leg: BoardScoredLeg) => void,
+): BoardScoredLeg[] {
   const byScoreKey = new Map<string, BoardScoredLeg[]>();
   for (const leg of scored) {
     const key = marketLadderScoreKey(leg.pick);
@@ -94,6 +97,7 @@ export function collapseScoredLegsByMarketLadder(scored: BoardScoredLeg[]): Boar
         out.push(leg);
         break;
       }
+      onLadderUnqualified?.(leg);
     }
   }
   return out;

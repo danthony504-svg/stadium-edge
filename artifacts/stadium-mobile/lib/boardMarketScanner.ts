@@ -1882,9 +1882,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   totalScanned += pool.length;
   simulateSession?.markFinalizationStart();
-  const collapsed = collapseScoredLegsByMarketLadder(scored);
+  const ladderUnqualified: BoardScoredLeg[] = [];
+  const collapsed = collapseScoredLegsByMarketLadder(scored, (leg) => {
+    ladderUnqualified.push(leg);
+  });
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+  for (const leg of ladderUnqualified) {
+    const score = leg.pick.finalAiScore
+      ? { ...leg.pick.finalAiScore, simHit: leg.simHit ?? leg.pick.finalAiScore.simHit }
+      : leg.pick.finalAiScore;
+    manifestRecorder.recordEvaluatedPick(leg.pick, score);
+  }
+  manifestRecorder.recordScoredLegCount(scored.length);
   const propLegsScored = collapsed.filter((leg) => !!leg.pick.isProp).length;
   const failureDiagnostics = {
     oddsGameCount: oddsGames.length,

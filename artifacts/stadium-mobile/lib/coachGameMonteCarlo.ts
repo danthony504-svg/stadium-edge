@@ -2,15 +2,13 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame } from "./api.ts";
-import { fetchGameOutcomeSimulation, fetchTeamPeriodStats } from "./api.ts";
+import { fetchGameOutcomeSimulation } from "./api.ts";
 import {
   fingerprintCoachGameSim,
   withCoachGameSimCache,
 } from "./coachContextCache.ts";
 import {
   buildGameCoverQuery,
-  buildPeriodOffenseDefenseProfile,
-  deriveCoverHitRatesFromOutcomes,
   gamePickCoverQueryId,
   gameSimHitForPick,
   isGameLinePick,
@@ -312,9 +310,6 @@ export async function fetchSlateGameSimulationsWithStatus(
     // that collapsed Coach to an instant 0-leg ticket (phone 7-leg empty).
     try {
       const sportKey = (ids.sport || sport || "mlb").toLowerCase();
-      const wantsPeriodStats =
-        (sportKey === "ncaaf" || sportKey === "nfl" || sportKey === "nba") &&
-        coverQueries.some((q) => q.period && q.period !== "fg");
       const simOpts = {
         sport: ids.sport || sport || "mlb",
         homeTeamId: ids.homeTeamId || undefined,
@@ -336,19 +331,11 @@ export async function fetchSlateGameSimulationsWithStatus(
         simulations: COACH_GAME_SIMS,
         coverQueries,
       });
-      const [resultRaw, homePeriod, awayPeriod] = await Promise.all([
-        withCoachGameSimCache(
-          simFp,
-          () => fetchGameOutcomeSimulation(simOpts, signal),
-          signal,
-        ),
-        wantsPeriodStats && ids.homeTeamId
-          ? fetchTeamPeriodStats(sportKey, ids.homeTeamId, signal)
-          : Promise.resolve(null),
-        wantsPeriodStats && ids.awayTeamId
-          ? fetchTeamPeriodStats(sportKey, ids.awayTeamId, signal)
-          : Promise.resolve(null),
-      ]);
+      const resultRaw = await withCoachGameSimCache(
+        simFp,
+        () => fetchGameOutcomeSimulation(simOpts, signal),
+        signal,
+      );
       // UFC/MMA: when production game-outcome rejects name-only (or returns
       // null), mirror Simulator — client fight analysis + 10k MC.
       let result = resultRaw;
@@ -374,28 +361,10 @@ export async function fetchSlateGameSimulationsWithStatus(
         );
       }
       if (result) {
-        let entry = result as CoachGameSimEntry;
-        // Re-derive period cover rates with real period offense vs opp period
-        // defense when ESPN linescores exist — never invent period averages.
-        const profile = buildPeriodOffenseDefenseProfile(
-          homePeriod?.periodAverages,
-          awayPeriod?.periodAverages,
-        );
-        if (profile && entry.outcomes?.homeScores?.length) {
-          const periodQueries = coverQueries.filter((q) => q.period && q.period !== "fg");
-          if (periodQueries.length) {
-            const periodRates = deriveCoverHitRatesFromOutcomes(
-              entry.outcomes,
-              periodQueries,
-              sportKey,
-              profile,
-            );
-            entry = {
-              ...entry,
-              coverHitRates: { ...(entry.coverHitRates ?? {}), ...periodRates },
-            };
-          }
-        }
+        // Keep the server cover rates. ESPN period averages must not rescale
+        // full-game draws into a period hit. Period markets still fail the
+        // validity gate in p0UnvalidatedSimDecision.
+        const entry = result as CoachGameSimEntry;
         out.set(gameLabel, entry);
         statuses.push({
           gameLabel,

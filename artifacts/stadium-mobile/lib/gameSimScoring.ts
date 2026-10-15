@@ -579,6 +579,11 @@ export function distributionForQuery(
   query: GameCoverQuery,
   sim: CoachGameSimEntry,
 ): { mean: number | null; median: number | null; stdev: number | null } {
+  // Saved draws are full-game scores. A period query must not report that
+  // series as a quarter, half, period, or inning distribution.
+  if (query.period && query.period !== "fg") {
+    return { mean: null, median: null, stdev: null };
+  }
   const outcomes = sim.outcomes;
   if (outcomes?.homeScores?.length && outcomes.homeScores.length === outcomes.awayScores.length) {
     const values: number[] = [];

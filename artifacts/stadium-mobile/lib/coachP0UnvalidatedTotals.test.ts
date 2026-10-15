@@ -14,6 +14,7 @@ import {
   p0UnvalidatedSimDecision,
   p0UnvalidatedSimTotalDecision,
   P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+  P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON,
   P0_UNVALIDATED_TOTAL_REASON,
   P0_UNVALIDATED_UNKNOWN_SPORT_GAME_LINE_REASON,
   resolveCoachPickSport,
@@ -34,6 +35,7 @@ import {
   passesLeanTicketConstraints,
 } from "./mlLeanEnforcement.ts";
 import { scoredLegFromQualifiedCandidate } from "./postLeanFinalFill.ts";
+import { deliveryCandidateStillQualified } from "./coachDeliveryQualification.ts";
 import {
   boardLegPoolRole,
   topUpTicketFromQualifiedScored,
@@ -483,6 +485,56 @@ test("P0 bypass seal: unknown market identity is not forced into NCAAF game-line
   );
 });
 
+test("period decomposition stays fail-closed after an explicit quarter, half, period, or inning", () => {
+  const blocked: Array<{ market: string; sport: string; reason: string }> = [
+    { market: "Q3 Spread", sport: "nfl", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "spreads_q3", sport: "nfl", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "1H Spread", sport: "nfl", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "2H Moneyline", sport: "nfl", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "Q1 Spread", sport: "nba", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "1st Period Puck Line", sport: "nhl", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "h2h_p1", sport: "nhl", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "F5 Run Line", sport: "mlb", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "spreads_1st_5_innings", sport: "mlb", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "1st Inning Moneyline", sport: "mlb", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "2nd Inning Moneyline", sport: "mlb", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "totals_1st_1_innings", sport: "mlb", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    { market: "1H Total", sport: "mlb", reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON },
+    // Totals reason still wins for NFL/NHL period totals.
+    { market: "Q3 Total", sport: "nfl", reason: P0_UNVALIDATED_TOTAL_REASON },
+    { market: "P1 Total", sport: "nhl", reason: P0_UNVALIDATED_TOTAL_REASON },
+    // NCAAF period sides stay on the NCAAF game-line reason.
+    { market: "Q2 Spread", sport: "ncaaf", reason: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON },
+  ];
+  for (const row of blocked) {
+    assert.equal(
+      p0UnvalidatedSimDecision({ market: row.market, sport: row.sport })?.reason,
+      row.reason,
+      `${row.sport} ${row.market}`,
+    );
+    for (const simHit of [0.969, 0.62]) {
+      const ctx = {
+        market: row.market,
+        sport: row.sport,
+        line: 1.5,
+        odds: -230,
+      };
+      assert.equal(pickHasSimGrade(ctx, simHit), false, `${row.market} ${simHit}`);
+      const decision = assessSimMarketIntegrity(simHit, ctx);
+      assert.equal(decision.accept, false, `${row.market} ${simHit}`);
+      assert.equal(sanitizeSimHitForGrade(simHit, ctx), null);
+    }
+  }
+  // Full-game NFL sides stay open. A posted price is not what clears them.
+  assert.equal(p0UnvalidatedSimDecision({ market: "Spread", sport: "nfl" }), null);
+  assert.equal(p0UnvalidatedSimDecision({ market: "Moneyline", sport: "nfl" }), null);
+  assert.equal(pickHasSimGrade({ market: "Spread", sport: "nfl" }, 0.61), true);
+  assert.equal(
+    isP0UnvalidatedSimTotalMarket({ market: "1H Total", sport: "mlb" }),
+    false,
+  );
+});
+
 test("P0 bypass seal: verified NFL game lines and NCAAF player props stay eligible", () => {
   assert.equal(pickHasSimGrade({ market: "Spread", sport: "nfl" }, 0.61), true);
   assert.equal(pickHasSimGrade({ market: "Moneyline", sport: "nfl" }, 0.55), true);
@@ -711,6 +763,73 @@ test("gameLineCandidatesFullyP0Blocked: NCAAF board yes; NFL/NHL/NBA with sides 
     true,
   );
   assert.equal(gameLineCandidatesFullyP0Blocked([]), false);
+
+  // Bare college posts FG + quarter/half sides and period totals together.
+  // Naming Q2 must not reopen the ask-level gate, and the stack itself is
+  // fully P0-blocked so period seats cannot bypass NCAAF validation.
+  const bareCollege = parseCoachAskMarketConstraint("8 leg college");
+  assert.equal(bareCollege.gameLinesOnly, true);
+  assert.equal(bareCollege.fullGameOnly, false);
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: bareCollege.gameLinesOnly && !bareCollege.propsOnly,
+      lockedSports: hardLockedSportsFromAsk("8 leg college"),
+    }),
+    true,
+  );
+  const namedQuarterCollege = parseCoachAskMarketConstraint("8 leg college Q2 spreads");
+  assert.equal(namedQuarterCollege.gameLinesOnly, true);
+  assert.equal(namedQuarterCollege.propsOnly, false);
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: namedQuarterCollege.gameLinesOnly && !namedQuarterCollege.propsOnly,
+      lockedSports: hardLockedSportsFromAsk("8 leg college Q2 spreads"),
+    }),
+    true,
+  );
+  const periodStack = [
+    { market: "Spread", sport: "ncaaf" },
+    { market: "Q1 Spread", sport: "ncaaf" },
+    { market: "1H Spread", sport: "ncaaf" },
+    { market: "Q2 Team Total", sport: "ncaaf" },
+    { market: "1H Total", sport: "ncaaf" },
+    { market: "Moneyline", sport: "ncaaf" },
+    { market: "spreads_q2", sport: "ncaaf" },
+  ];
+  assert.equal(gameLineCandidatesFullyP0Blocked(periodStack), true);
+  assert.equal(
+    p0UnvalidatedSimDecision({ market: "Q2 Spread", sport: "ncaaf" })?.reason,
+    P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
+  );
+  assert.equal(
+    p0UnvalidatedSimDecision({ market: "Q2 Team Total", sport: "ncaaf" })?.reason,
+    P0_UNVALIDATED_TOTAL_REASON,
+  );
+  for (const row of periodStack) {
+    assert.equal(
+      deliveryCandidateStillQualified({
+        game: "Iowa Hawkeyes @ Ohio State Buckeyes",
+        market: row.market,
+        pick: "Iowa +3.5",
+        odds: -110,
+        sport: "ncaaf",
+        isProp: false,
+        finalAiScore: {
+          composite: 8,
+          grade: "A",
+          confidencePct: 70,
+          edgePct: 4,
+          simHit: 0.62,
+          simAligned: true,
+          highRiskValuePlay: false,
+          recommends: true,
+          factors: [],
+        },
+      }),
+      false,
+      row.market,
+    );
+  }
   assert.match(p0BlockedGameLineBoardNote({ requestedLegs: 6, candidateCount: 12, sports: ["nfl"] }), /NFL/);
   assert.doesNotMatch(
     p0BlockedGameLineBoardNote({ requestedLegs: 6, candidateCount: 12, sports: ["nfl"] }),

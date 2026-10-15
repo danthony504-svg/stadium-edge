@@ -290,6 +290,46 @@ test("exception recovery keeps only qualified full-game sides", () => {
   assert.ok(recovered.every((p) => p.market === "Spread"));
 });
 
+test("explicit Q3 ask still drops the quarter leg at delivery qualification", () => {
+  const ask = parseCoachAskMarketConstraint("4 leg Q3 spreads and moneylines");
+  assert.equal(ask.fullGameOnly, false);
+  assert.equal(ask.gameLinesOnly, true);
+  const sea = "Seattle Seahawks @ Denver Broncos";
+  const q3Extreme = scored("Seahawks +1.5", {
+    game: sea,
+    market: "Q3 Spread",
+    odds: -230,
+    composite: 9,
+    edgePct: 4,
+    simHit: 0.969,
+  });
+  const q3Ordinary = scored("Broncos -1.5", {
+    game: sea,
+    market: "Q3 Spread",
+    odds: -110,
+    composite: 7,
+    edgePct: 2,
+    simHit: 0.62,
+  });
+  const fg = scored("Seahawks +3.5", {
+    game: sea,
+    market: "Spread",
+    composite: 8,
+    edgePct: 2,
+    simHit: 0.56,
+  });
+  assert.equal(deliveryCandidateStillQualified(q3Extreme), false);
+  assert.equal(deliveryCandidateStillQualified(q3Ordinary), false);
+  const recovered = recoverQualifiedDeliveryPicks([q3Extreme, q3Ordinary, fg], ask, {
+    requestedLegs: 4,
+    legsPerGameCap: 1,
+  });
+  assert.deepEqual(
+    recovered.map((p) => `${p.market}|${p.pick}`),
+    ["Spread|Seahawks +3.5"],
+  );
+});
+
 test("coverProbs-only sim map cannot seat — Final AI simHit still required", () => {
   // Even when server-shaped coverProbs exist on a sim entry, delivery
   // qualification ignores the map and requires pick.finalAiScore.simHit.

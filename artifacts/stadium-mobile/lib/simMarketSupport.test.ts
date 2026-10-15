@@ -25,6 +25,8 @@ test("parseMarketPeriod detects Odds API underscore keys (spreads_q2)", () => {
   assert.equal(parseMarketPeriod("totals_h1"), "h1");
   assert.equal(parseMarketPeriod("h2h_h2"), "h2");
   assert.equal(parseMarketPeriod("totals_1st_5_innings"), "f5");
+  assert.equal(parseMarketPeriod("totals_1st_1_innings"), "i1");
+  assert.equal(parseMarketPeriod("spreads_1st_5_innings"), "f5");
   assert.equal(parseMarketPeriod("spreads"), "fg");
   assert.equal(parseMarketPeriod("SPREADS"), "fg");
 });

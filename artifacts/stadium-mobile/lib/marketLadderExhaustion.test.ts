@@ -137,7 +137,14 @@ test("collapseScoredLegsByMarketLadder drops ladder when no rung qualifies", () 
     leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 100, belowBar),
     leg({ game: "A @ B", market: "Alt Spread", pick: "A +3.5", odds: 120 }, 90, belowBar),
   ];
-  assert.equal(collapseScoredLegsByMarketLadder(scored).length, 0);
+  const dropped: string[] = [];
+  assert.equal(
+    collapseScoredLegsByMarketLadder(scored, (leg) => {
+      dropped.push(String(leg.pick.market));
+    }).length,
+    0,
+  );
+  assert.deepEqual(dropped.sort(), ["Alt Spread", "Spread"]);
 });
 
 test("prop ladder preserves distinct main and alt yard thresholds for scoring", () => {
