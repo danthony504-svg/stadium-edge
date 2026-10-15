@@ -1,6 +1,6 @@
 # Rollout SHA reconcile (PR #736 / Build78 fixpack + football-unit port)
 
-**Reviewed tip (exact):** `30eafeb8c8b8e51fc7a9e796c75b25e2377a026f`
+**Reviewed tip (exact):** `ddeb4733348b98d7112748edc19c7e06fc6fc99a` (functional: null-note + period seal + broncos regression + calib port). Docs/artifact pins may sit atop this on the branch.
 
 Functional baseline before the port: `013ddb88` (null-note fix + isolated pipeline/cancel).  
 Football-unit pack source: PR **#738** tip `e3b4dc81` (`cursor/nfl-spread-ml-scoring-hang-b9b4`).  
@@ -16,7 +16,7 @@ Corrected drive-unit measurement docs: `2c13a3ba` (ppg→ppd; college ×0.48 ret
 | `576578cd` / `013ddb88` | Fixpack tip before football-unit port — **still applies NCAAF ×0.48 and feeds PPG as PPD** |
 | `6f18926b` → `2c13a3ba` | Corrected ppg→ppd conversion; ×0.48 retired from live path; 10k holdout docs |
 | `e3b4dc81` | PR #738 — named football-unit pack (ppg-v1, stamp, seal, parse, null-note, deadline, seeded calib) |
-| **`30eafeb8` (this tip)** | `013ddb88` lineage **+** football-unit pack **+** null-note trim fix **+** period partial seal **+** 8-leg broncos regression **+** calib module |
+| **`ddeb4733` (functional tip)** | `013ddb88` lineage **+** football-unit pack **+** null-note trim fix **+** period partial seal **+** 8-leg broncos regression **+** calib port |
 
 ## 2. Engine proof: `013ddb88` vs `2c13a3ba` (label alone insufficient)
 
@@ -56,7 +56,7 @@ Dual fixed-seed 10k holdout (primary seed `20241015`, identical fixtures + `blen
 ## 4. Device ask regressions (isolated full pipeline)
 
 Artifact: `artifacts/api-server/test/fixtures/coach-pipeline-cancel-isolated.json`  
-Client tip: `30eafeb8`. Isolated sim: tip SHA. Production healthz (unchanged): `cf6c0f69`.
+Client tip: `ddeb4733` (+ docs). Isolated sim: same functional tip. Production healthz (unchanged): `cf6c0f69`.
 
 | Ask | Runtime | Legs | Period in partial/final | Null-note | Notes |
 |-----|---------|------|-------------------------|-----------|-------|
