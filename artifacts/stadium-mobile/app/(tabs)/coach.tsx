@@ -15,13 +15,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -124,6 +125,7 @@ export default function CoachScreen() {
   ]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
@@ -825,6 +827,25 @@ export default function CoachScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const show = () => setKeyboardOpen(true);
+    const hide = () => setKeyboardOpen(false);
+    const subs = [
+      Keyboard.addListener("keyboardWillShow", show),
+      Keyboard.addListener("keyboardDidShow", show),
+      Keyboard.addListener("keyboardWillHide", hide),
+      Keyboard.addListener("keyboardDidHide", hide),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, []);
+
+  const dismissKeyboard = useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
+
+  const ComposerShell = Platform.OS === "web" ? View : KeyboardStickyView;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
@@ -838,15 +859,13 @@ export default function CoachScreen() {
         </View>
       </AppHeader>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={insets.top + 8}
-      >
+      <View style={{ flex: 1 }}>
         <FlatList
           ref={listRef}
           data={messages}
           keyExtractor={(m) => m.id}
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: 16, gap: 10 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           renderItem={({ item }) => {
@@ -998,151 +1017,183 @@ export default function CoachScreen() {
           }}
         />
 
-        {/* Attached-photo previews — up to 3, above the composer until sent. */}
-        {attachedImages.length ? (
+        <ComposerShell
+          style={{ backgroundColor: colors.background }}
+          {...(Platform.OS === "web" ? {} : { offset: { closed: 0, opened: 0 } })}
+        >
+          {keyboardOpen ? (
+            <View
+              style={{
+                alignItems: "center",
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+                backgroundColor: colors.background,
+              }}
+            >
+              <Pressable
+                onPress={dismissKeyboard}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss keyboard"
+                style={({ pressed }) => ({
+                  paddingVertical: 6,
+                  paddingHorizontal: 20,
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <Feather name="chevron-down" size={22} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          {/* Attached-photo previews — up to 3, above the composer until sent. */}
+          {attachedImages.length ? (
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 12,
+                paddingHorizontal: 12,
+                paddingTop: 8,
+              }}
+            >
+              {attachedImages.map((img, idx) => (
+                <View key={`${img.uri}-${idx}`} style={{ alignSelf: "flex-start" }}>
+                  <Image
+                    source={{ uri: img.uri }}
+                    style={{
+                      width: 84,
+                      height: 84,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                    contentFit="cover"
+                  />
+                  <Pressable
+                    onPress={() =>
+                      setAttachedImages((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                    hitSlop={8}
+                    accessibilityLabel="Remove photo"
+                    style={{
+                      position: "absolute",
+                      top: -8,
+                      right: -8,
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      backgroundColor: colors.foreground,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Feather name="x" size={14} color={colors.background} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           <View
             style={{
               flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 12,
+              alignItems: "center",
+              gap: 8,
               paddingHorizontal: 12,
               paddingTop: 8,
+              // Keyboard covers the home indicator — drop safe-area padding while
+              // open so the input sits flush above the keyboard (no empty gap).
+              paddingBottom: keyboardOpen ? 8 : Math.max(insets.bottom, 10),
+              borderTopWidth: keyboardOpen ? 0 : 1,
+              borderTopColor: colors.border,
+              backgroundColor: colors.background,
             }}
           >
-            {attachedImages.map((img, idx) => (
-              <View key={`${img.uri}-${idx}`} style={{ alignSelf: "flex-start" }}>
-                <Image
-                  source={{ uri: img.uri }}
-                  style={{
-                    width: 84,
-                    height: 84,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  }}
-                  contentFit="cover"
-                />
-                <Pressable
-                  onPress={() =>
-                    setAttachedImages((prev) => prev.filter((_, i) => i !== idx))
+            <Pressable
+              onPress={() => void pickImage()}
+              disabled={busy || pickingImage || attachedImages.length >= MAX_COACH_IMAGES}
+              accessibilityLabel="Upload ticket photo"
+              style={({ pressed }) => ({
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                opacity:
+                  pressed || busy || attachedImages.length >= MAX_COACH_IMAGES ? 0.6 : 1,
+              })}
+            >
+              {pickingImage ? (
+                <ActivityIndicator color={colors.mutedForeground} size="small" />
+              ) : (
+                <Feather name="image" size={20} color={colors.mutedForeground} />
+              )}
+            </Pressable>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Ask for a parlay, value bet, matchup…"
+              placeholderTextColor={colors.mutedForeground}
+              editable={!busy}
+              multiline
+              style={{
+                flex: 1,
+                minHeight: 42,
+                maxHeight: 120,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                borderRadius: 22,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                color: colors.foreground,
+                fontFamily: FONT.body,
+                fontSize: 15,
+              }}
+              onSubmitEditing={() => void send(draft)}
+            />
+            <Pressable
+              onPress={() => void send(draft)}
+              disabled={(!draft.trim() && !attachedImages.length && !busy) || pickingImage}
+              style={({ pressed }) => ({
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor:
+                  busy || draft.trim() || attachedImages.length
+                    ? busy
+                      ? colors.card
+                      : colors.primary
+                    : colors.card,
+                borderWidth: busy || draft.trim() || attachedImages.length ? 0 : 1,
+                borderColor: colors.border,
+                opacity: pressed ? 0.8 : 1,
+              })}
+              accessibilityLabel={busy ? "Stop" : "Send"}
+            >
+              {busy ? (
+                <Feather name="square" size={16} color={colors.foreground} />
+              ) : (
+                <Feather
+                  name="arrow-up"
+                  size={18}
+                  color={
+                    draft.trim() || attachedImages.length
+                      ? "#fff"
+                      : colors.mutedForeground
                   }
-                  hitSlop={8}
-                  accessibilityLabel="Remove photo"
-                  style={{
-                    position: "absolute",
-                    top: -8,
-                    right: -8,
-                    width: 24,
-                    height: 24,
-                    borderRadius: 12,
-                    backgroundColor: colors.foreground,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Feather name="x" size={14} color={colors.background} />
-                </Pressable>
-              </View>
-            ))}
+                />
+              )}
+            </Pressable>
           </View>
-        ) : null}
-
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            paddingHorizontal: 12,
-            paddingTop: 8,
-            paddingBottom: Math.max(insets.bottom, 10),
-            borderTopWidth: 1,
-            borderTopColor: colors.border,
-            backgroundColor: colors.background,
-          }}
-        >
-          <Pressable
-            onPress={() => void pickImage()}
-            disabled={busy || pickingImage || attachedImages.length >= MAX_COACH_IMAGES}
-            accessibilityLabel="Upload ticket photo"
-            style={({ pressed }) => ({
-              width: 42,
-              height: 42,
-              borderRadius: 21,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              opacity:
-                pressed || busy || attachedImages.length >= MAX_COACH_IMAGES ? 0.6 : 1,
-            })}
-          >
-            {pickingImage ? (
-              <ActivityIndicator color={colors.mutedForeground} size="small" />
-            ) : (
-              <Feather name="image" size={20} color={colors.mutedForeground} />
-            )}
-          </Pressable>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Ask for a parlay, value bet, matchup…"
-            placeholderTextColor={colors.mutedForeground}
-            editable={!busy}
-            multiline
-            style={{
-              flex: 1,
-              minHeight: 42,
-              maxHeight: 120,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.card,
-              borderRadius: 22,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              color: colors.foreground,
-              fontFamily: FONT.body,
-              fontSize: 15,
-            }}
-            onSubmitEditing={() => void send(draft)}
-          />
-          <Pressable
-            onPress={() => void send(draft)}
-            disabled={(!draft.trim() && !attachedImages.length && !busy) || pickingImage}
-            style={({ pressed }) => ({
-              width: 42,
-              height: 42,
-              borderRadius: 21,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor:
-                busy || draft.trim() || attachedImages.length
-                  ? busy
-                    ? colors.card
-                    : colors.primary
-                  : colors.card,
-              borderWidth: busy || draft.trim() || attachedImages.length ? 0 : 1,
-              borderColor: colors.border,
-              opacity: pressed ? 0.8 : 1,
-            })}
-            accessibilityLabel={busy ? "Stop" : "Send"}
-          >
-            {busy ? (
-              <Feather name="square" size={16} color={colors.foreground} />
-            ) : (
-              <Feather
-                name="arrow-up"
-                size={18}
-                color={
-                  draft.trim() || attachedImages.length
-                    ? "#fff"
-                    : colors.mutedForeground
-                }
-              />
-            )}
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
+        </ComposerShell>
+      </View>
     </View>
   );
 }
