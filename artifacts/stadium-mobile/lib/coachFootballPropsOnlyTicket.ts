@@ -342,12 +342,14 @@ function scoredLegFromHit(
   // Retain raw (pre-tilt) so UI can show the transform; do not call a tilt
   // increase a "soft-cap".
   const hitBeforeMatchup = hit;
-  hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt);
+  const alreadyApplied = norm.finalAiScore?.oppMatchupAppliedToSim === true;
+  hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt, { alreadyApplied });
   const oppMatchupAppliedToSim =
-    defTilt.tilt !== 0 &&
-    hit != null &&
-    hitBeforeMatchup != null &&
-    hit !== hitBeforeMatchup;
+    alreadyApplied ||
+    (defTilt.tilt !== 0 &&
+      hit != null &&
+      hitBeforeMatchup != null &&
+      hit !== hitBeforeMatchup);
 
   const trend = propsOnlyTrendFromHistory(
     ph,
@@ -420,7 +422,10 @@ function scoredLegFromHit(
     simAligned,
     edgePct: edgeOut,
     simHit: hit,
-    rawSimHit: hitBeforeMatchup,
+    rawSimHit: alreadyApplied
+      ? (norm.finalAiScore?.rawSimHit ?? hitBeforeMatchup)
+      : hitBeforeMatchup,
+    oppMatchupAppliedToSim,
     confidencePct,
   };
   const ev = hit != null && norm.odds != null ? simEvPct(hit, norm.odds) : null;

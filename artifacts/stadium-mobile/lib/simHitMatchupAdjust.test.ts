@@ -1,18 +1,21 @@
 /**
- * Exact raw → adjusted transform for Bo Nix Under 13.5 style hits.
- * Tilt *increases* the estimate; soft-clip applies only to invented certainty (≥1).
+ * Matchup adjust invariants:
+ * - Over + Under + push stay consistent after adjustment
+ * - Results in [0, 1] without flattening alternate lines
+ * - UI distinguishes raw sim vs model estimate (+ n=5 uncalibrated)
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  adjustOverUnderPushForOppDefenseTilt,
   adjustSimHitForOppDefenseTilt,
   explainSimHitOppDefenseAdjust,
   formatSimHitWithMatchupAdjust,
   propOppDefenseTilt,
 } from "./footballRushDefense.ts";
 
-test("0.9705 → adjusted is matchup +adj, not a soft-cap raise", () => {
+test("0.9705 → adjusted is matchup transfer, not a soft-cap raise", () => {
   const pack = {
     teamName: "Seattle Seahawks",
     rush: {
@@ -37,30 +40,54 @@ test("0.9705 → adjusted is matchup +adj, not a soft-cap raise", () => {
   const explained = explainSimHitOppDefenseAdjust(raw, tiltU.tilt)!;
   assert.equal(explained.rawHit, raw);
   assert.ok(explained.adj > 0 && explained.adj <= 0.05);
-  // Arithmetic: raw + adj, then soft-clip only if ≥1.
-  const summed = raw + explained.adj;
-  assert.equal(explained.certaintySoftClipped, summed >= 1);
-  assert.ok(summed < 1, "MC Under + SEA tilt stays below 1");
-  assert.equal(explained.adjustedHit, Math.round(summed * 1000) / 1000);
+  assert.equal(explained.certaintySoftClipped, false);
   assert.ok(explained.adjustedHit > raw);
-  assert.notEqual(
-    explained.adjustedHit,
-    0.98,
-    "must not invent 0.98 via ceiling when summed < 1",
-  );
+  assert.ok(explained.adjustedHit <= 1);
+  assert.ok(explained.adjustedHit >= 0);
 
   const label = formatSimHitWithMatchupAdjust({
     rawHit: raw,
     adjustedHit: explained.adjustedHit,
     sampleSize: 5,
   });
+  assert.match(String(label), /model /);
+  assert.match(String(label), /sim /);
   assert.match(String(label), /matchup/);
   assert.doesNotMatch(String(label), /soft-?cap/i);
-  assert.match(String(label), /n=5.*uncalibrated|uncalibrated.*n=5/);
+  assert.match(String(label), /n=5/);
+  assert.match(String(label), /uncalibrated/);
 });
 
-test("Over/Under consistency and Under alt-line monotonicity after tilt", () => {
-  const tilt = 0.38; // SEA soft-stingy Under lean magnitude from live audit
+test("Over + Under + push remain consistent after paired adjust", () => {
+  const tiltForUnder = 0.38;
+  const raw = { over: 0.0295, under: 0.9705, push: 0 };
+  const pair = adjustOverUnderPushForOppDefenseTilt({
+    overHit: raw.over,
+    underHit: raw.under,
+    pushHit: raw.push,
+    tiltForUnder,
+  })!;
+  const a = pair.adjusted;
+  assert.ok(a.over >= 0 && a.over <= 1);
+  assert.ok(a.under >= 0 && a.under <= 1);
+  assert.ok(a.push >= 0 && a.push <= 1);
+  assert.ok(
+    Math.abs(a.over + a.under + a.push - 1) < 0.0015,
+    `sum=${a.over + a.under + a.push}`,
+  );
+  assert.equal(a.push, raw.push);
+  assert.ok(a.under > raw.under);
+  assert.ok(a.over < raw.over);
+
+  // Single-side API with opposite tilts matches the pair.
+  const underAdj = adjustSimHitForOppDefenseTilt(raw.under, tiltForUnder)!;
+  const overAdj = adjustSimHitForOppDefenseTilt(raw.over, -tiltForUnder)!;
+  assert.equal(underAdj, a.under);
+  assert.equal(overAdj, a.over);
+});
+
+test("adjusted stays in [0,1]; Under alt ladder monotone (no flatten)", () => {
+  const tilt = 0.38;
   const rawUnder = {
     "9.5": 0.769,
     "11.5": 0.905,
@@ -74,12 +101,11 @@ test("Over/Under consistency and Under alt-line monotonicity after tilt", () => 
       adjustSimHitForOppDefenseTilt(h, tilt)!,
     ]),
   );
-  // Additive tilt clamps to 0.999 — no shared 0.98 flatten.
-  assert.equal(adjUnder["17.5"], 0.999);
-  assert.equal(
-    explainSimHitOppDefenseAdjust(1.0, tilt)?.certaintySoftClipped,
-    false,
-  );
+  for (const v of Object.values(adjUnder)) {
+    assert.ok(v >= 0 && v <= 1);
+  }
+  // No shared 0.98 flatten of distinct high Unders.
+  assert.notEqual(adjUnder["13.5"], adjUnder["15.5"]);
   const lines = ["9.5", "11.5", "13.5", "15.5", "17.5"] as const;
   for (let i = 1; i < lines.length; i++) {
     assert.ok(
@@ -87,8 +113,12 @@ test("Over/Under consistency and Under alt-line monotonicity after tilt", () => 
       `Under ${lines[i]} >= Under ${lines[i - 1]} after tilt`,
     );
   }
-  // Over uses opposite tilt sign via propOppDefenseTilt; verify invert helper:
-  const over135 = adjustSimHitForOppDefenseTilt(0.0295, -tilt)!;
-  assert.ok(over135 < 0.0295, "Over demoted when Under is favored");
-  assert.ok(adjUnder["13.5"]! + over135 < 1.05);
+});
+
+test("alreadyApplied skips second tilt (cache/recovery)", () => {
+  const once = adjustSimHitForOppDefenseTilt(0.9705, 0.38)!;
+  const twice = adjustSimHitForOppDefenseTilt(once, 0.38, { alreadyApplied: true })!;
+  assert.equal(twice, once);
+  const wouldDouble = adjustSimHitForOppDefenseTilt(once, 0.38)!;
+  assert.ok(wouldDouble !== once || once >= 0.999);
 });

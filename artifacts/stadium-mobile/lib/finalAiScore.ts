@@ -71,6 +71,8 @@ export type FinalAiScore = {
    * UI can show raw → adjusted without conflating tilt with a soft-cap.
    */
   rawSimHit?: number | null;
+  /** True when simHit already includes the one matchup tilt (skip on recovery). */
+  oppMatchupAppliedToSim?: boolean;
   simAligned: boolean;
   highRiskValuePlay: boolean;
   recommends: boolean;
@@ -298,6 +300,8 @@ export function buildFinalAiScore(input: {
     edgePct: rubric.edgePct,
     simHit,
     rawSimHit,
+    oppMatchupAppliedToSim:
+      input.propHolisticContext?.oppMatchupAppliedToSim === true,
     simAligned,
     highRiskValuePlay,
     recommends,

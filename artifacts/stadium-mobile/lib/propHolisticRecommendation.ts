@@ -711,7 +711,12 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     pick.scores?.edgePct ??
     (edgeFromText != null && Number.isFinite(edgeFromText) ? edgeFromText : null);
   const simHit = pick.finalAiScore?.simHit ?? null;
+  const rawSimHit = pick.finalAiScore?.rawSimHit ?? null;
   if (!rubric && simHit == null && edgePct == null) return existing ?? null;
+  // Prefer Final AI holistic (already has raw vs model + n= label) when present.
+  if (existing?.factors?.some((f) => f.key === "simulation" && f.display)) {
+    return existing;
+  }
   const synthesized = buildPropHolisticScore({
     sport: pick.sport,
     marketKey: pick.propMarketKey ?? pick.market,
@@ -728,6 +733,8 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     },
     edgePct,
     simHit,
+    rawSimHit,
+    oppMatchupAppliedToSim: pick.finalAiScore?.oppMatchupAppliedToSim === true,
   });
   if (!existing) return synthesized;
   return mergePropHolisticScores(existing, synthesized);

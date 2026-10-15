@@ -725,9 +725,22 @@ test("Bo Nix Under 13.5 rush: raw 0.9705 + matchup adj (n=5 uncalibrated)", asyn
     adjustedHit: once,
     sampleSize: 5,
   });
+  assert.match(String(label), /model /);
+  assert.match(String(label), /sim /);
   assert.match(String(label), /matchup/);
   assert.match(String(label), /n=5/);
   assert.match(String(label), /uncalibrated/);
+  // Paired Over+Under+push consistency on this line.
+  const {
+    adjustOverUnderPushForOppDefenseTilt,
+  } = await import("./footballRushDefense.ts");
+  const pair = adjustOverUnderPushForOppDefenseTilt({
+    overHit: 0.0295,
+    underHit: 0.9705,
+    pushHit: 0,
+    tiltForUnder: tiltU.tilt,
+  })!;
+  assert.ok(Math.abs(pair.adjusted.over + pair.adjusted.under + pair.adjusted.push - 1) < 0.0015);
 
   // Holistic: after sim adj, tendency must not re-score.
   const { buildPropHolisticScore } = await import("./propHolisticRecommendation.ts");

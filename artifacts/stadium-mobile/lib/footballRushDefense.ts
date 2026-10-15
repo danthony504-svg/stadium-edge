@@ -350,55 +350,121 @@ export function footballIntThreatIndex(opts: {
   return { threat: Math.max(-1, Math.min(1, threat)), bits };
 }
 
+const round3Hit = (n: number) => Math.round(n * 1000) / 1000;
+
 /** Explain raw → matchup-adjusted hit. Never describe a tilt *increase* as a soft-cap. */
 export type OppDefenseHitAdjust = {
   rawHit: number;
   tilt: number;
-  /** Probability points added (clamped ±0.05). */
+  /** Probability points transferred toward this side (clamped ±0.05, mass-limited). */
   adj: number;
-  /** Final model estimate after tilt (+ certainty soft-clip only when ≥1). */
+  /** Final model estimate after tilt — always in [0, 1]. */
   adjustedHit: number;
-  /**
-   * True only when hit+adj ≥ 1 and was soft-clipped to 0.98.
-   * False when the change is purely the matchup adj (even if near 0.98).
-   */
+  /** Always false here; empirical `1→0.98` soft-clip lives in graders. */
   certaintySoftClipped: boolean;
 };
 
+export type OppDefenseSidePairAdjust = {
+  tiltForUnder: number;
+  raw: { over: number; under: number; push: number };
+  adjusted: { over: number; under: number; push: number };
+  /** Mass moved Under←Over (positive) or Over←Under (negative). */
+  transfer: number;
+};
+
 /**
- * Matchup tilt → hit adjustment. Positive tilt raises hit for that side.
+ * Paired Over/Under/push adjust: transfer mass between Over and Under only.
+ * Preserves `over + under + push === 1` (within round3) and keeps each in [0, 1].
+ * Does not flatten alt ladders (no shared 0.98 ceiling).
+ */
+export function adjustOverUnderPushForOppDefenseTilt(opts: {
+  overHit: number;
+  underHit: number;
+  /** Residual push mass; default `max(0, 1 − over − under)`. */
+  pushHit?: number;
+  /** Tilt that favors Under when positive (same sign as propOppDefenseTilt Under). */
+  tiltForUnder: number;
+}): OppDefenseSidePairAdjust | null {
+  const over = opts.overHit;
+  const under = opts.underHit;
+  if (!Number.isFinite(over) || !Number.isFinite(under)) return null;
+  const push =
+    opts.pushHit != null && Number.isFinite(opts.pushHit)
+      ? Math.max(0, opts.pushHit)
+      : Math.max(0, 1 - over - under);
+  const tilt =
+    Number.isFinite(opts.tiltForUnder) ? opts.tiltForUnder : 0;
+  const desired =
+    tilt === 0 ? 0 : Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
+  // Transfer only between Over↔Under; push untouched. Bound by available mass.
+  const transfer =
+    desired > 0
+      ? Math.min(desired, Math.max(0, over))
+      : desired < 0
+        ? -Math.min(-desired, Math.max(0, under))
+        : 0;
+  const adjOver = round3Hit(Math.max(0, Math.min(1, over - transfer)));
+  const adjUnder = round3Hit(Math.max(0, Math.min(1, under + transfer)));
+  const adjPush = round3Hit(Math.max(0, Math.min(1, push)));
+  // Absorb round3 drift into the larger of Over/Under so the triple still sums to 1.
+  const sum = adjOver + adjUnder + adjPush;
+  let overOut = adjOver;
+  let underOut = adjUnder;
+  let pushOut = adjPush;
+  if (Math.abs(sum - 1) >= 0.0005) {
+    const drift = round3Hit(1 - sum);
+    if (underOut >= overOut) underOut = round3Hit(Math.max(0, Math.min(1, underOut + drift)));
+    else overOut = round3Hit(Math.max(0, Math.min(1, overOut + drift)));
+  }
+  return {
+    tiltForUnder: tilt,
+    raw: { over, under, push },
+    adjusted: { over: overOut, under: underOut, push: pushOut },
+    transfer: round3Hit(transfer),
+  };
+}
+
+/**
+ * Matchup tilt → hit adjustment for a single side.
  *
- * Transform: `adjusted = round3(clamp(raw + clamp(tilt×0.06, ±0.05), 0, 0.999))`.
+ * `tilt` is already signed for this side (positive raises hit). Mass is taken
+ * from / given to the complementary settle probability (`1 − hit`, push≈0 on
+ * .5 lines) so a paired Over/Under call with opposite tilts stays consistent
+ * and every result stays in [0, 1] without a shared 0.98 flatten.
  *
- * Certainty soft-clip (`1.0 → 0.98`) lives in empirical graders
- * (`localHitFromHistory`), **not** here. A shared 0.98 ceiling after additive
- * tilt flattened alt ladders (Under 13.5 and 15.5 both → 0.98) and made a tilt
- * *increase* look like a soft-cap.
+ * Certainty soft-clip (`1.0 → 0.98`) lives in empirical graders, not here.
  */
 export function explainSimHitOppDefenseAdjust(
   hit: number | null | undefined,
   tilt: number,
 ): OppDefenseHitAdjust | null {
   if (hit == null || !Number.isFinite(hit)) return null;
+  const clampedHit = Math.max(0, Math.min(1, hit));
   if (!Number.isFinite(tilt) || tilt === 0) {
     return {
       rawHit: hit,
       tilt: 0,
       adj: 0,
-      adjustedHit: hit,
+      adjustedHit: round3Hit(clampedHit),
       certaintySoftClipped: false,
     };
   }
-  const adj = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
-  const summed = hit + adj;
-  const adjustedHit =
-    Math.round(Math.max(0, Math.min(0.999, summed)) * 1000) / 1000;
+  const desired = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
+  const complementary = Math.max(0, 1 - clampedHit);
+  const transfer =
+    desired > 0
+      ? Math.min(desired, complementary)
+      : desired < 0
+        ? -Math.min(-desired, clampedHit)
+        : 0;
+  const adjustedHit = round3Hit(
+    Math.max(0, Math.min(1, clampedHit + transfer)),
+  );
   return {
     rawHit: hit,
     tilt,
-    adj,
+    adj: round3Hit(transfer),
     adjustedHit,
-    // Soft-clip of invented certainty is not applied in this step.
     certaintySoftClipped: false,
   };
 }
@@ -406,17 +472,23 @@ export function explainSimHitOppDefenseAdjust(
 /**
  * Apply matchup tilt to a sim hit probability. Bounded, sync — does not
  * change provider lines/odds. Positive tilt → higher hit for that side.
+ * Idempotent when `alreadyApplied` — recovery/cache must not double-tilt.
  */
 export function adjustSimHitForOppDefenseTilt(
   hit: number | null | undefined,
   tilt: number,
+  opts?: { alreadyApplied?: boolean },
 ): number | null {
   if (hit == null || !Number.isFinite(hit)) return hit ?? null;
+  if (opts?.alreadyApplied) return hit;
   const explained = explainSimHitOppDefenseAdjust(hit, tilt);
   return explained?.adjustedHit ?? hit;
 }
 
-/** UI/grade label: retain raw + adjusted when matchup moved the estimate. */
+/**
+ * UI/grade label: distinguish raw simulation hit rate from matchup-adjusted
+ * model estimate; keep n&lt;10 uncalibrated tag.
+ */
 export function formatSimHitWithMatchupAdjust(opts: {
   rawHit: number | null | undefined;
   adjustedHit: number | null | undefined;
@@ -424,18 +496,16 @@ export function formatSimHitWithMatchupAdjust(opts: {
 }): string | undefined {
   const adj = opts.adjustedHit;
   const raw = opts.rawHit;
-  if (adj == null || !Number.isFinite(adj)) {
-    if (raw == null || !Number.isFinite(raw)) return undefined;
-    const base = `${Math.round(raw * 1000) / 10}% hit`;
-    return opts.sampleSize != null && opts.sampleSize > 0 && opts.sampleSize < 10
-      ? `${base} (n=${opts.sampleSize}, uncalibrated)`
-      : base;
-  }
-  const adjPct = Math.round(adj * 1000) / 10;
   const nTag =
     opts.sampleSize != null && opts.sampleSize > 0 && opts.sampleSize < 10
-      ? `; n=${opts.sampleSize}, uncalibrated`
+      ? `n=${opts.sampleSize}, uncalibrated`
       : "";
+  if (adj == null || !Number.isFinite(adj)) {
+    if (raw == null || !Number.isFinite(raw)) return undefined;
+    const base = `${Math.round(raw * 1000) / 10}% sim hit`;
+    return nTag ? `${base} (${nTag})` : base;
+  }
+  const adjPct = Math.round(adj * 1000) / 10;
   if (
     raw != null &&
     Number.isFinite(raw) &&
@@ -444,9 +514,11 @@ export function formatSimHitWithMatchupAdjust(opts: {
     const rawPct = Math.round(raw * 1000) / 10;
     const deltaPp = Math.round((adj - raw) * 1000) / 10;
     const sign = deltaPp > 0 ? "+" : "";
-    return `${adjPct}% hit (raw ${rawPct}% ${sign}${deltaPp}pp matchup${nTag})`;
+    const core = `model ${adjPct}% (sim ${rawPct}% ${sign}${deltaPp}pp matchup)`;
+    return nTag ? `${core}; ${nTag}` : core;
   }
-  return `${adjPct}% hit${nTag ? ` (${nTag.replace(/^; /, "")})` : ""}`;
+  const core = `model ${adjPct}%`;
+  return nTag ? `${core} (${nTag})` : core;
 }
 
 function sideTilt(magnitude: number, isOver: boolean, isUnder: boolean): number {
