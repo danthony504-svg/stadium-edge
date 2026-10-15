@@ -161,7 +161,8 @@ function pickRank(p: ParsedPick): number {
 }
 
 function coverHitForPick(pick: ParsedPick, sim: CoachGameSimEntry | undefined): number {
-  const rates = sim?.coverProbs;
+  // Accept coverProbs (server) or coverHitRates (client alias) for parity.
+  const rates = sim?.coverProbs ?? sim?.coverHitRates;
   if (!rates) return Number.NEGATIVE_INFINITY;
   const key = `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
   const direct = rates[key];

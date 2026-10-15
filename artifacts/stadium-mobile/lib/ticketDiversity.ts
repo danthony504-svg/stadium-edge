@@ -14,6 +14,14 @@ import {
   type GameSideConsistencyResult,
 } from "./gameSideConsistency.ts";
 import { BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
+import {
+  acceptReplacementIfStillQualified,
+  deliveryCandidateStillQualified,
+  enforceTicketCorrelationAtSelection,
+  legIdentityKey,
+  revalidateDeliveryPicks,
+  type DeliveryMutation,
+} from "./coachDeliveryQualification.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -38,13 +46,19 @@ function countDuplicateTeamLegs(picks: ParsedPick[]): number {
   return dupes;
 }
 
-/** One game-side leg per team — drops duplicate Braves ML + Braves -1.5 style stacks. */
+/**
+ * One game-side leg per team — drops duplicate Braves ML + Braves -1.5 stacks.
+ * Replacement that changes market/pick/odds is revalidated; unqualified
+ * replacements cannot displace a still-qualified prior leg.
+ */
 export function dedupeSameTeamGameLegs(picks: ParsedPick[]): {
   picks: ParsedPick[];
   dropped: number;
+  mutations: DeliveryMutation[];
 } {
   const bucketIndex = new Map<string, number>();
   const out: ParsedPick[] = [];
+  const mutations: DeliveryMutation[] = [];
   let dropped = 0;
   for (const p of picks) {
     if (!isGameLinePick(p) || p.isProp) {
@@ -56,21 +70,60 @@ export function dedupeSameTeamGameLegs(picks: ParsedPick[]): {
     if (idx == null) {
       bucketIndex.set(bucket, out.length);
       out.push(p);
+      mutations.push({
+        stage: "same_team_dedupe",
+        action: "keep",
+        to: legIdentityKey(p),
+        reason: "first leg in team bucket",
+      });
       continue;
     }
     dropped += 1;
-    if (pickRank(p) > pickRank(out[idx]!)) out[idx] = p;
+    const prev = out[idx]!;
+    if (pickRank(p) > pickRank(prev)) {
+      const accepted = acceptReplacementIfStillQualified(prev, p);
+      if (accepted && legIdentityKey(accepted) === legIdentityKey(p)) {
+        out[idx] = p;
+        mutations.push({
+          stage: "same_team_dedupe",
+          action: "replace",
+          from: legIdentityKey(prev),
+          to: legIdentityKey(p),
+          reason: "higher Final AI composite; replacement revalidated",
+        });
+      } else {
+        // Unqualified replacement cannot seat — keep prior; final revalidate
+        // drops the seat if prior is also unqualified.
+        mutations.push({
+          stage: "same_team_dedupe",
+          action: "keep",
+          from: legIdentityKey(p),
+          to: legIdentityKey(prev),
+          reason: "replacement failed revalidation; kept prior for final gate",
+        });
+      }
+    } else {
+      mutations.push({
+        stage: "same_team_dedupe",
+        action: "drop",
+        from: legIdentityKey(p),
+        to: legIdentityKey(prev),
+        reason: "lower or equal composite vs seated team leg",
+      });
+    }
   }
-  return { picks: out, dropped };
+  return { picks: out, dropped, mutations };
 }
 
 /** Drop repeated spread/ML/total legs that only differ by game label or odds. */
 export function dedupeExactGameLineLegs(picks: ParsedPick[]): {
   picks: ParsedPick[];
   dropped: number;
+  mutations: DeliveryMutation[];
 } {
   const legIndex = new Map<string, number>();
   const out: ParsedPick[] = [];
+  const mutations: DeliveryMutation[] = [];
   let dropped = 0;
   for (const p of picks) {
     if (!isGameLinePick(p) || p.isProp) {
@@ -82,12 +135,47 @@ export function dedupeExactGameLineLegs(picks: ParsedPick[]): {
     if (idx == null) {
       legIndex.set(key, out.length);
       out.push(p);
+      mutations.push({
+        stage: "exact_dedupe",
+        action: "keep",
+        to: legIdentityKey(p),
+        reason: "first exact game|market|pick",
+      });
       continue;
     }
     dropped += 1;
-    if (pickRank(p) > pickRank(out[idx]!)) out[idx] = p;
+    const prev = out[idx]!;
+    if (pickRank(p) > pickRank(prev)) {
+      const accepted = acceptReplacementIfStillQualified(prev, p);
+      if (accepted && legIdentityKey(accepted) === legIdentityKey(p)) {
+        out[idx] = p;
+        mutations.push({
+          stage: "exact_dedupe",
+          action: "replace",
+          from: legIdentityKey(prev),
+          to: legIdentityKey(p),
+          reason: "higher composite on exact key; replacement revalidated",
+        });
+      } else {
+        mutations.push({
+          stage: "exact_dedupe",
+          action: "keep",
+          from: legIdentityKey(p),
+          to: legIdentityKey(prev),
+          reason: "replacement failed revalidation; kept prior for final gate",
+        });
+      }
+    } else {
+      mutations.push({
+        stage: "exact_dedupe",
+        action: "drop",
+        from: legIdentityKey(p),
+        to: legIdentityKey(prev),
+        reason: "lower or equal composite on exact key",
+      });
+    }
   }
-  return { picks: out, dropped };
+  return { picks: out, dropped, mutations };
 }
 
 /** Last-mile dedupe on flash/board-scan/server-slate delivery — one team per game. */
@@ -96,31 +184,75 @@ export function finalizeCoachDeliveryPicks(
   opts: {
     simByGame?: Map<string, import("./gameSimScoring.ts").CoachGameSimEntry>;
     matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+    requestedLegs?: number;
+    legsPerGameCap?: number | null;
   } = {},
 ): ParsedPick[] {
-  if (!picks.some((p) => isGameLinePick(p) && !p.isProp)) return picks;
+  if (!picks.some((p) => isGameLinePick(p) && !p.isProp)) {
+    return revalidateDeliveryPicks(picks).picks;
+  }
   return dedupeCoachGameLinePicks(picks, opts).picks;
 }
 
-/** Team-bucket + exact-leg + one-side-per-game dedupe — run before rendering Coach cards. */
+/**
+ * Team-bucket + exact-leg + one-side-per-game, then shared qualification
+ * revalidation and ticket correlation. Every replace that changes line/odds
+ * is re-checked before the leg can remain on the ticket.
+ */
 export function dedupeCoachGameLinePicks(
   picks: ParsedPick[],
   opts: {
     simByGame?: Map<string, import("./gameSimScoring.ts").CoachGameSimEntry>;
     matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+    requestedLegs?: number;
+    legsPerGameCap?: number | null;
   } = {},
 ): {
   picks: ParsedPick[];
   dropped: number;
   sideNote: string;
+  mutations: DeliveryMutation[];
 } {
+  const mutations: DeliveryMutation[] = [];
   const team = dedupeSameTeamGameLegs(picks);
+  mutations.push(...team.mutations);
   const exact = dedupeExactGameLineLegs(team.picks);
+  mutations.push(...exact.mutations);
   const sides: GameSideConsistencyResult = enforceConsistentGameSides(exact.picks, opts);
+  for (const r of sides.resolutions ?? []) {
+    for (const rej of r.rejections) {
+      mutations.push({
+        stage: "side_consistency",
+        action: "drop",
+        from: `${r.game}|${rej.market}|${rej.pick}`.toLowerCase(),
+        reason: rej.reason,
+      });
+    }
+  }
+  const revalidated = revalidateDeliveryPicks(sides.picks);
+  for (const k of revalidated.droppedKeys) {
+    mutations.push({
+      stage: "revalidate",
+      action: "drop",
+      from: k,
+      reason: "failed shared delivery qualification after mutations",
+    });
+  }
+  const correlated = enforceTicketCorrelationAtSelection(revalidated.picks, {
+    requestedLegs: opts.requestedLegs,
+    legsPerGameCap: opts.legsPerGameCap,
+  });
+  const proven = correlated.filter(deliveryCandidateStillQualified);
   return {
-    picks: sides.picks,
-    dropped: team.dropped + exact.dropped + sides.dropped,
+    picks: proven,
+    dropped:
+      team.dropped +
+      exact.dropped +
+      sides.dropped +
+      revalidated.dropped +
+      (correlated.length - proven.length),
     sideNote: sides.note,
+    mutations,
   };
 }
 

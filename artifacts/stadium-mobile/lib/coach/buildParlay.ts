@@ -1101,6 +1101,8 @@ export async function buildCoachParlay(opts: {
     picks = finalizeCoachDeliveryPicks(picks, {
       simByGame: scan?.gameSimulations ?? latest?.gameSimulations,
       matchupHistory,
+      requestedLegs: target,
+      legsPerGameCap: legsPerGameCap ?? null,
     });
   }
   // Final belt — staging/top-up must not reintroduce another local day

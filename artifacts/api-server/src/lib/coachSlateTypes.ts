@@ -141,7 +141,13 @@ export type TicketStagingBreakdown = {
 export type CoachGameSimEntry = {
   winProbHome?: number | null;
   winProbAway?: number | null;
+  /** Canonical server cover map. */
   coverProbs?: Record<string, number | null>;
+  /**
+   * Client-compatible alias of coverProbs (stadium-mobile coverHitRates).
+   * Lookups accept either key so slate sims stay aligned when scores omit simHit.
+   */
+  coverHitRates?: Record<string, number | null>;
 };
 
 export type SerializedBoardScan = {

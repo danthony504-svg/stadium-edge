@@ -54,9 +54,24 @@ export type GameCoverQuery = {
 };
 
 export type CoachGameSimEntry = GameSimulationResult & {
+  /** Canonical client cover map (posted line hit rates). */
   coverHitRates?: Record<string, number>;
+  /**
+   * Server-compatible alias of coverHitRates (api-server coverProbs).
+   * Lookups accept either key so client/server slate sims stay aligned.
+   * Live delivery still requires Final AI simHit — sim-map alone cannot seat.
+   */
+  coverProbs?: Record<string, number | null>;
   outcomes?: { homeScores: number[]; awayScores: number[] };
 };
+
+/** Prefer coverHitRates; fall back to coverProbs for server-shaped sims. */
+export function simCoverRateMap(
+  sim: CoachGameSimEntry | null | undefined,
+): Record<string, number | null | undefined> | undefined {
+  if (!sim) return undefined;
+  return sim.coverHitRates ?? sim.coverProbs;
+}
 
 export function gameLabelsMatch(a: string, b: string): boolean {
   const pa = splitLabel(a);
@@ -499,7 +514,7 @@ function fuzzyCoverHitRate(
   target: GameCoverQuery,
   sim: CoachGameSimEntry,
 ): number | null {
-  const rates = sim.coverHitRates;
+  const rates = simCoverRateMap(sim);
   if (!rates) return null;
   for (const [id, rate] of Object.entries(rates)) {
     if (rate == null || !Number.isFinite(rate)) continue;
@@ -681,7 +696,7 @@ export function gameSimHitForPick(
   if (query.period && query.period !== "fg" && !sportSupportsPeriod(pick.sport ?? "", query.period)) {
     return null;
   }
-  const fromCover = sim!.coverHitRates?.[query.id];
+  const fromCover = simCoverRateMap(sim!)?.[query.id];
   if (fromCover != null && Number.isFinite(fromCover)) {
     return sanitizeGameSimHit(pick, query, fromCover, sim!);
   }

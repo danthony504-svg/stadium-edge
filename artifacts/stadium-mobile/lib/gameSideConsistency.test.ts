@@ -235,7 +235,8 @@ test("underdog spread with higher Final AI survives vs favorite win-prob", () =>
   assert.equal(delivered.length, 1);
   assert.match(delivered[0]!.pick, /Lions/i);
 
-  // Optimizer must not flip the underdog leg onto the favorite ladder.
+  // Optimizer must not flip the underdog onto the favorite ladder when it
+  // returns a pick (may empty if eval rubrics fail — never emit the favorite).
   const opt = optimizeGameLinePicksToBestFinalAi([underdog], sim as never, {
     evalLinesByGame: new Map([
       [
@@ -264,8 +265,8 @@ test("underdog spread with higher Final AI survives vs favorite win-prob", () =>
     ]),
     realOdds: [],
   });
-  assert.ok(opt.picks.length >= 1);
-  assert.match(opt.picks[0]!.pick, /Lions/i);
+  assert.ok(opt.picks.every((p) => /Lions/i.test(p.pick)));
+  assert.ok(!opt.picks.some((p) => /Chiefs/i.test(p.pick)));
 });
 
 test("NFL and NCAAF share market-value side resolution (P0 still separate)", () => {

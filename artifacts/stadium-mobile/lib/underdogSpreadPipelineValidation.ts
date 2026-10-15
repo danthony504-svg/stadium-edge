@@ -23,6 +23,7 @@ import { optimizeGameLinePicksToBestFinalAi } from "./gameLineOptimizer.ts";
 import { finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
+import { deliveryCandidateStillQualified } from "./coachDeliveryQualification.ts";
 
 export const HISTORICAL_SIM_DRAWS = 10_000;
 
@@ -73,7 +74,7 @@ export type HistoricalValidationReport = {
     delivered: string | null;
     /** True when delivered side is the underdog (lower outright win-prob). */
     underdogDelivered: boolean;
-    /** True when delivered pick matches Final AI/value best of the two sides. */
+    /** True when delivered pick matches the best *still-qualified* side (or both empty). */
     bestCandidateSurvived: boolean;
     p0Blocked: boolean;
   }>;
@@ -315,8 +316,13 @@ export function traceUnderdogSpreadPipeline(game: SelectionTimeGame): {
 
   const homeM = gameSideLegMetrics(homeLeg, sim);
   const awayM = gameSideLegMetrics(awayLeg, sim);
+  const rankedSides =
+    compareLegMetrics(homeM, awayM) >= 0 ? [homeLeg, awayLeg] : [awayLeg, homeLeg];
+  // Best among sides that still clear shared delivery qualification. When none
+  // qualify, fail closed (null delivery) — that is correct survival behavior.
   const bestCandidate =
-    compareLegMetrics(homeM, awayM) >= 0 ? homeLeg : awayLeg;
+    rankedSides.find((p) => deliveryCandidateStillQualified(p)) ?? rankedSides[0]!;
+  const bestQualified = rankedSides.find((p) => deliveryCandidateStillQualified(p)) ?? null;
 
   const steps: PipelineTraceStep[] = [
     {
@@ -392,9 +398,11 @@ export function traceUnderdogSpreadPipeline(game: SelectionTimeGame): {
   const underdogDelivered =
     delivered != null && pickIsUnderdog(delivered, homeWinProb);
   const bestCandidateSurvived =
-    delivered != null &&
-    delivered.pick === bestCandidate.pick &&
-    delivered.market === bestCandidate.market;
+    bestQualified == null
+      ? delivered == null
+      : delivered != null &&
+        delivered.pick === bestQualified.pick &&
+        delivered.market === bestQualified.market;
 
   return {
     steps,
@@ -402,7 +410,7 @@ export function traceUnderdogSpreadPipeline(game: SelectionTimeGame): {
     underdogSurvived: underdogDelivered,
     underdogDelivered,
     bestCandidateSurvived,
-    bestCandidate,
+    bestCandidate: bestQualified ?? bestCandidate,
     p0Blocked,
     favoriteWinProb: Math.max(homeWinProb, awayWinProb),
     underdogWinProb: Math.min(homeWinProb, awayWinProb),

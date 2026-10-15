@@ -39,7 +39,7 @@ test("trace: higher Final AI/value underdog survives board→delivery", () => {
   }
 });
 
-test("regression sample: explain 3/4 underdog deliveries — fourth keeps better favorite", () => {
+test("regression sample: 2/4 underdog deliveries; Jets+Bucs fail-closed when best is unqualified", () => {
   const report = runHistoricalUnderdogSpreadValidation(
     REGRESSION_SAMPLE_FIXTURES,
     "regression_sample",
@@ -50,38 +50,40 @@ test("regression sample: explain 3/4 underdog deliveries — fourth keeps better
   const eligible = report.traces.filter((t) => !t.p0Blocked);
   assert.equal(eligible.length, 4);
 
-  // Best Final AI/value candidate should survive all four.
+  // Best *still-qualified* candidate survives (or both empty when none qualify).
   const bestOk = eligible.filter((t) => t.bestCandidateSurvived).length;
-  assert.equal(bestOk, 4, "best candidate must survive every regression game");
+  assert.equal(bestOk, 4, "best qualified survival / fail-closed must hold every game");
 
-  // Underdog delivered on 3/4 — the miss is Carolina @ TB where favorite has better value.
+  // Underdog delivered on 2/4 (Lions, Falcons). Jets + Bucs: no side clears
+  // shared delivery qualification (edge≤0) → delivered null.
   const dogOk = eligible.filter((t) => t.underdogDelivered).length;
-  assert.equal(dogOk, 3);
+  assert.equal(dogOk, 2);
+
+  const jets = eligible.find((t) => /Jets.*Bills/i.test(t.game));
+  assert.ok(jets);
+  assert.equal(jets!.delivered, null);
+  assert.equal(jets!.underdogDelivered, false);
+  assert.equal(jets!.bestCandidateSurvived, true);
 
   const fourth = eligible.find((t) => /Panthers.*Buccaneers/i.test(t.game));
   assert.ok(fourth);
+  assert.equal(fourth!.delivered, null);
   assert.equal(fourth!.underdogDelivered, false);
   assert.equal(fourth!.bestCandidateSurvived, true);
-  assert.match(fourth!.delivered ?? "", /Buccaneers/i);
 
-  // Full delivery trace for the fourth game.
+  // Full delivery trace for the fourth game — favorite wins side-consistency,
+  // but fails shared qualification → cannot reach the ticket.
   const bucs = REGRESSION_SAMPLE_FIXTURES.find((g) => /Panthers.*Buccaneers/i.test(g.game))!;
   const trace = traceUnderdogSpreadPipeline(bucs);
-  assert.match(trace.bestCandidate.pick, /Buccaneers/i);
-  assert.equal(trace.delivered?.pick, trace.bestCandidate.pick);
-  assert.ok(
-    (trace.bestCandidate.finalAiScore?.edgePct ?? -999) >=
-      (trace.steps[0]!.picks.some((p) => /Panthers/.test(p))
-        ? -99
-        : -99),
-  );
-  // Favorite edge better (less negative) than dog — legitimate value win.
+  assert.match(trace.sideResult.picks[0]?.pick ?? "", /Buccaneers/i);
+  assert.equal(trace.delivered, null);
+  assert.ok((trace.sideResult.picks[0]?.finalAiScore?.edgePct ?? 0) <= 0);
   const board = trace.steps[0]!.picks.join(" | ");
   assert.match(board, /Buccaneers/);
   assert.match(board, /Panthers/);
   assert.match(trace.sideResult.resolutions?.[0]?.reason ?? "", /Final AI\/value/i);
   assert.equal(trace.steps.at(-1)?.stage, "delivery");
-  assert.deepEqual(trace.steps.at(-1)?.picks, [trace.bestCandidate.pick]);
+  assert.deepEqual(trace.steps.at(-1)?.picks, []);
 });
 
 test("broader eval: Coach vs baselines on shared selection-time slate", () => {

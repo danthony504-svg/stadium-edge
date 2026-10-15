@@ -25,6 +25,10 @@ import {
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { pickIsAiRecommended } from "./pickRecommendation.ts";
 import { mergeOddsEntries as mergeOddsEntrySources, oddsEntryKey, type OddsMergeEntry } from "./oddsMerge.ts";
+import {
+  acceptReplacementIfStillQualified,
+  deliveryCandidateStillQualified,
+} from "./coachDeliveryQualification.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -471,21 +475,31 @@ export function optimizeGameLinePicksToBestFinalAi(
       pick: best.entry.pick,
       odds: best.entry.odds,
       sport: best.entry.sport ?? pick.sport,
+      // Carry Final AI from the evaluated best so delivery revalidation sees
+      // the post-swap grade — never ship an ungraded line change.
+      finalAiScore: best.finalAiScore,
+      scores: best.finalAiScore.rubric ?? pick.scores,
     };
 
     const same =
       pick.market === optimized.market &&
       pick.pick === optimized.pick &&
       pick.odds === optimized.odds;
-    if (!same) swapped += 1;
+    const accepted = same
+      ? deliveryCandidateStillQualified(optimized)
+        ? optimized
+        : null
+      : acceptReplacementIfStillQualified(pick, optimized);
+    if (!accepted) continue;
+    if (!same && accepted === optimized) swapped += 1;
 
-    const legKey = pickLegKey(optimized);
+    const legKey = pickLegKey(accepted);
     if (seenLegs.has(legKey)) {
       deduped += 1;
       continue;
     }
     seenLegs.add(legKey);
-    out.push(optimized);
+    out.push(accepted);
   }
 
   return { picks: out, swapped, note: "" };
