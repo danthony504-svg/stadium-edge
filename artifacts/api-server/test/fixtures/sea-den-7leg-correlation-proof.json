@@ -4,6 +4,7 @@
   "game": "Seattle Seahawks @ Denver Broncos",
   "singleEventActive": true,
   "activationReason": "team_game_scope",
+  "seatingPath": "seatSingleEventTicket",
   "caps": {
     "maxProps": 6,
     "maxGameEventLines": 4
@@ -79,6 +80,62 @@
     "glCount": 1,
     "periodCount": 0
   },
+  "enforcedOnSingleEventPath": {
+    "rules": [
+      "SINGLE_EVENT_CAPS[8] maxProps=6 / maxGameEventLines=4",
+      "distinct marketLadderKey (wouldRepeatMarketLadder equivalent)",
+      "one prop per participant (wouldRepeatPlayerProp / propPlayerKey)",
+      "matchup scope SEA@DEN only",
+      "unsupported periods blocked (0 period legs)"
+    ],
+    "parlayCorrelationPenaltyApplied": false,
+    "note": "seatSingleEventTicket does not call parlayCorrelationPenalty; soft +5/+7 ranking demotion is multi-game selectCorrelationAwareBoardLegs only."
+  },
+  "softCorrelationReference_parlayCorrelationPenalty": {
+    "source": "artifacts/stadium-mobile/lib/parlayCorrelationScore.ts parlayCorrelationPenalty",
+    "darnoldPassTd_vs_each_receiver": [
+      { "against": "Jaxon Smith-Njigba Over 92.5 Rec Yds", "penalty": 5, "hardReject": false },
+      { "against": "Tory Horton Over 0.5 Receptions", "penalty": 5, "hardReject": false },
+      { "against": "Rashid Shaheed Over 14.5 Longest Reception", "penalty": 5, "hardReject": false },
+      { "against": "Emanuel Wilson Under 1.5 Receptions", "penalty": 5, "hardReject": false }
+    ],
+    "darnoldPassTd_vs_seahawksSpread": { "against": "Seahawks +1.5", "penalty": 7, "hardReject": false },
+    "darnoldPassTd_vs_fullTicketWithoutSelf": {
+      "penalty": 32,
+      "breakdown": "5 other same-game props ×5 (=25) + 1 game-side ×7 (=7)"
+    },
+    "wilsonReceptions_vs_hortonReceptions": {
+      "penalty": 15,
+      "breakdown": "same market Receptions +10 + same-game different player +5"
+    },
+    "sequentialSoftVsPrior_ifMultiGamePath": [
+      { "n": 1, "pick": "Seahawks +1.5", "softVsPrior": 0 },
+      { "n": 2, "pick": "Jaxon Smith-Njigba Over 92.5 Rec Yds", "softVsPrior": 7 },
+      { "n": 3, "pick": "Tory Horton Over 0.5 Receptions", "softVsPrior": 12 },
+      { "n": 4, "pick": "George Holani Over 13.5 Rush Yds", "softVsPrior": 17 },
+      { "n": 5, "pick": "Sam Darnold Over 1.5 Pass TDs", "softVsPrior": 22 },
+      { "n": 6, "pick": "Rashid Shaheed Over 14.5 Longest Reception", "softVsPrior": 27 },
+      { "n": 7, "pick": "Emanuel Wilson Under 1.5 Receptions", "softVsPrior": 42 }
+    ],
+    "effect": "ranking demotion only — never a hard reject for Pass TD + receiver stacks",
+    "jointProbabilityAccountsForDependence": false
+  },
+  "hardRejects": {
+    "passTdPlusReceiver": false,
+    "passTdPlusSeahawksSpread": false,
+    "repeatPlayerProp": false,
+    "repeatLadder": false,
+    "multiGameMaxPropsPerGame8": {
+      "cap": 2,
+      "wouldRejectFrom3rdProp": true,
+      "appliedOnThisTicket": false,
+      "reason": "team_game_scope uses SINGLE_EVENT_CAPS[8].maxProps=6 instead"
+    }
+  },
+  "combinedProbability": {
+    "accountsForDependence": false,
+    "model": "none — leg probs (when present) stay independent; no Pass-TD↔receiver joint / copula / sim co-hit adjustment"
+  },
   "proofs": {
     "withinMaxProps": true,
     "withinMaxGameEventLines": true,
@@ -86,7 +143,9 @@
     "noRepeatPlayerProp": true,
     "noRepeatLadderWalk": true,
     "livePipelineSeated": true,
-    "note": "Single-event caps SINGLE_EVENT_CAPS[8] apply for team-scoped asks; multi-game maxPropsPerGame(8)=2 does not."
+    "softPassTdReceiverPenaltyOnly": true,
+    "noDependenceAdjustedCombinedProb": true,
+    "note": "Distinct players/ladders + count caps alone do not model Pass-TD↔receiver dependence; soft +5/+7 exists on multi-game path only and does not reject this stack."
   },
   "engine": {
     "server": "ppg-per-drive-v1",
@@ -96,5 +155,6 @@
     "notTimes048": true,
     "NCAAF_GAME_LINE_SIM_VALIDATED": false
   },
-  "pass": true
+  "pass": true,
+  "honestyGate": "PASS_WITH_LIMITATION — caps/ladders/players enforced; Pass TD + receivers + Seahawks spread not hard-rejected; no dependence-adjusted combined probability"
 }

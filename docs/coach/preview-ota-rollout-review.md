@@ -22,18 +22,28 @@ Code at that tip includes: `ppg-per-drive-v1` + `ppg/drives` conversion, null-no
 
 ## 2. Exact server-first / preview-OTA deployment scope
 
+### Deploy API ≠ production OTA (freeze resolution)
+
+| Surface | What it is | Freeze status |
+|---------|------------|---------------|
+| **API deploy** | Redeploy Render service **`stadium-edge`** → `https://stadium-edge.onrender.com` (sole API; preview + production IPAs both use `EXPO_PUBLIC_DOMAIN=stadium-edge.onrender.com`) | **Not** blocked by `.ota-production-freeze`. Hook: `RENDER_DEPLOY_HOOK` / workflow `deploy-api-server.yml`. Live healthz today: `deploymentSha=cf6c0f699e6f3dd573ade95514af79b05c8a54c1`. |
+| **Production OTA** | Expo `eas update` on channel **`production`** | **Frozen** (`.ota-production-freeze` armed). Scripts refuse production publish. |
+| **Preview OTA** | Expo `eas update` on channel **`preview`** via `publish-preview-ota.sh` | Allowed when approved; freeze file only notes production is untouched. |
+
+**Honesty:** one Render service serves all clients. An approved API redeploy of `ddeb4733…` changes `/sports/simulate/game-outcome` for production IPA users too (old clients ignore `engineVersion` but receive corrected `ppg-per-drive-v1` draws). That is intentional server-first order — it is **not** a production Expo OTA and does **not** lift the freeze.
+
 **In scope (when review approves — not now):**
 
 | Step | Target | Channel / surface | SHA |
 |------|--------|-------------------|-----|
-| A. Server-first | Staging/API deploy of tip | API `POST /sports/simulate/game-outcome` + slate stamps | `ddeb4733…` |
-| B. Preview OTA | JS bundle only onto **existing** IPA | Expo channel **`preview` only** | same tip |
-| C. Device | Installed **preview-build78** IPA | No new EAS native build | IPA `057c9f0d…` / EAS `9155c37b-0297-45a7-98fe-ea3f38bea6a9` / runtime `1.1.0` |
+| A. Server-first | Render **`stadium-edge`** (`stadium-edge.onrender.com`) at functional tip | API `POST /sports/simulate/game-outcome` + slate stamps | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
+| B. Preview OTA | JS bundle only onto **existing** IPA | Expo channel **`preview` only** | same tip (checkout that SHA so `EXPO_PUBLIC_GIT_COMMIT` matches) |
+| C. Device | Installed **preview-build78** IPA | No new EAS native build | IPA `057c9f0ddd42e9309146cc6eb8d3b68f089b4e82` / EAS `9155c37b-0297-45a7-98fe-ea3f38bea6a9` / runtime `1.1.0` |
 
 **Out of scope / frozen:**
 
 - Production OTA (`.ota-production-freeze` armed)
-- Production Render deploy / merge to `main`
+- Merge-to-`main` auto-deploy unless explicitly approved as the API vehicle (prefer deploy-specific-commit / hook aimed at tip)
 - New native IPA / EAS `preview-build78` rebuild (natives match tip)
 - Flipping `NCAAF_GAME_LINE_SIM_VALIDATED`
 - Unblocking unsupported period markets
@@ -56,7 +66,7 @@ Source ticket: isolated pipeline ask **`8 leg broncos`** (7 legs delivered; hone
 | 6 | Longest Reception | Rashid Shaheed Over 14.5 | yes | fg | distinct |
 | 7 | Receptions | Emanuel Wilson Under 1.5 | yes | fg | distinct (different player + side) |
 
-**Same-game / single-event mode:** ask activates `team_game_scope` single-event seating. Caps for target ≥ 8: **`maxProps: 6`**, **`maxGameEventLines: 4`** (`SINGLE_EVENT_CAPS[8]`).
+**Same-game / single-event mode:** ask activates `team_game_scope` → `seatSingleEventTicket`. Caps for target ≥ 8: **`maxProps: 6`**, **`maxGameEventLines: 4`** (`SINGLE_EVENT_CAPS[8]`).
 
 | Check | Limit | Actual | Result |
 |-------|-------|--------|--------|
@@ -67,9 +77,24 @@ Source ticket: isolated pipeline ask **`8 leg broncos`** (7 legs delivered; hone
 | Unsupported period | 0 | 0 | **PASS** |
 | Matchup scope | Broncos game only | all SEA@DEN | **PASS** |
 
-Artifact: `artifacts/api-server/test/fixtures/sea-den-7leg-correlation-proof.json`.
+### Pass TDs + receivers + Seahawks spread (actual correlation)
 
-Multi-game default `maxPropsPerGame(8)=2` does **not** apply here — team nickname asks use the raised single-event ceilings above. Soft same-game correlation still requires distinct ladders and players (proven).
+Seating path **`seatSingleEventTicket` does not call `parlayCorrelationPenalty`**. Enforced rules are caps + distinct ladders/players only.
+
+| Pair | Soft penalty (`parlayCorrelationPenalty`, multi-game reference) | Hard reject? |
+|------|------------------------------------------------------------------|--------------|
+| Darnold Over 1.5 Pass TDs ↔ each receiver prop (JSN / Horton / Shaheed / Wilson) | **+5** each (same-game different-player prop) | **No** |
+| Darnold Pass TDs ↔ Seahawks +1.5 | **+7** (prop ↔ game-side) | **No** |
+| Darnold vs full ticket without self | **+32** (= 5×5 + 7) | **No** — ranking demotion only |
+| Wilson Receptions ↔ Horton Receptions | **+15** (same market +10 + same-game +5) | **No** (different players/ladders) |
+
+| Combined probability | Dependence model |
+|----------------------|------------------|
+| Independent leg probs only | **None** — no Pass-TD↔receiver joint / copula / sim co-hit adjustment |
+
+Multi-game default `maxPropsPerGame(8)=2` would hard-block from the 3rd prop; it does **not** apply under single-event caps. Distinct players/ladders + count caps alone do **not** account for Pass-TD↔receiver dependence.
+
+Artifact: `artifacts/api-server/test/fixtures/sea-den-7leg-correlation-proof.json` (`honestyGate: PASS_WITH_LIMITATION`).
 
 ---
 
@@ -102,12 +127,31 @@ Physical React UI remains **PENDING** until those steps run on device.
 
 ---
 
-## 6. Review gate (no execution)
+## 6. Preview export + tests pin the same functional SHA
+
+| Artifact / surface | Pinned SHA |
+|--------------------|------------|
+| `coach-pipeline-cancel-isolated.json` `reviewedSha` | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
+| `sea-den-7leg-correlation-proof.json` `tipSha` | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
+| Isolated sim health during pipeline | same tip |
+| `publish-preview-ota.sh` | bakes `EXPO_PUBLIC_GIT_COMMIT=$(git rev-parse HEAD)` — **must run on checkout of that tip** |
+| Render healthz after API step | expect `deploymentSha` = same tip |
+
+Branch tip may sit atop docs/fixture commits (`24ddd8da…` at review time); runtime code identity for Coach/engine is the functional tip above. Publish/deploy from the tip SHA, not an unrelated main commit.
+
+## 7. Concrete approval-only rollout (do not execute)
+
+1. **API (server-first):** Redeploy Render service **`stadium-edge`** (`https://stadium-edge.onrender.com`) at `ddeb4733348b98d7112748edc19c7e06fc6fc99a` via deploy-hook / dashboard deploy-specific-commit. Confirm `GET /api/healthz` → `deploymentSha` matches. NCAAF game lines + unsupported periods stay client-blocked.
+2. **Preview OTA:** On that same checkout, `EXPO_TOKEN=… bash artifacts/stadium-mobile/scripts/publish-preview-ota.sh 'ppg-per-drive-v1 ddeb4733 preview'`. Channel **`preview` only**. Existing IPA `9155c37b` / `057c9f0d…` / runtime `1.1.0`.
+3. **Device checks** (section 5). Production OTA stays frozen. No new IPA. No `NCAAF_GAME_LINE_SIM_VALIDATED` flip.
+
+## 8. Review gate (no execution)
 
 - [ ] Human review of PR #739 + this pack
-- [ ] Approve server-first staging deploy of `ddeb4733…` (not production)
+- [ ] Approve Render **`stadium-edge`** API redeploy of `ddeb4733…` (shared API; not Expo production OTA)
 - [ ] Approve preview-channel OTA only (not production)
 - [ ] Keep `.ota-production-freeze` armed
 - [ ] Keep existing IPA; no native rebuild unless natives diverge
+- [ ] Acknowledge Pass-TD↔receiver stack is soft/caps-only (no dependence-adjusted combined prob)
 
 **Do not execute deploy/OTA until explicitly approved.**
