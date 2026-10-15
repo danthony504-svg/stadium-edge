@@ -191,7 +191,7 @@ Same college ask twice; record wall-clock + stage timings. Until measured on dev
 | Crash-path binary | `eas build --profile preview-build78` (no ClerkExpoPasskeys) |
 | Device | registered `00008150-001968CA2280401C` |
 | EXPO_TOKEN | Cursor env secret — `docs/device-test-expo-token.md` (**configured**) |
-| Phase E | `docs/coach/ncaaf-phase-e-checklist.md` — E2a FAIL / restore NO |
+| Phase E | `docs/coach/ncaaf-phase-e-checklist.md` — seeded E2a PASS / E2b open / restore NO |
 | Prior fixpack (pre preview config) | `6f7d4178dc382332bff87f46984875dabb0d521e` |
 | Branch | `cursor/build78-formpack-def8` |
 | PR | https://github.com/danthony504-svg/stadium-edge/pull/736 |

@@ -22,7 +22,7 @@
 
 ### B) College game-line picks (NOT fixed)
 
-- `NCAAF_GAME_LINE_SIM_VALIDATED = false` until Phase E (E2a FAIL home-win bias, E2b/E4 insufficient, E6 open).
+- `NCAAF_GAME_LINE_SIM_VALIDATED = false` until Phase E (seeded E2a PASS on 20241015; 2026-10-14 PASS withdrawn; E2b/E4 insufficient, E6 open).
 - Do not claim college picks fixed until E2E returns valid simulated NCAAF sides.
 
 ## Checklist
