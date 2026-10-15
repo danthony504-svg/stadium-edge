@@ -1,8 +1,8 @@
 # Rollout SHA reconcile (PR #736 / Build78 fixpack)
 
-**Reviewed SHA (exact):** `576578cd22ac69108e8a7a74177b9de75f708d39` plus follow-up null-note hardening commit on this branch — use `git rev-parse HEAD` on `cursor/build78-fixpack-def8` as the single install/review tip after merge of this reconcile.
+**Reviewed SHA (exact):** `51dbf516807c0a1a7aabc7a2cb1ee4c8929685b1`
 
-After this reconcile lands, the **single reviewed tip** is the branch HEAD (see “Pinned tip” below). Do not treat `e6c8bb60` alone as the install SHA.
+This is the single install/review tip on `cursor/build78-fixpack-def8`. Do not treat `e6c8bb60` or `576578cd` alone as the install SHA — both are ancestors of this tip.
 
 ## 1. SHA relationship
 
@@ -12,7 +12,7 @@ After this reconcile lands, the **single reviewed tip** is the branch HEAD (see 
 | `4738df08` | Football-unit college sim: soft ppd rates, defense tilt, college scale; P0 stays armed |
 | `e6c8bb60` | Docs tip (EXPO_TOKEN saved-vs-injection). Ancestor of HEAD. Strip tooling had drifted vs IPA |
 | `576578cd` | Restores IPA-matching strip/`associatedDomains` omit; records installed binary. **Superset of `e6c8bb60`** (`e6c8bb60` + 1 commit) |
-| This reconcile HEAD | `576578cd` + null-note crash fix + isolated pipeline/cancel evidence |
+| **`51dbf516` (this tip)** | `576578cd` + null-note crash fix + isolated pipeline/cancel evidence |
 
 **Football-unit lineage on tip:** previously tested college/drive work enters via `4738df08` (ancestor of `e6c8bb60` / `576578cd`). Side-rank / underdog commits (`c954be30`, `8448b29d`) sit between `4738df08` and `e6c8bb60`.
 
@@ -42,7 +42,7 @@ After this reconcile lands, the **single reviewed tip** is the branch HEAD (see 
 **Verdict:** **Different test / Y-universe**, not a same-harness regression.
 
 - Re-running E2a on tip still yields meanP≈0.49, meanY=0.608 (bias FAIL) — college scale off (NFL path) yields meanP≈0.44, **not** 0.674.
-- The ~0.637 figure is the **unfiltered 2024 base rate**; E2a’s 0.608 is the **scored subset**. Treat 0.495/0.608 as the only authoritative Phase E number on this SHA. Keep restore **blocked**.
+- The ~0.637 figure is the **unfiltered 2024 base rate**; E2a's 0.608 is the **scored subset**. Treat 0.495/0.608 as the only authoritative Phase E number on this SHA. Keep restore **blocked**.
 
 ## 4. Isolated Coach pipeline + cancellation
 
