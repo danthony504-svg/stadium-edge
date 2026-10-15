@@ -1,10 +1,10 @@
 # Rollout SHA reconcile (PR #736 / Build78 fixpack + football-unit port)
 
-**Reviewed tip (exact):** `1f9cc04a302fba2b8d94919f7a3309987b4377da`
+**Reviewed tip (exact):** `ddeb4733348b98d7112748edc19c7e06fc6fc99a`
 
 Functional baseline before the port: `013ddb88` (null-note fix + isolated pipeline/cancel).  
 Football-unit pack source: PR **#738** tip `e3b4dc81` (`cursor/nfl-spread-ml-scoring-hang-b9b4`).  
-Docs-only follow-ups may sit atop `1f9cc04a` on this branch.
+Corrected drive-unit measurement docs: `2c13a3ba` (ppg→ppd; college ×0.48 retired from live path).
 
 ## 1. SHA relationship
 
@@ -13,56 +13,70 @@ Docs-only follow-ups may sit atop `1f9cc04a` on this branch.
 | `057c9f0d…` | **Installed preview-build78 IPA** baseline (EAS `9155c37b`, runtime `1.1.0`, channel `preview`, no `ClerkExpoPasskeys`) |
 | `4738df08` | Soft drive rates / defense tilt precursor (not yet `ppg-per-drive-v1`) |
 | `e6c8bb60` | Docs tip (EXPO_TOKEN). Ancestor of fixpack tip |
-| `576578cd` / `013ddb88` | Fixpack tip before football-unit port |
-| `e3b4dc81` | PR #738 — named football-unit pack (ppg-v1, stamp, seal, parse, null-note, deadline) |
-| **`1f9cc04a` (this tip)** | `013ddb88` lineage **+** football-unit files/tests from `e3b4dc81` |
+| `576578cd` / `013ddb88` | Fixpack tip before football-unit port — **still applies NCAAF ×0.48 and feeds PPG as PPD** |
+| `6f18926b` → `2c13a3ba` | Corrected ppg→ppd conversion; ×0.48 retired from live path; 10k holdout docs |
+| `e3b4dc81` | PR #738 — named football-unit pack (ppg-v1, stamp, seal, parse, null-note, deadline, seeded calib) |
+| **`ddeb4733` (this tip)** | `013ddb88` lineage **+** football-unit pack **+** null-note trim fix **+** period partial seal **+** 8-leg broncos regression **+** calib module |
 
-`e6c8bb60` ⊂ `576578cd` ⊂ `013ddb88`. The six named football-unit features were **not** on that tip until this port ([Find football-unit fix SHAs](bc-2990b9c4-2a1e-5e29-9f1c-e5bd784da511)).
+## 2. Engine proof: `013ddb88` vs `2c13a3ba` (label alone insufficient)
 
-## 2. Retention checklist (after port)
+Artifact: `artifacts/api-server/test/fixtures/drive-engine-commit-compare.json`
+
+| Check | `013ddb88` | `2c13a3ba` / tip |
+|-------|------------|------------------|
+| `FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1"` | **absent** | present |
+| Live caller | `footballDriveRateInput(homeOff, sport)` | `footballExpectedDrives` then `footballDriveRateInput(ppg − late, drives, sport)` |
+| Conversion | feeds **PPG** (college ×**0.48**) into per-drive map | **`ppg / drives`**; scale constant exported but **not multiplied** |
+| NCAAF 28/24 example rate fed to map | home **13.44** (=28×0.48) | home **≈2.545** (=28/11) |
+
+Dual fixed-seed 10k holdout (primary seed `20241015`, identical fixtures + `blendVenueAndL10` walk): `dual-commit-holdout-compare.json`
+
+| | Tip `ppg-per-drive-v1` | Legacy `013ddb88` |
+|--|----------------------|-------------------|
+| meanP / meanY | **0.6740 / 0.6370** | **0.6570 / 0.6370** |
+| Brier | 0.19860 | 0.19853 |
+| Dog cover (0.45–0.55) | **0.6757** (n=111) | **0.6934** (n=137) |
+| Live smoke | `ppg/drives` | NCAAF 28 → rate **13.44** (=×0.48); proj ~42+ |
+
+Δ meanP (tip − legacy) ≈ **+0.017**. Same seed/fixtures; difference is the conversion path.
+
+## 3. Retention checklist
 
 | Protection | Marker | Status |
 |------------|--------|--------|
-| **ppg-per-drive-v1** | `FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1"` | **Retained** — `footballDriveUnit.test.ts` PASS |
-| **engine-stamp rejection** | `gameDrawEngineAccepted` / `simEngineStamp` | **Retained** — unstamped/mismatched draws not graded |
-| **period sealing/blocking** | `sealPublishedClientPeriodQueries` / `sealCachedGameSim` | **Retained** — `gameOutcomePayload.test.ts` PASS |
-| **request parsing** | `asksFullGameSidesOnly` + `fullGameOnly` in ask filter | **Retained** |
-| **null-note handling** | `joinCoachNoteParts` | **Retained** — skips null fragments |
-| **unified deadline** | `coachRequestDeadlineMs` ≡ `coachAbsoluteBudgetMs` ≡ live terminal | **Retained** — session tests PASS |
+| **ppg-per-drive-v1** | `FOOTBALL_DRIVE_ENGINE_VERSION` + `ppg/drives` caller | **Retained** — unit + compare proof |
+| **engine-stamp rejection** | `gameDrawEngineAccepted` / `simEngineStamp` | **Retained** |
+| **period sealing/blocking** | seal + `unvalidated_period_full_game_decomposition` + partial `revalidateDeliveryPicks` | **Retained / tightened** |
+| **request parsing** | `asksFullGameSidesOnly` + `fullGameOnly` | **Retained** |
+| **null-note handling** | `joinCoachNoteParts` (no `.trim()` on null `built.note`) | **Retained / fixed** |
+| **unified deadline** | `coachRequestDeadlineMs` ≡ absolute ≡ live terminal | **Retained** |
 
-`NCAAF_GAME_LINE_SIM_VALIDATED = false` — **P0 remains armed**.
+`NCAAF_GAME_LINE_SIM_VALIDATED = false` — **P0 remains armed**. Unsupported period markets stay blocked.
 
-## 3. meanP / meanY: ~0.674/0.637 vs 0.495/0.608
+## 4. Device ask regressions (isolated full pipeline)
 
-Per [Trace meanP/meanY sources](bc-c5a5f9fd-e13a-53aa-9ed1-f7de0e9f81b2): the “old” pair is documented as **0.657 / 0.637** (not exact 0.674). **Same Phase E harness / engine**, **different form methodology**:
+Artifact: `artifacts/api-server/test/fixtures/coach-pipeline-cancel-isolated.json`  
+Client tip: `ddeb4733`. Isolated sim: tip SHA. Production healthz (unchanged): `cf6c0f69`.
 
-| | L10-only (checklist was citing) | Venue-aware / ppg-v1 (PR #738) |
-|--|--------------------------------|--------------------------------|
-| **meanP / meanY** | **0.494 / 0.608** | **0.657 / 0.637** (bias PASS) |
-| **Engine** | `runNflDriveSim` | Same + `ppg-per-drive-v1` stamp |
-| **Form inputs** | Combined L10 only | **venue_split + L10** (`blendVenueAndL10`) |
-| **n scored** | 796 (75 thin skipped) | 865 (6 thin skipped) |
-| **nSims** | 1500 | 1500 (later seeded 10k reports on #738) |
-| **Seed** | Unseeded `Math.random` | Unseeded in first venue report; later seeded holdouts on #738 |
-| **Commit / artifact** | `8266280b` L10-only report | `20b140ee` venue-aware report; current checklist on #738 cites ppg-v1 PASS |
+| Ask | Runtime | Legs | Period in partial/final | Null-note | Notes |
+|-----|---------|------|-------------------------|-----------|-------|
+| **8 leg broncos** | ~5.6s | 7 (honest shortfall) | **none** | **safe** | Matchup scope = entire SEA@DEN game (Seahawks sides/props allowed; other NFL games excluded) |
+| **4 leg NFL spreads and moneylines for upcoming games.** | ~7.2s | 1 (honest shortfall) | **none** | **safe** | `fullGameOnly`; delivered FG Alt Spread only |
+| Cancel `8 leg broncos` @ 2.5s | ~2.5s | aborted | — | — | **PASS** cleanup |
 
-**Verdict:** **Not a same-methodology regression** — L10-only vs venue-aware form. Current ported checklist tracks the venue / `ppg-per-drive-v1` holdout. Restore still **NO** (E2b/E4/E6 open; flag false).
+Physical-device React UI: **PENDING**. Publication: **pending review** (no OTA / native / prod).
 
-## 4. Isolated Coach pipeline + cancellation
+## 5. Server-first / preview-OTA readiness
 
-Pre-port evidence on `013ddb88`: `artifacts/api-server/test/fixtures/coach-pipeline-cancel-isolated.json`
+| Item | Status |
+|------|--------|
+| IPA baseline | `057c9f0d` / EAS `9155c37b` / runtime `1.1.0` / channel `preview` |
+| Tip vs IPA natives | Compatible → **JS/OTA + server-first** (no new native build) |
+| Production freeze | **armed** |
+| NCAAF / unsupported periods | **blocked** |
+| Rollout | **Ready for preview-OTA review only** — not production publish |
 
-| Track | Result |
-|-------|--------|
-| Full pipeline `5 leg` | **PASS** (after null-note fix) |
-| College under P0 | **PASS** honest shortfall |
-| Cancellation | **PASS** |
-| Physical-device React UI | **PENDING** |
+## 6. Freeze / non-goals
 
-Re-run isolated harness after merge if desired; unit retention for the six markers is green on this port tip.
-
-## 5. Freeze / non-goals
-
-- Production freeze armed
-- No merge to main, deploy, OTA, native build, or device registration in this turn
-- Expo-token injection not required for these results
+- No merge to main, deploy, production OTA, native build, or device registration in this turn
+- Publication stays pending review

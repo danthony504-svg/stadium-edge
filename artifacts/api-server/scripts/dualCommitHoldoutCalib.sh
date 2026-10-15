@@ -21,12 +21,26 @@ run_harness() {
   local label="$1"
   local out="$FIXTURE_DIR/ncaaf-phase-e-calibration-report-${label}.json"
   echo "=== harness label=$label sims=$SIMS primaryOnly=$NCAAF_PHASE_E_PRIMARY_ONLY ==="
+  rm -f "$FIXTURE_DIR/ncaaf-phase-e-calibration-report.json"
   set +e
-  (cd artifacts/api-server && node --experimental-strip-types scripts/ncaafPhaseEHoldoutCalibration.ts)
+  (cd artifacts/api-server && node --import ./test/register-hooks.mjs --experimental-strip-types scripts/ncaafPhaseEHoldoutCalibration.ts)
   local rc=$?
   set -e
+  if [[ ! -f "$FIXTURE_DIR/ncaaf-phase-e-calibration-report.json" ]]; then
+    echo "ERROR: harness did not write report (rc=$rc)" >&2
+    return 1
+  fi
+  local gen engine
+  gen=$(python3 -c "import json;print(json.load(open('$FIXTURE_DIR/ncaaf-phase-e-calibration-report.json')).get('generatedAt',''))")
+  engine=$(python3 -c "import json;print(json.load(open('$FIXTURE_DIR/ncaaf-phase-e-calibration-report.json')).get('engine',''))")
+  echo "harness generatedAt=$gen engine=$engine rc=$rc"
   cp "$FIXTURE_DIR/ncaaf-phase-e-calibration-report.json" "$out"
-  echo "wrote $out (harness rc=$rc)"
+  echo "wrote $out"
+  # Tip PASS-with-P0-armed exits 2; crash/module errors are 1.
+  if [[ "$rc" -eq 1 ]]; then
+    return 1
+  fi
+  return 0
 }
 
 echo "=== 1) tip engine (ppg-per-drive-v1; conversion matches $CORRECTED_DOC) ==="
@@ -36,6 +50,7 @@ echo "=== 2) vendor 013ddb88 engine + rng patch for fair seed ==="
 git show "$OLD:$MATCHUP" > "$MATCHUP"
 git show "$OLD:$SIM" > "$SIM"
 # Tip harness imports FOOTBALL_DRIVE_ENGINE_VERSION — stub label on legacy file.
+# Thread ctx.random into driveOutcome + late-clock rolls (do not bare-replace Math.random).
 python3 - <<'PY'
 from pathlib import Path
 m = Path("artifacts/api-server/src/lib/sportSim/footballDriveMatchup.ts")
@@ -49,15 +64,26 @@ if "FOOTBALL_DRIVE_ENGINE_VERSION" not in ms:
     print("stubbed FOOTBALL_DRIVE_ENGINE_VERSION on legacy matchup")
 p = Path("artifacts/api-server/src/lib/sportSim/nflDriveSim.ts")
 src = p.read_text()
+src = src.replace(
+    "function driveOutcome(rateInput: number): number {\n  const r = Math.random();",
+    "function driveOutcome(rateInput: number, rng: () => number): number {\n  const r = rng();",
+)
+src = src.replace(
+    "const homeScores: number[] = [];\n  const awayScores: number[] = [];",
+    "const rng = ctx.random ?? Math.random;\n  const homeScores: number[] = [];\n  const awayScores: number[] = [];",
+)
+src = src.replace("driveOutcome(homeRate)", "driveOutcome(homeRate, rng)")
+src = src.replace("driveOutcome(awayRate)", "driveOutcome(awayRate, rng)")
+src = src.replace("Math.random() < lateClockTd", "rng() < lateClockTd")
+if "Math.random()" in src:
+    raise SystemExit(f"unpatched Math.random remains: {src.count('Math.random()')}")
 if "const rng = ctx.random" not in src:
-    src = src.replace(
-        "const homeScores: number[] = [];",
-        "const rng = ctx.random ?? Math.random;\n  const homeScores: number[] = [];",
-    )
-src = src.replace("Math.random()", "rng()")
+    raise SystemExit("rng binding missing")
 p.write_text(src)
-print("rng patch applied; Math.random count left:", src.count("Math.random()"))
+print("rng patch applied OK")
 PY
+# Stale-report guard: delete before each harness so a failed run cannot reuse tip output.
+rm -f "$FIXTURE_DIR/ncaaf-phase-e-calibration-report.json"
 
 run_harness "013ddb88-legacy"
 
