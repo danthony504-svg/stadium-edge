@@ -34,6 +34,27 @@ import {
 import { buildFixedLegCountShortfallLead } from "./coachScanPolicy.ts";
 import { coachShortfallNote } from "./coach/session.ts";
 
+const QUALIFIED_PROP_GRADE = {
+  composite: 8,
+  grade: "B+",
+  confidencePct: 58,
+  edgePct: 4,
+  simHit: 0.56,
+  simAligned: true,
+  highRiskValuePlay: false,
+  recommends: true,
+  factors: [] as string[],
+};
+
+/** A real sim grade at the shared floor. Missing grades must stay unseated. */
+function qualifiedProp<T extends Record<string, unknown>>(pick: T, rankScore: number) {
+  return {
+    pick: { ...pick, finalAiScore: QUALIFIED_PROP_GRADE },
+    rankScore,
+    simHit: QUALIFIED_PROP_GRADE.simHit,
+  };
+}
+
 /** Dead #469 wipe formula — kept only so the regression proves it stays dead. */
 function buggyWipeOnAwaitingPropSlots<T extends { isProp?: boolean }>(
   rawPicks: T[],
@@ -632,6 +653,33 @@ test("footballSkillPropRank prefers TD / pass / rec / rush yards over sack and m
   assert.equal(footballSkillPropFamily("player_tackles_assists"), null);
 });
 
+test("fillReservedPropSlots leaves props unseated when they have no sim grade", () => {
+  const games = Array.from({ length: 8 }, (_, i) => ({
+    isProp: false,
+    market: "moneyline",
+    game: `G${i}`,
+    pick: `Team${i}`,
+    scores: { composite: 90 - i },
+  }));
+  const scored = [
+    ...games.map((pick, i) => ({ pick, rankScore: 90 - i })),
+    {
+      pick: {
+        isProp: true,
+        sport: "nfl",
+        market: "player_rush_yds",
+        game: "A @ B",
+        player: "P",
+        pick: "Over 75.5",
+        scores: { composite: 70 },
+      },
+      rankScore: 100,
+    },
+  ];
+  const out = fillReservedPropSlots(games, scored, 8);
+  assert.equal(out.filter((p) => p.isProp).length, 0);
+});
+
 test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix", () => {
   const target = 8;
   const gameHeavy = Array.from({ length: 8 }, (_, i) => ({
@@ -645,9 +693,10 @@ test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix
   }));
   const scored = [
     ...gameHeavy.map((pick, i) => ({ pick, rankScore: 90 - i })),
-    {
-      pick: {
+    qualifiedProp(
+      {
         isProp: true,
+        sport: "nfl",
         market: "player_rush_yds",
         game: "DAL @ PHI",
         player: "Saquon Barkley",
@@ -655,11 +704,12 @@ test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix
         side: "Over",
         scores: { composite: 70 },
       },
-      rankScore: 80,
-    },
-    {
-      pick: {
+      80,
+    ),
+    qualifiedProp(
+      {
         isProp: true,
+        sport: "nfl",
         market: "player_pass_yds",
         game: "KC @ BUF",
         player: "Josh Allen",
@@ -667,11 +717,12 @@ test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix
         side: "Over",
         scores: { composite: 68 },
       },
-      rankScore: 78,
-    },
-    {
-      pick: {
+      78,
+    ),
+    qualifiedProp(
+      {
         isProp: true,
+        sport: "nfl",
         market: "player_reception_yds",
         game: "SF @ SEA",
         player: "George Kittle",
@@ -679,11 +730,12 @@ test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix
         side: "Over",
         scores: { composite: 66 },
       },
-      rankScore: 76,
-    },
-    {
-      pick: {
+      76,
+    ),
+    qualifiedProp(
+      {
         isProp: true,
+        sport: "nfl",
         market: "player_sacks",
         game: "BAL @ CIN",
         player: "Myles Garrett",
@@ -691,8 +743,8 @@ test("fillReservedPropSlots swaps game lines for rush/pass props to hit ~50% mix
         side: "Over",
         scores: { composite: 64 },
       },
-      rankScore: 74,
-    },
+      74,
+    ),
   ];
   const out = fillReservedPropSlots(gameHeavy, scored, target);
   const propCount = out.filter((p) => p.isProp).length;
@@ -746,20 +798,23 @@ test("fillReservedPropSlots diversifies TD / pass / rec / rush alts over ML-only
   ] as const;
   const scored = [
     ...gameHeavy.map((pick, i) => ({ pick, rankScore: 95 - i })),
-    ...skill.map(([market, player, line], i) => ({
-      pick: {
-        isProp: true,
-        market,
-        propMarketKey: market,
-        propLine: line,
-        game: `F${i} @ H${i}`,
-        player,
-        pick: `Over ${line}`,
-        side: "Over",
-        scores: { composite: 60 + i },
-      },
-      rankScore: 70 + i,
-    })),
+    ...skill.map(([market, player, line], i) =>
+      qualifiedProp(
+        {
+          isProp: true,
+          sport: "nfl",
+          market,
+          propMarketKey: market,
+          propLine: line,
+          game: `F${i} @ H${i}`,
+          player,
+          pick: `Over ${line}`,
+          side: "Over",
+          scores: { composite: 60 + i },
+        },
+        70 + i,
+      ),
+    ),
   ];
   const out = fillReservedPropSlots(gameHeavy, scored, target);
   const props = out.filter((p) => p.isProp);
@@ -898,21 +953,23 @@ test("fillReservedPropSlots swaps MLB game lines for HR / hits / K props", () =>
   ];
   const scored = [
     ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
-    ...skill.map((s, i) => ({
-      pick: {
-        isProp: true,
-        sport: "mlb",
-        market: s.market,
-        propMarketKey: s.market,
-        propLine: s.line,
-        game: `MLBProp${i} @ MLBOpp${i}`,
-        player: s.player,
-        pick: `Over ${s.line}`,
-        side: "Over",
-        scores: { composite: 80 },
-      },
-      rankScore: 90 - i,
-    })),
+    ...skill.map((s, i) =>
+      qualifiedProp(
+        {
+          isProp: true,
+          sport: "mlb",
+          market: s.market,
+          propMarketKey: s.market,
+          propLine: s.line,
+          game: `MLBProp${i} @ MLBOpp${i}`,
+          player: s.player,
+          pick: `Over ${s.line}`,
+          side: "Over",
+          scores: { composite: 80 },
+        },
+        90 - i,
+      ),
+    ),
   ];
   const out = fillReservedPropSlots(gameHeavy, scored, target);
   const props = out.filter((p) => p.isProp);
@@ -948,21 +1005,23 @@ test("fillReservedPropSlots swaps NBA game lines for points / reb / ast props", 
   ];
   const scored = [
     ...gameHeavy.map((pick, i) => ({ pick, rankScore: 50 - i })),
-    ...skill.map((s, i) => ({
-      pick: {
-        isProp: true,
-        sport: "nba",
-        market: s.market,
-        propMarketKey: s.market,
-        propLine: s.line,
-        game: `NBAProp${i} @ NBAOpp${i}`,
-        player: s.player,
-        pick: `Over ${s.line}`,
-        side: "Over",
-        scores: { composite: 80 },
-      },
-      rankScore: 90 - i,
-    })),
+    ...skill.map((s, i) =>
+      qualifiedProp(
+        {
+          isProp: true,
+          sport: "nba",
+          market: s.market,
+          propMarketKey: s.market,
+          propLine: s.line,
+          game: `NBAProp${i} @ NBAOpp${i}`,
+          player: s.player,
+          pick: `Over ${s.line}`,
+          side: "Over",
+          scores: { composite: 80 },
+        },
+        90 - i,
+      ),
+    ),
   ];
   const out = fillReservedPropSlots(gameHeavy, scored, target);
   const props = out.filter((p) => p.isProp);
