@@ -8,8 +8,8 @@
  *   0 = E2 metrics meet thresholds (still needs E6 human sign-off)
  *   2 = OPEN / FAIL / insufficient data — keep P0 armed
  *
- * Closing-line CLV requires a licensed odds archive — reported INSUFFICIENT_DATA
- * when absent (ODDS_API_KEY historical not configured here).
+ * Closing-line rows are vendored. Restore stays open until an agreed CLV
+ * result, pre-kickoff injury evidence, and human sign-off all exist.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -30,10 +30,13 @@ import {
   evaluateClosingLines,
   FOOTBALL_CALIBRATION_PRIMARY_SEED,
   FOOTBALL_CALIBRATION_SEEDS,
+  accountFootballCompletions,
   loadClosingLineArchive,
+  loadFootballCompletionStamps,
   mulberry32,
   PRIOR_E2B_SOFT_GATE_CLAIM,
   walkHoldoutGames,
+  type FormAvailabilityCounts,
   type ClosingJoin,
   type HoldoutProbRow,
   type HoldoutWalkForm,
@@ -47,6 +50,7 @@ type EspnGame = {
   season: number;
   week: number;
   kickoffIso?: string;
+  completedAtIso?: string | null;
   homeTeamId: string;
   awayTeamId: string;
   homeName?: string;
@@ -76,6 +80,9 @@ function loadGames(): EspnGame[] {
     games?: EspnGame[];
   } | EspnGame[];
   const games = Array.isArray(raw) ? raw : (raw.games ?? []);
+  const stamps = loadFootballCompletionStamps(
+    join(here, "../test/fixtures/football-completion-timestamps.json"),
+  );
   return games
     .filter(
       (g) =>
@@ -84,6 +91,10 @@ function loadGames(): EspnGame[] {
         Number.isFinite(g.homeFg) &&
         Number.isFinite(g.awayFg),
     )
+    .map((game) => ({
+      ...game,
+      completedAtIso: stamps.get(game.eventId) ?? null,
+    }))
     .sort((a, b) => {
       const ka = String(a.kickoffIso ?? "");
       const kb = String(b.kickoffIso ?? "");
@@ -305,6 +316,13 @@ function main(): number {
   console.log("Seeds are precommitted. The primary seed is not chosen for a PASS.");
 
   const games = loadGames();
+  const formAvailability: FormAvailabilityCounts = {
+    includedByCompletedAt: 0,
+    includedByKickoffPlusFourHours: 0,
+    heldNotYetAvailable: 0,
+  };
+  walkHoldoutGames(games, () => {}, formAvailability);
+  const completionAccounting = accountFootballCompletions(games);
   const closingPath = join(here, "../test/fixtures/ncaaf-phase-e-closing-lines.json");
   const closingArchive = loadClosingLineArchive(closingPath);
   const closingByEvent = new Map(
@@ -378,7 +396,9 @@ function main(): number {
     nHoldoutScored: scored,
     nHoldoutSkippedThinForm: skippedThin,
     formMethodology:
-      "Games ordered by kickoff. Form receives a prior game only when its kickoff plus 4 hours is at or before the evaluated kickoff. The evaluated game is added after it is scored. Venue split blends with L10. No invented home-field constant.",
+      "Games ordered by kickoff. A prior game enters form after a credible ESPN last-play wall clock (2.5 to 12 hours after kickoff). When that stamp is missing or implausible, availability falls back to kickoff plus 4 hours. That fallback is an assumption, not proof the game ended. The evaluated game is added after it is scored. Venue split blends with L10.",
+    formAvailability,
+    completionAccounting,
     formProvenanceCounts: provenanceCounts,
     closingLineArchive: {
       expectedPath: "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",
@@ -406,7 +426,7 @@ function main(): number {
     closingLineMetrics: closingEval,
     closingLineNote:
       closingEval.reason +
-      " Dependency if the archive is still empty: ODDS_API_KEY historical odds for americanfootball_ncaaf, or ncaaf-phase-e-closing-lines.json with eventId, closeSpreadHome, closeMlHome.",
+      " Closing-line rows are present. Restore still needs an agreed CLV validation result, pre-kickoff injury evidence, and human sign-off.",
     injurySegmentData: "INSUFFICIENT_DATA",
     injuryNote:
       "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. " +
@@ -472,9 +492,9 @@ function main(): number {
     e2Outcome = beatCoin && eceOk && biasOk && dogOk ? "PASS" : "FAIL";
   }
 
-  // Full E2 for restore also requires closing-line CLV (licensed archive).
+  // Closing rows exist. Restore still needs a CLV result, injury evidence, and sign-off.
   const e2Restore =
-    e2Outcome === "PASS" ? "OPEN_NEEDS_CLOSING_LINES" : e2Outcome;
+    e2Outcome === "PASS" ? "OPEN_NEEDS_VALIDATION_INJURY_SIGNOFF" : e2Outcome;
 
   report.verdicts = {
     E2_outcomeVsCoin: e2Outcome,
@@ -484,6 +504,8 @@ function main(): number {
     E2_closeArchiveSoftGateNote:
       "Same numeric gates published on PR 737. A soft-gate result is not a CLV PASS and does not restore the pre-ppg-per-drive claim.",
     E2_readyForRestore: e2Restore,
+    E2_restoreOutstanding:
+      "Closing lines are loaded. Outstanding: agreed CLV validation criteria and result, pre-kickoff injury evidence, and human sign-off.",
     E4_injuryConservatism: "INSUFFICIENT_DATA",
     E6_humanSignOff: "OPEN",
     NCAAF_GAME_LINE_SIM_VALIDATED: "false — do not flip",
@@ -497,7 +519,7 @@ function main(): number {
   console.log(`Wrote ${outPath}`);
 
   // Keep P0 armed until outcome calibration + CLV + E4 + E6 all clear.
-  if (e2Outcome === "PASS" && e2Restore === "OPEN_NEEDS_CLOSING_LINES") {
+  if (e2Outcome === "PASS" && e2Restore === "OPEN_NEEDS_VALIDATION_INJURY_SIGNOFF") {
     console.log(
       `Outcome metrics cleared coin/ECE/dog gates. CLV verdict=${closingEval.verdict}. Soft gates=${closeSoftGates.verdict}.`,
     );

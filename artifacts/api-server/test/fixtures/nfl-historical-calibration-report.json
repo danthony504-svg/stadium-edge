@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-15T09:23:43.267Z",
+  "generatedAt": "2026-10-15T10:13:35.456Z",
   "engine": "nfl-drive:ppg-per-drive-v1",
   "sport": "nfl",
   "holdoutSeason": 2024,
@@ -14,84 +14,97 @@
   ],
   "seedPolicy": "Primary seed is the first precommitted value. Seeds were not searched for a passing dog-cover rate.",
   "selectionTimeInputs": true,
-  "formMethodology": "venue_split blended with L10; form updates after each game",
-  "marketLines": "ABSENT — ESPN completed scoreboard and summary odds were empty. Cover below is the sim fair line, not a sportsbook close.",
+  "calibrationIsNotMarketValue": true,
+  "formMethodology": "Venue split blended with L10. A prior game enters form after a credible ESPN last-play wall clock. Missing or implausible stamps use kickoff plus 4 hours, which is an availability assumption and not proof of completion. The evaluated game is not an input.",
+  "formAvailability": {
+    "includedByCompletedAt": 800,
+    "includedByKickoffPlusFourHours": 14,
+    "heldNotYetAvailable": 1984
+  },
+  "completionAccounting": {
+    "games": 815,
+    "credibleLastPlay": 801,
+    "missingLastPlay": 14,
+    "unusableLastPlay": 0,
+    "uncertainty": "ESPN meta.lastPlayWallClock is the latest play timestamp on the summary, not the official final whistle. Stamps under 2.5 hours or over 12 hours after kickoff are ignored. Games without a credible stamp use kickoff plus 4 hours, which can release a long game early or hold a short game late."
+  },
+  "marketLines": "ABSENT — ESPN completed scoreboard and summary odds were empty. Cover below is the sim fair line, not a sportsbook close. These distribution numbers are not evidence of market value.",
   "nHoldoutScored": 272,
   "nHoldoutSkippedThinForm": 0,
   "winCalibration": {
-    "brier": 0.2355275294117647,
+    "brier": 0.2352212389705881,
     "brierCoin": 0.25,
-    "ece10": 0.03644852941176465,
-    "meanP": 0.529580882352941,
+    "ece10": 0.043305147058823434,
+    "meanP": 0.5294742647058824,
     "meanY": 0.5330882352941176,
-    "homeWinBias": -0.0035073529411766557
+    "homeWinBias": -0.0036139705882352047
   },
   "distribution": {
     "n": 272,
-    "scoreMeanErrorHome": -0.8425544117647059,
-    "scoreMeanErrorAway": -1.065327941176471,
-    "actualTeamScoreSd": 9.795117051812866,
-    "marginMeanError": 0.22277352941176454,
+    "scoreMeanErrorHome": -0.8411727941176468,
+    "scoreMeanErrorAway": -1.060606985294118,
+    "actualTeamScoreSd": 9.795117051812868,
+    "marginMeanError": 0.2194341911764709,
     "actualMarginSd": 14.45813849058655,
-    "zScoreSd": 1.0591289096141605,
-    "zMarginSd": 1.136889305854063,
-    "zAbsTailRate": 0.05698529411764706,
-    "fairLineHomeCoverRate": 0.47794117647058826,
+    "zScoreSd": 1.0597625343905386,
+    "zMarginSd": 1.1376402582355303,
+    "zAbsTailRate": 0.058823529411764705,
+    "fairLineHomeCoverRate": 0.4742647058823529,
     "blowoutHome": {
       "n": 272,
-      "ece": 0.01828124999999993
+      "ece": 0.008120588235294147
     },
     "blowoutAway": {
       "n": 272,
-      "ece": 0.040009191176470546
+      "ece": 0.03536985294117648
     },
     "highTotalTail": {
       "n": 272,
-      "ece": 0.011878308823529332
+      "ece": 0.012675735294117668
     },
     "actualBlowoutHomeRate": 0.1875,
-    "meanPredictedBlowoutHome": 0.18465330882352937,
+    "meanPredictedBlowoutHome": 0.18442867647058822,
     "actualBlowoutAwayRate": 0.14338235294117646,
-    "meanPredictedBlowoutAway": 0.10799301470588236,
+    "meanPredictedBlowoutAway": 0.1080125,
     "actualHighTotalRate": 0.16176470588235295,
-    "meanPredictedHighTotal": 0.14988639705882362
+    "meanPredictedHighTotal": 0.14908897058823528
   },
   "dogCohortOfficial": {
     "lo": 0.45,
     "hi": 0.55,
-    "n": 75,
-    "awayCoverRate": 0.7066666666666667
+    "n": 76,
+    "awayCoverRate": 0.7105263157894737
   },
   "dogCohortByBoundary": [
     {
       "lo": 0.43,
       "hi": 0.57,
-      "n": 107,
-      "awayCoverRate": 0.7476635514018691
+      "n": 109,
+      "awayCoverRate": 0.7339449541284404
     },
     {
       "lo": 0.44,
       "hi": 0.56,
-      "n": 91,
-      "awayCoverRate": 0.7252747252747253
+      "n": 86,
+      "awayCoverRate": 0.7209302325581395
     },
     {
       "lo": 0.45,
       "hi": 0.55,
-      "n": 75,
-      "awayCoverRate": 0.7066666666666667
+      "n": 76,
+      "awayCoverRate": 0.7105263157894737
     },
     {
       "lo": 0.46,
       "hi": 0.54,
-      "n": 57,
-      "awayCoverRate": 0.7017543859649122
+      "n": 56,
+      "awayCoverRate": 0.6964285714285714
     },
     {
       "lo": 0.47,
       "hi": 0.53,
-      "n": 42,
-      "awayCoverRate": 0.6904761904761905
+      "n": 41,
+      "awayCoverRate": 0.6585365853658537
     }
   ],
   "dogCohortBySeed": [
@@ -100,8 +113,8 @@
       "primary": true,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 75,
-      "awayCoverRate": 0.7066666666666667
+      "n": 76,
+      "awayCoverRate": 0.7105263157894737
     },
     {
       "seed": 7,
@@ -115,33 +128,33 @@
       "seed": 42,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 72,
-      "awayCoverRate": 0.7083333333333334,
+      "n": 74,
+      "awayCoverRate": 0.7162162162162162,
       "primary": false
     },
     {
       "seed": 99,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 73,
-      "awayCoverRate": 0.726027397260274,
+      "n": 71,
+      "awayCoverRate": 0.7183098591549296,
       "primary": false
     },
     {
       "seed": 123456789,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 72,
-      "awayCoverRate": 0.7361111111111112,
+      "n": 73,
+      "awayCoverRate": 0.726027397260274,
       "primary": false
     }
   ],
   "dogCohortSeedRange": {
-    "min": 0.7066666666666667,
-    "max": 0.7361111111111112,
-    "mean": 0.7206331811263319
+    "min": 0.7105263157894737,
+    "max": 0.726027397260274,
+    "mean": 0.7194214371362335
   },
-  "boundarySensitiveGames": 35,
+  "boundarySensitiveGames": 32,
   "thresholdsUnchanged": {
     "dogCohortLo": 0.45,
     "dogCohortHi": 0.55,

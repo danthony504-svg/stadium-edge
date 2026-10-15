@@ -8,18 +8,18 @@
 ## Latest calibration report (2024 holdout, `ppg-per-drive-v1`)
 
 Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.json`  
-Generated: 2026-10-15T09:51:17.153Z. Engine: `nfl-drive:ppg-per-drive-v1`. Selection-time venue/L10 form (arrays update after each game).
+Generated: 2026-10-15T10:14:01.742Z. Engine: `nfl-drive:ppg-per-drive-v1`. Selection-time venue/L10 form. A credible ESPN last-play stamp is used when it falls 2.5 to 12 hours after kickoff. Otherwise the input uses kickoff plus 4 hours, which is an availability assumption and not proof of completion.
 
 The 2026-10-14 E2a **PASS** is **WITHDRAWN**. That report used the same `nfl-drive` engine with points per game passed in as points per drive, then multiplied NCAAF inputs by 0.48, at 1,500 sims (Brier 0.199, bias ≈ +0.020, 865 games). The 0.48 scale was a patch on that unit mismatch. `priorE2aClaim.restored` stays `false`. A later numeric result does not restore the withdrawn claim.
 
-Official measurement uses the precommitted primary seed **20241015** (first of `20241015, 7, 42, 99, 123456789`). Seeds were listed before the run. The 0.45/0.55 cohort bounds and the 0.70 cover cap are unchanged. Form for a game includes only earlier games whose kickoff plus 4 hours is at or before the evaluated kickoff. The evaluated game is not an input.
+Official measurement uses the precommitted primary seed **20241015** (first of `20241015, 7, 42, 99, 123456789`). Seeds were listed before the run. The 0.45/0.55 cohort bounds and the 0.70 cover cap are unchanged. Form for a game includes only earlier games that were available at the evaluated kickoff: a credible last-play stamp when one exists, otherwise kickoff plus 4 hours. The evaluated game is not an input.
 
 | Metric | Value |
 |--------|-------|
 | Holdout games scored | 865 (6 skipped thin form) |
 | Sims / game | **10000** |
 | Calibration seed | **20241015** (primary) |
-| Form methodology | Kickoff order. A prior game enters form only after kickoff + 4 hours. Venue split blends with L10 |
+| Form methodology | Kickoff order. Credible last-play stamp when available; otherwise kickoff + 4 hours (assumption). Venue split blends with L10 |
 | Brier (engine) | **0.19860** |
 | Brier (coin) | 0.250 |
 | Log loss | 0.57632 |
@@ -53,13 +53,13 @@ An older FAIL used **combined L10 only** (no home/away venue splits) and showed 
 |---|-----------|--------|-------|
 | E1 | Sensitivity ±3 ppg / QB-out ≥2pp | **PASS (unit)** | `ncaafGameLineSimValidation.test.ts` |
 | E2a | Outcome calibration vs coin (Brier, ECE, dog pathology, bias) | **PASS (primary seed)** | New 10k measurement on seed 20241015: Brier 0.199, ECE 0.053, bias ≈ +0.037, dog cover 0.676 (n=111). The 2026-10-14 PASS stays WITHDRAWN |
-| E2b | Closing-line CLV | **OPEN** | 770 joins on the PR 737 archive. No CLV PASS label. Soft gates on this engine are PASS_SOFT_GATES_ONLY and are not CLV |
+| E2b | Closing-line CLV | **OPEN** | Rows exist (770 joins). No agreed CLV tolerance and no CLV PASS label. Soft gates on this engine are PASS_SOFT_GATES_ONLY and are not the restore criterion |
 | E3 | Exact-line binder | **PASS (unit)** | `gameSimQualityGates.test.ts` |
 | E4 | Injury conservatism | **INSUFFICIENT_DATA** | Scoreboard cache has no QB/injury flags |
 | E5 | Props / other-sport P0 regressions | **PASS (unit suite)** | Re-run before any flag flip |
 | E6 | Human sign-off | **OPEN** | Required after E2b/E4 PASS |
 
-**Restore readiness:** **NO** — E2a on primary seed 20241015 is a new PASS, and E2b + E4 + E6 remain open. College game lines stay P0-blocked. `NCAAF_GAME_LINE_SIM_VALIDATED` stays `false`. Do not flip.
+**Restore readiness:** **NO**. Closing lines are loaded. The outstanding items are an agreed CLV validation result, pre-kickoff injury evidence, and human sign-off. College game lines stay P0-blocked. `NCAAF_GAME_LINE_SIM_VALIDATED` stays `false`. Do not flip.
 
 ## Unavailable data — exact dependencies
 
@@ -79,8 +79,11 @@ An older FAIL used **combined L10 only** (no home/away venue splits) and showed 
 
 ### Leakage audit (E2a venue/L10)
 
-- Games are ordered by kickoff timestamp. A prior game enters form only when `kickoff + 4 hours` is at or before the evaluated kickoff. The evaluated event id is absent from that form.
-- Unit proof: `test/ncaafPhaseEHoldoutLeakage.test.ts` checks those timestamps on every contributor (more than 1,000). The harness scores 796 games where both teams already have at least two prior games. The report scores 865 because 69 additional games use a thin venue sample (`venue_thin`) while L10 is still under two. Those extra games are still prior games, and the evaluated game is not among them.
+- Games are ordered by kickoff. The evaluated event id is absent from its own form.
+- Of 1,739 fixture games, 1,602 have a credible ESPN `meta.lastPlayWallClock` (2.5 to 12 hours after kickoff). 36 have no stamp. 101 stamps are unusable (too short or too long to be a final whistle). Across the walk, 1,599 inclusions used a credible stamp and 137 used the 4-hour assumption.
+- That 4-hour figure is an availability assumption. It can treat a long game as finished early and a short game as unfinished late. A last-play clock is also not the official final whistle.
+- The 2024 scored metrics did not move after the credible stamps were applied (Brier 0.19859952716763005, dog cover 0.6756756756756757, n=111).
+- Unit proof: `test/ncaafPhaseEHoldoutLeakage.test.ts` checks the availability basis on every contributor (more than 1,000). The harness scores 796 games where both teams already have at least two prior games. The report scores 865 because 69 additional games use a thin venue sample (`venue_thin`) while L10 is still under two. Those extra games are still prior games, and the evaluated game is not among them.
 - Untouched 2024 holdout (report): **865** scored games, kickoffs **2024-08-24 → 2024-12-08**, E2a **PASS** on primary seed 20241015 (`ppg-per-drive-v1`, 10,000 sims), bias ≈ +0.037, E2b CLV **OPEN_NEEDS_AGREED_TOLERANCE**, flag remains **false**. The 2026-10-14 E2a PASS on the mismatched engine is withdrawn. The PR 737 soft-gate PASS is a separate claim on that older engine and is not restored.
 
 ## Sign-off criteria before flipping `NCAAF_GAME_LINE_SIM_VALIDATED`

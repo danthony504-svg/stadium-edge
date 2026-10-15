@@ -12,13 +12,18 @@ import {
   FOOTBALL_DRIVE_ENGINE_VERSION,
 } from "../src/lib/sportSim/footballDriveMatchup.ts";
 import {
+  accountFootballCompletions,
   boundarySensitiveCount,
   DOG_COHORT_BOUNDARY_SWEEP,
   dogCohort,
   FOOTBALL_CALIBRATION_PRIMARY_SEED,
   FOOTBALL_CALIBRATION_SEEDS,
+  loadFootballCompletionStamps,
   mulberry32,
+  walkHoldoutGames,
+  type FormAvailabilityCounts,
   type HoldoutProbRow,
+  type HoldoutWalkForm,
 } from "../src/lib/sportSim/footballCalibration.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -30,20 +35,14 @@ type Game = {
   season: number;
   week: number;
   kickoffIso?: string;
+  completedAtIso?: string | null;
   homeTeamId: string;
   awayTeamId: string;
   homeFg: number;
   awayFg: number;
 };
 
-type TeamForm = {
-  ptsFor: number[];
-  ptsAgainst: number[];
-  homeFor: number[];
-  homeAgainst: number[];
-  awayFor: number[];
-  awayAgainst: number[];
-};
+type TeamForm = HoldoutWalkForm;
 
 function mean(xs: number[]): number | null {
   if (!xs.length) return null;
@@ -116,30 +115,17 @@ function teamSimInput(form: TeamForm | undefined, venue: "home" | "away") {
   };
 }
 
-function emptyForm(): TeamForm {
-  return { ptsFor: [], ptsAgainst: [], homeFor: [], homeAgainst: [], awayFor: [], awayAgainst: [] };
-}
-
-function pushForm(forms: Map<string, TeamForm>, g: Game): void {
-  const hf = forms.get(g.homeTeamId) ?? emptyForm();
-  hf.ptsFor.push(g.homeFg);
-  hf.ptsAgainst.push(g.awayFg);
-  hf.homeFor.push(g.homeFg);
-  hf.homeAgainst.push(g.awayFg);
-  forms.set(g.homeTeamId, hf);
-  const af = forms.get(g.awayTeamId) ?? emptyForm();
-  af.ptsFor.push(g.awayFg);
-  af.ptsAgainst.push(g.homeFg);
-  af.awayFor.push(g.awayFg);
-  af.awayAgainst.push(g.homeFg);
-  forms.set(g.awayTeamId, af);
-}
-
 function loadGames(): Game[] {
   const path = join(here, "../test/fixtures/nfl-historical-games.json");
   const raw = JSON.parse(readFileSync(path, "utf8")) as { games?: Game[] } | Game[];
   const games = Array.isArray(raw) ? raw : (raw.games ?? []);
-  return games.sort((a, b) => {
+  const stamps = loadFootballCompletionStamps(
+    join(here, "../test/fixtures/football-completion-timestamps.json"),
+  );
+  return games.map((game) => ({
+    ...game,
+    completedAtIso: stamps.get(game.eventId) ?? null,
+  })).sort((a, b) => {
     if (a.season !== b.season) return a.season - b.season;
     if (a.week !== b.week) return a.week - b.week;
     return String(a.kickoffIso ?? "").localeCompare(String(b.kickoffIso ?? ""));
@@ -169,7 +155,7 @@ function reliability(ps: number[], ys: number[], bins = 5): { n: number; ece: nu
   return { n: ps.length, ece: ps.length ? ece(ps, ys, bins) : 0 };
 }
 
-function runSeed(games: Game[], seed: number, detailed: boolean): {
+function runSeed(games: Game[], seed: number, detailed: boolean, availability?: FormAvailabilityCounts): {
   rows: HoldoutProbRow[];
   mlP: number[];
   mlY: number[];
@@ -178,7 +164,6 @@ function runSeed(games: Game[], seed: number, detailed: boolean): {
   details: Detail[];
 } {
   const rng = mulberry32(seed);
-  const forms = new Map<string, TeamForm>();
   const rows: HoldoutProbRow[] = [];
   const mlP: number[] = [];
   const mlY: number[] = [];
@@ -186,7 +171,7 @@ function runSeed(games: Game[], seed: number, detailed: boolean): {
   let scored = 0;
   let skipped = 0;
 
-  for (const g of games) {
+  walkHoldoutGames(games, (g, forms) => {
     const homeIn = teamSimInput(forms.get(g.homeTeamId), "home");
     const awayIn = teamSimInput(forms.get(g.awayTeamId), "away");
     const isHoldout = g.season === HOLDOUT_SEASON;
@@ -254,8 +239,7 @@ function runSeed(games: Game[], seed: number, detailed: boolean): {
     } else if (isHoldout) {
       skipped += 1;
     }
-    pushForm(forms, g);
-  }
+  }, availability);
   return { rows, mlP, mlY, scored, skipped, details };
 }
 
@@ -297,7 +281,13 @@ function summarizeDetails(details: Detail[]) {
 function main(): number {
   console.log(`NFL historical calibration sims=${SIMS} holdout=${HOLDOUT_SEASON}`);
   const games = loadGames();
-  const primary = runSeed(games, FOOTBALL_CALIBRATION_PRIMARY_SEED, true);
+  const formAvailability: FormAvailabilityCounts = {
+    includedByCompletedAt: 0,
+    includedByKickoffPlusFourHours: 0,
+    heldNotYetAvailable: 0,
+  };
+  const completionAccounting = accountFootballCompletions(games);
+  const primary = runSeed(games, FOOTBALL_CALIBRATION_PRIMARY_SEED, true, formAvailability);
   const otherSeeds = FOOTBALL_CALIBRATION_SEEDS.filter((s) => s !== FOOTBALL_CALIBRATION_PRIMARY_SEED).map(
     (seed) => {
       const pass = runSeed(games, seed, false);
@@ -322,8 +312,12 @@ function main(): number {
     seedPolicy:
       "Primary seed is the first precommitted value. Seeds were not searched for a passing dog-cover rate.",
     selectionTimeInputs: true,
-    formMethodology: "venue_split blended with L10; form updates after each game",
-    marketLines: "ABSENT — ESPN completed scoreboard and summary odds were empty. Cover below is the sim fair line, not a sportsbook close.",
+    calibrationIsNotMarketValue: true,
+    formMethodology:
+      "Venue split blended with L10. A prior game enters form after a credible ESPN last-play wall clock. Missing or implausible stamps use kickoff plus 4 hours, which is an availability assumption and not proof of completion. The evaluated game is not an input.",
+    formAvailability,
+    completionAccounting,
+    marketLines: "ABSENT — ESPN completed scoreboard and summary odds were empty. Cover below is the sim fair line, not a sportsbook close. These distribution numbers are not evidence of market value.",
     nHoldoutScored: primary.scored,
     nHoldoutSkippedThinForm: primary.skipped,
     winCalibration: {

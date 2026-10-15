@@ -18,7 +18,9 @@ import {
   dogCohort,
   evaluateCloseArchiveSoftGates,
   evaluateClosingLines,
+  credibleFootballCompletionMs,
   footballFormMayIncludePriorGame,
+  footballPriorAvailableAt,
   loadClosingLineArchive,
   mulberry32,
 } from "../src/lib/sportSim/footballCalibration.ts";
@@ -129,4 +131,42 @@ test("form includes a prior game only after kickoff plus four hours", () => {
     true,
   );
   assert.equal(footballFormMayIncludePriorGame("", "2024-09-07T20:00:00Z"), false);
+});
+
+test("a credible last-play stamp replaces the four-hour assumption", () => {
+  const kickoff = "2024-09-07T16:00:00Z";
+  const finished = "2024-09-07T19:12:00Z";
+  assert.ok(credibleFootballCompletionMs(kickoff, finished) != null);
+  assert.equal(
+    footballPriorAvailableAt(
+      { kickoffIso: kickoff, completedAtIso: finished },
+      "2024-09-07T19:30:00Z",
+    ),
+    "completedAt",
+  );
+  assert.equal(
+    footballPriorAvailableAt({ kickoffIso: kickoff, completedAtIso: finished }, "2024-09-07T18:00:00Z"),
+    null,
+  );
+  assert.equal(
+    footballPriorAvailableAt(
+      { kickoffIso: kickoff, completedAtIso: "2024-09-07T17:10:00Z" },
+      "2024-09-07T19:30:00Z",
+    ),
+    null,
+  );
+  assert.equal(
+    footballPriorAvailableAt(
+      { kickoffIso: kickoff, completedAtIso: "2024-09-07T21:30:00Z" },
+      "2024-09-07T20:00:00Z",
+    ),
+    null,
+  );
+  assert.equal(
+    footballPriorAvailableAt(
+      { kickoffIso: kickoff, completedAtIso: "2024-09-06T20:00:00Z" },
+      "2024-09-07T20:00:00Z",
+    ),
+    "kickoffPlusFourHours",
+  );
 });

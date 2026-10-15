@@ -58,11 +58,19 @@ export function boundarySensitiveCount(rows: HoldoutProbRow[]): number {
 }
 
 /**
- * A prior game may enter form only after it would have finished.
- * Fixtures store kickoff, not the final whistle, so completion is kickoff plus
- * four hours. That buffer is a clock assumption, not a calibration knob.
+ * Availability assumption when no credible completion timestamp exists.
+ * Kickoff plus four hours is not proof that the game has ended.
  */
 export const FOOTBALL_PRIOR_GAME_COMPLETE_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Last-play wall clocks shorter than this are partial play logs, not a
+ * final whistle. Longer than this are outside a same-day football game.
+ */
+export const FOOTBALL_COMPLETION_MIN_MS = 2.5 * 60 * 60 * 1000;
+export const FOOTBALL_COMPLETION_MAX_MS = 12 * 60 * 60 * 1000;
+
+export type FootballFormAvailability = "completedAt" | "kickoffPlusFourHours";
 
 export function footballFormMayIncludePriorGame(
   priorKickoffIso: string | null | undefined,
@@ -74,9 +82,42 @@ export function footballFormMayIncludePriorGame(
   return prior + FOOTBALL_PRIOR_GAME_COMPLETE_MS <= selection;
 }
 
+/** Credible last-play time, or null when the stamp is missing or implausible. */
+export function credibleFootballCompletionMs(
+  kickoffIso: string | null | undefined,
+  completedAtIso: string | null | undefined,
+): number | null {
+  const kick = Date.parse(String(kickoffIso ?? ""));
+  const done = Date.parse(String(completedAtIso ?? ""));
+  if (!Number.isFinite(kick) || !Number.isFinite(done)) return null;
+  const delta = done - kick;
+  if (delta < FOOTBALL_COMPLETION_MIN_MS || delta > FOOTBALL_COMPLETION_MAX_MS) return null;
+  return done;
+}
+
+/**
+ * A prior game is available at selection only after a credible completion
+ * timestamp, when one exists. Otherwise the kickoff-plus-four-hours
+ * assumption applies. The evaluated game is not passed in.
+ */
+export function footballPriorAvailableAt(
+  prior: { kickoffIso?: string | null; completedAtIso?: string | null },
+  selectionKickoffIso: string | null | undefined,
+): FootballFormAvailability | null {
+  const selection = Date.parse(String(selectionKickoffIso ?? ""));
+  if (!Number.isFinite(selection)) return null;
+  const completed = credibleFootballCompletionMs(prior.kickoffIso, prior.completedAtIso);
+  if (completed != null) return completed <= selection ? "completedAt" : null;
+  return footballFormMayIncludePriorGame(prior.kickoffIso, selectionKickoffIso)
+    ? "kickoffPlusFourHours"
+    : null;
+}
+
 export type HoldoutWalkGame = {
   eventId: string;
   kickoffIso?: string;
+  /** Raw last-play wall clock. The walker ignores stamps outside the credible window. */
+  completedAtIso?: string | null;
   homeTeamId: string;
   awayTeamId: string;
   homeFg: number;
@@ -92,15 +133,24 @@ export type HoldoutWalkForm = {
   awayAgainst: number[];
   contribKickoffs: string[];
   contribEventIds: string[];
+  contribBasis: FootballFormAvailability[];
+};
+
+export type FormAvailabilityCounts = {
+  includedByCompletedAt: number;
+  includedByKickoffPlusFourHours: number;
+  heldNotYetAvailable: number;
 };
 
 /**
- * Visit each game with form built only from earlier games whose estimated
- * completion is at or before this kickoff. The evaluated game is not in form.
+ * Visit each game with form built only from earlier games that were available
+ * at this kickoff. Credible completion timestamps win. The rest use kickoff
+ * plus four hours. The evaluated game is not in form.
  */
 export function walkHoldoutGames<T extends HoldoutWalkGame>(
   games: T[],
   visit: (game: T, forms: Map<string, HoldoutWalkForm>) => void,
+  counts?: FormAvailabilityCounts,
 ): void {
   const sorted = [...games].sort((a, b) => {
     const ka = String(a.kickoffIso ?? "");
@@ -119,8 +169,9 @@ export function walkHoldoutGames<T extends HoldoutWalkGame>(
     awayAgainst: [],
     contribKickoffs: [],
     contribEventIds: [],
+    contribBasis: [],
   });
-  const add = (g: T) => {
+  const add = (g: T, basis: FootballFormAvailability) => {
     const kick = String(g.kickoffIso ?? "");
     const home = forms.get(g.homeTeamId) ?? empty();
     home.ptsFor.push(g.homeFg);
@@ -129,6 +180,7 @@ export function walkHoldoutGames<T extends HoldoutWalkGame>(
     home.homeAgainst.push(g.awayFg);
     home.contribKickoffs.push(kick);
     home.contribEventIds.push(g.eventId);
+    home.contribBasis.push(basis);
     forms.set(g.homeTeamId, home);
     const away = forms.get(g.awayTeamId) ?? empty();
     away.ptsFor.push(g.awayFg);
@@ -137,14 +189,24 @@ export function walkHoldoutGames<T extends HoldoutWalkGame>(
     away.awayAgainst.push(g.homeFg);
     away.contribKickoffs.push(kick);
     away.contribEventIds.push(g.eventId);
+    away.contribBasis.push(basis);
     forms.set(g.awayTeamId, away);
   };
   for (const g of sorted) {
     const selection = String(g.kickoffIso ?? "");
     const still: T[] = [];
     for (const prev of pending) {
-      if (footballFormMayIncludePriorGame(prev.kickoffIso, selection)) add(prev);
-      else still.push(prev);
+      const basis = footballPriorAvailableAt(prev, selection);
+      if (basis) {
+        add(prev, basis);
+        if (counts) {
+          if (basis === "completedAt") counts.includedByCompletedAt += 1;
+          else counts.includedByKickoffPlusFourHours += 1;
+        }
+      } else {
+        still.push(prev);
+        if (counts) counts.heldNotYetAvailable += 1;
+      }
     }
     pending.length = 0;
     pending.push(...still);
@@ -191,6 +253,56 @@ export const CLOSE_ARCHIVE_SOFT_GATES = {
   engineBrierMaxExclusive: 0.25,
   meanEngineMinusMarketAbsMax: 0.15,
 } as const;
+
+export type CompletionStampAccounting = {
+  games: number;
+  credibleLastPlay: number;
+  missingLastPlay: number;
+  unusableLastPlay: number;
+  /** Last play is not a certified final whistle. */
+  uncertainty: string;
+};
+
+export function accountFootballCompletions(
+  games: Array<{ kickoffIso?: string | null; completedAtIso?: string | null }>,
+): CompletionStampAccounting {
+  let credibleLastPlay = 0;
+  let missingLastPlay = 0;
+  let unusableLastPlay = 0;
+  for (const game of games) {
+    if (!game.completedAtIso) {
+      missingLastPlay += 1;
+      continue;
+    }
+    if (credibleFootballCompletionMs(game.kickoffIso, game.completedAtIso) == null) {
+      unusableLastPlay += 1;
+    } else {
+      credibleLastPlay += 1;
+    }
+  }
+  return {
+    games: games.length,
+    credibleLastPlay,
+    missingLastPlay,
+    unusableLastPlay,
+    uncertainty:
+      "ESPN meta.lastPlayWallClock is the latest play timestamp on the summary, not the official final whistle. Stamps under 2.5 hours or over 12 hours after kickoff are ignored. Games without a credible stamp use kickoff plus 4 hours, which can release a long game early or hold a short game late.",
+  };
+}
+
+export function loadFootballCompletionStamps(path: string): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  if (!existsSync(path)) return out;
+  const raw = JSON.parse(readFileSync(path, "utf8")) as {
+    games?: Array<{ eventId?: string; lastPlayWallClock?: string | null }>;
+  };
+  for (const row of raw.games ?? []) {
+    const eventId = String(row.eventId ?? "");
+    if (!eventId) continue;
+    out.set(eventId, row.lastPlayWallClock ?? null);
+  }
+  return out;
+}
 
 export function americanToImplied(american: number): number | null {
   if (!Number.isFinite(american) || american === 0) return null;

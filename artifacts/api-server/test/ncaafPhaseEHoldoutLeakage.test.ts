@@ -9,8 +9,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { blendVenueAndL10 } from "../src/lib/sportSim/footballDriveMatchup.ts";
 import {
-  footballFormMayIncludePriorGame,
-  FOOTBALL_PRIOR_GAME_COMPLETE_MS,
+  footballPriorAvailableAt,
+  credibleFootballCompletionMs,
+  loadFootballCompletionStamps,
   walkHoldoutGames,
 } from "../src/lib/sportSim/footballCalibration.ts";
 
@@ -51,7 +52,11 @@ test("holdout form inputs are strictly pre-kickoff (no leakage)", () => {
   const raw = JSON.parse(
     readFileSync(join(here, "fixtures/ncaaf-phase-e-games.json"), "utf8"),
   ) as { games?: EspnGame[] } | EspnGame[];
-  const games = Array.isArray(raw) ? raw : (raw.games ?? []);
+  const stamps = loadFootballCompletionStamps(join(here, "fixtures/football-completion-timestamps.json"));
+  const games = (Array.isArray(raw) ? raw : (raw.games ?? [])).map((game) => ({
+    ...game,
+    completedAtIso: stamps.get(game.eventId) ?? null,
+  }));
 
   let scored = 0;
   let checkedContributors = 0;
@@ -73,11 +78,18 @@ test("holdout form inputs are strictly pre-kickoff (no leakage)", () => {
       assert.notEqual(eventId, g.eventId, `evaluated game ${g.eventId} is inside its own form`);
       const priorMs = Date.parse(kick);
       assert.ok(Number.isFinite(priorMs), `contributor ${eventId} has no kickoff`);
-      assert.ok(
-        priorMs + FOOTBALL_PRIOR_GAME_COMPLETE_MS <= selectionMs,
-        `form game ${eventId} at ${kick} is not complete before ${g.kickoffIso}`,
+      const stamp = stamps.get(String(eventId)) ?? null;
+      const basis = footballPriorAvailableAt(
+        { kickoffIso: kick, completedAtIso: stamp },
+        g.kickoffIso,
       );
-      assert.equal(footballFormMayIncludePriorGame(kick, g.kickoffIso), true);
+      assert.ok(basis, `form game ${eventId} at ${kick} was not available at ${g.kickoffIso}`);
+      if (basis === "completedAt") {
+        const completed = credibleFootballCompletionMs(kick, stamp);
+        assert.ok(completed != null && completed <= selectionMs);
+      } else {
+        assert.ok(priorMs + 4 * 60 * 60 * 1000 <= selectionMs);
+      }
       checkedContributors += 1;
     }
     const homeVenue = {
@@ -146,6 +158,7 @@ test("holdout form inputs are strictly pre-kickoff (no leakage)", () => {
   assert.equal(provenance?.restored, false);
   assert.equal(report.keepP0Armed, true);
   assert.equal(report.flagFlipAllowed, false);
+  assert.equal(report.verdicts?.E2_readyForRestore, "OPEN_NEEDS_VALIDATION_INJURY_SIGNOFF");
   assert.match(String(report.verdicts?.NCAAF_GAME_LINE_SIM_VALIDATED), /false/i);
 
   // Emit audit line for the agent report (stdout).

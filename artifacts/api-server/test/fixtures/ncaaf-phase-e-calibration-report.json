@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-15T09:51:17.153Z",
+  "generatedAt": "2026-10-15T10:14:01.742Z",
   "engine": "nfl-drive:ppg-per-drive-v1",
   "inputUnits": "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are mutually exclusive. Late-clock touchdowns are funded from the same points-per-game budget.",
   "selectionTimeInputs": true,
@@ -114,7 +114,19 @@
   "simulationsPerGame": 10000,
   "nHoldoutScored": 865,
   "nHoldoutSkippedThinForm": 6,
-  "formMethodology": "Games ordered by kickoff. Form receives a prior game only when its kickoff plus 4 hours is at or before the evaluated kickoff. The evaluated game is added after it is scored. Venue split blends with L10. No invented home-field constant.",
+  "formMethodology": "Games ordered by kickoff. A prior game enters form after a credible ESPN last-play wall clock (2.5 to 12 hours after kickoff). When that stamp is missing or implausible, availability falls back to kickoff plus 4 hours. That fallback is an assumption, not proof the game ended. The evaluated game is added after it is scored. Venue split blends with L10.",
+  "formAvailability": {
+    "includedByCompletedAt": 1599,
+    "includedByKickoffPlusFourHours": 137,
+    "heldNotYetAvailable": 21340
+  },
+  "completionAccounting": {
+    "games": 1739,
+    "credibleLastPlay": 1602,
+    "missingLastPlay": 36,
+    "unusableLastPlay": 101,
+    "uncertainty": "ESPN meta.lastPlayWallClock is the latest play timestamp on the summary, not the official final whistle. Stamps under 2.5 hours or over 12 hours after kickoff are ignored. Games without a credible stamp use kickoff plus 4 hours, which can release a long game early or hold a short game late."
+  },
   "formProvenanceCounts": {
     "venue_split+venue_split": 794,
     "venue_split+venue_thin": 69,
@@ -189,7 +201,7 @@
     "verdict": "OPEN_NEEDS_AGREED_TOLERANCE",
     "reason": "Closing rows joined. PR 737 left Coach pick CLV without a PASS label, so this measurement does not PASS E2b CLV."
   },
-  "closingLineNote": "Closing rows joined. PR 737 left Coach pick CLV without a PASS label, so this measurement does not PASS E2b CLV. Dependency if the archive is still empty: ODDS_API_KEY historical odds for americanfootball_ncaaf, or ncaaf-phase-e-closing-lines.json with eventId, closeSpreadHome, closeMlHome.",
+  "closingLineNote": "Closing rows joined. PR 737 left Coach pick CLV without a PASS label, so this measurement does not PASS E2b CLV. Closing-line rows are present. Restore still needs an agreed CLV validation result, pre-kickoff injury evidence, and human sign-off.",
   "injurySegmentData": "INSUFFICIENT_DATA",
   "injuryNote": "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. Dependency: injury-segmented holdout rows (injuryKnown + optional qbOut) via NCAAF_PHASE_E_FIXTURE, or a historical ESPN injury snapshot keyed by eventId/teamId before kickoff.",
   "metrics": {
@@ -218,7 +230,8 @@
     "E2_closingLineClv": "OPEN_NEEDS_AGREED_TOLERANCE",
     "E2_closeArchiveSoftGates": "PASS_SOFT_GATES_ONLY",
     "E2_closeArchiveSoftGateNote": "Same numeric gates published on PR 737. A soft-gate result is not a CLV PASS and does not restore the pre-ppg-per-drive claim.",
-    "E2_readyForRestore": "OPEN_NEEDS_CLOSING_LINES",
+    "E2_readyForRestore": "OPEN_NEEDS_VALIDATION_INJURY_SIGNOFF",
+    "E2_restoreOutstanding": "Closing lines are loaded. Outstanding: agreed CLV validation criteria and result, pre-kickoff injury evidence, and human sign-off.",
     "E4_injuryConservatism": "INSUFFICIENT_DATA",
     "E6_humanSignOff": "OPEN",
     "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
