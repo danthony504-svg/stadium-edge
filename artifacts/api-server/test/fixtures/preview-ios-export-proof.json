@@ -1,0 +1,22 @@
+{
+  "finalClientSha": "afb30bde18208404d49df247653ed350c77d0aa1",
+  "exportDir": "/tmp/preview-ios-export-afb30bde",
+  "platform": "ios",
+  "command": "pnpm exec expo export --platform ios --clear",
+  "EXPO_PUBLIC_GIT_COMMIT": "afb30bde18208404d49df247653ed350c77d0aa1",
+  "bundlePath": "/tmp/preview-ios-export-afb30bde/_expo/static/js/ios/entry-5dd3f6ba357e491f90f3ab5e27ce3cff.hbc",
+  "bundleBytes": 9553363,
+  "bundleSha256": "34c0d6d95a70def402c34706ba9212752febb416297770a007e265aa734a1c14",
+  "fullShaEmbeddedInHbc": true,
+  "labelsEmbedded": {
+    "Estimated combined odds": true,
+    "Independence-based implied probability": true,
+    "Actual sportsbook pricing may differ": true,
+    "not an estimated joint chance of winning": true,
+    "old Implied win prob absent": true
+  },
+  "publishedOta": false,
+  "nativeBuild": false,
+  "channelScope": "preview only (export only \u2014 not published)",
+  "pass": true
+}
