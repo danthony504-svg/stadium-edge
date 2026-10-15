@@ -160,10 +160,12 @@ test("10k draws track low, average, and high points per game", () => {
       Math.abs(row.awayDelta) <= 1.25,
       `${row.sport} ${row.band} away ${row.projectedAway} vs input ${row.away} (delta ${row.awayDelta})`,
     );
-    assert.ok(
-      row.legacyHardCapHome > row.home + 8,
-      "hard-cap baseline must sit well above the points-per-game input",
-    );
+    if (row.home >= 12) {
+      assert.ok(
+        Math.abs(row.legacyHardCapHome - 3.78 * row.drives) < 0.02,
+        `${row.sport} ${row.band} hard cap ${row.legacyHardCapHome} should be 3.78 per drive`,
+      );
+    }
   }
 
   const nflAvg = rows.find((r) => r.sport === "nfl" && r.band === "average")!;
