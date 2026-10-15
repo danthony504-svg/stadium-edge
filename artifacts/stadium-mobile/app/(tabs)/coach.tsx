@@ -52,18 +52,15 @@ import {
 import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
-  coachPropLoadFailsafeMs,
+  coachAbsoluteBudgetMs,
   coachSessionIsTerminal,
-  coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
   coachShortfallNote,
   createCoachSession,
   coachAssistantTerminalFlags,
   coachInFlightResultMayApply,
   latchCoachSession,
-  resetCoachAbsoluteClock,
   resolveCoachOutcome,
-  upgradeCoachSessionOutcome,
 } from "@/lib/coach/session";
 import {
   clearPendingTicketPicks,
@@ -529,11 +526,11 @@ export default function CoachScreen() {
           propsPending,
         });
       };
+      armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
 
       try {
         // ---- Slip photo vision path (max 3) — analyze keep/change or improve ----
         if (hasOutgoingImages) {
-          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
           const visionOnly = isSlipPhotoVisionOnly({
             hasImages: true,
             text,
@@ -614,7 +611,6 @@ export default function CoachScreen() {
         // ---- Live Coach (NBA/WNBA/NFL/NHL live mains) ----
         // Isolated from buildParlay / pregame Monte Carlo. Never lowers quality to fill.
         if (liveAsk) {
-          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
           patchAssistant(assistantId, { buildStatus: "Scanning LIVE board…" });
           const liveResult = await buildLiveCoachRecommendations({
             askText: text,
@@ -636,65 +632,35 @@ export default function CoachScreen() {
         }
 
         if (parlayBuild) {
-          // Prop-board prefetch can take a while — do not burn the scoring budget
-          // during load (that latched "2 game totals" before props ran).
-          let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-            loadTimer = null;
-            if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
-            if (coachSessionIsTerminal(sessionRef.current)) return;
-            fireAbsoluteTerminal();
-          }, coachPropLoadFailsafeMs(requestedLegs));
-
           const priorUserTexts = messagesRef.current
             .filter((m) => m.role === "user")
             .map((m) => m.text)
             .filter(Boolean);
-          let result: Awaited<ReturnType<typeof buildCoachParlay>>;
-          try {
-            result = await buildCoachParlay({
-              requestedLegs,
-              askText: text,
-              priorUserTexts,
-              signal: abort.signal,
-              onStatus: (status) => {
-                if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
-                patchAssistant(assistantId, { buildStatus: status });
-              },
-              onPartialPicks: (picks) => {
-                if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
-                // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
-                pendingTicketPicksRef.current = [...picks];
-                // Belts: if scoring started without onReadyToScan, still arm the wall clock.
-                if (
-                  sessionRef.current.outcome === "open" &&
-                  !sessionRef.current.absoluteTimer
-                ) {
-                  armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-                }
-                if (shouldPublishCoachTicketPicks("building")) {
-                  const stored = coachPremiumUnlocked
-                    ? [...picks]
-                    : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
-                  patchAssistant(assistantId, { picks: stored });
-                }
-              },
-              onReadyToScan: () => {
-                if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
-                if (loadTimer) {
-                  clearTimeout(loadTimer);
-                  loadTimer = null;
-                }
-                resetCoachAbsoluteClock(sessionRef.current);
-                armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-              },
-            });
-          } finally {
-            // Success, throw, and abort must not leave the prop-load failsafe armed.
-            if (loadTimer) {
-              clearTimeout(loadTimer);
-              loadTimer = null;
-            }
-          }
+          const result = await buildCoachParlay({
+            requestedLegs,
+            askText: text,
+            priorUserTexts,
+            signal: abort.signal,
+            deadlineAtMs:
+              sessionRef.current.startedAtMs + coachAbsoluteBudgetMs(requestedLegs),
+            onStatus: (status) => {
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
+              if (coachSessionIsTerminal(sessionRef.current)) return;
+              patchAssistant(assistantId, { buildStatus: status });
+            },
+            onPartialPicks: (picks) => {
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
+              if (coachSessionIsTerminal(sessionRef.current)) return;
+              // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
+              pendingTicketPicksRef.current = [...picks];
+              if (shouldPublishCoachTicketPicks("building")) {
+                const stored = coachPremiumUnlocked
+                  ? [...picks]
+                  : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
+                patchAssistant(assistantId, { picks: stored });
+              }
+            },
+          });
           if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
           // buffer so holding cards mid-build can never hang as a blank ticket.
@@ -713,39 +679,9 @@ export default function CoachScreen() {
                 });
           pendingTicketPicksRef.current = [];
 
-          // Budget may have already latched empty/shortfall while the scan was
-          // still finishing. Accept a better late ticket without re-busying.
-          if (!coachSessionShouldKeepBusy(sessionRef.current)) {
-            if (
-              coachSessionMayAcceptLatePicks(sessionRef.current, {
-                latePickCount: picks.length,
-                shownPickCount: terminalShownPickCountRef.current,
-              })
-            ) {
-              const outcome = resolveCoachOutcome({
-                pickCount: picks.length,
-                requestedLegs,
-              });
-              upgradeCoachSessionOutcome(sessionRef.current, outcome);
-              terminalShownPickCountRef.current = picks.length;
-              const storedLate = coachPremiumUnlocked
-                ? picks
-                : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
-              patchAssistant(assistantId, {
-                building: false,
-                buildStatus: undefined,
-                picks: storedLate,
-                // Clear the empty-budget copy once a real ticket lands.
-                text:
-                  !coachPremiumUnlocked && storedLate.length > 0
-                    ? `${storedLate.length} qualifying pick${storedLate.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
-                    : sanitizeCoachUserNote(result.note),
-                requestedLegs: requestedLegs || undefined,
-              });
-              unlockComposer();
-            }
-            return;
-          }
+          // Deadline and cancellation already painted the terminal card and aborted
+          // the scan. A result that arrives afterward must not replace it.
+          if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
 
           finishSession(assistantId, {
             picks,
@@ -755,7 +691,6 @@ export default function CoachScreen() {
           return;
         }
 
-        armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
         patchAssistant(assistantId, { buildStatus: "Pulling live odds…" });
         const built = await buildChatContext(
           DEFAULT_SPORTS.slice(0, 6),

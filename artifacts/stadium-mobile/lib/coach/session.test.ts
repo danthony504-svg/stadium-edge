@@ -16,17 +16,21 @@ import {
   createCoachSession,
   latchCoachSession,
   resetCoachAbsoluteClock,
+  coachRequestDeadlineMs,
   resolveCoachOutcome,
-  upgradeCoachSessionOutcome,
 } from "./session.ts";
+import { coachTerminalLiveDeadlineMs } from "../coachQa/terminalInvariant.ts";
+import { linkDeadlineAbort } from "./abortableDeadline.ts";
 
 test("6-leg absolute budget is 90s (room for props + alts)", () => {
   assert.equal(coachAbsoluteBudgetMs(6), 90_000);
 });
 
-test("prop load failsafe covers board prefetch without scoring", () => {
-  assert.equal(coachPropLoadFailsafeMs(6), 105_000);
-  assert.ok(coachPropLoadFailsafeMs(8) >= coachAbsoluteBudgetMs(8) + 15_000);
+test("prop load failsafe is the same end-to-end deadline as scoring", () => {
+  assert.equal(coachPropLoadFailsafeMs(4), coachAbsoluteBudgetMs(4));
+  assert.equal(coachPropLoadFailsafeMs(4), 75_000);
+  assert.equal(coachPropLoadFailsafeMs(6), coachAbsoluteBudgetMs(6));
+  assert.equal(coachPropLoadFailsafeMs(8), coachAbsoluteBudgetMs(8));
 });
 
 test("resetCoachAbsoluteClock clears timer and restarts budget window", () => {
@@ -94,21 +98,15 @@ test("10-leg football mix budget covers props-first skill wave + games", () => {
   assert.equal(coachAbsoluteBudgetMs(10), 120_000);
 });
 
-test("late picks upgrade empty budget latch without re-busying", () => {
+test("a terminal session rejects a late ticket", () => {
   const session = createCoachSession(1, 8, 1_000);
   latchCoachSession(session, "empty");
   assert.equal(coachSessionShouldKeepBusy(session), false);
   assert.equal(
     coachSessionMayAcceptLatePicks(session, { latePickCount: 8, shownPickCount: 0 }),
-    true,
-  );
-  upgradeCoachSessionOutcome(session, "shown");
-  assert.equal(session.outcome, "shown");
-  assert.equal(coachSessionShouldKeepBusy(session), false);
-  assert.equal(
-    coachSessionMayAcceptLatePicks(session, { latePickCount: 8, shownPickCount: 8 }),
     false,
   );
+  assert.equal(session.outcome, "empty");
 });
 
 test("late picks do not reopen a full shown ticket", () => {
@@ -177,4 +175,36 @@ test("cancellation and deadline expiry clear loading, and the next send ignores 
   tryPaint(2, "next");
   assert.equal(painted, "next");
   assert.equal(coachAssistantTerminalFlags(deadline.outcome).building, false);
+});
+
+test("scan budget and terminal deadline are one clock", () => {
+  assert.equal(coachRequestDeadlineMs(4), 75_000);
+  assert.equal(coachTerminalLiveDeadlineMs(4), coachAbsoluteBudgetMs(4));
+  assert.equal(coachTerminalLiveDeadlineMs(6), 90_000);
+});
+
+test("deadline abort stops the child signal and a late result is not applied", async () => {
+  const parent = new AbortController();
+  const session = createCoachSession(1, 4, Date.now());
+  const linked = linkDeadlineAbort(parent.signal, Date.now() + 30);
+  let late = "pending";
+  const work = new Promise<string>((resolve) => {
+    const timer = setTimeout(() => resolve("late"), 200);
+    linked.signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve("aborted");
+    });
+  });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(linked.signal.aborted, true);
+  assert.equal(await work, "aborted");
+  latchCoachSession(session, "empty");
+  if (!coachSessionMayAcceptLatePicks(session, { latePickCount: 4, shownPickCount: 0 })) {
+    late = "dropped";
+  } else {
+    late = "applied";
+  }
+  assert.equal(late, "dropped");
+  linked.dispose();
+  parent.abort();
 });

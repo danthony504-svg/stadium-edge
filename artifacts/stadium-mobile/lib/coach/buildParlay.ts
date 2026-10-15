@@ -52,7 +52,7 @@ import { rareMultiCountLotteryPathOpen } from "@/lib/rareMultiCountCoachGate";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
-import { raceAbortableDeadline } from "@/lib/coach/abortableDeadline";
+import { linkDeadlineAbort, raceAbortableDeadline } from "@/lib/coach/abortableDeadline";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
@@ -318,11 +318,14 @@ export async function buildCoachParlay(opts: {
   signal: AbortSignal;
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
-  /** Fires after prop/alt board load — UI should start the scoring absolute clock here. */
+  /** Fires after prop/alt board load. The request deadline already started at send. */
   onReadyToScan?: (info: { propPoolSize: number }) => void;
+  /** Absolute end of the send, from the session clock. Defaults to now plus the request deadline. */
+  deadlineAtMs?: number;
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
   const budgetMs = coachAbsoluteBudgetMs(target);
+  const deadlineAt = opts.deadlineAtMs ?? Date.now() + budgetMs;
   // Observe-only reliability markers — never touch selection / UI.
   const coachRelStarted = Date.now();
   const coachRelRequestId = `greenfield-${Date.now()}`;
@@ -378,15 +381,24 @@ export async function buildCoachParlay(opts: {
     }
   }
 
+  const linked = linkDeadlineAbort(opts.signal, deadlineAt);
+  try {
+  return await (async (): Promise<CoachParlayBuildResult> => {
   const inputs = await loadScanInputs(
-    opts.signal,
+    linked.signal,
     target,
     opts.askText,
     opts.onStatus,
     opts.priorUserTexts ?? [],
   );
-  if (opts.signal.aborted) {
-    return { picks: [], note: "", scan: null, timedOut: false, propPoolSize: 0 };
+  if (linked.signal.aborted || opts.signal.aborted) {
+    return {
+      picks: [],
+      note: "",
+      scan: null,
+      timedOut: !opts.signal.aborted,
+      propPoolSize: 0,
+    };
   }
 
   // Yards asks ("rushing and passing yards") → props-only + market allowlist.
@@ -465,7 +477,7 @@ export async function buildCoachParlay(opts: {
           : "Loading injury context…",
   );
   const contextPromise = Promise.all([
-    loadBoardInjuries(boardSports, opts.signal).catch(() => ({
+    loadBoardInjuries(boardSports, linked.signal).catch(() => ({
       injuriesBySport: {} as Record<string, import("@/lib/api").InjuryTeam[]>,
       matchupInjuries: {} as Record<string, import("@/lib/injuries").GameInjuryReport>,
       injuryTeams: [] as import("@/lib/api").InjuryTeam[],
@@ -476,12 +488,12 @@ export async function buildCoachParlay(opts: {
           espnGames: inputs.espnGames,
           hrOnly: hrBoardAsk,
           maxBatters: hrBoardAsk ? 32 : 16,
-          signal: opts.signal,
+          signal: linked.signal,
         }).catch(() => ({ mlbPlatoon: {}, mlbGameEnv: {} }))
       : Promise.resolve({ mlbPlatoon: {}, mlbGameEnv: {} }),
     (hrBoardAsk || hasMlbProps) && activePropPool.length > 0
       ? prefetchPropPlayerHistory(activePropPool, {
-          signal: opts.signal,
+          signal: linked.signal,
           maxPlayers: hrBoardAsk ? 24 : 16,
           concurrency: 6,
         }).catch(() => ({}))
@@ -491,14 +503,14 @@ export async function buildCoachParlay(opts: {
     )
       ? loadFootballOppRushDefense({
           espnGames: inputs.espnGames,
-          signal: opts.signal,
+          signal: linked.signal,
         }).catch(() => ({}))
       : Promise.resolve({} as import("@/lib/footballOppDefenseContext").FootballOppDefenseMap),
     needFootballWx
       ? loadFootballScanContext({
           espnGames: inputs.espnGames,
           sports: boardSports,
-          signal: opts.signal,
+          signal: linked.signal,
         }).catch(() => ({ footballGameEnv: {} }))
       : Promise.resolve({ footballGameEnv: {} }),
     // Game-line / mixed tickets need mlLean opponent comparison (NFL parity).
@@ -506,7 +518,7 @@ export async function buildCoachParlay(opts: {
       ? fetchBoardMatchupHistory({
           espnGames: inputs.espnGames,
           realOdds: scanRealOdds,
-          signal: opts.signal,
+          signal: linked.signal,
           focalText: opts.askText,
           matchupCap: gameLinesOnly ? 20 : 12,
         }).catch(() => ({} as Record<string, MatchupHistoryEntry>))
@@ -573,7 +585,7 @@ export async function buildCoachParlay(opts: {
       pool: activePropPool,
       realOdds: inputs.realOdds,
       teamIdMap,
-      signal: opts.signal,
+      signal: linked.signal,
       onStatus: opts.onStatus,
       playerHistory,
       oppRushDefense,
@@ -647,7 +659,7 @@ export async function buildCoachParlay(opts: {
         pool: recoveryPool.length ? recoveryPool : activePropPool,
         realOdds: inputs.realOdds,
         teamIdMap,
-        signal: opts.signal,
+        signal: linked.signal,
         onStatus: opts.onStatus,
         playerHistory,
         oppRushDefense,
@@ -705,7 +717,7 @@ export async function buildCoachParlay(opts: {
           pool: activePropPool,
           realOdds: inputs.realOdds,
           teamIdMap,
-          signal: opts.signal,
+          signal: linked.signal,
           onStatus: opts.onStatus,
           playerHistory,
           oppRushDefense,
@@ -880,7 +892,7 @@ export async function buildCoachParlay(opts: {
     gameMeta: [],
     teamIdMap,
     excludedTeams: inputs.excludedTeams,
-    signal: opts.signal,
+    signal: linked.signal,
     skipPropPoolExpand: skipPropExpand,
     // Belt expand path even if skipPropExpand is false — never sim off-ask markets.
     propMarketAllowlist: marketConstraint.allowedMarketKeys ?? null,
@@ -974,51 +986,16 @@ export async function buildCoachParlay(opts: {
     requestId: coachRelRequestId,
   });
 
+  const remainingMs = Math.max(0, deadlineAt - Date.now());
   const timed = await raceAbortableDeadline(
     scanPromise.then((scan) => ({ scan, timedOut: false as const })),
-    budgetMs,
-    opts.signal,
+    remainingMs,
+    linked.signal,
     { scan: null, timedOut: true as const },
   );
+  if (timed.timedOut) linked.abort();
 
-  let scan = timed.scan ?? latest ?? null;
-  const propsStillPending = (s: FullBoardScanResult | null | undefined) =>
-    !!s &&
-    countPropLike(s.picks ?? []) === 0 &&
-    (!!s.awaitingPropSlots || !!s.propPhaseIncomplete);
-
-  // Budget hit while props were still pending — grace window when the pool was
-  // already loaded (5-leg→2 totals / 7-leg→3 F5 lines failure modes).
-  // Football mix gets a longer grace so skill props can finish before we refuse.
-  if (
-    timed.timedOut &&
-    !opts.signal.aborted &&
-    propPoolSize > 0 &&
-    propsStillPending(scan)
-  ) {
-    opts.onStatus?.(`Finishing prop/alt scoring (${propPoolSize} posted)…`);
-    const graceMs = requirePropMix
-      ? Math.min(35_000, Math.max(15_000, Math.round(budgetMs * 0.35)))
-      : Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25)));
-    const grace = await raceAbortableDeadline(
-      scanPromise.then((s) => ({ scan: s })),
-      graceMs,
-      opts.signal,
-      { scan: null },
-    );
-    if (grace.scan) scan = grace.scan;
-    else scan = latest ?? scan;
-  } else if (!scan) {
-    // Never await a hung scan forever after the delivery budget — that left
-    // Coach on "Scoring ticket… 1 legs" with no terminal latch.
-    scan = await raceAbortableDeadline(
-      scanPromise.catch(() => null),
-      2_500,
-      opts.signal,
-      null,
-    );
-    if (!scan) scan = latest;
-  }
+  const scan = timed.scan ?? latest ?? null;
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;
@@ -1249,4 +1226,8 @@ export async function buildCoachParlay(opts: {
     propPoolSize,
     teamGameScopeDiagnostics,
   };
+  })();
+  } finally {
+    linked.dispose();
+  }
 }

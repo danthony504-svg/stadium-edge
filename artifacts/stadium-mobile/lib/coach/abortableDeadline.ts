@@ -57,3 +57,30 @@ export function raceAbortableDeadline<T, F>(
 
   return Promise.race([watched, gate]);
 }
+
+/**
+ * Child signal that aborts when the parent aborts or when deadlineAtMs passes.
+ * dispose clears the timer. abort stops in-flight work that listens to signal.
+ */
+export function linkDeadlineAbort(
+  parent: AbortSignal,
+  deadlineAtMs: number,
+): { signal: AbortSignal; abort: () => void; dispose: () => void } {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) controller.abort();
+  };
+  const onParent = () => abort();
+  if (parent.aborted || Date.now() >= deadlineAtMs) abort();
+  else parent.addEventListener("abort", onParent, { once: true });
+  const wait = Math.max(0, deadlineAtMs - Date.now());
+  const timer = setTimeout(abort, wait);
+  return {
+    signal: controller.signal,
+    abort,
+    dispose: () => {
+      clearTimeout(timer);
+      parent.removeEventListener("abort", onParent);
+    },
+  };
+}

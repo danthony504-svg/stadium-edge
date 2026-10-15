@@ -23,10 +23,10 @@ test("fixed-leg scoring budgets leave room for prop/alt scoring after game lines
   assert.ok(coachAbsoluteBudgetMs(6) > 45_000);
 });
 
-test("prop-board load failsafe is independent of scoring budget", () => {
-  assert.equal(coachPropLoadFailsafeMs(6), 105_000);
-  assert.ok(coachPropLoadFailsafeMs(6) >= coachAbsoluteBudgetMs(6));
-  assert.ok(coachPropLoadFailsafeMs(8) >= coachAbsoluteBudgetMs(8));
+test("prop-board load shares the scoring deadline", () => {
+  assert.equal(coachPropLoadFailsafeMs(4), 75_000);
+  assert.equal(coachPropLoadFailsafeMs(6), coachAbsoluteBudgetMs(6));
+  assert.equal(coachPropLoadFailsafeMs(8), coachAbsoluteBudgetMs(8));
 });
 
 test("resetCoachAbsoluteClock restarts scoring window after prop prefetch", () => {
