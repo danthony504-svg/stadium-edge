@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-15T10:14:01.742Z",
+  "generatedAt": "2026-10-15T10:37:48.628Z",
   "engine": "nfl-drive:ppg-per-drive-v1",
   "inputUnits": "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are mutually exclusive. Late-clock touchdowns are funded from the same points-per-game budget.",
   "selectionTimeInputs": true,
@@ -126,6 +126,18 @@
     "missingLastPlay": 36,
     "unusableLastPlay": 101,
     "uncertainty": "ESPN meta.lastPlayWallClock is the latest play timestamp on the summary, not the official final whistle. Stamps under 2.5 hours or over 12 hours after kickoff are ignored. Games without a credible stamp use kickoff plus 4 hours, which can release a long game early or hold a short game late."
+  },
+  "completionSensitivity": {
+    "rule": "credible last-play stamps only; kickoff-plus-4-hours priors are excluded",
+    "assumptionExcluded": true,
+    "nHoldoutScored": 861,
+    "nHoldoutSkippedThinForm": 10,
+    "brier": 0.20090848548199758,
+    "ece10": 0.044977932636469244,
+    "meanP": 0.6723182346109169,
+    "meanY": 0.6353077816492451,
+    "homeWinBias": 0.037010452961671825,
+    "note": "Sensitivity check. Primary metrics still use the kickoff-plus-4-hours assumption wherever a credible stamp is missing or implausible."
   },
   "formProvenanceCounts": {
     "venue_split+venue_split": 794,

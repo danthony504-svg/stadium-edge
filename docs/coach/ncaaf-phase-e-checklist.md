@@ -8,7 +8,7 @@
 ## Latest calibration report (2024 holdout, `ppg-per-drive-v1`)
 
 Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.json`  
-Generated: 2026-10-15T10:14:01.742Z. Engine: `nfl-drive:ppg-per-drive-v1`. Selection-time venue/L10 form. A credible ESPN last-play stamp is used when it falls 2.5 to 12 hours after kickoff. Otherwise the input uses kickoff plus 4 hours, which is an availability assumption and not proof of completion.
+Generated: 2026-10-15T10:37:48.628Z. Engine: `nfl-drive:ppg-per-drive-v1`. Selection-time venue/L10 form. A credible ESPN last-play stamp is used when it falls 2.5 to 12 hours after kickoff. Otherwise the input uses kickoff plus 4 hours, which is an availability assumption and not proof of completion. A sensitivity pass that drops every prior without a credible stamp scores 861 games (Brier 0.20091, ECE 0.04498, bias +0.03701). Primary metrics below still include the assumption.
 
 The 2026-10-14 E2a **PASS** is **WITHDRAWN**. That report used the same `nfl-drive` engine with points per game passed in as points per drive, then multiplied NCAAF inputs by 0.48, at 1,500 sims (Brier 0.199, bias ≈ +0.020, 865 games). The 0.48 scale was a patch on that unit mismatch. `priorE2aClaim.restored` stays `false`. A later numeric result does not restore the withdrawn claim.
 

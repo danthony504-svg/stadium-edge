@@ -224,7 +224,12 @@ type SeedPass = {
   closingJoins: ClosingJoin[];
 };
 
-function simulateHoldout(games: EspnGame[], seed: number, closingByEvent: Map<string, { closeSpreadHome: number; closeMlHome: number }>): SeedPass {
+function simulateHoldout(
+  games: EspnGame[],
+  seed: number,
+  closingByEvent: Map<string, { closeSpreadHome: number; closeMlHome: number }>,
+  credibleCompletionOnly = false,
+): SeedPass {
   const rng = mulberry32(seed);
   const mlP: number[] = [];
   const mlY: number[] = [];
@@ -304,7 +309,7 @@ function simulateHoldout(games: EspnGame[], seed: number, closingByEvent: Map<st
     } else if (isHoldout) {
       skippedThin += 1;
     }
-  });
+  }, undefined, { credibleCompletionOnly });
 
   return { seed, scored, skippedThin, provenanceCounts, mlP, mlY, rows, closingJoins };
 }
@@ -335,6 +340,32 @@ function main(): number {
     simulateHoldout(games, seed, closingByEvent),
   );
   const primary = passes.find((p) => p.seed === FOOTBALL_CALIBRATION_PRIMARY_SEED) ?? passes[0]!;
+  const sensitivityPass = simulateHoldout(
+    games,
+    FOOTBALL_CALIBRATION_PRIMARY_SEED,
+    closingByEvent,
+    true,
+  );
+  const sensitivity = sensitivityPass.mlP.length
+    ? {
+        rule: "credible last-play stamps only; kickoff-plus-4-hours priors are excluded",
+        assumptionExcluded: true,
+        nHoldoutScored: sensitivityPass.scored,
+        nHoldoutSkippedThinForm: sensitivityPass.skippedThin,
+        brier: brier(sensitivityPass.mlP, sensitivityPass.mlY),
+        ece10: ece(sensitivityPass.mlP, sensitivityPass.mlY, 10),
+        meanP: mean(sensitivityPass.mlP, 0.5),
+        meanY: mean(sensitivityPass.mlY, 0.5),
+        homeWinBias:
+          mean(sensitivityPass.mlP, 0.5) - mean(sensitivityPass.mlY, 0.5),
+        note: "Sensitivity check. Primary metrics still use the kickoff-plus-4-hours assumption wherever a credible stamp is missing or implausible.",
+      }
+    : {
+        rule: "credible last-play stamps only; kickoff-plus-4-hours priors are excluded",
+        assumptionExcluded: true,
+        nHoldoutScored: 0,
+        note: "No holdout games had two priors that were available from a credible completion stamp.",
+      };
   const mlP = primary.mlP;
   const mlY = primary.mlY;
   const scored = primary.scored;
@@ -399,6 +430,7 @@ function main(): number {
       "Games ordered by kickoff. A prior game enters form after a credible ESPN last-play wall clock (2.5 to 12 hours after kickoff). When that stamp is missing or implausible, availability falls back to kickoff plus 4 hours. That fallback is an assumption, not proof the game ended. The evaluated game is added after it is scored. Venue split blends with L10.",
     formAvailability,
     completionAccounting,
+    completionSensitivity: sensitivity,
     formProvenanceCounts: provenanceCounts,
     closingLineArchive: {
       expectedPath: "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",

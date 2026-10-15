@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-15T10:13:35.456Z",
+  "generatedAt": "2026-10-15T10:37:18.820Z",
   "engine": "nfl-drive:ppg-per-drive-v1",
   "sport": "nfl",
   "holdoutSeason": 2024,
@@ -27,6 +27,18 @@
     "missingLastPlay": 14,
     "unusableLastPlay": 0,
     "uncertainty": "ESPN meta.lastPlayWallClock is the latest play timestamp on the summary, not the official final whistle. Stamps under 2.5 hours or over 12 hours after kickoff are ignored. Games without a credible stamp use kickoff plus 4 hours, which can release a long game early or hold a short game late."
+  },
+  "completionSensitivity": {
+    "rule": "credible last-play stamps only; kickoff-plus-4-hours priors are excluded",
+    "assumptionExcluded": true,
+    "nHoldoutScored": 272,
+    "nHoldoutSkippedThinForm": 0,
+    "brier": 0.23728158088235288,
+    "ece10": 0.041661764705882294,
+    "meanP": 0.527661764705882,
+    "meanY": 0.5330882352941176,
+    "homeWinBias": -0.005426470588235643,
+    "note": "Sensitivity check. Primary metrics still use the kickoff-plus-4-hours assumption wherever a credible stamp is missing or implausible. This is not a market-value result."
   },
   "marketLines": "ABSENT — ESPN completed scoreboard and summary odds were empty. Cover below is the sim fair line, not a sportsbook close. These distribution numbers are not evidence of market value.",
   "nHoldoutScored": 272,

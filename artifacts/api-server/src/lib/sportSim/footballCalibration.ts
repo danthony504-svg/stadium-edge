@@ -103,11 +103,13 @@ export function credibleFootballCompletionMs(
 export function footballPriorAvailableAt(
   prior: { kickoffIso?: string | null; completedAtIso?: string | null },
   selectionKickoffIso: string | null | undefined,
+  opts?: { credibleCompletionOnly?: boolean },
 ): FootballFormAvailability | null {
   const selection = Date.parse(String(selectionKickoffIso ?? ""));
   if (!Number.isFinite(selection)) return null;
   const completed = credibleFootballCompletionMs(prior.kickoffIso, prior.completedAtIso);
   if (completed != null) return completed <= selection ? "completedAt" : null;
+  if (opts?.credibleCompletionOnly) return null;
   return footballFormMayIncludePriorGame(prior.kickoffIso, selectionKickoffIso)
     ? "kickoffPlusFourHours"
     : null;
@@ -151,6 +153,7 @@ export function walkHoldoutGames<T extends HoldoutWalkGame>(
   games: T[],
   visit: (game: T, forms: Map<string, HoldoutWalkForm>) => void,
   counts?: FormAvailabilityCounts,
+  opts?: { credibleCompletionOnly?: boolean },
 ): void {
   const sorted = [...games].sort((a, b) => {
     const ka = String(a.kickoffIso ?? "");
@@ -196,7 +199,7 @@ export function walkHoldoutGames<T extends HoldoutWalkGame>(
     const selection = String(g.kickoffIso ?? "");
     const still: T[] = [];
     for (const prev of pending) {
-      const basis = footballPriorAvailableAt(prev, selection);
+      const basis = footballPriorAvailableAt(prev, selection, opts);
       if (basis) {
         add(prev, basis);
         if (counts) {

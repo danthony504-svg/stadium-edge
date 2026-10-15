@@ -155,7 +155,13 @@ function reliability(ps: number[], ys: number[], bins = 5): { n: number; ece: nu
   return { n: ps.length, ece: ps.length ? ece(ps, ys, bins) : 0 };
 }
 
-function runSeed(games: Game[], seed: number, detailed: boolean, availability?: FormAvailabilityCounts): {
+function runSeed(
+  games: Game[],
+  seed: number,
+  detailed: boolean,
+  availability?: FormAvailabilityCounts,
+  credibleCompletionOnly = false,
+): {
   rows: HoldoutProbRow[];
   mlP: number[];
   mlY: number[];
@@ -239,7 +245,7 @@ function runSeed(games: Game[], seed: number, detailed: boolean, availability?: 
     } else if (isHoldout) {
       skipped += 1;
     }
-  }, availability);
+  }, availability, { credibleCompletionOnly });
   return { rows, mlP, mlY, scored, skipped, details };
 }
 
@@ -288,6 +294,26 @@ function main(): number {
   };
   const completionAccounting = accountFootballCompletions(games);
   const primary = runSeed(games, FOOTBALL_CALIBRATION_PRIMARY_SEED, true, formAvailability);
+  const sensitivityPass = runSeed(games, FOOTBALL_CALIBRATION_PRIMARY_SEED, false, undefined, true);
+  const sensitivity = sensitivityPass.mlP.length
+    ? {
+        rule: "credible last-play stamps only; kickoff-plus-4-hours priors are excluded",
+        assumptionExcluded: true,
+        nHoldoutScored: sensitivityPass.scored,
+        nHoldoutSkippedThinForm: sensitivityPass.skipped,
+        brier: brier(sensitivityPass.mlP, sensitivityPass.mlY),
+        ece10: ece(sensitivityPass.mlP, sensitivityPass.mlY, 10),
+        meanP: mean(sensitivityPass.mlP),
+        meanY: mean(sensitivityPass.mlY),
+        homeWinBias: (mean(sensitivityPass.mlP) ?? 0) - (mean(sensitivityPass.mlY) ?? 0),
+        note: "Sensitivity check. Primary metrics still use the kickoff-plus-4-hours assumption wherever a credible stamp is missing or implausible. This is not a market-value result.",
+      }
+    : {
+        rule: "credible last-play stamps only; kickoff-plus-4-hours priors are excluded",
+        assumptionExcluded: true,
+        nHoldoutScored: 0,
+        note: "No holdout games had two priors that were available from a credible completion stamp.",
+      };
   const otherSeeds = FOOTBALL_CALIBRATION_SEEDS.filter((s) => s !== FOOTBALL_CALIBRATION_PRIMARY_SEED).map(
     (seed) => {
       const pass = runSeed(games, seed, false);
@@ -317,6 +343,7 @@ function main(): number {
       "Venue split blended with L10. A prior game enters form after a credible ESPN last-play wall clock. Missing or implausible stamps use kickoff plus 4 hours, which is an availability assumption and not proof of completion. The evaluated game is not an input.",
     formAvailability,
     completionAccounting,
+    completionSensitivity: sensitivity,
     marketLines: "ABSENT — ESPN completed scoreboard and summary odds were empty. Cover below is the sim fair line, not a sportsbook close. These distribution numbers are not evidence of market value.",
     nHoldoutScored: primary.scored,
     nHoldoutSkippedThinForm: primary.skipped,
