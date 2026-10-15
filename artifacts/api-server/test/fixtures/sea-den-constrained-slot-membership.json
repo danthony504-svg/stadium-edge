@@ -1,0 +1,47 @@
+{
+  "tipSha": "376eceab8d15f893bd1a280da36154a265c3fd2e",
+  "verificationAt": "376eceab8d15f893bd1a280da36154a265c3fd2e",
+  "contestedSlot": "last prop seat under SINGLE_EVENT_CAPS[5].maxProps=4",
+  "qualifiedCandidates": [
+    {
+      "pick": "Rashid Shaheed Anytime TD",
+      "market": "Anytime TD",
+      "rawRank": 78,
+      "softPenalty": 34,
+      "effectiveScore": 44,
+      "hardReject": false,
+      "reason": "Pass-TD↔receiver bump vs Darnold (+12) + same-game props (+5 each) + Seahawks GL (+7)"
+    },
+    {
+      "pick": "Nik Bonitto Over 0.5 Sacks",
+      "market": "Sacks",
+      "rawRank": 76,
+      "softPenalty": 22,
+      "effectiveScore": 54,
+      "hardReject": false,
+      "reason": "same-game props (+5 each) + Seahawks GL (+7); no Pass-TD↔receiver bump"
+    }
+  ],
+  "beforeMembership": [
+    "Seahawks +1.5",
+    "Sam Darnold Over 1.5 Pass TDs",
+    "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+    "Tory Horton Over 0.5 Receptions",
+    "Rashid Shaheed Anytime TD"
+  ],
+  "afterMembership": [
+    "Seahawks +1.5",
+    "Sam Darnold Over 1.5 Pass TDs",
+    "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+    "Tory Horton Over 0.5 Receptions",
+    "Nik Bonitto Over 0.5 Sacks"
+  ],
+  "selectedAfter": "Nik Bonitto Over 0.5 Sacks",
+  "demotedAfter": "Rashid Shaheed Anytime TD",
+  "demotionKind": "soft_correlation_ranking",
+  "notCorrelation": [
+    "SINGLE_EVENT_CAPS maxProps",
+    "ladder/participant hard gates"
+  ],
+  "pass": true
+}

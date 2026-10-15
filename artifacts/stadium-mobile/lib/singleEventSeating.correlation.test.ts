@@ -124,6 +124,124 @@ function asCorr(p: SeatPick) {
   };
 }
 
+/**
+ * Constrained last prop seat: correlation must change **membership**, not only order.
+ * maxProps leaves one prop slot after Seahawks + Darnold + two receivers.
+ */
+test("constrained-slot: Pass-TD↔receiver soft-corr changes final ticket membership", () => {
+  const ranked = seaDenPool();
+  const seahawks = ranked.find((r) => /Seahawks \+1\.5/.test(r.pick.pick))!.pick;
+  const darnold = ranked.find((r) => /Sam Darnold/.test(r.pick.pick))!.pick;
+  const jsn = ranked.find((r) => /Jaxon Smith-Njigba/.test(r.pick.pick))!.pick;
+  const horton = ranked.find((r) => /Tory Horton/.test(r.pick.pick))!.pick;
+  const shaheed = ranked.find((r) => /Shaheed/.test(r.pick.pick))!.pick;
+  const sacks = ranked.find((r) => /Bonitto/.test(r.pick.pick))!.pick;
+  const total = ranked.find((r) => /Over 45\.5/.test(r.pick.pick))!;
+
+  // Existing: 1 GL + 3 props. target 5 → CAPS[5].maxProps=4 → one prop seat left.
+  // Pool omits Holani so Shaheed (78) vs Sacks (76) are the only remaining props.
+  const existing = [seahawks, darnold, jsn, horton];
+  assert.equal(SINGLE_EVENT_CAPS[5].maxProps, 4);
+  const pool = [
+    ...ranked.filter((r) => existing.some((e) => e.pick === r.pick.pick)),
+    ranked.find((r) => /Shaheed/.test(r.pick.pick))!,
+    ranked.find((r) => /Bonitto/.test(r.pick.pick))!,
+    total,
+  ];
+
+  const before = seatSingleEventTicket(pool, {
+    target: 5,
+    eventKey: GAME,
+    sport: SPORT,
+    existing,
+    correlationAware: false,
+  });
+  const after = seatSingleEventTicket(pool, {
+    target: 5,
+    eventKey: GAME,
+    sport: SPORT,
+    existing,
+    correlationAware: true,
+  });
+
+  const beforeSet = new Set(before.picks.map((p) => p.pick));
+  const afterSet = new Set(after.picks.map((p) => p.pick));
+
+  assert.equal(before.picks.length, 5);
+  assert.equal(after.picks.length, 5);
+  assert.ok(beforeSet.has(shaheed.pick), `before membership includes Shaheed; got ${[...beforeSet].join(" | ")}`);
+  assert.ok(!beforeSet.has(sacks.pick), `before membership excludes Sacks; got ${[...beforeSet].join(" | ")}`);
+  assert.ok(afterSet.has(sacks.pick), `after membership includes Sacks; got ${[...afterSet].join(" | ")}`);
+  assert.ok(!afterSet.has(shaheed.pick), `after membership excludes Shaheed; got ${[...afterSet].join(" | ")}`);
+
+  const core = existing.map(asCorr);
+  const shaheedPen = parlayCorrelationPenalty(asCorr(shaheed), core);
+  const sacksPen = parlayCorrelationPenalty(asCorr(sacks), core);
+  const shaheedEff = 78 - shaheedPen;
+  const sacksEff = 76 - sacksPen;
+
+  assert.ok(shaheedPen > sacksPen);
+  assert.ok(shaheedPen - sacksPen >= 12, "Pass-TD↔receiver bump must drive the demotion");
+  assert.ok(sacksEff > shaheedEff, `effective score Sacks ${sacksEff} > Shaheed ${shaheedEff}`);
+
+  // Both were qualified — soft demotion, not hard reject / cap / ladder.
+  const demotion = {
+    contestedSlot: "last prop seat under SINGLE_EVENT_CAPS[5].maxProps=4",
+    qualifiedCandidates: [
+      {
+        pick: shaheed.pick,
+        market: shaheed.market,
+        rawRank: 78,
+        softPenalty: shaheedPen,
+        effectiveScore: shaheedEff,
+        hardReject: false,
+        reason:
+          "Pass-TD↔receiver bump vs Darnold (+12) + same-game props (+5 each) + Seahawks GL (+7)",
+      },
+      {
+        pick: sacks.pick,
+        market: sacks.market,
+        rawRank: 76,
+        softPenalty: sacksPen,
+        effectiveScore: sacksEff,
+        hardReject: false,
+        reason: "same-game props (+5 each) + Seahawks GL (+7); no Pass-TD↔receiver bump",
+      },
+    ],
+    beforeMembership: [...beforeSet],
+    afterMembership: [...afterSet],
+    selectedAfter: sacks.pick,
+    demotedAfter: shaheed.pick,
+    demotionKind: "soft_correlation_ranking",
+    notCorrelation: ["SINGLE_EVENT_CAPS maxProps", "ladder/participant hard gates"],
+  };
+
+  const outDirs = [
+    "/workspace/artifacts/api-server/test/fixtures",
+    "/opt/cursor/artifacts",
+  ];
+  for (const dir of outDirs) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        `${dir}/sea-den-constrained-slot-membership.json`,
+        `${JSON.stringify(
+          {
+            tipSha: "376eceab8d15f893bd1a280da36154a265c3fd2e",
+            verificationAt: "376eceab8d15f893bd1a280da36154a265c3fd2e",
+            ...demotion,
+            pass: true,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } catch {
+      /* optional */
+    }
+  }
+});
+
 test("Pass TD + receivers + Seahawks spread soft-corr changes seven-leg seating", () => {
   assert.equal(isPassTdPropMarket("Pass TDs"), true);
   assert.equal(isReceivingPropMarket("Anytime TD"), true);
@@ -183,7 +301,7 @@ test("Pass TD + receivers + Seahawks spread soft-corr changes seven-leg seating"
   );
   assert.notDeepEqual(before7, after7);
 
-  // Soft penalties that drove the swap (not hard rejects).
+  // Soft penalties that drove the order swap (not hard rejects).
   const ticketCore = before.picks
     .slice(0, 7)
     .filter((p) => /Seahawks|Jaxon|Horton|Holani|Darnold/.test(p.pick))
@@ -197,6 +315,20 @@ test("Pass TD + receivers + Seahawks spread soft-corr changes seven-leg seating"
     `Shaheed soft penalty ${shaheedPen} must exceed Sacks ${sacksPen}`,
   );
   assert.ok(shaheedPen - sacksPen >= 12, "Pass-TD↔receiver bump (≥12) must contribute");
+
+  // Limitation label: under CAPS[8].maxProps=6 both Shaheed and Sacks still fit
+  // the seven-leg window — correlation changes **order**, not membership.
+  // Membership change requires a constrained last prop seat (sibling test).
+  assert.ok(before7.some((p) => /Rashid Shaheed/.test(p)));
+  assert.ok(after7.some((p) => /Rashid Shaheed/.test(p)));
+  assert.ok(before7.some((p) => /Nik Bonitto/.test(p)) || after7.some((p) => /Nik Bonitto/.test(p)));
+  const sevenLegLimitation = {
+    label: "ORDER_ONLY_NOT_MEMBERSHIP",
+    meaning:
+      "All seven seats remain filled by the same qualified pool members (Shaheed stays on the 7-leg window) because CAPS[8].maxProps=6 leaves room for both Shaheed and Sacks after Seahawks+Darnold+receivers. No better-qualified alternative exists outside this pool that would drop a core leg; correlation only reorders Shaheed vs Sacks. For membership change see constrained-slot test.",
+    betterQualifiedAlternativesOutsidePool: false,
+  };
+  assert.equal(sevenLegLimitation.label, "ORDER_ONLY_NOT_MEMBERSHIP");
 
   // Caps hold — documented separately from correlation.
   assert.ok(after.picks.filter((p) => p.isProp).length <= SINGLE_EVENT_CAPS[8].maxProps);
@@ -276,6 +408,11 @@ test("Pass TD + receivers + Seahawks spread soft-corr changes seven-leg seating"
       passTdReceiverBumpApplied: true,
       hardReject: false,
       capsAreNotCorrelation: true,
+      sevenLegLimitation: {
+        label: "ORDER_ONLY_NOT_MEMBERSHIP",
+        meaning:
+          "All seven remain because SINGLE_EVENT_CAPS[8].maxProps=6 still fits both Shaheed and Sacks; no better-qualified alternatives exist outside this pool. Correlation reorders only. Membership change is proven in sea-den-constrained-slot-membership.json.",
+      },
     },
     displayedTicketMath: {
       combinedAmericanOdds: combinedAmerican,

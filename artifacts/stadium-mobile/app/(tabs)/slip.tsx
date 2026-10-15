@@ -475,6 +475,8 @@ function SlipScreenActive() {
   // "To win" is profit only — the winnings on top of the stake, NOT the total
   // return. payout() includes the stake, so subtract it back out.
   const toWin = payout(stake, combined) - stake;
+  // Book-implied parlay price under independence (product of leg implied probs).
+  // Not a model joint / dependence-adjusted chance the ticket hits.
   const implied = parlayImplied(legs.map((l) => l.odds));
 
   // aiPicks is an in-memory store that can predate the parser that attaches team
@@ -924,12 +926,15 @@ function SlipScreenActive() {
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
-                  Implied win prob
+                  Combined book implied
                 </Text>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
                   {(implied * 100).toFixed(1)}%
                 </Text>
               </View>
+              {/* `implied` = parlayImplied(leg odds) = product of per-leg book
+                  implied probs under independence. Combined bookmaker price math
+                  only — NOT a dependence-adjusted / joint model hit probability. */}
 
               {/* "To win" sits ABOVE the Stake input on purpose: when the
                   number-pad opens it scrolls the focused Stake field just above
