@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-10-15T14:25:25.522Z",
-  "reviewedSha": "576578cd22ac69108e8a7a74177b9de75f708d39",
+  "reviewedSha": "013ddb88f371573647b55ffb9d82b21a929d8a91",
   "apiBase": "https://stadium-edge.onrender.com/api",
   "isolatedSimBase": "http://127.0.0.1:8787/api",
   "isolatedHealth": {
@@ -16,7 +16,7 @@
       "label": "A_fresh_5leg",
       "ask": "5 leg",
       "priorUserTexts": [],
-      "reviewedSha": "576578cd22ac69108e8a7a74177b9de75f708d39",
+      "reviewedSha": "013ddb88f371573647b55ffb9d82b21a929d8a91",
       "terminalReached": true,
       "totalRuntimeMs": 29371,
       "budgetMs": 75000,
@@ -31,15 +31,15 @@
         },
         {
           "tMs": 58,
-          "status": "status: Loading tonight's board…"
+          "status": "status: Loading tonight's board\u2026"
         },
         {
           "tMs": 2460,
-          "status": "status: Loading player props and alt lines across the board…"
+          "status": "status: Loading player props and alt lines across the board\u2026"
         },
         {
           "tMs": 7212,
-          "status": "status: Loading matchups, injuries, and opponent context…"
+          "status": "status: Loading matchups, injuries, and opponent context\u2026"
         },
         {
           "tMs": 13174,
@@ -47,11 +47,11 @@
         },
         {
           "tMs": 13174,
-          "status": "status: Scanning 4274 posted props/alts plus game lines for a 5-leg ticket…"
+          "status": "status: Scanning 4274 posted props/alts plus game lines for a 5-leg ticket\u2026"
         },
         {
           "tMs": 14884,
-          "status": "status: Scoring ticket… 2 legs (2 props/alts)"
+          "status": "status: Scoring ticket\u2026 2 legs (2 props/alts)"
         },
         {
           "tMs": 14885,
@@ -59,7 +59,7 @@
         },
         {
           "tMs": 21131,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 21131,
@@ -67,7 +67,7 @@
         },
         {
           "tMs": 22790,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 22790,
@@ -75,7 +75,7 @@
         },
         {
           "tMs": 24461,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 24461,
@@ -83,7 +83,7 @@
         },
         {
           "tMs": 26188,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 26188,
@@ -91,7 +91,7 @@
         },
         {
           "tMs": 27891,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 27891,
@@ -99,7 +99,7 @@
         },
         {
           "tMs": 28164,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 28164,
@@ -107,7 +107,7 @@
         },
         {
           "tMs": 28444,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 28444,
@@ -115,7 +115,7 @@
         },
         {
           "tMs": 28696,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 28696,
@@ -123,7 +123,7 @@
         },
         {
           "tMs": 28925,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 28925,
@@ -131,7 +131,7 @@
         },
         {
           "tMs": 29124,
-          "status": "status: Scoring game lines… props/alts next (4274 posted)"
+          "status": "status: Scoring game lines\u2026 props/alts next (4274 posted)"
         },
         {
           "tMs": 29124,
@@ -139,7 +139,7 @@
         },
         {
           "tMs": 29356,
-          "status": "status: Scoring ticket… 5 legs (2 props/alts)"
+          "status": "status: Scoring ticket\u2026 5 legs (2 props/alts)"
         },
         {
           "tMs": 29356,
@@ -156,14 +156,14 @@
       "label": "C_college_6leg",
       "ask": "6 leg college",
       "priorUserTexts": [],
-      "reviewedSha": "576578cd22ac69108e8a7a74177b9de75f708d39",
+      "reviewedSha": "013ddb88f371573647b55ffb9d82b21a929d8a91",
       "terminalReached": true,
       "totalRuntimeMs": 18391,
       "budgetMs": 90000,
       "finalLegs": 0,
       "timedOut": false,
       "propPoolSize": 0,
-      "notePreview": "You said college — treating this as college football (NCAAF). Say \"college basketball\" if you meant CBB. I will not mix in NFL, MLB, or other pro leagues.\n\nNo qualifying NCAAF picks cleared the quality bar for this 6-leg ask — I won't fill ",
+      "notePreview": "You said college \u2014 treating this as college football (NCAAF). Say \"college basketball\" if you meant CBB. I will not mix in NFL, MLB, or other pro leagues.\n\nNo qualifying NCAAF picks cleared the quality bar for this 6-leg ask \u2014 I won't fill ",
       "stages": [
         {
           "tMs": 0,
@@ -171,15 +171,15 @@
         },
         {
           "tMs": 5,
-          "status": "status: Loading NCAAF board…"
+          "status": "status: Loading NCAAF board\u2026"
         },
         {
           "tMs": 784,
-          "status": "status: Loading player props and alt lines across the board…"
+          "status": "status: Loading player props and alt lines across the board\u2026"
         },
         {
           "tMs": 1671,
-          "status": "status: Loading matchups, injuries, and opponent context…"
+          "status": "status: Loading matchups, injuries, and opponent context\u2026"
         },
         {
           "tMs": 8207,
@@ -187,7 +187,7 @@
         },
         {
           "tMs": 8207,
-          "status": "status: Scanning posted game lines for a 6-leg ticket…"
+          "status": "status: Scanning posted game lines for a 6-leg ticket\u2026"
         },
         {
           "tMs": 18391,
@@ -199,7 +199,7 @@
     "cancel": {
       "label": "Z_cancel_5leg",
       "ask": "5 leg",
-      "reviewedSha": "576578cd22ac69108e8a7a74177b9de75f708d39",
+      "reviewedSha": "013ddb88f371573647b55ffb9d82b21a929d8a91",
       "terminalReached": true,
       "totalRuntimeMs": 2507,
       "cancelAfterMs": 2500,
@@ -214,11 +214,11 @@
         },
         {
           "tMs": 4,
-          "status": "status: Loading tonight's board…"
+          "status": "status: Loading tonight's board\u2026"
         },
         {
           "tMs": 1101,
-          "status": "status: Loading player props and alt lines across the board…"
+          "status": "status: Loading player props and alt lines across the board\u2026"
         },
         {
           "tMs": 2501,
