@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-10-15T14:25:25.522Z",
-  "reviewedSha": "51dbf516807c0a1a7aabc7a2cb1ee4c8929685b1",
+  "reviewedSha": "f3a2b30c1535de5c2b77f65ea181905c27700a11",
   "apiBase": "https://stadium-edge.onrender.com/api",
   "isolatedSimBase": "http://127.0.0.1:8787/api",
   "isolatedHealth": {
@@ -16,7 +16,7 @@
       "label": "A_fresh_5leg",
       "ask": "5 leg",
       "priorUserTexts": [],
-      "reviewedSha": "51dbf516807c0a1a7aabc7a2cb1ee4c8929685b1",
+      "reviewedSha": "f3a2b30c1535de5c2b77f65ea181905c27700a11",
       "terminalReached": true,
       "totalRuntimeMs": 29371,
       "budgetMs": 75000,
@@ -156,7 +156,7 @@
       "label": "C_college_6leg",
       "ask": "6 leg college",
       "priorUserTexts": [],
-      "reviewedSha": "51dbf516807c0a1a7aabc7a2cb1ee4c8929685b1",
+      "reviewedSha": "f3a2b30c1535de5c2b77f65ea181905c27700a11",
       "terminalReached": true,
       "totalRuntimeMs": 18391,
       "budgetMs": 90000,
@@ -199,7 +199,7 @@
     "cancel": {
       "label": "Z_cancel_5leg",
       "ask": "5 leg",
-      "reviewedSha": "51dbf516807c0a1a7aabc7a2cb1ee4c8929685b1",
+      "reviewedSha": "f3a2b30c1535de5c2b77f65ea181905c27700a11",
       "terminalReached": true,
       "totalRuntimeMs": 2507,
       "cancelAfterMs": 2500,
