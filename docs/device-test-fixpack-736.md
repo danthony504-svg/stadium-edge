@@ -1,15 +1,31 @@
 # Device-test prep — PR #736
 
-**Pinned JS tip under test:** `0d10cce7fab76d0c36180f11b80fb282a1078117`  
-Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.
+**Pinned JS tip under test:** branch tip of `cursor/build78-fixpack-def8` (must include college-sim `4738df08`).  
+**Installed crash-path IPA (do not rebuild unless natives diverge):** see below.
 
 **Goal:** Exercise Build 78 fail-soft + college sport lock + OTA rollback on a **meaningful** binary without exposing production users.
 
-**Constraints:** production OTA freeze stays armed; no merge; no production publish; no EAS build started from this prep (approve explicitly).
+**Constraints:** production OTA freeze stays armed; no merge; no production publish; no EAS build unless tip natives diverge from the IPA below.
 
 ---
 
-## Preflight verifications (0d10cce7)
+## Installed `preview-build78` IPA (from prior agent)
+
+Evidence summarized by [Summarize fixpack transcript verification](bc-4ec48144-39be-54f7-8f77-000ee01babcb):
+
+| Item | Value |
+|------|--------|
+| Build commit | `057c9f0ddd42e9309146cc6eb8d3b68f089b4e82` |
+| EAS build id | `9155c37b-0297-45a7-98fe-ea3f38bea6a9` |
+| Install page | https://expo.dev/accounts/danthony504/projects/stadium-edge/builds/9155c37b-0297-45a7-98fe-ea3f38bea6a9 |
+| Runtime | `1.1.0` |
+| Channel (IPA inspect) | **PASS** `preview` |
+| `ClerkExpoPasskeys` (IPA inspect) | **PASS** absent |
+| Tip vs this IPA | Same runtime `1.1.0` → **JS/OTA + server-first**; no new IPA unless package/app native surface changes |
+
+---
+
+## Preflight verifications
 
 | Check | Result |
 |-------|--------|
@@ -17,9 +33,9 @@ Must contain college-sim content `4738df08db5fc3425bc1fd317431c52bc5b9c0a8`.
 | `build.preview-ota.channel` | **`preview` only** |
 | `build.production.channel` | `production` (untouched; freeze armed) |
 | Plain `preview` / `preview-ota` IPA | **Includes** `ClerkExpoPasskeys` → crash path **UNVERIFIED** |
-| `preview-build78` IPA | Strips `@clerk/expo-passkeys` via `EXPO_NO_CLERK_PASSKEYS=1` + pre-install hook — **use this for crash-path** |
+| `preview-build78` IPA | Strips passkeys + omits Associated Domains — **use installed build above** |
 | Production freeze | **armed** (`.ota-production-freeze`) |
-| `EXPO_TOKEN` host | Cursor Cloud Agent env secret — see `docs/device-test-expo-token.md` (not GitHub Actions) |
+| `EXPO_TOKEN` | Saved on env `8c5427d9-…`; this pod may lack injection — see `docs/device-test-expo-token.md` |
 
 ---
 
@@ -149,9 +165,17 @@ NCAAF game lines remain **P0 fail-closed** (`NCAAF_GAME_LINE_SIM_VALIDATED = fal
 | `7 leg college football player props` / receiving yards | NCAAF-locked; props may seat; no pro-sport fill |
 | Contaminated expectation | Ticket sports ⊆ `{ncaaf}` |
 
-### D. Full Coach scan timing
+### D. Full Coach scan timing / outstanding device tracks
 
-Same college ask twice; record wall-clock + stage timings. Until measured on device → **UNVERIFIED**.
+| Track | Status | Notes |
+|-------|--------|-------|
+| Full Coach pipeline (college picks restored E2E) | **UNVERIFIED** | P0 still armed; college game lines blocked |
+| Cancellation | **UNVERIFIED** | No cancel-path attestation in prior transcript |
+| React UI (formal) | **UNVERIFIED** | Agent did not drive device UI; user later confirmed blocked-market copy (no hang) |
+| Early-exit / blocked-market path | **PASS (user-attested)** | update `01a13c45-995d-7494-b9a5-35f07e96e47d`; Telegram **17 ms / 22 ms** |
+| Full scan wall-clock on tip | **UNVERIFIED** | Record update id + timings on next device session |
+
+Same college ask twice; record wall-clock + stage timings when closing the UNVERIFIED rows.
 
 ---
 
