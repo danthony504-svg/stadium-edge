@@ -8,9 +8,11 @@ import test from "node:test";
 import {
   classifyCoachContextPath,
   clearCoachContextCache,
+  coachCacheSnapshot,
   fingerprintCoachGameSim,
   getCoachCacheStats,
   peekCoachContextCache,
+  peekCoachGameSimCache,
   resetCoachCacheStats,
   withCoachContextCache,
   withCoachGameSimCache,
@@ -176,4 +178,24 @@ test("game-sim cache refuses an unstamped draw and still accepts the next stampe
   );
   assert.equal(fetches, 2);
   assert.equal(accepted?.homeWinProbability, 0.52);
+});
+
+test("a game-sim response that resolves after abort is not cached", async () => {
+  clearCoachContextCache();
+  const fp = "ppg-per-drive-v1|abort-late";
+  const ac = new AbortController();
+  let release: (value: { engineVersion: string; simulations: number }) => void = () => {};
+  const pending = withCoachGameSimCache(
+    fp,
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    ac.signal,
+  );
+  ac.abort();
+  release({ engineVersion: "ppg-per-drive-v1", simulations: 10_000 });
+  await assert.rejects(pending);
+  assert.equal(peekCoachGameSimCache(fp), undefined);
+  assert.equal(coachCacheSnapshot().gameSimEntries, 0);
 });

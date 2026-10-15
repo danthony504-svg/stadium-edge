@@ -996,6 +996,10 @@ export async function buildCoachParlay(opts: {
   if (timed.timedOut) linked.abort();
 
   const scan = timed.scan ?? latest ?? null;
+  const propsStillPending = (s: FullBoardScanResult | null | undefined) =>
+    !!s &&
+    countPropLike(s.picks ?? []) === 0 &&
+    (!!s.awaitingPropSlots || !!s.propPhaseIncomplete);
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;

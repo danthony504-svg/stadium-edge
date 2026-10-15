@@ -274,6 +274,10 @@ export async function withCoachGameSimCache<T>(
   const promise = (async () => {
     try {
       const value = await fetcher();
+      // A response that arrives after cancellation is not a cache fill.
+      // The caller already rejected via raceAbort; storing here would let
+      // the next send grade a draw from the aborted request.
+      if (signal?.aborted) return null;
       if (value != null && accept && !accept(value)) {
         return null;
       }
