@@ -1,3 +1,4 @@
+import { FOOTBALL_DRIVE_ENGINE_VERSION } from "./sportSim/footballDriveMatchup.js";
 import { logger } from "./logger.js";
 import { runPrebuildJobs } from "./prebuildJobs.js";
 import { buildServerCompactParlayContext } from "./coachSlateContext.js";
@@ -136,6 +137,7 @@ async function runCoachSlateJobBody(started: number): Promise<{
   const snapshot: SlatePreAnalysisSnapshot = {
     at: Date.now(),
     fingerprint: computeSlateFingerprint(built),
+    simEngineStamp: FOOTBALL_DRIVE_ENGINE_VERSION,
     built,
     propSimulations: [...propSimulations.entries()],
     boardScan: boardScan.picks.length ? serializeBoardScan(boardScan) : null,

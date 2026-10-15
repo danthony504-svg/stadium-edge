@@ -1,6 +1,6 @@
 /**
  * Football (NFL/NCAAF) matchup helpers for drive sims.
- * - Soft scoring-rate map (monotonic above the old hard caps)
+ * - Points per game → shared drive count → points per drive
  * - Defense yards-allowed tilt into opposing offense means
  * - Sparse venue-split blend with L10
  *
@@ -20,70 +20,162 @@ export type DefenseAllowedSlice = {
   passSampleSize?: number | null;
 };
 
-/** Former hard TD/FG caps — retained as soft knees, not flat ceilings. */
+/**
+ * Engine id baked into sim cache fingerprints. Bump when the points-per-drive
+ * conversion changes so stored draws and derived grades cannot be reused.
+ */
+export const FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1";
+
+/**
+ * Former hard TD/FG caps from the points-per-game-as-points-per-drive map.
+ * Kept only so older imports compile. The live map no longer uses them.
+ */
 export const FOOTBALL_DRIVE_TD_RATE_KNEE = 0.42;
 export const FOOTBALL_DRIVE_FG_RATE_KNEE = 0.28;
 export const FOOTBALL_DRIVE_TD_PPD_DIVISOR = 28;
 export const FOOTBALL_DRIVE_FG_PPD_DIVISOR = 40;
-/**
- * Absolute ceilings keep td+fg ≤ ~0.98. Must sit high enough that typical
- * FBS game means (~20–35 as rate inputs) stay below the clip after soft slope.
- */
 export const FOOTBALL_DRIVE_TD_RATE_MAX = 0.72;
 export const FOOTBALL_DRIVE_FG_RATE_MAX = 0.30;
-/** Slope retained above the knee so +3 ppg still moves rates. */
 export const FOOTBALL_DRIVE_SOFT_SLOPE = 0.5;
+
 /**
- * College game means are fed on the same scale as NFL but produce inflated
- * scores if used raw. Compress NCAAF rate inputs toward the sensitive band.
+ * Retired. Multiplying college points-per-game by 0.48 compensated for feeding
+ * that game mean into a per-drive rate map. The live path divides by drive
+ * count instead. Do not apply this scale.
  */
 export const FOOTBALL_COLLEGE_RATE_INPUT_SCALE = 0.48;
 
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+/** One extra-point attempt per touchdown. Expected points, not a price. */
+export const FOOTBALL_NFL_EXTRA_POINT_EXPECTED = 0.94;
+export const FOOTBALL_NCAAF_EXTRA_POINT_EXPECTED = 0.94;
 
 /**
- * Soft rate map: linear below the former hard-cap knee, then compressed but
- * strictly increasing so offense/QB shocks remain sensitive until the absolute
- * ceiling (kept high enough for FBS means after college scaling).
+ * Share of a drive's expected points that come from touchdowns (6 plus the
+ * extra point). The rest are field goals. A structural split, not a market fit.
  */
-export function footballDriveScoringRates(ppd: number): {
-  tdRate: number;
-  fgRate: number;
-} {
+export const FOOTBALL_TD_POINT_SHARE = 0.75;
+
+/** tdRate + fgRate stay mutually exclusive and leave room for a non-scoring drive. */
+export const FOOTBALL_DRIVE_SCORE_RATE_CAP = 0.98;
+
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+export function isCollegeFootballSport(sport: string): boolean {
+  const s = String(sport ?? "").toLowerCase();
+  return s === "ncaaf" || s === "cfb" || s.includes("ncaaf");
+}
+
+/** Points awarded once per scoring event. A touchdown includes one extra point. */
+export function footballDrivePoints(sport: string): { tdPoints: number; fgPoints: number } {
+  const xp = isCollegeFootballSport(sport)
+    ? FOOTBALL_NCAAF_EXTRA_POINT_EXPECTED
+    : FOOTBALL_NFL_EXTRA_POINT_EXPECTED;
+  return { tdPoints: 6 + xp, fgPoints: 3 };
+}
+
+/**
+ * Shared drive count for both teams. Pace rises slowly with combined
+ * points-per-game. NFL and NCAAF keep distinct scales.
+ */
+export function footballExpectedDrives(
+  homePointsPerGame: number,
+  awayPointsPerGame: number,
+  sport: string,
+): number {
+  const college = isCollegeFootballSport(sport);
+  const driveScale = college ? 70 : 55;
+  const driveBase = 10;
+  const sum =
+    (Number.isFinite(homePointsPerGame) ? Math.max(0, homePointsPerGame) : 0) +
+    (Number.isFinite(awayPointsPerGame) ? Math.max(0, awayPointsPerGame) : 0);
+  return Math.max(6, Math.round(driveBase + sum / driveScale));
+}
+
+/** Drives on which the late-clock touchdown roll can fire (`d > drives * 0.7`). */
+export function footballLateClockDriveCount(drives: number): number {
+  const n = Math.max(0, Math.round(drives));
+  let late = 0;
+  for (let d = 0; d < n; d++) {
+    if (d > n * 0.7) late += 1;
+  }
+  return late;
+}
+
+/**
+ * Expected points from the late-clock touchdown, funded out of the
+ * points-per-game budget so those scores are not added a second time.
+ * Trailing probability is the opponent's share of the two game means.
+ */
+export function footballLateClockPointsBudget(opts: {
+  drives: number;
+  ownPointsPerGame: number;
+  opponentPointsPerGame: number;
+  lateClockTd: number;
+  tdPoints: number;
+}): number {
+  const late = footballLateClockDriveCount(opts.drives);
+  const own = Number.isFinite(opts.ownPointsPerGame) ? Math.max(0, opts.ownPointsPerGame) : 0;
+  const opp = Number.isFinite(opts.opponentPointsPerGame)
+    ? Math.max(0, opts.opponentPointsPerGame)
+    : 0;
+  const total = Math.max(0.01, own + opp);
+  const pTrail = clamp(opp / total, 0.05, 0.85);
+  const p = Number.isFinite(opts.lateClockTd) ? Math.max(0, opts.lateClockTd) : 0;
+  const td = Number.isFinite(opts.tdPoints) ? Math.max(0, opts.tdPoints) : 0;
+  return late * pTrail * p * td;
+}
+
+/**
+ * Points per drive from a points-per-game mean and the drive count that will
+ * actually be simulated. Same units for NFL and NCAAF.
+ */
+export function footballDriveRateInput(
+  pointsPerGame: number,
+  drives: number,
+  _sport?: string,
+): number {
+  const ppg = Number.isFinite(pointsPerGame) ? Math.max(0, pointsPerGame) : 0;
+  const n = Math.max(1, drives);
+  return ppg / n;
+}
+
+/**
+ * Mutually exclusive TD and FG probabilities for one drive.
+ * `ppd` is points per drive. Expected points are
+ * `tdRate * (6 + extra point) + fgRate * 3`, equal to `ppd` until the
+ * joint ceiling. A drive cannot score both.
+ */
+export function footballDriveScoringRates(
+  ppd: number,
+  sport = "nfl",
+): { tdRate: number; fgRate: number } {
   const safe = Number.isFinite(ppd) ? Math.max(0, ppd) : 0;
-  const tdLinear = safe / FOOTBALL_DRIVE_TD_PPD_DIVISOR;
-  const fgLinear = safe / FOOTBALL_DRIVE_FG_PPD_DIVISOR;
-
-  const soft = (linear: number, knee: number, max: number): number => {
-    if (linear <= knee) return clamp(linear, 0, max);
-    const excess = linear - knee;
-    return clamp(knee + excess * FOOTBALL_DRIVE_SOFT_SLOPE, 0, max);
-  };
-
-  const tdRate = soft(tdLinear, FOOTBALL_DRIVE_TD_RATE_KNEE, FOOTBALL_DRIVE_TD_RATE_MAX);
-  // Keep td+fg ≤ 0.98 so driveOutcome probabilities stay valid.
-  const fgCap = Math.min(FOOTBALL_DRIVE_FG_RATE_MAX, Math.max(0, 0.98 - tdRate));
-  const fgRate = Math.min(
-    soft(fgLinear, FOOTBALL_DRIVE_FG_RATE_KNEE, FOOTBALL_DRIVE_FG_RATE_MAX),
-    fgCap,
-  );
-
+  const { tdPoints, fgPoints } = footballDrivePoints(sport);
+  let tdRate = tdPoints > 0 ? (FOOTBALL_TD_POINT_SHARE * safe) / tdPoints : 0;
+  let fgRate = fgPoints > 0 ? ((1 - FOOTBALL_TD_POINT_SHARE) * safe) / fgPoints : 0;
+  const sum = tdRate + fgRate;
+  if (sum > FOOTBALL_DRIVE_SCORE_RATE_CAP && sum > 0) {
+    const scale = FOOTBALL_DRIVE_SCORE_RATE_CAP / sum;
+    tdRate *= scale;
+    fgRate *= scale;
+  }
   return { tdRate, fgRate };
 }
 
-/** Scale game-mean rate input for college so FBS sits in the sensitive band. */
-export function footballDriveRateInput(offenseMean: number, sport: string): number {
-  const safe = Number.isFinite(offenseMean) ? Math.max(0, offenseMean) : 0;
-  const s = String(sport ?? "").toLowerCase();
-  if (s === "ncaaf" || s === "cfb" || s.includes("ncaaf")) {
-    return safe * FOOTBALL_COLLEGE_RATE_INPUT_SCALE;
-  }
-  return safe;
+/** Expected points from one drive before the late-clock add. */
+export function footballExpectedPointsPerDrive(ppd: number, sport = "nfl"): number {
+  const { tdRate, fgRate } = footballDriveScoringRates(ppd, sport);
+  const { tdPoints, fgPoints } = footballDrivePoints(sport);
+  return tdRate * tdPoints + fgRate * fgPoints;
 }
 
-/** True when ppd is past the former hard-cap knee (rates still move, slowly). */
-export function footballDriveRatesPastKnee(ppd: number): boolean {
-  return ppd / FOOTBALL_DRIVE_TD_PPD_DIVISOR >= FOOTBALL_DRIVE_TD_RATE_KNEE;
+/** True when the joint TD+FG ceiling is binding (absurd points-per-drive). */
+export function footballDriveRatesPastKnee(ppd: number, sport = "nfl"): boolean {
+  const safe = Number.isFinite(ppd) ? Math.max(0, ppd) : 0;
+  const { tdPoints, fgPoints } = footballDrivePoints(sport);
+  const td = tdPoints > 0 ? (FOOTBALL_TD_POINT_SHARE * safe) / tdPoints : 0;
+  const fg = fgPoints > 0 ? ((1 - FOOTBALL_TD_POINT_SHARE) * safe) / fgPoints : 0;
+  return td + fg >= FOOTBALL_DRIVE_SCORE_RATE_CAP - 1e-9;
 }
 
 /**

@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-10-15T15:11:01.596655+00:00",
+  "correctedDocCommit": "2c13a3ba77c3d3df9053b968bc463956d69f1d6f",
+  "legacyCommit": "013ddb88",
+  "identicalPrep": "same ncaaf-phase-e-games.json, walkHoldoutGames, blendVenueAndL10, mulberry32 primary seed 20241015, NCAAF_PHASE_E_SIMS=10000",
+  "tip": {
+    "engine": "nfl-drive:ppg-per-drive-v1",
+    "generatedAt": "2026-10-15T14:58:33.335Z",
+    "n": 865,
+    "sims": 10000,
+    "seed": 20241015,
+    "meanP": 0.6739734104046247,
+    "meanY": 0.6369942196531792,
+    "brier": 0.19859952716763005,
+    "dogN": 111,
+    "dogCover": 0.6756756756756757,
+    "E2": "PASS",
+    "inputUnits": "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are "
+  },
+  "legacy013": {
+    "engine": "nfl-drive:pre-ppg-per-drive-013ddb88",
+    "generatedAt": "2026-10-15T15:11:01.523Z",
+    "n": 865,
+    "sims": 10000,
+    "seed": 20241015,
+    "meanP": 0.657035838150289,
+    "meanY": 0.6369942196531792,
+    "brier": 0.1985305225433524,
+    "dogN": 137,
+    "dogCover": 0.6934306569343066,
+    "E2": "PASS",
+    "inputUnits": "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are "
+  },
+  "delta": {
+    "meanP": 0.016937572254335675,
+    "meanY": 0.0,
+    "brier": 6.900462427764098e-05,
+    "dogCover": -0.017754981258630953
+  },
+  "livePathSmoke": {
+    "013_ncaaf28_rateFedToMap": 13.44,
+    "013_projectedNear42": true,
+    "tip_ppg_div_drives": true
+  },
+  "explanation": "013ddb88 feeds points-per-game (x0.48 NCAAF) into the per-drive rate map (28 PPG -> 13.44 rate; projected means near 42+). Tip/2c13a3ba divides PPG by shared drive count and does not multiply by 0.48. Same fixtures, form walk, primary seed, 10000 sims."
+}

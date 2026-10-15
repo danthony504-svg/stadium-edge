@@ -1,0 +1,100 @@
+{
+  "tipSha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a",
+  "ask": "8 leg broncos",
+  "game": "Seattle Seahawks @ Denver Broncos",
+  "singleEventActive": true,
+  "activationReason": "team_game_scope",
+  "caps": {
+    "maxProps": 6,
+    "maxGameEventLines": 4
+  },
+  "legs": [
+    {
+      "i": 1,
+      "market": "Alt Spread",
+      "pick": "Seahawks +1.5",
+      "isProp": false,
+      "ladderKey": "seahawks|broncos|spread|seahawks",
+      "playerKey": null,
+      "period": "fg"
+    },
+    {
+      "i": 2,
+      "market": "Rec Yds",
+      "pick": "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+      "isProp": true,
+      "ladderKey": "seahawks|broncos|prop|jaxon smith njigba|rec yds|over",
+      "playerKey": "jaxon smith njigba",
+      "period": "fg"
+    },
+    {
+      "i": 3,
+      "market": "Receptions",
+      "pick": "Tory Horton Over 0.5 Receptions",
+      "isProp": true,
+      "ladderKey": "seahawks|broncos|prop|tory horton|receptions|over",
+      "playerKey": "tory horton",
+      "period": "fg"
+    },
+    {
+      "i": 4,
+      "market": "Rush Yds",
+      "pick": "George Holani Over 13.5 Rush Yds",
+      "isProp": true,
+      "ladderKey": "seahawks|broncos|prop|george holani|rush yds|over",
+      "playerKey": "george holani",
+      "period": "fg"
+    },
+    {
+      "i": 5,
+      "market": "Pass TDs",
+      "pick": "Sam Darnold Over 1.5 Pass TDs",
+      "isProp": true,
+      "ladderKey": "seahawks|broncos|prop|sam darnold|pass tds|over",
+      "playerKey": "sam darnold",
+      "period": "fg"
+    },
+    {
+      "i": 6,
+      "market": "Longest Reception",
+      "pick": "Rashid Shaheed Over 14.5 Longest Reception",
+      "isProp": true,
+      "ladderKey": "seahawks|broncos|prop|rashid shaheed|longest reception|over",
+      "playerKey": "rashid shaheed",
+      "period": "fg"
+    },
+    {
+      "i": 7,
+      "market": "Receptions",
+      "pick": "Emanuel Wilson Under 1.5 Receptions",
+      "isProp": true,
+      "ladderKey": "seahawks|broncos|prop|emanuel wilson|receptions|under",
+      "playerKey": "emanuel wilson",
+      "period": "fg"
+    }
+  ],
+  "delivered": {
+    "n": 7,
+    "propCount": 6,
+    "glCount": 1,
+    "periodCount": 0
+  },
+  "proofs": {
+    "withinMaxProps": true,
+    "withinMaxGameEventLines": true,
+    "allLaddersDistinct": true,
+    "noRepeatPlayerProp": true,
+    "noRepeatLadderWalk": true,
+    "livePipelineSeated": true,
+    "note": "Single-event caps SINGLE_EVENT_CAPS[8] apply for team-scoped asks; multi-game maxPropsPerGame(8)=2 does not."
+  },
+  "engine": {
+    "server": "ppg-per-drive-v1",
+    "client": "ppg-per-drive-v1",
+    "ncaaf28ppd": 2.5454545454545454,
+    "drives": 11,
+    "notTimes048": true,
+    "NCAAF_GAME_LINE_SIM_VALIDATED": false
+  },
+  "pass": true
+}

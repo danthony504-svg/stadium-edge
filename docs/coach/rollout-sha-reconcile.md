@@ -1,67 +1,86 @@
-# Rollout SHA reconcile (PR #736 / Build78 fixpack)
+# Rollout SHA reconcile (PR #736 / Build78 fixpack + football-unit port)
 
-**Reviewed SHA (exact):** `51dbf516807c0a1a7aabc7a2cb1ee4c8929685b1`
+**Reviewed tip (exact):** `ddeb4733348b98d7112748edc19c7e06fc6fc99a` (functional: null-note + period seal + broncos regression + calib port). Docs/artifact pins may sit atop this on the branch.
 
-This is the single install/review tip on `cursor/build78-fixpack-def8`. Do not treat `e6c8bb60` or `576578cd` alone as the install SHA — both are ancestors of this tip.
+Functional baseline before the port: `013ddb88` (null-note fix + isolated pipeline/cancel).  
+Football-unit pack source: PR **#738** tip `e3b4dc81` (`cursor/nfl-spread-ml-scoring-hang-b9b4`).  
+Corrected drive-unit measurement docs: `2c13a3ba` (ppg→ppd; college ×0.48 retired from live path).
 
 ## 1. SHA relationship
 
 | SHA | Role |
 |-----|------|
 | `057c9f0d…` | **Installed preview-build78 IPA** baseline (EAS `9155c37b`, runtime `1.1.0`, channel `preview`, no `ClerkExpoPasskeys`) |
-| `4738df08` | Football-unit college sim: soft ppd rates, defense tilt, college scale; P0 stays armed |
-| `e6c8bb60` | Docs tip (EXPO_TOKEN saved-vs-injection). Ancestor of HEAD. Strip tooling had drifted vs IPA |
-| `576578cd` | Restores IPA-matching strip/`associatedDomains` omit; records installed binary. **Superset of `e6c8bb60`** (`e6c8bb60` + 1 commit) |
-| **`51dbf516` (this tip)** | `576578cd` + null-note crash fix + isolated pipeline/cancel evidence |
+| `4738df08` | Soft drive rates / defense tilt precursor (not yet `ppg-per-drive-v1`) |
+| `e6c8bb60` | Docs tip (EXPO_TOKEN). Ancestor of fixpack tip |
+| `576578cd` / `013ddb88` | Fixpack tip before football-unit port — **still applies NCAAF ×0.48 and feeds PPG as PPD** |
+| `6f18926b` → `2c13a3ba` | Corrected ppg→ppd conversion; ×0.48 retired from live path; 10k holdout docs |
+| `e3b4dc81` | PR #738 — named football-unit pack (ppg-v1, stamp, seal, parse, null-note, deadline, seeded calib) |
+| **`ddeb4733` (functional tip)** | `013ddb88` lineage **+** football-unit pack **+** null-note trim fix **+** period partial seal **+** 8-leg broncos regression **+** calib port |
 
-**Football-unit lineage on tip:** previously tested college/drive work enters via `4738df08` (ancestor of `e6c8bb60` / `576578cd`). Side-rank / underdog commits (`c954be30`, `8448b29d`) sit between `4738df08` and `e6c8bb60`.
+## 2. Engine proof: `013ddb88` vs `2c13a3ba` (label alone insufficient)
 
-## 2. Retention checklist (present on reviewed tip)
+Artifact: `artifacts/api-server/test/fixtures/drive-engine-commit-compare.json`
+
+| Check | `013ddb88` | `2c13a3ba` / tip |
+|-------|------------|------------------|
+| `FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1"` | **absent** | present |
+| Live caller | `footballDriveRateInput(homeOff, sport)` | `footballExpectedDrives` then `footballDriveRateInput(ppg − late, drives, sport)` |
+| Conversion | feeds **PPG** (college ×**0.48**) into per-drive map | **`ppg / drives`**; scale constant exported but **not multiplied** |
+| NCAAF 28/24 example rate fed to map | home **13.44** (=28×0.48) | home **≈2.545** (=28/11) |
+
+Dual fixed-seed 10k holdout (primary seed `20241015`, identical fixtures + `blendVenueAndL10` walk): `dual-commit-holdout-compare.json`
+
+| | Tip `ppg-per-drive-v1` | Legacy `013ddb88` |
+|--|----------------------|-------------------|
+| meanP / meanY | **0.6740 / 0.6370** | **0.6570 / 0.6370** |
+| Brier | 0.19860 | 0.19853 |
+| Dog cover (0.45–0.55) | **0.6757** (n=111) | **0.6934** (n=137) |
+| Live smoke | `ppg/drives` | NCAAF 28 → rate **13.44** (=×0.48); proj ~42+ |
+
+Δ meanP (tip − legacy) ≈ **+0.017**. Same seed/fixtures; difference is the conversion path.
+
+## 3. Retention checklist
 
 | Protection | Marker | Status |
 |------------|--------|--------|
-| **ppg-per-drive-v1** | `footballDriveScoringRates` / `FOOTBALL_DRIVE_*_PPD_DIVISOR` (ppd÷28 / ÷40 soft map) in `footballDriveMatchup.ts` | **Retained** — `nflDriveSimCaps` + `ncaafGameLineSimValidation` PASS |
-| **engine-stamp rejection** | `assessSimMarketIntegrity` / `sanitizeSimHitForGrade` → `[coach-sim-integrity]` reject | **Retained** — rejects unvalidated period/team totals (`unvalidated_period_or_team_total_calibration`) |
-| **period sealing/blocking** | P0 period markets + `fillReservedPeriodSlots` NCAAF period block + post-lean period block | **Retained** — `coachP0UnvalidatedTotals` + `postLeanFinalFill` / board-scan period tests |
-| **request parsing** | `parseCoachAskMarketConstraint` | **Retained** — Coach QA / ask-filter suites |
-| **null-note handling** | `sanitizeCoachUserNote(null)` + `buildParlay` null-safe note join | **Retained + fixed** — tip crashed on `built.note.trim()` when `note === null`; now `(built.note ?? "").trim()` |
-| **unified deadline** | `coachAbsoluteBudgetMs` (5→75s, 6→90s, …) | **Retained** — `coach/session.test.ts` PASS |
+| **ppg-per-drive-v1** | `FOOTBALL_DRIVE_ENGINE_VERSION` + `ppg/drives` caller | **Retained** — unit + compare proof |
+| **engine-stamp rejection** | `gameDrawEngineAccepted` / `simEngineStamp` | **Retained** |
+| **period sealing/blocking** | seal + `unvalidated_period_full_game_decomposition` + partial `revalidateDeliveryPicks` | **Retained / tightened** |
+| **request parsing** | `asksFullGameSidesOnly` + `fullGameOnly` | **Retained** |
+| **null-note handling** | `joinCoachNoteParts` (no `.trim()` on null `built.note`) | **Retained / fixed** |
+| **unified deadline** | `coachRequestDeadlineMs` ≡ absolute ≡ live terminal | **Retained** |
 
-`NCAAF_GAME_LINE_SIM_VALIDATED = false` — **P0 remains armed**.
+`NCAAF_GAME_LINE_SIM_VALIDATED = false` — **P0 remains armed**. Unsupported period markets stay blocked.
 
-## 3. meanP / meanY: 0.674/0.637 vs 0.495/0.608
+## 4. Device ask regressions (isolated full pipeline)
 
-| | ~0.674 / ~0.637 | 0.495 / 0.608 (canonical E2a) |
-|--|-----------------|--------------------------------|
-| **Engine** | Not reproducible as a checked-in E2a report on this branch | Coach `nfl-drive` via `ncaafPhaseEHoldoutCalibration.ts` |
-| **Dataset** | meanY≈0.637 matches **raw 2024 population** home-win rate in `ncaaf-phase-e-games.json` (871 decisive games → **0.638**) | **Form-filtered 2024 holdout** only (need ≥2 L10 samples): **n=796**, skip thin=75 → meanY **0.608** |
-| **Inputs** | Unknown / not archived | L10 ptsFor/ptsAgainst walk-forward; college rate scale **0.48**; soft TD/FG knees; **no** defense packs in holdout script |
-| **Seed** | Unknown | `Math.random` (no fixed seed); sims/game **1500** in fixture report |
-| **Commit / artifact** | **No git artifact** with meanP≈0.674 paired to meanY≈0.637 | Commit **`8266280b`** wrote `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.json` (generatedAt 2026-10-14) |
+Artifact: `artifacts/api-server/test/fixtures/coach-pipeline-cancel-isolated.json`  
+Client tip: `ddeb4733` (+ docs). Isolated sim: same functional tip. Production healthz (unchanged): `cf6c0f69`.
 
-**Verdict:** **Different test / Y-universe**, not a same-harness regression.
+| Ask | Runtime | Legs | Period in partial/final | Null-note | Notes |
+|-----|---------|------|-------------------------|-----------|-------|
+| **8 leg broncos** | ~5.6s | 7 (honest shortfall) | **none** | **safe** | Matchup scope = entire SEA@DEN game (Seahawks sides/props allowed; other NFL games excluded) |
+| **4 leg NFL spreads and moneylines for upcoming games.** | ~7.2s | 1 (honest shortfall) | **none** | **safe** | `fullGameOnly`; delivered FG Alt Spread only |
+| Cancel `8 leg broncos` @ 2.5s | ~2.5s | aborted | — | — | **PASS** cleanup |
 
-- Re-running E2a on tip still yields meanP≈0.49, meanY=0.608 (bias FAIL) — college scale off (NFL path) yields meanP≈0.44, **not** 0.674.
-- The ~0.637 figure is the **unfiltered 2024 base rate**; E2a's 0.608 is the **scored subset**. Treat 0.495/0.608 as the only authoritative Phase E number on this SHA. Keep restore **blocked**.
+Physical-device React UI: **PENDING**. Publication: **pending review** (no OTA / native / prod).
 
-## 4. Isolated Coach pipeline + cancellation
+## 5. Server-first / preview-OTA readiness
 
-Isolated tip-SHA sim server: `artifacts/api-server/scripts/isolatedCoachSimServer.mjs` (no `DATABASE_URL`; mounts simulate* from this checkout).  
-Harness: `artifacts/stadium-mobile/scripts/isolatedCoachPipelineCancel.ts` (rewrites `/sports/simulate*` → local; odds/board from Render).
+| Item | Status |
+|------|--------|
+| IPA baseline | `057c9f0d` / EAS `9155c37b` / runtime `1.1.0` / channel `preview` |
+| Tip vs IPA natives | Compatible → **JS/OTA + server-first** (no new native build) |
+| Production freeze | **armed** |
+| NCAAF / unsupported periods | **blocked** |
+| Rollout | **Ready for preview-OTA review only** — not production publish |
 
-Evidence: `artifacts/api-server/test/fixtures/coach-pipeline-cancel-isolated.json`
+## 6. Freeze / non-goals
 
-| Track | Result |
-|-------|--------|
-| Full pipeline `5 leg` | **PASS** terminal (5 legs) after null-note fix |
-| College `6 leg college` | **PASS** terminal; 0 legs + P0/shortfall copy (expected while flag false) |
-| Cancellation (abort @2.5s) | **PASS** (`abortedSignal=true`, runtime≈2.5s) |
-| Physical-device React UI | **PENDING** (explicit) |
+- No merge to main, deploy, production OTA, native build, or device registration in this turn
+- Publication stays pending review
 
-Production deploy SHA at test time (`/api/healthz`): `cf6c0f69…` — **does not** include `4738df08` college sim; tip engine exercised only via isolated sim rewrite.
+## Preview-OTA review pack
 
-## 5. Freeze / non-goals
-
-- Production freeze armed (`.ota-production-freeze`)
-- No merge, deploy, OTA, native build, or device registration in this reconcile
-- Expo-token injection not required for these code/test results
+See `docs/coach/preview-ota-rollout-review.md` (prepare only; do not execute).

@@ -61,6 +61,15 @@ export const P0_UNVALIDATED_NCAAF_GAME_LINE_REASON =
 export const P0_UNVALIDATED_UNKNOWN_SPORT_GAME_LINE_REASON =
   "unvalidated_unknown_sport_game_line";
 
+/**
+ * Quarters, halves, periods, and innings are a share of the full-game draw
+ * (flat fraction or ESPN period averages). distributionForQuery reads that
+ * same full-game series. Neither path is a period simulation, and a posted
+ * price is not a validity check. Naming the period does not clear this gate.
+ */
+export const P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON =
+  "unvalidated_period_full_game_decomposition";
+
 export type CoachSportResolveInput = {
   sport?: string | null;
   /** Trusted Odds API / event sport when pick.sport is missing. */
@@ -99,22 +108,50 @@ export function resolveCoachPickSport(pick: CoachSportResolveInput): string {
   );
 }
 
-/** Lightweight period detect — mirrors parseMarketPeriod for totals only. */
+/**
+ * Lightweight period detect — same non-fg scopes as parseMarketPeriod.
+ * Standalone so this module does not import simMarketSupport.
+ * Odds API keys (`spreads_q3`, `totals_1st_5_innings`) are normalized first.
+ * Any numbered inning is a period even when the sim has no scope for it, so
+ * it cannot grade as a full-game side.
+ */
 function marketPeriodIsFullGame(market: string): boolean {
-  const m = market.toLowerCase();
-  if (/\bq[1-4]\b|first quarter|1st quarter|second quarter|2nd quarter|third quarter|3rd quarter|fourth quarter|4th quarter/.test(m)) {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!m) return true;
+  if (
+    /\bq[1-4]\b|first quarter|1st quarter|second quarter|2nd quarter|third quarter|3rd quarter|fourth quarter|4th quarter/.test(
+      m,
+    )
+  ) {
     return false;
   }
-  if (/\b1h\b|\b2h\b|h1|h2|first half|1st half|second half|2nd half/.test(m)) {
+  if (/\b(?:1h|h1|2h|h2)\b|first half|1st half|second half|2nd half/.test(m)) {
     return false;
   }
-  if (/\bf5\b|first 5|1st 5|five innings|1st inning|first inning/.test(m)) {
+  if (/\bf5\b|first 5|1st 5|five innings|first five innings/.test(m)) {
     return false;
   }
-  if (/\b1p\b|\b2p\b|\b3p\b|first period|1st period|second period|2nd period|third period|3rd period/.test(m)) {
+  if (/\b1st 1 innings?\b|\b1st inning\b|first inning/.test(m)) {
     return false;
   }
-  if (/_(q[1-4]|h[12]|p[123])\b/i.test(m)) return false;
+  if (
+    /\b(?:2nd|3rd|4th|5th|6th|7th|8th|9th|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\s+inning\b/.test(
+      m,
+    )
+  ) {
+    return false;
+  }
+  if (
+    /\b(?:1p|p1|2p|p2|3p|p3)\b|first period|1st period|second period|2nd period|third period|3rd period/.test(
+      m,
+    )
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -255,11 +292,117 @@ export function p0UnvalidatedNcaafGameLineDecision(
   return { accept: false, reason: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON };
 }
 
-/** Combined P0 reject for totals + unvalidated NCAAF/unknown-sport game lines. */
+/**
+ * True for quarter / half / period / inning sides and totals.
+ * Player props stay out. Full-game markets stay out.
+ */
+export function isUnvalidatedPeriodDecompositionMarket(pick: P0PickInput): boolean {
+  const market = String(pick.market ?? "");
+  if (!market) return false;
+  if (isPlayerPropMarketIdentity(market, { propMarketKey: pick.propMarketKey })) {
+    return false;
+  }
+  if (marketPeriodIsFullGame(market)) return false;
+  // Odds API keys keep underscores (`totals_1st_1_innings`). Side detection
+  // already normalizes those; total detection must see the same text.
+  const normalized = market.toLowerCase().replace(/_/g, " ");
+  return (
+    isGameLineSideMarket(market) ||
+    isTeamTotalMarket(market) ||
+    isTeamTotalMarket(normalized) ||
+    isGameTotalMarket(market) ||
+    isGameTotalMarket(normalized)
+  );
+}
+
+export function p0UnvalidatedPeriodDecompositionDecision(
+  pick: P0PickInput,
+): { accept: false; reason: string } | null {
+  if (!isUnvalidatedPeriodDecompositionMarket(pick)) return null;
+  return { accept: false, reason: P0_UNVALIDATED_PERIOD_DECOMPOSITION_REASON };
+}
+
+/**
+ * Combined P0 reject for totals, unvalidated NCAAF/unknown-sport game lines,
+ * and period markets graded from a full-game decomposition.
+ */
 export function p0UnvalidatedSimDecision(
   pick: P0PickInput,
 ): { accept: false; reason: string } | null {
-  return p0UnvalidatedSimTotalDecision(pick) ?? p0UnvalidatedNcaafGameLineDecision(pick);
+  return (
+    p0UnvalidatedSimTotalDecision(pick) ??
+    p0UnvalidatedNcaafGameLineDecision(pick) ??
+    p0UnvalidatedPeriodDecompositionDecision(pick)
+  );
+}
+
+/**
+ * True when a game-lines-only ask is locked exclusively to NCAAF (or aliases)
+ * while NCAAF_GAME_LINE_SIM_VALIDATED is false — every FG side/total the scan
+ * would seat is P0-blocked, so running slate sims only burns wall clock.
+ *
+ * Props-only / mixed-sport / unlocked boards return false so eligible sims still run.
+ */
+export function ncaafGameLineAskIsP0Blocked(opts: {
+  gameLinesOnly: boolean;
+  lockedSports: readonly string[] | null | undefined;
+}): boolean {
+  if (NCAAF_GAME_LINE_SIM_VALIDATED) return false;
+  if (!opts.gameLinesOnly) return false;
+  const sports = (opts.lockedSports ?? [])
+    .map((s) => String(s ?? "").toLowerCase().trim())
+    .filter(Boolean)
+    .map((s) => (NCAAF_SPORT_ALIASES.has(s) ? "ncaaf" : s));
+  if (sports.length === 0) return false;
+  return sports.every((s) => P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(s));
+}
+
+/** User-facing note when a college game-line ask is P0-blocked before scan. */
+export function p0BlockedNcaafGameLineAskNote(requestedLegs: number): string {
+  const n = Math.max(0, Math.floor(requestedLegs));
+  return (
+    `College football (NCAAF) full-game spreads, moneylines, and totals are temporarily ` +
+    `blocked while the game-line simulation is unvalidated (Phase E). ` +
+    `You asked for ${n} legs of those markets — no ticket was built, and no other sports ` +
+    `were used to fill. Ask for college player props (for example receiving yards) if you ` +
+    `want a scanned NCAAF ticket, or pick another sport.`
+  );
+}
+
+/**
+ * True when every posted game-line candidate is P0-blocked (sides and/or totals).
+ * Empty candidate lists return false — that is a thin board, not a P0 gate.
+ * Used for gameLinesOnly scans so NFL/NHL (open sides) still sim, while a board
+ * that only offers blocked markets exits without slate Monte Carlo.
+ */
+export function gameLineCandidatesFullyP0Blocked(
+  candidates: readonly P0PickInput[],
+): boolean {
+  if (!candidates.length) return false;
+  return candidates.every((c) => !!p0UnvalidatedSimDecision(c));
+}
+
+/** User note when the loaded game-line board is entirely P0-blocked. */
+export function p0BlockedGameLineBoardNote(opts: {
+  requestedLegs: number;
+  candidateCount: number;
+  sports?: readonly string[] | null;
+}): string {
+  const n = Math.max(0, Math.floor(opts.requestedLegs));
+  const sports = [...new Set((opts.sports ?? []).map((s) => String(s).toLowerCase()).filter(Boolean))];
+  const sportLabel =
+    sports.length === 1
+      ? sports[0]!.toUpperCase()
+      : sports.length > 1
+        ? sports.map((s) => s.toUpperCase()).join("/")
+        : "this board";
+  return (
+    `${sportLabel} markets on the loaded board are temporarily blocked while their ` +
+    `simulation grades stay unvalidated (${opts.candidateCount} posted line` +
+    `${opts.candidateCount === 1 ? "" : "s"} checked). ` +
+    `You asked for ${n} legs — no ticket was built, and no other sports were used to fill. ` +
+    `Player props or validated game sides for other leagues remain eligible when you ask for them.`
+  );
 }
 
 function teamNickFromTotalPick(pickText: string): string {
