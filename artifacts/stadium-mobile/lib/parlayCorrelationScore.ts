@@ -94,6 +94,33 @@ export function isThinPropStatMarket(market: string): boolean {
   return THIN_PROP_MARKET_RE.test(market.toLowerCase());
 }
 
+/** QB pass-TD props — positively dependent with same-game receiving volume. */
+export function isPassTdPropMarket(market: string): boolean {
+  return /\bpass(?:ing)?\s*tds?\b|\bpassing touchdowns?\b/i.test(String(market ?? ""));
+}
+
+/** Receiving props that rise with pass-TD outcomes (soft dependence only). */
+export function isReceivingPropMarket(market: string): boolean {
+  const m = String(market ?? "").toLowerCase();
+  if (/\bpass(?:ing)?\s*tds?\b|\bpassing touchdowns?\b/.test(m)) return false;
+  return (
+    /\brec(?:eption|eiving)?\s*yds?\b/.test(m) ||
+    /\breceptions?\b/.test(m) ||
+    /\blongest reception\b/.test(m) ||
+    /\breceiving touchdowns?\b/.test(m) ||
+    /\banytime\s*tds?\b/.test(m)
+  );
+}
+
+function passTdReceiverSoftBump(aMarket: string, bMarket: string): number {
+  const aPass = isPassTdPropMarket(aMarket);
+  const bPass = isPassTdPropMarket(bMarket);
+  const aRec = isReceivingPropMarket(aMarket);
+  const bRec = isReceivingPropMarket(bMarket);
+  if ((aPass && bRec) || (bPass && aRec)) return 12;
+  return 0;
+}
+
 /** Max legs of the same thin stat market on a fixed-leg ticket. */
 export function maxLegsPerThinStatMarket(target: number): number {
   if (target >= 9) return 2;
@@ -357,7 +384,8 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
         penalty += 16;
         if (leg.market.toLowerCase() === candidate.market.toLowerCase()) penalty += 10;
       } else {
-        penalty += 5;
+        // Base same-game different-player prop stack, plus Pass-TD↔receiver bump.
+        penalty += 5 + passTdReceiverSoftBump(leg.market, candidate.market);
       }
       continue;
     }

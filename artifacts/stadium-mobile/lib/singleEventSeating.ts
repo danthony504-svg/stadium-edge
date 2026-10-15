@@ -11,9 +11,14 @@ import { isAltBoardPick, isAltPropPick } from "./altLinePool.ts";
 import { askNamesTeamGame, coachAskTeamScope } from "./coachAskTeamScope.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { marketLadderKey } from "./marketLadderKey.ts";
-import { propPlayerKey } from "./parlayCorrelationScore.ts";
+import {
+  parlayCorrelationPenalty,
+  propPlayerKey,
+} from "./parlayCorrelationScore.ts";
 // wouldRepeatPlayerProp / wouldRepeatMarketLadder identities are preserved via
 // propPlayerKey + marketLadderKey Sets in the seat loop (same helpers).
+// Soft same-game stacks reuse parlayCorrelationPenalty (multi-game path) —
+// ranking demotion only; caps/ladders remain separate hard gates.
 import { explicitSingleGameIntent } from "./slate.ts";
 import {
   getSportSeatingAdapter,
@@ -172,7 +177,10 @@ type PreparedSeat<T extends SeatPick> = {
 /**
  * Seat a single-event ticket from an already-scored candidate pool.
  * Preserves wouldRepeatPlayerProp + wouldRepeatMarketLadder; never fabricates.
- * Precomputes family/ladder maps once — O(C) prepare + O(C·T) seat (T≤10).
+ * Soft correlation: reuses shared {@link parlayCorrelationPenalty} on the
+ * effective rank (rankScore − penalty). Caps / ladders / participants stay
+ * hard gates — they are not correlation modeling.
+ * Precomputes family/ladder maps once — O(C) prepare + O(C·T·T) seat (T≤10).
  */
 export function seatSingleEventTicket<T extends SeatPick>(
   ranked: Array<RankedSeat<T>>,
@@ -181,6 +189,11 @@ export function seatSingleEventTicket<T extends SeatPick>(
     eventKey: string;
     sport: string;
     existing?: readonly T[];
+    /**
+     * When false, skip soft correlation demotion (legacy / before-after proofs).
+     * Default true — production path is correlation-aware.
+     */
+    correlationAware?: boolean;
   },
 ): SingleEventSeatResult<T> {
   const caps = singleEventCapsForTarget(opts.target);
@@ -188,6 +201,7 @@ export function seatSingleEventTicket<T extends SeatPick>(
   const eventKey = canonicalGameKey(opts.eventKey);
   const existing = opts.existing ?? [];
   const out: T[] = [...existing];
+  const correlationAware = opts.correlationAware !== false;
   let limitingRule: SingleEventLimitingRule = null;
 
   const prepared: PreparedSeat<T>[] = [];
@@ -286,11 +300,36 @@ export function seatSingleEventTicket<T extends SeatPick>(
         cand.isProp && cand.participant && !usedParticipants.has(cand.participant) ? 0 : 1;
       const newFamily = cand.fam && !usedFamilies.has(cand.fam) ? 0 : 1;
       const altLast = cand.alt ? 1 : 0;
+      // Soft correlation demotion — same shared penalty as multi-game seating.
+      // O(|out|) per candidate; |out|≤10 so this is not a scan-path cost.
+      const corr = correlationAware
+        ? parlayCorrelationPenalty(
+            {
+              game: cand.row.pick.game,
+              market: cand.row.pick.market,
+              pick: cand.row.pick.pick,
+              odds: cand.row.pick.odds,
+              isProp: !!cand.row.pick.isProp,
+              player: cand.row.pick.player ?? undefined,
+              sport: cand.row.pick.sport ?? opts.sport,
+            },
+            out.map((p) => ({
+              game: p.game,
+              market: p.market,
+              pick: p.pick,
+              odds: p.odds,
+              isProp: !!p.isProp,
+              player: p.player ?? undefined,
+              sport: p.sport ?? opts.sport,
+            })),
+          )
+        : 0;
+      const effectiveScore = cand.row.rankScore - corr;
       const rank: [number, number, number, number] = [
         newParticipant,
         newFamily,
         altLast,
-        -cand.row.rankScore,
+        -effectiveScore,
       ];
       if (
         !bestRank ||

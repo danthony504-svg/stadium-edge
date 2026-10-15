@@ -47,6 +47,8 @@ export function impliedProb(odds: number): number {
 }
 
 // Combined American odds of a parlay (multiply the decimal legs).
+// Independence-assumed sportsbook payout math — NOT a dependence-adjusted
+// model probability. Same-game correlation is handled at seating, not here.
 export function parlayAmerican(legOdds: number[]): number | null {
   const valid = legOdds.filter((o) => Number.isFinite(o) && o !== 0);
   if (valid.length === 0) return null;
@@ -54,7 +56,9 @@ export function parlayAmerican(legOdds: number[]): number | null {
   return decimalToAmerican(dec);
 }
 
-// Combined implied probability of the whole parlay (0..1).
+// Product of per-leg book implied probabilities (0..1).
+// This is the independence-assumed parlay price from posted odds — NOT a
+// dependence-adjusted / joint / copula win probability. Do not present it as one.
 export function parlayImplied(legOdds: number[]): number {
   const valid = legOdds.filter((o) => Number.isFinite(o) && o !== 0);
   if (valid.length === 0) return 0;

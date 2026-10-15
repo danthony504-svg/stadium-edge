@@ -373,3 +373,29 @@ test("performance: single-event seating over 500 candidates stays sub-millisecon
   assert.ok(p50 < 25, `p50 ${p50}ms too high on 400-candidate stress`);
   assert.ok(p95 < 50, `p95 ${p95}ms too high on 400-candidate stress`);
 });
+
+test("correlationAware seating stays within same absolute stress budget", () => {
+  const game = "Vikings @ Saints";
+  const pool: BoardScoredLeg[] = [];
+  for (let i = 0; i < 200; i++) {
+    pool.push(prop(game, `Player ${i}`, i % 2 ? "Pass Yds" : "Rush Yds", 100 + i, "nfl", 500 - i));
+    pool.push(gl(game, i % 3 === 0 ? "Spread" : i % 3 === 1 ? "Total" : "Moneyline", `Side ${i}`, "nfl", 300 - i));
+  }
+  const ranked = pool.map((l) => ({ pick: l.pick, rankScore: l.rankScore }));
+  const samples: number[] = [];
+  for (let i = 0; i < 40; i++) {
+    const t0 = performance.now();
+    seatSingleEventTicket(ranked, {
+      target: 10,
+      eventKey: game,
+      sport: "nfl",
+      correlationAware: true,
+    });
+    samples.push(performance.now() - t0);
+  }
+  samples.sort((a, b) => a - b);
+  const p50 = samples[Math.floor(samples.length * 0.5)]!;
+  const p95 = samples[Math.floor(samples.length * 0.95)]!;
+  assert.ok(p50 < 25, `corr p50 ${p50}ms too high`);
+  assert.ok(p95 < 50, `corr p95 ${p95}ms too high`);
+});

@@ -29,6 +29,38 @@ test("parlayCorrelationPenalty penalizes same-game stacks", () => {
   assert.ok(parlayCorrelationPenalty(b, [a]) > parlayCorrelationPenalty(leg("C @ D", "Spread", "C +1"), [a]));
 });
 
+test("parlayCorrelationPenalty applies Pass-TD↔receiver soft bump (not hard reject)", () => {
+  const passTd = leg(
+    "Seattle Seahawks @ Denver Broncos",
+    "Pass TDs",
+    "Sam Darnold Over 1.5 Pass TDs",
+    true,
+    "Sam Darnold",
+  );
+  const receiver = leg(
+    "Seattle Seahawks @ Denver Broncos",
+    "Rec Yds",
+    "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+    true,
+    "Jaxon Smith-Njigba",
+  );
+  const rush = leg(
+    "Seattle Seahawks @ Denver Broncos",
+    "Rush Yds",
+    "George Holani Over 13.5 Rush Yds",
+    true,
+    "George Holani",
+  );
+  const spread = leg("Seattle Seahawks @ Denver Broncos", "Spread", "Seahawks +1.5");
+  const vsReceiver = parlayCorrelationPenalty(passTd, [receiver]);
+  const vsRush = parlayCorrelationPenalty(passTd, [rush]);
+  const vsSpread = parlayCorrelationPenalty(passTd, [spread]);
+  assert.equal(vsReceiver, 17); // base +5 + Pass-TD↔receiver +12
+  assert.equal(vsRush, 5);
+  assert.equal(vsSpread, 7);
+  assert.ok(vsReceiver > vsRush);
+});
+
 test("parlayCorrelationPenalty penalizes duplicate stolen bases more than duplicate strikeouts", () => {
   const sb1 = leg("A @ B", "Stolen Bases", "Player A Over 0.5 Stolen Bases", true, "Player A");
   const sb2 = leg("C @ D", "Stolen Bases", "Player C Over 0.5 Stolen Bases", true, "Player C");
