@@ -8,7 +8,9 @@
 
 ## Verdict
 
-**No Telegram page was expected.** A partial ticket with real odds and grounded picks classifies as:
+**Device event Telegram ingestion: UNVERIFIED.** Digest window (ending ~17:36Z) showed **0** legitimate underfills — no confirmed coach-events receipt for this board shortfall `requestId`.
+
+**If** the event were ingested, **no Telegram page would be expected.** A partial ticket with real odds and grounded picks classifies as:
 
 | Field | Value |
 |-------|--------|
@@ -17,7 +19,7 @@
 | Fingerprint | `coach\|parlay_underfilled\|legitimate_underfill\|fulfillment\|nfl\|parlay_build\|10\|3` |
 | `shouldAlertCoachEvent` | **`false`** (digest-only by design) |
 
-That is **legitimate shortfall**, not a pipeline failure. Monitoring rule evaluated and correctly suppressed paging.
+That path is **legitimate shortfall** (digest-only), not a pipeline failure — **but do not attribute this device shortfall to correlation** until request-linked funnel counters are retained **and** ingest receipt is confirmed.
 
 ---
 
@@ -111,7 +113,7 @@ Interpretation: the two ingested Coach rows were **fast zero-result** events (li
 | Full fill | `parlay_fulfilled` | **No** |
 | Engine-stamp fail-closed / unsupported market | Selection reject; may become sim-failure **if** all grades empty — **no dedicated Telegram category** | Indirect only |
 | Extreme model↔book disagreement (e.g. anytime TD) | Seat dampen / reject only — **diagnostic review, not auto “model error” page** | **No** |
-| Unmapped `P0_UNVALIDATED_MARKETS` | `buildCoachReliabilityBody` → `null` | **No POST** (coverage gap) |
+| `P0_UNVALIDATED_MARKETS` (policy block) | `parlay_underfilled` + `legitimate_underfill` | **No** (digest ingest; gap closed) |
 
 ---
 
@@ -125,9 +127,10 @@ Props such as Bo Nix Under 13.5 at −108 with displayed 98% hit are **extreme m
 
 | Question | Answer |
 |----------|--------|
-| Did this shortfall reach monitoring? | **If** mobile POSTed: would store as digest-only underfill. Digest at 17:36Z shows **0** legitimate underfills — **this board shortfall is not evidenced in that window**. Fast zero_results (2) did reach monitoring. |
-| Which rule? | `shouldAlertCoachEvent` in `coachReliabilitySanitize.ts` |
-| Why no alert? | **Legitimate underfill is digest-only** (by design). Not cron failure, not missing Telegram credentials (digest send OK), not healthz. |
+| Did this shortfall reach monitoring? | **UNVERIFIED** — digest at 17:36Z shows **0** legitimate underfills. Fast zero_results (2) did reach monitoring. |
+| Which rule (if ingested)? | `shouldAlertCoachEvent` → digest-only for legitimate underfill |
+| Why no alert? | Ingest **UNVERIFIED**; even if present, legitimate underfill is digest-only. Not cron/Telegram outage (digest `telegram.ok`). Not healthz. |
+| Correlation blame? | **Not allowed yet** — need request-linked funnel + confirmed receipt |
 | Monitor scheduled? | Yes — health ~90m, digest daily 13:00 UTC |
 | Telegram configured? | Yes (digest + Oct 11 probe proved delivery) — secrets not printed |
 | Pipeline failure? | **No** for 3-of-10 with odds + grounded picks |

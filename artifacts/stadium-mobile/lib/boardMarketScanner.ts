@@ -1412,7 +1412,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   // Progressive partials preserved — still awaited per batch; scoring order follows
   // gameEntries insertion order independent of Promise completion order.
   const SLATE_SIM_BATCH = 4;
-  const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+  const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target, {
+    requestId: opts.requestId ?? null,
+  });
 
   for (const [, lines] of gameEntries) {
     for (const entry of lines ?? []) {

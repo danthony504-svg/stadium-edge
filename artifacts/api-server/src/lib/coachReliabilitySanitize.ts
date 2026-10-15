@@ -312,6 +312,14 @@ export function mapScanFailureCode(code: string): {
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    // P0 policy block (e.g. unvalidated NCAAF game lines) — ingest for digest /
+    // coverage, never page as a simulation outage or honest-shortfall false alarm.
+    case "P0_UNVALIDATED_MARKETS":
+      return {
+        eventType: "parlay_underfilled",
+        failureReason: "legitimate_underfill",
+        alertable: false,
+      };
     default:
       return null;
   }

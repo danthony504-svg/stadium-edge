@@ -60,6 +60,7 @@ import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
 import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
+import { footballPropFunnelSummaryForRequest } from "@/lib/coachBoardScanManifest";
 import {
   slateAwarePrioritySports,
   sportsPresentOnSlate,
@@ -378,10 +379,9 @@ export async function buildCoachParlay(opts: {
         durationMs: Date.now() - coachRelStarted,
         realOddsAvailable: null,
         picks: [],
+        // Mapped digest-only (legitimate_underfill) — never pages as sim failure.
         scanFailureCode: "P0_UNVALIDATED_MARKETS",
         scanFailureDetail: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
-        eventType: "coach_simulation_failure",
-        failureReason: "unvalidated_simulation",
         rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
       });
       return {
@@ -1257,6 +1257,9 @@ export async function buildCoachParlay(opts: {
   });
 
   // Fire-and-forget reliability — after ticket is finalized; never awaits.
+  // Funnel counters stay request-linked; correlation attribution requires
+  // confirmed coach-events receipt (Telegram ingest may be UNVERIFIED).
+  const funnelSummary = footballPropFunnelSummaryForRequest(scan?.manifest ?? null);
   reportCoachScanReliability({
     requestId: coachRelRequestId,
     sportCategory: coachRelSport,
@@ -1269,6 +1272,7 @@ export async function buildCoachParlay(opts: {
     picks,
     timedOut: timed.timedOut,
     scanMissing: !scan,
+    rootCause: funnelSummary,
   });
 
   return {

@@ -155,6 +155,22 @@ test("mapScanFailureCode covers grounding/alt/sim/freeze", () => {
   assert.equal(mapScanFailureCode("GAME_SIMS_ALL_NULL")?.failureReason, "missing_sim_output");
   assert.equal(mapScanFailureCode("ABSOLUTE_BUDGET")?.eventType, "coach_scan_freeze");
   assert.equal(mapScanFailureCode("QUALITY_BAR_EMPTY")?.alertable, false);
+  // P0 policy block must ingest (digest) without paging as sim failure.
+  const p0 = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
+  assert.equal(p0?.eventType, "parlay_underfilled");
+  assert.equal(p0?.failureReason, "legitimate_underfill");
+  assert.equal(p0?.alertable, false);
+  assert.equal(
+    shouldAlertCoachEvent(
+      baseMeta({
+        eventType: "parlay_underfilled",
+        failureReason: "legitimate_underfill",
+        requestedLegCount: 6,
+        returnedLegCount: 0,
+      }),
+    ),
+    false,
+  );
 });
 
 test("serialize/parse coach meta has no PII fields", () => {

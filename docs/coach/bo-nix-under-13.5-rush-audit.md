@@ -4,7 +4,7 @@
 **History snapshot:** 2026-10-15 ESPN gamelog athlete `4426338`  
 **No OTA / deploy** — findings only; quality gates unchanged.
 
-This reproduces the **delivered** 98% from actual rushingYards + formulas. It does **not** tune toward −108.
+**Label:** The **98% display is an uncalibrated model estimate** from **n=5** recent games (soft-clip / opp-tilt ceiling). It is **not** a calibrated win probability and is **not** tuned toward −108 (~51.9% implied). Keep the calculation reproduction below for audit; treat the gap vs book as **diagnostic disagreement**, not proven model error.
 
 ---
 
@@ -42,19 +42,28 @@ ESPN gamelog `names` maps index 12 → `rushingYards` (not ambiguous label `YDS`
 
 ---
 
-## 3. Distribution parameters (MC, continuous Normal)
+## 3. Final distribution parameters + exact hit count
 
-| Parameter | Value |
-|-----------|--------|
+| Parameter | Exact value |
+|-----------|-------------|
 | Family | Continuous **Normal** (`player_rush_yds` not discrete) |
+| Sample size | **n = 5** (`rushingYards` = `[10, 10, 7, 6, 2]`) |
 | Projection mean | `0.4×L5 + 0.3×L10 + 0.3×season` = **7.0** yd |
-| SD | `max(sampleStd, mean×0.12, 0.35)` ≈ **3.32** yd |
-| Draw | `max(0, Normal(mean, std))` × **10,000** (seed `20261015` for audit) |
-| Under hit rule | `count(sample < 13.5) / 10000` (pushes lose; Over uses `>`) |
+| Historical sample SD | **≈ 3.3166247903554** |
+| Used SD | `max(sampleStd, mean×0.12, 0.35)` = **3.3166247903554** |
+| Simulations | **10,000** (audit seed `20261015`) |
+| Draw | `max(0, Normal(7.0, 3.3166247903554))` |
+| Under rule | `sample < 13.5` (pushes lose; Over uses `>`) |
 
-**Exact Under hit count:** **9705 / 10000** → rounded **0.971**  
-**Over on same draw:** **295 / 10000** → **0.030**  
-Under + Over ≈ 1.001 → **not inverted**.
+| Side | Exact hit count / 10,000 | Rate |
+|------|-------------------------:|-----:|
+| **Under 13.5** | **9705** | **0.9705** (display round3 → 0.971) |
+| Over 13.5 | **295** | 0.0295 |
+| Push (`=== 13.5`) | **0** | 0 |
+
+Under + Over = 1.0 → **not inverted**.
+
+**Displayed 98% path (uncalibrated, n=5):** props-only 5/5 → soft-clip **0.98**, and/or MC 0.9705 + one SEA Under tilt → soft-cap **0.98**.
 
 Shared distribution also scores alt lines on the **same** samples:
 
@@ -99,21 +108,18 @@ Own rush YPC from Nix CAR/YDS: **~1.94**.
 
 ---
 
-## 6. 3-of-10 shortfall funnel (reconstructed)
+## 6. 3-of-10 shortfall funnel — do not blame correlation yet
 
-No device session manifest for this exact ticket was retained in-repo. Funnel stages and Week 6 constraints:
+| Status | Detail |
+|--------|--------|
+| Telegram / coach-events ingest for this device ask | **UNVERIFIED** (digest window showed 0 legitimate underfills; no row receipt confirmed for this `requestId`) |
+| Attribution to correlation | **Blocked** until request-linked funnel counters are retained **and** coach-events receipt is confirmed |
 
-| Stage | NFL Week 6 (instrumentation semantics) |
-|-------|----------------------------------------|
-| Upcoming games considered | **14** scheduled (SEA@DEN … WSH@SF) — scoreboard week 6 |
-| Supported rush alts | `player_rush_yds_alternate`, `player_rush_attempts_alternate`, `player_rush_longest_alternate` in `ALT_MARKETS` — within sim ladder budget (3 rungs/ladder, DST cap unchanged) |
-| Candidates fetched | Full posted board for allowed markets (props expand + alts) |
-| Simulated | Cap via `boardScanMaxPropsToSim` / football mix quotas — **no per-candidate defense fetch** |
-| Qualified | Staging quality gates (sim grade, odds, `blockOver` where applicable) |
-| Removed by correlation / dedupe | `after_dedupe` → gap to `final_selected` logged as correlation/ticket-mix rejects |
-| Delivered | **3 / 10** reported shortfall — honest underfill when &lt;10 clear within deadline |
+Funnel stages (instrumentation semantics; Week 6 slate has 14 upcoming NFL games; rush alts supported):
 
-Nix Under 13.5 clears empirical/MC gates easily; shortfall is **ticket fill / correlation / mix**, not this leg’s sim identity.
+`fetched → simulated → qualified → after_dedupe → after_correlation → delivered`
+
+Manifest now carries `requestId` + `footballPropFunnelSummaryForRequest` on reliability `rootCause` so counters stay request-linked. **Until ingest is verified, treat shortfall cause as unknown — not “removed by correlation.”**
 
 ---
 
