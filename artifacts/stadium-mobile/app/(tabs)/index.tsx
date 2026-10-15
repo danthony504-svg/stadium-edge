@@ -976,7 +976,10 @@ function HomeSportFeed({
     if (dest.kind === "props") {
       router.push({
         pathname: dest.pathname,
-        params: dest.sport ? { sp: dest.sport } : {},
+        params: {
+          ...(dest.sport ? { sp: dest.sport } : {}),
+          ...(dest.view ? { view: dest.view } : {}),
+        },
       });
       return;
     }
