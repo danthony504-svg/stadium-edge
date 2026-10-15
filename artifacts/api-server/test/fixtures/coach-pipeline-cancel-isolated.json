@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-10-15T15:21:51.059Z",
-  "reviewedSha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a",
+  "generatedAt": "2026-10-15T16:55:45.591Z",
+  "reviewedSha": "376eceab8d15f893bd1a280da36154a265c3fd2e",
   "apiBase": "https://stadium-edge.onrender.com/api",
   "isolatedSimBase": "http://127.0.0.1:8787/api",
   "isolatedHealth": {
     "status": "ok",
     "isolated": true,
     "role": "coach-sim",
-    "sha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a"
+    "sha": "376eceab8d15f893bd1a280da36154a265c3fd2e"
   },
   "physicalDeviceReactUi": "PENDING",
   "ncaafP0": "ARMED (do not flip)",
@@ -17,13 +17,13 @@
       "label": "A_8leg_broncos",
       "ask": "8 leg broncos",
       "priorUserTexts": [],
-      "reviewedSha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a",
+      "reviewedSha": "376eceab8d15f893bd1a280da36154a265c3fd2e",
       "terminalReached": true,
-      "totalRuntimeMs": 5564,
+      "totalRuntimeMs": 4028,
       "budgetMs": 110000,
       "finalLegs": 7,
       "timedOut": false,
-      "propPoolSize": 949,
+      "propPoolSize": 953,
       "notePreview": "Only 7 eligible real-market selections for Broncos — not enough for a 8-leg ticket. Won't fill with other games.",
       "noteIsNullSafe": true,
       "deliveredMarkets": [
@@ -33,7 +33,7 @@
           "game": "Seattle Seahawks @ Denver Broncos",
           "grade": "B+",
           "confidencePct": 78,
-          "edgePct": 11,
+          "edgePct": 11.5,
           "isPeriod": false
         },
         {
@@ -41,26 +41,26 @@
           "pick": "Jaxon Smith-Njigba Over 92.5 Rec Yds",
           "game": "Seattle Seahawks @ Denver Broncos",
           "grade": "B",
-          "confidencePct": 74,
-          "edgePct": 40.7,
+          "confidencePct": 73,
+          "edgePct": 40.8,
           "isPeriod": false
         },
         {
           "market": "Receptions",
-          "pick": "Tory Horton Over 0.5 Receptions",
+          "pick": "George Holani Over 1.5 Receptions",
           "game": "Seattle Seahawks @ Denver Broncos",
-          "grade": "B",
-          "confidencePct": 77,
-          "edgePct": 14.4,
+          "grade": "B-",
+          "confidencePct": 70,
+          "edgePct": 17.2,
           "isPeriod": false
         },
         {
           "market": "Rush Yds",
-          "pick": "George Holani Over 13.5 Rush Yds",
+          "pick": "Rashid Shaheed Over 1.5 Rush Yds",
           "game": "Seattle Seahawks @ Denver Broncos",
           "grade": "B-",
-          "confidencePct": 68,
-          "edgePct": 18.1,
+          "confidencePct": 67,
+          "edgePct": 12.6,
           "isPeriod": false
         },
         {
@@ -68,56 +68,57 @@
           "pick": "Sam Darnold Over 1.5 Pass TDs",
           "game": "Seattle Seahawks @ Denver Broncos",
           "grade": "B-",
-          "confidencePct": 64,
+          "confidencePct": 62,
           "edgePct": 8.7,
           "isPeriod": false
         },
         {
-          "market": "Longest Reception",
-          "pick": "Rashid Shaheed Over 14.5 Longest Reception",
+          "market": "Receptions",
+          "pick": "Tory Horton Over 0.5 Receptions",
           "game": "Seattle Seahawks @ Denver Broncos",
           "grade": "B-",
           "confidencePct": 68,
-          "edgePct": 16.4,
+          "edgePct": 14.1,
           "isPeriod": false
         },
         {
-          "market": "Receptions",
-          "pick": "Emanuel Wilson Under 1.5 Receptions",
+          "market": "Rec Yds",
+          "pick": "Cooper Kupp Over 22.5 Rec Yds",
           "game": "Seattle Seahawks @ Denver Broncos",
           "grade": "B-",
-          "confidencePct": 67,
-          "edgePct": 17.7,
+          "confidencePct": 63,
+          "edgePct": 18.3,
           "isPeriod": false
         }
       ],
       "partialSnapshots": [
         {
-          "tMs": 4068,
-          "n": 4,
+          "tMs": 3085,
+          "n": 5,
           "markets": [
             "Rush Yds",
-            "Longest Reception",
             "Pass TDs",
+            "Longest Reception",
+            "Rush Yds",
             "Rush Yds"
           ],
           "periodMarkets": []
         },
         {
-          "tMs": 4209,
+          "tMs": 3236,
           "n": 6,
           "markets": [
             "Rec Yds",
             "Receptions",
             "Rush Yds",
             "Pass TDs",
-            "Longest Reception",
-            "Receptions"
+            "Receptions",
+            "Rec Yds"
           ],
           "periodMarkets": []
         },
         {
-          "tMs": 5528,
+          "tMs": 3994,
           "n": 1,
           "markets": [
             "Alt Spread"
@@ -125,7 +126,7 @@
           "periodMarkets": []
         },
         {
-          "tMs": 5551,
+          "tMs": 4015,
           "n": 7,
           "markets": [
             "Alt Spread",
@@ -133,8 +134,8 @@
             "Receptions",
             "Rush Yds",
             "Pass TDs",
-            "Longest Reception",
-            "Receptions"
+            "Receptions",
+            "Rec Yds"
           ],
           "periodMarkets": []
         }
@@ -148,60 +149,60 @@
           "status": "start ask=\"8 leg broncos\" legs=8 budgetMs=110000 api=https://stadium-edge.onrender.com/api isolatedSim=http://127.0.0.1:8787/api"
         },
         {
-          "tMs": 82,
+          "tMs": 65,
           "status": "status: Loading NFL board…"
         },
         {
-          "tMs": 952,
+          "tMs": 890,
           "status": "status: Loading player props and alt lines across the board…"
         },
         {
-          "tMs": 1527,
+          "tMs": 1273,
           "status": "status: Loading matchups, injuries, and opponent context…"
         },
         {
-          "tMs": 3002,
-          "status": "onReadyToScan propPoolSize=949"
+          "tMs": 1988,
+          "status": "onReadyToScan propPoolSize=953"
         },
         {
-          "tMs": 3002,
-          "status": "status: Scanning 949 posted props/alts plus game lines for a 8-leg ticket…"
+          "tMs": 1988,
+          "status": "status: Scanning 953 posted props/alts plus game lines for a 8-leg ticket…"
         },
         {
-          "tMs": 4068,
-          "status": "status: Scoring ticket… 4 legs (4 props/alts)"
+          "tMs": 3085,
+          "status": "status: Scoring ticket… 5 legs (5 props/alts)"
         },
         {
-          "tMs": 4068,
-          "status": "onPartialPicks n=4 props=4 period=0"
+          "tMs": 3085,
+          "status": "onPartialPicks n=5 props=5 period=0"
         },
         {
-          "tMs": 4209,
+          "tMs": 3236,
           "status": "status: Scoring ticket… 6 legs (6 props/alts)"
         },
         {
-          "tMs": 4209,
+          "tMs": 3236,
           "status": "onPartialPicks n=6 props=6 period=0"
         },
         {
-          "tMs": 5528,
-          "status": "status: Scoring game lines… props/alts next (949 posted)"
+          "tMs": 3994,
+          "status": "status: Scoring game lines… props/alts next (953 posted)"
         },
         {
-          "tMs": 5528,
+          "tMs": 3994,
           "status": "onPartialPicks n=1 props=0 period=0"
         },
         {
-          "tMs": 5550,
+          "tMs": 4015,
           "status": "status: Scoring ticket… 7 legs (6 props/alts)"
         },
         {
-          "tMs": 5551,
+          "tMs": 4015,
           "status": "onPartialPicks n=7 props=6 period=0"
         },
         {
-          "tMs": 5564,
-          "status": "returned picks=7 timedOut=false noteLen=112 propPool=949"
+          "tMs": 4028,
+          "status": "returned picks=7 timedOut=false noteLen=112 propPool=953"
         }
       ],
       "error": null,
@@ -211,9 +212,9 @@
       "label": "B_4leg_nfl_spreads_ml",
       "ask": "4 leg NFL spreads and moneylines for upcoming games.",
       "priorUserTexts": [],
-      "reviewedSha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a",
+      "reviewedSha": "376eceab8d15f893bd1a280da36154a265c3fd2e",
       "terminalReached": true,
-      "totalRuntimeMs": 7613,
+      "totalRuntimeMs": 2316,
       "budgetMs": 75000,
       "finalLegs": 1,
       "timedOut": false,
@@ -223,17 +224,17 @@
       "deliveredMarkets": [
         {
           "market": "Alt Spread",
-          "pick": "Seahawks -3.5",
+          "pick": "Seahawks +2.5",
           "game": "Seattle Seahawks @ Denver Broncos",
-          "grade": "B",
-          "confidencePct": 69,
-          "edgePct": 8.8,
+          "grade": "B+",
+          "confidencePct": 76,
+          "edgePct": 11.2,
           "isPeriod": false
         }
       ],
       "partialSnapshots": [
         {
-          "tMs": 7438,
+          "tMs": 2140,
           "n": 1,
           "markets": [
             "Alt Spread"
@@ -241,7 +242,7 @@
           "periodMarkets": []
         },
         {
-          "tMs": 7610,
+          "tMs": 2312,
           "n": 1,
           "markets": [
             "Alt Spread"
@@ -262,39 +263,39 @@
           "status": "status: Loading NFL board…"
         },
         {
-          "tMs": 261,
+          "tMs": 231,
           "status": "status: Loading spreads and moneylines…"
         },
         {
-          "tMs": 266,
+          "tMs": 234,
           "status": "status: Loading matchups, injuries, and opponent context…"
         },
         {
-          "tMs": 7108,
+          "tMs": 1761,
           "status": "onReadyToScan propPoolSize=0"
         },
         {
-          "tMs": 7108,
+          "tMs": 1761,
           "status": "status: Scanning posted game lines for a 4-leg ticket…"
         },
         {
-          "tMs": 7438,
+          "tMs": 2140,
           "status": "status: Scoring ticket… 1 legs (spreads/moneylines)"
         },
         {
-          "tMs": 7438,
+          "tMs": 2140,
           "status": "onPartialPicks n=1 props=0 period=0"
         },
         {
-          "tMs": 7609,
+          "tMs": 2312,
           "status": "status: Scoring ticket… 1 legs (spreads/moneylines)"
         },
         {
-          "tMs": 7610,
+          "tMs": 2312,
           "status": "onPartialPicks n=1 props=0 period=0"
         },
         {
-          "tMs": 7613,
+          "tMs": 2316,
           "status": "returned picks=1 timedOut=false noteLen=113 propPool=0"
         }
       ],
@@ -304,9 +305,9 @@
     "cancel": {
       "label": "Z_cancel_8leg_broncos",
       "ask": "8 leg broncos",
-      "reviewedSha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a",
+      "reviewedSha": "376eceab8d15f893bd1a280da36154a265c3fd2e",
       "terminalReached": true,
-      "totalRuntimeMs": 2553,
+      "totalRuntimeMs": 2516,
       "cancelAfterMs": 2500,
       "abortedSignal": true,
       "finalLegs": 7,
@@ -322,91 +323,99 @@
           "status": "status: Loading NFL board…"
         },
         {
-          "tMs": 392,
+          "tMs": 338,
           "status": "status: Loading player props and alt lines across the board…"
         },
         {
-          "tMs": 656,
+          "tMs": 602,
           "status": "status: Loading matchups, injuries, and opponent context…"
         },
         {
-          "tMs": 920,
-          "status": "onReadyToScan propPoolSize=949"
+          "tMs": 710,
+          "status": "onReadyToScan propPoolSize=953"
         },
         {
-          "tMs": 920,
-          "status": "status: Scanning 949 posted props/alts plus game lines for a 8-leg ticket…"
+          "tMs": 710,
+          "status": "status: Scanning 953 posted props/alts plus game lines for a 8-leg ticket…"
         },
         {
-          "tMs": 1412,
-          "status": "status: Scoring game lines… props/alts next (949 posted)"
+          "tMs": 1184,
+          "status": "status: Scoring game lines… props/alts next (953 posted)"
         },
         {
-          "tMs": 1413,
+          "tMs": 1184,
           "status": "onPartialPicks n=1"
         },
         {
-          "tMs": 1498,
-          "status": "status: Scoring ticket… 5 legs (4 props/alts)"
+          "tMs": 1244,
+          "status": "status: Scoring ticket… 6 legs (5 props/alts)"
         },
         {
-          "tMs": 1498,
-          "status": "onPartialPicks n=5"
+          "tMs": 1244,
+          "status": "onPartialPicks n=6"
         },
         {
-          "tMs": 1584,
+          "tMs": 1323,
           "status": "status: Scoring ticket… 7 legs (6 props/alts)"
         },
         {
-          "tMs": 1584,
+          "tMs": 1323,
           "status": "onPartialPicks n=7"
         },
         {
-          "tMs": 1814,
+          "tMs": 1542,
           "status": "status: Scoring ticket… 7 legs (6 props/alts)"
         },
         {
-          "tMs": 1814,
+          "tMs": 1542,
           "status": "onPartialPicks n=7"
         },
         {
-          "tMs": 1967,
+          "tMs": 1743,
           "status": "status: Scoring ticket… 7 legs (6 props/alts)"
         },
         {
-          "tMs": 1967,
+          "tMs": 1743,
           "status": "onPartialPicks n=7"
         },
         {
-          "tMs": 2106,
+          "tMs": 1864,
           "status": "status: Scoring ticket… 7 legs (6 props/alts)"
         },
         {
-          "tMs": 2106,
+          "tMs": 1864,
           "status": "onPartialPicks n=7"
         },
         {
-          "tMs": 2323,
+          "tMs": 2074,
           "status": "status: Scoring ticket… 7 legs (6 props/alts)"
         },
         {
-          "tMs": 2323,
+          "tMs": 2074,
           "status": "onPartialPicks n=7"
         },
         {
-          "tMs": 2523,
+          "tMs": 2244,
           "status": "status: Scoring ticket… 7 legs (6 props/alts)"
         },
         {
-          "tMs": 2523,
+          "tMs": 2244,
           "status": "onPartialPicks n=7"
         },
         {
-          "tMs": 2532,
+          "tMs": 2434,
+          "status": "status: Scoring ticket… 7 legs (6 props/alts)"
+        },
+        {
+          "tMs": 2434,
+          "status": "onPartialPicks n=7"
+        },
+        {
+          "tMs": 2501,
           "status": "USER_CANCEL abort()"
         },
         {
-          "tMs": 2553,
+          "tMs": 2516,
           "status": "returned after cancel picks=7 timedOut=true"
         }
       ],

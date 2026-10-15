@@ -1,5 +1,5 @@
 {
-  "tipNote": "pin after commit — filled by review pack",
+  "tipNote": "functional client tip with correlation-aware seatSingleEventTicket",
   "ask": "8 leg broncos (single-event seating unit proof)",
   "game": "Seattle Seahawks @ Denver Broncos",
   "seatingPath": "seatSingleEventTicket",
@@ -7,7 +7,7 @@
   "hardRejects": {
     "passTdPlusReceiver": false,
     "passTdPlusSeahawksSpread": false,
-    "note": "soft ranking demotion only — valid same-game combos remain seatable"
+    "note": "soft ranking demotion only \u2014 valid same-game combos remain seatable"
   },
   "before": {
     "correlationAware": false,
@@ -125,32 +125,32 @@
       {
         "pick": "Sam Darnold Over 1.5 Pass TDs",
         "softPenaltyVsPrior": 7,
-        "reason": "same-game prop soft stack penalty=7 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+        "reason": "same-game prop soft stack penalty=7 (Pass-TD\u2194receiver +12 when applicable; else +5; vs GL +7)"
       },
       {
         "pick": "George Holani Over 13.5 Rush Yds",
         "softPenaltyVsPrior": 12,
-        "reason": "same-game prop soft stack penalty=12 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+        "reason": "same-game prop soft stack penalty=12 (Pass-TD\u2194receiver +12 when applicable; else +5; vs GL +7)"
       },
       {
         "pick": "Jaxon Smith-Njigba Over 92.5 Rec Yds",
         "softPenaltyVsPrior": 29,
-        "reason": "same-game prop soft stack penalty=29 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+        "reason": "same-game prop soft stack penalty=29 (Pass-TD\u2194receiver +12 when applicable; else +5; vs GL +7)"
       },
       {
         "pick": "Tory Horton Over 0.5 Receptions",
         "softPenaltyVsPrior": 34,
-        "reason": "same-game prop soft stack penalty=34 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+        "reason": "same-game prop soft stack penalty=34 (Pass-TD\u2194receiver +12 when applicable; else +5; vs GL +7)"
       },
       {
         "pick": "Nik Bonitto Over 0.5 Sacks",
         "softPenaltyVsPrior": 27,
-        "reason": "soft demotion beat Shaheed Anytime TD (Pass-TD↔receiver bump); penalty=27"
+        "reason": "soft demotion beat Shaheed Anytime TD (Pass-TD\u2194receiver bump); penalty=27"
       },
       {
         "pick": "Rashid Shaheed Anytime TD",
         "softPenaltyVsPrior": 44,
-        "reason": "same-game prop soft stack penalty=44 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+        "reason": "same-game prop soft stack penalty=44 (Pass-TD\u2194receiver +12 when applicable; else +5; vs GL +7)"
       }
     ]
   },
@@ -185,7 +185,8 @@
     "combinedAmericanOdds": 12845,
     "parlayImpliedFromOddsProduct": 0.007724927747616347,
     "dependenceAdjusted": false,
-    "meaning": "parlayAmerican / parlayImplied multiply per-leg book prices under independence — not a joint Pass-TD↔receiver model probability. Per-leg Coach confidencePct/edgePct stay per-leg."
+    "meaning": "parlayAmerican / parlayImplied multiply per-leg book prices under independence \u2014 not a joint Pass-TD\u2194receiver model probability. Per-leg Coach confidencePct/edgePct stay per-leg."
   },
-  "pass": true
+  "pass": true,
+  "tipSha": "376eceab8d15f893bd1a280da36154a265c3fd2e"
 }
