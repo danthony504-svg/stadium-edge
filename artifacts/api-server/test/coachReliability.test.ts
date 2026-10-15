@@ -81,6 +81,34 @@ test("countCoachPickLines and classifyParlayOutcome", () => {
   );
 });
 
+test("3-of-10 honest shortfall is digest-only (no Telegram page)", () => {
+  // Reproduces the Bo Nix / 3-of-10 Coach run: partial ticket + real odds →
+  // legitimate_underfill. Rule evaluates and suppresses paging by design.
+  const outcome = classifyParlayOutcome({
+    requestedLegCount: 10,
+    returnedLegCount: 3,
+  });
+  assert.equal(outcome, "parlay_underfilled");
+  const reason = classifyParlayFailureReason({
+    outcome,
+    realOddsAvailable: true,
+  });
+  assert.equal(reason, "legitimate_underfill");
+  const meta = baseMeta({
+    eventType: outcome,
+    failureReason: reason,
+    requestedLegCount: 10,
+    returnedLegCount: 3,
+    realOddsAvailable: true,
+    requestId: "greenfield-AUDIT-3of10",
+  });
+  assert.equal(shouldAlertCoachEvent(meta), false);
+  assert.match(
+    coachAlertFingerprint(meta),
+    /coach\|parlay_underfilled\|legitimate_underfill/,
+  );
+});
+
 test("legitimate underfill is digest-only; system failures alert", () => {
   assert.equal(
     classifyParlayFailureReason({
