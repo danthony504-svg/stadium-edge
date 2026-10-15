@@ -104,6 +104,7 @@ test("game-sim fingerprint ignores American odds / price", () => {
   const a = fingerprintCoachGameSim(base);
   const b = fingerprintCoachGameSim(base);
   assert.equal(a, b);
+  assert.ok(a.startsWith("ppg-per-drive-v1|"));
   // Line change IS material (cover structure) — must differ
   const c = fingerprintCoachGameSim({
     ...base,

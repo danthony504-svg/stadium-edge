@@ -15,7 +15,10 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runNflDriveSim } from "../src/lib/sportSim/nflDriveSim.ts";
-import { blendVenueAndL10 } from "../src/lib/sportSim/footballDriveMatchup.ts";
+import {
+  blendVenueAndL10,
+  FOOTBALL_DRIVE_ENGINE_VERSION,
+} from "../src/lib/sportSim/footballDriveMatchup.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../..");
@@ -248,6 +251,7 @@ function main(): number {
           scored += 1;
           const provKey = `${homeIn.provenance}+${awayIn.provenance}`;
           provenanceCounts[provKey] = (provenanceCounts[provKey] ?? 0) + 1;
+          if (scored % 100 === 0) console.log(`scored ${scored} holdout games`);
           // Pathology: near coin-flip ML with huge dog — cover must not sit at 70%+.
           if (pHome > 0.45 && pHome < 0.55) {
             const awayCovered = g.awayFg + 7.5 > g.homeFg ? 1 : 0;
@@ -277,7 +281,23 @@ function main(): number {
   const coinP = mlP.map(() => 0.5);
   const report = {
     generatedAt: new Date().toISOString(),
-    engine: "nfl-drive",
+    engine: `nfl-drive:${FOOTBALL_DRIVE_ENGINE_VERSION}`,
+    inputUnits:
+      "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are mutually exclusive. Late-clock touchdowns are funded from the same points-per-game budget.",
+    selectionTimeInputs: true,
+    priorE2aClaim: {
+      status: "WITHDRAWN",
+      restored: false,
+      reportGeneratedAt: "2026-10-14T21:24:31.034Z",
+      simulationsPerGame: 1500,
+      nHoldoutScored: 865,
+      recordedBrier: 0.1989518554913293,
+      recordedHomeWinBias: 0.019813872832370683,
+      engine:
+        "nfl-drive before ppg-per-drive-v1: points per game were passed in as points per drive, then NCAAF inputs were multiplied by 0.48",
+      reason:
+        "The 2026-10-14 PASS used the same unit mismatch as the NFL draws that sat near 42 points per team. The 0.48 college scale was a patch on that mismatch, not a separate engine. This run is a new measurement. A numeric PASS does not restore that claim.",
+    },
     holdoutSeason: HOLDOUT_SEASON,
     simulationsPerGame: SIMS,
     nHoldoutScored: scored,

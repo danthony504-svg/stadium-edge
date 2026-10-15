@@ -2,19 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  NFL_DRIVE_FG_RATE_CAP,
-  NFL_DRIVE_TD_PPD_DIVISOR,
-  NFL_DRIVE_TD_RATE_CAP,
   nflDriveRatesSaturated,
   nflDriveScoringRates,
   runNflDriveSim,
 } from "../src/lib/sportSim/nflDriveSim.ts";
 import {
-  FOOTBALL_DRIVE_FG_PPD_DIVISOR,
-  FOOTBALL_DRIVE_SOFT_SLOPE,
-  FOOTBALL_DRIVE_TD_RATE_MAX,
+  FOOTBALL_DRIVE_ENGINE_VERSION,
+  FOOTBALL_DRIVE_SCORE_RATE_CAP,
   applyDefenseTiltToOffenseMean,
   defenseOffenseMultiplier,
+  footballDriveRateInput,
+  footballExpectedDrives,
+  footballExpectedPointsPerDrive,
 } from "../src/lib/sportSim/footballDriveMatchup.ts";
 import { teamMean } from "../src/lib/sportSim/shared.ts";
 import { sportSimModelForSport } from "../src/lib/sportSim/registry.ts";
@@ -24,51 +23,44 @@ test("ncaaf maps to nfl-drive engine", () => {
   assert.equal(sportSimModelForSport("nfl"), "nfl-drive");
 });
 
-test("nfl-drive soft rates: knee still hits former TD cap, then keeps climbing", () => {
-  const atTdKnee = NFL_DRIVE_TD_RATE_CAP * NFL_DRIVE_TD_PPD_DIVISOR; // 11.76
-  assert.equal(nflDriveScoringRates(atTdKnee).tdRate, NFL_DRIVE_TD_RATE_CAP);
-  assert.equal(nflDriveRatesSaturated(atTdKnee), true);
-  assert.equal(nflDriveRatesSaturated(10), false);
+test("nfl-drive rates: points per drive match expected points below the joint ceiling", () => {
+  assert.equal(FOOTBALL_DRIVE_ENGINE_VERSION, "ppg-per-drive-v1");
+  for (const ppd of [1.2, 2.0, 3.2]) {
+    const rates = nflDriveScoringRates(ppd);
+    assert.ok(rates.tdRate > 0 && rates.fgRate > 0);
+    assert.ok(rates.tdRate + rates.fgRate < FOOTBALL_DRIVE_SCORE_RATE_CAP);
+    assert.equal(nflDriveRatesSaturated(ppd), false);
+    assert.ok(Math.abs(footballExpectedPointsPerDrive(ppd) - ppd) < 1e-9);
+  }
+  const low = nflDriveScoringRates(1.2);
+  const mid = nflDriveScoringRates(2.0);
+  const high = nflDriveScoringRates(3.2);
+  assert.ok(low.tdRate < mid.tdRate && mid.tdRate < high.tdRate);
+  assert.ok(low.fgRate < mid.fgRate && mid.fgRate < high.fgRate);
 
-  // FG knee is independent (ppd = 0.28 * 40 = 11.2).
-  const atFgKnee = NFL_DRIVE_FG_RATE_CAP * FOOTBALL_DRIVE_FG_PPD_DIVISOR;
-  assert.equal(nflDriveScoringRates(atFgKnee).fgRate, NFL_DRIVE_FG_RATE_CAP);
-
-  // Past the TD knee, rates must still move (soft slope) — no flat hard ceiling.
-  const past = atTdKnee + 15;
-  const atRates = nflDriveScoringRates(atTdKnee);
-  const pastRates = nflDriveScoringRates(past);
-  assert.ok(pastRates.tdRate > atRates.tdRate, "TD rate must rise past knee");
-  assert.ok(pastRates.tdRate <= FOOTBALL_DRIVE_TD_RATE_MAX);
-
-  const excessLinear = past / NFL_DRIVE_TD_PPD_DIVISOR - NFL_DRIVE_TD_RATE_CAP;
-  const expectedTd = Math.min(
-    FOOTBALL_DRIVE_TD_RATE_MAX,
-    NFL_DRIVE_TD_RATE_CAP + excessLinear * FOOTBALL_DRIVE_SOFT_SLOPE,
+  const ceiling = nflDriveScoringRates(12);
+  assert.equal(nflDriveRatesSaturated(12), true);
+  assert.ok(
+    Math.abs(ceiling.tdRate + ceiling.fgRate - FOOTBALL_DRIVE_SCORE_RATE_CAP) < 1e-9,
   );
-  assert.ok(Math.abs(pastRates.tdRate - expectedTd) < 1e-9);
+  assert.ok(footballExpectedPointsPerDrive(12) < 12);
 });
 
-test("controlled sensitivity: past-knee ppd shocks move scoring rates", () => {
-  const base = teamMean(20, 16.8, 22); // 18.4 — Iowa awayOff (past knee)
-  const qbOut = teamMean(14, 16.8, 22); // 15.4 — still past knee
-  const plus3 = teamMean(23, 16.8, 22); // 19.9
-  assert.equal(nflDriveRatesSaturated(base), true);
-  assert.equal(nflDriveRatesSaturated(qbOut), true);
-  assert.equal(nflDriveRatesSaturated(plus3), true);
-  assert.notDeepEqual(nflDriveScoringRates(base), nflDriveScoringRates(qbOut));
-  assert.notDeepEqual(nflDriveScoringRates(base), nflDriveScoringRates(plus3));
+test("controlled sensitivity: points-per-game shocks change points per drive", () => {
+  const drives = footballExpectedDrives(22, 22, "nfl");
+  const basePpg = teamMean(22, 22, 22);
+  const qbOutPpg = teamMean(16, 22, 22);
+  const plus3Ppg = teamMean(25, 22, 22);
+  const base = footballDriveRateInput(basePpg, drives, "nfl");
+  const qbOut = footballDriveRateInput(qbOutPpg, drives, "nfl");
+  const plus3 = footballDriveRateInput(plus3Ppg, drives, "nfl");
+  assert.ok(base < 4, `realistic PPD stays per-drive, got ${base}`);
+  assert.equal(nflDriveRatesSaturated(base), false);
+  assert.equal(nflDriveRatesSaturated(qbOut), false);
+  assert.equal(nflDriveRatesSaturated(plus3), false);
   assert.ok(nflDriveScoringRates(plus3).tdRate > nflDriveScoringRates(base).tdRate);
   assert.ok(nflDriveScoringRates(qbOut).tdRate < nflDriveScoringRates(base).tdRate);
-});
-
-test("controlled sensitivity: sub-knee shocks still change rates", () => {
-  const saturated = 18.4;
-  const below = 10.5;
-  assert.equal(nflDriveRatesSaturated(saturated), true);
-  assert.equal(nflDriveRatesSaturated(below), false);
-  assert.ok(nflDriveScoringRates(below).tdRate < NFL_DRIVE_TD_RATE_CAP);
-  assert.notDeepEqual(nflDriveScoringRates(saturated), nflDriveScoringRates(below));
+  assert.ok(Math.abs(footballExpectedPointsPerDrive(base) - base) < 1e-9);
 });
 
 test("defense yards tilt opposing offense mean within ±8%", () => {

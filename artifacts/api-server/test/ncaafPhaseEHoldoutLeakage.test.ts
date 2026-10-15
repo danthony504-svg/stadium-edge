@@ -133,12 +133,26 @@ test("holdout form inputs are strictly pre-kickoff (no leakage)", () => {
   const report = JSON.parse(
     readFileSync(join(here, "fixtures/ncaaf-phase-e-calibration-report.json"), "utf8"),
   ) as {
+    generatedAt?: string;
+    engine?: string;
+    simulationsPerGame?: number;
     nHoldoutScored?: number;
     metrics?: { meanP?: number; meanY?: number; homeWinBias?: number };
     verdicts?: Record<string, string>;
     keepP0Armed?: boolean;
+    priorE2aClaim?: { status?: string; restored?: boolean; reportGeneratedAt?: string };
   };
-  assert.equal(report.verdicts?.E2_outcomeVsCoin, "PASS");
+  assert.equal(report.priorE2aClaim?.status, "WITHDRAWN");
+  assert.equal(report.priorE2aClaim?.restored, false);
+  assert.equal(report.priorE2aClaim?.reportGeneratedAt, "2026-10-14T21:24:31.034Z");
+  assert.match(String(report.engine), /ppg-per-drive-v1/);
+  assert.equal(report.simulationsPerGame, 10000);
+  assert.notEqual(report.generatedAt, "2026-10-14T21:24:31.034Z");
+  assert.ok(
+    report.verdicts?.E2_outcomeVsCoin === "PASS" ||
+      report.verdicts?.E2_outcomeVsCoin === "FAIL",
+    `new E2a measurement must be PASS or FAIL, got ${report.verdicts?.E2_outcomeVsCoin}`,
+  );
   assert.equal(report.keepP0Armed, true);
   assert.match(String(report.verdicts?.NCAAF_GAME_LINE_SIM_VALIDATED), /false/i);
 

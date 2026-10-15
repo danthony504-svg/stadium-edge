@@ -283,8 +283,14 @@ export async function withCoachGameSimCache<T>(
 }
 
 /**
- * Material game-sim fingerprint — team IDs, sport, cover structure (lines/markets),
- * simulation count. Excludes American odds / sportsbook price.
+ * Bump with FOOTBALL_DRIVE_ENGINE_VERSION when drive units change.
+ * Keeps a cached full-game draw from grading a ticket after the engine moves.
+ */
+export const COACH_GAME_SIM_ENGINE_VERSION = "ppg-per-drive-v1";
+
+/**
+ * Material game-sim fingerprint — engine version, team IDs, sport, cover
+ * structure (lines/markets), simulation count. Excludes American odds / sportsbook price.
  */
 export function fingerprintCoachGameSim(opts: {
   sport: string;
@@ -318,6 +324,7 @@ export function fingerprintCoachGameSim(opts: {
     .sort()
     .join(";");
   return [
+    COACH_GAME_SIM_ENGINE_VERSION,
     String(opts.sport || "").toLowerCase(),
     opts.homeTeamId ?? "",
     opts.awayTeamId ?? "",

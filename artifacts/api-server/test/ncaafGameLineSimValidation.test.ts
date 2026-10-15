@@ -12,7 +12,11 @@ import { test } from "node:test";
 import { runNflDriveSim } from "../src/lib/sportSim/nflDriveSim.ts";
 import {
   blendVenueAndL10,
+  footballDriveRateInput,
+  footballDriveRatesPastKnee,
   footballDriveScoringRates,
+  footballExpectedDrives,
+  footballExpectedPointsPerDrive,
 } from "../src/lib/sportSim/footballDriveMatchup.ts";
 import { teamInputFromHistory } from "../src/lib/sportSim/footballGameSimInputs.ts";
 
@@ -41,12 +45,23 @@ const baseAway = {
   recentScores: [17, 24, 21, 28, 14],
 };
 
-test("validation: soft rates remain strictly monotonic above former hard cap", () => {
-  const a = footballDriveScoringRates(12);
-  const b = footballDriveScoringRates(15);
-  const c = footballDriveScoringRates(20);
-  assert.ok(a.tdRate < b.tdRate && b.tdRate < c.tdRate);
-  assert.ok(a.fgRate <= b.fgRate + 1e-9);
+test("validation: points-per-drive rates are exclusive and track the input", () => {
+  for (const ppd of [1.2, 2.0, 3.2]) {
+    const rates = footballDriveScoringRates(ppd, "ncaaf");
+    assert.ok(rates.tdRate + rates.fgRate <= 0.98 + 1e-9);
+    assert.ok(Math.abs(footballExpectedPointsPerDrive(ppd, "ncaaf") - ppd) < 1e-9);
+    assert.equal(footballDriveRatesPastKnee(ppd, "ncaaf"), false);
+  }
+  const low = footballDriveScoringRates(1.2, "ncaaf");
+  const mid = footballDriveScoringRates(2.0, "ncaaf");
+  const high = footballDriveScoringRates(3.2, "ncaaf");
+  assert.ok(low.tdRate < mid.tdRate && mid.tdRate < high.tdRate);
+  assert.equal(footballDriveRatesPastKnee(12, "ncaaf"), true);
+
+  const drives = footballExpectedDrives(24, 24, "ncaaf");
+  const ppd = footballDriveRateInput(24, drives, "ncaaf");
+  assert.ok(Math.abs(ppd - 24 / drives) < 1e-9);
+  assert.ok(ppd > 1.5 && ppd < 4, `college PPD ${ppd} for 24 PPG over ${drives} drives`);
 });
 
 test("validation: +3 ppg home shock moves ML and spread cover ≥2pp", () => {

@@ -42,7 +42,9 @@ function minimalBuilt(overrides?: Partial<BuiltChatContext>): BuiltChatContext {
 describe("coachSlateTypes", () => {
   it("computeSlateFingerprint is stable for same inputs", () => {
     const built = minimalBuilt();
-    assert.equal(computeSlateFingerprint(built), computeSlateFingerprint(built));
+    const fp = computeSlateFingerprint(built);
+    assert.equal(fp, computeSlateFingerprint(built));
+    assert.ok(fp.startsWith("ppg-per-drive-v1:"));
   });
 
   it("computeSlateFingerprint changes when odds change", () => {

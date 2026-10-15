@@ -1,5 +1,7 @@
 /** Types mirroring stadium-mobile/lib/slatePreAnalysisCache.ts for cross-client snapshots. */
 
+import { FOOTBALL_DRIVE_ENGINE_VERSION } from "./sportSim/footballDriveMatchup.js";
+
 /** Precompute enough legs for instant 15-leg longshot asks — no filler. */
 export const SLATE_PRE_ANALYSIS_TARGET = 15;
 /** Supported parlay sizes precomputed 24/7 — global + per-sport. */
@@ -212,7 +214,7 @@ export function computeSlateFingerprint(
     .join(";");
   const inj = opts?.injuryDigest ?? "";
   const status = opts?.gameStatusDigest ?? "";
-  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+  return `${FOOTBALL_DRIVE_ENGINE_VERSION}:${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
 }
 
 export function isSlateSnapshotInstantServe(
