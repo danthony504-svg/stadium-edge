@@ -17,14 +17,18 @@
 ```
 rawHit     = 0.9705                     # 9705/10000 Under hits
 tilt       ≈ +0.38                      # SEA soft-stingy (+0.30) + weak own YPC (+0.08)
-adj        = clamp(tilt × 0.06, ±0.05)   # ≈ +0.0228
-summed     = rawHit + adj               # ≈ 0.9933
-adjusted   = round3(clamp(summed,0,0.999)) # ≈ 0.993
+desired    = clamp(tilt × 0.06, ±0.05)   # ≈ +0.0228
+transfer   = min(desired, 1 − rawHit)   # mass from Over/complement only
+adjusted   = round3(rawHit + transfer)  # ≈ 0.993 · in [0, 1]
 ```
 
-**Increase = matchup tilt (+adj).** Certainty soft-clip (`1 → 0.98`) stays in empirical graders only — **not** in this step.
+Paired: `Over' + Under' + push' = 1` (push untouched). Opposite tilt on Over demotes it by the same transfer.
 
-Prior bug: `Math.min(0.98, hit+adj)` (1) raised mid-high hits via a ceiling labeled “soft-cap”, and (2) flattened alt Unders (13.5 and 15.5 both → **0.98**), breaking monotonicity.
+**Increase = matchup mass transfer.** Certainty soft-clip (`1 → 0.98`) stays in empirical graders only.
+
+Prior bug: `Math.min(0.98, hit+adj)` (1) raised mid-high hits via a ceiling labeled “soft-cap”, and (2) flattened alt Unders (13.5 and 15.5 both → **0.98**).
+
+UI: `model 99.3% (sim 97.1% +2.2pp matchup); n=5, uncalibrated` · `rawSimHit` + `simHit` · one apply (`oppMatchupAppliedToSim` skips cache/recovery re-tilt).
 
 ## Props-only path (separate)
 
