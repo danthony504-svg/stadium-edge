@@ -613,6 +613,137 @@ test("deadlines/qualification preserved: recovery slack ≠ matchup re-entry; bl
   assert.ok(PROPS_ONLY_RECOVERY_ODDS_SLACK > PROPS_ONLY_ODDS_SLACK);
 });
 
+test("Bo Nix Under 13.5 rush: reproduce delivered 98% (history, not inverted, one adj)", async () => {
+  // Live ESPN series for athlete 4426338 (2026-10-15 snapshot) — all under 13.5.
+  const rushYds = [10, 10, 7, 6, 2];
+  const line = 13.5;
+  const {
+    gradeFootballPropFromHistory,
+  } = await import("./coachFootballPropsOnlyGrade.ts");
+  const {
+    adjustSimHitForOppDefenseTilt,
+    propOppDefenseTilt,
+  } = await import("./footballRushDefense.ts");
+
+  const recent = rushYds.map((yds) => ({
+    stats: { rushingYards: String(yds) },
+  }));
+  const graded = gradeFootballPropFromHistory(
+    {
+      game: "Seattle Seahawks @ Denver Broncos",
+      market: "Rush Yds",
+      propMarketKey: "player_rush_yds",
+      pick: "Bo Nix Under 13.5 Rush Yds",
+      odds: -108,
+      isProp: true,
+      sport: "nfl",
+      player: "Bo Nix",
+      athleteId: "4426338",
+      propLine: line,
+      propSide: "Under",
+    },
+    { player: "Bo Nix", recent },
+  );
+  // 5/5 under → soft-clip 0.98 (not missing→0 inventing the edge).
+  assert.equal(graded.hitProbability, 0.98);
+  assert.equal(graded.nullReason, null);
+
+  // Blank stats must not become zero fills in the series used for grading.
+  const withBlank = gradeFootballPropFromHistory(
+    {
+      game: "Seattle Seahawks @ Denver Broncos",
+      market: "Rush Yds",
+      propMarketKey: "player_rush_yds",
+      pick: "Bo Nix Under 13.5 Rush Yds",
+      odds: -108,
+      isProp: true,
+      sport: "nfl",
+      player: "Bo Nix",
+      athleteId: "4426338",
+      propLine: line,
+      propSide: "Under",
+    },
+    {
+      player: "Bo Nix",
+      recent: [
+        { stats: { rushingYards: "" } },
+        { stats: {} },
+        ...recent,
+      ],
+    },
+  );
+  assert.equal(withBlank.hitProbability, 0.98, "blanks skipped; series still 5 mapped unders");
+
+  // SEA soft-stingy rush D — Under tilt; one application soft-caps at 0.98.
+  const pack = {
+    teamName: "Seattle Seahawks",
+    rush: {
+      rushingYardsAllowedPerGame: 100.4,
+      yardsPerRushAllowed: null,
+      sampleSize: 5,
+      teamName: "Seattle Seahawks",
+    },
+    gamesPlayed: 5,
+  };
+  const ownPack = { ownRushYpc: 1.94, gamesPlayed: 5 };
+  const tiltU = propOppDefenseTilt({
+    sport: "nfl",
+    market: "player_rush_yds",
+    side: "Under",
+    pack,
+    ownPack,
+  });
+  const tiltO = propOppDefenseTilt({
+    sport: "nfl",
+    market: "player_rush_yds",
+    side: "Over",
+    pack,
+    ownPack,
+  });
+  assert.ok(tiltU.tilt > 0, "Under favored vs soft-stingy SEA run D");
+  assert.ok(tiltO.tilt < 0, "Over demoted — not an inverted Under");
+  const once = adjustSimHitForOppDefenseTilt(0.971, tiltU.tilt);
+  const twice = adjustSimHitForOppDefenseTilt(once, tiltU.tilt);
+  assert.equal(once, 0.98);
+  assert.equal(twice, 0.98, "second adjust cannot raise past soft-cap");
+
+  // Holistic: after sim adj, tendency must not re-score.
+  const { buildPropHolisticScore } = await import("./propHolisticRecommendation.ts");
+  const h = buildPropHolisticScore({
+    sport: "nfl",
+    marketKey: "player_rush_yds",
+    propSide: "Under",
+    simHit: once,
+    edgePct: 40,
+    footballOppDefense: pack,
+    footballOwnPack: ownPack,
+    oppMatchupAppliedToSim: true,
+    rubricScores: {
+      matchup: null,
+      trend: 6,
+      lineValue: 6,
+      injury: null,
+      lineShopping: 5.5,
+      simulation: 6,
+    },
+  });
+  const opp = h.factors.find((f) => f.key === "opponentTendency");
+  assert.equal(opp?.score, null);
+  assert.ok(opp?.present && opp.display);
+
+  assert.ok(
+    true,
+    JSON.stringify({
+      athleteId: "4426338",
+      eventId: "401872995",
+      rushingYards: rushYds,
+      propsOnlyHit: graded.hitProbability,
+      mcRawThenAdj: once,
+      identity: "SEA@DEN Under 13.5 → displayed 98%",
+    }),
+  );
+});
+
 test("buildFinalAiScore board path wires oppMatchupAppliedToSim", () => {
   const { pack, ownPack } = packsFor("CHI");
   const tilt = propOppDefenseTilt({
