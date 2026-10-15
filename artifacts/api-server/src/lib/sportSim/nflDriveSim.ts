@@ -1,24 +1,29 @@
-// NFL / NCAAF — drive-by-drive simulation with red-zone efficiency and clock management.
+// NFL / NCAAF — drive-by-drive simulation.
 //
-// Integrity history: per-drive TD/FG rates formerly hard-capped at 0.42 / 0.28 once
-// points-per-drive reached ~11.8 / ~11.2, so large offensive / defensive / QB shocks
-// did not change scoring rates. Rates are now soft-monotonic (see footballDriveMatchup)
-// and optional defense yards-allowed packs tilt opposing offense means (±8%).
+// Units: team means are points per game. Those means become points per drive
+// by dividing by the drive count that the loop will run. Each drive then
+// scores a touchdown (6 plus one extra point), a field goal (3), or nothing.
+// The late-clock touchdown is paid for out of that same points budget.
 //
-// Client P0 for NCAAF game lines stays armed until ncaafGameLineSimValidation passes
-// and NCAAF_GAME_LINE_SIM_VALIDATED is flipped.
+// Client P0 for NCAAF game lines stays armed until ncaafGameLineSimValidation
+// passes and NCAAF_GAME_LINE_SIM_VALIDATED is flipped.
 
 import type { GameSimResult } from "../gameMonteCarlo.js";
 import type { SportSimContext } from "./types.js";
 import { finalizeFromScores, simCount, teamMean } from "./shared.js";
 import {
   applyDefenseTiltToOffenseMean,
+  footballDrivePoints,
   footballDriveRateInput,
   footballDriveRatesPastKnee,
   footballDriveScoringRates,
+  footballExpectedDrives,
+  footballLateClockPointsBudget,
+  FOOTBALL_DRIVE_ENGINE_VERSION,
   FOOTBALL_DRIVE_FG_RATE_KNEE,
   FOOTBALL_DRIVE_TD_RATE_KNEE,
   FOOTBALL_DRIVE_TD_PPD_DIVISOR,
+  isCollegeFootballSport,
 } from "./footballDriveMatchup.js";
 
 /** @deprecated Use FOOTBALL_DRIVE_* — kept for existing test imports. */
@@ -31,28 +36,32 @@ export function nflDriveScoringRates(ppd: number): { tdRate: number; fgRate: num
   return footballDriveScoringRates(ppd);
 }
 
-/** True when ppd is past the former hard-cap knee (rates still increase slowly). */
-export function nflDriveRatesSaturated(ppd: number): boolean {
-  return footballDriveRatesPastKnee(ppd);
+/** True when points-per-drive is high enough to hit the joint TD+FG ceiling. */
+export function nflDriveRatesSaturated(ppd: number, sport = "nfl"): boolean {
+  return footballDriveRatesPastKnee(ppd, sport);
 }
 
-function driveOutcome(rateInput: number): number {
-  const r = Math.random();
-  const { tdRate, fgRate } = footballDriveScoringRates(rateInput);
-  if (r < tdRate) return 7;
-  if (r < tdRate + fgRate) return 3;
+/** One touchdown: 6 points plus a single extra-point attempt. No second XP. */
+function scoreTouchdown(sport: string, rng: () => number): number {
+  const { tdPoints } = footballDrivePoints(sport);
+  const xpExpected = tdPoints - 6;
+  const xp = rng() < xpExpected ? 1 : 0;
+  return 6 + xp;
+}
+
+function driveOutcome(pointsPerDrive: number, sport: string, rng: () => number): number {
+  const r = rng();
+  const { tdRate, fgRate } = footballDriveScoringRates(pointsPerDrive, sport);
+  const { fgPoints } = footballDrivePoints(sport);
+  if (r < tdRate) return scoreTouchdown(sport, rng);
+  if (r < tdRate + fgRate) return fgPoints;
   return 0;
-}
-
-function isCollegeFootball(sport: string): boolean {
-  const s = String(sport ?? "").toLowerCase();
-  return s === "ncaaf" || s === "cfb" || s.includes("ncaaf");
 }
 
 export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   const n = simCount(ctx);
-  const college = isCollegeFootball(ctx.sport);
-  // Base means from scoring form; opponent defense yards tilt when sample ≥ 2.
+  const college = isCollegeFootballSport(ctx.sport);
+  // Base means are points per game; opponent defense yards tilt when sample ≥ 2.
   const homeBase = teamMean(ctx.home.ptsFor, ctx.away.ptsAgainst, college ? 24 : 22);
   const awayBase = teamMean(ctx.away.ptsFor, ctx.home.ptsAgainst, college ? 24 : 22);
   const homeOff = applyDefenseTiltToOffenseMean(
@@ -67,39 +76,57 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   );
   if (!Number.isFinite(homeOff) || !Number.isFinite(awayOff)) return null;
 
-  // College: fewer drives + scaled rate inputs so projected means track FBS.
-  const driveScale = college ? 70 : 55;
-  const driveBase = college ? 10 : 10;
-  const homeDrives = Math.round(driveBase + (homeOff + awayOff) / driveScale);
-  const awayDrives = Math.round(driveBase + (homeOff + awayOff) / driveScale);
-  const homeRate = footballDriveRateInput(homeOff, ctx.sport);
-  const awayRate = footballDriveRateInput(awayOff, ctx.sport);
+  const drives = footballExpectedDrives(homeOff, awayOff, ctx.sport);
+  const { tdPoints } = footballDrivePoints(ctx.sport);
   const lateClockTd = college ? 0.04 : 0.08;
+  const homeLate = footballLateClockPointsBudget({
+    drives,
+    ownPointsPerGame: homeOff,
+    opponentPointsPerGame: awayOff,
+    lateClockTd,
+    tdPoints,
+  });
+  const awayLate = footballLateClockPointsBudget({
+    drives,
+    ownPointsPerGame: awayOff,
+    opponentPointsPerGame: homeOff,
+    lateClockTd,
+    tdPoints,
+  });
+  const homeRate = footballDriveRateInput(homeOff - homeLate, drives, ctx.sport);
+  const awayRate = footballDriveRateInput(awayOff - awayLate, drives, ctx.sport);
+  const rng = ctx.random ?? Math.random;
   const homeScores: number[] = [];
   const awayScores: number[] = [];
 
   for (let i = 0; i < n; i++) {
     let h = 0;
     let a = 0;
-    for (let d = 0; d < homeDrives; d++) {
-      h += driveOutcome(homeRate);
-      if (d > homeDrives * 0.7 && h < a) h += Math.random() < lateClockTd ? 7 : 0;
-    }
-    for (let d = 0; d < awayDrives; d++) {
-      a += driveOutcome(awayRate);
-      if (d > awayDrives * 0.7 && a < h) a += Math.random() < lateClockTd ? 7 : 0;
+    // Alternate possessions. A home-then-away sweep leaves away at 0 for the
+    // whole home sequence, so the home trailing check never fires and the
+    // home late-clock budget is subtracted without being scored.
+    for (let d = 0; d < drives; d++) {
+      h += driveOutcome(homeRate, ctx.sport, rng);
+      if (d > drives * 0.7 && h < a) {
+        h += rng() < lateClockTd ? scoreTouchdown(ctx.sport, rng) : 0;
+      }
+      a += driveOutcome(awayRate, ctx.sport, rng);
+      if (d > drives * 0.7 && a < h) {
+        a += rng() < lateClockTd ? scoreTouchdown(ctx.sport, rng) : 0;
+      }
     }
     homeScores.push(h);
     awayScores.push(a);
   }
 
+  const label = college ? "NCAAF" : "NFL";
   return finalizeFromScores(
     ctx,
     homeScores,
     awayScores,
     {
       simModel: "nfl-drive",
-      simModelLabel: college ? "NCAAF drive-by-drive" : "NFL drive-by-drive",
+      simModelLabel: `${label} drive-by-drive (${FOOTBALL_DRIVE_ENGINE_VERSION})`,
     },
     48,
   );
