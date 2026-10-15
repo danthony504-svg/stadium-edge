@@ -17,6 +17,12 @@ This pack is **client-only**. No deploy, merge, OTA publish, or native build.
 
 ---
 
+## Constrained-slot membership (unit)
+
+Artifact: `artifacts/api-server/test/fixtures/sea-den-constrained-slot-membership.json`
+
+Last prop seat under `maxProps=4`: **before** seats Shaheed; **after** seats Bonitto Sacks (Shaheed soft-demoted, not hard-rejected). Penalties 34 vs 22.
+
 ## Before / after seven-leg proof (unit)
 
 Artifact: `artifacts/api-server/test/fixtures/sea-den-7leg-correlation-before-after.json`
@@ -29,7 +35,7 @@ Artifact: `artifacts/api-server/test/fixtures/sea-den-7leg-correlation-before-af
 | 6 | **Rashid Shaheed Anytime TD** | **Nik Bonitto Over 0.5 Sacks** |
 | 7 | Nik Bonitto Over 0.5 Sacks | Rashid Shaheed Anytime TD |
 
-**Influence:** with Darnold Pass TDs + receivers + Seahawks spread on the ticket, Shaheed’s soft penalty (**39**) exceeds Sacks (**27**) by the Pass-TD↔receiver bump — Sacks seats earlier. **No hard reject.**
+**Limitation (`ORDER_ONLY_NOT_MEMBERSHIP`):** all seven remain because `maxProps=6` still fits both Shaheed and Sacks — no better-qualified alternatives outside this pool. Correlation **reorders** only; membership change is the constrained-slot test.
 
 ---
 
@@ -37,12 +43,13 @@ Artifact: `artifacts/api-server/test/fixtures/sea-den-7leg-correlation-before-af
 
 | Surface | What it shows | Dependence-adjusted? |
 |---------|---------------|----------------------|
-| Slip `combinedOdds` (`parlayAmerican`) | Product of per-leg decimal odds | **No** — payout math under independence |
-| Slip `parlayImplied` | Product of per-leg book implied probs | **No** — same independence product |
+| Slip “Combined odds” (`parlayAmerican`) | Bookmaker parlay price | **No** — payout math under independence |
+| Slip “Combined book implied” (`parlayImplied`) | Product of per-leg book implied probs | **No** — independence product; **not** joint hit chance |
 | Coach card `confidencePct` / `edgePct` | Per-leg Final AI | **No** ticket-level joint model |
+| Estimated joint hit probability | **Not shipped** | — |
 | Caps / distinct ladders | Exposure / identity gates | **Not correlation modeling** |
 
-Do **not** present the odds product as a Pass-TD↔receiver joint / copula probability.
+UI no longer labels `parlayImplied` as “Implied win prob.”
 
 ---
 

@@ -6,7 +6,11 @@
 
 ## Server delta this turn
 
-**None.** Correlation-aware `seatSingleEventTicket` and the Pass-TD↔receiver soft bump are **client** (`artifacts/stadium-mobile`) only. Isolated pipeline tests rewrote simulate traffic to a local tip-SHA sim (`:8787`); they did not change production API code.
+**None since `ddeb4733348b98d7112748edc19c7e06fc6fc99a`.** Correlation-aware `seatSingleEventTicket` and the Pass-TD↔receiver soft bump are **client** (`artifacts/stadium-mobile`) only. Isolated pipeline tests rewrote simulate traffic to a local tip-SHA sim (`:8787`); they did not change production API code.
+
+### Vs live `cf6c0f699e6f3dd573ade95514af79b05c8a54c1`
+
+Live **does not** contain `footballDriveMatchup.ts` or `gameOutcomePayload.ts`. Corrected **`ppg-per-drive-v1`** drive engine and **period seal** are therefore **not** on production API yet — they still require a Render deploy of server tip **`ddeb4733…`** (or later with that api-server tree).
 
 ## Shared Render impact (explicit)
 
