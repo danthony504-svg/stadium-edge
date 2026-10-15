@@ -54,6 +54,14 @@ export type FootballOppDefenseSlice = {
   passingAttempts?: number | null;
   /** Own offensive yards/rush — coarse run-blocking proxy (not YBC). */
   ownRushYpc?: number | null;
+  /** Team completion % — protection / efficiency context when present. */
+  completionPct?: number | null;
+  /** Team pass yards/game — volume script proxy (not positional). */
+  passingYardsPerGame?: number | null;
+  /** Team rush yards/game — volume script proxy. */
+  rushingYardsPerGame?: number | null;
+  /** Season rush attempts — expected-carry / run-volume proxy when present. */
+  rushingAttempts?: number | null;
   /** Basketball feed fields (honest, not positional allows). */
   steals?: number | null;
   blocks?: number | null;
@@ -208,6 +216,15 @@ export function isFootballQbIntMarket(market: string | null | undefined): boolea
     (/intercept/.test(m) && /pass|qb|thrown/.test(m));
 }
 
+/** Defensive interceptions (DB/LB) — not QB ints thrown. */
+export function isFootballDefensiveIntMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (!m) return false;
+  return /defensive.?int|player_defensive_interceptions/.test(m);
+}
+
 /** QB rushing yards — pressure/scramble relevant. */
 export function isFootballQbRushMarket(market: string | null | undefined): boolean {
   const m = String(market ?? "")
@@ -224,7 +241,8 @@ export function isFootballSkillYardsMarket(market: string | null | undefined): b
     isFootballRushVolumeMarket(market) ||
     isFootballPassVolumeMarket(market) ||
     isFootballSackMarket(market) ||
-    isFootballQbIntMarket(market)
+    isFootballQbIntMarket(market) ||
+    isFootballDefensiveIntMarket(market)
   );
 }
 
@@ -388,9 +406,13 @@ export function footballRushDefenseTilt(opts: {
     // pack = offense being rushed (opponent of the defender) → sacksAllowed
     // ownPack = rusher's defense → sacks forced. Never cross-fallback: a missing
     // field must not borrow the other team's OL or pass-rush rate.
+    // Defender role / snap share is unavailable from team-defense — omit, never invent.
     const olineAllowedPg = perGameRate(pack?.sacksAllowed, pack?.gamesPlayed);
     const rusherSackPg = perGameRate(own?.sacks, own?.gamesPlayed);
-    if (olineAllowedPg == null && rusherSackPg == null) return empty;
+    const oppPassAttPg = perGameRate(pack?.passingAttempts, pack?.gamesPlayed);
+    if (olineAllowedPg == null && rusherSackPg == null && oppPassAttPg == null) {
+      return empty;
+    }
     let favorOver = 0;
     const bits: string[] = [];
     if (olineAllowedPg != null) {
@@ -404,6 +426,12 @@ export function footballRushDefenseTilt(opts: {
       else if (rusherSackPg >= SACKS_PG_STRONG) favorOver += 0.2;
       else if (rusherSackPg <= SACKS_PG_WEAK) favorOver -= 0.25;
     }
+    // Likely pass volume facing the rusher (opposing offense attempts).
+    if (oppPassAttPg != null) {
+      bits.push(`${oppPassAttPg}/g pass att`);
+      if (oppPassAttPg >= 36) favorOver += 0.12;
+      else if (oppPassAttPg <= 28) favorOver -= 0.1;
+    }
     if (favorOver === 0 && !bits.length) return empty;
     const tilt = clampTilt(sideTilt(favorOver, isOver, isUnder));
     return {
@@ -413,16 +441,65 @@ export function footballRushDefenseTilt(opts: {
     };
   }
 
-  // --- Dedicated QB interception props ---
-  if (isFootballQbIntMarket(market)) {
-    const { threat, bits } = footballIntThreatIndex({ opp: pack, own });
+  // --- Defensive interceptions: opposing QB INT tendency + pass volume ---
+  if (isFootballDefensiveIntMarket(market)) {
+    // pack = offense being covered (opp QB INT% / attempts)
+    // ownPack = defender's defense INT rate. Missing sides stay missing.
+    const bits: string[] = [];
+    let favorOver = 0;
+    const oppIntPct = pack?.interceptionPct;
+    const oppThrownPg = perGameRate(pack?.intsThrown, pack?.gamesPlayed);
+    const oppAttPg = perGameRate(pack?.passingAttempts, pack?.gamesPlayed);
+    const defIntPg = perGameRate(own?.interceptions, own?.gamesPlayed);
+    if (oppIntPct != null && Number.isFinite(oppIntPct)) {
+      bits.push(`${oppIntPct}% opp INT`);
+      if (oppIntPct >= INT_PCT_HIGH) favorOver += 0.35;
+      else if (oppIntPct <= INT_PCT_LOW) favorOver -= 0.25;
+    } else if (oppThrownPg != null) {
+      bits.push(`${oppThrownPg}/g opp INT thrown`);
+      if (oppThrownPg >= 1.0) favorOver += 0.3;
+      else if (oppThrownPg <= 0.4) favorOver -= 0.2;
+    }
+    if (oppAttPg != null) {
+      bits.push(`${oppAttPg}/g pass att`);
+      if (oppAttPg >= 36) favorOver += 0.1;
+      else if (oppAttPg <= 28) favorOver -= 0.08;
+    }
+    if (defIntPg != null) {
+      bits.push(`${defIntPg}/g def INT`);
+      if (defIntPg >= INT_PG_ELITE) favorOver += 0.25;
+      else if (defIntPg >= INT_PG_STRONG) favorOver += 0.15;
+      else if (defIntPg <= INT_PG_WEAK) favorOver -= 0.2;
+    }
     if (!bits.length) return empty;
-    // High INT threat favors INT Over (QB throws picks).
-    const tilt = clampTilt(sideTilt(threat * 0.7, isOver, isUnder));
+    const tilt = clampTilt(sideTilt(favorOver, isOver, isUnder));
     return {
       tilt,
       blockOver: false,
-      display: `${who ? `${who} ` : ""}${bits.join(", ")} (INT)`,
+      display: `${who ? `${who} ` : ""}${bits.join(", ")} (def-INT)`,
+    };
+  }
+
+  // --- Dedicated QB interception props ---
+  if (isFootballQbIntMarket(market)) {
+    const { threat, bits } = footballIntThreatIndex({ opp: pack, own });
+    // Protection / pass-rush pressure raises QB INT risk when available.
+    const { pressure, bits: pressBits } = footballPressureIndex({ opp: pack, own });
+    const allBits = [...bits];
+    let threatAdj = threat;
+    if (pressBits.length) {
+      for (const b of pressBits) {
+        if (!allBits.includes(b)) allBits.push(b);
+      }
+      threatAdj += pressure * 0.2;
+    }
+    if (!allBits.length) return empty;
+    // High INT threat favors INT Over (QB throws picks).
+    const tilt = clampTilt(sideTilt(threatAdj * 0.7, isOver, isUnder));
+    return {
+      tilt,
+      blockOver: false,
+      display: `${who ? `${who} ` : ""}${allBits.join(", ")} (INT)`,
     };
   }
 
@@ -503,6 +580,14 @@ export function footballRushDefenseTilt(opts: {
       const script = own.pointsFor - pack.pointsFor;
       if (script >= 7) tilt += isOver ? 0.08 : -0.05;
       else if (script <= -7) tilt += isOver ? -0.08 : 0.05;
+    }
+    // Expected carries proxy — team rush attempts/g when ESPN exposes them.
+    // Per-back carry share is unavailable; missing stays missing.
+    const ownRushAttPg = perGameRate(own?.rushingAttempts, own?.gamesPlayed);
+    if (ownRushAttPg != null && isFootballRushVolumeMarket(market)) {
+      bits.push(`own ${ownRushAttPg}/g rush att`);
+      if (ownRushAttPg >= 30) tilt += isOver ? 0.1 : -0.07;
+      else if (ownRushAttPg <= 20) tilt += isOver ? -0.1 : 0.07;
     }
     tilt = clampTilt(tilt);
     if (!bits.length) return empty;
@@ -591,9 +676,29 @@ export function footballRushDefenseTilt(opts: {
       }
     }
 
+    // Expected pass attempts — own offense volume when present (not invented).
+    const ownAttPg = perGameRate(own?.passingAttempts, own?.gamesPlayed);
+    if (ownAttPg != null && (isPassVol || isFootballPassYardsMarket(market))) {
+      bits.push(`own ${ownAttPg}/g att`);
+      if (ownAttPg >= 36) tilt += isOver ? 0.1 : -0.07;
+      else if (ownAttPg <= 28) tilt += isOver ? -0.1 : 0.07;
+    }
+    // Completion % as coarse protection / efficiency context (pass yards only).
+    if (
+      own?.completionPct != null &&
+      Number.isFinite(own.completionPct) &&
+      isFootballPassYardsMarket(market)
+    ) {
+      bits.push(`${own.completionPct}% cmp`);
+      if (own.completionPct >= 68) tilt += isOver ? 0.08 : -0.05;
+      else if (own.completionPct <= 58) tilt += isOver ? -0.08 : 0.05;
+    }
+
     tilt = clampTilt(tilt);
     if (!bits.length) return empty;
-    const kind = isRecv ? "recv" : isPassVol ? "pass-vol" : "pass";
+    // Receiving is team pass-D + pressure only — ESPN has no defense-vs-position
+    // or route-participation splits here. Do not invent WR/TE/RB allows.
+    const kind = isRecv ? "recv-team" : isPassVol ? "pass-vol" : "pass";
     return {
       tilt,
       blockOver,

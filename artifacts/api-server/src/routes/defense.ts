@@ -99,7 +99,15 @@ const SPORT_OFFENSIVE_STATS: Record<string, { category: string; stats: string[] 
         "teamGamesPlayed",
       ],
     },
-    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt", "teamGamesPlayed"] },
+    {
+      category: "rushing",
+      stats: [
+        "rushingYardsPerGame",
+        "yardsPerRushAttempt",
+        "rushingAttempts",
+        "teamGamesPlayed",
+      ],
+    },
     { category: "scoring", stats: ["totalPointsPerGame"] },
     { category: "general", stats: ["gamesPlayed"] },
   ],
@@ -118,7 +126,15 @@ const SPORT_OFFENSIVE_STATS: Record<string, { category: string; stats: string[] 
         "teamGamesPlayed",
       ],
     },
-    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt", "teamGamesPlayed"] },
+    {
+      category: "rushing",
+      stats: [
+        "rushingYardsPerGame",
+        "yardsPerRushAttempt",
+        "rushingAttempts",
+        "teamGamesPlayed",
+      ],
+    },
     { category: "scoring", stats: ["totalPointsPerGame"] },
     { category: "general", stats: ["gamesPlayed"] },
   ],
@@ -147,7 +163,8 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `team-defense:${path}:${teamId}:v6`;
+    // v7: rushingAttempts on football offensive allowlist (expected-carry proxy).
+    const key = `team-defense:${path}:${teamId}:v7`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),

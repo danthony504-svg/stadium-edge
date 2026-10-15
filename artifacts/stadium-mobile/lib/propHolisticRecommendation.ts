@@ -164,6 +164,12 @@ export type PropHolisticContext = {
   footballOppDefense?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
   /** Player's own team pack (O-line sacks allowed, INT%, rush YPC) — no extra fetch. */
   footballOwnPack?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
+  /**
+   * When true, the same opp-D tilt was already applied to `simHit`. Opponent
+   * tendency keeps display for transparency but must NOT re-score into the
+   * Final AI composite (no double-count of one matchup adjustment).
+   */
+  oppMatchupAppliedToSim?: boolean;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -323,6 +329,13 @@ function scoreOpponentTendency(
       ownPack: ctx.footballOwnPack,
     });
     if (tilt.tilt !== 0 || tilt.display) {
+      // Already folded into simulation hit — display only, no composite lean.
+      if (ctx.oppMatchupAppliedToSim) {
+        return {
+          score: null,
+          display: tilt.display ?? undefined,
+        };
+      }
       return {
         score: scoreTrend(clamp(tilt.tilt / 0.8, -1, 1)),
         display: tilt.display ?? undefined,
@@ -493,7 +506,8 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
       score: opponent.score,
       display: opponent.display,
       applicable: true,
-      present: opponent.score != null,
+      // Display-only (sim already adjusted) still counts as present coverage.
+      present: opponent.score != null || !!opponent.display,
     },
     {
       key: "injury",

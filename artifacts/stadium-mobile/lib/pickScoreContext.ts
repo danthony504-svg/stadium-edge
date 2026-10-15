@@ -888,6 +888,12 @@ export function attachPickScores(
     const adjustedPropSimHit = p.isProp
       ? adjustSimHitForOppDefenseTilt(propSimHit, matchupTilt.tilt)
       : propSimHit;
+    const oppMatchupAppliedToSim =
+      p.isProp &&
+      matchupTilt.tilt !== 0 &&
+      adjustedPropSimHit != null &&
+      propSimHit != null &&
+      adjustedPropSimHit !== propSimHit;
     let finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
@@ -918,6 +924,7 @@ export function attachPickScores(
             rushDefense,
             footballOppDefense,
             footballOwnPack,
+            oppMatchupAppliedToSim,
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,
