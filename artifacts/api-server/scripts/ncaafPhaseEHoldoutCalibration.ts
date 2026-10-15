@@ -336,9 +336,12 @@ function main(): number {
       { closeSpreadHome: row.closeSpreadHome, closeMlHome: row.closeMlHome },
     ]),
   );
-  const passes = FOOTBALL_CALIBRATION_SEEDS.map((seed) =>
-    simulateHoldout(games, seed, closingByEvent),
-  );
+  // NCAAF_PHASE_E_PRIMARY_ONLY=1 → primary seed only (dual-commit compare / CI).
+  const seeds =
+    process.env.NCAAF_PHASE_E_PRIMARY_ONLY === "1"
+      ? ([FOOTBALL_CALIBRATION_PRIMARY_SEED] as const)
+      : FOOTBALL_CALIBRATION_SEEDS;
+  const passes = seeds.map((seed) => simulateHoldout(games, seed, closingByEvent));
   const primary = passes.find((p) => p.seed === FOOTBALL_CALIBRATION_PRIMARY_SEED) ?? passes[0]!;
   const sensitivityPass = simulateHoldout(
     games,

@@ -194,3 +194,9 @@ test("delivery note join skips null clarification instead of throwing", () => {
   assert.match(note, /spreads and moneylines/);
   assert.doesNotMatch(note, /props\/alts/);
 });
+
+test("device: 8 leg broncos — null built.note must not throw via joinCoachNoteParts", () => {
+  // Mirrors buildParlay props-only path: joinCoachNoteParts([built.note]) when note is null.
+  assert.equal(joinCoachNoteParts([null]), "");
+  assert.equal(joinCoachNoteParts([null]) || "fallback", "fallback");
+});

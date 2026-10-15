@@ -16,6 +16,8 @@ export type SportSimContext = {
   weatherImpact?: number | null;
   coverQueries?: GameCoverQuery[];
   retainOutcomes?: boolean;
+  /** When set, drive sims draw from this stream so a holdout can be replayed. */
+  random?: () => number;
 };
 
 export type SportSimModelId =

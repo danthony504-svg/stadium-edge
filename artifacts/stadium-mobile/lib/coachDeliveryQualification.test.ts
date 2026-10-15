@@ -13,6 +13,12 @@ import {
 import { dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
 import { marketLadderScoreKey, marketLadderKey } from "./marketLadderKey.ts";
 import { NCAAF_GAME_LINE_SIM_VALIDATED } from "./coachP0UnvalidatedTotals.ts";
+import { joinCoachNoteParts } from "./sanitizeCoachUserNote.ts";
+import {
+  coachAskTeamScope,
+  filterOddsGamesForAskTeam,
+  filterPicksForAskTeam,
+} from "./coachAskTeamScope.ts";
 
 function scored(
   pick: string,
@@ -288,6 +294,96 @@ test("exception recovery keeps only qualified full-game sides", () => {
   );
   assert.ok(recovered.every(deliveryCandidateStillQualified));
   assert.ok(recovered.every((p) => p.market === "Spread"));
+});
+
+test("device: 8 leg broncos — null-note safe; Q3 cannot survive partial/recovery/final; matchup scope", () => {
+  const askText = "8 leg broncos";
+  const ask = parseCoachAskMarketConstraint(askText);
+  // Bare team N-leg is a mix ask (not fullGameOnly); period still fail-closed.
+  assert.equal(ask.propsOnly, false);
+
+  // Documented meaning: Broncos = entire matchup (both sides), not Broncos-only legs.
+  const scope = coachAskTeamScope(askText);
+  assert.ok(scope);
+  assert.equal(scope!.sport, "nfl");
+  assert.ok(scope!.matchTokens.includes("broncos"));
+  const sea = "Seattle Seahawks @ Denver Broncos";
+  const other = "Buffalo Bills @ Kansas City Chiefs";
+  assert.deepEqual(
+    filterOddsGamesForAskTeam(
+      [
+        { sport: "nfl", awayTeam: "Seattle Seahawks", homeTeam: "Denver Broncos" },
+        { sport: "nfl", awayTeam: "Buffalo Bills", homeTeam: "Kansas City Chiefs" },
+      ],
+      scope,
+    ).map((g) => g.homeTeam),
+    ["Denver Broncos"],
+  );
+  const scopedPicks = filterPicksForAskTeam(
+    [
+      { sport: "nfl", game: sea, market: "Spread", pick: "Seahawks +3.5" },
+      { sport: "nfl", game: sea, market: "Q3 Spread", pick: "Seahawks +1.5" },
+      { sport: "nfl", game: sea, market: "Moneyline", pick: "Broncos" },
+      { sport: "nfl", game: other, market: "Spread", pick: "Chiefs -3" },
+    ],
+    scope,
+  );
+  assert.equal(scopedPicks.length, 3);
+  assert.ok(scopedPicks.every((p) => /broncos|seahawks/i.test(String(p.game))));
+  assert.ok(
+    scopedPicks.some((p) => /seahawks/i.test(String(p.pick))),
+    "matchup scope allows opponent (Seahawks) full-game sides",
+  );
+
+  const q3 = scored("Seahawks +1.5", {
+    game: sea,
+    market: "Q3 Spread",
+    odds: -230,
+    composite: 9,
+    edgePct: 27.6,
+    simHit: 0.77,
+  });
+  const fgSea = scored("Seahawks +3.5", {
+    game: sea,
+    market: "Spread",
+    composite: 8,
+    edgePct: 2,
+    simHit: 0.56,
+  });
+  const fgBroncos = scored("Broncos -3.5", {
+    game: sea,
+    market: "Spread",
+    composite: 7.5,
+    edgePct: 1.8,
+    simHit: 0.55,
+  });
+  const foreign = scored("Chiefs -3", {
+    game: other,
+    market: "Spread",
+    composite: 7.2,
+    edgePct: 1.8,
+    simHit: 0.57,
+  });
+
+  // Qualification belt (partial revalidate + exception recovery + final).
+  assert.equal(deliveryCandidateStillQualified(q3), false);
+  assert.equal(revalidateDeliveryPicks([q3, fgSea]).picks.length, 1);
+  const recovered = recoverQualifiedDeliveryPicks(
+    filterPicksForAskTeam([q3, fgSea, fgBroncos, foreign], scope),
+    ask,
+    { requestedLegs: 8, legsPerGameCap: 8 },
+  );
+  assert.ok(recovered.every((p) => p.market !== "Q3 Spread"));
+  assert.ok(recovered.every((p) => deliveryCandidateStillQualified(p)));
+  assert.ok(recovered.every((p) => /broncos|seahawks/i.test(p.game)));
+  assert.deepEqual(
+    recovered.map((p) => `${p.market}|${p.pick}`).sort(),
+    ["Spread|Broncos -3.5", "Spread|Seahawks +3.5"].sort(),
+  );
+
+  // Null-note must not throw (device: Cannot read property 'trim' of null).
+  assert.equal(joinCoachNoteParts([null, undefined, ""]), "");
+  assert.doesNotThrow(() => joinCoachNoteParts([null, "ok"]));
 });
 
 test("explicit Q3 ask still drops the quarter leg at delivery qualification", () => {

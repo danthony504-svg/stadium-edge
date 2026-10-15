@@ -43,7 +43,10 @@ import {
   rememberParlayBuild,
 } from "@/lib/parlayVarietyMemory";
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
-import { recoverQualifiedDeliveryPicks } from "@/lib/coachDeliveryQualification";
+import {
+  recoverQualifiedDeliveryPicks,
+  revalidateDeliveryPicks,
+} from "@/lib/coachDeliveryQualification";
 import { finalizeCoachDeliveryPicks } from "@/lib/ticketDiversity";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
@@ -670,29 +673,36 @@ export async function buildCoachParlay(opts: {
         allowRareCountFamilyStack,
         onPartialPicks: (partial) => {
           // Preserve the original market lock when present.
-          // Scope filter before UI buffer — same as primary props-only path.
+          // Scope + delivery qualification before UI buffer — unsupported
+          // period legs (e.g. Q3) must never paint mid-scan.
           opts.onPartialPicks?.(
-            filterPicksForAskSports(
-              filterPicksForCoachAskTeams(
-                filterPicksByAskMarketConstraint(partial, marketConstraint),
-                inputs.teamScope,
-                inputs.excludedTeams,
+            revalidateDeliveryPicks(
+              filterPicksForAskSports(
+                filterPicksForCoachAskTeams(
+                  filterPicksByAskMarketConstraint(partial, marketConstraint),
+                  inputs.teamScope,
+                  inputs.excludedTeams,
+                ),
+                lockedSportsPropsOnly,
               ),
-              lockedSportsPropsOnly,
-            ),
+            ).picks,
           );
         },
       });
-      const recoveredPicks = filterPicksForAskSports(
-        filterPicksForCoachAskTeams(
-          filterPicksByAskMarketConstraint(
-            selectFinalCoachParlayPicks(recovered.picks),
-            marketConstraint,
+      const recoveredPicks = recoverQualifiedDeliveryPicks(
+        filterPicksForAskSports(
+          filterPicksForCoachAskTeams(
+            filterPicksByAskMarketConstraint(
+              selectFinalCoachParlayPicks(recovered.picks),
+              marketConstraint,
+            ),
+            inputs.teamScope,
+            inputs.excludedTeams,
           ),
-          inputs.teamScope,
-          inputs.excludedTeams,
+          lockedSportsPropsOnly,
         ),
-        lockedSportsPropsOnly,
+        marketConstraint,
+        { requestedLegs: target },
       );
       if (recoveredPicks.length > 0) {
         picks = recoveredPicks;
@@ -728,27 +738,33 @@ export async function buildCoachParlay(opts: {
           allowRareCountFamilyStack,
           onPartialPicks: (partial) => {
             opts.onPartialPicks?.(
-              filterPicksForAskSports(
-                filterPicksForCoachAskTeams(
-                  filterPicksByAskMarketConstraint(partial, marketConstraint),
-                  inputs.teamScope,
-                  inputs.excludedTeams,
+              revalidateDeliveryPicks(
+                filterPicksForAskSports(
+                  filterPicksForCoachAskTeams(
+                    filterPicksByAskMarketConstraint(partial, marketConstraint),
+                    inputs.teamScope,
+                    inputs.excludedTeams,
+                  ),
+                  lockedSportsPropsOnly,
                 ),
-                lockedSportsPropsOnly,
-              ),
+              ).picks,
             );
           },
         });
-        const softPicks = filterPicksForAskSports(
-          filterPicksForCoachAskTeams(
-            filterPicksByAskMarketConstraint(
-              selectFinalCoachParlayPicks(softPreferred.picks),
-              marketConstraint,
+        const softPicks = recoverQualifiedDeliveryPicks(
+          filterPicksForAskSports(
+            filterPicksForCoachAskTeams(
+              filterPicksByAskMarketConstraint(
+                selectFinalCoachParlayPicks(softPreferred.picks),
+                marketConstraint,
+              ),
+              inputs.teamScope,
+              inputs.excludedTeams,
             ),
-            inputs.teamScope,
-            inputs.excludedTeams,
+            lockedSportsPropsOnly,
           ),
-          lockedSportsPropsOnly,
+          marketConstraint,
+          { requestedLegs: target },
         );
         if (softPicks.length > 0) {
           picks = softPicks;
@@ -815,9 +831,10 @@ export async function buildCoachParlay(opts: {
       propsOnly: true,
       picks,
     });
+    // built.note may be null (e.g. bareCollegeClarificationNote) — never call .trim on it.
     const body =
       recoveredNote ||
-      built.note.trim() ||
+      joinCoachNoteParts([built.note]) ||
       buildFinalCoachParlayNote({
         target,
         picks,
@@ -937,20 +954,22 @@ export async function buildCoachParlay(opts: {
     },
     onPartial: (partial) => {
       latest = partial;
-      // Scope + market filter before any UI buffer — foreign legs and markets
-      // the ask excluded (player props on a spreads/moneylines ask) must never
+      // Scope + market + delivery qualification before any UI buffer —
+      // unsupported period legs (Q3 etc.) and ask-excluded markets must never
       // paint mid-scan or be counted as "props/alts".
-      const scopedPartialPicks = filterPicksByAskMarketConstraint(
-        filterPicksForAskSports(
-          filterPicksForCoachAskTeams(
-            partial.picks ?? [],
-            inputs.teamScope,
-            inputs.excludedTeams,
+      const scopedPartialPicks = revalidateDeliveryPicks(
+        filterPicksByAskMarketConstraint(
+          filterPicksForAskSports(
+            filterPicksForCoachAskTeams(
+              partial.picks ?? [],
+              inputs.teamScope,
+              inputs.excludedTeams,
+            ),
+            hardLockedSportsFromAsk(opts.askText),
           ),
-          hardLockedSportsFromAsk(opts.askText),
+          marketConstraint,
         ),
-        marketConstraint,
-      );
+      ).picks;
       const propLike = countPropLike(scopedPartialPicks);
       if (!gameLinesOnly && partial.awaitingPropSlots && propLike === 0) {
         // Reserved game-line preview (often exactly 2 on a 5/6-leg) must not paint
