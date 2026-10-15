@@ -42,18 +42,18 @@ export function nflDriveRatesSaturated(ppd: number, sport = "nfl"): boolean {
 }
 
 /** One touchdown: 6 points plus a single extra-point attempt. No second XP. */
-function scoreTouchdown(sport: string): number {
+function scoreTouchdown(sport: string, rng: () => number): number {
   const { tdPoints } = footballDrivePoints(sport);
   const xpExpected = tdPoints - 6;
-  const xp = Math.random() < xpExpected ? 1 : 0;
+  const xp = rng() < xpExpected ? 1 : 0;
   return 6 + xp;
 }
 
-function driveOutcome(pointsPerDrive: number, sport: string): number {
-  const r = Math.random();
+function driveOutcome(pointsPerDrive: number, sport: string, rng: () => number): number {
+  const r = rng();
   const { tdRate, fgRate } = footballDriveScoringRates(pointsPerDrive, sport);
   const { fgPoints } = footballDrivePoints(sport);
-  if (r < tdRate) return scoreTouchdown(sport);
+  if (r < tdRate) return scoreTouchdown(sport, rng);
   if (r < tdRate + fgRate) return fgPoints;
   return 0;
 }
@@ -95,6 +95,7 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   });
   const homeRate = footballDriveRateInput(homeOff - homeLate, drives, ctx.sport);
   const awayRate = footballDriveRateInput(awayOff - awayLate, drives, ctx.sport);
+  const rng = ctx.random ?? Math.random;
   const homeScores: number[] = [];
   const awayScores: number[] = [];
 
@@ -105,13 +106,13 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
     // whole home sequence, so the home trailing check never fires and the
     // home late-clock budget is subtracted without being scored.
     for (let d = 0; d < drives; d++) {
-      h += driveOutcome(homeRate, ctx.sport);
+      h += driveOutcome(homeRate, ctx.sport, rng);
       if (d > drives * 0.7 && h < a) {
-        h += Math.random() < lateClockTd ? scoreTouchdown(ctx.sport) : 0;
+        h += rng() < lateClockTd ? scoreTouchdown(ctx.sport, rng) : 0;
       }
-      a += driveOutcome(awayRate, ctx.sport);
+      a += driveOutcome(awayRate, ctx.sport, rng);
       if (d > drives * 0.7 && a < h) {
-        a += Math.random() < lateClockTd ? scoreTouchdown(ctx.sport) : 0;
+        a += rng() < lateClockTd ? scoreTouchdown(ctx.sport, rng) : 0;
       }
     }
     homeScores.push(h);

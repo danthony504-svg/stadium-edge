@@ -19,6 +19,21 @@ import {
   blendVenueAndL10,
   FOOTBALL_DRIVE_ENGINE_VERSION,
 } from "../src/lib/sportSim/footballDriveMatchup.ts";
+import {
+  boundarySensitiveCount,
+  DOG_COHORT_BOUNDARY_SWEEP,
+  DOG_COHORT_COVER_MAX,
+  DOG_COHORT_HI,
+  DOG_COHORT_LO,
+  dogCohort,
+  evaluateClosingLines,
+  FOOTBALL_CALIBRATION_PRIMARY_SEED,
+  FOOTBALL_CALIBRATION_SEEDS,
+  loadClosingLineArchive,
+  mulberry32,
+  type ClosingJoin,
+  type HoldoutProbRow,
+} from "../src/lib/sportSim/footballCalibration.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../../..");
@@ -189,20 +204,27 @@ function ece(ps: number[], ys: number[], bins = 10): number {
   return e;
 }
 
-function main(): number {
-  console.log("══ NCAAF Phase E holdout calibration (nfl-drive) ══");
-  console.log(`holdoutSeason=${HOLDOUT_SEASON} sims=${SIMS}`);
-  console.log("NCAAF_GAME_LINE_SIM_VALIDATED is NOT flipped by this script.");
+type SeedPass = {
+  seed: number;
+  scored: number;
+  skippedThin: number;
+  provenanceCounts: Record<string, number>;
+  mlP: number[];
+  mlY: number[];
+  rows: HoldoutProbRow[];
+  closingJoins: ClosingJoin[];
+};
 
-  const games = loadGames();
+function simulateHoldout(games: EspnGame[], seed: number, closingByEvent: Map<string, { closeSpreadHome: number; closeMlHome: number }>): SeedPass {
+  const rng = mulberry32(seed);
   const forms = new Map<string, TeamForm>();
   const mlP: number[] = [];
   const mlY: number[] = [];
-  const dog75: { cover: number; ml: number }[] = [];
+  const rows: HoldoutProbRow[] = [];
+  const closingJoins: ClosingJoin[] = [];
   const provenanceCounts: Record<string, number> = {};
   let skippedThin = 0;
   let scored = 0;
-
   const emptyForm = (): TeamForm => ({
     ptsFor: [],
     ptsAgainst: [],
@@ -215,12 +237,30 @@ function main(): number {
   for (const g of games) {
     const homeIn = teamSimInput(forms.get(g.homeTeamId), "home");
     const awayIn = teamSimInput(forms.get(g.awayTeamId), "away");
-
     const isHoldout = g.season === HOLDOUT_SEASON;
+    const close = closingByEvent.get(g.eventId);
     if (isHoldout && homeIn.ptsFor != null && awayIn.ptsFor != null) {
+      const coverQueries: Array<{
+        id: string;
+        kind: "ml" | "spread";
+        teamSide: "home" | "away";
+        line?: number;
+      }> = [
+        { id: "home-ml", kind: "ml", teamSide: "home" },
+        { id: "away-sp75", kind: "spread", teamSide: "away", line: 7.5 },
+      ];
+      if (close) {
+        coverQueries.push({
+          id: "home-close-spread",
+          kind: "spread",
+          teamSide: "home",
+          line: close.closeSpreadHome,
+        });
+      }
       const result = runNflDriveSim({
         sport: "ncaaf",
         simulations: SIMS,
+        random: rng,
         home: {
           ptsFor: homeIn.ptsFor,
           ptsAgainst: homeIn.ptsAgainst,
@@ -231,15 +271,7 @@ function main(): number {
           ptsAgainst: awayIn.ptsAgainst,
           recentScores: awayIn.recentScores,
         },
-        coverQueries: [
-          { id: "home-ml", kind: "ml", teamSide: "home" },
-          {
-            id: "away-sp75",
-            kind: "spread",
-            teamSide: "away",
-            line: 7.5,
-          },
-        ],
+        coverQueries,
         retainOutcomes: false,
       });
       if (result?.coverHitRates) {
@@ -248,14 +280,24 @@ function main(): number {
         if (yHome === 0 || yHome === 1) {
           mlP.push(pHome);
           mlY.push(yHome);
+          const awayCovered = g.awayFg + 7.5 > g.homeFg ? 1 : 0;
+          rows.push({ eventId: g.eventId, pHome, yHome, awayCovered75: awayCovered });
           scored += 1;
           const provKey = `${homeIn.provenance}+${awayIn.provenance}`;
           provenanceCounts[provKey] = (provenanceCounts[provKey] ?? 0) + 1;
-          if (scored % 100 === 0) console.log(`scored ${scored} holdout games`);
-          // Pathology: near coin-flip ML with huge dog — cover must not sit at 70%+.
-          if (pHome > 0.45 && pHome < 0.55) {
-            const awayCovered = g.awayFg + 7.5 > g.homeFg ? 1 : 0;
-            dog75.push({ cover: awayCovered, ml: pHome });
+          if (scored % 100 === 0) console.log(`seed ${seed} scored ${scored} holdout games`);
+          if (close) {
+            const margin = g.homeFg - g.awayFg;
+            const covered = margin + close.closeSpreadHome > 0 ? 1 : margin + close.closeSpreadHome < 0 ? 0 : null;
+            closingJoins.push({
+              eventId: g.eventId,
+              pHome,
+              yHome,
+              closeSpreadHome: close.closeSpreadHome,
+              closeMlHome: close.closeMlHome,
+              pHomeCoverClose: result.coverHitRates["home-close-spread"] ?? null,
+              homeCoveredClose: covered,
+            });
           }
         }
       }
@@ -263,7 +305,6 @@ function main(): number {
       skippedThin += 1;
     }
 
-    // Update rolling form AFTER the game (chrono — no leakage).
     const hf = forms.get(g.homeTeamId) ?? emptyForm();
     hf.ptsFor.push(g.homeFg);
     hf.ptsAgainst.push(g.awayFg);
@@ -278,6 +319,46 @@ function main(): number {
     forms.set(g.awayTeamId, af);
   }
 
+  return { seed, scored, skippedThin, provenanceCounts, mlP, mlY, rows, closingJoins };
+}
+
+function main(): number {
+  console.log("══ NCAAF Phase E holdout calibration (nfl-drive) ══");
+  console.log(`holdoutSeason=${HOLDOUT_SEASON} sims=${SIMS} primarySeed=${FOOTBALL_CALIBRATION_PRIMARY_SEED}`);
+  console.log("NCAAF_GAME_LINE_SIM_VALIDATED is NOT flipped by this script.");
+  console.log("Seeds are precommitted. The primary seed is not chosen for a PASS.");
+
+  const games = loadGames();
+  const closingPath = join(here, "../test/fixtures/ncaaf-phase-e-closing-lines.json");
+  const closingArchive = loadClosingLineArchive(closingPath);
+  const closingByEvent = new Map(
+    closingArchive.rows.map((row) => [
+      row.eventId,
+      { closeSpreadHome: row.closeSpreadHome, closeMlHome: row.closeMlHome },
+    ]),
+  );
+  const passes = FOOTBALL_CALIBRATION_SEEDS.map((seed) =>
+    simulateHoldout(games, seed, closingByEvent),
+  );
+  const primary = passes.find((p) => p.seed === FOOTBALL_CALIBRATION_PRIMARY_SEED) ?? passes[0]!;
+  const mlP = primary.mlP;
+  const mlY = primary.mlY;
+  const scored = primary.scored;
+  const skippedThin = primary.skippedThin;
+  const provenanceCounts = primary.provenanceCounts;
+  const officialCohort = dogCohort(primary.rows, DOG_COHORT_LO, DOG_COHORT_HI);
+  const dog75 = primary.rows
+    .filter((r) => r.pHome > DOG_COHORT_LO && r.pHome < DOG_COHORT_HI)
+    .map((r) => ({ cover: r.awayCovered75, ml: r.pHome }));
+  const closingEval = evaluateClosingLines(primary.closingJoins);
+  const seedCohorts = passes.map((p) => ({
+    seed: p.seed,
+    primary: p.seed === FOOTBALL_CALIBRATION_PRIMARY_SEED,
+    ...dogCohort(p.rows),
+  }));
+  const seedRates = seedCohorts
+    .map((c) => c.awayCoverRate)
+    .filter((v): v is number => v != null);
   const coinP = mlP.map(() => 0.5);
   const report = {
     generatedAt: new Date().toISOString(),
@@ -285,6 +366,23 @@ function main(): number {
     inputUnits:
       "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are mutually exclusive. Late-clock touchdowns are funded from the same points-per-game budget.",
     selectionTimeInputs: true,
+    calibrationSeed: FOOTBALL_CALIBRATION_PRIMARY_SEED,
+    calibrationSeeds: [...FOOTBALL_CALIBRATION_SEEDS],
+    seedPolicy:
+      "Primary seed is the first precommitted value (20241015). Seeds were listed before the run and were not reordered or dropped to obtain a PASS.",
+    officialDogCohort: officialCohort,
+    dogCohortByBoundary: DOG_COHORT_BOUNDARY_SWEEP.map((b) => dogCohort(primary.rows, b.lo, b.hi)),
+    dogCohortBySeed: seedCohorts,
+    dogCohortSeedRange: seedRates.length
+      ? {
+          min: Math.min(...seedRates),
+          max: Math.max(...seedRates),
+          mean: seedRates.reduce((a, b) => a + b, 0) / seedRates.length,
+        }
+      : null,
+    boundarySensitiveGames: boundarySensitiveCount(primary.rows),
+    boundarySensitiveNote:
+      "Count of primary-seed games whose home ML sits within 0.01 of 0.45 or 0.55. Those games can enter or leave the official cohort when the draw noise moves.",
     priorE2aClaim: {
       status: "WITHDRAWN",
       restored: false,
@@ -305,11 +403,31 @@ function main(): number {
     formMethodology:
       "venue_split blended with L10 via blendVenueAndL10 (production footballGameSimInputs parity); no invented HFA constant",
     formProvenanceCounts: provenanceCounts,
-    closingLineData: "INSUFFICIENT_DATA",
+    closingLineArchive: {
+      expectedPath: "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",
+      present: closingArchive.present,
+      parseError: closingArchive.parseError,
+      parsedRows: closingArchive.rows.length,
+      droppedRows: closingArchive.dropped,
+      joinedHoldoutRows: primary.closingJoins.length,
+      oddsApiKey: process.env.ODDS_API_KEY ? "set" : "unset",
+      espnCompletedScoreboardOdds: "empty",
+      espnSummaryPickcenter: "empty",
+      designDoc:
+        "CLOSING_LINE_ARCHIVE.md at f494c3a5 is a design note and is not on this branch. No E2b PASS exists in prior calibration reports.",
+      priorE2bClaims: [
+        {
+          reportGeneratedAt: "2026-10-14T21:24:31.034Z",
+          verdict: "INSUFFICIENT_DATA",
+          note: "The withdrawn E2a PASS did not include an E2b PASS.",
+        },
+      ],
+    },
+    closingLineData: closingEval.verdict === "INSUFFICIENT_DATA" ? "INSUFFICIENT_DATA" : "MEASURED_OPEN",
+    closingLineMetrics: closingEval,
     closingLineNote:
-      "No licensed closing-line archive in this environment; CLV / market-Brier not computed. " +
-      "Dependency: ODDS_API_KEY with The Odds API historical scores access, OR NCAAF_PHASE_E_FIXTURE CSV " +
-      "(columns: gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown).",
+      closingEval.reason +
+      " Dependency if the archive is still empty: ODDS_API_KEY historical odds for americanfootball_ncaaf, or ncaaf-phase-e-closing-lines.json with eventId, closeSpreadHome, closeMlHome.",
     injurySegmentData: "INSUFFICIENT_DATA",
     injuryNote:
       "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. " +
@@ -382,7 +500,7 @@ function main(): number {
   report.verdicts = {
     E2_outcomeVsCoin: e2Outcome,
     E2_reasons: reasons.join("; ") || "ok",
-    E2_closingLineClv: "INSUFFICIENT_DATA",
+    E2_closingLineClv: closingEval.verdict,
     E2_readyForRestore: e2Restore,
     E4_injuryConservatism: "INSUFFICIENT_DATA",
     E6_humanSignOff: "OPEN",
