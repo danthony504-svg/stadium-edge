@@ -918,23 +918,38 @@ function SlipScreenActive() {
             <View style={{ marginTop: 14, gap: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
-                  Combined odds
+                  Estimated combined odds
                 </Text>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>
                   {formatAmerican(combined)}
                 </Text>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
-                  Combined book implied
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 13,
+                    flex: 1,
+                    paddingRight: 12,
+                  }}
+                >
+                  Independence-based implied probability
                 </Text>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
                   {(implied * 100).toFixed(1)}%
                 </Text>
               </View>
-              {/* `implied` = parlayImplied(leg odds) = product of per-leg book
-                  implied probs under independence. Combined bookmaker price math
-                  only — NOT a dependence-adjusted / joint model hit probability. */}
+              {/* Estimated combined odds = parlayAmerican(leg odds) from individual
+                  prices. Actual sportsbook pricing may differ, especially on
+                  same-game tickets. Independence-based implied = parlayImplied —
+                  product of per-leg book implied probs under independence; NOT an
+                  estimated joint / dependence-adjusted win probability. */}
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 15 }}>
+                Estimated from individual leg prices. Actual sportsbook pricing may
+                differ, especially for same-game tickets. Independence-based implied
+                probability is not an estimated joint chance of winning.
+              </Text>
 
               {/* "To win" sits ABOVE the Stake input on purpose: when the
                   number-pad opens it scrolls the focused Stake field just above
