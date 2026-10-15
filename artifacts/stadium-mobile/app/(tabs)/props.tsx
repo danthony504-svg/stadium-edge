@@ -392,10 +392,17 @@ function PropsScreen() {
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
-  const [sport, setSport] = useState(
-    params.sp && isPillSport(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
-  );
+  const paramSport =
+    params.sp && isPillSport(String(params.sp)) ? String(params.sp) : null;
+  const [sport, setSport] = useState(paramSport ?? PROPS_SPORTS[0]);
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
+  // Home Best Value passes ?sp= — re-apply when the shortcut fires again.
+  useEffect(() => {
+    if (paramSport) setSport(paramSport);
+  }, [paramSport]);
+  useEffect(() => {
+    if (params.q != null) setQuery(String(params.q));
+  }, [params.q]);
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
   // When the player sheet sends the user to the full-breakdown route we HIDE it

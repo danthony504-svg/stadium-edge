@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
+import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import { formatAmerican, payout } from "@/lib/format";
 import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
 import { saveSlipToPhotos } from "@/lib/slipImage";
@@ -158,9 +159,11 @@ function SlipBarBody({
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
     onNavigateAway?.();
+    const autoMsg = "Analyze my ticket";
+    markCoachHomeLaunch({ autoMsg, hideBubble: false, freshThread: true });
     router.push({
       pathname: "/coach",
-      params: { autoMsg: "Analyze my ticket", send: "1", ts: String(Date.now()) },
+      params: { autoMsg, send: "1", ts: String(Date.now()) },
     } as any);
   };
 

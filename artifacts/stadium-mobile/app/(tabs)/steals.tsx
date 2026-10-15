@@ -7,9 +7,9 @@
  */
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -711,7 +711,16 @@ function BoardHeader({ sortKey, onSort }: { sortKey: SortKey; onSort: (k: SortKe
 function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [sportFilter, setSportFilter] = useState<string | null>(null);
+  const params = useLocalSearchParams<{ sp?: string }>();
+  const paramSport =
+    params.sp && SPORTS.some((s) => s.id === String(params.sp))
+      ? String(params.sp)
+      : null;
+  const [sportFilter, setSportFilter] = useState<string | null>(paramSport);
+  // Home Longshots passes ?sp= — keep the filter in sync when the shortcut re-fires.
+  useEffect(() => {
+    if (paramSport) setSportFilter(paramSport);
+  }, [paramSport]);
   const [sortKey, setSortKey] = useState<SortKey>("ev");
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
