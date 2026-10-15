@@ -12,6 +12,8 @@ import { normalizeCoachLegTypos } from "./coach/parseAsk.ts";
 import {
   askAllowsNcaafPlayerProps,
   askIsCollegeFootballOnly,
+  asksNamedSpreadAndMoneyline,
+  asksSpreadAndMoneylineOnly,
 } from "./boardScanPropDelivery.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 
@@ -463,6 +465,8 @@ export function wantsNoTotalsAsk(text: string | null | undefined): boolean {
   }
   if (/\bno\s+over\s+or\s+under\b/.test(t)) return true;
   if (/\bmoneylines?\s+(?:and|&|\+|\/)\s+puck\s*lines?\b/.test(t)) return true;
+  // "spreads and moneylines" names sides only — drop totals and player props.
+  if (asksSpreadAndMoneylineOnly(t)) return true;
   return false;
 }
 
@@ -481,6 +485,8 @@ export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean 
   if (/\bwithout\s+props?\b/.test(t)) return true;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return true;
   if (/\bsides?\s+only\b/.test(t)) return true;
+  // "4 leg NFL spreads and moneylines" — team sides, even when totals are also named.
+  if (asksNamedSpreadAndMoneyline(t)) return true;
   // Phone: college books post team spreads / totals / Q lines — not player
   // yards. Bare "8 leg college" / "8 leg Collage" / NCAAF → game lines only
   // unless the user named player props. Mixed "soccer and college" stays off.

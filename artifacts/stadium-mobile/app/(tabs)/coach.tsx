@@ -58,6 +58,7 @@ import {
   coachSessionShouldKeepBusy,
   coachShortfallNote,
   createCoachSession,
+  coachAssistantTerminalFlags,
   latchCoachSession,
   resetCoachAbsoluteClock,
   resolveCoachOutcome,
@@ -294,37 +295,52 @@ export default function CoachScreen() {
         propsPending?: boolean;
       },
     ) => {
-      const picks = dedupePicksByMarketLadder(opts.picks);
-      const outcome = resolveCoachOutcome({
-        pickCount: picks.length,
-        requestedLegs: opts.requestedLegs,
-        failed: opts.failed,
-      });
-      latchCoachSession(sessionRef.current, outcome);
-      terminalShownPickCountRef.current = picks.length;
-      if (picks.length > 0 && outcome !== "failed") {
-        rememberParlayBuild(picks);
+      let picks: ParsedPick[] = [];
+      let storedPicks: ParsedPick[] = [];
+      let storedText = "";
+      let outcome: ReturnType<typeof resolveCoachOutcome> = "failed";
+      try {
+        picks = dedupePicksByMarketLadder(opts.picks ?? []);
+        outcome = resolveCoachOutcome({
+          pickCount: picks.length,
+          requestedLegs: opts.requestedLegs,
+          failed: opts.failed,
+        });
+        latchCoachSession(sessionRef.current, outcome);
+        terminalShownPickCountRef.current = picks.length;
+        if (picks.length > 0 && outcome !== "failed") {
+          rememberParlayBuild(picks);
+        }
+        const rawText = typeof opts.text === "string" ? opts.text : "";
+        // Prefer the build note when present — it carries prop-pool context.
+        // Only synthesize a generic shortfall when the build returned no text.
+        // Strip any leaked `[CODE: detail]` machine traces before the bubble paints.
+        const shortfall =
+          !rawText.trim() && (outcome === "shortfall" || outcome === "empty")
+            ? coachShortfallNote(opts.requestedLegs, picks.length, {
+                propsPending: opts.propsPending,
+              })
+            : "";
+        // Free users: store redacted picks in message state (not full identity).
+        storedPicks = coachPremiumUnlocked
+          ? picks
+          : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
+        storedText =
+          !coachPremiumUnlocked && storedPicks.length > 0
+            ? `${storedPicks.length} qualifying pick${storedPicks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
+            : sanitizeCoachUserNote([shortfall, rawText].filter(Boolean).join("\n\n"));
+      } catch {
+        outcome = "failed";
+        latchCoachSession(sessionRef.current, "failed");
+        storedPicks = [];
+        storedText = "Something went wrong finishing that ticket.";
       }
-      // Prefer the build note when present — it carries prop-pool context.
-      // Only synthesize a generic shortfall when the build returned no text.
-      // Strip any leaked `[CODE: detail]` machine traces before the bubble paints.
-      const shortfall =
-        !opts.text.trim() && (outcome === "shortfall" || outcome === "empty")
-          ? coachShortfallNote(opts.requestedLegs, picks.length, {
-              propsPending: opts.propsPending,
-            })
-          : "";
-      // Free users: store redacted picks in message state (not full identity).
-      const storedPicks = coachPremiumUnlocked
-        ? picks
-        : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
-      const storedText =
-        !coachPremiumUnlocked && storedPicks.length > 0
-          ? `${storedPicks.length} qualifying pick${storedPicks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
-          : sanitizeCoachUserNote([shortfall, opts.text].filter(Boolean).join("\n\n"));
+      // Success, failure, cancellation, and deadline expiry all reach here.
+      // Paint building:false even when note assembly threw above.
+      const terminal = coachAssistantTerminalFlags(outcome);
       patchAssistant(assistantId, {
-        building: false,
-        buildStatus: undefined,
+        building: terminal.building,
+        buildStatus: terminal.buildStatus,
         picks: storedPicks,
         text: storedText,
         requestedLegs: opts.requestedLegs || undefined,
@@ -632,46 +648,51 @@ export default function CoachScreen() {
             .filter((m) => m.role === "user")
             .map((m) => m.text)
             .filter(Boolean);
-          const result = await buildCoachParlay({
-            requestedLegs,
-            askText: text,
-            priorUserTexts,
-            signal: abort.signal,
-            onStatus: (status) => {
-              if (sendGenRef.current !== sendGen) return;
-              patchAssistant(assistantId, { buildStatus: status });
-            },
-            onPartialPicks: (picks) => {
-              if (sendGenRef.current !== sendGen) return;
-              // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
-              pendingTicketPicksRef.current = [...picks];
-              // Belts: if scoring started without onReadyToScan, still arm the wall clock.
-              if (
-                sessionRef.current.outcome === "open" &&
-                !sessionRef.current.absoluteTimer
-              ) {
+          let result: Awaited<ReturnType<typeof buildCoachParlay>>;
+          try {
+            result = await buildCoachParlay({
+              requestedLegs,
+              askText: text,
+              priorUserTexts,
+              signal: abort.signal,
+              onStatus: (status) => {
+                if (sendGenRef.current !== sendGen) return;
+                patchAssistant(assistantId, { buildStatus: status });
+              },
+              onPartialPicks: (picks) => {
+                if (sendGenRef.current !== sendGen) return;
+                // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
+                pendingTicketPicksRef.current = [...picks];
+                // Belts: if scoring started without onReadyToScan, still arm the wall clock.
+                if (
+                  sessionRef.current.outcome === "open" &&
+                  !sessionRef.current.absoluteTimer
+                ) {
+                  armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
+                }
+                if (shouldPublishCoachTicketPicks("building")) {
+                  const stored = coachPremiumUnlocked
+                    ? [...picks]
+                    : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
+                  patchAssistant(assistantId, { picks: stored });
+                }
+              },
+              onReadyToScan: () => {
+                if (sendGenRef.current !== sendGen) return;
+                if (loadTimer) {
+                  clearTimeout(loadTimer);
+                  loadTimer = null;
+                }
+                resetCoachAbsoluteClock(sessionRef.current);
                 armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-              }
-              if (shouldPublishCoachTicketPicks("building")) {
-                const stored = coachPremiumUnlocked
-                  ? [...picks]
-                  : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
-                patchAssistant(assistantId, { picks: stored });
-              }
-            },
-            onReadyToScan: () => {
-              if (sendGenRef.current !== sendGen) return;
-              if (loadTimer) {
-                clearTimeout(loadTimer);
-                loadTimer = null;
-              }
-              resetCoachAbsoluteClock(sessionRef.current);
-              armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-            },
-          });
-          if (loadTimer) {
-            clearTimeout(loadTimer);
-            loadTimer = null;
+              },
+            });
+          } finally {
+            // Success, throw, and abort must not leave the prop-load failsafe armed.
+            if (loadTimer) {
+              clearTimeout(loadTimer);
+              loadTimer = null;
+            }
           }
           if (sendGenRef.current !== sendGen) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the

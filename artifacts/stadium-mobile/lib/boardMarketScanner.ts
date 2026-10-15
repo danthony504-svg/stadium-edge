@@ -1767,10 +1767,23 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     }
   }
 
-  const expandedPool = await Promise.race([
-    poolExpandP ?? Promise.resolve(null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 25_000)),
-  ]);
+  // Only arm the expand deadline when an expand is actually in flight.
+  // Racing Promise.resolve against a 25s timer left that timer pending on every
+  // game-lines-only scan (and after a fast expand).
+  let expandedPool: Awaited<typeof poolExpandP> = null;
+  if (poolExpandP) {
+    let expandTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      expandedPool = await Promise.race([
+        poolExpandP,
+        new Promise<null>((resolve) => {
+          expandTimer = setTimeout(() => resolve(null), 25_000);
+        }),
+      ]);
+    } finally {
+      if (expandTimer) clearTimeout(expandTimer);
+    }
+  }
   if (expandedPool?.length) pool = expandedPool;
 
   if (footballMixPath) {

@@ -64,6 +64,12 @@ test("askRequiresFootballPropMix: NFL yards mix; bare college stays team markets
   assert.equal(askRequiresFootballPropMix("10 leg nfl with no player props"), false);
   assert.equal(askRequiresFootballPropMix("10 leg mlb"), false);
   assert.equal(askRequiresFootballPropMix("6 leg nba"), false);
+  assert.equal(
+    askRequiresFootballPropMix("4 leg NFL spreads and moneylines for upcoming games."),
+    false,
+  );
+  assert.equal(askRequiresFootballPropMix("4 leg NFL spreads, moneylines, and totals"), false);
+  assert.equal(askRequiresFootballPropMix("4 leg NFL spreads and player props"), true);
 });
 
 test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props", () => {

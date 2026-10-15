@@ -142,15 +142,70 @@ export function filterNcaafPlayerPropsUnlessAsked<
   });
 }
 
+function positivePlayerPropAsk(t: string): boolean {
+  if (/\bno\s+(?:player\s+)?props?\b/.test(t)) return false;
+  if (/\bwithout\s+(?:player\s+)?props?\b/.test(t)) return false;
+  return /\b(?:player\s+)?props?\b/.test(t);
+}
+
+/**
+ * The ask names both a spread and a moneyline and does not also ask for
+ * player props. Totals may still be named ("spreads, moneylines, and totals").
+ */
+export function asksNamedSpreadAndMoneyline(text?: string | null): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return false;
+  const hasSpread = /\bspreads?\b/.test(t);
+  const hasMoneyline =
+    /\bmoney\s*lines?\b/.test(t) || /\bml\b/.test(t);
+  if (!hasSpread || !hasMoneyline) return false;
+  if (positivePlayerPropAsk(t)) return false;
+  return true;
+}
+
+/** Spreads + moneylines with no totals and no player props. */
+export function asksSpreadAndMoneylineOnly(text?: string | null): boolean {
+  if (!asksNamedSpreadAndMoneyline(text)) return false;
+  const t = String(text ?? "").toLowerCase();
+  if (
+    /\btotals?\b/.test(t) &&
+    !/\bno\s+totals?\b/.test(t) &&
+    !/\bwithout\s+totals?\b/.test(t)
+  ) {
+    return false;
+  }
+  if (
+    /\b(?:over\s*(?:\/|or)\s*under|o\s*\/\s*u)\b/.test(t) &&
+    !/\bno\s+(?:over|o\s*\/\s*u|totals?)\b/.test(t)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Honest shortfall when a sides-only ask cannot fill N. */
+export function spreadMoneylineOnlyShortfallLead(
+  requested: number,
+  actual: number,
+): string {
+  if (actual >= requested) return "";
+  if (actual <= 0) {
+    return `You asked for ${requested} spreads and moneylines — none cleared the AI quality bar. No player props or totals were added.`;
+  }
+  return `You asked for ${requested} spreads and moneylines — only ${actual} cleared the AI quality bar. No player props or totals were added.`;
+}
+
 /**
  * Bare "10 leg nfl" / "football" asks expect a skill-prop mix.
  * Bare NCAAF / college football stays on team markets (spreads / totals /
  * period lines) unless the user named player props / yards / TDs.
  * Not props-only (spreads can remain) and not "with no player props".
+ * Named "spreads and moneylines" stays on those sides — never a prop mix.
  */
 export function askRequiresFootballPropMix(text?: string | null): boolean {
   const t = String(text ?? "").toLowerCase();
   if (!t) return false;
+  if (asksNamedSpreadAndMoneyline(t)) return false;
   if (/\bno\s+player\s+props?\b/.test(t)) return false;
   if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
   if (/\bno\s+props?\b/.test(t)) return false;

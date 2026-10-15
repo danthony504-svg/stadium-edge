@@ -4,6 +4,7 @@ import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
   coachAbsoluteBudgetMs,
+  coachAssistantTerminalFlags,
   coachFinalizationReserveMs,
   coachPropLoadFailsafeMs,
   coachScoringWorkBudgetMs,
@@ -134,4 +135,12 @@ test("absolute terminal arm fires once then clears", async () => {
   assert.equal(fired, 1);
   assert.equal(session.absoluteTimer, null);
   assert.equal(coachSessionShouldKeepBusy(session), false);
+});
+
+test("success, shortfall, empty, and failure all clear the scoring card", () => {
+  for (const outcome of ["shown", "shortfall", "empty", "failed"] as const) {
+    const flags = coachAssistantTerminalFlags(outcome);
+    assert.equal(flags.building, false, outcome);
+    assert.equal(flags.buildStatus, undefined, outcome);
+  }
 });

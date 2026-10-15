@@ -34,6 +34,8 @@ import {
   filterNcaafPlayerPropsUnlessAsked,
   finalizeFootballPropMixPicks,
   finalizeGeneralPropMixPicks,
+  asksSpreadAndMoneylineOnly,
+  spreadMoneylineOnlyShortfallLead,
 } from "@/lib/boardScanPropDelivery";
 import {
   askWantsAllNewPicks,
@@ -49,6 +51,7 @@ import { rareMultiCountLotteryPathOpen } from "@/lib/rareMultiCountCoachGate";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
+import { raceAbortableDeadline } from "@/lib/coach/abortableDeadline";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
 import { prioritySportsForAsk } from "@/lib/chatContextPriority";
 import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
@@ -86,7 +89,7 @@ import {
   slateDayFromThread,
   type SlateDay,
 } from "@/lib/slate";
-import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
+import { joinCoachNoteParts, sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
 import {
   filterPicksByAskMarketConstraint,
   filterPropPoolByAskMarkets,
@@ -256,10 +259,24 @@ async function loadScanInputs(
     sportsPresentOnSlate(oddsGames),
   );
 
-  onStatus?.("Loading player props and alt lines across the board…");
-  let propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
-    () => [] as PropPoolEntry[],
-  );
+  // Spreads/moneylines and other game-lines-only asks never score player props.
+  // Fetching the full prop board here was the multi-second stall before scoring
+  // even started, and a later mix path could still seat those props.
+  const loadConstraint = parseCoachAskMarketConstraint(askText, priorUserTexts);
+  const skipPropPool = loadConstraint.gameLinesOnly && !loadConstraint.propsOnly;
+  let propPool: PropPoolEntry[] = [];
+  if (skipPropPool) {
+    onStatus?.(
+      loadConstraint.excludeTotals
+        ? "Loading spreads and moneylines…"
+        : "Loading game lines…",
+    );
+  } else {
+    onStatus?.("Loading player props and alt lines across the board…");
+    propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
+      () => [] as PropPoolEntry[],
+    );
+  }
   // Belt: drop any row whose kickoff slipped outside the requested local day.
   propPool = filterOddsForSlateDay(propPool, slateDay);
   // Exclusions already removed games before prop fetch; belt-and-suspenders on
@@ -799,9 +816,7 @@ export async function buildCoachParlay(opts: {
         requirePropMix: false,
       });
     // Mismatch lead first — phone shows it above pick cards when game lines leak.
-    const note = sanitizeCoachUserNote(
-      [mismatchLead, body].filter((s) => s.trim()).join("\n\n"),
-    );
+    const note = sanitizeCoachUserNote(joinCoachNoteParts([mismatchLead, body]));
     const teamGameScopeDiagnostics = buildCoachTeamGameScopeDiagnostics({
       requestedLegs: target,
       scope: inputs.teamScope,
@@ -908,17 +923,22 @@ export async function buildCoachParlay(opts: {
     },
     onPartial: (partial) => {
       latest = partial;
-      // Scope filter before any UI buffer — foreign legs must never paint mid-scan.
-      const scopedPartialPicks = filterPicksForAskSports(
-        filterPicksForCoachAskTeams(
-          partial.picks ?? [],
-          inputs.teamScope,
-          inputs.excludedTeams,
+      // Scope + market filter before any UI buffer — foreign legs and markets
+      // the ask excluded (player props on a spreads/moneylines ask) must never
+      // paint mid-scan or be counted as "props/alts".
+      const scopedPartialPicks = filterPicksByAskMarketConstraint(
+        filterPicksForAskSports(
+          filterPicksForCoachAskTeams(
+            partial.picks ?? [],
+            inputs.teamScope,
+            inputs.excludedTeams,
+          ),
+          hardLockedSportsFromAsk(opts.askText),
         ),
-        hardLockedSportsFromAsk(opts.askText),
+        marketConstraint,
       );
       const propLike = countPropLike(scopedPartialPicks);
-      if (partial.awaitingPropSlots && propLike === 0) {
+      if (!gameLinesOnly && partial.awaitingPropSlots && propLike === 0) {
         // Reserved game-line preview (often exactly 2 on a 5/6-leg) must not paint
         // as the ticket before props/alts have had a chance to score.
         // When propsOnly, skip this game-line preview path entirely.
@@ -938,34 +958,26 @@ export async function buildCoachParlay(opts: {
       }
       if (scopedPartialPicks.length) {
         opts.onStatus?.(
-          propLike > 0
-            ? `Scoring ticket… ${scopedPartialPicks.length} legs (${propLike} props/alts)`
-            : `Scoring game lines… ${scopedPartialPicks.length} so far — props next`,
+          gameLinesOnly
+            ? excludeTotals
+              ? `Scoring ticket… ${scopedPartialPicks.length} legs (spreads/moneylines)`
+              : `Scoring game lines… ${scopedPartialPicks.length} so far`
+            : propLike > 0
+              ? `Scoring ticket… ${scopedPartialPicks.length} legs (${propLike} props/alts)`
+              : `Scoring game lines… ${scopedPartialPicks.length} so far — props next`,
         );
-        opts.onPartialPicks?.(
-          propsOnly
-            ? filterPicksByAskMarketConstraint(scopedPartialPicks, marketConstraint)
-            : scopedPartialPicks,
-        );
+        opts.onPartialPicks?.(scopedPartialPicks);
       }
     },
     requestId: coachRelRequestId,
   });
 
-  const timed = await Promise.race([
+  const timed = await raceAbortableDeadline(
     scanPromise.then((scan) => ({ scan, timedOut: false as const })),
-    new Promise<{ scan: null; timedOut: true }>((resolve) => {
-      const t = setTimeout(() => resolve({ scan: null, timedOut: true }), budgetMs);
-      opts.signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(t);
-          resolve({ scan: null, timedOut: true });
-        },
-        { once: true },
-      );
-    }),
-  ]);
+    budgetMs,
+    opts.signal,
+    { scan: null, timedOut: true as const },
+  );
 
   let scan = timed.scan ?? latest ?? null;
   const propsStillPending = (s: FullBoardScanResult | null | undefined) =>
@@ -986,29 +998,23 @@ export async function buildCoachParlay(opts: {
     const graceMs = requirePropMix
       ? Math.min(35_000, Math.max(15_000, Math.round(budgetMs * 0.35)))
       : Math.min(20_000, Math.max(8_000, Math.round(budgetMs * 0.25)));
-    const grace = await Promise.race([
+    const grace = await raceAbortableDeadline(
       scanPromise.then((s) => ({ scan: s })),
-      new Promise<{ scan: null }>((resolve) => {
-        const t = setTimeout(() => resolve({ scan: null }), graceMs);
-        opts.signal.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(t);
-            resolve({ scan: null });
-          },
-          { once: true },
-        );
-      }),
-    ]);
+      graceMs,
+      opts.signal,
+      { scan: null },
+    );
     if (grace.scan) scan = grace.scan;
     else scan = latest ?? scan;
   } else if (!scan) {
     // Never await a hung scan forever after the delivery budget — that left
     // Coach on "Scoring ticket… 1 legs" with no terminal latch.
-    scan = await Promise.race([
+    scan = await raceAbortableDeadline(
       scanPromise.catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_500)),
-    ]);
+      2_500,
+      opts.signal,
+      null,
+    );
     if (!scan) scan = latest;
   }
 
@@ -1146,6 +1152,9 @@ export async function buildCoachParlay(opts: {
     picks,
   });
   const collegeClarify = bareCollegeClarificationNote(opts.askText);
+  const sidesShortfall = asksSpreadAndMoneylineOnly(opts.askText)
+    ? spreadMoneylineOnlyShortfallLead(target, finalLegCount)
+    : "";
   const sportShortfall = sportScopeShortfallNote(
     opts.askText,
     target,
@@ -1154,29 +1163,45 @@ export async function buildCoachParlay(opts: {
   );
   // P0 board exit already wrote an honest note — do not replace with quality-bar copy.
   const p0BoardBlocked = scan?.failureReason?.code === "P0_UNVALIDATED_MARKETS";
-  const body = p0BoardBlocked
-    ? String(scan?.note ?? "").trim()
-    : buildFinalCoachParlayNote({
-        target,
-        picks,
-        propPoolSize,
-        propsPending,
-        shortfallLead: teamMiss || teamShortfall || sportShortfall || shortfall,
-        timedOut: timed.timedOut,
-        budgetMs,
-        scanMissing: !scan,
-        // Drop staging scan notes on shortfall — they can claim a larger "qualified"
-        // count than the post-lean / post-fill ticket actually delivered.
-        scanNote: finalLegCount < target ? undefined : scan?.note,
-        failureReason: scan?.failureReason,
-        failureDiagnostics: scan?.failureDiagnostics,
-        propsOnly,
-        requirePropMix,
-      });
-  // Clarification / mismatch leads first — phone shows them above pick cards.
-  const note = sanitizeCoachUserNote(
-    [collegeClarify, mismatchLead, mlLeanNote, body].filter((s) => s.trim()).join("\n\n"),
-  );
+  // collegeClarify is string | null. A bare .trim() on that array rejected the
+  // whole build after scoring (device stayed on the last "Scoring ticket…" card).
+  let note = "";
+  try {
+    const body = p0BoardBlocked
+      ? String(scan?.note ?? "").trim()
+      : buildFinalCoachParlayNote({
+          target,
+          picks,
+          propPoolSize,
+          propsPending: gameLinesOnly ? false : propsPending,
+          shortfallLead:
+            teamMiss || teamShortfall || sidesShortfall || sportShortfall || shortfall,
+          timedOut: timed.timedOut,
+          budgetMs,
+          scanMissing: !scan,
+          // Drop staging scan notes on shortfall — they can claim a larger "qualified"
+          // count than the post-lean / post-fill ticket actually delivered.
+          scanNote: finalLegCount < target ? undefined : scan?.note,
+          failureReason: scan?.failureReason,
+          failureDiagnostics: scan?.failureDiagnostics,
+          propsOnly,
+          requirePropMix,
+        });
+    // Clarification / mismatch leads first — phone shows them above pick cards.
+    note = sanitizeCoachUserNote(
+      joinCoachNoteParts([collegeClarify, mismatchLead, mlLeanNote, body]),
+    );
+  } catch {
+    note = sanitizeCoachUserNote(
+      joinCoachNoteParts([
+        sidesShortfall,
+        shortfall,
+        finalLegCount > 0
+          ? `Showing ${finalLegCount} qualifying legs.`
+          : "No qualifying picks cleared.",
+      ]),
+    );
+  }
 
   const teamGameScopeDiagnostics = buildCoachTeamGameScopeDiagnostics({
     requestedLegs: target,

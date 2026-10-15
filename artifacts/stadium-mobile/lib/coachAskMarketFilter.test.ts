@@ -597,3 +597,39 @@ test("thread prior props-only inherits onto refinement ask", () => {
   ]);
   assert.equal(c.propsOnly, true);
 });
+
+test("NFL spreads and moneylines is sides-only, not a prop mix", () => {
+  const ask = "4 leg NFL spreads and moneylines for upcoming games.";
+  const c = parseCoachAskMarketConstraint(ask);
+  assert.equal(c.propsOnly, false);
+  assert.equal(c.gameLinesOnly, true);
+  assert.equal(c.excludeTotals, true);
+  assert.equal(c.allowedMarketKeys, null);
+  assert.equal(askRequiresFootballPropMix(ask), false);
+  const out = filterPicksByAskMarketConstraint(
+    [
+      { isProp: true, market: "Rec Yds", pick: "Jaxon Smith-Njigba Over 92.5 Rec Yds" },
+      { isProp: true, market: "Rush Yds", pick: "George Holani Over 14.5 Rush Yds" },
+      { isProp: false, market: "Total", pick: "Over 45.5" },
+      { isProp: false, market: "Q3 Spread", pick: "Seahawks +1.5" },
+      { isProp: false, market: "Moneyline", pick: "Broncos" },
+    ],
+    c,
+  );
+  assert.deepEqual(
+    out.map((p) => p.market),
+    ["Q3 Spread", "Moneyline"],
+  );
+  assert.ok(out.every((p) => !p.isProp));
+
+  const withTotals = parseCoachAskMarketConstraint(
+    "4 leg NFL spreads, moneylines, and totals",
+  );
+  assert.equal(withTotals.gameLinesOnly, true);
+  assert.equal(withTotals.excludeTotals, false);
+  assert.equal(askRequiresFootballPropMix("4 leg NFL spreads, moneylines, and totals"), false);
+
+  const bare = parseCoachAskMarketConstraint("10 leg nfl");
+  assert.equal(bare.gameLinesOnly, false);
+  assert.equal(askRequiresFootballPropMix("10 leg nfl"), true);
+});

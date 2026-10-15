@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { shouldSkipScannerPropExpand } from "./propPoolPolicy.ts";
+import { joinCoachNoteParts } from "../sanitizeCoachUserNote.ts";
 import {
   coachAbsoluteBudgetMs,
   coachPropLoadFailsafeMs,
@@ -181,4 +182,15 @@ test("replay: 7 leg college P0 gate + note is ask-only and sub-second", async ()
     }),
     false,
   );
+});
+
+test("delivery note join skips null clarification instead of throwing", () => {
+  const note = joinCoachNoteParts([
+    null,
+    "You asked for 4 spreads and moneylines — only 2 cleared the AI quality bar. No player props or totals were added.",
+    undefined,
+    "",
+  ]);
+  assert.match(note, /spreads and moneylines/);
+  assert.doesNotMatch(note, /props\/alts/);
 });

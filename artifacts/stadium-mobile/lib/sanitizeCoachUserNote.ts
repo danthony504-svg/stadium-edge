@@ -60,6 +60,20 @@ export function coachUserNoteHasMachineTrace(text: string | null | undefined): b
  * Remove every `[CODE: detail]` machine trace from a Coach note.
  * Safe to call on already-clean human copy.
  */
+/**
+ * Join note fragments. Null and empty parts are skipped.
+ * bareCollegeClarificationNote returns null — calling trim on that value
+ * rejected delivery after scoring.
+ */
+export function joinCoachNoteParts(
+  parts: readonly (string | null | undefined)[],
+): string {
+  return parts
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .map((s) => s.trim())
+    .join("\n\n");
+}
+
 export function sanitizeCoachUserNote(text: string | null | undefined): string {
   const raw = String(text ?? "");
   if (!raw) return "";

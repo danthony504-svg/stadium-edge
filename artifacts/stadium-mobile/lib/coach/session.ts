@@ -104,6 +104,16 @@ export function coachSessionIsTerminal(session: CoachSession): boolean {
   return session.outcome !== "open";
 }
 
+/**
+ * Every latched outcome drops the scoring card. Success, shortfall, empty,
+ * failure, cancellation, and deadline expiry all call this before paint.
+ */
+export function coachAssistantTerminalFlags(
+  _outcome: Exclude<CoachSessionOutcome, "open">,
+): { building: false; buildStatus: undefined } {
+  return { building: false, buildStatus: undefined };
+}
+
 export function latchCoachSession(
   session: CoachSession,
   outcome: Exclude<CoachSessionOutcome, "open">,
