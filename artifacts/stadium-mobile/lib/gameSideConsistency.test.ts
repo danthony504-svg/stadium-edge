@@ -221,7 +221,7 @@ test("underdog spread with higher Final AI survives vs favorite win-prob", () =>
   });
   assert.ok(resolution);
   assert.equal(resolution!.keep, "away");
-  assert.match(resolution!.reason, /market value/i);
+  assert.match(resolution!.reason, /Final AI\/value/i);
   assert.equal(resolution!.rejections.length, 1);
   assert.match(resolution!.rejections[0]!.pick, /Chiefs/i);
 
