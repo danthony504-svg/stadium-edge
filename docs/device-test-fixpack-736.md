@@ -169,13 +169,17 @@ NCAAF game lines remain **P0 fail-closed** (`NCAAF_GAME_LINE_SIM_VALIDATED = fal
 
 | Track | Status | Notes |
 |-------|--------|-------|
-| Full Coach pipeline (college picks restored E2E) | **UNVERIFIED** | P0 still armed; college game lines blocked |
-| Cancellation | **UNVERIFIED** | No cancel-path attestation in prior transcript |
-| React UI (formal) | **UNVERIFIED** | Agent did not drive device UI; user later confirmed blocked-market copy (no hang) |
+| Full Coach pipeline (isolated tip-SHA sim) | **PASS** | `5 leg` → 5 legs terminal; see `coach-pipeline-cancel-isolated.json` |
+| College ask under P0 | **PASS (honest shortfall)** | `6 leg college` terminals with 0 legs; P0 still armed — restored E2E picks still blocked |
+| Cancellation | **PASS** | Abort @2.5s → terminal, `abortedSignal=true` (~2507ms) |
+| React UI (formal / physical device) | **PENDING** | Explicitly deferred; not claimed by isolated Node harness |
 | Early-exit / blocked-market path | **PASS (user-attested)** | update `01a13c45-995d-7494-b9a5-35f07e96e47d`; Telegram **17 ms / 22 ms** |
 | Full scan wall-clock on tip | **UNVERIFIED** | Record update id + timings on next device session |
 
-Same college ask twice; record wall-clock + stage timings when closing the UNVERIFIED rows.
+Isolated Node evidence (tip-SHA sim rewrite): `artifacts/api-server/test/fixtures/coach-pipeline-cancel-isolated.json`.  
+SHA reconcile (single reviewed tip, meanP/meanY, retention): `docs/coach/rollout-sha-reconcile.md`.
+
+Same college ask twice on-device; record wall-clock + stage timings when closing the PENDING React UI row.
 
 ---
 

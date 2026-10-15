@@ -734,7 +734,7 @@ export async function buildCoachParlay(opts: {
     });
     const body =
       recoveredNote ||
-      built.note.trim() ||
+      (built.note ?? "").trim() ||
       buildFinalCoachParlayNote({
         target,
         picks,
@@ -745,8 +745,11 @@ export async function buildCoachParlay(opts: {
         requirePropMix: false,
       });
     // Mismatch lead first — phone shows it above pick cards when game lines leak.
+    // Null notes must not throw — sanitizeCoachUserNote expects a string.
     const note = sanitizeCoachUserNote(
-      [mismatchLead, body].filter((s) => s.trim()).join("\n\n"),
+      [mismatchLead, body]
+        .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+        .join("\n\n"),
     );
     const teamGameScopeDiagnostics = buildCoachTeamGameScopeDiagnostics({
       requestedLegs: target,
@@ -1106,8 +1109,11 @@ export async function buildCoachParlay(opts: {
     requirePropMix,
   });
   // Clarification / mismatch leads first — phone shows them above pick cards.
+  // Null/undefined note fragments must not throw on .trim().
   const note = sanitizeCoachUserNote(
-    [collegeClarify, mismatchLead, mlLeanNote, body].filter((s) => s.trim()).join("\n\n"),
+    [collegeClarify, mismatchLead, mlLeanNote, body]
+      .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+      .join("\n\n"),
   );
 
   const teamGameScopeDiagnostics = buildCoachTeamGameScopeDiagnostics({
