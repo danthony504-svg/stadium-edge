@@ -5,6 +5,7 @@ import {
   isGameLineSideMarket,
   isP0UnvalidatedNcaafGameLineMarket,
   isP0UnvalidatedSimTotalMarket,
+  NCAAF_GAME_LINE_SIM_VALIDATED,
   p0UnvalidatedNcaafGameLineDecision,
   p0UnvalidatedSimDecision,
   p0UnvalidatedSimTotalDecision,
@@ -152,6 +153,8 @@ test("P0 fail-closes every NCAAF spread / alt / ML / period-side market", () => 
   // NFL game lines remain open.
   assert.equal(isP0UnvalidatedNcaafGameLineMarket({ market: "Spread", sport: "nfl" }), false);
   assert.equal(isP0UnvalidatedNcaafGameLineMarket({ market: "Moneyline", sport: "nfl" }), false);
+  // Engine recalibration alone does not lift P0 — flag must stay false.
+  assert.equal(NCAAF_GAME_LINE_SIM_VALIDATED, false);
   // NCAAF totals stay on the totals P0 reason (not game-line reason).
   assert.equal(
     p0UnvalidatedSimDecision({ market: "Total", sport: "ncaaf" })?.reason,

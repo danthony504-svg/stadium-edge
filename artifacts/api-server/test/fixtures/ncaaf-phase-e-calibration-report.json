@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-10-14T17:17:51.599Z",
+  "engine": "nfl-drive",
+  "holdoutSeason": 2024,
+  "simulationsPerGame": 1500,
+  "nHoldoutScored": 796,
+  "nHoldoutSkippedThinForm": 75,
+  "closingLineData": "INSUFFICIENT_DATA",
+  "closingLineNote": "No licensed closing-line archive in this environment; CLV / market-Brier not computed.",
+  "injurySegmentData": "INSUFFICIENT_DATA",
+  "injuryNote": "ESPN scoreboard cache has no QB/injury flags — E4 cannot PASS without an injury-segmented universe.",
+  "metrics": {
+    "brier": 0.21099359296482392,
+    "brierCoin": 0.25,
+    "logLoss": 0.611203034495372,
+    "ece10": 0.11554271356783918,
+    "meanP": 0.4940201005025129,
+    "meanY": 0.6080402010050251,
+    "nearCoinFlipDog75": {
+      "n": 173,
+      "awayCoverRate": 0.5144508670520231
+    }
+  },
+  "thresholds": {
+    "minGames": 200,
+    "brierMustBeatCoin": true,
+    "eceMax": 0.12,
+    "biasMaxAbs": 0.08,
+    "dog75CoverMaxWhenMlNearHalf": 0.7
+  },
+  "verdicts": {
+    "E2_outcomeVsCoin": "FAIL",
+    "E2_reasons": "|meanP-meanY|=0.1140 > 0.08 (home-win bias)",
+    "E2_closingLineClv": "INSUFFICIENT_DATA",
+    "E2_readyForRestore": "FAIL",
+    "E4_injuryConservatism": "INSUFFICIENT_DATA",
+    "E6_humanSignOff": "OPEN",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

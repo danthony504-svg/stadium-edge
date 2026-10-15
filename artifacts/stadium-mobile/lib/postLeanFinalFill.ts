@@ -8,9 +8,11 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
+import { pickMatchesAskSports } from "./coachAskSportScope.ts";
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import {
@@ -128,6 +130,8 @@ export type PostLeanFinalFillOpts = {
   varietySeed?: string;
   legsPerGameCap?: number | null;
   collegeTeamMarketStacks?: boolean;
+  /** Hard sport lock — fill must stay inside these leagues. */
+  allowedSports?: readonly string[] | null;
   /**
    * Fingerprints of picks lean explicitly discarded as invalid / ungradable.
    * Cap-overflow drops are not included — progressive fill may reseat those.
@@ -140,6 +144,7 @@ function beltTicketCorrelation(picks: ParsedPick[]): ParsedPick[] {
   for (const p of picks) {
     if (wouldConflictOppositeSideSamePeriod(p, out)) continue;
     if (wouldRepeatMarketLadder(p, out)) continue;
+    if (wouldRepeatPlayerProp(p, out)) continue;
     out.push(p);
   }
   return out;
@@ -151,12 +156,15 @@ function buildFillPool(
 ): BoardScoredLeg[] {
   const used = new Set(current.map(pickLegFingerprint));
   const rejected = opts.rejectedFingerprints ?? new Set<string>();
+  const allowed = opts.allowedSports ?? null;
   const scored: BoardScoredLeg[] = [];
   for (const cand of opts.qualifiedCandidates) {
     const fp = pickLegFingerprint(cand);
     if (used.has(fp) || rejected.has(fp)) continue;
+    if (!pickMatchesAskSports(cand, allowed)) continue;
     if (wouldRepeatMarketLadder(cand, current)) continue;
     if (wouldConflictOppositeSideSamePeriod(cand, current)) continue;
+    if (wouldRepeatPlayerProp(cand, current)) continue;
     const leg = scoredLegFromQualifiedCandidate(cand);
     if (!leg) continue;
     scored.push(leg);
@@ -190,9 +198,10 @@ export function topUpAfterMlLean(opts: PostLeanFinalFillOpts): ParsedPick[] {
       target,
       opts.varietySeed,
       opts.legsPerGameCap,
-      opts.collegeTeamMarketStacks
-        ? { collegeTeamMarketStacks: true }
-        : undefined,
+      {
+        collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
+        allowedSports: opts.allowedSports ?? null,
+      },
     );
     const belted = beltTicketCorrelation(filled).slice(0, target);
     if (belted.length <= current.length) break;

@@ -147,3 +147,22 @@ test("derive + format traces still work for logs (not wiped from formatters)", (
   assert.equal(reason?.code, "PROP_POOL_EMPTY");
   assert.match(formatCoachScanFailureTrace(reason!), /PROP_POOL_EMPTY/);
 });
+
+test("sanitizeCoachUserNote accepts null/undefined without throwing", () => {
+  assert.equal(sanitizeCoachUserNote(null), "");
+  assert.equal(sanitizeCoachUserNote(undefined), "");
+});
+
+test("note fragment join tolerates null leads (null-note contract)", () => {
+  const fragments: Array<string | null | undefined> = [
+    null,
+    undefined,
+    "",
+    "Human shortfall copy.",
+  ];
+  const joined = fragments
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .join("\n\n");
+  assert.equal(joined, "Human shortfall copy.");
+  assert.equal(sanitizeCoachUserNote(joined), "Human shortfall copy.");
+});

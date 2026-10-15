@@ -16,6 +16,12 @@ import {
   type CoachAskTeamScope,
 } from "./coachAskTeamScope.ts";
 import {
+  filterPicksForAskSports,
+  filterScoredLegsForAskSports,
+  hardLockedSportsFromAsk,
+} from "./coachAskSportScope.ts";
+import { filterPropPoolByAskMarkets } from "./coachAskMarketFilter.ts";
+import {
   createCoachBoardScanManifestRecorder,
   type CoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
@@ -958,10 +964,15 @@ export function buildScanResult(
   // re-enter a team-scoped ticket (Buffalo ask must not seat Guardians/Dodgers).
   const scopeSafe = filterScoredLegsForAskTeam(exclusionSafe, opts.teamScope);
   const teamScopedAsk = !!opts.teamScope;
+  // Hard league lock (college / NCAAF / MLB / …) — belt the pool before any
+  // inject / multi-sport floor / ALT top-up can seat foreign sports.
+  const lockedSports = hardLockedSportsFromAsk(opts.varietyContext?.askText ?? null);
+  const sportLockedAsk = !!lockedSports?.length;
+  const sportSafe = filterScoredLegsForAskSports(scopeSafe, lockedSports);
   // Preview + final: collapse ladder rungs before staging so Colts +4.5 / +3.5
   // cannot both land on the hang-guard buffer or the terminal ticket.
   // Prefer scopeSafe (#712 include-scope) over exclusionSafe alone.
-  const ladderCollapsed = collapseScoredLegsByMarketLadder(scopeSafe);
+  const ladderCollapsed = collapseScoredLegsByMarketLadder(sportSafe);
   const stagePoolRaw = opts.propsOnly
     ? ladderCollapsed.filter((leg) => !!leg.pick.isProp)
     : opts.gameLinesOnly
@@ -994,7 +1005,9 @@ export function buildScanResult(
         opts.varietyContext?.singleEventSport ?? opts.teamScope?.sport ?? undefined,
     },
   );
-  let picks = teamScopedAsk
+  // Team-scoped OR hard sport-locked asks never cross-sport inject/floor.
+  const skipCrossSportMix = teamScopedAsk || sportLockedAsk;
+  let picks = skipCrossSportMix
     ? staged.picks
     : injectPrioritySportsIntoTicket(
         staged.picks,
@@ -1009,8 +1022,8 @@ export function buildScanResult(
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
   // Prop-slot fill can evict soft football injects; restore multi-sport floor after.
-  // Scoped asks disable cross-sport/cross-game variety entirely.
-  if (!teamScopedAsk) {
+  // Scoped / hard-league asks disable cross-sport variety entirely.
+  if (!skipCrossSportMix) {
     picks = enforceMultiSportFloorOnTicket(
       picks,
       stagePool,
@@ -1043,6 +1056,7 @@ export function buildScanResult(
   picks = dedupePicksByMarketLadder(picks);
   // Include-scope belt — fills must never reintroduce foreign games/sports.
   picks = filterPicksForAskTeam(picks, opts.teamScope ?? null);
+  picks = filterPicksForAskSports(picks, lockedSports);
   // Top up from AI-qualified scored leftovers whenever under target — including
   // mid-scan previews. Preview used to skip this then seat-cap to exactly
   // boardScanNonPropPreviewCap(N) (phone 5→2 / 6→3) for the hang-guard buffer.
@@ -1056,14 +1070,14 @@ export function buildScanResult(
       opts.target,
       opts.varietySeed,
       opts.legsPerGameCap,
-      opts.gameLinesOnly || opts.collegeTeamMarketStacks
-        ? {
-            collapseSameTeamSides: !!(opts.gameLinesOnly && !opts.collegeTeamMarketStacks),
-            collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
-          }
-        : undefined,
+      {
+        collapseSameTeamSides: !!(opts.gameLinesOnly && !opts.collegeTeamMarketStacks),
+        collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
+        allowedSports: lockedSports,
+      },
     );
     picks = filterPicksForAskTeam(picks, opts.teamScope ?? null);
+    picks = filterPicksForAskSports(picks, lockedSports);
     // Top-up may have added game lines first on short tickets — enforce prop mix again.
     if (!opts.gameLinesOnly && !opts.propsOnly) {
       picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
@@ -1098,6 +1112,8 @@ export function buildScanResult(
   }
   // Last pass: one rung per market ladder (assembly / fills cannot reintroduce).
   picks = dedupePicksByMarketLadder(picks);
+  // Final sport belt — prop-mix finalize / fills must not re-seat foreign leagues.
+  picks = filterPicksForAskSports(picks, lockedSports);
   propCount = picks.filter((p) => p.isProp).length;
   // Preview-only awaiting flag. Finals never wipe cleared game lines to empty.
   const awaitingPropSlots = shouldKeepAwaitingPropSlots({
@@ -1293,6 +1309,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
    * Fixes greenfield "2 game totals" tickets that latched before props loaded.
    */
   skipPropPoolExpand?: boolean;
+  /**
+   * Ask market allowlist — re-applied after pool expand so a second fan-out
+   * cannot undo filter-before-sim (yards/HR boards).
+   */
+  propMarketAllowlist?: readonly string[] | null;
   /** Limit priority-sport inject to leagues named in the user ask. */
   prioritySports?: readonly string[];
 }): Promise<FullBoardScanResult> {
@@ -1356,6 +1377,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
             );
             if (opts.excludeNcaafPlayerProps) {
               next = filterNcaafPlayerPropsUnlessAsked(next, "team markets only");
+            }
+            // Filter before sim — expand must not reintroduce disallowed markets.
+            if (opts.propMarketAllowlist && opts.propMarketAllowlist.length > 0) {
+              next = filterPropPoolByAskMarkets(next, opts.propMarketAllowlist);
             }
             return next;
           })

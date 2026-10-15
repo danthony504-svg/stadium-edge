@@ -1,8 +1,8 @@
 # NCAAF game-line recovery plan
 
-**Status:** Planning only — do **not** restore NCAAF spread/ML recommendations until every acceptance gate below passes.  
-**Blocked today:** P0 `unvalidated_ncaaf_game_line_simulation` (PR #662).  
-**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval.
+**Status:** Phase A/B engine work landed on fixpack branch; client P0 still armed (`NCAAF_GAME_LINE_SIM_VALIDATED = false`). Do **not** restore NCAAF spread/ML recommendations until every acceptance gate below passes + human Phase E sign-off.  
+**Blocked today:** P0 `unvalidated_ncaaf_game_line_simulation` (PR #662 / #736).  
+**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval, flipping `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Problem summary
 
@@ -59,6 +59,8 @@ All must pass on a frozen out-of-sample window:
 4. **Injury conservatism:** Games with missing QB/injury data do not show higher average absolute edge than injury-known games.
 5. **Props / other sports:** NCAAF props, NFL/NHL P0 totals, correlation caps unchanged in regression suite.
 6. **Sign-off:** Explicit human approval to lift `P0_UNVALIDATED_NCAAF_GAME_LINE_*` — no silent restore.
+
+**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md`. Holdout run: E2a **FAIL** (home-win bias), E2b/E4 **INSUFFICIENT_DATA**, E6 **OPEN**. Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Phase F — Rollout
 
