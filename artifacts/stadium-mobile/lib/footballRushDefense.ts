@@ -350,6 +350,59 @@ export function footballIntThreatIndex(opts: {
   return { threat: Math.max(-1, Math.min(1, threat)), bits };
 }
 
+/** Explain raw → matchup-adjusted hit. Never describe a tilt *increase* as a soft-cap. */
+export type OppDefenseHitAdjust = {
+  rawHit: number;
+  tilt: number;
+  /** Probability points added (clamped ±0.05). */
+  adj: number;
+  /** Final model estimate after tilt (+ certainty soft-clip only when ≥1). */
+  adjustedHit: number;
+  /**
+   * True only when hit+adj ≥ 1 and was soft-clipped to 0.98.
+   * False when the change is purely the matchup adj (even if near 0.98).
+   */
+  certaintySoftClipped: boolean;
+};
+
+/**
+ * Matchup tilt → hit adjustment. Positive tilt raises hit for that side.
+ *
+ * Transform: `adjusted = round3(clamp(raw + clamp(tilt×0.06, ±0.05), 0, 0.999))`.
+ *
+ * Certainty soft-clip (`1.0 → 0.98`) lives in empirical graders
+ * (`localHitFromHistory`), **not** here. A shared 0.98 ceiling after additive
+ * tilt flattened alt ladders (Under 13.5 and 15.5 both → 0.98) and made a tilt
+ * *increase* look like a soft-cap.
+ */
+export function explainSimHitOppDefenseAdjust(
+  hit: number | null | undefined,
+  tilt: number,
+): OppDefenseHitAdjust | null {
+  if (hit == null || !Number.isFinite(hit)) return null;
+  if (!Number.isFinite(tilt) || tilt === 0) {
+    return {
+      rawHit: hit,
+      tilt: 0,
+      adj: 0,
+      adjustedHit: hit,
+      certaintySoftClipped: false,
+    };
+  }
+  const adj = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
+  const summed = hit + adj;
+  const adjustedHit =
+    Math.round(Math.max(0, Math.min(0.999, summed)) * 1000) / 1000;
+  return {
+    rawHit: hit,
+    tilt,
+    adj,
+    adjustedHit,
+    // Soft-clip of invented certainty is not applied in this step.
+    certaintySoftClipped: false,
+  };
+}
+
 /**
  * Apply matchup tilt to a sim hit probability. Bounded, sync — does not
  * change provider lines/odds. Positive tilt → higher hit for that side.
@@ -359,11 +412,41 @@ export function adjustSimHitForOppDefenseTilt(
   tilt: number,
 ): number | null {
   if (hit == null || !Number.isFinite(hit)) return hit ?? null;
-  if (!Number.isFinite(tilt) || tilt === 0) return hit;
-  const adj = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
-  // Do not invent a 2% floor — Anytime TD / rare props must stay null/ungradeable
-  // when evidence is zero. Soft-cap only the upper certainty bound.
-  return Math.round(Math.max(0, Math.min(0.98, hit + adj)) * 1000) / 1000;
+  const explained = explainSimHitOppDefenseAdjust(hit, tilt);
+  return explained?.adjustedHit ?? hit;
+}
+
+/** UI/grade label: retain raw + adjusted when matchup moved the estimate. */
+export function formatSimHitWithMatchupAdjust(opts: {
+  rawHit: number | null | undefined;
+  adjustedHit: number | null | undefined;
+  sampleSize?: number | null;
+}): string | undefined {
+  const adj = opts.adjustedHit;
+  const raw = opts.rawHit;
+  if (adj == null || !Number.isFinite(adj)) {
+    if (raw == null || !Number.isFinite(raw)) return undefined;
+    const base = `${Math.round(raw * 1000) / 10}% hit`;
+    return opts.sampleSize != null && opts.sampleSize > 0 && opts.sampleSize < 10
+      ? `${base} (n=${opts.sampleSize}, uncalibrated)`
+      : base;
+  }
+  const adjPct = Math.round(adj * 1000) / 10;
+  const nTag =
+    opts.sampleSize != null && opts.sampleSize > 0 && opts.sampleSize < 10
+      ? `; n=${opts.sampleSize}, uncalibrated`
+      : "";
+  if (
+    raw != null &&
+    Number.isFinite(raw) &&
+    Math.abs(raw - adj) >= 0.0005
+  ) {
+    const rawPct = Math.round(raw * 1000) / 10;
+    const deltaPp = Math.round((adj - raw) * 1000) / 10;
+    const sign = deltaPp > 0 ? "+" : "";
+    return `${adjPct}% hit (raw ${rawPct}% ${sign}${deltaPp}pp matchup${nTag})`;
+  }
+  return `${adjPct}% hit${nTag ? ` (${nTag.replace(/^; /, "")})` : ""}`;
 }
 
 function sideTilt(magnitude: number, isOver: boolean, isUnder: boolean): number {

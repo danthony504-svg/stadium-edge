@@ -4,7 +4,9 @@
 **History snapshot:** 2026-10-15 ESPN gamelog athlete `4426338`  
 **No OTA / deploy** — findings only; quality gates unchanged.
 
-**Label:** The **98% display is an uncalibrated model estimate** from **n=5** recent games (soft-clip / opp-tilt ceiling). It is **not** a calibrated win probability and is **not** tuned toward −108 (~51.9% implied). Keep the calculation reproduction below for audit; treat the gap vs book as **diagnostic disagreement**, not proven model error.
+**Label:** Uncalibrated model estimate from **n=5** recent games — **not** a calibrated win probability and **not** tuned toward −108 (~51.9% implied). Treat the gap vs book as **diagnostic disagreement**, not proven model error.
+
+**Display fix:** Raw MC Under = **0.9705**. Matchup tilt **adds** ~+2.3pp → **~0.993** (final model estimate). That increase is **not** a soft-cap. Soft-clip applies only to invented certainty (`≥1 → 0.98`). See `docs/coach/bo-nix-under-13.5-hit-transform.md`. Props-only 5/5 still soft-clips `1.0 → 0.98` before tilt.
 
 ---
 
@@ -63,7 +65,14 @@ ESPN gamelog `names` maps index 12 → `rushingYards` (not ambiguous label `YDS`
 
 Under + Over = 1.0 → **not inverted**.
 
-**Displayed 98% path (uncalibrated, n=5):** props-only 5/5 → soft-clip **0.98**, and/or MC 0.9705 + one SEA Under tilt → soft-cap **0.98**.
+**Displayed estimate (uncalibrated, n=5):**
+
+| Path | Transform |
+|------|-----------|
+| MC board | raw **0.9705** + matchup adj ≈ **0.993** (tilt increase; no certainty soft-clip) |
+| Props-only | empirical 5/5 → **0.98** (true soft-clip of 1.0), then tilt may soft-clip again at ≥1 |
+
+UI retains **rawSimHit** + **simHit**; edge / grade / qualification use **simHit** only.
 
 Shared distribution also scores alt lines on the **same** samples:
 

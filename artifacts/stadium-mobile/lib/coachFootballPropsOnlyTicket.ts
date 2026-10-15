@@ -339,6 +339,8 @@ function scoredLegFromHit(
   });
   // Matchup must move projection — adjust sim hit once (bounded). Final AI
   // opponentTendency is display-only when this flag is set (no double-count).
+  // Retain raw (pre-tilt) so UI can show the transform; do not call a tilt
+  // increase a "soft-cap".
   const hitBeforeMatchup = hit;
   hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt);
   const oppMatchupAppliedToSim =
@@ -354,6 +356,7 @@ function scoredLegFromHit(
     norm.propSide,
   );
 
+  // Edge / grade / qual all use the same final (adjusted) model estimate.
   const edgePct =
     hit != null && norm.odds != null
       ? Math.round((hit - impliedProb(norm.odds)) * 1000) / 10
@@ -367,6 +370,10 @@ function scoredLegFromHit(
     lineShopping: scoreLineShopping(poolRow?.bookSpread ?? null),
     simulation: scoreSimulation(hit),
   };
+  const propSampleSize = (() => {
+    const recent = ph?.recent ?? [];
+    return recent.length > 0 ? Math.min(10, recent.length) : null;
+  })();
   const mlbPlatoon = mlbPlatoonLookup(
     norm.player,
     poolRow?.athleteId ?? norm.athleteId,
@@ -382,6 +389,8 @@ function scoredLegFromHit(
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
+    rawPropSimHit: hitBeforeMatchup,
+    propSampleSize,
     propHolisticContext: {
       sport,
       marketKey,
@@ -411,6 +420,7 @@ function scoredLegFromHit(
     simAligned,
     edgePct: edgeOut,
     simHit: hit,
+    rawSimHit: hitBeforeMatchup,
     confidencePct,
   };
   const ev = hit != null && norm.odds != null ? simEvPct(hit, norm.odds) : null;

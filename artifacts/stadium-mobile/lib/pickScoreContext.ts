@@ -894,13 +894,40 @@ export function attachPickScores(
       adjustedPropSimHit != null &&
       propSimHit != null &&
       adjustedPropSimHit !== propSimHit;
+    // Edge / line-value must use the same final model hit as simulation display
+    // and qualification (adjusted when matchup moved it) — not a stale raw edge.
+    let edgeForFinal = scores.edgePct;
+    let rubricForFinal = scores.scores;
+    if (
+      p.isProp &&
+      adjustedPropSimHit != null &&
+      Number.isFinite(adjustedPropSimHit) &&
+      (propSimHit == null ||
+        Math.abs((propSimHit ?? 0) - adjustedPropSimHit) >= 0.0005)
+    ) {
+      const adjEdge = edgePctFromPick(p, propEntry?.edge, adjustedPropSimHit);
+      if (adjEdge != null) {
+        edgeForFinal = adjEdge;
+        rubricForFinal = {
+          ...scores.scores,
+          lineValue: scoreLineValue(adjEdge),
+          simulation: scoreSimulation(adjustedPropSimHit),
+        };
+      }
+    }
+    const propSampleSize =
+      p.isProp && propPh?.recent?.length
+        ? Math.min(10, propPh.recent.length)
+        : null;
     let finalAiScore = buildFinalAiScore({
       pick: p,
-      rubricScores: scores.scores,
-      edgePct: scores.edgePct,
+      rubricScores: rubricForFinal,
+      edgePct: edgeForFinal,
       odds: p.odds,
       gameSim,
       propSimHit: adjustedPropSimHit,
+      rawPropSimHit: p.isProp ? propSimHit : null,
+      propSampleSize,
       propHolisticContext: p.isProp
         ? {
             sport: p.sport ?? propEntry?.sport,

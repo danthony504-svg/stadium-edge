@@ -16,6 +16,7 @@ import {
 } from "./pickScore.ts";
 import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
 import {
+  formatSimHitWithMatchupAdjust,
   propOppDefenseTilt,
   type RushDefenseSlice,
 } from "./footballRushDefense.ts";
@@ -148,7 +149,12 @@ export type PropHolisticContext = {
   propLine?: number | null;
   rubricScores?: PickSubScores;
   edgePct?: number | null;
+  /** Final model hit (matchup-adjusted when applicable). */
   simHit?: number | null;
+  /** Pre-matchup raw hit — retained for display when it differs from simHit. */
+  rawSimHit?: number | null;
+  /** History sample size for uncalibrated n=&lt;10 labeling. */
+  propSampleSize?: number | null;
   minutesTrend?: {
     l5?: number | null;
     l10?: number | null;
@@ -550,7 +556,11 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
       key: "simulation",
       label: "10k Simulation",
       score: scoreSimulation(ctx.simHit),
-      display: ctx.simHit != null ? `${Math.round(ctx.simHit * 100)}% hit` : undefined,
+      display: formatSimHitWithMatchupAdjust({
+        rawHit: ctx.rawSimHit,
+        adjustedHit: ctx.simHit,
+        sampleSize: ctx.propSampleSize,
+      }),
       applicable: true,
       present: ctx.simHit != null,
     },

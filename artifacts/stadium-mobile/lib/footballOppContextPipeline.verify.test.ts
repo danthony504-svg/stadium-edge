@@ -613,7 +613,7 @@ test("deadlines/qualification preserved: recovery slack ≠ matchup re-entry; bl
   assert.ok(PROPS_ONLY_RECOVERY_ODDS_SLACK > PROPS_ONLY_ODDS_SLACK);
 });
 
-test("Bo Nix Under 13.5 rush: reproduce delivered 98% (history, not inverted, one adj)", async () => {
+test("Bo Nix Under 13.5 rush: raw 0.9705 + matchup adj (n=5 uncalibrated)", async () => {
   // Live ESPN series for athlete 4426338 (2026-10-15 snapshot) — all under 13.5.
   const rushYds = [10, 10, 7, 6, 2];
   const line = 13.5;
@@ -702,10 +702,32 @@ test("Bo Nix Under 13.5 rush: reproduce delivered 98% (history, not inverted, on
   });
   assert.ok(tiltU.tilt > 0, "Under favored vs soft-stingy SEA run D");
   assert.ok(tiltO.tilt < 0, "Over demoted — not an inverted Under");
-  const once = adjustSimHitForOppDefenseTilt(0.971, tiltU.tilt);
-  const twice = adjustSimHitForOppDefenseTilt(once, tiltU.tilt);
-  assert.equal(once, 0.98);
-  assert.equal(twice, 0.98, "second adjust cannot raise past soft-cap");
+  const {
+    explainSimHitOppDefenseAdjust,
+    formatSimHitWithMatchupAdjust,
+  } = await import("./footballRushDefense.ts");
+  const explained = explainSimHitOppDefenseAdjust(0.9705, tiltU.tilt);
+  assert.ok(explained);
+  // Transform is matchup +adj (not a soft-cap raising 0.9705). Soft-clip only if ≥1.
+  assert.equal(explained!.certaintySoftClipped, false);
+  assert.ok(explained!.adj > 0, "Under tilt adds probability points");
+  const once = explained!.adjustedHit;
+  assert.equal(once, adjustSimHitForOppDefenseTilt(0.9705, tiltU.tilt));
+  assert.ok(once! > 0.9705, "tilt increases hit");
+  assert.ok(once! < 1, "tilted MC Under stays below certainty soft-clip");
+  // Alt ladder monotone after same adj (no shared 0.98 flatten).
+  const u115 = adjustSimHitForOppDefenseTilt(0.905, tiltU.tilt)!;
+  const u135 = once!;
+  const u155 = adjustSimHitForOppDefenseTilt(0.995, tiltU.tilt)!;
+  assert.ok(u115 <= u135 && u135 <= u155, "Under alts stay monotone after tilt");
+  const label = formatSimHitWithMatchupAdjust({
+    rawHit: 0.9705,
+    adjustedHit: once,
+    sampleSize: 5,
+  });
+  assert.match(String(label), /matchup/);
+  assert.match(String(label), /n=5/);
+  assert.match(String(label), /uncalibrated/);
 
   // Holistic: after sim adj, tendency must not re-score.
   const { buildPropHolisticScore } = await import("./propHolisticRecommendation.ts");
