@@ -18,6 +18,11 @@ import {
   marketIsFullGame,
 } from "./boardScanPropDelivery.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
+import {
+  isGameLineSideMarket,
+  isGameTotalMarket,
+  isTeamTotalMarket,
+} from "./coachP0UnvalidatedTotals.ts";
 
 export type CoachAskMarketConstraint = {
   /** Stage props only — no ML / spread / total game lines. */
@@ -548,7 +553,16 @@ export function filterPicksByAskMarketConstraint<
 >(picks: T[], constraint: CoachAskMarketConstraint): T[] {
   let out = picks;
   if (constraint.propsOnly) {
-    out = out.filter((p) => !!p.isProp);
+    // Player props only — drop spreads / ML / totals / team props even when a
+    // row is mis-tagged isProp (phone: "players only" must never seat Alt Spread).
+    out = out.filter((p) => {
+      if (!p.isProp) return false;
+      const market = p.market;
+      if (isTeamTotalMarket(market)) return false;
+      if (isGameTotalMarket(market)) return false;
+      if (isGameLineSideMarket(market)) return false;
+      return true;
+    });
   }
   if (constraint.gameLinesOnly) {
     out = out.filter((p) => !p.isProp);

@@ -456,6 +456,60 @@ test("Bet365 no over/under NHL → gameLinesOnly + excludeTotals", () => {
   assert.ok(out.every((p) => !p.isProp && !/total/i.test(p.market)));
 });
 
+test("8 leg Seahawks players only → propsOnly; drops Alt Spread / team markets", () => {
+  const c = parseCoachAskMarketConstraint("8 leg Seahawks players only");
+  assert.equal(c.propsOnly, true, "players only must be propsOnly");
+  assert.equal(c.gameLinesOnly, false);
+  const out = filterPicksByAskMarketConstraint(
+    [
+      {
+        isProp: false,
+        market: "Alt Spread",
+        pick: "Seahawks +1.5",
+      },
+      {
+        isProp: false,
+        market: "Moneyline",
+        pick: "Seahawks",
+      },
+      {
+        isProp: false,
+        market: "Total",
+        pick: "Over 45.5",
+      },
+      {
+        isProp: false,
+        market: "Team Total",
+        pick: "Seahawks Over 22.5",
+      },
+      {
+        isProp: true,
+        market: "Receiving Yards",
+        pick: "Jaxon Smith-Njigba Over 74.5",
+        propMarketKey: "player_reception_yds",
+      },
+      // Mis-tagged team market must still die under propsOnly.
+      {
+        isProp: true,
+        market: "Alt Spread",
+        pick: "Seahawks +1.5",
+      },
+    ],
+    c,
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.pick, "Jaxon Smith-Njigba Over 74.5");
+  // Same phrasing across sports.
+  for (const ask of [
+    "6 leg Lakers players only",
+    "7 leg Yankees players only",
+    "5 leg Bruins players only",
+    "only players",
+  ]) {
+    assert.equal(parseCoachAskMarketConstraint(ask).propsOnly, true, ask);
+  }
+});
+
 test("5 leg NHL team props → game lines (not player Under 0.5 stack)", () => {
   const c = parseCoachAskMarketConstraint("5 leg NHL team props");
   assert.equal(c.propsOnly, false, "team props must not be propsOnly");

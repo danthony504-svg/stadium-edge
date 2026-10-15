@@ -72,7 +72,8 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
   {
     id: "mlb_runs",
     label: "runs",
-    re: /\b(?:batter\s+)?runs?(?:\s+scored)?\b/i,
+    // Do not match "run line" (game-line ask with moneylines).
+    re: /\b(?:batter\s+)?runs?(?:\s+scored)?\b(?!\s*lines?\b)/i,
     markets: ["batter_runs"],
   },
 
