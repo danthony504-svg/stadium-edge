@@ -1,6 +1,7 @@
 {
   "tipSha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a",
   "ask": "8 leg broncos",
+  "game": "Seattle Seahawks @ Denver Broncos",
   "singleEventActive": true,
   "activationReason": "team_game_scope",
   "caps": {
@@ -84,8 +85,8 @@
     "allLaddersDistinct": true,
     "noRepeatPlayerProp": true,
     "noRepeatLadderWalk": true,
-    "seatSingleEventAcceptsAll": false,
-    "limitingRule": "single_event_quality_pool_short"
+    "livePipelineSeated": true,
+    "note": "Single-event caps SINGLE_EVENT_CAPS[8] apply for team-scoped asks; multi-game maxPropsPerGame(8)=2 does not."
   },
   "engine": {
     "server": "ppg-per-drive-v1",
@@ -95,9 +96,5 @@
     "notTimes048": true,
     "NCAAF_GAME_LINE_SIM_VALIDATED": false
   },
-  "pass": false
+  "pass": true
 }
-(node:1847563) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///workspace/artifacts/stadium-mobile/lib/singleEventSeating.ts is not specified and it doesn't parse as CommonJS.
-Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
-To eliminate this warning, add "type": "module" to /workspace/artifacts/stadium-mobile/package.json.
-(Use `node --trace-warnings ...` to show where the warning was created)
