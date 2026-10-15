@@ -14,7 +14,7 @@ import {
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican } from "@/lib/format";
-import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
+import { marketDisplayLabel } from "@/lib/postedMarketDiscovery";
 import { EdgeReadout, type ParsedPick } from "@/components/PickCard";
 import { FONT } from "@/components/ui";
 
@@ -123,7 +123,7 @@ export function AiPickCard({
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
-  const marketLabel = humanizeOddsApiMarketKey(pick.market) || pick.market;
+  const marketLabel = marketDisplayLabel(pick.market, pick.sport);
 
   const onToggle = () => {
     if (added) {

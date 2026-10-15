@@ -21,7 +21,7 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import { formatAmerican, payout } from "@/lib/format";
-import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
+import { marketDisplayLabel } from "@/lib/postedMarketDiscovery";
 import { saveSlipToPhotos } from "@/lib/slipImage";
 import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
@@ -294,7 +294,7 @@ function SlipBarBody({
                       style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 }}
                       numberOfLines={1}
                     >
-                      {humanizeOddsApiMarketKey(leg.market) || leg.market} · {leg.game}
+                      {marketDisplayLabel(leg.market, leg.sport)} · {leg.game}
                     </Text>
                   </View>
                   <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 13 }}>

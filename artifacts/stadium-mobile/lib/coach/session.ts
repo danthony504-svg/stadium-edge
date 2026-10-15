@@ -239,3 +239,18 @@ export function coachShortfallNote(
   // was starved and only reserved game-line slots (2 of 5 / 3 of 7) published.
   return `You asked for ${requestedLegs} legs — only ${pickCount} cleared the AI quality bar. No ungraded filler was added.`;
 }
+
+/**
+ * Ticket badge shows delivered legs. Requested count stays on the message for
+ * shortfall copy — never inflate the badge to the ask size. Sport-agnostic.
+ * Returns null when the badge should be hidden.
+ */
+export function coachTicketBadgeLegCount(opts: {
+  requestedLegs?: number | null;
+  deliveredLegs: number;
+}): number | null {
+  const requested = opts.requestedLegs ?? 0;
+  const delivered = opts.deliveredLegs;
+  if (requested < 3 || delivered <= 0) return null;
+  return delivered;
+}

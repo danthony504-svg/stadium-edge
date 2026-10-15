@@ -13,6 +13,7 @@ import {
   coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
   coachShortfallNote,
+  coachTicketBadgeLegCount,
   createCoachSession,
   latchCoachSession,
   resetCoachAbsoluteClock,
@@ -80,6 +81,22 @@ test("resolveCoachOutcome maps pick counts", () => {
   assert.equal(resolveCoachOutcome({ pickCount: 2, requestedLegs: 6 }), "shortfall");
   assert.equal(resolveCoachOutcome({ pickCount: 0, requestedLegs: 6 }), "empty");
   assert.equal(resolveCoachOutcome({ pickCount: 0, requestedLegs: 6, failed: true }), "failed");
+});
+
+test("coachTicketBadgeLegCount uses delivered legs; requested stays separate", () => {
+  // Shortfall: asked 8, cleared 7 → badge shows 7 (not 8).
+  assert.equal(
+    coachTicketBadgeLegCount({ requestedLegs: 8, deliveredLegs: 7 }),
+    7,
+  );
+  assert.equal(
+    coachTicketBadgeLegCount({ requestedLegs: 6, deliveredLegs: 6 }),
+    6,
+  );
+  // Hide when not an N-leg ask or nothing delivered.
+  assert.equal(coachTicketBadgeLegCount({ requestedLegs: 2, deliveredLegs: 2 }), null);
+  assert.equal(coachTicketBadgeLegCount({ requestedLegs: 8, deliveredLegs: 0 }), null);
+  assert.equal(coachTicketBadgeLegCount({ deliveredLegs: 5 }), null);
 });
 
 test("8-leg scoring budget is longer than 6-leg", () => {

@@ -35,6 +35,7 @@ import {
   type StealScanMeta,
   type StealSeasonStats,
 } from "@/lib/api";
+import { marketDisplayLabel } from "@/lib/postedMarketDiscovery";
 import type { StealFeedClientLog } from "@/lib/stealFeedClient";
 import { SPORTS, sportLabel } from "@/lib/sports";
 import {
@@ -66,7 +67,9 @@ const GAME_MARKET_LABEL: Record<string, string> = {
 
 function marketLabelFor(s: LiveSteal): string {
   if (s.player) return propMarketLabel(s.market);
-  return GAME_MARKET_LABEL[s.market] ?? s.market;
+  const base = GAME_MARKET_LABEL[s.market] ?? s.market;
+  // Sport-aware display (MLB Spread → Run Line); stored market unchanged.
+  return marketDisplayLabel(base, s.sport);
 }
 
 function formatStart(iso?: string | null): string {

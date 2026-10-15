@@ -59,6 +59,7 @@ import {
   coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
   coachShortfallNote,
+  coachTicketBadgeLegCount,
   createCoachSession,
   latchCoachSession,
   resetCoachAbsoluteClock,
@@ -970,31 +971,41 @@ export default function CoachScreen() {
                     status={item.buildStatus || "Working…"}
                   />
                 ) : null}
-                {item.requestedLegs && item.requestedLegs >= 3 && !item.building ? (
-                  <View style={{ paddingHorizontal: 16 }}>
-                    <View
-                      style={{
-                        alignSelf: "flex-start",
-                        backgroundColor: "rgba(59,130,246,0.15)",
-                        borderColor: colors.primary,
-                        borderWidth: 1,
-                        borderRadius: 999,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                      }}
-                    >
-                      <Text
+                {(() => {
+                  // Badge = delivered legs; requestedLegs stays on the message for shortfall copy.
+                  const badgeLegs = !item.building
+                    ? coachTicketBadgeLegCount({
+                        requestedLegs: item.requestedLegs,
+                        deliveredLegs: item.picks?.length ?? 0,
+                      })
+                    : null;
+                  if (badgeLegs == null) return null;
+                  return (
+                    <View style={{ paddingHorizontal: 16 }}>
+                      <View
                         style={{
-                          color: colors.primary,
-                          fontFamily: FONT.semibold,
-                          fontSize: 12,
+                          alignSelf: "flex-start",
+                          backgroundColor: "rgba(59,130,246,0.15)",
+                          borderColor: colors.primary,
+                          borderWidth: 1,
+                          borderRadius: 999,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
                         }}
                       >
-                        {item.requestedLegs}-Leg parlay
-                      </Text>
+                        <Text
+                          style={{
+                            color: colors.primary,
+                            fontFamily: FONT.semibold,
+                            fontSize: 12,
+                          }}
+                        >
+                          {badgeLegs}-Leg parlay
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                ) : null}
+                  );
+                })()}
                 {item.text.trim() || (item.picks && item.picks.length > 0) ? (
                   <View style={{ paddingHorizontal: 16 }}>
                     <Text

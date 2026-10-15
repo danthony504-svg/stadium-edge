@@ -29,7 +29,7 @@ import { pickShowsAltBadge } from "@/lib/altLinePool";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
-import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
+import { marketDisplayLabel } from "@/lib/postedMarketDiscovery";
 import { compactPickLineLabel, parsePickLineNumber } from "@/lib/pickLineParse";
 import {
   NOT_AI_RECOMMENDED,
@@ -229,20 +229,6 @@ function marketIcon(pick: ParsedPick): keyof typeof Feather.glyphMap {
   if (m.includes("total") || m.includes("over") || m.includes("under")) return "bar-chart-2";
   if (m.includes("moneyline") || m.includes("ml")) return "dollar-sign";
   return "flag";
-}
-
-// In tennis a "spread" is a GAMES handicap (e.g. -4.5 games), not a points
-// spread — so the card badge should read "Game Handicap". This is a DISPLAY-ONLY
-// relabel: the underlying `market` value is never changed, so slip leg keys,
-// dedupe, and AI-pick resolution all keep using the real "Spread" / "Alt Spread"
-// market name. Also humanizes leaked Odds API keys ("spreads_q2" → "Q2 Spread").
-function marketDisplayLabel(market: string, sport?: string): string {
-  const human = humanizeOddsApiMarketKey(market);
-  if (sport === "tennis") {
-    if (/^spread$/i.test(human)) return "Game Handicap";
-    if (/^alt spread$/i.test(human)) return "Alt Game Handicap";
-  }
-  return human || market;
 }
 
 // "Away @ Home" with the away side in blue and the home side in red so the
