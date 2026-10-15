@@ -1,8 +1,21 @@
 {
-  "generatedAt": "2026-10-14T21:24:31.034Z",
-  "engine": "nfl-drive",
+  "generatedAt": "2026-10-15T04:31:32.839Z",
+  "engine": "nfl-drive:ppg-per-drive-v1",
+  "inputUnits": "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are mutually exclusive. Late-clock touchdowns are funded from the same points-per-game budget.",
+  "selectionTimeInputs": true,
+  "priorE2aClaim": {
+    "status": "WITHDRAWN",
+    "restored": false,
+    "reportGeneratedAt": "2026-10-14T21:24:31.034Z",
+    "simulationsPerGame": 1500,
+    "nHoldoutScored": 865,
+    "recordedBrier": 0.1989518554913293,
+    "recordedHomeWinBias": 0.019813872832370683,
+    "engine": "nfl-drive before ppg-per-drive-v1: points per game were passed in as points per drive, then NCAAF inputs were multiplied by 0.48",
+    "reason": "The 2026-10-14 PASS used the same unit mismatch as the NFL draws that sat near 42 points per team. The 0.48 college scale was a patch on that mismatch, not a separate engine. This run is a new measurement. A numeric PASS does not restore that claim."
+  },
   "holdoutSeason": 2024,
-  "simulationsPerGame": 1500,
+  "simulationsPerGame": 10000,
   "nHoldoutScored": 865,
   "nHoldoutSkippedThinForm": 6,
   "formMethodology": "venue_split blended with L10 via blendVenueAndL10 (production footballGameSimInputs parity); no invented HFA constant",
@@ -17,16 +30,16 @@
   "injurySegmentData": "INSUFFICIENT_DATA",
   "injuryNote": "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. Dependency: injury-segmented holdout rows (injuryKnown + optional qbOut) via NCAAF_PHASE_E_FIXTURE, or a historical ESPN injury snapshot keyed by eventId/teamId before kickoff.",
   "metrics": {
-    "brier": 0.1989518554913293,
+    "brier": 0.19872332947976867,
     "brierCoin": 0.25,
-    "logLoss": 0.5769761385427379,
-    "ece10": 0.04213757225433526,
-    "meanP": 0.6568080924855498,
+    "logLoss": 0.5768558248142657,
+    "ece10": 0.051426589595375896,
+    "meanP": 0.6741132947976886,
     "meanY": 0.6369942196531792,
-    "homeWinBias": 0.019813872832370683,
+    "homeWinBias": 0.037119075144509406,
     "nearCoinFlipDog75": {
-      "n": 133,
-      "awayCoverRate": 0.6691729323308271
+      "n": 108,
+      "awayCoverRate": 0.7037037037037037
     }
   },
   "thresholds": {
@@ -37,10 +50,10 @@
     "dog75CoverMaxWhenMlNearHalf": 0.7
   },
   "verdicts": {
-    "E2_outcomeVsCoin": "PASS",
-    "E2_reasons": "ok",
+    "E2_outcomeVsCoin": "FAIL",
+    "E2_reasons": "near-coin-flip +7.5 dog cover 0.704 > 0.7 (n=108)",
     "E2_closingLineClv": "INSUFFICIENT_DATA",
-    "E2_readyForRestore": "OPEN_NEEDS_CLOSING_LINES",
+    "E2_readyForRestore": "FAIL",
     "E4_injuryConservatism": "INSUFFICIENT_DATA",
     "E6_humanSignOff": "OPEN",
     "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"

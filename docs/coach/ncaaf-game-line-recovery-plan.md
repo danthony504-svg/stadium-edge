@@ -60,7 +60,7 @@ All must pass on a frozen out-of-sample window:
 5. **Props / other sports:** NCAAF props, NFL/NHL P0 totals, correlation caps unchanged in regression suite.
 6. **Sign-off:** Explicit human approval to lift `P0_UNVALIDATED_NCAAF_GAME_LINE_*` — no silent restore.
 
-**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md`. Holdout run (venue-aware form): E2a **PASS** (bias ≈ +0.02), E2b/E4 **INSUFFICIENT_DATA**, E6 **OPEN**. Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED` until E2b + E4 + E6 + E2E.
+**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md`. The 2026-10-14 E2a PASS is withdrawn (it used points per game as points per drive, plus an NCAAF ×0.48 scale). The `ppg-per-drive-v1` holdout (10,000 sims, selection-time venue/L10) is E2a **FAIL** (near-coin +7.5 dog cover 0.704). E2b/E4 **INSUFFICIENT_DATA**, E6 **OPEN**. Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Phase F — Rollout
 

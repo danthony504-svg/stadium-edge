@@ -27,5 +27,5 @@
 | Track | Status until you measure |
 |-------|---------------------------|
 | A. Early-exit behavior verified on device | **Pending your attestation + timed ask** |
-| B. College simulation validation (Phase E) | E2a PASS in CI; E2b/E4/E6 still open — **not** restore-ready |
+| B. College simulation validation (Phase E) | 2026-10-14 E2a PASS withdrawn (unit mismatch). `ppg-per-drive-v1` 10k holdout is E2a FAIL; E2b/E4/E6 still open — **not** restore-ready |
 | C. Valid college picks returned end-to-end | **Not claimed** — P0 still armed; needs E2b+E4+E6+E2E |
