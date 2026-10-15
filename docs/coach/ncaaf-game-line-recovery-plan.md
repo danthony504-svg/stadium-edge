@@ -60,7 +60,7 @@ All must pass on a frozen out-of-sample window:
 5. **Props / other sports:** NCAAF props, NFL/NHL P0 totals, correlation caps unchanged in regression suite.
 6. **Sign-off:** Explicit human approval to lift `P0_UNVALIDATED_NCAAF_GAME_LINE_*` — no silent restore.
 
-**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md`. The 2026-10-14 E2a PASS is withdrawn (it used points per game as points per drive, plus an NCAAF ×0.48 scale). The seeded `ppg-per-drive-v1` holdout (10,000 sims, primary seed 20241015, selection-time venue/L10) is a new E2a **PASS** (dog cover 0.673, n=110; seed range 0.673–0.702). E2b/E4 **INSUFFICIENT_DATA** (closing-line archive absent, 0 joined rows), E6 **OPEN**. Restore readiness **NO**. Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED`.
+**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md`. The 2026-10-14 E2a PASS is withdrawn (it used points per game as points per drive, plus an NCAAF ×0.48 scale). The seeded `ppg-per-drive-v1` holdout (10,000 sims, primary seed 20241015, priors complete before kickoff) is a new E2a **PASS** (dog cover 0.676, n=111; seed range 0.676–0.699). The PR 737 closing archive is vendored from `7fbf065a`. Close-archive soft gates on this engine are PASS_SOFT_GATES_ONLY (n=770). CLV stays OPEN with no PASS label. E4 **INSUFFICIENT_DATA**, E6 **OPEN**. Restore readiness **NO**. Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Phase F — Rollout
 

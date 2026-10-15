@@ -57,6 +57,102 @@ export function boundarySensitiveCount(rows: HoldoutProbRow[]): number {
   ).length;
 }
 
+/**
+ * A prior game may enter form only after it would have finished.
+ * Fixtures store kickoff, not the final whistle, so completion is kickoff plus
+ * four hours. That buffer is a clock assumption, not a calibration knob.
+ */
+export const FOOTBALL_PRIOR_GAME_COMPLETE_MS = 4 * 60 * 60 * 1000;
+
+export function footballFormMayIncludePriorGame(
+  priorKickoffIso: string | null | undefined,
+  selectionKickoffIso: string | null | undefined,
+): boolean {
+  const prior = Date.parse(String(priorKickoffIso ?? ""));
+  const selection = Date.parse(String(selectionKickoffIso ?? ""));
+  if (!Number.isFinite(prior) || !Number.isFinite(selection)) return false;
+  return prior + FOOTBALL_PRIOR_GAME_COMPLETE_MS <= selection;
+}
+
+export type HoldoutWalkGame = {
+  eventId: string;
+  kickoffIso?: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  homeFg: number;
+  awayFg: number;
+};
+
+export type HoldoutWalkForm = {
+  ptsFor: number[];
+  ptsAgainst: number[];
+  homeFor: number[];
+  homeAgainst: number[];
+  awayFor: number[];
+  awayAgainst: number[];
+  contribKickoffs: string[];
+  contribEventIds: string[];
+};
+
+/**
+ * Visit each game with form built only from earlier games whose estimated
+ * completion is at or before this kickoff. The evaluated game is not in form.
+ */
+export function walkHoldoutGames<T extends HoldoutWalkGame>(
+  games: T[],
+  visit: (game: T, forms: Map<string, HoldoutWalkForm>) => void,
+): void {
+  const sorted = [...games].sort((a, b) => {
+    const ka = String(a.kickoffIso ?? "");
+    const kb = String(b.kickoffIso ?? "");
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return String(a.eventId).localeCompare(String(b.eventId));
+  });
+  const forms = new Map<string, HoldoutWalkForm>();
+  const pending: T[] = [];
+  const empty = (): HoldoutWalkForm => ({
+    ptsFor: [],
+    ptsAgainst: [],
+    homeFor: [],
+    homeAgainst: [],
+    awayFor: [],
+    awayAgainst: [],
+    contribKickoffs: [],
+    contribEventIds: [],
+  });
+  const add = (g: T) => {
+    const kick = String(g.kickoffIso ?? "");
+    const home = forms.get(g.homeTeamId) ?? empty();
+    home.ptsFor.push(g.homeFg);
+    home.ptsAgainst.push(g.awayFg);
+    home.homeFor.push(g.homeFg);
+    home.homeAgainst.push(g.awayFg);
+    home.contribKickoffs.push(kick);
+    home.contribEventIds.push(g.eventId);
+    forms.set(g.homeTeamId, home);
+    const away = forms.get(g.awayTeamId) ?? empty();
+    away.ptsFor.push(g.awayFg);
+    away.ptsAgainst.push(g.homeFg);
+    away.awayFor.push(g.awayFg);
+    away.awayAgainst.push(g.homeFg);
+    away.contribKickoffs.push(kick);
+    away.contribEventIds.push(g.eventId);
+    forms.set(g.awayTeamId, away);
+  };
+  for (const g of sorted) {
+    const selection = String(g.kickoffIso ?? "");
+    const still: T[] = [];
+    for (const prev of pending) {
+      if (footballFormMayIncludePriorGame(prev.kickoffIso, selection)) add(prev);
+      else still.push(prev);
+    }
+    pending.length = 0;
+    pending.push(...still);
+    visit(g, forms);
+    pending.push(g);
+  }
+}
+
 export type ClosingLineRow = {
   eventId: string;
   closeSpreadHome: number;
@@ -64,6 +160,37 @@ export type ClosingLineRow = {
   book?: string;
   source?: string;
 };
+
+/**
+ * Recorded on cursor/odds-api-access-5cb3, PR 737, commit 7fbf065a.
+ * The archive file was saved there. The PASS is the close-archive soft gates
+ * on the pre-ppg-per-drive engine at 1,500 sims. Coach pick CLV was computed
+ * and explicitly left without a PASS label.
+ */
+export const PRIOR_E2B_SOFT_GATE_CLAIM = {
+  branch: "cursor/odds-api-access-5cb3",
+  pr: 737,
+  commit: "7fbf065a607899c49d2e5aa1d636160b74ca0eb4",
+  archiveGeneratedAt: "2026-10-14T22:22:07.230749+00:00",
+  reportGeneratedAt: "2026-10-14T23:39:39.491Z",
+  archiveFile: "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",
+  matched: 842,
+  matchedWithFullPrices: 774,
+  verdict: "PASS",
+  softGates: "PASS_SOFT_GATES_ONLY",
+  coachPickClv: "COMPUTED_NO_PASS_LABEL",
+  engine: "nfl-drive before ppg-per-drive-v1 (points per game fed in as points per drive, then NCAAF ×0.48)",
+  simulationsPerGame: 1500,
+  restored: false,
+} as const;
+
+/** Soft gates published on PR 737. They are not a CLV PASS. */
+export const CLOSE_ARCHIVE_SOFT_GATES = {
+  minGames: 200,
+  marketBrierMaxExclusive: 0.25,
+  engineBrierMaxExclusive: 0.25,
+  meanEngineMinusMarketAbsMax: 0.15,
+} as const;
 
 export function americanToImplied(american: number): number | null {
   if (!Number.isFinite(american) || american === 0) return null;
@@ -83,15 +210,18 @@ export function loadClosingLineArchive(path: string): {
   }
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as
-      | ClosingLineRow[]
-      | { rows?: ClosingLineRow[] };
-    const list = Array.isArray(raw) ? raw : (raw.rows ?? []);
+      | Array<ClosingLineRow & { gameId?: string; bookSample?: string }>
+      | {
+          rows?: Array<ClosingLineRow & { gameId?: string; bookSample?: string }>;
+          games?: Array<ClosingLineRow & { gameId?: string; bookSample?: string }>;
+        };
+    const list = Array.isArray(raw) ? raw : (raw.games ?? raw.rows ?? []);
     const rows: ClosingLineRow[] = [];
     let dropped = 0;
     for (const row of list) {
-      const eventId = String(row?.eventId ?? "");
-      const closeSpreadHome = Number(row?.closeSpreadHome);
-      const closeMlHome = Number(row?.closeMlHome);
+      const eventId = String(row?.eventId || row?.gameId || "");
+      const closeSpreadHome = typeof row?.closeSpreadHome === "number" ? row.closeSpreadHome : Number.NaN;
+      const closeMlHome = typeof row?.closeMlHome === "number" ? row.closeMlHome : Number.NaN;
       if (!eventId || !Number.isFinite(closeSpreadHome) || !Number.isFinite(closeMlHome)) {
         dropped += 1;
         continue;
@@ -100,7 +230,7 @@ export function loadClosingLineArchive(path: string): {
         eventId,
         closeSpreadHome,
         closeMlHome,
-        book: row.book,
+        book: row.book ?? row.bookSample,
         source: row.source,
       });
     }
@@ -190,6 +320,66 @@ export function evaluateClosingLines(joins: ClosingJoin[]): {
     actualHomeCoverRate: coverN ? coverY / coverN : null,
     verdict: "OPEN_NEEDS_AGREED_TOLERANCE",
     reason:
-      "Closing rows joined, but the checklist has no numeric CLV tolerance, so this measurement does not PASS E2b.",
+      "Closing rows joined. PR 737 left Coach pick CLV without a PASS label, so this measurement does not PASS E2b CLV.",
+  };
+}
+
+export function evaluateCloseArchiveSoftGates(joins: ClosingJoin[]): {
+  n: number;
+  engineBrier: number | null;
+  marketBrier: number | null;
+  meanEngineMinusMarket: number | null;
+  verdict: "INSUFFICIENT_DATA" | "PASS_SOFT_GATES_ONLY" | "FAIL_SOFT_GATES";
+  reasons: string[];
+} {
+  const usable = joins.filter(
+    (j) => Number.isFinite(j.pHome) && (j.yHome === 0 || j.yHome === 1),
+  );
+  if (usable.length < CLOSE_ARCHIVE_SOFT_GATES.minGames) {
+    return {
+      n: usable.length,
+      engineBrier: null,
+      marketBrier: null,
+      meanEngineMinusMarket: null,
+      verdict: "INSUFFICIENT_DATA",
+      reasons: [`need ≥${CLOSE_ARCHIVE_SOFT_GATES.minGames} joined games, got ${usable.length}`],
+    };
+  }
+  let engine = 0;
+  let market = 0;
+  let marketN = 0;
+  let gap = 0;
+  for (const j of usable) {
+    engine += (j.pHome - j.yHome) ** 2;
+    const mkt = americanToImplied(j.closeMlHome);
+    if (mkt != null) {
+      market += (mkt - j.yHome) ** 2;
+      gap += j.pHome - mkt;
+      marketN += 1;
+    }
+  }
+  const engineBrier = engine / usable.length;
+  const marketBrier = marketN ? market / marketN : null;
+  const meanGap = marketN ? gap / marketN : null;
+  const reasons: string[] = [];
+  if (marketBrier == null || marketBrier >= CLOSE_ARCHIVE_SOFT_GATES.marketBrierMaxExclusive) {
+    reasons.push("market Brier is missing or does not beat 0.25");
+  }
+  if (engineBrier >= CLOSE_ARCHIVE_SOFT_GATES.engineBrierMaxExclusive) {
+    reasons.push("engine Brier does not beat 0.25");
+  }
+  if (
+    meanGap == null ||
+    Math.abs(meanGap) > CLOSE_ARCHIVE_SOFT_GATES.meanEngineMinusMarketAbsMax
+  ) {
+    reasons.push("|mean(engine − close market)| exceeds 0.15");
+  }
+  return {
+    n: usable.length,
+    engineBrier,
+    marketBrier,
+    meanEngineMinusMarket: meanGap,
+    verdict: reasons.length ? "FAIL_SOFT_GATES" : "PASS_SOFT_GATES_ONLY",
+    reasons,
   };
 }

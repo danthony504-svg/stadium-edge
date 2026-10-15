@@ -26,13 +26,17 @@ import {
   DOG_COHORT_HI,
   DOG_COHORT_LO,
   dogCohort,
+  evaluateCloseArchiveSoftGates,
   evaluateClosingLines,
   FOOTBALL_CALIBRATION_PRIMARY_SEED,
   FOOTBALL_CALIBRATION_SEEDS,
   loadClosingLineArchive,
   mulberry32,
+  PRIOR_E2B_SOFT_GATE_CLAIM,
+  walkHoldoutGames,
   type ClosingJoin,
   type HoldoutProbRow,
+  type HoldoutWalkForm,
 } from "../src/lib/sportSim/footballCalibration.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,14 +57,7 @@ type EspnGame = {
 };
 
 /** Rolling form with venue splits — matches production footballGameSimInputs. */
-type TeamForm = {
-  ptsFor: number[];
-  ptsAgainst: number[];
-  homeFor: number[];
-  homeAgainst: number[];
-  awayFor: number[];
-  awayAgainst: number[];
-};
+type TeamForm = HoldoutWalkForm;
 
 const SIMS = Number(process.env.NCAAF_PHASE_E_SIMS ?? 2500);
 const HOLDOUT_SEASON = Number(process.env.NCAAF_PHASE_E_HOLDOUT_SEASON ?? 2024);
@@ -88,9 +85,10 @@ function loadGames(): EspnGame[] {
         Number.isFinite(g.awayFg),
     )
     .sort((a, b) => {
-      if (a.season !== b.season) return a.season - b.season;
-      if (a.week !== b.week) return a.week - b.week;
-      return String(a.kickoffIso ?? "").localeCompare(String(b.kickoffIso ?? ""));
+      const ka = String(a.kickoffIso ?? "");
+      const kb = String(b.kickoffIso ?? "");
+      if (ka !== kb) return ka < kb ? -1 : 1;
+      return String(a.eventId).localeCompare(String(b.eventId));
     });
 }
 
@@ -217,7 +215,6 @@ type SeedPass = {
 
 function simulateHoldout(games: EspnGame[], seed: number, closingByEvent: Map<string, { closeSpreadHome: number; closeMlHome: number }>): SeedPass {
   const rng = mulberry32(seed);
-  const forms = new Map<string, TeamForm>();
   const mlP: number[] = [];
   const mlY: number[] = [];
   const rows: HoldoutProbRow[] = [];
@@ -225,16 +222,8 @@ function simulateHoldout(games: EspnGame[], seed: number, closingByEvent: Map<st
   const provenanceCounts: Record<string, number> = {};
   let skippedThin = 0;
   let scored = 0;
-  const emptyForm = (): TeamForm => ({
-    ptsFor: [],
-    ptsAgainst: [],
-    homeFor: [],
-    homeAgainst: [],
-    awayFor: [],
-    awayAgainst: [],
-  });
 
-  for (const g of games) {
+  walkHoldoutGames(games, (g, forms) => {
     const homeIn = teamSimInput(forms.get(g.homeTeamId), "home");
     const awayIn = teamSimInput(forms.get(g.awayTeamId), "away");
     const isHoldout = g.season === HOLDOUT_SEASON;
@@ -304,20 +293,7 @@ function simulateHoldout(games: EspnGame[], seed: number, closingByEvent: Map<st
     } else if (isHoldout) {
       skippedThin += 1;
     }
-
-    const hf = forms.get(g.homeTeamId) ?? emptyForm();
-    hf.ptsFor.push(g.homeFg);
-    hf.ptsAgainst.push(g.awayFg);
-    hf.homeFor.push(g.homeFg);
-    hf.homeAgainst.push(g.awayFg);
-    forms.set(g.homeTeamId, hf);
-    const af = forms.get(g.awayTeamId) ?? emptyForm();
-    af.ptsFor.push(g.awayFg);
-    af.ptsAgainst.push(g.homeFg);
-    af.awayFor.push(g.awayFg);
-    af.awayAgainst.push(g.homeFg);
-    forms.set(g.awayTeamId, af);
-  }
+  });
 
   return { seed, scored, skippedThin, provenanceCounts, mlP, mlY, rows, closingJoins };
 }
@@ -351,6 +327,7 @@ function main(): number {
     .filter((r) => r.pHome > DOG_COHORT_LO && r.pHome < DOG_COHORT_HI)
     .map((r) => ({ cover: r.awayCovered75, ml: r.pHome }));
   const closingEval = evaluateClosingLines(primary.closingJoins);
+  const closeSoftGates = evaluateCloseArchiveSoftGates(primary.closingJoins);
   const seedCohorts = passes.map((p) => ({
     seed: p.seed,
     primary: p.seed === FOOTBALL_CALIBRATION_PRIMARY_SEED,
@@ -401,7 +378,7 @@ function main(): number {
     nHoldoutScored: scored,
     nHoldoutSkippedThinForm: skippedThin,
     formMethodology:
-      "venue_split blended with L10 via blendVenueAndL10 (production footballGameSimInputs parity); no invented HFA constant",
+      "Games ordered by kickoff. Form receives a prior game only when its kickoff plus 4 hours is at or before the evaluated kickoff. The evaluated game is added after it is scored. Venue split blends with L10. No invented home-field constant.",
     formProvenanceCounts: provenanceCounts,
     closingLineArchive: {
       expectedPath: "artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json",
@@ -411,18 +388,20 @@ function main(): number {
       droppedRows: closingArchive.dropped,
       joinedHoldoutRows: primary.closingJoins.length,
       oddsApiKey: process.env.ODDS_API_KEY ? "set" : "unset",
-      espnCompletedScoreboardOdds: "empty",
-      espnSummaryPickcenter: "empty",
-      designDoc:
-        "CLOSING_LINE_ARCHIVE.md at f494c3a5 is a design note and is not on this branch. No E2b PASS exists in prior calibration reports.",
+      provenance: PRIOR_E2B_SOFT_GATE_CLAIM,
       priorE2bClaims: [
         {
           reportGeneratedAt: "2026-10-14T21:24:31.034Z",
           verdict: "INSUFFICIENT_DATA",
-          note: "The withdrawn E2a PASS did not include an E2b PASS.",
+          note: "The withdrawn E2a report on this branch's ancestor had no closing-line file and did not PASS E2b.",
+        },
+        {
+          ...PRIOR_E2B_SOFT_GATE_CLAIM,
+          note: "Archive saved on PR 737. Soft-gate PASS is on the pre-ppg-per-drive engine. Coach pick CLV was COMPUTED_NO_PASS_LABEL (mean ML CLV -0.0234). That PASS is not restored by copying the file onto this branch.",
         },
       ],
     },
+    closeArchiveSoftGates: closeSoftGates,
     closingLineData: closingEval.verdict === "INSUFFICIENT_DATA" ? "INSUFFICIENT_DATA" : "MEASURED_OPEN",
     closingLineMetrics: closingEval,
     closingLineNote:
@@ -501,6 +480,9 @@ function main(): number {
     E2_outcomeVsCoin: e2Outcome,
     E2_reasons: reasons.join("; ") || "ok",
     E2_closingLineClv: closingEval.verdict,
+    E2_closeArchiveSoftGates: closeSoftGates.verdict,
+    E2_closeArchiveSoftGateNote:
+      "Same numeric gates published on PR 737. A soft-gate result is not a CLV PASS and does not restore the pre-ppg-per-drive claim.",
     E2_readyForRestore: e2Restore,
     E4_injuryConservatism: "INSUFFICIENT_DATA",
     E6_humanSignOff: "OPEN",
@@ -517,7 +499,7 @@ function main(): number {
   // Keep P0 armed until outcome calibration + CLV + E4 + E6 all clear.
   if (e2Outcome === "PASS" && e2Restore === "OPEN_NEEDS_CLOSING_LINES") {
     console.log(
-      "Outcome metrics cleared coin/ECE/dog gates, but closing-line CLV is INSUFFICIENT_DATA.",
+      `Outcome metrics cleared coin/ECE/dog gates. CLV verdict=${closingEval.verdict}. Soft gates=${closeSoftGates.verdict}.`,
     );
     console.log("E4/E6 still OPEN — do not flip NCAAF_GAME_LINE_SIM_VALIDATED.");
     return 2;

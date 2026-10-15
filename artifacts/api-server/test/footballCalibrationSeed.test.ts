@@ -2,17 +2,23 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { runNflDriveSim } from "../src/lib/sportSim/nflDriveSim.ts";
 import {
+  CLOSE_ARCHIVE_SOFT_GATES,
   DOG_COHORT_COVER_MAX,
   DOG_COHORT_HI,
   DOG_COHORT_LO,
   FOOTBALL_CALIBRATION_PRIMARY_SEED,
   FOOTBALL_CALIBRATION_SEEDS,
+  FOOTBALL_PRIOR_GAME_COMPLETE_MS,
+  PRIOR_E2B_SOFT_GATE_CLAIM,
   dogCohort,
+  evaluateCloseArchiveSoftGates,
   evaluateClosingLines,
+  footballFormMayIncludePriorGame,
   loadClosingLineArchive,
   mulberry32,
 } from "../src/lib/sportSim/footballCalibration.ts";
@@ -89,4 +95,38 @@ test("a populated closing join stays open until a tolerance exists", () => {
   assert.equal(verdict.verdict, "OPEN_NEEDS_AGREED_TOLERANCE");
   assert.equal(verdict.n, 200);
   assert.ok(verdict.engineBrier != null && verdict.marketBrier != null);
+  const aligned = joins.map((row) => ({ ...row, pHome: 0.62, yHome: 1, closeMlHome: -160 }));
+  const soft = evaluateCloseArchiveSoftGates(aligned);
+  assert.equal(soft.verdict, "PASS_SOFT_GATES_ONLY");
+  assert.equal(CLOSE_ARCHIVE_SOFT_GATES.meanEngineMinusMarketAbsMax, 0.15);
+  const miss = evaluateCloseArchiveSoftGates(
+    joins.map((row) => ({ ...row, pHome: 0.9, yHome: 0, closeMlHome: -110 })),
+  );
+  assert.equal(miss.verdict, "FAIL_SOFT_GATES");
+});
+
+test("PR 737 closing archive uses gameId and keeps the old PASS unrestored", () => {
+  const loaded = loadClosingLineArchive(
+    join(dirname(fileURLToPath(import.meta.url)), "fixtures/ncaaf-phase-e-closing-lines.json"),
+  );
+  assert.equal(loaded.present, true);
+  assert.equal(loaded.rows.length, 774);
+  assert.equal(loaded.dropped, 68);
+  assert.equal(loaded.rows.some((row) => row.eventId === "401635525"), true);
+  assert.equal(PRIOR_E2B_SOFT_GATE_CLAIM.verdict, "PASS");
+  assert.equal(PRIOR_E2B_SOFT_GATE_CLAIM.restored, false);
+  assert.equal(PRIOR_E2B_SOFT_GATE_CLAIM.coachPickClv, "COMPUTED_NO_PASS_LABEL");
+});
+
+test("form includes a prior game only after kickoff plus four hours", () => {
+  assert.equal(FOOTBALL_PRIOR_GAME_COMPLETE_MS, 4 * 60 * 60 * 1000);
+  assert.equal(
+    footballFormMayIncludePriorGame("2024-09-07T16:00:00Z", "2024-09-07T18:00:00Z"),
+    false,
+  );
+  assert.equal(
+    footballFormMayIncludePriorGame("2024-09-07T16:00:00Z", "2024-09-07T20:00:00Z"),
+    true,
+  );
+  assert.equal(footballFormMayIncludePriorGame("", "2024-09-07T20:00:00Z"), false);
 });

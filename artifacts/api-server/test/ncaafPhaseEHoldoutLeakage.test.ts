@@ -8,6 +8,11 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { blendVenueAndL10 } from "../src/lib/sportSim/footballDriveMatchup.ts";
+import {
+  footballFormMayIncludePriorGame,
+  FOOTBALL_PRIOR_GAME_COMPLETE_MS,
+  walkHoldoutGames,
+} from "../src/lib/sportSim/footballCalibration.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -46,88 +51,62 @@ test("holdout form inputs are strictly pre-kickoff (no leakage)", () => {
   const raw = JSON.parse(
     readFileSync(join(here, "fixtures/ncaaf-phase-e-games.json"), "utf8"),
   ) as { games?: EspnGame[] } | EspnGame[];
-  const games = (Array.isArray(raw) ? raw : (raw.games ?? [])).slice().sort((a, b) => {
-    if (a.season !== b.season) return a.season - b.season;
-    if (a.week !== b.week) return a.week - b.week;
-    return String(a.kickoffIso ?? "").localeCompare(String(b.kickoffIso ?? ""));
-  });
-
-  const forms = new Map<string, TeamForm>();
-  const empty = (): TeamForm => ({
-    ptsFor: [],
-    ptsAgainst: [],
-    homeFor: [],
-    homeAgainst: [],
-    awayFor: [],
-    awayAgainst: [],
-    contribKickoffs: [],
-  });
+  const games = Array.isArray(raw) ? raw : (raw.games ?? []);
 
   let scored = 0;
+  let checkedContributors = 0;
   let firstKick: string | null = null;
   let lastKick: string | null = null;
   const HOLDOUT = 2024;
 
-  for (const g of games) {
-    const home = forms.get(g.homeTeamId) ?? empty();
-    const away = forms.get(g.awayTeamId) ?? empty();
-    const kick = gameKey(g);
-
-    if (g.season === HOLDOUT && home.ptsFor.length >= 2 && away.ptsFor.length >= 2) {
-      // Every contributing kickoff for both teams must be strictly before this game.
-      for (const prev of [...home.contribKickoffs, ...away.contribKickoffs]) {
-        assert.ok(
-          prev < kick,
-          `leakage: form kickoff ${prev} is not before evaluated ${kick}`,
-        );
-      }
-      // Venue blend must not invent future home/away rows.
-      const homeVenue = {
-        games: Math.min(10, home.homeFor.length),
-        ptsFor: home.homeFor.length ? mean(home.homeFor.slice(-10), 24) : null,
-        ptsAgainst: home.homeAgainst.length
-          ? mean(home.homeAgainst.slice(-10), 24)
-          : null,
-      };
-      const awayVenue = {
-        games: Math.min(10, away.awayFor.length),
-        ptsFor: away.awayFor.length ? mean(away.awayFor.slice(-10), 24) : null,
-        ptsAgainst: away.awayAgainst.length
-          ? mean(away.awayAgainst.slice(-10), 24)
-          : null,
-      };
-      const homeL10 = {
-        games: Math.min(10, home.ptsFor.length),
-        ptsFor: mean(home.ptsFor.slice(-10), 24),
-        ptsAgainst: mean(home.ptsAgainst.slice(-10), 24),
-      };
-      const awayL10 = {
-        games: Math.min(10, away.ptsFor.length),
-        ptsFor: mean(away.ptsFor.slice(-10), 24),
-        ptsAgainst: mean(away.ptsAgainst.slice(-10), 24),
-      };
-      assert.ok(blendVenueAndL10(homeVenue, homeL10).ptsFor != null);
-      assert.ok(blendVenueAndL10(awayVenue, awayL10).ptsFor != null);
-      scored += 1;
-      firstKick = firstKick ?? String(g.kickoffIso ?? kick);
-      lastKick = String(g.kickoffIso ?? kick);
+  walkHoldoutGames(games, (g, forms) => {
+    const home = forms.get(g.homeTeamId);
+    const away = forms.get(g.awayTeamId);
+    if (g.season !== HOLDOUT || !home || !away) return;
+    if (home.ptsFor.length < 2 || away.ptsFor.length < 2) return;
+    const selectionMs = Date.parse(String(g.kickoffIso ?? ""));
+    assert.ok(Number.isFinite(selectionMs), `missing kickoff on ${g.eventId}`);
+    for (const [kick, eventId] of [
+      ...home.contribKickoffs.map((kickoff, i) => [kickoff, home.contribEventIds[i]] as const),
+      ...away.contribKickoffs.map((kickoff, i) => [kickoff, away.contribEventIds[i]] as const),
+    ]) {
+      assert.notEqual(eventId, g.eventId, `evaluated game ${g.eventId} is inside its own form`);
+      const priorMs = Date.parse(kick);
+      assert.ok(Number.isFinite(priorMs), `contributor ${eventId} has no kickoff`);
+      assert.ok(
+        priorMs + FOOTBALL_PRIOR_GAME_COMPLETE_MS <= selectionMs,
+        `form game ${eventId} at ${kick} is not complete before ${g.kickoffIso}`,
+      );
+      assert.equal(footballFormMayIncludePriorGame(kick, g.kickoffIso), true);
+      checkedContributors += 1;
     }
-
-    // Update AFTER evaluation — mirrors ncaafPhaseEHoldoutCalibration.ts.
-    home.ptsFor.push(g.homeFg);
-    home.ptsAgainst.push(g.awayFg);
-    home.homeFor.push(g.homeFg);
-    home.homeAgainst.push(g.awayFg);
-    home.contribKickoffs.push(kick);
-    forms.set(g.homeTeamId, home);
-
-    away.ptsFor.push(g.awayFg);
-    away.ptsAgainst.push(g.homeFg);
-    away.awayFor.push(g.awayFg);
-    away.awayAgainst.push(g.homeFg);
-    away.contribKickoffs.push(kick);
-    forms.set(g.awayTeamId, away);
-  }
+    const homeVenue = {
+      games: Math.min(10, home.homeFor.length),
+      ptsFor: home.homeFor.length ? mean(home.homeFor.slice(-10), 24) : null,
+      ptsAgainst: home.homeAgainst.length ? mean(home.homeAgainst.slice(-10), 24) : null,
+    };
+    const awayVenue = {
+      games: Math.min(10, away.awayFor.length),
+      ptsFor: away.awayFor.length ? mean(away.awayFor.slice(-10), 24) : null,
+      ptsAgainst: away.awayAgainst.length ? mean(away.awayAgainst.slice(-10), 24) : null,
+    };
+    const homeL10 = {
+      games: Math.min(10, home.ptsFor.length),
+      ptsFor: mean(home.ptsFor.slice(-10), 24),
+      ptsAgainst: mean(home.ptsAgainst.slice(-10), 24),
+    };
+    const awayL10 = {
+      games: Math.min(10, away.ptsFor.length),
+      ptsFor: mean(away.ptsFor.slice(-10), 24),
+      ptsAgainst: mean(away.ptsAgainst.slice(-10), 24),
+    };
+    assert.ok(blendVenueAndL10(homeVenue, homeL10).ptsFor != null);
+    assert.ok(blendVenueAndL10(awayVenue, awayL10).ptsFor != null);
+    scored += 1;
+    firstKick = firstKick ?? String(g.kickoffIso);
+    lastKick = String(g.kickoffIso);
+  });
+  assert.ok(checkedContributors > 1000, `expected timestamped contributors, got ${checkedContributors}`);
 
   assert.ok(scored >= 200, `expected ≥200 holdout scored games, got ${scored}`);
   const report = JSON.parse(
@@ -157,9 +136,14 @@ test("holdout form inputs are strictly pre-kickoff (no leakage)", () => {
       report.verdicts?.E2_outcomeVsCoin === "FAIL",
     `new E2a measurement must be PASS or FAIL, got ${report.verdicts?.E2_outcomeVsCoin}`,
   );
-  assert.equal(report.verdicts?.E2_closingLineClv, "INSUFFICIENT_DATA");
-  assert.equal(report.closingLineArchive?.present, false);
-  assert.equal(report.closingLineArchive?.joinedHoldoutRows, 0);
+  assert.notEqual(report.verdicts?.E2_closingLineClv, "PASS");
+  assert.equal(report.closingLineArchive?.present, true);
+  assert.ok((report.closingLineArchive?.joinedHoldoutRows ?? 0) >= 200);
+  const provenance = (report.closingLineArchive as { provenance?: { commit?: string; restored?: boolean; verdict?: string; coachPickClv?: string } }).provenance;
+  assert.equal(provenance?.commit, "7fbf065a607899c49d2e5aa1d636160b74ca0eb4");
+  assert.equal(provenance?.verdict, "PASS");
+  assert.equal(provenance?.coachPickClv, "COMPUTED_NO_PASS_LABEL");
+  assert.equal(provenance?.restored, false);
   assert.equal(report.keepP0Armed, true);
   assert.equal(report.flagFlipAllowed, false);
   assert.match(String(report.verdicts?.NCAAF_GAME_LINE_SIM_VALIDATED), /false/i);

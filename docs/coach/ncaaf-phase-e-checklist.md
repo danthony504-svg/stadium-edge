@@ -8,51 +8,52 @@
 ## Latest calibration report (2024 holdout, `ppg-per-drive-v1`)
 
 Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.json`  
-Generated: 2026-10-15T09:24:12.267Z. Engine: `nfl-drive:ppg-per-drive-v1`. Selection-time venue/L10 form (arrays update after each game).
+Generated: 2026-10-15T09:51:17.153Z. Engine: `nfl-drive:ppg-per-drive-v1`. Selection-time venue/L10 form (arrays update after each game).
 
 The 2026-10-14 E2a **PASS** is **WITHDRAWN**. That report used the same `nfl-drive` engine with points per game passed in as points per drive, then multiplied NCAAF inputs by 0.48, at 1,500 sims (Brier 0.199, bias ≈ +0.020, 865 games). The 0.48 scale was a patch on that unit mismatch. `priorE2aClaim.restored` stays `false`. A later numeric result does not restore the withdrawn claim.
 
-Official measurement uses the precommitted primary seed **20241015** (first of `20241015, 7, 42, 99, 123456789`). Seeds were listed before the run. The 0.45/0.55 cohort bounds and the 0.70 cover cap are unchanged. An earlier unseeded `Math.random` run on this engine recorded dog cover 0.704 (n=108) and is superseded by this seeded protocol.
+Official measurement uses the precommitted primary seed **20241015** (first of `20241015, 7, 42, 99, 123456789`). Seeds were listed before the run. The 0.45/0.55 cohort bounds and the 0.70 cover cap are unchanged. Form for a game includes only earlier games whose kickoff plus 4 hours is at or before the evaluated kickoff. The evaluated game is not an input.
 
 | Metric | Value |
 |--------|-------|
 | Holdout games scored | 865 (6 skipped thin form) |
 | Sims / game | **10000** |
 | Calibration seed | **20241015** (primary) |
-| Form methodology | venue_split + L10 blend (no invented HFA constant) |
-| Brier (engine) | **0.19857** |
+| Form methodology | Kickoff order. A prior game enters form only after kickoff + 4 hours. Venue split blends with L10 |
+| Brier (engine) | **0.19860** |
 | Brier (coin) | 0.250 |
-| Log loss | 0.57618 |
-| ECE (10-bin) | **0.05054** |
-| meanP / meanY (home ML) | **0.67407 / 0.63699** (bias ≈ **+0.03708**, within 0.08) |
-| Official dog cohort, pHome in (0.45, 0.55), away +7.5 | **0.6727** (n=110) |
-| Dog-cover range across the five seeds | **0.6727–0.7019** (mean 0.6868). Seed 123456789 is 0.7019 (n=104) and stays in the set |
-| Games within 0.01 of 0.45 or 0.55 | **48** |
+| Log loss | 0.57632 |
+| ECE (10-bin) | **0.05296** |
+| meanP / meanY (home ML) | **0.67397 / 0.63699** (bias ≈ **+0.03698**, within 0.08) |
+| Official dog cohort, pHome in (0.45, 0.55), away +7.5 | **0.6757** (n=111) |
+| Dog-cover range across the five seeds | **0.6757–0.6990** (mean 0.6844). Seed 123456789 is 0.6990 (n=103) and stays in the set |
+| Games within 0.01 of 0.45 or 0.55 | **39** |
 | E2a (`E2_outcomeVsCoin`) | **PASS** on the primary seed (new measurement) |
-| Closing-line CLV (E2b) | **INSUFFICIENT_DATA** (archive absent; no prior E2b PASS) |
+| Closing-line CLV (E2b) | **OPEN_NEEDS_AGREED_TOLERANCE** (770 joins). No CLV PASS label |
+| Close-archive soft gates | **PASS_SOFT_GATES_ONLY** on this engine (n=770, engine Brier 0.2165, market Brier 0.1768, mean gap +0.0366). Not CLV |
 | Injury segments | **INSUFFICIENT_DATA** |
 
 ### Cohort boundaries (diagnostic; thresholds unchanged)
 
 | Window | n | Away +7.5 cover |
 |--------|---|-----------------|
-| (0.43, 0.57) | 146 | 0.685 |
-| (0.44, 0.56) | 129 | 0.698 |
-| (0.45, 0.55) official | 110 | 0.673 |
-| (0.46, 0.54) | 85 | 0.659 |
-| (0.47, 0.53) | 62 | 0.645 |
+| (0.43, 0.57) | 147 | 0.687 |
+| (0.44, 0.56) | 127 | 0.701 |
+| (0.45, 0.55) official | 111 | 0.676 |
+| (0.46, 0.54) | 89 | 0.674 |
+| (0.47, 0.53) | 66 | 0.636 |
 
 ### Home-win bias
 
-An older FAIL used **combined L10 only** (no home/away venue splits) and showed home-win underprediction (meanP ≈ 0.49 vs meanY ≈ 0.61). This holdout uses the venue blend. On `ppg-per-drive-v1` the home-win bias is about **+0.037**. The primary-seed dog cover is 0.673, inside the 0.70 cap. Seed 123456789 is 0.702 and was kept. Rates were not adjusted, and the seed list was not reordered, to obtain the PASS.
+An older FAIL used **combined L10 only** (no home/away venue splits) and showed home-win underprediction (meanP ≈ 0.49 vs meanY ≈ 0.61). This holdout uses the venue blend. On `ppg-per-drive-v1` the home-win bias is about **+0.037**. The primary-seed dog cover is 0.676, inside the 0.70 cap. Seed 123456789 is 0.699 and was kept. Rates were not adjusted, and the seed list was not reordered, to obtain the PASS.
 
 ## Criterion board
 
 | # | Criterion | Status | Notes |
 |---|-----------|--------|-------|
 | E1 | Sensitivity ±3 ppg / QB-out ≥2pp | **PASS (unit)** | `ncaafGameLineSimValidation.test.ts` |
-| E2a | Outcome calibration vs coin (Brier, ECE, dog pathology, bias) | **PASS (primary seed)** | New 10k measurement on seed 20241015: Brier 0.199, ECE 0.051, bias ≈ +0.037, dog cover 0.673 (n=110). The 2026-10-14 PASS stays WITHDRAWN. Seed 123456789 dog cover 0.702 is recorded |
-| E2b | Closing-line / market CLV | **INSUFFICIENT_DATA** | `ncaaf-phase-e-closing-lines.json` is absent. Usable joined rows: 0 |
+| E2a | Outcome calibration vs coin (Brier, ECE, dog pathology, bias) | **PASS (primary seed)** | New 10k measurement on seed 20241015: Brier 0.199, ECE 0.053, bias ≈ +0.037, dog cover 0.676 (n=111). The 2026-10-14 PASS stays WITHDRAWN |
+| E2b | Closing-line CLV | **OPEN** | 770 joins on the PR 737 archive. No CLV PASS label. Soft gates on this engine are PASS_SOFT_GATES_ONLY and are not CLV |
 | E3 | Exact-line binder | **PASS (unit)** | `gameSimQualityGates.test.ts` |
 | E4 | Injury conservatism | **INSUFFICIENT_DATA** | Scoreboard cache has no QB/injury flags |
 | E5 | Props / other-sport P0 regressions | **PASS (unit suite)** | Re-run before any flag flip |
@@ -64,7 +65,7 @@ An older FAIL used **combined L10 only** (no home/away venue splits) and showed 
 
 | Gap | Dependency |
 |-----|------------|
-| E2b closing lines | The file `artifacts/api-server/test/fixtures/ncaaf-phase-e-closing-lines.json` does not exist in git history or on disk. `ODDS_API_KEY` is unset. ESPN completed scoreboard `odds` and summary `pickcenter` are empty. `CLOSING_LINE_ARCHIVE.md` at `f494c3a5` is a design note and is not on this branch. Prior reports set E2b to INSUFFICIENT_DATA; no E2b PASS exists. A usable row needs `eventId`, finite `closeSpreadHome`, and finite `closeMlHome`. With 0 joins the verdict stays INSUFFICIENT_DATA. A future archive of ≥200 joins stays `OPEN_NEEDS_AGREED_TOLERANCE` until a numeric CLV tolerance is written down. Supply `ODDS_API_KEY` with **The Odds API historical odds** for `americanfootball_ncaaf`, **or** that frozen JSON, **or** a CSV at `NCAAF_PHASE_E_FIXTURE` with columns `gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,injuryKnown` |
+| E2b closing lines | The archive is vendored from PR 737 commit `7fbf065a` (see `docs/coach/ncaaf-e2b-closing-line-provenance.md`). 774 rows have a numeric home spread and moneyline; 68 lack a moneyline and are dropped. 770 of those rows joined the corrected-engine holdout. Soft gates published on that PR pass on this engine and are not a CLV PASS. Coach pick CLV on the old engine was `COMPUTED_NO_PASS_LABEL` (mean ML CLV −0.0234). This branch does not attach a CLV PASS label. `ODDS_API_KEY` is still unset, so the archive was not refetched |
 | E4 injury / QB | Same CSV `injuryKnown` (+ optional `qbOut`) per game, **or** historical ESPN injury snapshots keyed by `eventId`/`teamId` before kickoff. Live ESPN `/injuries` (current season only) is **not** a historical holdout archive. |
 
 ### Credential probe (Cloud Agent, 2026-10-14)
@@ -78,10 +79,9 @@ An older FAIL used **combined L10 only** (no home/away venue splits) and showed 
 
 ### Leakage audit (E2a venue/L10)
 
-- Form arrays update **after** each game is scored (chrono season→week→kickoff).
-- Unit proof: `test/ncaafPhaseEHoldoutLeakage.test.ts` — every contributing kickoff `<` evaluated game key.
-- Untouched 2024 holdout (report): **865** scored games, kickoffs **2024-08-24 → 2024-12-08**, E2a **PASS** on primary seed 20241015 (`ppg-per-drive-v1`, 10,000 sims), bias ≈ +0.037, E2b **INSUFFICIENT_DATA**, flag remains **false**. The 2026-10-14 PASS on the mismatched engine is withdrawn.
-- The leakage harness counts **796** games where both teams already have at least two prior games. The other **69** scored games use `venue_thin` (one prior game at that venue, L10 still under two). Form for those games is still written after the kickoff. The report drops **0** ties. Six holdout games stay skipped because neither venue nor L10 produced an input.
+- Games are ordered by kickoff timestamp. A prior game enters form only when `kickoff + 4 hours` is at or before the evaluated kickoff. The evaluated event id is absent from that form.
+- Unit proof: `test/ncaafPhaseEHoldoutLeakage.test.ts` checks those timestamps on every contributor (more than 1,000). The harness scores 796 games where both teams already have at least two prior games. The report scores 865 because 69 additional games use a thin venue sample (`venue_thin`) while L10 is still under two. Those extra games are still prior games, and the evaluated game is not among them.
+- Untouched 2024 holdout (report): **865** scored games, kickoffs **2024-08-24 → 2024-12-08**, E2a **PASS** on primary seed 20241015 (`ppg-per-drive-v1`, 10,000 sims), bias ≈ +0.037, E2b CLV **OPEN_NEEDS_AGREED_TOLERANCE**, flag remains **false**. The 2026-10-14 E2a PASS on the mismatched engine is withdrawn. The PR 737 soft-gate PASS is a separate claim on that older engine and is not restored.
 
 ## Sign-off criteria before flipping `NCAAF_GAME_LINE_SIM_VALIDATED`
 
