@@ -41,6 +41,7 @@ import {
   rememberParlayBuild,
 } from "@/lib/parlayVarietyMemory";
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
+import { finalizeCoachDeliveryPicks } from "@/lib/ticketDiversity";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
 import { isRareCountPropMarket } from "@/lib/rareCountPropModel";
@@ -1094,6 +1095,14 @@ export async function buildCoachParlay(opts: {
   }
   // Same-ticket ladder ban — never ship Colts +4.5 and +3.5 together.
   picks = dedupePicksByMarketLadder(picks);
+  // One team per game (Final AI/value) — ladder keys are side-specific so
+  // opposite ML/spread can otherwise both survive. Uses scan sims when present.
+  if (!propsOnly && picks.some((p) => !p.isProp)) {
+    picks = finalizeCoachDeliveryPicks(picks, {
+      simByGame: scan?.gameSimulations ?? latest?.gameSimulations,
+      matchupHistory,
+    });
+  }
   // Final belt — staging/top-up must not reintroduce another local day
   // or an explicitly excluded matchup / foreign sport.
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
