@@ -163,24 +163,78 @@ export function asksNamedSpreadAndMoneyline(text?: string | null): boolean {
   return true;
 }
 
-/** Spreads + moneylines with no totals and no player props. */
-export function asksSpreadAndMoneylineOnly(text?: string | null): boolean {
-  if (!asksNamedSpreadAndMoneyline(text)) return false;
+/**
+ * The user named a quarter, half, period, or inning. Unqualified side asks
+ * stay on the full game until one of these shows up.
+ */
+export function askNamesPeriodMarket(text?: string | null): boolean {
   const t = String(text ?? "").toLowerCase();
+  if (!t) return false;
+  if (/\b(?:quarters?|halves|half)\b/.test(t)) return true;
+  if (
+    /\b(?:1st|2nd|3rd|4th|first|second|third|fourth)\s+(?:quarter|half|period|inning)\b/.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(?:q[1-4]|[1-4]q|1h|2h|h1|h2|p[1-3]|f5)\b/.test(t)) return true;
+  if (/\b(?:first\s+5|1st\s+5)\b/.test(t)) return true;
+  if (/\binnings?\b/.test(t)) return true;
+  if (/\bperiods?\b/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Spread, puck line, or run line named together with a moneyline, and no
+ * player-prop ask. Totals may still be named.
+ */
+export function asksNamedSideAndMoneyline(text?: string | null): boolean {
+  if (asksNamedSpreadAndMoneyline(text)) return true;
+  const t = String(text ?? "").toLowerCase();
+  const hasMoneyline = /\bmoney\s*lines?\b/.test(t) || /\bml\b/.test(t);
+  const hasSportSide = /\b(?:puck\s*lines?|run\s*lines?)\b/.test(t);
+  if (!hasMoneyline || !hasSportSide) return false;
+  if (positivePlayerPropAsk(t)) return false;
+  return true;
+}
+
+/**
+ * Named side pair (spread/ML, puck line/ML, run line/ML) with no period.
+ * Full-game markets only — quarters and halves stay off the ticket.
+ */
+export function asksFullGameSidesOnly(text?: string | null): boolean {
+  if (askNamesPeriodMarket(text)) return false;
+  return asksNamedSideAndMoneyline(text);
+}
+
+function askAlsoNamesTotals(t: string): boolean {
   if (
     /\btotals?\b/.test(t) &&
     !/\bno\s+totals?\b/.test(t) &&
     !/\bwithout\s+totals?\b/.test(t)
   ) {
-    return false;
+    return true;
   }
   if (
     /\b(?:over\s*(?:\/|or)\s*under|o\s*\/\s*u)\b/.test(t) &&
     !/\bno\s+(?:over|o\s*\/\s*u|totals?)\b/.test(t)
   ) {
-    return false;
+    return true;
   }
-  return true;
+  return false;
+}
+
+/** Side + moneyline with no totals and no player props. NFL, NHL, and MLB. */
+export function asksSideAndMoneylineOnly(text?: string | null): boolean {
+  if (!asksNamedSideAndMoneyline(text)) return false;
+  return !askAlsoNamesTotals(String(text ?? "").toLowerCase());
+}
+
+/** Spreads + moneylines with no totals and no player props. */
+export function asksSpreadAndMoneylineOnly(text?: string | null): boolean {
+  if (!asksNamedSpreadAndMoneyline(text)) return false;
+  return !askAlsoNamesTotals(String(text ?? "").toLowerCase());
 }
 
 /** Honest shortfall when a sides-only ask cannot fill N. */
@@ -772,6 +826,11 @@ export function boardScanPeriodSlotCount(targetLegs: number): number {
 export function boardScanTeamTotalSlotCount(targetLegs: number): number {
   if (targetLegs < 5) return 0;
   return Math.max(1, Math.round(targetLegs * 0.15));
+}
+
+/** Full-game spread / moneyline / total. Quarters, halves, periods, and innings are not. */
+export function marketIsFullGame(market: string | null | undefined): boolean {
+  return parseMarketPeriod(String(market ?? "")) === "fg";
 }
 
 /** True for 1H / Q1–Q4 / period team totals — not full-game FG spreads. */

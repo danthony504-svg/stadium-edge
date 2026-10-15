@@ -43,6 +43,7 @@ import {
   rememberParlayBuild,
 } from "@/lib/parlayVarietyMemory";
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
+import { recoverQualifiedDeliveryPicks } from "@/lib/coachDeliveryQualification";
 import { finalizeCoachDeliveryPicks } from "@/lib/ticketDiversity";
 import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly";
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
@@ -116,7 +117,6 @@ import {
   mlLeanEnforcementNote,
 } from "@/lib/mlLeanEnforcement";
 import { topUpAfterMlLean } from "@/lib/postLeanFinalFill";
-import { marketFamily } from "@/components/PickCard";
 import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
 import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
 import { filterHrScorerPoolEntries, isBatterHomeRunMarket } from "@/lib/coachHrRank";
@@ -402,13 +402,13 @@ export async function buildCoachParlay(opts: {
   const propsOnly = marketConstraint.propsOnly;
   const gameLinesOnly = marketConstraint.gameLinesOnly && !propsOnly;
   const excludeTotals = marketConstraint.excludeTotals && !propsOnly;
-  // Drop Over/Under totals from the odds board when the book/user has no O/U.
-  const scanRealOdds = excludeTotals
-    ? inputs.realOdds.filter((r) => marketFamily(r.market) !== "total")
-    : inputs.realOdds;
-  const scanLiveOdds = excludeTotals
-    ? inputs.liveOdds.filter((r) => marketFamily(r.market) !== "total")
-    : inputs.liveOdds;
+  const fullGameOnly = !!marketConstraint.fullGameOnly && !propsOnly;
+  // One pass: totals, period markets, and props leave before any sim work.
+  const boardConstraint = fullGameOnly
+    ? marketConstraint
+    : { ...marketConstraint, fullGameOnly: false };
+  const scanRealOdds = filterPicksByAskMarketConstraint(inputs.realOdds, boardConstraint);
+  const scanLiveOdds = filterPicksByAskMarketConstraint(inputs.liveOdds, boardConstraint);
   // "10 leg nfl" — not props-only, but props must be scored first and seats reserved.
   const requirePropMix =
     !propsOnly &&
@@ -889,6 +889,8 @@ export async function buildCoachParlay(opts: {
     exhaustPropBoard: hrBoardAsk,
     legsPerGameCap: legsPerGameCap ?? undefined,
     gameLinesOnly,
+    fullGameOnly,
+    excludeTotals,
     collegeTeamMarketStacks: collegeTeamMarketStacks || undefined,
     requirePropMix,
     excludeNcaafPlayerProps: !askAllowsNcaafPlayerProps(opts.askText),
@@ -1134,6 +1136,12 @@ export async function buildCoachParlay(opts: {
   const lockedAnalyzed = lockedMarketAnalyzedFromBoardDiagnostics(
     scan?.failureDiagnostics,
   );
+  // Market restriction, Final AI qualification, ladder dedupe, and the
+  // per-game correlation cap. Exception recovery uses the same function.
+  picks = recoverQualifiedDeliveryPicks(picks, marketConstraint, {
+    requestedLegs: target,
+    legsPerGameCap,
+  });
   // Shortfall copy must use the final delivered ticket length — never a
   // pre-lean / pre-fill staging pool count.
   const finalLegCount = picks.length;
@@ -1192,12 +1200,19 @@ export async function buildCoachParlay(opts: {
       joinCoachNoteParts([collegeClarify, mismatchLead, mlLeanNote, body]),
     );
   } catch {
+    picks = recoverQualifiedDeliveryPicks(picks, marketConstraint, {
+      requestedLegs: target,
+      legsPerGameCap,
+    });
+    const recoveredCount = picks.length;
+    const recoveredSides = asksSpreadAndMoneylineOnly(opts.askText)
+      ? spreadMoneylineOnlyShortfallLead(target, recoveredCount)
+      : "";
     note = sanitizeCoachUserNote(
       joinCoachNoteParts([
-        sidesShortfall,
-        shortfall,
-        finalLegCount > 0
-          ? `Showing ${finalLegCount} qualifying legs.`
+        recoveredSides,
+        recoveredCount > 0
+          ? `Showing ${recoveredCount} qualifying legs.`
           : "No qualifying picks cleared.",
       ]),
     );

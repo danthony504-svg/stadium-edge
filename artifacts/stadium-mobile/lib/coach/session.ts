@@ -105,6 +105,17 @@ export function coachSessionIsTerminal(session: CoachSession): boolean {
 }
 
 /**
+ * A settled build may paint only while it is still the active send.
+ * Deadline, cancel, and the next ask all bump or replace that generation.
+ */
+export function coachInFlightResultMayApply(
+  activeSendGen: number,
+  resultSendGen: number,
+): boolean {
+  return activeSendGen === resultSendGen;
+}
+
+/**
  * Every latched outcome drops the scoring card. Success, shortfall, empty,
  * failure, cancellation, and deadline expiry all call this before paint.
  */

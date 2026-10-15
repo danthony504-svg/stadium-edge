@@ -5,6 +5,7 @@ import {
   beginCoachSession,
   coachAbsoluteBudgetMs,
   coachAssistantTerminalFlags,
+  coachInFlightResultMayApply,
   coachFinalizationReserveMs,
   coachPropLoadFailsafeMs,
   coachScoringWorkBudgetMs,
@@ -143,4 +144,37 @@ test("success, shortfall, empty, and failure all clear the scoring card", () => 
     assert.equal(flags.building, false, outcome);
     assert.equal(flags.buildStatus, undefined, outcome);
   }
+});
+
+test("cancellation and deadline expiry clear loading, and the next send ignores the previous result", () => {
+  const deadline = createCoachSession(1, 4, 1_000);
+  latchCoachSession(deadline, "empty");
+  assert.equal(coachSessionShouldKeepBusy(deadline), false);
+  const deadlineFlags = coachAssistantTerminalFlags(deadline.outcome);
+  assert.equal(deadlineFlags.building, false);
+  assert.equal(deadlineFlags.buildStatus, undefined);
+
+  const cancel = createCoachSession(1, 4, 1_000);
+  latchCoachSession(cancel, "failed");
+  const cancelFlags = coachAssistantTerminalFlags(cancel.outcome);
+  assert.equal(cancelFlags.building, false);
+  assert.equal(cancelFlags.buildStatus, undefined);
+
+  beginCoachSession(deadline, { sendGen: 2, requestedLegs: 4, now: 2_000 });
+  assert.equal(deadline.outcome, "open");
+  assert.equal(coachInFlightResultMayApply(deadline.sendGen, 1), false);
+  assert.equal(coachInFlightResultMayApply(deadline.sendGen, 2), true);
+
+  let painted: string | null = null;
+  const tryPaint = (resultSendGen: number, label: string) => {
+    if (!coachInFlightResultMayApply(deadline.sendGen, resultSendGen)) return;
+    painted = label;
+    latchCoachSession(deadline, "shown");
+  };
+  tryPaint(1, "old");
+  assert.equal(painted, null);
+  assert.equal(deadline.outcome, "open");
+  tryPaint(2, "next");
+  assert.equal(painted, "next");
+  assert.equal(coachAssistantTerminalFlags(deadline.outcome).building, false);
 });

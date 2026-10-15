@@ -1293,6 +1293,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   /** Drop player props from staging (game lines / alts / periods only). */
   gameLinesOnly?: boolean;
   /**
+   * Unqualified spread/moneyline asks. Strip quarters, halves, periods, and
+   * innings before cover queries are built so those markets are never simulated.
+   */
+  fullGameOnly?: boolean;
+  /** Drop totals before cover queries when the ask named sides only. */
+  excludeTotals?: boolean;
+  /**
    * College team-market fills: allow FG + Q2 + team totals under per-game caps
    * instead of collapsing same-team period sides (NHL team props still collapse).
    */
@@ -1355,6 +1362,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
+  if (opts.fullGameOnly || opts.excludeTotals) {
+    for (const [label, lines] of evalLinesByGame) {
+      evalLinesByGame.set(
+        label,
+        lines.filter((entry) => {
+          const market = entry.market ?? "";
+          if (opts.fullGameOnly && parseMarketPeriod(market) !== "fg") return false;
+          if (opts.excludeTotals && /\btotal\b/i.test(market)) return false;
+          return true;
+        }),
+      );
+    }
+  }
   // liveOdds is RealOddsEntry[] — pass the array as one source. Spreading it
   // fed mergeOddsEntries individual entries; for..of then threw TypeError and
   // tryReachFullBoardScan returned null → phone SCAN_THREW empty tickets.

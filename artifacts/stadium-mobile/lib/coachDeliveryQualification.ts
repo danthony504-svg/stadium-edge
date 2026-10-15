@@ -14,7 +14,11 @@ import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 import { boardLegPoolRole } from "./ticketStaging.ts";
-import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import { dedupePicksByMarketLadder, wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import {
+  filterPicksByAskMarketConstraint,
+  type CoachAskMarketConstraint,
+} from "./coachAskMarketFilter.ts";
 import { maxLegsPerGame, wouldExceedMaxLegsPerGame } from "./parlayCorrelationScore.ts";
 
 export function legIdentityKey(pick: ParsedPick): string {
@@ -94,6 +98,21 @@ export function revalidateDeliveryPicks(picks: ParsedPick[]): {
  * per-game cap. Distinct alts are preserved in score pools via
  * marketLadderScoreKey; this collapses equivalent outcomes at seating.
  */
+/**
+ * Exception and final-delivery belt. Drops anything that missed the ask's
+ * market restriction, Final AI qualification, ladder dedupe, or per-game cap.
+ */
+export function recoverQualifiedDeliveryPicks(
+  picks: readonly ParsedPick[],
+  constraint: CoachAskMarketConstraint,
+  opts: { requestedLegs?: number; legsPerGameCap?: number | null } = {},
+): ParsedPick[] {
+  const restricted = filterPicksByAskMarketConstraint([...picks], constraint);
+  const qualified = revalidateDeliveryPicks(restricted).picks;
+  const deduped = dedupePicksByMarketLadder(qualified);
+  return enforceTicketCorrelationAtSelection(deduped, opts);
+}
+
 export function enforceTicketCorrelationAtSelection(
   picks: ParsedPick[],
   opts: { requestedLegs?: number; legsPerGameCap?: number | null } = {},

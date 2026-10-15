@@ -19,6 +19,8 @@ import {
   resolveCoachPickSport,
   wouldStackSameTeamTeamTotals,
 } from "./coachP0UnvalidatedTotals.ts";
+import { parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
+import { hardLockedSportsFromAsk } from "./coachAskSportScope.ts";
 import {
   assessSimMarketIntegrity,
   pickHasSimGrade,
@@ -593,6 +595,19 @@ test("P0 bypass seal: final-ticket lean / top-up / post-lean reject sealed vecto
 
 test("ncaafGameLineAskIsP0Blocked: bare college game-lines-only while unvalidated", () => {
   assert.equal(NCAAF_GAME_LINE_SIM_VALIDATED, false);
+  const ncaafSides = parseCoachAskMarketConstraint(
+    "4 leg ncaaf spreads and moneylines",
+  );
+  assert.equal(ncaafSides.gameLinesOnly, true);
+  assert.equal(ncaafSides.fullGameOnly, true);
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: ncaafSides.gameLinesOnly,
+      lockedSports: hardLockedSportsFromAsk("4 leg ncaaf spreads and moneylines"),
+    }),
+    true,
+    "NCAAF spreads and moneylines stay on the P0 gate",
+  );
   assert.equal(
     ncaafGameLineAskIsP0Blocked({
       gameLinesOnly: true,

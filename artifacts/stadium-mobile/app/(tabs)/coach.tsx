@@ -59,6 +59,7 @@ import {
   coachShortfallNote,
   createCoachSession,
   coachAssistantTerminalFlags,
+  coachInFlightResultMayApply,
   latchCoachSession,
   resetCoachAbsoluteClock,
   resolveCoachOutcome,
@@ -502,7 +503,7 @@ export default function CoachScreen() {
       setBusy(true);
 
       const fireAbsoluteTerminal = () => {
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         if (coachSessionIsTerminal(sessionRef.current)) return;
         abort.abort();
         // Do NOT call finishSession/setMessages inside a setMessages updater —
@@ -567,7 +568,7 @@ export default function CoachScreen() {
               null,
               0,
             );
-            if (sendGenRef.current !== sendGen) return;
+            if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
             streamContext = built.context;
             propPool = built.propPool ?? [];
           }
@@ -582,14 +583,14 @@ export default function CoachScreen() {
             firstTokenMs: 90_000,
             onToken: (full) => {
               streamed = full;
-              if (sendGenRef.current !== sendGen) return;
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
               patchAssistant(assistantId, {
                 text: full,
                 buildStatus: "Writing analysis…",
               });
             },
           });
-          if (sendGenRef.current !== sendGen) return;
+          if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
           if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
 
           // Improve-from-photo may emit PICK lines; parse when odds were loaded.
@@ -619,11 +620,11 @@ export default function CoachScreen() {
             askText: text,
             signal: abort.signal,
             onStatus: (status) => {
-              if (sendGenRef.current !== sendGen) return;
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
               patchAssistant(assistantId, { buildStatus: status });
             },
           });
-          if (sendGenRef.current !== sendGen) return;
+          if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
           if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
           const liveLegs = liveResult.intent.count || requestedLegs || 3;
           finishSession(assistantId, {
@@ -639,7 +640,7 @@ export default function CoachScreen() {
           // during load (that latched "2 game totals" before props ran).
           let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
             loadTimer = null;
-            if (sendGenRef.current !== sendGen) return;
+            if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
             if (coachSessionIsTerminal(sessionRef.current)) return;
             fireAbsoluteTerminal();
           }, coachPropLoadFailsafeMs(requestedLegs));
@@ -656,11 +657,11 @@ export default function CoachScreen() {
               priorUserTexts,
               signal: abort.signal,
               onStatus: (status) => {
-                if (sendGenRef.current !== sendGen) return;
+                if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
                 patchAssistant(assistantId, { buildStatus: status });
               },
               onPartialPicks: (picks) => {
-                if (sendGenRef.current !== sendGen) return;
+                if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
                 // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
                 pendingTicketPicksRef.current = [...picks];
                 // Belts: if scoring started without onReadyToScan, still arm the wall clock.
@@ -678,7 +679,7 @@ export default function CoachScreen() {
                 }
               },
               onReadyToScan: () => {
-                if (sendGenRef.current !== sendGen) return;
+                if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
                 if (loadTimer) {
                   clearTimeout(loadTimer);
                   loadTimer = null;
@@ -694,7 +695,7 @@ export default function CoachScreen() {
               loadTimer = null;
             }
           }
-          if (sendGenRef.current !== sendGen) return;
+          if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
           // buffer so holding cards mid-build can never hang as a blank ticket.
           const ask = sessionAskTextRef.current || text;
@@ -766,7 +767,7 @@ export default function CoachScreen() {
           null,
           0,
         );
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         patchAssistant(assistantId, { buildStatus: "Writing answer…" });
         let streamed = "";
         await streamChat({
@@ -775,11 +776,11 @@ export default function CoachScreen() {
           signal: abort.signal,
           onToken: (full) => {
             streamed = full;
-            if (sendGenRef.current !== sendGen) return;
+            if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
             patchAssistant(assistantId, { text: full, buildStatus: "Writing answer…" });
           },
         });
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
         const picks = parsePicks(
           streamed,
@@ -793,7 +794,7 @@ export default function CoachScreen() {
           requestedLegs: 0,
         });
       } catch (err) {
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         // Stop already flushed held picks via finishSession — do not blank them.
         if (abort.signal.aborted && sessionRef.current.outcome !== "open") return;
         const message =

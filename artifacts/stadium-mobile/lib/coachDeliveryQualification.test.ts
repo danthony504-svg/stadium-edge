@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import {
   acceptReplacementIfStillQualified,
   deliveryCandidateStillQualified,
   enforceTicketCorrelationAtSelection,
   legIdentityKey,
+  recoverQualifiedDeliveryPicks,
   revalidateDeliveryPicks,
 } from "./coachDeliveryQualification.ts";
 import { dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
@@ -199,6 +201,93 @@ test("revalidateDeliveryPicks strips unqualified survivors", () => {
   assert.equal(r.picks.length, 1);
   assert.equal(r.dropped, 1);
   assert.match(r.picks[0]!.pick, /Away/);
+});
+
+test("exception recovery keeps only qualified full-game sides", () => {
+  const ask = parseCoachAskMarketConstraint(
+    "4 leg NFL spreads and moneylines for upcoming games.",
+  );
+  const sea = "Seattle Seahawks @ Denver Broncos";
+  const kc = "Buffalo Bills @ Kansas City Chiefs";
+  const seaSpread = scored("Seahawks +3.5", {
+    game: sea,
+    market: "Spread",
+    composite: 8,
+    edgePct: 2,
+    simHit: 0.56,
+  });
+  const seaAlt = scored("Seahawks +7.5", {
+    game: sea,
+    market: "Alt Spread",
+    composite: 6,
+    edgePct: 1,
+    simHit: 0.54,
+  });
+  const seaMl = scored("Seahawks ML", {
+    game: sea,
+    market: "Moneyline",
+    odds: -150,
+    composite: 7,
+    edgePct: 1.5,
+    simHit: 0.6,
+  });
+  const q3 = scored("Seahawks +1.5", {
+    game: sea,
+    market: "Q3 Spread",
+    odds: -230,
+    composite: 9,
+    edgePct: 4,
+    simHit: 0.969,
+  });
+  const prop = {
+    ...scored("Jaxon Smith-Njigba Over 92.5", {
+      game: sea,
+      market: "Rec Yds",
+      composite: 8,
+      edgePct: 3,
+      simHit: 0.58,
+    }),
+    isProp: true,
+  };
+  const missing = scored("Broncos -3.5", {
+    game: sea,
+    market: "Spread",
+    composite: 9,
+    edgePct: 4,
+    simHit: null,
+  });
+  const ncaaf = scored("Michigan +3.5", {
+    game: "Michigan @ Ohio State",
+    sport: "ncaaf",
+    composite: 8,
+    edgePct: 3,
+    simHit: 0.58,
+  });
+  const total = scored("Over 45.5", {
+    game: sea,
+    market: "Total",
+    composite: 7,
+    edgePct: 2,
+    simHit: 0.55,
+  });
+  const kcSpread = scored("Chiefs -3", {
+    game: kc,
+    market: "Spread",
+    composite: 7.2,
+    edgePct: 1.8,
+    simHit: 0.57,
+  });
+  const recovered = recoverQualifiedDeliveryPicks(
+    [q3, prop, missing, ncaaf, total, seaSpread, seaAlt, seaMl, kcSpread],
+    ask,
+    { requestedLegs: 4, legsPerGameCap: 1 },
+  );
+  assert.deepEqual(
+    recovered.map((p) => `${p.market}|${p.pick}`),
+    ["Spread|Seahawks +3.5", "Spread|Chiefs -3"],
+  );
+  assert.ok(recovered.every(deliveryCandidateStillQualified));
+  assert.ok(recovered.every((p) => p.market === "Spread"));
 });
 
 test("coverProbs-only sim map cannot seat — Final AI simHit still required", () => {
