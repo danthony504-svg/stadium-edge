@@ -16,7 +16,7 @@ const LABELS: Record<SportSimModelId, string> = {
   "mlb-inning": "MLB inning-by-inning (run expectancy + bullpen fatigue)",
   "nba-possession": "NBA possession-by-possession (pace + fouls)",
   "wnba-possession": "WNBA possession-by-possession (pace + fouls)",
-  "nfl-drive": "NFL drive-by-drive (play calling + clock)",
+  "nfl-drive": "NFL/NCAAF drive-by-drive (ppg-per-drive-v1)",
   "nhl-shift": "NHL shift-by-shift (goalie performance)",
   "soccer-xg": "Soccer xG + possession model",
   "tennis-point": "Tennis point → game → set → match",

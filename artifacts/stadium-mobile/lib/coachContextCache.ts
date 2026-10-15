@@ -7,6 +7,10 @@
  * TTLs mirror api-server `cachedJson` policies for the same routes.
  */
 
+import { COACH_GAME_SIM_ENGINE_VERSION } from "./gameSimEngineVersion.ts";
+
+export { COACH_GAME_SIM_ENGINE_VERSION };
+
 export type CoachCacheStage =
   | "playerHistory"
   | "injuries"
@@ -234,7 +238,8 @@ export async function withCoachGameSimCache<T>(
   fingerprint: string,
   fetcher: () => Promise<T>,
   signal?: AbortSignal,
-): Promise<T> {
+  accept?: (value: T) => boolean,
+): Promise<T | null> {
   const stage: CoachCacheStage = "gameSimulation";
   const s = ensureStats(stage);
   s.calls += 1;
@@ -244,9 +249,17 @@ export async function withCoachGameSimCache<T>(
 
   const cached = peekCoachGameSimCache<T>(fingerprint);
   if (cached !== undefined) {
-    s.cacheHit += 1;
-    s.durationMs += performance.now() - t0;
-    return cached;
+    if (
+      cached != null &&
+      accept &&
+      !accept(cached)
+    ) {
+      gameSimStore.delete(coachGameSimCacheKey(fingerprint));
+    } else {
+      s.cacheHit += 1;
+      s.durationMs += performance.now() - t0;
+      return cached;
+    }
   }
 
   const key = coachGameSimCacheKey(fingerprint);
@@ -261,6 +274,13 @@ export async function withCoachGameSimCache<T>(
   const promise = (async () => {
     try {
       const value = await fetcher();
+      // A response that arrives after cancellation is not a cache fill.
+      // The caller already rejected via raceAbort; storing here would let
+      // the next send grade a draw from the aborted request.
+      if (signal?.aborted) return null;
+      if (value != null && accept && !accept(value)) {
+        return null;
+      }
       gameSimStore.set(key, {
         value,
         expiresAt: Date.now() + COACH_CONTEXT_TTL_MS.gameSimulation,
@@ -283,8 +303,13 @@ export async function withCoachGameSimCache<T>(
 }
 
 /**
- * Material game-sim fingerprint — team IDs, sport, cover structure (lines/markets),
- * simulation count. Excludes American odds / sportsbook price.
+ * Bump with FOOTBALL_DRIVE_ENGINE_VERSION when drive units change.
+ * Keeps a cached full-game draw from grading a ticket after the engine moves.
+ */
+
+/**
+ * Material game-sim fingerprint — engine version, team IDs, sport, cover
+ * structure (lines/markets), simulation count. Excludes American odds / sportsbook price.
  */
 export function fingerprintCoachGameSim(opts: {
   sport: string;
@@ -318,6 +343,7 @@ export function fingerprintCoachGameSim(opts: {
     .sort()
     .join(";");
   return [
+    COACH_GAME_SIM_ENGINE_VERSION,
     String(opts.sport || "").toLowerCase(),
     opts.homeTeamId ?? "",
     opts.awayTeamId ?? "",

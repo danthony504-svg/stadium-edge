@@ -20,6 +20,9 @@ export type OtaLaunchOutcome =
   | "idle_embedded"
   | "applied_ok";
 
+/** Sentinel downloaded id when Expo reports rollBackToEmbedded (no tip UUID). */
+export const OTA_EMBEDDED_TARGET_ID = "__embedded__";
+
 export type OtaSnapshot = {
   state: OtaState;
   runningUpdateId: string | null;
@@ -34,6 +37,8 @@ export type OtaSnapshot = {
    * Equivalent to: state === "ready" && downloadedUpdateId != runningUpdateId
    */
   bannerVisible: boolean;
+  /** True when the pending apply is a channel rollback to the embedded binary. */
+  isRollBackToEmbedded: boolean;
   /** Last Restart target written to the JS failed-launch ledger. */
   lastRestartTargetId: string | null;
   /** Reconcile / apply classification from the latest boot. */
@@ -43,12 +48,14 @@ export type OtaSnapshot = {
 
 export type OtaCheckResult = {
   isAvailable: boolean;
+  isRollBackToEmbedded?: boolean;
   reason?: string | null;
   manifestId?: string | null;
 };
 
 export type OtaFetchResult = {
   isNew?: boolean;
+  isRollBackToEmbedded?: boolean;
   manifestId?: string | null;
 };
 

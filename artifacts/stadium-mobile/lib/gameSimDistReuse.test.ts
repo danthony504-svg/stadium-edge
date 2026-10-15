@@ -66,6 +66,7 @@ function makeSim(outcomes = seededOutcomes()): CoachGameSimEntry {
   const n = outcomes.homeScores.length;
   return {
     sport: "nba",
+    engineVersion: "sport-sim-v1",
     simulations: n,
     homeWinProbability: homeWins / n,
     awayWinProbability: awayWins / n,
@@ -361,6 +362,24 @@ test("period cover path still uses periodScoresForDraw (Math.random) — not FG 
   const fgQ = buildGameCoverQuery(gamePick())!;
   withFgDistSeriesReuse(fgQ, sim, () => distributionForQuery(fgQ, sim));
   assert.ok(getCachedFgDistSeries(sim, "spread|home"));
+
+  // Saved draws are full-game scores. A period query must not report that
+  // series (or the FG projected total) as a quarter/half/inning distribution.
+  const fgTotal = buildGameCoverQuery(
+    gamePick({ market: "Total", pick: "Over 224.5", odds: -110 }),
+  )!;
+  const fgDist = distributionForQuery(fgTotal, sim);
+  assert.equal(typeof fgDist.mean, "number");
+  assert.ok((fgDist.mean ?? 0) > 100);
+  for (const market of ["Q3 Total", "1H Total", "F5 Total", "1st Inning Total", "1st Period Total"]) {
+    const pq = buildGameCoverQuery(
+      gamePick({ market, pick: "Over 11.5", odds: -110, sport: "nfl" }),
+    );
+    assert.ok(pq, market);
+    assert.notEqual(pq!.period, "fg", market);
+    const dist = distributionForQuery(pq!, sim);
+    assert.deepEqual(dist, { mean: null, median: null, stdev: null }, market);
+  }
 
   // raceTo bypass
   const race = gamePick({

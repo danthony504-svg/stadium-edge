@@ -25,7 +25,48 @@ type PasskeysModuleShape =
 
 type PasskeysLoader = () => PasskeysModuleShape;
 
+/**
+ * True only when the native binary linked ClerkExpoPasskeys.
+ * Must run BEFORE require("@clerk/expo/passkeys") — that package calls
+ * requireNativeModule("ClerkExpoPasskeys") at module scope and throws on
+ * Build 78 (embedded IPA has zero ClerkExpoPasskeys symbols).
+ *
+ * Prefer expo-modules-core optional lookup (Expo modules often omit classic
+ * NativeModules bridge entries); fall back to NativeModules when needed.
+ */
+export function hasClerkExpoPasskeysNative(): boolean {
+  if (nativePresentChecker) return nativePresentChecker();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const emc = require("expo-modules-core") as {
+      requireOptionalNativeModule?: (name: string) => unknown;
+    };
+    if (typeof emc.requireOptionalNativeModule === "function") {
+      return emc.requireOptionalNativeModule("ClerkExpoPasskeys") != null;
+    }
+  } catch {
+    // expo-modules-core unavailable (node tests) — try RN bridge next.
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const rn = require("react-native") as {
+      NativeModules?: Record<string, unknown>;
+      Platform?: { OS?: string };
+    };
+    if (rn.Platform?.OS === "web") return false;
+    return !!rn.NativeModules?.ClerkExpoPasskeys;
+  } catch {
+    // Node / non-RN: cannot prove presence — allow loader (getPasskeys catch).
+    return true;
+  }
+}
+
 function defaultPasskeysLoader(): PasskeysModuleShape {
+  // Fail closed BEFORE require — package init calls requireNativeModule at
+  // top level (same pattern as purchases.ts + RNPurchases).
+  if (!hasClerkExpoPasskeysNative()) {
+    throw new Error("Cannot find native module 'ClerkExpoPasskeys'");
+  }
   // Dynamic require — static import crashes when ClerkExpoPasskeys is missing.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require("@clerk/expo/passkeys") as PasskeysModuleShape;
@@ -33,6 +74,7 @@ function defaultPasskeysLoader(): PasskeysModuleShape {
 
 let passkeysLoader: PasskeysLoader = defaultPasskeysLoader;
 let cachedPasskeys: PasskeysApi | null | undefined;
+let nativePresentChecker: (() => boolean) | null = null;
 
 function unwrapPasskeys(mod: PasskeysModuleShape): PasskeysApi | null {
   if (!mod || typeof mod !== "object") return null;
@@ -52,6 +94,12 @@ function unwrapPasskeys(mod: PasskeysModuleShape): PasskeysApi | null {
  */
 export function getPasskeys(): PasskeysApi | null {
   if (cachedPasskeys !== undefined) return cachedPasskeys;
+  // Never evaluate @clerk/expo/passkeys when Build 78 (or any binary) lacks
+  // ClerkExpoPasskeys — package top-level requireNativeModule would throw.
+  if (!hasClerkExpoPasskeysNative()) {
+    cachedPasskeys = null;
+    return null;
+  }
   try {
     cachedPasskeys = unwrapPasskeys(passkeysLoader());
   } catch {
@@ -73,6 +121,14 @@ export function isPasskeysSupported(): boolean {
 /** Test-only: inject a loader (or null to restore default) and clear cache. */
 export function __setPasskeysLoaderForTests(next: PasskeysLoader | null): void {
   passkeysLoader = next ?? defaultPasskeysLoader;
+  cachedPasskeys = undefined;
+}
+
+/** Test-only: inject native-module presence (or null to restore). */
+export function __setPasskeysNativePresentForTests(
+  next: (() => boolean) | null,
+): void {
+  nativePresentChecker = next;
   cachedPasskeys = undefined;
 }
 

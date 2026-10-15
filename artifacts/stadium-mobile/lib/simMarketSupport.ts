@@ -47,8 +47,8 @@ export function parseMarketPeriod(market: string): SimPeriodScope {
   if (/\bq4\b|fourth quarter|4th quarter/.test(m)) return "q4";
   if (/\b(1h|h1)\b|first half|1st half/.test(m)) return "h1";
   if (/\b(2h|h2)\b|second half|2nd half/.test(m)) return "h2";
-  if (/\bf5\b|first 5|1st 5|five innings/.test(m)) return "f5";
-  if (/\b1st 1 inning\b|\b1st inning\b|first inning/.test(m)) return "i1";
+  if (/\bf5\b|first 5|1st 5|five innings|first five innings/.test(m)) return "f5";
+  if (/\b1st 1 innings?\b|\b1st inning\b|first inning/.test(m)) return "i1";
   if (/\b(1p|p1)\b|first period|1st period/.test(m)) return "p1";
   if (/\b(2p|p2)\b|second period|2nd period/.test(m)) return "p2";
   if (/\b(3p|p3)\b|third period|3rd period/.test(m)) return "p3";

@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-10-14T23:39:39.491Z",
+  "holdoutSeason": 2024,
+  "closingDefinition": "Per-game last Odds API historical snapshot with date=kickoff (closest ≤ commence). Midday slate files are not closes.",
+  "matched": 842,
+  "matchedWithFullPrices": 774,
+  "missing": 29,
+  "competitionScope": "Odds-listed FBS (matchable americanfootball_ncaaf names). FCS/unlisted excluded.",
+  "closeArchiveSoftGates": {
+    "criteria": [
+      "n_close_joined >= 200",
+      "marketBrier(close ML) < 0.25",
+      "engineBrier < 0.25 on same set",
+      "|mean(engineP - marketP_close)| <= 0.15"
+    ],
+    "note": "These are NOT Coach pick CLV and must not be labeled CLV PASS.",
+    "status": "PASS_SOFT_GATES_ONLY"
+  },
+  "coachPickClv": {
+    "report": "ncaaf-phase-e-coach-pick-clv-report.json",
+    "simulations": 10000,
+    "selectedPicks": 182,
+    "homeSelections": 107,
+    "awaySelections": 75,
+    "meanMlClvProbPoints": -0.0234,
+    "pctMlBeatClose": 0.209,
+    "hitRate": 0.497,
+    "wilson95": [0.425, 0.570],
+    "verdict": "COMPUTED_NO_PASS_LABEL"
+  },
+  "untouchedPeriodMarketBaseline": {
+    "cutoff": "2024-10-15T00:00:00Z",
+    "nGames": 391,
+    "marketBrierCloseMl": 0.1886
+  },
+  "injuryKnownPolicy": "null when unknown — never false by omission",
+  "verdicts": {
+    "E2b_closingArchive": "PASS",
+    "E2b_closeArchiveSoftGates": "PASS_SOFT_GATES_ONLY",
+    "E2b_coachPickClv": "COMPUTED_NO_PASS_LABEL",
+    "E4_injuryConservatism": "INSUFFICIENT_DATA",
+    "E6_humanSignOff": "OPEN",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

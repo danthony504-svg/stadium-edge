@@ -2,15 +2,14 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame } from "./api.ts";
-import { fetchGameOutcomeSimulation, fetchTeamPeriodStats } from "./api.ts";
+import { fetchGameOutcomeSimulation } from "./api.ts";
 import {
   fingerprintCoachGameSim,
   withCoachGameSimCache,
 } from "./coachContextCache.ts";
+import { gameDrawEngineAccepted } from "./gameSimEngineVersion.ts";
 import {
   buildGameCoverQuery,
-  buildPeriodOffenseDefenseProfile,
-  deriveCoverHitRatesFromOutcomes,
   gamePickCoverQueryId,
   gameSimHitForPick,
   isGameLinePick,
@@ -170,6 +169,7 @@ export async function fetchCoachGameSimulationsForPicks(
         },
         signal,
       );
+      if (result && !gameDrawEngineAccepted(result, sportKey)) result = null;
       if (
         !result &&
         (sportKey === "ufc" || sportKey === "mma") &&
@@ -191,7 +191,7 @@ export async function fetchCoachGameSimulationsForPicks(
           signal,
         );
       }
-      if (result) {
+      if (result && gameDrawEngineAccepted(result, sportKey)) {
         const sim = result as CoachGameSimEntry;
         out.set(gameLabel, sim);
         for (const leg of legs) {
@@ -312,7 +312,6 @@ export async function fetchSlateGameSimulationsWithStatus(
     // that collapsed Coach to an instant 0-leg ticket (phone 7-leg empty).
     try {
       const sportKey = (ids.sport || sport || "mlb").toLowerCase();
-      const wantsPeriodStats = sportKey === "ncaaf" || sportKey === "nfl" || sportKey === "nba";
       const simOpts = {
         sport: ids.sport || sport || "mlb",
         homeTeamId: ids.homeTeamId || undefined,
@@ -334,22 +333,15 @@ export async function fetchSlateGameSimulationsWithStatus(
         simulations: COACH_GAME_SIMS,
         coverQueries,
       });
-      const [resultRaw, homePeriod, awayPeriod] = await Promise.all([
-        withCoachGameSimCache(
-          simFp,
-          () => fetchGameOutcomeSimulation(simOpts, signal),
-          signal,
-        ),
-        wantsPeriodStats && ids.homeTeamId
-          ? fetchTeamPeriodStats(sportKey, ids.homeTeamId, signal)
-          : Promise.resolve(null),
-        wantsPeriodStats && ids.awayTeamId
-          ? fetchTeamPeriodStats(sportKey, ids.awayTeamId, signal)
-          : Promise.resolve(null),
-      ]);
+      const resultRaw = await withCoachGameSimCache(
+        simFp,
+        () => fetchGameOutcomeSimulation(simOpts, signal),
+        signal,
+        (draw) => draw == null || gameDrawEngineAccepted(draw, sportKey),
+      );
       // UFC/MMA: when production game-outcome rejects name-only (or returns
       // null), mirror Simulator — client fight analysis + 10k MC.
-      let result = resultRaw;
+      let result = resultRaw && gameDrawEngineAccepted(resultRaw, sportKey) ? resultRaw : null;
       if (
         !result &&
         (sportKey === "ufc" || sportKey === "mma") &&
@@ -371,29 +363,11 @@ export async function fetchSlateGameSimulationsWithStatus(
           signal,
         );
       }
-      if (result) {
-        let entry = result as CoachGameSimEntry;
-        // Re-derive period cover rates with real period offense vs opp period
-        // defense when ESPN linescores exist — never invent period averages.
-        const profile = buildPeriodOffenseDefenseProfile(
-          homePeriod?.periodAverages,
-          awayPeriod?.periodAverages,
-        );
-        if (profile && entry.outcomes?.homeScores?.length) {
-          const periodQueries = coverQueries.filter((q) => q.period && q.period !== "fg");
-          if (periodQueries.length) {
-            const periodRates = deriveCoverHitRatesFromOutcomes(
-              entry.outcomes,
-              periodQueries,
-              sportKey,
-              profile,
-            );
-            entry = {
-              ...entry,
-              coverHitRates: { ...(entry.coverHitRates ?? {}), ...periodRates },
-            };
-          }
-        }
+      if (result && gameDrawEngineAccepted(result, sportKey)) {
+        // Keep the server cover rates. ESPN period averages must not rescale
+        // full-game draws into a period hit. Period markets still fail the
+        // validity gate in p0UnvalidatedSimDecision.
+        const entry = result as CoachGameSimEntry;
         out.set(gameLabel, entry);
         statuses.push({
           gameLabel,

@@ -74,6 +74,8 @@ export type CoachFailureReason =
   | "legitimate_underfill"
   | "slate_thin"
   | "zero_results"
+  /** Phase E / P0 — markets blocked as unvalidated (not ordinary quality-bar empty). */
+  | "unvalidated_simulation"
   | "timeout"
   | "exception"
   | "empty_response"
@@ -131,7 +133,15 @@ export function classifyCoachSportCategory(text: string): CoachSportCategory {
   const t = String(text || "").toLowerCase();
   const hits: CoachSportCategory[] = [];
   if (/\bnfl\b/.test(t)) hits.push("nfl");
-  if (/\bncaaf\b|\bcfb\b|\bcollege\s+football\b/.test(t)) hits.push("ncaaf");
+  // Bare "college"/"collage" → ncaaf (Coach default). Do not steal CBB.
+  if (
+    /\bncaaf\b|\bcfb\b|\bcollege\s+football\b|\bcollage\s+football\b/.test(t) ||
+    (/\b(college|collage)\b/.test(t) &&
+      !/\b(college|collage)\s+basketball\b/.test(t) &&
+      !/\bncaab\b|\bcbb\b/.test(t))
+  ) {
+    hits.push("ncaaf");
+  }
   if (/\bnba\b/.test(t)) hits.push("nba");
   if (/\bwnba\b/.test(t)) hits.push("wnba");
   if (/\bmlb\b|\bbaseball\b/.test(t)) hits.push("mlb");
@@ -227,7 +237,8 @@ export function failureCategoryFor(
   if (
     eventType === "coach_simulation_failure" ||
     reason === "simulation_failure" ||
-    reason === "missing_sim_output"
+    reason === "missing_sim_output" ||
+    reason === "unvalidated_simulation"
   ) {
     return "simulation";
   }
@@ -312,6 +323,13 @@ export function mapScanFailureCode(code: string): {
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    case "P0_UNVALIDATED_MARKETS":
+      // Distinct from ordinary quality-bar zero_results — keep Phase E block visible.
+      return {
+        eventType: "coach_simulation_failure",
+        failureReason: "unvalidated_simulation",
+        alertable: true,
+      };
     default:
       return null;
   }
@@ -362,9 +380,14 @@ export function coachEventSummary(meta: CoachReliabilityMeta): string {
     meta.requestedLegCount != null
       ? `${meta.returnedLegCount ?? 0}/${meta.requestedLegCount} legs`
       : "n/a legs";
+  const root =
+    meta.failureReason === "unvalidated_simulation" && meta.rootCause
+      ? ` · ${meta.rootCause}`
+      : "";
   return sanitizeReliabilityText(
     `Coach ${meta.eventType} · ${meta.sportCategory} · ${meta.questionKind} · ${legs}` +
-      (meta.failureReason !== "none" ? ` · ${meta.failureReason}` : ""),
+      (meta.failureReason !== "none" ? ` · ${meta.failureReason}` : "") +
+      root,
     400,
   );
 }

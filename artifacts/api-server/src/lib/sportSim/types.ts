@@ -1,6 +1,12 @@
 // Sport-specific game simulation inputs — shared contract for every engine.
 
-import type { GameCoverQuery, GameSimTeamInput } from "../gameMonteCarlo.js";
+import type {
+  GameCoverQuery,
+  GameSimDefenseAllowed,
+  GameSimTeamInput,
+} from "../gameMonteCarlo.js";
+
+export type { GameSimDefenseAllowed };
 
 export type SportSimContext = {
   sport: string;
@@ -10,6 +16,8 @@ export type SportSimContext = {
   weatherImpact?: number | null;
   coverQueries?: GameCoverQuery[];
   retainOutcomes?: boolean;
+  /** When set, drive sims draw from this stream so a holdout can be replayed. */
+  random?: () => number;
 };
 
 export type SportSimModelId =

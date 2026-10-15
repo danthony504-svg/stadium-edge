@@ -12,7 +12,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
 import type { GameMeta, MatchupHistoryEntry, RealOddsEntry } from "./api.ts";
-import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
+import { deliveryCandidateStillQualified } from "./coachDeliveryQualification.ts";
 import { gameLabelsMatch } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import {
@@ -20,7 +20,6 @@ import {
   wouldExceedMaxLegsPerGame,
 } from "./parlayCorrelationScore.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
-import { boardLegPoolRole } from "./ticketStaging.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -95,12 +94,8 @@ function legKey(p: ParsedPick): string {
 
 /** Staging-qualified with preserved score — never fabricate a grade. */
 export function isLeanQualifiedSubstitute(pick: ParsedPick): boolean {
-  if (!pick.finalAiScore) return false;
-  if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return false;
-  // P0 blocked totals must never re-enter via lean (belt; lean skips totals).
-  if (p0UnvalidatedSimDecision(pick)) return false;
-  if (!pickHasSimGrade(pick, pick.finalAiScore.simHit)) return false;
-  return boardLegPoolRole(pick, pick.finalAiScore) != null;
+  // Shared delivery qualification (Final AI simHit required on game lines).
+  return deliveryCandidateStillQualified(pick);
 }
 
 /**
@@ -143,18 +138,16 @@ export function passesLeanTicketConstraints(
 ): boolean {
   if (pick.odds == null || !Number.isFinite(pick.odds) || pick.odds === 0) return false;
   if (!pick.game || !pick.market || !pick.pick) return false;
-  if (p0UnvalidatedSimDecision(pick)) return false;
 
+  // ML/spread lean seats share delivery qualification (Final AI simHit required).
+  // Totals/props pass through lean untouched — only reject broken scored grades.
   if (isGameSideMlOrSpread(pick)) {
-    if (!pick.finalAiScore) return false;
-    if (!pickHasSimGrade(pick, pick.finalAiScore.simHit)) return false;
-    if (boardLegPoolRole(pick, pick.finalAiScore) == null) return false;
+    if (!deliveryCandidateStillQualified(pick)) return false;
     const target = constraints.requestedLegs ?? 7;
     const maxPerGame = maxLegsPerGame(target, constraints.legsPerGameCap);
     if (wouldExceedMaxLegsPerGame(pick, alreadyOnTicket, maxPerGame)) return false;
-  } else if (pick.finalAiScore && !pickHasSimGrade(pick, pick.finalAiScore.simHit)) {
-    // Props/totals that carry a score object must still have a usable sim grade.
-    return false;
+  } else if (pick.finalAiScore?.simHit != null) {
+    if (!pickHasSimGrade(pick, pick.finalAiScore.simHit)) return false;
   }
 
   if (wouldRepeatMarketLadder(pick, alreadyOnTicket)) return false;

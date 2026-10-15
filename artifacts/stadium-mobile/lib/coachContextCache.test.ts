@@ -8,9 +8,11 @@ import test from "node:test";
 import {
   classifyCoachContextPath,
   clearCoachContextCache,
+  coachCacheSnapshot,
   fingerprintCoachGameSim,
   getCoachCacheStats,
   peekCoachContextCache,
+  peekCoachGameSimCache,
   resetCoachCacheStats,
   withCoachContextCache,
   withCoachGameSimCache,
@@ -104,6 +106,7 @@ test("game-sim fingerprint ignores American odds / price", () => {
   const a = fingerprintCoachGameSim(base);
   const b = fingerprintCoachGameSim(base);
   assert.equal(a, b);
+  assert.ok(a.startsWith("ppg-per-drive-v1|"));
   // Line change IS material (cover structure) — must differ
   const c = fingerprintCoachGameSim({
     ...base,
@@ -140,4 +143,59 @@ test("game-sim cache reuses identical fingerprint", async () => {
   assert.ok(stats);
   assert.equal(stats!.cacheHit, 1);
   assert.equal(stats!.cacheMiss, 1);
+});
+
+test("game-sim cache refuses an unstamped draw and still accepts the next stamped draw", async () => {
+  clearCoachContextCache();
+  const fp = "ppg-per-drive-v1|nfl|unstamped";
+  let fetches = 0;
+  const accept = (draw: { engineVersion?: string } | null) =>
+    draw != null && draw.engineVersion === "ppg-per-drive-v1";
+  const rejected = await withCoachGameSimCache(
+    fp,
+    async () => {
+      fetches += 1;
+      return { sport: "nfl", simulations: 100, homeWinProbability: 0.9 };
+    },
+    undefined,
+    accept,
+  );
+  assert.equal(rejected, null);
+  assert.equal(fetches, 1);
+  const accepted = await withCoachGameSimCache(
+    fp,
+    async () => {
+      fetches += 1;
+      return {
+        sport: "nfl",
+        engineVersion: "ppg-per-drive-v1",
+        simulations: 100,
+        homeWinProbability: 0.52,
+      };
+    },
+    undefined,
+    accept,
+  );
+  assert.equal(fetches, 2);
+  assert.equal(accepted?.homeWinProbability, 0.52);
+});
+
+test("a game-sim response that resolves after abort is not cached", async () => {
+  clearCoachContextCache();
+  const fp = "ppg-per-drive-v1|abort-late";
+  const ac = new AbortController();
+  let release: (value: { engineVersion: string; simulations: number }) => void = () => {};
+  const pending = withCoachGameSimCache(
+    fp,
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    ac.signal,
+  );
+  ac.abort();
+  release({ engineVersion: "ppg-per-drive-v1", simulations: 10_000 });
+  await assert.rejects(pending);
+  assert.equal(peekCoachGameSimCache(fp), undefined);
+  assert.equal(coachCacheSnapshot().gameSimEntries, 0);
 });

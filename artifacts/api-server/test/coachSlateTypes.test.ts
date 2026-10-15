@@ -42,7 +42,9 @@ function minimalBuilt(overrides?: Partial<BuiltChatContext>): BuiltChatContext {
 describe("coachSlateTypes", () => {
   it("computeSlateFingerprint is stable for same inputs", () => {
     const built = minimalBuilt();
-    assert.equal(computeSlateFingerprint(built), computeSlateFingerprint(built));
+    const fp = computeSlateFingerprint(built);
+    assert.equal(fp, computeSlateFingerprint(built));
+    assert.ok(fp.startsWith("ppg-per-drive-v1:"));
   });
 
   it("computeSlateFingerprint changes when odds change", () => {
@@ -228,5 +230,107 @@ describe("coachSlateTypes", () => {
     assert.equal(p.finalAiScore?.grade, "A");
     assert.equal(client.propSimulations.length, 0);
     assert.equal(client.built.context.realOdds[0]?.game, "••••••");
+  });
+
+  it("snapshotForClient keeps the engine stamp through premium JSON and redaction", () => {
+    const snap: SlatePreAnalysisSnapshot = {
+      at: Date.now(),
+      fingerprint: "ppg-per-drive-v1:1:0:::",
+      simEngineStamp: "ppg-per-drive-v1",
+      built: minimalBuilt(),
+      propSimulations: [],
+      boardScan: null,
+      tickets: {
+        global: {
+          3: {
+            picks: [],
+            evalLinesByGame: {},
+            gameSimulations: {
+              "A @ B": {
+                sport: "nfl",
+                engineVersion: "ppg-per-drive-v1",
+                winProbHome: 0.55,
+                winProbAway: 0.45,
+              },
+            },
+            totalScanned: 1,
+            totalQualified: 0,
+            staging: {
+              mainQualified: 0,
+              altQualified: 0,
+              mainOnTicket: 0,
+              altOnTicket: 0,
+            },
+            note: "stamp",
+          },
+        },
+        bySport: {},
+      },
+      deepSimComplete: true,
+    };
+    const premium = JSON.parse(
+      JSON.stringify(snapshotForClient(snap, { legs: 3, premiumUnlocked: true })),
+    ) as SlatePreAnalysisSnapshot;
+    assert.equal(premium.simEngineStamp, "ppg-per-drive-v1");
+    assert.equal(premium.boardScan?.gameSimulations["A @ B"]?.engineVersion, "ppg-per-drive-v1");
+    assert.equal(
+      premium.tickets?.global?.[3]?.gameSimulations["A @ B"]?.engineVersion,
+      "ppg-per-drive-v1",
+    );
+    const locked = snapshotForClient(snap, { legs: 3, premiumUnlocked: false });
+    assert.equal(locked.simEngineStamp, "ppg-per-drive-v1");
+    assert.deepEqual(locked.boardScan?.gameSimulations, {});
+    assert.deepEqual(locked.tickets?.global?.[3]?.gameSimulations, {});
+  });
+
+  it("snapshotForClient seals a cached period rate before a premium client can grade it", () => {
+    const snap: SlatePreAnalysisSnapshot = {
+      at: Date.now(),
+      fingerprint: "ppg-per-drive-v1:cached",
+      simEngineStamp: "ppg-per-drive-v1",
+      built: minimalBuilt(),
+      propSimulations: [],
+      boardScan: null,
+      tickets: {
+        global: {
+          3: {
+            picks: [],
+            evalLinesByGame: {
+              "Seattle Seahawks @ Denver Broncos": [
+                {
+                  sport: "nfl",
+                  game: "Seattle Seahawks @ Denver Broncos",
+                  market: "Q3 Spread",
+                  pick: "Seahawks +1.5",
+                  odds: -110,
+                },
+              ],
+            },
+            gameSimulations: {
+              "Seattle Seahawks @ Denver Broncos": {
+                sport: "nfl",
+                engineVersion: "ppg-per-drive-v1",
+                winProbHome: 0.58,
+                winProbAway: 0.42,
+                coverProbs: { "sea @ den|q3|spread|home|-1.5": 0.91 },
+              },
+            },
+            totalScanned: 1,
+            totalQualified: 0,
+            staging: { mainQualified: 0, altQualified: 0, mainOnTicket: 0, altOnTicket: 0 },
+            note: "cached",
+          },
+        },
+        bySport: {},
+      },
+      deepSimComplete: true,
+    };
+    const premium = snapshotForClient(snap, { legs: 3, premiumUnlocked: true });
+    const sim = premium.boardScan?.gameSimulations["Seattle Seahawks @ Denver Broncos"];
+    const clientId = "seattle seahawks @ denver broncos|q3 spread|seahawks +1.5";
+    assert.equal(sim?.coverHitRates?.[clientId], 0);
+    assert.equal(sim?.coverQueryStatus?.[clientId], "unsupported_market");
+    assert.equal(sim?.coverHitRates?.["sea @ den|q3|spread|home|-1.5"], 0);
+    assert.equal(sim?.outcomes, undefined);
   });
 });

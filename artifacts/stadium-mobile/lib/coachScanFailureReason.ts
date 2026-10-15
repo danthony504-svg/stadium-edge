@@ -21,7 +21,9 @@ export type CoachScanFailureCode =
   | "PROP_ALL_NO_SIM_GRADE"
   | "SCORED_BUT_NOT_STAGED"
   | "ABSOLUTE_BUDGET"
-  | "QUALITY_BAR_EMPTY";
+  | "QUALITY_BAR_EMPTY"
+  /** Every seatable game-line candidate rejected by P0 unvalidated-sim gates. */
+  | "P0_UNVALIDATED_MARKETS";
 
 export type CoachScanFailureReason = {
   code: CoachScanFailureCode;

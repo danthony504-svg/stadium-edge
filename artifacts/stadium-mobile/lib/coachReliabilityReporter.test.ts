@@ -21,8 +21,10 @@ test("mapScanFailureCode mirrors server grounding/alt/sim/freeze", () => {
 
 test("1) props-only early return emits exactly one Coach reliability report", () => {
   const src = readFileSync(join(process.cwd(), "lib/coach/buildParlay.ts"), "utf8");
-  // Isolate the props-only block (dedicated ticket builder → early return).
-  const start = src.indexOf("shouldBuildFootballPropsOnlyTicket");
+  // Isolate the props-only runtime block (not the import line).
+  const start = src.indexOf(
+    "shouldBuildFootballPropsOnlyTicket({ propsOnly: true, pool: activePropPool })",
+  );
   const end = src.indexOf("Allowlisted / props-only pools must not re-expand");
   assert.ok(start >= 0 && end > start, "props-only block bounds");
   const block = src.slice(start, end);
@@ -207,6 +209,41 @@ test("buildCoachReliabilityBody distinguishes legit underfill vs freeze", () => 
     returnedLegCount: 0,
   });
   assert.equal(ground?.scanFailureCode, "TEAM_ID_MAP_EMPTY");
+});
+
+test("P0 NCAAF block is unvalidated_simulation, not ordinary zero_results", async () => {
+  const { classifySportCategoryFromAsk, mapScanFailureCode } = await import(
+    "./coachReliabilityClassify.ts"
+  );
+  assert.equal(classifySportCategoryFromAsk("7 leg college"), "ncaaf");
+  assert.equal(classifySportCategoryFromAsk("7 leg NCAAF"), "ncaaf");
+  assert.equal(classifySportCategoryFromAsk("7 leg collage"), "ncaaf");
+
+  const mapped = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
+  assert.equal(mapped?.eventType, "coach_simulation_failure");
+  assert.equal(mapped?.failureReason, "unvalidated_simulation");
+
+  const body = buildCoachReliabilityBody({
+    requestedLegCount: 7,
+    returnedLegCount: 0,
+    sportCategory: "ncaaf",
+    scanFailureCode: "P0_UNVALIDATED_MARKETS",
+    scanFailureDetail: "unvalidated_ncaaf_game_line_simulation",
+    rootCause: "unvalidated_ncaaf_game_line_simulation",
+  });
+  assert.equal(body?.scanFailureCode, "P0_UNVALIDATED_MARKETS");
+  assert.equal(body?.rootCause, "unvalidated_ncaaf_game_line_simulation");
+  assert.notEqual(body?.failureReason, "zero_results");
+
+  const byRoot = buildCoachReliabilityBody({
+    requestedLegCount: 7,
+    returnedLegCount: 0,
+    sportCategory: "ncaaf",
+    rootCause: "unvalidated_ncaaf_game_line_simulation",
+  });
+  assert.equal(byRoot?.eventType, "coach_simulation_failure");
+  assert.equal(byRoot?.failureReason, "unvalidated_simulation");
+  assert.equal(byRoot?.rootCause, "unvalidated_ncaaf_game_line_simulation");
 });
 
 test("fixtures flag is preserved for server reject path", () => {

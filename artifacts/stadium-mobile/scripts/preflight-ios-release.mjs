@@ -342,10 +342,22 @@ async function main() {
   // Confirm passkeys are wired into ClerkProvider (native module required at runtime).
   try {
     const layout = readFileSync(join(ROOT, "app/_layout.tsx"), "utf8");
-    if (!layout.includes("__experimental_passkeys") || !layout.includes("@clerk/expo/passkeys")) {
-      fail("app/_layout.tsx must wire @clerk/expo/passkeys into ClerkProvider");
+    // Prefer getPasskeys() fail-soft wiring — never require a static
+    // @clerk/expo/passkeys import (Build 78 lacks ClerkExpoPasskeys).
+    if (!layout.includes("__experimental_passkeys") || !layout.includes("getPasskeys")) {
+      fail("app/_layout.tsx must wire getPasskeys() into ClerkProvider __experimental_passkeys");
     } else {
-      ok("ClerkProvider wires __experimental_passkeys");
+      ok("ClerkProvider wires __experimental_passkeys via getPasskeys()");
+    }
+    try {
+      const passkeyAuth = readFileSync(join(ROOT, "lib/passkeyAuth.ts"), "utf8");
+      if (!passkeyAuth.includes("hasClerkExpoPasskeysNative")) {
+        fail("passkeyAuth.ts must guard ClerkExpoPasskeys before require");
+      } else {
+        ok("passkeyAuth guards ClerkExpoPasskeys before require");
+      }
+    } catch (e) {
+      warn(`could not read lib/passkeyAuth.ts: ${e?.message || e}`);
     }
   } catch (e) {
     warn(`could not read app/_layout.tsx: ${e?.message || e}`);

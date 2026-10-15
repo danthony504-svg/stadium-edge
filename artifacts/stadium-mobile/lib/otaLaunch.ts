@@ -74,6 +74,29 @@ export async function launchOtaCheckFetchReload(): Promise<LaunchOtaOutcome> {
     }
 
     if (!!latestContext?.isUpdatePending) {
+      const running =
+        Updates.updateId != null && Updates.updateId !== ""
+          ? String(Updates.updateId)
+          : null;
+      const pendingId = (() => {
+        const m = (latestContext as { downloadedManifest?: { id?: string } | null })
+          ?.downloadedManifest;
+        const id = m?.id;
+        return id != null && id !== "" ? String(id) : null;
+      })();
+      // Already running the pending target — skip reload loop.
+      if (
+        running &&
+        pendingId &&
+        running.trim().toLowerCase() === pendingId.trim().toLowerCase()
+      ) {
+        pushOtaLog(
+          "reloadAsync",
+          false,
+          `skipped: already running pending target ${pendingId}`,
+        );
+        return "idle";
+      }
       try {
         pushOtaLog("reloadAsync", true, "manual: pending update…");
         await Updates.reloadAsync();

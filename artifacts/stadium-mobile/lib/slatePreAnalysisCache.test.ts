@@ -102,6 +102,10 @@ test("slatePreAnalysisCache.ts ships tryDeserializeBoardScan + map guards", () =
   assert.match(src, /export function tryDeserializeBoardScan/);
   assert.match(src, /evalLinesByGame and gameSimulations must be plain objects/);
   assert.match(src, /isPlainRecord\(raw\.evalLinesByGame\)/);
+  assert.match(src, /slate-preanalysis:v5:\$\{COACH_GAME_SIM_ENGINE_VERSION\}:/);
+  assert.match(src, /slateSnapshotMatchesDriveEngine/);
+  assert.match(src, /slateSnapshotEngineAccepted/);
+  assert.match(src, /COACH_GAME_SIM_ENGINE_VERSION\}:\$\{odds\.length\}/);
 });
 
 test("slatePreAnalysis.ts seeds via tryDeserializeBoardScan (fail-closed)", () => {

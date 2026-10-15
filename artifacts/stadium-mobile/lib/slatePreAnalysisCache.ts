@@ -7,8 +7,11 @@ import type { CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import type { CoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
+import { COACH_GAME_SIM_ENGINE_VERSION } from "./coachContextCache.ts";
+import { slateSnapshotEngineAccepted } from "./gameSimEngineVersion.ts";
 
-const PREFIX = "slate-preanalysis:v4:invariants:";
+/** Bump with the drive engine so a previous OTA cannot reuse stored grades. */
+const PREFIX = `slate-preanalysis:v5:${COACH_GAME_SIM_ENGINE_VERSION}:`;
 const STORAGE_KEY = `${PREFIX}snapshot`;
 const GEN_KEY = `${PREFIX}ota-generation`;
 
@@ -44,6 +47,7 @@ export type SlateTicketsIndex = {
 export type SlatePreAnalysisSnapshot = {
   at: number;
   fingerprint: string;
+  simEngineStamp?: string;
   built: BuiltChatContext;
   propSimulations: Array<[string, { hitProbability: number | null }]>;
   boardScan: SerializedBoardScan | null;
@@ -80,7 +84,13 @@ export function computeSlateFingerprint(
     .join(";");
   const inj = opts?.injuryDigest ?? "";
   const status = opts?.gameStatusDigest ?? "";
-  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+  return `${COACH_GAME_SIM_ENGINE_VERSION}:${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+}
+
+export function slateSnapshotMatchesDriveEngine(
+  snapshot: Parameters<typeof slateSnapshotEngineAccepted>[0],
+): boolean {
+  return slateSnapshotEngineAccepted(snapshot);
 }
 
 export function isSlatePreAnalysisInstantLoad(
@@ -204,6 +214,7 @@ export function isSlatePreAnalysisFresh(
 
 export function getSlatePreAnalysisSnapshot(): SlatePreAnalysisSnapshot | null {
   if (!memorySnapshot) return null;
+  if (!slateSnapshotMatchesDriveEngine(memorySnapshot)) return null;
   if (!isSlatePreAnalysisInstantLoad(memorySnapshot)) return null;
   return memorySnapshot;
 }
@@ -211,6 +222,7 @@ export function getSlatePreAnalysisSnapshot(): SlatePreAnalysisSnapshot | null {
 export async function rememberSlatePreAnalysis(
   snapshot: SlatePreAnalysisSnapshot,
 ): Promise<void> {
+  if (!slateSnapshotMatchesDriveEngine(snapshot)) return;
   memorySnapshot = snapshot;
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
@@ -268,6 +280,7 @@ export async function hydrateSlatePreAnalysisCache(): Promise<boolean> {
       if (!raw) return false;
       const parsed = JSON.parse(raw) as SlatePreAnalysisSnapshot;
       if (!parsed?.at || !parsed.built?.context) return false;
+      if (!slateSnapshotMatchesDriveEngine(parsed)) return false;
       if (!isSlatePreAnalysisInstantLoad(parsed)) return false;
       memorySnapshot = parsed;
       return true;
@@ -283,6 +296,7 @@ export async function applyServerSlateSnapshot(
   server: SlatePreAnalysisSnapshot | null | undefined,
 ): Promise<boolean> {
   if (!server?.at || !server.built?.context) return false;
+  if (!slateSnapshotMatchesDriveEngine(server)) return false;
   if (!isSlatePreAnalysisInstantLoad(server)) return false;
   const local = memorySnapshot;
   if (local && local.fingerprint === server.fingerprint && local.at >= server.at) {

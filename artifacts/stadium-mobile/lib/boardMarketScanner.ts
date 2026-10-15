@@ -16,6 +16,12 @@ import {
   type CoachAskTeamScope,
 } from "./coachAskTeamScope.ts";
 import {
+  filterPicksForAskSports,
+  filterScoredLegsForAskSports,
+  hardLockedSportsFromAsk,
+} from "./coachAskSportScope.ts";
+import { filterPropPoolByAskMarkets } from "./coachAskMarketFilter.ts";
+import {
   createCoachBoardScanManifestRecorder,
   type CoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
@@ -33,6 +39,10 @@ import {
   deriveCoachScanFailureReason,
   type CoachScanFailureReason,
 } from "./coachScanFailureReason.ts";
+import {
+  gameLineCandidatesFullyP0Blocked,
+  p0BlockedGameLineBoardNote,
+} from "./coachP0UnvalidatedTotals.ts";
 import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 import {
   deriveGameSimLineMetrics,
@@ -958,10 +968,15 @@ export function buildScanResult(
   // re-enter a team-scoped ticket (Buffalo ask must not seat Guardians/Dodgers).
   const scopeSafe = filterScoredLegsForAskTeam(exclusionSafe, opts.teamScope);
   const teamScopedAsk = !!opts.teamScope;
+  // Hard league lock (college / NCAAF / MLB / …) — belt the pool before any
+  // inject / multi-sport floor / ALT top-up can seat foreign sports.
+  const lockedSports = hardLockedSportsFromAsk(opts.varietyContext?.askText ?? null);
+  const sportLockedAsk = !!lockedSports?.length;
+  const sportSafe = filterScoredLegsForAskSports(scopeSafe, lockedSports);
   // Preview + final: collapse ladder rungs before staging so Colts +4.5 / +3.5
   // cannot both land on the hang-guard buffer or the terminal ticket.
   // Prefer scopeSafe (#712 include-scope) over exclusionSafe alone.
-  const ladderCollapsed = collapseScoredLegsByMarketLadder(scopeSafe);
+  const ladderCollapsed = collapseScoredLegsByMarketLadder(sportSafe);
   const stagePoolRaw = opts.propsOnly
     ? ladderCollapsed.filter((leg) => !!leg.pick.isProp)
     : opts.gameLinesOnly
@@ -994,7 +1009,9 @@ export function buildScanResult(
         opts.varietyContext?.singleEventSport ?? opts.teamScope?.sport ?? undefined,
     },
   );
-  let picks = teamScopedAsk
+  // Team-scoped OR hard sport-locked asks never cross-sport inject/floor.
+  const skipCrossSportMix = teamScopedAsk || sportLockedAsk;
+  let picks = skipCrossSportMix
     ? staged.picks
     : injectPrioritySportsIntoTicket(
         staged.picks,
@@ -1009,8 +1026,8 @@ export function buildScanResult(
     picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
   }
   // Prop-slot fill can evict soft football injects; restore multi-sport floor after.
-  // Scoped asks disable cross-sport/cross-game variety entirely.
-  if (!teamScopedAsk) {
+  // Scoped / hard-league asks disable cross-sport variety entirely.
+  if (!skipCrossSportMix) {
     picks = enforceMultiSportFloorOnTicket(
       picks,
       stagePool,
@@ -1043,6 +1060,7 @@ export function buildScanResult(
   picks = dedupePicksByMarketLadder(picks);
   // Include-scope belt — fills must never reintroduce foreign games/sports.
   picks = filterPicksForAskTeam(picks, opts.teamScope ?? null);
+  picks = filterPicksForAskSports(picks, lockedSports);
   // Top up from AI-qualified scored leftovers whenever under target — including
   // mid-scan previews. Preview used to skip this then seat-cap to exactly
   // boardScanNonPropPreviewCap(N) (phone 5→2 / 6→3) for the hang-guard buffer.
@@ -1056,14 +1074,14 @@ export function buildScanResult(
       opts.target,
       opts.varietySeed,
       opts.legsPerGameCap,
-      opts.gameLinesOnly || opts.collegeTeamMarketStacks
-        ? {
-            collapseSameTeamSides: !!(opts.gameLinesOnly && !opts.collegeTeamMarketStacks),
-            collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
-          }
-        : undefined,
+      {
+        collapseSameTeamSides: !!(opts.gameLinesOnly && !opts.collegeTeamMarketStacks),
+        collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
+        allowedSports: lockedSports,
+      },
     );
     picks = filterPicksForAskTeam(picks, opts.teamScope ?? null);
+    picks = filterPicksForAskSports(picks, lockedSports);
     // Top-up may have added game lines first on short tickets — enforce prop mix again.
     if (!opts.gameLinesOnly && !opts.propsOnly) {
       picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
@@ -1098,6 +1116,8 @@ export function buildScanResult(
   }
   // Last pass: one rung per market ladder (assembly / fills cannot reintroduce).
   picks = dedupePicksByMarketLadder(picks);
+  // Final sport belt — prop-mix finalize / fills must not re-seat foreign leagues.
+  picks = filterPicksForAskSports(picks, lockedSports);
   propCount = picks.filter((p) => p.isProp).length;
   // Preview-only awaiting flag. Finals never wipe cleared game lines to empty.
   const awaitingPropSlots = shouldKeepAwaitingPropSlots({
@@ -1273,6 +1293,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   /** Drop player props from staging (game lines / alts / periods only). */
   gameLinesOnly?: boolean;
   /**
+   * Unqualified spread/moneyline asks. Strip quarters, halves, periods, and
+   * innings before cover queries are built so those markets are never simulated.
+   */
+  fullGameOnly?: boolean;
+  /** Drop totals before cover queries when the ask named sides only. */
+  excludeTotals?: boolean;
+  /**
    * College team-market fills: allow FG + Q2 + team totals under per-game caps
    * instead of collapsing same-team period sides (NHL team props still collapse).
    */
@@ -1293,6 +1320,11 @@ export async function buildTopLegsFromFullBoardScan(opts: {
    * Fixes greenfield "2 game totals" tickets that latched before props loaded.
    */
   skipPropPoolExpand?: boolean;
+  /**
+   * Ask market allowlist — re-applied after pool expand so a second fan-out
+   * cannot undo filter-before-sim (yards/HR boards).
+   */
+  propMarketAllowlist?: readonly string[] | null;
   /** Limit priority-sport inject to leagues named in the user ask. */
   prioritySports?: readonly string[];
 }): Promise<FullBoardScanResult> {
@@ -1330,6 +1362,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
+  if (opts.fullGameOnly || opts.excludeTotals) {
+    for (const [label, lines] of evalLinesByGame) {
+      evalLinesByGame.set(
+        label,
+        lines.filter((entry) => {
+          const market = entry.market ?? "";
+          if (opts.fullGameOnly && parseMarketPeriod(market) !== "fg") return false;
+          if (opts.excludeTotals && /\btotal\b/i.test(market)) return false;
+          return true;
+        }),
+      );
+    }
+  }
   // liveOdds is RealOddsEntry[] — pass the array as one source. Spreading it
   // fed mergeOddsEntries individual entries; for..of then threw TypeError and
   // tryReachFullBoardScan returned null → phone SCAN_THREW empty tickets.
@@ -1356,6 +1401,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
             );
             if (opts.excludeNcaafPlayerProps) {
               next = filterNcaafPlayerPropsUnlessAsked(next, "team markets only");
+            }
+            // Filter before sim — expand must not reintroduce disallowed markets.
+            if (opts.propMarketAllowlist && opts.propMarketAllowlist.length > 0) {
+              next = filterPropPoolByAskMarkets(next, opts.propMarketAllowlist);
             }
             return next;
           })
@@ -1388,6 +1437,90 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         odds: entry.odds,
         isProp: false,
       } as ParsedPick);
+    }
+  }
+
+  // Game-lines-only + every posted line P0-blocked → skip slate Monte Carlo.
+  // NCAAF bare-college is the main case; NFL/NHL keep open sides so they still
+  // sim. Props-only / mix paths never take this exit (eligible sims must run).
+  if (opts.gameLinesOnly && !opts.propsOnly) {
+    const glCandidates: Array<{
+      market: string;
+      sport: string;
+      providerSport: string;
+      isProp: boolean;
+    }> = [];
+    for (const [, lines] of gameEntries) {
+      for (const entry of lines ?? []) {
+        glCandidates.push({
+          market: String(entry.market ?? ""),
+          sport: String(entry.sport ?? ""),
+          providerSport: String(entry.sport ?? ""),
+          isProp: false,
+        });
+      }
+    }
+    if (gameLineCandidatesFullyP0Blocked(glCandidates)) {
+      const sports = [
+        ...new Set(glCandidates.map((c) => c.sport.toLowerCase()).filter(Boolean)),
+      ];
+      const failureDiagnostics = {
+        oddsGameCount: oddsGames.length,
+        teamIdMapSize: opts.teamIdMap.size,
+        gameEntryCount: gameEntries.length,
+        gameSimsLoaded: 0,
+        gameLegsScored: 0,
+        gameLegsDroppedNoSim: glCandidates.length,
+        propPoolSize: 0,
+        propLegsScored: 0,
+        propPhaseIncomplete: false,
+        scoredBeforeStage: 0,
+        propsOnly: false,
+        requirePropMix: !!opts.requirePropMix,
+        gameSimsAttempted: false,
+        oddsLabelsBound: oddsBind.bound,
+        oddsLabelsUnresolved: oddsBind.unresolved.length,
+        gameSimsFetchNull: 0,
+        gameSimsTimedOut: 0,
+        propSimEvaluated: 0,
+      };
+      const result = buildScanResult([], {
+        target: opts.target,
+        evalLinesByGame,
+        gameSimulations,
+        totalScanned: glCandidates.length,
+        boardExhausted: true,
+        manifestRecorder,
+        varietySeed: opts.varietySeed,
+        varietyContext: opts.varietyContext,
+        ticketStyle: opts.ticketStyle,
+        requestId: opts.requestId,
+        propsOnly: false,
+        gameLinesOnly: true,
+        collegeTeamMarketStacks: opts.collegeTeamMarketStacks,
+        legsPerGameCap: opts.legsPerGameCap,
+        propPhaseIncomplete: false,
+        requirePropMix: opts.requirePropMix,
+        failureDiagnostics,
+        prioritySports: opts.prioritySports,
+        excludedTeams,
+        teamScope: opts.teamScope,
+      });
+      result.note = sanitizeCoachUserNote(
+        p0BlockedGameLineBoardNote({
+          requestedLegs: opts.target,
+          candidateCount: glCandidates.length,
+          sports,
+        }),
+      );
+      result.failureReason = {
+        code: "P0_UNVALIDATED_MARKETS",
+        detail:
+          glCandidates.length +
+          " game-line candidate(s) rejected by p0UnvalidatedSimDecision before slate sims",
+      };
+      if (opts.onPartial) opts.onPartial(result);
+      return result;
     }
   }
 
@@ -1654,10 +1787,23 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     }
   }
 
-  const expandedPool = await Promise.race([
-    poolExpandP ?? Promise.resolve(null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 25_000)),
-  ]);
+  // Only arm the expand deadline when an expand is actually in flight.
+  // Racing Promise.resolve against a 25s timer left that timer pending on every
+  // game-lines-only scan (and after a fast expand).
+  let expandedPool: Awaited<typeof poolExpandP> = null;
+  if (poolExpandP) {
+    let expandTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      expandedPool = await Promise.race([
+        poolExpandP,
+        new Promise<null>((resolve) => {
+          expandTimer = setTimeout(() => resolve(null), 25_000);
+        }),
+      ]);
+    } finally {
+      if (expandTimer) clearTimeout(expandTimer);
+    }
+  }
   if (expandedPool?.length) pool = expandedPool;
 
   if (footballMixPath) {
@@ -1736,9 +1882,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   totalScanned += pool.length;
   simulateSession?.markFinalizationStart();
-  const collapsed = collapseScoredLegsByMarketLadder(scored);
+  const ladderUnqualified: BoardScoredLeg[] = [];
+  const collapsed = collapseScoredLegsByMarketLadder(scored, (leg) => {
+    ladderUnqualified.push(leg);
+  });
   collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
+  for (const leg of ladderUnqualified) {
+    const score = leg.pick.finalAiScore
+      ? { ...leg.pick.finalAiScore, simHit: leg.simHit ?? leg.pick.finalAiScore.simHit }
+      : leg.pick.finalAiScore;
+    manifestRecorder.recordEvaluatedPick(leg.pick, score);
+  }
+  manifestRecorder.recordScoredLegCount(scored.length);
   const propLegsScored = collapsed.filter((leg) => !!leg.pick.isProp).length;
   const failureDiagnostics = {
     oddsGameCount: oddsGames.length,

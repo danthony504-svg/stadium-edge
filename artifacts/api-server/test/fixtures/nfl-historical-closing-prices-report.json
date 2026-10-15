@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-10-15T09:49:20.957Z",
+  "calibrationReport": "artifacts/api-server/test/fixtures/nfl-historical-calibration-report.json",
+  "calibrationIsNotMarketValue": true,
+  "qualifiedSelectionsVsClose": {
+    "status": "NOT_MEASURED",
+    "reason": "ODDS_API_KEY is unset. Injected secret names do not include it. No NFL closing fixture exists on this branch or on cursor/odds-api-access-5cb3.",
+    "nSelections": 0,
+    "meanClv": null
+  },
+  "authorizedSources": {
+    "oddsApiKey": "unset",
+    "oddsApiSport": "americanfootball_nfl",
+    "oddsApiHistoricalPath": "/v4/historical/sports/americanfootball_nfl/odds",
+    "injectedSecretNames": "EXPO_TOKEN",
+    "espnCompletedScoreboardOdds": "empty on 16 events",
+    "ncaafArchiveBranch": "cursor/odds-api-access-5cb3",
+    "ncaafArchiveCommit": "7fbf065a607899c49d2e5aa1d636160b74ca0eb4"
+  }
+}

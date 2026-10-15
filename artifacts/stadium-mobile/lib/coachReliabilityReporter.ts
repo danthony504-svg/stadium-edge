@@ -5,7 +5,10 @@
  */
 
 import { shouldSendCrashReports } from "./crashReportingGate.ts";
-import { mapScanFailureCode } from "./coachReliabilityClassify.ts";
+import {
+  isUnvalidatedNcaafGameLineReliability,
+  mapScanFailureCode,
+} from "./coachReliabilityClassify.ts";
 import {
   affectedGameFromPicks,
   evaluateReturnedPicksGrounding,
@@ -269,6 +272,32 @@ export function buildCoachReliabilityBody(
   }
 
   if (requested != null && returned === 0) {
+    // Prefer explicit P0 / unvalidated-sim classification over ordinary zero_results.
+    if (
+      isUnvalidatedNcaafGameLineReliability({
+        rootCause: input.rootCause,
+        failureReason: input.failureReason,
+        scanFailureCode: input.scanFailureCode,
+      })
+    ) {
+      return {
+        eventType: "coach_simulation_failure",
+        failureReason: "unvalidated_simulation",
+        sportCategory: input.sportCategory ?? "ncaaf",
+        questionKind: "parlay_build",
+        requestedLegCount: requested,
+        returnedLegCount: 0,
+        durationMs: input.durationMs ?? null,
+        realOddsAvailable: input.realOddsAvailable ?? null,
+        requestId: input.requestId ?? null,
+        affectedGame,
+        rootCause:
+          input.rootCause ?? "unvalidated_ncaaf_game_line_simulation",
+        scanFailureCode: input.scanFailureCode ?? "P0_UNVALIDATED_MARKETS",
+        ...corr,
+        ...(input.testFixture ? { testFixture: true } : {}),
+      };
+    }
     return {
       eventType: "parlay_zero_results",
       failureReason:

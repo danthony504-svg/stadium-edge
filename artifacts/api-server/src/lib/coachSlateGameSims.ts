@@ -5,6 +5,8 @@ import {
   slateLoopbackPost,
 } from "./coachSlateLoopback.js";
 import { runGameOutcomeSimInProcess } from "./coachSlateInProcessSims.js";
+import { gameDrawEngineAccepted } from "./sportSim/gameSimEngineVersion.js";
+import { isPeriodMarket } from "./preSimShift/periodGuard.js";
 import type { CoachGameSimEntry, RealOddsEntry } from "./coachSlateTypes.js";
 
 type EspnGame = {
@@ -20,10 +22,22 @@ type EspnGame = {
 };
 
 type GameOutcomeResponse = {
+  sport?: string;
+  engineVersion?: string;
   homeWinProbability?: number;
   awayWinProbability?: number;
   coverHitRates?: Record<string, number>;
+  coverQueryStatus?: Record<string, string>;
 };
+
+function periodToken(market: string): string | undefined {
+  if (!isPeriodMarket(market)) return undefined;
+  const hit = market
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .match(/(q[1-4]|h1|h2|1h|2h|p[1-3]|f5|1st_5_innings|1st_1_innings)/);
+  return hit?.[1] ?? "period";
+}
 
 function parseGameLabel(game: string): { away: string; home: string } | null {
   const parts = game.split(" @ ");
@@ -51,28 +65,30 @@ function teamSideForPick(
   return null;
 }
 
-function coverQueryForLine(o: RealOddsEntry): { id: string; kind: string; teamSide?: string; line?: number; totalSide?: string } | null {
+function coverQueryForLine(o: RealOddsEntry): { id: string; kind: string; teamSide?: string; line?: number; totalSide?: string; period?: string } | null {
   const label = parseGameLabel(o.game);
   if (!label) return null;
   const m = o.market.toLowerCase();
   const p = o.pick.toLowerCase();
+  const period = periodToken(o.market);
+  const periodKey = period ? `|${period}` : "";
 
   if (m.includes("moneyline") || m === "h2h") {
     const side = teamSideForPick(o.pick, label.away, label.home);
     if (!side) return null;
-    return { id: `${o.game}|ml|${side}`, kind: "ml", teamSide: side };
+    return { id: `${o.game}${periodKey}|ml|${side}`, kind: "ml", teamSide: side, ...(period ? { period } : {}) };
   }
   if (m.includes("spread") || m.includes("run line") || m.includes("puck line")) {
     const side = teamSideForPick(o.pick, label.away, label.home);
     const match = o.pick.match(/([+-]?\d+(?:\.\d+)?)/);
     if (!side || !match) return null;
-    return { id: `${o.game}|spread|${side}|${match[1]}`, kind: "spread", teamSide: side, line: parseFloat(match[1]!) };
+    return { id: `${o.game}${periodKey}|spread|${side}|${match[1]}`, kind: "spread", teamSide: side, line: parseFloat(match[1]!), ...(period ? { period } : {}) };
   }
   if (m.includes("total")) {
     const totalSide = p.includes("under") ? "under" : p.includes("over") ? "over" : null;
     const match = o.pick.match(/(\d+(?:\.\d+)?)/);
     if (!totalSide || !match) return null;
-    return { id: `${o.game}|total|${totalSide}|${match[1]}`, kind: "total", totalSide, line: parseFloat(match[1]!) };
+    return { id: `${o.game}${periodKey}|total|${totalSide}|${match[1]}`, kind: "total", totalSide, line: parseFloat(match[1]!), ...(period ? { period } : {}) };
   }
   return null;
 }
@@ -139,11 +155,15 @@ export async function fetchServerGameSimulations(
           body,
           120_000,
         );
-    if (!resp) return;
+    if (!resp || !gameDrawEngineAccepted(resp, sport)) return;
     out.set(game, {
+      sport,
+      engineVersion: resp.engineVersion,
       winProbHome: resp.homeWinProbability ?? null,
       winProbAway: resp.awayWinProbability ?? null,
       coverProbs: resp.coverHitRates ?? {},
+      coverHitRates: resp.coverHitRates ?? {},
+      coverQueryStatus: resp.coverQueryStatus,
     });
   });
 
@@ -154,8 +174,10 @@ export function simHitForGameLine(
   o: RealOddsEntry,
   sim: CoachGameSimEntry | undefined,
 ): number | null {
-  if (!sim?.coverProbs) return null;
+  if (!sim?.coverProbs || !gameDrawEngineAccepted(sim, o.sport)) return null;
   const q = coverQueryForLine(o);
+  if (q?.period) return null;
+  if (q && sim.coverQueryStatus?.[q.id] === "unsupported_market") return null;
   if (q && sim.coverProbs[q.id] != null) return sim.coverProbs[q.id]!;
   const label = parseGameLabel(o.game);
   if (!label) return null;

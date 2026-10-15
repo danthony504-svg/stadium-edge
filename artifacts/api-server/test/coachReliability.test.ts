@@ -55,6 +55,11 @@ test("classifyCoachSportCategory is sanitized and multi-aware", () => {
   assert.equal(classifyCoachSportCategory("build a 5 leg NFL parlay"), "nfl");
   assert.equal(classifyCoachSportCategory("NBA and NHL mix"), "multi");
   assert.equal(classifyCoachSportCategory("random ticket"), "unspecified");
+  // Bare college / NCAAF must normalize to ncaaf (not unspecified).
+  assert.equal(classifyCoachSportCategory("7 leg college"), "ncaaf");
+  assert.equal(classifyCoachSportCategory("7 leg Collage"), "ncaaf");
+  assert.equal(classifyCoachSportCategory("7 leg NCAAF"), "ncaaf");
+  assert.equal(classifyCoachSportCategory("college basketball 5 leg"), "unspecified");
 });
 
 test("classifyCoachQuestionKind never requires raw text retention", () => {
@@ -127,6 +132,30 @@ test("mapScanFailureCode covers grounding/alt/sim/freeze", () => {
   assert.equal(mapScanFailureCode("GAME_SIMS_ALL_NULL")?.failureReason, "missing_sim_output");
   assert.equal(mapScanFailureCode("ABSOLUTE_BUDGET")?.eventType, "coach_scan_freeze");
   assert.equal(mapScanFailureCode("QUALITY_BAR_EMPTY")?.alertable, false);
+  // Phase E block ≠ ordinary zero_results.
+  assert.equal(mapScanFailureCode("P0_UNVALIDATED_MARKETS")?.eventType, "coach_simulation_failure");
+  assert.equal(
+    mapScanFailureCode("P0_UNVALIDATED_MARKETS")?.failureReason,
+    "unvalidated_simulation",
+  );
+  assert.equal(mapScanFailureCode("P0_UNVALIDATED_MARKETS")?.alertable, true);
+});
+
+test("coachEventSummary surfaces unvalidated_ncaaf_game_line_simulation", () => {
+  const summary = coachEventSummary(
+    baseMeta({
+      eventType: "coach_simulation_failure",
+      failureReason: "unvalidated_simulation",
+      sportCategory: "ncaaf",
+      rootCause: "unvalidated_ncaaf_game_line_simulation",
+      requestedLegCount: 7,
+      returnedLegCount: 0,
+    }),
+  );
+  assert.match(summary, /unvalidated_simulation/);
+  assert.match(summary, /unvalidated_ncaaf_game_line_simulation/);
+  assert.match(summary, /ncaaf/);
+  assert.doesNotMatch(summary, /zero_results/);
 });
 
 test("serialize/parse coach meta has no PII fields", () => {

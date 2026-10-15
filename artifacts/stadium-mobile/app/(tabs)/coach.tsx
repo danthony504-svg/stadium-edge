@@ -52,16 +52,15 @@ import {
 import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
-  coachPropLoadFailsafeMs,
+  coachAbsoluteBudgetMs,
   coachSessionIsTerminal,
-  coachSessionMayAcceptLatePicks,
   coachSessionShouldKeepBusy,
   coachShortfallNote,
   createCoachSession,
+  coachAssistantTerminalFlags,
+  coachInFlightResultMayApply,
   latchCoachSession,
-  resetCoachAbsoluteClock,
   resolveCoachOutcome,
-  upgradeCoachSessionOutcome,
 } from "@/lib/coach/session";
 import {
   clearPendingTicketPicks,
@@ -294,37 +293,52 @@ export default function CoachScreen() {
         propsPending?: boolean;
       },
     ) => {
-      const picks = dedupePicksByMarketLadder(opts.picks);
-      const outcome = resolveCoachOutcome({
-        pickCount: picks.length,
-        requestedLegs: opts.requestedLegs,
-        failed: opts.failed,
-      });
-      latchCoachSession(sessionRef.current, outcome);
-      terminalShownPickCountRef.current = picks.length;
-      if (picks.length > 0 && outcome !== "failed") {
-        rememberParlayBuild(picks);
+      let picks: ParsedPick[] = [];
+      let storedPicks: ParsedPick[] = [];
+      let storedText = "";
+      let outcome: ReturnType<typeof resolveCoachOutcome> = "failed";
+      try {
+        picks = dedupePicksByMarketLadder(opts.picks ?? []);
+        outcome = resolveCoachOutcome({
+          pickCount: picks.length,
+          requestedLegs: opts.requestedLegs,
+          failed: opts.failed,
+        });
+        latchCoachSession(sessionRef.current, outcome);
+        terminalShownPickCountRef.current = picks.length;
+        if (picks.length > 0 && outcome !== "failed") {
+          rememberParlayBuild(picks);
+        }
+        const rawText = typeof opts.text === "string" ? opts.text : "";
+        // Prefer the build note when present — it carries prop-pool context.
+        // Only synthesize a generic shortfall when the build returned no text.
+        // Strip any leaked `[CODE: detail]` machine traces before the bubble paints.
+        const shortfall =
+          !rawText.trim() && (outcome === "shortfall" || outcome === "empty")
+            ? coachShortfallNote(opts.requestedLegs, picks.length, {
+                propsPending: opts.propsPending,
+              })
+            : "";
+        // Free users: store redacted picks in message state (not full identity).
+        storedPicks = coachPremiumUnlocked
+          ? picks
+          : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
+        storedText =
+          !coachPremiumUnlocked && storedPicks.length > 0
+            ? `${storedPicks.length} qualifying pick${storedPicks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
+            : sanitizeCoachUserNote([shortfall, rawText].filter(Boolean).join("\n\n"));
+      } catch {
+        outcome = "failed";
+        latchCoachSession(sessionRef.current, "failed");
+        storedPicks = [];
+        storedText = "Something went wrong finishing that ticket.";
       }
-      // Prefer the build note when present — it carries prop-pool context.
-      // Only synthesize a generic shortfall when the build returned no text.
-      // Strip any leaked `[CODE: detail]` machine traces before the bubble paints.
-      const shortfall =
-        !opts.text.trim() && (outcome === "shortfall" || outcome === "empty")
-          ? coachShortfallNote(opts.requestedLegs, picks.length, {
-              propsPending: opts.propsPending,
-            })
-          : "";
-      // Free users: store redacted picks in message state (not full identity).
-      const storedPicks = coachPremiumUnlocked
-        ? picks
-        : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
-      const storedText =
-        !coachPremiumUnlocked && storedPicks.length > 0
-          ? `${storedPicks.length} qualifying pick${storedPicks.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
-          : sanitizeCoachUserNote([shortfall, opts.text].filter(Boolean).join("\n\n"));
+      // Success, failure, cancellation, and deadline expiry all reach here.
+      // Paint building:false even when note assembly threw above.
+      const terminal = coachAssistantTerminalFlags(outcome);
       patchAssistant(assistantId, {
-        building: false,
-        buildStatus: undefined,
+        building: terminal.building,
+        buildStatus: terminal.buildStatus,
         picks: storedPicks,
         text: storedText,
         requestedLegs: opts.requestedLegs || undefined,
@@ -486,7 +500,7 @@ export default function CoachScreen() {
       setBusy(true);
 
       const fireAbsoluteTerminal = () => {
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         if (coachSessionIsTerminal(sessionRef.current)) return;
         abort.abort();
         // Do NOT call finishSession/setMessages inside a setMessages updater —
@@ -512,11 +526,11 @@ export default function CoachScreen() {
           propsPending,
         });
       };
+      armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
 
       try {
         // ---- Slip photo vision path (max 3) — analyze keep/change or improve ----
         if (hasOutgoingImages) {
-          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
           const visionOnly = isSlipPhotoVisionOnly({
             hasImages: true,
             text,
@@ -551,7 +565,7 @@ export default function CoachScreen() {
               null,
               0,
             );
-            if (sendGenRef.current !== sendGen) return;
+            if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
             streamContext = built.context;
             propPool = built.propPool ?? [];
           }
@@ -566,14 +580,14 @@ export default function CoachScreen() {
             firstTokenMs: 90_000,
             onToken: (full) => {
               streamed = full;
-              if (sendGenRef.current !== sendGen) return;
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
               patchAssistant(assistantId, {
                 text: full,
                 buildStatus: "Writing analysis…",
               });
             },
           });
-          if (sendGenRef.current !== sendGen) return;
+          if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
           if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
 
           // Improve-from-photo may emit PICK lines; parse when odds were loaded.
@@ -597,17 +611,16 @@ export default function CoachScreen() {
         // ---- Live Coach (NBA/WNBA/NFL/NHL live mains) ----
         // Isolated from buildParlay / pregame Monte Carlo. Never lowers quality to fill.
         if (liveAsk) {
-          armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
           patchAssistant(assistantId, { buildStatus: "Scanning LIVE board…" });
           const liveResult = await buildLiveCoachRecommendations({
             askText: text,
             signal: abort.signal,
             onStatus: (status) => {
-              if (sendGenRef.current !== sendGen) return;
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
               patchAssistant(assistantId, { buildStatus: status });
             },
           });
-          if (sendGenRef.current !== sendGen) return;
+          if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
           if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
           const liveLegs = liveResult.intent.count || requestedLegs || 3;
           finishSession(assistantId, {
@@ -619,15 +632,6 @@ export default function CoachScreen() {
         }
 
         if (parlayBuild) {
-          // Prop-board prefetch can take a while — do not burn the scoring budget
-          // during load (that latched "2 game totals" before props ran).
-          let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-            loadTimer = null;
-            if (sendGenRef.current !== sendGen) return;
-            if (coachSessionIsTerminal(sessionRef.current)) return;
-            fireAbsoluteTerminal();
-          }, coachPropLoadFailsafeMs(requestedLegs));
-
           const priorUserTexts = messagesRef.current
             .filter((m) => m.role === "user")
             .map((m) => m.text)
@@ -637,21 +641,18 @@ export default function CoachScreen() {
             askText: text,
             priorUserTexts,
             signal: abort.signal,
+            deadlineAtMs:
+              sessionRef.current.startedAtMs + coachAbsoluteBudgetMs(requestedLegs),
             onStatus: (status) => {
-              if (sendGenRef.current !== sendGen) return;
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
+              if (coachSessionIsTerminal(sessionRef.current)) return;
               patchAssistant(assistantId, { buildStatus: status });
             },
             onPartialPicks: (picks) => {
-              if (sendGenRef.current !== sendGen) return;
+              if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
+              if (coachSessionIsTerminal(sessionRef.current)) return;
               // Buffer raw picks for build/flush logic only — never leave identity in message state for free users.
               pendingTicketPicksRef.current = [...picks];
-              // Belts: if scoring started without onReadyToScan, still arm the wall clock.
-              if (
-                sessionRef.current.outcome === "open" &&
-                !sessionRef.current.absoluteTimer
-              ) {
-                armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-              }
               if (shouldPublishCoachTicketPicks("building")) {
                 const stored = coachPremiumUnlocked
                   ? [...picks]
@@ -659,21 +660,8 @@ export default function CoachScreen() {
                 patchAssistant(assistantId, { picks: stored });
               }
             },
-            onReadyToScan: () => {
-              if (sendGenRef.current !== sendGen) return;
-              if (loadTimer) {
-                clearTimeout(loadTimer);
-                loadTimer = null;
-              }
-              resetCoachAbsoluteClock(sessionRef.current);
-              armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
-            },
           });
-          if (loadTimer) {
-            clearTimeout(loadTimer);
-            loadTimer = null;
-          }
-          if (sendGenRef.current !== sendGen) return;
+          if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
           // buffer so holding cards mid-build can never hang as a blank ticket.
           const ask = sessionAskTextRef.current || text;
@@ -691,39 +679,9 @@ export default function CoachScreen() {
                 });
           pendingTicketPicksRef.current = [];
 
-          // Budget may have already latched empty/shortfall while the scan was
-          // still finishing. Accept a better late ticket without re-busying.
-          if (!coachSessionShouldKeepBusy(sessionRef.current)) {
-            if (
-              coachSessionMayAcceptLatePicks(sessionRef.current, {
-                latePickCount: picks.length,
-                shownPickCount: terminalShownPickCountRef.current,
-              })
-            ) {
-              const outcome = resolveCoachOutcome({
-                pickCount: picks.length,
-                requestedLegs,
-              });
-              upgradeCoachSessionOutcome(sessionRef.current, outcome);
-              terminalShownPickCountRef.current = picks.length;
-              const storedLate = coachPremiumUnlocked
-                ? picks
-                : picks.map((p) => redactPremiumPickFields(p as never) as ParsedPick);
-              patchAssistant(assistantId, {
-                building: false,
-                buildStatus: undefined,
-                picks: storedLate,
-                // Clear the empty-budget copy once a real ticket lands.
-                text:
-                  !coachPremiumUnlocked && storedLate.length > 0
-                    ? `${storedLate.length} qualifying pick${storedLate.length === 1 ? "" : "s"} ready. AI Grade, Confidence, and Edge are shown on each card — sign in or subscribe to reveal teams, players, lines, and odds.`
-                    : sanitizeCoachUserNote(result.note),
-                requestedLegs: requestedLegs || undefined,
-              });
-              unlockComposer();
-            }
-            return;
-          }
+          // Deadline and cancellation already painted the terminal card and aborted
+          // the scan. A result that arrives afterward must not replace it.
+          if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
 
           finishSession(assistantId, {
             picks,
@@ -733,7 +691,6 @@ export default function CoachScreen() {
           return;
         }
 
-        armCoachAbsoluteTerminal(sessionRef.current, fireAbsoluteTerminal);
         patchAssistant(assistantId, { buildStatus: "Pulling live odds…" });
         const built = await buildChatContext(
           DEFAULT_SPORTS.slice(0, 6),
@@ -745,7 +702,7 @@ export default function CoachScreen() {
           null,
           0,
         );
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         patchAssistant(assistantId, { buildStatus: "Writing answer…" });
         let streamed = "";
         await streamChat({
@@ -754,11 +711,11 @@ export default function CoachScreen() {
           signal: abort.signal,
           onToken: (full) => {
             streamed = full;
-            if (sendGenRef.current !== sendGen) return;
+            if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
             patchAssistant(assistantId, { text: full, buildStatus: "Writing answer…" });
           },
         });
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         if (!coachSessionShouldKeepBusy(sessionRef.current)) return;
         const picks = parsePicks(
           streamed,
@@ -772,7 +729,7 @@ export default function CoachScreen() {
           requestedLegs: 0,
         });
       } catch (err) {
-        if (sendGenRef.current !== sendGen) return;
+        if (!coachInFlightResultMayApply(sendGenRef.current, sendGen)) return;
         // Stop already flushed held picks via finishSession — do not blank them.
         if (abort.signal.aborted && sessionRef.current.outcome !== "open") return;
         const message =
