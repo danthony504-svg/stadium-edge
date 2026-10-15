@@ -68,13 +68,15 @@ Physical-device React UI: **PENDING**. Publication: **pending review** (no OTA /
 
 ## 5. Server-first / preview-OTA readiness
 
-| Item | Status |
-|------|--------|
-| IPA baseline | `057c9f0d` / EAS `9155c37b` / runtime `1.1.0` / channel `preview` |
+| Item | Full identity |
+|------|---------------|
+| **Functional tip (server + client)** | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
+| **Installed IPA (client binary)** | `057c9f0ddd42e9309146cc6eb8d3b68f089b4e82` / EAS `9155c37b-0297-45a7-98fe-ea3f38bea6a9` / runtime `1.1.0` / channel `preview` |
+| **Live API (pre-rollout)** | Render `stadium-edge` → `https://stadium-edge.onrender.com` / healthz `deploymentSha=cf6c0f699e6f3dd573ade95514af79b05c8a54c1` |
 | Tip vs IPA natives | Compatible → **JS/OTA + server-first** (no new native build) |
-| Production freeze | **armed** |
+| **API deploy vs freeze** | Redeploy Render `stadium-edge` = **in scope** when approved (shared API). Expo **production** OTA = **frozen** (`.ota-production-freeze`). Preview OTA allowed when approved. |
 | NCAAF / unsupported periods | **blocked** |
-| Rollout | **Ready for preview-OTA review only** — not production publish |
+| Rollout | **Ready for approval-only server-first → preview-OTA** — no execution yet |
 
 ## 6. Freeze / non-goals
 
