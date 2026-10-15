@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { enforceConsistentGameSides, simFavoredTeamSide } from "./gameSideConsistency.ts";
+import {
+  enforceConsistentGameSides,
+  resolveConflictingGameSide,
+  simFavoredTeamSide,
+} from "./gameSideConsistency.ts";
+import { finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
+import { optimizeGameLinePicksToBestFinalAi } from "./gameLineOptimizer.ts";
 
 const GAME = "New York Mets @ Atlanta Braves";
 
@@ -13,6 +19,46 @@ function leg(pick: string, market = "Spread"): ParsedPick {
     odds: 100,
     isProp: false,
     sport: "mlb",
+  };
+}
+
+function scoredLeg(
+  pick: string,
+  opts: {
+    market?: string;
+    odds?: number;
+    composite: number;
+    edgePct: number;
+    simHit: number;
+    sport?: string;
+    game?: string;
+  },
+): ParsedPick {
+  return {
+    game: opts.game ?? GAME,
+    market: opts.market ?? "Spread",
+    pick,
+    odds: opts.odds ?? -110,
+    isProp: false,
+    sport: opts.sport ?? "mlb",
+    finalAiScore: {
+      composite: opts.composite,
+      grade: "B+",
+      confidencePct: 60,
+      edgePct: opts.edgePct,
+      simHit: opts.simHit,
+      simAligned: opts.simHit >= 0.52,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: {
+        scores: {},
+        composite: opts.composite,
+        grade: "B+",
+        confidencePct: 60,
+        edgePct: opts.edgePct,
+      },
+    },
   };
 }
 
@@ -108,9 +154,162 @@ test("enforceConsistentGameSides drops opposing ML and spread on same game", () 
       },
     ],
   ]);
-  const picks = [leg("Mets ML", "Moneyline"), leg("Braves -1.5", "Spread")];
+  const picks = [
+    scoredLeg("Mets ML", {
+      market: "Moneyline",
+      composite: 7.8,
+      edgePct: 3.2,
+      simHit: 0.54,
+    }),
+    scoredLeg("Braves -1.5", {
+      market: "Spread",
+      composite: 6.0,
+      edgePct: -1.0,
+      simHit: 0.38,
+    }),
+  ];
   const r = enforceConsistentGameSides(picks, { simByGame: sim });
   assert.equal(r.picks.length, 1);
   assert.match(r.picks[0]!.pick, /Mets/i);
   assert.equal(r.dropped, 1);
+});
+
+test("underdog spread with higher Final AI survives vs favorite win-prob", () => {
+  // Favorite (home) has higher outright win prob; underdog (away) spread is
+  // better qualified on composite / edge / market cover.
+  const game = "Detroit Lions @ Kansas City Chiefs";
+  const favorite = scoredLeg("Chiefs -6.5", {
+    game,
+    sport: "nfl",
+    composite: 6.8,
+    edgePct: 0.4,
+    simHit: 0.51,
+  });
+  const underdog = scoredLeg("Lions +6.5", {
+    game,
+    sport: "nfl",
+    composite: 8.2,
+    edgePct: 4.1,
+    simHit: 0.58,
+  });
+  const sim = new Map([
+    [
+      game,
+      {
+        sport: "nfl",
+        simulations: 10_000,
+        homeWinProbability: 0.62,
+        awayWinProbability: 0.38,
+        tieProbability: 0,
+        homeProjectedScore: 27,
+        awayProjectedScore: 21,
+        mostLikelyWinner: "home" as const,
+        mostLikelyWinnerPct: 0.62,
+        confidenceScore: 62,
+        coverHitRates: {
+          [`${game}|spread|chiefs -6.5`.toLowerCase()]: 0.51,
+          [`${game}|spread|lions +6.5`.toLowerCase()]: 0.58,
+        },
+      },
+    ],
+  ]);
+
+  assert.equal(simFavoredTeamSide(sim.get(game)!), "home");
+
+  const resolution = resolveConflictingGameSide([favorite, underdog], game, {
+    simByGame: sim,
+  });
+  assert.ok(resolution);
+  assert.equal(resolution!.keep, "away");
+  assert.match(resolution!.reason, /market value/i);
+  assert.equal(resolution!.rejections.length, 1);
+  assert.match(resolution!.rejections[0]!.pick, /Chiefs/i);
+
+  const sides = enforceConsistentGameSides([favorite, underdog], { simByGame: sim });
+  assert.equal(sides.picks.length, 1);
+  assert.match(sides.picks[0]!.pick, /Lions/i);
+  assert.equal(sides.dropped, 1);
+
+  // Full delivery belt must also keep the underdog.
+  const delivered = finalizeCoachDeliveryPicks([favorite, underdog], { simByGame: sim });
+  assert.equal(delivered.length, 1);
+  assert.match(delivered[0]!.pick, /Lions/i);
+
+  // Optimizer must not flip the underdog leg onto the favorite ladder.
+  const opt = optimizeGameLinePicksToBestFinalAi([underdog], sim as never, {
+    evalLinesByGame: new Map([
+      [
+        game,
+        [
+          {
+            sport: "nfl",
+            game,
+            market: "Spread",
+            pick: "Lions +6.5",
+            odds: -110,
+            edge: 4.1,
+            noVigFair: 0.55,
+          },
+          {
+            sport: "nfl",
+            game,
+            market: "Spread",
+            pick: "Chiefs -6.5",
+            odds: -110,
+            edge: 0.4,
+            noVigFair: 0.52,
+          },
+        ],
+      ],
+    ]),
+    realOdds: [],
+  });
+  assert.ok(opt.picks.length >= 1);
+  assert.match(opt.picks[0]!.pick, /Lions/i);
+});
+
+test("NFL and NCAAF share market-value side resolution (P0 still separate)", () => {
+  for (const sport of ["nfl", "ncaaf"] as const) {
+    const game =
+      sport === "nfl"
+        ? "Buffalo Bills @ Baltimore Ravens"
+        : "Michigan Wolverines @ Ohio State Buckeyes";
+    const awayNick = sport === "nfl" ? "Bills" : "Michigan";
+    const homeNick = sport === "nfl" ? "Ravens" : "Ohio State";
+    const dog = scoredLeg(`${awayNick} +3.5`, {
+      game,
+      sport,
+      composite: 7.9,
+      edgePct: 3.5,
+      simHit: 0.57,
+    });
+    const fav = scoredLeg(`${homeNick} -3.5`, {
+      game,
+      sport,
+      composite: 6.4,
+      edgePct: 0.2,
+      simHit: 0.49,
+    });
+    const r = enforceConsistentGameSides([dog, fav], {
+      simByGame: new Map([
+        [
+          game,
+          {
+            sport,
+            simulations: 10_000,
+            homeWinProbability: 0.61,
+            awayWinProbability: 0.39,
+            tieProbability: 0,
+            homeProjectedScore: 28,
+            awayProjectedScore: 22,
+            mostLikelyWinner: "home" as const,
+            mostLikelyWinnerPct: 0.61,
+            confidenceScore: 61,
+          },
+        ],
+      ]),
+    });
+    assert.equal(r.picks.length, 1, sport);
+    assert.match(r.picks[0]!.pick, new RegExp(awayNick, "i"), sport);
+  }
 });

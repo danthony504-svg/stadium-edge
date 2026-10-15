@@ -1,11 +1,14 @@
 // One committed team per game for ML/spread legs — prevents Mets ML + Braves -1.5
-// on the same ticket and aligns side picks to the shared game simulator.
+// on the same ticket. Conflicting sides resolve by market-specific simulation,
+// value, quality, and lean/correlation tiebreaks — never by outright win
+// probability alone when a better-qualified underdog spread exists.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { MatchupHistoryEntry } from "./api.ts";
 import {
   gameLabelsMatch,
   gameSimHasValidRun,
+  gameSimHitForPick,
   isGameLinePick,
   lookupGameSim,
   type CoachGameSimEntry,
@@ -52,7 +55,7 @@ function isMlOrSpreadPick(pick: ParsedPick): boolean {
   return true;
 }
 
-/** Which side the game sim favors when the edge is meaningful. */
+/** Which side the game sim favors when the edge is meaningful (ML win-prob only). */
 export function simFavoredTeamSide(
   sim: CoachGameSimEntry | null | undefined,
 ): "home" | "away" | null {
@@ -126,15 +129,191 @@ function pickTeamSide(
   return null;
 }
 
+function legKey(pick: ParsedPick): string {
+  return `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
+}
+
+/** Market-value score for resolving opposing sides — ignores outright win-prob. */
+export type GameSideLegMetrics = {
+  composite: number;
+  edgePct: number;
+  /** Market-specific cover rate from the shared 10k sim (spread/ML cover). */
+  marketSimHit: number;
+  qualified: boolean;
+};
+
+export function gameSideLegMetrics(
+  pick: ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+): GameSideLegMetrics {
+  const composite =
+    pick.finalAiScore?.composite ?? pick.scores?.composite ?? Number.NEGATIVE_INFINITY;
+  const edgePct =
+    pick.finalAiScore?.edgePct ??
+    (typeof pick.scores?.edgePct === "number" ? pick.scores.edgePct : null) ??
+    Number.NEGATIVE_INFINITY;
+  const fromScore = pick.finalAiScore?.simHit;
+  const fromSim = gameSimHitForPick(pick, sim);
+  const marketSimHit =
+    fromScore != null && Number.isFinite(fromScore)
+      ? fromScore
+      : fromSim != null && Number.isFinite(fromSim)
+        ? fromSim
+        : Number.NEGATIVE_INFINITY;
+  const qualified =
+    pick.finalAiScore != null &&
+    (pick.finalAiScore.recommends === true ||
+      (pick.finalAiScore.composite != null && pick.finalAiScore.composite >= 6.5));
+  return {
+    composite: Number.isFinite(composite) ? composite : Number.NEGATIVE_INFINITY,
+    edgePct: Number.isFinite(edgePct as number) ? (edgePct as number) : Number.NEGATIVE_INFINITY,
+    marketSimHit: Number.isFinite(marketSimHit) ? marketSimHit : Number.NEGATIVE_INFINITY,
+    qualified,
+  };
+}
+
+function compareLegMetrics(a: GameSideLegMetrics, b: GameSideLegMetrics): number {
+  // Qualified legs beat unqualified before any numeric tiebreak.
+  if (a.qualified !== b.qualified) return a.qualified ? 1 : -1;
+  if (a.composite !== b.composite) return a.composite - b.composite;
+  if (a.edgePct !== b.edgePct) return a.edgePct - b.edgePct;
+  if (a.marketSimHit !== b.marketSimHit) return a.marketSimHit - b.marketSimHit;
+  return 0;
+}
+
+function bestLegOnSide(
+  legs: ParsedPick[],
+  side: "home" | "away",
+  away: string,
+  home: string,
+  sim: CoachGameSimEntry | null | undefined,
+): { pick: ParsedPick; metrics: GameSideLegMetrics } | null {
+  let best: { pick: ParsedPick; metrics: GameSideLegMetrics } | null = null;
+  for (const leg of legs) {
+    if (pickTeamSide(leg, away, home) !== side) continue;
+    const metrics = gameSideLegMetrics(leg, sim);
+    if (!best || compareLegMetrics(metrics, best.metrics) > 0) {
+      best = { pick: leg, metrics };
+    }
+  }
+  return best;
+}
+
+export type GameSideRejection = {
+  pick: string;
+  market: string;
+  side: "home" | "away";
+  reason: string;
+};
+
+export type GameSideResolution = {
+  keep: "home" | "away";
+  reason: string;
+  rejections: GameSideRejection[];
+};
+
+/**
+ * Resolve opposing ML/spread sides using market-specific sim cover, edge,
+ * Final AI quality, then mlLean — never discard a better-qualified underdog
+ * solely because the favorite has higher outright win probability.
+ */
+export function resolveConflictingGameSide(
+  legs: ParsedPick[],
+  game: string,
+  opts: {
+    simByGame?: Map<string, CoachGameSimEntry>;
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+  } = {},
+): GameSideResolution | null {
+  const { away, home } = splitLabel(game);
+  const sides = new Set(
+    legs.map((l) => pickTeamSide(l, away, home)).filter((s): s is "home" | "away" => !!s),
+  );
+  if (sides.size <= 1) return null;
+
+  const sim = lookupGameSim(game, opts.simByGame);
+  const homeBest = bestLegOnSide(legs, "home", away, home, sim);
+  const awayBest = bestLegOnSide(legs, "away", away, home, sim);
+
+  let keep: "home" | "away" | null = null;
+  let reason = "";
+
+  if (homeBest && awayBest) {
+    const cmp = compareLegMetrics(homeBest.metrics, awayBest.metrics);
+    if (cmp > 0) {
+      keep = "home";
+      reason = `kept home for higher market value (composite ${homeBest.metrics.composite.toFixed(2)} / edge ${homeBest.metrics.edgePct.toFixed(2)} / cover ${Number.isFinite(homeBest.metrics.marketSimHit) ? (homeBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"} vs away ${awayBest.metrics.composite.toFixed(2)} / ${awayBest.metrics.edgePct.toFixed(2)} / ${Number.isFinite(awayBest.metrics.marketSimHit) ? (awayBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"})`;
+    } else if (cmp < 0) {
+      keep = "away";
+      reason = `kept away for higher market value (composite ${awayBest.metrics.composite.toFixed(2)} / edge ${awayBest.metrics.edgePct.toFixed(2)} / cover ${Number.isFinite(awayBest.metrics.marketSimHit) ? (awayBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"} vs home ${homeBest.metrics.composite.toFixed(2)} / ${homeBest.metrics.edgePct.toFixed(2)} / ${Number.isFinite(homeBest.metrics.marketSimHit) ? (homeBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"})`;
+    }
+  } else if (homeBest) {
+    keep = "home";
+    reason = "only home side scored";
+  } else if (awayBest) {
+    keep = "away";
+    reason = "only away side scored";
+  }
+
+  if (!keep) {
+    keep = leanSideForGame(game, away, home, opts.matchupHistory);
+    if (keep) reason = `tiebreak mlLean → ${keep}`;
+  }
+  if (!keep) {
+    // Last resort: first leg — still better than both sides. Do NOT fall back
+    // to simFavoredTeamSide (outright win-prob) when metrics were present but tied;
+    // lean already tried. Win-prob alone is only used when no metrics exist at all.
+    const noMetrics =
+      (!homeBest ||
+        (homeBest.metrics.composite === Number.NEGATIVE_INFINITY &&
+          homeBest.metrics.edgePct === Number.NEGATIVE_INFINITY &&
+          homeBest.metrics.marketSimHit === Number.NEGATIVE_INFINITY)) &&
+      (!awayBest ||
+        (awayBest.metrics.composite === Number.NEGATIVE_INFINITY &&
+          awayBest.metrics.edgePct === Number.NEGATIVE_INFINITY &&
+          awayBest.metrics.marketSimHit === Number.NEGATIVE_INFINITY));
+    if (noMetrics) {
+      const winProbSide = simFavoredTeamSide(sim);
+      if (winProbSide) {
+        keep = winProbSide;
+        reason = `no market metrics — fallback sim win-prob → ${keep}`;
+      }
+    }
+  }
+  if (!keep) {
+    keep = pickTeamSide(legs[0]!, away, home);
+    if (keep) reason = `first-leg fallback → ${keep}`;
+  }
+  if (!keep) return null;
+
+  const rejections: GameSideRejection[] = [];
+  for (const leg of legs) {
+    const side = pickTeamSide(leg, away, home);
+    if (side && side !== keep) {
+      rejections.push({
+        pick: leg.pick,
+        market: leg.market,
+        side,
+        reason: `opposing side dropped — ${reason}`,
+      });
+    }
+  }
+
+  return { keep, reason, rejections };
+}
+
 export type GameSideConsistencyResult = {
   picks: ParsedPick[];
   dropped: number;
   note: string;
+  /** Per-game resolutions when both sides collided (for audits / tests). */
+  resolutions?: Array<{ game: string } & GameSideResolution>;
 };
 
 /**
- * For each game, allow ML/spread legs on only ONE team. When the simulator (or
- * mlLean tiebreaker) names a side, drop legs on the opponent.
+ * For each game, allow ML/spread legs on only ONE team. When both sides appear,
+ * keep the better qualified market (sim cover / edge / Final AI), not the
+ * higher outright win-probability favorite by default.
  */
 export function enforceConsistentGameSides(
   picks: ParsedPick[],
@@ -147,36 +326,24 @@ export function enforceConsistentGameSides(
 
   const dropKeys = new Set<string>();
   let dropped = 0;
+  const resolutions: Array<{ game: string } & GameSideResolution> = [];
 
   for (const [game, legs] of byGame) {
-    const { away, home } = splitLabel(game);
-    const sides = new Set(
-      legs.map((l) => pickTeamSide(l, away, home)).filter((s): s is "home" | "away" => !!s),
-    );
-    if (sides.size <= 1) continue;
-
-    const sim = lookupGameSim(game, opts.simByGame);
-    let keep: "home" | "away" | null = simFavoredTeamSide(sim);
-    if (!keep) keep = leanSideForGame(game, away, home, opts.matchupHistory);
-    if (!keep) {
-      // First leg wins when no authoritative signal — still better than both sides.
-      keep = pickTeamSide(legs[0]!, away, home);
-    }
-    if (!keep) continue;
-
+    const resolution = resolveConflictingGameSide(legs, game, opts);
+    if (!resolution) continue;
+    resolutions.push({ game, ...resolution });
     for (const leg of legs) {
+      const { away, home } = splitLabel(game);
       const side = pickTeamSide(leg, away, home);
-      if (side && side !== keep) {
-        const k = `${leg.game}|${leg.market}|${leg.pick}`.toLowerCase();
-        dropKeys.add(k);
+      if (side && side !== resolution.keep) {
+        dropKeys.add(legKey(leg));
       }
     }
   }
 
   const kept: ParsedPick[] = [];
   for (const p of picks) {
-    const k = `${p.game}|${p.market}|${p.pick}`.toLowerCase();
-    if (dropKeys.has(k)) {
+    if (dropKeys.has(legKey(p))) {
       dropped += 1;
       continue;
     }
@@ -185,8 +352,8 @@ export function enforceConsistentGameSides(
 
   let note = "";
   if (dropped > 0) {
-    note = `_Dropped ${dropped} leg${dropped === 1 ? "" : "s"} that backed the opposing team on the same game — one side per matchup (aligned to the game simulator when available)._`;
+    note = `_Dropped ${dropped} leg${dropped === 1 ? "" : "s"} that backed the opposing team on the same game — one side per matchup (market sim / value / quality, not outright win-prob alone)._`;
   }
 
-  return { picks: kept, dropped, note };
+  return { picks: kept, dropped, note, resolutions };
 }
