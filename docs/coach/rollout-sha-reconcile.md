@@ -1,9 +1,10 @@
 # Rollout SHA reconcile (PR #736 / Build78 fixpack + football-unit port)
 
-**Reviewed tip (exact):** 
+**Reviewed tip (exact):** `1f9cc04a302fba2b8d94919f7a3309987b4377da`
 
 Functional baseline before the port: `013ddb88` (null-note fix + isolated pipeline/cancel).  
-Football-unit pack source: PR **#738** tip `e3b4dc81` (`cursor/nfl-spread-ml-scoring-hang-b9b4`).
+Football-unit pack source: PR **#738** tip `e3b4dc81` (`cursor/nfl-spread-ml-scoring-hang-b9b4`).  
+Docs-only follow-ups may sit atop `1f9cc04a` on this branch.
 
 ## 1. SHA relationship
 
@@ -14,7 +15,7 @@ Football-unit pack source: PR **#738** tip `e3b4dc81` (`cursor/nfl-spread-ml-sco
 | `e6c8bb60` | Docs tip (EXPO_TOKEN). Ancestor of fixpack tip |
 | `576578cd` / `013ddb88` | Fixpack tip before football-unit port |
 | `e3b4dc81` | PR #738 — named football-unit pack (ppg-v1, stamp, seal, parse, null-note, deadline) |
-| ** (this tip)** |  lineage **+** football-unit files/tests from  |
+| **`1f9cc04a` (this tip)** | `013ddb88` lineage **+** football-unit files/tests from `e3b4dc81` |
 
 `e6c8bb60` ⊂ `576578cd` ⊂ `013ddb88`. The six named football-unit features were **not** on that tip until this port ([Find football-unit fix SHAs](bc-2990b9c4-2a1e-5e29-9f1c-e5bd784da511)).
 
