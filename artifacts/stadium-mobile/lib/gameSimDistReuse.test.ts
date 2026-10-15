@@ -66,6 +66,7 @@ function makeSim(outcomes = seededOutcomes()): CoachGameSimEntry {
   const n = outcomes.homeScores.length;
   return {
     sport: "nba",
+    engineVersion: "sport-sim-v1",
     simulations: n,
     homeWinProbability: homeWins / n,
     awayWinProbability: awayWins / n,

@@ -5,6 +5,7 @@ import { runPropSims, tierSimCount, type PropSimGameContext } from "../lib/propS
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
+import { SPORT_SIM_ENGINE_VERSION } from "../lib/sportSim/gameSimEngineVersion.js";
 import {
   loadFootballDefenseAllowed,
   teamInputFromHistory,
@@ -163,6 +164,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       sport,
       homeTeam: homeTeam || null,
       awayTeam: awayTeam || null,
+      engineVersion: SPORT_SIM_ENGINE_VERSION,
       ...result,
     });
     return;
@@ -186,6 +188,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     );
     res.json({
       sport,
+      engineVersion: SPORT_SIM_ENGINE_VERSION,
       homeTeam: homeTeam || null,
       awayTeam: awayTeam || null,
       simulations: sim.simulations,

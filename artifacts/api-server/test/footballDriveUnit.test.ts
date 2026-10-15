@@ -9,6 +9,10 @@ import { test } from "node:test";
 import { runNflDriveSim } from "../src/lib/sportSim/nflDriveSim.ts";
 import { runSportGameMonteCarlo } from "../src/lib/sportSim/registry.ts";
 import {
+  gameDrawEngineAccepted,
+  stampedTeamGameOutcome,
+} from "../src/lib/sportSim/gameSimEngineVersion.ts";
+import {
   footballDrivePoints,
   footballDriveRateInput,
   footballDriveScoringRates,
@@ -229,6 +233,25 @@ test("HTTP registry and in-process model id share the corrected drive engine", (
   assert.match(college?.simModelLabel ?? "", /ppg-per-drive-v1/);
   assert.equal(viaRegistry?.simModel, "nfl-drive");
   assert.equal(college?.simModel, "nfl-drive");
+  assert.equal(viaRegistry?.engineVersion, "ppg-per-drive-v1");
+  assert.equal(college?.engineVersion, "ppg-per-drive-v1");
+  const httpBody = JSON.parse(
+    JSON.stringify({
+      sport: "nfl",
+      homeTeam: "Home",
+      awayTeam: "Away",
+      ...viaRegistry,
+    }),
+  ) as { engineVersion?: string; sport?: string };
+  assert.equal(httpBody.engineVersion, "ppg-per-drive-v1");
+  assert.equal(gameDrawEngineAccepted(httpBody, "nfl"), true);
+  const inProcess = JSON.parse(
+    JSON.stringify(stampedTeamGameOutcome("ncaaf", college!)),
+  ) as { engineVersion?: string; sport?: string };
+  assert.equal(inProcess.sport, "ncaaf");
+  assert.equal(inProcess.engineVersion, "ppg-per-drive-v1");
+  assert.equal(gameDrawEngineAccepted(inProcess, "ncaaf"), true);
+  assert.equal(gameDrawEngineAccepted({ ...httpBody, engineVersion: undefined }, "nfl"), false);
   assert.ok(Math.abs((viaRegistry?.homeProjectedScore ?? 0) - 21) < 4);
   assert.ok(Math.abs((college?.homeProjectedScore ?? 0) - 24) < 5);
 });

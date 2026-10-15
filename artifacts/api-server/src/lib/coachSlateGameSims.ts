@@ -5,6 +5,7 @@ import {
   slateLoopbackPost,
 } from "./coachSlateLoopback.js";
 import { runGameOutcomeSimInProcess } from "./coachSlateInProcessSims.js";
+import { gameDrawEngineAccepted } from "./sportSim/gameSimEngineVersion.js";
 import type { CoachGameSimEntry, RealOddsEntry } from "./coachSlateTypes.js";
 
 type EspnGame = {
@@ -20,6 +21,8 @@ type EspnGame = {
 };
 
 type GameOutcomeResponse = {
+  sport?: string;
+  engineVersion?: string;
   homeWinProbability?: number;
   awayWinProbability?: number;
   coverHitRates?: Record<string, number>;
@@ -139,8 +142,10 @@ export async function fetchServerGameSimulations(
           body,
           120_000,
         );
-    if (!resp) return;
+    if (!resp || !gameDrawEngineAccepted(resp, sport)) return;
     out.set(game, {
+      sport,
+      engineVersion: resp.engineVersion,
       winProbHome: resp.homeWinProbability ?? null,
       winProbAway: resp.awayWinProbability ?? null,
       coverProbs: resp.coverHitRates ?? {},
@@ -154,7 +159,7 @@ export function simHitForGameLine(
   o: RealOddsEntry,
   sim: CoachGameSimEntry | undefined,
 ): number | null {
-  if (!sim?.coverProbs) return null;
+  if (!sim?.coverProbs || !gameDrawEngineAccepted(sim, o.sport)) return null;
   const q = coverQueryForLine(o);
   if (q && sim.coverProbs[q.id] != null) return sim.coverProbs[q.id]!;
   const label = parseGameLabel(o.game);

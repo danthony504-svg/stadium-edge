@@ -33,6 +33,7 @@ import {
   type SlateTicketsIndex,
 } from "./slatePreAnalysisCache.ts";
 import { fetchCoachServerSlate } from "./coachSlateApi.ts";
+import { COACH_GAME_SIM_ENGINE_VERSION } from "./coachContextCache.ts";
 
 export { SLATE_PRE_ANALYSIS_TARGET };
 
@@ -305,6 +306,7 @@ export async function runSlatePreAnalysis(opts?: {
 
     const snapshot: SlatePreAnalysisSnapshot = sanitizeSlateSnapshot({
       at: Date.now(),
+      simEngineStamp: COACH_GAME_SIM_ENGINE_VERSION,
       fingerprint: computeSlateFingerprint(enrichedBuilt),
       built: enrichedBuilt,
       propSimulations: propSimMapToSnapshot(propSimulations),

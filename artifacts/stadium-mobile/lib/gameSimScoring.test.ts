@@ -26,6 +26,7 @@ function gamePick(overrides: Partial<ParsedPick> = {}): ParsedPick {
 
 const sim = {
   sport: "mlb",
+  engineVersion: "sport-sim-v1",
   simulations: 10_000,
   homeWinProbability: 0.467,
   awayWinProbability: 0.533,

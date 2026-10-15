@@ -142,3 +142,38 @@ test("game-sim cache reuses identical fingerprint", async () => {
   assert.equal(stats!.cacheHit, 1);
   assert.equal(stats!.cacheMiss, 1);
 });
+
+test("game-sim cache refuses an unstamped draw and still accepts the next stamped draw", async () => {
+  clearCoachContextCache();
+  const fp = "ppg-per-drive-v1|nfl|unstamped";
+  let fetches = 0;
+  const accept = (draw: { engineVersion?: string } | null) =>
+    draw != null && draw.engineVersion === "ppg-per-drive-v1";
+  const rejected = await withCoachGameSimCache(
+    fp,
+    async () => {
+      fetches += 1;
+      return { sport: "nfl", simulations: 100, homeWinProbability: 0.9 };
+    },
+    undefined,
+    accept,
+  );
+  assert.equal(rejected, null);
+  assert.equal(fetches, 1);
+  const accepted = await withCoachGameSimCache(
+    fp,
+    async () => {
+      fetches += 1;
+      return {
+        sport: "nfl",
+        engineVersion: "ppg-per-drive-v1",
+        simulations: 100,
+        homeWinProbability: 0.52,
+      };
+    },
+    undefined,
+    accept,
+  );
+  assert.equal(fetches, 2);
+  assert.equal(accepted?.homeWinProbability, 0.52);
+});

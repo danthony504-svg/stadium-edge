@@ -231,4 +231,55 @@ describe("coachSlateTypes", () => {
     assert.equal(client.propSimulations.length, 0);
     assert.equal(client.built.context.realOdds[0]?.game, "••••••");
   });
+
+  it("snapshotForClient keeps the engine stamp through premium JSON and redaction", () => {
+    const snap: SlatePreAnalysisSnapshot = {
+      at: Date.now(),
+      fingerprint: "ppg-per-drive-v1:1:0:::",
+      simEngineStamp: "ppg-per-drive-v1",
+      built: minimalBuilt(),
+      propSimulations: [],
+      boardScan: null,
+      tickets: {
+        global: {
+          3: {
+            picks: [],
+            evalLinesByGame: {},
+            gameSimulations: {
+              "A @ B": {
+                sport: "nfl",
+                engineVersion: "ppg-per-drive-v1",
+                winProbHome: 0.55,
+                winProbAway: 0.45,
+              },
+            },
+            totalScanned: 1,
+            totalQualified: 0,
+            staging: {
+              mainQualified: 0,
+              altQualified: 0,
+              mainOnTicket: 0,
+              altOnTicket: 0,
+            },
+            note: "stamp",
+          },
+        },
+        bySport: {},
+      },
+      deepSimComplete: true,
+    };
+    const premium = JSON.parse(
+      JSON.stringify(snapshotForClient(snap, { legs: 3, premiumUnlocked: true })),
+    ) as SlatePreAnalysisSnapshot;
+    assert.equal(premium.simEngineStamp, "ppg-per-drive-v1");
+    assert.equal(premium.boardScan?.gameSimulations["A @ B"]?.engineVersion, "ppg-per-drive-v1");
+    assert.equal(
+      premium.tickets?.global?.[3]?.gameSimulations["A @ B"]?.engineVersion,
+      "ppg-per-drive-v1",
+    );
+    const locked = snapshotForClient(snap, { legs: 3, premiumUnlocked: false });
+    assert.equal(locked.simEngineStamp, "ppg-per-drive-v1");
+    assert.deepEqual(locked.boardScan?.gameSimulations, {});
+    assert.deepEqual(locked.tickets?.global?.[3]?.gameSimulations, {});
+  });
 });

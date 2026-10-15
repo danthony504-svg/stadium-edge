@@ -104,6 +104,7 @@ test("slatePreAnalysisCache.ts ships tryDeserializeBoardScan + map guards", () =
   assert.match(src, /isPlainRecord\(raw\.evalLinesByGame\)/);
   assert.match(src, /slate-preanalysis:v5:\$\{COACH_GAME_SIM_ENGINE_VERSION\}:/);
   assert.match(src, /slateSnapshotMatchesDriveEngine/);
+  assert.match(src, /slateSnapshotEngineAccepted/);
   assert.match(src, /COACH_GAME_SIM_ENGINE_VERSION\}:\$\{odds\.length\}/);
 });
 

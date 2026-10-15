@@ -61,6 +61,7 @@ test("buildFinalAiScore recommends sim-aligned B+ leg", () => {
       pick: "Home Team ML",
       odds: -110,
       isProp: false,
+      sport: "mlb",
     },
     rubricScores: {
       matchup: 8.5,
@@ -74,6 +75,7 @@ test("buildFinalAiScore recommends sim-aligned B+ leg", () => {
     propSimHit: null,
     gameSim: {
       sport: "mlb",
+      engineVersion: "sport-sim-v1",
       simulations: 10_000,
       homeWinProbability: 0.65,
       awayWinProbability: 0.35,

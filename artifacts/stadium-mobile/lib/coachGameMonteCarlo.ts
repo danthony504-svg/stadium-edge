@@ -7,6 +7,7 @@ import {
   fingerprintCoachGameSim,
   withCoachGameSimCache,
 } from "./coachContextCache.ts";
+import { gameDrawEngineAccepted } from "./gameSimEngineVersion.ts";
 import {
   buildGameCoverQuery,
   gamePickCoverQueryId,
@@ -168,6 +169,7 @@ export async function fetchCoachGameSimulationsForPicks(
         },
         signal,
       );
+      if (result && !gameDrawEngineAccepted(result, sportKey)) result = null;
       if (
         !result &&
         (sportKey === "ufc" || sportKey === "mma") &&
@@ -189,7 +191,7 @@ export async function fetchCoachGameSimulationsForPicks(
           signal,
         );
       }
-      if (result) {
+      if (result && gameDrawEngineAccepted(result, sportKey)) {
         const sim = result as CoachGameSimEntry;
         out.set(gameLabel, sim);
         for (const leg of legs) {
@@ -335,10 +337,11 @@ export async function fetchSlateGameSimulationsWithStatus(
         simFp,
         () => fetchGameOutcomeSimulation(simOpts, signal),
         signal,
+        (draw) => draw == null || gameDrawEngineAccepted(draw, sportKey),
       );
       // UFC/MMA: when production game-outcome rejects name-only (or returns
       // null), mirror Simulator — client fight analysis + 10k MC.
-      let result = resultRaw;
+      let result = resultRaw && gameDrawEngineAccepted(resultRaw, sportKey) ? resultRaw : null;
       if (
         !result &&
         (sportKey === "ufc" || sportKey === "mma") &&
@@ -360,7 +363,7 @@ export async function fetchSlateGameSimulationsWithStatus(
           signal,
         );
       }
-      if (result) {
+      if (result && gameDrawEngineAccepted(result, sportKey)) {
         // Keep the server cover rates. ESPN period averages must not rescale
         // full-game draws into a period hit. Period markets still fail the
         // validity gate in p0UnvalidatedSimDecision.

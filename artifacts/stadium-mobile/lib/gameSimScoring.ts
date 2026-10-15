@@ -16,6 +16,7 @@ import { withFgDistSeriesReuse } from "./gameSimDistReuse.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
 import { parsePickLineNumber } from "./pickLineParse.ts";
 import { gateTennisCoverHit, isTennisHandicapOrTotal } from "./tennisHandicapSim.ts";
+import { gameDrawEngineAccepted } from "./gameSimEngineVersion.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
 function gameMarketFamily(market: string): string {
@@ -694,6 +695,7 @@ export function gameSimHitForPick(
   sim: CoachGameSimEntry | null | undefined,
 ): number | null {
   if (!gameSimHasValidRun(sim)) return null;
+  if (!gameDrawEngineAccepted(sim, pick.sport)) return null;
   if (!simMarketMappingIsValid(pick)) return null;
   const query = buildGameCoverQuery(pick);
   if (!query) return null;

@@ -141,6 +141,9 @@ export type TicketStagingBreakdown = {
 };
 
 export type CoachGameSimEntry = {
+  sport?: string;
+  /** Server engine stamp. Missing or mismatched draws must not be graded. */
+  engineVersion?: string;
   winProbHome?: number | null;
   winProbAway?: number | null;
   /** Canonical server cover map. */
@@ -174,6 +177,11 @@ export type SlateTicketsIndex = {
 export type SlatePreAnalysisSnapshot = {
   at: number;
   fingerprint: string;
+  /**
+   * Writer stamp. Clients reject a snapshot that lacks this even when the
+   * fingerprint prefix matches, so deploy order is not the cache check.
+   */
+  simEngineStamp?: string;
   built: BuiltChatContext;
   propSimulations: Array<[string, { hitProbability: number | null }]>;
   boardScan: SerializedBoardScan | null;

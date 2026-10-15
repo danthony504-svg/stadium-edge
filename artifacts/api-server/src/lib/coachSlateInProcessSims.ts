@@ -10,6 +10,7 @@ import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
 import { fetchEspnInjuries } from "./espnInjuries.js";
 import { teamPace } from "./statmuse.js";
 import { runSportGameMonteCarlo } from "./sportSim/registry.js";
+import { SPORT_SIM_ENGINE_VERSION, stampedTeamGameOutcome } from "./sportSim/gameSimEngineVersion.js";
 import {
   loadFootballDefenseAllowed,
   teamInputFromHistory,
@@ -235,6 +236,8 @@ export async function runPropSimsInProcess(body: {
 }
 
 export type InProcessGameOutcome = {
+  sport?: string;
+  engineVersion?: string;
   homeWinProbability?: number | null;
   awayWinProbability?: number | null;
   coverHitRates?: Record<string, number>;
@@ -275,6 +278,8 @@ export async function runGameOutcomeSimInProcess(body: {
     });
     if (!result) return null;
     return {
+      sport,
+      engineVersion: SPORT_SIM_ENGINE_VERSION,
       homeWinProbability: result.homeWinProbability ?? null,
       awayWinProbability: result.awayWinProbability ?? null,
       coverHitRates: result.coverHitRates ?? {},
@@ -297,6 +302,8 @@ export async function runGameOutcomeSimInProcess(body: {
       simulations,
     );
     return {
+      sport,
+      engineVersion: SPORT_SIM_ENGINE_VERSION,
       homeWinProbability: sim.homeWinProbability ?? null,
       awayWinProbability: sim.awayWinProbability ?? null,
       coverHitRates: sim.coverHitRates ?? {},
@@ -325,9 +332,5 @@ export async function runGameOutcomeSimInProcess(body: {
     away: teamInputFromHistory(awayHist, "away", awayDef),
   });
   if (!result) return null;
-  return {
-    homeWinProbability: result.homeWinProbability ?? null,
-    awayWinProbability: result.awayWinProbability ?? null,
-    coverHitRates: result.coverHitRates ?? {},
-  };
+  return stampedTeamGameOutcome(sport, result);
 }

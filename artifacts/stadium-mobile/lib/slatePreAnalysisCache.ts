@@ -8,6 +8,7 @@ import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import type { CoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { COACH_GAME_SIM_ENGINE_VERSION } from "./coachContextCache.ts";
+import { slateSnapshotEngineAccepted } from "./gameSimEngineVersion.ts";
 
 /** Bump with the drive engine so a previous OTA cannot reuse stored grades. */
 const PREFIX = `slate-preanalysis:v5:${COACH_GAME_SIM_ENGINE_VERSION}:`;
@@ -46,6 +47,7 @@ export type SlateTicketsIndex = {
 export type SlatePreAnalysisSnapshot = {
   at: number;
   fingerprint: string;
+  simEngineStamp?: string;
   built: BuiltChatContext;
   propSimulations: Array<[string, { hitProbability: number | null }]>;
   boardScan: SerializedBoardScan | null;
@@ -86,9 +88,9 @@ export function computeSlateFingerprint(
 }
 
 export function slateSnapshotMatchesDriveEngine(
-  snapshot: { fingerprint?: string } | null | undefined,
+  snapshot: Parameters<typeof slateSnapshotEngineAccepted>[0],
 ): boolean {
-  return String(snapshot?.fingerprint ?? "").startsWith(`${COACH_GAME_SIM_ENGINE_VERSION}:`);
+  return slateSnapshotEngineAccepted(snapshot);
 }
 
 export function isSlatePreAnalysisInstantLoad(
@@ -212,6 +214,7 @@ export function isSlatePreAnalysisFresh(
 
 export function getSlatePreAnalysisSnapshot(): SlatePreAnalysisSnapshot | null {
   if (!memorySnapshot) return null;
+  if (!slateSnapshotMatchesDriveEngine(memorySnapshot)) return null;
   if (!isSlatePreAnalysisInstantLoad(memorySnapshot)) return null;
   return memorySnapshot;
 }
@@ -219,6 +222,7 @@ export function getSlatePreAnalysisSnapshot(): SlatePreAnalysisSnapshot | null {
 export async function rememberSlatePreAnalysis(
   snapshot: SlatePreAnalysisSnapshot,
 ): Promise<void> {
+  if (!slateSnapshotMatchesDriveEngine(snapshot)) return;
   memorySnapshot = snapshot;
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
