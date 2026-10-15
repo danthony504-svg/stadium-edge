@@ -117,7 +117,7 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
         })}
       </View>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9.5 }}>
-        {holistic.coveragePct}% context grounded
+        {holistic.coveragePct}% input coverage
         {holistic.missingCount > 0
           ? ` · ${holistic.missingCount} signal${holistic.missingCount === 1 ? "" : "s"} missing`
           : ""}
