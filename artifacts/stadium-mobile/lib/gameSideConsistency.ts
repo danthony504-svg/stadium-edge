@@ -133,14 +133,38 @@ function legKey(pick: ParsedPick): string {
   return `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
 }
 
-/** Market-value score for resolving opposing sides — ignores outright win-prob. */
+/**
+ * Final AI / value metrics for resolving opposing sides.
+ * Matches gameLineOptimizer.rankEvaluated: composite → simAligned → edge.
+ * Raw cover is recorded for diagnostics only — never used to rank across
+ * differently priced spreads, ML, or alt lines (price is in edge/EV).
+ */
 export type GameSideLegMetrics = {
   composite: number;
   edgePct: number;
-  /** Market-specific cover rate from the shared 10k sim (spread/ML cover). */
+  /** EV in percent points when odds + cover are known; else −∞. */
+  evPct: number;
+  simAligned: boolean;
+  /** Diagnostic only — not used in compareLegMetrics. */
   marketSimHit: number;
   qualified: boolean;
 };
+
+function americanToDecimal(odds: number): number | null {
+  if (!Number.isFinite(odds) || odds === 0) return null;
+  return odds > 0 ? 1 + odds / 100 : 1 + 100 / -odds;
+}
+
+/** Expected value in percent points: (hit * decimal − 1) * 100. */
+export function evPctFromHitAndOdds(
+  hit: number | null | undefined,
+  odds: number | null | undefined,
+): number | null {
+  if (hit == null || !Number.isFinite(hit) || odds == null) return null;
+  const dec = americanToDecimal(odds);
+  if (dec == null) return null;
+  return (hit * dec - 1) * 100;
+}
 
 export function gameSideLegMetrics(
   pick: ParsedPick,
@@ -160,6 +184,14 @@ export function gameSideLegMetrics(
       : fromSim != null && Number.isFinite(fromSim)
         ? fromSim
         : Number.NEGATIVE_INFINITY;
+  const simAligned =
+    pick.finalAiScore?.simAligned === true ||
+    (Number.isFinite(marketSimHit) && marketSimHit >= 0.52);
+  const ev =
+    evPctFromHitAndOdds(
+      Number.isFinite(marketSimHit) ? marketSimHit : null,
+      pick.odds,
+    ) ?? Number.NEGATIVE_INFINITY;
   const qualified =
     pick.finalAiScore != null &&
     (pick.finalAiScore.recommends === true ||
@@ -167,17 +199,21 @@ export function gameSideLegMetrics(
   return {
     composite: Number.isFinite(composite) ? composite : Number.NEGATIVE_INFINITY,
     edgePct: Number.isFinite(edgePct as number) ? (edgePct as number) : Number.NEGATIVE_INFINITY,
+    evPct: Number.isFinite(ev) ? ev : Number.NEGATIVE_INFINITY,
+    simAligned,
     marketSimHit: Number.isFinite(marketSimHit) ? marketSimHit : Number.NEGATIVE_INFINITY,
     qualified,
   };
 }
 
-function compareLegMetrics(a: GameSideLegMetrics, b: GameSideLegMetrics): number {
-  // Qualified legs beat unqualified before any numeric tiebreak.
+/** Final AI / value order — never ranks by raw cover across priced lines. */
+export function compareLegMetrics(a: GameSideLegMetrics, b: GameSideLegMetrics): number {
   if (a.qualified !== b.qualified) return a.qualified ? 1 : -1;
   if (a.composite !== b.composite) return a.composite - b.composite;
+  if (a.simAligned !== b.simAligned) return a.simAligned ? 1 : -1;
+  // Prefer edge, then EV (both price-aware). Do not fall back to raw cover.
   if (a.edgePct !== b.edgePct) return a.edgePct - b.edgePct;
-  if (a.marketSimHit !== b.marketSimHit) return a.marketSimHit - b.marketSimHit;
+  if (a.evPct !== b.evPct) return a.evPct - b.evPct;
   return 0;
 }
 
@@ -240,12 +276,14 @@ export function resolveConflictingGameSide(
 
   if (homeBest && awayBest) {
     const cmp = compareLegMetrics(homeBest.metrics, awayBest.metrics);
+    const fmt = (m: GameSideLegMetrics) =>
+      `comp ${m.composite.toFixed(2)} / edge ${m.edgePct.toFixed(2)} / EV ${Number.isFinite(m.evPct) ? m.evPct.toFixed(2) : "n/a"} / aligned ${m.simAligned}`;
     if (cmp > 0) {
       keep = "home";
-      reason = `kept home for higher market value (composite ${homeBest.metrics.composite.toFixed(2)} / edge ${homeBest.metrics.edgePct.toFixed(2)} / cover ${Number.isFinite(homeBest.metrics.marketSimHit) ? (homeBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"} vs away ${awayBest.metrics.composite.toFixed(2)} / ${awayBest.metrics.edgePct.toFixed(2)} / ${Number.isFinite(awayBest.metrics.marketSimHit) ? (awayBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"})`;
+      reason = `kept home for higher Final AI/value (${fmt(homeBest.metrics)} vs away ${fmt(awayBest.metrics)})`;
     } else if (cmp < 0) {
       keep = "away";
-      reason = `kept away for higher market value (composite ${awayBest.metrics.composite.toFixed(2)} / edge ${awayBest.metrics.edgePct.toFixed(2)} / cover ${Number.isFinite(awayBest.metrics.marketSimHit) ? (awayBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"} vs home ${homeBest.metrics.composite.toFixed(2)} / ${homeBest.metrics.edgePct.toFixed(2)} / ${Number.isFinite(homeBest.metrics.marketSimHit) ? (homeBest.metrics.marketSimHit * 100).toFixed(1) + "%" : "n/a"})`;
+      reason = `kept away for higher Final AI/value (${fmt(awayBest.metrics)} vs home ${fmt(homeBest.metrics)})`;
     }
   } else if (homeBest) {
     keep = "home";
@@ -266,12 +304,10 @@ export function resolveConflictingGameSide(
     const noMetrics =
       (!homeBest ||
         (homeBest.metrics.composite === Number.NEGATIVE_INFINITY &&
-          homeBest.metrics.edgePct === Number.NEGATIVE_INFINITY &&
-          homeBest.metrics.marketSimHit === Number.NEGATIVE_INFINITY)) &&
+          homeBest.metrics.edgePct === Number.NEGATIVE_INFINITY)) &&
       (!awayBest ||
         (awayBest.metrics.composite === Number.NEGATIVE_INFINITY &&
-          awayBest.metrics.edgePct === Number.NEGATIVE_INFINITY &&
-          awayBest.metrics.marketSimHit === Number.NEGATIVE_INFINITY));
+          awayBest.metrics.edgePct === Number.NEGATIVE_INFINITY));
     if (noMetrics) {
       const winProbSide = simFavoredTeamSide(sim);
       if (winProbSide) {
@@ -352,7 +388,7 @@ export function enforceConsistentGameSides(
 
   let note = "";
   if (dropped > 0) {
-    note = `_Dropped ${dropped} leg${dropped === 1 ? "" : "s"} that backed the opposing team on the same game — one side per matchup (market sim / value / quality, not outright win-prob alone)._`;
+    note = `_Dropped ${dropped} leg${dropped === 1 ? "" : "s"} that backed the opposing team on the same game — one side per matchup (Final AI / edge / EV, not win-prob or raw cover alone)._`;
   }
 
   return { picks: kept, dropped, note, resolutions };
