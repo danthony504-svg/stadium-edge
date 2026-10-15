@@ -38,3 +38,13 @@ python3 -c 'import os; print("EXPO_TOKEN_configured=", bool(os.environ.get("EXPO
 ```
 
 `prepare-preview-test.sh` and `publish-preview-ota.sh` read `EXPO_TOKEN` from the environment and **never echo it**.
+
+## Saved secret vs missing injection
+
+| Observation | Interpretation |
+|-------------|----------------|
+| Dashboard lists `EXPO_TOKEN` as a Runtime Secret on env `8c5427d9-…` | Secret is **saved** |
+| This pod: `EXPO_TOKEN_present=False` | Secret was **not injected** into this process |
+| Prior agent on same env id published with EAS | Injection worked on that pod / env version |
+
+This run is linked to environment **`8c5427d9-a490-11f1-a7d1-d6b4613131ce`** (same as the saved secret). It is **not** a missing-saved-secret diagnosis — it is a **pod injection gap** (often after mid-run secret edits, or when the pod booted from an older environment version/snapshot). Fix: start a **new** agent run on this environment so Runtime Secrets are injected at boot. Never paste the token into chat.
