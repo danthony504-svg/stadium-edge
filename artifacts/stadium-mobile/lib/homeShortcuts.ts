@@ -41,6 +41,8 @@ export type HomeShortcutDest =
       kind: "props";
       pathname: "/props";
       sport: string | null;
+      /** Open value-ranked (+EV / Final AI) view — not Popular Players. */
+      view: "value";
     }
   | {
       id: HomeShortcutId;
@@ -89,6 +91,7 @@ export function resolveHomeShortcut(
         kind: "props",
         pathname: "/props",
         sport: propsOk ? sportId : null,
+        view: "value",
       };
     case "longshots":
       return {

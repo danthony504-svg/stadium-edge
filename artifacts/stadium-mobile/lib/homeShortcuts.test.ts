@@ -39,13 +39,17 @@ test("home shortcuts resolve distinct destinations with sport preserved", () => 
     kind: "props",
     pathname: "/props",
     sport: "mlb",
+    view: "value",
   });
 
   const valueNoProps = resolveHomeShortcut("best_value", "ufc", {
     propsSportSupported: false,
   });
   assert.equal(valueNoProps.kind, "props");
-  if (valueNoProps.kind === "props") assert.equal(valueNoProps.sport, null);
+  if (valueNoProps.kind === "props") {
+    assert.equal(valueNoProps.sport, null);
+    assert.equal(valueNoProps.view, "value");
+  }
 
   const long = resolveHomeShortcut("longshots", "ncaaf");
   assert.deepEqual(long, {
@@ -80,6 +84,31 @@ test("Home quick actions call runHomeShortcut (not dead Pressables)", () => {
   assert.match(src, /runHomeShortcut\("best_value"\)/);
   assert.match(src, /runHomeShortcut\("longshots"\)/);
   assert.match(src, /markCoachHomeLaunch\(\{\s*autoMsg:/);
+  assert.match(src, /dest\.view \? \{ view: dest\.view \}/);
+});
+
+test("Best Value props screen opens valueMode ranked rail (not Popular Players)", () => {
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/props.tsx"),
+    "utf8",
+  );
+  assert.match(src, /view\?: string/);
+  assert.match(src, /valueMode = String\(params\.view/);
+  assert.match(src, /=== ["']value["']/);
+  assert.match(src, /valueMode && !query\.trim\(\) && !isBrowseSport/);
+  assert.match(src, /VALUE \(\+EV\) · Final AI ranked/);
+  assert.match(src, /!valueMode && !searching && popularPlayers/);
+  assert.doesNotMatch(src, /false && !query\.trim\(\) && valueProps/);
+});
+
+test("Longshots summary labels board-wide counts when a sport is selected", () => {
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/steals.tsx"),
+    "utf8",
+  );
+  assert.match(src, /Across all sports/);
+  assert.match(src, /StealsFoundToday meta=\{meta\} sportFilter=\{sportFilter\}/);
+  assert.match(src, /ScanChecklist meta=\{meta\} phase="empty" sportFilter=\{sportFilter\}/);
 });
 
 test("Coach consumes autoMsg via takeCoachLaunch + send params", () => {
