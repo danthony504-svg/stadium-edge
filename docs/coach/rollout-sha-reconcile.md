@@ -80,3 +80,7 @@ Physical-device React UI: **PENDING**. Publication: **pending review** (no OTA /
 
 - No merge to main, deploy, production OTA, native build, or device registration in this turn
 - Publication stays pending review
+
+## Preview-OTA review pack
+
+See `docs/coach/preview-ota-rollout-review.md` (prepare only; do not execute).
