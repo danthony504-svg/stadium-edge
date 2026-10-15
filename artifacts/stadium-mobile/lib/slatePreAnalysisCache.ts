@@ -7,8 +7,10 @@ import type { CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import type { CoachBoardScanManifest } from "./coachBoardScanManifest.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
+import { COACH_GAME_SIM_ENGINE_VERSION } from "./coachContextCache.ts";
 
-const PREFIX = "slate-preanalysis:v4:invariants:";
+/** Bump with the drive engine so a previous OTA cannot reuse stored grades. */
+const PREFIX = `slate-preanalysis:v5:${COACH_GAME_SIM_ENGINE_VERSION}:`;
 const STORAGE_KEY = `${PREFIX}snapshot`;
 const GEN_KEY = `${PREFIX}ota-generation`;
 
@@ -80,7 +82,13 @@ export function computeSlateFingerprint(
     .join(";");
   const inj = opts?.injuryDigest ?? "";
   const status = opts?.gameStatusDigest ?? "";
-  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+  return `${COACH_GAME_SIM_ENGINE_VERSION}:${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+}
+
+export function slateSnapshotMatchesDriveEngine(
+  snapshot: { fingerprint?: string } | null | undefined,
+): boolean {
+  return String(snapshot?.fingerprint ?? "").startsWith(`${COACH_GAME_SIM_ENGINE_VERSION}:`);
 }
 
 export function isSlatePreAnalysisInstantLoad(
@@ -268,6 +276,7 @@ export async function hydrateSlatePreAnalysisCache(): Promise<boolean> {
       if (!raw) return false;
       const parsed = JSON.parse(raw) as SlatePreAnalysisSnapshot;
       if (!parsed?.at || !parsed.built?.context) return false;
+      if (!slateSnapshotMatchesDriveEngine(parsed)) return false;
       if (!isSlatePreAnalysisInstantLoad(parsed)) return false;
       memorySnapshot = parsed;
       return true;
@@ -283,6 +292,7 @@ export async function applyServerSlateSnapshot(
   server: SlatePreAnalysisSnapshot | null | undefined,
 ): Promise<boolean> {
   if (!server?.at || !server.built?.context) return false;
+  if (!slateSnapshotMatchesDriveEngine(server)) return false;
   if (!isSlatePreAnalysisInstantLoad(server)) return false;
   const local = memorySnapshot;
   if (local && local.fingerprint === server.fingerprint && local.at >= server.at) {
