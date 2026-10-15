@@ -19,11 +19,21 @@
  * null instead of the full-game win probability. Full-game rates and win
  * probabilities stay, so a mixed request can still grade full-game sides.
  *
+ * The 0 value is a temporary compatibility sentinel for the published client
+ * (`bdddb08e`), which does not read `coverQueryStatus`. New clients must treat
+ * `coverQueryStatus[id] === "unsupported_market"` as the block and must not
+ * interpret 0 as a probability.
+ *
  * A draw the published client already cached is unprotected until its 20-minute
  * memory TTL or the next slate sync. This process cannot delete that cache.
  */
 
+import { isPeriodMarket } from "./preSimShift/periodGuard.js";
+
 export const PUBLISHED_CLIENT_UNGRADEABLE_COVER = 0;
+
+/** Explicit block for clients that understand this field. Not a probability. */
+export const UNSUPPORTED_MARKET_STATUS = "unsupported_market";
 
 export function requestAsksNonFullGamePeriod(
   queries: Array<{ period?: string | null }> | null | undefined,
@@ -47,6 +57,7 @@ export function sealPublishedClientPeriodQueries<
   T extends {
     outcomes?: unknown;
     coverHitRates?: Record<string, number> | null;
+    coverQueryStatus?: Record<string, string> | null;
   },
 >(body: T, queries: PeriodQuery[] | null | undefined): T {
   if (!body || typeof body !== "object") return body;
@@ -54,15 +65,90 @@ export function sealPublishedClientPeriodQueries<
   const next = { ...body };
   delete next.outcomes;
   const rates: Record<string, number> = { ...(next.coverHitRates ?? {}) };
+  const status: Record<string, string> = { ...(next.coverQueryStatus ?? {}) };
   for (const query of queries ?? []) {
     const period = String(query?.period ?? "").toLowerCase();
     if (period === "" || period === "fg") continue;
     const id = String(query?.id ?? "").trim();
     if (!id) continue;
     rates[id] = PUBLISHED_CLIENT_UNGRADEABLE_COVER;
+    status[id] = UNSUPPORTED_MARKET_STATUS;
   }
   next.coverHitRates = rates;
+  next.coverQueryStatus = status;
   return next;
+}
+
+type CachedSim = {
+  outcomes?: unknown;
+  coverHitRates?: Record<string, number | null> | null;
+  coverProbs?: Record<string, number | null> | null;
+  coverQueryStatus?: Record<string, string> | null;
+};
+
+type CachedLine = { game?: string | null; market?: string | null; pick?: string | null };
+
+/** Same id the published client looks up: game|market|pick, lowercased. */
+export function publishedClientCoverQueryId(game: string, market: string, pick: string): string {
+  return `${game}|${market}|${pick}`.toLowerCase();
+}
+
+/**
+ * Seal a stored sim, including one read back from a cached snapshot.
+ * Query-time sealing is authoritative. This pass also covers rows that were
+ * stored before the seal: period-looking rate keys, and period lines whose
+ * client lookup id was never written.
+ */
+export function sealCachedGameSim<T extends CachedSim>(
+  sim: T,
+  lines?: readonly CachedLine[] | null,
+): T {
+  if (!sim || typeof sim !== "object") return sim;
+  const source = sim.coverHitRates ?? sim.coverProbs ?? {};
+  const rates: Record<string, number | null> = { ...source };
+  const status: Record<string, string> = { ...(sim.coverQueryStatus ?? {}) };
+  let sealed = false;
+  const zero = (id: string) => {
+    if (!id) return;
+    sealed = true;
+    rates[id] = PUBLISHED_CLIENT_UNGRADEABLE_COVER;
+    status[id] = UNSUPPORTED_MARKET_STATUS;
+  };
+  for (const id of Object.keys(rates)) {
+    if (isPeriodMarket(id)) zero(id);
+  }
+  for (const line of lines ?? []) {
+    const market = String(line?.market ?? "");
+    const pick = String(line?.pick ?? "");
+    const game = String(line?.game ?? "");
+    if (!game || !pick || !isPeriodMarket(market)) continue;
+    zero(publishedClientCoverQueryId(game, market, pick));
+  }
+  if (!sealed) return sim;
+  const next = { ...sim };
+  delete next.outcomes;
+  next.coverHitRates = rates;
+  next.coverProbs = { ...rates };
+  next.coverQueryStatus = status;
+  return next;
+}
+
+export function sealCachedBoardScan<
+  T extends {
+    gameSimulations?: Record<string, CachedSim> | null;
+    evalLinesByGame?: Record<string, CachedLine[]> | null;
+  },
+>(scan: T): T {
+  if (!scan?.gameSimulations) return scan;
+  const sims: Record<string, CachedSim> = {};
+  for (const [game, sim] of Object.entries(scan.gameSimulations)) {
+    const lines = (scan.evalLinesByGame?.[game] ?? []).map((line) => ({
+      ...line,
+      game: line.game || game,
+    }));
+    sims[game] = sealCachedGameSim(sim, lines);
+  }
+  return { ...scan, gameSimulations: sims };
 }
 
 /**

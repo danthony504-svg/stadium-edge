@@ -1,5 +1,7 @@
 /** Types mirroring stadium-mobile/lib/slatePreAnalysisCache.ts for cross-client snapshots. */
 
+import { sealCachedBoardScan } from "./gameOutcomePayload.js";
+
 import { FOOTBALL_DRIVE_ENGINE_VERSION } from "./sportSim/footballDriveMatchup.js";
 
 /** Precompute enough legs for instant 15-leg longshot asks — no filler. */
@@ -153,6 +155,11 @@ export type CoachGameSimEntry = {
    * Lookups accept either key so slate sims stay aligned when scores omit simHit.
    */
   coverHitRates?: Record<string, number | null>;
+  /**
+   * Explicit unsupported-market status. The 0 cover rate is only a sentinel
+   * for the published client. New clients must read this field.
+   */
+  coverQueryStatus?: Record<string, string | null>;
 };
 
 export type SerializedBoardScan = {
@@ -242,10 +249,11 @@ export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardSc
   for (const [game, sim] of scan.gameSimulations) {
     gameSimulations[game] = sim;
   }
+  const sealed = sealCachedBoardScan({ gameSimulations, evalLinesByGame });
   return {
     picks: scan.picks,
     evalLinesByGame,
-    gameSimulations,
+    gameSimulations: sealed.gameSimulations ?? gameSimulations,
     totalScanned: scan.totalScanned,
     totalQualified: scan.totalQualified,
     staging: scan.staging,
@@ -459,10 +467,39 @@ function redactBuiltContext(built: BuiltChatContext | null | undefined): BuiltCh
   };
 }
 
+function sealSnapshotPeriodMarkets(snapshot: SlatePreAnalysisSnapshot): SlatePreAnalysisSnapshot {
+  const tickets = snapshot.tickets;
+  let nextTickets = tickets;
+  if (tickets) {
+    const global: SlateTicketsIndex["global"] = {};
+    for (const [k, v] of Object.entries(tickets.global ?? {})) {
+      const size = Number(k) as SlateParlayLegCount;
+      global[size] = v ? sealCachedBoardScan(v) : undefined;
+    }
+    const bySport: SlateTicketsIndex["bySport"] = {};
+    for (const [sport, byLegs] of Object.entries(tickets.bySport ?? {})) {
+      if (!byLegs || typeof byLegs !== "object") continue;
+      const next: Partial<Record<SlateParlayLegCount, SerializedBoardScan>> = {};
+      for (const [k, v] of Object.entries(byLegs)) {
+        const size = Number(k) as SlateParlayLegCount;
+        next[size] = v ? sealCachedBoardScan(v) : undefined;
+      }
+      bySport[sport] = next;
+    }
+    nextTickets = { global, bySport };
+  }
+  return {
+    ...snapshot,
+    boardScan: snapshot.boardScan ? sealCachedBoardScan(snapshot.boardScan) : snapshot.boardScan,
+    tickets: nextTickets ?? null,
+  };
+}
+
 /**
  * Client-facing snapshot with boardScan resolved to the requested ticket.
  * When `premiumUnlocked` is false, pick sides/lines/odds/grades/sims are redacted.
- * Never throws on malformed snapshot rows — returns a safe empty redacted shell.
+ * Cached rows are sealed on the way out, including snapshots stored before the
+ * period sentinel existed. Never throws on malformed snapshot rows.
  */
 export function snapshotForClient(
   snapshot: SlatePreAnalysisSnapshot,
@@ -472,19 +509,20 @@ export function snapshotForClient(
     if (!snapshot || typeof snapshot !== "object") {
       return emptyRedactedSnapshot();
     }
-    const boardScan = resolveSlateBoardScan(snapshot, opts);
+    const sealedSnapshot = sealSnapshotPeriodMarkets(snapshot);
+    const boardScan = resolveSlateBoardScan(sealedSnapshot, opts);
     if (opts?.premiumUnlocked) {
-      return { ...snapshot, boardScan };
+      return { ...sealedSnapshot, boardScan };
     }
-    let tickets: SlateTicketsIndex | null | undefined = snapshot.tickets;
-    if (snapshot.tickets) {
+    let tickets: SlateTicketsIndex | null | undefined = sealedSnapshot.tickets;
+    if (sealedSnapshot.tickets) {
       const global: SlateTicketsIndex["global"] = {};
-      for (const [k, v] of Object.entries(snapshot.tickets.global ?? {})) {
+      for (const [k, v] of Object.entries(sealedSnapshot.tickets.global ?? {})) {
         const size = Number(k) as SlateParlayLegCount;
         global[size] = redactBoardScan(v ?? null) ?? undefined;
       }
       const bySport: SlateTicketsIndex["bySport"] = {};
-      for (const [sport, byLegs] of Object.entries(snapshot.tickets.bySport ?? {})) {
+      for (const [sport, byLegs] of Object.entries(sealedSnapshot.tickets.bySport ?? {})) {
         if (!byLegs || typeof byLegs !== "object") continue;
         const next: Partial<Record<SlateParlayLegCount, SerializedBoardScan>> = {};
         for (const [k, v] of Object.entries(byLegs ?? {})) {
@@ -496,8 +534,8 @@ export function snapshotForClient(
       tickets = { global, bySport };
     }
     return {
-      ...snapshot,
-      built: redactBuiltContext(snapshot.built),
+      ...sealedSnapshot,
+      built: redactBuiltContext(sealedSnapshot.built),
       propSimulations: [],
       boardScan: redactBoardScan(boardScan),
       tickets: tickets ?? null,

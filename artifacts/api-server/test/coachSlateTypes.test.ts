@@ -282,4 +282,55 @@ describe("coachSlateTypes", () => {
     assert.deepEqual(locked.boardScan?.gameSimulations, {});
     assert.deepEqual(locked.tickets?.global?.[3]?.gameSimulations, {});
   });
+
+  it("snapshotForClient seals a cached period rate before a premium client can grade it", () => {
+    const snap: SlatePreAnalysisSnapshot = {
+      at: Date.now(),
+      fingerprint: "ppg-per-drive-v1:cached",
+      simEngineStamp: "ppg-per-drive-v1",
+      built: minimalBuilt(),
+      propSimulations: [],
+      boardScan: null,
+      tickets: {
+        global: {
+          3: {
+            picks: [],
+            evalLinesByGame: {
+              "Seattle Seahawks @ Denver Broncos": [
+                {
+                  sport: "nfl",
+                  game: "Seattle Seahawks @ Denver Broncos",
+                  market: "Q3 Spread",
+                  pick: "Seahawks +1.5",
+                  odds: -110,
+                },
+              ],
+            },
+            gameSimulations: {
+              "Seattle Seahawks @ Denver Broncos": {
+                sport: "nfl",
+                engineVersion: "ppg-per-drive-v1",
+                winProbHome: 0.58,
+                winProbAway: 0.42,
+                coverProbs: { "sea @ den|q3|spread|home|-1.5": 0.91 },
+              },
+            },
+            totalScanned: 1,
+            totalQualified: 0,
+            staging: { mainQualified: 0, altQualified: 0, mainOnTicket: 0, altOnTicket: 0 },
+            note: "cached",
+          },
+        },
+        bySport: {},
+      },
+      deepSimComplete: true,
+    };
+    const premium = snapshotForClient(snap, { legs: 3, premiumUnlocked: true });
+    const sim = premium.boardScan?.gameSimulations["Seattle Seahawks @ Denver Broncos"];
+    const clientId = "seattle seahawks @ denver broncos|q3 spread|seahawks +1.5";
+    assert.equal(sim?.coverHitRates?.[clientId], 0);
+    assert.equal(sim?.coverQueryStatus?.[clientId], "unsupported_market");
+    assert.equal(sim?.coverHitRates?.["sea @ den|q3|spread|home|-1.5"], 0);
+    assert.equal(sim?.outcomes, undefined);
+  });
 });

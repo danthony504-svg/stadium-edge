@@ -63,6 +63,12 @@ export type CoachGameSimEntry = GameSimulationResult & {
    * Live delivery still requires Final AI simHit — sim-map alone cannot seat.
    */
   coverProbs?: Record<string, number | null>;
+  /**
+   * Server block for a market this draw must not grade. `unsupported_market`
+   * wins over a numeric cover rate. The published client's 0 sentinel is a
+   * compatibility shim; this field is the status new clients use.
+   */
+  coverQueryStatus?: Record<string, string | null>;
   outcomes?: { homeScores: number[]; awayScores: number[] };
 };
 
@@ -699,6 +705,7 @@ export function gameSimHitForPick(
   if (!simMarketMappingIsValid(pick)) return null;
   const query = buildGameCoverQuery(pick);
   if (!query) return null;
+  if (sim!.coverQueryStatus?.[query.id] === "unsupported_market") return null;
   // Period on the query must match a supported sport period — no FG fallback grade.
   if (query.period && query.period !== "fg" && !sportSupportsPeriod(pick.sport ?? "", query.period)) {
     return null;

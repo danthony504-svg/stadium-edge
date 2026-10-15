@@ -4,7 +4,9 @@ import {
   publishedClientHitForPick,
   publishedClientWouldRescalePeriodCovers,
   requestAsksNonFullGamePeriod,
+  sealCachedGameSim,
   sealPublishedClientPeriodQueries,
+  UNSUPPORTED_MARKET_STATUS,
 } from "../src/lib/gameOutcomePayload.ts";
 
 const corrected = {
@@ -63,7 +65,46 @@ test("a period request seals rates the published client would grade or fall back
   assert.equal(body.coverHitRates["fg-ml"], 0.58);
   assert.equal(body.coverHitRates["q3-ml"], 0);
   assert.equal(body.coverHitRates["q3-spread"], 0);
+  assert.equal(body.coverQueryStatus["q3-ml"], UNSUPPORTED_MARKET_STATUS);
+  assert.equal(body.coverQueryStatus["q3-spread"], UNSUPPORTED_MARKET_STATUS);
+  assert.equal(body.coverQueryStatus["fg-ml"], undefined);
   assert.equal(publishedClientHitForPick(body, periodMl), null);
   assert.equal(publishedClientHitForPick(body, periodSpread), null);
   assert.equal(publishedClientHitForPick(body, fullMl), 0.58);
+});
+
+test("a cached snapshot sim seals period lines the published client would look up", () => {
+  const sim = sealCachedGameSim(
+    {
+      engineVersion: "ppg-per-drive-v1",
+      homeWinProbability: 0.58,
+      awayWinProbability: 0.42,
+      coverProbs: {
+        "sea @ den|spread|home|-3.5": 0.54,
+        "sea @ den|q3|spread|home|-1.5": 0.91,
+      },
+      outcomes: { homeScores: [21], awayScores: [17] },
+    },
+    [
+      {
+        game: "Seattle Seahawks @ Denver Broncos",
+        market: "Q3 Spread",
+        pick: "Seahawks +1.5",
+      },
+    ],
+  );
+  assert.equal(sim.outcomes, undefined);
+  assert.equal(sim.coverHitRates?.["sea @ den|q3|spread|home|-1.5"], 0);
+  assert.equal(sim.coverQueryStatus?.["sea @ den|q3|spread|home|-1.5"], UNSUPPORTED_MARKET_STATUS);
+  assert.equal(sim.coverHitRates?.["sea @ den|spread|home|-3.5"], 0.54);
+  const clientId = "seattle seahawks @ denver broncos|q3 spread|seahawks +1.5";
+  assert.equal(sim.coverHitRates?.[clientId], 0);
+  assert.equal(sim.coverQueryStatus?.[clientId], UNSUPPORTED_MARKET_STATUS);
+  assert.equal(
+    publishedClientHitForPick(
+      { ...sim, simulations: 10000, coverHitRates: sim.coverHitRates as Record<string, number> },
+      { id: clientId, kind: "ml", period: "q3", teamSide: "home" },
+    ),
+    null,
+  );
 });

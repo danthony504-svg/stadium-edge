@@ -47,9 +47,33 @@ The published preview client is commit `bdddb08e` (update `01a13d87-ca55-7c20-b0
 
 Server-first deployment fixes the draws an old client fetches after a miss: full-game scores come from `ppg-per-drive-v1`, and the JSON includes `engineVersion`. It does not make the old client reject a draw it already stored.
 
-The published client also rescales period cover rates after the response arrives, in `fetchSlateGameSimulationsWithStatus`, when `outcomes.homeScores` is present and the request includes a non-full-game cover query. That code is on the device. A corrected server body does not remove it. `POST /sports/simulate/game-outcome` now omits `outcomes` when any cover query has a period other than `fg`, so that published path has no score arrays to rescale. Full-game requests still include `outcomes`. Cover rates for the full game stay on `coverHitRates`. Period markets stay fail-closed on the new client. A fresh response also sets each non-full-game `coverHitRates` entry to 0. The published grader returns that rate immediately, and its sanitizer rejects 0, so it does not fall through to `homeWinProbability`. Full-game rates stay. A draw already cached on the device is unprotected until the 20-minute memory TTL expires or the next slate sync replaces the v4 snapshot.
+The published client also rescales period cover rates after the response arrives, in `fetchSlateGameSimulationsWithStatus`, when `outcomes.homeScores` is present and the request includes a non-full-game cover query. Omitting `outcomes` stops that rescale. It does not stop the full-game win-probability fallback: a missing `coverHitRates` entry falls through to `homeWinProbability` / `awayWinProbability` for every moneyline, including a period moneyline.
+
+Every response this process builds for that client goes through `sealPublishedClientPeriodQueries`: tennis, UFC, and team `POST /sports/simulate/game-outcome`, and the in-process slate return. The seal deletes `outcomes` and sets each non-full-game cover rate to 0. `snapshotForClient` and `serializeBoardScan` run `sealCachedGameSim` on the way out, including a snapshot row that was stored before the seal. A period-looking rate key is set to 0, and each stored period line is also written at the published lookup id `game|market|pick`. Full-game rates stay.
+
+The 0 is a temporary compatibility sentinel. The published grader returns a finite rate immediately, and its sanitizer rejects 0, so it does not fall through. New clients must read `coverQueryStatus[id] === "unsupported_market"` and must not treat 0 as a probability. `gameSimHitForPick` returns null when that status is present, even if the numeric rate is inside (0, 1).
+
+A draw the published client already cached on the device is unprotected until the 20-minute `gamesim:` TTL expires or the next `slate-preanalysis:v4` sync replaces it. This server cannot delete that cache.
 
 A new client uses fingerprint prefix `ppg-per-drive-v1` and slate prefix `slate-preanalysis:v5:ppg-per-drive-v1:`. It does not read the published client's keys. It also refuses a body or snapshot whose stamp is missing or wrong before caching or grading.
+
+## Server-first rollout, then the preview client
+
+Do this in order. No production Render deploy, merge, OTA, or native build is part of the preparation below. NCAAF game lines and period markets stay fail-closed through every step.
+
+1. Deploy the API at the candidate SHA. New game-outcome bodies include `engineVersion` and, when a query is not full-game, `coverQueryStatus` plus the 0 sentinel. `snapshotForClient` seals cached snapshot rows on read, so a slate stored before this deploy is sealed when the next client fetches it.
+2. Confirm health, a full-game NFL draw, a mixed full-game/period draw, a 400 for missing team ids, and that a premium snapshot with a stored period rate serves that rate as 0 and `unsupported_market`. Old devices still ignore `engineVersion` and `coverQueryStatus`. Fresh responses are sealed. Device caches of earlier draws stay gradeable until the 20-minute memory TTL or the next v4 slate sync.
+3. Publish the preview client that rejects a missing or wrong stamp before caching or grading, removes the ESPN period overwrite, and honors `coverQueryStatus`. Until this client is on the device, the 0 sentinel is what stops the published grader. The new fingerprint prefix is `ppg-per-drive-v1|`. The new disk prefix is `slate-preanalysis:v5:ppg-per-drive-v1:`.
+4. Cache refresh after that client is running: the new prefix does not read `slate-preanalysis:v4:invariants:`. The next successful slate sync writes the v5 snapshot. In-memory `gamesim:` entries expire after 20 minutes or when the process restarts. Do not copy an old draw into a v5 snapshot and then set `simEngineStamp`.
+
+Rollback:
+
+| Step | What happens |
+|---|---|
+| API back, preview client not yet shipped | Old clients keep grading the rolled-back engine. The 0 sentinel and `coverQueryStatus` disappear with the API. Cached device draws are unchanged. |
+| API back after the preview client shipped | The new client stops caching and grading game draws until it rolls back too. A missing stamp is a reject. |
+| Preview client back, API stays | The old client ignores `engineVersion` and `coverQueryStatus`. It grades fresh sealed responses via the 0 sentinel and can keep any v4 snapshot it already stored. |
+| Both back | Ignore keys `slate-preanalysis:v5:ppg-per-drive-v1:`. Do not copy an old draw into a snapshot and then set `simEngineStamp`. |
 
 ## Staging test and rollback checklist
 
