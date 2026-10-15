@@ -1,92 +1,95 @@
-# Final rollout package (approval only — no execution)
+# Final rollout package — approval only (no execution)
 
-**Verification tip (client functional):** `376eceab8d15f893bd1a280da36154a265c3fd2e`  
-**Server functional tip (drive engine + period seal):** `ddeb4733348b98d7112748edc19c7e06fc6fc99a`  
-**Live Render today:** `cf6c0f699e6f3dd573ade95514af79b05c8a54c1`  
-**IPA (existing):** `057c9f0ddd42e9309146cc6eb8d3b68f089b4e82` / EAS `9155c37b-0297-45a7-98fe-ea3f38bea6a9` / runtime `1.1.0` / channel `preview`  
+## Exact SHAs
+
+| Role | Full SHA |
+|------|----------|
+| **Final client (export verified)** | `afb30bde18208404d49df247653ed350c77d0aa1` |
+| Correlation seating functional tip (ancestor) | `376eceab8d15f893bd1a280da36154a265c3fd2e` |
+| **Server (drive engine + period seal)** | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
+| Live Render today | `cf6c0f699e6f3dd573ade95514af79b05c8a54c1` |
+| Existing IPA | `057c9f0ddd42e9309146cc6eb8d3b68f089b4e82` · EAS `9155c37b-0297-45a7-98fe-ea3f38bea6a9` · runtime `1.1.0` · channel `preview` |
+
 **PR:** https://github.com/danthony504-svg/stadium-edge/pull/740
 
-Do **not** deploy, merge, publish OTA, or start a native build until explicitly approved.
+Client `afb30bde…` = `376eceab…` + constrained-slot verification + slip label honesty (`Estimated combined odds` / `Independence-based implied probability`).
 
 ---
 
-## 1. Correlation verification at `376eceab…`
+## Slip probability labels (in exported client)
 
-### Constrained-slot membership (correlation changes who is on the ticket)
-
-Artifact: `artifacts/api-server/test/fixtures/sea-den-constrained-slot-membership.json`
-
-| | Detail |
-|--|--------|
-| Setup | Existing: Seahawks +1.5, Darnold Pass TDs, JSN Rec Yds, Horton Receptions. Target 5 → `maxProps=4` → **one** prop seat left. Pool omits Holani so only Shaheed vs Sacks contest. |
-| Before (corr off) | Membership includes **Shaheed Anytime TD**; excludes Sacks |
-| After (corr on) | Membership includes **Nik Bonitto Over 0.5 Sacks**; excludes Shaheed |
-| Qualified? | Both candidates pass ladder/participant/cap hard gates |
-| Demotion | Soft only — Shaheed penalty **34** (eff 44) vs Sacks **22** (eff 54); Pass-TD↔receiver bump ≥12 |
-| Not correlation | Count caps / ladders / participants (hard gates) |
-
-### Seven-leg ticket limitation (`ORDER_ONLY_NOT_MEMBERSHIP`)
-
-Under `SINGLE_EVENT_CAPS[8].maxProps=6`, Seahawks + Darnold + receivers still leave room for **both** Shaheed and Sacks on a seven-leg window. Correlation **reorders** them; it does **not** drop either for lack of a better-qualified alternative outside that pool. Label: **all seven remain because no better-qualified alternatives exist in-pool under that prop ceiling** — membership proof is the constrained-slot test above, not the seven-leg order proof.
-
-### Displayed probability honesty
-
-| Quantity | Source | Meaning |
+| UI label | Source | Meaning |
 |----------|--------|---------|
-| Combined odds | `parlayAmerican(leg odds)` → slip “Combined odds” | Bookmaker parlay price (decimal product) |
-| Combined book implied | `parlayImplied(leg odds)` → slip label **“Combined book implied”** (was “Implied win prob”) | Product of per-leg book implied probs under **independence** |
-| Estimated joint hit probability | **None shipped** | No Pass-TD↔receiver joint / copula / sim co-hit model |
-| Per-leg confidence / edge | Coach cards `confidencePct` / `edgePct` | Per-leg Final AI — not ticket joint |
+| **Estimated combined odds** | `parlayAmerican(leg odds)` | Product of individual leg prices. **Actual sportsbook pricing may differ, especially for same-game tickets.** |
+| **Independence-based implied probability** | `parlayImplied(leg odds)` | Product of per-leg book implied probs under independence. **Not** an estimated joint / dependence-adjusted win probability. |
 
-`parlayImplied` must **not** be presented as a dependence-adjusted chance of winning. UI label + code comments updated accordingly.
+Helper copy on the slip states both facts. Estimated joint hit probability is **not shipped**.
 
----
+### Export result (this exact client SHA)
 
-## 2. “No server delta” — since which SHA?
-
-| Claim | Meaning |
-|-------|---------|
-| **No server delta in the correlation turn** | Client-only since **`ddeb4733348b98d7112748edc19c7e06fc6fc99a`** (last tip that carried api-server drive-engine + period-seal code). `376eceab…` seating/corr is `stadium-mobile` only. |
-| **Vs live API `cf6c0f69…`** | Large server gap remains. Live **lacks** `footballDriveMatchup.ts` / `gameOutcomePayload.ts` entirely — **no** `ppg-per-drive-v1`, **no** period seal. |
-
-**Corrected drive engine + period seal still require deployment** of server tip **`ddeb4733…`** (or later containing that api-server tree) to Render `stadium-edge`. Client tip `376eceab…` alone does not put those on the API.
-
----
-
-## 3. Exact SHAs for a future server-first → preview-OTA
-
-| Step | Target | SHA |
-|------|--------|-----|
-| A. API (server-first) | Render **`stadium-edge`** `https://stadium-edge.onrender.com` | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` minimum for engine+seal; prefer branch that also has client `376eceab…` if deploying one ref |
-| B. Preview OTA | Expo channel **`preview` only**, existing IPA | Client checkout at **`376eceab8d15f893bd1a280da36154a265c3fd2e`** (or later commit that contains it + UI implied label) |
-| C. Device | IPA `9155c37b…` / `057c9f0d…` / runtime `1.1.0` | No new native build |
-
-### Production API impact (explicit)
-
-Redeploying Render `stadium-edge` changes `/sports/simulate/game-outcome` for **all** clients — preview **and** production IPA users — because they share one API. That is **not** blocked by `.ota-production-freeze` (freeze = Expo production OTA only). Old production clients ignore `engineVersion` but will receive corrected `ppg-per-drive-v1` draws and sealed period payloads once the server tip is live.
-
----
-
-## 4. Passed checks (at `376eceab…` + follow-up docs/UI)
+Artifact: `artifacts/api-server/test/fixtures/preview-ios-export-proof.json`
 
 | Check | Result |
 |-------|--------|
-| Constrained-slot membership test | **PASS** |
-| Seven-leg order + `ORDER_ONLY_NOT_MEMBERSHIP` label | **PASS** |
-| Pass-TD↔receiver soft bump unit | **PASS** |
-| Isolated pipeline/cancel (`coach-pipeline-cancel-isolated.json`) | **PASS** @ `376eceab…` |
-| iOS `expo export` with full SHA in HBC | **PASS** @ `376eceab…` (not published) |
-| Slip label not “Implied win prob” | Fixed → “Combined book implied” |
-| NCAAF game lines / unsupported periods | Still blocked |
-| Production OTA | Still frozen |
+| Command | `pnpm exec expo export --platform ios --clear` |
+| `EXPO_PUBLIC_GIT_COMMIT` | `afb30bde18208404d49df247653ed350c77d0aa1` |
+| Full SHA in HBC | **yes** |
+| “Estimated combined odds” in HBC | **yes** |
+| “Independence-based implied probability” in HBC | **yes** |
+| Sportsbook-may-differ copy in HBC | **yes** |
+| Old “Implied win prob” | **absent** |
+| Published OTA / native build | **no** |
+| **PASS** | **true** |
+
+Bundle: `/tmp/preview-ios-export-afb30bde` · sha256 `34c0d6d95a70def402c34706ba9212752febb416297770a007e265aa734a1c14`
 
 ---
 
-## 5. Approval gate (no execution)
+## Correlation verification (retained)
 
-- [ ] Approve Render `stadium-edge` deploy of server tip `ddeb4733…` (production-user-affecting API)
-- [ ] Approve preview-channel OTA of client `376eceab…`+ (existing IPA only)
-- [ ] Keep `.ota-production-freeze` armed
-- [ ] Keep NCAAF / unsupported periods fail-closed
+- Constrained-slot membership change @ `376eceab…` lineage: Shaheed → Sacks under last prop seat (`sea-den-constrained-slot-membership.json`).
+- Seven-leg: `ORDER_ONLY_NOT_MEMBERSHIP` (maxProps=6 fits both; no better alternatives outside pool).
+- Caps/ladders ≠ correlation modeling.
 
-**Do not execute until explicitly approved.**
+---
+
+## Server vs live
+
+- **No api-server delta since `ddeb4733…`** for the correlation/client-label work.
+- Live `cf6c0f69…` **still lacks** `ppg-per-drive-v1` and period seal → **server deploy of `ddeb4733…` is still required**.
+
+---
+
+## Approval-only sequence (do not execute)
+
+1. **Server first:** Redeploy Render **`stadium-edge`** (`https://stadium-edge.onrender.com`) at `ddeb4733348b98d7112748edc19c7e06fc6fc99a`. Confirm `/api/healthz` `deploymentSha` matches.
+2. **Client second:** Preview-channel OTA only of **`afb30bde18208404d49df247653ed350c77d0aa1`** onto existing IPA `9155c37b…` / `057c9f0d…` / runtime `1.1.0`. No native rebuild.
+3. Keep **`.ota-production-freeze` armed**. NCAAF game lines + unsupported periods stay **blocked**.
+
+### Production API impact (explicit)
+
+The shared Render service serves **preview and production** IPAs. Deploying `ddeb4733…` changes game-outcome responses for **production users** as well. That is intentional server-first order and is **not** an Expo production OTA; production OTA remains frozen.
+
+---
+
+## Passed checks
+
+| Check | Status |
+|-------|--------|
+| Constrained-slot membership | PASS |
+| Seven-leg order + limitation label | PASS |
+| Slip label unit lock | PASS |
+| Isolated pipeline/cancel @ `376eceab…` | PASS |
+| iOS export @ `afb30bde…` with SHA + new labels in HBC | PASS |
+| Production OTA | frozen |
+| NCAAF / unsupported periods | blocked |
+
+---
+
+## Gate
+
+- [ ] Approve Render `stadium-edge` deploy of `ddeb4733…` (affects production API users)
+- [ ] Approve preview OTA of `afb30bde…` on existing IPA only
+- [ ] Keep production OTA frozen; NCAAF/periods fail-closed
+
+**No execution until explicitly approved.**

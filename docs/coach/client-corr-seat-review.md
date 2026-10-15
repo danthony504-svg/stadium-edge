@@ -1,6 +1,7 @@
 # Client review pack — correlation-aware single-event seating
 
-**Final client SHA:** `376eceab8d15f893bd1a280da36154a265c3fd2e`  
+**Final client SHA (export):** `afb30bde18208404d49df247653ed350c77d0aa1`  
+**Correlation tip:** `376eceab8d15f893bd1a280da36154a265c3fd2e`  
 **PR:** https://github.com/danthony504-svg/stadium-edge/pull/740  
 **Base:** `cursor/football-unit-port-def8` (functional engine tip `ddeb4733…`)
 
@@ -43,8 +44,8 @@ Artifact: `artifacts/api-server/test/fixtures/sea-den-7leg-correlation-before-af
 
 | Surface | What it shows | Dependence-adjusted? |
 |---------|---------------|----------------------|
-| Slip “Combined odds” (`parlayAmerican`) | Bookmaker parlay price | **No** — payout math under independence |
-| Slip “Combined book implied” (`parlayImplied`) | Product of per-leg book implied probs | **No** — independence product; **not** joint hit chance |
+| Slip “Estimated combined odds” (`parlayAmerican`) | Estimated from individual prices (sportsbook may differ, esp. same-game) | **No** — payout math under independence |
+| Slip “Independence-based implied probability” (`parlayImplied`) | Product of per-leg book implied probs | **No** — independence product; **not** joint hit chance |
 | Coach card `confidencePct` / `edgePct` | Per-leg Final AI | **No** ticket-level joint model |
 | Estimated joint hit probability | **Not shipped** | — |
 | Caps / distinct ladders | Exposure / identity gates | **Not correlation modeling** |

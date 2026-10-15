@@ -1,17 +1,22 @@
 {
-  "exportDir": "/tmp/preview-ios-export-376eceab",
+  "finalClientSha": "afb30bde18208404d49df247653ed350c77d0aa1",
+  "exportDir": "/tmp/preview-ios-export-afb30bde",
   "platform": "ios",
-  "command": "pnpm exec expo export --platform ios --clear (with EXPO_PUBLIC_GIT_COMMIT in env / .env.local)",
-  "EXPO_PUBLIC_GIT_COMMIT": "376eceab8d15f893bd1a280da36154a265c3fd2e",
-  "bundlePath": "/tmp/preview-ios-export-376eceab/_expo/static/js/ios/entry-92b48315d98e3b410cd0c377b5a642be.hbc",
-  "bundleBytes": 9552934,
-  "bundleSha256": "906e2cc53286df5c54afeb375d7a42e8044c1b23cfcf393a55d6e31432980a36",
+  "command": "pnpm exec expo export --platform ios --clear",
+  "EXPO_PUBLIC_GIT_COMMIT": "afb30bde18208404d49df247653ed350c77d0aa1",
+  "bundlePath": "/tmp/preview-ios-export-afb30bde/_expo/static/js/ios/entry-5dd3f6ba357e491f90f3ab5e27ce3cff.hbc",
+  "bundleBytes": 9553363,
+  "bundleSha256": "34c0d6d95a70def402c34706ba9212752febb416297770a007e265aa734a1c14",
   "fullShaEmbeddedInHbc": true,
-  "shortShaEmbeddedInHbc": true,
-  "notBakedFallbackPresent": true,
-  "domainEmbedded": true,
+  "labelsEmbedded": {
+    "Estimated combined odds": true,
+    "Independence-based implied probability": true,
+    "Actual sportsbook pricing may differ": true,
+    "not an estimated joint chance of winning": true,
+    "old Implied win prob absent": true
+  },
   "publishedOta": false,
   "nativeBuild": false,
-  "pass": true,
-  "note": "First export without env bake left not-baked; cleared re-export with EXPO_PUBLIC_GIT_COMMIT embedded full SHA in HBC. No eas update / OTA publish."
+  "channelScope": "preview only (export only \u2014 not published)",
+  "pass": true
 }
