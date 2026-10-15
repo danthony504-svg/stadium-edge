@@ -1,11 +1,13 @@
 // One committed team per game for ML/spread legs on server-precomputed Coach tickets.
+// Conflicting sides resolve by market-specific simulation, value, and quality —
+// never by outright win probability alone when a better-qualified underdog exists.
 
 import type { CoachGameSimEntry, ParsedPick } from "./coachSlateTypes.js";
 
 const norm = (s: string) =>
   String(s ?? "")
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^a-z0-9\s]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -158,6 +160,124 @@ function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
 }
 
+function coverHitForPick(pick: ParsedPick, sim: CoachGameSimEntry | undefined): number {
+  const rates = sim?.coverProbs;
+  if (!rates) return Number.NEGATIVE_INFINITY;
+  const key = `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
+  const direct = rates[key];
+  if (direct != null && Number.isFinite(direct)) return direct as number;
+  const pickNorm = norm(pick.pick);
+  for (const [k, v] of Object.entries(rates)) {
+    if (v == null || !Number.isFinite(v)) continue;
+    if (norm(k).includes(pickNorm) || k.toLowerCase().includes(pick.pick.toLowerCase())) {
+      return v as number;
+    }
+  }
+  return Number.NEGATIVE_INFINITY;
+}
+
+type SideMetrics = {
+  composite: number;
+  edgePct: number;
+  marketSimHit: number;
+  qualified: boolean;
+};
+
+function legMetrics(pick: ParsedPick, sim: CoachGameSimEntry | undefined): SideMetrics {
+  const composite = pick.finalAiScore?.composite ?? pick.scores?.composite ?? Number.NEGATIVE_INFINITY;
+  const edgePct =
+    pick.finalAiScore?.edgePct ??
+    (typeof pick.scores?.edgePct === "number" ? pick.scores.edgePct : null) ??
+    Number.NEGATIVE_INFINITY;
+  const fromScore = pick.finalAiScore?.simHit;
+  const fromCover = coverHitForPick(pick, sim);
+  const marketSimHit =
+    fromScore != null && Number.isFinite(fromScore)
+      ? fromScore
+      : Number.isFinite(fromCover)
+        ? fromCover
+        : Number.NEGATIVE_INFINITY;
+  const qualified =
+    pick.finalAiScore != null &&
+    (pick.finalAiScore.recommends === true ||
+      (pick.finalAiScore.composite != null && pick.finalAiScore.composite >= 6.5));
+  return {
+    composite: Number.isFinite(composite) ? composite : Number.NEGATIVE_INFINITY,
+    edgePct: Number.isFinite(edgePct as number) ? (edgePct as number) : Number.NEGATIVE_INFINITY,
+    marketSimHit: Number.isFinite(marketSimHit) ? marketSimHit : Number.NEGATIVE_INFINITY,
+    qualified,
+  };
+}
+
+function compareMetrics(a: SideMetrics, b: SideMetrics): number {
+  if (a.qualified !== b.qualified) return a.qualified ? 1 : -1;
+  if (a.composite !== b.composite) return a.composite - b.composite;
+  if (a.edgePct !== b.edgePct) return a.edgePct - b.edgePct;
+  if (a.marketSimHit !== b.marketSimHit) return a.marketSimHit - b.marketSimHit;
+  return 0;
+}
+
+function bestOnSide(
+  legs: ParsedPick[],
+  side: "home" | "away",
+  away: string,
+  home: string,
+  sim: CoachGameSimEntry | undefined,
+): { pick: ParsedPick; metrics: SideMetrics } | null {
+  let best: { pick: ParsedPick; metrics: SideMetrics } | null = null;
+  for (const leg of legs) {
+    if (pickTeamSide(leg, away, home) !== side) continue;
+    const metrics = legMetrics(leg, sim);
+    if (!best || compareMetrics(metrics, best.metrics) > 0) best = { pick: leg, metrics };
+  }
+  return best;
+}
+
+function resolveKeepSide(
+  game: string,
+  legs: ParsedPick[],
+  opts: {
+    simByGame?: Map<string, CoachGameSimEntry>;
+    matchupHistory?: Record<string, MlLeanEntry>;
+  },
+): "home" | "away" | null {
+  const { away, home } = splitLabel(game);
+  const sides = new Set(
+    legs.map((l) => pickTeamSide(l, away, home)).filter((s): s is "home" | "away" => !!s),
+  );
+  if (sides.size <= 1) return null;
+
+  const sim = lookupGameSim(game, opts.simByGame);
+  const homeBest = bestOnSide(legs, "home", away, home, sim);
+  const awayBest = bestOnSide(legs, "away", away, home, sim);
+
+  if (homeBest && awayBest) {
+    const cmp = compareMetrics(homeBest.metrics, awayBest.metrics);
+    if (cmp > 0) return "home";
+    if (cmp < 0) return "away";
+  } else if (homeBest) return "home";
+  else if (awayBest) return "away";
+
+  const lean = leanSideForGame(game, away, home, opts.matchupHistory);
+  if (lean) return lean;
+
+  const noMetrics =
+    (!homeBest ||
+      (homeBest.metrics.composite === Number.NEGATIVE_INFINITY &&
+        homeBest.metrics.edgePct === Number.NEGATIVE_INFINITY &&
+        homeBest.metrics.marketSimHit === Number.NEGATIVE_INFINITY)) &&
+    (!awayBest ||
+      (awayBest.metrics.composite === Number.NEGATIVE_INFINITY &&
+        awayBest.metrics.edgePct === Number.NEGATIVE_INFINITY &&
+        awayBest.metrics.marketSimHit === Number.NEGATIVE_INFINITY));
+  if (noMetrics) {
+    const winProb = simFavoredTeamSide(sim);
+    if (winProb) return winProb;
+  }
+
+  return pickTeamSide(legs[0]!, away, home);
+}
+
 /** One game-side leg per team bucket — drops duplicate team ML + spread stacks. */
 function dedupeSameTeamGameLegs(picks: ParsedPick[]): ParsedPick[] {
   const bucketIndex = new Map<string, number>();
@@ -211,18 +331,9 @@ export function enforceServerConsistentGameSides(
   const dropKeys = new Set<string>();
 
   for (const [game, legs] of byGame) {
-    const { away, home } = splitLabel(game);
-    const sides = new Set(
-      legs.map((l) => pickTeamSide(l, away, home)).filter((s): s is "home" | "away" => !!s),
-    );
-    if (sides.size <= 1) continue;
-
-    const sim = lookupGameSim(game, opts.simByGame);
-    let keep: "home" | "away" | null = simFavoredTeamSide(sim);
-    if (!keep) keep = leanSideForGame(game, away, home, opts.matchupHistory);
-    if (!keep) keep = pickTeamSide(legs[0]!, away, home);
+    const keep = resolveKeepSide(game, legs, opts);
     if (!keep) continue;
-
+    const { away, home } = splitLabel(game);
     for (const leg of legs) {
       const side = pickTeamSide(leg, away, home);
       if (side && side !== keep) {
