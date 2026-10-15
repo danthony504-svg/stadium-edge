@@ -1,5 +1,11 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
+import {
+  gradeStatWordForMarket,
+  isUnsupportedComboGradeMarket,
+  resolveGradeMarketKey,
+  settleNumericOu,
+} from "../lib/gradePropMarket";
 import { playerPeriodGameLog, soccerPlayerGameLog } from "../lib/statmuse";
 
 // Grades FINISHED bet legs against REAL outcomes so the app can keep an honest
@@ -280,13 +286,7 @@ async function gradeProp(
     if (!row) return { result: "ungraded", detail: "no matching game" };
     value = parseFloat(row.value);
   }
-  if (value === null || !Number.isFinite(value)) {
-    return { result: "ungraded", detail: "no stat value" };
-  }
-  if (value === line) return { result: "push", detail: `${value} = ${line}` };
-  const over = value > line;
-  const win = side === "over" ? over : !over;
-  return { result: win ? "win" : "loss", detail: `${value} ${side} ${line}` };
+  return settleNumericOu(value, side, line);
 }
 
 export type GradeLeg = { game?: string; market?: string; pick?: string; sport?: string; odds?: number; startsAt?: string };
@@ -360,19 +360,34 @@ export async function gradeLegs(legs: GradeLeg[]): Promise<GradeLegResult[]> {
         const side = propM[2].toLowerCase() as "over" | "under";
         const line = parseFloat(propM[3]);
         const statText = (market || propM[4]).trim();
-        // Combos (PRA etc.) and yes/no markets aren't reliably gradeable here.
-        if (/\+|points\s+rebounds|\bpra\b|double[- ]double/i.test(statText)) {
-          return { ...base, family: statText.toLowerCase(), side, result: "ungraded" as GradeResult, detail: "combo market" };
+        // Resolve label → canonical key (e.g. "Tackles + Assists" → player_tackles_assists).
+        // Reject true multi-stat combos (PRA); allow gradeable single-stat markets.
+        if (isUnsupportedComboGradeMarket(statText) || isUnsupportedComboGradeMarket(market)) {
+          return {
+            ...base,
+            family: statText.toLowerCase(),
+            side,
+            result: "ungraded" as GradeResult,
+            detail: "combo market",
+          };
         }
+        const marketKey = resolveGradeMarketKey(statText) ?? resolveGradeMarketKey(market);
+        const gradeStat = gradeStatWordForMarket(marketKey, statText);
         const { result, detail } = await gradeProp(
           player,
           side,
           line,
-          statText,
+          gradeStat,
           sport,
           dayOf(new Date(final.startsAt)),
         );
-        return { ...base, family: statText.toLowerCase(), side, result, detail };
+        return {
+          ...base,
+          family: (marketKey ?? statText).toLowerCase(),
+          side,
+          result,
+          detail,
+        };
       }
 
       // --- Game total: "Over/Under <line>" ---

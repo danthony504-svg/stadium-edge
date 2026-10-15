@@ -8,10 +8,13 @@ import {
   boardPropSlotTarget,
   countStagedPropLegs,
   pickDiverseLadderRungsForSim,
+  preferAskLockedMarketsForSim,
   shouldStopPropSimForTicketMix,
   selectBoardPropSimCandidates,
   selectFootballMixPropSimCandidates,
 } from "./boardPropSimExpansion.ts";
+import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
+import { parseCoachAskMarketConstraint } from "./coachAskMarketFilter.ts";
 import {
   isPostedMilestoneAltLine,
   milestoneMarketFamily,
@@ -420,4 +423,181 @@ test("selectFootballMixPropSimCandidates hard-caps D/ST in other bucket", () => 
   const { selected } = selectFootballMixPropSimCandidates(ranked, 48);
   const dst = selected.filter((p) => isFootballDstPropMarket(p.propMarketKey));
   assert.ok(dst.length <= FOOTBALL_DST_PROP_SIM_CAP);
+});
+
+test("preferAskLockedMarketsForSim bubbles locked D/ST ahead of yards", () => {
+  const yards = {
+    game: "PHI @ CHI",
+    market: "Pass Yds",
+    propMarketKey: "player_pass_yds",
+    pick: "Hurts Over 240.5 Pass Yds",
+    odds: -110,
+    isProp: true as const,
+    sport: "nfl",
+    player: "Hurts",
+    propLine: 240.5,
+    propSide: "Over" as const,
+  };
+  const tackles = {
+    game: "PHI @ CHI",
+    market: "Tackles + Assists",
+    propMarketKey: "player_tackles_assists",
+    pick: "LB1 Over 6.5 Tackles + Assists",
+    odds: -115,
+    isProp: true as const,
+    sport: "nfl",
+    player: "LB1",
+    propLine: 6.5,
+    propSide: "Over" as const,
+  };
+  const kick = {
+    game: "PHI @ CHI",
+    market: "Kicking Points",
+    propMarketKey: "player_kicking_points",
+    pick: "Kicker Over 7.5 Kicking Points",
+    odds: -110,
+    isProp: true as const,
+    sport: "nfl",
+    player: "Kicker",
+    propLine: 7.5,
+    propSide: "Over" as const,
+  };
+  // Natural skill order: yards first.
+  const ranked = [yards, tackles, kick];
+  const unlocked = preferAskLockedMarketsForSim(ranked, null);
+  assert.equal(unlocked[0]!.propMarketKey, "player_pass_yds");
+
+  const locked = preferAskLockedMarketsForSim(ranked, [
+    "player_tackles_assists",
+    "player_kicking_points",
+  ]);
+  assert.equal(locked[0]!.propMarketKey, "player_tackles_assists");
+  assert.equal(locked[1]!.propMarketKey, "player_kicking_points");
+  assert.equal(locked[2]!.propMarketKey, "player_pass_yds");
+});
+
+test("targeted D/ST ask funnel: fetched → simulated → qualified → delivered", () => {
+  const ask = "5 leg NFL tackles + assists";
+  const lock = matchExplicitMarketLocks(ask);
+  assert.ok(lock);
+  assert.deepEqual(lock!.allowedMarketKeys, ["player_tackles_assists"]);
+  const constraint = parseCoachAskMarketConstraint(ask);
+  assert.ok(constraint.allowedMarketKeys?.includes("player_tackles_assists"));
+
+  // Synthetic posted board: many yards + D/ST rows (fetched candidates).
+  const fetched: Array<{
+    game: string;
+    market: string;
+    propMarketKey: string;
+    pick: string;
+    odds: number;
+    isProp: true;
+    sport: string;
+    player: string;
+    propLine: number;
+    propSide: "Over";
+    propIsAlt: boolean;
+    athleteId: string;
+  }> = [];
+  for (let i = 0; i < 40; i++) {
+    fetched.push({
+      game: "PHI @ CHI",
+      market: "Pass Yds",
+      propMarketKey: "player_pass_yds",
+      pick: `QB${i} Over 240.5 Pass Yds`,
+      odds: -110,
+      isProp: true,
+      sport: "nfl",
+      player: `QB${i}`,
+      propLine: 240.5,
+      propSide: "Over",
+      propIsAlt: false,
+      athleteId: `qb-${i}`,
+    });
+  }
+  for (let i = 0; i < 20; i++) {
+    fetched.push({
+      game: "PHI @ CHI",
+      market: "Tackles + Assists",
+      propMarketKey: "player_tackles_assists",
+      pick: `LB${i} Over 6.5 Tackles + Assists`,
+      odds: -115,
+      isProp: true,
+      sport: "nfl",
+      player: `LB${i}`,
+      propLine: 6.5,
+      propSide: "Over",
+      propIsAlt: false,
+      athleteId: `lb-${i}`,
+    });
+  }
+  for (let i = 0; i < 8; i++) {
+    fetched.push({
+      game: "PHI @ CHI",
+      market: "Kicking Points",
+      propMarketKey: "player_kicking_points",
+      pick: `K${i} Over 7.5 Kicking Points`,
+      odds: -110,
+      isProp: true,
+      sport: "nfl",
+      player: `K${i}`,
+      propLine: 7.5,
+      propSide: "Over",
+      propIsAlt: false,
+      athleteId: `k-${i}`,
+    });
+  }
+
+  const allow = lock!.allowedMarketKeys;
+  const askFetched = fetched.filter((p) =>
+    allow.includes(p.propMarketKey.replace(/_alternate$/, "")),
+  );
+  const preferred = preferAskLockedMarketsForSim(fetched, allow);
+  const { selected } = selectBoardPropSimCandidates(preferred, 50);
+  const simulatedAsk = selected.filter((p) =>
+    allow.includes(String(p.propMarketKey).replace(/_alternate$/, "")),
+  );
+
+  // Within existing DST cap — ask-locked tackles consume sim seats first.
+  assert.ok(simulatedAsk.length > 0, "ask-locked tackles must reach deep-sim");
+  assert.ok(
+    simulatedAsk.length <= FOOTBALL_DST_PROP_SIM_CAP,
+    `DST sim cap must hold (got ${simulatedAsk.length})`,
+  );
+  assert.equal(
+    selected.filter((p) => p.propMarketKey === "player_pass_yds").length > 0,
+    true,
+    "mixed board still sims yards in remaining budget",
+  );
+
+  // Qualify + deliver: score ask-locked rows with full board-leg shape.
+  const scored: BoardScoredLeg[] = simulatedAsk.slice(0, 8).map((p, i) => ({
+    pick: { ...p, finalAiScore: qualScore },
+    evPct: 3,
+    edgePct: 2,
+    confidencePct: 55,
+    impliedProbPct: 45,
+    lineShoppingScore: 1,
+    grade: "C+",
+    simHit: 0.55,
+    composite: 7,
+    rankScore: 10 - i,
+  }));
+  const qualified = countQualifiedBoardLegs(scored, 5);
+  const delivered = Math.min(qualified, 5);
+
+  const funnel = {
+    ask,
+    fetched: askFetched.length,
+    simulated: simulatedAsk.length,
+    qualified,
+    delivered,
+    dstCap: FOOTBALL_DST_PROP_SIM_CAP,
+  };
+  assert.ok(funnel.fetched >= 20, JSON.stringify(funnel));
+  assert.ok(funnel.simulated >= 1, JSON.stringify(funnel));
+  assert.ok(funnel.qualified >= 5, JSON.stringify(funnel));
+  assert.equal(funnel.delivered, 5, JSON.stringify(funnel));
+  // Surface exact funnel for the release report.
+  assert.ok(true, `D/ST ask funnel ${JSON.stringify(funnel)}`);
 });

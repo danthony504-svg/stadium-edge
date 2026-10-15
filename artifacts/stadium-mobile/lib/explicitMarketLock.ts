@@ -148,9 +148,44 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
     re: /\bsacks?\b/i,
     markets: ["player_sacks"],
   },
+  // D/ST BEFORE bare "interceptions" / NBA assists — defensive INTs must not
+  // lock QB pass ints, and tackles must not fall through to basketball assists.
+  {
+    id: "fb_defensive_interceptions",
+    label: "defensive interceptions",
+    re: /\b(defensive\s+interceptions?|def(?:ensive)?\s+ints?)\b/i,
+    markets: ["player_defensive_interceptions"],
+  },
+  {
+    id: "fb_tackles_assists",
+    label: "tackles + assists",
+    re: /\b(tackles?\s*\+\s*assists?|tackles?\s+and\s+assists?|tackles?\s*\/\s*assists?)\b/i,
+    markets: ["player_tackles_assists"],
+  },
+  {
+    id: "fb_solo_tackles",
+    label: "solo tackles",
+    re: /\b(solo\s+tackles?)\b/i,
+    markets: ["player_solo_tackles"],
+  },
+  {
+    id: "fb_tackles",
+    label: "tackles",
+    // Bare tackles → both posted tackle families (solo + combo). Combo/solo
+    // phrases above blank first so they do not also match here.
+    re: /\btackles?\b/i,
+    markets: ["player_solo_tackles", "player_tackles_assists"],
+  },
+  {
+    id: "fb_kicking_points",
+    label: "kicking points",
+    re: /\b(kicking\s+points?|kicker\s+points?)\b/i,
+    markets: ["player_kicking_points"],
+  },
   {
     id: "fb_pass_ints",
     label: "pass interceptions",
+    // After defensive-INT blanking: bare ints / pass ints → QB thrown only.
     re: /\b(pass(?:ing)?\s+interceptions?|interceptions?|ints?)\b/i,
     markets: ["player_pass_interceptions"],
   },

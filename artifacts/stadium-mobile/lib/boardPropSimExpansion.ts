@@ -10,6 +10,32 @@ import {
   isFootballDstPropMarket,
 } from "./footballDstProps.ts";
 import { isPostedMilestoneAltLine } from "./coachMilestoneLines.ts";
+import { canonicalPropMarketKey } from "./coachAskMarketFilter.ts";
+
+/**
+ * When the ask locks specific markets, bubble those rows to the front of the
+ * sim queue so they consume the existing deep-sim budget first (DST cap
+ * unchanged). Unlocked mixed tickets keep natural skill ranking.
+ */
+export function preferAskLockedMarketsForSim<T extends ParsedPick>(
+  ranked: readonly T[],
+  allowedKeys: readonly string[] | null | undefined,
+): T[] {
+  if (!allowedKeys?.length) return [...ranked];
+  const allow = new Set(
+    allowedKeys.map((k) => canonicalPropMarketKey(k)).filter(Boolean),
+  );
+  if (!allow.size) return [...ranked];
+  return [...ranked].sort((a, b) => {
+    const aOk = allow.has(canonicalPropMarketKey(a.propMarketKey ?? a.market))
+      ? 1
+      : 0;
+    const bOk = allow.has(canonicalPropMarketKey(b.propMarketKey ?? b.market))
+      ? 1
+      : 0;
+    return bOk - aOk;
+  });
+}
 
 export const BOARD_PROP_SIM_BATCH = 21;
 

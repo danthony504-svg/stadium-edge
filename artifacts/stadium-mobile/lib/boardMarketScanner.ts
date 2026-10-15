@@ -21,6 +21,7 @@ import {
   hardLockedSportsFromAsk,
 } from "./coachAskSportScope.ts";
 import { filterPropPoolByAskMarkets } from "./coachAskMarketFilter.ts";
+import { preferAskLockedMarketsForSim } from "./boardPropSimExpansion.ts";
 import {
   createCoachBoardScanManifestRecorder,
   type CoachBoardScanManifest,
@@ -740,6 +741,12 @@ async function simPropPoolUntilQualified(
   /** Score every eligible prop (HR boards) — do not stop after N qualify. */
   exhaustPropBoard?: boolean;
     phaseStartedAtMs?: number;
+    /**
+     * Ask-locked market keys — bubble to the front of the deep-sim queue so
+     * requested D/ST (tackles/kicking/def INTs) consume the existing budget
+     * first. Does not raise FOOTBALL_DST_PROP_SIM_CAP.
+     */
+    propMarketAllowlist?: readonly string[] | null;
   },
   signal?: AbortSignal,
 ): Promise<{
@@ -781,21 +788,24 @@ async function simPropPoolUntilQualified(
     !!opts.exhaustPropBoard ||
     (prescorePool.length > 0 &&
       prescorePool.every((p) => isBatterHomeRunPick(p)));
-  const rankedAll = [...prescorePool]
-    .filter(isRealisticBoardPropCandidate)
-    .sort((a, b) => {
-      if (footballSkill) {
-        const skill =
-          footballSkillPropRank(b.propMarketKey ?? b.market) -
-          footballSkillPropRank(a.propMarketKey ?? a.market);
-        if (skill !== 0) return skill;
-        const id = (b.athleteId ? 1 : 0) - (a.athleteId ? 1 : 0);
-        if (id !== 0) return id;
-      }
-      return (
-        prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard })
-      );
-    });
+  const rankedAll = preferAskLockedMarketsForSim(
+    [...prescorePool]
+      .filter(isRealisticBoardPropCandidate)
+      .sort((a, b) => {
+        if (footballSkill) {
+          const skill =
+            footballSkillPropRank(b.propMarketKey ?? b.market) -
+            footballSkillPropRank(a.propMarketKey ?? a.market);
+          if (skill !== 0) return skill;
+          const id = (b.athleteId ? 1 : 0) - (a.athleteId ? 1 : 0);
+          if (id !== 0) return id;
+        }
+        return (
+          prescorePropRank(b, { hrBoard }) - prescorePropRank(a, { hrBoard })
+        );
+      }),
+    opts.propMarketAllowlist,
+  );
   const maxToSim = footballSkill
     ? boardScanMaxPropsToSimForMix(opts.target, rankedAll.length)
     : boardScanMaxPropsToSim(opts.target, rankedAll.length);
@@ -1541,6 +1551,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         requirePropMix: opts.requirePropMix,
         exhaustPropBoard: opts.exhaustPropBoard,
         phaseStartedAtMs: propPhaseStartedAt,
+        propMarketAllowlist: opts.propMarketAllowlist,
         onWave: (combined) => {
           emitBoardScanPartial(combined);
         },
