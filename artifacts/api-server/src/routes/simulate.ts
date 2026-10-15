@@ -6,6 +6,7 @@ import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
 import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
 import { SPORT_SIM_ENGINE_VERSION } from "../lib/sportSim/gameSimEngineVersion.js";
+import { omitScoreOutcomesForPeriodQueries } from "../lib/gameOutcomePayload.js";
 import {
   loadFootballDefenseAllowed,
   teamInputFromHistory,
@@ -160,13 +161,18 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       res.status(422).json({ error: "insufficient tennis matchup data for simulation" });
       return;
     }
-    res.json({
-      sport,
-      homeTeam: homeTeam || null,
-      awayTeam: awayTeam || null,
-      engineVersion: SPORT_SIM_ENGINE_VERSION,
-      ...result,
-    });
+    res.json(
+      omitScoreOutcomesForPeriodQueries(
+        {
+          sport,
+          homeTeam: homeTeam || null,
+          awayTeam: awayTeam || null,
+          engineVersion: SPORT_SIM_ENGINE_VERSION,
+          ...result,
+        },
+        coverQueries,
+      ),
+    );
     return;
   }
 
@@ -186,25 +192,30 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       },
       simulations,
     );
-    res.json({
-      sport,
-      engineVersion: SPORT_SIM_ENGINE_VERSION,
-      homeTeam: homeTeam || null,
-      awayTeam: awayTeam || null,
-      simulations: sim.simulations,
-      homeWinProbability: sim.homeWinProbability,
-      awayWinProbability: sim.awayWinProbability,
-      tieProbability: 0,
-      homeProjectedScore: sim.meanTotalRounds ?? null,
-      awayProjectedScore: 0,
-      mostLikelyWinner: sim.mostLikelyWinner === "home" ? "home" : "away",
-      mostLikelyWinnerPct: sim.mostLikelyWinnerPct,
-      confidenceScore: sim.confidenceScore,
-      methodRates: sim.methodRates,
-      coverHitRates: sim.coverHitRates,
-      outcomes: retainOutcomes ? sim.outcomes : undefined,
-      lean: analysis.lean,
-    });
+    res.json(
+      omitScoreOutcomesForPeriodQueries(
+        {
+          sport,
+          engineVersion: SPORT_SIM_ENGINE_VERSION,
+          homeTeam: homeTeam || null,
+          awayTeam: awayTeam || null,
+          simulations: sim.simulations,
+          homeWinProbability: sim.homeWinProbability,
+          awayWinProbability: sim.awayWinProbability,
+          tieProbability: 0,
+          homeProjectedScore: sim.meanTotalRounds ?? null,
+          awayProjectedScore: 0,
+          mostLikelyWinner: sim.mostLikelyWinner === "home" ? "home" : "away",
+          mostLikelyWinnerPct: sim.mostLikelyWinnerPct,
+          confidenceScore: sim.confidenceScore,
+          methodRates: sim.methodRates,
+          coverHitRates: sim.coverHitRates,
+          outcomes: retainOutcomes ? sim.outcomes : undefined,
+          lean: analysis.lean,
+        },
+        coverQueries,
+      ),
+    );
     return;
   }
 
@@ -238,12 +249,17 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     return;
   }
 
-  res.json({
-    sport,
-    homeTeam: req.body?.homeTeam ?? null,
-    awayTeam: req.body?.awayTeam ?? null,
-    ...result,
-  });
+  res.json(
+    omitScoreOutcomesForPeriodQueries(
+      {
+        sport,
+        homeTeam: req.body?.homeTeam ?? null,
+        awayTeam: req.body?.awayTeam ?? null,
+        ...result,
+      },
+      coverQueries,
+    ),
+  );
 });
 
 // POST /sports/simulate/props

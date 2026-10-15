@@ -35,14 +35,67 @@ NCAAF game lines and period markets stay fail-closed on the client. A server dep
 
 Do not copy an old draw into a snapshot and then set `simEngineStamp`. The stamp is written only by a process that received the version on the draw.
 
-## Old clients
+## Old clients and the published OTA
 
-An old client cannot see the stamp check. It will cache and grade the response it gets. Shipping the API first is safe for those clients and is still the preferred order so they start receiving corrected scores. It is not the mechanism that protects a new client.
+The published preview client is commit `bdddb08e` (update `01a13d87-ca55-7c20-b06a-466a3980b888`). It does not read `engineVersion`.
+
+| Store | Published client | What a server deploy does |
+|---|---|---|
+| In-memory game sim | Key `gamesim:` plus a fingerprint with no engine id. TTL 20 minutes. A hit never calls the server. | Does not delete it. The bad draw is reused until the TTL expires or the process restarts. |
+| Disk slate | Prefix `slate-preanalysis:v4:invariants:`. | Does not delete it. The next successful server-slate sync writes a new snapshot into that same key. Until that sync, the old snapshot is what the client shows. |
+| HTTP game-outcome | Uncached on the server. | A cache miss receives the corrected engine. |
+
+Server-first deployment fixes the draws an old client fetches after a miss: full-game scores come from `ppg-per-drive-v1`, and the JSON includes `engineVersion`. It does not make the old client reject a draw it already stored.
+
+The published client also rescales period cover rates after the response arrives, in `fetchSlateGameSimulationsWithStatus`, when `outcomes.homeScores` is present and the request includes a non-full-game cover query. That code is on the device. A corrected server body does not remove it. `POST /sports/simulate/game-outcome` now omits `outcomes` when any cover query has a period other than `fg`, so that published path has no score arrays to rescale. Full-game requests still include `outcomes`. Cover rates for the full game stay on `coverHitRates`. Period markets stay fail-closed on the new client. The published client can still treat a period moneyline as the full-game win probability when no period cover rate is present. Stopping that fallback requires the client update.
+
+A new client uses fingerprint prefix `ppg-per-drive-v1` and slate prefix `slate-preanalysis:v5:ppg-per-drive-v1:`. It does not read the published client's keys. It also refuses a body or snapshot whose stamp is missing or wrong before caching or grading.
+
+## Staging test and rollback checklist
+
+Run these on the candidate SHA before any staging deploy. They do not deploy, publish, or merge.
+
+1. Engine stamp survives the HTTP-shaped body, the in-process copy, and snapshot redaction.
+   ```bash
+   cd artifacts/api-server
+   node --import ./test/register-hooks.mjs --test \
+     test/footballDriveUnit.test.ts \
+     test/coachSlateTypes.test.ts \
+     test/gameOutcomePayload.test.ts
+   ```
+2. Cache rejection. An unstamped draw is not stored and is not graded. A fingerprint prefix without `simEngineStamp` does not hydrate.
+   ```bash
+   cd artifacts/stadium-mobile
+   node --test lib/gameSimEngineVersion.test.ts lib/coachContextCache.test.ts lib/slatePreAnalysisCache.test.ts
+   ```
+3. Realistic score distributions. Low, average, and high points-per-game fixtures stay near their inputs. The legacy hard-cap means near 42 are the comparison printed in the test log, not the corrected projection.
+   ```bash
+   cd artifacts/api-server
+   node --import ./test/register-hooks.mjs --test test/footballDriveUnit.test.ts
+   ```
+4. Exact NFL request. Parser and terminal tests, then the device check on staging after the API is deployed there.
+   ```bash
+   cd artifacts/stadium-mobile
+   node --test lib/coachAskMarketFilter.test.ts lib/coach/session.test.ts
+   ```
+   Ask text: `4 leg NFL spreads and moneylines for upcoming games.`
+   Expected locally: `fullGameOnly` true, props excluded, Q3 and other period markets excluded, full-game spread and moneyline kept. Loading clears on success, failure, cancellation, and deadline expiry.
+   On staging, after the API deploy and before any OTA: send that exact ask. Loading must clear. The result is a full-game spread/moneyline ticket or an honest shortfall. It must not remain on “Scoring ticket… 3 legs (3 props/alts)”. The 4-leg absolute budget is 75 seconds; the live hang ceiling in `coachTerminalLiveDeadlineMs(4)` is that budget plus grace plus 45 seconds. NCAAF game lines and period markets stay absent.
+
+Rollback, if staging misbehaves:
+
+| Step | Action |
+|---|---|
+| API back | Old clients keep working and grade the rolled-back engine. New clients stop caching and grading until they roll back too, because a missing stamp is a reject. |
+| Client back, API stays | The old client ignores `engineVersion` and grades the new engine. Its `v4` snapshot can remain until overwritten. |
+| Both back | Ignore keys `slate-preanalysis:v5:ppg-per-drive-v1:`. Do not copy an old draw into a snapshot and then set `simEngineStamp`. |
+
+NCAAF game lines and period markets stay fail-closed through every step. No production OTA and no native build are part of this checklist.
 
 ## Measured holdouts (2026-10-15, 10,000 sims, primary seed 20241015)
 
-These numbers are the recorded runs. They do not change thresholds and they do not authorize a deploy.
+These numbers are recorded runs. They do not change thresholds and they do not authorize a deploy. NFL distribution figures are not evidence of market value. `ODDS_API_KEY` is unset, so qualified NFL selections versus closing prices stay `NOT_MEASURED`.
 
-NCAAF 2024 holdout, 865 games, priors limited to games completed before kickoff (kickoff + 4 hours): Brier 0.19860, ECE 0.05296, bias +0.03698, official dog cover 0.6757 (n=111). E2a PASS on seed 20241015. The 2026-10-14 PASS stays withdrawn. The PR 737 archive joins 770 games. Soft gates on this engine are PASS_SOFT_GATES_ONLY (engine Brier 0.2165, market Brier 0.1768, mean gap +0.0366). CLV stays OPEN_NEEDS_AGREED_TOLERANCE. `NCAAF_GAME_LINE_SIM_VALIDATED` stays false.
+NCAAF 2024 holdout, report `2026-10-15T10:14:01.742Z`, 865 games, 10,000 sims, seed 20241015. Credible last-play stamps where they exist; otherwise kickoff plus 4 hours. Brier 0.19860, ECE 0.05296, bias +0.03698, official dog cover 0.6757 (n=111). Those scored metrics match the prior 4-hour-only run. E2a PASS on seed 20241015. The 2026-10-14 PASS stays withdrawn. Closing lines are loaded (770 joins). Soft gates on this engine are PASS_SOFT_GATES_ONLY (engine Brier 0.2165, market Brier 0.1768, mean gap +0.0366). CLV stays OPEN_NEEDS_AGREED_TOLERANCE. Restore is OPEN_NEEDS_VALIDATION_INJURY_SIGNOFF. `NCAAF_GAME_LINE_SIM_VALIDATED` stays false.
 
-NFL 2024 regular-season holdout, 272 games, fixture `nfl-historical-games.json` (815 ESPN finals, 2022–2024, no closing odds): Brier 0.23553, ECE 0.03645, bias −0.00351. Score mean error home −0.84, away −1.07. Team-score z SD 1.059, margin z SD 1.137, \|z\| > 2 rate 0.057. Fair-line home cover 0.478 (sim mean margin, not a sportsbook close). Home blowout (≥14) actual 0.188 vs predicted 0.185. Away blowout actual 0.143 vs predicted 0.108. High total (sim mean + 14) actual 0.162 vs predicted 0.150. The diagnostic +7.5 dog cohort is 0.707 on the primary seed (n=75) and 0.707–0.736 across seeds. That 0.70 cap is the NCAAF E2a gate. It was not applied as an NFL pass/fail and it was not retuned.
+NFL 2024 regular-season holdout, report `2026-10-15T10:13:35.456Z`, 272 games, same completion rule, 10,000 sims, seed 20241015. Fixture `nfl-historical-games.json` (815 ESPN finals, 2022–2024, no closing odds). 801 games have a credible last-play stamp and 14 use the 4-hour assumption. Brier 0.23522, ECE 0.04331, bias −0.00361. Score mean error home −0.84, away −1.06. Team-score z SD 1.060, margin z SD 1.138, \|z\| > 2 rate 0.059. Fair-line home cover 0.474 (sim mean margin, not a sportsbook close). Away blowout actual 0.143 vs predicted 0.108. The diagnostic +7.5 dog cohort is 0.711 on the primary seed (n=76) and 0.711–0.726 across seeds. That 0.70 cap is the NCAAF E2a gate. It was not applied as an NFL pass/fail and it was not retuned. This rerun is the form-availability correction. It is not a market-value result.
