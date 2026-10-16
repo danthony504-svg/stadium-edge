@@ -33,21 +33,29 @@ Reproducible report: `ncaaf-phase-e-failure-analysis.json` + script `ncaafPhaseE
 | **MISSING_DATA** | Closing totals; ALT prices; ATS juice; T−24h two-sided early snaps; 2024 injury labels |
 | **CLEARED** | Spread settlement sign/push/extraction/timing |
 
-## Forward collection (not activated)
+## Forward collection (prepared; not activated)
 
-See [`ncaaf-forward-collection-plan.md`](./ncaaf-forward-collection-plan.md): Odds API credentials/cost, ESPN injury freezes, storage layout. **Do not** backfill historical injuries with current data.
+See [`ncaaf-forward-collection-plan.md`](./ncaaf-forward-collection-plan.md): local collector + tests, dedupe, credit cap; default live schedule **≈48 credits/week**; prior 300–800 was historical-heavy. `ODDS_API_KEY` unset in this agent (reuse Render secret name when activating). **Do not** backfill 2024 injuries with current data.
+
+Reserved 2025 / completed-2026 eval criteria locked in [`ncaaf-reserved-eval-acceptance-criteria.md`](./ncaaf-reserved-eval-acceptance-criteria.md) **before** any results.
 
 ## Engine isolation
 
 Global `v1.1` stamp was reverted. Residual/shrink apply only under `ncaafResearchCalibration`. NFL live draws and stamp unchanged. Details: [`ncaaf-engine-isolation.md`](./ncaaf-engine-isolation.md).
 
-## Coach audit (focus return)
+## Coach audit (focus return) — not complete
 
-See [`prop-context-audit-status.md`](./prop-context-audit-status.md): opponent/MLB weather/venue/injury verified in prop MC; NFL weather & turf unsupported; mobile per-opp + stamp + delivery-commit still **awaiting production OTA**.
+See [`prop-context-audit-status.md`](./prop-context-audit-status.md): opponent/MLB weather/venue/injury verified in prop MC; **remaining gaps** include NFL weather, turf/grass, and open-roof handling. Do **not** treat the context audit as complete.
+
+Preview closeout: [`preview-release-verification-54b89f32.md`](./preview-release-verification-54b89f32.md) (update `01a14636…`, launch-hash reconcile, one `parlay_fulfilled`, no false freeze).  
+Production-mobile package (prep only): [`production-mobile-candidate-54b89f32.md`](./production-mobile-candidate-54b89f32.md) — tip `54b89f32`, rollback `b666165e` — **no production OTA**.
+
+Collector stays dry-run; NCAAF blocked; voice paused.
 
 ## What remains (no E6 yet)
 
 1. Human-authorized forward collect (cap + `ODDS_API_KEY`) — not this turn.  
 2. Model work only on **reserved** TUNING split — not USED 2024 / not FINAL_EVAL.  
 3. Meet locked CLV C1–C6 under R1–R4 with real early two-sided prices.  
-4. Then — and only then — consider E6 on a flag-only PR.
+4. Then — and only then — consider E6 on a flag-only PR.  
+5. Authorized production mobile OTA of `54b89f32` (or successor) — not this turn.

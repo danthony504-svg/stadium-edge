@@ -1,47 +1,50 @@
 # Coach prop-context audit status — opponent / weather / field / injury
 
-**Focus return:** original Coach audit (not NCAAF restore).  
-**As of:** 2026-10-16 · research branch docs; live Render still on prior server tip lineage.  
-**Sources:** `isolated-pair-verify.md`, `candidates-finalize-for-review.md`, `two-candidate-verify.md`.
+**Focus:** original Coach audit (not NCAAF restore).  
+**As of:** 2026-10-16 · preview closeout for mobile tip `54b89f32` / phone update `01a14636…`  
+**Audit status:** **IN PROGRESS — not complete.** Verified rows below are partial; remaining gaps stay open.
 
-## Verified (changes projected distribution)
+**Sources:** `isolated-pair-verify.md`, `candidates-finalize-for-review.md`, `two-candidate-verify.md`, `preview-release-verification-54b89f32.md`, `production-mobile-candidate-54b89f32.md`.
+
+## Verified so far (changes projected distribution)
 
 | Factor | Verified behavior |
 |--------|-------------------|
-| **Opponent `defenseIndex`** | Pre-sim mean via `computeOpponentMatchupShift`; per-opp batches on **mobile candidate**; server candidate fingerprints `defenseIndex` in dist cache |
+| **Opponent `defenseIndex`** | Pre-sim mean via `computeOpponentMatchupShift`; per-opp batches on **mobile candidate** `54b89f32`; live Render `e607f131` fingerprints `defenseIndex` in dist cache |
 | **MLB `weatherImpact`** | Enters prop MC for `sport===mlb` only; dome / `climateControlled` → null |
 | **Venue / field (H/A series)** | `computeVenueShift` / `venueFamilyMult` when series exists |
 | **Injury Opportunity Shift** | OUT/doubtful vacancy → mean; never invent “healthy” from silence |
 | **Key-injury soft scalar** | Opp injuries raise mean; own lower; own suppressed when Opp Shift owns fingerprint (no double-count) |
 | **MLB park `hrIndex`** | Nudges outdoor `weatherImpact` only |
 
-## Unsupported / not live
+## Remaining gaps (do not treat as closed)
 
 | Factor | Status |
 |--------|--------|
-| **NFL/NCAAF prop MC weather** | Holistic only; `proposeFootballWeatherImpact` unit-tested, **not wired** to MC |
-| **Retractable MLB roof open/closed** | Always dome-neutral via `dome: true` |
-| **Football turf/grass** | Display/holistic; **not** in prop MC |
-| **Football game-line weather/injury in `nflDriveSim`** | **Unsupported** in draws (pts means + optional defense pack tilt on drive path) |
+| **NFL prop MC weather** | **Remaining gap** — holistic / proposal only; `proposeFootballWeatherImpact` **not wired** into prop MC |
+| **Football turf / grass** | **Remaining gap** — display/holistic only; **not** in prop MC |
+| **Retractable / open-roof MLB** | **Remaining gap** — retractables always dome-neutral via `dome: true`; no open-roof / roof-open-today branch |
+| **Football game-line weather/injury in `nflDriveSim`** | Unsupported in draws (pts means + optional defense pack tilt on drive path) |
 | **Server injury side assignment** | Still opp=away / own=home for whole game (away-home invert risk) |
 
-## Mobile fixes still awaiting production
+## Mobile production candidate (awaiting authorized OTA)
 
-Production freeze remains armed — **no production OTA**. Preview may have been published on other tips; production channel is not these candidates.
+Preview verified; production freeze remains armed — **no production OTA yet**.
 
-| Candidate work | Branch / tip (docs) | Production status |
-|----------------|---------------------|-------------------|
-| Per-opp `defenseIndex` + prop context pipeline | `cursor/mobile-peropp-stamp-8b51` / paired mobile tip | **Awaiting production OTA** |
-| Engine stamp reject (`ppg-per-drive-v1`) | same | **Awaiting production OTA** (preview may differ) |
-| College honesty / NCAAF P0 surfaces | same | Gate false; **prod must keep blocked** |
-| Delivery-commit fulfilled telemetry / digest | mobile candidate tip | **Awaiting production OTA** |
-| Server prop dist cache identity (`defenseIndex` in fingerprint) | `cursor/prop-dist-cache-identity-8b51` | **Awaiting Render deploy** (live was behind candidate at finalize time) |
+| Item | Identity |
+|------|----------|
+| Candidate tip | `54b89f32efc81fe3cf56cee50388816054484600` |
+| Preview update ID | `01a14636-bbcb-729a-ab5f-27c666590c3b` |
+| Rollback target | `b666165e…` / update `01a144bd…` / group `68de9f95…` |
+| Package | [`production-mobile-candidate-54b89f32.md`](./production-mobile-candidate-54b89f32.md) |
 
-**Not in those diffs (correctly frozen):** voice / STT / TTS, home shortcuts UI, passkey changes.
+Included: per-opp `defenseIndex`, stamp reject, college honesty (gate false), delivery-commit fulfilled (one success, no false freeze).  
+**Not in candidate:** voice / STT / TTS, home shortcuts UI, passkey changes.
 
 ## Invariants
 
 - `NCAAF_GAME_LINE_SIM_VALIDATED = false`  
 - Voice paused  
 - Production OTA freeze armed  
-- No deploy / OTA in this turn  
+- Forward collector dry-run only (`NCAAF_FORWARD_ACTIVATE` unset)  
+- No production publish in the preview closeout turn  
