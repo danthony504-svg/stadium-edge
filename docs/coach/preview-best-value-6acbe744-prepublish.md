@@ -1,6 +1,6 @@
 # Preview tip prep — Best Value `view=value` + Longshots all-sports labels (`6acbe744`)
 
-**Status:** Code prepared on branch. **Not published.** Report-before-publish.  
+**Status:** Authorized for **preview** publish (see publish record after export).  
 **Production:** untouched (embedded `4a0960e4…`). `.ota-production-freeze` **armed**.  
 **No** native build / server deploy / merge / freeze lift / production OTA.
 
@@ -12,11 +12,30 @@
 
 | Role | SHA |
 |------|-----|
-| Current preview tip (device) | `03dd11160a0f6e6e91fa5046384f918844f76349` → update `01a14331…` / group `efcd57c4…` |
+| Prior preview tip (device) | `03dd11160a0f6e6e91fa5046384f918844f76349` → update `01a14331…` / group `efcd57c4…` |
 | Existing Best Value + Longshots-label fix | `65106875` (earlier tip; not on passkey-safe baseline) |
-| **This tip (branch HEAD)** | `6acbe7446609a2f24eba8fd463b8d7ed87c15aaf` = cherry-pick of `65106875` onto passkey-safe lineage after `03dd1116` docs tip |
+| Fix on passkey-safe baseline | `6acbe7446609a2f24eba8fd463b8d7ed87c15aaf` = cherry-pick of `65106875` |
+| Docs + ranking confirmation | commits after `6acbe744` on `cursor/prod-ota-home-shortcuts-8b51` |
 
 Construction: reuse `65106875` as-is (auto-merge `steals.tsx` clean). Preserves `hasClerkExpoPasskeysNative` + home shortcuts from `03dd1116`.
+
+---
+
+## Ranking intent (confirmed before publish)
+
+Best Value’s sort is **intentional** and **not** Coach’s board order.
+
+| Surface | Primary → secondary (→ tertiary) | Why |
+|---------|-----------------------------------|-----|
+| **Best Value** (`props.tsx` `valueProps`) | **EV % desc** → Final AI `selectionScore` desc | Value shortcut: surface mispricing first among props that already clear the +EV floor |
+| **Coach** (`gameLineOptimizer.rankEvaluated` and board `rankScore` path) | **Final AI composite** → **simAligned** → edge/EV | Ticket quality: composite + sim alignment lead; edge is a later tie-break |
+
+Code anchors:
+
+- Best Value: `artifacts/stadium-mobile/app/(tabs)/props.tsx` — comment “Rank: EV desc, then Final AI composite”; sort `b.ev - a.ev` then `finalAiScore`
+- Coach game-line pick: `artifacts/stadium-mobile/lib/gameLineOptimizer.ts` `rankEvaluated` — composite → `simAligned` → `edgePct`
+
+**Qualification gates preserved:** `MIN_VALUE_EV` (1.5%), server `ev` / `evSide` / fairProb required, main lines only, no client-side EV recompute, no Coach scan, Final AI / sim / NCAAF P0 / period gates unchanged. Reuses existing qualified candidates on the Props board.
 
 ---
 
@@ -24,14 +43,12 @@ Construction: reuse `65106875` as-is (auto-merge `steals.tsx` clean). Preserves 
 
 ### Best Value
 
-| Before (`03dd1116` on device) | After (`6acbe744`, unpublished) |
-|-------------------------------|----------------------------------|
+| Before (`03dd1116` on device) | After (this tip) |
+|-------------------------------|------------------|
 | Nav **PASS** → `/props` (± `sp`) | Nav → `/props?sp=<sport>&view=value` |
 | Value-view **MISSING** (Popular / browse) | `valueMode`: qualified +EV props ranked **EV then Final AI**; Popular Players / Categories hidden |
 | Sport preserved when props-supported | Unchanged |
 | No extra Coach scan | Unchanged — still Props board only |
-
-Qualification gates / Final AI / EV floor unchanged. Reuses existing qualified candidates (`valueProps` / recommended signals already on the Props screen).
 
 ### Longshots
 

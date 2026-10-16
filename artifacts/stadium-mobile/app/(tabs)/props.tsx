@@ -831,8 +831,12 @@ function PropsScreen() {
   // cross-book consensus fair value (a real market inefficiency). ev/evSide/
   // fairProb/edge are computed SERVER-SIDE on main lines quoted by enough books;
   // we only read them — never recompute or guess. We show the side that carries
-  // the edge (evSide) at its offered price. Rank: EV desc, then Final AI
-  // composite (selectionScore) when available — never feed/popularity order.
+  // the edge (evSide) at its offered price.
+  //
+  // Rank (intentional; differs from Coach): EV desc, then Final AI composite
+  // (selectionScore). Coach board/game-line order is Final AI composite →
+  // simAligned → edge/EV — Best Value leads with mispricing because this
+  // shortcut is a value surface, not a Coach ticket builder. Never popularity.
   type ValueItem = {
     pick: ParsedPick;
     ev: number;
