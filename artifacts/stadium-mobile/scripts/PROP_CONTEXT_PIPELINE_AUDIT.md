@@ -24,12 +24,12 @@ Missing policy (global): omit / unknown — **never invent** healthy, weather, o
 
 1. Prefetch (parallel in `buildParlay`): injuries, opp team-defense packs, MLB platoon/park env, football park weather, optional matchup history / early player history.  
    Citations: `coach/buildParlay.ts:412-473`, `footballOppDefenseContext.ts:52-186`, `footballScanContext.ts:107-162`, `coachBoardContext.ts:55-88`.
-2. `simPropPoolUntilQualified` builds per-game `weatherImpactByGame` + `defenseIndexByFamilyByGame` from already-fetched maps (no per-player network).  
-   Citations: `boardMarketScanner.ts:901-966`, `propContextPipeline.ts:187-277`.
-3. `fetchPropSimulations` → `POST /sports/simulate/props` → `runPropSims` / `buildProjectionMean` (Opportunity × Venue × Opponent Matchup + MLB weather + injury scalars).  
-   Citations: `api.ts:2157-2308`, `simulate.ts:287-340`, `monteCarloBuild.ts:211-286`, `monteCarlo.ts:177-272`.
-4. `attachPickScores` / `buildFinalAiScore` — post-sim opp-D tilt guard + holistic factors.  
-   Citations: `pickScoreContext.ts:894-938`, `propHolisticRecommendation.ts:311-340`, `propContextPipeline.ts:283-287`.
+2. `simPropPoolUntilQualified` builds per-game `weatherImpactByGame` + **opponent-scoped** `defenseIndexByFamilyByOpponent` keyed by `propOpponentDefenseKey(game, oppId)` (no per-player network).  
+   Citations: `boardMarketScanner.ts` build loop; `propContextPipeline.ts` (`propOpponentDefenseKey`, `defenseIndexByFamilyFromPack`).
+3. `fetchPropSimulations` splits HTTP batches by `game||opp:` so each request’s `defenseIndexByFamily` matches that side → `POST /sports/simulate/props` → `runPropSims` / `buildProjectionMean`.  
+   Citations: `api.ts` `byBatch`; `simulate.ts:287-340`, `monteCarloBuild.ts:211-286`, `monteCarlo.ts:177-272`.
+4. `attachPickScores` / `buildFinalAiScore` — post-sim opp-D tilt guard keyed by the same opponent key + holistic factors.  
+   Citations: `pickScoreContext.ts` `projectionDefKey`; `propHolisticRecommendation.ts:331-335`; `shouldApplyPostSimOppDefenseTilt`.
 
 ---
 
@@ -41,7 +41,7 @@ Legend cells: `F / P / T / H / G` (or `—`). Notes in parentheses.
 
 | Sport | Fetched? | Projection MC? | Post-sim tilt? | Holistic / display? | Missing policy |
 |-------|----------|----------------|----------------|---------------------|----------------|
-| **NFL** | **F** — `GET /sports/team-defense` rush+pass box scores (`footballOppDefenseContext.ts:24-33,100-122`) | **P** — `defenseIndexByFamilyFromPack` → `defenseIndexByFamily` → `computeOpponentMatchupShift` (`propContextPipeline.ts:101-127`, `opponentMatchup.ts:82-103`, `monteCarloBuild.ts:212-248`) | **T skipped** when game in `projectionDefenseGames` (`boardMarketScanner.ts:945-947`, `pickScoreContext.ts:894-903`, `shouldApplyPostSimOppDefenseTilt`) | **H** Match display kept; **score suppressed** when projection owns D (`propHolisticRecommendation.ts:331-335`). Soft/hard tilt from pack still used for **G** blocks (`footballRushDefense.ts:364+`, `boardMarketScanner.ts:595-611`) | Thin sample `<3` → null index (`propContextPipeline.ts:104-114`); no pack → matchup 1.0 / tilt 0 |
+| **NFL** | **F** — `GET /sports/team-defense` rush+pass box scores (`footballOppDefenseContext.ts:24-33,100-122`) | **P** — `defenseIndexByFamilyFromPack` → per-opp `defenseIndexByFamily` → `computeOpponentMatchupShift` (`propContextPipeline.ts`, `opponentMatchup.ts:82-103`, `monteCarloBuild.ts:212-248`) | **T skipped** when opponent key in `projectionDefenseKeys` (`shouldApplyPostSimOppDefenseTilt`, `pickScoreContext.ts`) | **H** Match display kept; **score suppressed** when projection owns D (`propHolisticRecommendation.ts:331-335`). Soft/hard tilt from pack still used for **G** blocks (`footballRushDefense.ts:364+`, `boardMarketScanner.ts:595-611`) | Thin sample `<3` → null index (`propContextPipeline.ts:104-114`); no pack → matchup 1.0 / tilt 0 |
 | **NCAAF** | **F** same path as NFL | **P** same baselines (`propContextPipeline.ts:59-64`) | Same double-count guard | Same | Same; college **player** props only when `askAllowsNcaafPlayerProps` (`buildParlay.ts:370-377`) |
 | **MLB** | **F** — ERA/WHIP/BAA on pack (`footballOppDefenseContext.ts:172-174`) | **P** — ERA→hits/HR/TB/RBI/runs index (`propContextPipeline.ts:155-164`) | Guard applies if fam non-empty | **H** team ERA tilt + preferred pitcher tendency when present (`footballRushDefense.ts:839-864`, `propHolisticRecommendation.ts:343+`) | No ERA → omit |
 | **NBA / WNBA / NCAAB** | **F** — `avgPointsAgainst` + steals/blocks/dreb (`footballOppDefenseContext.ts:123-163`) | **P** — pointsAgainst→points/threes/pra only (`propContextPipeline.ts:128-134`) — **not** assists/rebounds families | Guard if fam present | **H** pts + steals/dreb/blocks soft tilt (`footballRushDefense.ts:721-759`); no hard block | No `pointsAgainst` → omit index |
@@ -80,14 +80,14 @@ Legend cells: `F / P / T / H / G` (or `—`). Notes in parentheses.
 
 ### Fixed (this pipeline)
 
-1. **Opp D in MC + post-sim hit tilt + holistic score** — post-sim tilt skipped and holistic Opponent Tendency **score** suppressed when `projectionDefenseGames` has the game; display retained.  
-   Citations: `propContextPipeline.ts:279-287`, `pickScoreContext.ts:894-903`, `propHolisticRecommendation.ts:331-335`, `preSimShift/index.ts:122-123` (soft vs-opp blend suppress).
+1. **Opp D in MC + post-sim hit tilt + holistic score** — post-sim tilt skipped and holistic Opponent Tendency **score** suppressed when `projectionDefenseKeys` has **this prop’s opponent key**; display retained.  
+   Citations: `propContextPipeline.ts` (`shouldApplyPostSimOppDefenseTilt`, `propOpponentDefenseKey`), `pickScoreContext.ts`, `propHolisticRecommendation.ts:331-335`, `preSimShift/index.ts:122-123` (soft vs-opp blend suppress).
 
 ### Remaining
 
 | Risk | Severity | Detail | Citations |
 |------|----------|--------|-----------|
-| **Game-scoped `defenseIndexByFamily` from first pick’s opponent** | **High** | Loop keys by game once; first ranked prop’s opponent pack becomes the only family map for **both** sides. Opposite-side props get wrong D in MC **and** lose post-sim/holistic score tilt. | `boardMarketScanner.ts:909-945`; server consumes game-level map `monteCarloBuild.ts:212-215`, `simulate.ts:319-339` |
+| **Game-scoped `defenseIndexByFamily` from first pick’s opponent** | **Fixed (this branch)** | Keys are now `propOpponentDefenseKey(game, opponentTeamId)`; HTTP batches split by opponent so each request’s `defenseIndexByFamily` matches that side. Post-sim tilt skip uses the same opponent key. | `propContextPipeline.ts` (`propOpponentDefenseKey`); `boardMarketScanner.ts` build loop; `api.ts` `byBatch`; regression `propDefenseIndexTwoTeam.test.ts` |
 | **MLB weather in MC + holistic Weather factor** | Medium | Same env drives `weatherImpact` mean multiply and `scoreWeather` composite — intentional dual channels but double influence on final grade. | `monteCarlo.ts:254-258`, `propHolisticRecommendation.ts:474-476` |
 | **`oppKeyInjuries` / `ownKeyInjuries` not flipped by `isHome`** | Medium | Server sets opp=away, own=home for the whole game; away players get inverted injury scalar. | `simulate.ts:284-285`, `coachSlateInProcessSims.ts:187-188`, `monteCarloBuild.ts:266-267` |
 | **Opportunity Shift × key-injury scalar × holistic Injury** | Low–Med | Own-injury suppress when Opp Shift fingerprint applies (`opportunitySuppressOwnInjuries`); holistic Injury still scores separately (grading). | `monteCarlo.ts:250-252,57-58`, `propHolisticRecommendation.ts:508-514` |
@@ -128,10 +128,10 @@ Legend cells: `F / P / T / H / G` (or `—`). Notes in parentheses.
 | Dome → null weatherImpact | `propContextPipeline.ts:195`, test `:87-95` |
 | Post-sim tilt guard API | `propContextPipeline.ts:283-287` |
 | Injury audit never “healthy” | `propContextPipeline.ts:344-351`, test `:172-201` |
-| Board builds wx/def maps | `boardMarketScanner.ts:901-966` |
-| Pass maps into `fetchPropSimulations` | `boardMarketScanner.ts:440-447`, `api.ts:2290-2305` |
-| Mark `projectionDefenseGames` | `boardMarketScanner.ts:459-463,945` |
-| Skip post-sim tilt in scoring | `pickScoreContext.ts:894-903` |
+| Board builds wx + per-opponent def maps | `boardMarketScanner.ts` (`defenseIndexByFamilyByOpponent`) |
+| Pass maps into `fetchPropSimulations` | `boardMarketScanner.ts` `simPropBatch`; `api.ts` `defenseIndexByFamilyByOpponent` |
+| Mark `projectionDefenseKeys` after successful batch only | `boardMarketScanner.ts` `simPropBatch` |
+| Skip post-sim tilt in scoring | `pickScoreContext.ts` (`projectionDefKey`) |
 | Holistic suppress score / keep display | `propHolisticRecommendation.ts:331-335` |
 | Merge football+MLB env | `buildParlay.ts:469-473` |
 | Prefetch defense sports set | `footballOppDefenseContext.ts:24-33`, `buildParlay.ts:434-440` |
@@ -151,22 +151,32 @@ Legend cells: `F / P / T / H / G` (or `—`). Notes in parentheses.
 
 ### Docs-only (safe now)
 
-1. **Document game-scoped defenseIndex limitation** in this file / Coach runbooks: opposite-side props may share the first pick’s opponent index until per-side maps land.  
+1. **Per-opponent defenseIndex** — fixed on this branch; see §10 before/after traces + `propDefenseIndexTwoTeam.test.ts`.  
 2. **Document intentional MLB weather dual-channel** (MC + holistic) vs football holistic-only.  
 3. **Document nflDriveSim gap**: game-line score draws ≠ prop context packs; NCAAF game lines stay P0-blocked.  
-4. Keep **`NCAAF_GAME_LINE_SIM_VALIDATED=false`** until Phase E — do not flip from this audit.
+4. Keep **`NCAAF_GAME_LINE_SIM_VALIDATED=false`** until Phase E — do not flip from this audit.  
+5. Tip vs `ppg-per-drive-v1` gaps (do not restore blindly): `docs/coach/ppg-per-drive-v1-tip-reconcile.md`.
 
-### Code changes needed (not done here)
+### Code changes needed (remaining)
 
 | Fix | Why | Suggested shape |
 |-----|-----|-----------------|
-| **Per-side / per-player `defenseIndexByFamily`** | Wrong opponent D on shared game key | Key by `game#playerTeamId` or resolve from each prop’s `opponentTeamId` on server; stop first-pick freeze in `boardMarketScanner.ts:911` |
 | **Flip `oppKeyInjuries`/`ownKeyInjuries` by `isHome`** | Away props inverted | In `buildPropSimulationContext` / `monteCarloBuild` swap when `isHome===false` |
 | **Optional: suppress holistic Weather score when `weatherImpact` entered MC** | MLB double influence | Mirror `oppDefenseInProjection` pattern |
 | **Wire slate `weatherImpact`** | `runPropSimsInProcess` always null | Pass through like HTTP simulate |
 | **Soccer holistic per-game rates** | Align with projection | Use `goalsConceded/gamesPlayed` when GP present |
 | **NBA assist/reb defenseIndex families** | Projection blind to steal/dreb | Map steals→assists, dreb→rebounds with sample gates — or leave holistic-only and document |
-| **Football weather in prop MC** | Product decision | Only if calibrated; today MC ignores non-MLB by design |
+| **Football weather in prop MC** | Proposed + unit-tested; **not live** | `proposeFootballWeatherImpact` — apply only when vs-opp history n&lt;3; keep MC null until holdout |
+
+### Distribution vs ranking (props)
+
+| Channel | Examples | Rule |
+|---------|----------|------|
+| **Distribution** | `defenseIndexByFamily`, MLB `weatherImpact`, venue series, Opportunity Shift, soft key-injury scalar | Changes MC mean — do not re-apply as post-sim hit tilt / holistic **score** |
+| **Ranking / display** | Holistic Opponent Tendency, Weather factor, Injury rubric | Display + composite ranking OK; suppress score when distribution already owns the signal |
+| **Qualification gate** | Hard Over blocks vs stingy D | Independent of projection ownership |
+
+Helpers: `classifyPropContextChannel`, `shouldApplyKeyInjuryMeanTilt`, `proposeFootballWeatherImpact` in `propContextPipeline.ts`.
 
 ### Explicitly out of scope / do not do
 
@@ -179,9 +189,23 @@ Legend cells: `F / P / T / H / G` (or `—`). Notes in parentheses.
 ## 7. Tests covering this pipeline
 
 - `artifacts/stadium-mobile/lib/propContextPipeline.test.ts` — indices, weather, traces, double-count guard, injury honesty, sync timing  
+- `artifacts/stadium-mobile/lib/propDefenseIndexTwoTeam.test.ts` — two-team keys, ALT/replacement tilt ownership, before/after traces, cold/warm, channel split, FB wx/injury proposals  
 - `artifacts/api-server/test/propContextInjuryHonesty.test.ts` — vacancy unknown ≠ OUT/healthy  
 - `artifacts/stadium-mobile/lib/footballRushDefense.test.ts` — multi-sport tilts / NHL blocks  
 - `artifacts/stadium-mobile/lib/footballWeatherHolistic.test.ts` — NFL outdoor/dome holistic weather  
+
+## 10. Before/after projection traces + timing (two-team)
+
+Fixture: Chiefs @ Bills. BUF weak pass D (280 yds allowed → index **1.14**); KC stingy pass D (160 → **0.88**). Bills WR Over 64.5, baseline mean 60.
+
+| Path | Opponent pack | Factor | Final mean |
+|------|---------------|--------|------------|
+| **Before (bug)** | First-prop BUF pack inherited | 1.14 | **68.4** (wrong boost) |
+| **After (fix)** | `…@@opp:12` KC pack | 0.88 | **52.8** (correct suppress) |
+
+Cold/warm (5000 sync key+index resolves): cold **~5.2ms**, warm **~1.6ms** (both ≪ 80ms gate). Artifact: `/opt/cursor/artifacts/defense-index-before-after-traces.log`.
+
+Football weather/injury proposals remain **unit-tested, not live** in prop MC (`proposeFootballWeatherImpact` / `shouldApplyKeyInjuryMeanTilt`) — skip when vs-opp history n≥3 or Opp Shift owns the fingerprint. 
 
 ---
 

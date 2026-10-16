@@ -2,6 +2,7 @@ import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
 import { filterPropsForGameTeams } from "./propGameTeamGate";
 import { resolveCoachGameTeamIds } from "./coachTeamIdResolve";
 import { propMarketsShareDistribution } from "./propSharedDistribution";
+import { propOpponentDefenseKey } from "./propContextPipeline";
 import {
   logStealFeedClient,
   stealFeedFullUrl,
@@ -2176,7 +2177,15 @@ export async function fetchPropSimulations(
     weatherImpact?: number | null;
     /** Per-game weatherImpact (Coach board — already-fetched env, no extra I/O). */
     weatherImpactByGame?: Record<string, number | null>;
-    /** Per-game defenseIndexByFamily from already-fetched opp packs. */
+    /**
+     * Opponent-scoped defenseIndexByFamily keyed by `game@@opp:teamId`
+     * (see propOpponentDefenseKey). Never bare game label alone.
+     */
+    defenseIndexByFamilyByOpponent?: Record<
+      string,
+      Record<string, number> | null
+    >;
+    /** @deprecated Prefer defenseIndexByFamilyByOpponent — mixes home/away. */
     defenseIndexByFamilyByGame?: Record<string, Record<string, number> | null>;
     tier?: "quick" | "deep";
     simulations?: number;
@@ -2253,48 +2262,100 @@ export async function fetchPropSimulations(
     return { hits: out, playerHistories, historyShared, historyCoalesced };
   }
 
-  const byGame = new Map<string, BuiltProp[]>();
+  // Resolve isHome / opponentTeamId first so we can split HTTP batches by
+  // opponent — one shared defenseIndexByFamily per request must not mix sides.
+  type ResolvedProp = BuiltProp & {
+    isHome: boolean | null;
+    opponentTeamId: string | null;
+    homeTeamId: string | null;
+    awayTeamId: string | null;
+    homeTeam: string;
+    awayTeam: string;
+  };
+  const resolved: ResolvedProp[] = [];
   for (const row of props) {
-    const label = row.game || "_unknown";
-    const arr = byGame.get(label) ?? [];
+    const gameLabel = row.game || "_unknown";
+    let homeTeam = opts?.homeTeam ?? "";
+    let awayTeam = opts?.awayTeam ?? "";
+    let homeTeamId = opts?.homeTeamId ?? null;
+    let awayTeamId = opts?.awayTeamId ?? null;
+    const fromMap =
+      gameLabel !== "_unknown"
+        ? resolvePropSimTeamIds(gameLabel, opts?.teamIdsByGame, row.sport)
+        : null;
+    if (fromMap) {
+      homeTeamId = fromMap.homeTeamId;
+      awayTeamId = fromMap.awayTeamId;
+      homeTeam = fromMap.homeTeam ?? homeTeam;
+      awayTeam = fromMap.awayTeam ?? awayTeam;
+    } else if (!homeTeam && gameLabel.includes(" @ ")) {
+      const parts = gameLabel.split(" @ ");
+      awayTeam = parts[0]?.trim() ?? "";
+      homeTeam = parts[1]?.trim() ?? "";
+    }
+    const own = String(row.playerTeamId ?? "").trim();
+    const hId = String(homeTeamId ?? "").trim();
+    const aId = String(awayTeamId ?? "").trim();
+    let isHome: boolean | null = null;
+    let opponentTeamId: string | null = null;
+    if (own && hId && aId) {
+      if (own === hId) {
+        isHome = true;
+        opponentTeamId = aId;
+      } else if (own === aId) {
+        isHome = false;
+        opponentTeamId = hId;
+      }
+    }
+    resolved.push({
+      ...row,
+      homeTeam,
+      awayTeam,
+      homeTeamId: hId || null,
+      awayTeamId: aId || null,
+      isHome,
+      opponentTeamId,
+    });
+  }
+
+  // Batch key: game + opponent so each HTTP call gets the correct defense pack.
+  const byBatch = new Map<string, ResolvedProp[]>();
+  for (const row of resolved) {
+    const gameLabel = row.game || "_unknown";
+    const opp = String(row.opponentTeamId ?? "").trim() || "unknown";
+    const batchKey = `${gameLabel}||opp:${opp}`;
+    const arr = byBatch.get(batchKey) ?? [];
     arr.push(row);
-    byGame.set(label, arr);
+    byBatch.set(batchKey, arr);
   }
 
   const tier = opts?.tier ?? "quick";
   const MAX_PROPS_PER_REQUEST = 40;
 
   const gameResults = await Promise.all(
-    [...byGame.entries()].map(async ([gameLabel, rows]) => {
+    [...byBatch.entries()].map(async ([batchKey, rows]) => {
       const sport = rows[0]!.sport;
-      let homeTeam = opts?.homeTeam ?? "";
-      let awayTeam = opts?.awayTeam ?? "";
-      let homeTeamId = opts?.homeTeamId ?? null;
-      let awayTeamId = opts?.awayTeamId ?? null;
-
-      const fromMap =
-        gameLabel !== "_unknown"
-          ? resolvePropSimTeamIds(gameLabel, opts?.teamIdsByGame, sport)
-          : null;
-      if (fromMap) {
-        homeTeamId = fromMap.homeTeamId;
-        awayTeamId = fromMap.awayTeamId;
-        homeTeam = fromMap.homeTeam ?? homeTeam;
-        awayTeam = fromMap.awayTeam ?? awayTeam;
-      } else if (!homeTeam && gameLabel.includes(" @ ")) {
-        const parts = gameLabel.split(" @ ");
-        awayTeam = parts[0]?.trim() ?? "";
-        homeTeam = parts[1]?.trim() ?? "";
-      }
+      const gameLabel = rows[0]!.game || "_unknown";
+      const homeTeam = rows[0]!.homeTeam;
+      const awayTeam = rows[0]!.awayTeam;
+      const homeTeamId = rows[0]!.homeTeamId;
+      const awayTeamId = rows[0]!.awayTeamId;
+      const opponentTeamId = rows[0]!.opponentTeamId;
 
       const perGameWx =
         gameLabel !== "_unknown"
           ? opts?.weatherImpactByGame?.[gameLabel]
           : undefined;
-      const perGameDef =
-        gameLabel !== "_unknown"
-          ? opts?.defenseIndexByFamilyByGame?.[gameLabel]
-          : undefined;
+      // Prefer opponent-scoped map; fall back to legacy game map only when
+      // opponent id is missing (unknown side — omit rather than invent).
+      let perOppDef: Record<string, number> | null | undefined;
+      if (gameLabel !== "_unknown" && opponentTeamId) {
+        const oppKey = propOpponentDefenseKey(gameLabel, opponentTeamId);
+        if (oppKey) perOppDef = opts?.defenseIndexByFamilyByOpponent?.[oppKey];
+      }
+      if (perOppDef === undefined && gameLabel !== "_unknown") {
+        perOppDef = opts?.defenseIndexByFamilyByGame?.[gameLabel];
+      }
       const batchOpts = {
         homeTeam,
         awayTeam,
@@ -2302,12 +2363,13 @@ export async function fetchPropSimulations(
         awayTeamId,
         weatherImpact:
           perGameWx !== undefined ? perGameWx : (opts?.weatherImpact ?? null),
-        defenseIndexByFamily: perGameDef ?? null,
+        defenseIndexByFamily: perOppDef ?? null,
         tier,
         simulations: opts?.simulations,
       };
+      void batchKey;
 
-      const chunks: BuiltProp[][] = [];
+      const chunks: ResolvedProp[][] = [];
       for (let i = 0; i < rows.length; i += MAX_PROPS_PER_REQUEST) {
         chunks.push(rows.slice(i, i + MAX_PROPS_PER_REQUEST));
       }
@@ -2316,29 +2378,7 @@ export async function fetchPropSimulations(
         chunks.map((chunk) =>
           fetchPropSimulationsBatch(
             sport,
-            chunk.map(({ game: _g, ...r }) => {
-              const own = String(r.playerTeamId ?? "").trim();
-              const hId = String(homeTeamId ?? "").trim();
-              const aId = String(awayTeamId ?? "").trim();
-              let isHome: boolean | null = null;
-              let opponentTeamId: string | null = null;
-              if (own && hId && aId) {
-                if (own === hId) {
-                  isHome = true;
-                  opponentTeamId = aId;
-                } else if (own === aId) {
-                  isHome = false;
-                  opponentTeamId = hId;
-                }
-              }
-              return {
-                ...r,
-                homeTeamId: hId || null,
-                awayTeamId: aId || null,
-                isHome,
-                opponentTeamId,
-              };
-            }),
+            chunk.map(({ game: _g, homeTeam: _ht, awayTeam: _at, ...r }) => r),
             batchOpts,
             signal,
           ),
