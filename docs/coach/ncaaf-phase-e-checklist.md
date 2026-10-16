@@ -27,7 +27,7 @@ The 2026-10-14 E2a **PASS** is **WITHDRAWN**. That report used PPG fed as PPD + 
 | Dog-cover range across five seeds | **0.6757–0.6990** |
 | E2a (`E2_outcomeVsCoin`) | **PASS** |
 | Close soft gates | **PASS_SOFT_GATES_ONLY** (n=770) |
-| Coach pick CLV | **COMPUTED_NO_PASS_LABEL** (200 picks; mean ML CLV −0.0057) |
+| Coach pick CLV | **FAIL_LOCKED_CRITERIA** (200 picks; mean ML CLV −0.0057; require ≥0) |
 | Closing spread ATS Brier | **0.311 FAIL vs coin** (n=754) — see market-families report |
 | Injury segments | **INSUFFICIENT_DATA** |
 
@@ -38,24 +38,24 @@ The 2026-10-14 E2a **PASS** is **WITHDRAWN**. That report used PPG fed as PPD + 
 | E1 | Sensitivity ±3 ppg / QB-out ≥2pp | **PASS (unit)** | Soft-rate PPD unit test corrected |
 | E2a | Outcome calibration vs coin | **PASS** | Primary seed 20241015, 10k sims |
 | E2b | Closing-line soft gates | **PASS_SOFT_GATES_ONLY** | Not a CLV PASS |
-| E2b | Coach pick CLV | **COMPUTED_NO_PASS_LABEL** | Needs agreed tolerance + human review |
-| E2b | Closing spread ATS | **FAIL** | Brier 0.311 > 0.25 — restore blocked |
+| E2b | Coach pick CLV | **FAIL_LOCKED_CRITERIA** | Require mean CLV ≥ 0 + pctBeat≥0.45; measured −0.0057 / 0.348 — see `ncaaf-e2b-clv-acceptance-criteria.md` |
+| E2b | Closing spread ATS | **FAIL vs coin** (untouched Brier 0.284) | Settlement/sign/push/extraction **CLEARED**; OPEN_MODEL overconfidence |
 | E3 | Exact-line binder | **PASS (unit)** | `gameSimQualityGates.test.ts` |
-| E4 | Injury conservatism | **INSUFFICIENT_DATA** | Archive `injuryKnown` all null |
+| E4 | Injury conservatism | **INSUFFICIENT_DATA** | 2024 labels absent; forward ESPN snaps must not backfill |
 | E5 | Props / other-sport P0 regressions | **PASS** | Re-run green on this branch |
-| E6 | Human sign-off | **OPEN** | Required after E2b/E4 PASS |
+| E6 | Human sign-off | **OPEN — not requested** | Blockers remain |
 
-**Restore readiness:** **NO**. Live gate stays false. Outstanding: CLV PASS criteria, closing-spread calibration fix + remeasure, injury evidence, human sign-off. Closing totals / posted ALT prices missing for those market CLVs.
+**Restore readiness:** **NO**. Per-market: ML beats coin not market (CLV fail); spreads fail coin; totals/ALTs missing closes. Live gate stays false.
 
 ## Unavailable data — exact dependencies
 
 | Gap | Dependency |
 |-----|------------|
-| E2b CLV PASS | Agreed numeric CLV tolerance recorded as PASS; Coach pick CLV re-reviewed |
-| Closing spread FAIL | Model/data fix so home ATS Brier &lt; 0.25 on same archive, then re-run `ncaafPhaseEMarketFamilies.ts` |
-| Closing totals / ALT prices | Odds historical totals + alt lines in frozen archive (not present today) |
-| E4 injury / QB | Non-null `injuryKnown` (+ optional `qbOut`) pre-kickoff; null ≠ false |
-| E6 | Named approver + UTC date + commit SHA on flag-only PR |
+| E2b CLV PASS | Meet locked C1–C6 (`meanClv ≥ 0`); do not loosen floor |
+| Closing spread FAIL | Model calibration so untouched ATS Brier &lt; coin (settlement already audited) |
+| Closing totals / ALT prices | Odds historical with `NCAAF_E2B_MARKETS=h2h,spreads,totals,alternate_spreads` when `ODDS_API_KEY` set |
+| E4 injury / QB | Snapshots with `captureTimestamp < kickoff` for holdout games; never coerce null→false |
+| E6 | Named approver + UTC date + commit SHA on flag-only PR — **after** market blockers clear |
 
 ## Commands
 
