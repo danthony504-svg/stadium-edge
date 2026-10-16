@@ -501,13 +501,38 @@ export default function CoachScreen() {
       const fireAbsoluteTerminal = () => {
         if (sendGenRef.current !== sendGen) return;
         if (coachSessionIsTerminal(sessionRef.current)) return;
+        // Peek first — a full qualifying buffer means delivery can finish safely.
+        // Latch those picks before abort so the budget path cannot blank a ready ticket.
+        const ask = sessionAskTextRef.current || text;
+        const peeked = pendingTicketPicksRef.current;
+        const propsPendingPeek = propsIncompleteForFlush(ask, peeked);
+        const readyPicks = resolveCoachTerminalPicks({
+          bufferedPicks: peeked,
+          messagePicks: null,
+          askText: ask,
+          requestedLegs,
+          propPhaseIncomplete: propsPendingPeek,
+        });
+        const fullReady =
+          requestedLegs >= 3 && readyPicks.length >= requestedLegs;
+        if (fullReady) {
+          pendingTicketPicksRef.current = [];
+          finishSession(assistantId, {
+            picks: readyPicks,
+            text: "",
+            requestedLegs,
+            propsPending: false,
+          });
+          // Stop runaway sims after the ticket is latched — do not weaken qualification.
+          abort.abort();
+          return;
+        }
         abort.abort();
         // Do NOT call finishSession/setMessages inside a setMessages updater —
         // React can drop the nested update, leaving building:true forever while
         // the composer unlocks (stuck "Scoring ticket… N legs" card).
         // Drain+clear so raw pending identity cannot linger after budget terminal.
         const buffered = drainPendingTicketPicks(pendingTicketPicksRef);
-        const ask = sessionAskTextRef.current || text;
         const propsPending = propsIncompleteForFlush(ask, buffered);
         const picks = resolveCoachTerminalPicks({
           bufferedPicks: buffered,
