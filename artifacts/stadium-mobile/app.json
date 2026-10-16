@@ -31,7 +31,8 @@
         "webcredentials:profound-raptor-92.clerk.accounts.dev"
       ],
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Stadium Edge needs the microphone so you can talk to Coach."
       }
     },
     "android": {
@@ -68,9 +69,12 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Stadium Edge to access your photos so you can upload a bet slip for the AI Coach to analyze."
+          "photosPermission": "Allow Stadium Edge to access your photos so you can upload a bet slip for the AI Coach to analyze.",
+          "microphonePermission": "Stadium Edge needs the microphone so you can talk to Coach."
         }
       ],
+      "expo-av",
+      "expo-speech",
       [
         "expo-media-library",
         {

@@ -32,6 +32,7 @@ import subscriptionsRouter from "./subscriptions";
 import appReviewAuthRouter from "./appReviewAuth";
 import appConfigRouter from "./appConfig";
 import reliabilityRouter from "./reliability";
+import voiceRouter from "./voice";
 
 const router: IRouter = Router();
 
@@ -45,6 +46,7 @@ router.use(gamesRouter);
 router.use(injuriesRouter);
 router.use(weatherRouter);
 router.use(chatRouter);
+router.use(voiceRouter);
 router.use(athletesRouter);
 router.use(historyRouter);
 router.use(defenseRouter);

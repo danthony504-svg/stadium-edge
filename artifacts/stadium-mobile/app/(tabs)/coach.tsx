@@ -28,6 +28,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachBuildProgress } from "@/components/coach/CoachBuildProgress";
 import {
+  CoachVoiceControls,
+  type CoachVoiceControlsHandle,
+} from "@/components/coach/CoachVoiceControls";
+import {
   PickCard,
   gameSideFromPick,
   gameTotalFromPick,
@@ -140,6 +144,8 @@ export default function CoachScreen() {
   /** Explicit Home shortcut mode for the next / current build (survives remount). */
   const ticketStyleRef = useRef<CoachTicketStyle | null>(null);
   const sendRef = useRef<(raw: string) => Promise<void>>(async () => {});
+  /** Preview-only voice: speak energetic summaries after latch (when unmuted). */
+  const voiceRef = useRef<CoachVoiceControlsHandle>(null);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const sendGenRef = useRef(0);
@@ -346,6 +352,10 @@ export default function CoachScreen() {
           opts.requestedLegs >= 3 ? "nleg_ticket" : "recommendation",
       });
       unlockComposer();
+      // Preview voice: energetic spoken summary (no-op on production / muted / no native).
+      if (!opts.failed) {
+        voiceRef.current?.speakResult(storedText || opts.text, picks.length);
+      }
     },
     [patchAssistant, unlockComposer, coachPremiumUnlocked],
   );
@@ -362,6 +372,7 @@ export default function CoachScreen() {
       if (busy) {
         if (sessionRef.current.outcome === "open") {
           abortRef.current?.abort();
+          voiceRef.current?.stopAll();
           const assistantId = activeAssistantIdRef.current;
           const legs = sessionRef.current.requestedLegs;
           const buffered = pendingTicketPicksRef.current;
@@ -1151,6 +1162,13 @@ export default function CoachScreen() {
               <Feather name="image" size={20} color={colors.mutedForeground} />
             )}
           </Pressable>
+          <CoachVoiceControls
+            ref={voiceRef}
+            disabled={busy || pickingImage}
+            onTranscript={(text) => {
+              void sendRef.current(text);
+            }}
+          />
           <TextInput
             value={draft}
             onChangeText={setDraft}
