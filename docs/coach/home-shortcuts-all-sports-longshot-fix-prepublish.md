@@ -78,7 +78,21 @@ Log: `/opt/cursor/artifacts/home-shortcuts-all-sports-longshot-fix-tests.log`
 
 ---
 
+## Local export (forced SHA bake)
+
+| Field | Value |
+|-------|--------|
+| Launch `fileSHA256` | `kE-TEyEhMY-kH6qsb_0BWsOZfOZTDpjDtTUX4XG98vg` |
+| HBC | `_expo/static/js/ios/entry-a6928cd0118b5938088cdacc66168716.hbc` |
+| Baked `EXPO_PUBLIC_GIT_COMMIT` | `528a835924881dfc812c01cfadb860ec43191039` |
+| Published | **No** |
+
+See [`preview-export-528a8359-prepublish.md`](./preview-export-528a8359-prepublish.md).
+
+---
+
 ## Out of scope until authorized
 
 - Preview / production OTA  
 - Freeze lift / merge / native rebuild / server deploy  
+
