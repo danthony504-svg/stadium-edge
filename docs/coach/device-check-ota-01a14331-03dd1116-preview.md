@@ -28,3 +28,7 @@ Artifact: `/opt/cursor/artifacts/preview-publish-03dd1116-result.json`
 ## Device follow-up
 
 See test plan in [`preview-export-03dd1116-prepublish.md`](./preview-export-03dd1116-prepublish.md): confirm `Updates.updateId` = `01a14331…`, commit hash = full `03dd1116…`, cold launches, email/password sign-in, Hot Picks / Easy Money, no ClerkExpoPasskeys fatal.
+
+### Destination renders (separate from startup)
+
+Best Value **navigation-only PASS**; value-view **MISSING**. Longshots destination **PASS**; **Across all sports** labels **MISSING**. Full record: [`device-check-ota-01a14331-destinations.md`](./device-check-ota-01a14331-destinations.md). Prepared unpublished fix: [`preview-best-value-6acbe744-prepublish.md`](./preview-best-value-6acbe744-prepublish.md).
