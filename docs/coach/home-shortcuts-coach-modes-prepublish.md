@@ -10,7 +10,7 @@
 
 | Field | Value |
 |-------|--------|
-| **Full SHA** | _(set at commit — see git tip on `cursor/prod-ota-home-shortcuts-8b51`)_ |
+| **Full SHA** | `4c6c71ae2a722cb2381c46b9983bc27d85cbe6e3` |
 | Branch | `cursor/prod-ota-home-shortcuts-8b51` |
 | Runtime | `1.1.0` |
 | Passkey startup guard | **Retained** (`hasClerkExpoPasskeysNative`) |
