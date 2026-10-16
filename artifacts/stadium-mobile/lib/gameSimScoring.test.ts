@@ -138,7 +138,7 @@ test("unsupported_market status blocks a numeric cover rate", () => {
   const blocked = {
     ...sim,
     sport: "nfl",
-    engineVersion: "ppg-per-drive-v1",
+    engineVersion: "ppg-per-drive-v1.1",
     coverHitRates: { [id]: 0.91 },
     coverQueryStatus: { [id]: "unsupported_market" },
   };

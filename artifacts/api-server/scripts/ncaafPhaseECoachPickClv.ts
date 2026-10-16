@@ -33,6 +33,8 @@ const SIMS = Number(process.env.NCAAF_PHASE_E_SIMS ?? 10_000);
 const CUTOFF = process.env.NCAAF_COACH_CLV_CUTOFF ?? "2024-10-15T00:00:00Z";
 const GAME_SIM_MIN_HIT = 0.52;
 const COACH_SIM_MIN_CONFIDENCE = 52;
+/** Product-aligned ceiling (`edgeLock` / arbitrage MAX_VALUE_PCT). Locked as R3 before remeasure. */
+const MAX_EDGE_PCT = 12;
 
 type EspnGame = {
   eventId: string;
@@ -138,25 +140,19 @@ function loadCloses(): Map<string, CloseRow> {
   return m;
 }
 
-function americanFromImplied(p: number): number {
-  const x = Math.min(0.999, Math.max(0.001, p));
-  return x >= 0.5
-    ? Math.round((-100 * x) / (1 - x))
-    : Math.round((100 * (1 - x)) / x);
-}
-
 /**
  * Fallback when Odds early snapshot cache is absent: vendored T−24h home
- * ML/spread from `ncaaf-phase-e-selection-prices.json`. Away spread = −home;
- * away ML is vig-free complement of home implied. Documented approximation —
- * not a full bookmaker snapshot.
+ * ML/spread from `ncaaf-phase-e-selection-prices.json`.
+ *
+ * R1 (locked before remeasure): home ML only — never invent vig-free away ML.
+ * Away spread = −home is zero-sum and allowed; spread juice defaults to −110.
  */
 function loadSelectionPriceFallbackByGameId(): Map<
   string,
   {
     snap: string;
     homeMl: number;
-    awayMl: number;
+    awayMl: null;
     homeSpread: number;
     awaySpread: number;
     homeSpreadOdds: number;
@@ -169,7 +165,7 @@ function loadSelectionPriceFallbackByGameId(): Map<
     {
       snap: string;
       homeMl: number;
-      awayMl: number;
+      awayMl: null;
       homeSpread: number;
       awaySpread: number;
       homeSpreadOdds: number;
@@ -194,11 +190,10 @@ function loadSelectionPriceFallbackByGameId(): Map<
     if (!id || homeMl == null || !Number.isFinite(homeMl) || homeSpread == null || !Number.isFinite(homeSpread)) {
       continue;
     }
-    const pHome = mlToProb(homeMl);
     out.set(id, {
       snap: String(row.selectionTimestamp ?? ""),
       homeMl,
-      awayMl: americanFromImplied(1 - pHome),
+      awayMl: null,
       homeSpread,
       awaySpread: -homeSpread,
       homeSpreadOdds: -110,
@@ -381,7 +376,8 @@ function qualify(simHit: number, odds: number, confidenceScore: number): Cand | 
   if (!(simHit > implied)) return null;
   const edgePct = Math.round((simHit - implied) * 1000) / 10;
   const evPct = Math.round((simHit * americanToDecimal(odds) - 1) * 1000) / 10;
-  if (!(edgePct > 0) || !(evPct > 0)) return null;
+  // R3: product-aligned unbelieved-edge ceiling (locked before remeasure).
+  if (!(edgePct > 0) || edgePct > MAX_EDGE_PCT || !(evPct > 0)) return null;
   return {
     id: "",
     market: "ml",
@@ -434,6 +430,7 @@ function main(): number {
     week: number;
     kickoffIso: string;
     selectionTimestamp: string;
+    priceSource: "odds-early-cache" | "selection-prices-fixture";
     market: string;
     side: string;
     line: number | null;
@@ -548,9 +545,10 @@ function main(): number {
     if (!prices) {
       const fb = selectionFallback.get(String(g.eventId));
       if (fb && (!fb.snap || fb.snap < commence)) {
+        // R1: fixture is home-ML only — awayMl stays null.
         prices = {
           homeMl: fb.homeMl,
-          awayMl: fb.awayMl,
+          awayMl: null,
           homeSpread: fb.homeSpread,
           awaySpread: fb.awaySpread,
           homeSpreadOdds: fb.homeSpreadOdds,
@@ -560,15 +558,24 @@ function main(): number {
         priceSource = "selection-prices-fixture";
       }
     }
-    if (!prices || prices.homeMl == null || prices.awayMl == null ||
-        prices.homeSpread == null || prices.awaySpread == null) {
+    // Spreads required; home ML required. Away ML only when odds-early-cache (R2).
+    if (
+      !prices ||
+      prices.homeMl == null ||
+      prices.homeSpread == null ||
+      prices.awaySpread == null
+    ) {
       skippedNoEarly += 1;
       updateForm();
       continue;
     }
     const homeSpOdds = prices.homeSpreadOdds ?? -110;
     const awaySpOdds = prices.awaySpreadOdds ?? -110;
-    void priceSource;
+    if (!priceSource) {
+      skippedNoEarly += 1;
+      updateForm();
+      continue;
+    }
 
     const coverQueries = [
       { id: "home-ml", kind: "ml" as const, teamSide: "home" as const },
@@ -626,7 +633,10 @@ function main(): number {
       cands.push({ ...q, id, market, side, line, odds });
     };
     tryAdd("home-ml", "ml", "home", prices.homeMl);
-    tryAdd("away-ml", "ml", "away", prices.awayMl);
+    // R2: away ML only with real two-sided early cache prices.
+    if (prices.awayMl != null && priceSource === "odds-early-cache") {
+      tryAdd("away-ml", "ml", "away", prices.awayMl);
+    }
     tryAdd("home-sp", "spread", "home", homeSpOdds, prices.homeSpread);
     tryAdd("away-sp", "spread", "away", awaySpOdds, prices.awaySpread);
 
@@ -697,6 +707,7 @@ function main(): number {
       week: g.week,
       kickoffIso: String(g.kickoffIso),
       selectionTimestamp,
+      priceSource,
       market: best.market,
       side: best.side,
       line: best.line ?? null,
@@ -754,23 +765,24 @@ function main(): number {
     selectionCutoff: CUTOFF,
     competitionScope:
       "Odds-listed FBS games in ncaaf-phase-e-closing-lines.json (matchable americanfootball_ncaaf names). FCS/unlisted excluded.",
-    engineStamp: "ppg-per-drive-v1",
+    engineStamp: "ppg-per-drive-v1.1",
     selectionRules: {
-      engine: "nfl-drive:ppg-per-drive-v1",
+      engine: "nfl-drive:ppg-per-drive-v1.1",
       form: "venue_split+L10 blend; chrono pre-kickoff only",
       prices:
-        "Prefer Odds historical ~24h pre-kickoff cache; else vendored ncaaf-phase-e-selection-prices.json (home lines + vig-free away ML / −home spread @ −110)",
-      candidates: "home/away ML + home/away spread at selection lines",
+        "Prefer Odds historical ~24h pre-kickoff cache (two-sided). Fixture fallback: home ML only + −home spread @ −110 (R1/R2 — no vig-free away ML invent).",
+      candidates:
+        "home ML + home/away spread always; away ML only when odds-early-cache",
       gates: [
         `simHit >= ${GAME_SIM_MIN_HIT}`,
         `confidenceScore >= ${COACH_SIM_MIN_CONFIDENCE}`,
-        "edgePct > 0 (simHit > implied)",
+        `0 < edgePct <= ${MAX_EDGE_PCT} (R3; MAX_VALUE_PCT product ceiling)`,
         "evPct > 0",
       ],
       sideChoice:
         "Among qualifiers, prefer sim-favored side when |homeWinP-awayWinP|>=0.03; rank by edgePct then simHit. NOT blanket home.",
       note:
-        "Offline eval applies Coach SIMULATION numeric gates. Full Final-AI rubric grades are not reconstructed; product NCAAF P0 remains armed.",
+        "Offline eval applies Coach SIMULATION numeric gates + locked R1–R4 remediations (docs/coach/ncaaf-e2b-clv-acceptance-criteria.md). Full Final-AI rubric grades are not reconstructed; product NCAAF P0 remains armed.",
     },
     funnel: {
       selectionUniverseInScope: selectionUniverse,
@@ -811,7 +823,7 @@ function main(): number {
     },
     injuryKnown: null,
     verdicts: {
-      E2b_coachPickClv: "COMPUTED_NO_PASS_LABEL",
+      E2b_coachPickClv: "PENDING_CRITERIA",
       E2b_closeArchiveSoftGates: "see calibration report — not CLV",
       E4_injuryConservatism: "INSUFFICIENT_DATA",
       E6_humanSignOff: "OPEN",
@@ -819,7 +831,39 @@ function main(): number {
     },
     keepP0Armed: true,
     flagFlipAllowed: false,
+    clvAcceptanceCriteria: {
+      lockedAt: "2026-10-16",
+      doc: "docs/coach/ncaaf-e2b-clv-acceptance-criteria.md",
+      selectionRemediations: ["R1_fixture_home_ml_only", "R2_away_ml_needs_early_cache", "R3_max_edge_12", "R4_record_price_source"],
+      C1_nMl_ge_50: mlPicks.length >= 50,
+      C2_meanClv_ge_0: meanClv != null && meanClv >= 0,
+      C3_pctBeatClose_ge_0_45: pctBeatClose != null && pctBeatClose >= 0.45,
+      C4_side_mix: homeSel >= 20 && awaySel >= 20,
+      measured: {
+        nMlWithClv: mlPicks.length,
+        meanClvProbPoints: meanClv,
+        pctSelectionsBeatClose: pctBeatClose,
+        homeSelections: homeSel,
+        awaySelections: awaySel,
+        fixturePicks: picks.filter((p) => p.priceSource === "selection-prices-fixture").length,
+        earlyCachePicks: picks.filter((p) => p.priceSource === "odds-early-cache").length,
+      },
+      allPass: false,
+    },
   };
+
+  const c = report.clvAcceptanceCriteria;
+  c.allPass = Boolean(
+    c.C1_nMl_ge_50 && c.C2_meanClv_ge_0 && c.C3_pctBeatClose_ge_0_45 && c.C4_side_mix,
+  );
+  report.verdicts.E2b_coachPickClv = c.allPass
+    ? "PASS"
+    : c.C1_nMl_ge_50
+      ? "FAIL_LOCKED_CRITERIA"
+      : "COMPUTED_NO_PASS_LABEL";
+  report.verdicts.E2b_coachPickClvNote = c.allPass
+    ? "C1–C4 met under locked criteria + R1–R4; C5 soft gates checked separately; C6 label only with human E6."
+    : "Criteria locked before scoring; C2 requires meanClv≥0 (no negative floor). R1–R4 applied.";
 
   mkdirSync(FIX, { recursive: true });
   writeFileSync(

@@ -24,7 +24,7 @@ test("ncaaf maps to nfl-drive engine", () => {
 });
 
 test("nfl-drive rates: points per drive match expected points below the joint ceiling", () => {
-  assert.equal(FOOTBALL_DRIVE_ENGINE_VERSION, "ppg-per-drive-v1");
+  assert.equal(FOOTBALL_DRIVE_ENGINE_VERSION, "ppg-per-drive-v1.1");
   for (const ppd of [1.2, 2.0, 3.2]) {
     const rates = nflDriveScoringRates(ppd);
     assert.ok(rates.tdRate > 0 && rates.fgRate > 0);

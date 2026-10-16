@@ -34,21 +34,21 @@ test("a mismatched football stamp is not graded", () => {
   assert.equal(gameSimHitForPick(pick, stamped), null);
 });
 
-test("ppg-per-drive-v1 is the football stamp and sport-sim-v1 is the other stamp", () => {
-  assert.equal(gameDrawEngineAccepted({ ...draw, engineVersion: "ppg-per-drive-v1" }, "nfl"), true);
+test("ppg-per-drive-v1.1 is the football stamp and sport-sim-v1 is the other stamp", () => {
+  assert.equal(gameDrawEngineAccepted({ ...draw, engineVersion: "ppg-per-drive-v1.1" }, "nfl"), true);
   assert.equal(
     gameDrawEngineAccepted({ sport: "nba", engineVersion: "sport-sim-v1" }, "nba"),
     true,
   );
-  assert.equal(gameDrawEngineAccepted({ sport: "nba", engineVersion: "ppg-per-drive-v1" }, "nba"), false);
+  assert.equal(gameDrawEngineAccepted({ sport: "nba", engineVersion: "ppg-per-drive-v1.1" }, "nba"), false);
 });
 
 test("hydration rejects a fingerprint prefix that has no writer stamp or a bad draw", () => {
   const base = {
-    fingerprint: "ppg-per-drive-v1:1:0:::",
+    fingerprint: "ppg-per-drive-v1.1:1:0:::",
     boardScan: {
       gameSimulations: {
-        "A @ B": { sport: "nfl", engineVersion: "ppg-per-drive-v1" },
+        "A @ B": { sport: "nfl", engineVersion: "ppg-per-drive-v1.1" },
       },
     },
     tickets: {
@@ -62,24 +62,24 @@ test("hydration rejects a fingerprint prefix that has no writer stamp or a bad d
     },
   };
   assert.equal(slateSnapshotEngineAccepted(base), false);
-  assert.equal(slateSnapshotEngineAccepted({ ...base, simEngineStamp: "ppg-per-drive-v1" }), true);
+  assert.equal(slateSnapshotEngineAccepted({ ...base, simEngineStamp: "ppg-per-drive-v1.1" }), true);
   const unstamped = {
     ...base,
-    simEngineStamp: "ppg-per-drive-v1",
+    simEngineStamp: "ppg-per-drive-v1.1",
     boardScan: { gameSimulations: { "A @ B": { sport: "nfl" } } },
   };
   assert.equal(slateSnapshotEngineAccepted(unstamped), false);
   const wrongFootball = {
     ...base,
-    simEngineStamp: "ppg-per-drive-v1",
+    simEngineStamp: "ppg-per-drive-v1.1",
     boardScan: {
       gameSimulations: { "A @ B": { sport: "nfl", engineVersion: "sport-sim-v1" } },
     },
   };
   assert.equal(slateSnapshotEngineAccepted(wrongFootball), false);
   const roundTrip = JSON.parse(
-    JSON.stringify({ ...base, simEngineStamp: "ppg-per-drive-v1" }),
+    JSON.stringify({ ...base, simEngineStamp: "ppg-per-drive-v1.1" }),
   );
   assert.equal(slateSnapshotEngineAccepted(roundTrip), true);
-  assert.equal(roundTrip.boardScan.gameSimulations["A @ B"].engineVersion, "ppg-per-drive-v1");
+  assert.equal(roundTrip.boardScan.gameSimulations["A @ B"].engineVersion, "ppg-per-drive-v1.1");
 });

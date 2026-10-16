@@ -22,9 +22,28 @@ export type DefenseAllowedSlice = {
 
 /**
  * Engine id baked into sim cache fingerprints. Bump when the points-per-drive
- * conversion changes so stored draws and derived grades cannot be reused.
+ * conversion or NCAAF residual calibration changes so stored draws cannot be reused.
+ *
+ * v1.1: NCAAF-only margin residual + home-margin shrink locked on 2024
+ * pre-cutoff (kickoff < 2024-10-15) after settlement audit cleared signs.
+ * Untouched holdout was not used to choose these constants.
  */
-export const FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1";
+export const FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1.1";
+
+/**
+ * Extra NCAAF margin noise (points) added after drive outcomes.
+ * Locked 2026-10-16 from pre-cutoff diag: empirical residual SD ≈ 19.46,
+ * mean sim margin SD ≈ 12.94 ⇒ complementary SD ≈ 14.5.
+ * See `ncaaf-phase-e-spread-margin-diag.json`.
+ */
+export const FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD = 14.5;
+
+/**
+ * Subtract from projected home margin (split ± across team means) to correct
+ * pre-cutoff mean(proj − actual) ≈ +2.17. Locked at 2.0 on the same diag;
+ * untouched holdout not used.
+ */
+export const FOOTBALL_NCAAF_HOME_MARGIN_SHRINK = 2.0;
 
 /**
  * Former hard TD/FG caps from the points-per-game-as-points-per-drive map.

@@ -190,7 +190,7 @@ test("10k draws track low, average, and high points per game", () => {
   );
 
   const payload = {
-    engine: "ppg-per-drive-v1",
+    engine: "ppg-per-drive-v1.1",
     simulations: sims,
     tolerancePoints: 1.25,
     rows,
@@ -233,8 +233,8 @@ test("HTTP registry and in-process model id share the corrected drive engine", (
   assert.match(college?.simModelLabel ?? "", /ppg-per-drive-v1/);
   assert.equal(viaRegistry?.simModel, "nfl-drive");
   assert.equal(college?.simModel, "nfl-drive");
-  assert.equal(viaRegistry?.engineVersion, "ppg-per-drive-v1");
-  assert.equal(college?.engineVersion, "ppg-per-drive-v1");
+  assert.equal(viaRegistry?.engineVersion, "ppg-per-drive-v1.1");
+  assert.equal(college?.engineVersion, "ppg-per-drive-v1.1");
   const httpBody = JSON.parse(
     JSON.stringify({
       sport: "nfl",
@@ -243,13 +243,13 @@ test("HTTP registry and in-process model id share the corrected drive engine", (
       ...viaRegistry,
     }),
   ) as { engineVersion?: string; sport?: string };
-  assert.equal(httpBody.engineVersion, "ppg-per-drive-v1");
+  assert.equal(httpBody.engineVersion, "ppg-per-drive-v1.1");
   assert.equal(gameDrawEngineAccepted(httpBody, "nfl"), true);
   const inProcess = JSON.parse(
     JSON.stringify(stampedTeamGameOutcome("ncaaf", college!)),
   ) as { engineVersion?: string; sport?: string };
   assert.equal(inProcess.sport, "ncaaf");
-  assert.equal(inProcess.engineVersion, "ppg-per-drive-v1");
+  assert.equal(inProcess.engineVersion, "ppg-per-drive-v1.1");
   assert.equal(gameDrawEngineAccepted(inProcess, "ncaaf"), true);
   assert.equal(gameDrawEngineAccepted({ ...httpBody, engineVersion: undefined }, "nfl"), false);
   assert.ok(Math.abs((viaRegistry?.homeProjectedScore ?? 0) - 21) < 4);

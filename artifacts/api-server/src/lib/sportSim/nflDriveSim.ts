@@ -23,8 +23,19 @@ import {
   FOOTBALL_DRIVE_FG_RATE_KNEE,
   FOOTBALL_DRIVE_TD_RATE_KNEE,
   FOOTBALL_DRIVE_TD_PPD_DIVISOR,
+  FOOTBALL_NCAAF_HOME_MARGIN_SHRINK,
+  FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD,
   isCollegeFootballSport,
 } from "./footballDriveMatchup.js";
+
+/** Box–Muller using the sim RNG (no Math.random). */
+function gaussian(rng: () => number): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
 
 /** @deprecated Use FOOTBALL_DRIVE_* — kept for existing test imports. */
 export const NFL_DRIVE_TD_RATE_CAP = FOOTBALL_DRIVE_TD_RATE_KNEE;
@@ -64,17 +75,24 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   // Base means are points per game; opponent defense yards tilt when sample ≥ 2.
   const homeBase = teamMean(ctx.home.ptsFor, ctx.away.ptsAgainst, college ? 24 : 22);
   const awayBase = teamMean(ctx.away.ptsFor, ctx.home.ptsAgainst, college ? 24 : 22);
-  const homeOff = applyDefenseTiltToOffenseMean(
+  let homeOff = applyDefenseTiltToOffenseMean(
     homeBase,
     ctx.away.defenseAllowed ?? null,
     ctx.sport,
   );
-  const awayOff = applyDefenseTiltToOffenseMean(
+  let awayOff = applyDefenseTiltToOffenseMean(
     awayBase,
     ctx.home.defenseAllowed ?? null,
     ctx.sport,
   );
   if (!Number.isFinite(homeOff) || !Number.isFinite(awayOff)) return null;
+
+  // NCAAF v1.1: pre-cutoff-locked home-margin shrink (untouched not used).
+  if (college && FOOTBALL_NCAAF_HOME_MARGIN_SHRINK > 0) {
+    const half = FOOTBALL_NCAAF_HOME_MARGIN_SHRINK / 2;
+    homeOff -= half;
+    awayOff += half;
+  }
 
   const drives = footballExpectedDrives(homeOff, awayOff, ctx.sport);
   const { tdPoints } = footballDrivePoints(ctx.sport);
@@ -98,6 +116,7 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   const rng = ctx.random ?? Math.random;
   const homeScores: number[] = [];
   const awayScores: number[] = [];
+  const residSd = college ? FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD : 0;
 
   for (let i = 0; i < n; i++) {
     let h = 0;
@@ -114,6 +133,11 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
       if (d > drives * 0.7 && a < h) {
         a += rng() < lateClockTd ? scoreTouchdown(ctx.sport, rng) : 0;
       }
+    }
+    if (residSd > 0) {
+      const noise = residSd * gaussian(rng);
+      h = Math.max(0, h + noise / 2);
+      a = Math.max(0, a - noise / 2);
     }
     homeScores.push(h);
     awayScores.push(a);

@@ -52,9 +52,22 @@ Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-coach-pick-clv-report.
 
 Remediation belongs in selection timing / qualification / price source — **not** in loosening C2.
 
+## Locked selection remediations (2026-10-16, before remeasure)
+
+These change **how** picks are formed. They do **not** change C1–C6.
+
+| # | Rule | Rationale (precommitted) |
+|---|------|--------------------------|
+| R1 | Fixture fallback (`ncaaf-phase-e-selection-prices.json`) may qualify **home ML only** — never invent vig-free away ML | Fixture provenance is home-only early lines; no-vig away invents a non-traded price and inflates edge vs real books |
+| R2 | Away ML requires `odds-early-cache` two-sided extraction | Real away American odds only |
+| R3 | `0 < edgePct ≤ 12` (same ceiling as `edgeLock` / arbitrage `MAX_VALUE_PCT`) | Uncapped edge ranked the most overconfident sims (prior 10%+ band hit 0.289); product already rejects >12% as unbelieved |
+| R4 | Record `priceSource` on every pick (`odds-early-cache` \| `selection-prices-fixture`) | Provenance for CLV audit |
+
+**Still rejected:** any change to C2 of the form `meanClv ≥ −0.01` (or similar) chosen to clear −0.0057.
+
 ## Remeasure protocol
 
-1. Keep C1–C6 unchanged.  
+1. Keep C1–C6 unchanged; apply R1–R4.  
 2. Re-run `ncaafPhaseECoachPickClv.ts` at `NCAAF_PHASE_E_SIMS≥10000`.  
-3. Prefer Odds early-snapshot cache when available; document fixture fallback if used.  
+3. Prefer Odds early-snapshot cache when available; document fixture fallback if used (home ML only under R1).  
 4. Publish new report; apply C1–C6; do not edit thresholds after seeing the number.
