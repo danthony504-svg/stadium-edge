@@ -1,9 +1,11 @@
 # NCAAF team-market (spread / ML / totals) — missing validation evidence
 
-**Tip under audit:** `cursor/coach-college-8leg-audit-8b51` @ `e6f36c63` (and any tip that still matches the engine/gate state below).  
+**Tip under audit:** `cursor/coach-college-8leg-audit-8b51` (engine/gate state below; copy/routing fixes stay ready for **preview** testing only).  
 **Status:** **Do not restore.** `NCAAF_GAME_LINE_SIM_VALIDATED` must stay `false`.  
 **Planning parent:** [`ncaaf-game-line-recovery-plan.md`](./ncaaf-game-line-recovery-plan.md).  
-**Phase E work lineage (not on this tip):** `origin/cursor/odds-api-access-5cb3` and football-unit port commits (`4738df08` → `1f9cc04a` → `014ec192` / `12e355af`). Merge-base with tip ≈ `100b2450` — Phase E SHAs are **not** ancestors of this tip.
+**Prop-context companion:** [`../artifacts/stadium-mobile/scripts/PROP_CONTEXT_PIPELINE_AUDIT.md`](../artifacts/stadium-mobile/scripts/PROP_CONTEXT_PIPELINE_AUDIT.md).  
+**Phase E work lineage (not on this tip):** `origin/cursor/odds-api-access-5cb3` and football-unit port commits (`4738df08` → `1f9cc04a` → `014ec192` / `12e355af`). Merge-base with tip ≈ `100b2450` — Phase E SHAs are **not** ancestors of this tip.  
+**Ops:** Voice paused; no publish / deploy / production OTA.
 
 ---
 
@@ -11,7 +13,7 @@
 
 Compared to what the football-unit pack (`1f9cc04a`, engine stamp `ppg-per-drive-v1`) and soft-rate fix (`4738df08`) claimed elsewhere:
 
-| Capability claimed off-tip | On this tip (`e6f36c63`) |
+| Capability claimed off-tip | On this tip (hard-capped `nfl-drive`) |
 |----------------------------|--------------------------|
 | Soft-monotonic TD/FG rates past former knee (~11.8 / ~11.2 ppd) via `footballDriveMatchup` | **Absent.** `nflDriveSim.ts` still hard-caps at `NFL_DRIVE_TD_RATE_CAP = 0.42` / `NFL_DRIVE_FG_RATE_CAP = 0.28`; further ppd increases are NOOP (`nflDriveRatesSaturated`) |
 | Defense yards-allowed tilt (±8%, `sampleSize ≥ 2`) | **Absent.** `runNflDriveSim` uses only `ptsFor` / `ptsAgainst` via `teamMean`; tip test `nflDriveSimCaps.test.ts` asserts rush/pass defense never enters inputs |

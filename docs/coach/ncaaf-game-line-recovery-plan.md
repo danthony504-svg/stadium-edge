@@ -74,3 +74,10 @@ All must pass on a frozen out-of-sample window:
 - Gate: `artifacts/stadium-mobile/lib/coachP0UnvalidatedTotals.ts`
 - Cap tests: `artifacts/api-server/test/nflDriveSimCaps.test.ts`
 - Integrity PR: #662
+- **Living missing-evidence inventory (do not flip from tip):** [`ncaaf-game-line-missing-evidence.md`](./ncaaf-game-line-missing-evidence.md)
+
+---
+
+## Forbidden unlock
+
+Do **not** set `NCAAF_GAME_LINE_SIM_VALIDATED = true` (or bypass P0) merely so Coach returns NCAAF team-market picks. Empty / blocked college game-line asks under the gate are correct until Phase E acceptance + human sign-off.

@@ -44,4 +44,10 @@ Failure code for board-level full P0: `P0_UNVALIDATED_MARKETS` (logs/manifest on
 
 ## Related prop-context audit
 
-Continues in `PROP_CONTEXT_PIPELINE_AUDIT.md` (opponent D / weather / field / injury). No publish/deploy for either track.
+Continues in `PROP_CONTEXT_PIPELINE_AUDIT.md` (opponent D / weather / field / injury).
+
+**NCAAF team-market restore evidence:** `docs/coach/ncaaf-game-line-missing-evidence.md`
+(acceptance criteria to flip `NCAAF_GAME_LINE_SIM_VALIDATED` — do **not** flip to return picks).
+
+Copy/routing fixes on this branch are ready for **preview** testing when authorized.
+Voice paused; no publish/deploy for either track.

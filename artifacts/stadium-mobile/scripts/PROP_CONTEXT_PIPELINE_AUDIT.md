@@ -188,3 +188,16 @@ Legend cells: `F / P / T / H / G` (or `—`). Notes in parentheses.
 ## 8. College / NCAAF interaction (unchanged)
 
 Bare asks like `8 leg college` parse as `gameLinesOnly` + NCAAF lock and exit under `NCAAF_GAME_LINE_SIM_VALIDATED=false` before slate sims. Prop-context wiring above applies to **eligible** prop paths (and NFL game-line holistic/context), not to P0-blocked NCAAF team markets. See `COACH_8_LEG_COLLEGE_AUDIT.md`.
+
+**NCAAF team-market restore:** exact missing evidence + acceptance criteria live in
+`docs/coach/ncaaf-game-line-missing-evidence.md`. Do not flip the gate from this audit.
+Copy/routing honesty for the blocked path is preview-ready; voice stays paused; no publish/deploy.
+
+## 9. Preview readiness (copy / routing only)
+
+| Surface | Ready for preview IPA test? | Notes |
+|---------|----------------------------|-------|
+| `8 leg college` early P0 exit + clarification + blocked-sim note | **Yes** (JS/OTA preview when authorized) | Does not return picks; gate stays false |
+| Prop-context defenseIndex / MLB weather into MC | **Yes** on greenfield Coach path | High-sev per-side defenseIndex freeze still open (§3) |
+| Voice | **Paused** | No STT/TTS deploy |
+| Production OTA / API deploy | **No** | `.ota-production-freeze` armed |
