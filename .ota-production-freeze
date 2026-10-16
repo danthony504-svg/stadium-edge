@@ -1,27 +1,12 @@
-PRODUCTION OTA FROZEN — 2026-10-14
+PRODUCTION OTA RE-ARMED — 2026-10-16 (post authorized publish)
 
-Reason: Build 78 / 1.1.0 IPS pair dies in Expo ErrorRecovery (SIGABRT) after
-tip 01a13a0a-825f-72b5-8372-76e92d45f5c0 was published to production. Original
-fatal text is not yet recovered from device expo-error.log / readLogEntriesAsync.
-Do not publish, force-publish, heal-publish, or republish production OTAs until
-that fatal is identified and a TestFlight cold-launch pass is recorded.
+Authorized tip now on production channel:
+  SHA    929bfbfe6847e1488c4c75824373811d1fe22e8c
+  Update 01a144b4-5be8-7ec5-8a6a-ef2979058c16
+  Group  258ec15a-5f01-457d-911d-34706ece35f9
 
-Channel tip at freeze prep: 01a13a0a-825f-72b5-8372-76e92d45f5c0
-(group b76dd8f2-659e-480e-97bf-65b4be083e87). Last publish: Actions run
-38552272849 (Publish production OTA #619) @ 100b2450.
+Further production OTA publish / force / heal / republish requires a new
+explicit authorization. Rollback target for this tip: prior emergency
+embedded group 4a0960e4-10e8-4ac8-a77d-3c37891942c2.
 
-Blocked routes (scripts + workflow fail-fast): publish, force, heal, republish,
-bootstrap, ota-test-001/002, prepare-force-update-ota-103 publish path.
-
-Allowed without lifting this freeze:
-  • Diagnose / verify workflows (read-only)
-  • Emergency embedded rollback via rollback-production-ota (no new JS)
-  • Gate audit: bash artifacts/stadium-mobile/scripts/verify-ota-production-freeze-gates.sh
-
-Lift only after:
-  1. Device expo-error.log / Updates native log paste with first Fatal error/exception
-  2. Root cause understood (or intentional embedded stay)
-  3. New TestFlight verification marker if a native build is required
-     (see artifacts/stadium-mobile/scripts/TESTFLIGHT_VERIFICATION_STEPS.md)
-
-See: docs/build78-ips-crash-diagnosis.md
+No server deploy / merge / native build performed with this release.

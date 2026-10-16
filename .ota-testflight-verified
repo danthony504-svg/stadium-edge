@@ -1,0 +1,5 @@
+testflight-VERIFIED
+Authorized production OTA 2026-10-16 for tip 929bfbfe6847e1488c4c75824373811d1fe22e8c
+Binary class: App Store Build 78 / runtime 1.1.0 (ClerkExpoPasskeys absent)
+Passkey guard verified in unit tests + HBC bake
+Preview exercised related tips including 01a144ad (same SHA)
