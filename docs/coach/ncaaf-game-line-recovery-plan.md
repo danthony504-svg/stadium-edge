@@ -2,7 +2,8 @@
 
 **Status:** Planning only — do **not** restore NCAAF spread/ML recommendations until every acceptance gate below passes.  
 **Blocked today:** P0 `unvalidated_ncaaf_game_line_simulation` (PR #662).  
-**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval.
+**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval.  
+**Missing evidence inventory (tip vs Phase E SHAs):** [`ncaaf-game-line-missing-evidence.md`](./ncaaf-game-line-missing-evidence.md) — do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED` to return picks.
 
 ## Problem summary
 
