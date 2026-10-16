@@ -41,6 +41,35 @@ const baseAway = {
   recentScores: [17, 24, 21, 28, 14],
 };
 
+test("validation: home spread settlement matches coverQueryHits (sign + push)", async () => {
+  const { coverQueryHits } = await import("../src/lib/gameMonteCarlo.ts");
+  const homeCover = (hs: number, as: number, line: number) => {
+    const adj = hs - as + line;
+    if (Math.abs(adj) < 1e-9) return null;
+    return adj > 0;
+  };
+  const cases: Array<{ hs: number; as: number; line: number }> = [
+    { hs: 24, as: 20, line: -3.5 },
+    { hs: 14, as: 21, line: 7.5 },
+    { hs: 21, as: 14, line: -7 },
+    { hs: 31, as: 28, line: -3 },
+  ];
+  for (const c of cases) {
+    const hit = coverQueryHits(
+      { id: "h", kind: "spread", teamSide: "home", line: c.line },
+      c.hs,
+      c.as,
+      "ncaaf",
+    );
+    const settled = homeCover(c.hs, c.as, c.line);
+    if (settled == null) {
+      assert.equal(hit, false, "push must not count as cover in hit rates");
+    } else {
+      assert.equal(hit, settled);
+    }
+  }
+});
+
 test("validation: soft rates remain strictly monotonic in true points-per-drive units", () => {
   // UNDER ppg-per-drive-v1, `ppd` is points per drive (~2–4 typical FBS), not
   // points per game. The withdrawn 2026-10-14 PASS fed PPG as PPD and checked

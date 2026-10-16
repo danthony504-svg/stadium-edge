@@ -1,28 +1,75 @@
 {
-  "generatedAt": "2026-10-16T19:51:45.491Z",
+  "generatedAt": "2026-10-16T20:09:37.951Z",
   "engine": "nfl-drive:ppg-per-drive-v1",
   "calibrationSeed": 20241015,
   "simulationsPerGame": 10000,
+  "untouchedCutoff": "2024-10-15T00:00:00Z",
   "nHoldoutScored": 865,
   "nHoldoutSkippedThinForm": 6,
+  "settlementAuditRef": "ncaaf-phase-e-spread-settlement-audit.json",
   "moneyline": {
-    "n": 865,
-    "brier": 0.19868147745664763,
-    "brierCoin": 0.25,
-    "meanP": 0.67387514450867,
-    "meanY": 0.6369942196531792,
-    "homeWinBias": 0.03688092485549088,
-    "verdict": "PASS_VS_COIN"
+    "full2024": {
+      "label": "ml_full_2024",
+      "n": 865,
+      "nWithMarket": 770,
+      "brierEngine": 0.19868147745664763,
+      "brierCoin": 0.25,
+      "brierMarket": 0.1768228726228741,
+      "beatsCoin": true,
+      "beatsMarket": false,
+      "meanP": 0.67387514450867,
+      "meanY": 0.6369942196531792,
+      "bias": 0.03688092485549088,
+      "verdict": "PASS_VS_COIN"
+    },
+    "untouchedHoldout": {
+      "label": "ml_untouched_post_cutoff",
+      "n": 411,
+      "nWithMarket": 391,
+      "brierEngine": 0.20820380535279792,
+      "brierCoin": 0.25,
+      "brierMarket": 0.18858474290035002,
+      "beatsCoin": true,
+      "beatsMarket": false,
+      "meanP": 0.6341897810218978,
+      "meanY": 0.5961070559610706,
+      "bias": 0.038082725060827216,
+      "verdict": "PASS_VS_COIN"
+    },
+    "primaryVerdict": "PASS_VS_COIN",
+    "note": "Market baseline = close-ML implied. Untouched = kickoff ≥ cutoff (disjoint from Coach CLV selection window)."
   },
   "closingSpread": {
-    "n": 754,
-    "brier": 0.31110468567639216,
-    "brierCoin": 0.25,
-    "meanP": 0.5435583554376661,
-    "meanY": 0.4960212201591512,
-    "coverBias": 0.047537135278514886,
-    "verdict": "INSUFFICIENT_OR_FAIL",
-    "note": "Home ATS at archived closing spread (pre-kickoff close)."
+    "full2024": {
+      "label": "spread_full_2024",
+      "n": 754,
+      "nWithMarket": 0,
+      "brierEngine": 0.31110468567639216,
+      "brierCoin": 0.25,
+      "brierMarket": null,
+      "beatsCoin": false,
+      "beatsMarket": null,
+      "meanP": 0.5435583554376661,
+      "meanY": 0.4960212201591512,
+      "bias": 0.047537135278514886,
+      "verdict": "FAIL_VS_COIN"
+    },
+    "untouchedHoldout": {
+      "label": "spread_untouched_post_cutoff",
+      "n": 384,
+      "nWithMarket": 0,
+      "brierEngine": 0.28373098697916693,
+      "brierCoin": 0.25,
+      "brierMarket": null,
+      "beatsCoin": false,
+      "beatsMarket": null,
+      "meanP": 0.5639609375,
+      "meanY": 0.515625,
+      "bias": 0.04833593749999998,
+      "verdict": "FAIL_VS_COIN"
+    },
+    "primaryVerdict": "FAIL_VS_COIN",
+    "note": "Home ATS at archived closing spread. Settlement audit cleared sign/push/extraction. No closing spread juice in archive — market ATS baseline unavailable; compare to coin only."
   },
   "altSpreads": {
     "away_+3.5": {
@@ -30,6 +77,8 @@
       "meanP": 0.3983907514450863,
       "coverRate": 0.43352601156069365,
       "brier": 0.20828563699421931,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
       "bias": -0.03513526011560736
     },
     "away_+7.5": {
@@ -37,6 +86,8 @@
       "meanP": 0.5029849710982653,
       "coverRate": 0.5294797687861271,
       "brier": 0.2080323306358383,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
       "bias": -0.026494797687861782
     },
     "away_+10.5": {
@@ -44,6 +95,8 @@
       "meanP": 0.5761942196531793,
       "coverRate": 0.584971098265896,
       "brier": 0.20051363005780323,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
       "bias": -0.008776878612716699
     },
     "away_+14": {
@@ -51,6 +104,8 @@
       "meanP": 0.644172576832152,
       "coverRate": 0.624113475177305,
       "brier": 0.1921350520094561,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
       "bias": 0.020059101654847034
     },
     "away_+17.5": {
@@ -58,6 +113,8 @@
       "meanP": 0.7356208092485546,
       "coverRate": 0.6751445086705202,
       "brier": 0.18571745202312115,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
       "bias": 0.060476300578034325
     },
     "away_+21": {
@@ -65,6 +122,8 @@
       "meanP": 0.7913162291169447,
       "coverRate": 0.7243436754176611,
       "brier": 0.16880688663484497,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
       "bias": 0.06697255369928357
     },
     "home_close": {
@@ -72,6 +131,8 @@
       "meanP": 0.5435583554376661,
       "coverRate": 0.4960212201591512,
       "brier": 0.31110468567639216,
+      "brierCoin": 0.25,
+      "beatsCoin": false,
       "bias": 0.047537135278514886
     },
     "home_close_plus_3.5": {
@@ -79,6 +140,8 @@
       "meanP": 0.6269763469119585,
       "coverRate": 0.59526938239159,
       "brier": 0.3022293416557162,
+      "brierCoin": 0.25,
+      "beatsCoin": false,
       "bias": 0.031706964520368475
     },
     "home_close_minus_3.5": {
@@ -86,21 +149,50 @@
       "meanP": 0.456597640891219,
       "coverRate": 0.3918741808650065,
       "brier": 0.2998461074705113,
+      "brierCoin": 0.25,
+      "beatsCoin": false,
       "bias": 0.06472346002621249
     }
   },
   "totals": {
     "closingTotalsInArchive": false,
     "closingTotalsClv": "INSUFFICIENT_DATA",
-    "note": "E2b closing archive has no totals. Engine totals validated vs finals only (MAE + over@projected-mean calibration).",
-    "n": 865,
-    "maeProjectedVsActual": 12.95786127167628,
-    "overAtProjectedMean": {
+    "note": "E2b closing archive has no totals. Engine totals validated vs finals only (MAE + over@projected-mean). No market total baseline.",
+    "full2024": {
       "n": 865,
-      "meanP": 0.4820127167630058,
-      "actualOverRate": 0.47167630057803467,
-      "brier": 0.24837606820809227,
-      "expectedMeanPNear": 0.5
+      "maeProjectedVsActual": 12.95786127167628,
+      "overAtProjectedMean": {
+        "label": "totals_over_proj_full",
+        "n": 865,
+        "nWithMarket": 0,
+        "brierEngine": 0.24837606820809227,
+        "brierCoin": 0.25,
+        "brierMarket": null,
+        "beatsCoin": true,
+        "beatsMarket": null,
+        "meanP": 0.4820127167630058,
+        "meanY": 0.47167630057803467,
+        "bias": 0.010336416184971109,
+        "verdict": "PASS_VS_COIN"
+      }
+    },
+    "untouchedHoldout": {
+      "n": 411,
+      "maeProjectedVsActual": 12.96618004866181,
+      "overAtProjectedMean": {
+        "label": "totals_over_proj_untouched",
+        "n": 411,
+        "nWithMarket": 0,
+        "brierEngine": 0.24825418978102193,
+        "brierCoin": 0.25,
+        "brierMarket": null,
+        "beatsCoin": true,
+        "beatsMarket": null,
+        "meanP": 0.4820291970802918,
+        "meanY": 0.4744525547445255,
+        "bias": 0.0075766423357662704,
+        "verdict": "PASS_VS_COIN"
+      }
     }
   },
   "closingLineArchive": {
@@ -116,10 +208,33 @@
       "injuryKnown_non_null"
     ]
   },
+  "perMarketReadiness": {
+    "moneyline": {
+      "vsCoin": true,
+      "vsMarket": false,
+      "status": "CALIBRATION_BEATS_COIN_NOT_MARKET_BLOCKED_BY_CLV_E4_E6"
+    },
+    "spreads": {
+      "vsCoin": false,
+      "vsMarket": null,
+      "status": "NOT_READY_FAIL_VS_COIN_SETTLEMENT_CLEARED"
+    },
+    "totals": {
+      "vsCoin": true,
+      "vsMarket": null,
+      "status": "NOT_READY_NO_CLOSING_TOTALS"
+    },
+    "alts": {
+      "vsCoin": null,
+      "vsMarket": null,
+      "status": "NOT_READY_NO_POSTED_ALT_PRICES"
+    },
+    "note": "No market enabled solely because another passes. Live gate stays false."
+  },
   "verdicts": {
-    "ML": "see moneyline.verdict",
-    "Spread": "see closingSpread.verdict",
-    "ALT": "MEASURED — fixed away ALTs + close±3.5; no posted ALT CLV archive",
+    "ML_untouched": "PASS_VS_COIN",
+    "Spread_untouched": "FAIL_VS_COIN",
+    "ALT": "MEASURED_SYNTHETIC_LINES — no posted ALT CLV archive",
     "Totals": "ENGINE_VS_FINAL_ONLY — closing totals INSUFFICIENT_DATA",
     "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
   },

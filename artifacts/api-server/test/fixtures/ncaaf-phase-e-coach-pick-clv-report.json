@@ -7,7 +7,7 @@
   "selectionRules": {
     "engine": "nfl-drive:ppg-per-drive-v1",
     "form": "venue_split+L10 blend; chrono pre-kickoff only",
-    "prices": "Prefer Odds historical ~24h pre-kickoff cache; else vendored ncaaf-phase-e-selection-prices.json (home lines + vig-free away ML / −home spread @ −110)",
+    "prices": "Prefer Odds historical ~24h pre-kickoff cache; else vendored ncaaf-phase-e-selection-prices.json (home lines + vig-free away ML / \u2212home spread @ \u2212110)",
     "candidates": "home/away ML + home/away spread at selection lines",
     "gates": [
       "simHit >= 0.52",
@@ -54,16 +54,31 @@
     "marketBrierCloseMl": 0.18858474290035,
     "coinBrier": 0.25,
     "marketBeatsCoin": true,
-    "note": "No Coach selections on this period — close-ML Brier only."
+    "note": "No Coach selections on this period \u2014 close-ML Brier only."
   },
   "injuryKnown": null,
   "verdicts": {
-    "E2b_coachPickClv": "COMPUTED_NO_PASS_LABEL",
-    "E2b_closeArchiveSoftGates": "see calibration report — not CLV",
+    "E2b_coachPickClv": "FAIL_LOCKED_CRITERIA",
+    "E2b_closeArchiveSoftGates": "see calibration report \u2014 not CLV",
     "E4_injuryConservatism": "INSUFFICIENT_DATA",
     "E6_humanSignOff": "OPEN",
-    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false \u2014 do not flip",
+    "E2b_coachPickClvNote": "Criteria locked before scoring; mean \u22120.0057 fails C2 (require \u22650). No negative floor chosen to pass."
   },
   "keepP0Armed": true,
-  "flagFlipAllowed": false
+  "flagFlipAllowed": false,
+  "clvAcceptanceCriteria": {
+    "lockedAt": "2026-10-16",
+    "doc": "docs/coach/ncaaf-e2b-clv-acceptance-criteria.md",
+    "C1_nMl_ge_50": true,
+    "C2_meanClv_ge_0": false,
+    "C3_pctBeatClose_ge_0.45": false,
+    "C4_side_mix": true,
+    "measured": {
+      "nMlWithClv": 69,
+      "meanClvProbPoints": -0.005677231761521964,
+      "pctSelectionsBeatClose": 0.34782608695652173
+    },
+    "allPass": false
+  }
 }

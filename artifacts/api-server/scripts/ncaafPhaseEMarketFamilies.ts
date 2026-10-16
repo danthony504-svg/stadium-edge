@@ -29,6 +29,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const SIMS = Number(process.env.NCAAF_PHASE_E_SIMS ?? 10_000);
 const HOLDOUT_SEASON = 2024;
+const UNTOUCHED_CUTOFF = process.env.NCAAF_UNTOUCHED_CUTOFF ?? "2024-10-15T00:00:00Z";
 const ALT_AWAY_LINES = [3.5, 7.5, 10.5, 14, 17.5, 21] as const;
 
 type EspnGame = {
@@ -119,13 +120,22 @@ function main(): number {
   );
 
   const rng = mulberry32(FOOTBALL_CALIBRATION_PRIMARY_SEED);
-  const mlP: number[] = [];
-  const mlY: number[] = [];
-  const spreadP: number[] = [];
-  const spreadY: number[] = [];
-  const totalAbsErr: number[] = [];
-  const totalOverAtProj: number[] = [];
-  const totalOverY: number[] = [];
+  type Series = { p: number[]; y: number[]; mkt?: number[] };
+  const emptySeries = (): Series => ({ p: [], y: [], mkt: [] });
+  const windows = {
+    full: {
+      ml: emptySeries(),
+      spread: emptySeries(),
+      totalAbsErr: [] as number[],
+      totalOver: emptySeries(),
+    },
+    untouched: {
+      ml: emptySeries(),
+      spread: emptySeries(),
+      totalAbsErr: [] as number[],
+      totalOver: emptySeries(),
+    },
+  };
   const alt: Record<
     string,
     { p: number[]; y: number[]; n: number; coverRate: number | null; meanP: number | null; brier: number | null }
@@ -139,6 +149,21 @@ function main(): number {
 
   let scored = 0;
   let skippedThin = 0;
+  const cutoffMs = Date.parse(UNTOUCHED_CUTOFF);
+
+  const pushSeries = (
+    w: "full" | "untouched",
+    kind: "ml" | "spread" | "totalOver",
+    p: number,
+    y: number,
+    mkt?: number | null,
+  ) => {
+    const series = windows[w][kind === "totalOver" ? "totalOver" : kind];
+    series.p.push(p);
+    series.y.push(y);
+    // Keep mkt aligned 1:1 with p/y (NaN = no close market).
+    series.mkt!.push(mkt != null && Number.isFinite(mkt) ? mkt : Number.NaN);
+  };
 
   walkHoldoutGames(games, (g, forms) => {
     if (g.season !== HOLDOUT_SEASON) return;
@@ -149,6 +174,8 @@ function main(): number {
       return;
     }
     const close = closingByEvent.get(g.eventId);
+    const kickMs = Date.parse(String(g.kickoffIso ?? ""));
+    const untouched = Number.isFinite(kickMs) && kickMs >= cutoffMs;
     const coverQueries: Array<{
       id: string;
       kind: "ml" | "spread" | "total";
@@ -216,13 +243,19 @@ function main(): number {
     const yHome = g.homeFg > g.awayFg ? 1 : g.homeFg < g.awayFg ? 0 : 0.5;
     if (yHome !== 0 && yHome !== 1) return;
     const pHome = result.coverHitRates["home-ml"] ?? result.homeWinProbability;
-    mlP.push(pHome);
-    mlY.push(yHome);
+    const mktMl = close ? (() => {
+      const american = close.closeMlHome;
+      if (!Number.isFinite(american) || american === 0) return null;
+      return american < 0 ? -american / (-american + 100) : 100 / (american + 100);
+    })() : null;
+    pushSeries("full", "ml", pHome, yHome, mktMl);
+    if (untouched) pushSeries("untouched", "ml", pHome, yHome, mktMl);
 
     const projTotal =
       (result.homeProjectedScore ?? 0) + (result.awayProjectedScore ?? 0);
     const actualTotal = g.homeFg + g.awayFg;
-    totalAbsErr.push(Math.abs(projTotal - actualTotal));
+    windows.full.totalAbsErr.push(Math.abs(projTotal - actualTotal));
+    if (untouched) windows.untouched.totalAbsErr.push(Math.abs(projTotal - actualTotal));
 
     // Second sim for over@projected mean (same seed stream continues)
     const totalResult = runNflDriveSim({
@@ -250,8 +283,10 @@ function main(): number {
       retainOutcomes: false,
     });
     if (totalResult?.coverHitRates?.["over-proj"] != null) {
-      totalOverAtProj.push(totalResult.coverHitRates["over-proj"]);
-      totalOverY.push(actualTotal > Math.round(projTotal * 2) / 2 ? 1 : 0);
+      const pOver = totalResult.coverHitRates["over-proj"];
+      const yOver = actualTotal > Math.round(projTotal * 2) / 2 ? 1 : 0;
+      pushSeries("full", "totalOver", pOver, yOver);
+      if (untouched) pushSeries("untouched", "totalOver", pOver, yOver);
     }
 
     for (const line of ALT_AWAY_LINES) {
@@ -275,8 +310,8 @@ function main(): number {
         alt[key]!.p.push(p);
         alt[key]!.y.push(y);
         if (key === "home_close") {
-          spreadP.push(p);
-          spreadY.push(y);
+          pushSeries("full", "spread", p, y);
+          if (untouched) pushSeries("untouched", "spread", p, y);
         }
       };
       scoreClose("home-close", close.closeSpreadHome, "home_close");
@@ -295,35 +330,87 @@ function main(): number {
     bucket.brier = bucket.p.length ? brier(bucket.p, bucket.y) : null;
   }
 
+  function summarizeBinary(s: Series, label: string) {
+    const n = s.p.length;
+    const engineBrier = n ? brier(s.p, s.y) : null;
+    const coinBrier = n ? 0.25 : null;
+    // Market series is aligned only when every row has a close ML; otherwise
+    // score market Brier on the close-joined subset and compare engine on that subset.
+    let marketBrier: number | null = null;
+    let engineVsMarketBrier: number | null = null;
+    let nMarket = 0;
+    if (s.mkt && s.mkt.length === n && n > 0) {
+      const eng: number[] = [];
+      const mkt: number[] = [];
+      const ys: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const m = s.mkt[i]!;
+        if (!Number.isFinite(m)) continue;
+        eng.push(s.p[i]!);
+        mkt.push(m);
+        ys.push(s.y[i]!);
+      }
+      nMarket = mkt.length;
+      if (nMarket >= 30) {
+        marketBrier = brier(mkt, ys);
+        engineVsMarketBrier = brier(eng, ys);
+      }
+    }
+    return {
+      label,
+      n,
+      nWithMarket: nMarket,
+      brierEngine: engineBrier,
+      brierCoin: coinBrier,
+      brierMarket: marketBrier,
+      beatsCoin: engineBrier != null && coinBrier != null ? engineBrier < coinBrier : null,
+      beatsMarket:
+        engineVsMarketBrier != null && marketBrier != null
+          ? engineVsMarketBrier < marketBrier
+          : null,
+      meanP: n ? mean(s.p) : null,
+      meanY: n ? mean(s.y) : null,
+      bias: n ? mean(s.p) - mean(s.y) : null,
+      verdict:
+        n >= 100 && engineBrier != null && engineBrier < 0.25
+          ? "PASS_VS_COIN"
+          : n < 100
+            ? "INSUFFICIENT_N"
+            : "FAIL_VS_COIN",
+    };
+  }
+
+  const mlFull = summarizeBinary(windows.full.ml, "ml_full_2024");
+  const mlUntouched = summarizeBinary(windows.untouched.ml, "ml_untouched_post_cutoff");
+  const spFull = summarizeBinary(windows.full.spread, "spread_full_2024");
+  const spUntouched = summarizeBinary(windows.untouched.spread, "spread_untouched_post_cutoff");
+  // Spreads have no market-implied cover archive — force market fields null with note
+  spFull.brierMarket = null;
+  spFull.beatsMarket = null;
+  spUntouched.brierMarket = null;
+  spUntouched.beatsMarket = null;
+
   const report = {
     generatedAt: new Date().toISOString(),
     engine: `nfl-drive:${FOOTBALL_DRIVE_ENGINE_VERSION}`,
     calibrationSeed: FOOTBALL_CALIBRATION_PRIMARY_SEED,
     simulationsPerGame: SIMS,
+    untouchedCutoff: UNTOUCHED_CUTOFF,
     nHoldoutScored: scored,
     nHoldoutSkippedThinForm: skippedThin,
+    settlementAuditRef: "ncaaf-phase-e-spread-settlement-audit.json",
     moneyline: {
-      n: mlP.length,
-      brier: mlP.length ? brier(mlP, mlY) : null,
-      brierCoin: 0.25,
-      meanP: mlP.length ? mean(mlP) : null,
-      meanY: mlY.length ? mean(mlY) : null,
-      homeWinBias: mlP.length ? mean(mlP) - mean(mlY) : null,
-      verdict:
-        mlP.length >= 200 && brier(mlP, mlY) < 0.25 ? "PASS_VS_COIN" : "INSUFFICIENT_OR_FAIL",
+      full2024: mlFull,
+      untouchedHoldout: mlUntouched,
+      primaryVerdict: mlUntouched.verdict,
+      note: "Market baseline = close-ML implied. Untouched = kickoff ≥ cutoff (disjoint from Coach CLV selection window).",
     },
     closingSpread: {
-      n: spreadP.length,
-      brier: spreadP.length ? brier(spreadP, spreadY) : null,
-      brierCoin: 0.25,
-      meanP: spreadP.length ? mean(spreadP) : null,
-      meanY: spreadY.length ? mean(spreadY) : null,
-      coverBias: spreadP.length ? mean(spreadP) - mean(spreadY) : null,
-      verdict:
-        spreadP.length >= 200 && brier(spreadP, spreadY) < 0.25
-          ? "PASS_VS_COIN"
-          : "INSUFFICIENT_OR_FAIL",
-      note: "Home ATS at archived closing spread (pre-kickoff close).",
+      full2024: spFull,
+      untouchedHoldout: spUntouched,
+      primaryVerdict: spUntouched.verdict,
+      note:
+        "Home ATS at archived closing spread. Settlement audit cleared sign/push/extraction. No closing spread juice in archive — market ATS baseline unavailable; compare to coin only.",
     },
     altSpreads: Object.fromEntries(
       Object.entries(alt).map(([k, v]) => [
@@ -333,6 +420,8 @@ function main(): number {
           meanP: v.meanP,
           coverRate: v.coverRate,
           brier: v.brier,
+          brierCoin: 0.25,
+          beatsCoin: v.brier != null ? v.brier < 0.25 : null,
           bias: v.meanP != null && v.coverRate != null ? v.meanP - v.coverRate : null,
         },
       ]),
@@ -341,18 +430,23 @@ function main(): number {
       closingTotalsInArchive: false,
       closingTotalsClv: "INSUFFICIENT_DATA",
       note:
-        "E2b closing archive has no totals. Engine totals validated vs finals only (MAE + over@projected-mean calibration).",
-      n: totalAbsErr.length,
-      maeProjectedVsActual: totalAbsErr.length ? mean(totalAbsErr) : null,
-      overAtProjectedMean: {
-        n: totalOverAtProj.length,
-        meanP: totalOverAtProj.length ? mean(totalOverAtProj) : null,
-        actualOverRate: totalOverY.length ? mean(totalOverY) : null,
-        brier:
-          totalOverAtProj.length && totalOverY.length
-            ? brier(totalOverAtProj, totalOverY)
-            : null,
-        expectedMeanPNear: 0.5,
+        "E2b closing archive has no totals. Engine totals validated vs finals only (MAE + over@projected-mean). No market total baseline.",
+      full2024: {
+        n: windows.full.totalAbsErr.length,
+        maeProjectedVsActual: windows.full.totalAbsErr.length
+          ? mean(windows.full.totalAbsErr)
+          : null,
+        overAtProjectedMean: summarizeBinary(windows.full.totalOver, "totals_over_proj_full"),
+      },
+      untouchedHoldout: {
+        n: windows.untouched.totalAbsErr.length,
+        maeProjectedVsActual: windows.untouched.totalAbsErr.length
+          ? mean(windows.untouched.totalAbsErr)
+          : null,
+        overAtProjectedMean: summarizeBinary(
+          windows.untouched.totalOver,
+          "totals_over_proj_untouched",
+        ),
       },
     },
     closingLineArchive: {
@@ -361,10 +455,36 @@ function main(): number {
       fields: ["closeSpreadHome", "closeMlHome"],
       missingForValidation: ["closeTotal", "altPostedPrices", "injuryKnown_non_null"],
     },
+    perMarketReadiness: {
+      moneyline: {
+        vsCoin: mlUntouched.beatsCoin,
+        vsMarket: mlUntouched.beatsMarket,
+        status:
+          mlUntouched.verdict === "PASS_VS_COIN"
+            ? "CALIBRATION_BEATS_COIN_NOT_MARKET_BLOCKED_BY_CLV_E4_E6"
+            : "NOT_READY",
+      },
+      spreads: {
+        vsCoin: spUntouched.beatsCoin,
+        vsMarket: null,
+        status: "NOT_READY_FAIL_VS_COIN_SETTLEMENT_CLEARED",
+      },
+      totals: {
+        vsCoin: summarizeBinary(windows.untouched.totalOver, "totals_tmp").beatsCoin,
+        vsMarket: null,
+        status: "NOT_READY_NO_CLOSING_TOTALS",
+      },
+      alts: {
+        vsCoin: null,
+        vsMarket: null,
+        status: "NOT_READY_NO_POSTED_ALT_PRICES",
+      },
+      note: "No market enabled solely because another passes. Live gate stays false.",
+    },
     verdicts: {
-      ML: "see moneyline.verdict",
-      Spread: "see closingSpread.verdict",
-      ALT: "MEASURED — fixed away ALTs + close±3.5; no posted ALT CLV archive",
+      ML_untouched: mlUntouched.verdict,
+      Spread_untouched: spUntouched.verdict,
+      ALT: "MEASURED_SYNTHETIC_LINES — no posted ALT CLV archive",
       Totals: "ENGINE_VS_FINAL_ONLY — closing totals INSUFFICIENT_DATA",
       NCAAF_GAME_LINE_SIM_VALIDATED: "false — do not flip",
     },
