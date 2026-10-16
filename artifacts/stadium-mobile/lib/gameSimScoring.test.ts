@@ -26,6 +26,7 @@ function gamePick(overrides: Partial<ParsedPick> = {}): ParsedPick {
 
 const sim = {
   sport: "mlb",
+  engineVersion: "sport-sim-v1",
   simulations: 10_000,
   homeWinProbability: 0.467,
   awayWinProbability: 0.533,
@@ -129,6 +130,19 @@ test("gameSimHitForPick fuzzy-matches nickname spread to full-name cover rate", 
     },
   };
   assert.equal(gameSimHitForPick(nickPick, nickSim), 0.54);
+});
+
+test("unsupported_market status blocks a numeric cover rate", () => {
+  const mlPick = gamePick({ market: "Moneyline", pick: "Braves ML", sport: "nfl" });
+  const id = "new york mets @ atlanta braves|moneyline|braves ml";
+  const blocked = {
+    ...sim,
+    sport: "nfl",
+    engineVersion: "ppg-per-drive-v1",
+    coverHitRates: { [id]: 0.91 },
+    coverQueryStatus: { [id]: "unsupported_market" },
+  };
+  assert.equal(gameSimHitForPick(mlPick, blocked), null);
 });
 
 test("canonicalGameKey collapses nickname and full-name labels", () => {

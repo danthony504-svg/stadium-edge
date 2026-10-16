@@ -1,0 +1,266 @@
+{
+  "generatedAt": "2026-10-16T23:07:12.624Z",
+  "split": "TUNING",
+  "window": "2025 weeks 1–7",
+  "finalEvalUntouched": true,
+  "liveGate": "NCAAF_GAME_LINE_SIM_VALIDATED=false",
+  "researchStamp": "ppg-per-drive-v1.1-research",
+  "simsPerGame": 2500,
+  "priorFormSeasons": [
+    2023,
+    2024
+  ],
+  "priorFormNote": "USED 2024 scores supply form history only — not acceptance labels",
+  "baselineEqualBlend": {
+    "offenseWeight": 0.5,
+    "engineStamp": "ppg-per-drive-v1.1-research",
+    "nTuningGames": 471,
+    "scored": 468,
+    "skippedThin": 3,
+    "brierEngine": 0.18407198076923084,
+    "brierCoin": 0.25,
+    "beatsCoin": true,
+    "meanP": 0.6384038461538453,
+    "meanY": 0.7136752136752137,
+    "bias": -0.07527136752136843,
+    "corrP_Y": 0.3580734603955882,
+    "corrPredMargin_Actual": 0.5683604129825963,
+    "corrStrengthGap_HomeWin": 0.34719635043478103,
+    "meanAbsMarginError": 15.989829992538311,
+    "probabilityQuintiles": [
+      {
+        "q": 1,
+        "n": 93,
+        "meanP": 0.4328172043010754,
+        "meanY": 0.4838709677419355,
+        "lift": -0.016129032258064502
+      },
+      {
+        "q": 2,
+        "n": 93,
+        "meanP": 0.556720430107527,
+        "meanY": 0.6236559139784946,
+        "lift": 0.12365591397849462
+      },
+      {
+        "q": 3,
+        "n": 93,
+        "meanP": 0.6370107526881721,
+        "meanY": 0.6666666666666666,
+        "lift": 0.16666666666666663
+      },
+      {
+        "q": 4,
+        "n": 93,
+        "meanP": 0.7176774193548384,
+        "meanY": 0.8494623655913979,
+        "lift": 0.34946236559139787
+      },
+      {
+        "q": 5,
+        "n": 96,
+        "meanP": 0.8412500000000002,
+        "meanY": 0.9375,
+        "lift": 0.4375
+      }
+    ],
+    "quintileMeanYMonotoneSoft": true,
+    "note": "Score-only TUNING diagnostic — no Odds closes; locked M3/S* market criteria not evaluated."
+  },
+  "weightSweep": [
+    {
+      "offenseWeight": 0.35,
+      "engineStamp": "ppg-per-drive-v1.1-research",
+      "nTuningGames": 471,
+      "scored": 468,
+      "skippedThin": 3,
+      "brierEngine": 0.18580703205128205,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
+      "meanP": 0.6377457264957267,
+      "meanY": 0.7136752136752137,
+      "bias": -0.075929487179487,
+      "corrP_Y": 0.34530235752285915,
+      "corrPredMargin_Actual": 0.5629403964064954,
+      "corrStrengthGap_HomeWin": 0.338852678145764,
+      "meanAbsMarginError": 16.024709138854973,
+      "probabilityQuintiles": [
+        {
+          "q": 1,
+          "n": 93,
+          "meanP": 0.431010752688172,
+          "meanY": 0.4946236559139785,
+          "lift": -0.005376344086021501
+        },
+        {
+          "q": 2,
+          "n": 93,
+          "meanP": 0.5508494623655914,
+          "meanY": 0.6021505376344086,
+          "lift": 0.10215053763440862
+        },
+        {
+          "q": 3,
+          "n": 93,
+          "meanP": 0.6369784946236556,
+          "meanY": 0.6989247311827957,
+          "lift": 0.19892473118279574
+        },
+        {
+          "q": 4,
+          "n": 93,
+          "meanP": 0.718784946236559,
+          "meanY": 0.8494623655913979,
+          "lift": 0.34946236559139787
+        },
+        {
+          "q": 5,
+          "n": 96,
+          "meanP": 0.8444374999999998,
+          "meanY": 0.9166666666666666,
+          "lift": 0.41666666666666663
+        }
+      ],
+      "quintileMeanYMonotoneSoft": true,
+      "note": "Score-only TUNING diagnostic — no Odds closes; locked M3/S* market criteria not evaluated."
+    },
+    {
+      "offenseWeight": 0.5,
+      "engineStamp": "ppg-per-drive-v1.1-research",
+      "nTuningGames": 471,
+      "scored": 468,
+      "skippedThin": 3,
+      "brierEngine": 0.18407198076923084,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
+      "meanP": 0.6384038461538453,
+      "meanY": 0.7136752136752137,
+      "bias": -0.07527136752136843,
+      "corrP_Y": 0.3580734603955882,
+      "corrPredMargin_Actual": 0.5683604129825963,
+      "corrStrengthGap_HomeWin": 0.34719635043478103,
+      "meanAbsMarginError": 15.989829992538311,
+      "probabilityQuintiles": [
+        {
+          "q": 1,
+          "n": 93,
+          "meanP": 0.4328172043010754,
+          "meanY": 0.4838709677419355,
+          "lift": -0.016129032258064502
+        },
+        {
+          "q": 2,
+          "n": 93,
+          "meanP": 0.556720430107527,
+          "meanY": 0.6236559139784946,
+          "lift": 0.12365591397849462
+        },
+        {
+          "q": 3,
+          "n": 93,
+          "meanP": 0.6370107526881721,
+          "meanY": 0.6666666666666666,
+          "lift": 0.16666666666666663
+        },
+        {
+          "q": 4,
+          "n": 93,
+          "meanP": 0.7176774193548384,
+          "meanY": 0.8494623655913979,
+          "lift": 0.34946236559139787
+        },
+        {
+          "q": 5,
+          "n": 96,
+          "meanP": 0.8412500000000002,
+          "meanY": 0.9375,
+          "lift": 0.4375
+        }
+      ],
+      "quintileMeanYMonotoneSoft": true,
+      "note": "Score-only TUNING diagnostic — no Odds closes; locked M3/S* market criteria not evaluated."
+    },
+    {
+      "offenseWeight": 0.65,
+      "engineStamp": "ppg-per-drive-v1.1-research",
+      "nTuningGames": 471,
+      "scored": 468,
+      "skippedThin": 3,
+      "brierEngine": 0.18595401282051252,
+      "brierCoin": 0.25,
+      "beatsCoin": true,
+      "meanP": 0.637850427350428,
+      "meanY": 0.7136752136752137,
+      "bias": -0.07582478632478573,
+      "corrP_Y": 0.3442737002409466,
+      "corrPredMargin_Actual": 0.5551195921266616,
+      "corrStrengthGap_HomeWin": 0.3443260093785072,
+      "meanAbsMarginError": 16.056868835639687,
+      "probabilityQuintiles": [
+        {
+          "q": 1,
+          "n": 93,
+          "meanP": 0.42876344086021523,
+          "meanY": 0.5268817204301075,
+          "lift": 0.026881720430107503
+        },
+        {
+          "q": 2,
+          "n": 93,
+          "meanP": 0.558430107526882,
+          "meanY": 0.5806451612903226,
+          "lift": 0.08064516129032262
+        },
+        {
+          "q": 3,
+          "n": 93,
+          "meanP": 0.6359462365591398,
+          "meanY": 0.6666666666666666,
+          "lift": 0.16666666666666663
+        },
+        {
+          "q": 4,
+          "n": 93,
+          "meanP": 0.7210322580645157,
+          "meanY": 0.8494623655913979,
+          "lift": 0.34946236559139787
+        },
+        {
+          "q": 5,
+          "n": 96,
+          "meanP": 0.8386041666666667,
+          "meanY": 0.9375,
+          "lift": 0.4375
+        }
+      ],
+      "quintileMeanYMonotoneSoft": true,
+      "note": "Score-only TUNING diagnostic — no Odds closes; locked M3/S* market criteria not evaluated."
+    }
+  ],
+  "bestOnTuning": {
+    "offenseWeight": 0.5,
+    "brierEngine": 0.18407198076923084,
+    "corrP_Y": 0.3580734603955882,
+    "beatsCoin": true
+  },
+  "diagnosis": {
+    "weakDiscrimination": "MODERATE_OR_BETTER_CORR",
+    "matchupHypothesis": "Equal 50/50 for/against blend may under-weight opponent defense (ptsAgainst) for FBS; sweep tests script-local weights without changing locked residual/shrink.",
+    "used2024HoldoutAsFreshEvidence": false
+  },
+  "proposedChange": {
+    "id": "ncaaf_research_matchup_offense_weight",
+    "scope": "research-only (ncaafResearchCalibration)",
+    "description": "Expose configurable offense vs opponent-against blend for NCAAF research means (live teamMean 50/50 unchanged).",
+    "candidateWeight": 0.5,
+    "evidenceSplit": "TUNING 2025 w1–7 score-only",
+    "doNotLockUntil": "Odds closes on TUNING meet M1–M4 / S1–S4; FINAL_EVAL still untouched for acceptance",
+    "liveImpact": "none until research flag + explicit code land"
+  },
+  "restoreReadiness": {
+    "moneyline": "NO — no Odds closes on TUNING; cannot evaluate M3 vs market",
+    "spreads": "NO — no close spreads/ATS juice on TUNING",
+    "totals": "BLOCKED — MISSING_DATA",
+    "alts": "BLOCKED — MISSING_DATA"
+  }
+}

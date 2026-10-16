@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "activatedEver": false,
+  "dedupeKeys": [
+    "americanfootball_ncaaf|dry_run|h2h,spreads,totals|us|2026-10-16T21:32:00Z"
+  ],
+  "snapshots": [
+    {
+      "file": "dry-run-2026-10-16T21-32-26-200Z.json",
+      "captureTimestamp": "2026-10-16T21:32:26.200Z",
+      "dedupeKey": "americanfootball_ncaaf|dry_run|h2h,spreads,totals|us|2026-10-16T21:32:00Z",
+      "mode": "dry_run",
+      "creditsCharged": 0,
+      "eventCount": 0
+    }
+  ],
+  "weeklyCostModel": {
+    "schedule": {
+      "sport": "americanfootball_ncaaf",
+      "liveRegions": [
+        "us"
+      ],
+      "featuredMarkets": [
+        "h2h",
+        "spreads",
+        "totals"
+      ],
+      "altMarkets": [
+        "alternate_spreads"
+      ],
+      "liveFeaturedPollsPerWeek": 16,
+      "historicalT24hBucketsPerWeek": 0,
+      "historicalCloseBucketsPerWeek": 0,
+      "altEventsPerWeek": 0,
+      "injuryEspnFreezesPerWeek": 14
+    },
+    "liveFeatured": {
+      "polls": 16,
+      "creditsEach": 3,
+      "credits": 48
+    },
+    "historicalT24h": {
+      "buckets": 0,
+      "creditsEach": 30,
+      "credits": 0
+    },
+    "historicalClose": {
+      "buckets": 0,
+      "creditsEach": 30,
+      "credits": 0
+    },
+    "historicalAlts": {
+      "events": 0,
+      "creditsEach": 10,
+      "credits": 0
+    },
+    "injuryEspn": {
+      "freezes": 14,
+      "credits": 0
+    },
+    "totalCreditsPerWeek": 48,
+    "note": "Prior 300–800/week assumed HISTORICAL featured snaps (10×). Default forward schedule uses LIVE featured (1×) and leaves historical/ALT at 0 until eval backfill is authorized."
+  },
+  "historicalHeavyReconcile": {
+    "schedule": {
+      "sport": "americanfootball_ncaaf",
+      "liveRegions": [
+        "us"
+      ],
+      "featuredMarkets": [
+        "h2h",
+        "spreads",
+        "totals"
+      ],
+      "altMarkets": [
+        "alternate_spreads"
+      ],
+      "liveFeaturedPollsPerWeek": 0,
+      "historicalT24hBucketsPerWeek": 10,
+      "historicalCloseBucketsPerWeek": 10,
+      "altEventsPerWeek": 0,
+      "injuryEspnFreezesPerWeek": 14
+    },
+    "liveFeatured": {
+      "polls": 0,
+      "creditsEach": 3,
+      "credits": 0
+    },
+    "historicalT24h": {
+      "buckets": 10,
+      "creditsEach": 30,
+      "credits": 300
+    },
+    "historicalClose": {
+      "buckets": 10,
+      "creditsEach": 30,
+      "credits": 300
+    },
+    "historicalAlts": {
+      "events": 0,
+      "creditsEach": 10,
+      "credits": 0
+    },
+    "injuryEspn": {
+      "freezes": 14,
+      "credits": 0
+    },
+    "totalCreditsPerWeek": 600,
+    "note": "Prior 300–800/week assumed HISTORICAL featured snaps (10×). Default forward schedule uses LIVE featured (1×) and leaves historical/ALT at 0 until eval backfill is authorized."
+  },
+  "activationSteps": [
+    "Inject ODDS_API_KEY as the same Cursor/Render secret used by api-server odds routes (never paste into chat)",
+    "Set NCAAF_FORWARD_CREDIT_CAP to a finite budget (e.g. 100 for first live smoke)",
+    "Review docs/coach/ncaaf-forward-collection-plan.md cost table",
+    "Set NCAAF_FORWARD_ACTIVATE=1 only after human approval",
+    "Run collector once; confirm dedupe + ledger; do not deploy/OTA",
+    "Keep NCAAF_GAME_LINE_SIM_VALIDATED=false"
+  ]
+}

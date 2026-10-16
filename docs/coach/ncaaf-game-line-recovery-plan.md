@@ -1,8 +1,8 @@
 # NCAAF game-line recovery plan
 
-**Status:** Planning only — do **not** restore NCAAF spread/ML recommendations until every acceptance gate below passes.  
-**Blocked today:** P0 `unvalidated_ncaaf_game_line_simulation` (PR #662).  
-**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval.
+**Status:** Phase A/B engine work landed on fixpack branch; client P0 still armed (`NCAAF_GAME_LINE_SIM_VALIDATED = false`). Do **not** restore NCAAF spread/ML recommendations until every acceptance gate below passes + human Phase E sign-off.  
+**Blocked today:** P0 `unvalidated_ncaaf_game_line_simulation` (PR #662 / #736).  
+**Out of scope until approved:** Simulator V2, OTA publish, merge without explicit approval, flipping `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Problem summary
 
@@ -59,6 +59,8 @@ All must pass on a frozen out-of-sample window:
 4. **Injury conservatism:** Games with missing QB/injury data do not show higher average absolute edge than injury-known games.
 5. **Props / other sports:** NCAAF props, NFL/NHL P0 totals, correlation caps unchanged in regression suite.
 6. **Sign-off:** Explicit human approval to lift `P0_UNVALIDATED_NCAAF_GAME_LINE_*` — no silent restore.
+
+**Tracking:** `docs/coach/ncaaf-phase-e-checklist.md`. The 2026-10-14 E2a PASS is withdrawn (it used points per game as points per drive, plus an NCAAF ×0.48 scale). The seeded `ppg-per-drive-v1` holdout (10,000 sims, primary seed 20241015, credible last-play stamps where available) is a new E2a **PASS** (dog cover 0.676, n=111; seed range 0.676–0.699). The PR 737 closing archive is vendored from `7fbf065a`. Close-archive soft gates on this engine are PASS_SOFT_GATES_ONLY (n=770). CLV stays OPEN with no PASS label. Closing lines are loaded. Restore stays **NO** until an agreed CLV result, injury evidence, and human sign-off exist. E4 **INSUFFICIENT_DATA**, E6 **OPEN**. Do **not** flip `NCAAF_GAME_LINE_SIM_VALIDATED`.
 
 ## Phase F — Rollout
 
