@@ -1,7 +1,7 @@
 # Coach prop-context audit status — opponent / weather / field / injury
 
 **Focus:** original Coach audit (not NCAAF restore).  
-**As of:** 2026-10-16 · preview closeout for mobile tip `54b89f32` / phone update `01a14636…`  
+**As of:** 2026-10-16 · preview closeout for mobile tip `54b89f32` / export-equivalent update `01a146ed…`  
 **Audit status:** **IN PROGRESS — not complete.** Verified rows below are partial; remaining gaps stay open.
 
 **Sources:** `isolated-pair-verify.md`, `candidates-finalize-for-review.md`, `two-candidate-verify.md`, `preview-release-verification-54b89f32.md`, `production-mobile-candidate-54b89f32.md`.

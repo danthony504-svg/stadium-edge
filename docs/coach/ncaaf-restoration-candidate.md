@@ -47,7 +47,7 @@ Global `v1.1` stamp was reverted. Residual/shrink apply only under `ncaafResearc
 
 See [`prop-context-audit-status.md`](./prop-context-audit-status.md): opponent/MLB weather/venue/injury verified in prop MC; **remaining gaps** include NFL weather, turf/grass, and open-roof handling. Do **not** treat the context audit as complete.
 
-Preview closeout: [`preview-release-verification-54b89f32.md`](./preview-release-verification-54b89f32.md) (update `01a14636…`, launch-hash reconcile, one `parlay_fulfilled`, no false freeze).  
+Preview closeout: [`preview-release-verification-54b89f32.md`](./preview-release-verification-54b89f32.md) (export-equivalent update `01a146ed…` / hash `2ecBll…`; one `parlay_fulfilled`, no false freeze).  
 Production-mobile package (prep only): [`production-mobile-candidate-54b89f32.md`](./production-mobile-candidate-54b89f32.md) — tip `54b89f32`, rollback `b666165e` — **no production OTA**.
 
 Collector stays dry-run; NCAAF blocked; voice paused.

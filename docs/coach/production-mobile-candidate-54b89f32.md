@@ -3,7 +3,7 @@
 **Status:** READY FOR REVIEW — **no production publication**  
 **Date:** 2026-10-16  
 **Freeze:** `.ota-production-freeze` remains **armed**  
-**Preview:** already published as update `01a14636…` (see [`preview-release-verification-54b89f32.md`](./preview-release-verification-54b89f32.md))
+**Preview:** export-equivalent update `01a146ed…` / hash `2ecBll…` (see [`preview-release-verification-54b89f32.md`](./preview-release-verification-54b89f32.md))
 
 ---
 
@@ -68,7 +68,7 @@ Diff scale vs `b666165e` (tip incl. docs/tests): on the order of **+3030 / −15
 | **Message** | `production b666165e… — hide Device attestation on production channel (Build 78 / 1.1.0)` |
 | **Export launch hash (recorded)** | `YBbHBG0NwMh4KdPq3jCHpBc_73j0za_nZmTYVHMOeRw` |
 
-Rollback = republish / point production channel back to group `68de9f95…` (or equivalent heal script for that tip). **Do not** roll production to preview group `23003912…`.
+Rollback = republish / point production channel back to group `68de9f95…` (or equivalent heal script for that tip). **Do not** roll production to preview group `dd669b36…` (or superseded `23003912…`).
 
 Server rollback (only if a future server regress): prior Render tip before `e607f131` was `ddeb4733…` — **not** required for a mobile-only OTA revert.
 
