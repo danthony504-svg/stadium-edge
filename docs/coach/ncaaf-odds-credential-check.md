@@ -49,3 +49,7 @@ Do **not** put the key in `.env`, `environment.json`, docs, or chat.
 | FINAL_EVAL fixtures | Still absent / untouched |
 | Historical TUNING closes pull | Not started |
 | Gate / OTA / deploy | Unchanged / freeze armed |
+
+## Retrieval attempt (follow-up) — STOPPED
+
+Authorized TUNING closes pull (hard cap 4500) was requested. Re-checked agent secrets: still **only `EXPO_TOKEN`**. No free `/v4/sports` probe, no first historical request, **0 credits** consumed. Cannot confirm historical-plan access without the agent key. Re-add `ODDS_API_KEY` to the environment Secrets UI and **start a new agent run** so injection applies; then resume first-request confirm → capped TUNING batch.
