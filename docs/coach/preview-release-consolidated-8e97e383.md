@@ -1,6 +1,7 @@
 # Consolidated preview release — review only
 
-**Branch tip SHA:** `ee12f2970d12b4b7fdc026a48622f4fed8b1fcac` (package content `fa2d3bae6539c4c3368389dae620f833df5aac1e`)
+**Deploy / branch tip SHA:** 
+**Timing package SHA:** 
 **Code tip (matchup invariants):** `8e97e3839873324558f441de9ba13c6f32df26f4`  
 **Branch:** `cursor/coach-players-only-kb-8b51` · PR #741  
 **Status:** Prepared for preview review — **no publication, deploy, merge, or native build**
