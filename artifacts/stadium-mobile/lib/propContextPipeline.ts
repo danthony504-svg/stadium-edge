@@ -277,13 +277,151 @@ export function resolvePropSimContextForGame(opts: {
 }
 
 /**
- * When defenseIndex entered the Monte Carlo projection, skip post-sim hit tilt
- * so opponent D is not counted twice on hitProbability.
+ * Stable key for opponent-scoped defense context within a game.
+ * Home and away props in the same matchup must NEVER share one key —
+ * each side faces a different opponent pack / defenseIndexByFamily.
+ *
+ * Format: `${game}@@opp:${opponentTeamId}` (empty opp → null, omit context).
+ */
+export function propOpponentDefenseKey(
+  game: string | null | undefined,
+  opponentTeamId: string | null | undefined,
+): string | null {
+  const g = String(game ?? "").trim();
+  const opp = String(opponentTeamId ?? "").trim();
+  if (!g || !opp) return null;
+  return `${g}@@opp:${opp}`;
+}
+
+/** Parse game label out of a propOpponentDefenseKey (for weather lookups). */
+export function gameLabelFromPropOpponentDefenseKey(
+  key: string | null | undefined,
+): string | null {
+  const k = String(key ?? "");
+  const at = k.indexOf("@@opp:");
+  if (at <= 0) return null;
+  return k.slice(0, at) || null;
+}
+
+/**
+ * When defenseIndex entered the Monte Carlo projection for THIS prop's
+ * opponent, skip post-sim hit tilt so opponent D is not counted twice.
+ * Must be keyed per opponent — never by bare game label alone.
  */
 export function shouldApplyPostSimOppDefenseTilt(opts: {
   projectionUsedDefenseIndex: boolean;
 }): boolean {
   return !opts.projectionUsedDefenseIndex;
+}
+
+/**
+ * Context channel for Coach props — distribution vs ranking/display.
+ * Distribution channels change Monte Carlo means; ranking channels must not
+ * re-multiply the same signal into hitProbability when already in projection.
+ */
+export type PropContextChannel = "distribution" | "ranking_display" | "qualification_gate";
+
+export function classifyPropContextChannel(factor: {
+  name:
+    | "opponent_defense_index"
+    | "weather_impact"
+    | "venue_series"
+    | "opportunity_shift"
+    | "key_injury_scalar"
+    | "holistic_opponent_tendency"
+    | "holistic_weather"
+    | "holistic_injury"
+    | "hard_over_block";
+}): PropContextChannel {
+  switch (factor.name) {
+    case "opponent_defense_index":
+    case "weather_impact":
+    case "venue_series":
+    case "opportunity_shift":
+    case "key_injury_scalar":
+      return "distribution";
+    case "hard_over_block":
+      return "qualification_gate";
+    default:
+      return "ranking_display";
+  }
+}
+
+/**
+ * Evidence-backed football weather proposal for prop MC (NOT enabled live).
+ * Outdoor wind/precip suppressions only when readings exist; dome → null.
+ * Caller must skip when vs-opponent history already owns matchup (n≥3) to
+ * avoid double-counting weather already embedded in recent outdoor games.
+ */
+export function proposeFootballWeatherImpact(opts: {
+  sport: string;
+  env?: MlbEnvLike | null;
+  /** Recent vs-opponent sample size already in history. */
+  vsOpponentGames?: number;
+}): { weatherImpact: number | null; apply: boolean; reason: string } {
+  const sp = String(opts.sport ?? "").toLowerCase();
+  if (sp !== "nfl" && sp !== "ncaaf") {
+    return { weatherImpact: null, apply: false, reason: "not_football" };
+  }
+  if ((opts.vsOpponentGames ?? 0) >= 3) {
+    return {
+      weatherImpact: null,
+      apply: false,
+      reason: "vs_opponent_history_owns_matchup",
+    };
+  }
+  const env = opts.env;
+  if (!env) return { weatherImpact: null, apply: false, reason: "missing_env" };
+  if (env.climateControlled === true || env.park?.dome === true) {
+    return { weatherImpact: null, apply: false, reason: "dome" };
+  }
+  const w = env.weather;
+  if (!w) return { weatherImpact: null, apply: false, reason: "missing_weather" };
+  const tempF = w.tempF;
+  const precip = w.precipChancePct;
+  const wind = w.windMph;
+  if (tempF == null && precip == null && wind == null) {
+    return { weatherImpact: null, apply: false, reason: "no_readings" };
+  }
+  let score = 0;
+  if (tempF != null) {
+    if (tempF <= 25) score -= 2;
+    else if (tempF <= 40) score -= 1;
+  }
+  if (precip != null) {
+    if (precip >= 60) score -= 2;
+    else if (precip >= 35) score -= 1;
+  }
+  if (wind != null) {
+    if (wind >= 20) score -= 2;
+    else if (wind >= 15) score -= 1;
+  }
+  // Football outdoor weather is suppress-leaning for volume props; never invent
+  // a boost from missing favorable readings.
+  const weatherImpact =
+    score <= -2 ? -0.35 : score === -1 ? -0.18 : score === 0 ? 0 : null;
+  if (weatherImpact == null) {
+    return { weatherImpact: null, apply: false, reason: "neutral_or_unknown" };
+  }
+  return {
+    weatherImpact,
+    apply: weatherImpact !== 0,
+    reason: weatherImpact === 0 ? "neutral_outdoor" : "outdoor_suppression",
+  };
+}
+
+/**
+ * Soft key-injury mean tilt should not stack when Opportunity Shift already
+ * moved the mean for the same absence fingerprint, or when vs-opponent history
+ * already reflects the injured opponent environment (n≥3).
+ */
+export function shouldApplyKeyInjuryMeanTilt(opts: {
+  opportunitySuppressOwnInjuries?: boolean;
+  vsOpponentGames?: number;
+}): boolean {
+  if (opts.opportunitySuppressOwnInjuries) return false;
+  if ((opts.vsOpponentGames ?? 0) >= 3) return false;
+  return true;
 }
 
 /**

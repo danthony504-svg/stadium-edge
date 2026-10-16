@@ -53,7 +53,10 @@ import {
   adjustSimHitForOppDefenseTilt,
   propOppDefenseTilt,
 } from "@/lib/footballRushDefense";
-import { shouldApplyPostSimOppDefenseTilt } from "@/lib/propContextPipeline";
+import {
+  propOpponentDefenseKey,
+  shouldApplyPostSimOppDefenseTilt,
+} from "@/lib/propContextPipeline";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import {
@@ -800,9 +803,12 @@ export function attachPickScores(
     espnGames?: EspnGame[];
     teamIdMap?: Map<string, GameTeamIds>;
     /**
-     * Games where defenseIndexByFamily entered Monte Carlo projection.
-     * Skip post-sim opp-D hit tilt for those games (avoid double-count).
+     * Opponent-scoped keys (`game@@opp:teamId`) where defenseIndexByFamily
+     * entered Monte Carlo projection. Skip post-sim opp-D hit tilt for those
+     * props only — never share one game key across both sides.
      */
+    projectionDefenseKeys?: Set<string>;
+    /** @deprecated Prefer projectionDefenseKeys — bare game labels mix sides. */
     projectionDefenseGames?: Set<string>;
   },
 ): ParsedPick[] {
@@ -891,8 +897,20 @@ export function attachPickScores(
             ownPack: footballOwnPack,
           })
         : { tilt: 0, blockOver: false, display: null };
+    const oppIdForProjection = p.isProp
+      ? opponentTeamIdForProp({
+          sport: p.sport ?? propEntry?.sport,
+          game: p.game,
+          teamAbbr: propEntry?.teamAbbr ?? p.teamAbbr,
+          espnGames: opts.espnGames,
+          teamIdMap: opts.teamIdMap,
+        })
+      : null;
+    const projectionDefKey = propOpponentDefenseKey(p.game, oppIdForProjection);
     const projectionUsedDefense = !!(
-      p.game && opts.projectionDefenseGames?.has(p.game)
+      (projectionDefKey && opts.projectionDefenseKeys?.has(projectionDefKey)) ||
+      // Legacy bare-game set (pre per-side fix) — still skip tilt if present.
+      (p.game && opts.projectionDefenseGames?.has(p.game))
     );
     const applyPostSimTilt = shouldApplyPostSimOppDefenseTilt({
       projectionUsedDefenseIndex: projectionUsedDefense,
