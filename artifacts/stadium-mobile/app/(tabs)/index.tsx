@@ -1996,7 +1996,7 @@ export default function HomeScreen() {
         </ScrollView>
       </AppHeader>
 
-      {/* Temporary read-only device attestation strip (stale Coach UI probe). */}
+      {/* Preview/dev only — OtaHomeDiagnostics returns null on production (no gap). */}
       <OtaHomeDiagnostics />
 
       {sport === "tennis" ? (

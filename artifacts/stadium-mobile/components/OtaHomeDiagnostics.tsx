@@ -4,6 +4,8 @@ import { Pressable, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { tryGetExpoUpdates } from "@/lib/expoUpdatesAccess";
+import { shouldShowDeviceAttestationUi } from "@/lib/navMenuAuth";
+import { resolveOtaChannelForUi } from "@/lib/otaChannelUi";
 import { collectOtaStaticDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
 import {
   EXPECTED_HEALTHY_RUNTIME,
@@ -12,6 +14,7 @@ import {
 
 /**
  * Temporary Home attestation strip — full report at Menu → Device attestation (/ota-debug).
+ * Preview / development only; hidden on the production channel (returns null — no gap).
  * Read-only; does not change Coach / OTA auto-apply behavior.
  *
  * Must NOT statically import expo-updates: Home is the cold-start tab, and
@@ -22,9 +25,13 @@ export function OtaHomeDiagnostics() {
   const router = useRouter();
   const [diag, setDiag] = useState<OtaFullDiagnostics | null>(null);
   const Updates = tryGetExpoUpdates();
+  const visible = shouldShowDeviceAttestationUi({
+    isDev: __DEV__,
+    channel: resolveOtaChannelForUi(),
+  });
 
   useEffect(() => {
-    if (__DEV__) return;
+    if (!visible) return;
     let cancelled = false;
     // Static only — never auto-run checkForUpdateAsync / reloadAsync from Home.
     void collectOtaStaticDiagnostics().then((d) => {
@@ -33,9 +40,10 @@ export function OtaHomeDiagnostics() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [visible]);
 
-  if (__DEV__ || !Updates?.isEnabled || !diag) return null;
+  // Null render → no Home spacing on production.
+  if (!visible || !Updates?.isEnabled || !diag) return null;
 
   const caseColor =
     diag.attestation.caseId === "A"

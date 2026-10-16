@@ -17,8 +17,9 @@ import {
 import {
   accountMenuItem,
   plansMenuItem,
-  shouldShowOtaDiagnosticsMenuItem,
+  shouldShowDeviceAttestationUi,
 } from "@/lib/navMenuAuth";
+import { resolveOtaChannelForUi } from "@/lib/otaChannelUi";
 import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
@@ -56,7 +57,11 @@ export function NavMenu() {
   // Signed-out users always get Sign in at the bottom; signed-in keep Account.
   const account = accountMenuItem(!!isSignedIn);
   const plans = plansMenuItem();
-  const showOtaDiagnostics = shouldShowOtaDiagnosticsMenuItem(__DEV__);
+  // Preview / __DEV__ only — hidden on production channel (no empty row).
+  const showOtaDiagnostics = shouldShowDeviceAttestationUi({
+    isDev: __DEV__,
+    channel: resolveOtaChannelForUi(),
+  });
 
   const toggle = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();

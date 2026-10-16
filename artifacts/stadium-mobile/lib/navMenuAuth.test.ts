@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   accountMenuItem,
   plansMenuItem,
+  shouldShowDeviceAttestationUi,
   shouldShowOtaDiagnosticsMenuItem,
 } from "./navMenuAuth.ts";
 
@@ -31,7 +32,28 @@ test("Plans menu item is always available for soft subscription", () => {
   });
 });
 
-test("OTA Diagnostics / device attestation menu item is temporarily visible in production", () => {
-  assert.equal(shouldShowOtaDiagnosticsMenuItem(false), true);
-  assert.equal(shouldShowOtaDiagnosticsMenuItem(true), true);
+test("Device attestation UI is hidden on production; visible on preview and development", () => {
+  assert.equal(
+    shouldShowDeviceAttestationUi({ isDev: false, channel: "production" }),
+    false,
+  );
+  assert.equal(
+    shouldShowDeviceAttestationUi({ isDev: false, channel: "preview" }),
+    true,
+  );
+  assert.equal(
+    shouldShowDeviceAttestationUi({ isDev: false, channel: "development" }),
+    true,
+  );
+  assert.equal(
+    shouldShowDeviceAttestationUi({ isDev: true, channel: "production" }),
+    true,
+  );
+  // Blank / unknown release channel → hide (fail closed for App Store tips).
+  assert.equal(shouldShowDeviceAttestationUi({ isDev: false, channel: "" }), false);
+  assert.equal(shouldShowDeviceAttestationUi({ isDev: false, channel: null }), false);
+  // Legacy helper matches channel-aware policy.
+  assert.equal(shouldShowOtaDiagnosticsMenuItem(false, "production"), false);
+  assert.equal(shouldShowOtaDiagnosticsMenuItem(false, "preview"), true);
+  assert.equal(shouldShowOtaDiagnosticsMenuItem(true, "production"), true);
 });

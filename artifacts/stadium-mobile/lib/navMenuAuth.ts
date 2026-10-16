@@ -27,10 +27,40 @@ export function plansMenuItem(): {
 }
 
 /**
- * Temporary: show Device attestation / OTA Diagnostics in production so the
- * installed binary can report runtime/updateId without a native rebuild.
- * Revert to `return isDev` after the stale-Coach investigation.
+ * Normalize Expo channel strings for Device attestation UI gating.
+ * Pure — safe for node:test (no expo-updates import).
  */
-export function shouldShowOtaDiagnosticsMenuItem(_isDev: boolean): boolean {
-  return true;
+export function normalizeOtaChannelName(
+  channel: string | null | undefined,
+): string {
+  return String(channel ?? "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Device attestation entry points (Home card + Nav menu) are preview/dev only.
+ * Hidden on the production channel so App Store Build 78 users do not see the
+ * temporary diagnostics strip — no empty spacing when hidden.
+ *
+ * Diagnostics route `/ota-debug`, OTA recovery banners, passkey guards, and
+ * Coach behavior are unchanged; this only gates the two UI entry points.
+ */
+export function shouldShowDeviceAttestationUi(opts: {
+  isDev: boolean;
+  channel?: string | null;
+}): boolean {
+  if (opts.isDev) return true;
+  const ch = normalizeOtaChannelName(opts.channel);
+  if (ch === "preview" || ch === "development") return true;
+  // Explicit production (and blank/unknown on release binaries) stay hidden.
+  return false;
+}
+
+/** @deprecated Prefer {@link shouldShowDeviceAttestationUi} with channel. */
+export function shouldShowOtaDiagnosticsMenuItem(
+  isDev: boolean,
+  channel?: string | null,
+): boolean {
+  return shouldShowDeviceAttestationUi({ isDev, channel });
 }
