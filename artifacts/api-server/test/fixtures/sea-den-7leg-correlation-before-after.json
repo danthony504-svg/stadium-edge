@@ -1,0 +1,195 @@
+{
+  "tipNote": "pin after commit — filled by review pack",
+  "ask": "8 leg broncos (single-event seating unit proof)",
+  "game": "Seattle Seahawks @ Denver Broncos",
+  "seatingPath": "seatSingleEventTicket",
+  "correlationAware": true,
+  "hardRejects": {
+    "passTdPlusReceiver": false,
+    "passTdPlusSeahawksSpread": false,
+    "note": "soft ranking demotion only — valid same-game combos remain seatable"
+  },
+  "before": {
+    "correlationAware": false,
+    "picks": [
+      {
+        "i": 1,
+        "market": "Spread",
+        "pick": "Seahawks +1.5",
+        "isProp": false,
+        "odds": -110
+      },
+      {
+        "i": 2,
+        "market": "Pass TDs",
+        "pick": "Sam Darnold Over 1.5 Pass TDs",
+        "isProp": true,
+        "odds": 120
+      },
+      {
+        "i": 3,
+        "market": "Rec Yds",
+        "pick": "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+        "isProp": true,
+        "odds": -115
+      },
+      {
+        "i": 4,
+        "market": "Receptions",
+        "pick": "Tory Horton Over 0.5 Receptions",
+        "isProp": true,
+        "odds": -130
+      },
+      {
+        "i": 5,
+        "market": "Rush Yds",
+        "pick": "George Holani Over 13.5 Rush Yds",
+        "isProp": true,
+        "odds": -110
+      },
+      {
+        "i": 6,
+        "market": "Anytime TD",
+        "pick": "Rashid Shaheed Anytime TD",
+        "isProp": true,
+        "odds": 150
+      },
+      {
+        "i": 7,
+        "market": "Sacks",
+        "pick": "Nik Bonitto Over 0.5 Sacks",
+        "isProp": true,
+        "odds": -105
+      }
+    ]
+  },
+  "after": {
+    "correlationAware": true,
+    "picks": [
+      {
+        "i": 1,
+        "market": "Spread",
+        "pick": "Seahawks +1.5",
+        "isProp": false,
+        "odds": -110
+      },
+      {
+        "i": 2,
+        "market": "Pass TDs",
+        "pick": "Sam Darnold Over 1.5 Pass TDs",
+        "isProp": true,
+        "odds": 120
+      },
+      {
+        "i": 3,
+        "market": "Rush Yds",
+        "pick": "George Holani Over 13.5 Rush Yds",
+        "isProp": true,
+        "odds": -110
+      },
+      {
+        "i": 4,
+        "market": "Rec Yds",
+        "pick": "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+        "isProp": true,
+        "odds": -115
+      },
+      {
+        "i": 5,
+        "market": "Receptions",
+        "pick": "Tory Horton Over 0.5 Receptions",
+        "isProp": true,
+        "odds": -130
+      },
+      {
+        "i": 6,
+        "market": "Sacks",
+        "pick": "Nik Bonitto Over 0.5 Sacks",
+        "isProp": true,
+        "odds": -105
+      },
+      {
+        "i": 7,
+        "market": "Anytime TD",
+        "pick": "Rashid Shaheed Anytime TD",
+        "isProp": true,
+        "odds": 150
+      }
+    ],
+    "stepwiseSoftPenalties": [
+      {
+        "pick": "Seahawks +1.5",
+        "softPenaltyVsPrior": 0,
+        "reason": "first seat / no prior same-game legs"
+      },
+      {
+        "pick": "Sam Darnold Over 1.5 Pass TDs",
+        "softPenaltyVsPrior": 7,
+        "reason": "same-game prop soft stack penalty=7 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+      },
+      {
+        "pick": "George Holani Over 13.5 Rush Yds",
+        "softPenaltyVsPrior": 12,
+        "reason": "same-game prop soft stack penalty=12 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+      },
+      {
+        "pick": "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+        "softPenaltyVsPrior": 29,
+        "reason": "same-game prop soft stack penalty=29 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+      },
+      {
+        "pick": "Tory Horton Over 0.5 Receptions",
+        "softPenaltyVsPrior": 34,
+        "reason": "same-game prop soft stack penalty=34 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+      },
+      {
+        "pick": "Nik Bonitto Over 0.5 Sacks",
+        "softPenaltyVsPrior": 27,
+        "reason": "soft demotion beat Shaheed Anytime TD (Pass-TD↔receiver bump); penalty=27"
+      },
+      {
+        "pick": "Rashid Shaheed Anytime TD",
+        "softPenaltyVsPrior": 44,
+        "reason": "same-game prop soft stack penalty=44 (Pass-TD↔receiver +12 when applicable; else +5; vs GL +7)"
+      }
+    ]
+  },
+  "influence": {
+    "demotedRelative": "Rashid Shaheed Anytime TD seats after Nik Bonitto (was before on raw rank)",
+    "seatedEarlier": "Nik Bonitto Over 0.5 Sacks",
+    "beforeOrder": [
+      "Seahawks +1.5",
+      "Sam Darnold Over 1.5 Pass TDs",
+      "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+      "Tory Horton Over 0.5 Receptions",
+      "George Holani Over 13.5 Rush Yds",
+      "Rashid Shaheed Anytime TD",
+      "Nik Bonitto Over 0.5 Sacks"
+    ],
+    "afterOrder": [
+      "Seahawks +1.5",
+      "Sam Darnold Over 1.5 Pass TDs",
+      "George Holani Over 13.5 Rush Yds",
+      "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+      "Tory Horton Over 0.5 Receptions",
+      "Nik Bonitto Over 0.5 Sacks",
+      "Rashid Shaheed Anytime TD"
+    ],
+    "shaheedPenaltyVsCore": 39,
+    "sacksPenaltyVsCore": 27,
+    "passTdReceiverBumpApplied": true,
+    "hardReject": false,
+    "capsAreNotCorrelation": true,
+    "sevenLegLimitation": {
+      "label": "ORDER_ONLY_NOT_MEMBERSHIP",
+      "meaning": "All seven remain because SINGLE_EVENT_CAPS[8].maxProps=6 still fits both Shaheed and Sacks; no better-qualified alternatives exist outside this pool. Correlation reorders only. Membership change is proven in sea-den-constrained-slot-membership.json."
+    }
+  },
+  "displayedTicketMath": {
+    "combinedAmericanOdds": 12845,
+    "parlayImpliedFromOddsProduct": 0.007724927747616347,
+    "dependenceAdjusted": false,
+    "meaning": "parlayAmerican / parlayImplied multiply per-leg book prices under independence — not a joint Pass-TD↔receiver model probability. Per-leg Coach confidencePct/edgePct stay per-leg."
+  },
+  "pass": true
+}

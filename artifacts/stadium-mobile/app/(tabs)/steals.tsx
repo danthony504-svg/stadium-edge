@@ -7,9 +7,9 @@
  */
 import Feather from "@expo/vector-icons/Feather";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -35,6 +35,7 @@ import {
   type StealScanMeta,
   type StealSeasonStats,
 } from "@/lib/api";
+import { marketDisplayLabel } from "@/lib/postedMarketDiscovery";
 import type { StealFeedClientLog } from "@/lib/stealFeedClient";
 import { SPORTS, sportLabel } from "@/lib/sports";
 import {
@@ -66,7 +67,9 @@ const GAME_MARKET_LABEL: Record<string, string> = {
 
 function marketLabelFor(s: LiveSteal): string {
   if (s.player) return propMarketLabel(s.market);
-  return GAME_MARKET_LABEL[s.market] ?? s.market;
+  const base = GAME_MARKET_LABEL[s.market] ?? s.market;
+  // Sport-aware display (MLB Spread → Run Line); stored market unchanged.
+  return marketDisplayLabel(base, s.sport);
 }
 
 function formatStart(iso?: string | null): string {
@@ -284,9 +287,12 @@ function OddsFeedUnavailable({
 function ScanChecklist({
   meta,
   phase,
+  sportFilter,
 }: {
   meta?: StealScanMeta;
   phase: "loading" | "empty" | "results";
+  /** When set, scan totals are board-wide — label them so they aren't read as sport-scoped. */
+  sportFilter?: string | null;
 }) {
   const colors = useColors();
   const consistent = stealScanStatsAreConsistent(meta);
@@ -294,6 +300,7 @@ function ScanChecklist({
   const markets = consistent ? meta!.marketsChecked : null;
   const longshots = consistent ? meta!.longshotsAnalyzed : null;
   const found = meta?.stealsFound ?? 0;
+  const acrossAll = Boolean(sportFilter);
 
   const lines =
     phase === "loading"
@@ -342,6 +349,11 @@ function ScanChecklist({
 
   return (
     <View style={{ gap: 10 }}>
+      {acrossAll && phase !== "loading" ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 12 }}>
+          Across all sports
+        </Text>
+      ) : null}
       {lines.map((line) => (
         <View key={line.label} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text style={{ color: line.done ? "#22c55e" : colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
@@ -362,8 +374,12 @@ function ScanChecklist({
         {phase === "loading"
           ? "This may take a few seconds."
           : phase === "empty"
-            ? "We'll rescan every few seconds in case a new longshot surfaces."
-            : "Updating every few seconds…"}
+            ? acrossAll
+              ? `No ${sportLabel(sportFilter!)} steals cleared — scan counts above are across all sports.`
+              : "We'll rescan every few seconds in case a new longshot surfaces."
+            : acrossAll
+              ? "Scan counts are across all sports; the board below is filtered."
+              : "Updating every few seconds…"}
       </Text>
     </View>
   );
@@ -470,7 +486,13 @@ function RadarScan() {
   );
 }
 
-function StealsFoundToday({ meta }: { meta?: StealScanMeta }) {
+function StealsFoundToday({
+  meta,
+  sportFilter,
+}: {
+  meta?: StealScanMeta;
+  sportFilter?: string | null;
+}) {
   const colors = useColors();
   if (!meta) return null;
   // Defense in depth: never Object.entries(undefined) — root ErrorBoundary crash.
@@ -479,8 +501,15 @@ function StealsFoundToday({ meta }: { meta?: StealScanMeta }) {
       ? meta.sportCounts
       : null;
   if (!sportCounts) return null;
-  const entries = Object.entries(sportCounts).sort((a, b) => b[1] - a[1]);
-  if (!entries.length && meta.stealsFound === 0) return null;
+  const allEntries = Object.entries(sportCounts).sort((a, b) => b[1] - a[1]);
+  if (!allEntries.length && meta.stealsFound === 0) return null;
+
+  // When a sport pill is selected, show that sport's count first; board-wide
+  // totals stay labeled "Across all sports" so they aren't read as MLB-only.
+  const scopedCount = sportFilter ? (sportCounts[sportFilter] ?? 0) : null;
+  const entries = sportFilter
+    ? allEntries.filter(([s]) => s === sportFilter)
+    : allEntries;
 
   return (
     <View
@@ -493,24 +522,53 @@ function StealsFoundToday({ meta }: { meta?: StealScanMeta }) {
         gap: 10,
       }}
     >
-      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>Steals Found Today</Text>
-      {entries.map(([sport, count]) => (
-        <View key={sport} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+        {sportFilter ? `Steals Found Today · ${sportLabel(sportFilter)}` : "Steals Found Today"}
+      </Text>
+      {sportFilter ? (
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
-            {sportLabel(sport)}:
+            {sportLabel(sportFilter)}:
           </Text>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{count}</Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>
+            {scopedCount ?? 0}
+          </Text>
         </View>
-      ))}
+      ) : (
+        entries.map(([sport, count]) => (
+          <View key={sport} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+              {sportLabel(sport)}:
+            </Text>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{count}</Text>
+          </View>
+        ))
+      )}
       <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
-          {meta.totalOpportunities} Total Opportunities
-        </Text>
-        <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12 }}>
-          {meta.stealsFound} qualified
-        </Text>
-      </View>
+      {sportFilter ? (
+        <View style={{ gap: 4 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 11 }}>
+            Across all sports
+          </Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+              {meta.totalOpportunities} Total Opportunities
+            </Text>
+            <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12 }}>
+              {meta.stealsFound} qualified
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+            {meta.totalOpportunities} Total Opportunities
+          </Text>
+          <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12 }}>
+            {meta.stealsFound} qualified
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -711,7 +769,16 @@ function BoardHeader({ sortKey, onSort }: { sortKey: SortKey; onSort: (k: SortKe
 function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [sportFilter, setSportFilter] = useState<string | null>(null);
+  const params = useLocalSearchParams<{ sp?: string }>();
+  const paramSport =
+    params.sp && SPORTS.some((s) => s.id === String(params.sp))
+      ? String(params.sp)
+      : null;
+  const [sportFilter, setSportFilter] = useState<string | null>(paramSport);
+  // Home Longshots passes ?sp= — keep the filter in sync when the shortcut re-fires.
+  useEffect(() => {
+    if (paramSport) setSportFilter(paramSport);
+  }, [paramSport]);
   const [sortKey, setSortKey] = useState<SortKey>("ev");
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -836,11 +903,17 @@ function StealsScreen() {
       >
         <SeasonRecordCard record={record} seasonStats={seasonStats} />
 
-        {!feedUnavailable && boardPhase === "results" && meta ? <StealsFoundToday meta={meta} /> : null}
+        {!feedUnavailable && boardPhase === "results" && meta ? (
+          <StealsFoundToday meta={meta} sportFilter={sportFilter} />
+        ) : null}
 
         {/* Scan status sits above filters (matches product layout). Shown once only. */}
-        {!feedUnavailable && boardPhase === "loading" ? <ScanChecklist meta={meta} phase="loading" /> : null}
-        {!feedUnavailable && boardPhase === "empty" ? <ScanChecklist meta={meta} phase="empty" /> : null}
+        {!feedUnavailable && boardPhase === "loading" ? (
+          <ScanChecklist meta={meta} phase="loading" sportFilter={sportFilter} />
+        ) : null}
+        {!feedUnavailable && boardPhase === "empty" ? (
+          <ScanChecklist meta={meta} phase="empty" sportFilter={sportFilter} />
+        ) : null}
 
         {/* Sport filters */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>

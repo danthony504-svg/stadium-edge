@@ -46,6 +46,11 @@ export type ManifestMarketFamily =
   | "otherGameLine";
 
 export type CoachBoardScanManifest = {
+  /**
+   * Links funnel counters to Coach reliability `requestId` (`greenfield-…`).
+   * Required before attributing shortfall to correlation vs missing ingest.
+   */
+  requestId: string | null;
   scanComplete: boolean;
   boardExhausted: boolean;
   requestedLegs: number;
@@ -110,7 +115,10 @@ export type CoachBoardScanManifest = {
   footballPropRejectedSamples: FootballPropRejectedSample[];
 };
 
-export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanManifest {
+export function emptyCoachBoardScanManifest(
+  requestedLegs = 0,
+  opts?: { requestId?: string | null },
+): CoachBoardScanManifest {
   const zeroFamilies = (): Record<ManifestMarketFamily, number> => ({
     playerProps: 0,
     altPlayerProps: 0,
@@ -126,6 +134,10 @@ export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanMa
     otherGameLine: 0,
   });
   return {
+    requestId:
+      opts?.requestId != null && String(opts.requestId).trim()
+        ? String(opts.requestId).trim().slice(0, 80)
+        : null,
     scanComplete: false,
     boardExhausted: false,
     requestedLegs,
@@ -238,8 +250,11 @@ function resetFootballEvalStages(manifest: CoachBoardScanManifest): void {
   }
 }
 
-export function createCoachBoardScanManifestRecorder(requestedLegs: number): CoachBoardScanManifestRecorder {
-  const manifest = emptyCoachBoardScanManifest(requestedLegs);
+export function createCoachBoardScanManifestRecorder(
+  requestedLegs: number,
+  opts?: { requestId?: string | null },
+): CoachBoardScanManifestRecorder {
+  const manifest = emptyCoachBoardScanManifest(requestedLegs, opts);
   const seenRejectFp = new Set<string>();
   const seenPreScoreFp = new Set<string>();
   const seenFootballSampleFp = new Set<string>();
@@ -683,6 +698,28 @@ function footballRejectLabel(reason: string): string {
   return labels[reason] ?? reason;
 }
 
+/**
+ * Compact request-linked funnel counters for reliability rootCause / diagnostics.
+ * Do not attribute shortfall to correlation until ingest receipt is confirmed.
+ */
+export function footballPropFunnelSummaryForRequest(
+  manifest: CoachBoardScanManifest | null | undefined,
+): string | null {
+  if (!manifest) return null;
+  const parts: string[] = [];
+  if (manifest.requestId) parts.push(`requestId=${manifest.requestId}`);
+  for (const sport of ["nfl", "ncaaf"] as FootballPropSport[]) {
+    const f = manifest.footballPropFunnelBySport[sport];
+    if (f.raw_found <= 0 && f.final_selected <= 0) continue;
+    parts.push(
+      `${sport}:fetched=${f.raw_found},sim=${f.simulated},qual=${f.qualified},` +
+        `dedupe=${f.after_dedupe},corr=${f.after_correlation},delivered=${f.final_selected}`,
+    );
+  }
+  if (parts.length <= (manifest.requestId ? 1 : 0)) return null;
+  return parts.join("|").slice(0, 240);
+}
+
 function formatFootballPropFunnelSection(manifest: CoachBoardScanManifest): string[] {
   const lines: string[] = [];
   const sports: Array<[FootballPropSport, string]> = [
@@ -695,6 +732,9 @@ function formatFootballPropFunnelSection(manifest: CoachBoardScanManifest): stri
   if (!any) return lines;
 
   lines.push("");
+  if (manifest.requestId) {
+    lines.push(`- requestId: \`${manifest.requestId}\``);
+  }
   lines.push("**NFL / NCAAF player-prop funnel**");
   for (const [sport, label] of sports) {
     const f = manifest.footballPropFunnelBySport[sport];

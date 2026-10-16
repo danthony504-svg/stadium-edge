@@ -1,0 +1,31 @@
+{
+  "measuredAt": "2026-10-16T02:18:16.437Z",
+  "ask": "5 leg",
+  "requestedLegs": 5,
+  "method": "COACH_QA_RUN_PERF_MEASURE=1 buildCoachParlay cold clearCache then warm",
+  "apiHost": "https://stadium-edge.onrender.com",
+  "liveApiDeploymentSha": "ddeb4733348b98d7112748edc19c7e06fc6fc99a",
+  "parent": {
+    "sha": "2444d2e4c8631a3fed655ee98a116c1bf157e216",
+    "label": "pre opp-context-once (D/ST + Tackles+Assists)",
+    "coldMs": 61077,
+    "warmMs": 36963,
+    "coldLegs": 5,
+    "warmLegs": 5,
+    "artifact": "/opt/cursor/artifacts/coach-fullscan-parent-2444d2e4.json"
+  },
+  "tip": {
+    "sha": "9705fc535b8166abb9182e23511fcff39c4fc0f7",
+    "label": "consolidated preview tip",
+    "coldMs": 45858,
+    "warmMs": 25440,
+    "coldLegs": 5,
+    "warmLegs": 5,
+    "artifact": "/opt/cursor/artifacts/coach-fullscan-tip-9705fc53.json"
+  },
+  "deltaMs": {
+    "coldTipMinusParent": -15219,
+    "warmTipMinusParent": -11523
+  },
+  "note": "User-visible full-ask wall clocks on this agent host against live Render. Same ask, sequential cold then warm. Not device wall-clock."
+}

@@ -44,6 +44,7 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { buildHomeSports } from "@/lib/homeSports";
+import { resolveHomeShortcut } from "@/lib/homeShortcuts";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
   hydrateDiscoverCache,
@@ -942,7 +943,8 @@ function HomeSportFeed({
     (sport !== "tennis" && upsetsQ.isFetching);
 
   const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
+    // Queue autoMsg before push — tab navigations can drop query params.
+    markCoachHomeLaunch({ autoMsg: msg, hideBubble: silent, freshThread: true });
     router.push({
       pathname: "/coach",
       params: {
@@ -963,6 +965,30 @@ function HomeSportFeed({
       },
     });
 
+  const runHomeShortcut = (id: "hot_picks" | "easy_money" | "best_value" | "longshots") => {
+    const dest = resolveHomeShortcut(id, sport, {
+      propsSportSupported: featuredEnabled,
+    });
+    if (dest.kind === "coach") {
+      askCoach(dest.autoMsg, dest.silent);
+      return;
+    }
+    if (dest.kind === "props") {
+      router.push({
+        pathname: dest.pathname,
+        params: {
+          ...(dest.sport ? { sp: dest.sport } : {}),
+          ...(dest.view ? { view: dest.view } : {}),
+        },
+      });
+      return;
+    }
+    router.push({
+      pathname: dest.pathname,
+      params: dest.sport ? { sp: dest.sport } : {},
+    });
+  };
+
   const quickActions: {
     label: string;
     subtitle: string;
@@ -975,29 +1001,28 @@ function HomeSportFeed({
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => runHomeShortcut("hot_picks"),
     },
     {
       label: "Easy Money",
       subtitle: "High win rate tonight",
       icon: "currency-usd",
       color: "#34d399",
-      onPress: () => askCoach("Build me a safe parlay"),
+      onPress: () => runHomeShortcut("easy_money"),
     },
     {
       label: "Best Value",
       subtitle: "Top projected edges",
       icon: "bullseye-arrow",
       color: colors.primary,
-      onPress: () =>
-        router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} }),
+      onPress: () => runHomeShortcut("best_value"),
     },
     {
       label: "Longshots",
       subtitle: "High upside plays",
       icon: "rocket-launch",
       color: "#a78bfa",
-      onPress: () => router.push("/steals"),
+      onPress: () => runHomeShortcut("longshots"),
     },
   ];
 

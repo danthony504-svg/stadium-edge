@@ -81,6 +81,34 @@ test("countCoachPickLines and classifyParlayOutcome", () => {
   );
 });
 
+test("3-of-10 honest shortfall is digest-only (no Telegram page)", () => {
+  // Reproduces the Bo Nix / 3-of-10 Coach run: partial ticket + real odds →
+  // legitimate_underfill. Rule evaluates and suppresses paging by design.
+  const outcome = classifyParlayOutcome({
+    requestedLegCount: 10,
+    returnedLegCount: 3,
+  });
+  assert.equal(outcome, "parlay_underfilled");
+  const reason = classifyParlayFailureReason({
+    outcome,
+    realOddsAvailable: true,
+  });
+  assert.equal(reason, "legitimate_underfill");
+  const meta = baseMeta({
+    eventType: outcome,
+    failureReason: reason,
+    requestedLegCount: 10,
+    returnedLegCount: 3,
+    realOddsAvailable: true,
+    requestId: "greenfield-AUDIT-3of10",
+  });
+  assert.equal(shouldAlertCoachEvent(meta), false);
+  assert.match(
+    coachAlertFingerprint(meta),
+    /coach\|parlay_underfilled\|legitimate_underfill/,
+  );
+});
+
 test("legitimate underfill is digest-only; system failures alert", () => {
   assert.equal(
     classifyParlayFailureReason({
@@ -127,6 +155,22 @@ test("mapScanFailureCode covers grounding/alt/sim/freeze", () => {
   assert.equal(mapScanFailureCode("GAME_SIMS_ALL_NULL")?.failureReason, "missing_sim_output");
   assert.equal(mapScanFailureCode("ABSOLUTE_BUDGET")?.eventType, "coach_scan_freeze");
   assert.equal(mapScanFailureCode("QUALITY_BAR_EMPTY")?.alertable, false);
+  // P0 policy block must ingest (digest) without paging as sim failure.
+  const p0 = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
+  assert.equal(p0?.eventType, "parlay_underfilled");
+  assert.equal(p0?.failureReason, "legitimate_underfill");
+  assert.equal(p0?.alertable, false);
+  assert.equal(
+    shouldAlertCoachEvent(
+      baseMeta({
+        eventType: "parlay_underfilled",
+        failureReason: "legitimate_underfill",
+        requestedLegCount: 6,
+        returnedLegCount: 0,
+      }),
+    ),
+    false,
+  );
 });
 
 test("serialize/parse coach meta has no PII fields", () => {

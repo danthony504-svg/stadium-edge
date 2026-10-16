@@ -6,6 +6,9 @@
  * disambiguating city/region token appears alongside them.
  */
 
+import { resolvePropPlayerSides } from "./resolvePropPlayerSides.ts";
+import { wantsPlayersOnlyAsk } from "./slate.ts";
+
 export type CoachAskTeamScope = {
   sport: string;
   /** Lowercase tokens that identify the franchise in Odds/ESPN labels. */
@@ -1069,4 +1072,144 @@ export function buildCoachTeamGameScopeDiagnostics(opts: {
  */
 export function askNamesTeamGame(text: string | null | undefined): boolean {
   return coachAskTeamScope(text) != null;
+}
+
+/**
+ * "8 leg Seahawks players only" — props-only AND only that franchise's players
+ * (not the opponent, not team spreads / ML / totals / team props).
+ */
+export function wantsAskTeamPlayersOnly(
+  text: string | null | undefined,
+  scope: CoachAskTeamScope | null | undefined = coachAskTeamScope(text),
+): boolean {
+  return !!scope && wantsPlayersOnlyAsk(text);
+}
+
+/** Resolve ESPN team id for the named franchise from a filtered matchup board. */
+export function resolveAskTeamIdFromGames<
+  T extends {
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+  },
+>(scope: CoachAskTeamScope | null | undefined, games: readonly T[]): string | null {
+  if (!scope || !games.length) return null;
+  const matched = games[0]!;
+  const home = String(matched.homeTeam ?? "");
+  const away = String(matched.awayTeam ?? "");
+  if (labelMatchesTeamTokens(home, scope.matchTokens) && matched.homeTeamId) {
+    return String(matched.homeTeamId);
+  }
+  if (labelMatchesTeamTokens(away, scope.matchTokens) && matched.awayTeamId) {
+    return String(matched.awayTeamId);
+  }
+  return null;
+}
+
+function playerSideMatchesAskTeam(
+  pick: {
+    game?: string | null;
+    teamAbbr?: string | null;
+    playerTeam?: string | null;
+    pick?: string | null;
+  },
+  scope: CoachAskTeamScope,
+): boolean {
+  const game = String(pick.game ?? "").trim();
+  const parts = game.split(/\s+@\s+/);
+  if (parts.length === 2) {
+    const away = parts[0]!.trim();
+    const home = parts[1]!.trim();
+    if (away && home) {
+      const sides = resolvePropPlayerSides({
+        awayName: away,
+        homeName: home,
+        teamAbbr: pick.teamAbbr,
+        playerTeam: pick.playerTeam,
+      });
+      if (sides.teamName) {
+        return labelMatchesTeamTokens(sides.teamName, scope.matchTokens);
+      }
+    }
+  }
+  // Fall back: team abbr / playerTeam / pick text must hit franchise tokens,
+  // and must not only match via the opponent side of the game label.
+  const identity = `${pick.teamAbbr ?? ""} ${pick.playerTeam ?? ""} ${pick.pick ?? ""}`.toLowerCase();
+  if (labelMatchesTeamTokens(identity, scope.matchTokens)) return true;
+  return false;
+}
+
+/**
+ * Keep only player props for the named franchise's roster.
+ * Non-props and opposing-team props are dropped. Unknown player team identity
+ * is kept only when the pick label itself clearly names the franchise.
+ */
+export function pickMatchesAskTeamPlayers(
+  pick: {
+    game?: string | null;
+    sport?: string | null;
+    isProp?: boolean;
+    playerTeamId?: string | null;
+    teamAbbr?: string | null;
+    playerTeam?: string | null;
+    pick?: string | null;
+    player?: string | null;
+  },
+  scope: CoachAskTeamScope | null | undefined,
+  resolvedTeamId?: string | null,
+): boolean {
+  if (!scope) return true;
+  if (pick.sport && pick.sport !== scope.sport) return false;
+  if (pick.isProp === false) return false;
+  const pid = String(pick.playerTeamId ?? "").trim();
+  const wantId = String(resolvedTeamId ?? "").trim();
+  if (pid && wantId) return pid === wantId;
+  if (!pickMatchesAskTeamScope(pick, scope)) return false;
+  return playerSideMatchesAskTeam(pick, scope);
+}
+
+/** Candidate / delivery belt for "<Team> players only" asks. */
+export function filterPicksForAskTeamPlayers<
+  T extends {
+    game?: string | null;
+    sport?: string | null;
+    isProp?: boolean;
+    playerTeamId?: string | null;
+    teamAbbr?: string | null;
+    playerTeam?: string | null;
+    pick?: string | null;
+    player?: string | null;
+  },
+>(
+  picks: T[],
+  scope: CoachAskTeamScope | null | undefined,
+  resolvedTeamId?: string | null,
+): T[] {
+  if (!scope || !picks.length) return picks;
+  return picks.filter((p) => pickMatchesAskTeamPlayers(p, scope, resolvedTeamId));
+}
+
+export function filterPropPoolForAskTeamPlayers<
+  T extends {
+    game?: string | null;
+    sport?: string | null;
+    playerTeamId?: string | null;
+    teamAbbr?: string | null;
+    playerTeam?: string | null;
+    player?: string | null;
+  },
+>(
+  pool: T[],
+  scope: CoachAskTeamScope | null | undefined,
+  resolvedTeamId?: string | null,
+): T[] {
+  if (!scope || !pool.length) return pool;
+  return pool.filter((row) =>
+    pickMatchesAskTeamPlayers(
+      { ...row, isProp: true, pick: row.player },
+      scope,
+      resolvedTeamId,
+    ),
+  );
 }

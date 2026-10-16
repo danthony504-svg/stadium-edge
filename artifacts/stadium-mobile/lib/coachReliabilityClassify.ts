@@ -61,6 +61,14 @@ export function mapScanFailureCode(
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    // P0 policy block (e.g. unvalidated NCAAF game lines) — digest/coverage only.
+    // Must not page Telegram as coach_simulation_failure.
+    case "P0_UNVALIDATED_MARKETS":
+      return {
+        eventType: "parlay_underfilled",
+        failureReason: "legitimate_underfill",
+        alertable: false,
+      };
     default:
       return null;
   }

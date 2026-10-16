@@ -337,8 +337,19 @@ function scoredLegFromHit(
     pack,
     ownPack,
   });
-  // Matchup must move projection/grade — adjust sim hit (bounded), not display-only.
-  hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt);
+  // Matchup must move projection — adjust sim hit once (bounded). Final AI
+  // opponentTendency is display-only when this flag is set (no double-count).
+  // Retain raw (pre-tilt) so UI can show the transform; do not call a tilt
+  // increase a "soft-cap".
+  const hitBeforeMatchup = hit;
+  const alreadyApplied = norm.finalAiScore?.oppMatchupAppliedToSim === true;
+  hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt, { alreadyApplied });
+  const oppMatchupAppliedToSim =
+    alreadyApplied ||
+    (defTilt.tilt !== 0 &&
+      hit != null &&
+      hitBeforeMatchup != null &&
+      hit !== hitBeforeMatchup);
 
   const trend = propsOnlyTrendFromHistory(
     ph,
@@ -347,12 +358,13 @@ function scoredLegFromHit(
     norm.propSide,
   );
 
+  // Edge / grade / qual all use the same final (adjusted) model estimate.
   const edgePct =
     hit != null && norm.odds != null
       ? Math.round((hit - impliedProb(norm.odds)) * 1000) / 10
       : poolRow?.edge ?? null;
   const rubricScores: PickSubScores = {
-    // Matchup lean comes from holistic opponentTendency (opp D + vsOpponent).
+    // Matchup lean is applied to simHit; holistic opponentTendency is display-only then.
     matchup: null,
     trend,
     lineValue: scoreLineValue(edgePct),
@@ -360,6 +372,10 @@ function scoredLegFromHit(
     lineShopping: scoreLineShopping(poolRow?.bookSpread ?? null),
     simulation: scoreSimulation(hit),
   };
+  const propSampleSize = (() => {
+    const recent = ph?.recent ?? [];
+    return recent.length > 0 ? Math.min(10, recent.length) : null;
+  })();
   const mlbPlatoon = mlbPlatoonLookup(
     norm.player,
     poolRow?.athleteId ?? norm.athleteId,
@@ -375,6 +391,8 @@ function scoredLegFromHit(
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
+    rawPropSimHit: hitBeforeMatchup,
+    propSampleSize,
     propHolisticContext: {
       sport,
       marketKey,
@@ -384,6 +402,7 @@ function scoredLegFromHit(
       rushDefense: pack?.rush ?? null,
       footballOppDefense: pack,
       footballOwnPack: ownPack,
+      oppMatchupAppliedToSim,
       mlbPlatoon: mlbPlatoon as import("./propHolisticRecommendation.ts").MlbPlatoonSlice | null,
       mlbGameEnv: mlbGameEnv as import("./propHolisticRecommendation.ts").MlbGameEnvSlice | null,
     },
@@ -403,6 +422,10 @@ function scoredLegFromHit(
     simAligned,
     edgePct: edgeOut,
     simHit: hit,
+    rawSimHit: alreadyApplied
+      ? (norm.finalAiScore?.rawSimHit ?? hitBeforeMatchup)
+      : hitBeforeMatchup,
+    oppMatchupAppliedToSim,
     confidencePct,
   };
   const ev = hit != null && norm.odds != null ? simEvPct(hit, norm.odds) : null;
@@ -431,14 +454,12 @@ function scoredLegFromHit(
     composite,
     // Attach real reliability for rare-count + Anytime TD (not a default 1).
     hitReliability: rare || anytimeTd ? rel : 1,
-    // Opp-D tilt + Match-grounded boost; demote NHL scoring without opp context
-    // so EV-only Unders don't beat legs that compared the netminder.
+    // Matchup already in adjusted simHit → Final AI composite. Do not add
+    // defTilt again (double-count). H2H presence + NHL missing-opp demotion only.
     // Rare-count reliability shrinks how much raw EV can inflate rank.
     rankScore:
       (composite ?? 0) +
       (ev ?? 0) * 0.01 * evRankFactor +
-      defTilt.tilt +
-      (defTilt.display ? 0.45 : 0) +
       (vsOpponentGames > 0 ? 0.2 : 0) -
       (nhlScoringMissingOppContext({
         sport,

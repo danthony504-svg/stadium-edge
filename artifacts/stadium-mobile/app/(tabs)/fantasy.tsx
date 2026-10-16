@@ -12,6 +12,7 @@ import { useSlipClearance } from "@/components/SlipBar";
 import { useFantasyRoster } from "@/context/FantasyRosterContext";
 import { useColors } from "@/hooks/useColors";
 import { getFantasyNflPlayerHistory, getInjuries, searchPlayer, type PlayerSearchResult } from "@/lib/api";
+import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import { historicalFantasyAnalysis, type HistoricalFantasyAnalysis } from "@/lib/fantasyNflAnalysis";
 import { FANTASY_ROSTER_SLOTS, type FantasyRosterSlot } from "@/lib/fantasyRoster";
 import { FANTASY_SCORING_LABELS, type FantasyScoringFormat } from "@/lib/fantasyScoring";
@@ -150,7 +151,7 @@ function FantasyScreen() {
                 <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16 }}>My Fantasy Team</Text>
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>{hydrated ? `${defaultRoster.players.length} saved` : "Loading…"}</Text>
               </View>
-              <Pressable onPress={() => router.push({ pathname: "/coach", params: { autoMsg: "Optimize my fantasy football lineup using only my saved roster. Show starters, bench, FLEX, best floor lineup, highest upside lineup, and recommended changes with projected gain and confidence.", send: "1", ts: String(Date.now()) } })} disabled={!defaultRoster.players.length} style={({ pressed }) => ({ alignItems: "center", backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, opacity: !defaultRoster.players.length ? 0.45 : pressed ? 0.85 : 1 })}>
+              <Pressable onPress={() => { const autoMsg = "Optimize my fantasy football lineup using only my saved roster. Show starters, bench, FLEX, best floor lineup, highest upside lineup, and recommended changes with projected gain and confidence."; markCoachHomeLaunch({ autoMsg, hideBubble: false, freshThread: true }); router.push({ pathname: "/coach", params: { autoMsg, send: "1", ts: String(Date.now()) } }); }} disabled={!defaultRoster.players.length} style={({ pressed }) => ({ alignItems: "center", backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, opacity: !defaultRoster.players.length ? 0.45 : pressed ? 0.85 : 1 })}>
                 <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold }}>Optimize My Lineup</Text>
               </Pressable>
               <View style={{ flexDirection: "row", gap: 8 }}>

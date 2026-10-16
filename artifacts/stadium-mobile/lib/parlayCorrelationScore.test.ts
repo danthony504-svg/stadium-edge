@@ -6,6 +6,8 @@ import {
   legsPerGameCapForAsk,
   parlayCorrelationPenalty,
   progressiveLegsPerGameRelaxation,
+  propPlayerKey,
+  propPlayersMatch,
   selectCorrelationAwareBoardLegs,
   wouldExceedMaxLegsPerGame,
   wouldExceedMaxPropsPerGame,
@@ -25,6 +27,38 @@ test("parlayCorrelationPenalty penalizes same-game stacks", () => {
   const a = leg("A @ B", "Spread", "A +3");
   const b = leg("A @ B", "Total", "Over 220");
   assert.ok(parlayCorrelationPenalty(b, [a]) > parlayCorrelationPenalty(leg("C @ D", "Spread", "C +1"), [a]));
+});
+
+test("parlayCorrelationPenalty applies Pass-TD↔receiver soft bump (not hard reject)", () => {
+  const passTd = leg(
+    "Seattle Seahawks @ Denver Broncos",
+    "Pass TDs",
+    "Sam Darnold Over 1.5 Pass TDs",
+    true,
+    "Sam Darnold",
+  );
+  const receiver = leg(
+    "Seattle Seahawks @ Denver Broncos",
+    "Rec Yds",
+    "Jaxon Smith-Njigba Over 92.5 Rec Yds",
+    true,
+    "Jaxon Smith-Njigba",
+  );
+  const rush = leg(
+    "Seattle Seahawks @ Denver Broncos",
+    "Rush Yds",
+    "George Holani Over 13.5 Rush Yds",
+    true,
+    "George Holani",
+  );
+  const spread = leg("Seattle Seahawks @ Denver Broncos", "Spread", "Seahawks +1.5");
+  const vsReceiver = parlayCorrelationPenalty(passTd, [receiver]);
+  const vsRush = parlayCorrelationPenalty(passTd, [rush]);
+  const vsSpread = parlayCorrelationPenalty(passTd, [spread]);
+  assert.equal(vsReceiver, 17); // base +5 + Pass-TD↔receiver +12
+  assert.equal(vsRush, 5);
+  assert.equal(vsSpread, 7);
+  assert.ok(vsReceiver > vsRush);
 });
 
 test("parlayCorrelationPenalty penalizes duplicate stolen bases more than duplicate strikeouts", () => {
@@ -157,6 +191,69 @@ test("hard block: one player prop per athlete (Meidroth stack)", () => {
   const meidroth = out.filter((p) => /meidroth/i.test(String(p.player ?? "")));
   assert.equal(meidroth.length, 1, `expected one Meidroth prop, got ${meidroth.length}`);
   assert.ok(out.length >= 3);
+});
+
+test("hard block: Ohtani name forms and dual unders are same athlete", () => {
+  const g = "Los Angeles Dodgers @ San Francisco Giants";
+  const fullUnderHits = leg(
+    g,
+    "Hits",
+    "Shohei Ohtani Under 1.5 Hits",
+    true,
+    "Shohei Ohtani",
+  );
+  const shortUnderK = leg(
+    g,
+    "Pitcher Strikeouts",
+    "Ohtani Under 5.5 Strikeouts",
+    true,
+    "Ohtani",
+  );
+  const initialUnderSb = leg(
+    g,
+    "Stolen Bases",
+    "S. Ohtani Under 0.5 Stolen Bases",
+    true,
+    "S. Ohtani",
+  );
+  assert.equal(propPlayersMatch(fullUnderHits, shortUnderK), true);
+  assert.equal(propPlayersMatch(fullUnderHits, initialUnderSb), true);
+  assert.equal(wouldRepeatPlayerProp(shortUnderK, [fullUnderHits]), true);
+  assert.equal(wouldRepeatPlayerProp(initialUnderSb, [fullUnderHits]), true);
+  assert.equal(
+    wouldRepeatPlayerProp(
+      leg(g, "Hits", "Mookie Betts Under 1.5 Hits", true, "Mookie Betts"),
+      [fullUnderHits],
+    ),
+    false,
+  );
+  // athleteId wins over divergent display names
+  const byIdA = {
+    ...fullUnderHits,
+    athleteId: "espn-ohtani",
+    player: "Shohei Ohtani",
+  };
+  const byIdB = {
+    ...shortUnderK,
+    athleteId: "espn-ohtani",
+    player: "Different Label",
+  };
+  assert.equal(propPlayerKey(byIdA), "id:espn-ohtani");
+  assert.equal(wouldRepeatPlayerProp(byIdB, [byIdA]), true);
+});
+
+test("propPlayersMatch does not collapse distinct same-surname athletes", () => {
+  const g = "Team A @ Team B";
+  const jSmith = leg(g, "Points", "J. Smith Over 20.5", true, "J. Smith");
+  const tSmith = leg(g, "Points", "T. Smith Over 18.5", true, "T. Smith");
+  const johnSmith = leg(g, "Points", "John Smith Over 20.5", true, "John Smith");
+  const tomSmith = leg(g, "Assists", "Tom Smith Over 5.5", true, "Tom Smith");
+  assert.equal(propPlayersMatch(jSmith, tSmith), false);
+  assert.equal(wouldRepeatPlayerProp(tSmith, [jSmith]), false);
+  assert.equal(propPlayersMatch(jSmith, johnSmith), true);
+  assert.equal(propPlayersMatch(tSmith, tomSmith), true);
+  assert.equal(wouldRepeatPlayerProp(johnSmith, [jSmith]), true);
+  assert.equal(wouldRepeatPlayerProp(tomSmith, [jSmith]), false);
 });
 
 test("max 2 props per game on 9-leg mix tickets", () => {

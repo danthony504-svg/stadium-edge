@@ -17,12 +17,30 @@ test("mapScanFailureCode mirrors server grounding/alt/sim/freeze", () => {
   assert.equal(mapScanFailureCode("PROP_POOL_EMPTY")?.eventType, "coach_alt_market_failure");
   assert.equal(mapScanFailureCode("GAME_SIMS_FETCH_EMPTY")?.failureReason, "missing_sim_output");
   assert.equal(mapScanFailureCode("QUALITY_BAR_EMPTY")?.alertable, false);
+  const p0 = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
+  assert.equal(p0?.eventType, "parlay_underfilled");
+  assert.equal(p0?.failureReason, "legitimate_underfill");
+  assert.equal(p0?.alertable, false);
+  // Must produce a digest body (closes prior null-drop gap) without paging.
+  const p0Body = buildCoachReliabilityBody({
+    requestId: "greenfield-p0-audit",
+    requestedLegCount: 6,
+    returnedLegCount: 0,
+    scanFailureCode: "P0_UNVALIDATED_MARKETS",
+    scanFailureDetail: "ncaaf game lines unvalidated",
+    picks: [],
+  });
+  assert.ok(p0Body);
+  assert.equal(p0Body?.scanFailureCode, "P0_UNVALIDATED_MARKETS");
 });
 
 test("1) props-only early return emits exactly one Coach reliability report", () => {
   const src = readFileSync(join(process.cwd(), "lib/coach/buildParlay.ts"), "utf8");
-  // Isolate the props-only block (dedicated ticket builder → early return).
-  const start = src.indexOf("shouldBuildFootballPropsOnlyTicket");
+  // Isolate the props-only call site (not the import — that also spans the
+  // earlier P0 policy early-exit reporter).
+  const start = src.indexOf(
+    "shouldBuildFootballPropsOnlyTicket({ propsOnly: true, pool: activePropPool })",
+  );
   const end = src.indexOf("Allowlisted / props-only pools must not re-expand");
   assert.ok(start >= 0 && end > start, "props-only block bounds");
   const block = src.slice(start, end);

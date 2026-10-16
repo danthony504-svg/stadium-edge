@@ -54,6 +54,14 @@ export type FootballOppDefenseSlice = {
   passingAttempts?: number | null;
   /** Own offensive yards/rush — coarse run-blocking proxy (not YBC). */
   ownRushYpc?: number | null;
+  /** Team completion % — protection / efficiency context when present. */
+  completionPct?: number | null;
+  /** Team pass yards/game — volume script proxy (not positional). */
+  passingYardsPerGame?: number | null;
+  /** Team rush yards/game — volume script proxy. */
+  rushingYardsPerGame?: number | null;
+  /** Season rush attempts — expected-carry / run-volume proxy when present. */
+  rushingAttempts?: number | null;
   /** Basketball feed fields (honest, not positional allows). */
   steals?: number | null;
   blocks?: number | null;
@@ -208,6 +216,15 @@ export function isFootballQbIntMarket(market: string | null | undefined): boolea
     (/intercept/.test(m) && /pass|qb|thrown/.test(m));
 }
 
+/** Defensive interceptions (DB/LB) — not QB ints thrown. */
+export function isFootballDefensiveIntMarket(market: string | null | undefined): boolean {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (!m) return false;
+  return /defensive.?int|player_defensive_interceptions/.test(m);
+}
+
 /** QB rushing yards — pressure/scramble relevant. */
 export function isFootballQbRushMarket(market: string | null | undefined): boolean {
   const m = String(market ?? "")
@@ -224,7 +241,8 @@ export function isFootballSkillYardsMarket(market: string | null | undefined): b
     isFootballRushVolumeMarket(market) ||
     isFootballPassVolumeMarket(market) ||
     isFootballSackMarket(market) ||
-    isFootballQbIntMarket(market)
+    isFootballQbIntMarket(market) ||
+    isFootballDefensiveIntMarket(market)
   );
 }
 
@@ -332,20 +350,175 @@ export function footballIntThreatIndex(opts: {
   return { threat: Math.max(-1, Math.min(1, threat)), bits };
 }
 
+const round3Hit = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Explain raw → matchup-adjusted hit. Never describe a tilt *increase* as a soft-cap. */
+export type OppDefenseHitAdjust = {
+  rawHit: number;
+  tilt: number;
+  /** Probability points transferred toward this side (clamped ±0.05, mass-limited). */
+  adj: number;
+  /** Final model estimate after tilt — always in [0, 1]. */
+  adjustedHit: number;
+  /** Always false here; empirical `1→0.98` soft-clip lives in graders. */
+  certaintySoftClipped: boolean;
+};
+
+export type OppDefenseSidePairAdjust = {
+  tiltForUnder: number;
+  raw: { over: number; under: number; push: number };
+  adjusted: { over: number; under: number; push: number };
+  /** Mass moved Under←Over (positive) or Over←Under (negative). */
+  transfer: number;
+};
+
+/**
+ * Paired Over/Under/push adjust: transfer mass between Over and Under only.
+ * Preserves `over + under + push === 1` (within round3) and keeps each in [0, 1].
+ * Does not flatten alt ladders (no shared 0.98 ceiling).
+ */
+export function adjustOverUnderPushForOppDefenseTilt(opts: {
+  overHit: number;
+  underHit: number;
+  /** Residual push mass; default `max(0, 1 − over − under)`. */
+  pushHit?: number;
+  /** Tilt that favors Under when positive (same sign as propOppDefenseTilt Under). */
+  tiltForUnder: number;
+}): OppDefenseSidePairAdjust | null {
+  const over = opts.overHit;
+  const under = opts.underHit;
+  if (!Number.isFinite(over) || !Number.isFinite(under)) return null;
+  const push =
+    opts.pushHit != null && Number.isFinite(opts.pushHit)
+      ? Math.max(0, opts.pushHit)
+      : Math.max(0, 1 - over - under);
+  const tilt =
+    Number.isFinite(opts.tiltForUnder) ? opts.tiltForUnder : 0;
+  const desired =
+    tilt === 0 ? 0 : Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
+  // Transfer only between Over↔Under; push untouched. Bound by available mass.
+  const transfer =
+    desired > 0
+      ? Math.min(desired, Math.max(0, over))
+      : desired < 0
+        ? -Math.min(-desired, Math.max(0, under))
+        : 0;
+  const adjOver = round3Hit(Math.max(0, Math.min(1, over - transfer)));
+  const adjUnder = round3Hit(Math.max(0, Math.min(1, under + transfer)));
+  const adjPush = round3Hit(Math.max(0, Math.min(1, push)));
+  // Absorb round3 drift into the larger of Over/Under so the triple still sums to 1.
+  const sum = adjOver + adjUnder + adjPush;
+  let overOut = adjOver;
+  let underOut = adjUnder;
+  let pushOut = adjPush;
+  if (Math.abs(sum - 1) >= 0.0005) {
+    const drift = round3Hit(1 - sum);
+    if (underOut >= overOut) underOut = round3Hit(Math.max(0, Math.min(1, underOut + drift)));
+    else overOut = round3Hit(Math.max(0, Math.min(1, overOut + drift)));
+  }
+  return {
+    tiltForUnder: tilt,
+    raw: { over, under, push },
+    adjusted: { over: overOut, under: underOut, push: pushOut },
+    transfer: round3Hit(transfer),
+  };
+}
+
+/**
+ * Matchup tilt → hit adjustment for a single side.
+ *
+ * `tilt` is already signed for this side (positive raises hit). Mass is taken
+ * from / given to the complementary settle probability (`1 − hit`, push≈0 on
+ * .5 lines) so a paired Over/Under call with opposite tilts stays consistent
+ * and every result stays in [0, 1] without a shared 0.98 flatten.
+ *
+ * Certainty soft-clip (`1.0 → 0.98`) lives in empirical graders, not here.
+ */
+export function explainSimHitOppDefenseAdjust(
+  hit: number | null | undefined,
+  tilt: number,
+): OppDefenseHitAdjust | null {
+  if (hit == null || !Number.isFinite(hit)) return null;
+  const clampedHit = Math.max(0, Math.min(1, hit));
+  if (!Number.isFinite(tilt) || tilt === 0) {
+    return {
+      rawHit: hit,
+      tilt: 0,
+      adj: 0,
+      adjustedHit: round3Hit(clampedHit),
+      certaintySoftClipped: false,
+    };
+  }
+  const desired = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
+  const complementary = Math.max(0, 1 - clampedHit);
+  const transfer =
+    desired > 0
+      ? Math.min(desired, complementary)
+      : desired < 0
+        ? -Math.min(-desired, clampedHit)
+        : 0;
+  const adjustedHit = round3Hit(
+    Math.max(0, Math.min(1, clampedHit + transfer)),
+  );
+  return {
+    rawHit: hit,
+    tilt,
+    adj: round3Hit(transfer),
+    adjustedHit,
+    certaintySoftClipped: false,
+  };
+}
+
 /**
  * Apply matchup tilt to a sim hit probability. Bounded, sync — does not
  * change provider lines/odds. Positive tilt → higher hit for that side.
+ * Idempotent when `alreadyApplied` — recovery/cache must not double-tilt.
  */
 export function adjustSimHitForOppDefenseTilt(
   hit: number | null | undefined,
   tilt: number,
+  opts?: { alreadyApplied?: boolean },
 ): number | null {
   if (hit == null || !Number.isFinite(hit)) return hit ?? null;
-  if (!Number.isFinite(tilt) || tilt === 0) return hit;
-  const adj = Math.max(-0.05, Math.min(0.05, tilt * HIT_TILT_SCALE));
-  // Do not invent a 2% floor — Anytime TD / rare props must stay null/ungradeable
-  // when evidence is zero. Soft-cap only the upper certainty bound.
-  return Math.round(Math.max(0, Math.min(0.98, hit + adj)) * 1000) / 1000;
+  if (opts?.alreadyApplied) return hit;
+  const explained = explainSimHitOppDefenseAdjust(hit, tilt);
+  return explained?.adjustedHit ?? hit;
+}
+
+/**
+ * UI/grade label: distinguish raw simulation hit rate from matchup-adjusted
+ * model estimate; keep n&lt;10 uncalibrated tag.
+ */
+export function formatSimHitWithMatchupAdjust(opts: {
+  rawHit: number | null | undefined;
+  adjustedHit: number | null | undefined;
+  sampleSize?: number | null;
+}): string | undefined {
+  const adj = opts.adjustedHit;
+  const raw = opts.rawHit;
+  const nTag =
+    opts.sampleSize != null && opts.sampleSize > 0 && opts.sampleSize < 10
+      ? `n=${opts.sampleSize}, uncalibrated`
+      : "";
+  if (adj == null || !Number.isFinite(adj)) {
+    if (raw == null || !Number.isFinite(raw)) return undefined;
+    const base = `${Math.round(raw * 1000) / 10}% sim hit`;
+    return nTag ? `${base} (${nTag})` : base;
+  }
+  const adjPct = Math.round(adj * 1000) / 10;
+  if (
+    raw != null &&
+    Number.isFinite(raw) &&
+    Math.abs(raw - adj) >= 0.0005
+  ) {
+    const rawPct = Math.round(raw * 1000) / 10;
+    const deltaPp = Math.round((adj - raw) * 1000) / 10;
+    const sign = deltaPp > 0 ? "+" : "";
+    const core = `model ${adjPct}% (sim ${rawPct}% ${sign}${deltaPp}pp matchup)`;
+    return nTag ? `${core}; ${nTag}` : core;
+  }
+  const core = `model ${adjPct}%`;
+  return nTag ? `${core} (${nTag})` : core;
 }
 
 function sideTilt(magnitude: number, isOver: boolean, isUnder: boolean): number {
@@ -388,9 +561,13 @@ export function footballRushDefenseTilt(opts: {
     // pack = offense being rushed (opponent of the defender) → sacksAllowed
     // ownPack = rusher's defense → sacks forced. Never cross-fallback: a missing
     // field must not borrow the other team's OL or pass-rush rate.
+    // Defender role / snap share is unavailable from team-defense — omit, never invent.
     const olineAllowedPg = perGameRate(pack?.sacksAllowed, pack?.gamesPlayed);
     const rusherSackPg = perGameRate(own?.sacks, own?.gamesPlayed);
-    if (olineAllowedPg == null && rusherSackPg == null) return empty;
+    const oppPassAttPg = perGameRate(pack?.passingAttempts, pack?.gamesPlayed);
+    if (olineAllowedPg == null && rusherSackPg == null && oppPassAttPg == null) {
+      return empty;
+    }
     let favorOver = 0;
     const bits: string[] = [];
     if (olineAllowedPg != null) {
@@ -404,6 +581,12 @@ export function footballRushDefenseTilt(opts: {
       else if (rusherSackPg >= SACKS_PG_STRONG) favorOver += 0.2;
       else if (rusherSackPg <= SACKS_PG_WEAK) favorOver -= 0.25;
     }
+    // Likely pass volume facing the rusher (opposing offense attempts).
+    if (oppPassAttPg != null) {
+      bits.push(`${oppPassAttPg}/g pass att`);
+      if (oppPassAttPg >= 36) favorOver += 0.12;
+      else if (oppPassAttPg <= 28) favorOver -= 0.1;
+    }
     if (favorOver === 0 && !bits.length) return empty;
     const tilt = clampTilt(sideTilt(favorOver, isOver, isUnder));
     return {
@@ -413,16 +596,65 @@ export function footballRushDefenseTilt(opts: {
     };
   }
 
-  // --- Dedicated QB interception props ---
-  if (isFootballQbIntMarket(market)) {
-    const { threat, bits } = footballIntThreatIndex({ opp: pack, own });
+  // --- Defensive interceptions: opposing QB INT tendency + pass volume ---
+  if (isFootballDefensiveIntMarket(market)) {
+    // pack = offense being covered (opp QB INT% / attempts)
+    // ownPack = defender's defense INT rate. Missing sides stay missing.
+    const bits: string[] = [];
+    let favorOver = 0;
+    const oppIntPct = pack?.interceptionPct;
+    const oppThrownPg = perGameRate(pack?.intsThrown, pack?.gamesPlayed);
+    const oppAttPg = perGameRate(pack?.passingAttempts, pack?.gamesPlayed);
+    const defIntPg = perGameRate(own?.interceptions, own?.gamesPlayed);
+    if (oppIntPct != null && Number.isFinite(oppIntPct)) {
+      bits.push(`${oppIntPct}% opp INT`);
+      if (oppIntPct >= INT_PCT_HIGH) favorOver += 0.35;
+      else if (oppIntPct <= INT_PCT_LOW) favorOver -= 0.25;
+    } else if (oppThrownPg != null) {
+      bits.push(`${oppThrownPg}/g opp INT thrown`);
+      if (oppThrownPg >= 1.0) favorOver += 0.3;
+      else if (oppThrownPg <= 0.4) favorOver -= 0.2;
+    }
+    if (oppAttPg != null) {
+      bits.push(`${oppAttPg}/g pass att`);
+      if (oppAttPg >= 36) favorOver += 0.1;
+      else if (oppAttPg <= 28) favorOver -= 0.08;
+    }
+    if (defIntPg != null) {
+      bits.push(`${defIntPg}/g def INT`);
+      if (defIntPg >= INT_PG_ELITE) favorOver += 0.25;
+      else if (defIntPg >= INT_PG_STRONG) favorOver += 0.15;
+      else if (defIntPg <= INT_PG_WEAK) favorOver -= 0.2;
+    }
     if (!bits.length) return empty;
-    // High INT threat favors INT Over (QB throws picks).
-    const tilt = clampTilt(sideTilt(threat * 0.7, isOver, isUnder));
+    const tilt = clampTilt(sideTilt(favorOver, isOver, isUnder));
     return {
       tilt,
       blockOver: false,
-      display: `${who ? `${who} ` : ""}${bits.join(", ")} (INT)`,
+      display: `${who ? `${who} ` : ""}${bits.join(", ")} (def-INT)`,
+    };
+  }
+
+  // --- Dedicated QB interception props ---
+  if (isFootballQbIntMarket(market)) {
+    const { threat, bits } = footballIntThreatIndex({ opp: pack, own });
+    // Protection / pass-rush pressure raises QB INT risk when available.
+    const { pressure, bits: pressBits } = footballPressureIndex({ opp: pack, own });
+    const allBits = [...bits];
+    let threatAdj = threat;
+    if (pressBits.length) {
+      for (const b of pressBits) {
+        if (!allBits.includes(b)) allBits.push(b);
+      }
+      threatAdj += pressure * 0.2;
+    }
+    if (!allBits.length) return empty;
+    // High INT threat favors INT Over (QB throws picks).
+    const tilt = clampTilt(sideTilt(threatAdj * 0.7, isOver, isUnder));
+    return {
+      tilt,
+      blockOver: false,
+      display: `${who ? `${who} ` : ""}${allBits.join(", ")} (INT)`,
     };
   }
 
@@ -503,6 +735,14 @@ export function footballRushDefenseTilt(opts: {
       const script = own.pointsFor - pack.pointsFor;
       if (script >= 7) tilt += isOver ? 0.08 : -0.05;
       else if (script <= -7) tilt += isOver ? -0.08 : 0.05;
+    }
+    // Expected carries proxy — team rush attempts/g when ESPN exposes them.
+    // Per-back carry share is unavailable; missing stays missing.
+    const ownRushAttPg = perGameRate(own?.rushingAttempts, own?.gamesPlayed);
+    if (ownRushAttPg != null && isFootballRushVolumeMarket(market)) {
+      bits.push(`own ${ownRushAttPg}/g rush att`);
+      if (ownRushAttPg >= 30) tilt += isOver ? 0.1 : -0.07;
+      else if (ownRushAttPg <= 20) tilt += isOver ? -0.1 : 0.07;
     }
     tilt = clampTilt(tilt);
     if (!bits.length) return empty;
@@ -591,9 +831,29 @@ export function footballRushDefenseTilt(opts: {
       }
     }
 
+    // Expected pass attempts — own offense volume when present (not invented).
+    const ownAttPg = perGameRate(own?.passingAttempts, own?.gamesPlayed);
+    if (ownAttPg != null && (isPassVol || isFootballPassYardsMarket(market))) {
+      bits.push(`own ${ownAttPg}/g att`);
+      if (ownAttPg >= 36) tilt += isOver ? 0.1 : -0.07;
+      else if (ownAttPg <= 28) tilt += isOver ? -0.1 : 0.07;
+    }
+    // Completion % as coarse protection / efficiency context (pass yards only).
+    if (
+      own?.completionPct != null &&
+      Number.isFinite(own.completionPct) &&
+      isFootballPassYardsMarket(market)
+    ) {
+      bits.push(`${own.completionPct}% cmp`);
+      if (own.completionPct >= 68) tilt += isOver ? 0.08 : -0.05;
+      else if (own.completionPct <= 58) tilt += isOver ? -0.08 : 0.05;
+    }
+
     tilt = clampTilt(tilt);
     if (!bits.length) return empty;
-    const kind = isRecv ? "recv" : isPassVol ? "pass-vol" : "pass";
+    // Receiving is team pass-D + pressure only — ESPN has no defense-vs-position
+    // or route-participation splits here. Do not invent WR/TE/RB allows.
+    const kind = isRecv ? "recv-team" : isPassVol ? "pass-vol" : "pass";
     return {
       tilt,
       blockOver,

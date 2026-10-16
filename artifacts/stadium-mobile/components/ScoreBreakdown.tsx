@@ -117,7 +117,7 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
         })}
       </View>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9.5 }}>
-        {holistic.coveragePct}% context grounded
+        {holistic.coveragePct}% input coverage
         {holistic.missingCount > 0
           ? ` · ${holistic.missingCount} signal${holistic.missingCount === 1 ? "" : "s"} missing`
           : ""}
@@ -287,47 +287,65 @@ function FactorBar({
   icon,
   label,
   score,
+  caption,
 }: {
   icon: keyof typeof Feather.glyphMap;
   label: string;
   score: number | null;
+  /** Raw vs model sim text (e.g. matchup-adjusted + n=5 uncalibrated). */
+  caption?: string | null;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
   const fill = scoreColor(score);
   const pct = score == null ? 0 : Math.max(0, Math.min(1, score / 10));
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 5 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, width: 116 }}>
-        <Feather name={icon} size={13} color={colors.mutedForeground} />
-        <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12.5 }}>
-          {label}
+    <View style={{ gap: caption ? 2 : 0, paddingVertical: 5 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, width: 116 }}>
+          <Feather name={icon} size={13} color={colors.mutedForeground} />
+          <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12.5 }}>
+            {label}
+          </Text>
+        </View>
+        <View
+          style={{
+            flex: 1,
+            height: 8,
+            borderRadius: 999,
+            backgroundColor: colors.border,
+            overflow: "hidden",
+          }}
+        >
+          {score != null ? (
+            <View style={{ width: `${pct * 100}%`, height: "100%", backgroundColor: fill, borderRadius: 999 }} />
+          ) : null}
+        </View>
+        <Text
+          style={{
+            width: 56,
+            textAlign: "right",
+            color: score == null ? colors.mutedForeground : fill,
+            fontFamily: score == null ? FONT.medium : FONT.bold,
+            fontSize: score == null ? 11 : 13,
+          }}
+        >
+          {score == null ? "no data" : `${score.toFixed(1)}`}
         </Text>
       </View>
-      <View
-        style={{
-          flex: 1,
-          height: 8,
-          borderRadius: 999,
-          backgroundColor: colors.border,
-          overflow: "hidden",
-        }}
-      >
-        {score != null ? (
-          <View style={{ width: `${pct * 100}%`, height: "100%", backgroundColor: fill, borderRadius: 999 }} />
-        ) : null}
-      </View>
-      <Text
-        style={{
-          width: 56,
-          textAlign: "right",
-          color: score == null ? colors.mutedForeground : fill,
-          fontFamily: score == null ? FONT.medium : FONT.bold,
-          fontSize: score == null ? 11 : 13,
-        }}
-      >
-        {score == null ? "no data" : `${score.toFixed(1)}`}
-      </Text>
+      {caption ? (
+        <Text
+          style={{
+            marginLeft: 116,
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 10,
+            lineHeight: 13,
+          }}
+        >
+          {caption}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -476,9 +494,24 @@ export function ScoreBreakdown({
         <LockedAiMetricsTeaser />
       ) : (
         <View style={{ marginTop: 2 }}>
-          {FACTORS.map((f) => (
-            <FactorBar key={f.key} icon={f.icon} label={f.label} score={safe.scores[f.key]} />
-          ))}
+          {FACTORS.map((f) => {
+            const simCaption =
+              f.key === "simulation"
+                ? pick?.finalAiScore?.factors?.find((x) => x.key === "simulation")?.display ??
+                  pick?.finalAiScore?.propHolistic?.factors?.find((x) => x.key === "simulation")
+                    ?.display ??
+                  null
+                : null;
+            return (
+              <FactorBar
+                key={f.key}
+                icon={f.icon}
+                label={f.label}
+                score={safe.scores[f.key]}
+                caption={simCaption}
+              />
+            );
+          })}
         </View>
       )}
       {!metricsLocked ? (

@@ -55,11 +55,16 @@ export function coachScoringWorkBudgetMs(requestedLegs: number): number {
 }
 
 /**
- * Failsafe while prefetching the posted prop/alt board before scoring starts.
- * Must outlast the scoring budget window so load never starves an 8-leg scan.
+ * Board prefetch shares the request deadline. A longer failsafe let load run
+ * past the scan budget and then the scoring clock started over.
  */
 export function coachPropLoadFailsafeMs(requestedLegs = 6): number {
-  return Math.max(90_000, coachAbsoluteBudgetMs(requestedLegs) + 15_000);
+  return coachRequestDeadlineMs(requestedLegs);
+}
+
+/** One wall clock for load, scan, the UI latch, and the live audit. */
+export function coachRequestDeadlineMs(requestedLegs = 5): number {
+  return coachAbsoluteBudgetMs(requestedLegs);
 }
 
 /** Restart the absolute clock (e.g. when scoring starts after prop prefetch). */
@@ -104,6 +109,27 @@ export function coachSessionIsTerminal(session: CoachSession): boolean {
   return session.outcome !== "open";
 }
 
+/**
+ * A settled build may paint only while it is still the active send.
+ * Deadline, cancel, and the next ask all bump or replace that generation.
+ */
+export function coachInFlightResultMayApply(
+  activeSendGen: number,
+  resultSendGen: number,
+): boolean {
+  return activeSendGen === resultSendGen;
+}
+
+/**
+ * Every latched outcome drops the scoring card. Success, shortfall, empty,
+ * failure, cancellation, and deadline expiry all call this before paint.
+ */
+export function coachAssistantTerminalFlags(
+  _outcome: Exclude<CoachSessionOutcome, "open">,
+): { building: false; buildStatus: undefined } {
+  return { building: false, buildStatus: undefined };
+}
+
 export function latchCoachSession(
   session: CoachSession,
   outcome: Exclude<CoachSessionOutcome, "open">,
@@ -125,17 +151,14 @@ const OUTCOME_RANK: Record<Exclude<CoachSessionOutcome, "open">, number> = {
 };
 
 /**
- * Absolute budget may latch empty/shortfall while the scan promise is still
- * finishing. Accept a *better* late ticket for the same send without re-opening
- * the session or re-busying the composer (limbo-safe upgrade only).
+ * A terminal send stays terminal. Deadline, cancellation, and failure must not
+ * take a later ticket from work that was still running.
  */
 export function coachSessionMayAcceptLatePicks(
-  session: CoachSession,
-  opts: { latePickCount: number; shownPickCount: number },
+  _session: CoachSession,
+  _opts: { latePickCount: number; shownPickCount: number },
 ): boolean {
-  if (session.outcome === "open" || session.outcome === "shown") return false;
-  if (opts.latePickCount <= 0) return false;
-  return opts.latePickCount > opts.shownPickCount;
+  return false;
 }
 
 /** Promote outcome empty/failed → shortfall/shown; never reopen to "open". */
@@ -215,4 +238,19 @@ export function coachShortfallNote(
   // Do not claim "every posted market was scanned" — that lied when prop scoring
   // was starved and only reserved game-line slots (2 of 5 / 3 of 7) published.
   return `You asked for ${requestedLegs} legs — only ${pickCount} cleared the AI quality bar. No ungraded filler was added.`;
+}
+
+/**
+ * Ticket badge shows delivered legs. Requested count stays on the message for
+ * shortfall copy — never inflate the badge to the ask size. Sport-agnostic.
+ * Returns null when the badge should be hidden.
+ */
+export function coachTicketBadgeLegCount(opts: {
+  requestedLegs?: number | null;
+  deliveredLegs: number;
+}): number | null {
+  const requested = opts.requestedLegs ?? 0;
+  const delivered = opts.deliveredLegs;
+  if (requested < 3 || delivered <= 0) return null;
+  return delivered;
 }

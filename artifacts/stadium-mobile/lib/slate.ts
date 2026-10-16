@@ -487,9 +487,31 @@ export function tonightExhaustedNote(opts: {
 // hitters" / "strikeout parlay" stays in props instead of silently becoming
 // moneylines. A GENERIC "6-leg parlay for tonight" carries none of these words,
 // so it returns false and the game-main fill stays available.
+/**
+ * Phone: "8 leg Seahawks players only" / "only players" — all-player-prop
+ * ticket (no spreads / ML / totals / team props). Distinct from "team props".
+ */
+export function wantsPlayersOnlyAsk(text?: string | null): boolean {
+  const t = String(text || "")
+    .toLowerCase()
+    .replace(/\b(\d{1,3})\s*[-\s]?\s*lags?\b/g, "$1 leg");
+  if (!t) return false;
+  // "team props" / "no player props" never mean players-only.
+  if (/\bteam\s+props?\b/.test(t) && !/\bplayers?\s+only\b/.test(t)) return false;
+  if (/\bno\s+player\s+props?\b/.test(t)) return false;
+  if (/\bwithout\s+player\s+props?\b/.test(t)) return false;
+  if (/\bno\s+props?\b/.test(t)) return false;
+  if (/\bwithout\s+props?\b/.test(t)) return false;
+  if (/\bplayers?\s+only\b/.test(t)) return true;
+  if (/\bonly\s+players?\b/.test(t)) return true;
+  if (/\bjust\s+players?\b/.test(t)) return true;
+  return false;
+}
+
 export function mentionsPropIntent(text?: string | null): boolean {
   const t = String(text || "");
   return (
+    wantsPlayersOnlyAsk(t) ||
     /\b(props?|prop bets?|player props?)\b/i.test(t) ||
     /\b(scorers?|goalkeepers?|keepers?)\b/i.test(t) ||
     /\b(strikeouts?|k'?s|home runs?|hr|anytime td|anytime touchdowns?|touchdowns?|goal scorer|anytime goal|first goal|shots on target|sot|shots on goal|sog|shots?|passing yards?|pass yds?|rushing yards?|rush yds?|receiving yards?|rec yds?|receptions?|sacks?|pra|rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|stolen bases?|blocks?|blk|steals?|stl|turnovers?|hits?|total bases?)\b/i.test(
@@ -517,12 +539,19 @@ export function wantsPropsOnly(text?: string | null): boolean {
   if (/\bwithout\s+props?\b/.test(t)) return false;
   // Phone: "5 leg NHL team props" → player Under 0.5 stack. "Team props" means
   // team totals / ML / puck line — not player props.
-  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
+  if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t) && !wantsPlayersOnlyAsk(t)) {
+    return false;
+  }
   // Mixed "with (player) props" stays on the board-scan mix path.
   if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return false;
   // Phone: "9 leg tonight mixed sports" → PROPS_ONLY_STAGED_SHORT (4 HR from 1
   // game). Explicit multi-sport / mix asks are board-scan mix, not props-only.
   if (wantsMixedSportsAsk(t)) return false;
+
+  // "8 leg Seahawks players only" / "only players" — all player props, no
+  // spreads / ML / totals / team props (any sport). Checked before the prop-
+  // intent gate so bare "players" (without the word "props") still qualifies.
+  if (wantsPlayersOnlyAsk(t)) return true;
 
   // Bare / sport-scoped "N leg …" (any N, any league) is a full-board MIX ask —
   // never props-only. Sport alone must not imply player props (phone: "7 leg MLB"

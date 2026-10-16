@@ -16,6 +16,7 @@ import {
 } from "./pickScore.ts";
 import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
 import {
+  formatSimHitWithMatchupAdjust,
   propOppDefenseTilt,
   type RushDefenseSlice,
 } from "./footballRushDefense.ts";
@@ -148,7 +149,12 @@ export type PropHolisticContext = {
   propLine?: number | null;
   rubricScores?: PickSubScores;
   edgePct?: number | null;
+  /** Final model hit (matchup-adjusted when applicable). */
   simHit?: number | null;
+  /** Pre-matchup raw hit — retained for display when it differs from simHit. */
+  rawSimHit?: number | null;
+  /** History sample size for uncalibrated n=&lt;10 labeling. */
+  propSampleSize?: number | null;
   minutesTrend?: {
     l5?: number | null;
     l10?: number | null;
@@ -164,6 +170,12 @@ export type PropHolisticContext = {
   footballOppDefense?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
   /** Player's own team pack (O-line sacks allowed, INT%, rush YPC) — no extra fetch. */
   footballOwnPack?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
+  /**
+   * When true, the same opp-D tilt was already applied to `simHit`. Opponent
+   * tendency keeps display for transparency but must NOT re-score into the
+   * Final AI composite (no double-count of one matchup adjustment).
+   */
+  oppMatchupAppliedToSim?: boolean;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -323,6 +335,13 @@ function scoreOpponentTendency(
       ownPack: ctx.footballOwnPack,
     });
     if (tilt.tilt !== 0 || tilt.display) {
+      // Already folded into simulation hit — display only, no composite lean.
+      if (ctx.oppMatchupAppliedToSim) {
+        return {
+          score: null,
+          display: tilt.display ?? undefined,
+        };
+      }
       return {
         score: scoreTrend(clamp(tilt.tilt / 0.8, -1, 1)),
         display: tilt.display ?? undefined,
@@ -493,7 +512,8 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
       score: opponent.score,
       display: opponent.display,
       applicable: true,
-      present: opponent.score != null,
+      // Display-only (sim already adjusted) still counts as present coverage.
+      present: opponent.score != null || !!opponent.display,
     },
     {
       key: "injury",
@@ -536,7 +556,11 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
       key: "simulation",
       label: "10k Simulation",
       score: scoreSimulation(ctx.simHit),
-      display: ctx.simHit != null ? `${Math.round(ctx.simHit * 100)}% hit` : undefined,
+      display: formatSimHitWithMatchupAdjust({
+        rawHit: ctx.rawSimHit,
+        adjustedHit: ctx.simHit,
+        sampleSize: ctx.propSampleSize,
+      }),
       applicable: true,
       present: ctx.simHit != null,
     },
@@ -687,7 +711,12 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     pick.scores?.edgePct ??
     (edgeFromText != null && Number.isFinite(edgeFromText) ? edgeFromText : null);
   const simHit = pick.finalAiScore?.simHit ?? null;
+  const rawSimHit = pick.finalAiScore?.rawSimHit ?? null;
   if (!rubric && simHit == null && edgePct == null) return existing ?? null;
+  // Prefer Final AI holistic (already has raw vs model + n= label) when present.
+  if (existing?.factors?.some((f) => f.key === "simulation" && f.display)) {
+    return existing;
+  }
   const synthesized = buildPropHolisticScore({
     sport: pick.sport,
     marketKey: pick.propMarketKey ?? pick.market,
@@ -704,6 +733,8 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     },
     edgePct,
     simHit,
+    rawSimHit,
+    oppMatchupAppliedToSim: pick.finalAiScore?.oppMatchupAppliedToSim === true,
   });
   if (!existing) return synthesized;
   return mergePropHolisticScores(existing, synthesized);

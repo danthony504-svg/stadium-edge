@@ -13,8 +13,12 @@ import {
   filterOddsGamesForAskTeam,
   filterPicksExcludingTeams,
   filterPicksForAskTeam,
+  filterPicksForAskTeamPlayers,
+  filterPropPoolForAskTeamPlayers,
+  resolveAskTeamIdFromGames,
   resolveExcludedTeamIdsFromGames,
   sportsFromAskTeamNicknames,
+  wantsAskTeamPlayersOnly,
 } from "./coachAskTeamScope.ts";
 import { parseRequestedLegs, resolveBuildLegTarget } from "./coach/parseAsk.ts";
 import {
@@ -446,4 +450,83 @@ test("Troy shortfall note does not invite other games", () => {
   assert.match(coachAskTeamShortfallNote(scope, 4, 2, 1), /Troy/i);
   assert.match(coachAskTeamShortfallNote(scope, 4, 2, 1), /won't fill/i);
   assert.equal(coachAskTeamShortfallNote(scope, 4, 4, 1), "");
+});
+
+test("Seahawks players only scopes NFL + franchise-player belt", () => {
+  const ask = "8 leg Seahawks players only";
+  const scope = coachAskTeamScope(ask);
+  assert.ok(scope);
+  assert.equal(scope!.sport, "nfl");
+  assert.ok(scope!.matchTokens.includes("seahawks"));
+  assert.equal(wantsAskTeamPlayersOnly(ask, scope), true);
+  assert.equal(wantsAskTeamPlayersOnly("8 leg Seahawks", scope), false);
+  assert.equal(wantsAskTeamPlayersOnly("8 leg players only", null), false);
+
+  const games = [
+    {
+      sport: "nfl",
+      awayTeam: "Seattle Seahawks",
+      homeTeam: "Denver Broncos",
+      awayTeamId: "sea-26",
+      homeTeamId: "den-7",
+    },
+  ];
+  const askTeamId = resolveAskTeamIdFromGames(scope, games);
+  assert.equal(askTeamId, "sea-26");
+
+  const picks = [
+    {
+      isProp: false,
+      sport: "nfl",
+      game: "Seattle Seahawks @ Denver Broncos",
+      pick: "Seahawks +1.5",
+      market: "Alt Spread",
+      playerTeamId: "sea-26",
+      teamAbbr: "SEA",
+    },
+    {
+      isProp: true,
+      sport: "nfl",
+      game: "Seattle Seahawks @ Denver Broncos",
+      pick: "Jaxon Smith-Njigba Over 74.5",
+      player: "Jaxon Smith-Njigba",
+      playerTeamId: "sea-26",
+      teamAbbr: "SEA",
+    },
+    {
+      isProp: true,
+      sport: "nfl",
+      game: "Seattle Seahawks @ Denver Broncos",
+      pick: "Bo Nix Over 225.5",
+      player: "Bo Nix",
+      playerTeamId: "den-7",
+      teamAbbr: "DEN",
+    },
+  ];
+  const kept = filterPicksForAskTeamPlayers(picks, scope, askTeamId);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0]!.player, "Jaxon Smith-Njigba");
+
+  const pool = filterPropPoolForAskTeamPlayers(
+    [
+      {
+        sport: "nfl",
+        game: "Seattle Seahawks @ Denver Broncos",
+        player: "Jaxon Smith-Njigba",
+        playerTeamId: "sea-26",
+        teamAbbr: "SEA",
+      },
+      {
+        sport: "nfl",
+        game: "Seattle Seahawks @ Denver Broncos",
+        player: "Bo Nix",
+        playerTeamId: "den-7",
+        teamAbbr: "DEN",
+      },
+    ],
+    scope,
+    askTeamId,
+  );
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0]!.player, "Jaxon Smith-Njigba");
 });

@@ -99,6 +99,48 @@ const FAMILY_CASES: Array<{
     keys: ["player_rush_longest"],
   },
   { ask: "4 leg field goals", id: "fb_field_goals", keys: ["player_field_goals"] },
+  // D/ST — defensive INTs must not lock QB pass ints; tackles ≠ NBA assists.
+  {
+    ask: "5 leg defensive interceptions",
+    id: "fb_defensive_interceptions",
+    keys: ["player_defensive_interceptions"],
+    reject: ["player_pass_interceptions"],
+  },
+  {
+    ask: "5 leg def ints",
+    id: "fb_defensive_interceptions",
+    keys: ["player_defensive_interceptions"],
+    reject: ["player_pass_interceptions"],
+  },
+  {
+    ask: "5 leg tackles + assists",
+    id: "fb_tackles_assists",
+    keys: ["player_tackles_assists"],
+    reject: ["player_assists", "player_solo_tackles"],
+  },
+  {
+    ask: "5 leg solo tackles",
+    id: "fb_solo_tackles",
+    keys: ["player_solo_tackles"],
+    reject: ["player_tackles_assists"],
+  },
+  {
+    ask: "5 leg tackles props",
+    id: "fb_tackles",
+    keys: ["player_solo_tackles", "player_tackles_assists"],
+    reject: ["player_assists"],
+  },
+  {
+    ask: "5 leg kicking points",
+    id: "fb_kicking_points",
+    keys: ["player_kicking_points"],
+  },
+  {
+    ask: "5 leg interceptions",
+    id: "fb_pass_ints",
+    keys: ["player_pass_interceptions"],
+    reject: ["player_defensive_interceptions"],
+  },
 ];
 
 test("explicit lock: every supported family + alias maps to canonical provider keys", () => {
@@ -127,6 +169,21 @@ test("explicit lock: every supported family + alias maps to canonical provider k
       assert.equal(propMarketKeyAllowed(bad, parsed.allowedMarketKeys), false, c.ask);
     }
   }
+});
+
+test("D/ST blanking: defensive interceptions never lock QB pass ints", () => {
+  const def = matchExplicitMarketLocks("5 leg defensive interceptions NFL");
+  assert.deepEqual(def?.allowedMarketKeys, ["player_defensive_interceptions"]);
+  assert.equal(def?.ids.includes("fb_pass_ints"), false);
+
+  const bare = matchExplicitMarketLocks("5 leg interceptions NFL");
+  assert.deepEqual(bare?.allowedMarketKeys, ["player_pass_interceptions"]);
+  assert.equal(bare?.ids.includes("fb_defensive_interceptions"), false);
+
+  const tacklesAst = matchExplicitMarketLocks("NFL tackles + assists props");
+  assert.deepEqual(tacklesAst?.allowedMarketKeys, ["player_tackles_assists"]);
+  assert.equal(tacklesAst?.ids.includes("nba_assists"), false);
+  assert.equal(tacklesAst?.ids.includes("fb_tackles"), false);
 });
 
 test("alias precedence: SB before steals, SOT before shots", () => {

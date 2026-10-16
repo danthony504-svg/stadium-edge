@@ -885,16 +885,59 @@ export function attachPickScores(
             ownPack: footballOwnPack,
           })
         : { tilt: 0, blockOver: false, display: null };
-    const adjustedPropSimHit = p.isProp
-      ? adjustSimHitForOppDefenseTilt(propSimHit, matchupTilt.tilt)
-      : propSimHit;
+    // One application only — cached/recovery picks that already carry
+    // oppMatchupAppliedToSim keep prior adjusted/raw; never tilt twice.
+    const alreadyApplied = p.finalAiScore?.oppMatchupAppliedToSim === true;
+    const rawPropForScore =
+      p.isProp && alreadyApplied && p.finalAiScore?.rawSimHit != null
+        ? p.finalAiScore.rawSimHit
+        : propSimHit;
+    const adjustedPropSimHit = !p.isProp
+      ? propSimHit
+      : alreadyApplied && p.finalAiScore?.simHit != null
+        ? p.finalAiScore.simHit
+        : adjustSimHitForOppDefenseTilt(propSimHit, matchupTilt.tilt);
+    const oppMatchupAppliedToSim =
+      alreadyApplied ||
+      (p.isProp &&
+        matchupTilt.tilt !== 0 &&
+        adjustedPropSimHit != null &&
+        rawPropForScore != null &&
+        adjustedPropSimHit !== rawPropForScore);
+    // Edge / line-value must use the same final model hit as simulation display
+    // and qualification (adjusted when matchup moved it) — not a stale raw edge.
+    let edgeForFinal = scores.edgePct;
+    let rubricForFinal = scores.scores;
+    if (
+      p.isProp &&
+      adjustedPropSimHit != null &&
+      Number.isFinite(adjustedPropSimHit) &&
+      (rawPropForScore == null ||
+        Math.abs((rawPropForScore ?? 0) - adjustedPropSimHit) >= 0.0005)
+    ) {
+      const adjEdge = edgePctFromPick(p, propEntry?.edge, adjustedPropSimHit);
+      if (adjEdge != null) {
+        edgeForFinal = adjEdge;
+        rubricForFinal = {
+          ...scores.scores,
+          lineValue: scoreLineValue(adjEdge),
+          simulation: scoreSimulation(adjustedPropSimHit),
+        };
+      }
+    }
+    const propSampleSize =
+      p.isProp && propPh?.recent?.length
+        ? Math.min(10, propPh.recent.length)
+        : null;
     let finalAiScore = buildFinalAiScore({
       pick: p,
-      rubricScores: scores.scores,
-      edgePct: scores.edgePct,
+      rubricScores: rubricForFinal,
+      edgePct: edgeForFinal,
       odds: p.odds,
       gameSim,
       propSimHit: adjustedPropSimHit,
+      rawPropSimHit: p.isProp ? rawPropForScore : null,
+      propSampleSize,
       propHolisticContext: p.isProp
         ? {
             sport: p.sport ?? propEntry?.sport,
@@ -918,6 +961,7 @@ export function attachPickScores(
             rushDefense,
             footballOppDefense,
             footballOwnPack,
+            oppMatchupAppliedToSim,
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,

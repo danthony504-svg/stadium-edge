@@ -176,6 +176,25 @@ export function humanizeOddsApiMarketKey(key: string | null | undefined): string
   return marketTitle(decoded);
 }
 
+/**
+ * Sport-aware card/slip badge label. DISPLAY-ONLY — never rewrite stored
+ * `market` (slip keys, dedupe, and AI resolution keep "Spread" / "Alt Spread").
+ * Tennis: Spread → Game Handicap. MLB: Spread → Run Line (F5 already "F5 Run Line").
+ */
+export function marketDisplayLabel(market: string, sport?: string | null): string {
+  const human = humanizeOddsApiMarketKey(market);
+  const s = String(sport ?? "").toLowerCase();
+  if (s === "tennis") {
+    if (/^spread$/i.test(human)) return "Game Handicap";
+    if (/^alt spread$/i.test(human)) return "Alt Game Handicap";
+  }
+  if (s === "mlb") {
+    if (/^spread$/i.test(human)) return "Run Line";
+    if (/^alt spread$/i.test(human)) return "Alt Run Line";
+  }
+  return human || market;
+}
+
 function pickForOutcome(
   d: Decoded,
   teamLabel: (name: string) => string,

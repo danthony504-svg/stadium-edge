@@ -1059,3 +1059,192 @@ test("rush volume game script uses opponent pointsFor not pointsAgainst", async 
   });
   assert.ok(leading.tilt > trailing.tilt);
 });
+
+test("defensive INT uses opp QB INT tendency + attempts; missing stays empty", async () => {
+  const {
+    footballRushDefenseTilt,
+    isFootballDefensiveIntMarket,
+    isFootballQbIntMarket,
+  } = await import("./footballRushDefense.ts");
+  assert.equal(isFootballDefensiveIntMarket("player_defensive_interceptions"), true);
+  assert.equal(isFootballQbIntMarket("player_defensive_interceptions"), false);
+
+  const empty = footballRushDefenseTilt({
+    market: "player_defensive_interceptions",
+    side: "Over",
+    pack: { teamName: "Chiefs" },
+    ownPack: { teamName: "Bills" },
+  });
+  assert.equal(empty.tilt, 0);
+  assert.equal(empty.display, null);
+
+  const friendly = footballRushDefenseTilt({
+    market: "player_defensive_interceptions",
+    side: "Over",
+    // pack = opposing offense (QB INT tendency + pass volume)
+    pack: {
+      interceptionPct: 3.6,
+      passingAttempts: 480,
+      gamesPlayed: 12,
+      teamName: "Raiders",
+    },
+    ownPack: { interceptions: 15, gamesPlayed: 12 },
+  });
+  const hostile = footballRushDefenseTilt({
+    market: "player_defensive_interceptions",
+    side: "Over",
+    pack: {
+      interceptionPct: 1.1,
+      passingAttempts: 300,
+      gamesPlayed: 12,
+      teamName: "Ravens",
+    },
+    ownPack: { interceptions: 3, gamesPlayed: 12 },
+  });
+  assert.ok(friendly.tilt > hostile.tilt);
+  assert.ok(friendly.tilt > 0);
+  assert.match(String(friendly.display), /def-INT/);
+});
+
+test("sack tilt includes opposing pass volume when OL/pass-rush present", async () => {
+  const { footballRushDefenseTilt } = await import("./footballRushDefense.ts");
+  const base = {
+    market: "player_sacks",
+    side: "Over" as const,
+    pack: { sacksAllowed: 30, gamesPlayed: 12, teamName: "Bears" },
+    ownPack: { sacks: 30, gamesPlayed: 12 },
+  };
+  const withoutVol = footballRushDefenseTilt(base);
+  const withVol = footballRushDefenseTilt({
+    ...base,
+    pack: { ...base.pack, passingAttempts: 480 },
+  });
+  assert.ok(withVol.tilt >= withoutVol.tilt);
+  assert.match(String(withVol.display), /pass att/);
+});
+
+test("receiving matchup is team pass-D only (no invented position splits)", async () => {
+  const { footballRushDefenseTilt } = await import("./footballRushDefense.ts");
+  const tilt = footballRushDefenseTilt({
+    market: "player_reception_yds",
+    side: "Over",
+    pack: {
+      pass: {
+        passingYardsAllowedPerGame: 250,
+        yardsPerPassAllowed: 7.5,
+        sampleSize: 4,
+      },
+      teamName: "Panthers",
+    },
+  });
+  assert.ok(tilt.display);
+  assert.match(String(tilt.display), /recv-team/);
+  assert.doesNotMatch(String(tilt.display), /\b(?:WR|TE|RB)\b|slot|boundary|vs-position/i);
+});
+
+test("opp matchup applied to sim is not double-counted in Final AI", async () => {
+  const { buildPropHolisticScore } = await import("./propHolisticRecommendation.ts");
+  const { adjustSimHitForOppDefenseTilt, propOppDefenseTilt } = await import(
+    "./footballRushDefense.ts"
+  );
+  const pack = {
+    pass: {
+      passingYardsAllowedPerGame: 175,
+      yardsPerPassAllowed: 5.5,
+      sampleSize: 4,
+      teamName: "Eagles",
+    },
+    teamName: "Eagles",
+    sacks: 36,
+    gamesPlayed: 12,
+  };
+  const ownPack = { sacksAllowed: 40, gamesPlayed: 12 };
+  const defTilt = propOppDefenseTilt({
+    sport: "nfl",
+    market: "player_pass_yds",
+    side: "Over",
+    pack,
+    ownPack,
+  });
+  assert.ok(defTilt.tilt < 0);
+  const rawHit = 0.58;
+  const adjHit = adjustSimHitForOppDefenseTilt(rawHit, defTilt.tilt);
+  assert.ok(adjHit != null && adjHit < rawHit);
+
+  const baseCtx = {
+    sport: "nfl" as const,
+    marketKey: "player_pass_yds",
+    propSide: "Over" as const,
+    rubricScores: {
+      matchup: null,
+      trend: 6,
+      lineValue: 6,
+      injury: null,
+      lineShopping: 5.5,
+      simulation: 6,
+    },
+    edgePct: 4,
+    footballOppDefense: pack,
+    footballOwnPack: ownPack,
+  };
+  const scoredTwice = buildPropHolisticScore({
+    ...baseCtx,
+    simHit: adjHit,
+    // Missing flag = legacy double-count path for comparison
+  });
+  const scoredOnce = buildPropHolisticScore({
+    ...baseCtx,
+    simHit: adjHit,
+    oppMatchupAppliedToSim: true,
+  });
+  const oppTwice = scoredTwice.factors.find((f) => f.key === "opponentTendency");
+  const oppOnce = scoredOnce.factors.find((f) => f.key === "opponentTendency");
+  assert.ok(oppTwice?.present && oppTwice.score != null);
+  assert.ok(oppOnce?.present);
+  assert.equal(oppOnce?.score, null);
+  assert.ok(oppOnce?.display);
+  // Composite must not get a second negative opponentTendency lean.
+  assert.ok((scoredOnce.composite ?? 0) >= (scoredTwice.composite ?? 0));
+});
+
+test("team-defense cache: warm reuse is faster than cold concurrent fill", async () => {
+  const {
+    clearCoachContextCache,
+    withCoachContextCache,
+    resetCoachCacheStats,
+    getCoachCacheStats,
+    COACH_CONTEXT_TTL_MS,
+  } = await import("./coachContextCache.ts");
+  clearCoachContextCache();
+  resetCoachCacheStats();
+  const path = "/sports/team-defense?sport=nfl&teamId=timing-1";
+  let fetches = 0;
+  const slowFetch = async () => {
+    fetches += 1;
+    await new Promise((r) => setTimeout(r, 25));
+    return { teamId: "timing-1", ok: true };
+  };
+  const coldT0 = performance.now();
+  await Promise.all([
+    withCoachContextCache(path, "teamDefense", slowFetch),
+    withCoachContextCache(path, "teamDefense", slowFetch),
+    withCoachContextCache(path, "teamDefense", slowFetch),
+  ]);
+  const coldMs = performance.now() - coldT0;
+  assert.equal(fetches, 1, "cold concurrent waiters coalesce to one network fill");
+
+  const warmT0 = performance.now();
+  await Promise.all([
+    withCoachContextCache(path, "teamDefense", slowFetch),
+    withCoachContextCache(path, "teamDefense", slowFetch),
+  ]);
+  const warmMs = performance.now() - warmT0;
+  assert.equal(fetches, 1, "warm hits must not re-fetch");
+  assert.ok(warmMs < coldMs);
+  assert.ok(warmMs < 10, `warm should be near-instant, got ${warmMs}ms`);
+  const stats = getCoachCacheStats().find((s) => s.stage === "teamDefense");
+  assert.ok((stats?.cacheHit ?? 0) >= 2);
+  assert.equal(COACH_CONTEXT_TTL_MS.teamDefense, 60 * 60_000);
+  // Surface cold/warm for the release report.
+  assert.ok(true, `opp-context timing coldMs=${coldMs.toFixed(1)} warmMs=${warmMs.toFixed(1)}`);
+});

@@ -19,8 +19,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
+import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import { formatAmerican, payout } from "@/lib/format";
-import { humanizeOddsApiMarketKey } from "@/lib/postedMarketDiscovery";
+import { marketDisplayLabel } from "@/lib/postedMarketDiscovery";
 import { saveSlipToPhotos } from "@/lib/slipImage";
 import { SLIP_UI_ENABLED } from "@/lib/slipUi";
 
@@ -158,9 +159,11 @@ function SlipBarBody({
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
     onNavigateAway?.();
+    const autoMsg = "Analyze my ticket";
+    markCoachHomeLaunch({ autoMsg, hideBubble: false, freshThread: true });
     router.push({
       pathname: "/coach",
-      params: { autoMsg: "Analyze my ticket", send: "1", ts: String(Date.now()) },
+      params: { autoMsg, send: "1", ts: String(Date.now()) },
     } as any);
   };
 
@@ -291,7 +294,7 @@ function SlipBarBody({
                       style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 }}
                       numberOfLines={1}
                     >
-                      {humanizeOddsApiMarketKey(leg.market) || leg.market} · {leg.game}
+                      {marketDisplayLabel(leg.market, leg.sport)} · {leg.game}
                     </Text>
                   </View>
                   <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 13 }}>

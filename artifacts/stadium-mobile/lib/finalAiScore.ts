@@ -25,6 +25,7 @@ import {
   type PropHolisticContext,
   type PropHolisticScore,
 } from "./propHolisticRecommendation.ts";
+import { formatSimHitWithMatchupAdjust } from "./footballRushDefense.ts";
 
 /** Minimum no-vig edge (pct pts) to keep a sim-opposed leg as High-Risk Value Play. */
 export const HIGH_RISK_EDGE_MIN = 4.5;
@@ -60,7 +61,18 @@ export type FinalAiScore = {
   grade: string | null;
   confidencePct: number | null;
   edgePct: number | null;
+  /**
+   * Final model hit used for edge / grading / qualification.
+   * When matchup tilt applied: post-`adjustSimHitForOppDefenseTilt` value.
+   */
   simHit: number | null;
+  /**
+   * Pre-matchup MC / empirical hit. Retained when tilt moves the estimate so
+   * UI can show raw → adjusted without conflating tilt with a soft-cap.
+   */
+  rawSimHit?: number | null;
+  /** True when simHit already includes the one matchup tilt (skip on recovery). */
+  oppMatchupAppliedToSim?: boolean;
   simAligned: boolean;
   highRiskValuePlay: boolean;
   recommends: boolean;
@@ -150,10 +162,21 @@ export function buildFinalAiScore(input: {
   odds?: number | null;
   fairProb?: number | null;
   gameSim?: CoachGameSimEntry | null;
+  /** Final (matchup-adjusted when applicable) prop hit. */
   propSimHit?: number | null;
+  /** Pre-matchup raw MC / empirical hit — retained for display when it differs. */
+  rawPropSimHit?: number | null;
+  /** Optional history sample size for uncalibrated n=&lt;10 labeling. */
+  propSampleSize?: number | null;
   propHolisticContext?: Omit<PropHolisticContext, "rubricScores" | "edgePct" | "simHit">;
 }): FinalAiScore {
   const simHit = simHitForPick(input.pick, input.gameSim, input.propSimHit);
+  const rawSimHit =
+    input.pick.isProp &&
+    input.rawPropSimHit != null &&
+    Number.isFinite(input.rawPropSimHit)
+      ? simHitForPick(input.pick, input.gameSim, input.rawPropSimHit)
+      : null;
   const rubric = combinePickScore(
     input.rubricScores,
     input.edgePct,
@@ -177,7 +200,11 @@ export function buildFinalAiScore(input: {
       key: "simulation",
       label: "Simulation",
       score: simScore,
-      display: simHit != null ? `${Math.round(simHit * 100)}% hit` : undefined,
+      display: formatSimHitWithMatchupAdjust({
+        rawHit: rawSimHit,
+        adjustedHit: simHit,
+        sampleSize: input.propSampleSize,
+      }),
     },
     {
       key: "lineValue",
@@ -201,6 +228,8 @@ export function buildFinalAiScore(input: {
       rubricScores: input.rubricScores,
       edgePct: rubric.edgePct,
       simHit,
+      rawSimHit,
+      propSampleSize: input.propSampleSize,
       odds: input.pick.odds ?? input.propHolisticContext?.odds ?? null,
       propLine: input.pick.propLine ?? input.propHolisticContext?.propLine ?? null,
       marketKey:
@@ -270,6 +299,9 @@ export function buildFinalAiScore(input: {
     confidencePct,
     edgePct: rubric.edgePct,
     simHit,
+    rawSimHit,
+    oppMatchupAppliedToSim:
+      input.propHolisticContext?.oppMatchupAppliedToSim === true,
     simAligned,
     highRiskValuePlay,
     recommends,

@@ -391,11 +391,19 @@ function PropsScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
-  const params = useLocalSearchParams<{ q?: string; sp?: string }>();
-  const [sport, setSport] = useState(
-    params.sp && isPillSport(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
-  );
+  const params = useLocalSearchParams<{ q?: string; sp?: string; view?: string }>();
+  const paramSport =
+    params.sp && isPillSport(String(params.sp)) ? String(params.sp) : null;
+  const valueMode = String(params.view ?? "") === "value";
+  const [sport, setSport] = useState(paramSport ?? PROPS_SPORTS[0]);
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
+  // Home Best Value passes ?sp=&view=value — re-apply when the shortcut fires again.
+  useEffect(() => {
+    if (paramSport) setSport(paramSport);
+  }, [paramSport]);
+  useEffect(() => {
+    if (params.q != null) setQuery(String(params.q));
+  }, [params.q]);
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
   // When the player sheet sends the user to the full-breakdown route we HIDE it
@@ -823,12 +831,24 @@ function PropsScreen() {
   // cross-book consensus fair value (a real market inefficiency). ev/evSide/
   // fairProb/edge are computed SERVER-SIDE on main lines quoted by enough books;
   // we only read them — never recompute or guess. We show the side that carries
-  // the edge (evSide) at its offered price, ranked by EV descending, capped, with
-  // a plain-English caption ("+3.2% edge • fair ~48%"). Hidden when none qualify.
-  type ValueItem = { pick: ParsedPick; ev: number; caption: string; edge: number | null; fairPct: number | null; price: number };
+  // the edge (evSide) at its offered price. Rank: EV desc, then Final AI
+  // composite (selectionScore) when available — never feed/popularity order.
+  type ValueItem = {
+    pick: ParsedPick;
+    ev: number;
+    caption: string;
+    edge: number | null;
+    fairPct: number | null;
+    price: number;
+    finalAiScore: number | null;
+  };
   const valueProps = useMemo<ValueItem[]>(() => {
     if (isBrowseSport) return [];
     const data = propsQ.data?.games ?? [];
+    const selectionOpts = {
+      propPool: propPoolForRank,
+      propSimulations: simRankQ.data,
+    };
     const out: ValueItem[] = [];
     const seen = new Set<string>();
     for (const g of data) {
@@ -852,12 +872,24 @@ function PropsScreen() {
         const fairPct = p.fairProb != null ? Math.round(p.fairProb * 100) : null;
         const edgeTxt = p.edge != null ? `+${p.edge.toFixed(1)}% edge` : `+${ev.toFixed(1)}% value`;
         const caption = fairPct != null ? `${edgeTxt} • fair ~${fairPct}%` : edgeTxt;
+        const poolEntry = propPoolForRank.find(
+          (e) =>
+            e.player === p.player &&
+            e.marketKey === p.market &&
+            e.line === p.line &&
+            e.side === side,
+        );
+        const finalAiScore =
+          poolEntry != null
+            ? selectionScoreForEntry(poolEntry, propPoolForRank, selectionOpts)
+            : null;
         out.push({
           ev,
           caption,
           edge: p.edge ?? null,
           fairPct,
           price,
+          finalAiScore,
           pick: {
             game: g.gameLabel,
             market: label,
@@ -877,8 +909,13 @@ function PropsScreen() {
         });
       }
     }
-    return out.sort((a, b) => b.ev - a.ev).slice(0, VALUE_CAP);
-  }, [propsQ.data, sport, isBrowseSport]);
+    return out
+      .sort((a, b) => {
+        if (b.ev !== a.ev) return b.ev - a.ev;
+        return (b.finalAiScore ?? -1) - (a.finalAiScore ?? -1);
+      })
+      .slice(0, VALUE_CAP);
+  }, [propsQ.data, sport, isBrowseSport, propPoolForRank, simRankQ.data]);
 
   // Open the right detail page for a recommended card: prop breakdown for player
   // props, the team breakdown page for an upset (team moneyline) pick. The upset
@@ -1104,50 +1141,56 @@ function PropsScreen() {
         {/* Pinned header — new Player Props browse landing, Coach-style brand row. */}
         <AppHeader bottomGap={0} style={{ paddingBottom: 14 }}>
           <PageTitleRow
-            icon="user"
-            title="Player Props Only"
-            subtitle="Build from just player props."
+            icon={valueMode ? "trending-up" : "user"}
+            title={valueMode ? "Best Value" : "Player Props Only"}
+            subtitle={
+              valueMode
+                ? "Qualified props ranked by +EV and Final AI — not popularity."
+                : "Build from just player props."
+            }
           />
 
-          <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                borderRadius: colors.radius,
-                borderWidth: 1,
-                borderColor: colors.primary,
-                backgroundColor: colors.card,
-                padding: 14,
-                gap: 12,
-              }}
-            >
-              <View style={{ flex: 1, gap: 6 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-                  <Feather name="target" size={15} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.6 }}>
-                    FOCUSED & SIMPLE
-                  </Text>
-                </View>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
-                  Search for players and pick from their available props.{"\n"}
-                  No teams, no parlays — just player performance.
-                </Text>
-              </View>
+          {!valueMode ? (
+            <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
               <View
                 style={{
-                  width: 54,
-                  height: 54,
-                  borderRadius: 16,
-                  backgroundColor: "rgba(59,130,246,0.12)",
+                  flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "center",
+                  borderRadius: colors.radius,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  backgroundColor: colors.card,
+                  padding: 14,
+                  gap: 12,
                 }}
               >
-                <Feather name="bar-chart-2" size={28} color={colors.primary} />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                    <Feather name="target" size={15} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.6 }}>
+                      FOCUSED & SIMPLE
+                    </Text>
+                  </View>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
+                    Search for players and pick from their available props.{"\n"}
+                    No teams, no parlays — just player performance.
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 16,
+                    backgroundColor: "rgba(59,130,246,0.12)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Feather name="bar-chart-2" size={28} color={colors.primary} />
+                </View>
               </View>
             </View>
-          </View>
+          ) : null}
 
           {!searching ? (
             <ScrollView
@@ -1311,85 +1354,90 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {/* VALUE (+EV) — props whose best posted price beats the de-vigged
-            cross-book consensus fair value. Server-computed, real-or-omitted;
-            hidden while searching and when nothing qualifies. */}
-        {false && !query.trim() && valueProps.length > 0 ? (
-          <View style={{ marginBottom: 18 }}>
-            <Text
-              style={{
-                color: colors.primary,
-                fontFamily: FONT.display,
-                fontSize: 13,
-                letterSpacing: 0.5,
-                marginBottom: 2,
-                paddingHorizontal: 16,
-              }}
-            >
-              ⚡ VALUE (+EV)
-            </Text>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.medium,
-                fontSize: 11,
-                marginBottom: 8,
-                paddingHorizontal: 16,
-              }}
-            >
-              Best price beats the cross-book fair value
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-            >
-              {valueProps.map((item, i) => (
-                <View key={`val-${item.pick.game}|${item.pick.pick}|${i}`} style={{ width: 290 }}>
-                  <PickCard
-                    pick={item.pick}
-                    hideReadout
-                    badge={{ text: `+${item.ev.toFixed(1)}% EV`, tone: "value" }}
-                    onPress={() => openPropDetail(item.pick)}
-                  />
-                  <View
-                    style={{
-                      marginTop: 8,
-                      flexDirection: "row",
-                      gap: 8,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderRadius: 14,
-                      backgroundColor: colors.card,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    }}
-                  >
-                    <MiniStat
-                      label="Edge"
-                      value={item.edge != null ? `+${item.edge.toFixed(1)}%` : "—"}
-                      valueColor={item.edge != null ? colors.success : colors.mutedForeground}
-                      icon="trending-up"
+        {/* Best Value mode — vertical ranked list (EV + Final AI), not Popular Players.
+            Default Props browse keeps this rail gated off. */}
+        {valueMode && !query.trim() && !isBrowseSport ? (
+          <View style={{ marginBottom: 18, paddingHorizontal: 16, gap: 12 }}>
+            {propsQ.isLoading ? (
+              <Loading label="Scoring value props…" />
+            ) : propsQ.isError ? (
+              <ErrorState onRetry={() => propsQ.refetch()} />
+            ) : valueProps.length > 0 ? (
+              <>
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontFamily: FONT.display,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                    marginBottom: 2,
+                  }}
+                >
+                  VALUE (+EV) · Final AI ranked
+                </Text>
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 11,
+                    marginBottom: 4,
+                  }}
+                >
+                  Qualified props only — best posted price vs cross-book fair value
+                </Text>
+                {valueProps.map((item, i) => (
+                  <View key={`val-${item.pick.game}|${item.pick.pick}|${i}`}>
+                    <PickCard
+                      pick={item.pick}
+                      hideReadout
+                      badge={{ text: `+${item.ev.toFixed(1)}% EV`, tone: "value" }}
+                      onPress={() => openPropDetail(item.pick)}
                     />
-                    <MiniStat
-                      label="Fair"
-                      value={item.fairPct != null ? `~${item.fairPct}%` : "—"}
-                      icon="percent"
-                    />
-                    <MiniStat
-                      label="Best"
-                      value={formatAmerican(item.price)}
-                      valueColor={colors.accent}
-                      icon="tag"
-                    />
+                    <View
+                      style={{
+                        marginTop: 8,
+                        flexDirection: "row",
+                        gap: 8,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderRadius: 14,
+                        backgroundColor: colors.card,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      <MiniStat
+                        label="Edge"
+                        value={item.edge != null ? `+${item.edge.toFixed(1)}%` : "—"}
+                        valueColor={item.edge != null ? colors.success : colors.mutedForeground}
+                        icon="trending-up"
+                      />
+                      <MiniStat
+                        label="Fair"
+                        value={item.fairPct != null ? `~${item.fairPct}%` : "—"}
+                        icon="percent"
+                      />
+                      <MiniStat
+                        label="Best"
+                        value={formatAmerican(item.price)}
+                        valueColor={colors.accent}
+                        icon="tag"
+                      />
+                    </View>
                   </View>
-                </View>
-              ))}
-            </ScrollView>
+                ))}
+              </>
+            ) : (
+              <EmptyState
+                icon="trending-up"
+                title="No value props right now"
+                subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} props cleared the +EV floor with a real cross-book edge. Qualification unchanged — try another sport or check back later.`}
+              />
+            )}
           </View>
         ) : null}
 
-        {!searching && popularPlayers.length > 0 ? (
+        {!valueMode && !searching && popularPlayers.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <Text
               style={{
@@ -1458,7 +1506,7 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {!searching ? (
+        {!valueMode && !searching ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
             <Text
               style={{
@@ -1499,9 +1547,17 @@ function PropsScreen() {
           </View>
         ) : null}
 
-        {/* Props list */}
+        {/* Props list — hidden in Best Value mode (ranked rail above is the view). */}
         <View style={{ paddingHorizontal: 16, gap: 16 }}>
-          {!searching && isBrowseSport ? (
+          {valueMode && !query.trim() ? (
+            isBrowseSport ? (
+              <EmptyState
+                icon="user"
+                title="No player props for this sport"
+                subtitle={`${SPORTS.find((s) => s.id === sport)?.label ?? sport} is moneyline/game-lines only — Best Value needs a props feed.`}
+              />
+            ) : null
+          ) : !searching && isBrowseSport ? (
             browseOddsQ.isLoading ? (
               <Loading label="Loading matches…" />
             ) : browseOddsQ.isError ? (
@@ -1642,7 +1698,7 @@ function PropsScreen() {
           {/* Load-more footer: only in the browse view, when more pickable games
               remain than we've loaded. Tapping (or scrolling near the bottom)
               pulls the next batch; a spinner shows while it's in flight. */}
-          {!searching && !isBrowseSport && (loadingMore || hasMoreGames) ? (
+          {!valueMode && !searching && !isBrowseSport && (loadingMore || hasMoreGames) ? (
             <Pressable
               onPress={() => {
                 if (!propsQ.isFetching && hasMoreGames) setGamesLimit((g) => g + GAMES_STEP);

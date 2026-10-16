@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, threadWantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks, preferBettableQualifiedPicks } from "./slate.ts";
+import { mentionsPropIntent, wantsPlayersOnlyAsk, wantsPropsOnly, threadWantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks, preferBettableQualifiedPicks } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -79,6 +79,29 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("8 leg multi-sport tonight"), false);
   assert.equal(wantsPropsOnly("10 leg across sports"), false);
   assert.equal(wantsPropsOnly("9 leg all sports tonight"), false);
+});
+
+test("players only → props-only across sports (phone: Seahawks +1.5 leak)", () => {
+  for (const ask of [
+    "8 leg Seahawks players only",
+    "8 leg seahawks players only",
+    "players only",
+    "only players",
+    "just players",
+    "6 leg Lakers players only",
+    "7 leg Yankees players only",
+    "5 leg Bruins players only",
+    "8 lag Seahawks players only",
+  ]) {
+    assert.equal(wantsPlayersOnlyAsk(ask), true, ask);
+    assert.equal(wantsPropsOnly(ask), true, ask);
+    assert.equal(mentionsPropIntent(ask), true, ask);
+  }
+  // Team props / bare team N-leg stay off.
+  assert.equal(wantsPlayersOnlyAsk("5 leg NHL team props"), false);
+  assert.equal(wantsPropsOnly("5 leg NHL team props"), false);
+  assert.equal(wantsPlayersOnlyAsk("8 leg Seahawks"), false);
+  assert.equal(wantsPropsOnly("8 leg Seahawks"), false);
 });
 
 test("threadWantsPropsOnly inherits prior player-prop ask onto slate refinement", () => {

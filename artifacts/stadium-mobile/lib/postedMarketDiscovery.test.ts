@@ -4,6 +4,7 @@ import {
   discoverAllPostedGameLines,
   gameLineTeamLabel,
   humanizeOddsApiMarketKey,
+  marketDisplayLabel,
   mergeEvalLadderWithDiscovered,
 } from "./postedMarketDiscovery.ts";
 
@@ -95,6 +96,20 @@ test("humanizeOddsApiMarketKey: phone SPREADS / SPREADS_Q2 badges", () => {
   assert.equal(humanizeOddsApiMarketKey("alternate_spreads"), "Alt Spread");
   // Already-friendly labels pass through.
   assert.equal(humanizeOddsApiMarketKey("Q2 Spread"), "Q2 Spread");
+  assert.equal(humanizeOddsApiMarketKey("Spread"), "Spread");
+});
+
+test("marketDisplayLabel: MLB Run Line + tennis Game Handicap (display-only)", () => {
+  assert.equal(marketDisplayLabel("Spread", "mlb"), "Run Line");
+  assert.equal(marketDisplayLabel("Alt Spread", "mlb"), "Alt Run Line");
+  assert.equal(marketDisplayLabel("spreads", "mlb"), "Run Line");
+  assert.equal(marketDisplayLabel("F5 Run Line", "mlb"), "F5 Run Line");
+  // Other sports keep Spread.
+  assert.equal(marketDisplayLabel("Spread", "nfl"), "Spread");
+  assert.equal(marketDisplayLabel("Spread", "nhl"), "Spread");
+  assert.equal(marketDisplayLabel("Spread", "tennis"), "Game Handicap");
+  assert.equal(marketDisplayLabel("Alt Spread", "tennis"), "Alt Game Handicap");
+  // Stored key unchanged by humanize alone.
   assert.equal(humanizeOddsApiMarketKey("Spread"), "Spread");
 });
 
