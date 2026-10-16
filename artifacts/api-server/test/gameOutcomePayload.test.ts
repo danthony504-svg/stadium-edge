@@ -12,7 +12,7 @@ import {
 const corrected = {
   sport: "nfl",
   simulations: 10000,
-  engineVersion: "ppg-per-drive-v1.1",
+  engineVersion: "ppg-per-drive-v1",
   homeWinProbability: 0.58,
   awayWinProbability: 0.42,
   coverHitRates: {
@@ -34,7 +34,7 @@ test("a full-game response keeps score arrays and the engine stamp", () => {
     { id: "fg-spread", period: undefined },
   ]);
   assert.equal(requestAsksNonFullGamePeriod([{ period: "fg" }]), false);
-  assert.equal(body.engineVersion, "ppg-per-drive-v1.1");
+  assert.equal(body.engineVersion, "ppg-per-drive-v1");
   assert.equal(body.outcomes?.homeScores.length, 3);
   assert.equal(body.coverHitRates["q3-ml"], 0.91);
   assert.equal(publishedClientWouldRescalePeriodCovers(body), true);
@@ -58,7 +58,7 @@ test("a period request seals rates the published client would grade or fall back
     JSON.stringify(sealPublishedClientPeriodQueries(corrected, queries)),
   ) as typeof corrected;
   assert.equal(requestAsksNonFullGamePeriod(queries), true);
-  assert.equal(body.engineVersion, "ppg-per-drive-v1.1");
+  assert.equal(body.engineVersion, "ppg-per-drive-v1");
   assert.equal("outcomes" in body, false);
   assert.equal(publishedClientWouldRescalePeriodCovers(body), false);
   assert.equal(body.homeWinProbability, 0.58);
@@ -76,7 +76,7 @@ test("a period request seals rates the published client would grade or fall back
 test("a cached snapshot sim seals period lines the published client would look up", () => {
   const sim = sealCachedGameSim(
     {
-      engineVersion: "ppg-per-drive-v1.1",
+      engineVersion: "ppg-per-drive-v1",
       homeWinProbability: 0.58,
       awayWinProbability: 0.42,
       coverProbs: {

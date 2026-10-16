@@ -1,5 +1,5 @@
-/** Mirrors api-server FOOTBALL_DRIVE_ENGINE_VERSION. */
-export const COACH_GAME_SIM_ENGINE_VERSION = "ppg-per-drive-v1.1";
+/** Mirrors api-server FOOTBALL_DRIVE_ENGINE_VERSION (live). Research NCAAF uses a separate stamp server-side only. */
+export const COACH_GAME_SIM_ENGINE_VERSION = "ppg-per-drive-v1";
 
 /** Mirrors api-server SPORT_SIM_ENGINE_VERSION. */
 export const SPORT_SIM_ENGINE_VERSION = "sport-sim-v1";

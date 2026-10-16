@@ -21,29 +21,46 @@ export type DefenseAllowedSlice = {
 };
 
 /**
- * Engine id baked into sim cache fingerprints. Bump when the points-per-drive
- * conversion or NCAAF residual calibration changes so stored draws cannot be reused.
- *
- * v1.1: NCAAF-only margin residual + home-margin shrink locked on 2024
- * pre-cutoff (kickoff < 2024-10-15) after settlement audit cleared signs.
- * Untouched holdout was not used to choose these constants.
+ * Live/verified football drive stamp (NFL + product NCAAF path).
+ * Bump only when the shared points-per-drive conversion changes.
+ * Do NOT bump this for NCAAF-only research calibration — use
+ * `FOOTBALL_NCAAF_RESEARCH_ENGINE_VERSION` + `ncaafResearchCalibration` instead.
  */
-export const FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1.1";
+export const FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1";
 
 /**
- * Extra NCAAF margin noise (points) added after drive outcomes.
- * Locked 2026-10-16 from pre-cutoff diag: empirical residual SD ≈ 19.46,
- * mean sim margin SD ≈ 12.94 ⇒ complementary SD ≈ 14.5.
- * See `ncaaf-phase-e-spread-margin-diag.json`.
+ * Research-only stamp for NCAAF Phase E residual/shrink experiments.
+ * Never accepted as the live client stamp. Applied only when
+ * `SportSimContext.ncaafResearchCalibration === true` (or env
+ * `NCAAF_RESEARCH_CALIBRATION=1` in offline scripts).
+ */
+export const FOOTBALL_NCAAF_RESEARCH_ENGINE_VERSION = "ppg-per-drive-v1.1-research";
+
+/**
+ * Extra NCAAF margin noise (points) — RESEARCH ONLY.
+ * Locked 2026-10-16 from pre-cutoff diag (kickoff < 2024-10-15):
+ * residual SD ≈ 19.46, mean sim SD ≈ 12.94 ⇒ complementary ≈ 14.5.
+ * That 2024 window is now USED; do not re-tune on it.
  */
 export const FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD = 14.5;
 
 /**
- * Subtract from projected home margin (split ± across team means) to correct
- * pre-cutoff mean(proj − actual) ≈ +2.17. Locked at 2.0 on the same diag;
- * untouched holdout not used.
+ * Home-margin shrink (points) — RESEARCH ONLY.
+ * Locked at 2.0 from the same pre-cutoff diag (mean proj−actual ≈ +2.17).
  */
 export const FOOTBALL_NCAAF_HOME_MARGIN_SHRINK = 2.0;
+
+/** True when offline Phase E scripts opt into NCAAF research calibration. */
+export function ncaafResearchCalibrationEnabled(
+  flag?: boolean | null,
+): boolean {
+  if (flag === true) return true;
+  if (flag === false) return false;
+  const env = String(process.env.NCAAF_RESEARCH_CALIBRATION ?? "")
+    .trim()
+    .toLowerCase();
+  return env === "1" || env === "true" || env === "yes";
+}
 
 /**
  * Former hard TD/FG caps from the points-per-game-as-points-per-drive map.

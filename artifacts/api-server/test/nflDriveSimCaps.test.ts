@@ -9,6 +9,7 @@ import {
 import {
   FOOTBALL_DRIVE_ENGINE_VERSION,
   FOOTBALL_DRIVE_SCORE_RATE_CAP,
+  FOOTBALL_NCAAF_RESEARCH_ENGINE_VERSION,
   applyDefenseTiltToOffenseMean,
   defenseOffenseMultiplier,
   footballDriveRateInput,
@@ -24,7 +25,7 @@ test("ncaaf maps to nfl-drive engine", () => {
 });
 
 test("nfl-drive rates: points per drive match expected points below the joint ceiling", () => {
-  assert.equal(FOOTBALL_DRIVE_ENGINE_VERSION, "ppg-per-drive-v1.1");
+  assert.equal(FOOTBALL_DRIVE_ENGINE_VERSION, "ppg-per-drive-v1");
   for (const ppd of [1.2, 2.0, 3.2]) {
     const rates = nflDriveScoringRates(ppd);
     assert.ok(rates.tdRate > 0 && rates.fgRate > 0);
@@ -173,4 +174,55 @@ test("deterministic seeded draws: soft rates keep ML sensitive to form", () => {
   } finally {
     Math.random = realRandom;
   }
+});
+
+test("NCAAF research residual is isolated from live NFL and live NCAAF stamps", () => {
+  assert.equal(FOOTBALL_DRIVE_ENGINE_VERSION, "ppg-per-drive-v1");
+  assert.equal(FOOTBALL_NCAAF_RESEARCH_ENGINE_VERSION, "ppg-per-drive-v1.1-research");
+
+  const mkRng = () => {
+    let i = 20241015 >>> 0;
+    return () => {
+      i = (i * 1664525 + 1013904223) >>> 0;
+      return i / 0x100000000;
+    };
+  };
+
+  const nflLive = runNflDriveSim({
+    sport: "nfl",
+    simulations: 800,
+    random: mkRng(),
+    home: { ptsFor: 22, ptsAgainst: 20 },
+    away: { ptsFor: 21, ptsAgainst: 21 },
+    ncaafResearchCalibration: true, // must be ignored for NFL
+    retainOutcomes: false,
+  });
+  const ncaafLive = runNflDriveSim({
+    sport: "ncaaf",
+    simulations: 800,
+    random: mkRng(),
+    home: { ptsFor: 24, ptsAgainst: 22 },
+    away: { ptsFor: 23, ptsAgainst: 23 },
+    retainOutcomes: false,
+  });
+  const ncaafResearch = runNflDriveSim({
+    sport: "ncaaf",
+    simulations: 800,
+    random: mkRng(),
+    home: { ptsFor: 24, ptsAgainst: 22 },
+    away: { ptsFor: 23, ptsAgainst: 23 },
+    ncaafResearchCalibration: true,
+    retainOutcomes: false,
+  });
+
+  assert.match(String(nflLive?.simModelLabel), /ppg-per-drive-v1\)/);
+  assert.doesNotMatch(String(nflLive?.simModelLabel), /research/);
+  assert.match(String(ncaafLive?.simModelLabel), /ppg-per-drive-v1\)/);
+  assert.doesNotMatch(String(ncaafLive?.simModelLabel), /research/);
+  assert.match(String(ncaafResearch?.simModelLabel), /ppg-per-drive-v1\.1-research/);
+
+  assert.ok(
+    (ncaafResearch?.homeProjectedScore ?? 0) < (ncaafLive?.homeProjectedScore ?? 0) - 0.3,
+    `research home ${ncaafResearch?.homeProjectedScore} should be below live ${ncaafLive?.homeProjectedScore}`,
+  );
 });

@@ -1,16 +1,20 @@
 # NCAAF Phase E — acceptance checklist (do not flip P0)
 
 **Holdout:** ESPN scoreboard 2023–2024 (`test/fixtures/ncaaf-phase-e-games.json`, 1739 games).  
-**Engine under test:** coach `nfl-drive` stamp **`ppg-per-drive-v1.1`** (NCAAF residual + home-margin shrink locked on pre-cutoff).  
+**Live engine:** `ppg-per-drive-v1` (isolated from research).  
+**Research engine (offline opt-in):** `ppg-per-drive-v1.1-research` — residual + shrink; see [`ncaaf-engine-isolation.md`](./ncaaf-engine-isolation.md).  
 **Form inputs:** venue split blended with L10 via `blendVenueAndL10` (production `footballGameSimInputs` parity).  
-**Gate:** `NCAAF_GAME_LINE_SIM_VALIDATED` stays `false` until every restore criterion is PASS + human sign-off.
+**Gate:** `NCAAF_GAME_LINE_SIM_VALIDATED` stays `false` until every restore criterion is PASS + human sign-off.  
+**Holdout:** 2024 evaluated windows are **USED**; further tuning needs reserved 2025+ data.
 
-**Restoration candidate summary:** [`ncaaf-restoration-candidate.md`](./ncaaf-restoration-candidate.md).
+**Restoration candidate summary:** [`ncaaf-restoration-candidate.md`](./ncaaf-restoration-candidate.md).  
+**Failure analysis:** [`ncaaf-phase-e-failure-analysis.json`](../../artifacts/api-server/test/fixtures/ncaaf-phase-e-failure-analysis.json).  
+**Forward collection (not activated):** [`ncaaf-forward-collection-plan.md`](./ncaaf-forward-collection-plan.md).
 
-## Latest calibration report (2024 holdout, `ppg-per-drive-v1.1`)
+## Latest calibration report (2024 USED holdout, research path @ e6c26f85)
 
 Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-calibration-report.json`  
-Generated: **2026-10-16** (v1.1 re-run). Engine: `nfl-drive:ppg-per-drive-v1.1`.
+Generated: **2026-10-16**. Research engine stamp at evaluation: `ppg-per-drive-v1.1-research` (live remains `ppg-per-drive-v1`).
 
 The 2026-10-14 E2a **PASS** is **WITHDRAWN**. That report used PPG fed as PPD + ×0.48 college scale. `priorE2aClaim.restored` stays `false`. Soft-rate unit checks that used ppd 12/15/20 inherited that mismatch and were corrected to true PPD (2.5/3.5/4.5) without lowering +3 ppg / QB-out thresholds.
 

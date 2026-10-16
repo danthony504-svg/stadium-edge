@@ -156,17 +156,14 @@ test("10k draws track low, average, and high points per game", () => {
 
   for (const row of rows) {
     assert.match(String(row.label), /ppg-per-drive-v1/);
-    // NCAAF v1.1 applies home-margin shrink (±1 pt to means); residual noise is mean-zero.
-    const shrinkHalf = row.sport === "ncaaf" ? 1.0 : 0;
-    const homeTrack = row.projectedHome - (row.home - shrinkHalf);
-    const awayTrack = row.projectedAway - (row.away + shrinkHalf);
+    // Live path: no NCAAF research residual/shrink unless ncaafResearchCalibration.
     assert.ok(
-      Math.abs(homeTrack) <= 1.25,
-      `${row.sport} ${row.band} home ${row.projectedHome} vs shrunk input ${row.home - shrinkHalf} (delta ${homeTrack})`,
+      Math.abs(row.homeDelta) <= 1.25,
+      `${row.sport} ${row.band} home ${row.projectedHome} vs input ${row.home} (delta ${row.homeDelta})`,
     );
     assert.ok(
-      Math.abs(awayTrack) <= 1.25,
-      `${row.sport} ${row.band} away ${row.projectedAway} vs shrunk input ${row.away + shrinkHalf} (delta ${awayTrack})`,
+      Math.abs(row.awayDelta) <= 1.25,
+      `${row.sport} ${row.band} away ${row.projectedAway} vs input ${row.away} (delta ${row.awayDelta})`,
     );
     if (row.home >= 12) {
       assert.ok(
@@ -188,14 +185,13 @@ test("10k draws track low, average, and high points per game", () => {
   );
 
   const collegeAvg = rows.find((r) => r.sport === "ncaaf" && r.band === "average")!;
-  // After −1 home shrink from 24 PPG, projected home should sit near 23.
   assert.ok(
-    collegeAvg.projectedHome > 21 && collegeAvg.projectedHome < 25,
-    `college 24 PPG (post-shrink) projected ${collegeAvg.projectedHome}`,
+    collegeAvg.projectedHome > 22 && collegeAvg.projectedHome < 26,
+    `college 24 PPG projected ${collegeAvg.projectedHome}`,
   );
 
   const payload = {
-    engine: "ppg-per-drive-v1.1",
+    engine: "ppg-per-drive-v1",
     simulations: sims,
     tolerancePoints: 1.25,
     rows,
@@ -238,8 +234,8 @@ test("HTTP registry and in-process model id share the corrected drive engine", (
   assert.match(college?.simModelLabel ?? "", /ppg-per-drive-v1/);
   assert.equal(viaRegistry?.simModel, "nfl-drive");
   assert.equal(college?.simModel, "nfl-drive");
-  assert.equal(viaRegistry?.engineVersion, "ppg-per-drive-v1.1");
-  assert.equal(college?.engineVersion, "ppg-per-drive-v1.1");
+  assert.equal(viaRegistry?.engineVersion, "ppg-per-drive-v1");
+  assert.equal(college?.engineVersion, "ppg-per-drive-v1");
   const httpBody = JSON.parse(
     JSON.stringify({
       sport: "nfl",
@@ -248,13 +244,13 @@ test("HTTP registry and in-process model id share the corrected drive engine", (
       ...viaRegistry,
     }),
   ) as { engineVersion?: string; sport?: string };
-  assert.equal(httpBody.engineVersion, "ppg-per-drive-v1.1");
+  assert.equal(httpBody.engineVersion, "ppg-per-drive-v1");
   assert.equal(gameDrawEngineAccepted(httpBody, "nfl"), true);
   const inProcess = JSON.parse(
     JSON.stringify(stampedTeamGameOutcome("ncaaf", college!)),
   ) as { engineVersion?: string; sport?: string };
   assert.equal(inProcess.sport, "ncaaf");
-  assert.equal(inProcess.engineVersion, "ppg-per-drive-v1.1");
+  assert.equal(inProcess.engineVersion, "ppg-per-drive-v1");
   assert.equal(gameDrawEngineAccepted(inProcess, "ncaaf"), true);
   assert.equal(gameDrawEngineAccepted({ ...httpBody, engineVersion: undefined }, "nfl"), false);
   assert.ok(Math.abs((viaRegistry?.homeProjectedScore ?? 0) - 21) < 4);

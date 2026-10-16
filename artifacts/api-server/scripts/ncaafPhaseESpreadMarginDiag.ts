@@ -134,6 +134,7 @@ function main() {
     const line = Number(close.closeSpreadHome);
     const result = runNflDriveSim({
       sport: "ncaaf",
+      ncaafResearchCalibration: true,
       simulations: SIMS,
       random: rng,
       home: {

@@ -18,6 +18,12 @@ export type SportSimContext = {
   retainOutcomes?: boolean;
   /** When set, drive sims draw from this stream so a holdout can be replayed. */
   random?: () => number;
+  /**
+   * NCAAF research-only residual + home-margin shrink (v1.1-research).
+   * Must stay unset/false on the live NFL and product NCAAF path so the
+   * verified `ppg-per-drive-v1` stamp and draws are unchanged.
+   */
+  ncaafResearchCalibration?: boolean;
 };
 
 export type SportSimModelId =

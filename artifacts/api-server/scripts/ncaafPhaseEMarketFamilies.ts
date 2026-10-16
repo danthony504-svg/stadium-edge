@@ -223,6 +223,7 @@ function main(): number {
 
     const result = runNflDriveSim({
       sport: "ncaaf",
+      ncaafResearchCalibration: true,
       simulations: SIMS,
       random: rng,
       home: {
@@ -260,6 +261,7 @@ function main(): number {
     // Second sim for over@projected mean (same seed stream continues)
     const totalResult = runNflDriveSim({
       sport: "ncaaf",
+      ncaafResearchCalibration: true,
       simulations: Math.min(SIMS, 2500),
       random: rng,
       home: {

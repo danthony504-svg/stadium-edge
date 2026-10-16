@@ -257,6 +257,7 @@ function main(): number {
 
     const result = runNflDriveSim({
       sport: "ncaaf",
+      ncaafResearchCalibration: true,
       simulations: SIMS,
       random: rng,
       home: {

@@ -264,6 +264,7 @@ function simulateHoldout(
       }
       const result = runNflDriveSim({
         sport: "ncaaf",
+        ncaafResearchCalibration: true,
         simulations: SIMS,
         random: rng,
         home: {

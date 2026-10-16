@@ -25,7 +25,9 @@ import {
   FOOTBALL_DRIVE_TD_PPD_DIVISOR,
   FOOTBALL_NCAAF_HOME_MARGIN_SHRINK,
   FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD,
+  FOOTBALL_NCAAF_RESEARCH_ENGINE_VERSION,
   isCollegeFootballSport,
+  ncaafResearchCalibrationEnabled,
 } from "./footballDriveMatchup.js";
 
 /** Box–Muller using the sim RNG (no Math.random). */
@@ -72,6 +74,12 @@ function driveOutcome(pointsPerDrive: number, sport: string, rng: () => number):
 export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   const n = simCount(ctx);
   const college = isCollegeFootballSport(ctx.sport);
+  // Research residual/shrink: NCAAF + explicit opt-in only. NFL never enters.
+  const research =
+    college && ncaafResearchCalibrationEnabled(ctx.ncaafResearchCalibration);
+  const stamp = research
+    ? FOOTBALL_NCAAF_RESEARCH_ENGINE_VERSION
+    : FOOTBALL_DRIVE_ENGINE_VERSION;
   // Base means are points per game; opponent defense yards tilt when sample ≥ 2.
   const homeBase = teamMean(ctx.home.ptsFor, ctx.away.ptsAgainst, college ? 24 : 22);
   const awayBase = teamMean(ctx.away.ptsFor, ctx.home.ptsAgainst, college ? 24 : 22);
@@ -87,8 +95,8 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   );
   if (!Number.isFinite(homeOff) || !Number.isFinite(awayOff)) return null;
 
-  // NCAAF v1.1: pre-cutoff-locked home-margin shrink (untouched not used).
-  if (college && FOOTBALL_NCAAF_HOME_MARGIN_SHRINK > 0) {
+  // NCAAF research-only home-margin shrink (live path unchanged).
+  if (research && FOOTBALL_NCAAF_HOME_MARGIN_SHRINK > 0) {
     const half = FOOTBALL_NCAAF_HOME_MARGIN_SHRINK / 2;
     homeOff -= half;
     awayOff += half;
@@ -116,7 +124,7 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
   const rng = ctx.random ?? Math.random;
   const homeScores: number[] = [];
   const awayScores: number[] = [];
-  const residSd = college ? FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD : 0;
+  const residSd = research ? FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD : 0;
 
   for (let i = 0; i < n; i++) {
     let h = 0;
@@ -150,7 +158,7 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
     awayScores,
     {
       simModel: "nfl-drive",
-      simModelLabel: `${label} drive-by-drive (${FOOTBALL_DRIVE_ENGINE_VERSION})`,
+      simModelLabel: `${label} drive-by-drive (${stamp})`,
     },
     48,
   );

@@ -596,6 +596,7 @@ function main(): number {
 
     const result = runNflDriveSim({
       sport: "ncaaf",
+      ncaafResearchCalibration: true,
       simulations: SIMS,
       home: {
         ptsFor: homeIn.ptsFor,
@@ -765,9 +766,9 @@ function main(): number {
     selectionCutoff: CUTOFF,
     competitionScope:
       "Odds-listed FBS games in ncaaf-phase-e-closing-lines.json (matchable americanfootball_ncaaf names). FCS/unlisted excluded.",
-    engineStamp: "ppg-per-drive-v1.1",
+    engineStamp: "ppg-per-drive-v1.1-research",
     selectionRules: {
-      engine: "nfl-drive:ppg-per-drive-v1.1",
+      engine: "nfl-drive:ppg-per-drive-v1.1-research",
       form: "venue_split+L10 blend; chrono pre-kickoff only",
       prices:
         "Prefer Odds historical ~24h pre-kickoff cache (two-sided). Fixture fallback: home ML only + −home spread @ −110 (R1/R2 — no vig-free away ML invent).",
