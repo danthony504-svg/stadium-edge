@@ -1,8 +1,9 @@
 # Home shortcuts → Coach modes (pre-publish)
 
-**Status:** Code ready. **Not published.** Report-before-publish.  
+**Status:** **Published** to `preview` as update `01a1435b…` / group `9e0e9076…` (baked SHA `4c6c71ae…`).  
+See [`device-check-ota-01a1435b-4c6c71ae-preview.md`](./device-check-ota-01a1435b-4c6c71ae-preview.md).  
 **Production:** untouched. `.ota-production-freeze` **armed**.  
-**No** native build / server deploy / merge / freeze lift / OTA.
+**No** native build / server deploy / merge / freeze lift / production OTA.
 
 ---
 
