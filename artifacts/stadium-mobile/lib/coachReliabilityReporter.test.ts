@@ -201,6 +201,26 @@ test("buildCoachReliabilityBody distinguishes legit underfill vs freeze", () => 
   });
   assert.equal(freeze?.scanFailureCode, "ABSOLUTE_BUDGET");
 
+  // Budget race lost but full N/N ticket already assembled — not a freeze.
+  const fullAfterBudget = buildCoachReliabilityBody({
+    timedOut: true,
+    requestedLegCount: 5,
+    returnedLegCount: 5,
+    realOddsAvailable: true,
+    requestId: "greenfield-1792170950947",
+    affectedGame: "Penguins @ Avalanche",
+  });
+  assert.equal(fullAfterBudget, null);
+
+  const shortfallAfterBudget = buildCoachReliabilityBody({
+    timedOut: true,
+    requestedLegCount: 5,
+    returnedLegCount: 3,
+    realOddsAvailable: true,
+    requestId: "greenfield-short",
+  });
+  assert.equal(shortfallAfterBudget?.scanFailureCode, "ABSOLUTE_BUDGET");
+
   const ground = buildCoachReliabilityBody({
     scanFailureCode: "TEAM_ID_MAP_EMPTY",
     requestedLegCount: 5,
