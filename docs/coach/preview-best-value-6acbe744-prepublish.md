@@ -1,6 +1,7 @@
 # Preview tip prep — Best Value `view=value` + Longshots all-sports labels (`6acbe744`)
 
-**Status:** Authorized for **preview** publish (see publish record after export).  
+**Status:** **Published** to `preview` as update `01a14342…` / group `b5e561ef…` (baked SHA `13e4e5b9…`).  
+See [`device-check-ota-01a14342-13e4e5b9-preview.md`](./device-check-ota-01a14342-13e4e5b9-preview.md).  
 **Production:** untouched (embedded `4a0960e4…`). `.ota-production-freeze` **armed**.  
 **No** native build / server deploy / merge / freeze lift / production OTA.
 
@@ -92,12 +93,18 @@ See [`device-check-ota-01a14331-destinations.md`](./device-check-ota-01a14331-de
 
 ---
 
-## Publish gate (preview only — owner authorize)
+## Published (preview only)
 
-Do **not** publish until authorized. When authorized, export/publish from **`6acbe744`** (or a docs-fast-forward tip that includes it) to **`preview` only**, with forced `EXPO_PUBLIC_GIT_COMMIT` bake (same discipline as `03dd1116`).
+| Field | Value |
+|-------|--------|
+| Baked full SHA | `13e4e5b91b046cd3dc587f50e99bdb20d9ed9776` |
+| iOS update ID | `01a14342-33e9-7b8d-bd3f-7ddc4cf9dfdb` |
+| Update group | `b5e561ef-8742-422f-b2ec-d0c2e4ecc073` |
+| Runtime | `1.1.0` |
+| IPA | existing Build 79 / `9155c37b` |
 
-Out of scope until separately authorized:
+Out of scope (still blocked):
 
 - Production OTA / freeze lift  
 - Conflating this tip with Path A / passkeys startup sign-off  
-- Native rebuild / server deploy  
+- Native rebuild / server deploy / merge  
