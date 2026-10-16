@@ -84,7 +84,7 @@ Notable runtime behavior added on Coach mount: `takeCoachLaunch()` + `void sendR
 | H4: Ancestry gap vs PASS tip (missing `afcf638d` passkey native guard + OTA rollback harden) | **Strong structural finding** — `_layout` identical, but `getPasskeys()` / OTA impl differ; Build 79 has **no** `ClerkExpoPasskeys` |
 | H5: OTA apply / reload path amplifies second IPS | **Open** — matches ~0.3 s relaunch death |
 
-**Bottom line for republish:** Do **not** republish `c859c1ce`. Prefer recovery candidate `40f5b9f4` / group `d405e8b6` after log capture attempt — see recovery-candidate doc.
+**Bottom line for republish:** Do **not** republish `c859c1ce`. Fatal class for this failed tip: missing `ClerkExpoPasskeys` (see [`failed-c859c1ce-clerk-passkeys-fatal-evidence.md`](./failed-c859c1ce-clerk-passkeys-fatal-evidence.md)). Corrected production candidate (guard restored, **not published**): [`production-candidate-corrected-passkeys-guard.md`](./production-candidate-corrected-passkeys-guard.md). Oct 14 remains unattributed without its own fatal log.
 
 ---
 

@@ -16,7 +16,8 @@ Prior release tip `c859c1ce` = cherry-pick of shortcuts onto `100b2450` **withou
 
 ## Candidate composition (exact)
 
-**Working-tree tip on branch `cursor/prod-ota-home-shortcuts-8b51` after this prep** = failed tip ancestry **plus** restored working-tip guards from `40f5b9f4`:
+**Candidate git tip:** `03dd11160a0f6e6e91fa5046384f918844f76349` on branch `cursor/prod-ota-home-shortcuts-8b51`  
+= failed tip ancestry (`c859c1ce` shortcuts on `100b2450`) **plus** restored working-tip guards from `40f5b9f4`:
 
 ### A. Home shortcut surface (unchanged from `c859c1ce` / `40f5b9f4` identical files)
 
