@@ -54,7 +54,7 @@ Artifacts: `ncaaf-tuning-team-strength-diag.json`, `ncaaf-tuning-margin-bins.jso
 
 See [`ncaaf-historical-retrieval-2025-2026.md`](./ncaaf-historical-retrieval-2025-2026.md).
 
-**Concrete next step:** inject `ODDS_API_KEY` + approve **≈3 540 credits** for TUNING close `h2h,spreads` (177 minute buckets × 20). Defer FINAL_EVAL Odds (~3 120) and 2026 (~3 400) until TUNING market criteria are scored.
+**Concrete next step:** inject `ODDS_API_KEY` + approve **hard cap 4 500 credits** (base **3 540** = 177 × 20) for TUNING close `h2h,spreads`. Dollar impact if already on a paid plan: **$0** incremental invoice (quota value ≈ $5.31 on 20K/$30). Defer FINAL_EVAL Odds (~3 120) and 2026 (~3 400) until TUNING market criteria are scored. Params + M3/S2 locked in [`ncaaf-model-params-locked.md`](./ncaaf-model-params-locked.md).
 
 ## Engine isolation
 

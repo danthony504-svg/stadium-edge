@@ -2,7 +2,8 @@
 
 **Locked:** 2026-10-16 · branch `cursor/ncaaf-phase-e-restore-8b51`  
 **Rule:** Criteria are locked **before** examining any 2025 / completed-2026 scorecards. Do not edit thresholds after seeing numbers.  
-**Live gate:** `NCAAF_GAME_LINE_SIM_VALIDATED = false`. Research path only (`ppg-per-drive-v1.1-research` opt-in).
+**Live gate:** `NCAAF_GAME_LINE_SIM_VALIDATED = false`. Research path only (`ppg-per-drive-v1.1-research` opt-in).  
+**Model params:** Locked in [`ncaaf-model-params-locked.md`](./ncaaf-model-params-locked.md) (residual 14.5, shrink 2.0, gap scale default 1.0, blend 0.5) **before** Odds close retrieval.
 
 ## Data availability (feasibility only — no retrieval yet)
 
@@ -78,8 +79,8 @@ Criteria **LOCKED**.
 | Split | Fixture status (2026-10-16) |
 |-------|------------------------------|
 | TUNING ESPN games | **Present** — `ncaaf-tuning-2025-w1-7-games.json` (471) — score-only diags allowed |
-| TUNING Odds closes | **Absent** — do not claim M3/S* PASS |
+| TUNING Odds closes | **Absent** — dry-run only (3540 base / **4500** hard cap); do not claim M3/S* PASS |
 | FINAL_EVAL games/closes | **Untouched** — not vendored; count-only probes only |
 | Odds historical retrieval | **Not performed** (`ODDS_API_KEY` unset) |
 
-Score-only TUNING diagnostics must not rewrite these thresholds.
+Score-only TUNING diagnostics must not rewrite these thresholds. **M3** and **S2** remain frozen regardless of future close-joined results until a new explicit lock.

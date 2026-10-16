@@ -36,3 +36,7 @@ NFL with `ncaafResearchCalibration: true` still ignores residual (college check)
 | 2025 w8+ / completed 2026 | **FINAL_EVAL** — untouched (no eval fixtures written) |
 
 Failure analysis on USED 2024 is allowed (no residual/shrink re-lock). TUNING score-only sweeps may propose research levers (e.g. margin gap scale default 1.0); do not retune on FINAL_EVAL.
+
+## Closing lines = eval-only (no pregame feature leak)
+
+Historical closing snapshots joined for M3/S2 (and CLV close reference) are **evaluation inputs only**. They must not be written into pregame drive-sim / matchup feature vectors or live Coach product sim inputs. Residual/shrink/gap-scale math must not consume close prices when producing the probabilities scored against those closes. See [`ncaaf-model-params-locked.md`](./ncaaf-model-params-locked.md).
