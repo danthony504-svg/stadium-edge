@@ -1,47 +1,49 @@
 # Tip vs verified `ppg-per-drive-v1` — reconcile (do not restore blindly)
 
-**Tip branch:** `cursor/prop-defense-index-perside-8b51` (from college-audit lineage).  
-**Verified pack SHA (elsewhere):** `1f9cc04a` / dual holdout pin `014ec192`.  
+**Tip branch:** `cursor/prop-defense-index-perside-8b51` @ `540c5a28`.  
+**Verified pack SHA:** `1f9cc04a` / dual holdout pin `014ec192`.  
+**Live Render (verified 2026-10-16):** `deploymentSha=ddeb4733348b98d7112748edc19c7e06fc6fc99a` → game-outcome `engineVersion=ppg-per-drive-v1`.  
+**Prod OTA tip (frozen):** `b666165e`.  
 **Constraints:** NCAAF game lines stay P0-blocked. No publish / deploy. Do not cherry-pick engine blindly.
 
-## Verdict
+## Verdict (updated after live probe)
 
-| Surface | Tip today | Verified pack (`1f9cc04a`) | Action |
-|---------|-----------|----------------------------|--------|
-| Server `nflDriveSim` | Hard-cap TD/FG **0.42 / 0.28**; means fed as ppd; **no** defense tilt | Soft rates + `footballDriveMatchup`; PPG→drives→ppd; stamp `ppg-per-drive-v1` | **Missing on tip server** — do not flip NCAAF until ported + re-holdout |
-| Server `gameSimEngineVersion` / stamp reject | Absent / no football stamp gate | `FOOTBALL_DRIVE_ENGINE_VERSION = "ppg-per-drive-v1"`; reject unstamped draws | **Missing on tip server** |
-| Mobile Coach P0 `NCAAF_GAME_LINE_SIM_VALIDATED` | `false` (armed) | `false` (armed) | **Aligned — keep false** |
-| Mobile early-exit + blocked-sim copy | Present (college audit) | Present on football-unit lineage | **Tip has honesty path** |
-| Mobile stamp reject before cache/grade | Not on tip | Client rejects missing/wrong `engineVersion` | **Missing on tip mobile** — only needed after server ships stamp |
-| Phase E holdout harness/fixtures | Absent | Present off-tip | **Missing** — see `ncaaf-game-line-missing-evidence.md` |
+| Surface | Tip branch today | Live Render `ddeb4733` | Verified pack | Action |
+|---------|------------------|------------------------|---------------|--------|
+| Server `nflDriveSim` | Hard-cap TD/FG **0.42 / 0.28**; no tilt | Soft rates + matchup + PPG→drives | Same as Render | **Missing on tip server** — deploying tip API would **regress** live |
+| Server `engineVersion` stamp | Absent on tip tree | **`ppg-per-drive-v1`** on NFL game-outcome | Same | **Live OK**; tip lacks modules |
+| Mobile stamp reject | Absent (tip + prod OTA) | Present on Render mobile tree | Present | **Missing on tip/OTA mobile** — add after preview wiring |
+| Mobile per-opp prop `defenseIndex` | **Present (this PR)** | Absent | N/A (props) | Tip-only win; needs server dist-cache key fix for full trust |
+| `NCAAF_GAME_LINE_SIM_VALIDATED` | `false` | `false` | `false` | **Aligned — keep false** |
 
-## What is missing from **live server** (vs pack)
+## What is missing from **tip branch server** (vs live / pack)
 
-If production Render still tracks tip-like hard-capped `nfl-drive` (confirm via `deploymentSha` / healthz):
+1. Soft-monotonic rate map (`footballDriveScoringRates` past knee)  
+2. `applyDefenseTiltToOffenseMean` (±8%, sample≥2)  
+3. PPG / drives conversion (`footballDriveRateInput` → `ppg / n`)  
+4. Engine stamp modules (`footballDriveMatchup`, `gameSimEngineVersion`)  
+5. College-aware drive defaults where pack differs  
 
-1. Soft-monotonic rate map (`footballDriveScoringRates` past knee)
-2. `applyDefenseTiltToOffenseMean` (±8%, sample≥2)
-3. PPG / drives conversion (`footballDriveRateInput` → `ppg / n`)
-4. Engine stamp on game-outcome responses
-5. College-aware drive defaults (where pack differs)
+**Do not** copy onto tip blindly — port/rebase onto `ddeb4733` (or merge pack) and re-holdout on the shipping stamp.
 
-**Do not** restore these onto tip by blind copy — unit-mismatch PASS was withdrawn once; any port needs a fresh holdout on the shipping stamp.
+## What is missing from **tip / prod-OTA mobile** (vs Render mobile tree)
 
-## What is missing from **mobile** (vs pack)
+1. Client `gameDrawEngineAccepted` / `gameSimEngineVersion` stamp reject  
+2. Optional: Phase E gate tests beside the flag  
 
-1. Client `COACH_GAME_SIM_ENGINE_VERSION` / stamp reject (only after server emits stamp)
-2. Optional: Phase E gate tests living beside the flag
-3. **Not missing for this task:** per-opponent `defenseIndex` for **props** (fixed on this branch)
+## Live server gap (props) — remaining before preview trust
+
+`propDistributionCacheKey` omits `defenseIndex`. Extreme boost then suppress for the same player returned identical cached means. Per-opp batches help different players; same-player/context changes can cross-contaminate. Fix dist key (or bake matchup into fingerprint) before preview publication relies on per-opp defense under warm cache.
 
 ## What tip already has (keep)
 
-- Prop MC `defenseIndexByFamily` / MLB `weatherImpact` wiring
-- Per-opponent defense keys (`game@@opp:teamId`) — this PR
-- College P0 ask-only exit + clarification copy (preview-ready)
-- `NCAAF_GAME_LINE_SIM_VALIDATED = false`
+- Prop MC wiring + per-opponent defense keys (`game@@opp:teamId`)  
+- College P0 ask-only exit + clarification copy  
+- `NCAAF_GAME_LINE_SIM_VALIDATED = false`  
+- FB weather/injury proposals unit-tested, not live  
 
 ## Forbidden
 
-- Flip `NCAAF_GAME_LINE_SIM_VALIDATED` to return college team-market picks
-- Publish production OTA / deploy API from this audit
-- Assume off-tip E2a numeric PASS applies to tip hard-cap engine
+- Flip `NCAAF_GAME_LINE_SIM_VALIDATED` to return college team-market picks  
+- Publish production OTA / deploy tip API (would regress `ppg-per-drive-v1`)  
+- Assume tip hard-cap engine matches off-tip holdout PASS numbers  
