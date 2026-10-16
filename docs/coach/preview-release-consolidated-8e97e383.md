@@ -1,6 +1,6 @@
 # Consolidated preview release — review only
 
-**Full tip SHA:** *(filled after commit of this package)*  
+**Full tip SHA:** `78f8370b3263d45999304a440c629a2f0067aa0d`  
 **Code tip (matchup invariants):** `8e97e3839873324558f441de9ba13c6f32df26f4`  
 **Branch:** `cursor/coach-players-only-kb-8b51` · PR #741  
 **Status:** Prepared for preview review — **no publication, deploy, merge, or native build**
