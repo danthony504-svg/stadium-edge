@@ -40,8 +40,7 @@ import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
   type CoachTicketStyle,
   type QualityTierGrade,
-  legHasPositiveEvForValueStyle,
-  legQualifiesForLongshotStyle,
+  legAllowedForTicketStyle,
   poolRoleAtMinGrade,
   qualityTiersForStyle,
 } from "./coachTicketQualityTiers.ts";
@@ -220,14 +219,7 @@ function qualifyingScoredLegs(
       continue;
     }
     const next = { ...leg, pick: tagged };
-    // Best Value: only seat qualified positive-EV legs — honest shortfall otherwise.
-    if (opts?.ticketStyle === "value" && !legHasPositiveEvForValueStyle(next)) {
-      continue;
-    }
-    // Longshots / lottery: plus-money floor among qualified — no heavy chalk filler.
-    if (opts?.ticketStyle === "longshot" && !legQualifiesForLongshotStyle(next)) {
-      continue;
-    }
+    if (!legAllowedForTicketStyle(next, opts?.ticketStyle)) continue;
     out.push(next);
   }
   return out;
@@ -363,7 +355,10 @@ function pickDiverseLegsFromPool(
   if (want <= 0) return [];
   const available = pool.filter((row) => {
     const fp = pickLegFingerprint(row.pick);
-    return !used.has(fp) && boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
+    if (used.has(fp)) return false;
+    if (boardLegPoolRole(row.pick, row.pick.finalAiScore) == null) return false;
+    if (!legAllowedForTicketStyle(row, config.ticketStyle)) return false;
+    return true;
   });
   const ranked = sortBoardLegsForRank(available, config.seed, config.ticketStyle);
   const rotated = rotateNearEqualBands(ranked, config.bandOffset, config.seed);
@@ -519,6 +514,8 @@ function tryAppendBackfillLeg(
   config: AssemblyConfig,
   fillTier?: QualityTierGrade,
 ): ParsedPick[] | null {
+  // Defense in depth: style narrows apply on backfill/replacement too.
+  if (!legAllowedForTicketStyle(row, config.ticketStyle)) return null;
   const thinOnTicket = current.filter(
     (p) => p.isProp && isThinPropStatMarket(p.market),
   ).length;
@@ -575,6 +572,7 @@ function backfillDiverseTicket(
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
         if (used.has(fp)) continue;
+        if (!legAllowedForTicketStyle(row, config.ticketStyle)) continue;
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
         if (!role) continue;
         const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config);
@@ -600,8 +598,7 @@ function backfillAtQualityTier(
 
   const tierLegs = allScored.filter((leg) => {
     if (poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, minGrade) == null) return false;
-    if (config.ticketStyle === "value" && !legHasPositiveEvForValueStyle(leg)) return false;
-    if (config.ticketStyle === "longshot" && !legQualifiesForLongshotStyle(leg)) return false;
+    if (!legAllowedForTicketStyle(leg, config.ticketStyle)) return false;
     return true;
   });
   const pools = partitionScoredLegsByCategory(tierLegs);

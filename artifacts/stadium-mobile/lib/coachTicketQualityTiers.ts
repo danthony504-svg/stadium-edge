@@ -115,6 +115,25 @@ export function legQualifiesForLongshotStyle(leg: {
   return odds != null && Number.isFinite(odds) && odds >= LONGSHOT_MIN_AMERICAN_ODDS;
 }
 
+/**
+ * Style-specific seating narrow for already-qualified legs.
+ * Used by primary pools AND backfill/replacement so minus-money chalk
+ * cannot re-enter a longshot ticket through tiered fill.
+ */
+export function legAllowedForTicketStyle(
+  leg: {
+    evPct?: number | null;
+    edgePct?: number | null;
+    pick?: { odds?: number | null } | null;
+    odds?: number | null;
+  },
+  ticketStyle?: string | null,
+): boolean {
+  if (ticketStyle === "value") return legHasPositiveEvForValueStyle(leg);
+  if (ticketStyle === "longshot") return legQualifiesForLongshotStyle(leg);
+  return true;
+}
+
 export function qualityTiersForStyle(style: CoachTicketStyle): readonly QualityTierGrade[] {
   return TICKET_STYLE_CONFIG[style].tiers;
 }

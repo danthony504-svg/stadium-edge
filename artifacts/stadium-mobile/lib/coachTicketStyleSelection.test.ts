@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { parlayAmerican } from "./format.ts";
 import {
+  legAllowedForTicketStyle,
   legHasPositiveEvForValueStyle,
   legQualifiesForLongshotStyle,
   LONGSHOT_MIN_AMERICAN_ODDS,
@@ -93,4 +95,39 @@ test("screenshot lead-leg alone cannot establish lottery selection or combined o
   assert.equal(incomplete.length < 2, true);
   // If someone did combine only that chalk leg, price stays −575 — still not lottery.
   assert.equal(parlayAmerican(knownLead), -575);
+});
+
+test("legAllowedForTicketStyle blocks minus-money on longshot (incl. backfill gate)", () => {
+  assert.equal(legAllowedForTicketStyle({ odds: -575 }, "longshot"), false);
+  assert.equal(legAllowedForTicketStyle({ odds: -110 }, "longshot"), false);
+  assert.equal(legAllowedForTicketStyle({ odds: 100 }, "longshot"), true);
+  assert.equal(legAllowedForTicketStyle({ odds: 450 }, "longshot"), true);
+  // Non-longshot styles do not apply the plus-money floor.
+  assert.equal(legAllowedForTicketStyle({ odds: -575 }, "balanced"), true);
+  assert.equal(legAllowedForTicketStyle({ odds: -575 }, "safe"), true);
+  assert.equal(legAllowedForTicketStyle({ odds: -575 }, "value"), false);
+});
+
+test("backfill/replacement helpers refuse minus-money under longshot style", () => {
+  const srcCombos = readFileSync(
+    new URL("./coachTicketCombinations.ts", import.meta.url),
+    "utf8",
+  );
+  const srcStaging = readFileSync(
+    new URL("./ticketStaging.ts", import.meta.url),
+    "utf8",
+  );
+  // Combinator: qualify filter, tryAppendBackfillLeg, pickDiverseLegsFromPool,
+  // backfillDiverseTicket, backfillAtQualityTier all gate on style.
+  assert.match(srcCombos, /legAllowedForTicketStyle\(row,\s*config\.ticketStyle\)/);
+  assert.match(srcCombos, /legAllowedForTicketStyle\(leg,\s*config\.ticketStyle\)/);
+  assert.match(srcCombos, /legAllowedForTicketStyle\(next,\s*opts\?\.ticketStyle\)/);
+  assert.match(srcCombos, /tryAppendBackfillLeg/);
+  assert.match(srcCombos, /backfillDiverseTicket/);
+  assert.match(srcCombos, /backfillAtQualityTier/);
+  // Staging: primary pool filter, greedy/select loops, tryAppend, props backfill.
+  assert.match(srcStaging, /legAllowedForTicketStyle\(row,\s*ticketStyle\)/);
+  assert.match(srcStaging, /legAllowedForTicketStyle\(next,\s*opts\?\.ticketStyle\)/);
+  assert.match(srcStaging, /applyCapAndBackfillToTarget\([\s\S]*ticketStyle/);
+  assert.match(srcStaging, /tieredBackfillStagedTicket/);
 });

@@ -43,10 +43,7 @@ import {
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
-import {
-  legHasPositiveEvForValueStyle,
-  legQualifiesForLongshotStyle,
-} from "./coachTicketQualityTiers.ts";
+import { legAllowedForTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   pickIsAiRecommended,
@@ -494,6 +491,7 @@ function applyCapAndBackfillToTarget(
   target: number,
   pool: BoardScoredLeg[],
   legsPerGameCap?: number | null,
+  ticketStyle?: CoachTicketStyle | null,
 ): ParsedPick[] {
   let current = capThinStatMarketsOnTicket(picks, target);
   if (current.length >= target) return current.slice(0, target);
@@ -503,7 +501,9 @@ function applyCapAndBackfillToTarget(
   const maxThin = maxLegsPerThinStatMarket(target);
   const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
   const maxProps = maxPropsPerGame(target);
-  const ranked = [...pool].sort((a, b) => {
+  const ranked = [...pool]
+    .filter((row) => legAllowedForTicketStyle(row, ticketStyle))
+    .sort((a, b) => {
     const aThin = a.pick.isProp && isThinPropStatMarket(a.pick.market) ? 1 : 0;
     const bThin = b.pick.isProp && isThinPropStatMarket(b.pick.market) ? 1 : 0;
     if (thinOnTicket >= maxThin && aThin !== bThin) return aThin - bThin;
@@ -514,6 +514,7 @@ function applyCapAndBackfillToTarget(
     if (current.length >= target) break;
     const fp = pickLegFingerprint(row.pick);
     if (used.has(fp)) continue;
+    if (!legAllowedForTicketStyle(row, ticketStyle)) continue;
     const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
     if (!role) continue;
     if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
@@ -620,14 +621,7 @@ function qualifyingScoredLegs(
     ) {
       continue;
     }
-    // Best Value: only seat qualified positive-EV legs — honest shortfall otherwise.
-    if (opts?.ticketStyle === "value" && !legHasPositiveEvForValueStyle(next)) {
-      continue;
-    }
-    // Longshots / lottery: plus-money floor among qualified — no heavy chalk filler.
-    if (opts?.ticketStyle === "longshot" && !legQualifiesForLongshotStyle(next)) {
-      continue;
-    }
+    if (!legAllowedForTicketStyle(next, opts?.ticketStyle)) continue;
     out.push(next);
   }
   return out;
@@ -737,6 +731,7 @@ function applyBalancedCapAndBackfill(
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
         if (used.has(fp)) continue;
+        if (!legAllowedForTicketStyle(row, ticketStyle)) continue;
         if (wouldRepeatMarketLadder(row.pick, current)) continue;
         if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
@@ -1020,7 +1015,13 @@ export function buildStagedTicketFromScan(
     };
   });
 
-  let finalPicks = applyCapAndBackfillToTarget(selected.slice(0, target), target, qualifying);
+  let finalPicks = applyCapAndBackfillToTarget(
+    selected.slice(0, target),
+    target,
+    qualifying,
+    undefined,
+    ticketStyle,
+  );
   if (finalPicks.length < target) {
     // Only pre-qualified legs — never resurrect from raw scored.
     finalPicks = tieredBackfillStagedTicket(
