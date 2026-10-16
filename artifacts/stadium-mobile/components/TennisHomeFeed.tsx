@@ -141,7 +141,7 @@ export function TennisHomeFeed({
   const refreshing = oddsQ.isFetching || gamesQ.isFetching || flagsQ.isFetching;
 
   const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
+    markCoachHomeLaunch({ autoMsg: msg, hideBubble: silent, freshThread: true });
     router.push({
       pathname: "/coach",
       params: { autoMsg: msg, send: "1", ts: String(Date.now()) },

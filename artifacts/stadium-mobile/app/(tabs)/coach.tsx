@@ -11,6 +11,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -81,7 +82,6 @@ import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
 import { DEFAULT_SPORTS } from "@/lib/sports";
-import { useRouter } from "expo-router";
 
 type Role = "user" | "assistant";
 
@@ -112,6 +112,12 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    prefill?: string;
+    autoMsg?: string;
+    send?: string;
+    ts?: string;
+  }>();
   const { isSignedIn } = useAuth();
   const sub = useSubscriptionOptional();
   const coachPremiumUnlocked = !!sub?.hydrated && !!sub.coachPremiumUnlocked;
@@ -127,6 +133,8 @@ export default function CoachScreen() {
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
+  const autoSentRef = useRef<string | null>(null);
+  const sendRef = useRef<(raw: string) => Promise<void>>(async () => {});
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const sendGenRef = useRef(0);
@@ -802,9 +810,26 @@ export default function CoachScreen() {
     [attachedImages, busy, finishSession, patchAssistant, unlockComposer, coachPremiumUnlocked],
   );
 
+  // Keep a stable send handle for Home/deep-link auto-send (avoids effect churn).
+  useEffect(() => {
+    sendRef.current = send;
+  }, [send]);
+
+  /**
+   * Home Hot Picks / Easy Money (and Slip/Fantasy deep links) push
+   * autoMsg+send=1. Tab navigations can drop params — takeCoachLaunch() keeps
+   * the message. Without this effect, shortcuts open a blank Coach and look dead.
+   */
   useEffect(() => {
     const launch = takeCoachLaunch();
     if (launch?.freshThread) {
+      abortRef.current?.abort();
+      clearPendingTicketPicks(pendingTicketPicksRef);
+      if (sessionRef.current.outcome === "open") {
+        latchCoachSession(sessionRef.current, "failed");
+      }
+      sessionRef.current = createCoachSession();
+      setBusy(false);
       setMessages([
         {
           id: "welcome",
@@ -812,8 +837,29 @@ export default function CoachScreen() {
           text: "Ask for a parlay, value bet, or matchup. Picks are grounded in tonight's real odds — never invented.",
         },
       ]);
+      setDraft("");
+      setAttachedImages([]);
     }
-  }, []);
+
+    const autoMsg =
+      (launch?.autoMsg && String(launch.autoMsg).trim()) ||
+      (params.send === "1"
+        ? String(params.autoMsg ?? "").trim() || null
+        : null);
+
+    // autoMsg + send never linger in the composer; prefill-only fills it.
+    if (autoMsg || params.send === "1") {
+      setDraft("");
+    } else if (params.prefill) {
+      setDraft(String(params.prefill));
+    }
+
+    if (!autoMsg) return;
+    const token = String(params.ts ?? launch?.autoMsg ?? autoMsg);
+    if (autoSentRef.current === token) return;
+    autoSentRef.current = token;
+    void sendRef.current(autoMsg);
+  }, [params.autoMsg, params.send, params.ts, params.prefill]);
 
   useEffect(() => {
     return () => {
