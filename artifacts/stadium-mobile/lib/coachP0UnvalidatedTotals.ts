@@ -21,6 +21,19 @@
  */
 export const NCAAF_GAME_LINE_SIM_VALIDATED = false;
 
+/**
+ * Research-only unlock for isolated Coach delivery exercises.
+ * Requires BOTH env vars; never set in product/OTA builds.
+ * Does not change NCAAF_GAME_LINE_SIM_VALIDATED (must stay false until Phase E).
+ */
+export function ncaafIsolatedResearchUnlockActive(): boolean {
+  if (typeof process === "undefined" || !process.env) return false;
+  return (
+    process.env.NCAAF_ISOLATED_COACH_UNLOCK === "1" &&
+    process.env.NCAAF_ISOLATED_COACH_UNLOCK_ACK === "research-only-not-product"
+  );
+}
+
 /** Sports whose team-scoring engines are unvalidated for totals (P0). */
 export const P0_UNVALIDATED_SCORING_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
 
@@ -271,6 +284,13 @@ export function isP0UnvalidatedNcaafGameLineMarket(pick: P0PickInput): boolean {
   if (NCAAF_GAME_LINE_SIM_VALIDATED && P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) {
     return false;
   }
+  // Isolated research harness only — product constant stays false.
+  if (
+    ncaafIsolatedResearchUnlockActive() &&
+    P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)
+  ) {
+    return false;
+  }
   return P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport);
 }
 
@@ -348,6 +368,7 @@ export function ncaafGameLineAskIsP0Blocked(opts: {
   lockedSports: readonly string[] | null | undefined;
 }): boolean {
   if (NCAAF_GAME_LINE_SIM_VALIDATED) return false;
+  if (ncaafIsolatedResearchUnlockActive()) return false;
   if (!opts.gameLinesOnly) return false;
   const sports = (opts.lockedSports ?? [])
     .map((s) => String(s ?? "").toLowerCase().trim())

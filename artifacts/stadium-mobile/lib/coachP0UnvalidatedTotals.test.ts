@@ -645,6 +645,33 @@ test("P0 bypass seal: final-ticket lean / top-up / post-lean reject sealed vecto
   assert.ok(lean.dropped >= vectors.length);
 });
 
+test("isolated research unlock stays off unless both env vars are set", async () => {
+  const mod = await import("./coachP0UnvalidatedTotals.ts");
+  assert.equal(mod.NCAAF_GAME_LINE_SIM_VALIDATED, false);
+  const prevU = process.env.NCAAF_ISOLATED_COACH_UNLOCK;
+  const prevA = process.env.NCAAF_ISOLATED_COACH_UNLOCK_ACK;
+  delete process.env.NCAAF_ISOLATED_COACH_UNLOCK;
+  delete process.env.NCAAF_ISOLATED_COACH_UNLOCK_ACK;
+  assert.equal(mod.ncaafIsolatedResearchUnlockActive(), false);
+  assert.equal(
+    mod.ncaafGameLineAskIsP0Blocked({ gameLinesOnly: true, lockedSports: ["ncaaf"] }),
+    true,
+  );
+  process.env.NCAAF_ISOLATED_COACH_UNLOCK = "1";
+  assert.equal(mod.ncaafIsolatedResearchUnlockActive(), false);
+  process.env.NCAAF_ISOLATED_COACH_UNLOCK_ACK = "research-only-not-product";
+  assert.equal(mod.ncaafIsolatedResearchUnlockActive(), true);
+  assert.equal(
+    mod.ncaafGameLineAskIsP0Blocked({ gameLinesOnly: true, lockedSports: ["ncaaf"] }),
+    false,
+  );
+  assert.equal(mod.NCAAF_GAME_LINE_SIM_VALIDATED, false);
+  if (prevU === undefined) delete process.env.NCAAF_ISOLATED_COACH_UNLOCK;
+  else process.env.NCAAF_ISOLATED_COACH_UNLOCK = prevU;
+  if (prevA === undefined) delete process.env.NCAAF_ISOLATED_COACH_UNLOCK_ACK;
+  else process.env.NCAAF_ISOLATED_COACH_UNLOCK_ACK = prevA;
+});
+
 test("ncaafGameLineAskIsP0Blocked: bare college game-lines-only while unvalidated", () => {
   assert.equal(NCAAF_GAME_LINE_SIM_VALIDATED, false);
   const ncaafSides = parseCoachAskMarketConstraint(
