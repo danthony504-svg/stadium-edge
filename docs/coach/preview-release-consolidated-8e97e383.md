@@ -1,6 +1,6 @@
 # Consolidated preview release — review only
 
-**Full tip SHA:** `78f8370b3263d45999304a440c629a2f0067aa0d`  
+**Branch tip SHA:** *(stamp after commit)*  
 **Code tip (matchup invariants):** `8e97e3839873324558f441de9ba13c6f32df26f4`  
 **Branch:** `cursor/coach-players-only-kb-8b51` · PR #741  
 **Status:** Prepared for preview review — **no publication, deploy, merge, or native build**
@@ -28,65 +28,94 @@
 
 ---
 
-## Focused test results (this run)
+## Focused test results
 
 | Suite | Result |
 |-------|--------|
 | `simHitMatchupAdjust.test.ts` (paired, push, alt mono, alreadyApplied) | **4/4 pass** |
-| `footballOppContextPipeline.verify.test.ts` (identity, one-apply, alts, board, recovery, cold/warm, Bo Nix) | **9/9 pass** |
-| `footballRushDefense.test.ts` (incl. team-defense warm cache) | **pass** (bundled run **45/45** with pipeline + adjust) |
-| `api-server` `coachReliability.test.ts` (P0 digest-only, 3-of-10 no page) | **18/18 pass** |
+| `footballOppContextPipeline.verify.test.ts` + rushDefense + adjust | **45/45 pass** |
+| `api-server` `coachReliability.test.ts` | **18/18 pass** |
 
-**Consistency check** (`adjusted-value-consistency.json`):
-
-| Check | Result |
-|-------|--------|
-| `finalAiScore.simHit` === adjusted (0.993) | ✓ |
-| `finalAiScore.rawSimHit` === raw (0.9705) | ✓ |
-| Edge from adjusted | ✓ |
-| `pickHasSimGrade` on adjusted | ✓ |
-| Qualification on adjusted | ✓ |
-| UI label === simulation factor display | ✓ |
-| Recovery `alreadyApplied` keeps same adjusted | ✓ |
-| Paired O+U+push sum | **1.000** |
+**Consistency:** grade / edge / qualification / UI share adjusted `0.993`; raw `0.9705` retained; paired O+U+push sum `1.000`.
 
 ---
 
-## Cold / warm Coach timing (identical fixtures)
+## Full-scan cold / warm walls (parent vs tip)
 
-Measured at code tip `8e97e383` on this agent host (not device wall-clock):
+Live ask `5 leg` via `buildCoachParlay` (`COACH_QA_RUN_PERF_MEASURE=1`), against **live** Render API. Cold = clear client context cache then scan; warm = immediate repeat. Agent host — not device.
 
-| Path | Cold | Warm | Notes |
-|------|-----:|-----:|-------|
-| Team-defense context cache (3→2 concurrent) | **28.3 ms** | **~0 ms** | 1 network fill; warm memory hit |
-| Scoring 200×6 markets (tip one-application) | — | **17.8 ms** | `oppMatchupAppliedToSim: true` |
-| Scoring 200×6 markets (parent double-count) | — | **13.1 ms** | tendency re-scored; tip still within 1.5×+50 gate |
+| Client SHA | Role | Cold | Warm | Legs |
+|------------|------|-----:|-----:|-----:|
+| `2444d2e4c8631a3fed655ee98a116c1bf157e216` | **Parent** (pre opp-context-once) | **61077 ms** (61.1 s) | **36963 ms** (37.0 s) | 5 / 5 |
+| `9705fc535b8166abb9182e23511fcff39c4fc0f7` | **Tip** (consolidated preview) | **45858 ms** (45.9 s) | **25440 ms** (25.4 s) | 5 / 5 |
+| Δ (tip − parent) | | **−15219 ms** | **−11523 ms** | |
 
-**Interpretation:** Cache cold/warm behavior unchanged (coalesce + hit). Tip scoring is same order as parent; no extra network or MC. Full device Coach ask walls were **not** re-measured in this turn (no live scan).
+Artifacts: `docs/coach/coach-fullscan-parent-vs-tip.json`, `/opt/cursor/artifacts/coach-fullscan-parent-2444d2e4.json`, `/opt/cursor/artifacts/coach-fullscan-tip-9705fc53.json`.
 
-Artifacts: `/opt/cursor/artifacts/coach-cold-warm-timing.json`, `adjusted-value-consistency.json`, `matchup-adjust-focused-tests.log`
+### Micro (cache / scoring only — not user-visible ask duration)
+
+| Path | Cold | Warm |
+|------|-----:|-----:|
+| Team-defense context cache | 28.3 ms | ~0 ms |
+| Scoring 200×6 markets (tip one-application) | — | 17.8 ms |
+| Scoring 200×6 markets (parent double-count) | — | 13.1 ms |
+
+---
+
+## API: live vs deploy SHA + exact diff
+
+| | SHA |
+|--|-----|
+| **Live Render** `GET /api/healthz` → `deploymentSha` | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
+| **Deploy this tip** (when approved) | branch tip including this package (see stamp below) |
+
+### Exact `artifacts/api-server` src/test delta vs live `ddeb4733`
+
+```
+ artifacts/api-server/src/lib/coachReliabilitySanitize.ts |   8 +
+ artifacts/api-server/src/lib/explicitMarketLock.ts       |  38 ++++-
+ artifacts/api-server/src/lib/gradePropMarket.ts          | 172 +++++++++++++++++++++
+ artifacts/api-server/src/routes/defense.ts               |  23 ++-
+ artifacts/api-server/src/routes/grade.ts                 |  39 +++--
+ artifacts/api-server/test/coachReliability.test.ts       |  44 ++++++
+ 6 files changed, 308 insertions(+), 16 deletions(-)
+```
+
+Full patch: [`docs/coach/api-diff-vs-live-ddeb4733.patch`](./api-diff-vs-live-ddeb4733.patch)
+
+**P0-only hunk** (required for digest ingest; live still lacks this):
+
+```diff
++    case "P0_UNVALIDATED_MARKETS":
++      return {
++        eventType: "parlay_underfilled",
++        failureReason: "legitimate_underfill",
++        alertable: false,
++      };
+```
+
+Also lands vs live: `gradePropMarket` (Tackles+Assists canonical grade), `explicitMarketLock` / `defense` / `grade` route wiring for D/ST + prop grade.
 
 ---
 
 ## Deploy scope (when approved — not now)
 
-| Surface | Needed? | Why |
-|---------|---------|-----|
-| **Client preview OTA** | **Yes** (primary) | `footballRushDefense`, `finalAiScore`, `pickScoreContext`, `ScoreBreakdown`, props-only ticket, P0 client map |
-| **API server deploy** | **Yes** (for P0 ingest + reliability parity) | `coachReliabilitySanitize` P0 → digest-only; without it, server still drops unmapped P0 POSTs |
+| Surface | Needed? | SHA / note |
+|---------|---------|------------|
+| **API server deploy** | **Yes** | Deploy tip SHA → confirm `/api/healthz` `deploymentSha` matches |
+| **Client preview OTA** | **Yes** (primary) | Same tip JS bundle to preview channel |
 | Native / EAS build | **No** | JS-only |
-| Production OTA | **No** | Preview review only; production freeze posture unchanged |
+| Production OTA | **No** | Preview review only |
 | Telegram / Build 78 | **No action** | Remain UNVERIFIED |
 
-**Recommendation:** Preview channel OTA **and** API deploy of this tip (or a tip that includes both) before device validation. Order: API first (ingest), then preview OTA (client). **Neither is authorized in this turn.**
+Order when approved: **API first**, then preview OTA. **Neither authorized in this turn.**
 
 ---
 
 ## Review gates before any publish
 
-- [ ] Human review of PR #741 consolidated tip
-- [ ] Confirm preview channel + runtime `1.1.0` / installed preview-build78 IPA
-- [ ] Device: paired O/U display, n=5 label, shortfall note, no ErrorRecovery loop
-- [ ] Do **not** treat Telegram silence or Build 78 as resolved
+- [ ] Human review of PR #741
+- [ ] After API deploy: `deploymentSha` equals tip
+- [ ] Device: paired O/U display, n=5 label; do not treat Telegram/Build 78 as resolved
 
 **No publication · no deploy · no merge · no native build**

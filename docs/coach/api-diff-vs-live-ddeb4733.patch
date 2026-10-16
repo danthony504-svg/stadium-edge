@@ -1,0 +1,437 @@
+diff --git a/artifacts/api-server/src/lib/coachReliabilitySanitize.ts b/artifacts/api-server/src/lib/coachReliabilitySanitize.ts
+index f87bd698..2545f6f7 100644
+--- a/artifacts/api-server/src/lib/coachReliabilitySanitize.ts
++++ b/artifacts/api-server/src/lib/coachReliabilitySanitize.ts
+@@ -312,6 +312,14 @@ export function mapScanFailureCode(code: string): {
+         failureReason: "legitimate_underfill",
+         alertable: false,
+       };
++    // P0 policy block (e.g. unvalidated NCAAF game lines) — ingest for digest /
++    // coverage, never page as a simulation outage or honest-shortfall false alarm.
++    case "P0_UNVALIDATED_MARKETS":
++      return {
++        eventType: "parlay_underfilled",
++        failureReason: "legitimate_underfill",
++        alertable: false,
++      };
+     default:
+       return null;
+   }
+diff --git a/artifacts/api-server/src/lib/explicitMarketLock.ts b/artifacts/api-server/src/lib/explicitMarketLock.ts
+index bb3dc7fb..d221b500 100644
+--- a/artifacts/api-server/src/lib/explicitMarketLock.ts
++++ b/artifacts/api-server/src/lib/explicitMarketLock.ts
+@@ -72,7 +72,8 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
+   {
+     id: "mlb_runs",
+     label: "runs",
+-    re: /\b(?:batter\s+)?runs?(?:\s+scored)?\b/i,
++    // Do not match "run line" (game-line ask with moneylines).
++    re: /\b(?:batter\s+)?runs?(?:\s+scored)?\b(?!\s*lines?\b)/i,
+     markets: ["batter_runs"],
+   },
+ 
+@@ -147,9 +148,44 @@ export const EXPLICIT_MARKET_LOCK_RULES: readonly ExplicitMarketLockRule[] = [
+     re: /\bsacks?\b/i,
+     markets: ["player_sacks"],
+   },
++  // D/ST BEFORE bare "interceptions" / NBA assists — defensive INTs must not
++  // lock QB pass ints, and tackles must not fall through to basketball assists.
++  {
++    id: "fb_defensive_interceptions",
++    label: "defensive interceptions",
++    re: /\b(defensive\s+interceptions?|def(?:ensive)?\s+ints?)\b/i,
++    markets: ["player_defensive_interceptions"],
++  },
++  {
++    id: "fb_tackles_assists",
++    label: "tackles + assists",
++    re: /\b(tackles?\s*\+\s*assists?|tackles?\s+and\s+assists?|tackles?\s*\/\s*assists?)\b/i,
++    markets: ["player_tackles_assists"],
++  },
++  {
++    id: "fb_solo_tackles",
++    label: "solo tackles",
++    re: /\b(solo\s+tackles?)\b/i,
++    markets: ["player_solo_tackles"],
++  },
++  {
++    id: "fb_tackles",
++    label: "tackles",
++    // Bare tackles → both posted tackle families (solo + combo). Combo/solo
++    // phrases above blank first so they do not also match here.
++    re: /\btackles?\b/i,
++    markets: ["player_solo_tackles", "player_tackles_assists"],
++  },
++  {
++    id: "fb_kicking_points",
++    label: "kicking points",
++    re: /\b(kicking\s+points?|kicker\s+points?)\b/i,
++    markets: ["player_kicking_points"],
++  },
+   {
+     id: "fb_pass_ints",
+     label: "pass interceptions",
++    // After defensive-INT blanking: bare ints / pass ints → QB thrown only.
+     re: /\b(pass(?:ing)?\s+interceptions?|interceptions?|ints?)\b/i,
+     markets: ["player_pass_interceptions"],
+   },
+diff --git a/artifacts/api-server/src/lib/gradePropMarket.ts b/artifacts/api-server/src/lib/gradePropMarket.ts
+new file mode 100644
+index 00000000..9013317e
+--- /dev/null
++++ b/artifacts/api-server/src/lib/gradePropMarket.ts
+@@ -0,0 +1,172 @@
++/**
++ * Ledger grading helpers — resolve display labels / provider keys to a canonical
++ * Odds API market, decide combo rejection, and settle O/U against mapped stats.
++ *
++ * Tackles + Assists is a single provider market (`player_tackles_assists`) that
++ * settles on ESPN `totalTackles` — not an unsupported multi-stat combo like PRA.
++ */
++
++import {
++  computeAmbiguous,
++  gameValueForMarket,
++} from "./propStatValue.js";
++
++export type GradeSettleResult = "win" | "loss" | "push" | "ungraded";
++
++/** Provider keys that look combo-ish in labels but settle on one mapped stat. */
++const GRADEABLE_SINGLE_STAT_DESPITE_PLUS = new Set([
++  "player_tackles_assists",
++]);
++
++/** True multi-stat / yes-no markets the ledger cannot settle honestly. */
++const UNSUPPORTED_COMBO_GRADE_KEYS = new Set([
++  "player_points_rebounds_assists",
++  "player_points_rebounds",
++  "player_points_assists",
++  "player_rebounds_assists",
++  "player_blocks_steals",
++  "batter_hits_runs_rbis",
++  "player_double_double",
++  "player_anytime_td",
++  "player_first_td",
++  "player_1st_td",
++  "player_goal_scorer_anytime",
++  "player_first_goal_scorer",
++]);
++
++/** Human steal/card labels → provider key (mirrors liveStealsCore PROP_MARKET_LABELS). */
++const LABEL_TO_MARKET_KEY: Record<string, string> = {
++  points: "player_points",
++  rebounds: "player_rebounds",
++  assists: "player_assists",
++  "3-pointers": "player_threes",
++  "pts+reb+ast": "player_points_rebounds_assists",
++  "pts+reb": "player_points_rebounds",
++  "pts+ast": "player_points_assists",
++  "reb+ast": "player_rebounds_assists",
++  blocks: "player_blocks",
++  steals: "player_steals",
++  "blocks+steals": "player_blocks_steals",
++  turnovers: "player_turnovers",
++  "pass yds": "player_pass_yds",
++  "pass tds": "player_pass_tds",
++  "rush yds": "player_rush_yds",
++  "rec yds": "player_reception_yds",
++  receptions: "player_receptions",
++  "anytime td": "player_anytime_td",
++  goals: "player_goals",
++  "shots on goal": "player_shots_on_goal",
++  "anytime goal": "player_goal_scorer_anytime",
++  "shots on target": "player_shots_on_target",
++  shots: "player_shots",
++  hits: "batter_hits",
++  "total bases": "batter_total_bases",
++  "home runs": "batter_home_runs",
++  "stolen bases": "batter_stolen_bases",
++  sacks: "player_sacks",
++  "kicking points": "player_kicking_points",
++  "tackles + assists": "player_tackles_assists",
++  "tackles+assists": "player_tackles_assists",
++  "solo tackles": "player_solo_tackles",
++  "defensive ints": "player_defensive_interceptions",
++  strikeouts: "pitcher_strikeouts",
++};
++
++export function canonicalGradeMarketKey(market: string | null | undefined): string {
++  let k = String(market ?? "").trim().toLowerCase();
++  if (!k) return "";
++  if (k.endsWith("_alternate")) k = k.slice(0, -"_alternate".length);
++  k = k.replace(/_(q1|q2|q3|q4|h1|h2)$/i, "");
++  if (k === "player_1st_td") return "player_first_td";
++  if (k === "batter_runs_scored") return "batter_runs";
++  return k;
++}
++
++/**
++ * Resolve a ledger `market` field (provider key OR human label) to a canonical
++ * Odds API key when known.
++ */
++export function resolveGradeMarketKey(market: string | null | undefined): string | null {
++  const raw = String(market ?? "").trim();
++  if (!raw) return null;
++  const lower = raw.toLowerCase();
++  const asKey = canonicalGradeMarketKey(lower.replace(/\s+/g, "_"));
++  if (/^(player_|batter_|pitcher_)/.test(asKey)) return asKey || null;
++  const fromLabel = LABEL_TO_MARKET_KEY[lower.replace(/\s+/g, " ").trim()];
++  if (fromLabel) return fromLabel;
++  // Normalize "Tackles + Assists" spacing around +.
++  const plusNorm = lower.replace(/\s*\+\s*/g, " + ").replace(/\s+/g, " ").trim();
++  if (LABEL_TO_MARKET_KEY[plusNorm]) return LABEL_TO_MARKET_KEY[plusNorm];
++  return null;
++}
++
++/**
++ * True when the ledger must refuse settlement (genuine multi-stat / yes-no).
++ * Tackles + Assists resolves to `player_tackles_assists` and is gradeable.
++ */
++export function isUnsupportedComboGradeMarket(market: string | null | undefined): boolean {
++  const key = resolveGradeMarketKey(market);
++  if (key && GRADEABLE_SINGLE_STAT_DESPITE_PLUS.has(key)) return false;
++  if (key && UNSUPPORTED_COMBO_GRADE_KEYS.has(key)) return true;
++  const text = String(market ?? "");
++  if (key) {
++    // Known single-stat key — do not reject on cosmetic "+" in the label.
++    return false;
++  }
++  return /\+|points\s+rebounds|\bpra\b|double[- ]double/i.test(text);
++}
++
++/** StatMuse / display word used when fetching a game log for a known key. */
++export function gradeStatWordForMarket(
++  marketKey: string | null,
++  fallbackLabel: string,
++): string {
++  switch (marketKey) {
++    case "player_tackles_assists":
++      return "total tackles";
++    case "player_solo_tackles":
++      return "solo tackles";
++    case "player_defensive_interceptions":
++      return "interceptions";
++    case "player_kicking_points":
++      return "kicking points";
++    case "player_sacks":
++      return "sacks";
++    default:
++      return fallbackLabel;
++  }
++}
++
++export function settleNumericOu(
++  value: number | null | undefined,
++  side: "over" | "under",
++  line: number,
++): { result: GradeSettleResult; detail: string } {
++  if (value == null || !Number.isFinite(value)) {
++    return { result: "ungraded", detail: "no stat value" };
++  }
++  if (value === line) return { result: "push", detail: `${value} = ${line}` };
++  const over = value > line;
++  const win = side === "over" ? over : !over;
++  return { result: win ? "win" : "loss", detail: `${value} ${side} ${line}` };
++}
++
++/**
++ * Settle a prop against a single game's ESPN-style stats map using the same
++ * `gameValueForMarket` mapping the Monte Carlo path uses (e.g. totalTackles).
++ */
++export function settlePropMarketAgainstStats(
++  marketKey: string,
++  stats: Record<string, string>,
++  side: "over" | "under",
++  line: number,
++): { result: GradeSettleResult; detail: string; value: number | null } {
++  const key = canonicalGradeMarketKey(marketKey);
++  const ambiguous = computeAmbiguous(Object.keys(stats));
++  const value = gameValueForMarket(key, stats, ambiguous);
++  if (value == null) {
++    return { result: "ungraded", detail: "no stat value", value: null };
++  }
++  const settled = settleNumericOu(value, side, line);
++  return { ...settled, value };
++}
+diff --git a/artifacts/api-server/src/routes/defense.ts b/artifacts/api-server/src/routes/defense.ts
+index 5062c095..bf16a49c 100644
+--- a/artifacts/api-server/src/routes/defense.ts
++++ b/artifacts/api-server/src/routes/defense.ts
+@@ -99,7 +99,15 @@ const SPORT_OFFENSIVE_STATS: Record<string, { category: string; stats: string[]
+         "teamGamesPlayed",
+       ],
+     },
+-    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt", "teamGamesPlayed"] },
++    {
++      category: "rushing",
++      stats: [
++        "rushingYardsPerGame",
++        "yardsPerRushAttempt",
++        "rushingAttempts",
++        "teamGamesPlayed",
++      ],
++    },
+     { category: "scoring", stats: ["totalPointsPerGame"] },
+     { category: "general", stats: ["gamesPlayed"] },
+   ],
+@@ -118,7 +126,15 @@ const SPORT_OFFENSIVE_STATS: Record<string, { category: string; stats: string[]
+         "teamGamesPlayed",
+       ],
+     },
+-    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt", "teamGamesPlayed"] },
++    {
++      category: "rushing",
++      stats: [
++        "rushingYardsPerGame",
++        "yardsPerRushAttempt",
++        "rushingAttempts",
++        "teamGamesPlayed",
++      ],
++    },
+     { category: "scoring", stats: ["totalPointsPerGame"] },
+     { category: "general", stats: ["gamesPlayed"] },
+   ],
+@@ -147,7 +163,8 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
+     return;
+   }
+   try {
+-    const key = `team-defense:${path}:${teamId}:v6`;
++    // v7: rushingAttempts on football offensive allowlist (expected-carry proxy).
++    const key = `team-defense:${path}:${teamId}:v7`;
+     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
+       const [team, stats] = await Promise.all([
+         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),
+diff --git a/artifacts/api-server/src/routes/grade.ts b/artifacts/api-server/src/routes/grade.ts
+index 68ab2c17..eb071a35 100644
+--- a/artifacts/api-server/src/routes/grade.ts
++++ b/artifacts/api-server/src/routes/grade.ts
+@@ -1,5 +1,11 @@
+ import { Router, type IRouter } from "express";
+ import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
++import {
++  gradeStatWordForMarket,
++  isUnsupportedComboGradeMarket,
++  resolveGradeMarketKey,
++  settleNumericOu,
++} from "../lib/gradePropMarket";
+ import { playerPeriodGameLog, soccerPlayerGameLog } from "../lib/statmuse";
+ 
+ // Grades FINISHED bet legs against REAL outcomes so the app can keep an honest
+@@ -280,13 +286,7 @@ async function gradeProp(
+     if (!row) return { result: "ungraded", detail: "no matching game" };
+     value = parseFloat(row.value);
+   }
+-  if (value === null || !Number.isFinite(value)) {
+-    return { result: "ungraded", detail: "no stat value" };
+-  }
+-  if (value === line) return { result: "push", detail: `${value} = ${line}` };
+-  const over = value > line;
+-  const win = side === "over" ? over : !over;
+-  return { result: win ? "win" : "loss", detail: `${value} ${side} ${line}` };
++  return settleNumericOu(value, side, line);
+ }
+ 
+ export type GradeLeg = { game?: string; market?: string; pick?: string; sport?: string; odds?: number; startsAt?: string };
+@@ -360,19 +360,34 @@ export async function gradeLegs(legs: GradeLeg[]): Promise<GradeLegResult[]> {
+         const side = propM[2].toLowerCase() as "over" | "under";
+         const line = parseFloat(propM[3]);
+         const statText = (market || propM[4]).trim();
+-        // Combos (PRA etc.) and yes/no markets aren't reliably gradeable here.
+-        if (/\+|points\s+rebounds|\bpra\b|double[- ]double/i.test(statText)) {
+-          return { ...base, family: statText.toLowerCase(), side, result: "ungraded" as GradeResult, detail: "combo market" };
++        // Resolve label → canonical key (e.g. "Tackles + Assists" → player_tackles_assists).
++        // Reject true multi-stat combos (PRA); allow gradeable single-stat markets.
++        if (isUnsupportedComboGradeMarket(statText) || isUnsupportedComboGradeMarket(market)) {
++          return {
++            ...base,
++            family: statText.toLowerCase(),
++            side,
++            result: "ungraded" as GradeResult,
++            detail: "combo market",
++          };
+         }
++        const marketKey = resolveGradeMarketKey(statText) ?? resolveGradeMarketKey(market);
++        const gradeStat = gradeStatWordForMarket(marketKey, statText);
+         const { result, detail } = await gradeProp(
+           player,
+           side,
+           line,
+-          statText,
++          gradeStat,
+           sport,
+           dayOf(new Date(final.startsAt)),
+         );
+-        return { ...base, family: statText.toLowerCase(), side, result, detail };
++        return {
++          ...base,
++          family: (marketKey ?? statText).toLowerCase(),
++          side,
++          result,
++          detail,
++        };
+       }
+ 
+       // --- Game total: "Over/Under <line>" ---
+diff --git a/artifacts/api-server/test/coachReliability.test.ts b/artifacts/api-server/test/coachReliability.test.ts
+index f4f94cf6..85bb6f9c 100644
+--- a/artifacts/api-server/test/coachReliability.test.ts
++++ b/artifacts/api-server/test/coachReliability.test.ts
+@@ -81,6 +81,34 @@ test("countCoachPickLines and classifyParlayOutcome", () => {
+   );
+ });
+ 
++test("3-of-10 honest shortfall is digest-only (no Telegram page)", () => {
++  // Reproduces the Bo Nix / 3-of-10 Coach run: partial ticket + real odds →
++  // legitimate_underfill. Rule evaluates and suppresses paging by design.
++  const outcome = classifyParlayOutcome({
++    requestedLegCount: 10,
++    returnedLegCount: 3,
++  });
++  assert.equal(outcome, "parlay_underfilled");
++  const reason = classifyParlayFailureReason({
++    outcome,
++    realOddsAvailable: true,
++  });
++  assert.equal(reason, "legitimate_underfill");
++  const meta = baseMeta({
++    eventType: outcome,
++    failureReason: reason,
++    requestedLegCount: 10,
++    returnedLegCount: 3,
++    realOddsAvailable: true,
++    requestId: "greenfield-AUDIT-3of10",
++  });
++  assert.equal(shouldAlertCoachEvent(meta), false);
++  assert.match(
++    coachAlertFingerprint(meta),
++    /coach\|parlay_underfilled\|legitimate_underfill/,
++  );
++});
++
+ test("legitimate underfill is digest-only; system failures alert", () => {
+   assert.equal(
+     classifyParlayFailureReason({
+@@ -127,6 +155,22 @@ test("mapScanFailureCode covers grounding/alt/sim/freeze", () => {
+   assert.equal(mapScanFailureCode("GAME_SIMS_ALL_NULL")?.failureReason, "missing_sim_output");
+   assert.equal(mapScanFailureCode("ABSOLUTE_BUDGET")?.eventType, "coach_scan_freeze");
+   assert.equal(mapScanFailureCode("QUALITY_BAR_EMPTY")?.alertable, false);
++  // P0 policy block must ingest (digest) without paging as sim failure.
++  const p0 = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
++  assert.equal(p0?.eventType, "parlay_underfilled");
++  assert.equal(p0?.failureReason, "legitimate_underfill");
++  assert.equal(p0?.alertable, false);
++  assert.equal(
++    shouldAlertCoachEvent(
++      baseMeta({
++        eventType: "parlay_underfilled",
++        failureReason: "legitimate_underfill",
++        requestedLegCount: 6,
++        returnedLegCount: 0,
++      }),
++    ),
++    false,
++  );
+ });
+ 
+ test("serialize/parse coach meta has no PII fields", () => {
