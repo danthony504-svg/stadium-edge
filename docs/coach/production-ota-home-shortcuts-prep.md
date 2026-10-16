@@ -29,6 +29,9 @@ Construction: **cherry-pick** of `40f5b9f4` onto `100b2450`. Excludes matchup / 
 
 Matching `runtimeVersion=1.1.0` and unchanged native dependencies are **compatibility checks only**. They do **not** prove crash-free launch on Build 78.
 
+**Binary difference + pre-lift validation path:** see [`build78-vs-preview-build78-validation-path.md`](./build78-vs-preview-build78-validation-path.md).  
+`preview-build78` ≠ App Store Build 78 (channel, signing, entitlements). Shared property: native `ClerkExpoPasskeys` absent. This check authorizes **neither** a new EAS build nor production publication.
+
 ---
 
 ## Baseline `100b2450` on actual Build 78 — cold-launch evidence?
@@ -55,20 +58,15 @@ Sources: `.ota-production-freeze`, `docs/build78-ips-crash-diagnosis.md`, `docs/
 
 ### Why this is not yet a Build 78 device PASS
 
-| Binary | Channel baked in | Sees preview OTA `01a142e1…`? |
-|--------|------------------|-------------------------------|
-| **App Store Build 78** | `production` | **No** — only production OTAs |
-| **`preview-build78` IPA** (EAS `9155c37b`, no ClerkExpoPasskeys, channel `preview`) | `preview` | **Yes** — correct controlled stand-in |
+| Binary | Channel baked in | Sees preview OTA `01a142e1…`? | Role |
+|--------|------------------|-------------------------------|------|
+| **App Store Build 78** | `production` | **No** | Real store binary — cannot load tip while freeze armed |
+| **`preview-build78` IPA** EAS `9155c37b` | `preview` | **Yes** | Build 78–**equivalent** crash-path stand-in (passkeys absent) — **not** identical to Build 78 |
+| Plain `preview` IPA (passkeys linked) | `preview` | Yes | **Invalid** as Build 78 crash-class stand-in |
 
-Device cold-launch ×N / Hot Picks / Easy Money / ErrorRecovery checks on **`preview-build78` + update `01a142e1…`** (or App Store Build 78 via production, which is frozen) were **not executable in this Cloud Agent** (Linux VM; no Xcode/Simulator/iPhone). Status remains **UNVERIFIED** pending human device on `preview-build78`.
+**Valid pre-lift path (no new build, no production publish):** existing IPA `9155c37b` + existing preview OTA `01a142e1` (`c859c1ce`) → cold launch ×3, Hot Picks, Easy Money, no ErrorRecovery. Full table and Path A/B/C: [`build78-vs-preview-build78-validation-path.md`](./build78-vs-preview-build78-validation-path.md).
 
-**Human device checklist (preview-build78 only):**
-
-1. Install / open IPA `9155c37b` (runtime `1.1.0`, channel `preview`).
-2. Force-quit → cold launch ×3; confirm update `01a142e1…` / tip `c859c1ce`.
-3. Home → Hot Picks; Home → Easy Money; Coach auto-send.
-4. Confirm **no** ErrorRecovery boot loop / SIGABRT.
-5. Record results into a new `docs/coach/device-check-ota-01a142e1-*.md`.
+Agent env could not run that device path (no iPhone). Status remains **UNVERIFIED** until human completes Path A.
 
 ---
 
