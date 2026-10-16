@@ -10,7 +10,7 @@
 
 | Field | Value |
 |-------|--------|
-| **Full SHA** | `a5407057d4507d1ff16847ba1cd2f5581abc8806` |
+| **Full SHA** | `7da4bd7f2e2f19491f41296248251f9c5f27ac55` |
 | Branch | `cursor/prod-ota-home-shortcuts-8b51` |
 | Passkey startup guard | **Retained** |
 
