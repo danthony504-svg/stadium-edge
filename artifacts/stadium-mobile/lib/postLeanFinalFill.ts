@@ -9,6 +9,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
+import { legAllowedForTicketStyle } from "./coachTicketQualityTiers.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
@@ -128,6 +129,8 @@ export type PostLeanFinalFillOpts = {
   varietySeed?: string;
   legsPerGameCap?: number | null;
   collegeTeamMarketStacks?: boolean;
+  /** Style seating — longshot refuses minus-money fill after lean. */
+  ticketStyle?: string | null;
   /**
    * Fingerprints of picks lean explicitly discarded as invalid / ungradable.
    * Cap-overflow drops are not included — progressive fill may reseat those.
@@ -155,10 +158,12 @@ function buildFillPool(
   for (const cand of opts.qualifiedCandidates) {
     const fp = pickLegFingerprint(cand);
     if (used.has(fp) || rejected.has(fp)) continue;
+    if (!legAllowedForTicketStyle(cand, opts.ticketStyle)) continue;
     if (wouldRepeatMarketLadder(cand, current)) continue;
     if (wouldConflictOppositeSideSamePeriod(cand, current)) continue;
     const leg = scoredLegFromQualifiedCandidate(cand);
     if (!leg) continue;
+    if (!legAllowedForTicketStyle(leg, opts.ticketStyle)) continue;
     scored.push(leg);
   }
   return scored;
@@ -172,10 +177,14 @@ function buildFillPool(
 export function topUpAfterMlLean(opts: PostLeanFinalFillOpts): ParsedPick[] {
   const { target } = opts;
   if (target < 3 || opts.picks.length >= target) {
-    return opts.picks.slice(0, Math.max(0, target));
+    return opts.picks
+      .filter((p) => legAllowedForTicketStyle(p, opts.ticketStyle))
+      .slice(0, Math.max(0, target));
   }
 
-  let current = opts.picks.slice();
+  let current = opts.picks
+    .filter((p) => legAllowedForTicketStyle(p, opts.ticketStyle))
+    .slice();
   // At most a few rounds so greedy adds that fail the opposite-side belt can be
   // replaced by the next eligible distinct-period / prop candidate.
   for (let round = 0; round < 3 && current.length < target; round++) {
@@ -190,11 +199,14 @@ export function topUpAfterMlLean(opts: PostLeanFinalFillOpts): ParsedPick[] {
       target,
       opts.varietySeed,
       opts.legsPerGameCap,
-      opts.collegeTeamMarketStacks
-        ? { collegeTeamMarketStacks: true }
-        : undefined,
+      {
+        ...(opts.collegeTeamMarketStacks ? { collegeTeamMarketStacks: true } : {}),
+        ticketStyle: opts.ticketStyle,
+      },
     );
-    const belted = beltTicketCorrelation(filled).slice(0, target);
+    const belted = beltTicketCorrelation(filled)
+      .filter((p) => legAllowedForTicketStyle(p, opts.ticketStyle))
+      .slice(0, target);
     if (belted.length <= current.length) break;
     current = belted;
   }

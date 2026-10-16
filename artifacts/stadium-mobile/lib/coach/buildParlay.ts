@@ -45,7 +45,10 @@ import { shouldBuildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnly
 import { buildFootballPropsOnlyTicket } from "@/lib/coachFootballPropsOnlyTicket";
 import { isRareCountPropMarket } from "@/lib/rareCountPropModel";
 import { rareMultiCountLotteryPathOpen } from "@/lib/rareMultiCountCoachGate";
-import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
+import {
+  resolveCoachTicketStyle,
+  type CoachTicketStyle,
+} from "@/lib/coachTicketQualityTiers";
 import { buildGameTeamIdMap } from "@/lib/coachGameMonteCarlo";
 import { coachAbsoluteBudgetMs } from "@/lib/coach/session";
 import { shouldSkipScannerPropExpand } from "@/lib/coach/propPoolPolicy";
@@ -100,6 +103,7 @@ import {
   mlLeanEnforcementNote,
 } from "@/lib/mlLeanEnforcement";
 import { topUpAfterMlLean } from "@/lib/postLeanFinalFill";
+import { filterPicksForTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { marketFamily } from "@/components/PickCard";
 import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
 import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
@@ -241,6 +245,11 @@ export async function buildCoachParlay(opts: {
   askText?: string | null;
   /** Prior user turns — inherit props-only like tonight/tomorrow slate. */
   priorUserTexts?: string[];
+  /**
+   * Explicit Home/deep-link Coach mode. Prefer over ask-text inference so
+   * value/lottery shortcuts affect selection, not only the message.
+   */
+  ticketStyle?: CoachTicketStyle | null;
   signal: AbortSignal;
   onStatus?: (status: string) => void;
   onPartialPicks?: (picks: ParsedPick[]) => void;
@@ -249,6 +258,7 @@ export async function buildCoachParlay(opts: {
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
   const budgetMs = coachAbsoluteBudgetMs(target);
+  const ticketStyle = resolveCoachTicketStyle(opts.ticketStyle, opts.askText);
 
   const inputs = await loadScanInputs(
     opts.signal,
@@ -441,10 +451,9 @@ export async function buildCoachParlay(opts: {
       lockedKeys != null &&
       lockedKeys.length > 0 &&
       lockedKeys.every((k) => isRareCountPropMarket(k));
-    const propsOnlyTicketStyle = detectCoachTicketStyle(opts.askText ?? "");
     const allowRareMultiCount = rareMultiCountLotteryPathOpen({
       askText: opts.askText,
-      ticketStyle: propsOnlyTicketStyle,
+      ticketStyle,
     });
     const built = await buildFootballPropsOnlyTicket({
       target,
@@ -460,7 +469,7 @@ export async function buildCoachParlay(opts: {
       mlbGameEnv,
       allowRareCountFamilyStack,
       askText: opts.askText,
-      ticketStyle: propsOnlyTicketStyle,
+      ticketStyle,
       allowRareMultiCount,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
@@ -752,7 +761,7 @@ export async function buildCoachParlay(opts: {
     playerHistory,
     matchupHistory,
     varietySeed: `greenfield-${target}-${Date.now()}`,
-    ticketStyle: detectCoachTicketStyle(opts.askText ?? ""),
+    ticketStyle,
     teamScope: inputs.teamScope,
     varietyContext: {
       ...recentParlayVarietyContext(),
@@ -768,7 +777,7 @@ export async function buildCoachParlay(opts: {
       // Rare multi-count lottery / 2+ / longshot path (#713).
       allowRareMultiCount: rareMultiCountLotteryPathOpen({
         askText: opts.askText,
-        ticketStyle: detectCoachTicketStyle(opts.askText ?? ""),
+        ticketStyle,
       }),
     },
     onPartial: (partial) => {
@@ -900,6 +909,7 @@ export async function buildCoachParlay(opts: {
       gameMeta: [],
       qualifiedCandidates,
       requestedLegs: target,
+      ticketStyle,
     });
     picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(enforced.picks, marketConstraint),
@@ -939,6 +949,7 @@ export async function buildCoachParlay(opts: {
         varietySeed: opts.askText,
         legsPerGameCap,
         collegeTeamMarketStacks,
+        ticketStyle,
       });
       picks = filterPicksForCoachAskTeams(
         filterPicksByAskMarketConstraint(picks, marketConstraint),
@@ -953,6 +964,8 @@ export async function buildCoachParlay(opts: {
   // or an explicitly excluded matchup.
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
   picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
+  // Terminal style belt — final delivered American odds after lean / fill.
+  picks = filterPicksForTicketStyle(picks, ticketStyle);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(

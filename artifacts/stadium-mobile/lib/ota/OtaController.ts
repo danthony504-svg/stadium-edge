@@ -15,6 +15,7 @@
 import { classifyOtaApplyFailure } from "../otaApplyFailureClassify.ts";
 import {
   DEFAULT_FOREGROUND_COOLDOWN_MS,
+  OTA_EMBEDDED_TARGET_ID,
   OTA_PREVIOUSLY_FAILED,
   type OtaClient,
   type OtaFailedLaunchHooks,
@@ -41,11 +42,16 @@ export function computeBannerVisible(input: {
   state: OtaState;
   downloadedUpdateId: string | null;
   runningUpdateId: string | null;
+  isRollBackToEmbedded?: boolean;
+  isEmbeddedLaunch?: boolean;
 }): boolean {
-  return (
-    input.state === "ready" &&
-    isDistinctDownload(input.downloadedUpdateId, input.runningUpdateId)
-  );
+  if (input.state !== "ready") return false;
+  // Already on embedded — rollback target is current; never prompt reload loops.
+  if (input.isRollBackToEmbedded && input.isEmbeddedLaunch) return false;
+  if (input.isRollBackToEmbedded) {
+    return input.downloadedUpdateId === OTA_EMBEDDED_TARGET_ID;
+  }
+  return isDistinctDownload(input.downloadedUpdateId, input.runningUpdateId);
 }
 
 export type OtaControllerOptions = {
@@ -67,6 +73,7 @@ export class OtaController {
   private lastRestartTargetId: string | null = null;
   private launchOutcome: OtaLaunchOutcome = "unknown";
   private launchOutcomeDetail: string | null = null;
+  private isRollBackToEmbedded = false;
   private checkInFlight = false;
   private readonly client: OtaClient;
   private readonly cooldownMs: number;
@@ -89,6 +96,7 @@ export class OtaController {
   }
 
   getSnapshot(): OtaSnapshot {
+    const isEmbeddedLaunch = !!this.client.isEmbeddedLaunch?.();
     return {
       state: this.state,
       runningUpdateId: this.runningUpdateId,
@@ -97,10 +105,13 @@ export class OtaController {
       lastError: this.lastError,
       failedUpdateId: this.failedUpdateId,
       lastCheckedAt: this.lastCheckedAt,
+      isRollBackToEmbedded: this.isRollBackToEmbedded,
       bannerVisible: computeBannerVisible({
         state: this.state,
         downloadedUpdateId: this.downloadedUpdateId,
         runningUpdateId: this.runningUpdateId,
+        isRollBackToEmbedded: this.isRollBackToEmbedded,
+        isEmbeddedLaunch,
       }),
       lastRestartTargetId: this.lastRestartTargetId,
       launchOutcome: this.launchOutcome,
@@ -123,6 +134,7 @@ export class OtaController {
     ) {
       this.downloadedUpdateId = null;
       this.discoveredUpdateId = null;
+      this.isRollBackToEmbedded = false;
     }
 
     if (
@@ -131,6 +143,18 @@ export class OtaController {
     ) {
       this.downloadedUpdateId = null;
       this.discoveredUpdateId = null;
+      this.isRollBackToEmbedded = false;
+    }
+
+    // Already running embedded after a rollback directive — clear pending target.
+    if (
+      this.isRollBackToEmbedded &&
+      this.downloadedUpdateId === OTA_EMBEDDED_TARGET_ID &&
+      !!this.client.isEmbeddedLaunch?.()
+    ) {
+      this.downloadedUpdateId = null;
+      this.discoveredUpdateId = null;
+      this.isRollBackToEmbedded = false;
     }
 
     // Sticky native pending with no distinct downloaded id must not become ready.
@@ -262,13 +286,19 @@ export class OtaController {
 
       const result = await this.client.checkForUpdateAsync();
       const reason = result.reason ?? null;
-      const discovered = result.manifestId ? String(result.manifestId) : null;
+      const isRollback = !!result.isRollBackToEmbedded;
+      const discovered = result.manifestId
+        ? String(result.manifestId)
+        : isRollback
+          ? OTA_EMBEDDED_TARGET_ID
+          : null;
 
       if (reason === OTA_PREVIOUSLY_FAILED) {
         this.state = "error";
         this.failedUpdateId = discovered ?? this.failedUpdateId;
         this.lastError = OTA_PREVIOUSLY_FAILED;
         this.discoveredUpdateId = discovered;
+        this.isRollBackToEmbedded = false;
         this.launchOutcome = "launch_failed";
         this.launchOutcomeDetail =
           "native checkForUpdateAsync reason=updatePreviouslyFailed";
@@ -276,17 +306,28 @@ export class OtaController {
         return this.getSnapshot();
       }
 
-      if (!result.isAvailable) {
+      if (!result.isAvailable && !isRollback) {
         this.state = "idle";
         this.discoveredUpdateId = null;
+        this.isRollBackToEmbedded = false;
         this.emit();
         return this.getSnapshot();
       }
 
       this.discoveredUpdateId = discovered;
+      this.isRollBackToEmbedded = isRollback;
 
+      // Already on the pending tip — or already embedded when rollback is pending.
       if (discovered && idsEqual(discovered, this.runningUpdateId)) {
         this.state = "idle";
+        this.isRollBackToEmbedded = false;
+        this.emit();
+        return this.getSnapshot();
+      }
+      if (isRollback && !!this.client.isEmbeddedLaunch?.()) {
+        this.state = "idle";
+        this.downloadedUpdateId = null;
+        this.isRollBackToEmbedded = false;
         this.emit();
         return this.getSnapshot();
       }
@@ -302,20 +343,27 @@ export class OtaController {
       this.emit();
 
       const fetched = await this.client.fetchUpdateAsync();
-      const downloaded =
-        (fetched.manifestId ? String(fetched.manifestId) : null) ??
-        this.client.getDownloadedUpdateId() ??
-        discovered;
+      const fetchedRollback = !!fetched.isRollBackToEmbedded || isRollback;
+      this.isRollBackToEmbedded = fetchedRollback;
+      const downloaded = fetchedRollback
+        ? OTA_EMBEDDED_TARGET_ID
+        : (fetched.manifestId ? String(fetched.manifestId) : null) ??
+          this.client.getDownloadedUpdateId() ??
+          discovered;
 
       this.downloadedUpdateId = downloaded;
 
-      if (isDistinctDownload(downloaded, this.runningUpdateId)) {
+      if (
+        fetchedRollback ||
+        isDistinctDownload(downloaded, this.runningUpdateId)
+      ) {
         this.state = "ready";
         this.lastError = null;
       } else {
         // Sticky isUpdatePending / unknown downloaded id → no banner, no reload.
         this.state = "idle";
         this.downloadedUpdateId = null;
+        this.isRollBackToEmbedded = false;
         this.lastError =
           "fetch finished without a distinct downloaded update id";
         this.launchOutcome = "selection_failed";
@@ -342,7 +390,18 @@ export class OtaController {
     const snap = this.getSnapshot();
     if (snap.state !== "ready") return "rejected";
     if (!snap.downloadedUpdateId) return "rejected";
-    if (!isDistinctDownload(snap.downloadedUpdateId, snap.runningUpdateId)) {
+    // Already on target (including already-embedded rollback) — never reload loop.
+    if (snap.isRollBackToEmbedded && !!this.client.isEmbeddedLaunch?.()) {
+      this.state = "idle";
+      this.downloadedUpdateId = null;
+      this.isRollBackToEmbedded = false;
+      this.emit();
+      return "rejected";
+    }
+    if (
+      !snap.isRollBackToEmbedded &&
+      !isDistinctDownload(snap.downloadedUpdateId, snap.runningUpdateId)
+    ) {
       return "rejected";
     }
 
@@ -412,6 +471,9 @@ export class OtaController {
     }
     if (partial.launchOutcomeDetail !== undefined) {
       this.launchOutcomeDetail = partial.launchOutcomeDetail;
+    }
+    if (partial.isRollBackToEmbedded !== undefined) {
+      this.isRollBackToEmbedded = partial.isRollBackToEmbedded;
     }
     this.emit();
   }

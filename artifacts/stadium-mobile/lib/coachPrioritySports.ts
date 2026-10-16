@@ -9,6 +9,7 @@
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { legAllowedForTicketStyle } from "./coachTicketQualityTiers.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { boardLegPoolRole, type BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -167,10 +168,13 @@ export function injectPrioritySportsIntoTicket(
   prioritySports: readonly string[] = COACH_PRIORITY_SPORTS,
   /** When true, team/game include-scope is active — never inject cross-sport. */
   teamScopedAsk = false,
+  ticketStyle?: string | null,
 ): ParsedPick[] {
   if (teamScopedAsk) return picks.slice(0, Math.max(0, target));
   if (target < 3 || picks.length === 0) return picks;
-  let out = picks.slice(0, target);
+  let out = picks
+    .filter((p) => legAllowedForTicketStyle(p, ticketStyle))
+    .slice(0, target);
   const used = new Set(out.map(pickLegFingerprint));
 
   for (const sport of prioritySports) {
@@ -182,6 +186,7 @@ export function injectPrioritySportsIntoTicket(
       .filter((leg) => {
         if (sportId(leg.pick) !== sport) return false;
         if (used.has(pickLegFingerprint(leg.pick))) return false;
+        if (!legAllowedForTicketStyle(leg, ticketStyle)) return false;
         return boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null;
       })
       .sort((a, b) => {
@@ -305,14 +310,24 @@ export function enforceMultiSportFloorOnTicket(
   prioritySports: readonly string[] = COACH_PRIORITY_SPORTS,
   /** When true, team/game include-scope is active — never introduce foreign sports. */
   teamScopedAsk = false,
+  ticketStyle?: string | null,
 ): ParsedPick[] {
   if (teamScopedAsk) return picks.slice(0, Math.max(0, target));
   if (target < 6 || picks.length === 0) return picks;
   // Re-apply soft priority inject in case prop-slot fill evicted football seats.
-  let out = injectPrioritySportsIntoTicket(picks, scored, target, prioritySports);
+  let out = injectPrioritySportsIntoTicket(
+    picks,
+    scored,
+    target,
+    prioritySports,
+    false,
+    ticketStyle,
+  );
   out = out.slice(0, target);
 
-  const poolSports = qualifyingSportsInPool(scored);
+  const poolSports = qualifyingSportsInPool(
+    scored.filter((leg) => legAllowedForTicketStyle(leg, ticketStyle)),
+  );
   if (poolSports.length < 2) return out;
 
   const majority = majoritySportOnTicket(out) ?? sportId(out[0]!);
@@ -330,6 +345,7 @@ export function enforceMultiSportFloorOnTicket(
         const s = sportId(leg.pick);
         if (!s || s === majority) return false;
         if (used.has(pickLegFingerprint(leg.pick))) return false;
+        if (!legAllowedForTicketStyle(leg, ticketStyle)) return false;
         return boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null;
       })
       .sort((a, b) => {

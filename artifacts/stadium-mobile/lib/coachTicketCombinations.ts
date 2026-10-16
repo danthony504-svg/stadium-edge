@@ -40,6 +40,7 @@ import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
   type CoachTicketStyle,
   type QualityTierGrade,
+  legAllowedForTicketStyle,
   poolRoleAtMinGrade,
   qualityTiersForStyle,
 } from "./coachTicketQualityTiers.ts";
@@ -99,6 +100,8 @@ type AssemblyConfig = {
   legsPerGameCap?: number | null;
   /** Skip recent legs entirely while assembling (all-new asks). */
   hardAvoidRecentLegs?: boolean;
+  /** Explicit Home/Coach mode — value/longshot ranking bias among qualified. */
+  ticketStyle?: CoachTicketStyle | null;
 };
 
 /** Per-leg-count optimization — different pools, weights, and assembly for each size. */
@@ -215,7 +218,9 @@ function qualifyingScoredLegs(
     ) {
       continue;
     }
-    out.push({ ...leg, pick: tagged });
+    const next = { ...leg, pick: tagged };
+    if (!legAllowedForTicketStyle(next, opts?.ticketStyle)) continue;
+    out.push(next);
   }
   return out;
 }
@@ -350,9 +355,12 @@ function pickDiverseLegsFromPool(
   if (want <= 0) return [];
   const available = pool.filter((row) => {
     const fp = pickLegFingerprint(row.pick);
-    return !used.has(fp) && boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
+    if (used.has(fp)) return false;
+    if (boardLegPoolRole(row.pick, row.pick.finalAiScore) == null) return false;
+    if (!legAllowedForTicketStyle(row, config.ticketStyle)) return false;
+    return true;
   });
-  const ranked = sortBoardLegsForRank(available, config.seed);
+  const ranked = sortBoardLegsForRank(available, config.seed, config.ticketStyle);
   const rotated = rotateNearEqualBands(ranked, config.bandOffset, config.seed);
   const shuffled = shuffleWithSeed(rotated, `${config.seed}|pool-${want}`);
   let poolCopy = [...shuffled];
@@ -506,6 +514,8 @@ function tryAppendBackfillLeg(
   config: AssemblyConfig,
   fillTier?: QualityTierGrade,
 ): ParsedPick[] | null {
+  // Defense in depth: style narrows apply on backfill/replacement too.
+  if (!legAllowedForTicketStyle(row, config.ticketStyle)) return null;
   const thinOnTicket = current.filter(
     (p) => p.isProp && isThinPropStatMarket(p.market),
   ).length;
@@ -557,11 +567,12 @@ function backfillDiverseTicket(
           })()
         : [pools[cat]];
     for (const sub of subPools) {
-      const ranked = sortBoardLegsForRank(sub, config.seed);
+      const ranked = sortBoardLegsForRank(sub, config.seed, config.ticketStyle);
       for (const row of ranked) {
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
         if (used.has(fp)) continue;
+        if (!legAllowedForTicketStyle(row, config.ticketStyle)) continue;
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
         if (!role) continue;
         const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config);
@@ -585,9 +596,11 @@ function backfillAtQualityTier(
   let current = capThinStatMarketsOnTicket(ticket, target);
   if (current.length >= target) return current.slice(0, target);
 
-  const tierLegs = allScored.filter(
-    (leg) => poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, minGrade) != null,
-  );
+  const tierLegs = allScored.filter((leg) => {
+    if (poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, minGrade) == null) return false;
+    if (!legAllowedForTicketStyle(leg, config.ticketStyle)) return false;
+    return true;
+  });
   const pools = partitionScoredLegsByCategory(tierLegs);
   const used = new Set(current.map(pickLegFingerprint));
 
@@ -601,7 +614,7 @@ function backfillAtQualityTier(
           })()
         : [pools[cat]];
     for (const sub of subPools) {
-      const ranked = sortBoardLegsForRank(sub, config.seed);
+      const ranked = sortBoardLegsForRank(sub, config.seed, config.ticketStyle);
       for (const row of ranked) {
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
@@ -637,6 +650,7 @@ export function tieredBackfillStagedTicket(
     poolRotate: 0,
     lineShoppingBias: 1,
     legsPerGameCap,
+    ticketStyle,
   };
   let current = ticket;
   for (const tier of qualityTiersForStyle(ticketStyle)) {
@@ -922,6 +936,7 @@ function generateTicketCandidates(
       lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
       legsPerGameCap: opts.legsPerGameCap,
       hardAvoidRecentLegs: !!opts.hardAvoidRecentLegs,
+      ticketStyle,
     };
     const picks = assembleBalancedDiverseTicket(
       qualifying,

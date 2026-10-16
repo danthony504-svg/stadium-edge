@@ -43,6 +43,7 @@ import {
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
+import { legAllowedForTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   pickIsAiRecommended,
@@ -249,13 +250,16 @@ export function selectGreedyBoardLegs(
   existing: ParsedPick[] = [],
   ticketTarget?: number,
   legsPerGameCap?: number | null,
+  ticketStyle?: CoachTicketStyle | null,
 ): ParsedPick[] {
   const seen = new Set(existing.map(pickLegFingerprint));
   const out: ParsedPick[] = [];
   const effectiveTarget = ticketTarget ?? Math.max(target, existing.length + target);
   const maxPerGame = maxLegsPerGame(effectiveTarget, legsPerGameCap);
   const maxProps = maxPropsPerGame(effectiveTarget);
-  const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  const sorted = [...ranked].sort((a, b) =>
+    compareBoardLegsForRank(a, b, varietySeed, ticketStyle),
+  );
   for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
     if (seen.has(fp)) continue;
@@ -292,12 +296,17 @@ export function topUpTicketFromQualifiedScored(
     collapseSameTeamSides?: boolean;
     /** College team markets: raise period-stack seat budget on thin slates. */
     collegeTeamMarketStacks?: boolean;
+    /** Style seating — blocks minus-money chalk from longshot top-up. */
+    ticketStyle?: CoachTicketStyle | string | null;
   },
 ): ParsedPick[] {
   // Drop P0-blocked legs already on the ticket (NCAAF spreads/ML, unvalidated
   // totals). Do not re-litigate AI-recommend thresholds for already-staged
   // validated sports — only integrity fail-closed strips seats.
-  const cleared = picks.filter((p) => !p0UnvalidatedSimDecision(p));
+  const ticketStyle = opts?.ticketStyle;
+  const cleared = picks.filter(
+    (p) => !p0UnvalidatedSimDecision(p) && legAllowedForTicketStyle(p, ticketStyle),
+  );
   if (target < 3) return cleared.slice(0, Math.max(0, target));
   if (cleared.length >= target) return cleared.slice(0, target);
   const collapseSameTeam = !!opts?.collapseSameTeamSides;
@@ -308,6 +317,8 @@ export function topUpTicketFromQualifiedScored(
     if (used.has(fp)) continue;
     if (p0UnvalidatedSimDecision(leg.pick)) continue;
     if (boardLegPoolRole(leg.pick, leg.pick.finalAiScore) == null) continue;
+    // Final American odds must clear style — ALT handicaps (+2.5) are not odds.
+    if (!legAllowedForTicketStyle(leg, ticketStyle)) continue;
     leftover.push(leg);
   }
   if (!leftover.length) return cleared.slice(0, target);
@@ -419,14 +430,25 @@ export function selectTopBoardLegs(
   legsPerGameCap?: number | null,
   /** Legs already on the ticket from prior category fills — correlation applies. */
   existing: ParsedPick[] = [],
+  ticketStyle?: CoachTicketStyle | null,
 ): ParsedPick[] {
   if (target < 3) {
-    return selectGreedyBoardLegs(ranked, target, varietySeed, existing, target, legsPerGameCap);
+    return selectGreedyBoardLegs(
+      ranked,
+      target,
+      varietySeed,
+      existing,
+      target,
+      legsPerGameCap,
+      ticketStyle,
+    );
   }
 
   const out: ParsedPick[] = [];
   const usedFp = new Set<string>();
-  const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  const sorted = [...ranked].sort((a, b) =>
+    compareBoardLegsForRank(a, b, varietySeed, ticketStyle),
+  );
 
   while (out.length < target) {
     const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
@@ -476,6 +498,7 @@ function applyCapAndBackfillToTarget(
   target: number,
   pool: BoardScoredLeg[],
   legsPerGameCap?: number | null,
+  ticketStyle?: CoachTicketStyle | null,
 ): ParsedPick[] {
   let current = capThinStatMarketsOnTicket(picks, target);
   if (current.length >= target) return current.slice(0, target);
@@ -485,7 +508,9 @@ function applyCapAndBackfillToTarget(
   const maxThin = maxLegsPerThinStatMarket(target);
   const maxPerGame = maxLegsPerGame(target, legsPerGameCap);
   const maxProps = maxPropsPerGame(target);
-  const ranked = [...pool].sort((a, b) => {
+  const ranked = [...pool]
+    .filter((row) => legAllowedForTicketStyle(row, ticketStyle))
+    .sort((a, b) => {
     const aThin = a.pick.isProp && isThinPropStatMarket(a.pick.market) ? 1 : 0;
     const bThin = b.pick.isProp && isThinPropStatMarket(b.pick.market) ? 1 : 0;
     if (thinOnTicket >= maxThin && aThin !== bThin) return aThin - bThin;
@@ -496,6 +521,7 @@ function applyCapAndBackfillToTarget(
     if (current.length >= target) break;
     const fp = pickLegFingerprint(row.pick);
     if (used.has(fp)) continue;
+    if (!legAllowedForTicketStyle(row, ticketStyle)) continue;
     const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
     if (!role) continue;
     if (wouldExceedMaxLegsPerGame(row.pick, current, maxPerGame)) continue;
@@ -602,6 +628,7 @@ function qualifyingScoredLegs(
     ) {
       continue;
     }
+    if (!legAllowedForTicketStyle(next, opts?.ticketStyle)) continue;
     out.push(next);
   }
   return out;
@@ -704,11 +731,14 @@ function applyBalancedCapAndBackfill(
           })()
         : [pools[cat]];
     for (const sub of orderedPools) {
-      const ranked = [...sub].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+      const ranked = [...sub].sort((a, b) =>
+        compareBoardLegsForRank(a, b, varietySeed, ticketStyle),
+      );
       for (const row of ranked) {
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
         if (used.has(fp)) continue;
+        if (!legAllowedForTicketStyle(row, ticketStyle)) continue;
         if (wouldRepeatMarketLadder(row.pick, current)) continue;
         if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
@@ -977,12 +1007,12 @@ export function buildStagedTicketFromScan(
   // Fair competition: all qualifying legs compete by validated rankScore.
   // ticketRole (main/alt) is a badge only — not a seating priority.
   const qualifying = qualifyingScoredLegs(scored, seatOpts);
-  qualifying.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  qualifying.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed, ticketStyle));
 
   const selected = (
     target >= 3
-      ? selectTopBoardLegs(qualifying, target, varietySeed)
-      : selectGreedyBoardLegs(qualifying, target, varietySeed)
+      ? selectTopBoardLegs(qualifying, target, varietySeed, undefined, [], ticketStyle)
+      : selectGreedyBoardLegs(qualifying, target, varietySeed, [], undefined, undefined, ticketStyle)
   ).map((p) => {
     const role = boardLegPoolRole(p, p.finalAiScore, seatOpts) ?? "main";
     return {
@@ -992,7 +1022,13 @@ export function buildStagedTicketFromScan(
     };
   });
 
-  let finalPicks = applyCapAndBackfillToTarget(selected.slice(0, target), target, qualifying);
+  let finalPicks = applyCapAndBackfillToTarget(
+    selected.slice(0, target),
+    target,
+    qualifying,
+    undefined,
+    ticketStyle,
+  );
   if (finalPicks.length < target) {
     // Only pre-qualified legs — never resurrect from raw scored.
     finalPicks = tieredBackfillStagedTicket(

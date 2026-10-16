@@ -44,6 +44,7 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { buildHomeSports } from "@/lib/homeSports";
+import { resolveHomeShortcut } from "@/lib/homeShortcuts";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
   hydrateDiscoverCache,
@@ -941,14 +942,25 @@ function HomeSportFeed({
     stealsQ.isFetching ||
     (sport !== "tennis" && upsetsQ.isFetching);
 
-  const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
+  const askCoach = (
+    msg: string,
+    silent = false,
+    ticketStyle?: "safe" | "balanced" | "value" | "longshot",
+  ) => {
+    // Queue autoMsg + ticketStyle before push — tab navigations can drop params.
+    markCoachHomeLaunch({
+      autoMsg: msg,
+      hideBubble: silent,
+      freshThread: true,
+      ticketStyle: ticketStyle ?? null,
+    });
     router.push({
       pathname: "/coach",
       params: {
         autoMsg: msg,
         send: "1",
         ts: String(Date.now()),
+        ...(ticketStyle ? { ticketStyle } : {}),
       },
     });
   };
@@ -963,6 +975,13 @@ function HomeSportFeed({
       },
     });
 
+  const runHomeShortcut = (id: "hot_picks" | "easy_money" | "best_value" | "longshots") => {
+    // All-sports by default — do not inherit the Home sport pill into Coach.
+    // Typed sport requests inside Coach still scope via ask text.
+    const dest = resolveHomeShortcut(id);
+    askCoach(dest.autoMsg, dest.silent, dest.ticketStyle);
+  };
+
   const quickActions: {
     label: string;
     subtitle: string;
@@ -972,32 +991,31 @@ function HomeSportFeed({
   }[] = [
     {
       label: "Hot Picks",
-      subtitle: "Tonight's top picks",
+      subtitle: "Best balanced parlay",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => runHomeShortcut("hot_picks"),
     },
     {
       label: "Easy Money",
-      subtitle: "High win rate tonight",
+      subtitle: "Lower-risk style parlay",
       icon: "currency-usd",
       color: "#34d399",
-      onPress: () => askCoach("Build me a safe parlay"),
+      onPress: () => runHomeShortcut("easy_money"),
     },
     {
       label: "Best Value",
-      subtitle: "Top projected edges",
+      subtitle: "Best-value +EV parlay",
       icon: "bullseye-arrow",
       color: colors.primary,
-      onPress: () =>
-        router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} }),
+      onPress: () => runHomeShortcut("best_value"),
     },
     {
       label: "Longshots",
-      subtitle: "High upside plays",
+      subtitle: "Lottery-style higher payout",
       icon: "rocket-launch",
       color: "#a78bfa",
-      onPress: () => router.push("/steals"),
+      onPress: () => runHomeShortcut("longshots"),
     },
   ];
 
