@@ -55,6 +55,8 @@ export type CoachDigestTelegramStats = {
   altMarketFailureCount?: number;
   simulationFailureCount?: number;
   scanFreezeCount?: number;
+  /** Legacy unknown outcomes — separate from underfill/zero/freeze. */
+  unknownOutcomeCount?: number;
   p50Ms: number | null;
   p95Ms: number | null;
   topFailureReasons: Array<{ reason: string; count: number }>;
@@ -130,6 +132,7 @@ export function formatCoachDailyDigestSection(
       ` · zero: ${coach.zeroResultCount}`,
     `question failures: ${coach.questionFailureCount}`,
     `grounding/alt/sim/freeze: ${coach.groundingFailureCount ?? 0}/${coach.altMarketFailureCount ?? 0}/${coach.simulationFailureCount ?? 0}/${coach.scanFreezeCount ?? 0}`,
+    `unknown outcomes: ${coach.unknownOutcomeCount ?? 0}`,
     `p50/p95 ms: ${coach.p50Ms ?? "—"} / ${coach.p95Ms ?? "—"}`,
     `top failures: ${top}`,
     coverageNote,
