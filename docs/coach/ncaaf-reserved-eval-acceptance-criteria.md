@@ -73,4 +73,13 @@ Reuse locked C1–C6 + R1–R4 from [`ncaaf-e2b-clv-acceptance-criteria.md`](./n
 
 ## Status
 
-Criteria **LOCKED**. No 2025/2026 results examined. No Odds historical retrieval performed.
+Criteria **LOCKED**.  
+
+| Split | Fixture status (2026-10-16) |
+|-------|------------------------------|
+| TUNING ESPN games | **Present** — `ncaaf-tuning-2025-w1-7-games.json` (471) — score-only diags allowed |
+| TUNING Odds closes | **Absent** — do not claim M3/S* PASS |
+| FINAL_EVAL games/closes | **Untouched** — not vendored; count-only probes only |
+| Odds historical retrieval | **Not performed** (`ODDS_API_KEY` unset) |
+
+Score-only TUNING diagnostics must not rewrite these thresholds.

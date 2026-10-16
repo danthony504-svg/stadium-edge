@@ -50,6 +50,43 @@ export const FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD = 14.5;
  */
 export const FOOTBALL_NCAAF_HOME_MARGIN_SHRINK = 2.0;
 
+/**
+ * Expand (or compress) the home/away PPG gap about their midpoint — RESEARCH ONLY.
+ * Default **1.0** (no-op) so existing research residual/shrink locks stay intact.
+ *
+ * TUNING 2025 w1–7 score-only sweep (`ncaaf-tuning-margin-scale-sweep.json`) found
+ * projected margins systematically smaller than actual; scales ≈1.45–1.6 improved
+ * synthetic fair-line ATS Brier. **Not locked** — requires Odds closes on TUNING
+ * before any restore claim. Override via `NCAAF_RESEARCH_MARGIN_GAP_SCALE`.
+ */
+export const FOOTBALL_NCAAF_RESEARCH_MARGIN_GAP_SCALE_DEFAULT = 1.0;
+
+/** Research-only gap scale (env override when finite and > 0). */
+export function ncaafResearchMarginGapScale(): number {
+  const raw = String(process.env.NCAAF_RESEARCH_MARGIN_GAP_SCALE ?? "").trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0 && n <= 3) return n;
+  }
+  return FOOTBALL_NCAAF_RESEARCH_MARGIN_GAP_SCALE_DEFAULT;
+}
+
+/** Expand means about midpoint by `scale` (1 = unchanged). */
+export function applyNcaafResearchMarginGapScale(
+  homeOff: number,
+  awayOff: number,
+  scale: number,
+): { homeOff: number; awayOff: number } {
+  if (!Number.isFinite(scale) || Math.abs(scale - 1) < 1e-12) {
+    return { homeOff, awayOff };
+  }
+  const mid = (homeOff + awayOff) / 2;
+  return {
+    homeOff: mid + scale * (homeOff - mid),
+    awayOff: mid + scale * (awayOff - mid),
+  };
+}
+
 /** True when offline Phase E scripts opt into NCAAF research calibration. */
 export function ncaafResearchCalibrationEnabled(
   flag?: boolean | null,

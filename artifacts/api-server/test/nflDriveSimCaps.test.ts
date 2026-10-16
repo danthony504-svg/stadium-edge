@@ -226,3 +226,50 @@ test("NCAAF research residual is isolated from live NFL and live NCAAF stamps", 
     `research home ${ncaafResearch?.homeProjectedScore} should be below live ${ncaafLive?.homeProjectedScore}`,
   );
 });
+
+test("NCAAF research margin gap scale: helper + default no-op; NFL ignores env", async () => {
+  const {
+    applyNcaafResearchMarginGapScale,
+    ncaafResearchMarginGapScale,
+    FOOTBALL_NCAAF_RESEARCH_MARGIN_GAP_SCALE_DEFAULT,
+  } = await import("../src/lib/sportSim/footballDriveMatchup.ts");
+  const { runNflDriveSim } = await import("../src/lib/sportSim/nflDriveSim.ts");
+
+  assert.equal(FOOTBALL_NCAAF_RESEARCH_MARGIN_GAP_SCALE_DEFAULT, 1);
+  assert.equal(ncaafResearchMarginGapScale(), 1);
+
+  const scaled = applyNcaafResearchMarginGapScale(30, 20, 1.5);
+  assert.equal(scaled.homeOff, 32.5);
+  assert.equal(scaled.awayOff, 17.5);
+  const identity = applyNcaafResearchMarginGapScale(30, 20, 1);
+  assert.equal(identity.homeOff, 30);
+  assert.equal(identity.awayOff, 20);
+
+  const prev = process.env.NCAAF_RESEARCH_MARGIN_GAP_SCALE;
+  process.env.NCAAF_RESEARCH_MARGIN_GAP_SCALE = "1.6";
+  try {
+    assert.equal(ncaafResearchMarginGapScale(), 1.6);
+    const mkRng = () => {
+      let i = 20241015 >>> 0;
+      return () => {
+        i = (i * 1664525 + 1013904223) >>> 0;
+        return i / 0x100000000;
+      };
+    };
+    const nfl = runNflDriveSim({
+      sport: "nfl",
+      simulations: 400,
+      random: mkRng(),
+      home: { ptsFor: 28, ptsAgainst: 18 },
+      away: { ptsFor: 18, ptsAgainst: 28 },
+      ncaafResearchCalibration: true,
+      retainOutcomes: false,
+    });
+    // NFL must not enter research gap scale even if env is set.
+    assert.match(String(nfl?.simModelLabel), /ppg-per-drive-v1\)/);
+    assert.doesNotMatch(String(nfl?.simModelLabel), /research/);
+  } finally {
+    if (prev === undefined) delete process.env.NCAAF_RESEARCH_MARGIN_GAP_SCALE;
+    else process.env.NCAAF_RESEARCH_MARGIN_GAP_SCALE = prev;
+  }
+});

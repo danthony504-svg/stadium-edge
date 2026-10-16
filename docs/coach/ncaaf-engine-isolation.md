@@ -32,6 +32,7 @@ NFL with `ncaafResearchCalibration: true` still ignores residual (college check)
 |--------|--------|
 | 2024 kickoff `< 2024-10-15` | **USED** (tuning lock for research residual/shrink + CLV selection) |
 | 2024 kickoff `≥ 2024-10-15` | **USED** (untouched evaluation at e6c26f85) |
-| 2025+ FBS (forward collection) | **RESERVED_UNTOUCHED** — do not tune until fixtures exist |
+| 2025 weeks 1–7 ESPN | **TUNING** — games vendored; Odds closes pending |
+| 2025 w8+ / completed 2026 | **FINAL_EVAL** — untouched (no eval fixtures written) |
 
-Further model tuning must wait for reserved data. Failure analysis on USED windows is allowed (no parameter lock changes).
+Failure analysis on USED 2024 is allowed (no residual/shrink re-lock). TUNING score-only sweeps may propose research levers (e.g. margin gap scale default 1.0); do not retune on FINAL_EVAL.

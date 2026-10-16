@@ -26,8 +26,10 @@ import {
   FOOTBALL_NCAAF_HOME_MARGIN_SHRINK,
   FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD,
   FOOTBALL_NCAAF_RESEARCH_ENGINE_VERSION,
+  applyNcaafResearchMarginGapScale,
   isCollegeFootballSport,
   ncaafResearchCalibrationEnabled,
+  ncaafResearchMarginGapScale,
 } from "./footballDriveMatchup.js";
 
 /** Box–Muller using the sim RNG (no Math.random). */
@@ -94,6 +96,17 @@ export function runNflDriveSim(ctx: SportSimContext): GameSimResult | null {
     ctx.sport,
   );
   if (!Number.isFinite(homeOff) || !Number.isFinite(awayOff)) return null;
+
+  // NCAAF research-only margin gap scale (default 1.0 = no-op). Live path skips.
+  if (research) {
+    const scaled = applyNcaafResearchMarginGapScale(
+      homeOff,
+      awayOff,
+      ncaafResearchMarginGapScale(),
+    );
+    homeOff = scaled.homeOff;
+    awayOff = scaled.awayOff;
+  }
 
   // NCAAF research-only home-margin shrink (live path unchanged).
   if (research && FOOTBALL_NCAAF_HOME_MARGIN_SHRINK > 0) {
