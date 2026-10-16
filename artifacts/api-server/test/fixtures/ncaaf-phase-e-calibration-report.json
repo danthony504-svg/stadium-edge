@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-16T19:54:31.150Z",
-  "engine": "nfl-drive:ppg-per-drive-v1",
+  "generatedAt": "2026-10-16T20:23:50.530Z",
+  "engine": "nfl-drive:ppg-per-drive-v1.1",
   "inputUnits": "Selection-time points per game, converted to points per drive by the shared drive count. Touchdown = 6 plus one extra-point attempt. Field goal = 3. Events are mutually exclusive. Late-clock touchdowns are funded from the same points-per-game budget.",
   "selectionTimeInputs": true,
   "calibrationSeed": 20241015,
@@ -15,39 +15,39 @@
   "officialDogCohort": {
     "lo": 0.45,
     "hi": 0.55,
-    "n": 111,
-    "awayCoverRate": 0.6756756756756757
+    "n": 165,
+    "awayCoverRate": 0.6787878787878788
   },
   "dogCohortByBoundary": [
     {
       "lo": 0.43,
       "hi": 0.57,
-      "n": 147,
-      "awayCoverRate": 0.6870748299319728
+      "n": 236,
+      "awayCoverRate": 0.6864406779661016
     },
     {
       "lo": 0.44,
       "hi": 0.56,
-      "n": 127,
-      "awayCoverRate": 0.7007874015748031
+      "n": 202,
+      "awayCoverRate": 0.6881188118811881
     },
     {
       "lo": 0.45,
       "hi": 0.55,
-      "n": 111,
-      "awayCoverRate": 0.6756756756756757
+      "n": 165,
+      "awayCoverRate": 0.6787878787878788
     },
     {
       "lo": 0.46,
       "hi": 0.54,
-      "n": 89,
-      "awayCoverRate": 0.6741573033707865
+      "n": 129,
+      "awayCoverRate": 0.6821705426356589
     },
     {
       "lo": 0.47,
       "hi": 0.53,
-      "n": 66,
-      "awayCoverRate": 0.6363636363636364
+      "n": 105,
+      "awayCoverRate": 0.6761904761904762
     }
   ],
   "dogCohortBySeed": [
@@ -56,48 +56,48 @@
       "primary": true,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 111,
-      "awayCoverRate": 0.6756756756756757
+      "n": 165,
+      "awayCoverRate": 0.6787878787878788
     },
     {
       "seed": 7,
       "primary": false,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 103,
-      "awayCoverRate": 0.6796116504854369
+      "n": 175,
+      "awayCoverRate": 0.6971428571428572
     },
     {
       "seed": 42,
       "primary": false,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 106,
-      "awayCoverRate": 0.6792452830188679
+      "n": 168,
+      "awayCoverRate": 0.6904761904761905
     },
     {
       "seed": 99,
       "primary": false,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 106,
-      "awayCoverRate": 0.6886792452830188
+      "n": 169,
+      "awayCoverRate": 0.6804733727810651
     },
     {
       "seed": 123456789,
       "primary": false,
       "lo": 0.45,
       "hi": 0.55,
-      "n": 103,
-      "awayCoverRate": 0.6990291262135923
+      "n": 168,
+      "awayCoverRate": 0.6845238095238095
     }
   ],
   "dogCohortSeedRange": {
-    "min": 0.6756756756756757,
-    "max": 0.6990291262135923,
-    "mean": 0.6844481961353183
+    "min": 0.6787878787878788,
+    "max": 0.6971428571428572,
+    "mean": 0.6862808217423602
   },
-  "boundarySensitiveGames": 39,
+  "boundarySensitiveGames": 76,
   "boundarySensitiveNote": "Count of primary-seed games whose home ML sits within 0.01 of 0.45 or 0.55. Those games can enter or leave the official cohort when the draw noise moves.",
   "priorE2aClaim": {
     "status": "WITHDRAWN",
@@ -132,11 +132,11 @@
     "assumptionExcluded": true,
     "nHoldoutScored": 861,
     "nHoldoutSkippedThinForm": 10,
-    "brier": 0.20090848548199758,
-    "ece10": 0.044977932636469244,
-    "meanP": 0.6723182346109169,
+    "brier": 0.20056385017421613,
+    "ece10": 0.04033101045296183,
+    "meanP": 0.6084610917537755,
     "meanY": 0.6353077816492451,
-    "homeWinBias": 0.037010452961671825,
+    "homeWinBias": -0.026846689895469567,
     "note": "Sensitivity check. Primary metrics still use the kickoff-plus-4-hours assumption wherever a credible stamp is missing or implausible."
   },
   "formProvenanceCounts": {
@@ -196,19 +196,19 @@
   },
   "closeArchiveSoftGates": {
     "n": 770,
-    "engineBrier": 0.21645105714285715,
+    "engineBrier": 0.2148955025974026,
     "marketBrier": 0.1768228726228741,
-    "meanEngineMinusMarket": 0.03659340843975234,
+    "meanEngineMinusMarket": -0.02513256558622166,
     "verdict": "PASS_SOFT_GATES_ONLY",
     "reasons": []
   },
   "closingLineData": "MEASURED_OPEN",
   "closingLineMetrics": {
     "n": 770,
-    "engineBrier": 0.21645105714285715,
+    "engineBrier": 0.2148955025974026,
     "marketBrier": 0.1768228726228741,
-    "engineMinusMarketBrier": 0.03962818451998304,
-    "meanHomeCoverProb": 0.5433660477453581,
+    "engineMinusMarketBrier": 0.03807262997452848,
+    "meanHomeCoverProb": 0.5002148541114058,
     "actualHomeCoverRate": 0.4960212201591512,
     "verdict": "OPEN_NEEDS_AGREED_TOLERANCE",
     "reason": "Closing rows joined. PR 737 left Coach pick CLV without a PASS label, so this measurement does not PASS E2b CLV."
@@ -217,16 +217,16 @@
   "injurySegmentData": "INSUFFICIENT_DATA",
   "injuryNote": "ESPN scoreboard fixture (ncaaf-phase-e-games.json) has no QB/injury flags — E4 cannot PASS. Dependency: injury-segmented holdout rows (injuryKnown + optional qbOut) via NCAAF_PHASE_E_FIXTURE, or a historical ESPN injury snapshot keyed by eventId/teamId before kickoff.",
   "metrics": {
-    "brier": 0.19859952716763005,
+    "brier": 0.19961557803468205,
     "brierCoin": 0.25,
-    "logLoss": 0.5763218668301853,
-    "ece10": 0.05295838150289012,
-    "meanP": 0.6739734104046247,
+    "logLoss": 0.5823929630189275,
+    "ece10": 0.04623930635838164,
+    "meanP": 0.6094994219653181,
     "meanY": 0.6369942196531792,
-    "homeWinBias": 0.03697919075144551,
+    "homeWinBias": -0.027494797687861006,
     "nearCoinFlipDog75": {
-      "n": 111,
-      "awayCoverRate": 0.6756756756756757
+      "n": 165,
+      "awayCoverRate": 0.6787878787878788
     }
   },
   "thresholds": {

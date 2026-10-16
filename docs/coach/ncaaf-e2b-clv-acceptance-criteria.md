@@ -1,7 +1,7 @@
 # E2b Coach pick CLV — acceptance criteria (locked before remeasure)
 
 **Status:** Criteria locked **2026-10-16** on branch `cursor/ncaaf-phase-e-restore-8b51`.  
-**Engine:** `nfl-drive:ppg-per-drive-v1`.  
+**Engine:** `nfl-drive:ppg-per-drive-v1.1` (remeasure); prior −0.0057 was on `ppg-per-drive-v1`.  
 **Rule:** Do **not** pick a negative floor to pass a measured mean. Gate stays false.
 
 ## What CLV measures here
@@ -30,27 +30,33 @@ Spread CLV (points) is reported separately and is **not** sufficient for an E2b 
 
 **Explicitly rejected:** any tolerance of the form `meanClv ≥ −0.01` (or similar) chosen to clear a measured −0.0057.
 
-## Evaluation of the current measurement (criteria locked first)
+## Evaluation (criteria locked first; then R1–R4; then remeasure)
 
-Source: `artifacts/api-server/test/fixtures/ncaaf-phase-e-coach-pick-clv-report.json` (2026-10-16, 10k sims).
+### Prior measurement (v1, pre-R1–R4) — reference only
 
 | Metric | Value | vs criteria |
 |--------|-------|-------------|
 | nMlWithClv | 69 | C1 PASS |
 | meanClvProbPoints | **−0.00568** | **C2 FAIL** |
 | pctSelectionsBeatClose | **0.348** | **C3 FAIL** |
-| home/away ML mix | 32 / 37 | C4 PASS (overall picks 112H/88A) |
+
+Root cause notes: fixture invented vig-free away ML (inflated edge); uncapped edge ranked overconfident sims; home-blanket true-CLV baseline was **−0.0019**.
+
+### Remeasure (v1.1 + R1–R4, 10k sims)
+
+Source: `ncaaf-phase-e-coach-pick-clv-report.json`.
+
+| Metric | Value | vs criteria |
+|--------|-------|-------------|
+| nMlWithClv | **15** | **C1 FAIL** |
+| meanClvProbPoints | **−0.00404** | **C2 FAIL** |
+| pctSelectionsBeatClose | **0.40** | **C3 FAIL** |
+| home/away pick mix | 52 / 36 | C4 PASS |
+| earlyCachePicks | **0** | Blocker for R2 / C1 |
 | Soft gates | PASS_SOFT_GATES_ONLY | C5 PASS |
-| Verdict | **FAIL** (not PASS; remain `COMPUTED_NO_PASS_LABEL` until a future run meets C1–C5) | |
+| Verdict | **FAIL_LOCKED_CRITERIA** | |
 
-### Investigation notes (why negative)
-
-- Away ML picks: hit rate **0.62** but mean CLV **−0.007** — wins that still lose to the close (steam / late money).  
-- Home ML picks: hit rate **0.31**, mean CLV **−0.004**.  
-- High-edge (≥10%) selections are slightly worse on CLV than low-edge.  
-- Home-blanket true-CLV baseline (T−24h→close, not Coach) was **−0.0019** (`ncaaf-phase-e-true-clv-report.json`); Coach pick mean is **worse** than that baseline.
-
-Remediation belongs in selection timing / qualification / price source — **not** in loosening C2.
+**Blocker:** With fixture-only home ML + `edgePct≤12` and empty early-snapshot cache, C1 cannot be met. Next step is Odds early two-sided snaps — **not** relaxing C2 to pass −0.004.
 
 ## Locked selection remediations (2026-10-16, before remeasure)
 

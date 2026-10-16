@@ -156,13 +156,17 @@ test("10k draws track low, average, and high points per game", () => {
 
   for (const row of rows) {
     assert.match(String(row.label), /ppg-per-drive-v1/);
+    // NCAAF v1.1 applies home-margin shrink (±1 pt to means); residual noise is mean-zero.
+    const shrinkHalf = row.sport === "ncaaf" ? 1.0 : 0;
+    const homeTrack = row.projectedHome - (row.home - shrinkHalf);
+    const awayTrack = row.projectedAway - (row.away + shrinkHalf);
     assert.ok(
-      Math.abs(row.homeDelta) <= 1.25,
-      `${row.sport} ${row.band} home ${row.projectedHome} vs input ${row.home} (delta ${row.homeDelta})`,
+      Math.abs(homeTrack) <= 1.25,
+      `${row.sport} ${row.band} home ${row.projectedHome} vs shrunk input ${row.home - shrinkHalf} (delta ${homeTrack})`,
     );
     assert.ok(
-      Math.abs(row.awayDelta) <= 1.25,
-      `${row.sport} ${row.band} away ${row.projectedAway} vs input ${row.away} (delta ${row.awayDelta})`,
+      Math.abs(awayTrack) <= 1.25,
+      `${row.sport} ${row.band} away ${row.projectedAway} vs shrunk input ${row.away + shrinkHalf} (delta ${awayTrack})`,
     );
     if (row.home >= 12) {
       assert.ok(
@@ -184,9 +188,10 @@ test("10k draws track low, average, and high points per game", () => {
   );
 
   const collegeAvg = rows.find((r) => r.sport === "ncaaf" && r.band === "average")!;
+  // After −1 home shrink from 24 PPG, projected home should sit near 23.
   assert.ok(
-    collegeAvg.projectedHome > 22 && collegeAvg.projectedHome < 26,
-    `college 24 PPG projected ${collegeAvg.projectedHome}`,
+    collegeAvg.projectedHome > 21 && collegeAvg.projectedHome < 25,
+    `college 24 PPG (post-shrink) projected ${collegeAvg.projectedHome}`,
   );
 
   const payload = {

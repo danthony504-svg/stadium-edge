@@ -1,51 +1,51 @@
 {
-  "generatedAt": "2026-10-16T19:51:37.354Z",
+  "generatedAt": "2026-10-16T20:22:52.674Z",
   "simulationsPerGame": 10000,
   "selectionCutoff": "2024-10-15T00:00:00Z",
   "competitionScope": "Odds-listed FBS games in ncaaf-phase-e-closing-lines.json (matchable americanfootball_ncaaf names). FCS/unlisted excluded.",
-  "engineStamp": "ppg-per-drive-v1",
+  "engineStamp": "ppg-per-drive-v1.1",
   "selectionRules": {
-    "engine": "nfl-drive:ppg-per-drive-v1",
+    "engine": "nfl-drive:ppg-per-drive-v1.1",
     "form": "venue_split+L10 blend; chrono pre-kickoff only",
-    "prices": "Prefer Odds historical ~24h pre-kickoff cache; else vendored ncaaf-phase-e-selection-prices.json (home lines + vig-free away ML / \u2212home spread @ \u2212110)",
-    "candidates": "home/away ML + home/away spread at selection lines",
+    "prices": "Prefer Odds historical ~24h pre-kickoff cache (two-sided). Fixture fallback: home ML only + −home spread @ −110 (R1/R2 — no vig-free away ML invent).",
+    "candidates": "home ML + home/away spread always; away ML only when odds-early-cache",
     "gates": [
       "simHit >= 0.52",
       "confidenceScore >= 52",
-      "edgePct > 0 (simHit > implied)",
+      "0 < edgePct <= 12 (R3; MAX_VALUE_PCT product ceiling)",
       "evPct > 0"
     ],
     "sideChoice": "Among qualifiers, prefer sim-favored side when |homeWinP-awayWinP|>=0.03; rank by edgePct then simHit. NOT blanket home.",
-    "note": "Offline eval applies Coach SIMULATION numeric gates. Full Final-AI rubric grades are not reconstructed; product NCAAF P0 remains armed."
+    "note": "Offline eval applies Coach SIMULATION numeric gates + locked R1–R4 remediations (docs/coach/ncaaf-e2b-clv-acceptance-criteria.md). Full Final-AI rubric grades are not reconstructed; product NCAAF P0 remains armed."
   },
   "funnel": {
     "selectionUniverseInScope": 383,
     "skippedNoClose": 77,
     "skippedNoEarlyPrices": 21,
     "skippedThinForm": 129,
-    "skippedNoQualify": 33,
-    "selectedPicks": 200,
-    "homeSelections": 112,
-    "awaySelections": 88,
-    "mlSelections": 69,
-    "spreadSelections": 131
+    "skippedNoQualify": 145,
+    "selectedPicks": 88,
+    "homeSelections": 52,
+    "awaySelections": 36,
+    "mlSelections": 15,
+    "spreadSelections": 73
   },
   "coachPickClv": {
-    "nMlWithClv": 69,
-    "meanClvProbPoints": -0.005677231761521964,
-    "meanAbsClvProbPoints": 0.018515165032473753,
-    "pctSelectionsBeatClose": 0.34782608695652173,
+    "nMlWithClv": 15,
+    "meanClvProbPoints": -0.004038730021174149,
+    "meanAbsClvProbPoints": 0.017377574546701153,
+    "pctSelectionsBeatClose": 0.4,
     "unit": "probability_points_0_to_1 for ML CLV; spread points for spreadClv",
-    "meanSpreadClvPoints": -0.1297709923664122
+    "meanSpreadClvPoints": -0.0684931506849315
   },
   "outcomes": {
-    "decided": 199,
-    "wins": 99,
-    "losses": 100,
-    "hitRate": 0.49748743718592964,
+    "decided": 87,
+    "wins": 48,
+    "losses": 39,
+    "hitRate": 0.5517241379310345,
     "wilson95": {
-      "lo": 0.42872650785379013,
-      "hi": 0.5663435369496428
+      "lo": 0.447243599475858,
+      "hi": 0.6518299527292991
     }
   },
   "untouchedPeriodMarketBaseline": {
@@ -54,30 +54,40 @@
     "marketBrierCloseMl": 0.18858474290035,
     "coinBrier": 0.25,
     "marketBeatsCoin": true,
-    "note": "No Coach selections on this period \u2014 close-ML Brier only."
+    "note": "No Coach selections on this period — close-ML Brier only."
   },
   "injuryKnown": null,
   "verdicts": {
-    "E2b_coachPickClv": "FAIL_LOCKED_CRITERIA",
-    "E2b_closeArchiveSoftGates": "see calibration report \u2014 not CLV",
+    "E2b_coachPickClv": "COMPUTED_NO_PASS_LABEL",
+    "E2b_closeArchiveSoftGates": "see calibration report — not CLV",
     "E4_injuryConservatism": "INSUFFICIENT_DATA",
     "E6_humanSignOff": "OPEN",
-    "NCAAF_GAME_LINE_SIM_VALIDATED": "false \u2014 do not flip",
-    "E2b_coachPickClvNote": "Criteria locked before scoring; mean \u22120.0057 fails C2 (require \u22650). No negative floor chosen to pass."
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip",
+    "E2b_coachPickClvNote": "Criteria locked before scoring; C2 requires meanClv≥0 (no negative floor). R1–R4 applied."
   },
   "keepP0Armed": true,
   "flagFlipAllowed": false,
   "clvAcceptanceCriteria": {
     "lockedAt": "2026-10-16",
     "doc": "docs/coach/ncaaf-e2b-clv-acceptance-criteria.md",
-    "C1_nMl_ge_50": true,
+    "selectionRemediations": [
+      "R1_fixture_home_ml_only",
+      "R2_away_ml_needs_early_cache",
+      "R3_max_edge_12",
+      "R4_record_price_source"
+    ],
+    "C1_nMl_ge_50": false,
     "C2_meanClv_ge_0": false,
-    "C3_pctBeatClose_ge_0.45": false,
+    "C3_pctBeatClose_ge_0_45": false,
     "C4_side_mix": true,
     "measured": {
-      "nMlWithClv": 69,
-      "meanClvProbPoints": -0.005677231761521964,
-      "pctSelectionsBeatClose": 0.34782608695652173
+      "nMlWithClv": 15,
+      "meanClvProbPoints": -0.004038730021174149,
+      "pctSelectionsBeatClose": 0.4,
+      "homeSelections": 52,
+      "awaySelections": 36,
+      "fixturePicks": 88,
+      "earlyCachePicks": 0
     },
     "allPass": false
   }

@@ -1,7 +1,7 @@
 # NCAAF restoration candidate — evidence pack
 
 **Branch:** `cursor/ncaaf-phase-e-restore-8b51`  
-**Engine:** `nfl-drive:ppg-per-drive-v1` (Render `e607f131`)  
+**Engine:** `nfl-drive:ppg-per-drive-v1.1` (candidate; live Render still `e607f131` / `ppg-per-drive-v1`)  
 **Product gate:** `NCAAF_GAME_LINE_SIM_VALIDATED = false` — **do not flip**  
 **Ops:** No publish/deploy; voice paused; production OTA freeze armed.
 
@@ -11,38 +11,47 @@ Per-market readiness is **independent**. Passing ML calibration does **not** ena
 
 | Market | Untouched holdout (kickoff ≥ 2024-10-15) | vs coin | vs market | Restore? |
 |--------|------------------------------------------|---------|-----------|----------|
-| **Moneyline** | n=411; Brier **0.208** | **beats** | **loses** to close-ML (0.189) | **NO** — CLV criteria FAIL; E4/E6 OPEN |
-| **Spreads** | n=384; Brier **0.284** | **fails** | N/A (no spread juice) | **NO** — model calibration; settlement audit CLEARED |
-| **Totals** | over@proj Brier 0.248 beats coin; MAE ≈13 | engine-only | **no close totals** | **NO** — missing archive |
+| **Moneyline** | n=411; Brier **0.210** | **beats** | **loses** to close-ML (0.189) | **NO** — CLV criteria FAIL; E4/E6 OPEN |
+| **Spreads** | n=384; Brier **0.264** | **fails** | N/A (no spread juice) | **NO** — discrimination weak; settlement CLEARED |
+| **Totals** | over@proj Brier 0.250 beats coin; MAE ≈13 | engine-only | **no close totals** | **NO** — missing archive |
 | **ALTs** | synthetic lines measured | mixed | **no posted ALT prices** | **NO** — missing archive |
 
-## 1) Spread settlement audit (blocker investigation)
+## 1) Spread settlement + calibration
 
-Source: `ncaaf-phase-e-spread-settlement-audit.json`
+Source: `ncaaf-phase-e-spread-settlement-audit.json`, `ncaaf-phase-e-spread-margin-diag.json`
 
 | Check | Result |
 |-------|--------|
-| Engine vs archive home-line sign | **CLEARED** (flipped settlement Brier worse) |
-| Probability extraction inverted (1−p) | **CLEARED** on untouched |
-| corr(p,y) | **+0.04** untouched (not anti-correlated) |
+| Engine vs archive home-line sign | **CLEARED** |
+| Probability extraction inverted (1−p) | **CLEARED** |
 | Pushes | Excluded (`adj==0`); unit-tested vs `coverQueryHits` |
-| Form timing | `walkHoldoutGames` pre-kickoff only (credible stamp / kickoff+4h) |
-| Untouched ATS vs coin | Brier **0.284 ≥ 0.25** → **OPEN_MODEL** (not a sign bug) |
-| Uncertainty | No closing spread prices ⇒ market ATS baseline unavailable; coin only |
+| Form timing | `walkHoldoutGames` pre-kickoff only |
+| Pre-cutoff underdispersion (pre-v1.1) | residual/sim SD ≈ **1.50**; home-margin bias ≈ **+2.2** |
+| v1.1 locks (pre-cutoff only; untouched unused) | `FOOTBALL_NCAAF_MARGIN_RESIDUAL_SD=14.5`, `FOOTBALL_NCAAF_HOME_MARGIN_SHRINK=2.0` |
+| Post-v1.1 pre-cutoff diag | residual ratio ≈ **1.01**; mean bias ≈ **+0.13** |
+| Untouched ATS vs coin | Brier **0.264 ≥ 0.25** → **OPEN_MODEL** (bias fixed; **corr(p,y)≈0.05** — weak discrimination) |
+| Uncertainty | No closing spread juice ⇒ market ATS baseline unavailable; coin only |
 
-Short-spread band (|line|≤3.5): meanP **0.61** vs meanY **0.48** — overconfident home covers; magnitude table in `/opt/cursor/artifacts/ncaaf-spread-brier-by-magnitude.json`.
+**No settlement code defect.** Thresholds not lowered. Residual fix improved bias/dispersion; ATS still fails coin on discrimination.
 
-**No settlement code defect confirmed.** Thresholds not lowered.
+## 2) Coach ML CLV
 
-## 2) Coach ML CLV (negative mean)
+Criteria locked in [`ncaaf-e2b-clv-acceptance-criteria.md`](./ncaaf-e2b-clv-acceptance-criteria.md) **before** scoring (C2 `meanClv≥0` — no negative floor).
 
-Criteria locked in [`ncaaf-e2b-clv-acceptance-criteria.md`](./ncaaf-e2b-clv-acceptance-criteria.md) **before** scoring:
+Selection remediations **R1–R4** locked before remeasure:
+- R1 fixture = home ML only (no vig-free away invent)
+- R2 away ML requires `odds-early-cache`
+- R3 `0 < edgePct ≤ 12`
+- R4 record `priceSource`
 
-- C2: `meanClv ≥ 0` (no negative floor)
-- C3: `pctBeatClose ≥ 0.45`
+| Metric | Prior (v1 uncapped) | Remeasure (v1.1 + R1–R4) |
+|--------|---------------------|---------------------------|
+| nMlWithClv | 69 | **15** (C1 FAIL) |
+| meanClvProbPoints | −0.00568 | **−0.00404** (C2 FAIL) |
+| pctBeatClose | 0.348 | **0.40** (C3 FAIL) |
+| earlyCachePicks | 0 | **0** (cache empty; `ODDS_API_KEY` unset) |
 
-Measured (10k sims, 69 ML picks): mean **−0.00568**, pct beat close **0.348** → **FAIL_LOCKED_CRITERIA**.  
-Away picks hit 62% but still lose CLV (steam). Home-blanket true-CLV baseline was −0.0019; Coach is worse.
+Verdict: **FAIL_LOCKED_CRITERIA** / `COMPUTED_NO_PASS_LABEL`. Under R1–R3 with fixture-only prices, C1 is unreachable until two-sided early snaps exist — **not** a reason to loosen C2.
 
 ## 3) Historical data search
 
@@ -51,23 +60,24 @@ See [`ncaaf-historical-data-availability.md`](./ncaaf-historical-data-availabili
 | Data | Status |
 |------|--------|
 | Close ML + spread | Vendored (Odds historical `h2h,spreads`) |
-| Close totals | **Absent** — builder never requested `totals`; `ODDS_API_KEY` unset here |
+| Close totals | **Absent** — builder never requested `totals`; sample odds fixtures on odds-api branch are h2h/spreads extracts only |
 | Posted ALT prices | **Absent** — never requested `alternate_spreads` |
 | Pre-kickoff injury 2024 | **Absent** — archive columns all null; ESPN live is current-only |
-| Forward injury snapshot | Collected 2026-10-16 for future slates only — **must not** join into 2024 fixtures |
+| Forward injury snapshot | 2026-10-16 ESPN freeze — **must not** join into 2024 fixtures |
 
 ## 4) What remains (before any human sign-off request)
 
-1. Spread **model** calibration so untouched ATS Brier &lt; coin (settlement already audited).  
-2. Coach selection/CLV process that meets locked C1–C6 (mean CLV ≥ 0).  
-3. `ODDS_API_KEY` refill of closes with `totals` + `alternate_spreads`.  
+1. Spread **discrimination** (ATS Brier &lt; coin) beyond residual/bias fix — or keep spreads disabled.  
+2. Two-sided Odds early snapshots (`ODDS_API_KEY`) so Coach CLV can meet C1 under R1–R4, then meanClv ≥ 0.  
+3. Closing archive refill with `totals` + `alternate_spreads`.  
 4. Timestamped injury archive joinable to holdout (`captureTimestamp < kickoff`).  
 5. Then E6 named sign-off on a **flag-only** PR — **not requested yet**.
 
 ## Fixtures / scripts
 
 - `scripts/ncaafPhaseESpreadSettlementAudit.ts`
+- `scripts/ncaafPhaseESpreadMarginDiag.ts` (pre-cutoff only)
 - `scripts/ncaafPhaseEMarketFamilies.ts` (untouched + coin/market)
-- `scripts/ncaafPhaseECoachPickClv.ts`
+- `scripts/ncaafPhaseECoachPickClv.ts` (R1–R4 + locked C1–C6)
 - `scripts/ncaafPregameInjurySnapshotCollector.ts`
 - `scripts/ncaafPhaseE2bClosingLines.py` (`NCAAF_E2B_MARKETS` for totals/alts when keyed)
