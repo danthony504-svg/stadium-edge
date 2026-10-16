@@ -1,30 +1,60 @@
-# Launch-asset reconciliation — `40f5b9f4` attribution vs `afb30bde` message
+# Launch-asset reconciliation — `40f5b9f4` tip vs stale `afb30bde` label
 
-**Purpose:** Resolve whether the republished preview tip (`01a1430d` / group `2d980f30`) is the `40f5b9f4` JS bundle or the earlier `afb30bde` publish, using launch-asset hashes + export records (not update *messages* alone).
-
----
-
-## Table (iOS / runtime `1.1.0` / preview)
-
-| Label | Git commit (publish record) | Update ID | Group ID | Launch `fileSHA256` (manifest `launchAsset.hash`) | Export HBC name |
-|-------|----------------------------|-----------|----------|-----------------------------------------------------|-----------------|
-| Slip OTA | `afb30bde18208404d49df247653ed350c77d0aa1` | `01a140e5-3c7a-70d1-8968-af35752d0c59` | `eb2cc7d7-ca2f-41fb-b008-5186b55a0dcd` | `TZuiYbtcmQAxm0wqL0ZCuVIXKjw5mZb-Iw6Ei27sC3Y` | `entry-efc28f375d270ed4b2495bb0b7c60d35.hbc` |
-| Home-shortcuts PASS | `40f5b9f4747df2b99c98c4c08d26f276e2e07d16` | `01a14121-a602-751f-b218-724db14536d6` | `d405e8b6-edf6-45d3-a8a6-d977ea97d2f4` | `_RzFHXl4PChEDcOIoyZUiwmDB18rXBNhVq_PUyg277M` | `entry-baa93d88e0ae82a94b0a33dac53abdd8.hbc` |
-| **Republish of d405e8b6** | attributed `@ 40f5b9f4` | `01a1430d-37ee-747a-be37-c296473cff9f` | `2d980f30-223d-4cca-8654-48929301d4af` | `_RzFHXl4PChEDcOIoyZUiwmDB18rXBNhVq_PUyg277M` | (same asset as d405; no re-export) |
-| Failed Path A | `c859c1ce73ae64182a996a2751b4f831d601ba8d` | `01a142e1-23e0-772e-beb5-bf03df51e982` | `af92adaa-9a40-44ab-b13a-dfd6d8315061` | `OS4PejuGj0QksztEcIF8yUXYqlb306ctN-G6EUx6gaE` | (distinct) |
-
-Artifact: `/opt/cursor/artifacts/launch-asset-hash-reconciliation.json`  
-Export logs: `preview-ota-publish.log` (`afb30bde`), `preview-ota-40f5b9f4.log` (`40f5b9f4`), `preview-republish-d405e8b6.log`.
+**Correction (2026-10-16):** Device was running update **`01a1430d-37ee-747a-be37-c296473cff9f`** (republish of `d405e8b6` / `40f5b9f4` JS). The **`afb30bde` string was a stale secondary label**, not proof of a different tip. Do **not** infer “wrong tip applied” from that label alone.
 
 ---
 
-## Verdict
+## Authoritative running identity
+
+| Signal | Source | Value for republish tip |
+|--------|--------|-------------------------|
+| `Updates.updateId` | expo-updates (runtime) | `01a1430d-37ee-747a-be37-c296473cff9f` |
+| Launch `fileSHA256` | EAS manifest `launchAsset.hash` | `_RzFHXl4PChEDcOIoyZUiwmDB18rXBNhVq_PUyg277M` |
+| Matches PASS tip `01a14121` | same hash | **Yes** |
+| Matches slip tip `01a140e5` (`afb30bde` publish) | hash `TZuiYbt…` | **No** |
+
+Artifact: `/opt/cursor/artifacts/launch-asset-hash-reconciliation.json`.
+
+---
+
+## Where the stale `afb30bde` label comes from
+
+Traced against baked env / manifest / persisted state:
+
+| Candidate source | Result |
+|------------------|--------|
+| **Baked JS env `EXPO_PUBLIC_GIT_COMMIT`** | **Primary.** Device attestation **“Commit hash (running JS)”** reads `process.env.EXPO_PUBLIC_GIT_COMMIT` (`lib/otaDebug.ts`), inlined by Metro at **export** time. `publish-preview-ota.sh` sets `EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$FULL}"` — if a prior shell export left `EXPO_PUBLIC_GIT_COMMIT=afb30bde…`, a later `40f5b9f4` export **reuses that stale value** even when `git rev-parse` / EAS `--message` say `40f5b9f4`. Republish **reuses the same launch asset**, so the stale bake survives on `01a1430d`. |
+| **EAS manifest metadata** | **Not the label.** `01a1430d` manifest `metadata` is only `{ updateGroup, branchName }`; serialized manifest contains **neither** `afb30bde` nor `40f5b9f4`. Channel tip **message** is the republish string (`…@ 40f5b9f4…`), not `afb30bde`. |
+| **Persisted AsyncStorage** | **Not the label.** Persisted OTA keys track ready/failed-launch **update ids**, not git commit / deploy message (`otaBannerTrace`, `otaFailedLaunch`). |
+| **Native IPA bake** | **Not `afb30bde`.** Embedded `main.jsbundle` (Build 79) contains `not-baked` for the unset commit path; no `afb30bde` string. |
+
+### How to read Device attestation going forward
+
+| Field | Trust for tip identity? |
+|-------|-------------------------|
+| `Updates.updateId` | **Yes** — authoritative |
+| Launch-asset hash (server) | **Yes** — content identity |
+| EAS update / channel **message** | Descriptive only |
+| `commitHash` / `deployMessage` (baked `EXPO_PUBLIC_*`) | **Secondary** — can lag if env was stale at export |
+
+---
+
+## Hash table (unchanged facts)
+
+| Label | Git (publish record) | Update ID | Group | Launch `fileSHA256` | Export HBC |
+|-------|----------------------|-----------|-------|---------------------|------------|
+| Slip OTA | `afb30bde18208404d49df247653ed350c77d0aa1` | `01a140e5-…` | `eb2cc7d7-…` | `TZuiYbtcmQAxm0wqL0ZCuVIXKjw5mZb-Iw6Ei27sC3Y` | `entry-efc28f375d270ed4b2495bb0b7c60d35.hbc` |
+| Home-shortcuts PASS | `40f5b9f4747df2b99c98c4c08d26f276e2e07d16` | `01a14121-…` | `d405e8b6-…` | `_RzFHXl4PChEDcOIoyZUiwmDB18rXBNhVq_PUyg277M` | `entry-baa93d88e0ae82a94b0a33dac53abdd8.hbc` |
+| Republish | message `@ 40f5b9f4` (bake may still show stale commitHash) | `01a1430d-…` | `2d980f30-…` | `_RzFHXl4…` (same as PASS) | same asset |
+| Failed Path A | `c859c1ce…` | `01a142e1-…` | `af92adaa-…` | `OS4PejuGj0QksztEcIF8yUXYqlb306ctN-G6EUx6gaE` | distinct |
+
+---
+
+## Verdict (corrected)
 
 | Claim | Result |
 |-------|--------|
-| Republish `01a1430d` JS === PASS tip `01a14121` / `40f5b9f4` | **Yes** — identical launch `fileSHA256` `_RzFHXl4…` |
-| Republish `01a1430d` JS === `afb30bde` / `01a140e5` | **No** — different hash (`TZuiYbt…` ≠ `_RzFHXl4…`) and different HBC export name |
-| `afb30bde` is an ancestor of `40f5b9f4` | **Yes** — `40f5b9f4` = shortcuts commit on top of lineage that includes `afb30bde` + `afcf638d` guard |
-| If Device attestation still shows message containing `afb30bde` | Device is **not** on `01a1430d` yet (still on `01a140e5` or cached older tip) — confirm `Updates.updateId` |
-
-Git ancestry: `afb30bde` ⊂ `40f5b9f4` (both include `hasClerkExpoPasskeysNative`). Message text alone must not override launch-asset identity.
+| `01a1430d` was the running tip | **Yes** (updateId) |
+| `01a1430d` JS === `40f5b9f4` / `01a14121` | **Yes** (launch hash) |
+| `afb30bde` on attestation meant tip was `01a140e5` | **No** — stale **baked** `EXPO_PUBLIC_GIT_COMMIT` (or deploy message), not tip identity |
+| Next preview export of `03dd1116` | Must force `EXPO_PUBLIC_GIT_COMMIT=<full SHA>` and unset any prior value before Metro export |
