@@ -9,10 +9,11 @@
 | Source | Status |
 |--------|--------|
 | Cloud Agent secrets | **Only `EXPO_TOKEN` injected** — `ODDS_API_KEY` **not** in agent secret list |
+| Render production | **Key present** (`feed.oddsKeyConfigured: true`) — confirmed 2026-10-16 without exposing value |
 | api-server production pattern | `process.env.ODDS_API_KEY` (routes `odds.ts` / `props.ts` / `golf.ts`) |
 | Collector | Same env var name; reports `ODDS_API_KEY:set\|unset` only — **never logs the value** |
 
-Reuse the existing Render/Cursor `ODDS_API_KEY` secret when activating. Do not paste keys into chat or fixtures.
+Reuse the existing Render `ODDS_API_KEY` by also adding it to Cloud Agent environment secrets when activating. Do not paste keys into chat or fixtures. Details: [`ncaaf-odds-credential-check.md`](./ncaaf-odds-credential-check.md).
 
 ## Local prepare artifacts
 

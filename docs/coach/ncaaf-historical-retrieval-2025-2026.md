@@ -9,8 +9,13 @@
 | Item | Requirement |
 |------|-------------|
 | Secret name | `ODDS_API_KEY` (same as api-server / Render) |
-| Agent status | **Missing** — inject as Cursor/Render secret; never paste into chat |
+| Agent status | **Missing** — only `EXPO_TOKEN` in Cloud Agent secrets |
+| Render (authorized server) | **Present** (`oddsKeyConfigured: true` on prod live-steals) — value not exposed |
+| Remaining credits | **Unknown** until agent gets the key and runs free `GET /v4/sports` |
+| Historical-plan access | **Unconfirmed** (live success ≠ paid historical entitlement) |
 | Plan | Any **paid** Odds API plan (historical `/v4/historical/odds` is paid-only; 10× live credit rate) |
+
+Where to inject for this agent: see [`ncaaf-odds-credential-check.md`](./ncaaf-odds-credential-check.md).
 
 ## Dry-run manifest (TUNING closes) — verified
 
