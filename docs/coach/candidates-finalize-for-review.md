@@ -25,7 +25,7 @@
 | Server digest fix | `6d770ea05bd7453305b6e2585bc9ba0b4625d048` |
 | Server code fix (cache identity) | `c0094c637747ac69b34cdeb24afe5e818270b45f` |
 | Server base = **live Render** | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
-| **Mobile candidate tip** | \`d1d06eabd37396517789c59a6bf1ccc85a65ef26\` |
+| **Mobile candidate tip** | `d1d06eabd37396517789c59a6bf1ccc85a65ef26` |
 | Mobile delivery-commit fix | `d1d06eabd37396517789c59a6bf1ccc85a65ef26` |
 | Mobile PR #747 integrate | `6d65af8db3f3b39ac75c55f8a3e38abd628a56a3` |
 | Mobile last prior code | `c55d99c39465afaf59bbffc41dedf60d4368e787` |
@@ -181,7 +181,7 @@ Opp Shift vacancy already in `opportunityFamilyMult` → `suppressOwnKeyInjuries
 
 ## 5. Prepare preview-mobile export (not executed)
 
-**Candidate:** \`d1d06eabd37396517789c59a6bf1ccc85a65ef26\`  
+**Candidate:** `d1d06eabd37396517789c59a6bf1ccc85a65ef26`  
 **Channel:** `preview` (`eas.json` profile `preview`) · points at `stadium-edge.onrender.com`  
 **Prefer:** server candidate already live so per-opp defense + stamp reject + digest align
 
