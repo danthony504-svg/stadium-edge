@@ -43,6 +43,7 @@ import {
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
+import { legHasPositiveEvForValueStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   pickIsAiRecommended,
@@ -249,13 +250,16 @@ export function selectGreedyBoardLegs(
   existing: ParsedPick[] = [],
   ticketTarget?: number,
   legsPerGameCap?: number | null,
+  ticketStyle?: CoachTicketStyle | null,
 ): ParsedPick[] {
   const seen = new Set(existing.map(pickLegFingerprint));
   const out: ParsedPick[] = [];
   const effectiveTarget = ticketTarget ?? Math.max(target, existing.length + target);
   const maxPerGame = maxLegsPerGame(effectiveTarget, legsPerGameCap);
   const maxProps = maxPropsPerGame(effectiveTarget);
-  const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  const sorted = [...ranked].sort((a, b) =>
+    compareBoardLegsForRank(a, b, varietySeed, ticketStyle),
+  );
   for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
     if (seen.has(fp)) continue;
@@ -419,14 +423,25 @@ export function selectTopBoardLegs(
   legsPerGameCap?: number | null,
   /** Legs already on the ticket from prior category fills — correlation applies. */
   existing: ParsedPick[] = [],
+  ticketStyle?: CoachTicketStyle | null,
 ): ParsedPick[] {
   if (target < 3) {
-    return selectGreedyBoardLegs(ranked, target, varietySeed, existing, target, legsPerGameCap);
+    return selectGreedyBoardLegs(
+      ranked,
+      target,
+      varietySeed,
+      existing,
+      target,
+      legsPerGameCap,
+      ticketStyle,
+    );
   }
 
   const out: ParsedPick[] = [];
   const usedFp = new Set<string>();
-  const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  const sorted = [...ranked].sort((a, b) =>
+    compareBoardLegsForRank(a, b, varietySeed, ticketStyle),
+  );
 
   while (out.length < target) {
     const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
@@ -602,6 +617,10 @@ function qualifyingScoredLegs(
     ) {
       continue;
     }
+    // Best Value: only seat qualified positive-EV legs — honest shortfall otherwise.
+    if (opts?.ticketStyle === "value" && !legHasPositiveEvForValueStyle(next)) {
+      continue;
+    }
     out.push(next);
   }
   return out;
@@ -704,7 +723,9 @@ function applyBalancedCapAndBackfill(
           })()
         : [pools[cat]];
     for (const sub of orderedPools) {
-      const ranked = [...sub].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+      const ranked = [...sub].sort((a, b) =>
+        compareBoardLegsForRank(a, b, varietySeed, ticketStyle),
+      );
       for (const row of ranked) {
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
@@ -977,12 +998,12 @@ export function buildStagedTicketFromScan(
   // Fair competition: all qualifying legs compete by validated rankScore.
   // ticketRole (main/alt) is a badge only — not a seating priority.
   const qualifying = qualifyingScoredLegs(scored, seatOpts);
-  qualifying.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  qualifying.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed, ticketStyle));
 
   const selected = (
     target >= 3
-      ? selectTopBoardLegs(qualifying, target, varietySeed)
-      : selectGreedyBoardLegs(qualifying, target, varietySeed)
+      ? selectTopBoardLegs(qualifying, target, varietySeed, undefined, [], ticketStyle)
+      : selectGreedyBoardLegs(qualifying, target, varietySeed, [], undefined, undefined, ticketStyle)
   ).map((p) => {
     const role = boardLegPoolRole(p, p.finalAiScore, seatOpts) ?? "main";
     return {

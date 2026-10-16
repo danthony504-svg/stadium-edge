@@ -1,5 +1,6 @@
-// Board ranking — best edge first; variety only when scores are nearly equal.
+// Board ranking — style-aware among already-qualified legs; variety when near-equal.
 
+import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { parlayLegKey } from "./parlayVarietyMemory.ts";
 import { varietyRankKey } from "./varietySeed.ts";
@@ -10,6 +11,9 @@ export const NEAR_EQUAL_RANK_SCORE_BAND = 2;
 /** Edge (pct points) and confidence (pct points) must both be close to rotate. */
 export const NEAR_EQUAL_EDGE_PCT = 2;
 export const NEAR_EQUAL_CONFIDENCE_PCT = 6;
+
+/** EV delta (pct points) that lets value-mode prefer the higher-EV leg. */
+export const VALUE_EV_LEAD_PCT = 0.25;
 
 export function boardLegsNearlyEqual(a: BoardScoredLeg, b: BoardScoredLeg): boolean {
   if (Math.abs(b.rankScore - a.rankScore) > NEAR_EQUAL_RANK_SCORE_BAND) return false;
@@ -23,14 +27,44 @@ export function boardLegsNearlyEqual(a: BoardScoredLeg, b: BoardScoredLeg): bool
   );
 }
 
-/** Sort legs: highest rankScore wins unless nearly equal — then varietySeed shuffles. */
+function legEvSignal(leg: BoardScoredLeg): number {
+  if (leg.evPct != null && Number.isFinite(leg.evPct)) return leg.evPct;
+  if (leg.edgePct != null && Number.isFinite(leg.edgePct)) return leg.edgePct;
+  return Number.NEGATIVE_INFINITY;
+}
+
+function legAmericanOdds(leg: BoardScoredLeg): number {
+  const odds = leg.pick.odds;
+  return odds != null && Number.isFinite(odds) ? odds : Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * Sort legs among a shared-qualified pool.
+ * - value: EV leads (Best Value shortcut) — still only among qualified +EV seats
+ * - longshot: quality first; when near-equal, prefer higher American odds (payout)
+ * - safe/balanced: composite rankScore, variety when near-equal
+ */
 export function compareBoardLegsForRank(
   a: BoardScoredLeg,
   b: BoardScoredLeg,
   varietySeed?: string,
+  ticketStyle?: CoachTicketStyle | null,
 ): number {
+  if (ticketStyle === "value") {
+    const evA = legEvSignal(a);
+    const evB = legEvSignal(b);
+    if (Math.abs(evB - evA) > VALUE_EV_LEAD_PCT) return evB - evA;
+  }
+
   const diff = b.rankScore - a.rankScore;
   if (!boardLegsNearlyEqual(a, b)) return diff;
+
+  if (ticketStyle === "longshot") {
+    const oddsA = legAmericanOdds(a);
+    const oddsB = legAmericanOdds(b);
+    if (oddsA !== oddsB) return oddsB - oddsA;
+  }
+
   if (varietySeed) {
     return (
       varietyRankKey(varietySeed, parlayLegKey(a.pick)) -
@@ -43,6 +77,9 @@ export function compareBoardLegsForRank(
 export function sortBoardLegsForRank(
   legs: BoardScoredLeg[],
   varietySeed?: string,
+  ticketStyle?: CoachTicketStyle | null,
 ): BoardScoredLeg[] {
-  return [...legs].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  return [...legs].sort((a, b) =>
+    compareBoardLegsForRank(a, b, varietySeed, ticketStyle),
+  );
 }

@@ -1,8 +1,12 @@
 /**
  * Home / deep-link Coach launches set this synchronously before router.push.
  * Expo tab/stack navigations can drop query params — the module queue keeps
- * autoMsg so Coach still auto-sends after landing.
+ * autoMsg + ticketStyle so Coach still auto-sends after landing (including
+ * when Coach is already mounted).
  */
+
+import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
+
 export type CoachLaunchOpts = {
   /** Hide the user bubble for silent home one-taps. */
   hideBubble: boolean;
@@ -10,6 +14,8 @@ export type CoachLaunchOpts = {
   freshThread: boolean;
   /** Message to auto-send once Coach mounts (survives param drop). */
   autoMsg?: string | null;
+  /** Explicit ticket style — affects selection, not only ask text. */
+  ticketStyle?: CoachTicketStyle | null;
 };
 
 let pendingLaunch: CoachLaunchOpts | null = null;
@@ -18,11 +24,13 @@ export function markCoachHomeLaunch(opts?: {
   autoMsg?: string | null;
   hideBubble?: boolean;
   freshThread?: boolean;
+  ticketStyle?: CoachTicketStyle | null;
 }): void {
   pendingLaunch = {
     hideBubble: opts?.hideBubble ?? true,
     freshThread: opts?.freshThread ?? true,
     autoMsg: opts?.autoMsg ?? null,
+    ticketStyle: opts?.ticketStyle ?? null,
   };
 }
 

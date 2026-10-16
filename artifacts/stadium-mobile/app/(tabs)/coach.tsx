@@ -80,6 +80,8 @@ import {
 import { rememberParlayBuild } from "@/lib/parlayVarietyMemory";
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import type { CoachTicketStyle } from "@/lib/coachTicketQualityTiers";
+import { resolveCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 
@@ -117,6 +119,7 @@ export default function CoachScreen() {
     autoMsg?: string;
     send?: string;
     ts?: string;
+    ticketStyle?: string;
   }>();
   const { isSignedIn } = useAuth();
   const sub = useSubscriptionOptional();
@@ -134,6 +137,8 @@ export default function CoachScreen() {
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const autoSentRef = useRef<string | null>(null);
+  /** Explicit Home shortcut mode for the next / current build (survives remount). */
+  const ticketStyleRef = useRef<CoachTicketStyle | null>(null);
   const sendRef = useRef<(raw: string) => Promise<void>>(async () => {});
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -640,10 +645,14 @@ export default function CoachScreen() {
             .filter((m) => m.role === "user")
             .map((m) => m.text)
             .filter(Boolean);
+          // Consume explicit Home mode once per send; free-typed asks fall back to text.
+          const explicitTicketStyle = ticketStyleRef.current;
+          ticketStyleRef.current = null;
           const result = await buildCoachParlay({
             requestedLegs,
             askText: text,
             priorUserTexts,
+            ticketStyle: explicitTicketStyle,
             signal: abort.signal,
             onStatus: (status) => {
               if (sendGenRef.current !== sendGen) return;
@@ -816,9 +825,9 @@ export default function CoachScreen() {
   }, [send]);
 
   /**
-   * Home Hot Picks / Easy Money (and Slip/Fantasy deep links) push
-   * autoMsg+send=1. Tab navigations can drop params — takeCoachLaunch() keeps
-   * the message. Without this effect, shortcuts open a blank Coach and look dead.
+   * Home shortcuts (and Slip/Fantasy deep links) push autoMsg+send=1 (+ ticketStyle).
+   * Tab navigations can drop params — takeCoachLaunch() keeps the message + mode.
+   * Fires once per ts even when Coach is already mounted.
    */
   useEffect(() => {
     const launch = takeCoachLaunch();
@@ -847,6 +856,19 @@ export default function CoachScreen() {
         ? String(params.autoMsg ?? "").trim() || null
         : null);
 
+    // Prefer launch queue, then URL param — explicit mode over ask-text alone.
+    // Only stamp the ref when this effect is driving a send=1 / queued launch so
+    // free-typed asks later resolve from message text instead of a stale mode.
+    const styleFromLaunch = launch?.ticketStyle ?? null;
+    const styleFromParams =
+      params.send === "1" ? String(params.ticketStyle ?? "").trim() || null : null;
+    if (styleFromLaunch || styleFromParams || autoMsg) {
+      ticketStyleRef.current = resolveCoachTicketStyle(
+        styleFromLaunch ?? styleFromParams,
+        autoMsg,
+      );
+    }
+
     // autoMsg + send never linger in the composer; prefill-only fills it.
     if (autoMsg || params.send === "1") {
       setDraft("");
@@ -859,7 +881,7 @@ export default function CoachScreen() {
     if (autoSentRef.current === token) return;
     autoSentRef.current = token;
     void sendRef.current(autoMsg);
-  }, [params.autoMsg, params.send, params.ts, params.prefill]);
+  }, [params.autoMsg, params.send, params.ts, params.prefill, params.ticketStyle]);
 
   useEffect(() => {
     return () => {

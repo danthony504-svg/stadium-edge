@@ -4,9 +4,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { detectCoachTicketStyle } from "./coachTicketQualityTiers.ts";
+import {
+  detectCoachTicketStyle,
+  resolveCoachTicketStyle,
+} from "./coachTicketQualityTiers.ts";
 import {
   homeShortcutCoachAsk,
+  homeShortcutTicketStyle,
   resolveHomeShortcut,
 } from "./homeShortcuts.ts";
 import {
@@ -15,66 +19,66 @@ import {
   takeCoachLaunch,
 } from "./coachSilentLaunch.ts";
 
-test("home shortcuts resolve distinct destinations with sport preserved", () => {
+test("home shortcuts all open Coach with sport + explicit ticketStyle", () => {
   const hot = resolveHomeShortcut("hot_picks", "nfl");
   assert.equal(hot.kind, "coach");
-  if (hot.kind === "coach") {
-    assert.match(hot.autoMsg, /NFL/i);
-    assert.match(hot.autoMsg, /best/i);
-    assert.equal(hot.silent, true);
-    assert.equal(detectCoachTicketStyle(hot.autoMsg), "balanced");
-  }
+  assert.equal(hot.ticketStyle, "balanced");
+  assert.match(hot.autoMsg, /NFL/i);
+  assert.match(hot.autoMsg, /balanced/i);
+  assert.equal(hot.silent, true);
+  assert.equal(detectCoachTicketStyle(hot.autoMsg), "balanced");
+  assert.equal(resolveCoachTicketStyle(hot.ticketStyle, "ignored lottery text"), "balanced");
 
   const easy = resolveHomeShortcut("easy_money", "nhl");
   assert.equal(easy.kind, "coach");
-  if (easy.kind === "coach") {
-    assert.match(easy.autoMsg, /NHL/i);
-    assert.match(easy.autoMsg, /safe/i);
-    assert.equal(detectCoachTicketStyle(easy.autoMsg), "safe");
-  }
+  assert.equal(easy.ticketStyle, "safe");
+  assert.match(easy.autoMsg, /NHL/i);
+  assert.match(easy.autoMsg, /safe|lower-risk/i);
+  assert.equal(detectCoachTicketStyle(easy.autoMsg), "safe");
 
-  const value = resolveHomeShortcut("best_value", "mlb", { propsSportSupported: true });
-  assert.deepEqual(value, {
-    id: "best_value",
-    kind: "props",
-    pathname: "/props",
-    sport: "mlb",
-    view: "value",
-  });
-
-  const valueNoProps = resolveHomeShortcut("best_value", "ufc", {
-    propsSportSupported: false,
-  });
-  assert.equal(valueNoProps.kind, "props");
-  if (valueNoProps.kind === "props") {
-    assert.equal(valueNoProps.sport, null);
-    assert.equal(valueNoProps.view, "value");
-  }
+  const value = resolveHomeShortcut("best_value", "mlb");
+  assert.equal(value.kind, "coach");
+  assert.equal(value.ticketStyle, "value");
+  assert.match(value.autoMsg, /MLB/i);
+  assert.match(value.autoMsg, /value|positive-EV/i);
+  assert.equal(homeShortcutTicketStyle("best_value"), "value");
+  // Explicit mode wins over contradictory ask text.
+  assert.equal(resolveCoachTicketStyle(value.ticketStyle, "safe chalk lock"), "value");
 
   const long = resolveHomeShortcut("longshots", "ncaaf");
-  assert.deepEqual(long, {
-    id: "longshots",
-    kind: "steals",
-    pathname: "/steals",
-    sport: "ncaaf",
-  });
+  assert.equal(long.kind, "coach");
+  assert.equal(long.ticketStyle, "longshot");
+  assert.match(long.autoMsg, /CFB|NCAAF/i);
+  assert.match(long.autoMsg, /lottery|longshot/i);
+  assert.equal(detectCoachTicketStyle(long.autoMsg), "longshot");
 });
 
-test("coach silent launch queues autoMsg so tab param drops cannot kill Home taps", () => {
+test("Best Value and Longshots never route to Props or Steals", () => {
+  for (const id of ["best_value", "longshots"] as const) {
+    const dest = resolveHomeShortcut(id, "mlb");
+    assert.equal(dest.kind, "coach");
+    assert.notEqual((dest as { pathname?: string }).pathname, "/props");
+    assert.notEqual((dest as { pathname?: string }).pathname, "/steals");
+  }
+});
+
+test("coach silent launch queues autoMsg + ticketStyle so param drops cannot kill Home taps", () => {
   resetCoachLaunchForTests();
   markCoachHomeLaunch({
-    autoMsg: homeShortcutCoachAsk("hot_picks", "nfl"),
+    autoMsg: homeShortcutCoachAsk("best_value", "nfl"),
     hideBubble: true,
+    ticketStyle: "value",
   });
   const launch = takeCoachLaunch();
   assert.ok(launch);
   assert.equal(launch!.freshThread, true);
   assert.equal(launch!.hideBubble, true);
-  assert.match(String(launch!.autoMsg), /best NFL parlay/i);
+  assert.equal(launch!.ticketStyle, "value");
+  assert.match(String(launch!.autoMsg), /NFL/i);
   assert.equal(takeCoachLaunch(), null);
 });
 
-test("Home quick actions call runHomeShortcut (not dead Pressables)", () => {
+test("Home quick actions call runHomeShortcut and pass ticketStyle (not Props/Steals)", () => {
   const src = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/index.tsx"),
     "utf8",
@@ -83,35 +87,14 @@ test("Home quick actions call runHomeShortcut (not dead Pressables)", () => {
   assert.match(src, /runHomeShortcut\("easy_money"\)/);
   assert.match(src, /runHomeShortcut\("best_value"\)/);
   assert.match(src, /runHomeShortcut\("longshots"\)/);
-  assert.match(src, /markCoachHomeLaunch\(\{\s*autoMsg:/);
-  assert.match(src, /dest\.view \? \{ view: dest\.view \}/);
+  assert.match(src, /markCoachHomeLaunch\(\{/);
+  assert.match(src, /ticketStyle:\s*ticketStyle/);
+  assert.match(src, /askCoach\(dest\.autoMsg,\s*dest\.silent,\s*dest\.ticketStyle\)/);
+  assert.doesNotMatch(src, /dest\.kind === ["']props["']/);
+  assert.doesNotMatch(src, /pathname:\s*dest\.pathname/);
 });
 
-test("Best Value props screen opens valueMode ranked rail (not Popular Players)", () => {
-  const src = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/props.tsx"),
-    "utf8",
-  );
-  assert.match(src, /view\?: string/);
-  assert.match(src, /valueMode = String\(params\.view/);
-  assert.match(src, /=== ["']value["']/);
-  assert.match(src, /valueMode && !query\.trim\(\) && !isBrowseSport/);
-  assert.match(src, /VALUE \(\+EV\) · Final AI ranked/);
-  assert.match(src, /!valueMode && !searching && popularPlayers/);
-  assert.doesNotMatch(src, /false && !query\.trim\(\) && valueProps/);
-});
-
-test("Longshots summary labels board-wide counts when a sport is selected", () => {
-  const src = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/steals.tsx"),
-    "utf8",
-  );
-  assert.match(src, /Across all sports/);
-  assert.match(src, /StealsFoundToday meta=\{meta\} sportFilter=\{sportFilter\}/);
-  assert.match(src, /ScanChecklist meta=\{meta\} phase="empty" sportFilter=\{sportFilter\}/);
-});
-
-test("Coach consumes autoMsg via takeCoachLaunch + send params", () => {
+test("Coach consumes autoMsg + ticketStyle via takeCoachLaunch and auto-sends once", () => {
   const src = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), "../app/(tabs)/coach.tsx"),
     "utf8",
@@ -119,5 +102,17 @@ test("Coach consumes autoMsg via takeCoachLaunch + send params", () => {
   assert.match(src, /useLocalSearchParams/);
   assert.match(src, /takeCoachLaunch\(\)/);
   assert.match(src, /autoSentRef/);
+  assert.match(src, /ticketStyleRef/);
   assert.match(src, /sendRef\.current\(autoMsg\)/);
+  assert.match(src, /ticketStyle:\s*explicitTicketStyle/);
+  assert.match(src, /params\.ticketStyle/);
+});
+
+test("buildCoachParlay accepts explicit ticketStyle", () => {
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "./coach/buildParlay.ts"),
+    "utf8",
+  );
+  assert.match(src, /ticketStyle\?:\s*CoachTicketStyle/);
+  assert.match(src, /resolveCoachTicketStyle\(opts\.ticketStyle/);
 });

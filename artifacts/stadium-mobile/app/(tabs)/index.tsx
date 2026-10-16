@@ -942,15 +942,25 @@ function HomeSportFeed({
     stealsQ.isFetching ||
     (sport !== "tennis" && upsetsQ.isFetching);
 
-  const askCoach = (msg: string, silent = false) => {
-    // Queue autoMsg before push — tab navigations can drop query params.
-    markCoachHomeLaunch({ autoMsg: msg, hideBubble: silent, freshThread: true });
+  const askCoach = (
+    msg: string,
+    silent = false,
+    ticketStyle?: "safe" | "balanced" | "value" | "longshot",
+  ) => {
+    // Queue autoMsg + ticketStyle before push — tab navigations can drop params.
+    markCoachHomeLaunch({
+      autoMsg: msg,
+      hideBubble: silent,
+      freshThread: true,
+      ticketStyle: ticketStyle ?? null,
+    });
     router.push({
       pathname: "/coach",
       params: {
         autoMsg: msg,
         send: "1",
         ts: String(Date.now()),
+        ...(ticketStyle ? { ticketStyle } : {}),
       },
     });
   };
@@ -966,27 +976,8 @@ function HomeSportFeed({
     });
 
   const runHomeShortcut = (id: "hot_picks" | "easy_money" | "best_value" | "longshots") => {
-    const dest = resolveHomeShortcut(id, sport, {
-      propsSportSupported: featuredEnabled,
-    });
-    if (dest.kind === "coach") {
-      askCoach(dest.autoMsg, dest.silent);
-      return;
-    }
-    if (dest.kind === "props") {
-      router.push({
-        pathname: dest.pathname,
-        params: {
-          ...(dest.sport ? { sp: dest.sport } : {}),
-          ...(dest.view ? { view: dest.view } : {}),
-        },
-      });
-      return;
-    }
-    router.push({
-      pathname: dest.pathname,
-      params: dest.sport ? { sp: dest.sport } : {},
-    });
+    const dest = resolveHomeShortcut(id, sport);
+    askCoach(dest.autoMsg, dest.silent, dest.ticketStyle);
   };
 
   const quickActions: {
@@ -998,28 +989,28 @@ function HomeSportFeed({
   }[] = [
     {
       label: "Hot Picks",
-      subtitle: "Tonight's top picks",
+      subtitle: "Best balanced parlay",
       icon: "flash",
       color: "#fb923c",
       onPress: () => runHomeShortcut("hot_picks"),
     },
     {
       label: "Easy Money",
-      subtitle: "High win rate tonight",
+      subtitle: "Lower-risk style parlay",
       icon: "currency-usd",
       color: "#34d399",
       onPress: () => runHomeShortcut("easy_money"),
     },
     {
       label: "Best Value",
-      subtitle: "Top projected edges",
+      subtitle: "Best-value +EV parlay",
       icon: "bullseye-arrow",
       color: colors.primary,
       onPress: () => runHomeShortcut("best_value"),
     },
     {
       label: "Longshots",
-      subtitle: "High upside plays",
+      subtitle: "Lottery-style higher payout",
       icon: "rocket-launch",
       color: "#a78bfa",
       onPress: () => runHomeShortcut("longshots"),

@@ -1737,7 +1737,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   totalScanned += pool.length;
   simulateSession?.markFinalizationStart();
   const collapsed = collapseScoredLegsByMarketLadder(scored);
-  collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
+  collapsed.sort((a, b) =>
+    compareBoardLegsForRank(a, b, opts.varietySeed, opts.ticketStyle),
+  );
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   const propLegsScored = collapsed.filter((leg) => !!leg.pick.isProp).length;
   const failureDiagnostics = {

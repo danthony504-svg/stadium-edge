@@ -66,6 +66,40 @@ export function detectCoachTicketStyle(text: string): CoachTicketStyle {
   return "balanced";
 }
 
+const TICKET_STYLES: ReadonlySet<string> = new Set([
+  "safe",
+  "balanced",
+  "value",
+  "longshot",
+]);
+
+/**
+ * Prefer an explicit Home/deep-link mode over ask-text inference.
+ * Explicit modes must drive selection — text alone is a fallback for free-typed asks.
+ */
+export function resolveCoachTicketStyle(
+  explicit: string | null | undefined,
+  askText?: string | null,
+): CoachTicketStyle {
+  const raw = String(explicit ?? "").trim().toLowerCase();
+  if (TICKET_STYLES.has(raw)) return raw as CoachTicketStyle;
+  return detectCoachTicketStyle(askText ?? "");
+}
+
+/**
+ * Best Value seats only shared-qualified legs with positive EV/edge.
+ * Does not weaken gates — it narrows the already-qualified pool.
+ */
+export function legHasPositiveEvForValueStyle(leg: {
+  evPct?: number | null;
+  edgePct?: number | null;
+}): boolean {
+  const ev = leg.evPct;
+  if (ev != null && Number.isFinite(ev) && ev > 0) return true;
+  const edge = leg.edgePct;
+  return edge != null && Number.isFinite(edge) && edge > 0;
+}
+
 export function qualityTiersForStyle(style: CoachTicketStyle): readonly QualityTierGrade[] {
   return TICKET_STYLE_CONFIG[style].tiers;
 }

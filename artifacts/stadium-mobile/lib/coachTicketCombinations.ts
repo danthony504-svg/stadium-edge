@@ -40,6 +40,7 @@ import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
   type CoachTicketStyle,
   type QualityTierGrade,
+  legHasPositiveEvForValueStyle,
   poolRoleAtMinGrade,
   qualityTiersForStyle,
 } from "./coachTicketQualityTiers.ts";
@@ -99,6 +100,8 @@ type AssemblyConfig = {
   legsPerGameCap?: number | null;
   /** Skip recent legs entirely while assembling (all-new asks). */
   hardAvoidRecentLegs?: boolean;
+  /** Explicit Home/Coach mode — value/longshot ranking bias among qualified. */
+  ticketStyle?: CoachTicketStyle | null;
 };
 
 /** Per-leg-count optimization — different pools, weights, and assembly for each size. */
@@ -215,7 +218,12 @@ function qualifyingScoredLegs(
     ) {
       continue;
     }
-    out.push({ ...leg, pick: tagged });
+    const next = { ...leg, pick: tagged };
+    // Best Value: only seat qualified positive-EV legs — honest shortfall otherwise.
+    if (opts?.ticketStyle === "value" && !legHasPositiveEvForValueStyle(next)) {
+      continue;
+    }
+    out.push(next);
   }
   return out;
 }
@@ -352,7 +360,7 @@ function pickDiverseLegsFromPool(
     const fp = pickLegFingerprint(row.pick);
     return !used.has(fp) && boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
   });
-  const ranked = sortBoardLegsForRank(available, config.seed);
+  const ranked = sortBoardLegsForRank(available, config.seed, config.ticketStyle);
   const rotated = rotateNearEqualBands(ranked, config.bandOffset, config.seed);
   const shuffled = shuffleWithSeed(rotated, `${config.seed}|pool-${want}`);
   let poolCopy = [...shuffled];
@@ -557,7 +565,7 @@ function backfillDiverseTicket(
           })()
         : [pools[cat]];
     for (const sub of subPools) {
-      const ranked = sortBoardLegsForRank(sub, config.seed);
+      const ranked = sortBoardLegsForRank(sub, config.seed, config.ticketStyle);
       for (const row of ranked) {
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
@@ -601,7 +609,7 @@ function backfillAtQualityTier(
           })()
         : [pools[cat]];
     for (const sub of subPools) {
-      const ranked = sortBoardLegsForRank(sub, config.seed);
+      const ranked = sortBoardLegsForRank(sub, config.seed, config.ticketStyle);
       for (const row of ranked) {
         if (current.length >= target) break;
         const fp = pickLegFingerprint(row.pick);
@@ -637,6 +645,7 @@ export function tieredBackfillStagedTicket(
     poolRotate: 0,
     lineShoppingBias: 1,
     legsPerGameCap,
+    ticketStyle,
   };
   let current = ticket;
   for (const tier of qualityTiersForStyle(ticketStyle)) {
@@ -922,6 +931,7 @@ function generateTicketCandidates(
       lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
       legsPerGameCap: opts.legsPerGameCap,
       hardAvoidRecentLegs: !!opts.hardAvoidRecentLegs,
+      ticketStyle,
     };
     const picks = assembleBalancedDiverseTicket(
       qualifying,
