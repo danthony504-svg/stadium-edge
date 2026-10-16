@@ -52,6 +52,19 @@ Soft vs-opp blend in `buildProjectionMean` already suppresses when formal matchu
 - `lib/propContextPipeline.test.ts` — indices, weather, traces up/down, double-count guard, injury honesty, cold/warm sync timing.
 - `api-server/test/propContextInjuryHonesty.test.ts` — vacancy unknown ≠ OUT/healthy.
 
+## College / NCAAF game-line interaction (ongoing)
+
+Bare asks like `8 leg college` never reach prop Monte Carlo: they parse as
+`gameLinesOnly` + NCAAF lock, then exit under `NCAAF_GAME_LINE_SIM_VALIDATED=false`
+before slate sims. Opponent D / weather / injury wiring above still applies to
+**eligible** prop and NFL game-line paths; it does not reopen P0-blocked NCAAF
+team markets. See `COACH_8_LEG_COLLEGE_AUDIT.md`.
+
+College player props remain a separate, opt-in surface (`askAllowsNcaafPlayerProps`)
+and are not treated as “failed the quality bar” when the bare college ask never
+loads them.
+
 ## No ops changes
 
 Production OTA freeze remains armed. No publish, deploy, or native build for this audit.
+Voice stays paused.

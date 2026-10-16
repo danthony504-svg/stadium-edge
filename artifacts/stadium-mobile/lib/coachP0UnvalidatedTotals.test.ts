@@ -2,9 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canonicalizeCoachSport,
+  gameLineCandidatesFullyP0Blocked,
   isGameLineSideMarket,
   isP0UnvalidatedNcaafGameLineMarket,
   isP0UnvalidatedSimTotalMarket,
+  ncaafGameLineAskIsP0Blocked,
+  NCAAF_GAME_LINE_SIM_VALIDATED,
+  p0BlockedNcaafGameLineAskNote,
   p0UnvalidatedNcaafGameLineDecision,
   p0UnvalidatedSimDecision,
   p0UnvalidatedSimTotalDecision,
@@ -582,4 +586,72 @@ test("P0 bypass seal: final-ticket lean / top-up / post-lean reject sealed vecto
   });
   assert.equal(lean.picks.length, 0);
   assert.ok(lean.dropped >= vectors.length);
+});
+
+test("NCAAF_GAME_LINE_SIM_VALIDATED stays false until Phase E sign-off", () => {
+  assert.equal(NCAAF_GAME_LINE_SIM_VALIDATED, false);
+});
+
+test("ncaafGameLineAskIsP0Blocked: college gameLinesOnly only", () => {
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: ["ncaaf"],
+    }),
+    true,
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: ["cfb"],
+    }),
+    true,
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: false,
+      lockedSports: ["ncaaf"],
+    }),
+    false,
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: ["nfl"],
+    }),
+    false,
+  );
+  assert.equal(
+    ncaafGameLineAskIsP0Blocked({
+      gameLinesOnly: true,
+      lockedSports: ["ncaaf", "nfl"],
+    }),
+    false,
+  );
+});
+
+test("p0BlockedNcaafGameLineAskNote never blames the quality bar", () => {
+  const note = p0BlockedNcaafGameLineAskNote(8);
+  assert.match(note, /unvalidated/i);
+  assert.match(note, /team markets/i);
+  assert.doesNotMatch(note, /quality bar/i);
+});
+
+test("gameLineCandidatesFullyP0Blocked: NCAAF board yes, NFL sides no", () => {
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Spread", sport: "ncaaf" },
+      { market: "Moneyline", sport: "ncaaf" },
+      { market: "Total", sport: "ncaaf" },
+    ]),
+    true,
+  );
+  assert.equal(
+    gameLineCandidatesFullyP0Blocked([
+      { market: "Spread", sport: "nfl" },
+      { market: "Moneyline", sport: "nfl" },
+    ]),
+    false,
+  );
+  assert.equal(gameLineCandidatesFullyP0Blocked([]), false);
 });

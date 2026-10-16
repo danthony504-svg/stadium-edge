@@ -61,6 +61,13 @@ export function mapScanFailureCode(
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    case "P0_UNVALIDATED_MARKETS":
+      // Intentional Phase E / totals P0 — not a Telegram crash / quality-bar miss.
+      return {
+        eventType: "parlay_zero_results",
+        failureReason: "zero_results",
+        alertable: false,
+      };
     default:
       return null;
   }
@@ -70,7 +77,18 @@ export function classifySportCategoryFromAsk(text: string): string {
   const t = String(text || "").toLowerCase();
   const hits: string[] = [];
   if (/\bnfl\b/.test(t)) hits.push("nfl");
-  if (/\bncaaf\b|\bcfb\b|\bcollege\s+football\b/.test(t)) hits.push("ncaaf");
+  // Bare "college" / collage defaults to NCAAF (same as focalSportsFromText).
+  if (
+    /\bncaaf\b|\bcfb\b|\bcollege\s+football\b|\bcollage\s+football\b/.test(t) ||
+    (/\b(?:college|collage)\b/.test(t) &&
+      !/\b(?:college|collage)\s+basketball\b/.test(t) &&
+      !/\bncaab\b|\bcbb\b/.test(t))
+  ) {
+    hits.push("ncaaf");
+  }
+  if (/\bncaab\b|\bcbb\b|\bcollege\s+basketball\b|\bcollage\s+basketball\b/.test(t)) {
+    hits.push("ncaab");
+  }
   if (/\bnba\b/.test(t)) hits.push("nba");
   if (/\bwnba\b/.test(t)) hits.push("wnba");
   if (/\bmlb\b|\bbaseball\b/.test(t)) hits.push("mlb");
