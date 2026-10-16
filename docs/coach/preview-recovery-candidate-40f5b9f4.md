@@ -1,6 +1,6 @@
 # Preview recovery candidate — `40f5b9f4` (not published)
 
-**Status:** Prepared only. **Not published.** Failed group `af92adaa…` remains **known-bad**. Production freeze **armed**. No native build. No production OTA. No blind device bisect requested.
+**Status:** Candidate **republished to preview** as update `01a1430d…` / group `2d980f30…` (see [`device-check-ota-01a1430d-d405-republish-preview.md`](./device-check-ota-01a1430d-d405-republish-preview.md)). Failed group `af92adaa…` remains **known-bad**. Production freeze **armed**. No native build. No production OTA.
 
 ---
 
