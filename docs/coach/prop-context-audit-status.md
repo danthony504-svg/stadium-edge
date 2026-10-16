@@ -34,7 +34,7 @@ Preview verified; production freeze remains armed — **no production OTA yet**.
 | Item | Identity |
 |------|----------|
 | Candidate tip | `54b89f32efc81fe3cf56cee50388816054484600` |
-| Preview update ID | `01a14636-bbcb-729a-ab5f-27c666590c3b` |
+| Preview update ID (export-equivalent) | `01a146ed-1a89-71f5-9e5a-5909a432a38f` · hash `2ecBll…` |
 | Rollback target | `b666165e…` / update `01a144bd…` / group `68de9f95…` |
 | Package | [`production-mobile-candidate-54b89f32.md`](./production-mobile-candidate-54b89f32.md) |
 

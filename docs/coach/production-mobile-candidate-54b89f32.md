@@ -15,9 +15,10 @@
 | **Branch** | `cursor/mobile-peropp-stamp-8b51` |
 | **Base = current production OTA** | `b666165e8d21c85222ab2ff874b538394efac66a` |
 | **Paired live server** | `e607f131898daebaecd08602558905b96f738122` (Render; stamp `ppg-per-drive-v1`; includes prop dist-cache `defenseIndex` identity) |
-| **Preview proof update ID** | `01a14636-bbcb-729a-ab5f-27c666590c3b` |
-| **Preview group** | `23003912-6cf5-4d67-9eb6-c9094581af06` |
-| **Published launch hash (phone content)** | `jLOJwvrT-BYkoecJ73EOUj-8OjBgd0GhBm2bZt3mzRg` |
+| **Preview proof update ID** (export-equivalent) | `01a146ed-1a89-71f5-9e5a-5909a432a38f` |
+| **Preview group** | `dd669b36-2dfd-40fb-8970-63ac7b71f759` |
+| **Published launch hash (= reviewed export)** | `2ecBllWhtHVRT39CG_l8QAjlaiZMyZzlC54riVre4XM` |
+| **Superseded non-equivalent preview** | `01a14636…` / hash `jLOJwvr…` (rebundle; do not use for equivalence) |
 | **Runtime** | `1.1.0` · iOS · existing IPA Build 79 |
 
 ---
@@ -76,8 +77,8 @@ Server rollback (only if a future server regress): prior Render tip before `e607
 ## Publication gate (not satisfied this turn)
 
 1. Human authorization to lift `.ota-production-freeze`  
-2. Prefer `--skip-bundler --input-dir dist` so published hash ≡ reviewed export  
-3. Device check: `Updates.updateId` matches the new production update (not `01a144bd…`)  
+2. **Required:** `--skip-bundler --input-dir dist` so published hash ≡ reviewed export (preview corrective already proved `2ecBll…`)  
+3. Device check: `Updates.updateId` matches the new production update (not `01a144bd…`) **and** launch hash matches export  
 4. Keep NCAAF blocked · voice paused · collector dry-run  
 
 **This document does not authorize production OTA.**

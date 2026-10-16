@@ -1,4 +1,4 @@
-# Preview release verification closeout — `54b89f32`
+# Preview release verification — `54b89f32` (export-equivalent)
 
 **Date:** 2026-10-16  
 **Channel:** `preview` only · **Runtime:** `1.1.0` · **Platform:** iOS  
@@ -9,73 +9,78 @@
 
 ---
 
-## 1. Phone update identity (authoritative)
-
-| Field | Value |
-|-------|--------|
-| **iOS update ID** | `01a14636-bbcb-729a-ab5f-27c666590c3b` |
-| **Update group** | `23003912-6cf5-4d67-9eb6-c9094581af06` |
-| **Channel tip message** | `preview 54b89f32efc81fe3cf56cee50388816054484600 — delivery-commit + PR747 (server e607f131 verified)` |
-| **Published `launchAsset.hash`** | `jLOJwvrT-BYkoecJ73EOUj-8OjBgd0GhBm2bZt3mzRg` |
-| **Baked tip SHA** | `54b89f32efc81fe3cf56cee50388816054484600` (forced `EXPO_PUBLIC_GIT_COMMIT` at export) |
-| **Manifest permalink** | `https://u.expo.dev/update/01a14636-bbcb-729a-ab5f-27c666590c3b` |
-| **Dashboard** | `https://expo.dev/accounts/danthony504/projects/stadium-edge/updates/23003912-6cf5-4d67-9eb6-c9094581af06` |
-
-Device attestation must match **`Updates.updateId = 01a14636…`**. Do not trust baked commit labels alone if they ever lag; updateId + published launch hash are tip identity.
-
-Artifacts: `/opt/cursor/artifacts/preview-publish-54b89f32-result.json`, `preview-manifest-54b89.body` / `.headers` (`expo-update-id: 01a14636…`), `preview-channel-after-54b89f32.log`, `release-identities-e607-54b89.json`.
-
----
-
-## 2. Launch-hash reconciliation (export vs published)
-
-| Stage | Hash (EAS url-safe SHA-256) | Bytes | Role |
-|-------|-----------------------------|-------|------|
-| **Final local export** (`expo export` → `dist/…/entry-2d1a5e0c….hbc`) | `2ecBllWhtHVRT39CG_l8QAjlaiZMyZzlC54riVre4XM` | 9 551 624 | Reviewed bake; full tip SHA present in HBC |
-| **Published tip** (EAS manifest `launchAsset.hash`) | `jLOJwvrT-BYkoecJ73EOUj-8OjBgd0GhBm2bZt3mzRg` | ≠ export (publisher recorded ~6 040 724) | **What the phone downloads** |
-
-**Why they differ:** preview publish ran `eas update --branch preview` **without** `--skip-bundler --input-dir dist`. EAS rebundled at publish time, so the published launch asset is **not** byte-identical to the local export. Both stages bake tip `54b89f32…`; only the published hash is authoritative for installed JS content.
-
-**Reconcile verdict**
+## Verdict
 
 | Claim | Result |
 |-------|--------|
-| Local export hash matches published hash | **No** — expected given rebundle |
-| Phone tip = update `01a14636…` / group `23003912…` | **Yes** (channel + manifest) |
-| Phone content identity = `jLOJwvr…` | **Yes** (manifest `launchAsset.hash`) |
-| Tip SHA intended / message / export bake | `54b89f32efc81fe3cf56cee50388816054484600` |
-| Production channel changed by this publish | **No** — still `b666165e` / `01a144bd…` / `68de9f95…` |
+| Update ID identifies the release | **Yes** — but alone does **not** prove export equivalence |
+| First publish (`01a14636…`) ≡ reviewed export | **No** — rebundle hash `jLOJwvr…` ≠ export `2ecBll…` |
+| Corrective publish ≡ reviewed export | **Yes** — `eas update --skip-bundler --input-dir dist` |
+| Matching launch hash | **`2ecBllWhtHVRT39CG_l8QAjlaiZMyZzlC54riVre4XM`** |
+| Production frozen / unchanged | **Yes** — still `b666165e` / `01a144bd…` / `68de9f95…` |
 
-**Next production candidate publish (when authorized):** use `--skip-bundler --input-dir dist` after a reviewed export so published hash **equals** export hash.
-
-Recompute artifact: `/opt/cursor/artifacts/preview-export-54b89f32-checks.json`, `preview-export-54b89f32-launch-hash.txt`, `launch-hash-reconcile-54b89f32.json`.
+Artifact: `/opt/cursor/artifacts/preview-equivalence-54b89f32.json`.
 
 ---
 
-## 3. Completed prop ticket — opponent context + one committed success
+## 1. Equivalence probe (source / bake / deps / config)
 
-Harness: `/opt/cursor/artifacts/coach-fulfilled-event-check.mjs` against live Render `e607f131` with tip delivery-commit reporter logic (ran on tip checkout after preview publish).
+| Check | Reviewed export / tip `54b89f32…` | First publish `01a14636…` |
+|-------|----------------------------------|---------------------------|
+| **Source SHA** | Git object `54b89f32efc81fe3cf56cee50388816054484600`; tip bytes in HBC | Message cites tip; **content hash differs** |
+| **Baked env** | `EXPO_PUBLIC_GIT_COMMIT=54b89f32…`, domain `stadium-edge.onrender.com`, Clerk `pk_test_…`, runtime `1.1.0`, iOS buildNumber `79` | Rebundled separately — not byte-identical to export |
+| **Dependencies** | `expo-updates ~29.0.18`, SDK `54.0.0`, Metro export | EAS rebundle path (no `--skip-bundler`) |
+| **Build / channel config** | `eas.json` preview → channel `preview`, distribution `internal` | Same channel; publish method wrong for equivalence |
+
+**Conclusion:** update ID `01a14636…` named the release but **did not** prove equivalence to the reviewed export. Corrective preview publication authorized and executed.
+
+---
+
+## 2. Phone identity after corrective publish (authoritative)
+
+| Field | Value |
+|-------|--------|
+| **iOS update ID** | `01a146ed-1a89-71f5-9e5a-5909a432a38f` |
+| **Update group** | `dd669b36-2dfd-40fb-8970-63ac7b71f759` |
+| **Channel tip message** | `preview 54b89f32… — corrective skip-bundler export 2ecBll (equiv to reviewed bake)` |
+| **Published `launchAsset.hash`** | `2ecBllWhtHVRT39CG_l8QAjlaiZMyZzlC54riVre4XM` |
+| **Reviewed export hash** | `2ecBllWhtHVRT39CG_l8QAjlaiZMyZzlC54riVre4XM` (**match**) |
+| **Dashboard** | https://expo.dev/accounts/danthony504/projects/stadium-edge/updates/dd669b36-2dfd-40fb-8970-63ac7b71f759 |
+
+Device: `Updates.updateId` must be **`01a146ed…`** (not the prior non-equivalent `01a14636…`). Content proof is the matching launch hash.
+
+Artifacts: `preview-corrective-publish-54b89f32.log`, `preview-corrective-publish-54b89f32-result.json`, `preview-manifest-corrective-54b89.*`, `preview-channel-after-corrective-54b89.log`.
+
+### Superseded (non-equivalent) tip
+
+| Field | Value |
+|-------|--------|
+| Update ID | `01a14636-bbcb-729a-ab5f-27c666590c3b` |
+| Group | `23003912-6cf5-4d67-9eb6-c9094581af06` |
+| Launch hash | `jLOJwvrT-BYkoecJ73EOUj-8OjBgd0GhBm2bZt3mzRg` |
+
+---
+
+## 3. Prop-delivery recheck (after equivalence)
+
+Harness: tip worktree `54b89f32` + live Render `e607f131` · requestId `corrective-fulfilled-check-1792191442823`.
 
 | Check | Result |
 |-------|--------|
-| Ask | `5 leg NFL` · requestId `greenfield-fulfilled-check-1792179436375` |
-| Duration | **18 215 ms** · not timed out · 5/5 legs |
-| Prop pool | 5087 |
-| Prop legs with opponent | Darren Waller (CAR) Rec Yds · Bryce Young (CAR) Pass TDs · game **Carolina Panthers @ Philadelphia Eagles** → opponent pack is **PHI** (`opponentTeamIdForProp` + `propOpponentDefenseKey` = `game@@opp:<phiId>`) |
-| Tip wiring | Per-opp batches (`defenseIndexByFamilyByOpponent`); never bare game key alone |
-| `parlay_fulfilled` posts | **exactly 1** (`fulfilledCount: 1`) |
-| False freeze | **0** (`freezeCount: 0`; no `ABSOLUTE_BUDGET` / `coach_scan_freeze` on full ticket) |
-| Dedupe | Subsequent fulfilled attempts → `fulfilled_deduped` |
+| Ask | `5 leg NFL` · 5/5 · **29 292 ms** · not timed out |
+| Prop pool | 7465 |
+| Opponent samples | Jaylen Warren (PIT) @ TB · Bryce Young (CAR) @ PHI — away players face home defenses |
+| `parlay_fulfilled` | **exactly 1** |
+| False freeze | **0** |
+| `ok` | **true** (`FULFILLED_CHECK_OK`) |
 
-Artifacts: `/opt/cursor/artifacts/coach-fulfilled-event-check.json`, `coach-fulfilled-event-check.log` (`FULFILLED_CHECK_OK`).
-
-Supporting opponent evidence (candidate lineage, not a claim that the full context audit is complete): E2E HOU@JAX per-opp traces (`e2e-prop-traces-live.json`), isolated boost≠suppress (`isolated-pair-verify.md`), tip `footballOppTeamId` / `propContextPipeline` keys.
+Artifact: `/opt/cursor/artifacts/coach-fulfilled-corrective-54b89.json`.
 
 ---
 
 ## 4. Explicit non-actions
 
-- No production OTA / no freeze lift  
-- No voice / STT / TTS work  
-- NCAAF game-line gate remains **false**  
-- Forward collector remains **dry-run only** (`NCAAF_FORWARD_ACTIVATE` unset)
+- No production OTA / freeze remains armed  
+- No voice / STT / TTS / home-shortcuts / passkey changes  
+- NCAAF gate remains **false**  
+- Forward collector remains dry-run only  
