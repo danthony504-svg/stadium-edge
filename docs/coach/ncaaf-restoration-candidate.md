@@ -41,9 +41,13 @@ See [`ncaaf-forward-collection-plan.md`](./ncaaf-forward-collection-plan.md): Od
 
 Global `v1.1` stamp was reverted. Residual/shrink apply only under `ncaafResearchCalibration`. NFL live draws and stamp unchanged. Details: [`ncaaf-engine-isolation.md`](./ncaaf-engine-isolation.md).
 
+## Coach audit (focus return)
+
+See [`prop-context-audit-status.md`](./prop-context-audit-status.md): opponent/MLB weather/venue/injury verified in prop MC; NFL weather & turf unsupported; mobile per-opp + stamp + delivery-commit still **awaiting production OTA**.
+
 ## What remains (no E6 yet)
 
-1. Forward collect reserved-untouched odds/injury (after human activates key).  
-2. Model work only on **reserved** data — not USED 2024.  
+1. Human-authorized forward collect (cap + `ODDS_API_KEY`) — not this turn.  
+2. Model work only on **reserved** TUNING split — not USED 2024 / not FINAL_EVAL.  
 3. Meet locked CLV C1–C6 under R1–R4 with real early two-sided prices.  
 4. Then — and only then — consider E6 on a flag-only PR.
