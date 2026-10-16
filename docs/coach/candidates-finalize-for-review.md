@@ -1,7 +1,19 @@
 # Finalize two candidates for review
 
 **Date:** 2026-10-16  
-**Status:** Ready for review. **No deploy / no OTA / no preview publish executed.** Voice paused. Production freeze armed.
+**Status:** Release review resumed. **No deploy / no OTA / no preview publish executed.** Production freeze armed. NCAAF game-line sim remains blocked (`NCAAF_GAME_LINE_SIM_VALIDATED=false`). Voice paused.
+
+### Delivery-commit + digest follow-through (this pass)
+
+| Item | Result |
+|------|--------|
+| PR #747 into mobile candidate | Cherry-picked as `6d65af8d`; extended with delivery-commit success |
+| Success counting | `parlay_fulfilled` only when full N/N ticket is **deliveryCommitted** (UI latch) |
+| Preserved | Real underfill, partial timeout (`ABSOLUTE_BUDGET`), cancel (`user_cancelled`) |
+| Regressions | Deadline completion, partial timeout, cancellation, stale-session dedupe |
+| Fulfilled telemetry | Once per `requestId` (client dedupe gate) |
+| Digest | Consistent denominator = classified outcomes + freeze + unknown; unknowns separate |
+| Deploy / OTA | **Not executed** |
 
 ---
 
@@ -9,11 +21,14 @@
 
 | Role | Full SHA |
 |------|----------|
-| **Server candidate tip** | `5cfb614011cf9ca46cdcdd9bacb0e6a23a98569c` |
+| **Server candidate tip** | `6d770ea05bd7453305b6e2585bc9ba0b4625d048` |
+| Server digest fix | `6d770ea05bd7453305b6e2585bc9ba0b4625d048` |
 | Server code fix (cache identity) | `c0094c637747ac69b34cdeb24afe5e818270b45f` |
 | Server base = **live Render** | `ddeb4733348b98d7112748edc19c7e06fc6fc99a` |
-| **Mobile candidate tip** | `6416d4cf61ebe111e17d0b82dc8b046f9921be34` |
-| Mobile last code commit | `c55d99c39465afaf59bbffc41dedf60d4368e787` |
+| **Mobile candidate tip** | `d1d06eabd37396517789c59a6bf1ccc85a65ef26` |
+| Mobile delivery-commit fix | `d1d06eabd37396517789c59a6bf1ccc85a65ef26` |
+| Mobile PR #747 integrate | `6d65af8db3f3b39ac75c55f8a3e38abd628a56a3` |
+| Mobile last prior code | `c55d99c39465afaf59bbffc41dedf60d4368e787` |
 | Mobile base = **prod OTA baseline** | `b666165e8d21c85222ab2ff874b538394efac66a` |
 | Verified engine stamp | **`ppg-per-drive-v1`** (preserved on server lineage) |
 | Branches | `cursor/prop-dist-cache-identity-8b51` · `cursor/mobile-peropp-stamp-8b51` |
@@ -140,8 +155,8 @@ Opp Shift vacancy already in `opportunityFamilyMult` → `suppressOwnKeyInjuries
 
 ## 4. Prepare server deployment (not executed)
 
-**Candidate:** `5cfb614011cf9ca46cdcdd9bacb0e6a23a98569c` (or merge `c0094c63` + docs).  
-**Preserves:** `ppg-per-drive-v1`, existing Render behavior outside prop dist cache keys.
+**Candidate:** `6d770ea05bd7453305b6e2585bc9ba0b4625d048` (cache identity `c0094c63` + digest denom).  
+**Preserves:** `ppg-per-drive-v1`, existing Render behavior outside prop dist cache keys + digest labeling.
 
 ### Pre-deploy checklist
 1. Confirm live still `ddeb4733` + stamp `ppg-per-drive-v1`
@@ -166,16 +181,16 @@ Opp Shift vacancy already in `opportunityFamilyMult` → `suppressOwnKeyInjuries
 
 ## 5. Prepare preview-mobile export (not executed)
 
-**Candidate:** `6416d4cf61ebe111e17d0b82dc8b046f9921be34`  
+**Candidate:** `d1d06eabd37396517789c59a6bf1ccc85a65ef26`  
 **Channel:** `preview` (`eas.json` profile `preview`) · points at `stadium-edge.onrender.com`  
-**Prefer:** server candidate already live so per-opp defense + stamp reject align
+**Prefer:** server candidate already live so per-opp defense + stamp reject + digest align
 
 ### Pre-export checklist
 1. `NCAAF_GAME_LINE_SIM_VALIDATED === false`
 2. No voice/STT/TTS in diff
 3. Passkey guards unchanged vs `b666165e`
-4. Unit suites: prop defense, stamp, college honesty, passkeys
-5. Prefer server deploy **before** or **with** preview so stamp + cache identity match
+4. Unit suites: prop defense, stamp, college honesty, passkeys, **delivery-commit reliability**
+5. Prefer server deploy **before** or **with** preview so stamp + cache identity + digest match
 
 ### Export / preview publish steps (when authorized)
 1. Check out mobile tip; `eas build --profile preview` **or** `eas update --channel preview` if runtime matches installed preview binary
@@ -192,10 +207,20 @@ Opp Shift vacancy already in `opportunityFamilyMult` → `suppressOwnKeyInjuries
 
 ---
 
-## 6. Invariants (still held)
+## 6. Paired test results (this pass)
+
+| Suite | Location | Result |
+|-------|----------|--------|
+| Mobile reliability + regressions | `lib/coachReliabilityReporter.test.ts` | **17/17 pass** |
+| Mobile paired coach (reliability + grounding + session + budget terminal) | combined | **41/41 pass** |
+| Server digest / reliability | `test/coachReliability.test.ts` (server tip) | **18/18 pass** |
+| Server digest / reliability | same suite on mobile tip api-server | **18/18 pass** |
+
+## 7. Invariants (still held)
 
 - `FOOTBALL_DRIVE_ENGINE_VERSION` / live stamp **`ppg-per-drive-v1`**
 - `NCAAF_GAME_LINE_SIM_VALIDATED = false`
 - Voice paused
 - Production freeze armed
+- NCAAF blocked; no production OTA
 - **No deploy or OTA performed in this session**
