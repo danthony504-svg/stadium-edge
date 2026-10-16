@@ -74,17 +74,17 @@ Notable runtime behavior added on Coach mount: `takeCoachLaunch()` + `void sendR
 - **No** recorded cold-launch PASS of that tip on Build 78.
 - `c859c1ce` = that baseline **plus** shortcut cherry-pick only.
 
-### Causal status
+### Causal status (after good-vs-bad ancestry + symbolication)
 
 | Hypothesis | Status |
 |------------|--------|
-| H1: Tip `01a142e1` / `c859c1ce` JS fatal → ErrorRecovery abort | **Plausible** (under test when crash reported); **unproven** without fatal log / updateId |
+| H1: Tip `01a142e1` / `c859c1ce` JS fatal → ErrorRecovery abort | **Plausible**; **unproven** without fatal log / updateId |
 | H2: Same original fatal as Oct 14 | **Not assumed** — different binary/device/channel; offsets shifted |
-| H3: Home shortcut auto-send is the unique trigger | **Unproven** — long first lifetime; needs log / bisect |
-| H4: Baseline `100b2450` alone is sufficient to crash this binary | **Open** — bisect required (baseline-only preview OTA vs `c859c1ce`) |
-| H5: OTA apply / reload path (not tip business logic) | **Open** — same death class historically involves apply/recovery |
+| H3: Home shortcut auto-send is the unique trigger | **Weak** — shortcut files **byte-identical** to PASS tip `40f5b9f4`; long first lifetime |
+| H4: Ancestry gap vs PASS tip (missing `afcf638d` passkey native guard + OTA rollback harden) | **Strong structural finding** — `_layout` identical, but `getPasskeys()` / OTA impl differ; Build 79 has **no** `ClerkExpoPasskeys` |
+| H5: OTA apply / reload path amplifies second IPS | **Open** — matches ~0.3 s relaunch death |
 
-**Bottom line for republish:** Do **not** republish `c859c1ce` (or promote to production) until `expo-error.log` first Fatal is captured **or** a controlled bisect clears the tip.
+**Bottom line for republish:** Do **not** republish `c859c1ce`. Prefer recovery candidate `40f5b9f4` / group `d405e8b6` after log capture attempt — see recovery-candidate doc.
 
 ---
 
@@ -95,25 +95,27 @@ Notable runtime behavior added on Coach mount: `takeCoachLaunch()` + `void sendR
 2. Preserved IPS + identity in artifacts / this doc.
 3. **Preview** `eas update:roll-back-to-embedded` → group `79838722-e89e-4632-896b-fca5730b8701` / iOS `01a142f6-2f28-7b2f-a152-427678f50a93` (embedded rollback directive).
 4. Confirmed **production** still `4a0960e4…` embedded; `.ota-production-freeze` armed.
+5. UUID-matched Build 79 IPS symbolication + log exhaustion + recovery candidate prep — see [`preview-recovery-candidate-40f5b9f4.md`](./preview-recovery-candidate-40f5b9f4.md) (**not published**).
 
-### Device next (human)
-1. Confirm preview-build78 boots on embedded after recovery (cold launch ×2).
+### Device next (human) — logs first, not tip bisect
+1. Confirm preview-build78 boots on **embedded** after recovery (cold launch ×2).
 2. **Before** a successful boot consumes the file, pull `expo-error.log` from the crash window (Console.app / container if available).
 3. Paste first `Fatal error:` / `Fatal exception:` / `markFailedLaunchForUpdate` lines into a follow-up doc.
+4. Do **not** run a blind `100b2450` vs `c859c1ce` device bisect until that log path is exhausted.
 
-### Before any republish of this release
-| Step | Purpose |
-|------|---------|
-| A. Capture fatal log | Identify original fault |
-| B. Optional bisect on **preview only** | Publish **baseline-only** checkout `100b2450` to preview → cold launches; then `c859c1ce` again only if baseline is clean |
-| C. If shortcut auto-send suspected | Preview tip with launch queue **without** auto-`send` on mount |
-| D. Keep failed group `af92adaa…` as known-bad | Do not republish that group |
-| E. Prefer prior known-good preview (e.g. `d405e8b6` / `40f5b9f4`) only after embedded recovers | Via `eas update:republish --group …` on **preview** — still not production |
+### Recovery candidate (prepared; publish only when authorized)
+| Item | Value |
+|------|--------|
+| Tip | **`40f5b9f4`** (demonstrated Hot Picks/Easy Money PASS; group `d405e8b6` / update `01a14121`) |
+| Extra shortcut commits needed | **None** (already on that tip; diff vs working baseline is empty) |
+| Prefer | `eas update:republish --group d405e8b6-…` on **preview only** |
+| Never | Republish `c859c1ce` / `af92adaa…` |
 
 ### Explicitly not authorized
 - Native / EAS rebuild  
 - Production OTA / freeze lift  
-- Republishing `c859c1ce` / `01a142e1` until investigation clears it  
+- Republishing `c859c1ce` / `01a142e1`  
+- Blind device bisect while `expo-error.log` capture is still pending
 
 ---
 
