@@ -1,12 +1,12 @@
-PRODUCTION OTA RE-ARMED — 2026-10-16 (post authorized publish)
+PRODUCTION OTA RE-ARMED — 2026-10-16 (post Device attestation visibility OTA)
 
 Authorized tip now on production channel:
-  SHA    929bfbfe6847e1488c4c75824373811d1fe22e8c
-  Update 01a144b4-5be8-7ec5-8a6a-ef2979058c16
-  Group  258ec15a-5f01-457d-911d-34706ece35f9
+  SHA    b666165e8d21c85222ab2ff874b538394efac66a
+  Update 01a144bd-83bc-7ee4-8e43-3718b03c42b3
+  Group  68de9f95-8f7b-40fb-825a-45ea830e665a
 
-Further production OTA publish / force / heal / republish requires a new
-explicit authorization. Rollback target for this tip: prior emergency
-embedded group 4a0960e4-10e8-4ac8-a77d-3c37891942c2.
+Prior tip (rollback if needed):
+  Group  258ec15a-5f01-457d-911d-34706ece35f9 (929bfbfe home-shortcuts + longshot belt)
 
-No server deploy / merge / native build performed with this release.
+Further production OTA requires new explicit authorization.
+No server deploy / merge / native build with this release.
