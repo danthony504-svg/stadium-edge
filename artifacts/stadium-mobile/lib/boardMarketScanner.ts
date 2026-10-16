@@ -76,6 +76,10 @@ import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
+  filterPicksForTicketStyle,
+  filterScoredLegsForTicketStyle,
+} from "./coachTicketQualityTiers.ts";
+import {
   boardLegPoolRole,
   buildStagedTicketFromScan,
   collapseSameTeamGameLineSides,
@@ -994,39 +998,46 @@ export function buildScanResult(
         opts.varietyContext?.singleEventSport ?? opts.teamScope?.sport ?? undefined,
     },
   );
+  // Post-staging consumers (inject / prop fill / multi-sport / top-up) must
+  // only see style-cleared American odds — closes Penguins +2.5 @ −215 path.
+  const stylePool = filterScoredLegsForTicketStyle(stagePool, opts.ticketStyle);
   let picks = teamScopedAsk
     ? staged.picks
     : injectPrioritySportsIntoTicket(
         staged.picks,
-        stagePool,
+        stylePool,
         opts.target,
         opts.prioritySports,
+        false,
+        opts.ticketStyle,
       );
   // When qualified props exist, fill ~40–50% reserved prop slots (TD / pass /
   // rec / rush yards preferred) so gameLines-first combinators cannot ship
   // ML/totals-only tickets. Scoped pool only — never foreign games.
   if (!opts.gameLinesOnly && !opts.propsOnly) {
-    picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+    picks = fillReservedPropSlots(picks, stylePool, opts.target, opts.legsPerGameCap);
   }
   // Prop-slot fill can evict soft football injects; restore multi-sport floor after.
   // Scoped asks disable cross-sport/cross-game variety entirely.
   if (!teamScopedAsk) {
     picks = enforceMultiSportFloorOnTicket(
       picks,
-      stagePool,
+      stylePool,
       opts.target,
       opts.prioritySports ?? undefined,
+      false,
+      opts.ticketStyle,
     );
   }
   // Multi-sport floor can displace props — restore the reserved prop mix.
   if (!opts.gameLinesOnly && !opts.propsOnly) {
-    picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+    picks = fillReservedPropSlots(picks, stylePool, opts.target, opts.legsPerGameCap);
   }
   // College mix: reserve half/quarter seats so FG alts cannot crowd out period
   // team markets (1H / Q2 spreads + period team totals).
   if (opts.collegeTeamMarketStacks && !opts.propsOnly) {
-    picks = fillReservedPeriodSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
-    picks = fillReservedTeamTotalSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+    picks = fillReservedPeriodSlots(picks, stylePool, opts.target, opts.legsPerGameCap);
+    picks = fillReservedTeamTotalSlots(picks, stylePool, opts.target, opts.legsPerGameCap);
   }
   // Team props / game-lines-only: one side per team before top-up (no FG+Q2
   // Browns). College team-market boards intentionally keep period + team-total
@@ -1052,25 +1063,28 @@ export function buildScanResult(
   if (picks.length < opts.target) {
     picks = topUpTicketFromQualifiedScored(
       picks,
-      stagePool,
+      stylePool,
       opts.target,
       opts.varietySeed,
       opts.legsPerGameCap,
-      opts.gameLinesOnly || opts.collegeTeamMarketStacks
-        ? {
-            collapseSameTeamSides: !!(opts.gameLinesOnly && !opts.collegeTeamMarketStacks),
-            collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
-          }
-        : undefined,
+      {
+        ...(opts.gameLinesOnly || opts.collegeTeamMarketStacks
+          ? {
+              collapseSameTeamSides: !!(opts.gameLinesOnly && !opts.collegeTeamMarketStacks),
+              collegeTeamMarketStacks: !!opts.collegeTeamMarketStacks,
+            }
+          : {}),
+        ticketStyle: opts.ticketStyle,
+      },
     );
     picks = filterPicksForAskTeam(picks, opts.teamScope ?? null);
     // Top-up may have added game lines first on short tickets — enforce prop mix again.
     if (!opts.gameLinesOnly && !opts.propsOnly) {
-      picks = fillReservedPropSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+      picks = fillReservedPropSlots(picks, stylePool, opts.target, opts.legsPerGameCap);
     }
     if (opts.collegeTeamMarketStacks && !opts.propsOnly) {
-      picks = fillReservedPeriodSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
-      picks = fillReservedTeamTotalSlots(picks, stagePool, opts.target, opts.legsPerGameCap);
+      picks = fillReservedPeriodSlots(picks, stylePool, opts.target, opts.legsPerGameCap);
+      picks = fillReservedTeamTotalSlots(picks, stylePool, opts.target, opts.legsPerGameCap);
     }
     // Hard seating constraints after every fill path — nickname-normalized
     // ladder keys block Cowboys -5.5 / Dallas Cowboys -8.5 reintroduction.
@@ -1098,6 +1112,8 @@ export function buildScanResult(
   }
   // Last pass: one rung per market ladder (assembly / fills cannot reintroduce).
   picks = dedupePicksByMarketLadder(picks);
+  // Terminal style belt — final delivered American odds after every substitution.
+  picks = filterPicksForTicketStyle(picks, opts.ticketStyle);
   propCount = picks.filter((p) => p.isProp).length;
   // Preview-only awaiting flag. Finals never wipe cleared game lines to empty.
   const awaitingPropSlots = shouldKeepAwaitingPropSlots({
@@ -1211,7 +1227,8 @@ export function buildScanResult(
     hrRankDiagnostics = hrSelectionDiagnostics(scored, picks, componentsByFp);
   }
 
-  const qualifiedCandidates = stagePool
+  // Lean / post-lean fill must inherit style-cleared leftovers only.
+  const qualifiedCandidates = stylePool
     .filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null)
     .map((leg) => leg.pick);
 

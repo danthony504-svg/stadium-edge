@@ -102,8 +102,9 @@ export function legHasPositiveEvForValueStyle(leg: {
 
 /**
  * Lottery / Longshots floor — plus-money (or better) among already-qualified
- * legs. Heavy chalk (e.g. Guardians +3.5 at −575) must not lead a lottery
- * ticket. Does not weaken sim/qualify/correlation; honest shortfall if short.
+ * legs. Compares **American odds** (e.g. −215), never the handicap/line
+ * (e.g. Penguins +2.5). Heavy chalk must not seat a lottery ticket.
+ * Does not weaken sim/qualify/correlation; honest shortfall if short.
  */
 export const LONGSHOT_MIN_AMERICAN_ODDS = 100;
 
@@ -111,14 +112,16 @@ export function legQualifiesForLongshotStyle(leg: {
   pick?: { odds?: number | null } | null;
   odds?: number | null;
 }): boolean {
+  // American price only — pick label handicaps (+2.5) are irrelevant here.
   const odds = leg.pick?.odds ?? leg.odds;
   return odds != null && Number.isFinite(odds) && odds >= LONGSHOT_MIN_AMERICAN_ODDS;
 }
 
 /**
  * Style-specific seating narrow for already-qualified legs.
- * Used by primary pools AND backfill/replacement so minus-money chalk
- * cannot re-enter a longshot ticket through tiered fill.
+ * Used by primary pools, backfill/replacement, post-staging top-up / lean
+ * swaps / multi-sport inject, and the terminal delivered-odds belt so
+ * minus-money chalk cannot re-enter a longshot ticket after substitution.
  */
 export function legAllowedForTicketStyle(
   leg: {
@@ -132,6 +135,32 @@ export function legAllowedForTicketStyle(
   if (ticketStyle === "value") return legHasPositiveEvForValueStyle(leg);
   if (ticketStyle === "longshot") return legQualifiesForLongshotStyle(leg);
   return true;
+}
+
+/** Narrow a scored pool by style using each leg's final American odds. */
+export function filterScoredLegsForTicketStyle<
+  T extends {
+    evPct?: number | null;
+    edgePct?: number | null;
+    pick?: { odds?: number | null } | null;
+    odds?: number | null;
+  },
+>(scored: readonly T[], ticketStyle?: string | null): T[] {
+  if (ticketStyle !== "value" && ticketStyle !== "longshot") return [...scored];
+  return scored.filter((leg) => legAllowedForTicketStyle(leg, ticketStyle));
+}
+
+/**
+ * Terminal belt — drop any delivered pick whose **final** American odds fail
+ * the active style (after lean / top-up / inject / reserved fills).
+ * Honest shortfall preferred over chalk lottery padding.
+ */
+export function filterPicksForTicketStyle<T extends { odds?: number | null }>(
+  picks: readonly T[],
+  ticketStyle?: string | null,
+): T[] {
+  if (ticketStyle !== "value" && ticketStyle !== "longshot") return [...picks];
+  return picks.filter((pick) => legAllowedForTicketStyle(pick, ticketStyle));
 }
 
 export function qualityTiersForStyle(style: CoachTicketStyle): readonly QualityTierGrade[] {

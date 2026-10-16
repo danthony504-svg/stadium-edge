@@ -296,12 +296,17 @@ export function topUpTicketFromQualifiedScored(
     collapseSameTeamSides?: boolean;
     /** College team markets: raise period-stack seat budget on thin slates. */
     collegeTeamMarketStacks?: boolean;
+    /** Style seating — blocks minus-money chalk from longshot top-up. */
+    ticketStyle?: CoachTicketStyle | string | null;
   },
 ): ParsedPick[] {
   // Drop P0-blocked legs already on the ticket (NCAAF spreads/ML, unvalidated
   // totals). Do not re-litigate AI-recommend thresholds for already-staged
   // validated sports — only integrity fail-closed strips seats.
-  const cleared = picks.filter((p) => !p0UnvalidatedSimDecision(p));
+  const ticketStyle = opts?.ticketStyle;
+  const cleared = picks.filter(
+    (p) => !p0UnvalidatedSimDecision(p) && legAllowedForTicketStyle(p, ticketStyle),
+  );
   if (target < 3) return cleared.slice(0, Math.max(0, target));
   if (cleared.length >= target) return cleared.slice(0, target);
   const collapseSameTeam = !!opts?.collapseSameTeamSides;
@@ -312,6 +317,8 @@ export function topUpTicketFromQualifiedScored(
     if (used.has(fp)) continue;
     if (p0UnvalidatedSimDecision(leg.pick)) continue;
     if (boardLegPoolRole(leg.pick, leg.pick.finalAiScore) == null) continue;
+    // Final American odds must clear style — ALT handicaps (+2.5) are not odds.
+    if (!legAllowedForTicketStyle(leg, ticketStyle)) continue;
     leftover.push(leg);
   }
   if (!leftover.length) return cleared.slice(0, target);

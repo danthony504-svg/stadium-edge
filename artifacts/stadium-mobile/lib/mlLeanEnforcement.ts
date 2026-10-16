@@ -13,6 +13,7 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
 import type { GameMeta, MatchupHistoryEntry, RealOddsEntry } from "./api.ts";
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
+import { legAllowedForTicketStyle } from "./coachTicketQualityTiers.ts";
 import { gameLabelsMatch } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import {
@@ -220,21 +221,29 @@ export function enforceMlLeanOnPicks(
     /** Ask size for hard maxLegsPerGame after lean (default 7). */
     requestedLegs?: number;
     legsPerGameCap?: number | null;
+    /** Style seating — lean swaps must clear final American-odds style floor. */
+    ticketStyle?: string | null;
   },
 ): MlLeanEnforcementResult {
   const constraints: LeanTicketConstraints = {
     requestedLegs: opts.requestedLegs,
     legsPerGameCap: opts.legsPerGameCap,
   };
+  const styleOk = (p: ParsedPick) => legAllowedForTicketStyle(p, opts.ticketStyle);
   const qualified =
-    opts.qualifiedCandidates?.filter((p) => isLeanQualifiedSubstitute(p)) ??
-    picks.filter((p) => isLeanQualifiedSubstitute(p));
+    (opts.qualifiedCandidates?.filter((p) => isLeanQualifiedSubstitute(p)) ??
+      picks.filter((p) => isLeanQualifiedSubstitute(p))).filter(styleOk);
   const seen = new Set<string>();
   let swapped = 0;
   let dropped = 0;
   const out: ParsedPick[] = [];
 
   for (const pick of picks) {
+    if (!styleOk(pick) && !isGameSideMlOrSpread(pick)) {
+      // Non-side legs that fail style cannot stay (props/totals chalk on longshot).
+      dropped += 1;
+      continue;
+    }
     if (!isGameSideMlOrSpread(pick)) {
       if (!trySeat(pick, out, seen, constraints)) dropped += 1;
       continue;
@@ -243,7 +252,7 @@ export function enforceMlLeanOnPicks(
     const entry = findHistoryEntry(pick.game, opts.matchupHistory);
     const leanSide = entry?.mlLean?.side;
     if (!leanSide) {
-      if (!trySeat(pick, out, seen, constraints)) dropped += 1;
+      if (!styleOk(pick) || !trySeat(pick, out, seen, constraints)) dropped += 1;
       continue;
     }
 
@@ -254,7 +263,7 @@ export function enforceMlLeanOnPicks(
         dropped += 1;
         continue;
       }
-      if (!trySeat(pick, out, seen, constraints)) dropped += 1;
+      if (!styleOk(pick) || !trySeat(pick, out, seen, constraints)) dropped += 1;
       continue;
     }
 
@@ -263,6 +272,7 @@ export function enforceMlLeanOnPicks(
     if (
       replacement &&
       isLeanQualifiedSubstitute(replacement) &&
+      styleOk(replacement) &&
       trySeat(replacement, out, seen, constraints)
     ) {
       swapped += 1;
@@ -270,7 +280,11 @@ export function enforceMlLeanOnPicks(
     }
 
     // No valid replacement — preserve already-qualified original under constraints.
-    if (isLeanQualifiedSubstitute(pick) && trySeat(pick, out, seen, constraints)) {
+    if (
+      isLeanQualifiedSubstitute(pick) &&
+      styleOk(pick) &&
+      trySeat(pick, out, seen, constraints)
+    ) {
       continue;
     }
     dropped += 1;

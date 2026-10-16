@@ -103,6 +103,7 @@ import {
   mlLeanEnforcementNote,
 } from "@/lib/mlLeanEnforcement";
 import { topUpAfterMlLean } from "@/lib/postLeanFinalFill";
+import { filterPicksForTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { marketFamily } from "@/components/PickCard";
 import { coachPropsAskGameLineMismatchNote } from "@/lib/coach/parseAsk";
 import { legsPerGameCapForAsk } from "@/lib/parlayCorrelationScore";
@@ -908,6 +909,7 @@ export async function buildCoachParlay(opts: {
       gameMeta: [],
       qualifiedCandidates,
       requestedLegs: target,
+      ticketStyle,
     });
     picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(enforced.picks, marketConstraint),
@@ -947,6 +949,7 @@ export async function buildCoachParlay(opts: {
         varietySeed: opts.askText,
         legsPerGameCap,
         collegeTeamMarketStacks,
+        ticketStyle,
       });
       picks = filterPicksForCoachAskTeams(
         filterPicksByAskMarketConstraint(picks, marketConstraint),
@@ -961,6 +964,8 @@ export async function buildCoachParlay(opts: {
   // or an explicitly excluded matchup.
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
   picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
+  // Terminal style belt — final delivered American odds after lean / fill.
+  picks = filterPicksForTicketStyle(picks, ticketStyle);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
