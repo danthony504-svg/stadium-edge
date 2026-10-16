@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
+import { parlayAmerican } from "./format.ts";
 import {
   legHasPositiveEvForValueStyle,
+  legQualifiesForLongshotStyle,
+  LONGSHOT_MIN_AMERICAN_ODDS,
   resolveCoachTicketStyle,
 } from "./coachTicketQualityTiers.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
@@ -13,14 +16,15 @@ function leg(opts: {
   ev?: number | null;
   edge?: number | null;
   rank?: number;
+  pickLabel?: string;
 }): BoardScoredLeg {
   return {
     pick: {
       game: "A @ B",
-      market: "Moneyline",
-      pick: "A ML",
+      market: "Spread",
+      pick: opts.pickLabel ?? "A +3.5",
       odds: opts.odds ?? -110,
-      sport: "nfl",
+      sport: "mlb",
       isProp: false,
     } as BoardScoredLeg["pick"],
     evPct: opts.ev ?? null,
@@ -54,12 +58,39 @@ test("value style ranks by EV ahead of composite rankScore", () => {
   const highEv = leg({ ev: 8, rank: 10, odds: -120 });
   const lowEv = leg({ ev: 1, rank: 90, odds: -110 });
   assert.ok(compareBoardLegsForRank(highEv, lowEv, "seed", "value") < 0);
-  // Without value style, rankScore still leads when not near-equal.
   assert.ok(compareBoardLegsForRank(highEv, lowEv, "seed", "balanced") > 0);
 });
 
-test("longshot style prefers higher American odds when ranks are near-equal", () => {
-  const chalk = leg({ odds: -150, rank: 50, edge: 2 });
-  const dog = leg({ odds: 450, rank: 51, edge: 2.1 });
+test("longshot style rejects Guardians-style heavy chalk (−575)", () => {
+  const chalk = leg({
+    odds: -575,
+    rank: 99,
+    edge: 8,
+    pickLabel: "Guardians +3.5",
+  });
+  assert.equal(legQualifiesForLongshotStyle(chalk), false);
+  assert.ok(LONGSHOT_MIN_AMERICAN_ODDS >= 100);
+});
+
+test("longshot style prefers higher American odds even when chalk has higher rankScore", () => {
+  const chalk = leg({ odds: -575, rank: 95, edge: 5, pickLabel: "Guardians +3.5" });
+  const dog = leg({ odds: 450, rank: 40, edge: 2, pickLabel: "Underdog ML" });
+  // Prior bug: near-equal-only odds bias let −575 chalk win on rankScore.
   assert.ok(compareBoardLegsForRank(dog, chalk, "seed", "longshot") < 0);
+  assert.equal(legQualifiesForLongshotStyle(dog), true);
+  assert.equal(legQualifiesForLongshotStyle(chalk), false);
+});
+
+test("screenshot lead-leg alone cannot establish lottery selection or combined odds", () => {
+  // Device claim: ticket started with Guardians +3.5 at −575. Opening Coach +
+  // auto-send does not prove longshot seating. Full ticket was not captured —
+  // combined odds for a single known chalk leg is undefined for the parlay.
+  const knownLead = [-575];
+  assert.equal(legQualifiesForLongshotStyle({ odds: -575 }), false);
+  // A 1-leg "ticket" of only the lead is not a lottery parlay; report N/A for
+  // complete combined odds without the remaining legs.
+  const incomplete = knownLead; // missing remaining legs from screenshot
+  assert.equal(incomplete.length < 2, true);
+  // If someone did combine only that chalk leg, price stays −575 — still not lottery.
+  assert.equal(parlayAmerican(knownLead), -575);
 });

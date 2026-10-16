@@ -41,6 +41,7 @@ import {
   type CoachTicketStyle,
   type QualityTierGrade,
   legHasPositiveEvForValueStyle,
+  legQualifiesForLongshotStyle,
   poolRoleAtMinGrade,
   qualityTiersForStyle,
 } from "./coachTicketQualityTiers.ts";
@@ -221,6 +222,10 @@ function qualifyingScoredLegs(
     const next = { ...leg, pick: tagged };
     // Best Value: only seat qualified positive-EV legs — honest shortfall otherwise.
     if (opts?.ticketStyle === "value" && !legHasPositiveEvForValueStyle(next)) {
+      continue;
+    }
+    // Longshots / lottery: plus-money floor among qualified — no heavy chalk filler.
+    if (opts?.ticketStyle === "longshot" && !legQualifiesForLongshotStyle(next)) {
       continue;
     }
     out.push(next);
@@ -593,9 +598,12 @@ function backfillAtQualityTier(
   let current = capThinStatMarketsOnTicket(ticket, target);
   if (current.length >= target) return current.slice(0, target);
 
-  const tierLegs = allScored.filter(
-    (leg) => poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, minGrade) != null,
-  );
+  const tierLegs = allScored.filter((leg) => {
+    if (poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, minGrade) == null) return false;
+    if (config.ticketStyle === "value" && !legHasPositiveEvForValueStyle(leg)) return false;
+    if (config.ticketStyle === "longshot" && !legQualifiesForLongshotStyle(leg)) return false;
+    return true;
+  });
   const pools = partitionScoredLegsByCategory(tierLegs);
   const used = new Set(current.map(pickLegFingerprint));
 

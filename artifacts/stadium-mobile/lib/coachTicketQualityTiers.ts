@@ -100,6 +100,21 @@ export function legHasPositiveEvForValueStyle(leg: {
   return edge != null && Number.isFinite(edge) && edge > 0;
 }
 
+/**
+ * Lottery / Longshots floor — plus-money (or better) among already-qualified
+ * legs. Heavy chalk (e.g. Guardians +3.5 at −575) must not lead a lottery
+ * ticket. Does not weaken sim/qualify/correlation; honest shortfall if short.
+ */
+export const LONGSHOT_MIN_AMERICAN_ODDS = 100;
+
+export function legQualifiesForLongshotStyle(leg: {
+  pick?: { odds?: number | null } | null;
+  odds?: number | null;
+}): boolean {
+  const odds = leg.pick?.odds ?? leg.odds;
+  return odds != null && Number.isFinite(odds) && odds >= LONGSHOT_MIN_AMERICAN_ODDS;
+}
+
 export function qualityTiersForStyle(style: CoachTicketStyle): readonly QualityTierGrade[] {
   return TICKET_STYLE_CONFIG[style].tiers;
 }

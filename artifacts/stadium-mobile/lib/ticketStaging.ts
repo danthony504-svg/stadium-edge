@@ -43,7 +43,10 @@ import {
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
-import { legHasPositiveEvForValueStyle } from "./coachTicketQualityTiers.ts";
+import {
+  legHasPositiveEvForValueStyle,
+  legQualifiesForLongshotStyle,
+} from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   pickIsAiRecommended,
@@ -619,6 +622,10 @@ function qualifyingScoredLegs(
     }
     // Best Value: only seat qualified positive-EV legs — honest shortfall otherwise.
     if (opts?.ticketStyle === "value" && !legHasPositiveEvForValueStyle(next)) {
+      continue;
+    }
+    // Longshots / lottery: plus-money floor among qualified — no heavy chalk filler.
+    if (opts?.ticketStyle === "longshot" && !legQualifiesForLongshotStyle(next)) {
       continue;
     }
     out.push(next);

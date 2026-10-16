@@ -7,30 +7,14 @@
  * Longshots → lottery / longshot parlay (higher payout among qualified)
  *
  * Explicit `ticketStyle` drives selection (not message text alone).
- * Sport is preserved in the ask. Ticket styles still pass Final AI / sim /
- * NCAAF P0 / period / correlation / rare-event gates — modes never weaken
- * qualification or pad with unqualified filler.
+ * Home sport is NOT inherited — asks are all-sports by default so Coach
+ * loads the full supported board. Typed sport requests in Coach still
+ * scope via focalSportsFromText. Modes never weaken qualification or pad
+ * with unqualified filler; mixed-sport tickets are allowed without forcing
+ * every league onto the ticket.
  */
 
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
-
-/** Lightweight labels — avoid importing sports.ts (vector-icons) into unit tests. */
-const SPORT_LABELS: Record<string, string> = {
-  mlb: "MLB",
-  nfl: "NFL",
-  ncaaf: "CFB",
-  ncaab: "CBB",
-  wnba: "WNBA",
-  nba: "NBA",
-  nhl: "NHL",
-  soccer: "Soccer",
-  tennis: "Tennis",
-  ufc: "UFC",
-};
-
-function shortcutSportLabel(sportId: string): string {
-  return SPORT_LABELS[sportId] ?? sportId.toUpperCase();
-}
 
 export type HomeShortcutId = "hot_picks" | "easy_money" | "best_value" | "longshots";
 
@@ -58,27 +42,29 @@ export function homeShortcutTicketStyle(id: HomeShortcutId): CoachTicketStyle {
   }
 }
 
-/** Distinct Coach asks — sport preserved; wording aligns with ticketStyle. */
-export function homeShortcutCoachAsk(id: HomeShortcutId, sportId: string): string {
-  const label = shortcutSportLabel(sportId);
+/**
+ * Distinct Coach asks — no Home sport token (all-sports board by default).
+ * Wording still aligns with ticketStyle for free-typed detect fallback.
+ */
+export function homeShortcutCoachAsk(id: HomeShortcutId): string {
   switch (id) {
     case "easy_money":
-      return `Build me a safe lower-risk ${label} parlay for tonight`;
+      return "Build me a safe lower-risk parlay for tonight across tonight's board";
     case "best_value":
-      return `Build me a best-value ${label} parlay from qualified positive-EV picks for tonight`;
+      return "Build me a best-value parlay from qualified positive-EV picks for tonight across tonight's board";
     case "longshots":
-      return `Build me a lottery longshot ${label} parlay targeting a higher payout for tonight`;
+      return "Build me a lottery longshot parlay targeting a higher payout for tonight across tonight's board";
     case "hot_picks":
     default:
-      return `Build me the best balanced ${label} parlay for tonight`;
+      return "Build me the best balanced parlay for tonight across tonight's board";
   }
 }
 
-export function resolveHomeShortcut(id: HomeShortcutId, sportId: string): HomeShortcutDest {
+export function resolveHomeShortcut(id: HomeShortcutId): HomeShortcutDest {
   return {
     id,
     kind: "coach",
-    autoMsg: homeShortcutCoachAsk(id, sportId),
+    autoMsg: homeShortcutCoachAsk(id),
     ticketStyle: homeShortcutTicketStyle(id),
     // Hot Picks stays silent; others show the ask bubble.
     silent: id === "hot_picks",

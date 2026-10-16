@@ -976,7 +976,9 @@ function HomeSportFeed({
     });
 
   const runHomeShortcut = (id: "hot_picks" | "easy_money" | "best_value" | "longshots") => {
-    const dest = resolveHomeShortcut(id, sport);
+    // All-sports by default — do not inherit the Home sport pill into Coach.
+    // Typed sport requests inside Coach still scope via ask text.
+    const dest = resolveHomeShortcut(id);
     askCoach(dest.autoMsg, dest.silent, dest.ticketStyle);
   };
 

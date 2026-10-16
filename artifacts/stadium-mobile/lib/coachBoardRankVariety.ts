@@ -15,6 +15,9 @@ export const NEAR_EQUAL_CONFIDENCE_PCT = 6;
 /** EV delta (pct points) that lets value-mode prefer the higher-EV leg. */
 export const VALUE_EV_LEAD_PCT = 0.25;
 
+/** American-odds delta that lets longshot-mode prefer the longer price. */
+export const LONGSHOT_ODDS_LEAD = 1;
+
 export function boardLegsNearlyEqual(a: BoardScoredLeg, b: BoardScoredLeg): boolean {
   if (Math.abs(b.rankScore - a.rankScore) > NEAR_EQUAL_RANK_SCORE_BAND) return false;
   const edgeA = a.edgePct ?? 0;
@@ -40,8 +43,9 @@ function legAmericanOdds(leg: BoardScoredLeg): number {
 
 /**
  * Sort legs among a shared-qualified pool.
- * - value: EV leads (Best Value shortcut) — still only among qualified +EV seats
- * - longshot: quality first; when near-equal, prefer higher American odds (payout)
+ * - value: EV leads (Best Value shortcut)
+ * - longshot: higher American odds lead (lottery payout) — chalk cannot outrank
+ *   a longer price just because composite rankScore is higher
  * - safe/balanced: composite rankScore, variety when near-equal
  */
 export function compareBoardLegsForRank(
@@ -56,14 +60,14 @@ export function compareBoardLegsForRank(
     if (Math.abs(evB - evA) > VALUE_EV_LEAD_PCT) return evB - evA;
   }
 
-  const diff = b.rankScore - a.rankScore;
-  if (!boardLegsNearlyEqual(a, b)) return diff;
-
   if (ticketStyle === "longshot") {
     const oddsA = legAmericanOdds(a);
     const oddsB = legAmericanOdds(b);
-    if (oddsA !== oddsB) return oddsB - oddsA;
+    if (Math.abs(oddsB - oddsA) >= LONGSHOT_ODDS_LEAD) return oddsB - oddsA;
   }
+
+  const diff = b.rankScore - a.rankScore;
+  if (!boardLegsNearlyEqual(a, b)) return diff;
 
   if (varietySeed) {
     return (
