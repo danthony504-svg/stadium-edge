@@ -22,7 +22,8 @@ test("mapScanFailureCode mirrors server grounding/alt/sim/freeze", () => {
 test("1) props-only early return emits exactly one Coach reliability report", () => {
   const src = readFileSync(join(process.cwd(), "lib/coach/buildParlay.ts"), "utf8");
   // Isolate the props-only block (dedicated ticket builder → early return).
-  const start = src.indexOf("shouldBuildFootballPropsOnlyTicket");
+  // Prefer the call site over the import — P0 college early-exit also reports.
+  const start = src.indexOf("Greenfield props-only rebuild");
   const end = src.indexOf("Allowlisted / props-only pools must not re-expand");
   assert.ok(start >= 0 && end > start, "props-only block bounds");
   const block = src.slice(start, end);
@@ -36,6 +37,13 @@ test("1) props-only early return emits exactly one Coach reliability report", ()
   assert.ok(reportAt >= 0 && returnEmptyAt > reportAt);
   assert.ok(returnFinalAt > reportAt);
   assert.equal(/await\s+reportCoachScanReliability/.test(block), false);
+});
+
+test("P0_UNVALIDATED_MARKETS maps to non-alertable zero_results", () => {
+  const mapped = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
+  assert.equal(mapped?.eventType, "parlay_zero_results");
+  assert.equal(mapped?.failureReason, "zero_results");
+  assert.equal(mapped?.alertable, false);
 });
 
 test("2) valid thin slate => legitimate underfill, no immediate Telegram page", () => {

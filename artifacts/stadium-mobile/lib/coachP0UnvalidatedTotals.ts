@@ -4,9 +4,9 @@
 // block simulation-derived grades for affected markets and hard-stop same-team
 // team-total stacks. Does not invent odds, probs, or replacement sims.
 //
-// NCAAF game lines (spread / ML / alt / period sides) are also fail-closed:
-// nfl-drive TD/FG rate caps make cover probs insensitive to offense/QB shocks,
-// and matchup defense packs never enter score draws. Player props stay open.
+// NCAAF game lines (spread / ML / alt / period sides) stay fail-closed until
+// NCAAF_GAME_LINE_SIM_VALIDATED is flipped after engine validation (soft rates,
+// defense tilt, spreads/ML/totals checks). Player props stay open either way.
 //
 // Sport aliases (cfb → ncaaf) are normalized before the gate. Missing sport is
 // resolved only from trusted provider/event fields — never guessed from team
@@ -14,6 +14,13 @@
 //
 // Standalone (no import from simMarketSupport) to avoid circular deps with
 // assessSimMarketIntegrity.
+
+/**
+ * Flip only after ncaafGameLineSimValidation (+ human Phase E sign-off).
+ * Default false keeps P0 armed — player props alone do not clear this gate.
+ * Do not flip until validation supports enabling it.
+ */
+export const NCAAF_GAME_LINE_SIM_VALIDATED = false;
 
 /** Sports whose team-scoring engines are unvalidated for totals (P0). */
 export const P0_UNVALIDATED_SCORING_SPORTS = new Set(["nfl", "ncaaf", "nhl"]);
@@ -28,8 +35,8 @@ export const P0_UNVALIDATED_FG_GAME_TOTAL_SPORTS = new Set(["nfl", "ncaaf", "nhl
 
 /**
  * NCAAF only — full-game and period game-side markets that settle from
- * unvalidated nfl-drive score draws. NFL game lines remain open for now;
- * NCAAF props are untouched.
+ * nfl-drive score draws. Cleared only when NCAAF_GAME_LINE_SIM_VALIDATED.
+ * NFL game lines remain open for now; NCAAF props are untouched.
  */
 export const P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS = new Set(["ncaaf"]);
 
@@ -224,6 +231,10 @@ export function isP0UnvalidatedNcaafGameLineMarket(pick: P0PickInput): boolean {
 
   const sport = resolveCoachPickSport(pick);
   if (!sport) return true; // unknown sport + game line → fail closed
+  // Validated engine + known ncaaf → allow; otherwise keep P0.
+  if (NCAAF_GAME_LINE_SIM_VALIDATED && P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) {
+    return false;
+  }
   return P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport);
 }
 
@@ -250,6 +261,85 @@ export function p0UnvalidatedSimDecision(
   pick: P0PickInput,
 ): { accept: false; reason: string } | null {
   return p0UnvalidatedSimTotalDecision(pick) ?? p0UnvalidatedNcaafGameLineDecision(pick);
+}
+
+/**
+ * True when a game-lines-only ask is locked exclusively to NCAAF (or aliases)
+ * while NCAAF_GAME_LINE_SIM_VALIDATED is false — every FG side/total the scan
+ * would seat is P0-blocked, so running slate sims only burns wall clock.
+ *
+ * Props-only / mixed-sport / unlocked boards return false so eligible sims still run.
+ */
+export function ncaafGameLineAskIsP0Blocked(opts: {
+  gameLinesOnly: boolean;
+  lockedSports: readonly string[] | null | undefined;
+}): boolean {
+  if (NCAAF_GAME_LINE_SIM_VALIDATED) return false;
+  if (!opts.gameLinesOnly) return false;
+  const sports = (opts.lockedSports ?? [])
+    .map((s) => String(s ?? "").toLowerCase().trim())
+    .filter(Boolean)
+    .map((s) => (NCAAF_SPORT_ALIASES.has(s) ? "ncaaf" : s));
+  if (sports.length === 0) return false;
+  return sports.every((s) => P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(s));
+}
+
+/**
+ * User-facing note when a college game-line ask is P0-blocked before scan.
+ * Must not describe the empty ticket as failing the quality bar — simulation
+ * is blocked / unavailable, not graded and rejected.
+ */
+export function p0BlockedNcaafGameLineAskNote(requestedLegs: number): string {
+  const n = Math.max(0, Math.floor(requestedLegs));
+  return (
+    `College football (NCAAF) full-game spreads, moneylines, and totals are temporarily ` +
+    `blocked while the game-line simulation is unvalidated. ` +
+    `You asked for ${n} legs of those team markets — no ticket was built, and no other sports ` +
+    `were used to fill. College player props are a separate board (not available on bare ` +
+    `"college" asks); say "college football player props" or pick another sport if you want ` +
+    `a scanned ticket.`
+  );
+}
+
+/**
+ * True when every posted game-line candidate is P0-blocked (sides and/or totals).
+ * Empty candidate lists return false — that is a thin board, not a P0 gate.
+ * Used for gameLinesOnly scans so NFL/NHL (open sides) still sim, while a board
+ * that only offers blocked markets exits without slate Monte Carlo.
+ */
+export function gameLineCandidatesFullyP0Blocked(
+  candidates: readonly P0PickInput[],
+): boolean {
+  if (!candidates.length) return false;
+  return candidates.every((c) => !!p0UnvalidatedSimDecision(c));
+}
+
+/** User note when the loaded game-line board is entirely P0-blocked. */
+export function p0BlockedGameLineBoardNote(opts: {
+  requestedLegs: number;
+  candidateCount: number;
+  sports?: readonly string[] | null;
+}): string {
+  const n = Math.max(0, Math.floor(opts.requestedLegs));
+  const sports = [
+    ...new Set(
+      (opts.sports ?? []).map((s) => String(s).toLowerCase()).filter(Boolean),
+    ),
+  ];
+  const sportLabel =
+    sports.length === 1
+      ? sports[0]!.toUpperCase()
+      : sports.length > 1
+        ? sports.map((s) => s.toUpperCase()).join("/")
+        : "this board";
+  return (
+    `${sportLabel} team markets on the loaded board are temporarily blocked while their ` +
+    `simulation grades stay unvalidated (${opts.candidateCount} posted line` +
+    `${opts.candidateCount === 1 ? "" : "s"} checked). ` +
+    `You asked for ${n} legs — no ticket was built. This is a blocked simulation, not picks ` +
+    `failing the quality bar. Player props or validated game sides for other leagues remain ` +
+    `eligible when you ask for them.`
+  );
 }
 
 function teamNickFromTotalPick(pickText: string): string {

@@ -66,6 +66,7 @@ test("formatCoachScanFailureTrace codes are covered by the sanitizer list", () =
     "SCORED_BUT_NOT_STAGED",
     "ABSOLUTE_BUDGET",
     "QUALITY_BAR_EMPTY",
+    "P0_UNVALIDATED_MARKETS",
   ];
   for (const code of scanCodes) {
     assert.ok(
