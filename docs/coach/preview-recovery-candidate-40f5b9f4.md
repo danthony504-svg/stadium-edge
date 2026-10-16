@@ -72,7 +72,7 @@ Mobile `--stat`: `/opt/cursor/artifacts/recovery-candidate-40f5b9f4/full-mobile-
 | **Candidate git tip** | `40f5b9f4747df2b99c98c4c08d26f276e2e07d16` |
 | **Required shortcut changes on top** | **None** — already included and device-PASSed on preview |
 | **Exact diff vs demonstrated working baseline** | **Empty** (`candidate-vs-working-baseline.diff` is 0 bytes) |
-| **Preferred publish form (when authorized)** | `eas update:republish --group d405e8b6-edf6-45d3-a8a6-d977ea97d2f4` on **preview only** — or fresh publish from checkout `40f5b9f4` with a recovery message |
+| **Published form (authorized 2026-10-16)** | `eas update:republish --group d405e8b6-edf6-45d3-a8a6-d977ea97d2f4 --platform ios` → **new** group `2d980f30-223d-4cca-8654-48929301d4af` / iOS `01a1430d-37ee-747a-be37-c296473cff9f` |
 | **Do not publish** | `c859c1ce` / group `af92adaa…` |
 
 ### Why not `100b2450` + shortcut cherry-pick again
