@@ -73,8 +73,12 @@
           "microphonePermission": "Stadium Edge needs the microphone so you can talk to Coach."
         }
       ],
-      "expo-av",
-      "expo-speech",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Stadium Edge needs the microphone so you can talk to Coach."
+        }
+      ],
       [
         "expo-media-library",
         {
