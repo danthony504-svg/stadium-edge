@@ -1,6 +1,6 @@
 # Home shortcuts — all-sports default + Longshots lottery seating (pre-publish)
 
-**Status:** Code ready. **Not published.** Report-before-publish.  
+**Status:** Local export ready. **Not published.** Report-before-publish.  
 **Production:** untouched. `.ota-production-freeze` **armed**.  
 **No** native build / server deploy / merge / freeze lift / OTA.
 
@@ -10,9 +10,11 @@
 
 | Field | Value |
 |-------|--------|
-| **Full SHA** | `7da4bd7f2e2f19491f41296248251f9c5f27ac55` |
+| **Full SHA** | `528a835924881dfc812c01cfadb860ec43191039` |
+| Prior tip (plus-money floor + all-sports asks) | `7da4bd7f2e2f19491f41296248251f9c5f27ac55` |
 | Branch | `cursor/prod-ota-home-shortcuts-8b51` |
-| Passkey startup guard | **Retained** |
+| Passkey startup guard | **Retained** (`hasClerkExpoPasskeysNative`) |
+| `.ota-production-freeze` | **Armed** |
 
 ---
 
@@ -27,7 +29,18 @@ Coach loads the generic/supported board via `coachBoardSportsForAsk` when the as
 
 Mixed-sport tickets remain allowed; seats come from the shared qualified pool — **no** force-every-sport rule and **no** unqualified filler.
 
-Ticket styles (`balanced` / `safe` / `value` / `longshot`), sim, qualification, correlation, and sport-specific gates are unchanged.
+---
+
+## Explicit `ticketStyle` reach
+
+| Path | Behavior |
+|------|----------|
+| Home → `resolveHomeShortcut` | Sets `ticketStyle`: `balanced` / `safe` / `value` / `longshot` |
+| `askCoach` / `markCoachHomeLaunch` | Carries style through silent launch |
+| Coach `takeCoachLaunch` → `buildCoachParlay` | `resolveCoachTicketStyle(explicit, ask)` prefers Home mode over ask text |
+| Staging + combinator | Style narrows primary pools **and** backfill/replacement |
+
+Ticket styles, sim, qualification, correlation, and sport-specific gates are unchanged in meaning — longshot only adds the plus-money seating floor among already-qualified legs.
 
 ---
 
@@ -36,15 +49,15 @@ Ticket styles (`balanced` / `safe` / `value` / `longshot`), sim, qualification, 
 | Question | Finding |
 |----------|---------|
 | Does opening Coach + auto-send prove lottery selection? | **No** |
-| Was `ticketStyle=longshot` enough before this tip? | Mode was set, but ranking only preferred longer odds when ranks were **near-equal** — high composite chalk could still lead |
 | Screenshot lead leg | Guardians +3.5 at **−575** (heavy chalk) |
 | Would that leg seat under fixed longshot rules? | **No** — plus-money floor (`odds >= +100`) excludes it |
-| Complete ticket estimated combined odds | **Unavailable** — remaining legs were not captured in the screenshot/artifact trail; a single known chalk leg cannot establish parlay combined odds |
+| Complete ticket estimated combined odds | **Unavailable** — remaining legs not captured |
 
-### Fix (this tip)
+### Fix
 
 1. **Filter:** `legQualifiesForLongshotStyle` — among shared-qualified legs, require American odds ≥ `+100`.
-2. **Rank:** longshot mode leads with higher American odds (not only near-equal tie-break), so payout preference actually drives selection.
+2. **Rank:** longshot mode leads with higher American odds (not only near-equal tie-break).
+3. **Backfill / replacement:** `legAllowedForTicketStyle` gates `tryAppendBackfillLeg`, `pickDiverseLegsFromPool`, `backfillDiverseTicket`, `backfillAtQualityTier`, `applyCapAndBackfillToTarget`, and props/tiered staging fills — minus-money chalk cannot re-enter through fill.
 
 Honest shortfall if too few plus-money qualified legs — no chalk padding.
 
@@ -58,7 +71,7 @@ node --test lib/homeShortcuts.test.ts \
   lib/coachBoardRankVariety.test.ts \
   lib/coachTicketQualityTiers.test.ts \
   lib/passkeyStartupGuard.test.ts
-→ 23 pass / 0 fail
+→ 25 pass / 0 fail
 ```
 
 Log: `/opt/cursor/artifacts/home-shortcuts-all-sports-longshot-fix-tests.log`
