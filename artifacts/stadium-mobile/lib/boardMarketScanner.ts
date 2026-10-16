@@ -55,6 +55,10 @@ import {
   shouldBlockRushOverVsDefense,
   shouldDropPropMissingOppDefense,
 } from "./footballRushDefense.ts";
+import {
+  defenseIndexByFamilyFromPack,
+  weatherImpactFromGameEnv,
+} from "./propContextPipeline.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { enforceSeatedPropProviderProvenance } from "./propProviderProvenance.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
@@ -407,14 +411,24 @@ async function simPropBatch(
   pool: PropPoolEntry[],
   teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
-  batchOpts?: { enrichTimeoutMs?: number },
+  batchOpts?: {
+    enrichTimeoutMs?: number;
+    weatherImpactByGame?: Record<string, number | null>;
+    defenseIndexByFamilyByGame?: Record<string, Record<string, number> | null>;
+    /** Games where defenseIndex entered MC — skip post-sim opp-D hit tilt. */
+    projectionDefenseGames?: Set<string>;
+  },
 ): Promise<{
   hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
   timedOut: boolean;
   playerHistory: Record<string, PlayerHistorySlice>;
+  projectionDefenseGames: Set<string>;
 }> {
   const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
-  if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
+  const projectionDefenseGames = new Set<string>(batchOpts?.projectionDefenseGames);
+  if (!batch.length) {
+    return { hits: out, timedOut: false, playerHistory: {}, projectionDefenseGames };
+  }
   let timedOut = false;
   let sharedHistories: Record<string, import("./api.ts").PropSimPlayerHistoryPayload> = {};
   try {
@@ -422,7 +436,12 @@ async function simPropBatch(
       fetchPropSimulations(
         batch,
         pool,
-        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined },
+        {
+          tier: "deep",
+          teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined,
+          weatherImpactByGame: batchOpts?.weatherImpactByGame,
+          defenseIndexByFamilyByGame: batchOpts?.defenseIndexByFamilyByGame,
+        },
         signal,
       ),
       new Promise<never>((_, reject) =>
@@ -433,6 +452,12 @@ async function simPropBatch(
       out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
     }
     sharedHistories = simResult.playerHistories ?? {};
+    // Mark games that sent a non-empty defense index map (projection owns opp-D).
+    for (const [game, fam] of Object.entries(
+      batchOpts?.defenseIndexByFamilyByGame ?? {},
+    )) {
+      if (fam && Object.keys(fam).length) projectionDefenseGames.add(game);
+    }
   } catch {
     timedOut = true;
   }
@@ -460,7 +485,12 @@ async function simPropBatch(
     timedOut = true;
     enriched = { hits: out, playerHistory: {}, historyReused: 0, historyFetched: 0 };
   }
-  return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory };
+  return {
+    hits: enriched.hits,
+    timedOut,
+    playerHistory: enriched.playerHistory,
+    projectionDefenseGames,
+  };
 }
 
 function appendPropScoredLegs(
@@ -486,6 +516,7 @@ function appendPropScoredLegs(
     askText?: string | null;
     allowRareMultiCount?: boolean;
     ticketStyle?: string | null;
+    projectionDefenseGames?: Set<string>;
   },
 ): void {
   const pending = rankedProps.filter((p) => {
@@ -508,6 +539,7 @@ function appendPropScoredLegs(
     teamIdMap: opts.teamIdMap,
     propSimulations: propHits,
     perfByFamily: opts.perfByFamily,
+    projectionDefenseGames: opts.projectionDefenseGames,
   });
 
   for (const pick of scoredPicks) {
@@ -803,7 +835,27 @@ async function simPropPoolUntilQualified(
     ? selectFootballMixPropSimCandidates(rankedAll, maxToSim)
     : selectBoardPropSimCandidates(rankedAll, maxToSim);
 
-  const scoreOpts = {
+  const scoreOpts: {
+    pool: PropPoolEntry[];
+    mergedOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+    playerHistory: Record<string, PlayerHistorySlice>;
+    injuryTeams?: import("./api.ts").InjuryTeam[];
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
+    oppRushDefense?: FootballOppDefenseMap;
+    espnGames?: EspnGame[];
+    teamIdMap?: Map<string, GameTeamIds>;
+    perfByFamily?: Map<string, MarketPerf>;
+    calibration?: Map<string, CalibrationBucket>;
+    manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    askText?: string | null;
+    allowRareMultiCount?: boolean;
+    ticketStyle?: import("./coachTicketQualityTiers.ts").CoachTicketStyle | null;
+    /** Games where defenseIndex entered MC — skip post-sim opp-D hit tilt. */
+    projectionDefenseGames?: Set<string>;
+  } = {
     pool,
     mergedOdds,
     matchupHistory: opts.matchupHistory,
@@ -821,6 +873,7 @@ async function simPropPoolUntilQualified(
     askText: opts.varietyContext?.askText ?? null,
     allowRareMultiCount: opts.varietyContext?.allowRareMultiCount,
     ticketStyle: opts.ticketStyle ?? opts.varietyContext?.ticketStyle ?? null,
+    projectionDefenseGames: new Set<string>(),
   };
 
   const combinedScored = () => [...gameScored, ...propScored];
@@ -841,6 +894,54 @@ async function simPropPoolUntilQualified(
   let stoppedEarly = false;
   const enrichTimeoutMs = footballSkill ? 22_000 : 12_000;
 
+  // Build per-game projection context from already-fetched packs/env — no
+  // per-player network. Missing packs → omit keys (unknown, not invented).
+  const weatherImpactByGame: Record<string, number | null> = {};
+  const defenseIndexByFamilyByGame: Record<
+    string,
+    Record<string, number> | null
+  > = {};
+  const projectionDefenseGames = new Set<string>();
+  for (const pick of rankedProps) {
+    const game = String(pick.game ?? "");
+    if (!game || game in weatherImpactByGame) continue;
+    const sport = String(pick.sport ?? "").toLowerCase();
+    const env = opts.mlbGameEnv?.[game] as
+      | {
+          climateControlled?: boolean;
+          park?: { dome?: boolean; hrIndex?: number | null } | null;
+          weather?: {
+            tempF?: number | null;
+            precipChancePct?: number | null;
+          } | null;
+          impactRating?: string | null;
+        }
+      | undefined;
+    weatherImpactByGame[game] = weatherImpactFromGameEnv(sport, env ?? null);
+    const poolRow = pool.find(
+      (e) =>
+        e.game === pick.game &&
+        e.player === pick.player &&
+        e.side === pick.propSide,
+    );
+    const oppId = opponentTeamIdForProp({
+      sport,
+      game,
+      teamAbbr: poolRow?.teamAbbr,
+      espnGames: opts.espnGames,
+      teamIdMap: opts.teamIdsByGame,
+    });
+    const pack = oppDefensePackForOpponent({
+      sport,
+      opponentTeamId: oppId,
+      map: opts.oppRushDefense,
+    });
+    const fam = defenseIndexByFamilyFromPack(sport, pack);
+    defenseIndexByFamilyByGame[game] = fam;
+    if (fam && Object.keys(fam).length) projectionDefenseGames.add(game);
+  }
+  scoreOpts.projectionDefenseGames = projectionDefenseGames;
+
   while (simIndex < rankedProps.length) {
     if (signal?.aborted) {
       stoppedEarly = true;
@@ -855,11 +956,16 @@ async function simPropPoolUntilQualified(
     simIndex += batch.length;
     const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal, {
       enrichTimeoutMs,
+      weatherImpactByGame,
+      defenseIndexByFamilyByGame,
+      projectionDefenseGames,
     });
     for (const [k, v] of wave.hits) propHits.set(k, v);
     for (const [k, v] of Object.entries(wave.playerHistory)) {
       scoreOpts.playerHistory[k] = v;
     }
+    for (const g of wave.projectionDefenseGames) projectionDefenseGames.add(g);
+    scoreOpts.projectionDefenseGames = projectionDefenseGames;
     opts.onPropBatch?.(batch.length, wave.timedOut, batch);
 
     for (const pick of batch) {
