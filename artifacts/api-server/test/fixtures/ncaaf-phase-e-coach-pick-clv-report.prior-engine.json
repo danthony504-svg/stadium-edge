@@ -1,0 +1,68 @@
+{
+  "generatedAt": "2026-10-14T23:39:39.491Z",
+  "simulationsPerGame": 10000,
+  "selectionCutoff": "2024-10-15T00:00:00Z",
+  "competitionScope": "Odds-listed FBS games in ncaaf-phase-e-closing-lines.json (matchable americanfootball_ncaaf names). FCS/unlisted excluded.",
+  "selectionRules": {
+    "engine": "nfl-drive",
+    "form": "venue_split+L10 blend; chrono pre-kickoff only",
+    "prices": "Odds historical ~24h pre-kickoff (selection-time)",
+    "candidates": "home/away ML + home/away spread at selection lines",
+    "gates": [
+      "simHit >= 0.52",
+      "confidenceScore >= 52",
+      "edgePct > 0 (simHit > implied)",
+      "evPct > 0"
+    ],
+    "sideChoice": "Among qualifiers, prefer sim-favored side when |homeWinP-awayWinP|>=0.03; rank by edgePct then simHit. NOT blanket home.",
+    "note": "Offline eval applies Coach SIMULATION numeric gates. Full Final-AI rubric grades are not reconstructed; product NCAAF P0 remains armed."
+  },
+  "funnel": {
+    "selectionUniverseInScope": 383,
+    "skippedNoClose": 77,
+    "skippedNoEarlyPrices": 28,
+    "skippedThinForm": 129,
+    "skippedNoQualify": 44,
+    "selectedPicks": 182,
+    "homeSelections": 107,
+    "awaySelections": 75,
+    "mlSelections": 43,
+    "spreadSelections": 139
+  },
+  "coachPickClv": {
+    "nMlWithClv": 43,
+    "meanClvProbPoints": -0.023377628655643537,
+    "meanAbsClvProbPoints": 0.0309015671792999,
+    "pctSelectionsBeatClose": 0.20930232558139536,
+    "unit": "probability_points_0_to_1 for ML CLV; spread points for spreadClv",
+    "meanSpreadClvPoints": -0.09352517985611511
+  },
+  "outcomes": {
+    "decided": 179,
+    "wins": 89,
+    "losses": 90,
+    "hitRate": 0.4972067039106145,
+    "wilson95": {
+      "lo": 0.4247914421798011,
+      "hi": 0.5697393429369338
+    }
+  },
+  "untouchedPeriodMarketBaseline": {
+    "cutoff": "2024-10-15T00:00:00Z",
+    "nGames": 391,
+    "marketBrierCloseMl": 0.18858474290035,
+    "coinBrier": 0.25,
+    "marketBeatsCoin": true,
+    "note": "No Coach selections on this period — close-ML Brier only."
+  },
+  "injuryKnown": null,
+  "verdicts": {
+    "E2b_coachPickClv": "COMPUTED_NO_PASS_LABEL",
+    "E2b_closeArchiveSoftGates": "see calibration report — not CLV",
+    "E4_injuryConservatism": "INSUFFICIENT_DATA",
+    "E6_humanSignOff": "OPEN",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

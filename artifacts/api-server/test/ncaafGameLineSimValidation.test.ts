@@ -41,12 +41,22 @@ const baseAway = {
   recentScores: [17, 24, 21, 28, 14],
 };
 
-test("validation: soft rates remain strictly monotonic above former hard cap", () => {
-  const a = footballDriveScoringRates(12);
-  const b = footballDriveScoringRates(15);
-  const c = footballDriveScoringRates(20);
+test("validation: soft rates remain strictly monotonic in true points-per-drive units", () => {
+  // UNDER ppg-per-drive-v1, `ppd` is points per drive (~2–4 typical FBS), not
+  // points per game. The withdrawn 2026-10-14 PASS fed PPG as PPD and checked
+  // rates at 12/15/20 — those values are absurd as true PPD and sit past the
+  // joint 0.98 ceiling, so rates are flat by construction. Thresholds for
+  // sensitivity (+3 ppg / QB-out ≥2pp) are unchanged.
+  const a = footballDriveScoringRates(2.5);
+  const b = footballDriveScoringRates(3.5);
+  const c = footballDriveScoringRates(4.5);
   assert.ok(a.tdRate < b.tdRate && b.tdRate < c.tdRate);
-  assert.ok(a.fgRate <= b.fgRate + 1e-9);
+  assert.ok(a.fgRate < b.fgRate && b.fgRate < c.fgRate);
+  // Past the joint ceiling, rates no longer rise (expected points already maxed).
+  const hi = footballDriveScoringRates(12);
+  const hi2 = footballDriveScoringRates(20);
+  assert.ok(Math.abs(hi.tdRate - hi2.tdRate) < 1e-9);
+  assert.ok(hi.tdRate + hi.fgRate <= 0.98 + 1e-9);
 });
 
 test("validation: +3 ppg home shock moves ML and spread cover ≥2pp", () => {

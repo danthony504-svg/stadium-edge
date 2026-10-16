@@ -1,0 +1,69 @@
+{
+  "generatedAt": "2026-10-16T19:51:37.354Z",
+  "simulationsPerGame": 10000,
+  "selectionCutoff": "2024-10-15T00:00:00Z",
+  "competitionScope": "Odds-listed FBS games in ncaaf-phase-e-closing-lines.json (matchable americanfootball_ncaaf names). FCS/unlisted excluded.",
+  "engineStamp": "ppg-per-drive-v1",
+  "selectionRules": {
+    "engine": "nfl-drive:ppg-per-drive-v1",
+    "form": "venue_split+L10 blend; chrono pre-kickoff only",
+    "prices": "Prefer Odds historical ~24h pre-kickoff cache; else vendored ncaaf-phase-e-selection-prices.json (home lines + vig-free away ML / −home spread @ −110)",
+    "candidates": "home/away ML + home/away spread at selection lines",
+    "gates": [
+      "simHit >= 0.52",
+      "confidenceScore >= 52",
+      "edgePct > 0 (simHit > implied)",
+      "evPct > 0"
+    ],
+    "sideChoice": "Among qualifiers, prefer sim-favored side when |homeWinP-awayWinP|>=0.03; rank by edgePct then simHit. NOT blanket home.",
+    "note": "Offline eval applies Coach SIMULATION numeric gates. Full Final-AI rubric grades are not reconstructed; product NCAAF P0 remains armed."
+  },
+  "funnel": {
+    "selectionUniverseInScope": 383,
+    "skippedNoClose": 77,
+    "skippedNoEarlyPrices": 21,
+    "skippedThinForm": 129,
+    "skippedNoQualify": 33,
+    "selectedPicks": 200,
+    "homeSelections": 112,
+    "awaySelections": 88,
+    "mlSelections": 69,
+    "spreadSelections": 131
+  },
+  "coachPickClv": {
+    "nMlWithClv": 69,
+    "meanClvProbPoints": -0.005677231761521964,
+    "meanAbsClvProbPoints": 0.018515165032473753,
+    "pctSelectionsBeatClose": 0.34782608695652173,
+    "unit": "probability_points_0_to_1 for ML CLV; spread points for spreadClv",
+    "meanSpreadClvPoints": -0.1297709923664122
+  },
+  "outcomes": {
+    "decided": 199,
+    "wins": 99,
+    "losses": 100,
+    "hitRate": 0.49748743718592964,
+    "wilson95": {
+      "lo": 0.42872650785379013,
+      "hi": 0.5663435369496428
+    }
+  },
+  "untouchedPeriodMarketBaseline": {
+    "cutoff": "2024-10-15T00:00:00Z",
+    "nGames": 391,
+    "marketBrierCloseMl": 0.18858474290035,
+    "coinBrier": 0.25,
+    "marketBeatsCoin": true,
+    "note": "No Coach selections on this period — close-ML Brier only."
+  },
+  "injuryKnown": null,
+  "verdicts": {
+    "E2b_coachPickClv": "COMPUTED_NO_PASS_LABEL",
+    "E2b_closeArchiveSoftGates": "see calibration report — not CLV",
+    "E4_injuryConservatism": "INSUFFICIENT_DATA",
+    "E6_humanSignOff": "OPEN",
+    "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip"
+  },
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

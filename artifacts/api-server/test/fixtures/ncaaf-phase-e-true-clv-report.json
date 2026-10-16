@@ -1,0 +1,124 @@
+{
+  "definition": {
+    "selection": "Hypothetical home ML + home spread taken at Odds API historical snapshot ~24h before ESPN kickoff (date=kickoff-24h, closest snap \u2264 that time).",
+    "close": "Existing E2b archive close (date=kickoff, snap \u2264 commence).",
+    "homeMlClvProbPoints": "p_implied(close_home_ml) - p_implied(early_home_ml). Unit: probability points (absolute probability, not percent). Positive means market moved toward home after the selection (home ML selection beat the close).",
+    "homeSpreadClvPoints": "early_home_spread - close_home_spread. Unit: spread points. Positive means the home side\u2019s number improved for a home bettor (got more points / laid fewer).",
+    "NOT_CLV": [
+      "mean(engineP - marketP) is an engine-vs-close probability bias, not CLV",
+      "Brier scores measure outcome calibration, not closing-line value"
+    ]
+  },
+  "nGamesWithEarlyAndClose": 705,
+  "nMissingEarlyQuote": 12,
+  "metrics": {
+    "meanHomeMlClvProbPoints": -0.0019090541313045446,
+    "meanAbsHomeMlClvProbPoints": 0.015598900780026796,
+    "pctHomeMlBeatClose": 0.3943262411347518,
+    "meanHomeSpreadClvPoints": -0.06312056737588652,
+    "meanAbsHomeSpreadClvPoints": 0.7936170212765957,
+    "meanHoursBeforeCommence": 24.089373522458633
+  },
+  "distinctionFromE2bSoftGates": {
+    "E2b_coded_PASS_used": [
+      "n_close_joined >= 200",
+      "marketBrier < 0.25",
+      "engineBrier < 0.25 on same set",
+      "|mean(engineP - marketCloseP)| <= 0.15"
+    ],
+    "those_are_not_CLV": true,
+    "true_price_CLV_status": "COMPUTED_BELOW"
+  },
+  "sampleRows": [
+    {
+      "gameId": "401635525",
+      "home": "Georgia Tech Yellow Jackets",
+      "away": "Florida State Seminoles",
+      "selectionTimestamp": "2024-08-23T15:55:39Z",
+      "closeSnapshotTimestamp": "2024-08-24T15:55:39Z",
+      "commenceTime": "2024-08-24T16:00:00Z",
+      "hoursBeforeCommence": 24.0725,
+      "earlyBook": "draftkings",
+      "earlySpreadHome": 10.5,
+      "earlyMlHome": 340,
+      "closeSpreadHome": 10.5,
+      "closeMlHome": 320.0,
+      "homeMlClvProbPoints": 0.010822510822510817,
+      "homeSpreadClvPoints": 0.0,
+      "homeScore": 24,
+      "awayScore": 21
+    },
+    {
+      "gameId": "401643697",
+      "home": "New Mexico Lobos",
+      "away": "Montana State Bobcats",
+      "selectionTimestamp": "2024-08-23T19:55:39Z",
+      "closeSnapshotTimestamp": "2024-08-24T19:55:38Z",
+      "commenceTime": "2024-08-24T20:00:00Z",
+      "hoursBeforeCommence": 24.0725,
+      "earlyBook": "draftkings",
+      "earlySpreadHome": 13.5,
+      "earlyMlHome": 390,
+      "closeSpreadHome": 14.0,
+      "closeMlHome": 360.0,
+      "homeMlClvProbPoints": 0.013309671694764852,
+      "homeSpreadClvPoints": -0.5,
+      "homeScore": 31,
+      "awayScore": 35
+    },
+    {
+      "gameId": "401643696",
+      "home": "Nevada Wolf Pack",
+      "away": "SMU Mustangs",
+      "selectionTimestamp": "2024-08-23T23:55:39Z",
+      "closeSnapshotTimestamp": "2024-08-24T23:55:38Z",
+      "commenceTime": "2024-08-25T00:00:00Z",
+      "hoursBeforeCommence": 24.0725,
+      "earlyBook": "draftkings",
+      "earlySpreadHome": 27.0,
+      "earlyMlHome": 1600,
+      "closeSpreadHome": 28.0,
+      "closeMlHome": 1500.0,
+      "homeMlClvProbPoints": 0.003676470588235295,
+      "homeSpreadClvPoints": -1.0,
+      "homeScore": 24,
+      "awayScore": 29
+    },
+    {
+      "gameId": "401644727",
+      "home": "Buffalo Bulls",
+      "away": "Lafayette Leopards",
+      "selectionTimestamp": "2024-08-28T22:55:39Z",
+      "closeSnapshotTimestamp": "2024-08-29T22:55:38Z",
+      "commenceTime": "2024-08-29T23:00:00Z",
+      "hoursBeforeCommence": 24.0725,
+      "earlyBook": "draftkings",
+      "earlySpreadHome": -3.5,
+      "earlyMlHome": -166,
+      "closeSpreadHome": -3.5,
+      "closeMlHome": -162.0,
+      "homeMlClvProbPoints": -0.005739539688916939,
+      "homeSpreadClvPoints": 0.0,
+      "homeScore": 30,
+      "awayScore": 13
+    },
+    {
+      "gameId": "401644729",
+      "home": "Bowling Green Falcons",
+      "away": "Fordham Rams",
+      "selectionTimestamp": "2024-08-28T22:55:39Z",
+      "closeSnapshotTimestamp": "2024-08-29T22:55:38Z",
+      "commenceTime": "2024-08-29T23:00:00Z",
+      "hoursBeforeCommence": 24.0725,
+      "earlyBook": "draftkings",
+      "earlySpreadHome": -17.5,
+      "earlyMlHome": -750,
+      "closeSpreadHome": -15.5,
+      "closeMlHome": -650.0,
+      "homeMlClvProbPoints": -0.015686274509803866,
+      "homeSpreadClvPoints": -2.0,
+      "homeScore": 41,
+      "awayScore": 17
+    }
+  ]
+}
