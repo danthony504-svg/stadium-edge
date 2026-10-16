@@ -7,10 +7,17 @@ import { mapScanFailureCode } from "./coachReliabilityClassify.ts";
 import {
   buildCoachReliabilityBody,
   reportCoachScanReliability,
+  resetCoachReliabilityFulfilledDedupeForTests,
 } from "./coachReliabilityReporter.ts";
 import { shouldSendCrashReports } from "./crashReportingGate.ts";
 import { shouldAlertCoachEvent } from "../../api-server/src/lib/coachReliabilitySanitize.ts";
 import { parseCoachReliabilityIngestBody } from "../../api-server/src/lib/coachReliabilityIngest.ts";
+import {
+  beginCoachSession,
+  coachSessionMayAcceptLatePicks,
+  createCoachSession,
+  resolveCoachOutcome,
+} from "./coach/session.ts";
 
 test("mapScanFailureCode mirrors server grounding/alt/sim/freeze", () => {
   assert.equal(mapScanFailureCode("TEAM_IDS_UNRESOLVED")?.alertable, true);
@@ -209,7 +216,7 @@ test("buildCoachReliabilityBody distinguishes legit underfill vs freeze", () => 
   });
   assert.equal(freeze?.scanFailureCode, "ABSOLUTE_BUDGET");
 
-  // Budget race lost but full N/N ticket already assembled — not a freeze.
+  // Budget race lost but full N/N ticket assembled without UI commit — not freeze, not success.
   const fullAfterBudget = buildCoachReliabilityBody({
     timedOut: true,
     requestedLegCount: 5,
@@ -219,6 +226,19 @@ test("buildCoachReliabilityBody distinguishes legit underfill vs freeze", () => 
     affectedGame: "Penguins @ Avalanche",
   });
   assert.equal(fullAfterBudget, null);
+
+  // Deadline completion: fulfilled only after deliveryCommitted.
+  const committedAtDeadline = buildCoachReliabilityBody({
+    timedOut: true,
+    deliveryCommitted: true,
+    requestedLegCount: 5,
+    returnedLegCount: 5,
+    realOddsAvailable: true,
+    requestId: "greenfield-1792170950947-commit",
+    affectedGame: "Penguins @ Avalanche",
+  });
+  assert.equal(committedAtDeadline?.eventType, "parlay_fulfilled");
+  assert.equal(committedAtDeadline?.failureReason, "none");
 
   const shortfallAfterBudget = buildCoachReliabilityBody({
     timedOut: true,
@@ -235,6 +255,137 @@ test("buildCoachReliabilityBody distinguishes legit underfill vs freeze", () => 
     returnedLegCount: 0,
   });
   assert.equal(ground?.scanFailureCode, "TEAM_ID_MAP_EMPTY");
+});
+
+test("regression: deadline completion requires deliveryCommitted", () => {
+  const assembledOnly = buildCoachReliabilityBody({
+    requestedLegCount: 5,
+    returnedLegCount: 5,
+    realOddsAvailable: true,
+    requestId: "greenfield-deadline-assemble",
+    deliveryCommitted: false,
+  });
+  assert.equal(assembledOnly, null);
+
+  const committed = buildCoachReliabilityBody({
+    requestedLegCount: 5,
+    returnedLegCount: 5,
+    realOddsAvailable: true,
+    requestId: "greenfield-deadline-commit",
+    deliveryCommitted: true,
+  });
+  assert.equal(committed?.eventType, "parlay_fulfilled");
+  assert.equal(committed?.failureReason, "none");
+});
+
+test("regression: genuine partial timeout stays ABSOLUTE_BUDGET", () => {
+  const partial = buildCoachReliabilityBody({
+    timedOut: true,
+    requestedLegCount: 8,
+    returnedLegCount: 3,
+    realOddsAvailable: true,
+    requestId: "greenfield-partial-timeout",
+    deliveryCommitted: false,
+  });
+  assert.equal(partial?.scanFailureCode, "ABSOLUTE_BUDGET");
+  assert.equal(partial?.scanFailureDetail, "delivery budget / freeze");
+  assert.notEqual(partial?.eventType, "parlay_fulfilled");
+});
+
+test("regression: cancellation never counts as fulfillment", () => {
+  const cancelledFull = buildCoachReliabilityBody({
+    cancelled: true,
+    requestedLegCount: 5,
+    returnedLegCount: 5,
+    realOddsAvailable: true,
+    requestId: "greenfield-cancel-full",
+    deliveryCommitted: true,
+  });
+  assert.equal(cancelledFull?.eventType, "coach_exception");
+  assert.equal(cancelledFull?.rootCause, "user_cancelled");
+  assert.notEqual(cancelledFull?.eventType, "parlay_fulfilled");
+
+  const cancelledPartial = buildCoachReliabilityBody({
+    cancelled: true,
+    timedOut: true,
+    requestedLegCount: 5,
+    returnedLegCount: 2,
+    requestId: "greenfield-cancel-partial",
+  });
+  assert.equal(cancelledPartial?.eventType, "coach_exception");
+  assert.equal(cancelledPartial?.rootCause, "user_cancelled");
+});
+
+test("regression: stale-session completion does not fulfill twice", async () => {
+  resetCoachReliabilityFulfilledDedupeForTests();
+  const prevFetch = globalThis.fetch;
+  const prevOptIn = process.env.EXPO_PUBLIC_CRASH_REPORTING;
+  const prevDisabled = process.env.CRASH_REPORTING_DISABLED;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(JSON.stringify({ ok: true }), { status: 202 });
+  }) as typeof fetch;
+  try {
+    process.env.EXPO_PUBLIC_CRASH_REPORTING = "1";
+    delete process.env.CRASH_REPORTING_DISABLED;
+
+    const requestId = "greenfield-stale-session";
+    // First delivery commit POSTs once.
+    reportCoachScanReliability({
+      requestId,
+      requestedLegCount: 5,
+      returnedLegCount: 5,
+      deliveryCommitted: true,
+      realOddsAvailable: true,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(fetchCalls, 1);
+
+    // Late / duplicate commit for same requestId is deduped.
+    reportCoachScanReliability({
+      requestId,
+      requestedLegCount: 5,
+      returnedLegCount: 5,
+      deliveryCommitted: true,
+      realOddsAvailable: true,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(fetchCalls, 1);
+
+    // Stale session helpers: shown outcome rejects late accept; sendGen bump is terminal isolation.
+    const session = createCoachSession();
+    beginCoachSession(session, { sendGen: 1, requestedLegs: 5 });
+    session.outcome = "shown";
+    assert.equal(
+      coachSessionMayAcceptLatePicks(session, {
+        latePickCount: 5,
+        shownPickCount: 5,
+      }),
+      false,
+    );
+    assert.equal(
+      resolveCoachOutcome({ pickCount: 5, requestedLegs: 5 }),
+      "shown",
+    );
+    // Assembly without commit still null — stale buildParlay completion is not success.
+    assert.equal(
+      buildCoachReliabilityBody({
+        requestId,
+        requestedLegCount: 5,
+        returnedLegCount: 5,
+        deliveryCommitted: false,
+      }),
+      null,
+    );
+  } finally {
+    globalThis.fetch = prevFetch;
+    resetCoachReliabilityFulfilledDedupeForTests();
+    if (prevOptIn === undefined) delete process.env.EXPO_PUBLIC_CRASH_REPORTING;
+    else process.env.EXPO_PUBLIC_CRASH_REPORTING = prevOptIn;
+    if (prevDisabled === undefined) delete process.env.CRASH_REPORTING_DISABLED;
+    else process.env.CRASH_REPORTING_DISABLED = prevDisabled;
+  }
 });
 
 test("fixtures flag is preserved for server reject path", () => {
@@ -279,7 +430,7 @@ test("temporary coach-rel-diag: correlationId rides on alertable bodies only", (
   });
   assert.equal(body?.eventType, "parlay_underfilled");
   assert.equal(body?.correlationId, "crdiag-fixed-1");
-  // Full ticket + grounded pick → no body (classification unchanged).
+  // Full ticket without deliveryCommitted → no body (assembly ≠ success).
   const full = buildCoachReliabilityBody({
     requestedLegCount: 8,
     returnedLegCount: 8,
@@ -297,6 +448,26 @@ test("temporary coach-rel-diag: correlationId rides on alertable bodies only", (
     ],
   });
   assert.equal(full, null);
+
+  const committed = buildCoachReliabilityBody({
+    requestedLegCount: 8,
+    returnedLegCount: 8,
+    realOddsAvailable: true,
+    requestId: "greenfield-diag-full-commit",
+    correlationId: "crdiag-fixed-3",
+    deliveryCommitted: true,
+    picks: [
+      {
+        game: "Minnesota Vikings @ New Orleans Saints",
+        player: "Kyler Murray",
+        teamAbbr: "MIN",
+        isProp: true,
+        market: "Pass TDs",
+      },
+    ],
+  });
+  assert.equal(committed?.eventType, "parlay_fulfilled");
+  assert.equal(committed?.correlationId, "crdiag-fixed-3");
 });
 
 test("temporary coach-rel-diag logs call + post without throwing", async () => {

@@ -46,6 +46,8 @@ import {
 import { buildChatContext, streamChat, type ChatContext, type PropPoolEntry } from "@/lib/api";
 import { buildCoachParlay } from "@/lib/coach/buildParlay";
 import { isOpenCoachParlayAsk, resolveBuildLegTarget } from "@/lib/coach/parseAsk";
+import { reportCoachScanReliability } from "@/lib/coachReliabilityReporter";
+import { classifySportCategoryFromAsk } from "@/lib/coachReliabilityClassify";
 import {
   buildLiveCoachRecommendations,
   wantsLiveCoachAsk,
@@ -155,6 +157,9 @@ export default function CoachScreen() {
   const terminalShownPickCountRef = useRef(0);
   /** Active assistant bubble for the open session — used to flush held picks on stop. */
   const activeAssistantIdRef = useRef<string | null>(null);
+  /** Shared greenfield request id for build + delivery-commit / cancel telemetry. */
+  const reliabilityRequestIdRef = useRef<string | null>(null);
+  const reliabilityStartedAtRef = useRef(0);
   const sessionRef = useRef(createCoachSession());
   const abortRef = useRef<AbortController | null>(null);
 
@@ -317,6 +322,38 @@ export default function CoachScreen() {
       terminalShownPickCountRef.current = picks.length;
       if (picks.length > 0 && outcome !== "failed") {
         rememberParlayBuild(picks);
+      }
+      // Observe-only: success only after a complete qualified ticket is latched.
+      // Cancel/stop never counts as fulfilled. Underfill/timeout stay on buildParlay.
+      const relId = reliabilityRequestIdRef.current;
+      if (relId && opts.requestedLegs >= 3) {
+        const ask = sessionAskTextRef.current;
+        const durationMs =
+          reliabilityStartedAtRef.current > 0
+            ? Date.now() - reliabilityStartedAtRef.current
+            : null;
+        if (opts.failed) {
+          reportCoachScanReliability({
+            requestId: relId,
+            sportCategory: classifySportCategoryFromAsk(ask),
+            requestedLegCount: opts.requestedLegs,
+            returnedLegCount: picks.length,
+            durationMs,
+            picks,
+            cancelled: true,
+            deliveryCommitted: false,
+          });
+        } else if (outcome === "shown" && picks.length >= opts.requestedLegs) {
+          reportCoachScanReliability({
+            requestId: relId,
+            sportCategory: classifySportCategoryFromAsk(ask),
+            requestedLegCount: opts.requestedLegs,
+            returnedLegCount: picks.length,
+            durationMs,
+            picks,
+            deliveryCommitted: true,
+          });
+        }
       }
       // Prefer the build note when present — it carries prop-pool context.
       // Only synthesize a generic shortfall when the build returned no text.
@@ -657,6 +694,18 @@ export default function CoachScreen() {
         }
 
         if (parlayBuild) {
+          const priorUserTexts = messagesRef.current
+            .filter((m) => m.role === "user")
+            .map((m) => m.text)
+            .filter(Boolean);
+          // Consume explicit Home mode once per send; free-typed asks fall back to text.
+          const explicitTicketStyle = ticketStyleRef.current;
+          ticketStyleRef.current = null;
+          // Mint reliability id before load failsafe / absolute terminal can latch.
+          const reliabilityRequestId = `greenfield-${Date.now()}`;
+          reliabilityRequestIdRef.current = reliabilityRequestId;
+          reliabilityStartedAtRef.current = Date.now();
+
           // Prop-board prefetch can take a while — do not burn the scoring budget
           // during load (that latched "2 game totals" before props ran).
           let loadTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
@@ -666,19 +715,13 @@ export default function CoachScreen() {
             fireAbsoluteTerminal();
           }, coachPropLoadFailsafeMs(requestedLegs));
 
-          const priorUserTexts = messagesRef.current
-            .filter((m) => m.role === "user")
-            .map((m) => m.text)
-            .filter(Boolean);
-          // Consume explicit Home mode once per send; free-typed asks fall back to text.
-          const explicitTicketStyle = ticketStyleRef.current;
-          ticketStyleRef.current = null;
           const result = await buildCoachParlay({
             requestedLegs,
             askText: text,
             priorUserTexts,
             ticketStyle: explicitTicketStyle,
             signal: abort.signal,
+            reliabilityRequestId,
             onStatus: (status) => {
               if (sendGenRef.current !== sendGen) return;
               patchAssistant(assistantId, { buildStatus: status });
@@ -715,6 +758,7 @@ export default function CoachScreen() {
             clearTimeout(loadTimer);
             loadTimer = null;
           }
+          // Stale session: sendGen advanced — do not commit or report fulfillment.
           if (sendGenRef.current !== sendGen) return;
           // Prefer the finished ticket; if it somehow lands empty, flush the
           // buffer so holding cards mid-build can never hang as a blank ticket.
@@ -763,6 +807,29 @@ export default function CoachScreen() {
                 requestedLegs: requestedLegs || undefined,
               });
               unlockComposer();
+              // Late full ticket is a delivery commit for the same requestId.
+              if (
+                outcome === "shown" &&
+                requestedLegs >= 3 &&
+                picks.length >= requestedLegs
+              ) {
+                const relId =
+                  result.reliabilityRequestId || reliabilityRequestIdRef.current;
+                if (relId) {
+                  reportCoachScanReliability({
+                    requestId: relId,
+                    sportCategory: classifySportCategoryFromAsk(ask),
+                    requestedLegCount: requestedLegs,
+                    returnedLegCount: picks.length,
+                    durationMs:
+                      reliabilityStartedAtRef.current > 0
+                        ? Date.now() - reliabilityStartedAtRef.current
+                        : null,
+                    picks,
+                    deliveryCommitted: true,
+                  });
+                }
+              }
             }
             return;
           }

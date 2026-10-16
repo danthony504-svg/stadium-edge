@@ -22,6 +22,13 @@ const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
 const REPORT_TIMEOUT_MS = 4_000;
 const MAX_IN_FLIGHT = 2;
 let inFlight = 0;
+/** Full successes POST once per requestId (delivery-commit path). */
+const fulfilledPostedRequestIds = new Set<string>();
+
+/** Test-only — clear once-per-request fulfilled gate. */
+export function resetCoachReliabilityFulfilledDedupeForTests(): void {
+  fulfilledPostedRequestIds.clear();
+}
 
 export type CoachReliabilityReportInput = {
   requestId?: string | null;
@@ -35,6 +42,17 @@ export type CoachReliabilityReportInput = {
   affectedGame?: string | null;
   timedOut?: boolean;
   scanMissing?: boolean;
+  /**
+   * True only after a complete, qualified ticket is latched for UI delivery
+   * (finishSession / late-accept / full-buffer absolute terminal). Required to
+   * count `parlay_fulfilled` — assembly alone is not success.
+   */
+  deliveryCommitted?: boolean;
+  /**
+   * User stop / abort — never counts as delivery success, even with a full
+   * buffered ticket. Replaces underfill/timeout/zero classification.
+   */
+  cancelled?: boolean;
   /** Returned ticket picks — used for grounding vs legitimate-underfill. */
   picks?: readonly CoachReliabilityGroundingPick[] | null;
   /** Explicit event type when not derived from scanFailureCode. */
@@ -124,6 +142,21 @@ export function reportCoachScanReliability(
       return;
     }
 
+    // Full success: one POST per requestId (budget path + finishSession must not double-count).
+    if (body.eventType === "parlay_fulfilled" && requestId) {
+      if (fulfilledPostedRequestIds.has(requestId)) {
+        logCoachRelDiagPostResult({
+          correlationId,
+          requestId,
+          httpStatus: null,
+          success: false,
+          error: "fulfilled_deduped",
+        });
+        return;
+      }
+      fulfilledPostedRequestIds.add(requestId);
+    }
+
     inFlight += 1;
     void (async () => {
       try {
@@ -184,16 +217,35 @@ export function buildCoachReliabilityBody(
       : null;
   const corr = correlationId ? { correlationId } : {};
 
-  // Full qualifying ticket already delivered: budget-race / missing-scan flags are
-  // alert labels only — do not page ABSOLUTE_BUDGET / "delivery budget / freeze".
-  // Fall through so grounding / underfill / success (null) classify from picks.
-  const fullTicketDelivered =
+  // Full qualifying ticket: budget-race / missing-scan flags are alert labels only —
+  // do not page ABSOLUTE_BUDGET / "delivery budget / freeze". Success still requires
+  // deliveryCommitted (ticket latched for UI).
+  const fullQualifiedTicket =
     requested != null &&
     returned != null &&
     returned > 0 &&
     returned >= requested;
 
-  if ((input.scanMissing || input.timedOut) && !fullTicketDelivered) {
+  // User cancel / stop — never parlay_fulfilled, even with a full buffer.
+  if (input.cancelled) {
+    return {
+      eventType: "coach_exception",
+      failureReason: "exception",
+      sportCategory: input.sportCategory ?? "unspecified",
+      questionKind: "parlay_build",
+      requestedLegCount: requested,
+      returnedLegCount: returned ?? 0,
+      durationMs: input.durationMs ?? null,
+      realOddsAvailable: input.realOddsAvailable ?? null,
+      requestId: input.requestId ?? null,
+      affectedGame,
+      rootCause: input.rootCause ?? "user_cancelled",
+      ...corr,
+      ...(input.testFixture ? { testFixture: true } : {}),
+    };
+  }
+
+  if ((input.scanMissing || input.timedOut) && !fullQualifiedTicket) {
     return {
       scanFailureCode: input.scanMissing ? "SCAN_THREW" : "ABSOLUTE_BUDGET",
       scanFailureDetail: input.scanMissing
@@ -213,7 +265,7 @@ export function buildCoachReliabilityBody(
   }
 
   // Player/team/game mismatch on any returned selection → grounding (Telegram).
-  // Must win over thin-slate / scan underfill classification.
+  // Must win over fulfillment / thin-slate / scan underfill classification.
   if (grounding.hasMismatch) {
     return {
       eventType: "coach_grounding_failure",
@@ -231,6 +283,30 @@ export function buildCoachReliabilityBody(
       ...corr,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
+  }
+
+  // Complete qualified ticket committed for delivery — sole success path.
+  if (fullQualifiedTicket && input.deliveryCommitted) {
+    return {
+      eventType: "parlay_fulfilled",
+      failureReason: "none",
+      sportCategory: input.sportCategory ?? "unspecified",
+      questionKind: "parlay_build",
+      requestedLegCount: requested,
+      returnedLegCount: returned,
+      durationMs: input.durationMs ?? null,
+      realOddsAvailable: input.realOddsAvailable ?? null,
+      requestId: input.requestId ?? null,
+      affectedGame,
+      rootCause: input.rootCause ?? null,
+      ...corr,
+      ...(input.testFixture ? { testFixture: true } : {}),
+    };
+  }
+
+  // Assembled full ticket without UI commit — not success (and not freeze).
+  if (fullQualifiedTicket && !input.deliveryCommitted) {
+    return null;
   }
 
   if (input.scanFailureCode) {

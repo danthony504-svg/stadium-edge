@@ -133,6 +133,8 @@ export type CoachParlayBuildResult = {
   scan: FullBoardScanResult | null;
   timedOut: boolean;
   propPoolSize: number;
+  /** Shared with UI delivery-commit / cancel reliability POSTs. */
+  reliabilityRequestId: string;
   /** Team-scoped ask funnel diagnostics ("4 leg Troy"). */
   teamGameScopeDiagnostics?: CoachTeamGameScopeDiagnostics | null;
 };
@@ -264,6 +266,11 @@ export async function buildCoachParlay(opts: {
   onPartialPicks?: (picks: ParsedPick[]) => void;
   /** Fires after prop/alt board load — UI should start the scoring absolute clock here. */
   onReadyToScan?: (info: { propPoolSize: number }) => void;
+  /**
+   * Shared request id for observe-only reliability — UI delivery-commit /
+   * cancel reports must reuse the same id so fulfilled POSTs dedupe.
+   */
+  reliabilityRequestId?: string | null;
 }): Promise<CoachParlayBuildResult> {
   const target = Math.max(3, Math.min(opts.requestedLegs || 6, 25));
   const budgetMs = coachAbsoluteBudgetMs(target);
@@ -272,7 +279,9 @@ export async function buildCoachParlay(opts: {
   // Observe-only reliability markers — never touch selection / UI.
   // Created before the P0 early exit / loadScanInputs so both paths can emit.
   const coachRelStarted = Date.now();
-  const coachRelRequestId = `greenfield-${Date.now()}`;
+  const coachRelRequestId =
+    (opts.reliabilityRequestId && String(opts.reliabilityRequestId).trim()) ||
+    `greenfield-${Date.now()}`;
   const coachRelSport = classifySportCategoryFromAsk(opts.askText ?? "");
 
   // Ask-only gate — before loadScanInputs / slate sims. Bare "8 leg college" is
@@ -319,6 +328,7 @@ export async function buildCoachParlay(opts: {
         scan: null,
         timedOut: false,
         propPoolSize: 0,
+        reliabilityRequestId: coachRelRequestId,
       };
     }
   }
@@ -331,7 +341,14 @@ export async function buildCoachParlay(opts: {
     opts.priorUserTexts ?? [],
   );
   if (opts.signal.aborted) {
-    return { picks: [], note: "", scan: null, timedOut: false, propPoolSize: 0 };
+    return {
+      picks: [],
+      note: "",
+      scan: null,
+      timedOut: false,
+      propPoolSize: 0,
+      reliabilityRequestId: coachRelRequestId,
+    };
   }
 
   // Yards asks ("rushing and passing yards") → props-only + market allowlist.
@@ -746,18 +763,22 @@ export async function buildCoachParlay(opts: {
     });
     // Fire-and-forget reliability — props-only early return must still emit.
     // Do not await; grounding vs legitimate-underfill is classified inside.
-    reportCoachScanReliability({
-      requestId: coachRelRequestId,
-      sportCategory: coachRelSport,
-      requestedLegCount: target,
-      returnedLegCount: picks.length,
-      durationMs: Date.now() - coachRelStarted,
-      realOddsAvailable:
-        (inputs.realOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
-      picks,
-      timedOut: false,
-      scanMissing: false,
-    });
+    // Full tickets stay null here — UI delivery-commit owns parlay_fulfilled.
+    if (!opts.signal.aborted) {
+      reportCoachScanReliability({
+        requestId: coachRelRequestId,
+        sportCategory: coachRelSport,
+        requestedLegCount: target,
+        returnedLegCount: picks.length,
+        durationMs: Date.now() - coachRelStarted,
+        realOddsAvailable:
+          (inputs.realOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
+        picks,
+        timedOut: false,
+        scanMissing: false,
+        deliveryCommitted: false,
+      });
+    }
     // If post-filters wiped a non-empty ticket, keep the honest empty lead —
     // never append `[POST_FILTER_EMPTY: …]` into the Coach chat bubble.
     if (built.picks.length > 0 && picks.length === 0 && !recoveredNote) {
@@ -767,6 +788,7 @@ export async function buildCoachParlay(opts: {
         scan: null,
         timedOut: false,
         propPoolSize,
+        reliabilityRequestId: coachRelRequestId,
         teamGameScopeDiagnostics,
       };
     }
@@ -776,6 +798,7 @@ export async function buildCoachParlay(opts: {
       scan: null,
       timedOut: false,
       propPoolSize,
+      reliabilityRequestId: coachRelRequestId,
       teamGameScopeDiagnostics,
     };
   }
@@ -1094,19 +1117,25 @@ export async function buildCoachParlay(opts: {
   });
 
   // Fire-and-forget reliability — after ticket is finalized; never awaits.
-  reportCoachScanReliability({
-    requestId: coachRelRequestId,
-    sportCategory: coachRelSport,
-    requestedLegCount: target,
-    returnedLegCount: picks.length,
-    durationMs: Date.now() - coachRelStarted,
-    realOddsAvailable: (scanRealOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
-    scanFailureCode: scan?.failureReason?.code ?? null,
-    scanFailureDetail: scan?.failureReason?.detail ?? null,
-    picks,
-    timedOut: deliveryTimedOut,
-    scanMissing: deliveryScanMissing,
-  });
+  // Skip on user abort (UI cancel report owns that requestId). Full tickets
+  // without deliveryCommitted stay null — UI commit owns parlay_fulfilled.
+  if (!opts.signal.aborted) {
+    reportCoachScanReliability({
+      requestId: coachRelRequestId,
+      sportCategory: coachRelSport,
+      requestedLegCount: target,
+      returnedLegCount: picks.length,
+      durationMs: Date.now() - coachRelStarted,
+      realOddsAvailable:
+        (scanRealOdds?.length ?? 0) > 0 || (inputs.oddsGames?.length ?? 0) > 0,
+      scanFailureCode: scan?.failureReason?.code ?? null,
+      scanFailureDetail: scan?.failureReason?.detail ?? null,
+      picks,
+      timedOut: deliveryTimedOut,
+      scanMissing: deliveryScanMissing,
+      deliveryCommitted: false,
+    });
+  }
 
   return {
     picks,
@@ -1114,6 +1143,7 @@ export async function buildCoachParlay(opts: {
     scan,
     timedOut: deliveryTimedOut,
     propPoolSize,
+    reliabilityRequestId: coachRelRequestId,
     teamGameScopeDiagnostics,
   };
 }
