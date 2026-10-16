@@ -53,6 +53,7 @@ import {
   adjustSimHitForOppDefenseTilt,
   propOppDefenseTilt,
 } from "@/lib/footballRushDefense";
+import { shouldApplyPostSimOppDefenseTilt } from "@/lib/propContextPipeline";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import {
@@ -798,6 +799,11 @@ export function attachPickScores(
     oppRushDefense?: FootballOppDefenseMap;
     espnGames?: EspnGame[];
     teamIdMap?: Map<string, GameTeamIds>;
+    /**
+     * Games where defenseIndexByFamily entered Monte Carlo projection.
+     * Skip post-sim opp-D hit tilt for those games (avoid double-count).
+     */
+    projectionDefenseGames?: Set<string>;
   },
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
@@ -885,8 +891,16 @@ export function attachPickScores(
             ownPack: footballOwnPack,
           })
         : { tilt: 0, blockOver: false, display: null };
+    const projectionUsedDefense = !!(
+      p.game && opts.projectionDefenseGames?.has(p.game)
+    );
+    const applyPostSimTilt = shouldApplyPostSimOppDefenseTilt({
+      projectionUsedDefenseIndex: projectionUsedDefense,
+    });
     const adjustedPropSimHit = p.isProp
-      ? adjustSimHitForOppDefenseTilt(propSimHit, matchupTilt.tilt)
+      ? applyPostSimTilt
+        ? adjustSimHitForOppDefenseTilt(propSimHit, matchupTilt.tilt)
+        : (propSimHit ?? null)
       : propSimHit;
     let finalAiScore = buildFinalAiScore({
       pick: p,
@@ -918,6 +932,7 @@ export function attachPickScores(
             rushDefense,
             footballOppDefense,
             footballOwnPack,
+            oppDefenseInProjection: projectionUsedDefense,
             playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
           }
         : undefined,

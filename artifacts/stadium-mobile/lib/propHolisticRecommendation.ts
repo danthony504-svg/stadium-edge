@@ -164,6 +164,11 @@ export type PropHolisticContext = {
   footballOppDefense?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
   /** Player's own team pack (O-line sacks allowed, INT%, rush YPC) — no extra fetch. */
   footballOwnPack?: import("./footballRushDefense.ts").FootballOppDefenseSlice | null;
+  /**
+   * True when defenseIndexByFamily already entered Monte Carlo projection.
+   * Opponent Tendency stays display-only (no second composite score).
+   */
+  oppDefenseInProjection?: boolean;
   playerTeamIsHome?: boolean | null;
   lineMovementPct?: number | null;
 };
@@ -323,6 +328,11 @@ function scoreOpponentTendency(
       ownPack: ctx.footballOwnPack,
     });
     if (tilt.tilt !== 0 || tilt.display) {
+      // When defenseIndex already moved the MC projection, keep Match display
+      // but do not score again (avoids double-counting opponent D).
+      if (ctx.oppDefenseInProjection) {
+        return { score: null, display: tilt.display ?? undefined };
+      }
       return {
         score: scoreTrend(clamp(tilt.tilt / 0.8, -1, 1)),
         display: tilt.display ?? undefined,

@@ -2174,6 +2174,10 @@ export async function fetchPropSimulations(
     /** ESPN team ids keyed by "Away @ Home" (and nickname fallback). */
     teamIdsByGame?: Map<string, PropSimTeamIds>;
     weatherImpact?: number | null;
+    /** Per-game weatherImpact (Coach board — already-fetched env, no extra I/O). */
+    weatherImpactByGame?: Record<string, number | null>;
+    /** Per-game defenseIndexByFamily from already-fetched opp packs. */
+    defenseIndexByFamilyByGame?: Record<string, Record<string, number> | null>;
     tier?: "quick" | "deep";
     simulations?: number;
   },
@@ -2283,12 +2287,22 @@ export async function fetchPropSimulations(
         homeTeam = parts[1]?.trim() ?? "";
       }
 
+      const perGameWx =
+        gameLabel !== "_unknown"
+          ? opts?.weatherImpactByGame?.[gameLabel]
+          : undefined;
+      const perGameDef =
+        gameLabel !== "_unknown"
+          ? opts?.defenseIndexByFamilyByGame?.[gameLabel]
+          : undefined;
       const batchOpts = {
         homeTeam,
         awayTeam,
         homeTeamId,
         awayTeamId,
-        weatherImpact: opts?.weatherImpact ?? null,
+        weatherImpact:
+          perGameWx !== undefined ? perGameWx : (opts?.weatherImpact ?? null),
+        defenseIndexByFamily: perGameDef ?? null,
         tier,
         simulations: opts?.simulations,
       };
