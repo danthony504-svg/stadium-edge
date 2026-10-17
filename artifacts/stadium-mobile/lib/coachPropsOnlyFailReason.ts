@@ -136,10 +136,165 @@ export function buildPropsOnlyFailDiag(opts: {
   return { ...base, code: derivePropsOnlyFailCode(base) };
 }
 
+import { COACH_SIM_MIN_CONFIDENCE } from "./gameSimQualityGates.ts";
 import { sanitizeCoachUserNote } from "./sanitizeCoachUserNote.ts";
 
 /** Human lead for the Coach chat bubble — never append machine `[CODE: …]` traces. */
 export function propsOnlyFailNote(lead: string, diag: PropsOnlyFailDiag): string {
   void diag;
   return sanitizeCoachUserNote(lead);
+}
+
+/** True when odds cleared but every seat died on the confidence floor (not grade/edge). */
+export function isPropsOnlyConfidenceTerminal(d: PropsOnlyFailDiag): boolean {
+  if (d.oddsCleared <= 0 || d.staged > 0) return false;
+  if (d.code === "PROPS_ONLY_CONFIDENCE_GATE") return true;
+  const conf = d.stageRejects?.qualifyFail?.confidence_floor ?? 0;
+  const grade = d.stageRejects?.qualifyFail?.grade_floor ?? 0;
+  const edge = d.stageRejects?.qualifyFail?.non_positive_edge ?? 0;
+  return conf > 0 && conf >= grade && conf >= edge;
+}
+
+/** True when grade_floor (not confidence) is the dominant post-odds reject. */
+export function isPropsOnlyGradeTerminal(d: PropsOnlyFailDiag): boolean {
+  if (d.oddsCleared <= 0 || d.staged > 0) return false;
+  if (isPropsOnlyConfidenceTerminal(d)) return false;
+  const conf = d.stageRejects?.qualifyFail?.confidence_floor ?? 0;
+  const grade = d.stageRejects?.qualifyFail?.grade_floor ?? 0;
+  const edge = d.stageRejects?.qualifyFail?.non_positive_edge ?? 0;
+  return grade > 0 && grade >= conf && grade >= edge;
+}
+
+/**
+ * Soft-retry / recovery must not wipe a further-along funnel diagnosis.
+ * Example bug: skill board CONFIDENCE_GATE (oddsCleared=11) overwritten by
+ * preferred-pool ODDS_GATE (oddsCleared=0) → wrong "none cleared recovery odds".
+ */
+export function preferPropsOnlyFailDiag(
+  current: PropsOnlyFailDiag | undefined,
+  incoming: PropsOnlyFailDiag | undefined,
+): PropsOnlyFailDiag | undefined {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  const rank = (d: PropsOnlyFailDiag): number => {
+    let r = 0;
+    r += Math.max(0, d.graded) * 1_000_000;
+    r += Math.max(0, d.bestEvSides) * 10_000;
+    r += Math.max(0, d.oddsCleared) * 100;
+    r += Math.max(0, d.staged) * 10;
+    if (d.code === "PROPS_ONLY_CONFIDENCE_GATE" || isPropsOnlyConfidenceTerminal(d)) {
+      r += 8;
+    } else if (d.code === "PROPS_ONLY_STAGED_SHORT") {
+      r += 6;
+    } else if (d.code === "PROPS_ONLY_EMPTY" || isPropsOnlyGradeTerminal(d)) {
+      r += 4;
+    } else if (d.code === "PROPS_ONLY_ODDS_GATE") {
+      r += 2;
+    }
+    return r;
+  };
+  return rank(incoming) >= rank(current) ? incoming : current;
+}
+
+export type PropsOnlyTerminalNoteOpts = {
+  /** e.g. "college football" — kept out of this module's ask parsers. */
+  sportLabel?: string;
+  confidenceFloor?: number;
+  /** Recovery soft-empty context for odds-gate copy only. */
+  recoveryGraded?: { preferred: number; skill: number };
+};
+
+/**
+ * Single user-facing empty-ticket lead from failDiag.
+ * oddsCleared>0 + confidence-only → confidence floor (never "recovery odds").
+ */
+export function propsOnlyTerminalEmptyNote(
+  diag: PropsOnlyFailDiag,
+  opts?: PropsOnlyTerminalNoteOpts,
+): string {
+  const floor = opts?.confidenceFloor ?? COACH_SIM_MIN_CONFIDENCE;
+  const sport = (opts?.sportLabel ?? "football").trim() || "football";
+
+  if (isPropsOnlyConfidenceTerminal(diag)) {
+    return propsOnlyFailNote(
+      `I found ${diag.oddsCleared} ${sport} player props within the allowed odds range, but none met the ${floor}% confidence floor. I kept the quality bar intact and did not use another sport to fill the ticket.`,
+      diag,
+    );
+  }
+
+  if (diag.oddsCleared <= 0 || diag.code === "PROPS_ONLY_ODDS_GATE") {
+    if (opts?.recoveryGraded) {
+      return propsOnlyFailNote(
+        `Graded ${opts.recoveryGraded.preferred} locked-market props and ${opts.recoveryGraded.skill} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`,
+        diag,
+      );
+    }
+    const lead =
+      diag.graded > 0
+        ? `Graded ${diag.graded} props but none cleared the ticket odds bar. No ungraded filler was added.`
+        : `You asked for ${diag.target} legs — no player props cleared the ticket odds bar. No ungraded filler was added.`;
+    return propsOnlyFailNote(lead, diag);
+  }
+
+  if (isPropsOnlyGradeTerminal(diag)) {
+    return propsOnlyFailNote(
+      `Graded ${diag.graded} props and ${diag.oddsCleared} cleared odds, but none met the grade floor for a ticket seat. No ungraded filler was added.`,
+      diag,
+    );
+  }
+
+  const lead =
+    diag.graded > 0
+      ? `Graded ${diag.graded} props but none cleared the ticket quality bar. No ungraded filler was added.`
+      : `You asked for ${diag.target} legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.`;
+  return propsOnlyFailNote(lead, diag);
+}
+
+function looksLikePropsOnlyEmptyLead(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    t.includes("none met the") ||
+    t.includes("none cleared") ||
+    t.includes("confidence floor") ||
+    t.includes("recovery odds") ||
+    t.includes("quality bar") ||
+    t.includes("within the allowed odds range") ||
+    t.includes("hit the delivery budget")
+  );
+}
+
+/**
+ * Partial + final (or budget + late) must show one coherent terminal diagnosis —
+ * never append a second empty-ticket lead onto the first.
+ */
+export function reconcileCoachTerminalNote(opts: {
+  priorText?: string | null;
+  nextText: string;
+  priorFailDiag?: PropsOnlyFailDiag;
+  nextFailDiag?: PropsOnlyFailDiag;
+  sportLabel?: string;
+  confidenceFloor?: number;
+  recoveryGraded?: { preferred: number; skill: number };
+}): string {
+  const preferred = preferPropsOnlyFailDiag(opts.priorFailDiag, opts.nextFailDiag);
+  const prior = String(opts.priorText ?? "").trim();
+  const next = String(opts.nextText ?? "").trim();
+
+  if (preferred && preferred.staged <= 0) {
+    return propsOnlyTerminalEmptyNote(preferred, {
+      sportLabel: opts.sportLabel,
+      confidenceFloor: opts.confidenceFloor,
+      recoveryGraded: opts.recoveryGraded,
+    });
+  }
+
+  if (!prior) return next;
+  if (!next) return prior;
+  if (prior === next) return next;
+
+  // Two empty leads → keep one (final/next), never concatenate.
+  if (looksLikePropsOnlyEmptyLead(prior) && looksLikePropsOnlyEmptyLead(next)) {
+    return next;
+  }
+  return next;
 }

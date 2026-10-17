@@ -73,6 +73,15 @@ test("props-only empty quality bar recovers via football skill board (yards/rec/
   assert.match(src, /allowedSports:\s*inputs\.sports/);
   assert.match(src, /footballSkillRecoveryNote/);
   assert.match(src, /yards \/ receptions \/ sacks/);
+  // Terminal empty copy must follow preferPropsOnlyFailDiag / failDiag — not
+  // softPreferred ODDS_GATE overwriting skill-board CONFIDENCE_GATE.
+  assert.match(src, /preferPropsOnlyFailDiag/);
+  assert.match(src, /propsOnlyTerminalEmptyNote/);
+  assert.match(src, /reconcileCoachTerminalNote/);
+  assert.doesNotMatch(
+    src,
+    /propsFailDiag = softPreferred\.failDiag/,
+  );
 });
 
 test("HR stays on full-board path; both exits share resolveCoachParlayShortfallLead", async () => {
