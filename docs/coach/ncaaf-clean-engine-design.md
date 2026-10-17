@@ -1,6 +1,6 @@
 # Clean research-only NCAAF engine — architecture & milestones (design freeze)
 
-**Status:** DESIGN **FROZEN** — M1/M2 implementation in progress under this lock  
+**Status:** DESIGN **FROZEN** · M1–M3 screen done · **A0 ablation round CLOSED** · next = proposed **E1** only (not implemented) · **FINAL_EVAL not advanced**  
 **Branch:** `cursor/ncaaf-clean-engine-design-8b51`  
 **Date:** 2026-10-17  
 **Supersedes as research path:** drive residual/shrink restoration and team-strength v0 (both **archived**, not extended)  
@@ -14,6 +14,7 @@
 | 2 | Unknown venue | Stay **`unknown`**. Attempt source recovery. If unresolved → **`evaluableSupported=false`** (`venue_unknown_material`). **Do not** silently treat as neutral (do not rewrite `kind` to `neutral`; do not apply home HFA). **`evaluableSupported` ≠ production approval** (`productionReleaseApproved` always false on this stamp). |
 | 3 | ML ties | Model two-way finals **including OT**. Historical tied/invalid finals → **exclude and report**; **no** half-wins. |
 | 4 | Historical injury | `injury_unavailable` allowed for research with **no invented adjustment**. Does **not** satisfy injury validation. |
+| 5 | Ablation freeze | **A0_full** locked as research baseline. A1/A2/A3 closed not adopted. See [`ncaaf-clean-a0-next-experiment.md`](./ncaaf-clean-a0-next-experiment.md). |
 
 ---
 

@@ -1,6 +1,6 @@
 # Clean engine — identical-ID compare + ablation protocol (predefined)
 
-**Status:** Experiments predefined **before** looking at ablation outcomes for threshold shopping.  
+**Status:** Ablation round **CLOSED** — freeze **A0_full**; A1/A2/A3 not adopted. Next work is proposal-only E1 ([`ncaaf-clean-a0-next-experiment.md`](./ncaaf-clean-a0-next-experiment.md)), not FINAL_EVAL.  
 **Stamp:** `ncaaf-score-margin-v1-research`  
 **Rule:** Do **not** retune HFA / σ / LR merely to cross M3/S2. Report metrics; leave params.  
 **FINAL_EVAL:** UNTOUCHED · injury validation open · no spend/deploy/OTA/unlock  
