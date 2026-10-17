@@ -58,6 +58,8 @@ n=185 (homeFav=158, awayFav=27). TS bias=-13.3; drive bias=-9.5.
 
 Unseeded-in-slice=40 · FCS-flagged-in-slice=38 · **unflagged FCS-like in slice=31**
 
+Home-favorite bias (−16) dominates the −13 aggregate; away-favorite bias is near zero (+2). Several worst misses are FCS defaults / unflagged FCS (Temple–Howard μ sign flip; OSU–Grambling). **FBS–FBS residuals remain** (e.g. Oregon–Oklahoma State) — classification fix is necessary but not sufficient.
+
 ### Worst TS under-predictions (pred − act)
 
 | event | week | matchup | spread | act | pred | err | seeded | fcsFlag |
