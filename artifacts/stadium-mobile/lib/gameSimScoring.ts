@@ -16,6 +16,10 @@ import { withFgDistSeriesReuse } from "./gameSimDistReuse.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
 import { parsePickLineNumber } from "./pickLineParse.ts";
 import { gateTennisCoverHit, isTennisHandicapOrTotal } from "./tennisHandicapSim.ts";
+import {
+  normalizeTeamAbbr,
+  teamAbbrMatchesTeamName,
+} from "./resolvePropPlayerSides.ts";
 import { gameDrawEngineAccepted } from "./gameSimEngineVersion.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
@@ -138,6 +142,17 @@ function sideOfTeam(team: string, away: string, home: string): "home" | "away" |
   const ao = overlap(t, tokens(away));
   if (ho > ao && ho > 0) return "home";
   if (ao > ho && ao > 0) return "away";
+
+  // Feed abbrs (TB / CLE / TBR) must bind onto nickname or full ESPN labels.
+  // Without this, MLB "TB ML" / "CLE +1.5" yield null cover queries → empty
+  // slate draws or ALL_NULL grades even when team ids resolve.
+  const ab = normalizeTeamAbbr(team);
+  if (ab) {
+    const awayHit = teamAbbrMatchesTeamName(ab, away);
+    const homeHit = teamAbbrMatchesTeamName(ab, home);
+    if (awayHit && !homeHit) return "away";
+    if (homeHit && !awayHit) return "home";
+  }
   return null;
 }
 
@@ -728,9 +743,11 @@ export function gameSimHitForPick(
 
   // Fallback when cover rates were not requested — ML only from win probs.
   // Tennis game handicaps/totals must NEVER take this path (or any ML substitute).
+  // Require a finite matching-side probability; never invent 0.5 or the opposite side.
   if (query.kind === "ml" && query.teamSide) {
     const mlHit =
       query.teamSide === "home" ? sim!.homeWinProbability : sim!.awayWinProbability;
+    if (mlHit == null || !Number.isFinite(mlHit)) return null;
     return sanitizeGameSimHit(pick, query, mlHit, sim!);
   }
   return null;
