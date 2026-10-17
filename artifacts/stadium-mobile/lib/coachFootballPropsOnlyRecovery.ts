@@ -6,6 +6,9 @@
  * Not a gate tweak: the locked allowlist never saw softer skill alts that clear
  * history/EV. Phone: "7 leg touchdown" graded 42 TDs → empty quality bar while
  * posted rush/rec/sack alts would have cleared.
+ *
+ * Sport scope is an immutable ask constraint — college player-props recovery
+ * must never seat NFL rows just because skill markets overlap.
  */
 
 import { canonicalPropMarketKey } from "./coachAskMarketFilter.ts";
@@ -48,17 +51,74 @@ export function isFootballSkillRecoveryMarket(
   return !!canon && RECOVERY_SET.has(canon);
 }
 
-/** Keep posted football skill mains + alts for recovery fill. */
+/** Normalize league ids for recovery sport matching (cfb → ncaaf). */
+export function normalizeFootballRecoverySport(
+  sport: string | null | undefined,
+): string {
+  const s = String(sport ?? "")
+    .toLowerCase()
+    .trim();
+  if (!s) return "";
+  if (s === "cfb" || s === "college-football" || s.includes("americanfootball_ncaaf")) {
+    return "ncaaf";
+  }
+  if (s.includes("americanfootball_nfl")) return "nfl";
+  return s;
+}
+
+export type FootballSkillRecoveryScope = {
+  /**
+   * Resolved ask sports from board load (immutable). Recovery may only keep
+   * rows whose sport matches one of these after normalization.
+   */
+  allowedSports: readonly string[];
+};
+
+function allowedRecoverySportSet(
+  allowedSports: readonly string[],
+): Set<string> {
+  const out = new Set<string>();
+  for (const raw of allowedSports) {
+    const n = normalizeFootballRecoverySport(raw);
+    if (n) out.add(n);
+  }
+  return out;
+}
+
+/** True when a pool row's sport is inside the immutable recovery scope. */
+export function rowMatchesFootballRecoverySportScope(
+  sport: string | null | undefined,
+  scope: FootballSkillRecoveryScope,
+): boolean {
+  const allowed = allowedRecoverySportSet(scope.allowedSports ?? []);
+  if (allowed.size === 0) return false;
+  const n = normalizeFootballRecoverySport(sport);
+  if (!n) return false;
+  return allowed.has(n);
+}
+
+/**
+ * Belt pool rows to the resolved ask sports (fail closed on missing tags).
+ * Used by locked-market recovery and skill-board recovery alike.
+ */
+export function filterPoolByFootballRecoverySports<
+  T extends { sport?: string | null },
+>(pool: readonly T[], scope: FootballSkillRecoveryScope): T[] {
+  return pool.filter((row) =>
+    rowMatchesFootballRecoverySportScope(row.sport, scope),
+  );
+}
+
+/**
+ * Keep posted football skill mains + alts for recovery fill — scoped to the
+ * resolved ask sports. Missing sport tags fail closed (cannot bypass scope).
+ */
 export function filterPoolForFootballSkillRecovery<
   T extends { marketKey?: string | null; sport?: string | null },
->(pool: readonly T[]): T[] {
-  return pool.filter((row) => {
-    if (!isFootballSkillRecoveryMarket(row.marketKey)) return false;
-    const sport = String(row.sport ?? "").toLowerCase();
-    // Allow missing sport (some pool rows omit it) — market key is football.
-    if (!sport) return true;
-    return sport === "nfl" || sport === "ncaaf" || sport.includes("football");
-  });
+>(pool: readonly T[], scope: FootballSkillRecoveryScope): T[] {
+  return filterPoolByFootballRecoverySports(pool, scope).filter((row) =>
+    isFootballSkillRecoveryMarket(row.marketKey),
+  );
 }
 
 /**

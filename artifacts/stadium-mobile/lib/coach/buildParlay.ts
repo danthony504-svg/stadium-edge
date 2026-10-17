@@ -85,6 +85,7 @@ import {
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
 import {
+  filterPoolByFootballRecoverySports,
   filterPoolForFootballSkillRecovery,
   footballSkillRecoveryNote,
   shouldRecoverPropsOnlyWithFootballSkillBoard,
@@ -491,18 +492,18 @@ export async function buildCoachParlay(opts: {
     const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
     // Canonical lock label from EXPLICIT_MARKET_LOCK_RULES (any sport/family).
     const lockedMarketLabel = lockedMarketLabelForAsk(opts.askText) ?? "market";
+    // Immutable ask sport scope — recovery must not widen beyond board sports
+    // (college player props must never seat NFL skill rows from a mixed pool).
+    const recoverySportScope = { allowedSports: inputs.sports };
+    const recoverySourcePool = filterPoolByFootballRecoverySports(
+      askAllowsNcaafPlayerProps(opts.askText)
+        ? inputs.propPool
+        : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
+      recoverySportScope,
+    );
     const recoveryPool = isMarketLocked
-      ? filterPropPoolByAskMarkets(
-          askAllowsNcaafPlayerProps(opts.askText)
-            ? inputs.propPool
-            : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
-          lockedKeys,
-        )
-      : filterPoolForFootballSkillRecovery(
-          askAllowsNcaafPlayerProps(opts.askText)
-            ? inputs.propPool
-            : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
-        );
+      ? filterPropPoolByAskMarkets(recoverySourcePool, lockedKeys)
+      : filterPoolForFootballSkillRecovery(recoverySourcePool, recoverySportScope);
     if (
       shouldRecoverPropsOnlyWithFootballSkillBoard({
         graded: built.propLegsScored,

@@ -68,6 +68,9 @@ test("props-only empty quality bar recovers via football skill board (yards/rec/
   );
   assert.match(src, /shouldRecoverPropsOnlyWithFootballSkillBoard/);
   assert.match(src, /filterPoolForFootballSkillRecovery/);
+  assert.match(src, /filterPoolByFootballRecoverySports/);
+  assert.match(src, /recoverySportScope/);
+  assert.match(src, /allowedSports:\s*inputs\.sports/);
   assert.match(src, /footballSkillRecoveryNote/);
   assert.match(src, /yards \/ receptions \/ sacks/);
 });
