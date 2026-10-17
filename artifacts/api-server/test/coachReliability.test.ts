@@ -28,6 +28,7 @@ import {
   formatCoachReliabilityAlert,
   formatDailyHealthySummary,
 } from "../src/lib/telegramAlert.ts";
+import { aggregateCoachDigestStats } from "../src/lib/coachReliabilityDigest.ts";
 
 function baseMeta(
   overrides: Partial<CoachReliabilityMeta> = {},
@@ -206,6 +207,7 @@ test("telegram coach alert includes requestId/category without PII", () => {
     altMarketFailureCount: 1,
     simulationFailureCount: 2,
     scanFreezeCount: 1,
+    unknownOutcomeCount: 2,
     p50Ms: 1200,
     p95Ms: 8000,
     topFailureReasons: [{ reason: "legitimate_underfill", count: 6 }],
@@ -213,6 +215,7 @@ test("telegram coach alert includes requestId/category without PII", () => {
   assert.match(section, /fulfillment: 70%/);
   assert.match(section, /legit 6/);
   assert.match(section, /grounding\/alt\/sim\/freeze: 1\/1\/2\/1/);
+  assert.match(section, /unknown outcomes: 2/);
 
   const daily = formatDailyHealthySummary({
     windowHours: 24,
@@ -253,6 +256,64 @@ test("zero Coach requests in digest is coverage gap, not verified inactivity", (
   });
   assert.match(section, /requests received: 0/);
   assert.match(section, /0 received Coach events ≠ verified zero Coach usage/);
+});
+
+test("digest denominator includes freeze + unknown; unknowns stay separate", () => {
+  const digest = aggregateCoachDigestStats(
+    [
+      {
+        occurrenceCount: 5,
+        meta: baseMeta({
+          eventType: "parlay_fulfilled",
+          failureReason: "none",
+          returnedLegCount: 5,
+        }),
+      },
+      {
+        occurrenceCount: 3,
+        meta: baseMeta({
+          eventType: "parlay_underfilled",
+          failureReason: "legitimate_underfill",
+          returnedLegCount: 2,
+        }),
+      },
+      {
+        occurrenceCount: 1,
+        meta: baseMeta({
+          eventType: "parlay_zero_results",
+          failureReason: "zero_results",
+          returnedLegCount: 0,
+        }),
+      },
+      {
+        occurrenceCount: 2,
+        meta: baseMeta({
+          eventType: "coach_scan_freeze",
+          failureReason: "scan_freeze",
+          returnedLegCount: 1,
+        }),
+      },
+      {
+        occurrenceCount: 4,
+        meta: baseMeta({
+          eventType: "coach_exception",
+          failureReason: "unknown",
+          returnedLegCount: null,
+        }),
+      },
+    ],
+    24,
+  );
+  // classified = 5+3+1+2 = 11; + unknown 4 → denom 15; fulfillment 5/15 = 33.3
+  assert.equal(digest.successfulRequests, 5);
+  assert.equal(digest.underfillCount, 3);
+  assert.equal(digest.zeroResultCount, 1);
+  assert.equal(digest.scanFreezeCount, 2);
+  assert.equal(digest.unknownOutcomeCount, 4);
+  assert.equal(digest.fulfillmentPct, 33.3);
+  assert.equal(digest.totalRequests, 15);
+  // Unknowns must not inflate underfill/zero.
+  assert.equal(digest.legitimateUnderfillCount, 3);
 });
 
 test("test fixtures never parse as alertable production events", () => {

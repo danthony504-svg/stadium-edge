@@ -11,12 +11,10 @@ import { logger } from "./logger.js";
 import { CRASH_DEDUPE_WINDOW_MS } from "./reliabilitySanitize.js";
 import {
   appendDurationSample,
-  COACH_ALERT_EVENT_TYPES,
   coachAlertFingerprint,
   coachEventSummary,
   failureCategoryFor,
   parseCoachMeta,
-  percentile,
   serializeCoachMeta,
   shouldAlertCoachEvent,
   type CoachEventType,
@@ -27,10 +25,17 @@ import {
   type CoachSportCategory,
 } from "./coachReliabilitySanitize.js";
 import {
+  aggregateCoachDigestStats,
+  type CoachDigestStats,
+} from "./coachReliabilityDigest.js";
+import {
   formatCoachReliabilityAlert,
   sendTelegramMessage,
   shouldSendCriticalTelegram,
 } from "./telegramAlert.js";
+
+export type { CoachDigestStats } from "./coachReliabilityDigest.js";
+export { aggregateCoachDigestStats } from "./coachReliabilityDigest.js";
 
 export type RecordCoachEventInput = {
   eventType: CoachEventType;
@@ -52,24 +57,13 @@ export type RecordCoachEventInput = {
    * Logged only — not used in fingerprint / classification / Telegram rules.
    */
   correlationId?: string | null;
-};
-
-export type CoachDigestStats = {
-  windowHours: number;
-  totalRequests: number;
-  successfulRequests: number;
-  fulfillmentPct: number | null;
-  underfillCount: number;
-  legitimateUnderfillCount: number;
-  zeroResultCount: number;
-  questionFailureCount: number;
-  groundingFailureCount: number;
-  altMarketFailureCount: number;
-  simulationFailureCount: number;
-  scanFreezeCount: number;
-  p50Ms: number | null;
-  p95Ms: number | null;
-  topFailureReasons: Array<{ reason: string; count: number }>;
+  updateId?: string | null;
+  channel?: string | null;
+  bakedSha?: string | null;
+  requestScope?: CoachReliabilityMeta["requestScope"];
+  candidateIds?: string[] | null;
+  gameIds?: string[] | null;
+  simFailureReason?: string | null;
 };
 
 function buildMeta(input: RecordCoachEventInput): CoachReliabilityMeta {
@@ -97,6 +91,14 @@ function buildMeta(input: RecordCoachEventInput): CoachReliabilityMeta {
     requestId: typeof input.requestId === "string" ? input.requestId : null,
     affectedGame: typeof input.affectedGame === "string" ? input.affectedGame : null,
     rootCause: typeof input.rootCause === "string" ? input.rootCause : null,
+    updateId: typeof input.updateId === "string" ? input.updateId : null,
+    channel: typeof input.channel === "string" ? input.channel : null,
+    bakedSha: typeof input.bakedSha === "string" ? input.bakedSha : null,
+    requestScope: input.requestScope ?? null,
+    candidateIds: Array.isArray(input.candidateIds) ? input.candidateIds : null,
+    gameIds: Array.isArray(input.gameIds) ? input.gameIds : null,
+    simFailureReason:
+      typeof input.simFailureReason === "string" ? input.simFailureReason : null,
   };
 }
 
@@ -252,11 +254,13 @@ export async function recordCoachReliabilityEvent(
         errorMessage: summary,
         errorStack: serializeCoachMeta({ ...meta, durationSamples: samples }),
         componentStack: null,
-        updateId: "server",
+        // Prefer client OTA identity when the mobile reporter sent it; fall
+        // back to server markers for api-originated coach events.
+        updateId: meta.updateId || "server",
         runtimeVersion: "api",
-        channel: "api",
-        appVersion: "api",
-        bundleSource: "server",
+        channel: meta.channel || "api",
+        appVersion: meta.bakedSha || "api",
+        bundleSource: meta.updateId ? "ota" : "server",
         platform: "server",
         sessionId: null,
         clientTs: now,
@@ -351,6 +355,7 @@ export async function coachReliabilityDigestStats(
     altMarketFailureCount: 0,
     simulationFailureCount: 0,
     scanFreezeCount: 0,
+    unknownOutcomeCount: 0,
     p50Ms: null,
     p95Ms: null,
     topFailureReasons: [],
@@ -366,118 +371,18 @@ export async function coachReliabilityDigestStats(
       .from(reliabilityEventsTable)
       .where(
         and(
-          eq(reliabilityEventsTable.severity, "coach"),
+          eq(reliabilityEventsTable.subsystem, "coach"),
           gt(reliabilityEventsTable.updatedAt, since),
         ),
       );
 
-    let totalRequests = 0;
-    let successfulRequests = 0;
-    let underfillCount = 0;
-    let legitimateUnderfillCount = 0;
-    let zeroResultCount = 0;
-    let questionFailureCount = 0;
-    let groundingFailureCount = 0;
-    let altMarketFailureCount = 0;
-    let simulationFailureCount = 0;
-    let scanFreezeCount = 0;
-    const reasonCounts = new Map<string, number>();
-    const durations: number[] = [];
-
-    for (const row of rows) {
-      const n = row.occurrenceCount ?? 1;
-      const meta = parseCoachMeta(row.errorStack);
-      const type = meta?.eventType;
-      if (!type) continue;
-
-      if (
-        type === "parlay_requested" ||
-        type === "coach_question_received"
-      ) {
-        totalRequests += n;
-      }
-      if (type === "parlay_fulfilled") {
-        successfulRequests += n;
-      }
-      if (type === "parlay_underfilled") {
-        underfillCount += n;
-        if (
-          meta?.failureReason === "legitimate_underfill" ||
-          meta?.failureReason === "slate_thin" ||
-          meta?.failureReason === "underfilled"
-        ) {
-          legitimateUnderfillCount += n;
-        }
-      }
-      if (type === "parlay_zero_results") zeroResultCount += n;
-      if (
-        type === "coach_question_failed" ||
-        type === "coach_empty_response"
-      ) {
-        questionFailureCount += n;
-      }
-      if (type === "coach_grounding_failure") groundingFailureCount += n;
-      if (type === "coach_alt_market_failure") altMarketFailureCount += n;
-      if (type === "coach_simulation_failure") simulationFailureCount += n;
-      if (type === "coach_scan_freeze") scanFreezeCount += n;
-      if (
-        meta?.failureReason &&
-        meta.failureReason !== "none" &&
-        (COACH_ALERT_EVENT_TYPES.has(type) || shouldAlertCoachEvent(meta))
-      ) {
-        reasonCounts.set(
-          meta.failureReason,
-          (reasonCounts.get(meta.failureReason) ?? 0) + n,
-        );
-      }
-      const samples = meta?.durationSamples?.length
-        ? meta.durationSamples
-        : meta?.durationMs != null
-          ? [meta.durationMs]
-          : [];
-      for (const d of samples) {
-        if (typeof d === "number" && Number.isFinite(d)) durations.push(d);
-      }
-    }
-
-    if (totalRequests === 0) {
-      totalRequests =
-        successfulRequests +
-        underfillCount +
-        zeroResultCount +
-        questionFailureCount;
-    }
-
-    const parlayAttempts =
-      successfulRequests + underfillCount + zeroResultCount;
-    const fulfillmentPct =
-      parlayAttempts > 0
-        ? Math.round((1000 * successfulRequests) / parlayAttempts) / 10
-        : null;
-
-    durations.sort((a, b) => a - b);
-    const topFailureReasons = [...reasonCounts.entries()]
-      .map(([reason, count]) => ({ reason, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-
-    return {
+    return aggregateCoachDigestStats(
+      rows.map((row) => ({
+        meta: parseCoachMeta(row.errorStack),
+        occurrenceCount: row.occurrenceCount ?? 1,
+      })),
       windowHours,
-      totalRequests,
-      successfulRequests,
-      fulfillmentPct,
-      underfillCount,
-      legitimateUnderfillCount,
-      zeroResultCount,
-      questionFailureCount,
-      groundingFailureCount,
-      altMarketFailureCount,
-      simulationFailureCount,
-      scanFreezeCount,
-      p50Ms: percentile(durations, 50),
-      p95Ms: percentile(durations, 95),
-      topFailureReasons,
-    };
+    );
   } catch (err) {
     logger.warn({ err }, "coach reliability digest stats failed");
     return empty;

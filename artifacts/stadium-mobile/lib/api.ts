@@ -2382,6 +2382,7 @@ export async function fetchPropSimulations(
 
 export type GameSimulationResult = {
   sport: string;
+  engineVersion?: string;
   simulations: number;
   homeWinProbability: number;
   awayWinProbability: number;

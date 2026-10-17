@@ -10,6 +10,13 @@ import { resolvePropAthleteIds } from "./resolvePropAthleteIds.js";
 import { fetchEspnInjuries } from "./espnInjuries.js";
 import { teamPace } from "./statmuse.js";
 import { runSportGameMonteCarlo } from "./sportSim/registry.js";
+import { sealPublishedClientPeriodQueries } from "./gameOutcomePayload.js";
+import { SPORT_SIM_ENGINE_VERSION, stampedTeamGameOutcome } from "./sportSim/gameSimEngineVersion.js";
+import {
+  loadFootballDefenseAllowed,
+  teamInputFromHistory,
+  wantsFootballDefensePacks,
+} from "./sportSim/footballGameSimInputs.js";
 import { runTennisMonteCarlo } from "./tennisMonteCarlo.js";
 import { buildFightAnalysis } from "./ufc.js";
 import { coachSlateApiBase } from "./coachSlateLoopback.js";
@@ -30,9 +37,21 @@ function teamInjuryWeight(
 }
 
 type TeamHistoryResp = {
-  homeSplit?: { ptsFor?: number | null; ptsAgainst?: number | null };
-  awaySplit?: { ptsFor?: number | null; ptsAgainst?: number | null };
-  last10?: { ptsFor?: number | null; ptsAgainst?: number | null };
+  homeSplit?: {
+    games?: number | null;
+    ptsFor?: number | null;
+    ptsAgainst?: number | null;
+  };
+  awaySplit?: {
+    games?: number | null;
+    ptsFor?: number | null;
+    ptsAgainst?: number | null;
+  };
+  last10?: {
+    games?: number | null;
+    ptsFor?: number | null;
+    ptsAgainst?: number | null;
+  };
   recent?: Array<{ pts?: number | null }>;
 };
 
@@ -218,6 +237,8 @@ export async function runPropSimsInProcess(body: {
 }
 
 export type InProcessGameOutcome = {
+  sport?: string;
+  engineVersion?: string;
   homeWinProbability?: number | null;
   awayWinProbability?: number | null;
   coverHitRates?: Record<string, number>;
@@ -257,11 +278,16 @@ export async function runGameOutcomeSimInProcess(body: {
       retainOutcomes,
     });
     if (!result) return null;
-    return {
-      homeWinProbability: result.homeWinProbability ?? null,
-      awayWinProbability: result.awayWinProbability ?? null,
-      coverHitRates: result.coverHitRates ?? {},
-    };
+    return sealPublishedClientPeriodQueries(
+      {
+        sport,
+        engineVersion: SPORT_SIM_ENGINE_VERSION,
+        homeWinProbability: result.homeWinProbability ?? null,
+        awayWinProbability: result.awayWinProbability ?? null,
+        coverHitRates: result.coverHitRates ?? {},
+      },
+      coverQueries,
+    );
   }
 
   if (sport === "ufc" || sport === "mma") {
@@ -279,11 +305,16 @@ export async function runGameOutcomeSimInProcess(body: {
       },
       simulations,
     );
-    return {
-      homeWinProbability: sim.homeWinProbability ?? null,
-      awayWinProbability: sim.awayWinProbability ?? null,
-      coverHitRates: sim.coverHitRates ?? {},
-    };
+    return sealPublishedClientPeriodQueries(
+      {
+        sport,
+        engineVersion: SPORT_SIM_ENGINE_VERSION,
+        homeWinProbability: sim.homeWinProbability ?? null,
+        awayWinProbability: sim.awayWinProbability ?? null,
+        coverHitRates: sim.coverHitRates ?? {},
+      },
+      coverQueries,
+    );
   }
 
   if (!homeTeamId || !awayTeamId) return null;
@@ -291,31 +322,22 @@ export async function runGameOutcomeSimInProcess(body: {
     fetchTeamHistory(sport, homeTeamId),
     fetchTeamHistory(sport, awayTeamId),
   ]);
+  // Parity with POST /sports/simulate: venue/L10 blend + football defense packs.
+  const [homeDef, awayDef] = wantsFootballDefensePacks(sport)
+    ? await Promise.all([
+        loadFootballDefenseAllowed(sport, homeTeamId),
+        loadFootballDefenseAllowed(sport, awayTeamId),
+      ])
+    : [null, null];
   const result = runSportGameMonteCarlo({
     sport,
     simulations,
     weatherImpact: body.weatherImpact != null ? Number(body.weatherImpact) : null,
     coverQueries,
     retainOutcomes,
-    home: {
-      ptsFor: homeHist?.homeSplit?.ptsFor ?? homeHist?.last10?.ptsFor ?? null,
-      ptsAgainst: homeHist?.homeSplit?.ptsAgainst ?? homeHist?.last10?.ptsAgainst ?? null,
-      recentScores: (homeHist?.recent ?? [])
-        .map((g) => g.pts)
-        .filter((v): v is number => v != null && Number.isFinite(v)),
-    },
-    away: {
-      ptsFor: awayHist?.awaySplit?.ptsFor ?? awayHist?.last10?.ptsFor ?? null,
-      ptsAgainst: awayHist?.awaySplit?.ptsAgainst ?? awayHist?.last10?.ptsAgainst ?? null,
-      recentScores: (awayHist?.recent ?? [])
-        .map((g) => g.pts)
-        .filter((v): v is number => v != null && Number.isFinite(v)),
-    },
+    home: teamInputFromHistory(homeHist, "home", homeDef),
+    away: teamInputFromHistory(awayHist, "away", awayDef),
   });
   if (!result) return null;
-  return {
-    homeWinProbability: result.homeWinProbability ?? null,
-    awayWinProbability: result.awayWinProbability ?? null,
-    coverHitRates: result.coverHitRates ?? {},
-  };
+  return sealPublishedClientPeriodQueries(stampedTeamGameOutcome(sport, result), coverQueries);
 }

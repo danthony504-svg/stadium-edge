@@ -15,6 +15,7 @@ import {
   scoreRequestsFromCachedDistribution,
   sharedDistributionPartsForProp,
   simulateProp,
+  simulatePropGroupFromContext,
   simulatePropGroupShared,
   type GameSimContext,
   type PlayerHistoryShape,
@@ -117,6 +118,207 @@ test("injury / weather / pace context re-keys the shared distribution", () => {
   const c = propSharedDistributionKey({ ...base, weatherImpact: 0.4 });
   assert.notEqual(a, b);
   assert.notEqual(a, c);
+});
+
+test("defenseIndex boost ≠ suppress: separate cache keys and different means/hits", () => {
+  // Sparse H2H so defenseIndex drives Opponent Matchup Shift (n < 3).
+  const history = historyShape([82, 71, 95, 64, 88, 77, 90, 68, 84, 73]);
+  const req: SimPropRequest = {
+    player: "Nico Collins",
+    market: "player_reception_yds",
+    line: 69.5,
+    side: "Over",
+    athleteId: "1",
+    sport: "nfl",
+    isHome: true,
+    opponentTeamId: "12",
+    homeTeamId: "34",
+    awayTeamId: "12",
+  };
+  const boostGame: GameSimContext = {
+    sport: "nfl",
+    defenseIndex: 1.18,
+  };
+  const suppressGame: GameSimContext = {
+    sport: "nfl",
+    defenseIndex: 0.84,
+  };
+  const boostCtx = buildPropSimulationContext(req, history, boostGame)!;
+  const suppressCtx = buildPropSimulationContext(req, history, suppressGame)!;
+  assert.ok(boostCtx && suppressCtx);
+  assert.notEqual(boostCtx.defenseIndex, suppressCtx.defenseIndex);
+  assert.notEqual(boostCtx.matchupFamilyMult, suppressCtx.matchupFamilyMult);
+
+  const boostParts = sharedDistributionPartsForProp(req, boostGame, true);
+  const suppressParts = sharedDistributionPartsForProp(req, suppressGame, true);
+  assert.notEqual(
+    propSharedDistributionKey(boostParts),
+    propSharedDistributionKey(suppressParts),
+  );
+
+  const boostFp = propHistoryFingerprint(boostCtx);
+  const suppressFp = propHistoryFingerprint(suppressCtx);
+  assert.notEqual(boostFp, suppressFp);
+
+  const boostKey = propDistributionCacheKey(
+    boostParts,
+    boostFp,
+    "deep",
+    DEEP_SIMULATIONS,
+  );
+  const suppressKey = propDistributionCacheKey(
+    suppressParts,
+    suppressFp,
+    "deep",
+    DEEP_SIMULATIONS,
+  );
+  assert.notEqual(boostKey, suppressKey);
+
+  const seed = 0xdefaced;
+  const boostSim = runMonteCarloSimulation(boostCtx, DEEP_SIMULATIONS, { seed });
+  const suppressSim = runMonteCarloSimulation(suppressCtx, DEEP_SIMULATIONS, {
+    seed,
+  });
+  assert.ok(boostSim.meanProjection != null && suppressSim.meanProjection != null);
+  assert.notEqual(boostSim.meanProjection, suppressSim.meanProjection);
+  assert.ok(
+    boostSim.meanProjection! > suppressSim.meanProjection!,
+    "boosted defenseIndex must raise mean vs suppressed",
+  );
+  assert.ok(boostSim.hitProbability != null && suppressSim.hitProbability != null);
+  assert.notEqual(boostSim.hitProbability, suppressSim.hitProbability);
+});
+
+test("identical defense context reuses dist cache (cached=true, draws avoided)", async () => {
+  const history = historyShape([82, 71, 95, 64, 88, 77, 90, 68, 84, 73]);
+  const req: SimPropRequest = {
+    player: "Nico Collins",
+    market: "player_reception_yds",
+    line: 69.5,
+    side: "Over",
+    athleteId: "1",
+    sport: "nfl",
+    isHome: true,
+    opponentTeamId: "12",
+    homeTeamId: "34",
+    awayTeamId: "12",
+  };
+  const game: GameSimContext = { sport: "nfl", defenseIndex: 1.12 };
+  const ctx = buildPropSimulationContext(req, history, game)!;
+  const parts = sharedDistributionPartsForProp(req, game, true);
+  const fp = propHistoryFingerprint(ctx);
+  const key = propDistributionCacheKey(parts, fp, "deep", DEEP_SIMULATIONS);
+
+  const first = simulatePropGroupFromContext(
+    [req],
+    ctx,
+    history,
+    key,
+    "deep",
+    DEEP_SIMULATIONS,
+    { seed: 77 },
+  );
+  assert.ok(first.distribution);
+  await setCachedPropDistribution(key, first.distribution!, "deep");
+
+  // Same identity → same key → cache hit (no second draw needed to score).
+  const againFp = propHistoryFingerprint(
+    buildPropSimulationContext(req, history, { sport: "nfl", defenseIndex: 1.12 })!,
+  );
+  const againParts = sharedDistributionPartsForProp(
+    req,
+    { sport: "nfl", defenseIndex: 1.12 },
+    true,
+  );
+  const againKey = propDistributionCacheKey(
+    againParts,
+    againFp,
+    "deep",
+    DEEP_SIMULATIONS,
+  );
+  assert.equal(againKey, key);
+  const loaded = await getCachedPropDistribution(againKey);
+  assert.ok(loaded?.samples?.length);
+  assert.equal(loaded!.samples.length, DEEP_SIMULATIONS);
+
+  const rescored = scoreRequestsFromCachedDistribution(
+    [{ ...req, line: 74.5, side: "Under" }],
+    history,
+    ctx,
+    loaded!,
+  );
+  assert.equal(rescored.length, 1);
+  assert.ok(rescored[0]!.hitProbability != null);
+  // Threshold change only — mean/samples reused from cache.
+  assert.equal(rescored[0]!.meanProjection, first.distribution!.meanProjection);
+});
+
+test("missing/null defenseIndex must not collide with supplied defenseIndex", () => {
+  const base = {
+    sport: "nfl",
+    player: "Nico Collins",
+    market: "player_reception_yds",
+    athleteId: "1",
+    opponentTeamId: "12",
+    isHome: true as const,
+    homeTeamId: "34",
+    awayTeamId: "12",
+  };
+  const missing = propSharedDistributionKey({ ...base, defenseIndex: null });
+  const omitted = propSharedDistributionKey({ ...base });
+  const suppliedNeutral = propSharedDistributionKey({
+    ...base,
+    defenseIndex: 1.0,
+  });
+  const suppliedBoost = propSharedDistributionKey({
+    ...base,
+    defenseIndex: 1.15,
+  });
+  assert.equal(missing, omitted, "null and omitted serialize the same (empty)");
+  assert.notEqual(
+    missing,
+    suppliedNeutral,
+    "explicit 1.0 must not collide with missing/null",
+  );
+  assert.notEqual(missing, suppliedBoost);
+
+  const history = historyShape([82, 71, 95, 64, 88, 77, 90, 68, 84, 73]);
+  const req: SimPropRequest = {
+    player: "Nico Collins",
+    market: "player_reception_yds",
+    line: 69.5,
+    side: "Over",
+    athleteId: "1",
+    sport: "nfl",
+    isHome: true,
+    opponentTeamId: "12",
+  };
+  const ctxMissing = buildPropSimulationContext(req, history, {
+    sport: "nfl",
+    defenseIndex: null,
+  })!;
+  const ctxSupplied = buildPropSimulationContext(req, history, {
+    sport: "nfl",
+    defenseIndex: 1.0,
+  })!;
+  assert.notEqual(
+    propHistoryFingerprint(ctxMissing),
+    propHistoryFingerprint(ctxSupplied),
+  );
+  assert.notEqual(
+    propDistributionCacheKey(
+      sharedDistributionPartsForProp(req, { sport: "nfl", defenseIndex: null }, true),
+      propHistoryFingerprint(ctxMissing),
+      "deep",
+      DEEP_SIMULATIONS,
+    ),
+    propDistributionCacheKey(
+      sharedDistributionPartsForProp(req, { sport: "nfl", defenseIndex: 1.0 }, true),
+      propHistoryFingerprint(ctxSupplied),
+      "deep",
+      DEEP_SIMULATIONS,
+    ),
+  );
 });
 
 test("equivalence: cached distribution scoring matches seeded per-line sims", () => {
