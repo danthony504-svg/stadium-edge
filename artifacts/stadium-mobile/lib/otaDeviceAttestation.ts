@@ -46,9 +46,36 @@ function normalizeId(id: string): string {
     .replace(/^embedded$/i, "");
 }
 
+/**
+ * Display / probe sentinels that must never be treated as a known channel tip id.
+ * Includes OTA_DEBUG_UNAVAILABLE ("not available") from snapshot fields when
+ * latestManifest.id is absent — that string previously caused false Case B.
+ */
+const UPDATE_ID_PLACEHOLDERS = new Set([
+  "—",
+  "-",
+  "null",
+  "undefined",
+  "not available",
+  "unavailable",
+  "unknown",
+  "n/a",
+  "na",
+  "(not probed)",
+  "not probed",
+  "embedded",
+]);
+
 function isBlankUpdateId(id: string | null | undefined): boolean {
   const n = normalizeId(String(id ?? ""));
-  return !n || n === "—" || n === "-" || n === "null" || n === "undefined";
+  return !n || UPDATE_ID_PLACEHOLDERS.has(n);
+}
+
+/** True only for a real tip/update id — not blank and not a UI sentinel. */
+export function isKnownChannelTipUpdateId(
+  id: string | null | undefined,
+): boolean {
+  return !isBlankUpdateId(id);
 }
 
 function isLegacyRuntime(runtime: string): boolean {
@@ -81,7 +108,8 @@ export function resolveChannelTipMatch(opts: {
   runningUpdateId: string;
   channelTipUpdateId?: string | null;
 }): ChannelTipMatch {
-  if (isBlankUpdateId(opts.channelTipUpdateId)) return null;
+  // Unknown tip → null match (never a known mismatch / behind-tip Case B).
+  if (!isKnownChannelTipUpdateId(opts.channelTipUpdateId)) return null;
   if (isBlankUpdateId(opts.runningUpdateId)) return false;
   return (
     normalizeId(opts.runningUpdateId) ===
@@ -92,6 +120,7 @@ export function resolveChannelTipMatch(opts: {
 /**
  * Best-known channel tip update id from Expo context / live check.
  * Never falls back to a hardcoded historical id.
+ * Rejects UI sentinels (e.g. "not available") so missing tip data stays unknown.
  */
 export function resolveKnownChannelTipUpdateId(opts: {
   availableUpdateIdFromContext?: string | null;
@@ -102,13 +131,13 @@ export function resolveKnownChannelTipUpdateId(opts: {
   isEmbeddedLaunch?: boolean;
 }): string | null {
   const fromCheck = String(opts.availableUpdateIdFromCheck ?? "").trim();
-  if (!isBlankUpdateId(fromCheck)) return fromCheck;
+  if (isKnownChannelTipUpdateId(fromCheck)) return fromCheck;
   const fromCtx = String(opts.availableUpdateIdFromContext ?? "").trim();
-  if (!isBlankUpdateId(fromCtx)) return fromCtx;
+  if (isKnownChannelTipUpdateId(fromCtx)) return fromCtx;
   if (
     opts.updateAvailable === false &&
     !opts.isEmbeddedLaunch &&
-    !isBlankUpdateId(opts.runningUpdateId)
+    isKnownChannelTipUpdateId(opts.runningUpdateId)
   ) {
     return String(opts.runningUpdateId).trim();
   }
@@ -152,9 +181,11 @@ export function classifyDeviceAttestation(
   }
 
   if (runtime === EXPECTED_HEALTHY_RUNTIME) {
-    // Tip known and running ≠ tip → not healthy Case A (behind / failed apply).
+    // Behind-tip Case B only when tip is a valid known id and running ≠ tip.
+    // Unknown/sentinel tip (matchesChannelTip === null) must not become Case B.
     if (
       matchesChannelTip === false &&
+      isKnownChannelTipUpdateId(input.channelTipUpdateId) &&
       !input.isEmbeddedLaunch &&
       !isBlankUpdateId(updateId)
     ) {
