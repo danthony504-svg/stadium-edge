@@ -3,7 +3,8 @@
 **Closed:** 2026-10-17 · branch `cursor/ncaaf-tuning-cache-analysis-8b51`  
 **Verdict:** Supported FBS–FBS team-strength research **does not** meet locked M3/S2. Restoration attempt **closed**.  
 **Final scorecard:** [`ncaaf-tuning-identical-334-finish.md`](./ncaaf-tuning-identical-334-finish.md)  
-**Next (proposal only):** [`ncaaf-team-strength-next-inputs-proposal.md`](./ncaaf-team-strength-next-inputs-proposal.md) — **no implementation / no spend this close-out.**
+**Next (proposal only):** [`ncaaf-team-strength-next-inputs-proposal.md`](./ncaaf-team-strength-next-inputs-proposal.md) — **no implementation / no spend this close-out.**  
+**Clean engine (design):** [`ncaaf-clean-engine-design.md`](./ncaaf-clean-engine-design.md) — stop extending drive/v0; architecture + milestones for review before any new scoring code.
 
 ## Non-negotiables (preserved)
 
