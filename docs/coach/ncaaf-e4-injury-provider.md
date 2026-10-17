@@ -42,7 +42,16 @@ Until then: **do not request / purchase** a SportsDataIO subscription for E4.
 
 ### ScoreTape (documented timestamps — not configured)
 
-[ScoreTape CFB docs](https://scoretape.com/docs) describe `GET /v1/cfb/injuries` with `captured_ms` and as-of reconstruction (`latest row with captured_ms ≤ T`). That **is** the timing shape E4 needs, but no ScoreTape key is present here and this agent must **not** purchase a subscription. Treat as a candidate only after procurement + sample payload review.
+[ScoreTape CFB docs](https://scoretape.com/docs) describe `GET /v1/cfb/injuries` with `captured_ms` and as-of reconstruction (`latest row with captured_ms ≤ T`). That **is** the timing shape E4 needs, but no ScoreTape key is present here and this agent must **not** purchase a subscription.
+
+| Plan | Price | Unified history | Role for E4 |
+|------|------:|-----------------|-------------|
+| Explorer | **$0** | 7 days | **Pre-purchase sample** — verify CFB rows + `captured_ms` as-of ≤ kickoff |
+| Quant | $29/mo | 30 days | Forward / recent only |
+| Desk Lite | $79/mo | 90 days | Recent archive only |
+| Desk | $200/mo | full archive | Historical **only if** capture depth reaches target kickoffs (unproven until sample) |
+
+Treat as a candidate only after Explorer (or sales) sample payload review. Full completion path: [`ncaaf-e4-completion-path.md`](./ncaaf-e4-completion-path.md).
 
 ### Draft collector (forward evidence)
 

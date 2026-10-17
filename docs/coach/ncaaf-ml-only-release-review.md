@@ -78,7 +78,7 @@ Blockers:
 - Forward snapshot count insufficient for slate-wide capture < kickoff joins
 - Segment conservatism unscored on real joins (INSUFFICIENT_DATA)
 
-See [`ncaaf-e4-status.md`](./ncaaf-e4-status.md). Behavioral policy tests are done; historical predictive validation is not.
+See [`ncaaf-e4-status.md`](./ncaaf-e4-status.md) and [`ncaaf-e4-completion-path.md`](./ncaaf-e4-completion-path.md). Behavioral policy tests are done; historical predictive validation is not. M_base frozen; M_inj needs fresh prospective eval.
 
 ## E6
 

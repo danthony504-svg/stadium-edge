@@ -52,6 +52,10 @@ Segment conservatism on real joins: **INSUFFICIENT_DATA** — need ≥20 known a
 - Forward snapshot count insufficient for slate-wide capture < kickoff joins
 - Segment conservatism unscored on real joins (INSUFFICIENT_DATA)
 
+## Completion path (prepared)
+
+See [`ncaaf-e4-completion-path.md`](./ncaaf-e4-completion-path.md): ScoreTape Explorer $0 sample verify → else forward ESPN prospective (~3–6 weeks in-season); M_base frozen vs M_inj fresh eval; criteria locked before results. No purchase / activation this audit.
+
 ## E6 gate
 
 **Do not request E6** until E4 is resolved (`e4Resolved=true`).

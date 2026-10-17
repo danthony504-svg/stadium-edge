@@ -1,0 +1,58 @@
+{
+  "lockedAt": "2026-10-17",
+  "doc": "docs/coach/ncaaf-e4-completion-path.md",
+  "frozenModel": {
+    "id": "M_base",
+    "stamp": "ncaaf-score-margin-v1-research",
+    "alpha": 1.15,
+    "nMlFinalEval": 403,
+    "retuneAllowed": false,
+    "freshIndependentEvalRequired": false,
+    "note": "No-injury model; FINAL_EVAL M1–M4/C1–C6 already measured. Do not rescore."
+  },
+  "proposedInjuryModel": {
+    "id": "M_inj",
+    "base": "M_base",
+    "adjust": "e4ConservativeAdjust / E4_POLICY on usable_pre_kick only",
+    "freshIndependentEvalRequired": true,
+    "inheritsFrozenFinalEvalPass": false
+  },
+  "sampleCriteria": {
+    "N1_minDecidedCloseMlWithJoinAttempt": 60,
+    "N2_minInjuryKnownTrue": 20,
+    "N3_minInjuryKnownNull": 20,
+    "N4_minHome": 15,
+    "N4_minAway": 15,
+    "N5_captureBeforeKickoff": true,
+    "N6_neverCoerceNullToFalse": true,
+    "scope": "Odds-listed FBS only"
+  },
+  "segmentCriteria": {
+    "S1": "meanAbsEdge_null_le_meanAbsEdge_known",
+    "S2_edge": "engine_vs_close_ml_probability_points",
+    "S3_insufficientIfBelowN2OrN3": "INSUFFICIENT_DATA"
+  },
+  "providerPrePurchase": {
+    "scoretape": {
+      "timingShape": "captured_ms as-of reconstruction",
+      "samplePlan": "Explorer",
+      "sampleCostUsd": 0,
+      "sampleHistoryDays": 7,
+      "paidPlansUsdPerMo": { "Quant": 29, "DeskLite": 79, "Desk": 200 },
+      "purchaseAuthorized": false
+    },
+    "sportsdataio": {
+      "timingShape": "claimed_game_start_in_box_score_no_asof",
+      "cost": "sales_quoted",
+      "purchaseAuthorized": false
+    }
+  },
+  "fastestPath": {
+    "default": "forward_espn_prospective",
+    "parallelZeroCost": "scoretape_explorer_sample_verify",
+    "expectedCollectionWeeksInSeason": { "typical": [3, 6], "aggressive": [2, 3] },
+    "activationThisTurn": false,
+    "purchaseThisTurn": false,
+    "gateChangeThisTurn": false
+  }
+}
