@@ -495,10 +495,17 @@ export function buildCoachReliabilityBody(
   }
 
   if (requested != null && returned === 0) {
+    const blocked =
+      input.failureReason === "blocked_unvalidated_market" ||
+      input.scanFailureCode === "P0_UNVALIDATED_MARKETS";
     return {
       eventType: "parlay_zero_results",
-      failureReason:
-        input.realOddsAvailable === false ? "odds_mismatch" : "zero_results",
+      failureReason: blocked
+        ? "blocked_unvalidated_market"
+        : input.realOddsAvailable === false
+          ? "odds_mismatch"
+          : "zero_results",
+      ...(blocked ? { scanFailureCode: "P0_UNVALIDATED_MARKETS" } : {}),
       sportCategory: input.sportCategory ?? "unspecified",
       questionKind: "parlay_build",
       requestedLegCount: requested,
@@ -507,7 +514,9 @@ export function buildCoachReliabilityBody(
       realOddsAvailable: input.realOddsAvailable ?? null,
       requestId: input.requestId ?? null,
       affectedGame,
-      rootCause: input.rootCause ?? "zero_results",
+      rootCause:
+        input.rootCause ??
+        (blocked ? "unvalidated_ncaaf_game_line_simulation" : "zero_results"),
       ...corr,
       ...enrich,
       ...(input.testFixture ? { testFixture: true } : {}),

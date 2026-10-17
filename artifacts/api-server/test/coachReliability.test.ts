@@ -11,6 +11,7 @@ import {
   coachAlertFingerprint,
   coachEventSummary,
   countCoachPickLines,
+  failureCategoryFor,
   mapScanFailureCode,
   parseCoachMeta,
   percentile,
@@ -128,6 +129,29 @@ test("mapScanFailureCode covers grounding/alt/sim/freeze", () => {
   assert.equal(mapScanFailureCode("GAME_SIMS_ALL_NULL")?.failureReason, "missing_sim_output");
   assert.equal(mapScanFailureCode("ABSOLUTE_BUDGET")?.eventType, "coach_scan_freeze");
   assert.equal(mapScanFailureCode("QUALITY_BAR_EMPTY")?.alertable, false);
+  const p0 = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
+  assert.equal(p0?.failureReason, "blocked_unvalidated_market");
+  assert.equal(p0?.alertable, false);
+});
+
+test("blocked_unvalidated_market is digest-only (no Telegram page)", () => {
+  assert.equal(
+    shouldAlertCoachEvent(
+      baseMeta({
+        eventType: "parlay_zero_results",
+        failureReason: "blocked_unvalidated_market",
+        failureCategory: "blocked_unvalidated_market",
+        returnedLegCount: 0,
+        sportCategory: "ncaaf",
+        requestId: "greenfield-1792254591304",
+      }),
+    ),
+    false,
+  );
+  assert.equal(
+    failureCategoryFor("parlay_zero_results", "blocked_unvalidated_market"),
+    "blocked_unvalidated_market",
+  );
 });
 
 test("serialize/parse coach meta has no PII fields", () => {
@@ -314,6 +338,50 @@ test("digest denominator includes freeze + unknown; unknowns stay separate", () 
   assert.equal(digest.totalRequests, 15);
   // Unknowns must not inflate underfill/zero.
   assert.equal(digest.legitimateUnderfillCount, 3);
+});
+
+test("blocked_unvalidated_market is digest-visible but outside fulfillment/zero", () => {
+  const digest = aggregateCoachDigestStats(
+    [
+      {
+        occurrenceCount: 5,
+        meta: baseMeta({
+          eventType: "parlay_fulfilled",
+          failureReason: "none",
+          returnedLegCount: 5,
+        }),
+      },
+      {
+        occurrenceCount: 2,
+        meta: baseMeta({
+          eventType: "parlay_zero_results",
+          failureReason: "blocked_unvalidated_market",
+          failureCategory: "blocked_unvalidated_market",
+          returnedLegCount: 0,
+          sportCategory: "ncaaf",
+          requestId: "greenfield-1792254591304",
+        }),
+      },
+      {
+        occurrenceCount: 1,
+        meta: baseMeta({
+          eventType: "parlay_zero_results",
+          failureReason: "zero_results",
+          returnedLegCount: 0,
+        }),
+      },
+    ],
+    24,
+  );
+  assert.equal(digest.blockedUnvalidatedMarketCount, 2);
+  assert.equal(digest.zeroResultCount, 1);
+  // Denominator excludes policy blocks: 5 fulfilled + 1 zero = 6 → 83.3%
+  assert.equal(digest.fulfillmentPct, 83.3);
+  assert.ok(
+    digest.topFailureReasons.some((r) => r.reason === "blocked_unvalidated_market"),
+  );
+  const section = formatCoachDailyDigestSection(digest);
+  assert.match(section, /blocked unvalidated market: 2/);
 });
 
 test("test fixtures never parse as alertable production events", () => {

@@ -286,20 +286,18 @@ export function ncaafGameLineAskIsP0Blocked(opts: {
 
 /**
  * User-facing note when a college game-line ask is P0-blocked before scan.
- * Must not describe the empty ticket as failing the quality bar — simulation
- * is blocked / unavailable, not graded and rejected.
+ * Short, fixed copy — must not describe a quality-bar / scan failure.
+ * `requestedLegs` kept for call-site compatibility; not shown in the note.
  */
-export function p0BlockedNcaafGameLineAskNote(requestedLegs: number): string {
-  const n = Math.max(0, Math.floor(requestedLegs));
+export function p0BlockedNcaafGameLineAskNote(_requestedLegs?: number): string {
   return (
-    `College football (NCAAF) full-game spreads, moneylines, and totals are temporarily ` +
-    `blocked while the game-line simulation is unvalidated. ` +
-    `You asked for ${n} legs of those team markets — no ticket was built, and no other sports ` +
-    `were used to fill. College player props are a separate board (not available on bare ` +
-    `"college" asks); say "college football player props" or pick another sport if you want ` +
-    `a scanned ticket.`
+    "College football team picks are temporarily unavailable while validation is completed. " +
+    "No ticket was built."
   );
 }
+
+/** Reliability failureReason for the intentional NCAAF unvalidated-market gate. */
+export const BLOCKED_UNVALIDATED_MARKET_REASON = "blocked_unvalidated_market" as const;
 
 /**
  * True when every posted game-line candidate is P0-blocked (sides and/or totals).
