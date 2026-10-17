@@ -16,7 +16,7 @@ Machine-readable twin: `artifacts/api-server/test/fixtures/ncaaf-restoration-rel
 | FINAL_EVAL archive base | `b000b2bbec08b015bca220d42dd44319be16fa3c` | Frozen ML + E4 path tip |
 | Frozen FINAL_EVAL score once | `b9772e541cf9a785fe45a4fe0298aa088d49e7ee` | M1–M4 + C1–C6 measured |
 | E4 completion path lock | `b000b2bbec08b015bca220d42dd44319be16fa3c` | Prospective criteria locked |
-| Restoration tip | `8c3d2bc47949667f7b340eca6cd5ecf024123063`| Per-market gates + Coach wiring + diagnosis |
+| Restoration tip | `fa4ebcb15ff33fbf078df375a36f453825356878`| Per-market gates + Coach wiring + diagnosis |
 | Cap/provenance preview (separate) | `f36294c17d6a99deda7ebdae23f6201058880d2e` | Already authorized preview only — **not** this NCAAF unlock |
 
 **Stamp preserved:** `ncaaf-score-margin-v1-research` · α=`1.15` · candidate `E1_alpha_1_15` · nMl=403/408.
