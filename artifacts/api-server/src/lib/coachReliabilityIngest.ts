@@ -39,7 +39,7 @@ const KINDS: ReadonlySet<string> = new Set([
   "general_qa",
 ]);
 
-export const COACH_EVENT_MAX_BODY_BYTES = 4_096;
+export const COACH_EVENT_MAX_BODY_BYTES = 8_192;
 
 /** Known synthetic fixtures must never page production Telegram. */
 const TEST_FIXTURE_REQUEST_IDS = new Set([
@@ -66,12 +66,83 @@ function parseCorrelationId(b: Record<string, unknown>): string | null {
   return s || null;
 }
 
+
+function parseEnrichment(b: Record<string, unknown>): {
+  updateId: string | null;
+  channel: string | null;
+  bakedSha: string | null;
+  requestScope: RecordCoachEventInput["requestScope"];
+  candidateIds: string[] | null;
+  gameIds: string[] | null;
+  simFailureReason: string | null;
+} {
+  const requestScopeRaw =
+    b.requestScope && typeof b.requestScope === "object"
+      ? (b.requestScope as Record<string, unknown>)
+      : null;
+  const requestScope = requestScopeRaw
+    ? {
+        sport:
+          typeof requestScopeRaw.sport === "string"
+            ? sanitizeReliabilityText(requestScopeRaw.sport, 40)
+            : null,
+        team:
+          typeof requestScopeRaw.team === "string"
+            ? sanitizeReliabilityText(requestScopeRaw.team, 80)
+            : null,
+        kind:
+          typeof requestScopeRaw.kind === "string"
+            ? sanitizeReliabilityText(requestScopeRaw.kind, 40)
+            : null,
+      }
+    : null;
+  const scopeOk =
+    requestScope &&
+    (requestScope.sport || requestScope.team || requestScope.kind)
+      ? requestScope
+      : null;
+
+  const list = (v: unknown, max: number, len: number): string[] | null => {
+    if (!Array.isArray(v)) return null;
+    const out = v
+      .map((s) => sanitizeReliabilityText(String(s ?? ""), len))
+      .filter(Boolean)
+      .slice(0, max);
+    return out.length ? out : null;
+  };
+
+  return {
+    updateId:
+      typeof b.updateId === "string"
+        ? sanitizeReliabilityText(b.updateId, 120)
+        : null,
+    channel:
+      typeof b.channel === "string"
+        ? sanitizeReliabilityText(b.channel, 40)
+        : null,
+    bakedSha:
+      typeof b.bakedSha === "string"
+        ? sanitizeReliabilityText(b.bakedSha, 64)
+        : null,
+    requestScope: scopeOk,
+    candidateIds: list(b.candidateIds, 24, 120),
+    gameIds: list(b.gameIds, 12, 120),
+    simFailureReason:
+      typeof b.simFailureReason === "string"
+        ? sanitizeReliabilityText(b.simFailureReason, 80)
+        : typeof b.scanFailureCode === "string"
+          ? sanitizeReliabilityText(b.scanFailureCode, 80)
+          : null,
+  };
+}
+
 export function parseCoachReliabilityIngestBody(
   body: unknown,
 ): RecordCoachEventInput | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
   const correlationId = parseCorrelationId(b);
+  const enrich = parseEnrichment(b);
 
   // Prefer structured scan failure codes from mobile.
   if (typeof b.scanFailureCode === "string" && b.scanFailureCode) {
@@ -113,6 +184,7 @@ export function parseCoachReliabilityIngestBody(
         240,
       ),
       correlationId,
+      ...enrich,
     };
   }
 
@@ -157,5 +229,6 @@ export function parseCoachReliabilityIngestBody(
         ? sanitizeReliabilityText(b.rootCause, 240)
         : null,
     correlationId,
+    ...enrich,
   };
 }
