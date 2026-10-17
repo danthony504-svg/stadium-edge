@@ -540,6 +540,106 @@ export function seatingHitFromProvenance(
 }
 
 /**
+ * Align provenance to a graded/clipped/adjusted hit.
+ * Never mutates an existing exact-market stamp in place — remints trusted
+ * evidence when a live registry entry exists for the same identity. Forged
+ * or missing evidence fails closed. Edge/EV/grade/seating must share this
+ * returned provenance's hit.
+ */
+export function alignProvenanceToHit(
+  provenance: PropProbabilityProvenance | null | undefined,
+  hit: number | null,
+  opts?: { nullReason?: string | null },
+): PropProbabilityProvenance {
+  if (hit == null || !Number.isFinite(hit)) {
+    return insufficientPropProvenance({
+      sport: provenance?.sport ?? null,
+      marketKey: provenance?.marketKey ?? null,
+      nullReason: opts?.nullReason ?? "adjusted_hit_null",
+      hitReliability: provenance?.hitReliability ?? null,
+      simulations: provenance?.simulations ?? 0,
+      athleteId: provenance?.athleteId ?? null,
+      eventId: provenance?.eventId ?? null,
+      side: provenance?.side ?? null,
+      line: provenance?.line ?? null,
+    });
+  }
+  if (!provenance) {
+    return insufficientPropProvenance({
+      nullReason: opts?.nullReason ?? "missing_provenance",
+    });
+  }
+  if (
+    propProvenanceAllowsSeating(provenance) &&
+    provenance.hitProbability === hit
+  ) {
+    return provenance;
+  }
+  if (provenance.source === "exact_market_10k") {
+    const trusted = provenance.evidenceId
+      ? trustedExactEvidence.get(provenance.evidenceId)
+      : undefined;
+    const identity = resolveExactMarketIdentity({
+      athleteId: provenance.athleteId ?? trusted?.athleteId,
+      eventId: provenance.eventId ?? trusted?.eventId,
+      propMarketKey: provenance.marketKey ?? trusted?.marketKey,
+      propSide: provenance.side ?? trusted?.side,
+      propLine: provenance.line ?? trusted?.line,
+    });
+    if (!trusted || !identity || !identitiesMatch(identity, trusted)) {
+      return insufficientPropProvenance({
+        sport: provenance.sport,
+        marketKey: provenance.marketKey,
+        nullReason: opts?.nullReason ?? "untrusted_exact_adjustment",
+        hitReliability: provenance.hitReliability,
+        simulations: provenance.simulations,
+        athleteId: provenance.athleteId,
+        eventId: provenance.eventId,
+        side: provenance.side,
+        line: provenance.line,
+      });
+    }
+    // Remint — clipped/adjusted hit becomes a new authoritative exact stamp.
+    return exactMarket10kProvenance({
+      hitProbability: hit,
+      simulations: Math.max(trusted.simulations, provenance.simulations ?? 0),
+      sport: provenance.sport,
+      marketKey: identity.marketKey,
+      hitReliability: provenance.hitReliability,
+      athleteId: identity.athleteId,
+      eventId: identity.eventId,
+      side: identity.side,
+      line: identity.line,
+    });
+  }
+  if (provenance.source === "validated_historical_model") {
+    return historicalModelProvenance({
+      hitProbability: hit,
+      sport: provenance.sport,
+      marketKey: provenance.marketKey,
+      hitReliability: provenance.hitReliability,
+      nullReason: opts?.nullReason,
+      athleteId: provenance.athleteId,
+      eventId: provenance.eventId,
+      side: provenance.side,
+      line: provenance.line,
+    });
+  }
+  return insufficientPropProvenance({
+    sport: provenance.sport,
+    marketKey: provenance.marketKey,
+    nullReason:
+      provenance.nullReason ?? opts?.nullReason ?? "insufficient_evidence",
+    hitReliability: provenance.hitReliability,
+    simulations: provenance.simulations,
+    athleteId: provenance.athleteId,
+    eventId: provenance.eventId,
+    side: provenance.side,
+    line: provenance.line,
+  });
+}
+
+/**
  * Prefer stronger authorized provenance. Never promote insufficient over a
  * valid exact/historical stamp. Never invent hits.
  */

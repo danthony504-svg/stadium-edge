@@ -94,10 +94,12 @@ import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import type { PlayerHistorySlice } from "./pickScoreContext.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 import {
+  alignProvenanceToHit,
   exactMarket10kProvenance,
   insufficientPropProvenance,
   preferPropProvenance,
   propProvenanceAllowsSeating,
+  seatingHitFromProvenance,
   type PropProbabilityProvenance,
 } from "./coachPropProbabilityProvenance.ts";
 import type { PropsOnlyHit } from "./coachFootballPropsOnlyGrade.ts";
@@ -366,6 +368,18 @@ function scoredLegFromHit(
   // Matchup must move projection/grade — adjust sim hit (bounded), not display-only.
   hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt);
 
+  // Edge/EV/grade/seating share one validated provenance hit (remint on adjust).
+  const candidateId = {
+    athleteId: poolRow?.athleteId ?? norm.athleteId,
+    eventId: norm.eventId ?? (poolRow as { eventId?: string | null } | undefined)?.eventId,
+    propMarketKey: marketKey,
+    propSide: norm.propSide,
+    propLine: norm.propLine,
+  };
+  const alignedProvenance = alignProvenanceToHit(probabilityProvenance, hit);
+  hit = seatingHitFromProvenance(alignedProvenance, candidateId);
+  if (hit == null) return null;
+
   const trend = propsOnlyTrendFromHistory(
     ph,
     String(marketKey ?? ""),
@@ -401,7 +415,7 @@ function scoredLegFromHit(
     edgePct,
     odds: norm.odds,
     propSimHit: hit,
-    propProbabilityProvenance: probabilityProvenance,
+    propProbabilityProvenance: alignedProvenance,
     propHolisticContext: {
       sport,
       marketKey,
@@ -446,7 +460,7 @@ function scoredLegFromHit(
       ...norm,
       propsOnlyTicket: true,
       finalAiScore: score,
-      propProbabilityProvenance: probabilityProvenance,
+      propProbabilityProvenance: alignedProvenance,
       ticketRole: norm.propIsAlt ? "alt" : "main",
     },
     evPct: ev,

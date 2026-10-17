@@ -27,6 +27,7 @@ import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
 import { simEvPct } from "./gameSimQualityGates.ts";
 import {
+  alignProvenanceToHit,
   historicalModelProvenance,
   seatingHitFromProvenance,
   type PropProbabilityProvenance,
@@ -501,22 +502,27 @@ export function softClipPropsOnlyHits(
     const raw = existing?.hitProbability;
     const clipped = clipPropSimHitForGrade(norm, raw);
     if (clipped !== raw) {
-      const prov = existing?.probabilityProvenance ?? null;
+      const candidate = {
+        athleteId: norm.athleteId ?? row?.athleteId,
+        eventId: norm.eventId ?? (row as { eventId?: string | null } | undefined)?.eventId,
+        propMarketKey: norm.propMarketKey ?? norm.market,
+        propSide: norm.propSide,
+        propLine: norm.propLine,
+      };
+      // Remint trusted exact evidence for the clipped hit — never mutate in place.
+      const aligned = alignProvenanceToHit(
+        existing?.probabilityProvenance,
+        clipped,
+        {
+          nullReason:
+            clipped == null ? "rare_count_insufficient_evidence" : null,
+        },
+      );
       hits.set(key, {
-        hitProbability: clipped,
-        nullReason: clipped == null ? "rare_count_insufficient_evidence" : null,
+        hitProbability: seatingHitFromProvenance(aligned, candidate),
+        nullReason: aligned.nullReason,
         hitReliability: existing?.hitReliability ?? null,
-        probabilityProvenance:
-          clipped == null && prov
-            ? {
-                ...prov,
-                source: "insufficient_evidence",
-                hitProbability: null,
-                nullReason: "rare_count_insufficient_evidence",
-              }
-            : prov
-              ? { ...prov, hitProbability: clipped }
-              : prov,
+        probabilityProvenance: aligned,
       });
     }
   }
