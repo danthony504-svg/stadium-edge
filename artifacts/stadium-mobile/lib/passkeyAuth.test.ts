@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   __setPasskeysLoaderForTests,
+  __setPasskeysNativePresentForTests,
   classifyPasskeyError,
   clerkAssociatedDomains,
   clerkFrontendApiHost,
@@ -10,6 +11,7 @@ import {
   describeSignupError,
   generateMachinePassword,
   getPasskeys,
+  hasClerkExpoPasskeysNative,
   isDuplicateEmailError,
   isPasskeyCancellation,
   isPasskeysSupported,
@@ -140,26 +142,64 @@ describe("passkeyAuth missing ClerkExpoPasskeys (OTA Build 78)", () => {
     }
   });
 
+  it("never requires @clerk/expo/passkeys when native module is missing", () => {
+    let loaderCalls = 0;
+    __setPasskeysNativePresentForTests(() => false);
+    __setPasskeysLoaderForTests(() => {
+      loaderCalls += 1;
+      throw new Error("loader must not run when native absent");
+    });
+    try {
+      assert.equal(hasClerkExpoPasskeysNative(), false);
+      assert.equal(getPasskeys(), null);
+      assert.equal(isPasskeysSupported(), false);
+      assert.equal(
+        loaderCalls,
+        0,
+        "loader/require must not run without ClerkExpoPasskeys",
+      );
+    } finally {
+      __setPasskeysNativePresentForTests(null);
+      __setPasskeysLoaderForTests(null);
+    }
+  });
+
   it("returns support true when loader yields a working passkeys API", () => {
+    __setPasskeysNativePresentForTests(() => true);
     __setPasskeysLoaderForTests(() => ({
       passkeys: { isSupported: () => true },
     }));
     try {
+      assert.equal(hasClerkExpoPasskeysNative(), true);
       assert.equal(isPasskeysSupported(), true);
       assert.ok(getPasskeys());
     } finally {
+      __setPasskeysNativePresentForTests(null);
       __setPasskeysLoaderForTests(null);
     }
   });
 
   it("returns support false when isSupported reports false", () => {
+    __setPasskeysNativePresentForTests(() => true);
     __setPasskeysLoaderForTests(() => ({
       passkeys: { isSupported: () => false },
     }));
     try {
       assert.equal(isPasskeysSupported(), false);
     } finally {
+      __setPasskeysNativePresentForTests(null);
       __setPasskeysLoaderForTests(null);
+    }
+  });
+
+  it("missing passkeys leaves RootLayout Clerk prop undefined (normal sign-in path)", () => {
+    __setPasskeysNativePresentForTests(() => false);
+    try {
+      // Mirrors app/_layout.tsx: __experimental_passkeys={getPasskeys() ?? undefined}
+      const prop = getPasskeys() ?? undefined;
+      assert.equal(prop, undefined);
+    } finally {
+      __setPasskeysNativePresentForTests(null);
     }
   });
 });
