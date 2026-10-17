@@ -18,6 +18,11 @@ export type CoachDigestStats = {
   underfillCount: number;
   legitimateUnderfillCount: number;
   zeroResultCount: number;
+  /**
+   * Intentional unvalidated-market policy gates (e.g. NCAAF team lines).
+   * Visible in the digest but excluded from zero-result / fulfillment rates.
+   */
+  blockedUnvalidatedMarketCount: number;
   questionFailureCount: number;
   groundingFailureCount: number;
   altMarketFailureCount: number;
@@ -53,6 +58,7 @@ export function aggregateCoachDigestStats(
   let underfillCount = 0;
   let legitimateUnderfillCount = 0;
   let zeroResultCount = 0;
+  let blockedUnvalidatedMarketCount = 0;
   let questionFailureCount = 0;
   let groundingFailureCount = 0;
   let altMarketFailureCount = 0;
@@ -67,6 +73,7 @@ export function aggregateCoachDigestStats(
     const meta = row.meta;
     const type = meta?.eventType;
     if (!type) continue;
+    const blockedUnvalidated = meta?.failureReason === "blocked_unvalidated_market";
 
     if (type === "parlay_requested" || type === "coach_question_received") {
       requestEventCount += n;
@@ -84,7 +91,12 @@ export function aggregateCoachDigestStats(
         legitimateUnderfillCount += n;
       }
     }
-    if (type === "parlay_zero_results") zeroResultCount += n;
+    // Policy gate: count separately — do not inflate zero-result / fulfillment.
+    if (blockedUnvalidated) {
+      blockedUnvalidatedMarketCount += n;
+    } else if (type === "parlay_zero_results") {
+      zeroResultCount += n;
+    }
     if (type === "coach_question_failed" || type === "coach_empty_response") {
       questionFailureCount += n;
     }
@@ -103,10 +115,13 @@ export function aggregateCoachDigestStats(
       unknownOutcomeCount += n;
     }
 
+    // Digest-visible reasons: alertable failures AND policy blocks (not paged).
     if (
       meta?.failureReason &&
       meta.failureReason !== "none" &&
-      (COACH_ALERT_EVENT_TYPES.has(type) || shouldAlertCoachEvent(meta))
+      (blockedUnvalidated ||
+        COACH_ALERT_EVENT_TYPES.has(type) ||
+        shouldAlertCoachEvent(meta))
     ) {
       reasonCounts.set(
         meta.failureReason,
@@ -123,6 +138,7 @@ export function aggregateCoachDigestStats(
     }
   }
 
+  // Denominator excludes policy blocks (blockedUnvalidatedMarketCount).
   const classifiedParlayOutcomes =
     successfulRequests + underfillCount + zeroResultCount + scanFreezeCount;
   // Consistent denominator: classified outcomes + legacy unknowns (not request events).
@@ -149,6 +165,7 @@ export function aggregateCoachDigestStats(
     underfillCount,
     legitimateUnderfillCount,
     zeroResultCount,
+    blockedUnvalidatedMarketCount,
     questionFailureCount,
     groundingFailureCount,
     altMarketFailureCount,

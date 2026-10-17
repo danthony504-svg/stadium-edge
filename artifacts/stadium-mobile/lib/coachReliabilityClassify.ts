@@ -61,6 +61,13 @@ export function mapScanFailureCode(
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    case "P0_UNVALIDATED_MARKETS":
+      // Intentional NCAAF / unvalidated-market gate — digest only, never page.
+      return {
+        eventType: "parlay_zero_results",
+        failureReason: "blocked_unvalidated_market",
+        alertable: false,
+      };
     default:
       return null;
   }
