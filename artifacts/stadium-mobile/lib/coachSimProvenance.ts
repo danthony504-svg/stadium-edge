@@ -13,16 +13,21 @@ import { simEdgeFromHit, simEvPct } from "./gameSimQualityGates.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
 
 export type DerivedEdgeEv = {
-  /** Probability-point edge: (simHit − bookImplied) × 100. */
+  /** Probability-point edge vs book-implied win rate (push-adjusted). */
   edgePct: number | null;
-  /** Expected-value percent: (simHit × decimalOdds − 1) × 100. */
+  /** Expected-value percent with integer-line push refunds. */
   evPct: number | null;
 };
 
-/** Recompute derived edge/EV from a verified hit probability + posted odds. */
+/**
+ * Recompute derived edge/EV from a verified hit probability + posted odds.
+ * Pass `pushRate` for integer lines (land-on-number stake refund); half-points
+ * leave it at 0.
+ */
 export function recomputeDerivedEdgeEv(
   simHit: number | null | undefined,
   odds: number | null | undefined,
+  pushRate = 0,
 ): DerivedEdgeEv {
   if (simHit == null || !Number.isFinite(simHit) || simHit <= 0 || simHit >= 1) {
     return { edgePct: null, evPct: null };
@@ -31,8 +36,8 @@ export function recomputeDerivedEdgeEv(
     return { edgePct: null, evPct: null };
   }
   return {
-    edgePct: simEdgeFromHit(simHit, odds),
-    evPct: simEvPct(simHit, odds),
+    edgePct: simEdgeFromHit(simHit, odds, pushRate),
+    evPct: simEvPct(simHit, odds, pushRate),
   };
 }
 

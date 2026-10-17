@@ -9,10 +9,22 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
+  wouldStackCorrelatedGameAndTeamTotals,
+  wouldStackSameTeamTeamTotals,
+} from "./coachP0UnvalidatedTotals.ts";
+import {
   pickHasPlayerGameGroundingMismatch,
   type CoachReliabilityGroundingPick,
 } from "./coachReliabilityGrounding.ts";
 import { withholdUnverifiableSeatedGrades } from "./coachSimProvenance.ts";
+import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
+import {
+  maxLegsPerGame,
+  maxPropsPerGame,
+  wouldExceedMaxLegsPerGame,
+  wouldExceedMaxPropsPerGame,
+  wouldRepeatPlayerProp,
+} from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 
 export type DeliveryGroundingResult = {
@@ -49,12 +61,15 @@ export function filterPicksForPlayerGameGrounding(
 
 /**
  * After final slate/team belts: remove proven mismatches, top up from
- * qualified leftovers that also pass grounding, report shortfall vs target.
+ * qualified leftovers that also pass grounding + default same-game / GT-TT /
+ * prop / ladder gates. Never raise the per-game game-line cap — honest shortfall.
  */
 export function applyDeliveryGroundingGate(opts: {
   picks: readonly ParsedPick[];
   qualifiedCandidates?: readonly ParsedPick[] | null;
   target: number;
+  /** Optional override; default uses {@link maxLegsPerGame}(target). */
+  legsPerGameCap?: number | null;
 }): DeliveryGroundingResult {
   const target =
     typeof opts.target === "number" && Number.isFinite(opts.target)
@@ -80,12 +95,20 @@ export function applyDeliveryGroundingGate(opts: {
   const out = kept.slice();
   let replacedCount = 0;
   const pool = opts.qualifiedCandidates ?? [];
+  const maxPerGame = maxLegsPerGame(target, opts.legsPerGameCap);
+  const maxProps = maxPropsPerGame(target);
   if (out.length < target && pool.length) {
     for (const cand of pool) {
       if (out.length >= target) break;
       const fp = pickLegFingerprint(cand);
       if (used.has(fp)) continue;
       if (pickHasPlayerGameGroundingMismatch(asGroundingPick(cand))) continue;
+      if (wouldExceedMaxLegsPerGame(cand, out, maxPerGame)) continue;
+      if (wouldRepeatPlayerProp(cand, out)) continue;
+      if (wouldExceedMaxPropsPerGame(cand, out, maxProps)) continue;
+      if (wouldRepeatMarketLadder(cand, out)) continue;
+      if (wouldStackSameTeamTeamTotals(cand, out)) continue;
+      if (wouldStackCorrelatedGameAndTeamTotals(cand, out)) continue;
       used.add(fp);
       out.push(cand);
       replacedCount += 1;
