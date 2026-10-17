@@ -1,7 +1,7 @@
 # Clean vs prior — identical IDs + ablations
 
 **Stamp:** `ncaaf-score-margin-v1-research`  
-**Generated:** 2026-10-17T11:42:55.941Z  
+**Generated:** 2026-10-17T11:45:26.585Z  
 **Protocol predefined:** `ncaaf-clean-compare-ablation-protocol.md`  
 **evaluableSupported ≠ production approval** (`productionReleaseApproved=false`)
 

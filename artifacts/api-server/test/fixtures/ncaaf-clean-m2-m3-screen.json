@@ -1,10 +1,14 @@
 {
-  "generatedAt": "2026-10-17T11:33:32.934Z",
+  "generatedAt": "2026-10-17T11:45:20.717Z",
   "stamp": "ncaaf-score-margin-v1-research",
   "split": "TUNING",
   "finalEval": "UNTOUCHED",
   "closesInFeatures": false,
   "injury": "injury_unavailable (E4 open)",
+  "naming": {
+    "evaluableSupported": "research eval inputs — NOT production approval",
+    "productionReleaseApproved": false
+  },
   "totalsAlts": "do_not_block_ml_ats_research",
   "ops": {
     "ncaafGate": false,
@@ -26,7 +30,7 @@
       "home": 465,
       "neutral": 6,
       "unknown": 0,
-      "releaseEligible": 350
+      "evaluableSupported": 350
     },
     "okPredictions": 350,
     "withhold": {
@@ -44,7 +48,7 @@
     }
   },
   "m3Screen": {
-    "note": "Screening only on supported FBS–FBS + releaseEligible + close-joined labels. Not FINAL_EVAL. Rebuild ≠ pass.",
+    "note": "Screening only on supported FBS–FBS + evaluableSupported + close-joined labels. Not FINAL_EVAL. Rebuild ≠ pass.",
     "overall": {
       "nMl": 334,
       "nAts": 326,
@@ -75,7 +79,22 @@
       "meanResidual": 3.987580559001575,
       "rmseResidual": 18.403120694730084
     },
-    "largeFavorite14plus": {
+    "largeFavorite14plus_gt14": {
+      "nMl": 94,
+      "nAts": 94,
+      "mlBrierEngine": 0.122519642167214,
+      "mlBrierMarket": 0.07411706438814678,
+      "mlBrierCoin": 0.25,
+      "mlDeltaVsMarket": 0.04840257777906723,
+      "mlM3": false,
+      "mlBias": -0.13359689812342668,
+      "atsBrierEngine": 0.26723926792604286,
+      "atsBrierCoin": 0.25,
+      "atsS2": false,
+      "meanResidual": 7.077091980822064,
+      "rmseResidual": 17.50605920110603
+    },
+    "largeFavorite14plus_ge14_sensitivity": {
       "nMl": 107,
       "nAts": 107,
       "mlBrierEngine": 0.1388805117084295,
@@ -90,6 +109,7 @@
       "meanResidual": 6.695493857583143,
       "rmseResidual": 17.78011586297145
     },
+    "largeFavoriteNote": "Canonical abs>14 matches identical-334 (n≈94). abs>=14 was first-screen bug (n≈107).",
     "lockedCriteriaReminder": {
       "M3": "brierEngine <= brierMarket + 0.02",
       "S2": "brierEngine < 0.25 (ATS vs coin)"

@@ -363,9 +363,14 @@ Full ESPN TUNING FBS–FCS=119; fair close-joined FBS–FCS=85 (421 − 334 − 
 |-------|-----:|---------:|----------:|---------:|:--:|------:|----------:|:--:|--------------:|
 | Overall | ${overall.nMl} | ${overall.mlBrierEngine?.toFixed(4)} | ${overall.mlBrierMarket?.toFixed(4)} | ${overall.mlDeltaVsMarket?.toFixed(4)} | ${overall.mlM3} | ${overall.nAts} | ${overall.atsBrierEngine?.toFixed(4)} | ${overall.atsS2} | ${overall.meanResidual?.toFixed(3)} |
 | Week 1 | ${week1.nMl} | ${week1.mlBrierEngine?.toFixed(4)} | ${week1.mlBrierMarket?.toFixed(4)} | ${week1.mlDeltaVsMarket?.toFixed(4)} | ${week1.mlM3} | ${week1.nAts} | ${week1.atsBrierEngine?.toFixed(4)} | ${week1.atsS2} | ${week1.meanResidual?.toFixed(3)} |
-| 14+ fav | ${largeFav.nMl} | ${largeFav.mlBrierEngine?.toFixed(4)} | ${largeFav.mlBrierMarket?.toFixed(4)} | ${largeFav.mlDeltaVsMarket?.toFixed(4)} | ${largeFav.mlM3} | ${largeFav.nAts} | ${largeFav.atsBrierEngine?.toFixed(4)} | ${largeFav.atsS2} | ${largeFav.meanResidual?.toFixed(3)} |
+| 14+ fav (abs>14 canonical) | ${largeFav.nMl} | ${largeFav.mlBrierEngine?.toFixed(4)} | ${largeFav.mlBrierMarket?.toFixed(4)} | ${largeFav.mlDeltaVsMarket?.toFixed(4)} | ${largeFav.mlM3} | ${largeFav.nAts} | ${largeFav.atsBrierEngine?.toFixed(4)} | ${largeFav.atsS2} | ${largeFav.meanResidual?.toFixed(3)} |
+| 14+ fav (abs≥14 sensitivity) | ${largeFavGe14.nMl} | ${largeFavGe14.mlBrierEngine?.toFixed(4)} | ${largeFavGe14.mlBrierMarket?.toFixed(4)} | ${largeFavGe14.mlDeltaVsMarket?.toFixed(4)} | ${largeFavGe14.mlM3} | ${largeFavGe14.nAts} | ${largeFavGe14.atsBrierEngine?.toFixed(4)} | ${largeFavGe14.atsS2} | ${largeFavGe14.meanResidual?.toFixed(3)} |
 
 Baselines: coin ML Brier overall ${overall.mlBrierCoin?.toFixed(4)}; coin ATS ${overall.atsBrierCoin?.toFixed(4)}.
+
+**Naming:** \`evaluableSupported\` = research inputs complete enough to score (retired name: \`releaseEligible\`). \`productionReleaseApproved=false\` always on this stamp — the ${evaluableSupported} preds are **evaluable, not production-approved**.
+
+**14+ reconcile:** spread=\`closeSpreadHome\`; favorite=\`abs(closeSpreadHome)\`; ATS pushes excluded. First screen used abs≥14 (n=${largeFavGe14.nMl}); identical-334 canonical is abs>14 (n=${largeFav.nMl}; ${largeFavGe14.nMl! - largeFav.nMl!} at exactly 14).
 
 **Screening only — not a restore / FINAL_EVAL pass.**
 `;
