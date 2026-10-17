@@ -705,10 +705,11 @@ export async function buildCoachParlay(opts: {
     const propsSportLabel = askAllowsNcaafPlayerProps(opts.askText)
       ? "college football"
       : "football";
-    // Empty ticket: one terminal diagnosis from failDiag (partial/recovery/final agree).
-    // Locked-market shortfall copy stays authoritative for explicit market locks.
-    const emptyTerminalBody =
-      picks.length === 0 && propsFailDiag && !isMarketLocked
+    // Empty or short ticket: one terminal diagnosis from failDiag
+    // (partial/recovery/final agree). Locked-market shortfall copy stays
+    // authoritative for explicit market locks.
+    const failDiagTerminalBody =
+      picks.length < target && propsFailDiag && !isMarketLocked
         ? reconcileCoachTerminalNote({
             priorText: recoveredNote || built.note,
             nextText: recoveredNote || built.note || "",
@@ -729,7 +730,7 @@ export async function buildCoachParlay(opts: {
           })
         : "";
     const body =
-      emptyTerminalBody ||
+      failDiagTerminalBody ||
       recoveredNote ||
       built.note.trim() ||
       buildFinalCoachParlayNote({

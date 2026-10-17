@@ -73,11 +73,13 @@ test("props-only empty quality bar recovers via football skill board (yards/rec/
   assert.match(src, /allowedSports:\s*inputs\.sports/);
   assert.match(src, /footballSkillRecoveryNote/);
   assert.match(src, /yards \/ receptions \/ sacks/);
-  // Terminal empty copy must follow preferPropsOnlyFailDiag / failDiag — not
-  // softPreferred ODDS_GATE overwriting skill-board CONFIDENCE_GATE.
+  // Terminal empty/short copy must follow preferPropsOnlyFailDiag / failDiag —
+  // not softPreferred ODDS_GATE overwriting skill-board CONFIDENCE_GATE, and
+  // not thin-slate merely because staged < target.
   assert.match(src, /preferPropsOnlyFailDiag/);
   assert.match(src, /propsOnlyTerminalEmptyNote/);
   assert.match(src, /reconcileCoachTerminalNote/);
+  assert.match(src, /picks\.length < target && propsFailDiag/);
   assert.doesNotMatch(
     src,
     /propsFailDiag = softPreferred\.failDiag/,

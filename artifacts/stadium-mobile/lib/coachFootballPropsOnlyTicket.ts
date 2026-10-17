@@ -41,6 +41,7 @@ import {
   buildPropsOnlyFailDiag,
   propsOnlyFailNote,
   propsOnlyTerminalEmptyNote,
+  propsOnlyTerminalShortNote,
 } from "./coachPropsOnlyFailReason.ts";
 import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
 import { askAllowsNcaafPlayerProps } from "./boardScanPropDelivery.ts";
@@ -123,6 +124,7 @@ export {
   preferPropsOnlyFailDiag,
   propsOnlyFailNote,
   propsOnlyTerminalEmptyNote,
+  propsOnlyTerminalShortNote,
   reconcileCoachTerminalNote,
 } from "./coachPropsOnlyFailReason.ts";
 
@@ -915,22 +917,22 @@ export async function buildFootballPropsOnlyTicket(
     stageRejects,
   });
 
+  const sportLabel = askAllowsNcaafPlayerProps(opts.askText ?? "")
+    ? "college football"
+    : "football";
   let note = "";
   if (picks.length === 0) {
     // Same terminal diagnosis as buildCoachParlay recovery / final Coach bubble.
     note = propsOnlyTerminalEmptyNote(failDiag, {
-      sportLabel: askAllowsNcaafPlayerProps(opts.askText ?? "")
-        ? "college football"
-        : "football",
+      sportLabel,
       confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
     });
   } else if (picks.length < opts.target) {
-    // Phone: oddsOk=23 staged=3 — diversity/thin slate, not a quality wipe.
-    const lead =
-      propScored.length > picks.length && uniqueGames > 0
-        ? `You asked for ${opts.target} legs — only ${picks.length} player props fit after thin-slate fill (${uniqueGames} game${uniqueGames === 1 ? "" : "s"}, ${propScored.length} cleared odds). No ungraded filler was added.`
-        : `You asked for ${opts.target} legs — only ${picks.length} player props cleared the AI quality bar. No ungraded filler was added.`;
-    note = propsOnlyFailNote(lead, failDiag);
+    // Same failDiag authority as empty tickets — never label confidence as thin-slate.
+    note = propsOnlyTerminalShortNote(failDiag, {
+      sportLabel,
+      confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+    });
   }
 
   return {

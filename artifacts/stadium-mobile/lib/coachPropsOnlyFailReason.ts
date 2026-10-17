@@ -145,13 +145,55 @@ export function propsOnlyFailNote(lead: string, diag: PropsOnlyFailDiag): string
   return sanitizeCoachUserNote(lead);
 }
 
+type StageRejectBreakdown = {
+  conf: number;
+  grade: number;
+  edge: number;
+  perGame: number;
+  marketSide: number;
+  ladder: number;
+  rareFamily: number;
+  rare: number;
+  anytime: number;
+  constraint: number;
+};
+
+function stageRejectBreakdown(d: PropsOnlyFailDiag): StageRejectBreakdown {
+  const q = d.stageRejects?.qualifyFail ?? {};
+  const conf = Number(q.confidence_floor ?? 0) || 0;
+  const grade = Number(q.grade_floor ?? 0) || 0;
+  const edge = Number(q.non_positive_edge ?? 0) || 0;
+  const sr = d.stageRejects;
+  const perGame = Number(sr?.perGameCap ?? 0) || 0;
+  const marketSide = Number(sr?.marketSideCap ?? 0) || 0;
+  const ladder = Number(sr?.ladderDedupe ?? 0) || 0;
+  const rareFamily = Number(sr?.rareFamilyCap ?? 0) || 0;
+  const rare = Number(sr?.rareFail ?? 0) || 0;
+  const anytime = Number(sr?.anytimeFail ?? 0) || 0;
+  const constraint = perGame + marketSide + ladder + rareFamily + rare + anytime;
+  return {
+    conf,
+    grade,
+    edge,
+    perGame,
+    marketSide,
+    ladder,
+    rareFamily,
+    rare,
+    anytime,
+    constraint,
+  };
+}
+
+function isShortTicket(d: PropsOnlyFailDiag): boolean {
+  return d.staged > 0 && d.staged < d.target;
+}
+
 /** True when odds cleared but every seat died on the confidence floor (not grade/edge). */
 export function isPropsOnlyConfidenceTerminal(d: PropsOnlyFailDiag): boolean {
   if (d.oddsCleared <= 0 || d.staged > 0) return false;
   if (d.code === "PROPS_ONLY_CONFIDENCE_GATE") return true;
-  const conf = d.stageRejects?.qualifyFail?.confidence_floor ?? 0;
-  const grade = d.stageRejects?.qualifyFail?.grade_floor ?? 0;
-  const edge = d.stageRejects?.qualifyFail?.non_positive_edge ?? 0;
+  const { conf, grade, edge } = stageRejectBreakdown(d);
   return conf > 0 && conf >= grade && conf >= edge;
 }
 
@@ -159,10 +201,71 @@ export function isPropsOnlyConfidenceTerminal(d: PropsOnlyFailDiag): boolean {
 export function isPropsOnlyGradeTerminal(d: PropsOnlyFailDiag): boolean {
   if (d.oddsCleared <= 0 || d.staged > 0) return false;
   if (isPropsOnlyConfidenceTerminal(d)) return false;
-  const conf = d.stageRejects?.qualifyFail?.confidence_floor ?? 0;
-  const grade = d.stageRejects?.qualifyFail?.grade_floor ?? 0;
-  const edge = d.stageRejects?.qualifyFail?.non_positive_edge ?? 0;
+  const { conf, grade, edge } = stageRejectBreakdown(d);
   return grade > 0 && grade >= conf && grade >= edge;
+}
+
+/**
+ * Partial ticket: leftover odds-cleared legs died primarily on confidence_floor.
+ * Must not be labeled thin-slate merely because staged < target.
+ */
+export function isPropsOnlyConfidenceShortfall(d: PropsOnlyFailDiag): boolean {
+  if (!isShortTicket(d)) return false;
+  if (d.oddsCleared <= d.staged) return false;
+  const { conf, grade, edge, constraint } = stageRejectBreakdown(d);
+  return conf > 0 && conf >= grade && conf >= edge && conf >= constraint;
+}
+
+/** Partial ticket: diversity / same-game / ladder caps blocked further seats. */
+export function isPropsOnlyConstraintShortfall(d: PropsOnlyFailDiag): boolean {
+  if (!isShortTicket(d)) return false;
+  if (isPropsOnlyConfidenceShortfall(d)) return false;
+  const { conf, grade, edge, constraint } = stageRejectBreakdown(d);
+  return constraint > 0 && constraint >= conf && constraint >= grade && constraint >= edge;
+}
+
+/**
+ * Partial ticket: every odds-cleared leg already seated; further graded sides
+ * failed the odds bar (not a confidence wipe of leftover clears).
+ */
+export function isPropsOnlyOddsShortfall(d: PropsOnlyFailDiag): boolean {
+  if (!isShortTicket(d)) return false;
+  if (d.oddsCleared > d.staged) return false;
+  if (isPropsOnlyConfidenceShortfall(d) || isPropsOnlyConstraintShortfall(d)) {
+    return false;
+  }
+  return d.bestEvSides > d.oddsCleared || d.graded > d.oddsCleared;
+}
+
+/**
+ * Partial ticket: candidate/game scarcity is the real terminal cause.
+ * Never claim thin-slate when confidence, constraints, or odds dominate.
+ */
+export function isPropsOnlyThinSlateShortfall(d: PropsOnlyFailDiag): boolean {
+  if (!isShortTicket(d)) return false;
+  if (isPropsOnlyConfidenceShortfall(d)) return false;
+  if (isPropsOnlyConstraintShortfall(d)) return false;
+  if (isPropsOnlyOddsShortfall(d)) return false;
+  const games = d.uniqueGames ?? 0;
+  // No unused odds-cleared legs and a thin posted slate.
+  if (d.oddsCleared <= d.staged && games > 0 && games <= 2) return true;
+  // Single-game board with nothing left to seat after the staged set.
+  if (games <= 1 && d.oddsCleared <= Math.max(d.staged, 1)) return true;
+  return false;
+}
+
+function dominantConstraintLabel(b: StageRejectBreakdown): string {
+  const ranked: Array<[number, string]> = [
+    [b.perGame, "per-game seat caps"],
+    [b.marketSide, "same-game market/side caps"],
+    [b.ladder, "player/market ladder dedupe"],
+    [b.rareFamily, "same-event rare-family caps"],
+    [b.rare, "rare multi-count seat rules"],
+    [b.anytime, "anytime-TD seat rules"],
+  ];
+  ranked.sort((a, c) => c[0] - a[0]);
+  if (ranked[0][0] > 0) return ranked[0][1];
+  return "diversity and same-game constraints";
 }
 
 /**
@@ -250,6 +353,60 @@ export function propsOnlyTerminalEmptyNote(
   return propsOnlyFailNote(lead, diag);
 }
 
+/**
+ * Single user-facing short-ticket lead from failDiag (PROPS_ONLY_STAGED_SHORT).
+ * Presumes staged legs stay on the ticket; explains only the unfilled seats.
+ * Never labels confidence wipes as thin-slate.
+ */
+export function propsOnlyTerminalShortNote(
+  diag: PropsOnlyFailDiag,
+  opts?: PropsOnlyTerminalNoteOpts,
+): string {
+  if (!isShortTicket(diag)) return "";
+  const floor = opts?.confidenceFloor ?? COACH_SIM_MIN_CONFIDENCE;
+  const sport = (opts?.sportLabel ?? "football").trim() || "football";
+  const n = diag.staged;
+  const target = diag.target;
+  const foundLead = `I found ${n} qualified ${sport} player props for your ${target}-leg request.`;
+
+  if (isPropsOnlyConfidenceShortfall(diag)) {
+    return propsOnlyFailNote(
+      `${foundLead} The remaining odds-cleared props did not meet the ${floor}% confidence floor, so I left the ticket short instead of lowering the quality bar or adding another sport.`,
+      diag,
+    );
+  }
+
+  if (isPropsOnlyConstraintShortfall(diag)) {
+    const label = dominantConstraintLabel(stageRejectBreakdown(diag));
+    return propsOnlyFailNote(
+      `${foundLead} Remaining odds-cleared props were blocked by ${label}, so I left the ticket short instead of stacking correlated seats or lowering the quality bar.`,
+      diag,
+    );
+  }
+
+  if (isPropsOnlyOddsShortfall(diag)) {
+    return propsOnlyFailNote(
+      `${foundLead} Additional graded props did not clear the ticket odds bar, so I left the ticket short instead of adding ungraded filler or another sport.`,
+      diag,
+    );
+  }
+
+  if (isPropsOnlyThinSlateShortfall(diag)) {
+    const games = diag.uniqueGames ?? 0;
+    const gameLabel =
+      games === 1 ? "1 game" : `${games} games`;
+    return propsOnlyFailNote(
+      `${foundLead} The posted slate was too thin (${gameLabel}, ${diag.oddsCleared} cleared odds) to fill the rest without lowering the quality bar or adding another sport.`,
+      diag,
+    );
+  }
+
+  return propsOnlyFailNote(
+    `${foundLead} I could not fill the remaining seats without lowering the quality bar or adding another sport.`,
+    diag,
+  );
+}
+
 function looksLikePropsOnlyEmptyLead(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -259,7 +416,10 @@ function looksLikePropsOnlyEmptyLead(text: string): boolean {
     t.includes("recovery odds") ||
     t.includes("quality bar") ||
     t.includes("within the allowed odds range") ||
-    t.includes("hit the delivery budget")
+    t.includes("hit the delivery budget") ||
+    t.includes("left the ticket short") ||
+    t.includes("thin-slate fill") ||
+    t.includes("posted slate was too thin")
   );
 }
 
@@ -282,6 +442,18 @@ export function reconcileCoachTerminalNote(opts: {
 
   if (preferred && preferred.staged <= 0) {
     return propsOnlyTerminalEmptyNote(preferred, {
+      sportLabel: opts.sportLabel,
+      confidenceFloor: opts.confidenceFloor,
+      recoveryGraded: opts.recoveryGraded,
+    });
+  }
+
+  if (
+    preferred &&
+    preferred.staged > 0 &&
+    preferred.staged < preferred.target
+  ) {
+    return propsOnlyTerminalShortNote(preferred, {
       sportLabel: opts.sportLabel,
       confidenceFloor: opts.confidenceFloor,
       recoveryGraded: opts.recoveryGraded,
