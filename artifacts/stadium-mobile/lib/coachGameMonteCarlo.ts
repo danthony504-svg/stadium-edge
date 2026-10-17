@@ -8,6 +8,7 @@ import {
   withCoachGameSimCache,
 } from "./coachContextCache.ts";
 import {
+  buildDefaultGameCoverQueries,
   buildGameCoverQuery,
   buildPeriodOffenseDefenseProfile,
   deriveCoverHitRatesFromOutcomes,
@@ -303,6 +304,20 @@ export async function fetchSlateGameSimulationsWithStatus(
       seen.add(q.id);
       coverQueries.push(q);
     }
+    // Abbr-only / unparseable posted lines can yield zero cover queries even
+    // when ESPN ids bound. Fall back to default ML sides so the slate still
+    // draws — empty queries previously collapsed into false FETCH_EMPTY.
+    if (!coverQueries.length) {
+      for (const q of buildDefaultGameCoverQueries(
+        gameLabel,
+        ids.homeTeam,
+        ids.awayTeam,
+      )) {
+        if (seen.has(q.id)) continue;
+        seen.add(q.id);
+        coverQueries.push(q);
+      }
+    }
     if (!coverQueries.length) {
       fetchNull.push(gameLabel);
       statuses.push({
@@ -310,6 +325,7 @@ export async function fetchSlateGameSimulationsWithStatus(
         resolved: true,
         loaded: false,
         fetchNull: true,
+        stampRejected: false,
       });
       return;
     }
