@@ -74,6 +74,7 @@ export type CoachFailureReason =
   | "legitimate_underfill"
   | "slate_thin"
   | "zero_results"
+  | "blocked_unvalidated_market"
   | "timeout"
   | "exception"
   | "empty_response"
@@ -99,6 +100,7 @@ export type CoachFailureCategory =
   | "timeout"
   | "exception"
   | "question"
+  | "blocked_unvalidated_market"
   | "none";
 
 export type CoachReliabilityMeta = {
@@ -248,6 +250,9 @@ export function failureCategoryFor(
   ) {
     return "question";
   }
+  if (reason === "blocked_unvalidated_market") {
+    return "blocked_unvalidated_market";
+  }
   if (
     eventType === "parlay_underfilled" ||
     eventType === "parlay_zero_results" ||
@@ -312,6 +317,13 @@ export function mapScanFailureCode(code: string): {
         failureReason: "legitimate_underfill",
         alertable: false,
       };
+    case "P0_UNVALIDATED_MARKETS":
+      // Intentional NCAAF / unvalidated-market gate — digest only, never page.
+      return {
+        eventType: "parlay_zero_results",
+        failureReason: "blocked_unvalidated_market",
+        alertable: false,
+      };
     default:
       return null;
   }
@@ -319,9 +331,12 @@ export function mapScanFailureCode(code: string): {
 
 /**
  * Should this Coach event page Telegram?
- * Legitimate underfills / thin slate stay digest-only.
+ * Legitimate underfills / thin slate / unvalidated-market blocks stay digest-only.
  */
 export function shouldAlertCoachEvent(meta: CoachReliabilityMeta): boolean {
+  if (meta.failureReason === "blocked_unvalidated_market") {
+    return false;
+  }
   if (LEGITIMATE_UNDERFILL_REASONS.has(meta.failureReason)) {
     // Only page if a dedicated system-failure event type was used.
     return (

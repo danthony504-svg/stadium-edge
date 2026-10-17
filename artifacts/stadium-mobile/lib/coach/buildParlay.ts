@@ -100,6 +100,7 @@ import {
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
 import {
+  BLOCKED_UNVALIDATED_MARKET_REASON,
   ncaafGameLineAskIsP0Blocked,
   p0BlockedNcaafGameLineAskNote,
   P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
@@ -352,14 +353,8 @@ export async function buildCoachParlay(opts: {
       })
     ) {
       opts.onStatus?.("College game lines blocked (unvalidated simulation)…");
-      const note = sanitizeCoachUserNote(
-        [
-          bareCollegeClarificationNote(opts.askText),
-          p0BlockedNcaafGameLineAskNote(target),
-        ]
-          .filter((s) => s && String(s).trim())
-          .join("\n\n"),
-      );
+      // Short fixed copy only — digest-only policy block (no long clarification).
+      const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
       reportCoachScanReliability({
         requestId: coachRelRequestId,
         sportCategory: coachRelSport === "unspecified" ? "ncaaf" : coachRelSport,
@@ -370,8 +365,9 @@ export async function buildCoachParlay(opts: {
         picks: [],
         scanFailureCode: "P0_UNVALIDATED_MARKETS",
         scanFailureDetail: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
-        eventType: "coach_simulation_failure",
-        failureReason: "unvalidated_simulation",
+        // Digest-visible policy block — not a scan/qualification/fulfillment miss.
+        eventType: "parlay_zero_results",
+        failureReason: BLOCKED_UNVALIDATED_MARKET_REASON,
         rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
       });
       return {

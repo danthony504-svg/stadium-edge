@@ -50,6 +50,8 @@ export type CoachDigestTelegramStats = {
   underfillCount: number;
   legitimateUnderfillCount?: number;
   zeroResultCount: number;
+  /** Policy gate (e.g. NCAAF unvalidated) — digest only, not a failure alert. */
+  blockedUnvalidatedMarketCount?: number;
   questionFailureCount: number;
   groundingFailureCount?: number;
   altMarketFailureCount?: number;
@@ -130,6 +132,7 @@ export function formatCoachDailyDigestSection(
         ? ` (legit ${coach.legitimateUnderfillCount})`
         : "") +
       ` · zero: ${coach.zeroResultCount}`,
+    `blocked unvalidated market: ${coach.blockedUnvalidatedMarketCount ?? 0}`,
     `question failures: ${coach.questionFailureCount}`,
     `grounding/alt/sim/freeze: ${coach.groundingFailureCount ?? 0}/${coach.altMarketFailureCount ?? 0}/${coach.simulationFailureCount ?? 0}/${coach.scanFreezeCount ?? 0}`,
     `unknown outcomes: ${coach.unknownOutcomeCount ?? 0}`,

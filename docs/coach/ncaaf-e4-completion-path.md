@@ -195,6 +195,8 @@ M_base (frozen FINAL_EVAL) ──► ML metrics done; injuryKnown was null every
 
 - Provider detail: [`ncaaf-e4-injury-provider.md`](./ncaaf-e4-injury-provider.md)  
 - Status audit: [`ncaaf-e4-status.md`](./ncaaf-e4-status.md)  
+- Investigation finish: [`ncaaf-injury-validation-path-complete.md`](./ncaaf-injury-validation-path-complete.md)  
 - Frozen score: [`ncaaf-final-eval-frozen-score.md`](./ncaaf-final-eval-frozen-score.md)  
 - Release review: [`ncaaf-ml-only-release-review.md`](./ncaaf-ml-only-release-review.md)  
+- Restoration package: [`ncaaf-restoration-release-package.md`](./ncaaf-restoration-release-package.md)  
 - Forward odds plan: [`ncaaf-forward-collection-plan.md`](./ncaaf-forward-collection-plan.md)  

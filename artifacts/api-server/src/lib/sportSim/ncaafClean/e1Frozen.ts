@@ -49,15 +49,20 @@ export type E1FrozenPredictFail = {
 export type E1FrozenPrediction = E1FrozenPredictOk | E1FrozenPredictFail;
 
 /**
- * Predict with frozen E1 α=1.15.
+ * Predict with frozen E1 α=1.15 (M_base — no injury adjust).
  * ratingGap (HFA=0) scaled by α, then HFA added; uncertainty/σ unchanged from A0 path.
+ * Availability / injury snapshots are intentionally not accepted — M_inj is a
+ * separate prospective path and must not mutate this frozen candidate.
  */
 export function predictE1Frozen(opts: {
   pregame: CleanGamePregame;
   strength: CleanOppAdjStrength;
+  /** @deprecated Rejected — frozen ML never applies injury. */
+  availability?: never;
 }): E1FrozenPrediction {
   const { pregame, strength } = opts;
-  const base = predictScoreMargin({ pregame, strength });
+  // Never forward availability into the base path for M_base.
+  const base = predictScoreMargin({ pregame, strength, availability: null });
   if (!base.ok) {
     return {
       ok: false,

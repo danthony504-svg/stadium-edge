@@ -1,0 +1,12 @@
+# NCAAF forward injury collector — AUTHORIZED $0 ESPN freezes only.
+# Schedule math: Mon–Thu 2×/day (8) + Fri–Sun 4×/day (12) = 20 freezes/week.
+# Frozen ML unchanged. Product gates unchanged. No Odds / OTA / unlock.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+NCAAF_INJURY_COLLECTOR_ACTIVE=1
+NCAAF_INJURY_SNAPSHOT_DIR=/workspace/artifacts/api-server/var/ncaaf-injury-snapshots
+
+# Mon–Thu 14:00 and 22:00 UTC (2×/day × 4 = 8)
+0 14,22 * * 1-4 /workspace/artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh >> /workspace/artifacts/api-server/var/ncaaf-injury-snapshots/cron.log 2>&1
+# Fri–Sun 02:00, 14:00, 18:00, 22:00 UTC (4×/day × 3 = 12)
+0 2,14,18,22 * * 5-7 /workspace/artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh >> /workspace/artifacts/api-server/var/ncaaf-injury-snapshots/cron.log 2>&1

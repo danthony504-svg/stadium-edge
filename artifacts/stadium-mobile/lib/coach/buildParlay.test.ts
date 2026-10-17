@@ -104,10 +104,15 @@ test("P0-blocked NCAAF game-line asks exit before loadScanInputs / slate sims", 
   );
   assert.match(src, /ncaafGameLineAskIsP0Blocked/);
   assert.match(src, /p0BlockedNcaafGameLineAskNote/);
+  assert.match(src, /blocked_unvalidated_market|BLOCKED_UNVALIDATED_MARKET_REASON/);
   // Gate must appear before loadScanInputs so we never await empty-pool sims.
   const gateAt = src.indexOf("ncaafGameLineAskIsP0Blocked");
   const loadAt = src.indexOf("await loadScanInputs");
   assert.ok(gateAt > 0 && loadAt > gateAt, "P0 gate must precede loadScanInputs");
+  assert.doesNotMatch(
+    src.slice(gateAt, loadAt),
+    /bareCollegeClarificationNote/,
+  );
 });
 
 test("other sports: ask-level NCAAF P0 gate stays off so eligible sims still run", async () => {
@@ -139,8 +144,7 @@ test("replay: 7 leg college P0 gate + note is ask-only and sub-second", async ()
   const { parseCoachAskMarketConstraint } = await import(
     "../coachAskMarketFilter.ts"
   );
-  const { hardLockedSportsFromAsk, bareCollegeClarificationNote } =
-    await import("../coachAskSportScope.ts");
+  const { hardLockedSportsFromAsk } = await import("../coachAskSportScope.ts");
   const {
     ncaafGameLineAskIsP0Blocked,
     p0BlockedNcaafGameLineAskNote,
@@ -155,19 +159,17 @@ test("replay: 7 leg college P0 gate + note is ask-only and sub-second", async ()
   const gameLinesOnly = market.gameLinesOnly && !market.propsOnly;
   const lockedSports = hardLockedSportsFromAsk(ask);
   const blocked = ncaafGameLineAskIsP0Blocked({ gameLinesOnly, lockedSports });
-  const note = sanitizeCoachUserNote(
-    [bareCollegeClarificationNote(ask), p0BlockedNcaafGameLineAskNote(target)]
-      .filter((s) => s && String(s).trim())
-      .join("\n\n"),
-  );
+  const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
   const ms = performance.now() - t0;
 
   assert.equal(target, 7);
   assert.equal(gameLinesOnly, true);
   assert.deepEqual(lockedSports, ["ncaaf"]);
   assert.equal(blocked, true);
-  assert.match(note, /unvalidated/i);
-  assert.match(note, /player props/i);
+  assert.equal(
+    note,
+    "College football team picks are temporarily unavailable while validation is completed. No ticket was built.",
+  );
   assert.doesNotMatch(note, /quality bar/i);
   // Absolute budget for a 7-leg is 75s — this path must not approach it.
   assert.ok(ms < 500, `ask-only P0 path must be <500ms (got ${ms.toFixed(1)}ms)`);

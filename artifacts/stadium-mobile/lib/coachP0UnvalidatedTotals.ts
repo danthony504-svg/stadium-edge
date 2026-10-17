@@ -4,9 +4,10 @@
 // block simulation-derived grades for affected markets and hard-stop same-team
 // team-total stacks. Does not invent odds, probs, or replacement sims.
 //
-// NCAAF game lines (spread / ML / alt / period sides) stay fail-closed until
-// NCAAF_GAME_LINE_SIM_VALIDATED is flipped after engine validation (soft rates,
-// defense tilt, spreads/ML/totals checks). Player props stay open either way.
+// NCAAF game lines stay fail-closed per market family (moneyline / spreads /
+// totals / alts). P3: a cleared market must not unlock another; a failed market
+// must not invalidate another. Legacy NCAAF_GAME_LINE_SIM_VALIDATED stays false
+// until full product restore. Player props stay open either way.
 //
 // Sport aliases (cfb → ncaaf) are normalized before the gate. Missing sport is
 // resolved only from trusted provider/event fields — never guessed from team
@@ -16,15 +17,31 @@
 // assessSimMarketIntegrity.
 
 /**
- * Flip only after ncaafGameLineSimValidation (+ human Phase E sign-off).
- * Default false keeps P0 armed — player props alone do not clear this gate.
+ * Legacy master — flip only after full product restore + human E6.
+ * Prefer per-market NCAAF_MARKET_SIM_VALIDATED. Default false keeps P0 armed.
  */
 export const NCAAF_GAME_LINE_SIM_VALIDATED = false;
+
+/** Per-market product unlocks (P3 independence). All false until E6 per market. */
+export type NcaafMarketFamily = "moneyline" | "spreads" | "totals" | "alts";
+
+export const NCAAF_MARKET_SIM_VALIDATED: Readonly<
+  Record<NcaafMarketFamily, boolean>
+> = {
+  moneyline: false,
+  spreads: false,
+  totals: false,
+  alts: false,
+};
+
+/** Digest-only policy reason — not a scan/qualification/fulfillment miss. */
+export const BLOCKED_UNVALIDATED_MARKET_REASON = "blocked_unvalidated_market";
 
 /**
  * Research-only unlock for isolated Coach delivery exercises.
  * Requires BOTH env vars; never set in product/OTA builds.
- * Does not change NCAAF_GAME_LINE_SIM_VALIDATED (must stay false until Phase E).
+ * Optional NCAAF_ISOLATED_COACH_MARKETS=moneyline,spreads (comma) limits families.
+ * Does not change NCAAF_GAME_LINE_SIM_VALIDATED / NCAAF_MARKET_SIM_VALIDATED.
  */
 export function ncaafIsolatedResearchUnlockActive(): boolean {
   if (typeof process === "undefined" || !process.env) return false;
@@ -32,6 +49,33 @@ export function ncaafIsolatedResearchUnlockActive(): boolean {
     process.env.NCAAF_ISOLATED_COACH_UNLOCK === "1" &&
     process.env.NCAAF_ISOLATED_COACH_UNLOCK_ACK === "research-only-not-product"
   );
+}
+
+/** Research unlock market allow-list; empty/missing → all families (research only). */
+export function ncaafIsolatedResearchMarkets(): Set<NcaafMarketFamily> | null {
+  if (!ncaafIsolatedResearchUnlockActive()) return null;
+  const raw = String(process.env.NCAAF_ISOLATED_COACH_MARKETS ?? "")
+    .toLowerCase()
+    .trim();
+  if (!raw) return null;
+  const out = new Set<NcaafMarketFamily>();
+  for (const part of raw.split(/[,\s]+/)) {
+    if (
+      part === "moneyline" ||
+      part === "spreads" ||
+      part === "totals" ||
+      part === "alts"
+    ) {
+      out.add(part);
+    }
+  }
+  return out.size ? out : null;
+}
+
+export function isNcaafMarketProductValidated(
+  family: NcaafMarketFamily,
+): boolean {
+  return NCAAF_MARKET_SIM_VALIDATED[family] === true;
 }
 
 /** Sports whose team-scoring engines are unvalidated for totals (P0). */
@@ -227,6 +271,37 @@ export function isPlayerPropMarketIdentity(
   return false;
 }
 
+/**
+ * Classify NCAAF game-line family for per-market P0 gates.
+ * Returns null when market is not a team game-line side/total/alt.
+ */
+export function classifyNcaafMarketFamily(
+  market: string | null | undefined,
+  opts?: { propMarketKey?: string | null },
+): NcaafMarketFamily | null {
+  const m = String(market ?? "")
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!m) return null;
+  if (isPlayerPropMarketIdentity(m, opts)) return null;
+  if (/alt\s*spread|alternate\s*spread|alt\s*total|alternate\s*total/.test(m)) {
+    return "alts";
+  }
+  if (isTeamTotalMarket(m) || isGameTotalMarket(m)) return "totals";
+  if (/moneyline|\bh2h\b|(?:^|[\s/])ml(?:$|[\s/])/.test(m)) return "moneyline";
+  if (/spread|run line|puck line/.test(m)) return "spreads";
+  return null;
+}
+
+function ncaafFamilyAllowedByResearch(family: NcaafMarketFamily): boolean {
+  if (!ncaafIsolatedResearchUnlockActive()) return false;
+  const allow = ncaafIsolatedResearchMarkets();
+  if (!allow) return true;
+  return allow.has(family);
+}
+
 export type P0PickInput = CoachSportResolveInput & {
   market?: string | null;
   isProp?: boolean;
@@ -255,6 +330,21 @@ export function isP0UnvalidatedSimTotalMarket(pick: P0PickInput): boolean {
     return teamTotal || gameTotal;
   }
 
+  // NCAAF totals: per-market gate (independent of ML/spreads).
+  if (
+    sport === "ncaaf" &&
+    (teamTotal || gameTotal)
+  ) {
+    const family = classifyNcaafMarketFamily(market, {
+      propMarketKey: pick.propMarketKey,
+    });
+    if (family === "totals" || family === "alts") {
+      if (isNcaafMarketProductValidated(family)) return false;
+      if (ncaafFamilyAllowedByResearch(family)) return false;
+      return true;
+    }
+  }
+
   if (teamTotal && P0_UNVALIDATED_SCORING_SPORTS.has(sport)) return true;
   if (gameTotal && !fullGame && P0_UNVALIDATED_SCORING_SPORTS.has(sport)) {
     return true;
@@ -266,7 +356,8 @@ export function isP0UnvalidatedSimTotalMarket(pick: P0PickInput): boolean {
 }
 
 /**
- * True when NCAAF (incl. cfb alias) spread/ML must not receive a sim-derived grade.
+ * True when NCAAF (incl. cfb alias) spread/ML/alt must not receive a sim-derived grade.
+ * Per-market: moneyline unlock does not clear spreads/alts (P3).
  * Also true for game-line markets with unknown sport (fail closed).
  * isProp does not clear a game-line market identity.
  */
@@ -280,18 +371,21 @@ export function isP0UnvalidatedNcaafGameLineMarket(pick: P0PickInput): boolean {
 
   const sport = resolveCoachPickSport(pick);
   if (!sport) return true; // unknown sport + game line → fail closed
-  // Validated engine + known ncaaf → allow; otherwise keep P0.
-  if (NCAAF_GAME_LINE_SIM_VALIDATED && P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) {
-    return false;
+  if (!P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)) return false;
+
+  // Legacy master unlock (full restore) clears all side markets.
+  if (NCAAF_GAME_LINE_SIM_VALIDATED) return false;
+
+  const family = classifyNcaafMarketFamily(market, {
+    propMarketKey: pick.propMarketKey,
+  });
+  if (family === "moneyline" || family === "spreads" || family === "alts") {
+    if (isNcaafMarketProductValidated(family)) return false;
+    if (ncaafFamilyAllowedByResearch(family)) return false;
+    return true;
   }
-  // Isolated research harness only — product constant stays false.
-  if (
-    ncaafIsolatedResearchUnlockActive() &&
-    P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport)
-  ) {
-    return false;
-  }
-  return P0_UNVALIDATED_NCAAF_GAME_LINE_SPORTS.has(sport);
+  // Unclassified side → fail closed for NCAAF.
+  return true;
 }
 
 export function p0UnvalidatedSimTotalDecision(
@@ -379,14 +473,10 @@ export function ncaafGameLineAskIsP0Blocked(opts: {
 }
 
 /** User-facing note when a college game-line ask is P0-blocked before scan. */
-export function p0BlockedNcaafGameLineAskNote(requestedLegs: number): string {
-  const n = Math.max(0, Math.floor(requestedLegs));
+export function p0BlockedNcaafGameLineAskNote(_requestedLegs: number): string {
+  // Short fixed copy — digest-only policy block (no long quality-bar wording).
   return (
-    `College football (NCAAF) full-game spreads, moneylines, and totals are temporarily ` +
-    `blocked while the game-line simulation is unvalidated (Phase E). ` +
-    `You asked for ${n} legs of those markets — no ticket was built, and no other sports ` +
-    `were used to fill. Ask for college player props (for example receiving yards) if you ` +
-    `want a scanned NCAAF ticket, or pick another sport.`
+    "College football team picks are temporarily unavailable while validation is completed. No ticket was built."
   );
 }
 

@@ -723,8 +723,10 @@ test("ncaafGameLineAskIsP0Blocked: bare college game-lines-only while unvalidate
     }),
     false,
   );
-  assert.match(p0BlockedNcaafGameLineAskNote(7), /unvalidated/i);
-  assert.match(p0BlockedNcaafGameLineAskNote(7), /player props/i);
+  assert.equal(
+    p0BlockedNcaafGameLineAskNote(7),
+    "College football team picks are temporarily unavailable while validation is completed. No ticket was built.",
+  );
   assert.doesNotMatch(p0BlockedNcaafGameLineAskNote(7), /quality bar/i);
 });
 

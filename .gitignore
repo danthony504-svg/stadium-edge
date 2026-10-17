@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Durable NCAAF injury collector store (timestamped freezes + failure journal)
+artifacts/api-server/var/

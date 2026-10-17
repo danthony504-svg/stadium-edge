@@ -1,0 +1,48 @@
+{
+  "checkedAt": "2026-10-17T18:13:37.639Z",
+  "keyConfigured": false,
+  "cfbUsableEvidence": false,
+  "httpStatus": null,
+  "rowCount": 0,
+  "rowsWithTimestamp": 0,
+  "earliestCapturedIso": null,
+  "latestCapturedIso": null,
+  "sampleAthleteFields": [],
+  "blockers": [
+    "SCORETAPE_API_KEY unset — cannot query /v1/cfb/injuries",
+    "Do not treat ScoreTape as usable E4 historical evidence until cfbUsableEvidence=true"
+  ],
+  "secureSetup": [
+    "Open https://scoretape.com and request an Explorer ($0) API key (same-day email).",
+    "Copy the st_… key once when shown — it is not re-displayed.",
+    "Add Cursor Cloud / environment secret named SCORETAPE_API_KEY (or Render secret of the same name).",
+    "Do not paste the key into chat, git, fixtures, logs, or PR descriptions.",
+    "Start a new agent/run so the secret is injected into process.env.",
+    "Verify with: node --import ./test/register-hooks.mjs ./scripts/ncaafScoreTapeCfbCoverageCheck.ts",
+    "Treat CFB as usable evidence only when the check reports cfbUsableEvidence=true.",
+    "Do not purchase Desk/Quant until CFB captured_ms as-of ≤ kickoff is proven on Explorer."
+  ],
+  "plan": {
+    "plan": "Explorer",
+    "costUsd": 0,
+    "historyDays": 7,
+    "rateLimit": "1 req/s",
+    "baseUrl": "https://api.scoretape.com/v1",
+    "envName": "SCORETAPE_API_KEY",
+    "keyPrefix": "st_",
+    "purchaseAuthorized": false,
+    "deskPurchaseAuthorized": false
+  },
+  "keyPresence": "UNSET",
+  "secureSetupInstructions": [
+    "Open https://scoretape.com and request an Explorer ($0) API key (same-day email).",
+    "Copy the st_… key once when shown — it is not re-displayed.",
+    "Add Cursor Cloud / environment secret named SCORETAPE_API_KEY (or Render secret of the same name).",
+    "Do not paste the key into chat, git, fixtures, logs, or PR descriptions.",
+    "Start a new agent/run so the secret is injected into process.env.",
+    "Verify with: node --import ./test/register-hooks.mjs ./scripts/ncaafScoreTapeCfbCoverageCheck.ts",
+    "Treat CFB as usable evidence only when the check reports cfbUsableEvidence=true.",
+    "Do not purchase Desk/Quant until CFB captured_ms as-of ≤ kickoff is proven on Explorer."
+  ],
+  "verdict": "NOT_USABLE_EVIDENCE — key unset"
+}

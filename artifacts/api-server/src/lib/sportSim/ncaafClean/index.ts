@@ -116,3 +116,127 @@ export type {
   MlHarnessOpts,
   MlHarnessReport,
 } from "./mlOnlyHarness.ts";
+
+export {
+  NCAAF_GAME_LINE_SIM_VALIDATED,
+  NCAAF_MARKET_READINESS,
+  NCAAF_MARKET_SIM_VALIDATED,
+  assertPerMarketGateIndependence,
+  isNcaafMarketProductValidated,
+  legacyMasterGateConsistent,
+} from "./marketGates.ts";
+export type {
+  MarketGateSnapshot,
+  MarketReadinessStatus,
+  NcaafMarketFamily,
+} from "./marketGates.ts";
+
+export {
+  ALT_CRITERIA,
+  MARKET_GATE_POLICY,
+  SPREAD_CRITERIA,
+  TOTALS_CRITERIA,
+  evaluateAltCriteria,
+  evaluateSpreadCriteria,
+  evaluateTotalsCriteria,
+  marketProductUnlockLabel,
+} from "./marketCriteria.ts";
+export type {
+  AltCriterionResult,
+  AltMetricInputs,
+  SpreadCriterionResult,
+  SpreadMetricInputs,
+  TotalsCriterionResult,
+  TotalsMetricInputs,
+} from "./marketCriteria.ts";
+
+export {
+  diagnoseNcaafMarkets,
+  lockedCriteriaBundle,
+} from "./marketDiagnosis.ts";
+export type { MarketDiagnosisReport } from "./marketDiagnosis.ts";
+
+export {
+  E4_PROSPECTIVE_CRITERIA,
+  mInjAdjustMeta,
+  runE4ProspectiveEval,
+} from "./e4ProspectiveEval.ts";
+export type {
+  E4ProspectiveReport,
+  E4ProspectiveSampleCheck,
+  ProspectiveGameRow,
+} from "./e4ProspectiveEval.ts";
+
+export { runAtsHarness } from "./atsHarness.ts";
+export type {
+  AtsCloseRow,
+  AtsHarnessReport,
+  AtsScoredGame,
+} from "./atsHarness.ts";
+
+export {
+  ATS_REST_TILT_CANDIDATE_ID,
+  ATS_REST_TILT_MAX_ABS_POINTS,
+  ATS_REST_TILT_POINTS_PER_DAY,
+  applyAtsRestTilt,
+  computeAtsRestTilt,
+} from "./atsRestTilt.ts";
+export type { AtsRestTiltResult } from "./atsRestTilt.ts";
+
+export {
+  INJURY_COLLECTION_PERIOD,
+  INJURY_COLLECTOR_ENV,
+  INJURY_COLLECTOR_PATHS,
+  INJURY_COLLECTOR_SCHEDULE,
+  INJURY_SAMPLE_FLOORS,
+  buildInjuryCollectorActivationPackage,
+} from "./injuryCollectorActivation.ts";
+export type { InjuryActivationPackage } from "./injuryCollectorActivation.ts";
+
+export {
+  appendFailure,
+  contentSha256,
+  defaultManifest,
+  injuryMinuteBucket,
+  loadManifest,
+  persistInjurySnapshot,
+  saveManifest,
+} from "./injurySnapshotStore.ts";
+export type {
+  FailureRecord,
+  InjurySnapshotPayload,
+  PersistResult,
+  SnapshotManifest,
+  SnapshotManifestEntry,
+} from "./injurySnapshotStore.ts";
+
+export {
+  SCORETAPE_DOCS_REST_SAMPLE,
+  SCORETAPE_DOCS_WEBHOOK_SAMPLE,
+  SCORETAPE_SETUP,
+  buildScoreTapeProvenanceReport,
+  verifyScoreTapeDocsSamples,
+} from "./scoreTapeProvenance.ts";
+export type { ScoreTapeProvenanceReport } from "./scoreTapeProvenance.ts";
+
+export {
+  SCORETAPE_EXPLORER_SETUP,
+  SCORETAPE_SECURE_SETUP_STEPS,
+  buildCfbCoverageBlockedReport,
+  evaluateCfbInjuryRows,
+  scoreTapeKeyConfigured,
+  scoreTapeKeyPresence,
+} from "./scoreTapeExplorerSetup.ts";
+export type { CfbCoverageVerdict } from "./scoreTapeExplorerSetup.ts";
+
+export {
+  ODDS_PROVIDER,
+  buildSpreadsTotalsAltManifest,
+} from "./spreadsTotalsAltOddsManifest.ts";
+export type {
+  BucketRequest,
+  ManifestGame,
+  SpreadsTotalsAltManifestBundle,
+} from "./spreadsTotalsAltOddsManifest.ts";
+
+export { ODDS_RETRIEVAL_HOLD } from "./oddsEvalSplitHold.ts";

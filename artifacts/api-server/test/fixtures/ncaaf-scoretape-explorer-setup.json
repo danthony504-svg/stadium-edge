@@ -1,0 +1,27 @@
+{
+  "generatedAt": "2026-10-17T18:13:45.392Z",
+  "keyPresence": "UNSET",
+  "plan": {
+    "plan": "Explorer",
+    "costUsd": 0,
+    "historyDays": 7,
+    "rateLimit": "1 req/s",
+    "baseUrl": "https://api.scoretape.com/v1",
+    "envName": "SCORETAPE_API_KEY",
+    "keyPrefix": "st_",
+    "purchaseAuthorized": false,
+    "deskPurchaseAuthorized": false
+  },
+  "secureSetupSteps": [
+    "Open https://scoretape.com and request an Explorer ($0) API key (same-day email).",
+    "Copy the st_… key once when shown — it is not re-displayed.",
+    "Add Cursor Cloud / environment secret named SCORETAPE_API_KEY (or Render secret of the same name).",
+    "Do not paste the key into chat, git, fixtures, logs, or PR descriptions.",
+    "Start a new agent/run so the secret is injected into process.env.",
+    "Verify with: node --import ./test/register-hooks.mjs ./scripts/ncaafScoreTapeCfbCoverageCheck.ts",
+    "Treat CFB as usable evidence only when the check reports cfbUsableEvidence=true.",
+    "Do not purchase Desk/Quant until CFB captured_ms as-of ≤ kickoff is proven on Explorer."
+  ],
+  "cfbUsableEvidence": false,
+  "note": "CFB not usable until ncaafScoreTapeCfbCoverageCheck reports cfbUsableEvidence=true"
+}

@@ -1,0 +1,304 @@
+{
+  "title": "NCAAF activation / retrieval proposal",
+  "generatedAt": "2026-10-17T18:07:11.633Z",
+  "branchTip": "0129631a64e5191123bbceed69fd382cd05592b1",
+  "authorizedNow": {
+    "purchase": false,
+    "collectorActivation": false,
+    "oddsFetch": false,
+    "deploy": false,
+    "ota": false,
+    "unlock": false
+  },
+  "tracks": {
+    "A_injuryCollector": {
+      "costUsd": 0,
+      "ready": true,
+      "package": {
+        "status": "PREPARED_INACTIVE",
+        "activated": false,
+        "frozenMlUnchanged": true,
+        "env": {
+          "activeFlag": "NCAAF_INJURY_COLLECTOR_ACTIVE",
+          "activeValue": "1",
+          "outDir": "NCAAF_INJURY_SNAPSHOT_DIR"
+        },
+        "paths": {
+          "script": "artifacts/api-server/scripts/ncaafPregameInjurySnapshotCollector.ts",
+          "defaultOutDir": "artifacts/api-server/test/fixtures/ncaaf-pregame-injury-snapshots/",
+          "manifest": "manifest.json",
+          "runner": "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
+          "unitFile": "artifacts/api-server/scripts/ncaaf-injury-collector.cron"
+        },
+        "schedule": {
+          "timezone": "UTC",
+          "crontab": [
+            "0 14,22 * * 1-4",
+            "0 2,14,18,22 * * 5-7"
+          ],
+          "freezesPerWeek": 14,
+          "costUsdPerWeek": 0,
+          "source": "espn_site_api_college_football_injuries"
+        },
+        "storage": {
+          "root": "artifacts/api-server/test/fixtures/ncaaf-pregame-injury-snapshots/",
+          "snapshotGlob": "espn-cfb-injuries-*.json",
+          "manifest": "manifest.json",
+          "gitPolicy": "Commit snapshots + manifest on collector host or sync to fixtures; never rewrite past kickoff labels; never backfill TUNING/FINAL_EVAL"
+        },
+        "sampleFloors": {
+          "N1_minDecidedCloseMlWithJoinAttempt": 60,
+          "N2_minInjuryKnownTrue": 20,
+          "N3_minInjuryKnownNull": 20,
+          "N4_minHome": 15,
+          "N4_minAway": 15,
+          "N5_captureBeforeKickoff": true,
+          "N6_neverCoerceNullToFalse": true
+        },
+        "expectedCollectionPeriod": {
+          "typicalWeeks": [
+            3,
+            6
+          ],
+          "aggressiveWeeks": [
+            2,
+            3
+          ],
+          "note": "Odds-listed FBS only; pre-schedule 25–35% null holdout before week starts; stop when N1–N3 met and membership frozen"
+        },
+        "deploymentDiff": {
+          "filesToAdd": [
+            "artifacts/api-server/scripts/ncaafInjuryCollectorCron.sh",
+            "artifacts/api-server/scripts/ncaaf-injury-collector.cron"
+          ],
+          "envToSet": {
+            "NCAAF_INJURY_COLLECTOR_ACTIVE": "1"
+          },
+          "cronInstall": [
+            "# install (human, after approval):",
+            "crontab -l 2>/dev/null | cat - artifacts/api-server/scripts/ncaaf-injury-collector.cron | crontab -",
+            "# or: sudo cp artifacts/api-server/scripts/ncaaf-injury-collector.cron /etc/cron.d/ncaaf-injury-collector"
+          ],
+          "activateCommand": "cd artifacts/api-server && NCAAF_INJURY_COLLECTOR_ACTIVE=1 node --import ./test/register-hooks.mjs ./scripts/ncaafPregameInjurySnapshotCollector.ts",
+          "deactivateCommand": "unset NCAAF_INJURY_COLLECTOR_ACTIVE  # and remove cron lines",
+          "smokeInactiveCommand": "cd artifacts/api-server && node --import ./test/register-hooks.mjs ./scripts/ncaafPregameInjurySnapshotCollector.ts"
+        },
+        "holds": [
+          "Do not set NCAAF_INJURY_COLLECTOR_ACTIVE until human authorization",
+          "Do not flip NCAAF_GAME_LINE_SIM_VALIDATED / per-market gates",
+          "Do not apply e4ConservativeAdjust to frozen FINAL_EVAL M_base",
+          "No deploy / OTA required — offline cron on a runner with repo checkout"
+        ]
+      },
+      "limits": {
+        "sampleFloors": {
+          "N1_minDecidedCloseMlWithJoinAttempt": 60,
+          "N2_minInjuryKnownTrue": 20,
+          "N3_minInjuryKnownNull": 20,
+          "N4_minHome": 15,
+          "N4_minAway": 15,
+          "N5_captureBeforeKickoff": true,
+          "N6_neverCoerceNullToFalse": true
+        },
+        "expectedWeeks": [
+          3,
+          6
+        ],
+        "freezesPerWeek": 14
+      }
+    },
+    "B_scoreTapeExplorer": {
+      "costUsd": 0,
+      "ready": false,
+      "needs": "Human Explorer key → SCORETAPE_API_KEY secret",
+      "provenance": {
+        "verifiedAt": "2026-10-17T18:07:11.622Z",
+        "paidHttp": 0,
+        "keyPresent": false,
+        "health": {
+          "ok": true,
+          "httpStatus": 200,
+          "clickhouse": true,
+          "detail": "GET /v1/health 200 without key"
+        },
+        "docsSamples": {
+          "restCapturedParseable": true,
+          "webhookCapturedMsParseable": true,
+          "webhookCapturedIso": "2026-06-12T08:25:22.902Z",
+          "asOfRuleDocumented": true,
+          "cfbListedInCoverage": true,
+          "note": "Docs prove captured / captured_ms schema + as-of rule; published sample is NBA not CFB. CFB live rows require Explorer key."
+        },
+        "espnLocalFixture": {
+          "path": "test/fixtures/ncaaf-pregame-injury-snapshots/espn-cfb-injuries-2026-10-16T20-06-40-154Z.json",
+          "captureTimestampParseable": true,
+          "captureTimestamp": "2026-10-16T20:06:40.154Z",
+          "preKickJoinDemoOk": true
+        },
+        "cfbLiveRowsVerified": false,
+        "blockersBeforePaidDesk": [
+          "No SCORETAPE_API_KEY in this environment — CFB /v1/cfb/injuries not queried",
+          "Must confirm CFB rows with finite captured_ms under Explorer before any Desk purchase",
+          "Explorer 7-day window cannot reach 2025 FINAL_EVAL kickoffs — historical Desk depth unproven until sample earliest captured_ms checked"
+        ],
+        "accountSetupSteps": [
+          "Human: request Explorer ($0) key at scoretape.com (st_… shown once)",
+          "Store as Cursor/Render secret SCORETAPE_API_KEY — never paste into chat",
+          "Authorized later agent: GET /v1/cfb/injuries?since=<today-6d> with key",
+          "Assert non-empty data[].captured or captured_ms; reconstruct as-of kickoff−1h for one FBS game",
+          "Record earliest captured_ms in window → decide Desk depth (still not purchase here)"
+        ],
+        "verdict": "SCHEMA_AND_HEALTH_OK — CFB_ROWS_PENDING_EXPLORER_KEY"
+      },
+      "limits": {
+        "historyDays": 7,
+        "rate": "1 req/s",
+        "cfbRowsVerified": false
+      }
+    },
+    "C_oddsSpreadsTotals": {
+      "costUsd": "Odds credits (paid plan) — not spent",
+      "ready": true,
+      "fetchExecuted": false,
+      "hardCapCredits": 4200,
+      "basePlusBuffer": 4175,
+      "markets": [
+        "spreads",
+        "totals"
+      ],
+      "nBuckets": 167,
+      "key": "SET",
+      "reuse": "Reuse kickoff/request buckets + game IDs; do NOT re-fetch h2h (omit from markets). Cannot supply spreads/totals/ALTs."
+    },
+    "D_oddsAlternateSpreads": {
+      "costUsd": "Odds credits — separate cap; not spent",
+      "ready": false,
+      "fetchExecuted": false,
+      "hardCapCredits": 4200,
+      "basePlusBuffer": 5038,
+      "fitsCap": false,
+      "samplingNote": "Full 403-event ALT pull exceeds 4200 — authorize higher cap or sample ≤336 events (336×10×1.25=4200)",
+      "deferUntil": "after Track C or explicit ALT authorization"
+    }
+  },
+  "recommendedSequence": [
+    "1) Authorize Track A: set NCAAF_INJURY_COLLECTOR_ACTIVE=1 on runner + install cron (ACTIVE line uncommented)",
+    "2) Parallel Track B: human requests ScoreTape Explorer key; store SCORETAPE_API_KEY; verify CFB captured_ms",
+    "3) When spreads/totals evidence needed: authorize Track C only (cap 4200, markets=spreads,totals, reuse h2h archive)",
+    "4) Defer Track D ALTs unless separate cap/sample approved",
+    "5) Keep all product gates false; no deploy/OTA/unlock"
+  ],
+  "costsAndLimits": {
+    "thisTurnUsd": 0,
+    "trackA_usd": 0,
+    "trackB_usd": 0,
+    "trackC_credits_cap": 4200,
+    "trackC_credits_estimated": 4175,
+    "trackD_credits_cap": 4200,
+    "trackD_credits_estimated_full": 5038,
+    "frozenMlUnchanged": true
+  },
+  "localVsOnDevice": {
+    "generatedAt": "2026-10-17T18:07:11.629Z",
+    "localIntegrationConfirmed": [
+      {
+        "id": "L1",
+        "suite": "artifacts/api-server/test/ncaafClean.marketGates.test.ts",
+        "covers": "per-market gates, ATS harness, E4 prospective, diagnosis",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L2",
+        "suite": "artifacts/api-server/test/ncaafClean.mlOnlyHarness.test.ts",
+        "covers": "frozen E1 α=1.15; FINAL_EVAL never auto-pass",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L3",
+        "suite": "artifacts/api-server/test/ncaafClean.e4Availability.test.ts",
+        "covers": "E4 behavioral policy; null≠false",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L4",
+        "suite": "artifacts/api-server/test/coachReliability.test.ts",
+        "covers": "blocked_unvalidated_market digest-only",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L5",
+        "suite": "artifacts/api-server/test/ncaafPhaseEGates.test.ts",
+        "covers": "NCAAF_GAME_LINE_SIM_VALIDATED stays false",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L6",
+        "suite": "artifacts/api-server/test/ncaafForwardCollector.test.ts",
+        "covers": "credit math, dedupe, activationAllowed",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L7",
+        "suite": "artifacts/stadium-mobile/lib/ncaafMarketGates.test.ts",
+        "covers": "P3 family P0 classification",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L8",
+        "suite": "artifacts/stadium-mobile/lib/ncaafCoachIntegrationPath.test.ts",
+        "covers": "Coach stage checklist; product closed",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L9",
+        "suite": "artifacts/stadium-mobile/lib/coach/buildParlay.test.ts",
+        "covers": "ask-only college P0 exit + short note",
+        "status": "CONFIRMED_LOCAL"
+      },
+      {
+        "id": "L10",
+        "suite": "injury collector smoke (ACTIVE unset)",
+        "covers": "script returns INACTIVE JSON without network freeze",
+        "status": "CONFIRMED_LOCAL"
+      }
+    ],
+    "remainingOnDevice": [
+      {
+        "id": "D1",
+        "check": "Preview iOS ticket with college game-lines ask shows short unavailable copy (not quality-bar)",
+        "blockedBy": "product gates false — expected empty ticket",
+        "status": "REMAINING_ON_DEVICE"
+      },
+      {
+        "id": "D2",
+        "check": "College player-props ask still builds when board has props (gates do not block props)",
+        "blockedBy": "needs live slate + device session",
+        "status": "REMAINING_ON_DEVICE"
+      },
+      {
+        "id": "D3",
+        "check": "Reliability digest on server shows blocked_unvalidated_market after college ask",
+        "blockedBy": "needs deployed/server path receiving mobile events",
+        "status": "REMAINING_ON_DEVICE"
+      },
+      {
+        "id": "D4",
+        "check": "After authorized collector activation: snapshot files appear on runner with captureTimestamp",
+        "blockedBy": "collector not activated",
+        "status": "REMAINING_ON_DEVICE"
+      }
+    ],
+    "notOnDeviceUntilUnlock": [
+      "NCAAF moneyline/spreads/totals graded tickets",
+      "E6 gate flip",
+      "OTA / production deploy verification of unlock"
+    ]
+  },
+  "oddsManifestSummary": {
+    "id": "FINAL_EVAL_close_spreads_totals",
+    "altId": "FINAL_EVAL_close_alternate_spreads",
+    "provider": "The Odds API",
+    "featuredFitsCap": true,
+    "altFitsCap": false
+  }
+}
