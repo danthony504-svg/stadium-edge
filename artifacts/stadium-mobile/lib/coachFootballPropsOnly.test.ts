@@ -24,7 +24,14 @@ import {
   propsOnlyLegClearsOdds,
   propsOnlyPickHasGrade,
   propsOnlyPriorSeasonYear,
+  propsOnlySimLookupKey,
+  type PropsOnlyHit,
 } from "./coachFootballPropsOnlyGrade.ts";
+import {
+  EXACT_MARKET_10K_MIN_SIMULATIONS,
+  exactMarket10kProvenance,
+  withExactMarket10kProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 import { clipPropSimHitForGrade, pickHasSimGrade } from "./simMarketSupport.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import {
@@ -56,6 +63,71 @@ function pick(
     sport: "nfl",
     athleteId: opts?.athleteId === null ? null : (opts?.athleteId ?? `ath-${player}`),
   } as ParsedPick;
+}
+
+function assertUnapprovedHistoricalSeat(graded: PropsOnlyHit): void {
+  assert.equal(graded.hitProbability, null);
+  assert.equal(graded.probabilityProvenance?.source, "insufficient_evidence");
+  assert.equal(graded.probabilityProvenance?.nullReason, "unapproved_historical_model");
+}
+
+function exact10kPropsOnlyHit(
+  p: ParsedPick,
+  hitProbability: number,
+  hitReliability = 0.7,
+): PropsOnlyHit {
+  const probabilityProvenance = exactMarket10kProvenance({
+    hitProbability,
+    simulations: EXACT_MARKET_10K_MIN_SIMULATIONS,
+    sport: p.sport,
+    marketKey: p.propMarketKey ?? p.market,
+    hitReliability,
+  });
+  return {
+    hitProbability,
+    nullReason: null,
+    hitReliability,
+    probabilityProvenance,
+  };
+}
+
+function setExact10kHitOnMap(
+  hits: Map<string, PropsOnlyHit>,
+  p: ParsedPick,
+  hitProbability: number,
+  hitReliability = 0.7,
+): void {
+  const norm = normalizePropsOnlyPick(p);
+  const key = propsOnlySimLookupKey(norm, undefined);
+  if (!key) return;
+  hits.set(key, exact10kPropsOnlyHit(norm, hitProbability, hitReliability));
+}
+
+function stampPropsOnlyScoredLeg(leg: BoardScoredLeg, hit: number): BoardScoredLeg {
+  const pick = withExactMarket10kProvenance({
+    ...leg.pick,
+    isProp: true,
+    propsOnlyTicket: true,
+    simHit: hit,
+    finalAiScore: {
+      grade: leg.grade ?? "B",
+      confidencePct: leg.confidencePct ?? 60,
+      edgePct: leg.edgePct ?? 5,
+      simHit: hit,
+      simAligned: true,
+      recommends: true,
+      composite: leg.composite ?? 7,
+      highRiskValuePlay: false,
+      factors: [],
+      propProbabilityProvenance: exactMarket10kProvenance({
+        hitProbability: hit,
+        simulations: EXACT_MARKET_10K_MIN_SIMULATIONS,
+        sport: leg.pick.sport,
+        marketKey: leg.pick.propMarketKey ?? leg.pick.market,
+      }),
+    } as never,
+  });
+  return { ...leg, pick, simHit: hit };
 }
 
 test("props-only NFL ask uses dedicated football props-only rebuild path", () => {
@@ -181,12 +253,19 @@ test("phone empty after #539: prefetched history grades yards + TD without netwo
   };
 
   const hits = gradeFootballPropsOnlyFromHistory([pass, td, rush], histories);
-  assert.ok(propsOnlyPickHasGrade(pass, hits), "pass yards must clear sim grade from history");
-  assert.ok(propsOnlyPickHasGrade(td, hits), "anytime TD must clear after soft-clip");
-  assert.ok(propsOnlyPickHasGrade(rush, hits), "rush yards must clear sim grade from history");
+  assert.equal(
+    propsOnlyPickHasGrade(pass, hits),
+    false,
+    "empty allowlist: history must not seat pass yards",
+  );
+  assert.equal(propsOnlyPickHasGrade(td, hits), false);
+  assert.equal(propsOnlyPickHasGrade(rush, hits), false);
 
-  const tdHit = gradeFootballPropFromHistory(td, histories["Kelce#15847"]);
-  assert.ok(tdHit.hitProbability != null && tdHit.hitProbability > 0 && tdHit.hitProbability < 1);
+  const passGraded = gradeFootballPropFromHistory(pass, histories["Mahomes#3139477"]);
+  const tdGraded = gradeFootballPropFromHistory(td, histories["Kelce#15847"]);
+  assertUnapprovedHistoricalSeat(passGraded);
+  assertUnapprovedHistoricalSeat(tdGraded);
+  assert.ok((tdGraded.hitReliability ?? 0) > 0);
 });
 
 test("null-line TD grades from history after normalize (phone #541 path)", () => {
@@ -202,12 +281,13 @@ test("null-line TD grades from history after normalize (phone #541 path)", () =>
     })),
   };
   const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
-  assert.ok(graded.hitProbability != null, "null-line TD must grade at 0.5");
+  assertUnapprovedHistoricalSeat(graded);
   assert.ok(
     (graded.hitReliability ?? 0) > 0.5,
     "4/8 scoring games should carry mid/high reliability",
   );
-  assert.equal(propsOnlyLegClearsOdds(normalizePropsOnlyPick(td), graded.hitProbability), true);
+  // Odds gate is separate from Option C seating — use authorized 10k hit.
+  assert.equal(propsOnlyLegClearsOdds(normalizePropsOnlyPick(td), 0.55), true);
 });
 
 test("normalizeHistorySport maps Odds API keys to ESPN history ids", () => {
@@ -235,9 +315,10 @@ test("soft line + real history clears odds gate for staging", () => {
     },
   };
   const hits = gradeFootballPropsOnlyFromHistory([pass], histories);
-  const hit = [...hits.values()][0]?.hitProbability ?? null;
-  assert.ok(hit != null && hit > 0.9, `expected high over-hit, got ${hit}`);
-  assert.equal(propsOnlyLegClearsOdds(pass, hit), true);
+  assertUnapprovedHistoricalSeat([...hits.values()][0]!);
+  const seatHit = 0.95;
+  setExact10kHitOnMap(hits, pass, seatHit);
+  assert.equal(propsOnlyLegClearsOdds(pass, seatHit), true);
 });
 
 test("wrong Over flips to history-backed Under (EV side rebuild)", () => {
@@ -258,14 +339,16 @@ test("wrong Over flips to history-backed Under (EV side rebuild)", () => {
     },
   };
   const hits = gradeFootballPropsOnlyFromHistory([over, under], histories);
-  const overHit = gradeFootballPropFromHistory(over, histories["Mahomes#3139477"]);
-  const underHit = gradeFootballPropFromHistory(under, histories["Mahomes#3139477"]);
-  assert.equal(propsOnlyLegClearsOdds(over, overHit.hitProbability), false);
-  assert.equal(propsOnlyLegClearsOdds(under, underHit.hitProbability), true);
+  const overSeatHit = 0.12;
+  const underSeatHit = 0.88;
+  setExact10kHitOnMap(hits, over, overSeatHit);
+  setExact10kHitOnMap(hits, under, underSeatHit);
+  assert.equal(propsOnlyLegClearsOdds(over, overSeatHit), false);
+  assert.equal(propsOnlyLegClearsOdds(under, underSeatHit), true);
   const collapsed = collapsePropsOnlyToBestEvSides([over, under], hits);
   assert.equal(collapsed.length, 1);
   assert.equal(collapsed[0].propSide, "Under");
-  assert.equal(propsOnlyLegClearsOdds(collapsed[0], underHit.hitProbability), true);
+  assert.equal(propsOnlyLegClearsOdds(collapsed[0], underSeatHit), true);
 });
 
 test("collapse promotes odds-clearing alt rung when main fails quality bar", () => {
@@ -295,32 +378,37 @@ test("collapse promotes odds-clearing alt rung when main fails quality bar", () 
     },
   };
   const hits = gradeFootballPropsOnlyFromHistory([main, alt], histories);
-  const mainHit = gradeFootballPropFromHistory(main, histories["Henry#henry-1"]);
-  const altHit = gradeFootballPropFromHistory(alt, histories["Henry#henry-1"]);
-  assert.equal(propsOnlyLegClearsOdds(main, mainHit.hitProbability), false);
-  assert.equal(propsOnlyLegClearsOdds(alt, altHit.hitProbability), true);
+  const mainSeatHit = 0.28;
+  const altSeatHit = 0.72;
+  setExact10kHitOnMap(hits, main, mainSeatHit);
+  setExact10kHitOnMap(hits, alt, altSeatHit);
+  assert.equal(propsOnlyLegClearsOdds(main, mainSeatHit), false);
+  assert.equal(propsOnlyLegClearsOdds(alt, altSeatHit), true);
   const collapsed = collapsePropsOnlyToBestEvSides([main, alt], hits);
   assert.equal(collapsed.length, 1);
   assert.equal(collapsed[0].propLine, 49.5);
   assert.equal(collapsed[0].propIsAlt, true);
   assert.ok(
-    propsOnlyLegClearsOdds(collapsed[0], altHit.hitProbability),
+    propsOnlyLegClearsOdds(collapsed[0], altSeatHit),
     "alt rung that clears odds must win the ladder",
   );
 
   const scored: BoardScoredLeg[] = [
-    {
-      pick: { ...collapsed[0], propsOnlyTicket: true },
-      evPct: 10,
-      edgePct: 10,
-      confidencePct: 60,
-      impliedProbPct: 52,
-      lineShoppingScore: null,
-      grade: "B",
-      simHit: altHit.hitProbability,
-      composite: 7,
-      rankScore: 7,
-    } as BoardScoredLeg,
+    stampPropsOnlyScoredLeg(
+      {
+        pick: { ...collapsed[0], propsOnlyTicket: true },
+        evPct: 10,
+        edgePct: 10,
+        confidencePct: 60,
+        impliedProbPct: 52,
+        lineShoppingScore: null,
+        grade: "B",
+        simHit: altSeatHit,
+        composite: 7,
+        rankScore: 7,
+      } as BoardScoredLeg,
+      altSeatHit,
+    ),
   ];
   const staged = stageFootballPropsOnlyLegs(scored, 1);
   assert.equal(staged.length, 1);
@@ -359,10 +447,12 @@ test("collapse promotes softer rush TD alt when main Over 1.5 fails odds", () =>
     },
   };
   const hits = gradeFootballPropsOnlyFromHistory([main, alt], histories);
-  const mainHit = gradeFootballPropFromHistory(main, histories["Barkley#sb-1"]);
-  const altHit = gradeFootballPropFromHistory(alt, histories["Barkley#sb-1"]);
-  assert.equal(propsOnlyLegClearsOdds(main, mainHit.hitProbability), false);
-  assert.equal(propsOnlyLegClearsOdds(alt, altHit.hitProbability), true);
+  const mainSeatHit = 0.22;
+  const altSeatHit = 0.58;
+  setExact10kHitOnMap(hits, main, mainSeatHit);
+  setExact10kHitOnMap(hits, alt, altSeatHit);
+  assert.equal(propsOnlyLegClearsOdds(main, mainSeatHit), false);
+  assert.equal(propsOnlyLegClearsOdds(alt, altSeatHit), true);
   const collapsed = collapsePropsOnlyToBestEvSides([main, alt], hits);
   assert.equal(collapsed.length, 1);
   assert.equal(collapsed[0].propLine, 0.5);
@@ -412,28 +502,39 @@ test("8-leg props-only stages from graded best-EV sides (no empty quality bar)",
   }
 
   const hits = gradeFootballPropsOnlyFromHistory(candidates, histories);
+  for (const p of candidates) {
+    if (p.propMarketKey === "player_pass_yds" && p.propSide === "Over") {
+      setExact10kHitOnMap(hits, p, 0.92);
+    } else if (p.propMarketKey === "player_pass_yds" && p.propSide === "Under") {
+      setExact10kHitOnMap(hits, p, 0.08);
+    } else if (p.propMarketKey === "player_anytime_td") {
+      setExact10kHitOnMap(hits, p, 0.55);
+    }
+  }
   const best = collapsePropsOnlyToBestEvSides(candidates, hits);
   assert.ok(best.length >= 8, `expected ≥8 best-EV sides, got ${best.length}`);
 
   const scored: BoardScoredLeg[] = best
     .map((p) => {
-      const hit = gradeFootballPropFromHistory(
-        p,
-        histories[`${p.player}#${p.athleteId}`],
-      ).hitProbability;
+      const hit =
+        hits.get(propsOnlySimLookupKey(normalizePropsOnlyPick(p), undefined) ?? "")
+          ?.hitProbability ?? null;
       if (!propsOnlyLegClearsOdds(p, hit)) return null;
-      return {
-        pick: p,
-        evPct: ((hit ?? 0) - 0.52) * 100,
-        edgePct: ((hit ?? 0) - 0.52) * 100,
-        confidencePct: 60,
-        impliedProbPct: 52.4,
-        lineShoppingScore: null,
-        grade: "B",
-        simHit: hit,
-        composite: 7,
-        rankScore: 7 + ((hit ?? 0) - 0.52),
-      } as BoardScoredLeg;
+      return stampPropsOnlyScoredLeg(
+        {
+          pick: p,
+          evPct: ((hit ?? 0) - 0.52) * 100,
+          edgePct: ((hit ?? 0) - 0.52) * 100,
+          confidencePct: 60,
+          impliedProbPct: 52.4,
+          lineShoppingScore: null,
+          grade: "B",
+          simHit: hit,
+          composite: 7,
+          rankScore: 7 + ((hit ?? 0) - 0.52),
+        } as BoardScoredLeg,
+        hit ?? 0.58,
+      );
     })
     .filter((x): x is BoardScoredLeg => !!x);
 
@@ -467,8 +568,7 @@ test("phone insufficient_game_log rebuild: 2-game early-season sample grades", (
     ],
   };
   const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
-  assert.ok(graded.hitProbability != null, `expected grade from 2 games, got ${graded.nullReason}`);
-  assert.equal(graded.nullReason, null);
+  assertUnapprovedHistoricalSeat(graded);
 });
 
 test("merge prior-season logs fills thin current season (phone hist=19 graded=0)", () => {
@@ -502,10 +602,7 @@ test("merge prior-season logs fills thin current season (phone hist=19 graded=0)
   const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(yards), {
     recent: merged,
   });
-  assert.ok(
-    graded.hitProbability != null,
-    `prior-season backfill must grade, got ${graded.nullReason}`,
-  );
+  assertUnapprovedHistoricalSeat(graded);
 });
 
 test("same-date pass/rush/rec category rows merge before TD grade", () => {
@@ -539,7 +636,7 @@ test("same-date pass/rush/rec category rows merge before TD grade", () => {
   assert.equal(merged[0]?.stats?.rushingTouchdowns, "0");
   const td = pick("player_anytime_td", "Mahomes", 0.5, { athleteId: "3139477" });
   const graded = gradeFootballPropFromHistory(normalizePropsOnlyPick(td), hist);
-  assert.ok(graded.hitProbability != null, `merged TD grade failed: ${graded.nullReason}`);
+  assertUnapprovedHistoricalSeat(graded);
 });
 
 test("propsOnlyPriorSeasonYear prefers second available season", () => {
@@ -616,30 +713,41 @@ test("phone 3-of-8 rebuild: WNBA points props stage 8 legs via history EV (not c
   assert.ok(selected.every((p) => p.propMarketKey === "player_points"));
 
   const hits = gradeFootballPropsOnlyFromHistory(selected, histories);
+  for (const p of selected) {
+    const seatHit = p.propSide === "Over" ? 0.72 : 0.28;
+    setExact10kHitOnMap(hits, p, seatHit);
+  }
   const best = collapsePropsOnlyToBestEvSides(selected, hits);
   const scored: BoardScoredLeg[] = best
     .map((p) => {
-      const hit = gradeFootballPropFromHistory(
-        p,
-        histories[`${p.player}#${p.athleteId}`],
-      ).hitProbability;
+      const hit =
+        hits.get(propsOnlySimLookupKey(normalizePropsOnlyPick(p), undefined) ?? "")
+          ?.hitProbability ?? null;
       if (!propsOnlyLegClearsOdds(p, hit)) return null;
       // Genuine conf at the shared floor — weak conf must not be manufactured upward.
-      return {
-        pick: {
-          ...p,
-          finalAiScore: { grade: "B", confidencePct: 55, edgePct: ((hit ?? 0) - 0.465) * 100 } as never,
-        },
-        evPct: ((hit ?? 0) - 0.465) * 100,
-        edgePct: ((hit ?? 0) - 0.465) * 100,
-        confidencePct: 55,
-        impliedProbPct: 46.5,
-        lineShoppingScore: null,
-        grade: "B",
-        simHit: hit,
-        composite: 7,
-        rankScore: 7,
-      } as BoardScoredLeg;
+      return stampPropsOnlyScoredLeg(
+        {
+          pick: {
+            ...p,
+            propsOnlyTicket: true,
+            finalAiScore: {
+              grade: "B",
+              confidencePct: 55,
+              edgePct: ((hit ?? 0) - 0.465) * 100,
+            } as never,
+          },
+          evPct: ((hit ?? 0) - 0.465) * 100,
+          edgePct: ((hit ?? 0) - 0.465) * 100,
+          confidencePct: 55,
+          impliedProbPct: 46.5,
+          lineShoppingScore: null,
+          grade: "B",
+          simHit: hit,
+          composite: 7,
+          rankScore: 7,
+        } as BoardScoredLeg,
+        hit ?? 0.58,
+      );
     })
     .filter((x): x is BoardScoredLeg => !!x);
 
@@ -661,20 +769,25 @@ test("phone 7-leg thin slate: 1 game with 7 odds-cleared props stages all 7", ()
       game: "Los Angeles Rams @ Denver Broncos",
       propsOnlyTicket: true,
     };
-    scored.push({
-      pick: p,
-      evPct: 20 + i,
-      edgePct: 20 + i,
-      confidencePct: 52,
-      impliedProbPct: 30,
-      lineShoppingScore: null,
-      grade: "B",
-      simHit: 0.45,
-      composite: 7,
-      rankScore: 7 + i,
-      // Grounded mid-sample reliability — not the thin longshot path.
-      hitReliability: 0.7,
-    } as BoardScoredLeg);
+    scored.push(
+      stampPropsOnlyScoredLeg(
+        {
+          pick: p,
+          evPct: 20 + i,
+          edgePct: 20 + i,
+          confidencePct: 52,
+          impliedProbPct: 30,
+          lineShoppingScore: null,
+          grade: "B",
+          simHit: 0.45,
+          composite: 7,
+          rankScore: 7 + i,
+          // Grounded mid-sample reliability — not the thin longshot path.
+          hitReliability: 0.7,
+        } as BoardScoredLeg,
+        0.45,
+      ),
+    );
   }
   assert.equal(propsOnlyPerGameCeiling(7, 1), 7);
   const staged = stageFootballPropsOnlyLegs(scored, 7);
@@ -702,18 +815,23 @@ test("multi-game board: do not stack the same market+side on one game first", ()
         propSide: "Under" as const,
         propsOnlyTicket: true,
       };
-      scored.push({
-        pick: p,
-        evPct: 30 - i - g,
-        edgePct: 30 - i - g,
-        confidencePct: 52,
-        impliedProbPct: 54,
-        lineShoppingScore: null,
-        grade: "B",
-        simHit: 0.7,
-        composite: 7,
-        rankScore: 7,
-      } as BoardScoredLeg);
+      scored.push(
+        stampPropsOnlyScoredLeg(
+          {
+            pick: p,
+            evPct: 30 - i - g,
+            edgePct: 30 - i - g,
+            confidencePct: 52,
+            impliedProbPct: 54,
+            lineShoppingScore: null,
+            grade: "B",
+            simHit: 0.7,
+            composite: 7,
+            rankScore: 7,
+          } as BoardScoredLeg,
+          0.7,
+        ),
+      );
     }
   }
   // Target ≤ games: prefer one Under Points from each matchup.
@@ -766,6 +884,9 @@ test("phone 5-leg touchdown: stingy D cannot wipe graded Anytime TDs with no Und
   }
 
   const hits = gradeFootballPropsOnlyFromHistory(candidates, histories);
+  for (const p of candidates) {
+    setExact10kHitOnMap(hits, p, 0.58, 0.7);
+  }
   const best = collapsePropsOnlyToBestEvSides(candidates, hits);
   assert.ok(best.length >= 5, `expected ≥5 graded TD sides, got ${best.length}`);
 
@@ -786,39 +907,40 @@ test("phone 5-leg touchdown: stingy D cannot wipe graded Anytime TDs with no Und
 
   const scored: BoardScoredLeg[] = kept
     .map((p) => {
-      const graded = gradeFootballPropFromHistory(
-        p,
-        histories[`${p.player}#${p.athleteId}`],
-      );
-      const hit = graded.hitProbability;
+      const hit =
+        hits.get(propsOnlySimLookupKey(normalizePropsOnlyPick(p), undefined) ?? "")
+          ?.hitProbability ?? null;
       if (!propsOnlyLegClearsOdds(p, hit)) return null;
       // Shrink can sit a hair under raw implied; stage still needs positive edge.
       const edgePct = Math.max(1.5, ((hit ?? 0) - 0.38) * 100);
-      return {
-        pick: {
-          ...p,
-          propsOnlyTicket: true,
-          finalAiScore: {
-            grade: "B",
-            confidencePct: 60,
-            edgePct,
-            simHit: hit,
-            simAligned: true,
-            recommends: true,
-            composite: 7,
+      return stampPropsOnlyScoredLeg(
+        {
+          pick: {
+            ...p,
+            propsOnlyTicket: true,
+            finalAiScore: {
+              grade: "B",
+              confidencePct: 60,
+              edgePct,
+              simHit: hit,
+              simAligned: true,
+              recommends: true,
+              composite: 7,
+            },
           },
-        },
-        evPct: edgePct,
-        edgePct,
-        confidencePct: 60,
-        impliedProbPct: 40,
-        lineShoppingScore: null,
-        grade: "B",
-        simHit: hit,
-        composite: 7,
-        rankScore: 7,
-        hitReliability: graded.hitReliability ?? 0.7,
-      } as BoardScoredLeg;
+          evPct: edgePct,
+          edgePct,
+          confidencePct: 60,
+          impliedProbPct: 40,
+          lineShoppingScore: null,
+          grade: "B",
+          simHit: hit,
+          composite: 7,
+          rankScore: 7,
+          hitReliability: 0.7,
+        } as BoardScoredLeg,
+        hit ?? 0.58,
+      );
     })
     .filter((x): x is BoardScoredLeg => !!x);
 

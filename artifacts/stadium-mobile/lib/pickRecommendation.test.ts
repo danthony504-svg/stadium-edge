@@ -27,6 +27,7 @@ import {
 } from "./pickRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { NOT_YET_AI_GRADED } from "./simMarketSupport.ts";
+import { withExactMarket10kProvenance } from "./coachPropProbabilityProvenance.ts";
 
 test("qualifiesAltPick accepts alt ladder legs at the main confidence bar", () => {
   const score = {
@@ -613,7 +614,7 @@ test("coachFlashBoardScanPreviewPicks drops scored legs without positive edge", 
 });
 
 test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic context", () => {
-  const pick = {
+  const pick = withExactMarket10kProvenance({
     isProp: true,
     market: "Strikeouts",
     odds: 130,
@@ -639,12 +640,12 @@ test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic con
         factors: [],
       },
     },
-  };
+  });
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
 });
 
 test("propSimEdgeStagingQualifies never lifts collapsed raw confidence via simHit floor", () => {
-  const pick = {
+  const pick = withExactMarket10kProvenance({
     isProp: true,
     sport: "nba",
     market: "Points",
@@ -671,13 +672,13 @@ test("propSimEdgeStagingQualifies never lifts collapsed raw confidence via simHi
         factors: [],
       },
     },
-  };
+  });
   // Invariant B: rawConfidence < min cannot be raised just to pass.
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), false);
 });
 
 test("propSimEdgeStagingQualifies accepts MC edge when book EV edge on pool row is negative", () => {
-  const pick = {
+  const pick = withExactMarket10kProvenance({
     isProp: true,
     market: "Assists",
     odds: -111,
@@ -703,12 +704,12 @@ test("propSimEdgeStagingQualifies accepts MC edge when book EV edge on pool row 
         factors: [],
       },
     },
-  };
+  });
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
 });
 
 test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holistic gate", () => {
-  const staged = {
+  const staged = withExactMarket10kProvenance({
     game: "Toronto Blue Jays @ San Diego Padres",
     market: "Stolen Bases",
     pick: "Fernando Tatis Jr. Over 0.5 Stolen Bases",
@@ -738,7 +739,7 @@ test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holis
         factors: [],
       },
     },
-  };
+  });
   const out = coachPreserveStagedBoardPicks([staged], { realOdds: [], propPool: [], gameMeta: [] });
   assert.equal(out.length, 1);
 });
@@ -879,7 +880,7 @@ test("filterCoachDeliveredPicks drops negative-edge game lines", () => {
 
 test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tickets", () => {
   const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
-  const leg = {
+  const leg = withExactMarket10kProvenance({
     game: "Arizona Diamondbacks @ Los Angeles Dodgers",
     market: "Hits",
     pick: "Miguel Rojas Under 0.5 Hits",
@@ -911,7 +912,7 @@ test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tic
         factors: [],
       },
     },
-  };
+  });
   const enrich = { realOdds: [], propPool: [], gameMeta: [] };
   assert.equal(finalizeBoardBuiltCoachTicket([leg], enrich).picks.length, 1);
   const topped = topUpBoardBuiltTicket([], 2, [leg, leg], enrich);
@@ -974,7 +975,13 @@ test("props-only: positive EV cannot clear below COACH_SIM_MIN_GRADE / confidenc
     grade: "C+",
     confidencePct: 52,
   } as any;
-  assert.equal(propsOnlyTicketCleared(ok, okScore), true);
-  assert.equal(pickPassesTicketGate(ok, okScore), true);
-  assert.equal(pickGradeDisplayLabel(ok, okScore), "C+");
+  const okStamped = withExactMarket10kProvenance({
+    ...ok,
+    finalAiScore: { ...okScore, simHit: okScore.simHit },
+    simHit: okScore.simHit,
+  });
+  const okScoreStamped = okStamped.finalAiScore ?? okScore;
+  assert.equal(propsOnlyTicketCleared(okStamped, okScoreStamped), true);
+  assert.equal(pickPassesTicketGate(okStamped, okScoreStamped), true);
+  assert.equal(pickGradeDisplayLabel(okStamped, okScoreStamped), "C+");
 });
