@@ -14,6 +14,7 @@ export type CoachScanFailureCode =
   | "TEAM_IDS_UNRESOLVED"
   | "GAME_SIMS_TIMED_OUT"
   | "GAME_SIMS_FETCH_EMPTY"
+  | "GAME_SIMS_STAMP_REJECTED"
   | "GAME_SIMS_ALL_NULL"
   | "GAME_LINES_NO_SIM_GRADE"
   | "PROP_POOL_EMPTY"
@@ -58,6 +59,8 @@ export type CoachScanFailureDiagnostics = {
   oddsLabelsBound?: number;
   /** Games whose ids resolved but fetch returned null / threw. */
   gameSimsFetchNull?: number;
+  /** Games whose draw was present but engineVersion stamp was rejected. */
+  gameSimsStampRejected?: number;
   /** Games skipped because the game-phase wall clock / batch budget expired. */
   gameSimsTimedOut?: number;
   /** How many prop rows actually entered deep MC (not the full pool size). */
@@ -96,6 +99,7 @@ export function deriveCoachScanFailureReason(
   const unresolvedLabels = d.oddsLabelsUnresolved ?? 0;
   const boundLabels = d.oddsLabelsBound ?? 0;
   const fetchNull = d.gameSimsFetchNull ?? 0;
+  const stampRejected = d.gameSimsStampRejected ?? 0;
   const timedOutSims = d.gameSimsTimedOut ?? 0;
   // Football prop-mix + props-only: props are the delivery contract. Never
   // blame TEAM_IDS when the ask was props-primary (screenshot: 15/60/0).
@@ -151,6 +155,24 @@ export function deriveCoachScanFailureReason(
     };
   }
 
+  // Stamp rejection is a distinct missing-sim mode (preview gate / bad engineVersion).
+  if (
+    gameSimsMatter &&
+    gameCount > 0 &&
+    simCount <= 0 &&
+    stampRejected > 0 &&
+    stampRejected >= Math.max(1, fetchNull)
+  ) {
+    return {
+      code: "GAME_SIMS_STAMP_REJECTED",
+      detail:
+        stampRejected +
+        " of " +
+        gameCount +
+        " game sim draw(s) rejected by engineVersion stamp gate",
+    };
+  }
+
   if (
     gameSimsMatter &&
     gameCount > 0 &&
@@ -161,7 +183,10 @@ export function deriveCoachScanFailureReason(
       code: "GAME_SIMS_FETCH_EMPTY",
       detail:
         (boundLabels || gameCount) +
-        " game(s) had ESPN ids but 0 Monte Carlo draws returned usable grades",
+        " game(s) had ESPN ids but 0 Monte Carlo draws returned usable grades" +
+        (stampRejected > 0
+          ? " (" + stampRejected + " stamp-rejected)"
+          : ""),
     };
   }
 
