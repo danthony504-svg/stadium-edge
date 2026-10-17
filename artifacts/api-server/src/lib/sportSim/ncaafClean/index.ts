@@ -116,3 +116,69 @@ export type {
   MlHarnessOpts,
   MlHarnessReport,
 } from "./mlOnlyHarness.ts";
+
+export {
+  NCAAF_GAME_LINE_SIM_VALIDATED,
+  NCAAF_MARKET_READINESS,
+  NCAAF_MARKET_SIM_VALIDATED,
+  assertPerMarketGateIndependence,
+  isNcaafMarketProductValidated,
+  legacyMasterGateConsistent,
+} from "./marketGates.ts";
+export type {
+  MarketGateSnapshot,
+  MarketReadinessStatus,
+  NcaafMarketFamily,
+} from "./marketGates.ts";
+
+export {
+  ALT_CRITERIA,
+  MARKET_GATE_POLICY,
+  SPREAD_CRITERIA,
+  TOTALS_CRITERIA,
+  evaluateAltCriteria,
+  evaluateSpreadCriteria,
+  evaluateTotalsCriteria,
+  marketProductUnlockLabel,
+} from "./marketCriteria.ts";
+export type {
+  AltCriterionResult,
+  AltMetricInputs,
+  SpreadCriterionResult,
+  SpreadMetricInputs,
+  TotalsCriterionResult,
+  TotalsMetricInputs,
+} from "./marketCriteria.ts";
+
+export {
+  diagnoseNcaafMarkets,
+  lockedCriteriaBundle,
+} from "./marketDiagnosis.ts";
+export type { MarketDiagnosisReport } from "./marketDiagnosis.ts";
+
+export {
+  E4_PROSPECTIVE_CRITERIA,
+  mInjAdjustMeta,
+  runE4ProspectiveEval,
+} from "./e4ProspectiveEval.ts";
+export type {
+  E4ProspectiveReport,
+  E4ProspectiveSampleCheck,
+  ProspectiveGameRow,
+} from "./e4ProspectiveEval.ts";
+
+export { runAtsHarness } from "./atsHarness.ts";
+export type {
+  AtsCloseRow,
+  AtsHarnessReport,
+  AtsScoredGame,
+} from "./atsHarness.ts";
+
+export {
+  ATS_REST_TILT_CANDIDATE_ID,
+  ATS_REST_TILT_MAX_ABS_POINTS,
+  ATS_REST_TILT_POINTS_PER_DAY,
+  applyAtsRestTilt,
+  computeAtsRestTilt,
+} from "./atsRestTilt.ts";
+export type { AtsRestTiltResult } from "./atsRestTilt.ts";

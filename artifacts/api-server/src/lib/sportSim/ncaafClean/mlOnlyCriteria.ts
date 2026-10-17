@@ -22,10 +22,16 @@ export const CLV_CRITERIA = {
 
 export const ML_ONLY_POLICY = {
   spreadsMarket: "BLOCKED_SEPARATE_GATE",
+  totalsMarket: "BLOCKED_SEPARATE_GATE",
+  altsMarket: "BLOCKED_SEPARATE_GATE",
   s2DoesNotAutoFailMl: true,
+  /** P3: ML metrics clear must not unlock spreads/totals/ALTs. */
+  noCrossMarketUnlock: true,
   tuningM3IsNotFinalPass: true,
   closesForbiddenInFeatures: true,
   finalEvalScoringRequiresExplicitFlag: true,
+  /** Injury adjusts never attach to frozen M_base FINAL_EVAL. */
+  injuryAdjustForbiddenOnFrozenMl: true,
   voice: "paused",
   ncaafGate: false,
 } as const;
