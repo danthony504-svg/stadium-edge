@@ -30,7 +30,7 @@
 | opp_adj + time-ordered slope | 0.1828 | 0.1501 | 0.0327 | false | 0.3122 | false | 0.514 | 3.8/10.7 |
 
 ## Time-ordered slices
-See JSON `timeOrderedValidation.byWeek` / `byFavoriteSize`.
+Surfaced in [`ncaaf-tuning-cache-analysis-continue.md`](./ncaaf-tuning-cache-analysis-continue.md) (by-week + favorite-size tables for locked engine and opp-adj). Raw: JSON `timeOrderedValidation.byWeek` / `byFavoriteSize`.
 
 ## Conclusion
 - **Meaningful gains vs locked M3/S2:** false
