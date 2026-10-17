@@ -38,8 +38,13 @@ import {
 } from "../src/lib/sportSim/ncaafTeamStrength.ts";
 import {
   classifyMatchupSubdivision,
+  classifyTeamSubdivision,
   type MatchupSubdivision,
 } from "../src/lib/sportSim/ncaafSubdivision.ts";
+import {
+  ncaafTeamStrengthMatchupSupport,
+  ncaafTeamStrengthWithholdMessage,
+} from "../src/lib/sportSim/ncaafTeamStrengthSupport.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIX = join(here, "../test/fixtures");
@@ -272,9 +277,23 @@ type Pred = {
   excludeReason?: string;
 };
 
+type ExclusionReason =
+  | "fbs_fcs_unsupported_scope"
+  | "fcs_fcs_unsupported_scope"
+  | "involves_unknown"
+  | "unrated_fbs_side";
+
 type Row = {
   eventId: string;
   week: number;
+  homeTeamId: string;
+  awayTeamId: string;
+  homeName: string;
+  awayName: string;
+  homeSub: string;
+  awaySub: string;
+  homeRatedAfter: boolean;
+  awayRatedAfter: boolean;
   matchupSubdivision: MatchupSubdivision;
   favSize: string;
   yMl: number;
@@ -285,6 +304,8 @@ type Row = {
   drive: Pred;
   tsBefore: Pred;
   tsAfter: Pred;
+  exclusionReason: ExclusionReason | null;
+  coachWithhold: boolean;
 };
 
 function score(rows: Row[], pick: (r: Row) => Pred | null) {
@@ -436,6 +457,17 @@ function main(): number {
             g.awayTeamId,
             g.season,
           );
+          const homeSub = classifyTeamSubdivision(g.homeTeamId, g.season);
+          const awaySub = classifyTeamSubdivision(g.awayTeamId, g.season);
+          const homeRatedAfter = afterLive.hasRating(g.homeTeamId);
+          const awayRatedAfter = afterLive.hasRating(g.awayTeamId);
+          const support = ncaafTeamStrengthMatchupSupport({
+            homeTeamId: g.homeTeamId,
+            awayTeamId: g.awayTeamId,
+            season: g.season,
+            homeRated: homeRatedAfter,
+            awayRated: awayRatedAfter,
+          });
 
           const before = legacyPredict(
             legacySeed,
@@ -453,8 +485,15 @@ function main(): number {
             components: TEAM_STRENGTH_FULL,
           });
 
+          let exclusionReason: ExclusionReason | null = null;
+          if (!support.supported) {
+            exclusionReason = support.reason as ExclusionReason;
+          } else if (!after) {
+            exclusionReason = "unrated_fbs_side";
+          }
+
           let tsAfter: Pred;
-          if (!after) {
+          if (!after || exclusionReason) {
             tsAfterExcluded += 1;
             tsAfter = {
               pMl: NaN,
@@ -462,7 +501,7 @@ function main(): number {
               predMargin: NaN,
               sigma: null,
               excluded: true,
-              excludeReason: "unrated_side_no_invented_default",
+              excludeReason: exclusionReason ?? "unrated_fbs_side",
             };
           } else {
             tsAfter = {
@@ -476,6 +515,14 @@ function main(): number {
           rows.push({
             eventId: g.eventId,
             week: g.week,
+            homeTeamId: g.homeTeamId,
+            awayTeamId: g.awayTeamId,
+            homeName: g.homeName ?? nameById.get(g.homeTeamId) ?? g.homeTeamId,
+            awayName: g.awayName ?? nameById.get(g.awayTeamId) ?? g.awayTeamId,
+            homeSub,
+            awaySub,
+            homeRatedAfter,
+            awayRatedAfter,
             matchupSubdivision,
             favSize: favSize(Math.abs(close.closeSpreadHome!)),
             yMl,
@@ -498,6 +545,8 @@ function main(): number {
               sigma: before.sigma,
             },
             tsAfter,
+            exclusionReason,
+            coachWithhold: !support.supported || !after,
           });
         }
       }
@@ -512,6 +561,7 @@ function main(): number {
   const afterScoredIds = new Set(
     rows.filter((r) => !r.tsAfter.excluded).map((r) => r.eventId),
   );
+  const identical = rows.filter((r) => afterScoredIds.has(r.eventId));
 
   const sliceDefs: Array<{ id: string; filter: (r: Row) => boolean }> = [
     { id: "all_fair", filter: () => true },
@@ -527,17 +577,30 @@ function main(): number {
       id: "fbs_fbs_large_14plus",
       filter: (r) => r.matchupSubdivision === "fbs_fbs" && r.favSize === "large_14plus",
     },
-    // Identical games where AFTER produced a rated prediction (apples-to-apples)
     {
-      id: "identical_after_scored",
+      id: "identical_334",
       filter: (r) => afterScoredIds.has(r.eventId),
     },
+    {
+      id: "identical_334_week1",
+      filter: (r) => afterScoredIds.has(r.eventId) && r.week === 1,
+    },
+    {
+      id: "identical_334_large_14plus",
+      filter: (r) => afterScoredIds.has(r.eventId) && r.favSize === "large_14plus",
+    },
   ];
+
+  const modelKeys = [
+    ["locked_drive_teamMean", (r: Row) => r.drive],
+    ["ts_full_before_legacyHeuristic", (r: Row) => r.tsBefore],
+    ["ts_full_after_verifiedIds", (r: Row) => r.tsAfter],
+  ] as const;
 
   const slices: Record<string, unknown> = {};
   for (const s of sliceDefs) {
     const rs = rows.filter(s.filter);
-    slices[s.id] = {
+    const block: Record<string, unknown> = {
       n: rs.length,
       matchupCounts: {
         fbs_fbs: rs.filter((r) => r.matchupSubdivision === "fbs_fbs").length,
@@ -546,11 +609,88 @@ function main(): number {
         involves_unknown: rs.filter((r) => r.matchupSubdivision === "involves_unknown")
           .length,
       },
-      locked_drive_teamMean: score(rs, (r) => r.drive),
-      ts_full_before_legacyHeuristic: score(rs, (r) => r.tsBefore),
-      ts_full_after_verifiedIds: score(rs, (r) => r.tsAfter),
     };
+    for (const [key, pick] of modelKeys) {
+      block[key] = score(rs, pick);
+    }
+    slices[s.id] = block;
   }
+
+  const excludedRows = rows.filter((r) => r.tsAfter.excluded);
+  const exclusionByReason: Record<string, number> = {};
+  for (const r of excludedRows) {
+    const reason = r.exclusionReason ?? "unknown";
+    exclusionByReason[reason] = (exclusionByReason[reason] ?? 0) + 1;
+  }
+  const exclusionsList = excludedRows.map((r) => ({
+    eventId: r.eventId,
+    week: r.week,
+    matchup: `${r.homeName} vs ${r.awayName}`,
+    homeSub: r.homeSub,
+    awaySub: r.awaySub,
+    matchupSubdivision: r.matchupSubdivision,
+    homeRatedAfter: r.homeRatedAfter,
+    awayRatedAfter: r.awayRatedAfter,
+    reason: r.exclusionReason,
+    coachWithhold: r.coachWithhold,
+    favSize: r.favSize,
+    closeSpreadHome: r.closeSpreadHome,
+  }));
+
+  // Readiness: separate by market × supported scope (no tuning)
+  const id334 = slices.identical_334 as any;
+  const readiness = {
+    note: "No further tuning. FBS–FCS is unsupported scope (not a validation pass). Gate stays false.",
+    coachWithholdPolicy: {
+      researchHelper: "ncaafTeamStrengthMatchupSupport / ncaafTeamStrengthWithholdMessage",
+      liveWired: false,
+      rule: "Withhold team-strength legs when support.coachAction==='withhold' (FBS–FCS, unknown, unrated FBS side). Do not invent defaults.",
+      exampleFbsFcs: ncaafTeamStrengthWithholdMessage({
+        supported: false,
+        scope: "fbs_fcs",
+        reason: "fbs_fcs_unsupported_scope",
+        coachAction: "withhold",
+      }),
+    },
+    byScope: {
+      supported_fbs_fbs_identical_334: {
+        n: identical.length,
+        ML: {
+          locked_drive: {
+            brier: id334.locked_drive_teamMean.mlBrier,
+            deltaVsMkt: id334.locked_drive_teamMean.delta,
+            M3: id334.locked_drive_teamMean.M3,
+            ready: false,
+          },
+          ts_after_verified: {
+            brier: id334.ts_full_after_verifiedIds.mlBrier,
+            deltaVsMkt: id334.ts_full_after_verifiedIds.delta,
+            M3: id334.ts_full_after_verifiedIds.M3,
+            ready: false,
+          },
+        },
+        ATS: {
+          locked_drive: {
+            brier: id334.locked_drive_teamMean.atsBrier,
+            S2: id334.locked_drive_teamMean.S2,
+            ready: false,
+          },
+          ts_after_verified: {
+            brier: id334.ts_full_after_verifiedIds.atsBrier,
+            S2: id334.ts_full_after_verifiedIds.S2,
+            ready: false,
+          },
+        },
+      },
+      unsupported_fbs_fcs: {
+        n: rows.filter((r) => r.matchupSubdivision === "fbs_fcs").length,
+        validationPass: false,
+        coachAction: "withhold",
+        tsScored: 0,
+        note: "Separate unsupported scope — never count as M3/S2 progress",
+      },
+    },
+  };
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -559,6 +699,7 @@ function main(): number {
     liveGate: "NCAAF_GAME_LINE_SIM_VALIDATED=false",
     paidRetrieval: false,
     closesInPredictiveFeatures: false,
+    furtherTuning: false,
     researchFlag: "NCAAF_TEAM_STRENGTH_RESEARCH=1",
     stamps: {
       liveDrive: FOOTBALL_DRIVE_ENGINE_VERSION,
@@ -572,16 +713,22 @@ function main(): number {
     simsPerGame: SIMS,
     fairCohortN: rows.length,
     skippedThin,
-    tsAfterExcludedUnrated: tsAfterExcluded,
+    identical334N: identical.length,
+    tsAfterExcluded: tsAfterExcluded,
+    exclusionByReason,
+    exclusions: exclusionsList,
     legacyFcsNameHeuristicCount: legacyFcs.size,
     afterSeededTeams: afterSeed.off.size,
     beforeSeededTeams: legacySeed.off.size,
     slices,
+    readiness,
     discipline: {
       arbitraryStrengthFit: false,
       unknownsStayUnknown: true,
       ratingsRebuiltChronologically: true,
       notOnlyRelabeledPredictions: true,
+      fbsFcsIsUnsupportedScope: true,
+      classificationFixPreserved: true,
     },
   };
 
@@ -593,80 +740,155 @@ function main(): number {
     join(ART, "ncaaf-tuning-subdivision-fix-compare.json"),
     JSON.stringify(report, null, 2),
   );
+  writeFileSync(
+    join(FIX, "ncaaf-tuning-identical-334-finish.json"),
+    JSON.stringify(report, null, 2),
+  );
+  writeFileSync(
+    join(ART, "ncaaf-tuning-identical-334-finish.json"),
+    JSON.stringify(report, null, 2),
+  );
+
+  const fmt = (x: number | null | undefined, d = 4) =>
+    x == null || !Number.isFinite(x) ? "—" : x.toFixed(d);
 
   const md: string[] = [];
-  md.push("# TUNING: subdivision classification fix — before/after");
+  md.push("# TUNING finish: identical 334-game cohort (no further tuning)");
   md.push("");
   md.push(
-    `**Stamp unchanged:** \`${FOOTBALL_NCAAF_TEAM_STRENGTH_RESEARCH_VERSION}\` · drive locked · FINAL_EVAL untouched · gate false · no paid Odds · no new model`,
+    `**Stamp unchanged:** \`${FOOTBALL_NCAAF_TEAM_STRENGTH_RESEARCH_VERSION}\` · drive locked · FINAL_EVAL untouched · gate false · no paid Odds · no deploy/OTA · no new model`,
   );
-  md.push("");
-  md.push("## What changed");
   md.push("");
   md.push(
-    "- **BEFORE:** name-heuristic FCS set (missed 50+ FCS; false-tagged Delaware as FCS in 2025); silent default-24 μ",
-  );
-  md.push(
-    "- **AFTER:** season-specific ESPN FBS/FCS IDs; seed/update only verified FBS–FBS; chronological rebuild; unrated → explicit TS exclusion (no invented defaults)",
-  );
-  md.push(`- Drive model: **unchanged** (control).`);
-  md.push(
-    `- Seeded teams: before=${legacySeed.off.size} · after=${afterSeed.off.size} · TS after exclusions (unrated)=${tsAfterExcluded}`,
+    "Classification fix **preserved**. FBS–FCS = **unsupported scope** (Coach withhold) — not a validation pass.",
   );
   md.push("");
-  md.push("## Slice metrics");
+  md.push("## 1. Identical cohort (n=334) — all models, ML + ATS");
   md.push("");
-  for (const s of sliceDefs) {
-    const block = slices[s.id] as any;
-    md.push(`### \`${s.id}\` (n=${block.n})`);
+  md.push(
+    "Same event IDs for every model (games where verified team-strength produced a rated prediction).",
+  );
+  md.push("");
+  const writeModelTable = (sliceId: string, title: string) => {
+    const block = slices[sliceId] as any;
+    md.push(`### ${title} (n=${block.n})`);
     md.push("");
     md.push(
-      `| Model | scored | excl | ML Brier | Δ mkt | M3 | ATS n | ATS | S2 | bias |`,
+      `| Model | scored | ML Brier | Δ vs mkt | M3 | ATS n | ATS Brier | S2 | margin bias |`,
     );
     md.push(
-      `|-------|-------:|-----:|---------:|------:|:--:|------:|----:|:--:|-----:|`,
+      `|-------|-------:|---------:|---------:|:--:|------:|----------:|:--:|------------:|`,
     );
     for (const [label, key] of [
-      ["locked_drive", "locked_drive_teamMean"],
-      ["ts_before_legacy", "ts_full_before_legacyHeuristic"],
-      ["ts_after_verified", "ts_full_after_verifiedIds"],
+      ["locked_drive_teamMean", "locked_drive_teamMean"],
+      ["ts_full_before_legacyHeuristic", "ts_full_before_legacyHeuristic"],
+      ["ts_full_after_verifiedIds", "ts_full_after_verifiedIds"],
     ] as const) {
       const m = block[key];
-      const fmt = (x: number | null, d = 4) =>
-        x == null || !Number.isFinite(x) ? "—" : x.toFixed(d);
       md.push(
-        `| \`${label}\` | ${m.scoredN} | ${m.excludedN} | ${fmt(m.mlBrier)} | ${fmt(m.delta)} | ${m.M3} | ${m.atsN} | ${fmt(m.atsBrier)} | ${m.S2} | ${fmt(m.marginBias, 1)} |`,
+        `| \`${label}\` | ${m.scoredN} | ${fmt(m.mlBrier)} | ${fmt(m.delta)} | ${m.M3} | ${m.atsN} | ${fmt(m.atsBrier)} | ${m.S2} | ${fmt(m.marginBias, 1)} |`,
       );
     }
     md.push("");
+  };
+  writeModelTable("identical_334", "`identical_334`");
+  writeModelTable("identical_334_week1", "`identical_334` × Week 1");
+  writeModelTable("identical_334_large_14plus", "`identical_334` × 14+ favorites");
+
+  md.push("## 2. Exclusions (87) by reason");
+  md.push("");
+  md.push("| Reason | n | Coach action | Notes |");
+  md.push("|--------|--:|:------------:|-------|");
+  for (const [reason, n] of Object.entries(exclusionByReason).sort()) {
+    const note =
+      reason === "fbs_fcs_unsupported_scope"
+        ? "Unsupported scope — not a model miss"
+        : reason === "unrated_fbs_side"
+          ? "FBS–FBS but no rating yet (e.g. transition / pre-first FBS–FBS)"
+          : reason;
+    md.push(`| \`${reason}\` | ${n} | **withhold** | ${note} |`);
   }
-  md.push("## Notes");
+  md.push("");
+  md.push(`Total exclusions: **${excludedRows.length}** (fair cohort 421 − identical 334).`);
+  md.push("");
+  md.push("### Exclusion inventory");
+  md.push("");
+  md.push("| eventId | week | matchup | subs | reason |");
+  md.push("|--------|-----:|---------|------|--------|");
+  for (const e of exclusionsList) {
+    md.push(
+      `| ${e.eventId} | ${e.week} | ${e.matchup} | ${e.homeSub}/${e.awaySub} | \`${e.reason}\` |`,
+    );
+  }
+  md.push("");
+
+  md.push("## 3. Coach withhold confirmation");
   md.push("");
   md.push(
-    "- **FBS–FCS after:** all excluded from team-strength (unrated FCS — no invented defaults). Drive still scores them.",
+    "- Research helper: `ncaafTeamStrengthMatchupSupport` → `coachAction: \"withhold\"` for FBS–FCS, unknown, and unrated FBS sides.",
   );
   md.push(
-    "- **`identical_after_scored`:** same event IDs for before vs after (excludes the 87 unrated-after games) so Δ is not confounded by cohort change.",
+    "- Message helper: `ncaafTeamStrengthWithholdMessage` (explicit unsupported-scope copy).",
   );
   md.push(
-    "- Legacy before can look stronger on some slices while still **polluted** (unflagged FCS in seed/update, silent defaults). Not an acceptance path.",
+    "- **Not live-wired** (NCAAF remains blocked / gate false). Policy is encoded so Coach withholds the same cases once/if research path is considered.",
   );
+  md.push(
+    `- Example FBS–FCS copy: “${readiness.coachWithholdPolicy.exampleFbsFcs}”`,
+  );
+  md.push("");
+
+  md.push("## 4. Readiness (by market × supported scope)");
+  md.push("");
+  md.push("| Scope | Market | Model | Metric | Pass? | Ready? |");
+  md.push("|-------|--------|-------|--------|:-----:|:------:|");
+  md.push(
+    `| supported FBS–FBS (identical 334) | ML | drive | Δ=${fmt(id334.locked_drive_teamMean.delta)} M3=${id334.locked_drive_teamMean.M3} | ${id334.locked_drive_teamMean.M3} | **no** |`,
+  );
+  md.push(
+    `| supported FBS–FBS (identical 334) | ML | ts_after | Δ=${fmt(id334.ts_full_after_verifiedIds.delta)} M3=${id334.ts_full_after_verifiedIds.M3} | ${id334.ts_full_after_verifiedIds.M3} | **no** |`,
+  );
+  md.push(
+    `| supported FBS–FBS (identical 334) | ATS | drive | Brier=${fmt(id334.locked_drive_teamMean.atsBrier)} S2=${id334.locked_drive_teamMean.S2} | ${id334.locked_drive_teamMean.S2} | **no** |`,
+  );
+  md.push(
+    `| supported FBS–FBS (identical 334) | ATS | ts_after | Brier=${fmt(id334.ts_full_after_verifiedIds.atsBrier)} S2=${id334.ts_full_after_verifiedIds.S2} | ${id334.ts_full_after_verifiedIds.S2} | **no** |`,
+  );
+  md.push(
+    `| **unsupported FBS–FCS** | ML/ATS | team-strength | n=${readiness.byScope.unsupported_fbs_fcs.n}, scored=0 | n/a | **withhold** (not a pass/fail) |`,
+  );
+  md.push("");
+  md.push(
+    "Legacy `ts_before` on identical 334 is reported above for comparison only — polluted classification; **not** an acceptance path.",
+  );
+  md.push("");
+
+  md.push("## 5. Context slices (not the identical-334 primary table)");
+  md.push("");
+  for (const sid of [
+    "all_fair",
+    "fbs_fbs",
+    "fbs_fcs",
+    "week1",
+    "large_14plus",
+  ] as const) {
+    const block = slices[sid] as any;
+    md.push(
+      `- \`${sid}\` n=${block.n} · drive ML Δ=${fmt(block.locked_drive_teamMean.delta)} · ts_after scored=${block.ts_full_after_verifiedIds.scoredN}/excl=${block.ts_full_after_verifiedIds.excludedN}`,
+    );
+  }
   md.push("");
   md.push("## Conclusion");
   md.push("");
+  md.push("- Comparison finished **without further tuning**.");
+  md.push("- Classification fix + regressions preserved.");
   md.push(
-    "- Classification defect addressed with verified season-specific IDs + chronological FBS–FBS rebuild.",
-  );
-  md.push(
-    "- Gate flip: **false**. FINAL_EVAL: **UNTOUCHED**. No deploy/OTA. No new model yet. Criteria unchanged.",
+    "- Gate flip: **false**. FINAL_EVAL: **UNTOUCHED**. NCAAF blocked. No paid Odds / deploy / OTA.",
   );
   md.push("");
   md.push("## Repro");
   md.push("```bash");
   md.push("cd artifacts/api-server");
-  md.push(
-    "node --import ./test/register-hooks.mjs ./scripts/ncaafRetagSubdivision.ts",
-  );
   md.push(
     "NCAAF_TUNING_SIMS=1000 NCAAF_TEAM_STRENGTH_RESEARCH=1 node --import ./test/register-hooks.mjs ./scripts/ncaafTuningSubdivisionFixCompare.ts",
   );
@@ -676,20 +898,22 @@ function main(): number {
   writeFileSync(join(FIX, "ncaaf-tuning-subdivision-fix-compare.md"), mdText);
   writeFileSync(join(ART, "ncaaf-tuning-subdivision-fix-compare.md"), mdText);
   writeFileSync(join(DOCS, "ncaaf-tuning-subdivision-fix-compare.md"), mdText);
+  writeFileSync(join(FIX, "ncaaf-tuning-identical-334-finish.md"), mdText);
+  writeFileSync(join(ART, "ncaaf-tuning-identical-334-finish.md"), mdText);
+  writeFileSync(join(DOCS, "ncaaf-tuning-identical-334-finish.md"), mdText);
 
-  const allSlice = slices.all_fair as any;
   console.log(
     JSON.stringify(
       {
         fairN: rows.length,
-        tsAfterExcluded,
-        all: {
-          drive: allSlice.locked_drive_teamMean,
-          before: allSlice.ts_full_before_legacyHeuristic,
-          after: allSlice.ts_full_after_verifiedIds,
+        identical334: identical.length,
+        exclusions: exclusionByReason,
+        identicalMetrics: {
+          drive: id334.locked_drive_teamMean,
+          before: id334.ts_full_before_legacyHeuristic,
+          after: id334.ts_full_after_verifiedIds,
         },
-        fbs_fbs: (slices.fbs_fbs as any).ts_full_after_verifiedIds,
-        fbs_fcs: (slices.fbs_fcs as any).ts_full_after_verifiedIds,
+        readinessReady: false,
       },
       null,
       2,
