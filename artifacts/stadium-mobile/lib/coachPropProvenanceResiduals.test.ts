@@ -57,6 +57,102 @@ test("floors unchanged", () => {
   assert.equal(COACH_SIM_MIN_GRADE, "C+");
 });
 
+test("evidenceId cannot authorize a different athlete/event/market/side/line", () => {
+  const trusted = exactMarket10kProvenance({
+    hitProbability: 0.61,
+    simulations: 10_000,
+    sport: "nfl",
+    marketKey: "player_pass_yds",
+    athleteId: "ath-a",
+    eventId: "evt-a",
+    side: "Over",
+    line: 249.5,
+  });
+  assert.equal(trusted.source, "exact_market_10k");
+  assert.ok(trusted.evidenceId);
+
+  // Same evidenceId + mutated provenance identity fields → fail closed.
+  const mutate = (
+    patch: Partial<typeof trusted>,
+    candidate: typeof base,
+  ) => {
+    const forged = { ...trusted, ...patch };
+    assert.equal(propProvenanceAllowsSeating(forged, candidate), false);
+  };
+  mutate({ athleteId: "ath-b" }, { ...base, athleteId: "ath-b", eventId: "evt-a", propMarketKey: "player_pass_yds", propLine: 249.5, sport: "nfl" });
+  mutate({ eventId: "evt-b" }, { ...base, athleteId: "ath-a", eventId: "evt-b", propMarketKey: "player_pass_yds", propLine: 249.5, sport: "nfl" });
+  mutate({ marketKey: "player_rush_yds" }, { ...base, athleteId: "ath-a", eventId: "evt-a", propMarketKey: "player_rush_yds", propLine: 249.5, sport: "nfl" });
+  mutate({ side: "Under" }, { ...base, athleteId: "ath-a", eventId: "evt-a", propMarketKey: "player_pass_yds", propSide: "Under", propLine: 249.5, sport: "nfl" });
+  mutate({ line: 275.5 }, { ...base, athleteId: "ath-a", eventId: "evt-a", propMarketKey: "player_pass_yds", propLine: 275.5, sport: "nfl" });
+
+  // Reuse evidenceId on a completely different candidate → fail closed.
+  assert.equal(
+    propProvenanceAllowsSeating(trusted, {
+      athleteId: "ath-other",
+      eventId: "evt-other",
+      propMarketKey: "player_pass_yds",
+      propSide: "Over",
+      propLine: 249.5,
+    }),
+    false,
+  );
+});
+
+test("cleared registry: stale evidenceId cannot authorize a later scan", () => {
+  const first = exactMarket10kProvenance({
+    hitProbability: 0.55,
+    simulations: 10_000,
+    sport: "nba",
+    marketKey: "player_points",
+    athleteId: "nba-1",
+    eventId: "evt-nba",
+    side: "Over",
+    line: 24.5,
+  });
+  assert.equal(propProvenanceAllowsSeating(first, {
+    athleteId: "nba-1",
+    eventId: "evt-nba",
+    propMarketKey: "player_points",
+    propSide: "Over",
+    propLine: 24.5,
+  }), true);
+
+  // Simulate process/test boundary between scans.
+  clearTrustedExactEvidenceForTests();
+
+  assert.equal(
+    propProvenanceAllowsSeating(first, {
+      athleteId: "nba-1",
+      eventId: "evt-nba",
+      propMarketKey: "player_points",
+      propSide: "Over",
+      propLine: 24.5,
+    }),
+    false,
+    "stale evidenceId after registry clear must not seat",
+  );
+  // Unrelated later identity also fails (no live registration).
+  assert.equal(
+    propProvenanceAllowsSeating(
+      {
+        ...first,
+        athleteId: "mlb-9",
+        eventId: "evt-mlb",
+        marketKey: "batter_hits",
+        line: 1.5,
+      },
+      {
+        athleteId: "mlb-9",
+        eventId: "evt-mlb",
+        propMarketKey: "batter_hits",
+        propSide: "Over",
+        propLine: 1.5,
+      },
+    ),
+    false,
+  );
+});
+
 test("residual 1: wrong athlete/event simulation cannot authorize seating", () => {
   const trusted = exactMarket10kProvenance({
     hitProbability: 0.62,
