@@ -1,6 +1,7 @@
 /**
- * Request-reproducing regressions for greenfield-1792241518210 / 6360124 / 6362208.
- * Observe-only classification — does not change selection.
+ * Incident-derived fixtures for greenfield-1792241518210 / 6360124 / 6362208.
+ * Original asks and candidate pools were unavailable — synthetic tickets only,
+ * not exact replays. Classification + stamp-split regressions.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -63,7 +64,7 @@ const RAYS_GUARDIANS_TICKET = [
   },
 ];
 
-test("greenfield-1792241518210/6360124: grounded 6/6 Rays@Guardians does not page grounding", () => {
+test("incident-derived greenfield-1792241518210/6360124: grounded 6/6 Rays@Guardians does not page grounding", () => {
   const grounding = evaluateReturnedPicksGrounding(RAYS_GUARDIANS_TICKET);
   assert.equal(grounding.hasMismatch, false);
   const body = buildCoachReliabilityBody({
@@ -79,7 +80,7 @@ test("greenfield-1792241518210/6360124: grounded 6/6 Rays@Guardians does not pag
   assert.equal(body, null);
 });
 
-test("greenfield grounding: full 6/6 with one bad leg still pages (no suppress-on-full)", () => {
+test("incident-derived greenfield grounding: full 6/6 with one bad leg still pages (no suppress-on-full)", () => {
   const picks = [
     ...RAYS_GUARDIANS_TICKET.slice(0, 5),
     {
@@ -107,7 +108,7 @@ test("greenfield grounding: full 6/6 with one bad leg still pages (no suppress-o
   assert.equal(body?.affectedGame, "Rays @ Guardians");
 });
 
-test("greenfield-1792246362208: missing_sim_output modes distinguished", () => {
+test("incident-derived greenfield-1792246362208: missing_sim_output modes distinguished", () => {
   assert.equal(
     mapScanFailureCode("GAME_SIMS_FETCH_EMPTY")?.failureReason,
     "missing_sim_output",
