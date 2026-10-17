@@ -7,12 +7,14 @@
 
 ## Verdict: restore readiness **NO** (no market enabled)
 
+**TUNING round CLOSED UNSUCCESSFUL** (2026-10-17) — drive-sim levers exhausted; see [`ncaaf-tuning-round-closed-unsuccessful.md`](./ncaaf-tuning-round-closed-unsuccessful.md). Replacement proposal (not implemented): [`ncaaf-replacement-team-strength-proposal.md`](./ncaaf-replacement-team-strength-proposal.md).
+
 Per-market readiness is **independent**. Locked criteria are **not** lowered. 2024 USED holdout is **not** fresh acceptance evidence.
 
-| Market | Evidence this turn | vs locked criteria | Restore? |
-|--------|--------------------|--------------------|----------|
-| **Moneyline** | TUNING 2025 w1–7 score-only: n=468, Brier **0.184** vs coin 0.25, corr(p,y)=0.36, bias −0.075; **no Odds closes** → M3 unevaluable | M1–M2 promising on scores only; **M3 blocked** | **NO** |
-| **Spreads** | TUNING fair-line ATS Brier **0.260** (scale=1) fails coin; scale 1.6 → 0.249 (synthetic); USED 2024 ATS still fails coin | S2 not met on closes; no TUNING closes | **NO** |
+| Market | Evidence | vs locked criteria | Restore? |
+|--------|----------|--------------------|----------|
+| **Moneyline** | Fair n=421 close-joined: locked ML Brier ~0.202, Δ vs market ~0.052; best opp-adj Δ~0.032 — **M3 FAIL** | M3 not met | **NO** |
+| **Spreads** | Locked ATS Brier ~0.29; opp-adj worse (~0.31) — **S2 FAIL** | S2 not met | **NO** |
 | **Totals** | No `closeTotal` archive | INSUFFICIENT_DATA | **BLOCKED** |
 | **ALTs** | No posted ALT prices | INSUFFICIENT_DATA | **BLOCKED** |
 
@@ -21,7 +23,7 @@ Per-market readiness is **independent**. Locked criteria are **not** lowered. 20
 | Window | Status |
 |--------|--------|
 | 2024 pre-cutoff + post-cutoff | **USED** — diagnosis only; no retune of residual 14.5 / shrink 2.0 |
-| **TUNING** 2025 weeks 1–7 | ESPN games **vendored** (471); Odds closes **not** fetched |
+| **TUNING** 2025 weeks 1–7 | ESPN **471** + closes archive **470/471** (eval-only); round **closed unsuccessful** |
 | **FINAL_EVAL** 2025 w8+ / completed 2026 | **Untouched** — counted only (~416 + ~455); **no fixture written** |
 
 Criteria locked in [`ncaaf-reserved-eval-acceptance-criteria.md`](./ncaaf-reserved-eval-acceptance-criteria.md).
@@ -62,8 +64,8 @@ Live stamp `ppg-per-drive-v1`. Research opt-in only. NFL ignores research flags.
 
 ## What remains (no E6)
 
-1. Paid TUNING Odds closes (above).  
-2. Score locked M/S criteria on TUNING (± optional gap-scale env).  
-3. If a market PASSes TUNING → freeze params → score FINAL_EVAL once.  
+1. Human review of replacement team-strength **proposal** (no impl/spend until approved).  
+2. If approved: implement research stamp offline; screen on TUNING with locked M3/S2 + slice gates; **do not** train on closes.  
+3. Only after TUNING PASS → build FINAL_EVAL once (no retune).  
 4. Totals/ALTs stay blocked until archives exist.  
-5. Keep gate false; no deploy/OTA.
+5. Keep gate false; no deploy/OTA; voice paused.
