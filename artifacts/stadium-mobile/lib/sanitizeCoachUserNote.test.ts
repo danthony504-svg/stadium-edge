@@ -60,6 +60,7 @@ test("formatCoachScanFailureTrace codes are covered by the sanitizer list", () =
     "GAME_SIMS_FETCH_EMPTY",
     "GAME_SIMS_ALL_NULL",
     "GAME_LINES_NO_SIM_GRADE",
+    "P0_UNVALIDATED_MARKETS",
     "PROP_POOL_EMPTY",
     "PROP_PHASE_INCOMPLETE",
     "PROP_ALL_NO_SIM_GRADE",

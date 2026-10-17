@@ -1,0 +1,140 @@
+{
+  "generatedAt": "2026-10-16T20:22:57.252Z",
+  "engine": "nfl-drive:ppg-per-drive-v1.1",
+  "simulationsPerGame": 10000,
+  "calibrationSeed": 20241015,
+  "untouchedCutoff": "2024-10-15T00:00:00Z",
+  "settlementConvention": {
+    "engine": "coverQueryHits home: homeScore + line > awayScore",
+    "archive": "closeSpreadHome is American home line (favorite negative)",
+    "pushes": "adj == 0 excluded from Brier (null)",
+    "matchesUnitChecks": true,
+    "unitChecks": [
+      {
+        "case": "home_-3.5_covers",
+        "ok": true
+      },
+      {
+        "case": "home_+7.5_covers_narrow",
+        "ok": true
+      },
+      {
+        "case": "push_excluded",
+        "ok": true
+      },
+      {
+        "case": "away_+3.5",
+        "ok": true
+      }
+    ]
+  },
+  "formTiming": {
+    "method": "walkHoldoutGames: priors only after credible last-play stamp (2.5–12h) else kickoff+4h; evaluated game excluded",
+    "note": "Same selection-time form as E2a holdout — no post-game leakage into inputs"
+  },
+  "full2024Joined": {
+    "label": "full_2024_close_joined",
+    "nRows": 770,
+    "nPushes": 16,
+    "nDecided": 754,
+    "meanP": 0.5005026525198942,
+    "meanY": 0.4960212201591512,
+    "coverBias": 0.004481432360743054,
+    "corrPY": -0.016218317281237623,
+    "brierEngine": 0.2834687122015911,
+    "brierCoin": 0.25,
+    "beatsCoin": false,
+    "brierSignFlippedSettlement": 0.3755499219380881,
+    "signFlipImproves": false,
+    "brierOneMinusP": 0.27778436206896556,
+    "oneMinusImproves": true,
+    "marketMlBaseline": {
+      "n": 754,
+      "brier": 0.17778314558576436,
+      "note": "Close-ML Brier on same games (related market, not spread juice)."
+    },
+    "uncertainty": {
+      "note": "No closing spread prices in archive — cannot compute market-implied cover probs for ATS. Spread market baseline is coin (fair ATS ~0.5) only.",
+      "sims": 10000,
+      "seed": 20241015
+    }
+  },
+  "preCutoff": {
+    "label": "pre_cutoff_selection_window",
+    "nRows": 379,
+    "nPushes": 9,
+    "nDecided": 370,
+    "meanP": 0.48631351351351376,
+    "meanY": 0.4756756756756757,
+    "coverBias": 0.01063783783783806,
+    "corrPY": -0.07058942038411634,
+    "brierEngine": 0.3037476216216215,
+    "brierCoin": 0.25,
+    "beatsCoin": false,
+    "brierSignFlippedSettlement": 0.4061284834254142,
+    "signFlipImproves": false,
+    "brierOneMinusP": 0.2768395135135136,
+    "oneMinusImproves": true,
+    "marketMlBaseline": {
+      "n": 370,
+      "brier": 0.1659313301640461,
+      "note": "Close-ML Brier on same games (related market, not spread juice)."
+    },
+    "uncertainty": {
+      "note": "No closing spread prices in archive — cannot compute market-implied cover probs for ATS. Spread market baseline is coin (fair ATS ~0.5) only.",
+      "sims": 10000,
+      "seed": 20241015
+    }
+  },
+  "untouchedHoldout": {
+    "label": "untouched_post_cutoff",
+    "nRows": 391,
+    "nPushes": 7,
+    "nDecided": 384,
+    "meanP": 0.514174479166667,
+    "meanY": 0.515625,
+    "coverBias": -0.0014505208333329689,
+    "corrPY": 0.04778681801496205,
+    "brierEngine": 0.26392913802083334,
+    "brierCoin": 0.25,
+    "beatsCoin": false,
+    "brierSignFlippedSettlement": 0.3464962755905511,
+    "signFlipImproves": false,
+    "brierOneMinusP": 0.2786947630208331,
+    "oneMinusImproves": false,
+    "marketMlBaseline": {
+      "n": 384,
+      "brier": 0.18920286357023272,
+      "note": "Close-ML Brier on same games (related market, not spread juice)."
+    },
+    "uncertainty": {
+      "note": "No closing spread prices in archive — cannot compute market-implied cover probs for ATS. Spread market baseline is coin (fair ATS ~0.5) only.",
+      "sims": 10000,
+      "seed": 20241015
+    }
+  },
+  "defects": [
+    {
+      "id": "spread_sign_convention",
+      "status": "CLEARED",
+      "detail": "Flipped settlement does not improve Brier — home-line sign matches engine"
+    },
+    {
+      "id": "probability_extraction_inverted",
+      "status": "CLEARED",
+      "detail": "1-p does not improve Brier — extraction side matches settlement"
+    },
+    {
+      "id": "anticorrelated_cover_probs",
+      "status": "CLEARED",
+      "detail": "corr(p,y)=0.04778681801496205 — non-negative association"
+    },
+    {
+      "id": "spread_calibration_vs_coin",
+      "status": "OPEN_MODEL",
+      "detail": "Untouched ATS Brier 0.2639 ≥ coin 0.2500 after settlement audit cleared — model variance/edge issue, not sign bug"
+    }
+  ],
+  "keepP0Armed": true,
+  "flagFlipAllowed": false
+}

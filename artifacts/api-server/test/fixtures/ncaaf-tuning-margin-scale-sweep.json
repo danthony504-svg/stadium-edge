@@ -1,0 +1,98 @@
+{
+  "split": "TUNING",
+  "lever": "research_margin_gap_scale",
+  "note": "Script-local mean expansion about midpoint; live engine unchanged. Fair-line ATS synthetic.",
+  "sweep": [
+    {
+      "marginScale": 1,
+      "n": 468,
+      "mlBrier": 0.18501503846153833,
+      "mlBeatsCoin": true,
+      "atsFairBrier": 0.26040541025641006,
+      "atsBeatsCoin": false,
+      "corrMargin": 0.5683604129825963,
+      "meanAbsMarginError": 15.989829992538311,
+      "meanPred": 9.795718101343104,
+      "meanAct": 13.882478632478632
+    },
+    {
+      "marginScale": 1.15,
+      "n": 468,
+      "mlBrier": 0.1827032863247861,
+      "mlBeatsCoin": true,
+      "atsFairBrier": 0.25862817307692276,
+      "atsBeatsCoin": false,
+      "corrMargin": 0.568360412982596,
+      "meanAbsMarginError": 15.591434833299433,
+      "meanPred": 11.265075816544574,
+      "meanAct": 13.882478632478632
+    },
+    {
+      "marginScale": 1.3,
+      "n": 468,
+      "mlBrier": 0.18100704914529905,
+      "mlBeatsCoin": true,
+      "atsFairBrier": 0.2555755106837603,
+      "atsBeatsCoin": false,
+      "corrMargin": 0.5683604129825961,
+      "meanAbsMarginError": 15.274791810812655,
+      "meanPred": 12.73443353174602,
+      "meanAct": 13.882478632478632
+    },
+    {
+      "marginScale": 1.45,
+      "n": 468,
+      "mlBrier": 0.18011908974358964,
+      "mlBeatsCoin": true,
+      "atsFairBrier": 0.2520609957264956,
+      "atsBeatsCoin": false,
+      "corrMargin": 0.5683604129825961,
+      "meanAbsMarginError": 15.13258789088998,
+      "meanPred": 14.203791246947498,
+      "meanAct": 13.882478632478632
+    },
+    {
+      "marginScale": 1.6,
+      "n": 468,
+      "mlBrier": 0.18056702350427356,
+      "mlBeatsCoin": true,
+      "atsFairBrier": 0.24910167307692296,
+      "atsBeatsCoin": true,
+      "corrMargin": 0.5683604129825967,
+      "meanAbsMarginError": 15.150822005155328,
+      "meanPred": 15.673148962148966,
+      "meanAct": 13.882478632478632
+    }
+  ],
+  "bestAtsFairOnTuning": {
+    "marginScale": 1.6,
+    "n": 468,
+    "mlBrier": 0.18056702350427356,
+    "mlBeatsCoin": true,
+    "atsFairBrier": 0.24910167307692296,
+    "atsBeatsCoin": true,
+    "corrMargin": 0.5683604129825967,
+    "meanAbsMarginError": 15.150822005155328,
+    "meanPred": 15.673148962148966,
+    "meanAct": 13.882478632478632
+  },
+  "bestMlOnTuning": {
+    "marginScale": 1.45,
+    "n": 468,
+    "mlBrier": 0.18011908974358964,
+    "mlBeatsCoin": true,
+    "atsFairBrier": 0.2520609957264956,
+    "atsBeatsCoin": false,
+    "corrMargin": 0.5683604129825961,
+    "meanAbsMarginError": 15.13258789088998,
+    "meanPred": 14.203791246947498,
+    "meanAct": 13.882478632478632
+  },
+  "proposal": {
+    "id": "ncaaf_research_margin_gap_scale",
+    "candidateScale": 1.6,
+    "rationale": "TUNING: projected margins systematically smaller than actual; ATS fair-line Brier > coin. Expanding research means gap improves margin MAE/ATS without retuning locked residual SD.",
+    "doNotShipLive": true,
+    "requiresOddsClosesBeforeRestore": true
+  }
+}

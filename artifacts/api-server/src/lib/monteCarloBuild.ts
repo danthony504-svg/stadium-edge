@@ -110,6 +110,12 @@ export type SharedDistGameContext = {
   weatherImpact?: number | null;
   opportunityShiftFingerprint?: string | null;
   opportunityShift?: OpportunityShiftTable | null;
+  /** Opp defense / league index (~1) — distribution-changing matchup input. */
+  defenseIndex?: number | null;
+  /** Optional per-family defense indices (resolved by market family). */
+  defenseIndexByFamily?: Record<string, number> | null;
+  /** Side ("home"|"away") → receiving matchup for QB pass coupling. */
+  coupledReceivingMatchupByTeam?: Map<string, number> | null;
 };
 
 function statSeries(
@@ -266,6 +272,7 @@ export function buildPropSimulationContext(
     oppKeyInjuries: game.oppKeyInjuries ?? 0,
     ownKeyInjuries: game.ownKeyInjuries ?? 0,
     weatherImpact: game.weatherImpact ?? null,
+    defenseIndex,
     discrete: isDiscreteCountMarket(req.market),
     additionalLines: req.additionalLines,
     opportunityFamilyMult: pre.opportunityShift,
@@ -338,8 +345,17 @@ export function sharedDistributionPartsForProp(
   game: SharedDistGameContext,
   isHome: boolean | null,
 ): PropSharedDistributionParts {
+  const sport = String(req.sport ?? game.sport ?? "").toLowerCase();
+  const family = opportunityMarketFamily(req.market, sport);
+  const defenseIndex =
+    (family && game.defenseIndexByFamily?.[family]) ??
+    game.defenseIndex ??
+    null;
+  const sideKey = isHome === true ? "home" : isHome === false ? "away" : "";
+  const coupledReceivingMatchup =
+    (sideKey && game.coupledReceivingMatchupByTeam?.get(sideKey)) || null;
   return {
-    sport: String(req.sport ?? game.sport ?? "").toLowerCase(),
+    sport,
     player: req.player,
     market: req.market,
     athleteId: req.athleteId,
@@ -356,6 +372,8 @@ export function sharedDistributionPartsForProp(
       game.opportunityShiftFingerprint ??
       game.opportunityShift?.tableFingerprint ??
       null,
+    defenseIndex,
+    coupledReceivingMatchup,
   };
 }
 

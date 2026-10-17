@@ -1,0 +1,98 @@
+{
+  "generatedAt": "2026-10-15T14:49:47.905Z",
+  "compared": {
+    "old": "013ddb88",
+    "corrected": "2c13a3ba77c3d3df9053b968bc463956d69f1d6f"
+  },
+  "proof": {
+    "engineVersionLabelAloneInsufficient": true,
+    "013ddb88": {
+      "hasPpgPerDriveV1Label": false,
+      "footballDriveRateInputAppliesCollege048": true,
+      "callerFeedsGameMeanAsPpd": true,
+      "callerSnippet": "const homeRate = footballDriveRateInput(homeOff, ctx.sport);"
+    },
+    "2c13a3ba": {
+      "hasPpgPerDriveV1Label": true,
+      "footballDriveRateInputDividesPpgByDrives": true,
+      "FOOTBALL_COLLEGE_RATE_INPUT_SCALE_multipliedInMatchup": false,
+      "FOOTBALL_COLLEGE_RATE_INPUT_SCALE_referencedInNflDriveSim": false,
+      "retiredConstantStillExported": true,
+      "retiredCommentPresent": true,
+      "callerSnippet": "const drives = footballExpectedDrives(homeOff, awayOff, ctx.sport);\n  const { tdPoints } = footballDrivePoints(ctx.sport);\n  const lateClockTd = college ? 0.04 : 0.08;\n  const homeLate = footballLateClockPointsBudget({\n    drives,\n    ownPointsPerGame: homeOff,\n    opponentPointsPerGame: awayOff,\n    lateClockTd,\n    tdPoints,\n  });\n  const awayLate = footballLateClockPointsBudget({\n    drives,\n    ownPointsPerGame: awayOff,\n    opponentPointsPerGame: homeOff,\n    lateClockTd,\n    tdPoints,\n  });\n  const homeRate = footballDriveRateInput(homeOff - homeLate, drives, ctx.sport);\n  const awayRate = footballDriveRateInput(awayOff - awayLate, drives, ctx.sport);"
+    }
+  },
+  "identicalPpgInputs": [
+    {
+      "label": "NFL 22/22",
+      "sport": "nfl",
+      "home": 22,
+      "away": 22,
+      "drivesOld": 11,
+      "drivesNew": 11,
+      "old": {
+        "homeRateFedToDriveMap": 22,
+        "awayRateFedToDriveMap": 22,
+        "note": "013ddb88 feeds game-mean (×0.48 college) as if it were points-per-drive",
+        "collegeScaleApplied": false
+      },
+      "corrected": {
+        "homeRateFedToDriveMap": 2,
+        "awayRateFedToDriveMap": 2,
+        "note": "2c13a3ba divides points-per-game by shared drive count",
+        "collegeScaleApplied": false,
+        "FOOTBALL_COLLEGE_RATE_INPUT_SCALE_multipliedInLivePath": false
+      },
+      "ratioOldVsCorrectedHome": 11
+    },
+    {
+      "label": "NCAAF 28/24",
+      "sport": "ncaaf",
+      "home": 28,
+      "away": 24,
+      "drivesOld": 11,
+      "drivesNew": 11,
+      "old": {
+        "homeRateFedToDriveMap": 13.44,
+        "awayRateFedToDriveMap": 11.52,
+        "note": "013ddb88 feeds game-mean (×0.48 college) as if it were points-per-drive",
+        "collegeScaleApplied": true
+      },
+      "corrected": {
+        "homeRateFedToDriveMap": 2.5454545454545454,
+        "awayRateFedToDriveMap": 2.1818181818181817,
+        "note": "2c13a3ba divides points-per-game by shared drive count",
+        "collegeScaleApplied": false,
+        "FOOTBALL_COLLEGE_RATE_INPUT_SCALE_multipliedInLivePath": false
+      },
+      "ratioOldVsCorrectedHome": 5.28
+    },
+    {
+      "label": "NCAAF 42/38 (high)",
+      "sport": "ncaaf",
+      "home": 42,
+      "away": 38,
+      "drivesOld": 11,
+      "drivesNew": 11,
+      "old": {
+        "homeRateFedToDriveMap": 20.16,
+        "awayRateFedToDriveMap": 18.24,
+        "note": "013ddb88 feeds game-mean (×0.48 college) as if it were points-per-drive",
+        "collegeScaleApplied": true
+      },
+      "corrected": {
+        "homeRateFedToDriveMap": 3.8181818181818183,
+        "awayRateFedToDriveMap": 3.4545454545454546,
+        "note": "2c13a3ba divides points-per-game by shared drive count",
+        "collegeScaleApplied": false,
+        "FOOTBALL_COLLEGE_RATE_INPUT_SCALE_multipliedInLivePath": false
+      },
+      "ratioOldVsCorrectedHome": 5.28
+    }
+  ],
+  "verdict": {
+    "ppgConversionIntactAt2c13a3ba": true,
+    "retiredCollege048AbsentFromLivePathAt2c13a3ba": true,
+    "013ddb88StillApplies048AndFeedsPpgAsPpd": true
+  }
+}

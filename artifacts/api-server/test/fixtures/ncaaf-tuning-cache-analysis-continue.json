@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-10-17T01:58:23.590538+00:00",
+  "sourceBranch": "cursor/ncaaf-tuning-closes-3645",
+  "sourceAgent": "bc-01a1471c-a008-7787-a77d-4ba59e943645",
+  "recoveredArtifacts": [
+    "ncaaf-tuning-2025-w1-7-closing-lines.json",
+    "ncaaf-tuning-diagnose-baselines.md",
+    "ncaaf-tuning-expanded-cohort-research.md"
+  ],
+  "missingOnPriorRestoreBranch": [
+    "ncaaf-tuning-2025-w1-7-closing-lines.json",
+    "ncaaf-tuning-diagnose-baselines.md"
+  ],
+  "archive": {
+    "matched": 470,
+    "espnGames": 471,
+    "stillMissing": 1,
+    "creditsSpent": 3280,
+    "creditCap": 4500
+  },
+  "fairCohortN": 421,
+  "M3_anyPass": false,
+  "S2_anyPass": false,
+  "recommendModelReplacement": true,
+  "finalEvalUntouched": true,
+  "paidRetrieval": false,
+  "gate": false
+}

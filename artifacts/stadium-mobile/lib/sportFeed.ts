@@ -49,18 +49,23 @@ export function isCurrentSportFeedReady<T>(opts: {
 /** Normalize react-query cache data from Home (payload) or Upcoming (plain array). */
 export function oddsRowsFromQuery(data: unknown, sport: string): OddsGame[] {
   if (data == null) return [];
+  const want = String(sport ?? "").toLowerCase();
+  const rowOk = (g: OddsGame): boolean => {
+    if (!g || typeof g.id !== "string") return false;
+    const tagged = String(g.sport ?? "")
+      .toLowerCase()
+      .trim();
+    // Untagged rows inherit the requested league (payload already league-checked).
+    // Explicit foreign tags must never leak MLB into an NCAAF Coach board.
+    if (tagged && tagged !== want) return false;
+    return true;
+  };
   if (isSportFeedPayload<OddsGame>(data)) {
     if (data.league !== sport) return [];
-    return data.rows.filter((g) => g && (!g.sport || g.sport === sport));
+    return data.rows.filter((g) => g && rowOk(g));
   }
   if (Array.isArray(data)) {
-    return data.filter(
-      (g): g is OddsGame =>
-        !!g &&
-        typeof g === "object" &&
-        typeof (g as OddsGame).id === "string" &&
-        (!g.sport || g.sport === sport),
-    );
+    return data.filter((g): g is OddsGame => !!g && typeof g === "object" && rowOk(g as OddsGame));
   }
   return [];
 }

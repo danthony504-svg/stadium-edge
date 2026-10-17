@@ -6,6 +6,7 @@ import {
   emptyPropDistributionCacheStats,
   getCachedPropDistribution,
   propDistributionCacheKey,
+  propHistoryFingerprint,
   setCachedPropDistribution,
   withPropSimDistInflight,
   type PropDistributionCacheStats,
@@ -416,7 +417,9 @@ export async function runPropSims(
             cachedCtx: existingCtx,
             history: null as Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null,
             ctx,
-            fingerprint: existingCtx.fingerprint,
+            // Recompute from fully rebuilt ctx so defenseIndex / pre-sim mults
+            // always land in the dist-cache identity (never stale history-only fp).
+            fingerprint: propHistoryFingerprint(ctx),
           } satisfies ResolvedGroup,
         };
       }
@@ -469,7 +472,7 @@ export async function runPropSims(
           cachedCtx,
           history,
           ctx,
-          fingerprint: cachedCtx.fingerprint,
+          fingerprint: propHistoryFingerprint(ctx),
         } satisfies ResolvedGroup,
       };
     },
@@ -754,7 +757,8 @@ export async function warmDeepSims(
       }
       if (!cachedCtx) return;
 
-      const fingerprint = cachedCtx.fingerprint;
+      const ctx = propSimulationContextFromCached(cachedCtx, primaryReq, gctx);
+      const fingerprint = propHistoryFingerprint(ctx);
       const deepKey = propDistributionCacheKey(
         parts,
         fingerprint,
@@ -768,8 +772,6 @@ export async function warmDeepSims(
       await withPropSimDistInflight(deepKey, async () => {
         const again = await getCachedPropDistribution(deepKey);
         if (again?.samples?.length) return again;
-
-        const ctx = propSimulationContextFromCached(cachedCtx!, primaryReq, gctx);
         const groupLines = [
           ...new Set(
             group

@@ -12,6 +12,10 @@ import { normalizeCoachLegTypos } from "./coach/parseAsk.ts";
 import {
   askAllowsNcaafPlayerProps,
   askIsCollegeFootballOnly,
+  asksFullGameSidesOnly,
+  asksNamedSideAndMoneyline,
+  asksSideAndMoneylineOnly,
+  marketIsFullGame,
 } from "./boardScanPropDelivery.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 
@@ -28,6 +32,11 @@ export type CoachAskMarketConstraint = {
    * Phone: "Bet365 doesn't have over or under for NHL".
    */
   excludeTotals: boolean;
+  /**
+   * Drop quarters, halves, periods, and innings.
+   * Set for "spreads and moneylines" unless the ask names a period.
+   */
+  fullGameOnly?: boolean;
   /**
    * When the ask names a game count ("only from 2 games"), prefer filling
    * within that many matchups (raises per-game leg cap). null = unset.
@@ -445,6 +454,7 @@ export function parseCoachAskMarketConstraint(
     propsOnly: false,
     gameLinesOnly,
     excludeTotals,
+    fullGameOnly: gameLinesOnly && asksFullGameSidesOnly(t),
     maxGames,
     allowedMarketKeys: null,
   };
@@ -463,6 +473,8 @@ export function wantsNoTotalsAsk(text: string | null | undefined): boolean {
   }
   if (/\bno\s+over\s+or\s+under\b/.test(t)) return true;
   if (/\bmoneylines?\s+(?:and|&|\+|\/)\s+puck\s*lines?\b/.test(t)) return true;
+  // Spread/ML, puck line/ML, and run line/ML name sides only.
+  if (asksSideAndMoneylineOnly(t)) return true;
   return false;
 }
 
@@ -481,6 +493,9 @@ export function wantsGameLinesOnlyAsk(text: string | null | undefined): boolean 
   if (/\bwithout\s+props?\b/.test(t)) return true;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return true;
   if (/\bsides?\s+only\b/.test(t)) return true;
+  // "4 leg NFL spreads and moneylines", puck line/ML, run line/ML.
+  // Team sides, even when totals are also named.
+  if (asksNamedSideAndMoneyline(t)) return true;
   // Phone: college books post team spreads / totals / Q lines — not player
   // yards. Bare "8 leg college" / "8 leg Collage" / NCAAF → game lines only
   // unless the user named player props. Mixed "soccer and college" stays off.
@@ -537,6 +552,9 @@ export function filterPicksByAskMarketConstraint<
   }
   if (constraint.gameLinesOnly) {
     out = out.filter((p) => !p.isProp);
+  }
+  if (constraint.fullGameOnly) {
+    out = out.filter((p) => marketIsFullGame(p.market));
   }
   if (constraint.excludeTotals) {
     out = out.filter((p) => {

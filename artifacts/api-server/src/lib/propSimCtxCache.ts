@@ -183,6 +183,7 @@ export function propSimulationContextFromCached(
     oppKeyInjuries: game.oppKeyInjuries ?? 0,
     ownKeyInjuries: game.ownKeyInjuries ?? 0,
     weatherImpact: game.weatherImpact ?? null,
+    defenseIndex,
     discrete: cached.discrete,
     additionalLines: req.additionalLines,
     opportunityFamilyMult: pre.opportunityShift,

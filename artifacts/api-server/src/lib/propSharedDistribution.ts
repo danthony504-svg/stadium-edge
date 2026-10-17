@@ -28,6 +28,13 @@ export type PropSharedDistributionParts = {
   weatherImpact?: number | null;
   /** Compact Opportunity Shift table fingerprint (family mults). */
   opportunityShiftFingerprint?: string | null;
+  /**
+   * Effective Opponent Matchup defense index for this market family.
+   * Null/missing must serialize differently from a supplied ~1.0 value.
+   */
+  defenseIndex?: number | null;
+  /** QB←WR receiving coupling factor when applicable; null when absent. */
+  coupledReceivingMatchup?: number | null;
 };
 
 /**
@@ -44,6 +51,9 @@ export function propSharedDistributionKey(parts: PropSharedDistributionParts): s
     n != null && Number.isFinite(n) ? n.toFixed(2) : "";
   const wx = (n: number | null | undefined) =>
     n != null && Number.isFinite(n) ? n.toFixed(3) : "";
+  /** Empty when null/undefined — never collide with an explicit finite value. */
+  const idx = (n: number | null | undefined) =>
+    n != null && Number.isFinite(n) ? n.toFixed(4) : "";
   return [
     sport,
     player,
@@ -59,5 +69,7 @@ export function propSharedDistributionKey(parts: PropSharedDistributionParts): s
     String(parts.ownKeyInjuries ?? 0),
     wx(parts.weatherImpact),
     String(parts.opportunityShiftFingerprint ?? ""),
+    idx(parts.defenseIndex),
+    idx(parts.coupledReceivingMatchup),
   ].join("|");
 }

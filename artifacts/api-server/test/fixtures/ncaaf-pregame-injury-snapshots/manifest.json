@@ -1,0 +1,17 @@
+{
+  "snapshots": [
+    {
+      "file": "espn-cfb-injuries-2026-10-16T20-06-40-154Z.json",
+      "captureTimestamp": "2026-10-16T20:06:40.154Z",
+      "teamCount": 3,
+      "qbOutOrDoubtfulCount": 0
+    }
+  ],
+  "evidenceRequiredBeforeE4Validation": [
+    "Multiple snapshots spanning a full FBS slate with captureTimestamp < each game's kickoffIso",
+    "Join producing injuryKnown=true|null and optional qbOut — never coerce missing to false",
+    "Segment conservatism: mean |edge| on injuryKnown=null ≤ mean |edge| on injuryKnown=true with documented n",
+    "Competition scope remains Odds-listed FBS only",
+    "Do not purchase SportsDataIO/ScoreTape solely on unverified archive timing claims"
+  ]
+}
