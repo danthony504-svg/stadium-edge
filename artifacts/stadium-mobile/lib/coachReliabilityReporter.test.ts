@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { mapScanFailureCode } from "./coachReliabilityClassify.ts";
 import {
   buildCoachReliabilityBody,
+  reliabilityEnrichmentFields,
   reportCoachScanReliability,
 } from "./coachReliabilityReporter.ts";
 import { shouldSendCrashReports } from "./crashReportingGate.ts";
@@ -217,6 +218,42 @@ test("fixtures flag is preserved for server reject path", () => {
     requestId: "reliability-synthetic",
   });
   assert.equal(body?.testFixture, true);
+});
+
+test("reliability enrichment carries updateId/channel/bakedSha/scope/ids/sim reason (no PII)", () => {
+  const body = buildCoachReliabilityBody({
+    scanFailureCode: "GAME_SIMS_FETCH_EMPTY",
+    requestedLegCount: 5,
+    returnedLegCount: 0,
+    requestId: "greenfield-enrich",
+    updateId: "01a-test-update",
+    channel: "preview",
+    bakedSha: "abc123def456",
+    requestScope: { sport: "mlb", team: "Rays" },
+    candidateIds: ["Rays @ Guardians|Moneyline|TB ML"],
+    gameIds: ["Rays @ Guardians"],
+    simFailureReason: "GAME_SIMS_FETCH_EMPTY",
+  });
+  assert.equal(body?.updateId, "01a-test-update");
+  assert.equal(body?.channel, "preview");
+  assert.equal(body?.bakedSha, "abc123def456");
+  assert.deepEqual(body?.requestScope, { sport: "mlb", team: "Rays" });
+  assert.deepEqual(body?.candidateIds, ["Rays @ Guardians|Moneyline|TB ML"]);
+  assert.deepEqual(body?.gameIds, ["Rays @ Guardians"]);
+  assert.equal(body?.simFailureReason, "GAME_SIMS_FETCH_EMPTY");
+
+  const parsed = parseCoachReliabilityIngestBody(body);
+  assert.ok(parsed);
+  assert.equal(parsed!.updateId, "01a-test-update");
+  assert.equal(parsed!.channel, "preview");
+  assert.equal(parsed!.bakedSha, "abc123def456");
+  assert.equal(parsed!.simFailureReason, "GAME_SIMS_FETCH_EMPTY");
+  assert.deepEqual(parsed!.gameIds, ["Rays @ Guardians"]);
+
+  const enrich = reliabilityEnrichmentFields({
+    bakedSha: "from-input",
+  });
+  assert.equal(enrich.bakedSha, "from-input");
 });
 
 test("Node tests do not open production coach reliability POSTs", () => {
