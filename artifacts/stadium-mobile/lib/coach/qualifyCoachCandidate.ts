@@ -20,6 +20,11 @@ import {
 } from "../gameSimQualityGates.ts";
 import { impliedProb } from "../format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "../simMarketSupport.ts";
+import {
+  propProvenanceAllowsSeating,
+  type ExactMarketCandidate,
+  type PropProbabilityProvenance,
+} from "../coachPropProbabilityProvenance.ts";
 
 /** Bump when qualification/render pipeline semantics change (device diagnostics). */
 export const COACH_PIPELINE_VERSION = "unified-quality-v1";
@@ -33,6 +38,7 @@ export type CoachQualificationReason =
   | "missing_score"
   | "sim_unsupported"
   | "sim_invalid"
+  | "insufficient_sim_provenance"
   | "grade_floor"
   | "confidence_floor"
   | "non_positive_edge"
@@ -62,12 +68,21 @@ export type CoachQualifyInput = {
     confidencePct?: number | null;
     edgePct?: number | null;
     simHit?: number | null;
+    propProbabilityProvenance?: PropProbabilityProvenance | null;
   } | null;
   /** Optional overrides when score is on a BoardScoredLeg, not the pick. */
   grade?: string | null;
   confidencePct?: number | null;
   edgePct?: number | null;
   simHit?: number | null;
+  /** Option C — required for player props; missing ⇒ insufficient. */
+  propProbabilityProvenance?: PropProbabilityProvenance | null;
+  /** Exact-market identity — used to bind provenance to this candidate. */
+  athleteId?: string | null;
+  eventId?: string | null;
+  propMarketKey?: string | null;
+  propSide?: string | null;
+  propLine?: number | null;
 };
 
 export type CoachQualifyResult = {
@@ -168,6 +183,29 @@ export function evaluateCoachQualification(
     return { status: "rejected", reason: "sim_invalid", pipelineVersion };
   }
 
+  // Option C — player props need trusted provenance bound to this candidate.
+  if (isProp) {
+    const provenance =
+      input.propProbabilityProvenance ??
+      input.finalAiScore?.propProbabilityProvenance ??
+      null;
+    const candidate: ExactMarketCandidate = {
+      athleteId: input.athleteId,
+      eventId: input.eventId,
+      propMarketKey: input.propMarketKey ?? input.market,
+      market: input.market,
+      propSide: input.propSide,
+      propLine: input.propLine,
+    };
+    if (!propProvenanceAllowsSeating(provenance, candidate)) {
+      return {
+        status: "rejected",
+        reason: "insufficient_sim_provenance",
+        pipelineVersion,
+      };
+    }
+  }
+
   // Shared floor — single source (gameSimQualityGates). No confidence lift.
   if (!meetsCoachSimQualityFloor({ grade, confidencePct })) {
     if ((confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) {
@@ -201,7 +239,8 @@ export function evaluateCoachQualification(
 
 /**
  * Shared minimum quality authority for Coach ticket seating.
- * When status is already attached, reads it (no recompute) — qualify once.
+ * Attached `qualified` trusts prior grade/conf/edge floors (no recompute) but
+ * always re-validates prop provenance so stale/forged stamps cannot seat.
  */
 export function qualifyCoachCandidate(
   input: CoachQualifyInput,
@@ -216,6 +255,28 @@ export function qualifyCoachCandidate(
     };
   }
   if (input.qualificationStatus === "qualified") {
+    const isProp = !!(ctx.isProp ?? input.isProp);
+    if (isProp) {
+      const provenance =
+        input.propProbabilityProvenance ??
+        input.finalAiScore?.propProbabilityProvenance ??
+        null;
+      const candidate: ExactMarketCandidate = {
+        athleteId: input.athleteId,
+        eventId: input.eventId,
+        propMarketKey: input.propMarketKey ?? input.market,
+        market: input.market,
+        propSide: input.propSide,
+        propLine: input.propLine,
+      };
+      if (!propProvenanceAllowsSeating(provenance, candidate)) {
+        return {
+          status: "rejected",
+          reason: "insufficient_sim_provenance",
+          pipelineVersion,
+        };
+      }
+    }
     return {
       status: "qualified",
       reason: input.qualificationReason ?? "ok",

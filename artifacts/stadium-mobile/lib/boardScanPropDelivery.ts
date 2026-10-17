@@ -16,6 +16,7 @@ import { parseMarketPeriod, pickHasSimGrade } from "./simMarketSupport.ts";
 import { maxLegsPerGame, maxPropsPerGame, wouldExceedMaxLegsPerGame, wouldExceedMaxPropsPerGame, wouldRepeatPlayerProp } from "./parlayCorrelationScore.ts";
 import { matchExplicitMarketLocks } from "./explicitMarketLock.ts";
 import { coachCandidateIsQualified } from "./coach/qualifyCoachCandidate.ts";
+import { resolvePropProbabilityProvenance } from "./coachPropProbabilityProvenance.ts";
 
 /** ~50% of an N-leg ticket is reserved for player props (matches preview staging). */
 export function boardScanPropSlotCount(
@@ -656,6 +657,17 @@ export function fillReservedPropSlots<T extends PropFillPick>(
             .qualificationStatus,
           simHit: leg.simHit ?? leg.pick.finalAiScore?.simHit,
           finalAiScore: leg.pick.finalAiScore,
+          propProbabilityProvenance: resolvePropProbabilityProvenance({
+            propProbabilityProvenance: (leg.pick as {
+              propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+            }).propProbabilityProvenance,
+            finalAiScore: leg.pick.finalAiScore,
+          }),
+          athleteId: (leg.pick as { athleteId?: string | null }).athleteId,
+          eventId: (leg.pick as { eventId?: string | null }).eventId,
+          propMarketKey: leg.pick.propMarketKey,
+          propSide: (leg.pick as { propSide?: string | null }).propSide,
+          propLine: leg.pick.propLine,
         },
         { requestStyle: "normal", isProp: true },
       );

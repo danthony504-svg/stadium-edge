@@ -10,6 +10,10 @@ import {
 import {
   coachCandidateIsQualified,
 } from "./coach/qualifyCoachCandidate.ts";
+import {
+  propProvenanceAllowsSeating,
+  resolvePropProbabilityProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { enrichPicksWithSport } from "./chatContextPriority.ts";
@@ -197,6 +201,17 @@ function legacyPropStagingQualifies(
         isProp: true,
         odds: pick.odds,
         finalAiScore: score,
+        propProbabilityProvenance: resolvePropProbabilityProvenance({
+          propProbabilityProvenance: (pick as {
+            propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+          }).propProbabilityProvenance,
+          finalAiScore: score,
+        }),
+        athleteId: (pick as { athleteId?: string | null }).athleteId,
+        eventId: (pick as { eventId?: string | null }).eventId,
+        propMarketKey: pick.propMarketKey,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
       },
       { requestStyle: "normal", isProp: true },
     )
@@ -222,6 +237,27 @@ function propHolisticGatePassed(
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!score || !pick.isProp) return false;
+  // Option C — holistic success never bypasses provenance authorization.
+  if (
+    !propProvenanceAllowsSeating(
+      resolvePropProbabilityProvenance({
+        propProbabilityProvenance: (pick as {
+          propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+        }).propProbabilityProvenance,
+        finalAiScore: score,
+      }),
+      {
+        athleteId: (pick as { athleteId?: string | null }).athleteId,
+        eventId: (pick as { eventId?: string | null }).eventId,
+        propMarketKey: pick.propMarketKey,
+        market: pick.market,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
+      },
+    )
+  ) {
+    return false;
+  }
   const holistic = score.propHolistic;
   if (!holistic) return legacyPropStagingQualifies(pick, score);
   if (!score.recommends) return false;
@@ -253,6 +289,17 @@ export function propSimEdgeStagingQualifies(
       qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
         .qualificationStatus,
       finalAiScore: score,
+      propProbabilityProvenance: resolvePropProbabilityProvenance({
+        propProbabilityProvenance: (pick as {
+          propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+        }).propProbabilityProvenance,
+        finalAiScore: score,
+      }),
+      athleteId: (pick as { athleteId?: string | null }).athleteId,
+      eventId: (pick as { eventId?: string | null }).eventId,
+      propMarketKey: pick.propMarketKey,
+      propSide: pick.propSide,
+      propLine: pick.propLine,
     },
     {
       requestStyle: pick.propsOnlyTicket ? "props_only" : "normal",
@@ -338,6 +385,17 @@ export function pickIsAiRecommended(
         qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
           .qualificationStatus,
         finalAiScore: score,
+        propProbabilityProvenance: resolvePropProbabilityProvenance({
+          propProbabilityProvenance: (pick as {
+            propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+          }).propProbabilityProvenance,
+          finalAiScore: score,
+        }),
+        athleteId: (pick as { athleteId?: string | null }).athleteId,
+        eventId: (pick as { eventId?: string | null }).eventId,
+        propMarketKey: pick.propMarketKey,
+        propSide: pick.propSide,
+        propLine: pick.propLine,
       },
       {
         requestStyle: pick.propsOnlyTicket ? "props_only" : "normal",
@@ -474,6 +532,17 @@ export function propsOnlyTicketCleared(
       qualificationStatus: (pick as { qualificationStatus?: "qualified" | "rejected" })
         .qualificationStatus,
       finalAiScore: score,
+      propProbabilityProvenance: resolvePropProbabilityProvenance({
+        propProbabilityProvenance: (pick as {
+          propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+        }).propProbabilityProvenance,
+        finalAiScore: score,
+      }),
+      athleteId: (pick as { athleteId?: string | null }).athleteId,
+      eventId: (pick as { eventId?: string | null }).eventId,
+      propMarketKey: pick.propMarketKey,
+      propSide: pick.propSide,
+      propLine: pick.propLine,
     },
     { requestStyle: "props_only", isProp: true },
   );
@@ -531,6 +600,17 @@ export function filterTicketPicksPreservingTicket<
         propsOnlyTicket: p.propsOnlyTicket,
         qualificationStatus: p.qualificationStatus,
         finalAiScore: p.finalAiScore,
+        propProbabilityProvenance: resolvePropProbabilityProvenance({
+          propProbabilityProvenance: (p as {
+            propProbabilityProvenance?: import("./coachPropProbabilityProvenance.ts").PropProbabilityProvenance | null;
+          }).propProbabilityProvenance,
+          finalAiScore: p.finalAiScore,
+        }),
+        athleteId: (p as { athleteId?: string | null }).athleteId,
+        eventId: (p as { eventId?: string | null }).eventId,
+        propMarketKey: p.propMarketKey,
+        propSide: p.propSide,
+        propLine: p.propLine,
       },
       {
         requestStyle: p.propsOnlyTicket ? "props_only" : "normal",

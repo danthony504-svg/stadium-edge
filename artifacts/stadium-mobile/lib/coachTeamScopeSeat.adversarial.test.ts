@@ -33,6 +33,10 @@ import {
 } from "./coachPrioritySports.ts";
 import { fillReservedPropSlots } from "./boardScanPropDelivery.ts";
 import { boardLegPoolRole } from "./ticketStaging.ts";
+import {
+  exactMarket10kProvenance,
+  withExactMarket10kProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 
 const ALL = [
   "mlb",
@@ -71,15 +75,23 @@ function scoredLeg(opts: {
   const confidencePct = opts.confidencePct ?? 58;
   const edgePct = opts.edgePct ?? 4;
   const simHit = opts.simHit ?? 0.56;
-  const pick = {
+  const market = opts.market ?? (opts.isProp ? "Player Points" : "Moneyline");
+  const basePick = {
     sport: opts.sport,
     game: opts.game,
-    market: opts.market ?? (opts.isProp ? "Player Points" : "Moneyline"),
+    market,
+    propMarketKey: opts.isProp ? "player_points" : undefined,
     pick: opts.isProp ? "Over 22.5" : "Home ML",
     odds: opts.odds ?? -110,
     isProp: !!opts.isProp,
+    athleteId: opts.isProp ? "ath-scope" : undefined,
+    eventId: opts.isProp ? "evt-scope" : undefined,
+    propSide: opts.isProp ? "Over" : undefined,
+    propLine: opts.isProp ? 24.5 : undefined,
+    propMarketKey: opts.isProp ? "player_points" : undefined,
     player: opts.player,
     qualificationStatus: opts.qualificationStatus,
+    simHit: opts.isProp ? simHit : undefined,
     finalAiScore: {
       grade,
       confidencePct,
@@ -97,8 +109,23 @@ function scoredLeg(opts: {
         edgePct,
         scores: {} as never,
       },
+      ...(opts.isProp
+        ? {
+            propProbabilityProvenance: exactMarket10kProvenance({
+              hitProbability: simHit,
+              simulations: 10_000,
+              sport: opts.sport,
+              marketKey: "player_points",
+              athleteId: "ath-scope",
+              eventId: "evt-scope",
+              side: "Over",
+              line: 24.5,
+            }),
+          }
+        : {}),
     },
   };
+  const pick = opts.isProp ? withExactMarket10kProvenance(basePick) : basePick;
   return {
     pick: pick as never,
     evPct: 5,

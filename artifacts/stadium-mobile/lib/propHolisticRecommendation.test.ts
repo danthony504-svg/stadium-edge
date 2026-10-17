@@ -13,6 +13,7 @@ import {
 } from "./propHolisticRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { pickIsAiRecommended } from "./pickRecommendation.ts";
+import { exactMarket10kProvenance } from "./coachPropProbabilityProvenance.ts";
 
 test("PROP_HOLISTIC_WEIGHTS sum to 100%", () => {
   const sum = Object.values(PROP_HOLISTIC_WEIGHTS).reduce((a, b) => a + b, 0);
@@ -34,6 +35,7 @@ test("missing contextual factors reduce confidence", () => {
     },
     edgePct: 3,
     simHit: 0.58,
+    probabilitySource: "exact_market_10k",
     minutesTrend: { l5: 36, season: 30, direction: "up" },
     vsOpponentGames: 3,
   });
@@ -51,6 +53,7 @@ test("missing contextual factors reduce confidence", () => {
     },
     edgePct: 3,
     simHit: 0.58,
+    probabilitySource: "exact_market_10k",
   });
   assert.ok((rich.confidencePct ?? 0) > (thin.confidencePct ?? 0));
   assert.ok(rich.coveragePct > thin.coveragePct);
@@ -75,6 +78,7 @@ test("prop holistic recommends strongest opportunities not sim-only edges", () =
     },
     edgePct: 3.5,
     simHit: 0.58,
+    probabilitySource: "exact_market_10k",
     minutesTrend: null,
     mlbPlatoon: {
       platoon: "advantage",
@@ -127,6 +131,7 @@ test("sim-positive prop with thin context fails strict AI gate but may fill tick
     },
     edgePct: 1.5,
     simHit: 0.55,
+    probabilitySource: "exact_market_10k",
   });
   const pick = {
     game: "A @ B",
@@ -155,6 +160,17 @@ test("sim-positive prop with thin context fails strict AI gate but may fill tick
     },
     edgePct: 1.5,
     propSimHit: 0.55,
+    propProbabilityProvenance: exactMarket10kProvenance({
+      hitProbability: 0.55,
+      simulations: 10_000,
+      sport: "nba",
+      marketKey: "player_points",
+    
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
+    }),
     propHolisticContext: {
       sport: "nba",
       marketKey: "player_points",
@@ -202,6 +218,17 @@ test("buildFinalAiScore uses holistic composite for props", () => {
     },
     edgePct: 2.8,
     propSimHit: 0.57,
+    propProbabilityProvenance: exactMarket10kProvenance({
+      hitProbability: 0.57,
+      simulations: 10_000,
+      sport: "nba",
+      marketKey: "player_points",
+    
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
+    }),
     propHolisticContext: {
       sport: "nba",
       marketKey: "player_points",
@@ -230,6 +257,7 @@ test("propHolisticTopDrivers lists strongest grounded factors", () => {
     },
     edgePct: 3.1,
     simHit: 0.54,
+    probabilitySource: "exact_market_10k",
     minutesTrend: { l5: 4, season: 3.5, direction: "up" },
     vsOpponentGames: 6,
   });
@@ -290,6 +318,17 @@ test("resolvePropHolisticForDisplay merges rubric factors into thin propHolistic
       highRiskValuePlay: false,
       recommends: false,
       factors: [],
+      propProbabilityProvenance: exactMarket10kProvenance({
+        hitProbability: 0.52,
+        simulations: 10_000,
+        sport: "wnba",
+        marketKey: "player_rebounds",
+      
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
+    }),
       rubric: {
         composite: 6,
         grade: "C+",
@@ -351,6 +390,17 @@ test("minimalPropHolisticForPick always returns holistic for sim-graded props", 
       highRiskValuePlay: false,
       recommends: true,
       factors: [],
+      propProbabilityProvenance: exactMarket10kProvenance({
+        hitProbability: 0.54,
+        simulations: 10_000,
+        sport: "mlb",
+        marketKey: "pitcher_strikeouts",
+      
+      athleteId: "ath-t",
+      eventId: "evt-t",
+      side: "Over",
+      line: 1.5,
+    }),
       rubric: {
         composite: 6.1,
         grade: "B-",

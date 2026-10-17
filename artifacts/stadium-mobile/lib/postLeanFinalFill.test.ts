@@ -16,6 +16,10 @@ import {
   wouldConflictOppositeSideSamePeriod,
 } from "./postLeanFinalFill.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import {
+  exactMarket10kProvenance,
+  withExactMarket10kProvenance,
+} from "./coachPropProbabilityProvenance.ts";
 
 const TNF = "Tampa Bay Buccaneers @ Dallas Cowboys";
 const TNF_HISTORY = {
@@ -67,7 +71,18 @@ function prop(
   odds: number,
   score: Record<string, unknown> = {},
 ): ParsedPick {
-  return {
+  const finalAiScore = qualifiedScore(score) as NonNullable<ParsedPick["finalAiScore"]>;
+  const provenance = exactMarket10kProvenance({
+    hitProbability: finalAiScore.simHit,
+    simulations: 10_000,
+    sport: "nfl",
+    marketKey: market,
+    athleteId: `ath-${player}`,
+    eventId: "evt-tnf",
+    side: /\bover\b/i.test(pick) ? "Over" : "Under",
+    line: Number(String(pick).match(/([\d.]+)/)?.[1] ?? 0) || 0.5,
+  });
+  return withExactMarket10kProvenance({
     game: TNF,
     sport: "nfl",
     market,
@@ -75,10 +90,12 @@ function prop(
     player,
     odds,
     isProp: true,
+    athleteId: `ath-${player}`,
+    eventId: "evt-tnf",
     propLine: Number(String(pick).match(/([\d.]+)/)?.[1] ?? 0) || null,
     propSide: /\bover\b/i.test(pick) ? "Over" : "Under",
-    finalAiScore: qualifiedScore(score) as never,
-  };
+    finalAiScore: { ...finalAiScore, propProbabilityProvenance: provenance },
+  });
 }
 
 function gl(

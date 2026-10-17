@@ -25,6 +25,7 @@ import {
   type PropHolisticContext,
   type PropHolisticScore,
 } from "./propHolisticRecommendation.ts";
+import type { PropProbabilityProvenance } from "./coachPropProbabilityProvenance.ts";
 
 /** Minimum no-vig edge (pct pts) to keep a sim-opposed leg as High-Risk Value Play. */
 export const HIGH_RISK_EDGE_MIN = 4.5;
@@ -68,6 +69,8 @@ export type FinalAiScore = {
   rubric: CombinedPickScore;
   /** Holistic prop score when pick.isProp — all contextual factors blended. */
   propHolistic?: PropHolisticScore | null;
+  /** Player-prop probability provenance (Option C) — never forge exact_market_10k. */
+  propProbabilityProvenance?: PropProbabilityProvenance | null;
 };
 
 function gradeRank(g: string | null | undefined): number {
@@ -151,9 +154,12 @@ export function buildFinalAiScore(input: {
   fairProb?: number | null;
   gameSim?: CoachGameSimEntry | null;
   propSimHit?: number | null;
+  /** Option C provenance — drives holistic simulation factor labels. */
+  propProbabilityProvenance?: PropProbabilityProvenance | null;
   propHolisticContext?: Omit<PropHolisticContext, "rubricScores" | "edgePct" | "simHit">;
 }): FinalAiScore {
   const simHit = simHitForPick(input.pick, input.gameSim, input.propSimHit);
+  const propProbabilityProvenance = input.propProbabilityProvenance ?? null;
   const rubric = combinePickScore(
     input.rubricScores,
     input.edgePct,
@@ -201,6 +207,7 @@ export function buildFinalAiScore(input: {
       rubricScores: input.rubricScores,
       edgePct: rubric.edgePct,
       simHit,
+      probabilitySource: propProbabilityProvenance?.source ?? null,
       odds: input.pick.odds ?? input.propHolisticContext?.odds ?? null,
       propLine: input.pick.propLine ?? input.propHolisticContext?.propLine ?? null,
       marketKey:
@@ -276,6 +283,7 @@ export function buildFinalAiScore(input: {
     factors,
     rubric,
     propHolistic,
+    propProbabilityProvenance: input.pick.isProp ? propProbabilityProvenance : null,
   };
 }
 
