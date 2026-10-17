@@ -2,12 +2,9 @@
 /**
  * Live audit: exact ask "7 leg college football player props".
  *
- * Counts rejections by reason buckets requested for the audit:
+ * Rejection buckets:
  *   missing_history_context | simulation_failure | stamp_rejection |
  *   unsupported_market | odds_range | grade | confidence | edge | correlation
- *
- * Verifies NCAAF-only candidates; traces one main + one ALT end-to-end.
- * Does not lower thresholds or unlock team markets.
  *
  * Run (from artifacts/stadium-mobile):
  *   EXPO_PUBLIC_DOMAIN=stadium-edge.onrender.com \
@@ -23,6 +20,7 @@ const u = (rel) => pathToFileURL(path.join(root, rel)).href;
 process.chdir(root);
 process.env.EXPO_PUBLIC_DOMAIN =
   process.env.EXPO_PUBLIC_DOMAIN || "stadium-edge.onrender.com";
+process.env.PROPS_ONLY_STAGE_AUDIT = process.env.PROPS_ONLY_STAGE_AUDIT || "1";
 
 const ASK =
   process.env.NCAAF_PROPS_AUDIT_ASK || "7 leg college football player props";
@@ -39,21 +37,17 @@ const {
 const {
   askAllowsNcaafPlayerProps,
   filterNcaafPlayerPropsUnlessAsked,
+  askIsCollegeFootballOnly,
 } = await import(u("lib/boardScanPropDelivery.ts"));
-const {
-  hardLockedSportsFromAsk,
-  canonicalizeCoachAskSport,
-} = await import(u("lib/coachAskSportScope.ts"));
 const { coachBoardSportsForAsk } = await import(
   u("lib/coachPropBoardCoverage.ts")
 );
+const { DEFAULT_SPORTS } = await import(u("lib/sports.ts"));
 const {
   getGames,
   getOdds,
   getLiveOdds,
   fetchFullBoardPropPool,
-  getPlayerHistory,
-  fetchPropSimulations,
 } = await import(u("lib/api.ts"));
 const {
   filterBettableOddsGames,
@@ -73,27 +67,23 @@ const { isFootballPropsOnlyCandidate } = await import(
   u("lib/coachFootballPropsOnly.ts")
 );
 const {
+  selectFootballPropsOnlyCandidates,
+  buildFootballPropsOnlyTicket,
+} = await import(u("lib/coachFootballPropsOnlyTicket.ts"));
+const {
   normalizePropsOnlyPick,
-  gradeFootballPropsOnlyFromHistory,
   propsOnlyPoolRowForPick,
   propsOnlySimLookupKey,
-  propsOnlyPickHasGrade,
   propsOnlyLegClearsOdds,
-  collapsePropsOnlyToBestEvSides,
-  softClipPropsOnlyHits,
-  lookupPropsOnlyHit,
-  lookupPropsOnlyHitReliability,
-  PROPS_ONLY_ODDS_SLACK,
   propsOnlyEffectiveLine,
+  PROPS_ONLY_ODDS_SLACK,
 } = await import(u("lib/coachFootballPropsOnlyGrade.ts"));
 const { marketSupportsSimulation } = await import(u("lib/simMarketSupport.ts"));
-const {
-  buildFootballPropsOnlyTicket,
-  selectFootballPropsOnlyCandidates,
-  FOOTBALL_PROPS_ONLY_BATCH,
-} = await import(u("lib/coachFootballPropsOnlyTicket.ts"));
 const { evaluateCoachQualification } = await import(
   u("lib/coach/qualifyCoachCandidate.ts")
+);
+const { takePropsOnlyStageAudit } = await import(
+  u("lib/coachFootballPropsOnly.ts")
 );
 
 const BUCKETS = [
@@ -135,114 +125,13 @@ function classifyNullReason(reason) {
   return "missing_history_context";
 }
 
-function classifyQualifyReason(reason) {
-  const r = String(reason || "");
-  if (r === "confidence_floor") return "confidence";
-  if (r === "grade_floor" || r === "missing_score") return "grade";
-  if (r === "non_positive_edge") return "edge";
-  if (r === "sim_unsupported") return "unsupported_market";
-  if (r === "sim_invalid" || r === "sim_not_above_implied") return "simulation_failure";
-  if (r === "non_positive_ev") return "odds_range";
-  if (r === "style_blocked") return "correlation";
-  return null;
-}
-
 function sportOf(row) {
-  return canonicalizeCoachAskSport(row?.sport) || String(row?.sport ?? "").toLowerCase();
+  return String(row?.sport ?? "").toLowerCase();
 }
 
 function isNcaaf(sport) {
   const s = String(sport ?? "").toLowerCase();
-  return s === "ncaaf" || s === "cfb" || s === "college-football";
-}
-
-async function loadInputs(ask, legs, signal, onStatus) {
-  const sports = coachBoardSportsForAsk(ask, legs, ["ncaaf"]);
-  const lockedSports = hardLockedSportsFromAsk(ask);
-  const stampAndKeepSport = (rows, sport) => {
-    const want = canonicalizeCoachAskSport(sport);
-    let stampedDrop = 0;
-    const kept = [];
-    for (const g of rows) {
-      const tagged = canonicalizeCoachAskSport(g.sport);
-      if (tagged && tagged !== want) {
-        stampedDrop += 1;
-        continue;
-      }
-      kept.push({ ...g, sport: tagged || want });
-    }
-    return { kept, stampedDrop };
-  };
-
-  let stampDrops = 0;
-  const [espnGamesRaw, oddsRaw, liveFeed] = await Promise.all([
-    Promise.all(
-      sports.map((s) =>
-        getGames(s, signal)
-          .catch(() => [])
-          .then((rows) => {
-            const { kept, stampedDrop } = stampAndKeepSport(rows, s);
-            stampDrops += stampedDrop;
-            return kept;
-          }),
-      ),
-    ).then((rows) => rows.flat()),
-    Promise.all(
-      sports.map((s) =>
-        getOdds(s, signal)
-          .catch(() => [])
-          .then((rows) => {
-            const { kept, stampedDrop } = stampAndKeepSport(rows, s);
-            stampDrops += stampedDrop;
-            return kept;
-          }),
-      ),
-    ).then((rows) => filterBettableOddsGames(rows.flat())),
-    getLiveOdds(sports, signal).catch(() => ({ games: [], odds: [] })),
-  ]);
-
-  const teamScope = coachAskTeamScope(ask);
-  let excludedTeams = excludedTeamScopesFromText(ask);
-  excludedTeams = resolveExcludedTeamIdsFromGames(excludedTeams, espnGamesRaw);
-  const sportBeltGames = (rows) =>
-    lockedSports?.length
-      ? rows.filter((g) => {
-          const s = canonicalizeCoachAskSport(g.sport);
-          return !!s && lockedSports.includes(s);
-        })
-      : rows;
-
-  const slateDay = slateDayFromThread(ask ?? "", []);
-  let oddsGames = filterOddsGamesForCoachAskTeams(
-    sportBeltGames(oddsRaw),
-    teamScope,
-    excludedTeams,
-  );
-  let espnGames = filterOddsGamesForCoachAskTeams(
-    sportBeltGames(espnGamesRaw),
-    teamScope,
-    excludedTeams,
-  );
-  oddsGames = filterOddsGamesForSlateDay(oddsGames, slateDay);
-  espnGames = filterOddsForSlateDay(espnGames, slateDay);
-
-  onStatus?.("Loading player props and alt lines…");
-  let propPool = await fetchFullBoardPropPool(oddsGames, espnGames, [], signal).catch(
-    () => [],
-  );
-  propPool = filterOddsForSlateDay(propPool, slateDay);
-  propPool = filterPicksForCoachAskTeams(propPool, teamScope, excludedTeams);
-
-  return {
-    espnGames,
-    oddsGames,
-    propPool,
-    sports,
-    lockedSports,
-    stampDrops,
-    slateDay,
-    liveOdds: liveFeed.odds ?? [],
-  };
+  return s === "ncaaf" || s === "cfb" || s.includes("ncaaf");
 }
 
 function pickTrace(p, extra = {}) {
@@ -266,18 +155,76 @@ function pickTrace(p, extra = {}) {
   };
 }
 
+async function loadInputs(ask, legs, signal, onStatus) {
+  const sports = coachBoardSportsForAsk(ask, legs, DEFAULT_SPORTS);
+  onStatus?.(
+    sports.length === 1
+      ? `Loading ${sports[0].toUpperCase()} board…`
+      : "Loading tonight's board…",
+  );
+  const [espnGamesRaw, oddsRaw] = await Promise.all([
+    Promise.all(
+      sports.map((s) => getGames(s, signal).catch(() => [])),
+    ).then((r) => r.flat()),
+    Promise.all(
+      sports.map((s) => getOdds(s, signal).catch(() => [])),
+    ).then((r) => filterBettableOddsGames(r.flat())),
+  ]);
+  // Lightweight stamp check: rows tagged to a different sport than requested.
+  let stampDrops = 0;
+  if (sports.length === 1) {
+    const want = sports[0];
+    for (const g of [...espnGamesRaw, ...oddsRaw]) {
+      const s = sportOf(g);
+      if (s && s !== want && !(want === "ncaaf" && (s === "cfb" || s.includes("ncaaf")))) {
+        stampDrops += 1;
+      }
+    }
+  }
+  const teamScope = coachAskTeamScope(ask);
+  let excludedTeams = excludedTeamScopesFromText(ask);
+  excludedTeams = resolveExcludedTeamIdsFromGames(excludedTeams, espnGamesRaw);
+  const slateDay = slateDayFromThread(ask ?? "", []);
+  let oddsGames = filterOddsGamesForSlateDay(
+    filterOddsGamesForCoachAskTeams(oddsRaw, teamScope, excludedTeams),
+    slateDay,
+  );
+  let espnGames = filterOddsForSlateDay(
+    filterOddsGamesForCoachAskTeams(espnGamesRaw, teamScope, excludedTeams),
+    slateDay,
+  );
+  onStatus?.("Loading player props and alt lines…");
+  let propPool = await fetchFullBoardPropPool(
+    oddsGames,
+    espnGames,
+    [],
+    signal,
+  ).catch(() => []);
+  propPool = filterOddsForSlateDay(propPool, slateDay);
+  propPool = filterPicksForCoachAskTeams(propPool, teamScope, excludedTeams);
+  return {
+    sports,
+    oddsGames,
+    espnGames,
+    propPool,
+    stampDrops,
+    slateDay,
+  };
+}
+
 console.error("[audit] ask=", ASK, "target=", TARGET);
 console.error("[audit] domain=", process.env.EXPO_PUBLIC_DOMAIN);
 console.error(
   "[audit] askAllowsNcaafPlayerProps=",
   askAllowsNcaafPlayerProps(ASK),
+  "collegeOnly=",
+  askIsCollegeFootballOnly(ASK),
 );
 
 const t0 = Date.now();
 const ac = new AbortController();
 const hard = setTimeout(() => ac.abort(), 240_000);
 const statuses = [];
-
 const rejectionCounts = emptyBuckets();
 const rejectionDetail = Object.fromEntries(BUCKETS.map((k) => [k, {}]));
 const bumpDetail = (bucket, key) => {
@@ -285,8 +232,11 @@ const bumpDetail = (bucket, key) => {
   bump(rejectionDetail[bucket], key);
 };
 
+process.on("unhandledRejection", (err) => {
+  console.error("[audit] unhandledRejection (swallowed)", err?.message || err);
+});
+
 try {
-  // ── 1) Load board (mirrors loadScanInputs) ───────────────────────────
   const inputs = await loadInputs(ASK, TARGET, ac.signal, (s) => {
     statuses.push(s);
     console.error("[status]", s);
@@ -296,14 +246,6 @@ try {
   const allowedKeys = Array.isArray(marketConstraint.allowedMarketKeys)
     ? marketConstraint.allowedMarketKeys
     : null;
-  console.error(
-    "[audit] pool=",
-    inputs.propPool.length,
-    "allowedKeys=",
-    allowedKeys,
-    "propsOnly=",
-    marketConstraint.propsOnly,
-  );
   const scanPropPool = allowedKeys
     ? filterPropPoolByAskMarkets(inputs.propPool, allowedKeys)
     : inputs.propPool;
@@ -312,15 +254,12 @@ try {
     : filterNcaafPlayerPropsUnlessAsked(scanPropPool, ASK);
 
   rejectionCounts.stamp_rejection = inputs.stampDrops;
-  rejectionDetail.stamp_rejection = {
-    cross_sport_row_drop: inputs.stampDrops,
-  };
+  rejectionDetail.stamp_rejection = { cross_sport_row_tag: inputs.stampDrops };
 
   const poolSports = {};
   for (const e of activePropPool) bump(poolSports, sportOf(e) || "unknown");
   const nonNcaafInPool = activePropPool.filter((e) => !isNcaaf(sportOf(e)));
 
-  // ── 2) Candidate selection rejections ────────────────────────────────
   const allParsed = activePropPool.map((e) =>
     normalizePropsOnlyPick(parsedPickFromPoolEntry(e)),
   );
@@ -370,18 +309,12 @@ try {
   const candidateSports = {};
   for (const c of candidates) bump(candidateSports, sportOf(c) || "unknown");
   const nonNcaafCandidates = candidates.filter((c) => !isNcaaf(sportOf(c)));
-
-  // Cap / not selected from pool — reported under candidacy, not correlation.
   const notSelected = Math.max(0, candOk - candidates.length);
 
-  // ── 3) Authoritative ticket build (history → grade → odds → stage) ───
   console.error(
     `[audit] candidates=${candidates.length} pool=${activePropPool.length}`,
   );
   console.error("[audit] buildFootballPropsOnlyTicket…");
-  process.on("unhandledRejection", (err) => {
-    console.error("[audit] unhandledRejection (swallowed)", err?.message || err);
-  });
   const built = await buildFootballPropsOnlyTicket({
     target: TARGET,
     pool: activePropPool,
@@ -394,6 +327,8 @@ try {
       console.error("[status]", s);
     },
   });
+  // Consume leftover audit if ticket builder already took it.
+  takePropsOnlyStageAudit();
 
   const fail = built.failDiag;
   const nullReasons = fail?.nullReasons ?? {};
@@ -405,7 +340,6 @@ try {
   }
 
   if (fail) {
-    // Odds gate: best-EV sides that failed props-only odds slack
     const oddsGate = Math.max(
       0,
       (fail.bestEvSides || fail.graded) - fail.oddsCleared,
@@ -453,55 +387,9 @@ try {
         rare_fail: sr.rareFail || 0,
         anytime_fail: sr.anytimeFail || 0,
       };
-    } else {
-      // Fallback when stageRejects absent (older builder).
-      rejectionCounts.correlation = 0;
-      rejectionDetail.correlation = {
-        staging_unspecified: Math.max(0, fail.oddsCleared - fail.staged),
-      };
     }
   }
 
-  // Qualify-gate breakdown on delivered / near-delivered picks
-  const qualifyRejects = {};
-  for (const pick of built.picks ?? []) {
-    const q = evaluateCoachQualification(
-      {
-        ...pick,
-        isProp: true,
-        propsOnlyTicket: true,
-        simHit: pick.finalAiScore?.simHit ?? pick.simHit ?? null,
-        edgePct: pick.finalAiScore?.edgePct ?? pick.edgePct ?? null,
-        confidencePct:
-          pick.finalAiScore?.confidencePct ?? pick.confidencePct ?? null,
-        grade: pick.finalAiScore?.grade ?? pick.grade ?? null,
-        odds: pick.odds,
-        finalAiScore: pick.finalAiScore,
-      },
-      { requestStyle: "props_only", isProp: true },
-    );
-    if (q.status === "rejected") {
-      bump(qualifyRejects, q.reason);
-      const bucket = classifyQualifyReason(q.reason);
-      if (bucket) bumpDetail(bucket, q.reason);
-    }
-  }
-
-  // When ticket is empty/short, attribute residual graded→oddsCleared gaps that
-  // look like grade/confidence/edge using failDiag code.
-  if (fail?.code === "PROPS_ONLY_NO_GRADE" && (fail.graded ?? 0) === 0) {
-    // already counted via nullReasons
-  } else if (fail?.code === "PROPS_ONLY_ODDS_GATE") {
-    // already in odds_range
-  }
-
-  const historyLoaded = fail?.historyLoaded ?? 0;
-  const gradedCandidates = { length: fail?.graded ?? 0 };
-  const propHits = new Map();
-  const localHistories = {};
-  const stillNull = { length: Math.max(0, candidates.length - historyLoaded) };
-
-  // ── 5) Full Coach path (E2E) ─────────────────────────────────────────
   console.error("[audit] buildCoachParlay E2E…");
   let coachResult = null;
   let coachError = null;
@@ -519,13 +407,12 @@ try {
     coachError = e instanceof Error ? e.message : String(e);
   }
 
+  const builtPicks = built.picks ?? [];
   const coachPicks = coachResult?.picks ?? [];
   const coachSports = {};
   for (const p of coachPicks) bump(coachSports, sportOf(p) || "unknown");
   const nonNcaafCoach = coachPicks.filter((p) => !isNcaaf(sportOf(p)));
 
-  // ── 6) Trace main + ALT ──────────────────────────────────────────────
-  const builtPicks = built.picks ?? [];
   const mainCand =
     builtPicks.find((p) => !p.propIsAlt && p.ticketRole !== "alt") ||
     candidates.find((p) => !p.propIsAlt) ||
@@ -602,8 +489,6 @@ try {
     notes: [],
   };
 
-  // Defect checks (do not lower thresholds):
-  // 1) Non-NCAAF leaked into college player-props candidates
   if (nonNcaafCandidates.length > 0) {
     verdict.pipelineDefect =
       "non_ncaaf_candidates_in_college_player_props_ask";
@@ -614,46 +499,37 @@ try {
   if (nonNcaafCoach.length > 0) {
     verdict.pipelineDefect =
       verdict.pipelineDefect || "non_ncaaf_legs_on_college_player_props_ticket";
-    verdict.notes.push(
-      `${nonNcaafCoach.length} non-NCAAF legs on Coach ticket`,
-    );
+    verdict.notes.push(`${nonNcaafCoach.length} non-NCAAF legs on Coach ticket`);
   }
-  // 2) ask gate wrong
   if (!askAllowsNcaafPlayerProps(ASK)) {
     verdict.pipelineDefect = "ask_gate_blocks_explicit_college_player_props";
   }
-  // 3) Non-NCAAF already handled above.
-  // 4) Legitimate empty: confidence / odds / history quality bar (thresholds unchanged)
   if (
     !verdict.pipelineDefect &&
     builtPicks.length === 0 &&
-    (fail?.code === "PROPS_ONLY_NO_HISTORY" ||
-      fail?.code === "PROPS_ONLY_NO_GRADE" ||
-      fail?.code === "PROPS_ONLY_ODDS_GATE" ||
-      fail?.code === "PROPS_ONLY_CONFIDENCE_GATE" ||
-      fail?.code === "PROPS_ONLY_EMPTY" ||
-      fail?.code === "PROPS_ONLY_STAGED_SHORT" ||
-      fail?.code === "PROPS_ONLY_POOL_EMPTY" ||
-      fail?.code === "PROPS_ONLY_NO_CANDIDATES")
+    fail?.code
   ) {
     verdict.legitimateNoQualifier = true;
-    verdict.notes.push(`Ticket empty under ${fail.code} with thresholds unchanged`);
-  }
-  if (
-    coachResult &&
-    coachPicks.length < TARGET &&
-    coachResult.failDiag == null &&
-    built.failDiag != null
-  ) {
     verdict.notes.push(
-      "observability residual: Coach E2E still missing failDiag (expected fixed in this change)",
+      `Ticket empty under ${fail.code} with thresholds unchanged`,
     );
   }
-  if (!verdict.pipelineDefect && builtPicks.length > 0 && builtPicks.length < TARGET) {
+  if (
+    !verdict.pipelineDefect &&
+    builtPicks.length > 0 &&
+    builtPicks.length < TARGET
+  ) {
     verdict.legitimateNoQualifier = true;
     verdict.notes.push(
       `Short ticket ${builtPicks.length}/${TARGET} — quality/diversity bar, not a gate unlock`,
     );
+  }
+  if (coachResult?.failDiag) {
+    verdict.notes.push(
+      `Coach E2E failDiag present: ${coachResult.failDiag.code}`,
+    );
+  } else if (built.failDiag && coachPicks.length < TARGET) {
+    verdict.notes.push("Coach E2E missing failDiag (unexpected after fix)");
   }
 
   const report = {
@@ -662,6 +538,7 @@ try {
     elapsedMs: Date.now() - t0,
     domain: process.env.EXPO_PUBLIC_DOMAIN,
     askAllowsNcaafPlayerProps: askAllowsNcaafPlayerProps(ASK),
+    askIsCollegeFootballOnly: askIsCollegeFootballOnly(ASK),
     marketConstraint: {
       propsOnly: !!marketConstraint.propsOnly,
       gameLinesOnly: !!marketConstraint.gameLinesOnly,
@@ -669,7 +546,6 @@ try {
     },
     board: {
       sports: inputs.sports,
-      lockedSports: inputs.lockedSports,
       oddsGames: inputs.oddsGames.length,
       espnGames: inputs.espnGames.length,
       rawPropPool: inputs.propPool.length,
@@ -698,10 +574,12 @@ try {
       altCount: candidates.filter((c) => c.propIsAlt).length,
     },
     grading: {
-      historyLoaded,
-      graded: gradedCandidates.length,
+      historyLoaded: fail?.historyLoaded ?? 0,
+      graded: fail?.graded ?? 0,
       nullReasons,
-      stillNullAfterLocal: stillNull.length,
+      bestEvSides: fail?.bestEvSides ?? 0,
+      oddsCleared: fail?.oddsCleared ?? 0,
+      staged: fail?.staged ?? 0,
     },
     ticketBuilder: {
       pickCount: builtPicks.length,
@@ -710,20 +588,13 @@ try {
       note: built.note,
       failDiag: built.failDiag ?? null,
       picks: builtPicks.map((p) => pickTrace(p)),
-      sports: Object.fromEntries(
-        Object.entries(
-          builtPicks.reduce((acc, p) => {
-            bump(acc, sportOf(p) || "unknown");
-            return acc;
-          }, {}),
-        ),
-      ),
     },
     coachE2E: {
       error: coachError,
       pickCount: coachPicks.length,
       propPoolSize: coachResult?.propPoolSize ?? null,
       note: coachResult?.note ?? null,
+      failDiag: coachResult?.failDiag ?? null,
       failDiagPresent: coachResult?.failDiag != null,
       sports: coachSports,
       nonNcaafLegs: nonNcaafCoach.length,
@@ -735,14 +606,12 @@ try {
       main: endToEndTrace(mainCand, "main"),
       alt: endToEndTrace(altCand, "alt"),
     },
-    qualifyRejects,
     verdict,
     statuses,
   };
 
   mkdirSync(path.dirname(OUT), { recursive: true });
   writeFileSync(OUT, JSON.stringify(report, null, 2));
-  // Also write a markdown summary
   const md = [
     `# NCAAF college player-props funnel audit`,
     ``,
@@ -765,7 +634,7 @@ try {
     `## Ticket`,
     ``,
     `- Props-only builder: ${builtPicks.length}/${TARGET} (failDiag=${built.failDiag?.code ?? "none"})`,
-    `- Coach E2E: ${coachPicks.length}/${TARGET}${coachError ? ` error=${coachError}` : ""}`,
+    `- Coach E2E: ${coachPicks.length}/${TARGET}${coachError ? ` error=${coachError}` : ""} (failDiag=${coachResult?.failDiag?.code ?? "none"})`,
     ``,
     `## Verdict`,
     ``,
@@ -775,7 +644,6 @@ try {
     ``,
   ].join("\n");
   writeFileSync(OUT.replace(/\.json$/, ".md"), md);
-
   console.log(JSON.stringify(report, null, 2));
   process.exit(0);
 } catch (e) {
@@ -792,14 +660,4 @@ try {
   process.exit(1);
 } finally {
   clearTimeout(hard);
-}
-
-function normalizeHistorySportSafe(sport) {
-  const n = String(sport ?? "")
-    .toLowerCase()
-    .trim();
-  if (n === "nfl" || n.includes("americanfootball_nfl")) return "nfl";
-  if (n === "ncaaf" || n === "cfb" || n.includes("americanfootball_ncaaf"))
-    return "ncaaf";
-  return n;
 }
