@@ -1,16 +1,18 @@
 # Odds request manifests (Phase C/D) — dry-run only
 
-**Generated:** 2026-10-17T12:17:47.447Z  
-**Paid retrieval:** **false** · ODDS_API_KEY unset · no plan changes
+**Generated:** 2026-10-17T13:11:57.794Z  
+**Paid retrieval:** **false** · ODDS_API_KEY unset · no plan changes  
+**Coach selection rules:** locked · **T−24h availability:** checked · **price deltas:** not examined
 
-## Separate hard credit caps
+## Separate hard credit caps (combined max 4200)
 
 | Manifest | Markets | Buckets to fetch | Base credits | Retry buffer | **Hard cap** | Fits |
 |----------|---------|-----------------:|-------------:|-------------:|-------------:|:----:|
-| Close-only h2h | h2h | 70 | 700 | 175 | **2000** | true |
-| Early T−24h h2h CLV | h2h | 70 | 700 | 175 | **2200** | true |
+| Close-only h2h | h2h | 167 | 1670 | 418 | **2100** | true |
+| Early T−24h h2h CLV | h2h | 167 | 1670 | 418 | **2100** | true |
+| **Combined** | — | — | 3340 | — | **4200** | true |
 
-Caps are **independent**. Do not spend one against the other without new approval.
+Caps are **separate**. Combined spend across both pulls must stay ≤ **4200**.
 
 ## Deduplication
 
@@ -39,11 +41,14 @@ Caps are **independent**. Do not spend one against the other without new approva
 - R1: fixture home-only fallback insufficient for C1 on clean path
 - R2: away ML only from this early cache
 - Selection timestamp must be recorded for CLV
+- Coach selection rules locked before price-delta inspection
 - ⚠ Early snapshot cache currently EMPTY (0 files)
 - ⚠ Home-only selection-prices fixture cannot supply away ML under R1–R2
 - ⚠ Separate hard cap from close-only manifest — do not co-mingle spend
+- ⚠ Combined close+early spend must stay ≤ 4200 credits
 - ⚠ Phase-e CLV fail (n=15, meanClv<0) is failed evidence on prior stamp — remake on clean E1 after cache exists
 - ⚠ Paid historical only; key unset — manifest is pre-retrieval
+- ⚠ T−24h timing feasible post-Sep-2022; entitlement unconfirmed without ODDS_API_KEY
 
 ## Non-actions this turn
 

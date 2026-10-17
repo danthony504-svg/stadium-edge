@@ -23,3 +23,7 @@
 ## Non-actions honored
 
 No Odds HTTP · no FINAL_EVAL M1–M4 score · no deploy/OTA/unlock · no injury activation · no plan changes
+
+## Update — schedule reconcile + readiness
+
+See [`ncaaf-clean-retrieval-readiness.md`](./ncaaf-clean-retrieval-readiness.md): membership date-walk included **408**; Coach rules locked; manifests 2100+2100≤4200; retrieval **not** ready (no ODDS_API_KEY). No paid fetch.

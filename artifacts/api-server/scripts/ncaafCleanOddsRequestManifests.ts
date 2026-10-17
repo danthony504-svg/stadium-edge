@@ -196,6 +196,19 @@ const feGames = loadJson<{
 
 const tuningBuckets = existingTuningCloseBuckets();
 
+/**
+ * Separate caps; combined ceiling locked at 4200.
+ * Equal 2100/2100 so each covers ~167 buckets × 10 + 25% retry (~2088).
+ */
+const CLOSE_HARD_CAP = 2100;
+const EARLY_HARD_CAP = 2100;
+const COMBINED_MAX_CREDITS = 4200;
+if (CLOSE_HARD_CAP + EARLY_HARD_CAP !== COMBINED_MAX_CREDITS) {
+  throw new Error(
+    `Cap invariant broken: ${CLOSE_HARD_CAP}+${EARLY_HARD_CAP} !== ${COMBINED_MAX_CREDITS}`,
+  );
+}
+
 const closeManifest = buildManifest({
   id: "FINAL_EVAL_close_h2h_only",
   purpose: "FINAL_EVAL moneyline closes (eval-only) — markets=h2h only",
@@ -203,7 +216,7 @@ const closeManifest = buildManifest({
   mode: "historical_close",
   games: feGames,
   bucketFn: minuteBucket,
-  hardCap: 2000,
+  hardCap: CLOSE_HARD_CAP,
   existingBuckets: tuningBuckets,
   fileCacheDir: join(ART, "ncaaf-e2b-close-snapshots"),
   timingNotes: [
@@ -229,7 +242,7 @@ const clvManifest = buildManifest({
   mode: "historical_early_t24h",
   games: feGames,
   bucketFn: earlyBucket,
-  hardCap: 2200,
+  hardCap: EARLY_HARD_CAP,
   existingBuckets: new Set(), // early cache empty; do not treat close buckets as early
   fileCacheDir: join(ART, "ncaaf-e2b-early-snapshots"),
   timingNotes: [
@@ -238,24 +251,47 @@ const clvManifest = buildManifest({
     "R1: fixture home-only fallback insufficient for C1 on clean path",
     "R2: away ML only from this early cache",
     "Selection timestamp must be recorded for CLV",
+    "Coach selection rules locked before price-delta inspection",
   ],
   coverageLimitations: [
     "Early snapshot cache currently EMPTY (0 files)",
     "Home-only selection-prices fixture cannot supply away ML under R1–R2",
     "Separate hard cap from close-only manifest — do not co-mingle spend",
+    "Combined close+early spend must stay ≤ 4200 credits",
     "Phase-e CLV fail (n=15, meanClv<0) is failed evidence on prior stamp — remake on clean E1 after cache exists",
     "Paid historical only; key unset — manifest is pre-retrieval",
+    "T−24h timing feasible post-Sep-2022; entitlement unconfirmed without ODDS_API_KEY",
   ],
 });
 
+const combinedBase =
+  closeManifest.creditMath.baseCredits + clvManifest.creditMath.baseCredits;
+const combinedWithBuffers =
+  closeManifest.creditMath.baseCredits +
+  closeManifest.creditMath.retryBufferCredits +
+  clvManifest.creditMath.baseCredits +
+  clvManifest.creditMath.retryBufferCredits;
+
 const bundle = {
   generatedAt: new Date().toISOString(),
-  phase: "C_D",
+  phase: "C_D_regenerated",
   paidRetrieval: false,
+  coachSelectionRulesLocked: true,
+  t24hAvailabilityChecked: true,
+  priceDeltasExamined: false,
   separateHardCaps: {
-    closeH2h: closeManifest.creditMath.hardCap,
-    earlyClvH2h: clvManifest.creditMath.hardCap,
-    note: "Approve and spend each cap independently",
+    closeH2h: CLOSE_HARD_CAP,
+    earlyClvH2h: EARLY_HARD_CAP,
+    combinedMaximum: COMBINED_MAX_CREDITS,
+    invariant: "close + early hard caps == 4200",
+    note: "Spend each pull under its own cap; never exceed combined 4200 across both",
+  },
+  combinedCreditCheck: {
+    baseSum: combinedBase,
+    basePlusRetryBuffersSum: combinedWithBuffers,
+    withinCombinedMaxIfBothAtHardCap: CLOSE_HARD_CAP + EARLY_HARD_CAP <= COMBINED_MAX_CREDITS,
+    bothFitsOwnCap:
+      closeManifest.creditMath.fitsInHardCap && clvManifest.creditMath.fitsInHardCap,
   },
   closeOnlyH2h: closeManifest,
   earlyTwoSidedClv: clvManifest,
@@ -269,16 +305,18 @@ writeFileSync(
 const md = `# Odds request manifests (Phase C/D) — dry-run only
 
 **Generated:** ${bundle.generatedAt}  
-**Paid retrieval:** **false** · ODDS_API_KEY unset · no plan changes
+**Paid retrieval:** **false** · ODDS_API_KEY unset · no plan changes  
+**Coach selection rules:** locked · **T−24h availability:** checked · **price deltas:** not examined
 
-## Separate hard credit caps
+## Separate hard credit caps (combined max 4200)
 
 | Manifest | Markets | Buckets to fetch | Base credits | Retry buffer | **Hard cap** | Fits |
 |----------|---------|-----------------:|-------------:|-------------:|-------------:|:----:|
-| Close-only h2h | h2h | ${closeManifest.nBucketsToFetch} | ${closeManifest.creditMath.baseCredits} | ${closeManifest.creditMath.retryBufferCredits} | **${closeManifest.creditMath.hardCap}** | ${closeManifest.creditMath.fitsInHardCap} |
-| Early T−24h h2h CLV | h2h | ${clvManifest.nBucketsToFetch} | ${clvManifest.creditMath.baseCredits} | ${clvManifest.creditMath.retryBufferCredits} | **${clvManifest.creditMath.hardCap}** | ${clvManifest.creditMath.fitsInHardCap} |
+| Close-only h2h | h2h | ${closeManifest.nBucketsToFetch} | ${closeManifest.creditMath.baseCredits} | ${closeManifest.creditMath.retryBufferCredits} | **${CLOSE_HARD_CAP}** | ${closeManifest.creditMath.fitsInHardCap} |
+| Early T−24h h2h CLV | h2h | ${clvManifest.nBucketsToFetch} | ${clvManifest.creditMath.baseCredits} | ${clvManifest.creditMath.retryBufferCredits} | **${EARLY_HARD_CAP}** | ${clvManifest.creditMath.fitsInHardCap} |
+| **Combined** | — | — | ${combinedBase} | — | **${COMBINED_MAX_CREDITS}** | ${combinedWithBuffers <= COMBINED_MAX_CREDITS} |
 
-Caps are **independent**. Do not spend one against the other without new approval.
+Caps are **separate**. Combined spend across both pulls must stay ≤ **4200**.
 
 ## Deduplication
 
