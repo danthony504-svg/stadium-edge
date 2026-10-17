@@ -85,10 +85,17 @@ import {
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
 import {
+  filterPoolByFootballRecoverySports,
   filterPoolForFootballSkillRecovery,
   footballSkillRecoveryNote,
   shouldRecoverPropsOnlyWithFootballSkillBoard,
 } from "@/lib/coachFootballPropsOnlyRecovery";
+import {
+  preferPropsOnlyFailDiag,
+  propsOnlyTerminalEmptyNote,
+  reconcileCoachTerminalNote,
+} from "@/lib/coachPropsOnlyFailReason";
+import { COACH_SIM_MIN_CONFIDENCE } from "@/lib/gameSimQualityGates";
 import {
   lockedMarketLabelForAsk,
   lockedMarketQualityShortfallNote,
@@ -122,6 +129,8 @@ export type CoachParlayBuildResult = {
   propPoolSize: number;
   /** Team-scoped ask funnel diagnostics ("4 leg Troy"). */
   teamGameScopeDiagnostics?: CoachTeamGameScopeDiagnostics | null;
+  /** Props-only empty/short diagnosis — logs / reliability; never chat copy. */
+  failDiag?: import("@/lib/coachPropsOnlyFailReason").PropsOnlyFailDiag;
 };
 
 export { shouldSkipScannerPropExpand } from "./propPoolPolicy";
@@ -472,6 +481,7 @@ export async function buildCoachParlay(opts: {
         );
       },
     });
+    let propsFailDiag = built.failDiag;
     let picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(
         selectFinalCoachParlayPicks(built.picks),
@@ -488,18 +498,18 @@ export async function buildCoachParlay(opts: {
     const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
     // Canonical lock label from EXPLICIT_MARKET_LOCK_RULES (any sport/family).
     const lockedMarketLabel = lockedMarketLabelForAsk(opts.askText) ?? "market";
+    // Immutable ask sport scope — recovery must not widen beyond board sports
+    // (college player props must never seat NFL skill rows from a mixed pool).
+    const recoverySportScope = { allowedSports: inputs.sports };
+    const recoverySourcePool = filterPoolByFootballRecoverySports(
+      askAllowsNcaafPlayerProps(opts.askText)
+        ? inputs.propPool
+        : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
+      recoverySportScope,
+    );
     const recoveryPool = isMarketLocked
-      ? filterPropPoolByAskMarkets(
-          askAllowsNcaafPlayerProps(opts.askText)
-            ? inputs.propPool
-            : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
-          lockedKeys,
-        )
-      : filterPoolForFootballSkillRecovery(
-          askAllowsNcaafPlayerProps(opts.askText)
-            ? inputs.propPool
-            : filterNcaafPlayerPropsUnlessAsked(inputs.propPool, opts.askText),
-        );
+      ? filterPropPoolByAskMarkets(recoverySourcePool, lockedKeys)
+      : filterPoolForFootballSkillRecovery(recoverySourcePool, recoverySportScope);
     if (
       shouldRecoverPropsOnlyWithFootballSkillBoard({
         graded: built.propLegsScored,
@@ -527,6 +537,7 @@ export async function buildCoachParlay(opts: {
         mlbGameEnv,
         recoveryFill: true,
         allowRareCountFamilyStack,
+        askText: opts.askText,
         onPartialPicks: (partial) => {
           // Preserve the original market lock when present.
           // Scope filter before UI buffer — same as primary props-only path.
@@ -547,6 +558,7 @@ export async function buildCoachParlay(opts: {
         inputs.teamScope,
         inputs.excludedTeams,
       );
+      propsFailDiag = preferPropsOnlyFailDiag(propsFailDiag, recovered.failDiag);
       if (recoveredPicks.length > 0) {
         picks = recoveredPicks;
         recoveredNote = isMarketLocked
@@ -579,6 +591,7 @@ export async function buildCoachParlay(opts: {
           mlbGameEnv,
           recoveryFill: true,
           allowRareCountFamilyStack,
+          askText: opts.askText,
           onPartialPicks: (partial) => {
             opts.onPartialPicks?.(
               filterPicksForCoachAskTeams(
@@ -589,6 +602,8 @@ export async function buildCoachParlay(opts: {
             );
           },
         });
+        // Never let preferred-pool ODDS_GATE wipe skill-board CONFIDENCE_GATE.
+        propsFailDiag = preferPropsOnlyFailDiag(propsFailDiag, softPreferred.failDiag);
         const softPicks = filterPicksForCoachAskTeams(
           filterPicksByAskMarketConstraint(
             selectFinalCoachParlayPicks(softPreferred.picks),
@@ -609,6 +624,13 @@ export async function buildCoachParlay(opts: {
                 })
               : `Staged ${picks.length} matching real lines for the requested market.`;
         } else {
+          const propsSportLabel = askAllowsNcaafPlayerProps(opts.askText)
+            ? "college football"
+            : "football";
+          const recoveryGraded = {
+            preferred: built.propLegsScored,
+            skill: recovered.propLegsScored,
+          };
           recoveredNote = isMarketLocked
             ? lockedMarketQualityShortfallNote({
                 requestedLegs: target,
@@ -616,7 +638,32 @@ export async function buildCoachParlay(opts: {
                 qualified: 0,
                 marketLabel: lockedMarketLabel,
               })
-            : `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`;
+            : propsFailDiag
+              ? propsOnlyTerminalEmptyNote(propsFailDiag, {
+                  sportLabel: propsSportLabel,
+                  confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+                  recoveryGraded,
+                })
+              : propsOnlyTerminalEmptyNote(
+                  {
+                    code: "PROPS_ONLY_ODDS_GATE",
+                    target,
+                    pool: 0,
+                    athleteLinked: 0,
+                    candidates: 0,
+                    historyLoaded: 0,
+                    graded: built.propLegsScored,
+                    bestEvSides: 0,
+                    oddsCleared: 0,
+                    staged: 0,
+                    nullReasons: {},
+                  },
+                  {
+                    sportLabel: propsSportLabel,
+                    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+                    recoveryGraded,
+                  },
+                );
         }
       }
     }
@@ -655,7 +702,34 @@ export async function buildCoachParlay(opts: {
       propsOnly: true,
       picks,
     });
+    const propsSportLabel = askAllowsNcaafPlayerProps(opts.askText)
+      ? "college football"
+      : "football";
+    // Empty ticket: one terminal diagnosis from failDiag (partial/recovery/final agree).
+    // Locked-market shortfall copy stays authoritative for explicit market locks.
+    const emptyTerminalBody =
+      picks.length === 0 && propsFailDiag && !isMarketLocked
+        ? reconcileCoachTerminalNote({
+            priorText: recoveredNote || built.note,
+            nextText: recoveredNote || built.note || "",
+            priorFailDiag: built.failDiag,
+            nextFailDiag: propsFailDiag,
+            sportLabel: propsSportLabel,
+            confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+            recoveryGraded:
+              recoveredNote || built.propLegsScored > 0
+                ? {
+                    preferred: built.propLegsScored,
+                    skill: Math.max(
+                      built.propLegsScored,
+                      propsFailDiag.graded,
+                    ),
+                  }
+                : undefined,
+          })
+        : "";
     const body =
+      emptyTerminalBody ||
       recoveredNote ||
       built.note.trim() ||
       buildFinalCoachParlayNote({
@@ -702,6 +776,7 @@ export async function buildCoachParlay(opts: {
         timedOut: false,
         propPoolSize,
         teamGameScopeDiagnostics,
+        ...(propsFailDiag ? { failDiag: propsFailDiag } : {}),
       };
     }
     return {
@@ -711,6 +786,7 @@ export async function buildCoachParlay(opts: {
       timedOut: false,
       propPoolSize,
       teamGameScopeDiagnostics,
+      ...(propsFailDiag && picks.length < target ? { failDiag: propsFailDiag } : {}),
     };
   }
 

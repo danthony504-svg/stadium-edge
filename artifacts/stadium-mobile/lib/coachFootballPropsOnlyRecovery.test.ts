@@ -7,16 +7,24 @@ import {
   gradeFootballPropFromHistory,
   gradeFootballPropsOnlyFromHistory,
   propsOnlyLegClearsOdds,
+  PROPS_ONLY_ODDS_SLACK,
   PROPS_ONLY_RECOVERY_ODDS_SLACK,
 } from "./coachFootballPropsOnlyGrade.ts";
 import {
   FOOTBALL_SKILL_RECOVERY_MARKET_KEYS,
+  filterPoolByFootballRecoverySports,
   filterPoolForFootballSkillRecovery,
   footballSkillRecoveryNote,
   isFootballSkillRecoveryMarket,
+  normalizeFootballRecoverySport,
   shouldRecoverPropsOnlyWithFootballSkillBoard,
 } from "./coachFootballPropsOnlyRecovery.ts";
 import { stageFootballPropsOnlyLegs } from "./coachFootballPropsOnly.ts";
+import {
+  COACH_SIM_MIN_CONFIDENCE,
+  COACH_SIM_MIN_GRADE,
+} from "./gameSimQualityGates.ts";
+import { derivePropsOnlyFailCode } from "./coachPropsOnlyFailReason.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 test("football skill recovery markets cover TD + yards + receptions + sacks", () => {
@@ -36,7 +44,7 @@ test("football skill recovery markets cover TD + yards + receptions + sacks", ()
   assert.ok(FOOTBALL_SKILL_RECOVERY_MARKET_KEYS.includes("player_sacks"));
 });
 
-test("filterPoolForFootballSkillRecovery keeps NFL/NCAAF skill + alts", () => {
+test("filterPoolForFootballSkillRecovery keeps NFL/NCAAF skill + alts when both allowed", () => {
   const pool = [
     { marketKey: "player_anytime_td", sport: "nfl" },
     { marketKey: "player_rush_yds_alternate", sport: "nfl" },
@@ -45,7 +53,9 @@ test("filterPoolForFootballSkillRecovery keeps NFL/NCAAF skill + alts", () => {
     { marketKey: "player_points", sport: "nba" },
     { marketKey: "batter_home_runs", sport: "mlb" },
   ];
-  const out = filterPoolForFootballSkillRecovery(pool);
+  const out = filterPoolForFootballSkillRecovery(pool, {
+    allowedSports: ["nfl", "ncaaf"],
+  });
   assert.deepEqual(
     out.map((r) => r.marketKey).sort(),
     [
@@ -54,6 +64,132 @@ test("filterPoolForFootballSkillRecovery keeps NFL/NCAAF skill + alts", () => {
       "player_rush_yds_alternate",
       "player_sacks",
     ].sort(),
+  );
+});
+
+test("adversarial mixed recovery: college scope excludes NFL solely by sport", () => {
+  // Threshold constants must stay frozen on this hardening change.
+  assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
+  assert.equal(COACH_SIM_MIN_GRADE, "C+");
+  assert.equal(PROPS_ONLY_ODDS_SLACK, 0.025);
+  assert.equal(PROPS_ONLY_RECOVERY_ODDS_SLACK, 0.08);
+
+  const mixed = [
+    {
+      marketKey: "player_rush_yds",
+      sport: "ncaaf",
+      player: "CFB_Rush",
+      athleteId: "cfb-r1",
+    },
+    {
+      marketKey: "player_pass_yds_alternate",
+      sport: "ncaaf",
+      player: "CFB_PassAlt",
+      athleteId: "cfb-p1",
+    },
+    {
+      marketKey: "player_rush_yds",
+      sport: "nfl",
+      player: "NFL_Rush",
+      athleteId: "nfl-r1",
+    },
+    {
+      marketKey: "player_receptions",
+      sport: "nfl",
+      player: "NFL_Rec",
+      athleteId: "nfl-rec1",
+    },
+    {
+      marketKey: "player_rush_yds",
+      sport: null,
+      player: "Untagged",
+      athleteId: "x1",
+    },
+    { marketKey: "player_points", sport: "ncaaf", player: "CFB_Points" },
+  ];
+
+  const collegeScope = { allowedSports: ["ncaaf"] as const };
+  const scoped = filterPoolForFootballSkillRecovery(mixed, collegeScope);
+  assert.deepEqual(
+    scoped.map((r) => r.player).sort(),
+    ["CFB_PassAlt", "CFB_Rush"].sort(),
+  );
+  assert.equal(
+    scoped.some((r) => normalizeFootballRecoverySport(r.sport) === "nfl"),
+    false,
+    "NFL rows must be excluded solely by sport scope",
+  );
+  assert.equal(
+    scoped.some((r) => !r.sport),
+    false,
+    "missing sport tags fail closed under scope",
+  );
+
+  // Sport belt alone (locked-market path) also drops NFL / untagged.
+  const sportBelt = filterPoolByFootballRecoverySports(mixed, collegeScope);
+  assert.ok(sportBelt.every((r) => normalizeFootballRecoverySport(r.sport) === "ncaaf"));
+  assert.equal(sportBelt.some((r) => r.player?.startsWith("NFL")), false);
+
+  // Qualified NCAAF legs still stage; NFL legs never enter the scored set.
+  const ncaafScored: BoardScoredLeg[] = scoped.map((row, i) => {
+    const pick = {
+      game: `CFB Away${i} @ Home${i}`,
+      market: row.marketKey,
+      propMarketKey: String(row.marketKey).replace(/_alternate$/, ""),
+      pick: `${row.player} Over 50.5`,
+      odds: -110,
+      isProp: true,
+      player: row.player,
+      propLine: 50.5,
+      propSide: "Over" as const,
+      sport: "ncaaf",
+      athleteId: row.athleteId,
+      propsOnlyTicket: true,
+      propIsAlt: String(row.marketKey).includes("alternate"),
+    };
+    return {
+      pick,
+      simHit: 0.65,
+      evPct: 12,
+      edgePct: 12,
+      confidencePct: 60,
+      impliedProbPct: 52.4,
+      lineShoppingScore: null,
+      grade: "B",
+      composite: 7,
+      rankScore: 7 + i,
+      hitReliability: 1,
+    } as BoardScoredLeg;
+  });
+  const staged = stageFootballPropsOnlyLegs(ncaafScored, 2);
+  assert.equal(staged.length, 2, "qualified NCAAF recovery rows must stage");
+  assert.ok(staged.every((p) => p.sport === "ncaaf"));
+  assert.ok(staged.every((p) => !String(p.player).startsWith("NFL")));
+
+  // CONFIDENCE_GATE derivation unchanged when confidence is the terminal wipe.
+  assert.equal(
+    derivePropsOnlyFailCode({
+      target: 7,
+      pool: 100,
+      athleteLinked: 100,
+      candidates: 10,
+      historyLoaded: 5,
+      graded: 10,
+      bestEvSides: 8,
+      oddsCleared: 5,
+      staged: 0,
+      nullReasons: {},
+      stageRejects: {
+        qualifyFail: { confidence_floor: 5 },
+        rareFail: 0,
+        anytimeFail: 0,
+        ladderDedupe: 0,
+        perGameCap: 0,
+        marketSideCap: 0,
+        rareFamilyCap: 0,
+      },
+    }),
+    "PROPS_ONLY_CONFIDENCE_GATE",
   );
 });
 

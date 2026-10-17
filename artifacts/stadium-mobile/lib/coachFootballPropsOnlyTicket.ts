@@ -15,6 +15,7 @@ import {
   selectFootballPropsOnlyFromPicks,
   stageFootballPropsOnlyLegs,
   comparePropsOnlyLegsByReliableEv,
+  takePropsOnlyStageAudit,
 } from "./coachFootballPropsOnly.ts";
 import {
   collapsePropsOnlyToBestEvSides,
@@ -39,8 +40,10 @@ import type { PropsOnlyHistorySlice } from "./coachFootballPropsOnlyGrade.ts";
 import {
   buildPropsOnlyFailDiag,
   propsOnlyFailNote,
+  propsOnlyTerminalEmptyNote,
 } from "./coachPropsOnlyFailReason.ts";
 import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
+import { askAllowsNcaafPlayerProps } from "./boardScanPropDelivery.ts";
 import {
   playerTrendMomentum,
   scoreLineShopping,
@@ -73,7 +76,10 @@ import {
   parseMarketPeriod,
 } from "./simMarketSupport.ts";
 import { impliedProb } from "./format.ts";
-import { simEvPct } from "./gameSimQualityGates.ts";
+import {
+  COACH_SIM_MIN_CONFIDENCE,
+  simEvPct,
+} from "./gameSimQualityGates.ts";
 import { isRareCountPropMarket } from "./rareCountPropModel.ts";
 import { isAnytimeTdPropMarket } from "./anytimeTdPropModel.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
@@ -114,7 +120,10 @@ export {
 export {
   buildPropsOnlyFailDiag,
   formatPropsOnlyFailTrace,
+  preferPropsOnlyFailDiag,
   propsOnlyFailNote,
+  propsOnlyTerminalEmptyNote,
+  reconcileCoachTerminalNote,
 } from "./coachPropsOnlyFailReason.ts";
 
 function countPoolSports(pool: PropPoolEntry[]): Record<string, number> {
@@ -870,6 +879,7 @@ export async function buildFootballPropsOnlyTicket(
     ticketStyle: opts.ticketStyle,
     allowRareMultiCount: opts.allowRareMultiCount,
   });
+  const stageAudit = takePropsOnlyStageAudit();
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {
     opts.onStatus?.(`Scoring props… ${picks.length} of ${opts.target} cleared`);
@@ -878,6 +888,17 @@ export async function buildFootballPropsOnlyTicket(
   const uniqueGames = new Set(
     propScored.map((l) => String(l.pick.game ?? "")).filter(Boolean),
   ).size;
+  const stageRejects = stageAudit
+    ? {
+        qualifyFail: stageAudit.qualifyFail,
+        rareFail: stageAudit.rareFail,
+        anytimeFail: stageAudit.anytimeFail,
+        ladderDedupe: stageAudit.ladderDedupe,
+        perGameCap: stageAudit.perGameCap,
+        marketSideCap: stageAudit.marketSideCap,
+        rareFamilyCap: stageAudit.rareFamilyCap,
+      }
+    : undefined;
   const failDiag = buildPropsOnlyFailDiag({
     target: opts.target,
     pool: propPoolSize,
@@ -891,15 +912,18 @@ export async function buildFootballPropsOnlyTicket(
     uniqueGames,
     nullReasons,
     sports,
+    stageRejects,
   });
 
   let note = "";
   if (picks.length === 0) {
-    const lead =
-      propLegsScored > 0
-        ? `Graded ${propLegsScored} props but none cleared the ticket quality bar. No ungraded filler was added.`
-        : `You asked for ${opts.target} legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.`;
-    note = propsOnlyFailNote(lead, failDiag);
+    // Same terminal diagnosis as buildCoachParlay recovery / final Coach bubble.
+    note = propsOnlyTerminalEmptyNote(failDiag, {
+      sportLabel: askAllowsNcaafPlayerProps(opts.askText ?? "")
+        ? "college football"
+        : "football",
+      confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+    });
   } else if (picks.length < opts.target) {
     // Phone: oddsOk=23 staged=3 — diversity/thin slate, not a quality wipe.
     const lead =

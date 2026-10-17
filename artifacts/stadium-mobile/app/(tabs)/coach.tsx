@@ -80,6 +80,9 @@ import { rememberParlayBuild } from "@/lib/parlayVarietyMemory";
 import { dedupePicksByMarketLadder } from "@/lib/marketLadderKey";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { sanitizeCoachUserNote } from "@/lib/sanitizeCoachUserNote";
+import { reconcileCoachTerminalNote } from "@/lib/coachPropsOnlyFailReason";
+import { askAllowsNcaafPlayerProps } from "@/lib/boardScanPropDelivery";
+import { COACH_SIM_MIN_CONFIDENCE } from "@/lib/gameSimQualityGates";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { useRouter } from "expo-router";
 
@@ -721,6 +724,36 @@ export default function CoachScreen() {
                 requestedLegs: requestedLegs || undefined,
               });
               unlockComposer();
+              return;
+            }
+            // Empty late finish: reconcile one terminal note (budget/partial → failDiag).
+            // Do not append a second empty lead onto the latched bubble.
+            if (
+              picks.length === 0 &&
+              result.failDiag &&
+              (sessionRef.current.outcome === "empty" ||
+                sessionRef.current.outcome === "shortfall" ||
+                sessionRef.current.outcome === "failed")
+            ) {
+              const sportLabel = askAllowsNcaafPlayerProps(ask)
+                ? "college football"
+                : "football";
+              const reconciled = reconcileCoachTerminalNote({
+                priorText: "",
+                nextText: result.note,
+                nextFailDiag: result.failDiag,
+                sportLabel,
+                confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+              });
+              if (reconciled.trim()) {
+                patchAssistant(assistantId, {
+                  building: false,
+                  buildStatus: undefined,
+                  text: sanitizeCoachUserNote(reconciled),
+                  requestedLegs: requestedLegs || undefined,
+                });
+                unlockComposer();
+              }
             }
             return;
           }
