@@ -87,9 +87,8 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
 });
 
 test("propsOnlySportLabelFromAsk: NFL asks are NFL, not college football", () => {
-  // Regression: askAllowsNcaafPlayerProps is true for any "player props" ask,
-  // including NFL — sport label must not reuse that shared flag.
-  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL player props"), true);
+  // Regression: label must not reuse askAllowsNcaafPlayerProps (NFL-only → false).
+  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL player props"), false);
   assert.equal(propsOnlySportLabelFromAsk("5 leg NFL player props"), "NFL");
   assert.equal(propsOnlySportLabelFromAsk("5 leg nfl player props"), "NFL");
   assert.equal(propsOnlySportLabelFromAsk("7 leg NFL"), "NFL");
