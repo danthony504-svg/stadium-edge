@@ -1,0 +1,1776 @@
+{
+  "generatedAt": "2026-10-17T00:48:11.403Z",
+  "split": "TUNING",
+  "finalEvalUntouched": true,
+  "liveGate": "NCAAF_GAME_LINE_SIM_VALIDATED=false",
+  "paidRetrieval": false,
+  "closesInPredictiveFeatures": false,
+  "researchStamp": "ppg-per-drive-v1.1-research",
+  "lockedParams": {
+    "residualSd": 14.5,
+    "homeMarginShrink": 2,
+    "gapScaleDefault": 1,
+    "offenseWeight": 0.5
+  },
+  "simsPerGame": 1500,
+  "coverageBias": {
+    "originalMissing": 58,
+    "recoveredViaAliasCache": 56,
+    "stillMissing": 2,
+    "rematchClassCounts": {
+      "recovered_alias": 56,
+      "one_side_absent_or_alias": 2
+    },
+    "weekShare": {
+      "missing": {
+        "1": 0,
+        "2": 0.5,
+        "3": 0.5,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0
+      },
+      "matched": {
+        "1": 0.2046908315565032,
+        "2": 0.17484008528784648,
+        "3": 0.14712153518123666,
+        "4": 0.13219616204690832,
+        "5": 0.11300639658848614,
+        "6": 0.10874200426439233,
+        "7": 0.11940298507462686
+      }
+    },
+    "homeWinRate": {
+      "missing": 1,
+      "matched": 0.7142857142857143
+    },
+    "meanAbsMargin": {
+      "missing": 40,
+      "matched": 21.3091684434968
+    },
+    "systematicBiasNote": "Unmatched mass is alias/FCS naming (App State, San José, Southern Miss, UMass, Sam Houston, LIU, SE Louisiana) plus true FCS-only opponents absent from Odds FBS boards — not random week noise. Alias rematch is free (cache-only)."
+  },
+  "rematchRecovered": 56,
+  "diagnosis": {
+    "summary": "Engine ML is under-confident vs close (meanP < meanY ≈ meanMarket). Predicted margins correlate with actual (~0.55–0.57) but are compressed (~30% too small), so ATS Brier fails. Gap-scale only rescales means (corr unchanged) — reported as REFERENCE_ONLY, not proposed lock.",
+    "favoriteUnderdog": {
+      "home": {
+        "n": 289,
+        "brierEngine": 0.1755877577854672,
+        "brierMarket": 0.12134832794283214,
+        "meanP": 0.6641730103806229,
+        "meanY": 0.8408304498269896,
+        "meanMarketP": 0.8312838388603834,
+        "favoriteCoverRateMl": 0.8408304498269896,
+        "meanAbsSpread": 16.29757785467128,
+        "meanPredMargin": 11.13917600373483,
+        "meanActMargin": 18.557093425605537,
+        "atsBrier": 0.30320393333333334
+      },
+      "away": {
+        "n": 131,
+        "brierEngine": 0.2584996946564885,
+        "brierMarket": 0.21454147530090978,
+        "meanP": 0.5147022900763357,
+        "meanY": 0.3282442748091603,
+        "meanMarketP": 0.327477975679953,
+        "favoriteCoverRateMl": 0.6717557251908397,
+        "meanAbsSpread": 7.904580152671755,
+        "meanPredMargin": 2.784599539561374,
+        "meanActMargin": -6.8396946564885495,
+        "atsBrier": 0.27013725196850386
+      }
+    },
+    "unmatched": "58 no_odds_match: mostly ESPN↔Odds aliases (App State/Appalachian State, San José/San Jose, Southern Miss/Southern Mississippi, UMass/Massachusetts, Sam Houston/Sam Houston State) plus FCS opponents. Cache alias rematch recovers without paid calls."
+  },
+  "levers": {
+    "locked_baseline": {
+      "lever": "locked_baseline",
+      "referenceOnly": false,
+      "structural": false,
+      "n": 420,
+      "skippedThin": 3,
+      "skippedNoClose": 48,
+      "moneyline": {
+        "brierEngine": 0.20144838571428575,
+        "brierMarketClose": 0.15041571438070878,
+        "delta": 0.05103267133357697,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.617552380952381,
+        "meanY": 0.680952380952381,
+        "meanMarketP": 0.6741443910588679,
+        "corrP_Y": 0.3022208889377983
+      },
+      "spreadsAts": {
+        "n": 412,
+        "brierEngine": 0.29301104854368937,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "marginDiscrimination": {
+        "corrPred_Actual": 0.4878700715201216,
+        "meanPred": 8.533343820861681,
+        "meanAct": 10.635714285714286,
+        "meanAbsError": 15.236901832955393,
+        "note": "Compression (meanPred < meanAct) is the main discrimination failure mode; gap_scale fixes scale not rank."
+      },
+      "baselineCompare": {
+        "note": "Baselines use strength/form features only — closes eval-only",
+        "logisticOnStrengthGap": {
+          "slopeFitOnTuning": 0.1,
+          "brier": 0.19757267068488818,
+          "corrGapY": 0.29965779789947117
+        },
+        "linearMarginToProb": {
+          "formula": "clamp01(0.5 + strengthGap/60)",
+          "brier": 0.1993213303076322
+        },
+        "marketClose": {
+          "brier": 0.15041571438070878
+        },
+        "engine": {
+          "brier": 0.20144838571428575
+        }
+      },
+      "slices": {
+        "byFavorite": {
+          "home": {
+            "n": 289,
+            "brierEngine": 0.1755877577854672,
+            "brierMarket": 0.12134832794283214,
+            "meanP": 0.6641730103806229,
+            "meanY": 0.8408304498269896,
+            "meanMarketP": 0.8312838388603834,
+            "favoriteCoverRateMl": 0.8408304498269896,
+            "meanAbsSpread": 16.29757785467128,
+            "meanPredMargin": 11.13917600373483,
+            "meanActMargin": 18.557093425605537,
+            "atsBrier": 0.30320393333333334
+          },
+          "away": {
+            "n": 131,
+            "brierEngine": 0.2584996946564885,
+            "brierMarket": 0.21454147530090978,
+            "meanP": 0.5147022900763357,
+            "meanY": 0.3282442748091603,
+            "meanMarketP": 0.327477975679953,
+            "favoriteCoverRateMl": 0.6717557251908397,
+            "meanAbsSpread": 7.904580152671755,
+            "meanPredMargin": 2.784599539561374,
+            "meanActMargin": -6.8396946564885495,
+            "atsBrier": 0.27013725196850386
+          }
+        },
+        "bySpread": {
+          "0_3.5": {
+            "n": 86,
+            "brierEngine": 0.26287655813953487,
+            "brierMarket": 0.23162786661791743,
+            "meanP": 0.5832325581395351,
+            "meanY": 0.5348837209302325,
+            "meanPredMargin": 6.4248062015503855,
+            "meanActMargin": -0.3023255813953488,
+            "marginBias": 6.727131782945732,
+            "atsBrier": 0.2542007625
+          },
+          "3.5_7.5": {
+            "n": 93,
+            "brierEngine": 0.2601837311827956,
+            "brierMarket": 0.22772394139326277,
+            "meanP": 0.5811720430107524,
+            "meanY": 0.5483870967741935,
+            "meanPredMargin": 6.409833162655744,
+            "meanActMargin": 2.5483870967741935,
+            "marginBias": 3.8614460658815495,
+            "atsBrier": 0.2691084945054944
+          },
+          "7.5_14": {
+            "n": 75,
+            "brierEngine": 0.20999702666666664,
+            "brierMarket": 0.16711957627269364,
+            "meanP": 0.5876666666666666,
+            "meanY": 0.6533333333333333,
+            "meanPredMargin": 6.804666666666667,
+            "meanActMargin": 7.36,
+            "marginBias": -0.5553333333333335,
+            "atsBrier": 0.2756467333333333
+          },
+          "14_21": {
+            "n": 68,
+            "brierEngine": 0.18074298529411767,
+            "brierMarket": 0.11326906565626725,
+            "meanP": 0.6149852941176469,
+            "meanY": 0.7058823529411765,
+            "meanPredMargin": 8.313087068160597,
+            "meanActMargin": 10.279411764705882,
+            "marginBias": -1.9663246965452839,
+            "atsBrier": 0.25814951470588227
+          },
+          "21plus": {
+            "n": 98,
+            "brierEngine": 0.09962807142857139,
+            "brierMarket": 0.018775635470460763,
+            "meanP": 0.7068469387755101,
+            "meanY": 0.9387755102040817,
+            "meanPredMargin": 13.874659863945576,
+            "meanActMargin": 30.663265306122447,
+            "marginBias": -16.788605442176873,
+            "atsBrier": 0.38436679591836764
+          }
+        },
+        "byStrength": {
+          "q1_absGap": {
+            "n": 84,
+            "absGapRange": [
+              0.17999999999999972,
+              3.200000000000003
+            ],
+            "brierEngine": 0.24975628571428557,
+            "brierMarket": 0.15894762419812258,
+            "corrGapY": -0.011106885777084503,
+            "meanPredMargin": 0.32514455782312934,
+            "meanActMargin": -3.9404761904761907
+          },
+          "q2_absGap": {
+            "n": 84,
+            "absGapRange": [
+              3.2214285714285715,
+              6.649999999999999
+            ],
+            "brierEngine": 0.24925614285714287,
+            "brierMarket": 0.1904334581332182,
+            "corrGapY": -0.07945118190115512,
+            "meanPredMargin": 3.7540414777021915,
+            "meanActMargin": 8.05952380952381
+          },
+          "q3_absGap": {
+            "n": 84,
+            "absGapRange": [
+              6.699999999999996,
+              10.449999999999996
+            ],
+            "brierEngine": 0.21954082142857134,
+            "brierMarket": 0.19161287783948766,
+            "corrGapY": 0.3163359557593617,
+            "meanPredMargin": 7.567063492063495,
+            "meanActMargin": 6.369047619047619
+          },
+          "q4_absGap": {
+            "n": 84,
+            "absGapRange": [
+              10.5,
+              14.650000000000006
+            ],
+            "brierEngine": 0.18317217857142856,
+            "brierMarket": 0.12980564499459743,
+            "corrGapY": 0.25030645907117893,
+            "meanPredMargin": 12.104629629629628,
+            "meanActMargin": 15.130952380952381
+          },
+          "q5_absGap": {
+            "n": 84,
+            "absGapRange": [
+              14.799999999999997,
+              36.75
+            ],
+            "brierEngine": 0.1055165,
+            "brierMarket": 0.08127896673811807,
+            "corrGapY": 0.16807410242577397,
+            "meanPredMargin": 18.91583994708994,
+            "meanActMargin": 27.55952380952381
+          }
+        },
+        "byWeek": {
+          "w1": {
+            "n": 86,
+            "brierEngine": 0.17750724418604652,
+            "brierMarket": 0.09604525761099857,
+            "meanP": 0.6488023255813952,
+            "meanY": 0.8023255813953488,
+            "corrPredMargin_Actual": 0.4136606475973679,
+            "meanPredMargin": 10.44404300479882,
+            "meanActMargin": 17.91860465116279
+          },
+          "w2": {
+            "n": 63,
+            "brierEngine": 0.19207606349206344,
+            "brierMarket": 0.14036285099562437,
+            "meanP": 0.6462539682539682,
+            "meanY": 0.746031746031746,
+            "corrPredMargin_Actual": 0.5526994619102547,
+            "meanPredMargin": 10.324867724867724,
+            "meanActMargin": 15.65079365079365
+          },
+          "w3": {
+            "n": 59,
+            "brierEngine": 0.18116386440677962,
+            "brierMarket": 0.1412348814775475,
+            "meanP": 0.5877288135593219,
+            "meanY": 0.711864406779661,
+            "corrPredMargin_Actual": 0.5571546273800901,
+            "meanPredMargin": 6.844114877589455,
+            "meanActMargin": 11.40677966101695
+          },
+          "w4": {
+            "n": 55,
+            "brierEngine": 0.22680050909090904,
+            "brierMarket": 0.18863661172995622,
+            "meanP": 0.6376727272727273,
+            "meanY": 0.6181818181818182,
+            "corrPredMargin_Actual": 0.33247212776963697,
+            "meanPredMargin": 9.542652236652238,
+            "meanActMargin": 9.436363636363636
+          },
+          "w5": {
+            "n": 52,
+            "brierEngine": 0.23214425000000002,
+            "brierMarket": 0.16026341177755718,
+            "meanP": 0.5808653846153846,
+            "meanY": 0.5384615384615384,
+            "corrPredMargin_Actual": 0.5541252781448253,
+            "meanPredMargin": 6.399278846153845,
+            "meanActMargin": 2.519230769230769
+          },
+          "w6": {
+            "n": 49,
+            "brierEngine": 0.1966856530612245,
+            "brierMarket": 0.16890614515317354,
+            "meanP": 0.5927551020408164,
+            "meanY": 0.673469387755102,
+            "corrPredMargin_Actual": 0.5208791844956815,
+            "meanPredMargin": 7.016326530612245,
+            "meanActMargin": 7.224489795918367
+          },
+          "w7": {
+            "n": 56,
+            "brierEngine": 0.22089487500000002,
+            "brierMarket": 0.19203353741725196,
+            "meanP": 0.6046964285714286,
+            "meanY": 0.5892857142857143,
+            "corrPredMargin_Actual": 0.36094205832467985,
+            "meanPredMargin": 7.6810515873015905,
+            "meanActMargin": 4.696428571428571
+          }
+        }
+      }
+    },
+    "prior_season_anchor_0.35": {
+      "lever": "prior_season_anchor_0.35",
+      "referenceOnly": false,
+      "structural": true,
+      "n": 420,
+      "skippedThin": 3,
+      "skippedNoClose": 48,
+      "moneyline": {
+        "brierEngine": 0.20228603809523815,
+        "brierMarketClose": 0.15041571438070878,
+        "delta": 0.051870323714529376,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.5812000000000003,
+        "meanY": 0.680952380952381,
+        "meanMarketP": 0.6741443910588679,
+        "corrP_Y": 0.34076794409745914
+      },
+      "spreadsAts": {
+        "n": 412,
+        "brierEngine": 0.294115652912621,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "marginDiscrimination": {
+        "corrPred_Actual": 0.5191572430411492,
+        "meanPred": 6.543053281539888,
+        "meanAct": 10.635714285714286,
+        "meanAbsError": 15.206945975155794,
+        "note": "Compression (meanPred < meanAct) is the main discrimination failure mode; gap_scale fixes scale not rank."
+      },
+      "baselineCompare": {
+        "note": "Baselines use strength/form features only — closes eval-only",
+        "logisticOnStrengthGap": {
+          "slopeFitOnTuning": 0.1,
+          "brier": 0.192756117691397,
+          "corrGapY": 0.33678689320144334
+        },
+        "linearMarginToProb": {
+          "formula": "clamp01(0.5 + strengthGap/60)",
+          "brier": 0.1983262251698273
+        },
+        "marketClose": {
+          "brier": 0.15041571438070878
+        },
+        "engine": {
+          "brier": 0.20228603809523815
+        }
+      },
+      "slices": {
+        "byFavorite": {
+          "home": {
+            "n": 289,
+            "brierEngine": 0.18533019031141854,
+            "brierMarket": 0.12134832794283214,
+            "meanP": 0.6329930795847754,
+            "meanY": 0.8408304498269896,
+            "meanMarketP": 0.8312838388603834,
+            "favoriteCoverRateMl": 0.8408304498269896,
+            "meanAbsSpread": 16.29757785467128,
+            "meanPredMargin": 9.398560588536805,
+            "meanActMargin": 18.557093425605537,
+            "atsBrier": 0.31001397543859627
+          },
+          "away": {
+            "n": 131,
+            "brierEngine": 0.23969245038167936,
+            "brierMarket": 0.21454147530090978,
+            "meanP": 0.4669389312977098,
+            "meanY": 0.3282442748091603,
+            "meanMarketP": 0.327477975679953,
+            "favoriteCoverRateMl": 0.6717557251908397,
+            "meanAbsSpread": 7.904580152671755,
+            "meanPredMargin": 0.24349899358487093,
+            "meanActMargin": -6.8396946564885495,
+            "atsBrier": 0.2584383149606299
+          }
+        },
+        "bySpread": {
+          "0_3.5": {
+            "n": 86,
+            "brierEngine": 0.2542879302325583,
+            "brierMarket": 0.23162786661791743,
+            "meanP": 0.5414418604651163,
+            "meanY": 0.5348837209302325,
+            "meanPredMargin": 4.05441758822573,
+            "meanActMargin": -0.3023255813953488,
+            "marginBias": 4.356743169621079,
+            "atsBrier": 0.2461303125
+          },
+          "3.5_7.5": {
+            "n": 93,
+            "brierEngine": 0.25550647311827945,
+            "brierMarket": 0.22772394139326277,
+            "meanP": 0.5363655913978493,
+            "meanY": 0.5483870967741935,
+            "meanPredMargin": 4.076570109251561,
+            "meanActMargin": 2.5483870967741935,
+            "marginBias": 1.5281830124773665,
+            "atsBrier": 0.26843338461538446
+          },
+          "7.5_14": {
+            "n": 75,
+            "brierEngine": 0.21613165333333337,
+            "brierMarket": 0.16711957627269364,
+            "meanP": 0.5429599999999998,
+            "meanY": 0.6533333333333333,
+            "meanPredMargin": 4.314601048951049,
+            "meanActMargin": 7.36,
+            "marginBias": -3.045398951048951,
+            "atsBrier": 0.27919015999999997
+          },
+          "14_21": {
+            "n": 68,
+            "brierEngine": 0.18301610294117643,
+            "brierMarket": 0.11326906565626725,
+            "meanP": 0.5832499999999999,
+            "meanY": 0.7058823529411765,
+            "meanPredMargin": 6.620770048986959,
+            "meanActMargin": 10.279411764705882,
+            "marginBias": -3.6586417157189213,
+            "atsBrier": 0.2572857205882353
+          },
+          "21plus": {
+            "n": 98,
+            "brierEngine": 0.10892145918367345,
+            "brierMarket": 0.018775635470460763,
+            "meanP": 0.6864795918367343,
+            "meanY": 0.9387755102040817,
+            "meanPredMargin": 12.719122484658199,
+            "meanActMargin": 30.663265306122447,
+            "marginBias": -17.944142821464254,
+            "atsBrier": 0.39411321428571433
+          }
+        },
+        "byStrength": {
+          "q1_absGap": {
+            "n": 84,
+            "absGapRange": [
+              0.010929487179488717,
+              2.5074999999999967
+            ],
+            "brierEngine": 0.2530205833333332,
+            "brierMarket": 0.18064572646836743,
+            "corrGapY": 0.09408848134744976,
+            "meanPredMargin": 0.20587621703693074,
+            "meanActMargin": 0.11904761904761904
+          },
+          "q2_absGap": {
+            "n": 84,
+            "absGapRange": [
+              2.55365384615385,
+              5.0120833333333294
+            ],
+            "brierEngine": 0.2608942738095238,
+            "brierMarket": 0.18521168087654236,
+            "corrGapY": -0.062200291577092136,
+            "meanPredMargin": 1.7977568124666332,
+            "meanActMargin": 4.464285714285714
+          },
+          "q3_absGap": {
+            "n": 84,
+            "absGapRange": [
+              5.012916666666666,
+              7.870416666666674
+            ],
+            "brierEngine": 0.2135318809523809,
+            "brierMarket": 0.19817842015345072,
+            "corrGapY": 0.43496548482784453,
+            "meanPredMargin": 4.176441914566915,
+            "meanActMargin": 5.821428571428571
+          },
+          "q4_absGap": {
+            "n": 84,
+            "absGapRange": [
+              7.939242424242419,
+              13.062500000000004
+            ],
+            "brierEngine": 0.1734683809523809,
+            "brierMarket": 0.10999980508580774,
+            "corrGapY": 0.368626106037599,
+            "meanPredMargin": 8.872513921263922,
+            "meanActMargin": 14.702380952380953
+          },
+          "q5_absGap": {
+            "n": 84,
+            "absGapRange": [
+              13.096249999999998,
+              36.23958333333333
+            ],
+            "brierEngine": 0.11051507142857142,
+            "brierMarket": 0.07804293931937585,
+            "corrGapY": 0.1608511147290376,
+            "meanPredMargin": 17.66267754236504,
+            "meanActMargin": 28.071428571428573
+          }
+        },
+        "byWeek": {
+          "w1": {
+            "n": 86,
+            "brierEngine": 0.18583639534883725,
+            "brierMarket": 0.09604525761099857,
+            "meanP": 0.6242325581395352,
+            "meanY": 0.8023255813953488,
+            "corrPredMargin_Actual": 0.44521583632999373,
+            "meanPredMargin": 9.106661711996015,
+            "meanActMargin": 17.91860465116279
+          },
+          "w2": {
+            "n": 63,
+            "brierEngine": 0.19104341269841268,
+            "brierMarket": 0.14036285099562437,
+            "meanP": 0.6193809523809524,
+            "meanY": 0.746031746031746,
+            "corrPredMargin_Actual": 0.5906047134324988,
+            "meanPredMargin": 8.80956080956081,
+            "meanActMargin": 15.65079365079365
+          },
+          "w3": {
+            "n": 59,
+            "brierEngine": 0.1915691186440678,
+            "brierMarket": 0.1412348814775475,
+            "meanP": 0.550237288135593,
+            "meanY": 0.711864406779661,
+            "corrPredMargin_Actual": 0.5655241865529131,
+            "meanPredMargin": 4.924359254210949,
+            "meanActMargin": 11.40677966101695
+          },
+          "w4": {
+            "n": 55,
+            "brierEngine": 0.22116492727272724,
+            "brierMarket": 0.18863661172995622,
+            "meanP": 0.5984181818181817,
+            "meanY": 0.6181818181818182,
+            "corrPredMargin_Actual": 0.3743074386138832,
+            "meanPredMargin": 7.494777174845356,
+            "meanActMargin": 9.436363636363636
+          },
+          "w5": {
+            "n": 52,
+            "brierEngine": 0.21646144230769238,
+            "brierMarket": 0.16026341177755718,
+            "meanP": 0.536673076923077,
+            "meanY": 0.5384615384615384,
+            "corrPredMargin_Actual": 0.616005454910398,
+            "meanPredMargin": 3.9498046384705057,
+            "meanActMargin": 2.519230769230769
+          },
+          "w6": {
+            "n": 49,
+            "brierEngine": 0.2079035306122449,
+            "brierMarket": 0.16890614515317354,
+            "meanP": 0.5438163265306122,
+            "meanY": 0.673469387755102,
+            "corrPredMargin_Actual": 0.5219762711067627,
+            "meanPredMargin": 4.211632058417772,
+            "meanActMargin": 7.224489795918367
+          },
+          "w7": {
+            "n": 56,
+            "brierEngine": 0.21486703571428575,
+            "brierMarket": 0.19203353741725196,
+            "meanP": 0.5619285714285713,
+            "meanY": 0.5892857142857143,
+            "corrPredMargin_Actual": 0.34301631323338516,
+            "meanPredMargin": 5.274953345265847,
+            "meanActMargin": 4.696428571428571
+          }
+        }
+      }
+    },
+    "season_to_date_means": {
+      "lever": "season_to_date_means",
+      "referenceOnly": false,
+      "structural": true,
+      "n": 420,
+      "skippedThin": 3,
+      "skippedNoClose": 48,
+      "moneyline": {
+        "brierEngine": 0.2154629428571429,
+        "brierMarketClose": 0.15041571438070878,
+        "delta": 0.06504722847643413,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.511895238095238,
+        "meanY": 0.680952380952381,
+        "meanMarketP": 0.6741443910588679,
+        "corrP_Y": 0.378696773112004
+      },
+      "spreadsAts": {
+        "n": 412,
+        "brierEngine": 0.30831016019417484,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "marginDiscrimination": {
+        "corrPred_Actual": 0.5665068040051524,
+        "meanPred": 2.8615768491687086,
+        "meanAct": 10.635714285714286,
+        "meanAbsError": 15.730560418474063,
+        "note": "Compression (meanPred < meanAct) is the main discrimination failure mode; gap_scale fixes scale not rank."
+      },
+      "baselineCompare": {
+        "note": "Baselines use strength/form features only — closes eval-only",
+        "logisticOnStrengthGap": {
+          "slopeFitOnTuning": 0.1,
+          "brier": 0.19918902066010513,
+          "corrGapY": 0.3767326215087888
+        },
+        "linearMarginToProb": {
+          "formula": "clamp01(0.5 + strengthGap/60)",
+          "brier": 0.20567899565227682
+        },
+        "marketClose": {
+          "brier": 0.15041571438070878
+        },
+        "engine": {
+          "brier": 0.2154629428571429
+        }
+      },
+      "slices": {
+        "byFavorite": {
+          "home": {
+            "n": 289,
+            "brierEngine": 0.21220848788927335,
+            "brierMarket": 0.12134832794283214,
+            "meanP": 0.5699826989619377,
+            "meanY": 0.8408304498269896,
+            "meanMarketP": 0.8312838388603834,
+            "favoriteCoverRateMl": 0.8408304498269896,
+            "meanAbsSpread": 16.29757785467128,
+            "meanPredMargin": 5.990666652863971,
+            "meanActMargin": 18.557093425605537,
+            "atsBrier": 0.3323234842105265
+          },
+          "away": {
+            "n": 131,
+            "brierEngine": 0.22264261832061064,
+            "brierMarket": 0.21454147530090978,
+            "meanP": 0.3837480916030535,
+            "meanY": 0.3282442748091603,
+            "meanMarketP": 0.327477975679953,
+            "favoriteCoverRateMl": 0.6717557251908397,
+            "meanAbsSpread": 7.904580152671755,
+            "meanPredMargin": -4.041529664326952,
+            "meanActMargin": -6.8396946564885495,
+            "atsBrier": 0.2544219921259842
+          }
+        },
+        "bySpread": {
+          "0_3.5": {
+            "n": 86,
+            "brierEngine": 0.2540978488372094,
+            "brierMarket": 0.23162786661791743,
+            "meanP": 0.44970930232558143,
+            "meanY": 0.5348837209302325,
+            "meanPredMargin": -0.5899928371029008,
+            "meanActMargin": -0.3023255813953488,
+            "marginBias": -0.2876672557075525,
+            "atsBrier": 0.2531130375
+          },
+          "3.5_7.5": {
+            "n": 93,
+            "brierEngine": 0.259351569892473,
+            "brierMarket": 0.22772394139326277,
+            "meanP": 0.44784946236559137,
+            "meanY": 0.5483870967741935,
+            "meanPredMargin": -0.6490081414511493,
+            "meanActMargin": 2.5483870967741935,
+            "marginBias": -3.1973952382253428,
+            "atsBrier": 0.27528575824175816
+          },
+          "7.5_14": {
+            "n": 75,
+            "brierEngine": 0.24449827999999996,
+            "brierMarket": 0.16711957627269364,
+            "meanP": 0.4683066666666669,
+            "meanY": 0.6533333333333333,
+            "meanPredMargin": 0.4804456090550701,
+            "meanActMargin": 7.36,
+            "marginBias": -6.87955439094493,
+            "atsBrier": 0.3001838533333333
+          },
+          "14_21": {
+            "n": 68,
+            "brierEngine": 0.20176694117647057,
+            "brierMarket": 0.11326906565626725,
+            "meanP": 0.5231470588235295,
+            "meanY": 0.7058823529411765,
+            "meanPredMargin": 3.4919603952930998,
+            "meanActMargin": 10.279411764705882,
+            "marginBias": -6.787451369412785,
+            "atsBrier": 0.2757520441176469
+          },
+          "21plus": {
+            "n": 98,
+            "brierEngine": 0.12719185714285716,
+            "brierMarket": 0.018775635470460763,
+            "meanP": 0.652795918367347,
+            "meanY": 0.9387755102040817,
+            "meanPredMargin": 10.606864186098003,
+            "meanActMargin": 30.663265306122447,
+            "marginBias": -20.056401120024457,
+            "atsBrier": 0.4128450102040818
+          }
+        },
+        "byStrength": {
+          "q1_absGap": {
+            "n": 84,
+            "absGapRange": [
+              0.018518518518519045,
+              1.8589743589743613
+            ],
+            "brierEngine": 0.25342696428571415,
+            "brierMarket": 0.18190994964199914,
+            "corrGapY": 0.298418784686323,
+            "meanPredMargin": 0.08196148124737658,
+            "meanActMargin": 5.071428571428571
+          },
+          "q2_absGap": {
+            "n": 84,
+            "absGapRange": [
+              1.8688423645320178,
+              3.4471153846153832
+            ],
+            "brierEngine": 0.26042638095238096,
+            "brierMarket": 0.18253856847949504,
+            "corrGapY": 0.14550282723763608,
+            "meanPredMargin": 0.10247402239705238,
+            "meanActMargin": 5.690476190476191
+          },
+          "q3_absGap": {
+            "n": 84,
+            "absGapRange": [
+              3.4487179487179453,
+              5.566239316239315
+            ],
+            "brierEngine": 0.25449419047619043,
+            "brierMarket": 0.17719908675970916,
+            "corrGapY": 0.1948734783651281,
+            "meanPredMargin": 0.18992570113947108,
+            "meanActMargin": 8.392857142857142
+          },
+          "q4_absGap": {
+            "n": 84,
+            "absGapRange": [
+              5.629629629629633,
+              10.444444444444443
+            ],
+            "brierEngine": 0.19408397619047627,
+            "brierMarket": 0.1386269689953311,
+            "corrGapY": 0.6073164266831703,
+            "meanPredMargin": 1.2596201254080381,
+            "meanActMargin": 7.845238095238095
+          },
+          "q5_absGap": {
+            "n": 84,
+            "absGapRange": [
+              10.464285714285712,
+              34.28
+            ],
+            "brierEngine": 0.11488320238095241,
+            "brierMarket": 0.07180399802700965,
+            "corrGapY": 0.581263918700539,
+            "meanPredMargin": 12.673902915651617,
+            "meanActMargin": 26.178571428571427
+          }
+        },
+        "byWeek": {
+          "w1": {
+            "n": 86,
+            "brierEngine": 0.1922308837209301,
+            "brierMarket": 0.09604525761099857,
+            "meanP": 0.5830000000000002,
+            "meanY": 0.8023255813953488,
+            "corrPredMargin_Actual": 0.5016552244303153,
+            "meanPredMargin": 6.838782504990796,
+            "meanActMargin": 17.91860465116279
+          },
+          "w2": {
+            "n": 63,
+            "brierEngine": 0.2023021111111111,
+            "brierMarket": 0.14036285099562437,
+            "meanP": 0.5751904761904763,
+            "meanY": 0.746031746031746,
+            "corrPredMargin_Actual": 0.6177539569874236,
+            "meanPredMargin": 6.339933927037104,
+            "meanActMargin": 15.65079365079365
+          },
+          "w3": {
+            "n": 59,
+            "brierEngine": 0.2151556440677966,
+            "brierMarket": 0.1412348814775475,
+            "meanP": 0.49137288135593227,
+            "meanY": 0.711864406779661,
+            "corrPredMargin_Actual": 0.5753534434400891,
+            "meanPredMargin": 1.6008912274166507,
+            "meanActMargin": 11.40677966101695
+          },
+          "w4": {
+            "n": 55,
+            "brierEngine": 0.21025490909090913,
+            "brierMarket": 0.18863661172995622,
+            "meanP": 0.5071636363636364,
+            "meanY": 0.6181818181818182,
+            "corrPredMargin_Actual": 0.531032379914266,
+            "meanPredMargin": 2.66137720357548,
+            "meanActMargin": 9.436363636363636
+          },
+          "w5": {
+            "n": 52,
+            "brierEngine": 0.2381382692307691,
+            "brierMarket": 0.16026341177755718,
+            "meanP": 0.43888461538461543,
+            "meanY": 0.5384615384615384,
+            "corrPredMargin_Actual": 0.5843702959273065,
+            "meanPredMargin": -1.0999245856156061,
+            "meanActMargin": 2.519230769230769
+          },
+          "w6": {
+            "n": 49,
+            "brierEngine": 0.23893634693877555,
+            "brierMarket": 0.16890614515317354,
+            "meanP": 0.46332653061224494,
+            "meanY": 0.673469387755102,
+            "corrPredMargin_Actual": 0.5392881611559474,
+            "meanPredMargin": 0.06406063246316537,
+            "meanActMargin": 7.224489795918367
+          },
+          "w7": {
+            "n": 56,
+            "brierEngine": 0.22979058928571425,
+            "brierMarket": 0.19203353741725196,
+            "meanP": 0.46805357142857146,
+            "meanY": 0.5892857142857143,
+            "corrPredMargin_Actual": 0.33483880180192216,
+            "meanPredMargin": 0.4917843333106318,
+            "meanActMargin": 4.696428571428571
+          }
+        }
+      }
+    },
+    "sos_adjusted_offense": {
+      "lever": "sos_adjusted_offense",
+      "referenceOnly": false,
+      "structural": true,
+      "n": 420,
+      "skippedThin": 3,
+      "skippedNoClose": 48,
+      "moneyline": {
+        "brierEngine": 0.2400298666666667,
+        "brierMarketClose": 0.15041571438070878,
+        "delta": 0.08961415228595793,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.5293142857142855,
+        "meanY": 0.680952380952381,
+        "meanMarketP": 0.6741443910588679,
+        "corrP_Y": 0.08990120463952378
+      },
+      "spreadsAts": {
+        "n": 412,
+        "brierEngine": 0.33109468203883513,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "marginDiscrimination": {
+        "corrPred_Actual": 0.1544171750018252,
+        "meanPred": 3.601583291047578,
+        "meanAct": 10.635714285714286,
+        "meanAbsError": 17.81693602032889,
+        "note": "Compression (meanPred < meanAct) is the main discrimination failure mode; gap_scale fixes scale not rank."
+      },
+      "baselineCompare": {
+        "note": "Baselines use strength/form features only — closes eval-only",
+        "logisticOnStrengthGap": {
+          "slopeFitOnTuning": 0.1,
+          "brier": 0.22875968563983332,
+          "corrGapY": 0.08229840219276126
+        },
+        "linearMarginToProb": {
+          "formula": "clamp01(0.5 + strengthGap/60)",
+          "brier": 0.23136495563726814
+        },
+        "marketClose": {
+          "brier": 0.15041571438070878
+        },
+        "engine": {
+          "brier": 0.2400298666666667
+        }
+      },
+      "slices": {
+        "byFavorite": {
+          "home": {
+            "n": 289,
+            "brierEngine": 0.23125905190311433,
+            "brierMarket": 0.12134832794283214,
+            "meanP": 0.5382768166089965,
+            "meanY": 0.8408304498269896,
+            "meanMarketP": 0.8312838388603834,
+            "favoriteCoverRateMl": 0.8408304498269896,
+            "meanAbsSpread": 16.29757785467128,
+            "meanPredMargin": 4.042967878910785,
+            "meanActMargin": 18.557093425605537,
+            "atsBrier": 0.3551014175438597
+          },
+          "away": {
+            "n": 131,
+            "brierEngine": 0.2593792213740458,
+            "brierMarket": 0.21454147530090978,
+            "meanP": 0.5095419847328245,
+            "meanY": 0.3282442748091603,
+            "meanMarketP": 0.327477975679953,
+            "favoriteCoverRateMl": 0.6717557251908397,
+            "meanAbsSpread": 7.904580152671755,
+            "meanPredMargin": 2.627841719349353,
+            "meanActMargin": -6.8396946564885495,
+            "atsBrier": 0.27722129921259836
+          }
+        },
+        "bySpread": {
+          "0_3.5": {
+            "n": 86,
+            "brierEngine": 0.26619947674418604,
+            "brierMarket": 0.23162786661791743,
+            "meanP": 0.5150348837209302,
+            "meanY": 0.5348837209302325,
+            "meanPredMargin": 2.8276763611065956,
+            "meanActMargin": -0.3023255813953488,
+            "marginBias": 3.1300019425019427,
+            "atsBrier": 0.2722256124999999
+          },
+          "3.5_7.5": {
+            "n": 93,
+            "brierEngine": 0.2553814301075268,
+            "brierMarket": 0.22772394139326277,
+            "meanP": 0.5220537634408602,
+            "meanY": 0.5483870967741935,
+            "meanPredMargin": 3.181382521301877,
+            "meanActMargin": 2.5483870967741935,
+            "marginBias": 0.6329954245276825,
+            "atsBrier": 0.26238129670329674
+          },
+          "7.5_14": {
+            "n": 75,
+            "brierEngine": 0.23030836,
+            "brierMarket": 0.16711957627269364,
+            "meanP": 0.53788,
+            "meanY": 0.6533333333333333,
+            "meanPredMargin": 3.9986942501942493,
+            "meanActMargin": 7.36,
+            "marginBias": -3.361305749805751,
+            "atsBrier": 0.29520258666666654
+          },
+          "14_21": {
+            "n": 68,
+            "brierEngine": 0.23049866176470593,
+            "brierMarket": 0.11326906565626725,
+            "meanP": 0.531985294117647,
+            "meanY": 0.7058823529411765,
+            "meanPredMargin": 3.952943482171424,
+            "meanActMargin": 10.279411764705882,
+            "marginBias": -6.326468282534458,
+            "atsBrier": 0.3167311911764706
+          },
+          "21plus": {
+            "n": 98,
+            "brierEngine": 0.2165497959183675,
+            "brierMarket": 0.018775635470460763,
+            "meanP": 0.5403265306122449,
+            "meanY": 0.9387755102040817,
+            "meanPredMargin": 4.131775664811379,
+            "meanActMargin": 30.663265306122447,
+            "marginBias": -26.531489641311072,
+            "atsBrier": 0.48039129591836743
+          }
+        },
+        "byStrength": {
+          "q1_absGap": {
+            "n": 84,
+            "absGapRange": [
+              0.03750000000000142,
+              1.7791666666666686
+            ],
+            "brierEngine": 0.2629409880952381,
+            "brierMarket": 0.14658239082929567,
+            "corrGapY": 0.04859946730025194,
+            "meanPredMargin": 0.2822913693449411,
+            "meanActMargin": 10.321428571428571
+          },
+          "q2_absGap": {
+            "n": 84,
+            "absGapRange": [
+              1.7875000000000014,
+              3.104166666666668
+            ],
+            "brierEngine": 0.2483528452380952,
+            "brierMarket": 0.14675422813028532,
+            "corrGapY": 0.12273525827390092,
+            "meanPredMargin": 1.438549413549414,
+            "meanActMargin": 8.80952380952381
+          },
+          "q3_absGap": {
+            "n": 84,
+            "absGapRange": [
+              3.1227564102564074,
+              4.975000000000001
+            ],
+            "brierEngine": 0.24917045238095228,
+            "brierMarket": 0.16962337918723774,
+            "corrGapY": 0.02499068622600268,
+            "meanPredMargin": 2.6948913520342095,
+            "meanActMargin": 7.785714285714286
+          },
+          "q4_absGap": {
+            "n": 84,
+            "absGapRange": [
+              4.993910256410256,
+              7.115384615384617
+            ],
+            "brierEngine": 0.24383605952380957,
+            "brierMarket": 0.1602172811988393,
+            "corrGapY": 0.08549780886289166,
+            "meanPredMargin": 5.099232017982017,
+            "meanActMargin": 9.369047619047619
+          },
+          "q5_absGap": {
+            "n": 84,
+            "absGapRange": [
+              7.118269230769229,
+              15.762500000000003
+            ],
+            "brierEngine": 0.19584898809523807,
+            "brierMarket": 0.12890129255788588,
+            "corrGapY": 0.1359401436209323,
+            "meanPredMargin": 8.492952302327302,
+            "meanActMargin": 16.892857142857142
+          }
+        },
+        "byWeek": {
+          "w1": {
+            "n": 86,
+            "brierEngine": 0.2329695813953488,
+            "brierMarket": 0.09604525761099857,
+            "meanP": 0.5356046511627909,
+            "meanY": 0.8023255813953488,
+            "corrPredMargin_Actual": 0.06309442400217943,
+            "meanPredMargin": 3.9142700645607618,
+            "meanActMargin": 17.91860465116279
+          },
+          "w2": {
+            "n": 63,
+            "brierEngine": 0.24436369841269837,
+            "brierMarket": 0.14036285099562437,
+            "meanP": 0.527285714285714,
+            "meanY": 0.746031746031746,
+            "corrPredMargin_Actual": 0.09468623458244857,
+            "meanPredMargin": 3.3339577089577093,
+            "meanActMargin": 15.65079365079365
+          },
+          "w3": {
+            "n": 59,
+            "brierEngine": 0.23500716949152542,
+            "brierMarket": 0.1412348814775475,
+            "meanP": 0.513406779661017,
+            "meanY": 0.711864406779661,
+            "corrPredMargin_Actual": 0.36028505041634995,
+            "meanPredMargin": 2.936246427771851,
+            "meanActMargin": 11.40677966101695
+          },
+          "w4": {
+            "n": 55,
+            "brierEngine": 0.2279363454545455,
+            "brierMarket": 0.18863661172995622,
+            "meanP": 0.5398,
+            "meanY": 0.6181818181818182,
+            "corrPredMargin_Actual": 0.209580838343675,
+            "meanPredMargin": 4.159831254603981,
+            "meanActMargin": 9.436363636363636
+          },
+          "w5": {
+            "n": 52,
+            "brierEngine": 0.26029411538461533,
+            "brierMarket": 0.16026341177755718,
+            "meanP": 0.5268461538461536,
+            "meanY": 0.5384615384615384,
+            "corrPredMargin_Actual": 0.012760860008071329,
+            "meanPredMargin": 3.415602773295082,
+            "meanActMargin": 2.519230769230769
+          },
+          "w6": {
+            "n": 49,
+            "brierEngine": 0.23090685714285716,
+            "brierMarket": 0.16890614515317354,
+            "meanP": 0.5273877551020407,
+            "meanY": 0.673469387755102,
+            "corrPredMargin_Actual": 0.21416848439208258,
+            "meanPredMargin": 3.6128074306645748,
+            "meanActMargin": 7.224489795918367
+          },
+          "w7": {
+            "n": 56,
+            "brierEngine": 0.25233205357142846,
+            "brierMarket": 0.19203353741725196,
+            "meanP": 0.5323749999999998,
+            "meanY": 0.5892857142857143,
+            "corrPredMargin_Actual": 0.0993986252786847,
+            "meanPredMargin": 3.738040258352758,
+            "meanActMargin": 4.696428571428571
+          }
+        }
+      }
+    },
+    "margin_history_mean": {
+      "lever": "margin_history_mean",
+      "referenceOnly": false,
+      "structural": true,
+      "n": 420,
+      "skippedThin": 3,
+      "skippedNoClose": 48,
+      "moneyline": {
+        "brierEngine": 0.19820554999999987,
+        "brierMarketClose": 0.15041571438070878,
+        "delta": 0.04778983561929109,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.573692857142857,
+        "meanY": 0.680952380952381,
+        "meanMarketP": 0.6741443910588679,
+        "corrP_Y": 0.3751976007106328
+      },
+      "spreadsAts": {
+        "n": 412,
+        "brierEngine": 0.29049647330097084,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "marginDiscrimination": {
+        "corrPred_Actual": 0.514947283276797,
+        "meanPred": 6.231770470105297,
+        "meanAct": 10.635714285714286,
+        "meanAbsError": 15.006773277152753,
+        "note": "Compression (meanPred < meanAct) is the main discrimination failure mode; gap_scale fixes scale not rank."
+      },
+      "baselineCompare": {
+        "note": "Baselines use strength/form features only — closes eval-only",
+        "logisticOnStrengthGap": {
+          "slopeFitOnTuning": 0.1,
+          "brier": 0.1906749036573062,
+          "corrGapY": 0.3677522837891887
+        },
+        "linearMarginToProb": {
+          "formula": "clamp01(0.5 + strengthGap/60)",
+          "brier": 0.19376209933171964
+        },
+        "marketClose": {
+          "brier": 0.15041571438070878
+        },
+        "engine": {
+          "brier": 0.19820554999999987
+        }
+      },
+      "slices": {
+        "byFavorite": {
+          "home": {
+            "n": 289,
+            "brierEngine": 0.1830659653979237,
+            "brierMarket": 0.12134832794283214,
+            "meanP": 0.6435086505190314,
+            "meanY": 0.8408304498269896,
+            "meanMarketP": 0.8312838388603834,
+            "favoriteCoverRateMl": 0.8408304498269896,
+            "meanAbsSpread": 16.29757785467128,
+            "meanPredMargin": 10.121628479891895,
+            "meanActMargin": 18.557093425605537,
+            "atsBrier": 0.305275505263158
+          },
+          "away": {
+            "n": 131,
+            "brierEngine": 0.23160509160305337,
+            "brierMarket": 0.21454147530090978,
+            "meanP": 0.4196717557251908,
+            "meanY": 0.3282442748091603,
+            "meanMarketP": 0.327477975679953,
+            "favoriteCoverRateMl": 0.6717557251908397,
+            "meanAbsSpread": 7.904580152671755,
+            "meanPredMargin": -2.3496720095002512,
+            "meanActMargin": -6.8396946564885495,
+            "atsBrier": 0.25733092913385835
+          }
+        },
+        "bySpread": {
+          "0_3.5": {
+            "n": 86,
+            "brierEngine": 0.255029976744186,
+            "brierMarket": 0.23162786661791743,
+            "meanP": 0.5217906976744185,
+            "meanY": 0.5348837209302325,
+            "meanPredMargin": 3.220616902477367,
+            "meanActMargin": -0.3023255813953488,
+            "marginBias": 3.5229424838727197,
+            "atsBrier": 0.24557143750000007
+          },
+          "3.5_7.5": {
+            "n": 93,
+            "brierEngine": 0.2532492903225806,
+            "brierMarket": 0.22772394139326277,
+            "meanP": 0.519311827956989,
+            "meanY": 0.5483870967741935,
+            "meanPredMargin": 3.1321714359415966,
+            "meanActMargin": 2.5483870967741935,
+            "marginBias": 0.5837843391674037,
+            "atsBrier": 0.2735317362637361
+          },
+          "7.5_14": {
+            "n": 75,
+            "brierEngine": 0.21714799999999998,
+            "brierMarket": 0.16711957627269364,
+            "meanP": 0.5217600000000001,
+            "meanY": 0.6533333333333333,
+            "meanPredMargin": 3.265204428904428,
+            "meanActMargin": 7.36,
+            "marginBias": -4.094795571095571,
+            "atsBrier": 0.2835199333333333
+          },
+          "14_21": {
+            "n": 68,
+            "brierEngine": 0.17283899999999994,
+            "brierMarket": 0.11326906565626725,
+            "meanP": 0.5869705882352941,
+            "meanY": 0.7058823529411765,
+            "meanPredMargin": 6.976179196620374,
+            "meanActMargin": 10.279411764705882,
+            "marginBias": -3.303232568085509,
+            "atsBrier": 0.2464905588235295
+          },
+          "21plus": {
+            "n": 98,
+            "brierEngine": 0.0992083367346939,
+            "brierMarket": 0.018775635470460763,
+            "meanP": 0.7013775510204079,
+            "meanY": 0.9387755102040817,
+            "meanPredMargin": 13.569470232148804,
+            "meanActMargin": 30.663265306122447,
+            "marginBias": -17.093795073973645,
+            "atsBrier": 0.3787968469387756
+          }
+        },
+        "byStrength": {
+          "q1_absGap": {
+            "n": 84,
+            "absGapRange": [
+              0.030000000000001137,
+              3.1620454545454564
+            ],
+            "brierEngine": 0.2526284047619048,
+            "brierMarket": 0.19070324072547007,
+            "corrGapY": 0.10736443708933836,
+            "meanPredMargin": 0.23548392662231973,
+            "meanActMargin": 2.6547619047619047
+          },
+          "q2_absGap": {
+            "n": 84,
+            "absGapRange": [
+              3.2124999999999986,
+              5.84
+            ],
+            "brierEngine": 0.24767219047619043,
+            "brierMarket": 0.18137665619578516,
+            "corrGapY": 0.11331387831214026,
+            "meanPredMargin": 1.5218008479615608,
+            "meanActMargin": 4.095238095238095
+          },
+          "q3_absGap": {
+            "n": 84,
+            "absGapRange": [
+              5.866538461538461,
+              10.636153846153846
+            ],
+            "brierEngine": 0.24816492857142852,
+            "brierMarket": 0.1966728643990627,
+            "corrGapY": 0.08678849909030789,
+            "meanPredMargin": 3.6372631072631068,
+            "meanActMargin": 7.130952380952381
+          },
+          "q4_absGap": {
+            "n": 84,
+            "absGapRange": [
+              10.642499999999998,
+              15.600000000000001
+            ],
+            "brierEngine": 0.12443595238095233,
+            "brierMarket": 0.09305419508072388,
+            "corrGapY": 0.7350270062120519,
+            "meanPredMargin": 7.960754153254153,
+            "meanActMargin": 14.630952380952381
+          },
+          "q5_absGap": {
+            "n": 84,
+            "absGapRange": [
+              15.700000000000003,
+              36.75
+            ],
+            "brierEngine": 0.11812627380952379,
+            "brierMarket": 0.09027161550250208,
+            "corrGapY": 0.35702772453161874,
+            "meanPredMargin": 17.803550315425312,
+            "meanActMargin": 24.666666666666668
+          }
+        },
+        "byWeek": {
+          "w1": {
+            "n": 86,
+            "brierEngine": 0.18539080232558144,
+            "brierMarket": 0.09604525761099857,
+            "meanP": 0.6293837209302328,
+            "meanY": 0.8023255813953488,
+            "corrPredMargin_Actual": 0.43992577644453756,
+            "meanPredMargin": 9.409901710047059,
+            "meanActMargin": 17.91860465116279
+          },
+          "w2": {
+            "n": 63,
+            "brierEngine": 0.1805226507936508,
+            "brierMarket": 0.14036285099562437,
+            "meanP": 0.6215396825396824,
+            "meanY": 0.746031746031746,
+            "corrPredMargin_Actual": 0.6201149783564806,
+            "meanPredMargin": 8.983913678913678,
+            "meanActMargin": 15.65079365079365
+          },
+          "w3": {
+            "n": 59,
+            "brierEngine": 0.1909913898305085,
+            "brierMarket": 0.1412348814775475,
+            "meanP": 0.5402711864406781,
+            "meanY": 0.711864406779661,
+            "corrPredMargin_Actual": 0.5615051503184683,
+            "meanPredMargin": 4.240361173666257,
+            "meanActMargin": 11.40677966101695
+          },
+          "w4": {
+            "n": 55,
+            "brierEngine": 0.21729121818181815,
+            "brierMarket": 0.18863661172995622,
+            "meanP": 0.5978,
+            "meanY": 0.6181818181818182,
+            "corrPredMargin_Actual": 0.37739313034160543,
+            "meanPredMargin": 7.722978501296684,
+            "meanActMargin": 9.436363636363636
+          },
+          "w5": {
+            "n": 52,
+            "brierEngine": 0.20301469230769226,
+            "brierMarket": 0.16026341177755718,
+            "meanP": 0.5131923076923077,
+            "meanY": 0.5384615384615384,
+            "corrPredMargin_Actual": 0.613280742168374,
+            "meanPredMargin": 2.7880578435987085,
+            "meanActMargin": 2.519230769230769
+          },
+          "w6": {
+            "n": 49,
+            "brierEngine": 0.21648922448979588,
+            "brierMarket": 0.16890614515317354,
+            "meanP": 0.5190612244897959,
+            "meanY": 0.673469387755102,
+            "corrPredMargin_Actual": 0.49883936820968666,
+            "meanPredMargin": 2.954961467104323,
+            "meanActMargin": 7.224489795918367
+          },
+          "w7": {
+            "n": 56,
+            "brierEngine": 0.2061705357142857,
+            "brierMarket": 0.19203353741725196,
+            "meanP": 0.5498571428571427,
+            "meanY": 0.5892857142857143,
+            "corrPredMargin_Actual": 0.3152577164257648,
+            "meanPredMargin": 4.953361464923964,
+            "meanActMargin": 4.696428571428571
+          }
+        }
+      }
+    },
+    "gap_scale_1.45_REFERENCE_ONLY": {
+      "lever": "gap_scale_1.45_REFERENCE_ONLY",
+      "referenceOnly": true,
+      "structural": false,
+      "n": 420,
+      "skippedThin": 3,
+      "skippedNoClose": 48,
+      "moneyline": {
+        "brierEngine": 0.2065209238095239,
+        "brierMarketClose": 0.15041571438070878,
+        "delta": 0.05610520942881511,
+        "M3": {
+          "criterion": "brierEngine <= brierMarketClose + 0.02",
+          "pass": false
+        },
+        "meanP": 0.7318952380952373,
+        "meanY": 0.680952380952381,
+        "meanMarketP": 0.6741443910588679,
+        "corrP_Y": 0.2947936447309299
+      },
+      "spreadsAts": {
+        "n": 412,
+        "brierEngine": 0.2865655946601942,
+        "S2": {
+          "criterion": "brierEngine < 0.25",
+          "pass": false
+        }
+      },
+      "marginDiscrimination": {
+        "corrPred_Actual": 0.48787007152012174,
+        "meanPred": 12.373348540249443,
+        "meanAct": 10.635714285714286,
+        "meanAbsError": 15.04444813397582,
+        "note": "Compression (meanPred < meanAct) is the main discrimination failure mode; gap_scale fixes scale not rank."
+      },
+      "baselineCompare": {
+        "note": "Baselines use strength/form features only — closes eval-only",
+        "logisticOnStrengthGap": {
+          "slopeFitOnTuning": 0.1,
+          "brier": 0.20270644956349565,
+          "corrGapY": 0.299657797899471
+        },
+        "linearMarginToProb": {
+          "formula": "clamp01(0.5 + strengthGap/60)",
+          "brier": 0.1978950711462749
+        },
+        "marketClose": {
+          "brier": 0.15041571438070878
+        },
+        "engine": {
+          "brier": 0.2065209238095239
+        }
+      },
+      "slices": {
+        "byFavorite": {
+          "home": {
+            "n": 289,
+            "brierEngine": 0.16317728027681666,
+            "brierMarket": 0.12134832794283214,
+            "meanP": 0.8055709342560555,
+            "meanY": 0.8408304498269896,
+            "meanMarketP": 0.8312838388603834,
+            "favoriteCoverRateMl": 0.8408304498269896,
+            "meanAbsSpread": 16.29757785467128,
+            "meanPredMargin": 16.15180520541551,
+            "meanActMargin": 18.557093425605537,
+            "atsBrier": 0.2832239964912281
+          },
+          "away": {
+            "n": 131,
+            "brierEngine": 0.30214163358778634,
+            "brierMarket": 0.21454147530090978,
+            "meanP": 0.5693587786259542,
+            "meanY": 0.3282442748091603,
+            "meanMarketP": 0.327477975679953,
+            "favoriteCoverRateMl": 0.6717557251908397,
+            "meanAbsSpread": 7.904580152671755,
+            "meanPredMargin": 4.03766933236399,
+            "meanActMargin": -6.8396946564885495,
+            "atsBrier": 0.2940644566929134
+          }
+        },
+        "bySpread": {
+          "0_3.5": {
+            "n": 86,
+            "brierEngine": 0.30825369767441846,
+            "brierMarket": 0.23162786661791743,
+            "meanP": 0.6950697674418603,
+            "meanY": 0.5348837209302325,
+            "meanPredMargin": 9.315968992248063,
+            "meanActMargin": -0.3023255813953488,
+            "marginBias": 9.618294573643412,
+            "atsBrier": 0.28232237500000024
+          },
+          "3.5_7.5": {
+            "n": 93,
+            "brierEngine": 0.29517752688172055,
+            "brierMarket": 0.22772394139326277,
+            "meanP": 0.6846666666666665,
+            "meanY": 0.5483870967741935,
+            "meanPredMargin": 9.294258085850826,
+            "meanActMargin": 2.5483870967741935,
+            "marginBias": 6.745870989076633,
+            "atsBrier": 0.3078656153846153
+          },
+          "7.5_14": {
+            "n": 75,
+            "brierEngine": 0.21017235999999986,
+            "brierMarket": 0.16711957627269364,
+            "meanP": 0.6890266666666668,
+            "meanY": 0.6533333333333333,
+            "meanPredMargin": 9.866766666666667,
+            "meanActMargin": 7.36,
+            "marginBias": 2.506766666666666,
+            "atsBrier": 0.28369817333333325
+          },
+          "14_21": {
+            "n": 68,
+            "brierEngine": 0.1713934852941176,
+            "brierMarket": 0.11326906565626725,
+            "meanP": 0.7243970588235293,
+            "meanY": 0.7058823529411765,
+            "meanPredMargin": 12.053976248832866,
+            "meanActMargin": 10.279411764705882,
+            "marginBias": 1.7745644841269834,
+            "atsBrier": 0.24799647058823535
+          },
+          "21plus": {
+            "n": 98,
+            "brierEngine": 0.05469159183673469,
+            "brierMarket": 0.018775635470460763,
+            "meanP": 0.8470408163265305,
+            "meanY": 0.9387755102040817,
+            "meanPredMargin": 20.118256802721092,
+            "meanActMargin": 30.663265306122447,
+            "marginBias": -10.545008503401366,
+            "atsBrier": 0.2992075612244898
+          }
+        },
+        "byStrength": {
+          "q1_absGap": {
+            "n": 84,
+            "absGapRange": [
+              0.2610000000000028,
+              4.640000000000001
+            ],
+            "brierEngine": 0.2567430238095237,
+            "brierMarket": 0.15894762419812258,
+            "corrGapY": -0.011106885777084427,
+            "meanPredMargin": 0.4714596088435372,
+            "meanActMargin": -3.9404761904761907
+          },
+          "q2_absGap": {
+            "n": 84,
+            "absGapRange": [
+              4.67107142857143,
+              9.642499999999998
+            ],
+            "brierEngine": 0.2511777142857142,
+            "brierMarket": 0.1904334581332182,
+            "corrGapY": -0.07945118190115516,
+            "meanPredMargin": 5.443360142668176,
+            "meanActMargin": 8.05952380952381
+          },
+          "q3_absGap": {
+            "n": 84,
+            "absGapRange": [
+              9.714999999999996,
+              15.152499999999996
+            ],
+            "brierEngine": 0.23001695238095238,
+            "brierMarket": 0.19161287783948766,
+            "corrGapY": 0.3163359557593616,
+            "meanPredMargin": 10.972242063492061,
+            "meanActMargin": 6.369047619047619
+          },
+          "q4_absGap": {
+            "n": 84,
+            "absGapRange": [
+              15.224999999999998,
+              21.242500000000007
+            ],
+            "brierEngine": 0.19202715476190468,
+            "brierMarket": 0.12980564499459743,
+            "corrGapY": 0.25030645907117915,
+            "meanPredMargin": 17.551712962962963,
+            "meanActMargin": 15.130952380952381
+          },
+          "q5_absGap": {
+            "n": 84,
+            "absGapRange": [
+              21.459999999999994,
+              53.28750000000001
+            ],
+            "brierEngine": 0.10263977380952378,
+            "brierMarket": 0.08127896673811807,
+            "corrGapY": 0.16807410242577397,
+            "meanPredMargin": 27.427967923280416,
+            "meanActMargin": 27.55952380952381
+          }
+        },
+        "byWeek": {
+          "w1": {
+            "n": 86,
+            "brierEngine": 0.1725219302325582,
+            "brierMarket": 0.09604525761099857,
+            "meanP": 0.7680465116279067,
+            "meanY": 0.8023255813953488,
+            "corrPredMargin_Actual": 0.41366064759736815,
+            "meanPredMargin": 15.143862356958289,
+            "meanActMargin": 17.91860465116279
+          },
+          "w2": {
+            "n": 63,
+            "brierEngine": 0.19972492063492064,
+            "brierMarket": 0.14036285099562437,
+            "meanP": 0.7600952380952378,
+            "meanY": 0.746031746031746,
+            "corrPredMargin_Actual": 0.5526994619102548,
+            "meanPredMargin": 14.971058201058204,
+            "meanActMargin": 15.65079365079365
+          },
+          "w3": {
+            "n": 59,
+            "brierEngine": 0.16000105084745764,
+            "brierMarket": 0.1412348814775475,
+            "meanP": 0.6846101694915253,
+            "meanY": 0.711864406779661,
+            "corrPredMargin_Actual": 0.5571546273800899,
+            "meanPredMargin": 9.923966572504705,
+            "meanActMargin": 11.40677966101695
+          },
+          "w4": {
+            "n": 55,
+            "brierEngine": 0.2604135454545454,
+            "brierMarket": 0.18863661172995622,
+            "meanP": 0.761181818181818,
+            "meanY": 0.6181818181818182,
+            "corrPredMargin_Actual": 0.33247212776963714,
+            "meanPredMargin": 13.836845743145743,
+            "meanActMargin": 9.436363636363636
+          },
+          "w5": {
+            "n": 52,
+            "brierEngine": 0.25592084615384614,
+            "brierMarket": 0.16026341177755718,
+            "meanP": 0.6872692307692307,
+            "meanY": 0.5384615384615384,
+            "corrPredMargin_Actual": 0.5541252781448252,
+            "meanPredMargin": 9.278954326923074,
+            "meanActMargin": 2.519230769230769
+          },
+          "w6": {
+            "n": 49,
+            "brierEngine": 0.18843467346938778,
+            "brierMarket": 0.16890614515317354,
+            "meanP": 0.7078571428571427,
+            "meanY": 0.673469387755102,
+            "corrPredMargin_Actual": 0.5208791844956815,
+            "meanPredMargin": 10.173673469387758,
+            "meanActMargin": 7.224489795918367
+          },
+          "w7": {
+            "n": 56,
+            "brierEngine": 0.2324150357142857,
+            "brierMarket": 0.19203353741725196,
+            "meanP": 0.7281785714285716,
+            "meanY": 0.5892857142857143,
+            "corrPredMargin_Actual": 0.36094205832468,
+            "meanPredMargin": 11.137524801587304,
+            "meanActMargin": 4.696428571428571
+          }
+        }
+      }
+    }
+  },
+  "beforeAfter": {
+    "beforeLever": "locked_baseline",
+    "afterLever": "margin_history_mean",
+    "before": {
+      "M3": {
+        "criterion": "brierEngine <= brierMarketClose + 0.02",
+        "pass": false
+      },
+      "S2": {
+        "criterion": "brierEngine < 0.25",
+        "pass": false
+      },
+      "brierEngine": 0.20144838571428575,
+      "brierMarketClose": 0.15041571438070878,
+      "atsBrier": 0.29301104854368937,
+      "corrMargin": 0.4878700715201216,
+      "n": 420
+    },
+    "after": {
+      "M3": {
+        "criterion": "brierEngine <= brierMarketClose + 0.02",
+        "pass": false
+      },
+      "S2": {
+        "criterion": "brierEngine < 0.25",
+        "pass": false
+      },
+      "brierEngine": 0.19820554999999987,
+      "brierMarketClose": 0.15041571438070878,
+      "atsBrier": 0.29049647330097084,
+      "corrMargin": 0.514947283276797,
+      "n": 420
+    },
+    "gateFlipAllowed": false,
+    "note": "Do not promote afterLever to lock without new lock doc + FINAL_EVAL. gap_scale is not eligible as the proposed change."
+  },
+  "lockedRowsSampleN": 420
+}
