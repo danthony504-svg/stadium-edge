@@ -47,21 +47,23 @@ Local HBC `entry-944c0ff4…hbc` contains the “missing auth key” string and 
 
 Manifest associatedDomains include `profound-raptor-92.clerk.accounts.dev` (publishable-key-aligned).
 
-## Corrected incident export
+## Corrected incident export (published)
 
-Use `artifacts/stadium-mobile/scripts/export-preview-ota.sh` (sets public Clerk key + forced `EXPO_PUBLIC_GIT_COMMIT`, runs `prepublish-export-auth-check.mjs` before and after export). Then:
+| Field | Value |
+|-------|--------|
+| Tip / forced bake SHA | `135cd76d6a1d27cb0061a29b59fb6ad6f0b4aa8b` |
+| Launch hash | `ooO4Lk2ZtPWDFtU7safxMAq0ngXceXmDInnZaNzJ-60` |
+| Update id | `01a14ac4-e194-71e1-b8a3-557cbe69d0c3` |
+| Group | `45cbca52-040d-468c-ba08-d7f3d4ba850b` |
+| Message | `incident RC 135cd76d… — corrected Clerk publishable-key bake (auth prepublish gate)` |
 
-```bash
-pnpm exec eas update --channel preview --platform ios \
-  --skip-bundler --input-dir dist \
-  --message "incident RC <tip> — corrected Clerk publishable-key bake"
-```
+HBC bake verified: contains full `pk_test_cHJvZm91bmQt…`, contains forced SHA, **no** `missing auth key` string, **no** `sk_*`.
 
-Prepublish check **fails** if the publishable key is missing from env or from the baked HBC, and **fails** if any `sk_*` / `CLERK_SECRET*` is present. Never bake server secrets.
+Use `artifacts/stadium-mobile/scripts/export-preview-ota.sh` (sets public Clerk key + forced `EXPO_PUBLIC_GIT_COMMIT`, `--clear`s Metro cache, runs `prepublish-export-auth-check.mjs` before and after export). Prepublish check **fails** if the publishable key is missing from env or HBC, or if any `sk_*` / `CLERK_SECRET*` is present. Never bake server secrets.
 
 ## Device gate (release not passed until)
 
 1. Cold launch on preview IPA / Build 79 — no “missing auth key” screen  
 2. `ClerkProvider` mounts (`ClerkLoaded`)  
 3. Email/password sign-in succeeds  
-4. Attestation: update id = corrected tip; commit hash = forced bake SHA  
+4. Attestation: update id = `01a14ac4…`; commit hash = `135cd76d…`  

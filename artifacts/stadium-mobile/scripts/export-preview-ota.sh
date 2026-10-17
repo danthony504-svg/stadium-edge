@@ -22,8 +22,9 @@ echo "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:0:12
 
 node scripts/prepublish-export-auth-check.mjs
 
-rm -rf dist
-pnpm exec expo export --platform ios --output-dir dist
+# Metro can cache empty EXPO_PUBLIC_* inlines from a prior bad export — always clear.
+rm -rf dist .expo/metro-cache node_modules/.cache
+pnpm exec expo export --platform ios --output-dir dist --clear
 
 node scripts/prepublish-export-auth-check.mjs --dist dist
 
@@ -32,6 +33,15 @@ HASH="$(openssl dgst -sha256 -binary "$BUNDLE" | openssl base64 -A | tr '+/' '-_
 echo "launch_asset=$BUNDLE"
 echo "launch_hash=$HASH"
 echo "baked_sha=$EXPO_PUBLIC_GIT_COMMIT"
+# Sanity: missing-auth dead-code must be gone when key is baked.
+if rg -a -q "missing auth key" "$BUNDLE"; then
+  echo "FAIL: launch asset still contains 'missing auth key' — publishable key was not inlined." >&2
+  exit 1
+fi
+if ! rg -a -q "$EXPO_PUBLIC_GIT_COMMIT" "$BUNDLE"; then
+  echo "FAIL: forced EXPO_PUBLIC_GIT_COMMIT not present in launch asset." >&2
+  exit 1
+fi
 echo "$HASH" > dist/LAUNCH_HASH.txt
 echo "$EXPO_PUBLIC_GIT_COMMIT" > dist/BAKED_SHA.txt
 echo "Export ready. Publish with: eas update --channel preview --platform ios --skip-bundler --input-dir dist"
