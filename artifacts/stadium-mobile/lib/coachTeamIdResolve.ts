@@ -36,6 +36,22 @@ function stripClubNoise(s: string): string {
     .trim();
 }
 
+/**
+ * MLB franchise nick when the feed only has city/abbr ("TB", "tampa bay").
+ * Without this, coachTeamNickname("TB") → "bay" and nick keys miss "rays|…".
+ */
+const MLB_CITY_OR_ABBR_NICK: Record<string, string> = {
+  tb: "rays",
+  tbr: "rays",
+  tam: "rays",
+  tba: "rays",
+  tampa: "rays",
+  "tampa bay": "rays",
+  cle: "guardians",
+  clv: "guardians",
+  cleveland: "guardians",
+};
+
 /** NFL / common Odds↔ESPN city and mascot aliases. */
 function teamAlias(s: string): string {
   const n = stripClubNoise(s);
@@ -96,8 +112,34 @@ function gameLabelsMatch(a: string, b: string): boolean {
   return teamsMatch(pa[0]!, pb[0]!) && teamsMatch(pa[1]!, pb[1]!);
 }
 
-export function coachTeamNickname(team: string): string {
-  const parts = teamAlias(team).split(/\s+/).filter(Boolean);
+/**
+ * Nickname token for map keys. When sport is MLB, city/abbr-only labels
+ * ("TB" / "tampa bay") prefer the franchise nick ("rays") so nick keys match
+ * Odds nickname boards. NFL keeps "bay" for Buccaneers.
+ */
+export function coachTeamNickname(
+  team: string,
+  sport?: string | null,
+): string {
+  const sportKey = String(sport ?? "").toLowerCase();
+  const aliased = teamAlias(team);
+  const mlb =
+    sportKey === "mlb" ||
+    sportKey === "baseball" ||
+    sportKey.includes("baseball_mlb");
+  if (mlb) {
+    const mlbNick = MLB_CITY_OR_ABBR_NICK[aliased] ?? MLB_CITY_OR_ABBR_NICK[norm(team)];
+    if (mlbNick) {
+      const parts = aliased.split(/\s+/).filter(Boolean);
+      const last = (parts[parts.length - 1] ?? "").toLowerCase();
+      if (!last || last === "bay" || last === "tampa" || last === mlbNick) {
+        return mlbNick;
+      }
+      if (last.length > 2) return last;
+      return mlbNick;
+    }
+  }
+  const parts = aliased.split(/\s+/).filter(Boolean);
   return (parts[parts.length - 1] ?? team).toLowerCase();
 }
 
@@ -140,7 +182,11 @@ function indexTeamIds(
 ): void {
   const label = `${away} @ ${home}`.toLowerCase();
   map.set(label, ids);
-  map.set(`${coachTeamNickname(away)}|${coachTeamNickname(home)}`, ids);
+  const sport = ids.sport;
+  map.set(
+    `${coachTeamNickname(away, sport)}|${coachTeamNickname(home, sport)}`,
+    ids,
+  );
   // Abbr-only / short keys when provided as the display name itself.
   const awayN = teamAlias(away);
   const homeN = teamAlias(home);
@@ -211,11 +257,11 @@ export function resolveCoachGameTeamIds(
   }
   const parts = gameLabel.split(" @ ");
   if (parts.length === 2) {
-    const nick = `${coachTeamNickname(parts[0]!)}|${coachTeamNickname(parts[1]!)}`;
+    const nick = `${coachTeamNickname(parts[0]!, sport)}|${coachTeamNickname(parts[1]!, sport)}`;
     const hit = map.get(nick);
     if (hit && (!sport || sameSportFamily(sport, hit.sport))) return hit;
     // Odds/ESPN venue flip: try Home @ Away nickname key, then flip ids back.
-    const flippedNick = `${coachTeamNickname(parts[1]!)}|${coachTeamNickname(parts[0]!)}`;
+    const flippedNick = `${coachTeamNickname(parts[1]!, sport)}|${coachTeamNickname(parts[0]!, sport)}`;
     const flippedHit = map.get(flippedNick);
     if (flippedHit && (!sport || sameSportFamily(sport, flippedHit.sport))) {
       return flipSides(flippedHit);
