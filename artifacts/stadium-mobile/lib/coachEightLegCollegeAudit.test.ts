@@ -119,27 +119,25 @@ test("8 leg college: NCAAF_GAME_LINE_SIM_VALIDATED=false causes empty P0 path", 
   );
 });
 
-test("8 leg college: user note is blocked-sim copy, not quality-bar failure", () => {
+test("8 leg college: user note is short unavailable copy, not quality-bar failure", () => {
   const t0 = performance.now();
   const target = resolveBuildLegTarget(ASK) ?? 8;
   const market = parseCoachAskMarketConstraint(ASK);
   const gameLinesOnly = market.gameLinesOnly && !market.propsOnly;
   const lockedSports = hardLockedSportsFromAsk(ASK);
   const blocked = ncaafGameLineAskIsP0Blocked({ gameLinesOnly, lockedSports });
-  const note = sanitizeCoachUserNote(
-    [bareCollegeClarificationNote(ASK), p0BlockedNcaafGameLineAskNote(target)]
-      .filter((s) => s && String(s).trim())
-      .join("\n\n"),
-  );
+  const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
   const ms = performance.now() - t0;
 
   assert.equal(blocked, true);
   assert.equal(target, 8);
-  assert.match(note, /unvalidated/i);
-  assert.match(note, /team markets/i);
-  assert.match(note, /player props/i);
+  assert.equal(
+    note,
+    "College football team picks are temporarily unavailable while validation is completed. No ticket was built.",
+  );
   assert.doesNotMatch(note, /quality bar/i);
   assert.doesNotMatch(note, /cleared the AI/i);
+  assert.doesNotMatch(note, /player props/i);
   assert.ok(ms < 500, `ask-only P0 path must be <500ms (got ${ms.toFixed(1)}ms)`);
 });
 
@@ -150,7 +148,11 @@ test("buildParlay wires 8-leg-college P0 gate before loadScanInputs", () => {
   );
   assert.match(src, /ncaafGameLineAskIsP0Blocked/);
   assert.match(src, /p0BlockedNcaafGameLineAskNote/);
-  assert.match(src, /bareCollegeClarificationNote/);
+  assert.match(src, /blocked_unvalidated_market|BLOCKED_UNVALIDATED_MARKET_REASON/);
+  assert.doesNotMatch(
+    src.slice(src.indexOf("ncaafGameLineAskIsP0Blocked"), src.indexOf("await loadScanInputs")),
+    /bareCollegeClarificationNote/,
+  );
   const gateAt = src.indexOf("ncaafGameLineAskIsP0Blocked");
   const loadAt = src.indexOf("await loadScanInputs");
   assert.ok(gateAt > 0 && loadAt > gateAt, "P0 gate must precede loadScanInputs");

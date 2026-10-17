@@ -65,10 +65,11 @@ export function mapScanFailureCode(
         alertable: false,
       };
     case "P0_UNVALIDATED_MARKETS":
-      // Intentional Phase E / totals P0 — not a Telegram crash / quality-bar miss.
+      // Intentional NCAAF / totals P0 gate — digest-visible policy block, not a
+      // scan failure, qualification shortfall, or fulfillment miss. Never page.
       return {
         eventType: "parlay_zero_results",
-        failureReason: "zero_results",
+        failureReason: "blocked_unvalidated_market",
         alertable: false,
       };
     default:

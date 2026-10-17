@@ -48,11 +48,29 @@ test("1) props-only early return emits exactly one Coach reliability report", ()
   assert.equal(/await\s+reportCoachScanReliability/.test(block), false);
 });
 
-test("P0_UNVALIDATED_MARKETS maps to non-alertable zero_results", () => {
+test("P0_UNVALIDATED_MARKETS maps to non-alertable blocked_unvalidated_market", () => {
   const mapped = mapScanFailureCode("P0_UNVALIDATED_MARKETS");
   assert.equal(mapped?.eventType, "parlay_zero_results");
-  assert.equal(mapped?.failureReason, "zero_results");
+  assert.equal(mapped?.failureReason, "blocked_unvalidated_market");
   assert.equal(mapped?.alertable, false);
+});
+
+test("NCAAF gate zero-leg report uses blocked_unvalidated_market (not zero_results)", () => {
+  const body = buildCoachReliabilityBody({
+    requestedLegCount: 8,
+    returnedLegCount: 0,
+    realOddsAvailable: null,
+    requestId: "greenfield-1792254591304",
+    sportCategory: "ncaaf",
+    picks: [],
+    eventType: "parlay_zero_results",
+    failureReason: "blocked_unvalidated_market",
+    rootCause: "unvalidated_ncaaf_game_line_simulation",
+  });
+  assert.equal(body?.eventType, "parlay_zero_results");
+  assert.equal(body?.failureReason, "blocked_unvalidated_market");
+  assert.equal(body?.requestId, "greenfield-1792254591304");
+  assert.notEqual(body?.failureReason, "zero_results");
 });
 
 test("2) valid thin slate => legitimate underfill, no immediate Telegram page", () => {

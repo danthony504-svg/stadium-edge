@@ -630,11 +630,15 @@ test("ncaafGameLineAskIsP0Blocked: college gameLinesOnly only", () => {
   );
 });
 
-test("p0BlockedNcaafGameLineAskNote never blames the quality bar", () => {
+test("p0BlockedNcaafGameLineAskNote is short unavailable copy", () => {
   const note = p0BlockedNcaafGameLineAskNote(8);
-  assert.match(note, /unvalidated/i);
-  assert.match(note, /team markets/i);
+  assert.equal(
+    note,
+    "College football team picks are temporarily unavailable while validation is completed. No ticket was built.",
+  );
   assert.doesNotMatch(note, /quality bar/i);
+  assert.doesNotMatch(note, /player props/i);
+  assert.doesNotMatch(note, /You asked for/i);
 });
 
 test("gameLineCandidatesFullyP0Blocked: NCAAF board yes, NFL sides no", () => {

@@ -113,9 +113,7 @@ test("replay: 8 leg college P0 gate + note is ask-only and sub-second", async ()
   const { parseCoachAskMarketConstraint } = await import(
     "../coachAskMarketFilter.ts"
   );
-  const { hardLockedSportsFromAsk, bareCollegeClarificationNote } = await import(
-    "../coachAskSportScope.ts"
-  );
+  const { hardLockedSportsFromAsk } = await import("../coachAskSportScope.ts");
   const {
     ncaafGameLineAskIsP0Blocked,
     p0BlockedNcaafGameLineAskNote,
@@ -133,19 +131,17 @@ test("replay: 8 leg college P0 gate + note is ask-only and sub-second", async ()
   const gameLinesOnly = market.gameLinesOnly && !market.propsOnly;
   const lockedSports = hardLockedSportsFromAsk(ask);
   const blocked = ncaafGameLineAskIsP0Blocked({ gameLinesOnly, lockedSports });
-  const note = sanitizeCoachUserNote(
-    [bareCollegeClarificationNote(ask), p0BlockedNcaafGameLineAskNote(target)]
-      .filter((s) => s && String(s).trim())
-      .join("\n\n"),
-  );
+  const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
   const ms = performance.now() - t0;
 
   assert.equal(target, 8);
   assert.equal(gameLinesOnly, true);
   assert.deepEqual(lockedSports, ["ncaaf"]);
   assert.equal(blocked, true);
-  assert.match(note, /unvalidated/i);
-  assert.match(note, /player props/i);
+  assert.equal(
+    note,
+    "College football team picks are temporarily unavailable while validation is completed. No ticket was built.",
+  );
   assert.doesNotMatch(note, /quality bar/i);
   assert.ok(ms < 500, `ask-only P0 path must be <500ms (got ${ms.toFixed(1)}ms)`);
 

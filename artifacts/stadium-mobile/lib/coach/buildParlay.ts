@@ -88,11 +88,9 @@ import {
   filterPropPoolByAskMarkets,
   parseCoachAskMarketConstraint,
 } from "@/lib/coachAskMarketFilter";
+import { hardLockedSportsFromAsk } from "@/lib/coachAskSportScope";
 import {
-  bareCollegeClarificationNote,
-  hardLockedSportsFromAsk,
-} from "@/lib/coachAskSportScope";
-import {
+  BLOCKED_UNVALIDATED_MARKET_REASON,
   ncaafGameLineAskIsP0Blocked,
   p0BlockedNcaafGameLineAskNote,
   P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
@@ -303,14 +301,8 @@ export async function buildCoachParlay(opts: {
       })
     ) {
       opts.onStatus?.("College game lines blocked (unvalidated simulation)…");
-      const note = sanitizeCoachUserNote(
-        [
-          bareCollegeClarificationNote(opts.askText),
-          p0BlockedNcaafGameLineAskNote(target),
-        ]
-          .filter((s) => s && String(s).trim())
-          .join("\n\n"),
-      );
+      // Short fixed copy only — no long clarification / quality-bar wording.
+      const note = sanitizeCoachUserNote(p0BlockedNcaafGameLineAskNote(target));
       reportCoachScanReliability({
         requestId: coachRelRequestId,
         sportCategory: coachRelSport || "ncaaf",
@@ -319,8 +311,10 @@ export async function buildCoachParlay(opts: {
         durationMs: Date.now() - coachRelStarted,
         realOddsAvailable: null,
         picks: [],
+        // Digest-visible policy block — not a scan/qualification/fulfillment miss.
+        // failureReason blocked_unvalidated_market → no Telegram page (server).
         eventType: "parlay_zero_results",
-        failureReason: "zero_results",
+        failureReason: BLOCKED_UNVALIDATED_MARKET_REASON,
         rootCause: P0_UNVALIDATED_NCAAF_GAME_LINE_REASON,
       });
       return {
