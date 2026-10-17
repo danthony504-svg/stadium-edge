@@ -1,9 +1,10 @@
-# Replacement model proposal — dedicated college team-strength (pre-implementation)
+# Replacement model proposal — dedicated college team-strength
 
-**Status:** PROPOSAL ONLY — do **not** implement or spend until human approve.  
+**Status:** RESEARCH IMPLEMENTATION — `ncaaf-team-strength-v0-research` behind `NCAAF_TEAM_STRENGTH_RESEARCH` (offline TUNING compare only).  
 **Context:** TUNING round closed unsuccessful ([`ncaaf-tuning-round-closed-unsuccessful.md`](./ncaaf-tuning-round-closed-unsuccessful.md)).  
 **Criteria:** Locked M1–M4 / S1–S4 **unchanged**. FINAL_EVAL **untouched**. Closes **eval-only** — never train or tune against closing prices.  
-**Ops:** `NCAAF_GAME_LINE_SIM_VALIDATED=false` · no deploy/OTA · voice paused.
+**Ops:** `NCAAF_GAME_LINE_SIM_VALIDATED=false` · no deploy/OTA · voice paused.  
+**Scorecard:** [`ncaaf-tuning-team-strength-v0.md`](./ncaaf-tuning-team-strength-v0.md) (written by cache-only eval).
 
 ## 1. Problem statement (from preserved TUNING evidence)
 
