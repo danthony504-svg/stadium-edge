@@ -57,6 +57,13 @@ export type RecordCoachEventInput = {
    * Logged only — not used in fingerprint / classification / Telegram rules.
    */
   correlationId?: string | null;
+  updateId?: string | null;
+  channel?: string | null;
+  bakedSha?: string | null;
+  requestScope?: CoachReliabilityMeta["requestScope"];
+  candidateIds?: string[] | null;
+  gameIds?: string[] | null;
+  simFailureReason?: string | null;
 };
 
 function buildMeta(input: RecordCoachEventInput): CoachReliabilityMeta {
@@ -84,6 +91,14 @@ function buildMeta(input: RecordCoachEventInput): CoachReliabilityMeta {
     requestId: typeof input.requestId === "string" ? input.requestId : null,
     affectedGame: typeof input.affectedGame === "string" ? input.affectedGame : null,
     rootCause: typeof input.rootCause === "string" ? input.rootCause : null,
+    updateId: typeof input.updateId === "string" ? input.updateId : null,
+    channel: typeof input.channel === "string" ? input.channel : null,
+    bakedSha: typeof input.bakedSha === "string" ? input.bakedSha : null,
+    requestScope: input.requestScope ?? null,
+    candidateIds: Array.isArray(input.candidateIds) ? input.candidateIds : null,
+    gameIds: Array.isArray(input.gameIds) ? input.gameIds : null,
+    simFailureReason:
+      typeof input.simFailureReason === "string" ? input.simFailureReason : null,
   };
 }
 
@@ -239,11 +254,13 @@ export async function recordCoachReliabilityEvent(
         errorMessage: summary,
         errorStack: serializeCoachMeta({ ...meta, durationSamples: samples }),
         componentStack: null,
-        updateId: "server",
+        // Prefer client OTA identity when the mobile reporter sent it; fall
+        // back to server markers for api-originated coach events.
+        updateId: meta.updateId || "server",
         runtimeVersion: "api",
-        channel: "api",
-        appVersion: "api",
-        bundleSource: "server",
+        channel: meta.channel || "api",
+        appVersion: meta.bakedSha || "api",
+        bundleSource: meta.updateId ? "ota" : "server",
         platform: "server",
         sessionId: null,
         clientTs: now,
