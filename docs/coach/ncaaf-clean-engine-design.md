@@ -335,19 +335,19 @@ Review gate between milestones — do not skip ahead into ALT or FINAL_EVAL.
 | Settlement helpers | **DONE** (ML tie exclude; ATS/total push) |
 | Score-only TUNING report | **DONE** — [`ncaaf-clean-m2-report.md`](./ncaaf-clean-m2-report.md) |
 
-**Exit for M2:** Score-only diagnostics + settlement plumbing ready; **not** a restore claim. **Blockers before M3** listed in M2 report (venue fields absent → 0 release-eligible).
+**Exit for M2:** Score-only diagnostics + settlement plumbing ready; **not** a restore claim.  
+**Venue sidecar:** [`ncaaf-clean-venue-recovery.md`](./ncaaf-clean-venue-recovery.md) — 471/471 recovered (465 home, 6 neutral incl. 1 international).
 
 ### M3 — Stage B moneyline + Stage C spreads
 
 | Deliverable | Notes |
 |-------------|-------|
-| Derive ML + ATS probs from Stage A | No separate close-trained classifier |
-| Settlement audit (S3) on clean stamp | Reuse Phase-E unit cases |
-| TUNING close-joined screen | M3/S2 as **screen only** |
-| Nested week folds | Drop inputs that disagree with fold direction |
-| Lock doc | Freeze hyperparameters **without** FINAL_EVAL peek |
+| Derive ML + ATS from Stage A | **DONE** (analytic Normal CDF) |
+| TUNING close-joined screen | **DONE** — [`ncaaf-clean-m2-m3-screen.md`](./ncaaf-clean-m2-m3-screen.md) |
+| Result (screen only) | Overall M3 **FAIL** (Δ≈0.021); S2 **FAIL** (ATS≈0.260). Not a restore. |
+| Nested week folds / lock | Not yet — screen fails locked thresholds |
 
-**Exit for M3:** Either “candidate locked for FINAL_EVAL” or “return to M2 features” — never unlock product.
+**Exit for M3:** Either “candidate locked for FINAL_EVAL” or “return to M2 features” — never unlock product. **Current:** return to feature work; do **not** build FINAL_EVAL.
 
 ### M4 — FINAL_EVAL (once)
 
