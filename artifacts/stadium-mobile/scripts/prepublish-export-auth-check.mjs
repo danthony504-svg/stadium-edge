@@ -80,6 +80,10 @@ if (distDir) {
   }
   let foundPk = false;
   let foundSecret = false;
+  let foundStartupSentinel = false;
+  const STARTUP_SENTINEL = "STARTUP_AUTH_KEY_MISSING_SENTINEL";
+  const gitCommit = String(process.env.EXPO_PUBLIC_GIT_COMMIT || "").trim();
+  let foundGitCommit = !gitCommit;
   for (const file of bundles) {
     const path = join(iosJs, file);
     if (!statSync(path).isFile()) continue;
@@ -88,6 +92,12 @@ if (distDir) {
     const text = buf.toString("latin1");
     if (text.includes(pk)) foundPk = true;
     if (/\bsk_(?:test|live)_[A-Za-z0-9+/=_-]{8,}/.test(text)) foundSecret = true;
+    // Startup expression proof: `const publishableKey = process.env… ?? ""` is
+    // inlined to a truthy string literal, so Metro/Hermes DCE must drop the
+    // `if (!publishableKey)` branch that references STARTUP_AUTH_KEY_MISSING_SENTINEL.
+    // Presence of the sentinel means the key was NOT the value read at startup.
+    if (text.includes(STARTUP_SENTINEL)) foundStartupSentinel = true;
+    if (gitCommit && text.includes(gitCommit)) foundGitCommit = true;
   }
   if (foundSecret) {
     fail("Launch asset contains sk_test_/sk_live_ — refuse to publish.");
@@ -98,7 +108,21 @@ if (distDir) {
         "Re-export with the key in the Metro environment (do not rely on eas.json alone).",
     );
   }
+  if (foundStartupSentinel) {
+    fail(
+      `Launch asset still contains ${STARTUP_SENTINEL} — publishable key was not inlined ` +
+        "at the startup expression (clear Metro cache and re-export).",
+    );
+  }
+  if (!foundGitCommit) {
+    fail(
+      `Launch asset does not contain forced EXPO_PUBLIC_GIT_COMMIT=${gitCommit}. ` +
+        "Unset stale values and re-export with --clear.",
+    );
+  }
   ok(`dist launch asset contains publishable key (${bundles.join(", ")})`);
+  ok("startup expression DCE: empty-key sentinel absent (key inlined truthy)");
+  if (gitCommit) ok(`dist launch asset contains forced SHA ${gitCommit.slice(0, 12)}…`);
   ok("dist launch asset has no Clerk secret keys");
 }
 

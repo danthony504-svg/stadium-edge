@@ -14,8 +14,13 @@ const SCRIPT = join(ROOT, "prepublish-export-auth-check.mjs");
 const PK = "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ";
 
 function run(env, args = []) {
+  const merged = { ...process.env, ...env };
+  // Avoid inheriting a forced SHA from the agent shell into fixture runs.
+  if (!Object.prototype.hasOwnProperty.call(env, "EXPO_PUBLIC_GIT_COMMIT")) {
+    delete merged.EXPO_PUBLIC_GIT_COMMIT;
+  }
   return spawnSync(process.execPath, [SCRIPT, ...args], {
-    env: { ...process.env, ...env },
+    env: merged,
     encoding: "utf8",
   });
 }
@@ -63,6 +68,23 @@ test("passes when dist contains publishable key and no secrets", () => {
     writeFileSync(join(ios, "entry.hbc"), `boot ${PK} ClerkProvider`);
     const r = run({ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: PK }, ["--dist", dir]);
     assert.equal(r.status, 0, r.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("fails when dist still has empty-key startup sentinel (expression not inlined)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "auth-check-"));
+  try {
+    const ios = join(dir, "_expo", "static", "js", "ios");
+    mkdirSync(ios, { recursive: true });
+    writeFileSync(
+      join(ios, "entry.hbc"),
+      `boot ${PK} STARTUP_AUTH_KEY_MISSING_SENTINEL`,
+    );
+    const r = run({ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: PK }, ["--dist", dir]);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /STARTUP_AUTH_KEY_MISSING_SENTINEL/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -33,9 +33,10 @@ HASH="$(openssl dgst -sha256 -binary "$BUNDLE" | openssl base64 -A | tr '+/' '-_
 echo "launch_asset=$BUNDLE"
 echo "launch_hash=$HASH"
 echo "baked_sha=$EXPO_PUBLIC_GIT_COMMIT"
-# Sanity: missing-auth dead-code must be gone when key is baked.
-if rg -a -q "missing auth key" "$BUNDLE"; then
-  echo "FAIL: launch asset still contains 'missing auth key' — publishable key was not inlined." >&2
+# Sanity: empty-key startup sentinel must be DCE'd when key is baked at the
+# expression RootLayoutContent reads (see STARTUP_AUTH_KEY_MISSING_SENTINEL).
+if rg -a -q "STARTUP_AUTH_KEY_MISSING_SENTINEL" "$BUNDLE"; then
+  echo "FAIL: launch asset still contains STARTUP_AUTH_KEY_MISSING_SENTINEL — key not inlined at startup." >&2
   exit 1
 fi
 if ! rg -a -q "$EXPO_PUBLIC_GIT_COMMIT" "$BUNDLE"; then
