@@ -9,9 +9,26 @@ import {
   preferPropsOnlyFailDiag,
   propsOnlyFailNote,
   propsOnlyTerminalEmptyNote,
+  propsOnlyTerminalShortNote,
   reconcileCoachTerminalNote,
 } from "./coachPropsOnlyFailReason.ts";
-import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
+import type { PropsOnlyFailDiag, PropsOnlyStageRejects } from "./coachPropsOnlyFailReason.ts";
+
+function emptyStageRejects(
+  overrides?: Partial<PropsOnlyStageRejects> & {
+    qualifyFail?: Record<string, number>;
+  },
+): PropsOnlyStageRejects {
+  return {
+    qualifyFail: overrides?.qualifyFail ?? {},
+    rareFail: overrides?.rareFail ?? 0,
+    anytimeFail: overrides?.anytimeFail ?? 0,
+    ladderDedupe: overrides?.ladderDedupe ?? 0,
+    perGameCap: overrides?.perGameCap ?? 0,
+    marketSideCap: overrides?.marketSideCap ?? 0,
+    rareFamilyCap: overrides?.rareFamilyCap ?? 0,
+  };
+}
 
 function confGateDiag(oddsCleared = 11): PropsOnlyFailDiag {
   return buildPropsOnlyFailDiag({
@@ -289,4 +306,166 @@ test("duplicate partial/final publish → one coherent terminal response", () =>
     1,
   );
   assert.doesNotMatch(reconciled, /none cleared recovery odds[\s\S]*confidence floor/i);
+});
+
+function shortDiag(opts: {
+  staged: number;
+  target?: number;
+  oddsCleared: number;
+  uniqueGames?: number;
+  graded?: number;
+  bestEvSides?: number;
+  stageRejects?: PropsOnlyStageRejects;
+}): PropsOnlyFailDiag {
+  const target = opts.target ?? 7;
+  return buildPropsOnlyFailDiag({
+    target,
+    pool: 4239,
+    athleteLinked: 4239,
+    candidates: 42,
+    historyLoaded: 17,
+    graded: opts.graded ?? 36,
+    bestEvSides: opts.bestEvSides ?? 19,
+    oddsCleared: opts.oddsCleared,
+    staged: opts.staged,
+    uniqueGames: opts.uniqueGames,
+    nullReasons: {},
+    sports: { ncaaf: 4239 },
+    stageRejects: opts.stageRejects ?? emptyStageRejects(),
+  });
+}
+
+test("staged 2/7 + remaining confidence rejects → confidence-shortfall copy", () => {
+  assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
+  const diag = shortDiag({
+    staged: 2,
+    oddsCleared: 12,
+    uniqueGames: 2,
+    stageRejects: emptyStageRejects({
+      qualifyFail: { confidence_floor: 10 },
+    }),
+  });
+  assert.equal(diag.code, "PROPS_ONLY_STAGED_SHORT");
+  const note = propsOnlyTerminalShortNote(diag, {
+    sportLabel: "college football",
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(note, /I found 2 qualified college football player props for your 7-leg request/);
+  assert.match(note, /remaining odds-cleared props did not meet the 52% confidence floor/i);
+  assert.match(note, /left the ticket short/i);
+  assert.match(note, /lowering the quality bar or adding another sport/i);
+  assert.doesNotMatch(note, /thin-slate/i);
+  assert.doesNotMatch(note, /too thin/i);
+});
+
+test("staged 1/7 + confidence rejects → confidence-shortfall copy", () => {
+  const diag = shortDiag({
+    staged: 1,
+    oddsCleared: 12,
+    uniqueGames: 3,
+    stageRejects: emptyStageRejects({
+      qualifyFail: { confidence_floor: 11 },
+    }),
+  });
+  assert.equal(diag.code, "PROPS_ONLY_STAGED_SHORT");
+  const note = propsOnlyTerminalShortNote(diag, {
+    sportLabel: "college football",
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(note, /I found 1 qualified college football player props for your 7-leg request/);
+  assert.match(note, /52% confidence floor/);
+  assert.doesNotMatch(note, /thin-slate/i);
+  // Reconcile must prefer short failDiag authority over a stale thin-slate lead.
+  const reconciled = reconcileCoachTerminalNote({
+    priorText:
+      "You asked for 7 legs — only 1 player props fit after thin-slate fill (3 games, 12 cleared odds). No ungraded filler was added.",
+    nextText: note,
+    priorFailDiag: diag,
+    nextFailDiag: diag,
+    sportLabel: "college football",
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(reconciled, /52% confidence floor/);
+  assert.doesNotMatch(reconciled, /thin-slate/i);
+});
+
+test("genuine candidate scarcity → thin-slate copy", () => {
+  const diag = shortDiag({
+    staged: 2,
+    oddsCleared: 2,
+    uniqueGames: 1,
+    graded: 2,
+    bestEvSides: 2,
+    stageRejects: emptyStageRejects(),
+  });
+  assert.equal(diag.code, "PROPS_ONLY_STAGED_SHORT");
+  const note = propsOnlyTerminalShortNote(diag, {
+    sportLabel: "college football",
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(note, /I found 2 qualified college football player props/);
+  assert.match(note, /posted slate was too thin/);
+  assert.match(note, /1 game/);
+  assert.match(note, /2 cleared odds/);
+  assert.doesNotMatch(note, /confidence floor/i);
+  assert.doesNotMatch(note, /thin-slate fill/i);
+});
+
+test("genuine odds wipe after staged legs → odds-related shortfall copy", () => {
+  const diag = shortDiag({
+    staged: 2,
+    oddsCleared: 2,
+    uniqueGames: 4,
+    graded: 36,
+    bestEvSides: 19,
+    stageRejects: emptyStageRejects(),
+  });
+  assert.equal(diag.code, "PROPS_ONLY_STAGED_SHORT");
+  const note = propsOnlyTerminalShortNote(diag, {
+    sportLabel: "college football",
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(note, /I found 2 qualified college football player props/);
+  assert.match(note, /did not clear the ticket odds bar/i);
+  assert.doesNotMatch(note, /confidence floor/i);
+  assert.doesNotMatch(note, /thin-slate/i);
+  assert.doesNotMatch(note, /too thin/i);
+});
+
+test("cap/correlation constraint → appropriate constraint copy", () => {
+  const diag = shortDiag({
+    staged: 3,
+    oddsCleared: 12,
+    uniqueGames: 1,
+    stageRejects: emptyStageRejects({
+      perGameCap: 9,
+      qualifyFail: { confidence_floor: 1 },
+    }),
+  });
+  assert.equal(diag.code, "PROPS_ONLY_STAGED_SHORT");
+  const note = propsOnlyTerminalShortNote(diag, {
+    sportLabel: "college football",
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.match(note, /I found 3 qualified college football player props/);
+  assert.match(note, /per-game seat caps/i);
+  assert.match(note, /stacking correlated seats/i);
+  assert.doesNotMatch(note, /confidence floor/i);
+  assert.doesNotMatch(note, /thin-slate/i);
+});
+
+test("7 qualified candidates → no shortfall note", () => {
+  const diag = shortDiag({
+    staged: 7,
+    oddsCleared: 12,
+    uniqueGames: 5,
+    stageRejects: emptyStageRejects(),
+  });
+  // Full ticket is not STAGED_SHORT.
+  assert.notEqual(diag.code, "PROPS_ONLY_STAGED_SHORT");
+  const note = propsOnlyTerminalShortNote(diag, {
+    sportLabel: "college football",
+    confidenceFloor: COACH_SIM_MIN_CONFIDENCE,
+  });
+  assert.equal(note, "");
 });
