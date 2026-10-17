@@ -14,4 +14,6 @@
 | FINAL_EVAL | **NOT authorized** by this freeze |
 | M3/S2 | Locked thresholds **unchanged**; TUNING M3 screen ≠ FINAL_EVAL |
 
+Follow-on: [`ncaaf-clean-e1-ats-ml-readiness.md`](./ncaaf-clean-e1-ats-ml-readiness.md) — ATS location vs shape diagnosis; **no** bounded next experiment proposed; ML readiness **NO** for FINAL_EVAL/product.
+
 **Ops:** NCAAF gate false · injury validation OPEN · production freeze · voice paused · no spend/deploy/OTA
