@@ -7,10 +7,13 @@
  * - Causal opponent-adjusted offense/defense ratings (update AFTER prediction)
  * - Gradual early-season blend of prior-season seed ↔ season-to-date
  * - Inflated σ + heavy-tail mixture CDF for uncertainty / mismatch tails
+ * - Season-specific verified FBS/FCS IDs (see ncaafSubdivision.ts); unknowns stay unknown
  *
  * Does NOT flip NCAAF_GAME_LINE_SIM_VALIDATED. Does NOT accept live client stamp.
  * Closing prices must never enter features or rating updates.
  */
+
+import { isFbsFbsGame } from "./ncaafSubdivision.ts";
 
 export const FOOTBALL_NCAAF_TEAM_STRENGTH_RESEARCH_VERSION =
   "ncaaf-team-strength-v0-research" as const;
@@ -115,7 +118,6 @@ export function marginSigma(opts: {
     opts.week <= 1 ? 1.2 : opts.week <= 3 ? 1.1 : opts.week <= 5 ? 1.05 : 1.0;
   let mismatch = 1;
   if (opts.mismatchHandling && opts.absMu >= NCAAF_TS_MISMATCH_MU_THRESHOLD) {
-    // Mild extra scale so tails cover blowouts without exploding pick'ems
     mismatch = 1 + 0.015 * (opts.absMu - NCAAF_TS_MISMATCH_MU_THRESHOLD);
   }
   return base * thin * weekFactor * mismatch;
@@ -133,6 +135,8 @@ export type TeamStrengthPredict = {
     liveMu: number;
     blendedMu: number;
   };
+  /** False when either side lacks an FBS rating (explicit unrated — no invented μ). */
+  rated: true;
 };
 
 export type TeamStrengthGame = {
@@ -147,11 +151,14 @@ export type TeamStrengthGame = {
 /**
  * Causal opponent-adjusted ratings.
  * Call `predict*` BEFORE `update` for each game.
+ *
+ * Rating maps only contain teams that have appeared in verified FBS–FBS games.
+ * Unrated teams are NOT silently treated as average FBS in `predictTeamStrength`.
  */
 export class NcaafOppAdjRatings {
   off = new Map<string, number>();
   def = new Map<string, number>();
-  /** Season-to-date FBS games counted toward early-blend n. */
+  /** Season-to-date FBS–FBS games counted toward early-blend n. */
   seasonN = new Map<string, number>();
   readonly priorOff: number;
   readonly priorDef: number;
@@ -165,6 +172,15 @@ export class NcaafOppAdjRatings {
     this.hfa = opts?.hfa ?? NCAAF_TS_HFA;
   }
 
+  /** True only if both offense and defense ratings were established from FBS–FBS data. */
+  hasRating(id: string): boolean {
+    return this.off.has(id) && this.def.has(id);
+  }
+
+  /**
+   * Internal read for update/seed math. Prefer `hasRating` + `predictTeamStrength`
+   * for predictive paths so unknowns stay explicit.
+   */
   getOff(id: string): number {
     return this.off.get(id) ?? this.priorOff;
   }
@@ -186,11 +202,18 @@ export class NcaafOppAdjRatings {
     return { homeOff, awayOff, mu: homeOff - awayOff };
   }
 
-  /** Seed from completed prior-season games (skip FCS ids). */
-  seedFromPrior(games: TeamStrengthGame[], fcsIds: Set<string>): void {
+  /**
+   * Seed from completed prior-season games using season-specific verified FBS–FBS only.
+   * Non-FBS–FBS games are excluded (removes opponent-adjustment pollution).
+   */
+  seedFromPrior(games: TeamStrengthGame[]): void {
+    const eligible = games.filter(
+      (g) =>
+        g.season != null &&
+        isFbsFbsGame(g.homeTeamId, g.awayTeamId, g.season),
+    );
     const teams = new Set<string>();
-    for (const g of games) {
-      if (fcsIds.has(g.homeTeamId) || fcsIds.has(g.awayTeamId)) continue;
+    for (const g of eligible) {
       teams.add(g.homeTeamId);
       teams.add(g.awayTeamId);
     }
@@ -200,8 +223,7 @@ export class NcaafOppAdjRatings {
       offSum.set(id, []);
       defSum.set(id, []);
     }
-    for (const g of games) {
-      if (fcsIds.has(g.homeTeamId) || fcsIds.has(g.awayTeamId)) continue;
+    for (const g of eligible) {
       offSum.get(g.homeTeamId)!.push(g.homeFg);
       defSum.get(g.homeTeamId)!.push(g.awayFg);
       offSum.get(g.awayTeamId)!.push(g.awayFg);
@@ -218,8 +240,7 @@ export class NcaafOppAdjRatings {
         newOff.set(id, []);
         newDef.set(id, []);
       }
-      for (const g of games) {
-        if (fcsIds.has(g.homeTeamId) || fcsIds.has(g.awayTeamId)) continue;
+      for (const g of eligible) {
         newOff
           .get(g.homeTeamId)!
           .push(g.homeFg - (this.getDef(g.awayTeamId) - this.priorDef));
@@ -256,27 +277,28 @@ export class NcaafOppAdjRatings {
 
   /**
    * Post-game update — call ONLY after predict for this game.
-   * FCS games: skip rating pollution; still bump seasonN optionally false.
+   * Updates ratings and seasonN only for verified FBS–FBS games in `g.season`.
+   * FCS / unknown matchups do not pollute opponent adjustments.
    */
-  update(g: TeamStrengthGame, fcsIds: Set<string>): void {
-    const fcs = fcsIds.has(g.homeTeamId) || fcsIds.has(g.awayTeamId);
-    if (!fcs) {
-      const predH =
-        0.5 * this.getOff(g.homeTeamId) +
-        0.5 * this.getDef(g.awayTeamId) +
-        this.hfa / 2;
-      const predA =
-        0.5 * this.getOff(g.awayTeamId) +
-        0.5 * this.getDef(g.homeTeamId) -
-        this.hfa / 2;
-      const errH = g.homeFg - predH;
-      const errA = g.awayFg - predA;
-      const lr = this.lr;
-      this.off.set(g.homeTeamId, this.getOff(g.homeTeamId) + lr * errH);
-      this.def.set(g.awayTeamId, this.getDef(g.awayTeamId) + lr * errH);
-      this.off.set(g.awayTeamId, this.getOff(g.awayTeamId) + lr * errA);
-      this.def.set(g.homeTeamId, this.getDef(g.homeTeamId) + lr * errA);
-    }
+  update(g: TeamStrengthGame): void {
+    if (g.season == null) return;
+    if (!isFbsFbsGame(g.homeTeamId, g.awayTeamId, g.season)) return;
+
+    const predH =
+      0.5 * this.getOff(g.homeTeamId) +
+      0.5 * this.getDef(g.awayTeamId) +
+      this.hfa / 2;
+    const predA =
+      0.5 * this.getOff(g.awayTeamId) +
+      0.5 * this.getDef(g.homeTeamId) -
+      this.hfa / 2;
+    const errH = g.homeFg - predH;
+    const errA = g.awayFg - predA;
+    const lr = this.lr;
+    this.off.set(g.homeTeamId, this.getOff(g.homeTeamId) + lr * errH);
+    this.def.set(g.awayTeamId, this.getDef(g.awayTeamId) + lr * errH);
+    this.off.set(g.awayTeamId, this.getOff(g.awayTeamId) + lr * errA);
+    this.def.set(g.homeTeamId, this.getDef(g.homeTeamId) + lr * errA);
     this.seasonN.set(g.homeTeamId, this.getSeasonN(g.homeTeamId) + 1);
     this.seasonN.set(g.awayTeamId, this.getSeasonN(g.awayTeamId) + 1);
   }
@@ -299,7 +321,8 @@ export const TEAM_STRENGTH_FULL: PredictComponents = {
 
 /**
  * Predict from seed (frozen prior) + live (updated) ratings.
- * `seed` should not be updated during the evaluation season.
+ * Returns `null` when either side is unrated (explicit unknown / never FBS–FBS) —
+ * does not invent default strength to force a μ.
  */
 export function predictTeamStrength(opts: {
   seed: NcaafOppAdjRatings;
@@ -308,18 +331,27 @@ export function predictTeamStrength(opts: {
   awayId: string;
   week: number;
   components: PredictComponents;
-}): TeamStrengthPredict {
-  const seedMu = opts.seed.expectedPoints(opts.homeId, opts.awayId).mu;
+}): TeamStrengthPredict | null {
+  if (!opts.live.hasRating(opts.homeId) || !opts.live.hasRating(opts.awayId)) {
+    return null;
+  }
+
   const liveMu = opts.live.expectedPoints(opts.homeId, opts.awayId).mu;
+  const seedRated =
+    opts.seed.hasRating(opts.homeId) && opts.seed.hasRating(opts.awayId);
+  const seedMu = seedRated
+    ? opts.seed.expectedPoints(opts.homeId, opts.awayId).mu
+    : liveMu;
   const nHome = opts.live.getSeasonN(opts.homeId);
   const nAway = opts.live.getSeasonN(opts.awayId);
-  const priorWeight = opts.components.useEarlyBlend
-    ? earlySeasonPriorWeight({
-        week: opts.week,
-        nHomeSeasonGames: nHome,
-        nAwaySeasonGames: nAway,
-      })
-    : 0;
+  const priorWeight =
+    seedRated && opts.components.useEarlyBlend
+      ? earlySeasonPriorWeight({
+          week: opts.week,
+          nHomeSeasonGames: nHome,
+          nAwaySeasonGames: nAway,
+        })
+      : 0;
   const blendedMu = priorWeight * seedMu + (1 - priorWeight) * liveMu;
   const mu = blendedMu;
 
@@ -336,16 +368,14 @@ export function predictTeamStrength(opts: {
   const cdf = (z: number) =>
     opts.components.useMismatchHandling ? heavyTailCdf(z) : normalCdf(z);
 
-  // P(home win) ≈ P(margin > 0)
   const pHomeMl = clamp01(1 - cdf(-mu / sigma));
 
   return {
+    rated: true,
     mu,
     sigma,
     pHomeMl,
     pHomeCover: (homeSpreadLine: number) => {
-      // Home covers when homeFg - awayFg + homeSpreadLine > 0
-      // ⇒ margin > -homeSpreadLine
       const z = (-homeSpreadLine - mu) / sigma;
       return clamp01(1 - cdf(z));
     },

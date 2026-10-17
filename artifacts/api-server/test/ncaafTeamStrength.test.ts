@@ -13,6 +13,7 @@ import {
   TEAM_STRENGTH_FULL,
 } from "../src/lib/sportSim/ncaafTeamStrength.ts";
 import { FOOTBALL_DRIVE_ENGINE_VERSION } from "../src/lib/sportSim/footballDriveMatchup.ts";
+import { loadSubdivisionFixture } from "../src/lib/sportSim/ncaafSubdivision.ts";
 
 test("research stamp is distinct from live drive stamp", () => {
   assert.equal(
@@ -86,63 +87,70 @@ test("marginSigma inflates early and for large mismatches", () => {
 
 test("heavyTailCdf has fatter tails than normal", () => {
   const z = 2.5;
-  assert.ok(heavyTailCdf(z) < normalCdf(z)); // more mass beyond +2.5
+  assert.ok(heavyTailCdf(z) < normalCdf(z));
   assert.ok(Math.abs(heavyTailCdf(0) - 0.5) < 1e-6);
 });
 
-test("predict blends seed and live; update is causal (post-predict)", () => {
+test("predict blends seed and live; update is causal (post-predict); FBS–FBS only", () => {
+  const fix = loadSubdivisionFixture();
+  const fbs = Object.keys(fix.seasons["2024"]!.fbs);
+  const A = fbs[0]!;
+  const B = fbs[1]!;
+  const C = fbs[2]!;
   const seed = new NcaafOppAdjRatings();
-  seed.seedFromPrior(
-    [
-      {
-        homeTeamId: "A",
-        awayTeamId: "B",
-        homeFg: 45,
-        awayFg: 10,
-        season: 2024,
-      },
-      {
-        homeTeamId: "A",
-        awayTeamId: "C",
-        homeFg: 38,
-        awayFg: 14,
-        season: 2024,
-      },
-      {
-        homeTeamId: "B",
-        awayTeamId: "C",
-        homeFg: 21,
-        awayFg: 24,
-        season: 2024,
-      },
-    ],
-    new Set(),
-  );
+  seed.seedFromPrior([
+    {
+      homeTeamId: A,
+      awayTeamId: B,
+      homeFg: 45,
+      awayFg: 10,
+      season: 2024,
+    },
+    {
+      homeTeamId: A,
+      awayTeamId: C,
+      homeFg: 38,
+      awayFg: 14,
+      season: 2024,
+    },
+    {
+      homeTeamId: B,
+      awayTeamId: C,
+      homeFg: 21,
+      awayFg: 24,
+      season: 2024,
+    },
+  ]);
+  assert.ok(seed.hasRating(A) && seed.hasRating(B) && seed.hasRating(C));
   const live = seed.clone();
   const before = predictTeamStrength({
     seed,
     live,
-    homeId: "A",
-    awayId: "B",
+    homeId: A,
+    awayId: B,
     week: 1,
     components: TEAM_STRENGTH_FULL,
   });
-  assert.ok(before.pHomeMl > 0.5);
-  assert.ok(before.priorWeight > 0.4);
-  const muBefore = before.mu;
+  assert.ok(before);
+  assert.ok(before!.pHomeMl > 0.5);
+  assert.ok(before!.priorWeight > 0.4);
+  const muBefore = before!.mu;
   live.update(
-    { homeTeamId: "A", awayTeamId: "B", homeFg: 50, awayFg: 0, week: 1 },
-    new Set(),
+    { homeTeamId: A, awayTeamId: B, homeFg: 50, awayFg: 0, week: 1, season: 2025 },
   );
   const after = predictTeamStrength({
     seed,
     live,
-    homeId: "A",
-    awayId: "C",
+    homeId: A,
+    awayId: C,
     week: 2,
-    components: { useEarlyBlend: false, useUncertainty: false, useMismatchHandling: false },
+    components: {
+      useEarlyBlend: false,
+      useUncertainty: false,
+      useMismatchHandling: false,
+    },
   });
-  // Live path moved; seed frozen. Cover fn is deterministic.
-  assert.ok(Number.isFinite(after.pHomeCover(-14)));
-  assert.notEqual(after.components.liveMu, muBefore);
+  assert.ok(after);
+  assert.ok(Number.isFinite(after!.pHomeCover(-14)));
+  assert.notEqual(after!.components.liveMu, muBefore);
 });

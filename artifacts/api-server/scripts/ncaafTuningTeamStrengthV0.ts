@@ -97,13 +97,6 @@ function favSize(abs: number): string {
   return "large_14plus";
 }
 
-const FCS_SCHOOL_RE =
-  /\b(houston christian|youngstown state|grambling|mcneese|jackson state|saint francis|st\.?\s*francis|liu|long island|se louisiana|southeastern louisiana|nicholls|bethune|norfolk state|idaho state|wagner|duquesne|howard|alabama state|prairie view|north dakota|south dakota|montana|weber state|eastern washington|northern iowa|villanova|delaware|towson|richmond|samford|furman|citadel|wofford|chattanooga|tennessee[- ]martin|se missouri|eastern kentucky|central arkansas|stephen f|incarnate word|abilene christian|tarleton|ut martin|southern jaguars)\b/i;
-
-function looksFcsName(name: string | undefined): boolean {
-  return FCS_SCHOOL_RE.test((name || "").toLowerCase());
-}
-
 function loadJsonGames(path: string): EspnGame[] {
   const raw = JSON.parse(readFileSync(path, "utf8")) as { games: EspnGame[] };
   return (raw.games ?? []).filter(
@@ -283,30 +276,19 @@ function main(): number {
       .map((g) => g.eventId),
   );
 
-  const nameById = new Map<string, string>();
-  for (const g of [...prior, ...tuningAll]) {
-    if (g.homeName) nameById.set(g.homeTeamId, g.homeName);
-    if (g.awayName) nameById.set(g.awayTeamId, g.awayName);
-  }
-  const fcsIds = new Set<string>();
-  for (const [id, name] of nameById) {
-    if (looksFcsName(name)) fcsIds.add(id);
-  }
-
   const dataLimitations = {
-    fcsDivisionIds: "MISSING — name-heuristic only (no ESPN group/conference IDs on fixtures)",
+    fcsDivisionIds:
+      "VERIFIED — season-specific ESPN standings groups 80/81 in ncaaf-subdivision-espn-ids.json",
     injuryPreKick: "MISSING — injuryKnown left null; E4 blocked",
     neutralSiteConference: "MISSING — not on TUNING game rows",
     closingTotalsAlts: "MISSING — not in archive; out of scope",
     finalEval: "UNTOUCHED — not loaded",
     closesInFeatures: false,
+    unratedPolicy: "predictTeamStrength returns null — no invented default-24 μ",
   };
 
   const seed = new NcaafOppAdjRatings();
-  seed.seedFromPrior(
-    prior.filter((g) => g.season === 2024),
-    fcsIds,
-  );
+  seed.seedFromPrior(prior.filter((g) => g.season === 2024));
   const live = seed.clone();
   const rng = mulberry32(FOOTBALL_CALIBRATION_PRIMARY_SEED);
   const all = [...prior, ...tuningAll].sort((a, b) =>
@@ -378,6 +360,7 @@ function main(): number {
               week: g.week,
               components: comps,
             });
+            if (!pred) continue; // unrated side — exclude from this model row
             models[id] = {
               pMl: pred.pHomeMl,
               pAts: pred.pHomeCover(close.closeSpreadHome!),
@@ -401,8 +384,8 @@ function main(): number {
       }
     }
 
-    // Causal: update live ratings only AFTER prediction (and only for 2025 walk)
-    if (g.season === 2025) live.update(g, fcsIds);
+    // Causal: update live ratings only AFTER prediction (FBS–FBS only; 2025 walk)
+    if (g.season === 2025) live.update(g);
   });
 
   const modelsOut: Record<string, unknown> = {};
