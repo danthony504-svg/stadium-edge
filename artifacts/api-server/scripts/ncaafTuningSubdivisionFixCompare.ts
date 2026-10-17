@@ -509,6 +509,10 @@ function main(): number {
     }
   });
 
+  const afterScoredIds = new Set(
+    rows.filter((r) => !r.tsAfter.excluded).map((r) => r.eventId),
+  );
+
   const sliceDefs: Array<{ id: string; filter: (r: Row) => boolean }> = [
     { id: "all_fair", filter: () => true },
     { id: "fbs_fbs", filter: (r) => r.matchupSubdivision === "fbs_fbs" },
@@ -522,6 +526,11 @@ function main(): number {
     {
       id: "fbs_fbs_large_14plus",
       filter: (r) => r.matchupSubdivision === "fbs_fbs" && r.favSize === "large_14plus",
+    },
+    // Identical games where AFTER produced a rated prediction (apples-to-apples)
+    {
+      id: "identical_after_scored",
+      filter: (r) => afterScoredIds.has(r.eventId),
     },
   ];
 
@@ -631,13 +640,25 @@ function main(): number {
     }
     md.push("");
   }
+  md.push("## Notes");
+  md.push("");
+  md.push(
+    "- **FBS–FCS after:** all excluded from team-strength (unrated FCS — no invented defaults). Drive still scores them.",
+  );
+  md.push(
+    "- **`identical_after_scored`:** same event IDs for before vs after (excludes the 87 unrated-after games) so Δ is not confounded by cohort change.",
+  );
+  md.push(
+    "- Legacy before can look stronger on some slices while still **polluted** (unflagged FCS in seed/update, silent defaults). Not an acceptance path.",
+  );
+  md.push("");
   md.push("## Conclusion");
   md.push("");
   md.push(
     "- Classification defect addressed with verified season-specific IDs + chronological FBS–FBS rebuild.",
   );
   md.push(
-    "- Gate flip: **false**. FINAL_EVAL: **UNTOUCHED**. No deploy/OTA. No new model yet.",
+    "- Gate flip: **false**. FINAL_EVAL: **UNTOUCHED**. No deploy/OTA. No new model yet. Criteria unchanged.",
   );
   md.push("");
   md.push("## Repro");
