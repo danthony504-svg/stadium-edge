@@ -10,6 +10,7 @@ import {
   alignProvenanceToHit,
   clearTrustedExactEvidenceForTests,
   exactMarket10kProvenance,
+  getExactMarketCoverageImpact,
   propProvenanceAllowsSeating,
   resetExactMarketCoverageImpactForTests,
   seatingHitFromProvenance,
@@ -210,7 +211,8 @@ test("enrich: clipped anytime TD remints evidence (no in-place mutate)", async (
   );
 });
 
-test("alignProvenanceToHit: remints trusted exact; rejects forged adjustment", () => {
+test("alignProvenanceToHit: derived adjustment keeps lineage; not a new 10k run", () => {
+  const before = getExactMarketCoverageImpact().stampedExact10k;
   const trusted = exactMarket10kProvenance({
     hitProbability: 1,
     simulations: 10_000,
@@ -221,11 +223,21 @@ test("alignProvenanceToHit: remints trusted exact; rejects forged adjustment", (
     side: "Over",
     line: 0.5,
   });
+  assert.equal(getExactMarketCoverageImpact().stampedExact10k, before + 1);
   const oldId = trusted.evidenceId;
-  const aligned = alignProvenanceToHit(trusted, 0.95);
+  const aligned = alignProvenanceToHit(trusted, 0.95, {
+    hitAdjustment: "grade_clip",
+  });
   assert.equal(aligned.source, "exact_market_10k");
   assert.equal(aligned.hitProbability, 0.95);
+  assert.equal(aligned.rawHitProbability, 1);
+  assert.equal(aligned.hitAdjustment, "grade_clip");
+  assert.equal(aligned.derivedFromEvidenceId, oldId);
+  assert.equal(aligned.simulations, 10_000);
   assert.notEqual(aligned.evidenceId, oldId);
+  // Adjustment must not look like another completed 10k batch.
+  assert.equal(getExactMarketCoverageImpact().stampedExact10k, before + 1);
+  assert.ok(getExactMarketCoverageImpact().adjustedExact10k >= 1);
   assert.equal(seatingHitFromProvenance(aligned), 0.95);
 
   const forgedAligned = alignProvenanceToHit(
@@ -249,7 +261,7 @@ test("alignProvenanceToHit: remints trusted exact; rejects forged adjustment", (
   assert.equal(propProvenanceAllowsSeating(forgedAligned), false);
 });
 
-test("softClipPropsOnlyHits remints exact 10k clipped hits", () => {
+test("softClipPropsOnlyHits adjusts exact 10k clipped hits with lineage", () => {
   const pick = {
     player: "Stefon Diggs",
     sport: "nfl",
@@ -296,6 +308,9 @@ test("softClipPropsOnlyHits remints exact 10k clipped hits", () => {
   assert.ok(after);
   assert.equal(after!.hitProbability, 0.95);
   assert.equal(after!.probabilityProvenance?.hitProbability, 0.95);
+  assert.equal(after!.probabilityProvenance?.rawHitProbability, 1);
+  assert.equal(after!.probabilityProvenance?.hitAdjustment, "grade_clip");
+  assert.equal(after!.probabilityProvenance?.derivedFromEvidenceId, oldId);
   assert.notEqual(after!.probabilityProvenance?.evidenceId, oldId);
   assert.equal(
     propProvenanceAllowsSeating(after!.probabilityProvenance, {
@@ -307,6 +322,79 @@ test("softClipPropsOnlyHits remints exact 10k clipped hits", () => {
     }),
     true,
   );
+});
+
+test("enrich unauthorized clip path does not invent a seating hit", async () => {
+  const pick = {
+    player: "Ghost",
+    sport: "nfl",
+    game: "A @ B",
+    market: "Anytime TD",
+    propMarketKey: "player_anytime_td",
+    propSide: "Over",
+    propLine: 0.5,
+    odds: 150,
+    isProp: true,
+    athleteId: "ghost-1",
+    eventId: "evt-ghost",
+  } as ParsedPick;
+  const pool = poolFor(pick);
+  const resolvedKey = propSimLookupKey(pick, pool[0]!);
+  assert.ok(resolvedKey);
+  const forged = {
+    source: "exact_market_10k" as const,
+    hitProbability: 1,
+    simulations: 10_000,
+    nullReason: null,
+    hitReliability: null,
+    sport: "nfl",
+    marketKey: "player_anytime_td",
+    athleteId: "ghost-1",
+    eventId: "evt-ghost",
+    side: "Over" as const,
+    line: 0.5,
+    evidenceId: "tev_not_real",
+  };
+  const hits = new Map([
+    [
+      resolvedKey!,
+      {
+        hitProbability: 1,
+        simulations: 10_000,
+        probabilityProvenance: forged,
+      },
+    ],
+  ]);
+  const enriched = await enrichCoachPropSimHits(
+    [pick],
+    pool,
+    hits,
+    undefined,
+    {
+      "ghost-1": {
+        sport: "nfl",
+        athleteId: "ghost-1",
+        labels: [],
+        recent: [{ stats: { receivingTouchdowns: "0" } }],
+      },
+    },
+  );
+  const row = enriched.hits.get(resolvedKey!);
+  assert.ok(row);
+  // Forged exact cannot store an unauthorized clipped seating hit.
+  assert.equal(
+    propProvenanceAllowsSeating(row!.probabilityProvenance, {
+      athleteId: "ghost-1",
+      eventId: "evt-ghost",
+      propMarketKey: "player_anytime_td",
+      propSide: "Over",
+      propLine: 0.5,
+    }),
+    false,
+  );
+  if (row!.probabilityProvenance?.source === "insufficient_evidence") {
+    assert.equal(row!.hitProbability, null);
+  }
 });
 
 test("NFL vs NCAAF identity isolation still fail-closed after align", () => {

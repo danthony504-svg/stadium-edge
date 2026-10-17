@@ -368,15 +368,17 @@ function scoredLegFromHit(
   // Matchup must move projection/grade — adjust sim hit (bounded), not display-only.
   hit = adjustSimHitForOppDefenseTilt(hit, defTilt.tilt);
 
-  // Edge/EV/grade/seating share one validated provenance hit (remint on adjust).
+  // Edge/EV/grade/seating share one validated provenance hit (lineage-preserving adjust).
   const candidateId = {
-    athleteId: poolRow?.athleteId ?? norm.athleteId,
+    athleteId: norm.athleteId ?? poolRow?.athleteId,
     eventId: norm.eventId ?? (poolRow as { eventId?: string | null } | undefined)?.eventId,
     propMarketKey: marketKey,
     propSide: norm.propSide,
     propLine: norm.propLine,
   };
-  const alignedProvenance = alignProvenanceToHit(probabilityProvenance, hit);
+  const alignedProvenance = alignProvenanceToHit(probabilityProvenance, hit, {
+    hitAdjustment: "defense_tilt",
+  });
   hit = seatingHitFromProvenance(alignedProvenance, candidateId);
   if (hit == null) return null;
 

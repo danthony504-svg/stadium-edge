@@ -25,9 +25,15 @@ export type ExactMarketIdentity = {
   line: number;
 };
 
+export type PropHitAdjustment = "grade_clip" | "defense_tilt" | "aligned";
+
 export type PropProbabilityProvenance = {
   source: PropProbabilitySource;
   hitProbability: number | null;
+  /**
+   * Draw count from the original exact-market batch. Adjustments keep this
+   * value — they do not imply a new 10k Monte Carlo run.
+   */
   simulations: number;
   nullReason: string | null;
   hitReliability: number | null;
@@ -38,10 +44,17 @@ export type PropProbabilityProvenance = {
   side?: "Over" | "Under" | null;
   line?: number | null;
   /**
-   * Opaque trust token minted only by exactMarket10kProvenance when a completed
-   * sim is registered. Client-copied stamps without a live registry entry fail.
+   * Opaque trust token minted only by exactMarket10kProvenance / derived
+   * adjustment mint when registered. Client-copied stamps without a live
+   * registry entry fail.
    */
   evidenceId?: string | null;
+  /** Parent evidenceId when this stamp is a grade/clip/tilt adjustment. */
+  derivedFromEvidenceId?: string | null;
+  /** Raw sim hit before adjustment (lineage). */
+  rawHitProbability?: number | null;
+  /** Why hitProbability differs from the original sim draw. */
+  hitAdjustment?: PropHitAdjustment | null;
 };
 
 /** Explicit validation record — required before any historical fallback seats. */
@@ -61,6 +74,9 @@ type TrustedExactEvidence = ExactMarketIdentity & {
   hitProbability: number;
   simulations: number;
   integrity: string;
+  parentEvidenceId?: string | null;
+  rawHitProbability?: number | null;
+  hitAdjustment?: PropHitAdjustment | null;
 };
 
 const trustedExactEvidence = new Map<string, TrustedExactEvidence>();
@@ -72,6 +88,8 @@ export type ExactMarketCoverageImpact = {
   missingEventId: number;
   missingMarketSideLine: number;
   stampedExact10k: number;
+  /** Grade/clip/tilt adjustments of existing evidence — not new MC batches. */
+  adjustedExact10k: number;
   rejectedMissingIdentity: number;
 };
 
@@ -80,6 +98,7 @@ const coverageImpact: ExactMarketCoverageImpact = {
   missingEventId: 0,
   missingMarketSideLine: 0,
   stampedExact10k: 0,
+  adjustedExact10k: 0,
   rejectedMissingIdentity: 0,
 };
 
@@ -92,6 +111,7 @@ export function resetExactMarketCoverageImpactForTests(): void {
   coverageImpact.missingEventId = 0;
   coverageImpact.missingMarketSideLine = 0;
   coverageImpact.stampedExact10k = 0;
+  coverageImpact.adjustedExact10k = 0;
   coverageImpact.rejectedMissingIdentity = 0;
 }
 
@@ -540,16 +560,76 @@ export function seatingHitFromProvenance(
 }
 
 /**
+ * Mint a derived exact-market stamp for a grade/clip/tilt adjustment.
+ * Keeps the original batch simulation count and parent evidenceId — does not
+ * imply another 10k Monte Carlo run (does not bump stampedExact10k).
+ */
+function mintAdjustedExactEvidence(opts: {
+  parent: PropProbabilityProvenance;
+  trusted: TrustedExactEvidence;
+  identity: ExactMarketIdentity;
+  adjustedHit: number;
+  hitAdjustment: PropHitAdjustment;
+}): PropProbabilityProvenance {
+  const sims = opts.trusted.simulations;
+  const rawHit =
+    opts.parent.rawHitProbability ??
+    opts.trusted.rawHitProbability ??
+    opts.trusted.hitProbability;
+  const parentId = opts.parent.evidenceId ?? null;
+  const integrity = integrityFor({
+    ...opts.identity,
+    hitProbability: opts.adjustedHit,
+    simulations: sims,
+  });
+  evidenceSeq += 1;
+  const evidenceId = `tev_${evidenceSeq}_adj_${integrity.slice(0, 20)}`;
+  trustedExactEvidence.set(evidenceId, {
+    ...opts.identity,
+    hitProbability: opts.adjustedHit,
+    simulations: sims,
+    integrity,
+    parentEvidenceId: parentId,
+    rawHitProbability: rawHit,
+    hitAdjustment: opts.hitAdjustment,
+  });
+  coverageImpact.adjustedExact10k += 1;
+  return {
+    source: "exact_market_10k",
+    hitProbability: opts.adjustedHit,
+    simulations: sims,
+    nullReason: null,
+    hitReliability:
+      opts.parent.hitReliability != null &&
+      Number.isFinite(opts.parent.hitReliability)
+        ? opts.parent.hitReliability
+        : null,
+    sport: opts.parent.sport ?? null,
+    marketKey: opts.identity.marketKey,
+    athleteId: opts.identity.athleteId,
+    eventId: opts.identity.eventId,
+    side: opts.identity.side,
+    line: opts.identity.line,
+    evidenceId,
+    derivedFromEvidenceId: parentId,
+    rawHitProbability: rawHit,
+    hitAdjustment: opts.hitAdjustment,
+  };
+}
+
+/**
  * Align provenance to a graded/clipped/adjusted hit.
- * Never mutates an existing exact-market stamp in place — remints trusted
- * evidence when a live registry entry exists for the same identity. Forged
- * or missing evidence fails closed. Edge/EV/grade/seating must share this
- * returned provenance's hit.
+ * Never mutates an existing exact-market stamp in place — mints a derived
+ * adjustment that retains original sim lineage. Forged/missing evidence fails
+ * closed. Edge/EV/grade/seating must share this returned provenance's hit.
  */
 export function alignProvenanceToHit(
   provenance: PropProbabilityProvenance | null | undefined,
   hit: number | null,
-  opts?: { nullReason?: string | null },
+  opts?: {
+    nullReason?: string | null;
+    hitAdjustment?: PropHitAdjustment | null;
+  },
 ): PropProbabilityProvenance {
   if (hit == null || !Number.isFinite(hit)) {
     return insufficientPropProvenance({
@@ -599,17 +679,12 @@ export function alignProvenanceToHit(
         line: provenance.line,
       });
     }
-    // Remint — clipped/adjusted hit becomes a new authoritative exact stamp.
-    return exactMarket10kProvenance({
-      hitProbability: hit,
-      simulations: Math.max(trusted.simulations, provenance.simulations ?? 0),
-      sport: provenance.sport,
-      marketKey: identity.marketKey,
-      hitReliability: provenance.hitReliability,
-      athleteId: identity.athleteId,
-      eventId: identity.eventId,
-      side: identity.side,
-      line: identity.line,
+    return mintAdjustedExactEvidence({
+      parent: provenance,
+      trusted,
+      identity,
+      adjustedHit: hit,
+      hitAdjustment: opts?.hitAdjustment ?? "aligned",
     });
   }
   if (provenance.source === "validated_historical_model") {

@@ -212,6 +212,7 @@ export async function enrichCoachPropSimHits(
           const aligned = alignProvenanceToHit(row.probabilityProvenance, clipped, {
             nullReason:
               clipped == null ? "rare_count_insufficient_evidence" : null,
+            hitAdjustment: "grade_clip",
           });
           out.set(key, {
             ...row,
@@ -233,6 +234,7 @@ export async function enrichCoachPropSimHits(
         if (clipped !== row.hitProbability) {
           const aligned = alignProvenanceToHit(row.probabilityProvenance, clipped, {
             nullReason: clipped == null ? "clipped_hit_null" : null,
+            hitAdjustment: "grade_clip",
           });
           out.set(key, {
             ...row,
@@ -244,10 +246,13 @@ export async function enrichCoachPropSimHits(
         continue;
       }
       if (clipped != null && clipped !== row.hitProbability) {
-        const aligned = alignProvenanceToHit(row.probabilityProvenance, clipped);
+        const aligned = alignProvenanceToHit(row.probabilityProvenance, clipped, {
+          hitAdjustment: "grade_clip",
+        });
+        // Fail closed — never store an unauthorized clipped hit.
         out.set(key, {
           ...row,
-          hitProbability: seatingHitFromProvenance(aligned, candidateId) ?? clipped,
+          hitProbability: seatingHitFromProvenance(aligned, candidateId),
           nullReason: aligned.nullReason,
           probabilityProvenance: aligned,
         });

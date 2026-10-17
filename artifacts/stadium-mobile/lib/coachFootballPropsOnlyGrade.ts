@@ -516,6 +516,7 @@ export function softClipPropsOnlyHits(
         {
           nullReason:
             clipped == null ? "rare_count_insufficient_evidence" : null,
+          hitAdjustment: "grade_clip",
         },
       );
       hits.set(key, {
