@@ -1,6 +1,8 @@
 # TUNING finish: identical 334-game cohort (no further tuning)
 
-**Stamp unchanged:** `ncaaf-team-strength-v0-research` · drive locked · FINAL_EVAL untouched · gate false · no paid Odds · no deploy/OTA · no new model
+**Stamp unchanged:** `ncaaf-team-strength-v0-research` · drive locked · FINAL_EVAL untouched · gate false · no paid Odds · no deploy/OTA · no new model  
+
+**Restoration close-out:** [`ncaaf-restoration-attempt-closed-334.md`](./ncaaf-restoration-attempt-closed-334.md) · **Next inputs (proposal only):** [`ncaaf-team-strength-next-inputs-proposal.md`](./ncaaf-team-strength-next-inputs-proposal.md)
 
 Classification fix **preserved**. FBS–FCS = **unsupported scope** (Coach withhold) — not a validation pass.
 

@@ -1,13 +1,12 @@
 # Replacement model proposal — dedicated college team-strength
 
-**Status:** RESEARCH v0 RAN — TUNING **FAIL** M3∧S2 on fair n=421; all components **REJECT** vs locked drive on W1 / 14+ slice gates.  
+**Status:** SUPERSEDED as the active restore path — restoration attempt **closed** on identical-334 ([`ncaaf-restoration-attempt-closed-334.md`](./ncaaf-restoration-attempt-closed-334.md)). Classification + withhold assets **preserved**.  
 **Stamp / flag:** `ncaaf-team-strength-v0-research` · `NCAAF_TEAM_STRENGTH_RESEARCH=1` (offline only; no live wire).  
-**Context:** TUNING round closed unsuccessful ([`ncaaf-tuning-round-closed-unsuccessful.md`](./ncaaf-tuning-round-closed-unsuccessful.md)).  
-**Criteria:** Locked M1–M4 / S1–S4 **unchanged**. FINAL_EVAL **untouched**. Closes **eval-only** — never train or tune against closing prices.  
+**Context:** Drive TUNING closed unsuccessful ([`ncaaf-tuning-round-closed-unsuccessful.md`](./ncaaf-tuning-round-closed-unsuccessful.md)); team-strength v0 screened then closed.  
+**Criteria:** Locked M1–M4 / S1–S4 **unchanged**. FINAL_EVAL **untouched**. Closes **eval-only**.  
 **Ops:** `NCAAF_GAME_LINE_SIM_VALIDATED=false` · no deploy/OTA · voice paused.  
-**Scorecard:** [`ncaaf-tuning-team-strength-v0.md`](./ncaaf-tuning-team-strength-v0.md).  
-**Pipeline audit:** [`ncaaf-tuning-pipeline-audit.md`](./ncaaf-tuning-pipeline-audit.md).  
-**Classification fix:** [`ncaaf-tuning-subdivision-fix-compare.md`](./ncaaf-tuning-subdivision-fix-compare.md) — verified season-specific FBS/FCS IDs; chronological rebuild; unknowns stay unknown.
+**Final scorecard:** [`ncaaf-tuning-identical-334-finish.md`](./ncaaf-tuning-identical-334-finish.md).  
+**Next proposal (inputs only):** [`ncaaf-team-strength-next-inputs-proposal.md`](./ncaaf-team-strength-next-inputs-proposal.md).
 
 ## 1. Problem statement (from preserved TUNING evidence)
 

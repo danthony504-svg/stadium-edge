@@ -2,8 +2,9 @@
 
 **Locked:** 2026-10-16 · branch `cursor/ncaaf-phase-e-restore-8b51`  
 **Rule:** Criteria are locked **before** examining any 2025 / completed-2026 scorecards. Do not edit thresholds after seeing numbers.  
-**Live gate:** `NCAAF_GAME_LINE_SIM_VALIDATED = false`. Research path only (`ppg-per-drive-v1.1-research` opt-in).  
-**Model params:** Locked in [`ncaaf-model-params-locked.md`](./ncaaf-model-params-locked.md) (residual 14.5, shrink 2.0, gap scale default 1.0, blend 0.5) **before** Odds close retrieval.
+**Live gate:** `NCAAF_GAME_LINE_SIM_VALIDATED = false`. Research path only (`ncaaf-team-strength-v0-research` / prior drive research opt-in).  
+**Model params:** Locked in [`ncaaf-model-params-locked.md`](./ncaaf-model-params-locked.md) (residual 14.5, shrink 2.0, gap scale default 1.0, blend 0.5) **before** Odds close retrieval.  
+**Status (2026-10-17):** Restoration attempt closed on identical-334 — criteria **unchanged**; FINAL_EVAL still empty. See [`ncaaf-restoration-attempt-closed-334.md`](./ncaaf-restoration-attempt-closed-334.md).
 
 ## Data availability (feasibility only — no retrieval yet)
 
