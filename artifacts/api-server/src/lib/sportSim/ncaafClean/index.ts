@@ -65,6 +65,21 @@ export type {
 export { cleanMatchupSupport } from "./support.ts";
 export type { CleanSupportDecision } from "./support.ts";
 
+export {
+  E4_POLICY,
+  classifyAvailabilitySnapshot,
+  coerceInjuryKnownForbidden,
+  e4ConservativeAdjust,
+  evaluateE4SegmentConservatism,
+  joinE4Labels,
+} from "./e4Availability.ts";
+export type {
+  E4ConservativeAdjust,
+  E4JoinLabels,
+  E4SegmentRow,
+  E4SnapshotClass,
+} from "./e4Availability.ts";
+
 export { predictScoreMargin } from "./predictScoreMargin.ts";
 export type { PredictScoreMarginOpts } from "./predictScoreMargin.ts";
 

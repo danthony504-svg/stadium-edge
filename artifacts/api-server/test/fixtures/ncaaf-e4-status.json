@@ -1,0 +1,96 @@
+{
+  "generatedAt": "2026-10-17T14:09:36.149Z",
+  "e4Status": "OPEN_INSUFFICIENT_DATA",
+  "e4Resolved": false,
+  "e6Requested": false,
+  "e6BlockedReason": "E4 unresolved — do not request E6 until E4 clears",
+  "finalEvalPreserved": {
+    "present": true,
+    "scored": true,
+    "stamp": "ncaaf-score-margin-v1-research",
+    "alpha": 1.15,
+    "retuned": false
+  },
+  "behavioralTests": {
+    "class": "synthetic_behavioral",
+    "replacesHistoricalPredictiveValidation": false,
+    "module": "src/lib/sportSim/ncaafClean/e4Availability.ts",
+    "testFile": "test/ncaafClean.e4Availability.test.ts"
+  },
+  "historicalPredictiveValidation": {
+    "class": "missing",
+    "segmentConservatism": {
+      "status": "INSUFFICIENT_DATA",
+      "nKnown": 0,
+      "nNull": 0,
+      "meanAbsEdgeKnown": null,
+      "meanAbsEdgeNull": null,
+      "detail": "need ≥20 known and ≥20 null rows; got known=0 null=0",
+      "evidenceClass": "missing"
+    },
+    "note": "Synthetic segment tests cannot replace missing historical evidence"
+  },
+  "existingData": {
+    "tuningCloses": {
+      "n": 470,
+      "injuryKnownNonNull": 0,
+      "qbOutNonNull": 0
+    },
+    "phaseECloses": {
+      "n": 842,
+      "injuryKnownNonNull": 0,
+      "qbOutNonNull": 0
+    },
+    "forwardSnapshots": {
+      "manifestCount": 1,
+      "filesOnDisk": 1,
+      "dir": "test/fixtures/ncaaf-pregame-injury-snapshots/"
+    }
+  },
+  "requirements": [
+    {
+      "id": "R1_pre_kick_snapshots",
+      "requirement": "Snapshots with captureTimestamp < kickoffIso covering Odds-listed FBS games under test (TUNING and/or FINAL_EVAL)",
+      "satisfiedByExisting": false,
+      "evidence": "1 forward ESPN freeze(s); 0 historical holdout joins"
+    },
+    {
+      "id": "R2_join_labels",
+      "requirement": "Join producing injuryKnown=true|null and optional qbOut — never coerce missing→false",
+      "satisfiedByExisting": false,
+      "evidence": "TUNING closes non-null injuryKnown=0/470; qbOut=0; phase-e injuryKnown=0/842"
+    },
+    {
+      "id": "R3_segment_conservatism",
+      "requirement": "mean|edge| on injuryKnown=null ≤ mean|edge| on injuryKnown=true with documented n (≥20 each)",
+      "satisfiedByExisting": false,
+      "evidence": "need ≥20 known and ≥20 null rows; got known=0 null=0"
+    },
+    {
+      "id": "R4_behavioral_policy",
+      "requirement": "Engine policy for known QB/player absences, stale reports, unavailable data (synthetic tests)",
+      "satisfiedByExisting": true,
+      "evidence": "e4Availability.ts + ncaafClean.e4Availability.test.ts (behavioral only — not historical predictive validation)"
+    },
+    {
+      "id": "R5_no_backfill",
+      "requirement": "Do not backfill historical labels from live ESPN or post-game box scores",
+      "satisfiedByExisting": true,
+      "evidence": "Forward collector + README forbid holdout backfill; policy held"
+    }
+  ],
+  "blockers": [
+    "No verified historical pre-kick injury archive for TUNING or FINAL_EVAL games",
+    "SportsDataIO / ScoreTape timing not proven / not purchased (see ncaaf-e4-injury-provider.md)",
+    "Forward snapshot count insufficient for slate-wide capture < kickoff joins",
+    "Segment conservatism unscored on real joins (INSUFFICIENT_DATA)"
+  ],
+  "ops": {
+    "paidRetrieval": false,
+    "deployOta": false,
+    "ncaafUnlock": false,
+    "spreads": "BLOCKED",
+    "totals": "BLOCKED",
+    "alts": "BLOCKED"
+  }
+}

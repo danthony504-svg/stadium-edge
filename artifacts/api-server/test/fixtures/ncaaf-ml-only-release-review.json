@@ -1,0 +1,187 @@
+{
+  "generatedAt": "2026-10-17T14:09:36.443Z",
+  "title": "ML-only release review — clean E1 α=1.15",
+  "candidate": {
+    "stamp": "ncaaf-score-margin-v1-research",
+    "candidateId": "E1_alpha_1_15",
+    "alpha": 1.15,
+    "preserved": true,
+    "retunedAgainstFinalEval": false
+  },
+  "markets": {
+    "moneyline": "UNDER_REVIEW",
+    "spreads": "BLOCKED",
+    "totals": "BLOCKED",
+    "alts": "BLOCKED"
+  },
+  "finalEval": {
+    "scoredAt": "2026-10-17T14:04:39.595Z",
+    "pairedCoverage": "403/408",
+    "integrityPass": true,
+    "metrics": {
+      "nMl": 403,
+      "mlBrier": 0.18244176980067497,
+      "mktBrier": 0.17775991926646764,
+      "deltaVsMarket": 0.0046818505342073324,
+      "meanP": 0.5363845393359269,
+      "meanY": 0.5558312655086849,
+      "bias": -0.019446726172758
+    },
+    "mlCriteria": [
+      {
+        "id": "M1",
+        "pass": true,
+        "detail": "nMl=403",
+        "measured": 403,
+        "threshold": 200
+      },
+      {
+        "id": "M2",
+        "pass": true,
+        "detail": "mlBrier=0.18244176980067497",
+        "measured": 0.18244176980067497,
+        "threshold": 0.25
+      },
+      {
+        "id": "M3",
+        "pass": true,
+        "detail": "deltaVsMarket=0.0046818505342073324",
+        "measured": 0.0046818505342073324,
+        "threshold": "<= market + 0.02"
+      },
+      {
+        "id": "M4",
+        "pass": true,
+        "detail": "bias=-0.019446726172758",
+        "measured": -0.019446726172758,
+        "threshold": 0.08
+      }
+    ],
+    "clvCriteria": [
+      {
+        "id": "C1",
+        "pass": true,
+        "detail": "nMlWithClv=278",
+        "evidenceClass": "passed"
+      },
+      {
+        "id": "C2",
+        "pass": true,
+        "detail": "meanClv=0.0017845390265699645",
+        "evidenceClass": "passed"
+      },
+      {
+        "id": "C3",
+        "pass": true,
+        "detail": "pctBeatClose=0.45323741007194246",
+        "evidenceClass": "passed"
+      },
+      {
+        "id": "C4",
+        "pass": true,
+        "detail": "home=114 away=164",
+        "evidenceClass": "passed"
+      },
+      {
+        "id": "C5",
+        "pass": true,
+        "detail": "softGatesOk=true",
+        "evidenceClass": "passed"
+      },
+      {
+        "id": "C6",
+        "pass": true,
+        "detail": "E2b_coachPickClv=PASS eligible",
+        "evidenceClass": "passed"
+      }
+    ],
+    "softGates": {
+      "n": 403,
+      "engineBrier": 0.18244176980067497,
+      "marketBrier": 0.17775991926646764,
+      "meanEngineMinusMarket": -0.03549629397068137,
+      "verdict": "PASS_SOFT_GATES_ONLY",
+      "reasons": []
+    },
+    "coachClvDetail": {
+      "nPicks": 278,
+      "homeSelections": 114,
+      "awaySelections": 164,
+      "meanClv": 0.0017845390265699645,
+      "pctBeatClose": 0.45323741007194246,
+      "earlyCachePicks": 278,
+      "selectionRules": [
+        "R1_home_ok",
+        "R2_away_early_cache",
+        "R3_edge_le_12",
+        "R4_price_source"
+      ],
+      "markets": [
+        "h2h_ml_only"
+      ],
+      "spreadsBlocked": true
+    },
+    "uncertainty": {
+      "method": "bootstrap_resample_games_B400",
+      "n": 403,
+      "mlBrierSE": 0.009375092127823321,
+      "deltaVsMarketSE": 0.004332451621776888,
+      "meanClvSE": 0.0013600734635664442
+    },
+    "acceptance": {
+      "finalPass": false,
+      "reason": "Unmet: mlAll=true clvAll=true e4=false",
+      "mlAllPass": true,
+      "clvAllPass": true
+    }
+  },
+  "supportedMatchupExclusions": {
+    "membershipN": 408,
+    "pairedMlCoverage": 403,
+    "emptyBookmakerShells": [
+      "401756933",
+      "401752886",
+      "401752771",
+      "401752776",
+      "401754604"
+    ],
+    "unsupportedOrMissingClose": 5,
+    "notes": [
+      "Supported ML eval cohort = rematched two-sided close/early joins (403)",
+      "5 empty-bookmaker shells explicitly MISSING_DATA (not scored)",
+      "FBS–FCS / unrated withholds: none on scored 403 (harness withhold empty)",
+      "Spreads / totals / ALTs out of scope (blocked separate gates)"
+    ]
+  },
+  "e4": {
+    "status": "OPEN_INSUFFICIENT_DATA",
+    "resolved": false,
+    "requirementsMet": [
+      "R4_behavioral_policy",
+      "R5_no_backfill"
+    ],
+    "requirementsUnmet": [
+      "R1_pre_kick_snapshots",
+      "R2_join_labels",
+      "R3_segment_conservatism"
+    ],
+    "blockers": [
+      "No verified historical pre-kick injury archive for TUNING or FINAL_EVAL games",
+      "SportsDataIO / ScoreTape timing not proven / not purchased (see ncaaf-e4-injury-provider.md)",
+      "Forward snapshot count insufficient for slate-wide capture < kickoff joins",
+      "Segment conservatism unscored on real joins (INSUFFICIENT_DATA)"
+    ]
+  },
+  "e6": {
+    "requested": false,
+    "allowed": false,
+    "reason": "E4 unresolved — E6 must not be requested"
+  },
+  "product": {
+    "ncaafGate": false,
+    "deployOta": false,
+    "unlock": false,
+    "voice": "paused"
+  },
+  "verdict": "ML_METRICS_CLEAR_E4_BLOCKER — do not request E6"
+}

@@ -4,6 +4,7 @@
 
 import { NCAAF_CLEAN_ENGINE_STAMP } from "./stamp.ts";
 import { availabilityStatus } from "./features.ts";
+import { e4ConservativeAdjust, joinE4Labels } from "./e4Availability.ts";
 import type { AvailabilityInput } from "./types.ts";
 import {
   CLEAN_HFA_POINTS,
@@ -54,7 +55,15 @@ export function predictScoreMargin(
     kickoffIso: pregame.kickoffIso,
     availability: opts.availability,
   });
-  const missingOptional: MissingInput[] = [...av.missing];
+  const e4Labels = joinE4Labels({
+    eventId: pregame.eventId,
+    kickoffIso: pregame.kickoffIso,
+    availability: opts.availability,
+  });
+  const missingOptional: MissingInput[] = [
+    ...av.missing,
+    ...e4Labels.missing,
+  ];
 
   const venueUnknown = pregame.venue.kind === "unknown";
   if (venueUnknown) {
@@ -90,8 +99,20 @@ export function predictScoreMargin(
     pregame.away.teamId,
     hfaPoints,
   );
-  const marginSd = cleanMarginSd(uncertainty);
-  const totalSd = cleanTotalSd(uncertainty);
+
+  // E4: usable pre-kick known absences → conservative tilt + σ widen.
+  // Stale/missing → no invented adjustment (tilt 0). Frozen E1 FINAL_EVAL
+  // path does not pass availability, so scored candidate is unchanged.
+  const e4 = e4ConservativeAdjust({
+    kickoffIso: pregame.kickoffIso,
+    availability: opts.availability,
+  });
+  const marginMean = pts.marginMean + e4.marginTiltPoints;
+  const marginSd = cleanMarginSd(uncertainty) * e4.uncertaintyScale;
+  const totalSd = cleanTotalSd(uncertainty) * e4.uncertaintyScale;
+  const totalMean = pts.totalMean;
+  const homeScoreMean = (totalMean + marginMean) / 2;
+  const awayScoreMean = (totalMean - marginMean) / 2;
 
   const featuresUsed = [
     "opp_adj_off_def",
@@ -101,11 +122,11 @@ export function predictScoreMargin(
       : pregame.venue.kind === "neutral"
         ? "venue_neutral_no_hfa"
         : "venue_unknown_hfa_withheld",
+    ...e4.features,
   ];
   if (pregame.rest.homeDaysRest != null || pregame.rest.awayDaysRest != null) {
     featuresUsed.push("rest_days");
   }
-  if (av.usable) featuresUsed.push("availability_snapshot");
 
   // Venue unresolved → not evaluable for supported-input scoring (frozen).
   // Evaluable ≠ production-approved.
@@ -117,15 +138,15 @@ export function predictScoreMargin(
     ok: true,
     evaluableSupported,
     productionReleaseApproved: false,
-    homeScoreMean: pts.homeOff,
-    awayScoreMean: pts.awayOff,
-    marginMean: pts.marginMean,
+    homeScoreMean,
+    awayScoreMean,
+    marginMean,
     marginSd,
-    totalMean: pts.totalMean,
+    totalMean,
     totalSd,
     hfaApplied,
     uncertainty,
-    featuresUsed,
+    featuresUsed: [...new Set(featuresUsed)],
     missingOptional: [...new Set(missingOptional)],
   };
 }
