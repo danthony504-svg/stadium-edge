@@ -101,6 +101,12 @@ export type CoachFailureCategory =
   | "question"
   | "none";
 
+export type CoachReliabilityRequestScope = {
+  sport?: string | null;
+  team?: string | null;
+  kind?: string | null;
+};
+
 export type CoachReliabilityMeta = {
   eventType: CoachEventType;
   sportCategory: CoachSportCategory;
@@ -118,6 +124,20 @@ export type CoachReliabilityMeta = {
   rootCause: string | null;
   /** Folded duration samples for percentile digest (capped). */
   durationSamples?: number[];
+  /** Expo OTA update id from the reporting client (not credentials). */
+  updateId?: string | null;
+  /** Expo channel (production / preview / …). */
+  channel?: string | null;
+  /** Baked mobile git SHA (EXPO_PUBLIC_GIT_COMMIT). */
+  bakedSha?: string | null;
+  /** Team/sport scope — never raw user ask text. */
+  requestScope?: CoachReliabilityRequestScope | null;
+  /** Sanitized candidate fingerprints. */
+  candidateIds?: string[] | null;
+  /** Distinct game labels. */
+  gameIds?: string[] | null;
+  /** Scan/sim failure code when present. */
+  simFailureReason?: string | null;
 };
 
 const MAX_SAMPLES = 64;
@@ -286,13 +306,16 @@ export function mapScanFailureCode(code: string): {
       };
     case "GAME_SIMS_TIMED_OUT":
     case "GAME_SIMS_FETCH_EMPTY":
+    case "GAME_SIMS_STAMP_REJECTED":
     case "GAME_SIMS_ALL_NULL":
     case "GAME_LINES_NO_SIM_GRADE":
     case "PROP_ALL_NO_SIM_GRADE":
       return {
         eventType: "coach_simulation_failure",
         failureReason:
-          code === "GAME_SIMS_FETCH_EMPTY" || code === "GAME_SIMS_ALL_NULL"
+          code === "GAME_SIMS_FETCH_EMPTY" ||
+          code === "GAME_SIMS_ALL_NULL" ||
+          code === "GAME_SIMS_STAMP_REJECTED"
             ? "missing_sim_output"
             : "simulation_failure",
         alertable: true,
@@ -369,6 +392,30 @@ export function coachEventSummary(meta: CoachReliabilityMeta): string {
   );
 }
 
+function sanitizeRequestScope(
+  scope: CoachReliabilityRequestScope | null | undefined,
+): CoachReliabilityRequestScope | null {
+  if (!scope || typeof scope !== "object") return null;
+  const out: CoachReliabilityRequestScope = {};
+  if (scope.sport) out.sport = sanitizeReliabilityText(String(scope.sport), 40);
+  if (scope.team) out.team = sanitizeReliabilityText(String(scope.team), 80);
+  if (scope.kind) out.kind = sanitizeReliabilityText(String(scope.kind), 40);
+  return out.sport || out.team || out.kind ? out : null;
+}
+
+function sanitizeIdList(
+  list: unknown,
+  maxItems: number,
+  maxLen: number,
+): string[] | null {
+  if (!Array.isArray(list) || !list.length) return null;
+  const out = list
+    .map((s) => sanitizeReliabilityText(String(s ?? ""), maxLen))
+    .filter(Boolean)
+    .slice(0, maxItems);
+  return out.length ? out : null;
+}
+
 export function serializeCoachMeta(meta: CoachReliabilityMeta): string {
   const safe: CoachReliabilityMeta = {
     eventType: meta.eventType,
@@ -400,8 +447,21 @@ export function serializeCoachMeta(meta: CoachReliabilityMeta): string {
           .map((n) => Math.max(0, Math.round(n)))
           .slice(-MAX_SAMPLES)
       : undefined,
+    updateId: meta.updateId
+      ? sanitizeReliabilityText(meta.updateId, 120)
+      : null,
+    channel: meta.channel ? sanitizeReliabilityText(meta.channel, 40) : null,
+    bakedSha: meta.bakedSha
+      ? sanitizeReliabilityText(meta.bakedSha, 64)
+      : null,
+    requestScope: sanitizeRequestScope(meta.requestScope),
+    candidateIds: sanitizeIdList(meta.candidateIds, 24, 120),
+    gameIds: sanitizeIdList(meta.gameIds, 12, 120),
+    simFailureReason: meta.simFailureReason
+      ? sanitizeReliabilityText(meta.simFailureReason, 80)
+      : null,
   };
-  return JSON.stringify(safe).slice(0, 1800);
+  return JSON.stringify(safe).slice(0, 2400);
 }
 
 export function parseCoachMeta(raw: string | null | undefined): CoachReliabilityMeta | null {
@@ -438,6 +498,16 @@ export function parseCoachMeta(raw: string | null | undefined): CoachReliability
       durationSamples: Array.isArray(j.durationSamples)
         ? j.durationSamples.filter((n): n is number => typeof n === "number")
         : undefined,
+      updateId: typeof j.updateId === "string" ? j.updateId : null,
+      channel: typeof j.channel === "string" ? j.channel : null,
+      bakedSha: typeof j.bakedSha === "string" ? j.bakedSha : null,
+      requestScope: sanitizeRequestScope(
+        j.requestScope as CoachReliabilityRequestScope | null | undefined,
+      ),
+      candidateIds: sanitizeIdList(j.candidateIds, 24, 120),
+      gameIds: sanitizeIdList(j.gameIds, 12, 120),
+      simFailureReason:
+        typeof j.simFailureReason === "string" ? j.simFailureReason : null,
     };
   } catch {
     return null;

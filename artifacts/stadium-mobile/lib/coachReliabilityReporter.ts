@@ -23,6 +23,13 @@ const REPORT_TIMEOUT_MS = 4_000;
 const MAX_IN_FLIGHT = 2;
 let inFlight = 0;
 
+export type CoachReliabilityRequestScope = {
+  sport?: string | null;
+  team?: string | null;
+  /** High-level ask class only — never raw user text. */
+  kind?: string | null;
+};
+
 export type CoachReliabilityReportInput = {
   requestId?: string | null;
   sportCategory?: string | null;
@@ -48,6 +55,20 @@ export type CoachReliabilityReportInput = {
    * Generated when omitted. Does not change classification.
    */
   correlationId?: string | null;
+  /** Expo OTA update id when available (no credentials). */
+  updateId?: string | null;
+  /** Expo channel (production / preview / …). */
+  channel?: string | null;
+  /** Baked git SHA from EXPO_PUBLIC_GIT_COMMIT. */
+  bakedSha?: string | null;
+  /** Team/sport scope for the ask — never raw user text. */
+  requestScope?: CoachReliabilityRequestScope | null;
+  /** Sanitized candidate fingerprints (game|market|pick), capped. */
+  candidateIds?: readonly string[] | null;
+  /** Distinct game labels on the ticket / slate, capped. */
+  gameIds?: readonly string[] | null;
+  /** Scan/sim failure code (same vocabulary as scanFailureCode). */
+  simFailureReason?: string | null;
 };
 
 function eventTypeCandidateFromBody(
@@ -65,6 +86,43 @@ function eventTypeCandidateFromBody(
  * Classify + report a completed board scan / parlay build outcome.
  * Never throws. No-ops in Node tests / CI (same gate as crash reporter).
  */
+async function resolveReliabilityOtaFields(): Promise<{
+  updateId: string | null;
+  channel: string | null;
+  bakedSha: string | null;
+}> {
+  const bakedSha =
+    (typeof process !== "undefined" &&
+      process.env?.EXPO_PUBLIC_GIT_COMMIT &&
+      String(process.env.EXPO_PUBLIC_GIT_COMMIT).trim()) ||
+    null;
+  try {
+    const Updates = await import("expo-updates");
+    let channelHeader: string | undefined;
+    try {
+      const Constants = (await import("expo-constants")).default;
+      const hdr =
+        Constants?.expoConfig?.updates?.requestHeaders?.["expo-channel-name"];
+      if (typeof hdr === "string" && hdr.trim()) channelHeader = hdr.trim();
+    } catch {
+      // optional
+    }
+    const isEmbeddedLaunch = !!Updates.isEmbeddedLaunch;
+    return {
+      updateId: Updates.updateId
+        ? String(Updates.updateId)
+        : isEmbeddedLaunch
+          ? "embedded"
+          : null,
+      channel:
+        (Updates.channel && String(Updates.channel)) || channelHeader || null,
+      bakedSha,
+    };
+  } catch {
+    return { updateId: null, channel: null, bakedSha };
+  }
+}
+
 export function reportCoachScanReliability(
   input: CoachReliabilityReportInput,
 ): void {
@@ -79,6 +137,7 @@ export function reportCoachScanReliability(
         ? input.returnedLegCount
         : (input.picks?.length ?? 0);
 
+    // Sync body first (tests + diag); OTA fields filled before POST when missing.
     const body = buildCoachReliabilityBody({
       ...input,
       correlationId,
@@ -127,13 +186,31 @@ export function reportCoachScanReliability(
     inFlight += 1;
     void (async () => {
       try {
+        const ota = await resolveReliabilityOtaFields();
+        const postBody = buildCoachReliabilityBody({
+          ...input,
+          correlationId,
+          updateId: input.updateId ?? ota.updateId,
+          channel: input.channel ?? ota.channel,
+          bakedSha: input.bakedSha ?? ota.bakedSha,
+        });
+        if (!postBody) {
+          logCoachRelDiagPostResult({
+            correlationId,
+            requestId,
+            httpStatus: null,
+            success: false,
+            error: "no_body",
+          });
+          return;
+        }
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), REPORT_TIMEOUT_MS);
         try {
           const res = await fetch(`${API_BASE}/reliability/coach-events`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify(postBody),
             signal: ac.signal,
           });
           logCoachRelDiagPostResult({
@@ -162,6 +239,63 @@ export function reportCoachScanReliability(
   }
 }
 
+/** Sanitize enrichment fields — never credentials, emails, or raw ask text. */
+export function reliabilityEnrichmentFields(
+  input: CoachReliabilityReportInput,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const updateId =
+    (input.updateId && String(input.updateId).trim()) ||
+    null;
+  const channel =
+    (input.channel && String(input.channel).trim()) ||
+    null;
+  const bakedSha =
+    (input.bakedSha && String(input.bakedSha).trim()) ||
+    (typeof process !== "undefined" &&
+    process.env?.EXPO_PUBLIC_GIT_COMMIT &&
+    String(process.env.EXPO_PUBLIC_GIT_COMMIT).trim()) ||
+    null;
+  if (updateId) out.updateId = String(updateId).slice(0, 120);
+  if (channel) out.channel = String(channel).slice(0, 40);
+  if (bakedSha) out.bakedSha = String(bakedSha).slice(0, 64);
+
+  if (input.requestScope && typeof input.requestScope === "object") {
+    const scope: Record<string, string> = {};
+    if (input.requestScope.sport) {
+      scope.sport = String(input.requestScope.sport).slice(0, 40);
+    }
+    if (input.requestScope.team) {
+      scope.team = String(input.requestScope.team).slice(0, 80);
+    }
+    if (input.requestScope.kind) {
+      scope.kind = String(input.requestScope.kind).slice(0, 40);
+    }
+    if (Object.keys(scope).length) out.requestScope = scope;
+  }
+
+  if (Array.isArray(input.candidateIds) && input.candidateIds.length) {
+    out.candidateIds = input.candidateIds
+      .map((s) => String(s ?? "").trim().slice(0, 120))
+      .filter(Boolean)
+      .slice(0, 24);
+  }
+  if (Array.isArray(input.gameIds) && input.gameIds.length) {
+    out.gameIds = input.gameIds
+      .map((s) => String(s ?? "").trim().slice(0, 120))
+      .filter(Boolean)
+      .slice(0, 12);
+  }
+
+  const simReason =
+    (input.simFailureReason && String(input.simFailureReason).trim()) ||
+    (input.scanFailureCode && String(input.scanFailureCode).trim()) ||
+    null;
+  if (simReason) out.simFailureReason = simReason.slice(0, 80);
+
+  return out;
+}
+
 /** Pure: build POST body or null when there is nothing alertable/digest-worthy. */
 export function buildCoachReliabilityBody(
   input: CoachReliabilityReportInput,
@@ -183,6 +317,7 @@ export function buildCoachReliabilityBody(
       ? String(input.correlationId).trim().slice(0, 80)
       : null;
   const corr = correlationId ? { correlationId } : {};
+  const enrich = reliabilityEnrichmentFields(input);
 
   if (input.scanMissing || input.timedOut) {
     return {
@@ -199,6 +334,7 @@ export function buildCoachReliabilityBody(
       affectedGame,
       rootCause: input.rootCause ?? null,
       ...corr,
+      ...enrich,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -220,6 +356,7 @@ export function buildCoachReliabilityBody(
       affectedGame,
       rootCause: input.rootCause ?? "player_game_grounding_mismatch",
       ...corr,
+      ...enrich,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -239,6 +376,7 @@ export function buildCoachReliabilityBody(
       affectedGame,
       rootCause: input.rootCause ?? input.scanFailureDetail ?? null,
       ...corr,
+      ...enrich,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -264,6 +402,7 @@ export function buildCoachReliabilityBody(
       affectedGame,
       rootCause: input.rootCause ?? "thin_slate_or_quality_bar",
       ...corr,
+      ...enrich,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -283,6 +422,7 @@ export function buildCoachReliabilityBody(
       affectedGame,
       rootCause: input.rootCause ?? "zero_results",
       ...corr,
+      ...enrich,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }
@@ -301,6 +441,7 @@ export function buildCoachReliabilityBody(
       affectedGame,
       rootCause: input.rootCause ?? null,
       ...corr,
+      ...enrich,
       ...(input.testFixture ? { testFixture: true } : {}),
     };
   }

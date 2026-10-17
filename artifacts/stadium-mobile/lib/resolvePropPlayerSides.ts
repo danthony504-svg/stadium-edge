@@ -12,6 +12,34 @@ function normAbbr(s: string | null | undefined): string {
     .replace(/[^A-Z0-9]/g, "");
 }
 
+/**
+ * Vendor / feed aliases → canonical ESPN-style abbr used in nick maps.
+ * Odds / some books use TBR for Rays; keep grounding aligned with ESPN TB.
+ */
+const TEAM_ABBR_ALIASES: Record<string, string> = {
+  TBR: "TB",
+  TAM: "TB",
+  TBA: "TB",
+  CLV: "CLE",
+  CLEGUA: "CLE",
+  WSH: "WSH",
+  WAS: "WSH",
+  CWS: "CHW",
+  KCR: "KC",
+  KAN: "KC",
+  SDP: "SD",
+  SFG: "SF",
+  AZ: "ARI",
+  ARZ: "ARI",
+};
+
+/** Normalize feed abbrs before nick matching / side resolve. */
+export function normalizeTeamAbbr(abbr: string | null | undefined): string {
+  const a = normAbbr(abbr);
+  if (!a) return "";
+  return TEAM_ABBR_ALIASES[a] ?? a;
+}
+
 /** Common ESPN MLB abbreviations → nickname tokens for soft matching. */
 const MLB_ABBR_NICKS: Record<string, string[]> = {
   ARI: ["diamondbacks", "dbacks"],
@@ -55,8 +83,16 @@ function teamWords(name: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+/** Exported for reliability grounding fallback (all sports nick maps). */
+export function teamAbbrMatchesTeamName(
+  abbr: string,
+  teamName: string,
+): boolean {
+  return abbrMatchesTeam(abbr, teamName);
+}
+
 function abbrMatchesTeam(abbr: string, teamName: string): boolean {
-  const a = normAbbr(abbr);
+  const a = normalizeTeamAbbr(abbr);
   if (!a || !teamName) return false;
   const compact = teamWords(teamName);
   if (compact.includes(a.toLowerCase())) return true;
@@ -114,8 +150,8 @@ export function resolvePropPlayerSides(opts: {
     if (hit.teamName) return hit;
   }
 
-  // 2) Props-feed abbreviation.
-  const ab = String(opts.teamAbbr ?? "").trim();
+  // 2) Props-feed abbreviation (aliases normalized — TBR→TB, etc.).
+  const ab = normalizeTeamAbbr(opts.teamAbbr);
   if (ab) {
     const awayHit = abbrMatchesTeam(ab, away);
     const homeHit = abbrMatchesTeam(ab, home);
@@ -123,7 +159,7 @@ export function resolvePropPlayerSides(opts: {
     if (homeHit && !awayHit) return { teamName: home, oppName: away };
     // Ambiguous short nick (sox) — try longer White Sox / Red Sox disambiguation
     // via the abbr itself.
-    const a = normAbbr(ab);
+    const a = ab;
     if (a === "CHW" || a === "CWS") {
       const awayWs = teamWords(away).includes("white");
       const homeWs = teamWords(home).includes("white");
