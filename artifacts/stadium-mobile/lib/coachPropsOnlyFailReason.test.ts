@@ -478,8 +478,8 @@ test("NFL vs NCAAF: partial / empty / full ticket sport labels stay separated", 
   assert.equal(COACH_SIM_MIN_CONFIDENCE, 52);
   const nflAsk = "5 leg NFL player props";
   const ncaafAsk = "5 leg college football player props";
-  // Shared props-only opt-in is true for BOTH — label must not reuse it.
-  assert.equal(askAllowsNcaafPlayerProps(nflAsk), true);
+  // NFL-only must not opt into NCAAF props; label is independent of that flag.
+  assert.equal(askAllowsNcaafPlayerProps(nflAsk), false);
   assert.equal(askAllowsNcaafPlayerProps(ncaafAsk), true);
   assert.equal(propsOnlySportLabelFromAsk(nflAsk), "NFL");
   assert.equal(propsOnlySportLabelFromAsk(ncaafAsk), "college football");

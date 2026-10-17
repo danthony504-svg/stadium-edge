@@ -46,6 +46,11 @@ import {
 import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
 import { propsOnlySportLabelFromAsk } from "./boardScanPropDelivery.ts";
 import {
+  filterPicksByAllowedSports,
+  filterPoolByAllowedSports,
+  resolveAuthoritativeCandidateSport,
+} from "./coachAskSportScope.ts";
+import {
   playerTrendMomentum,
   scoreLineShopping,
   scoreLineValue,
@@ -466,6 +471,7 @@ async function prefetchCandidateHistory(
   candidates: ParsedPick[],
   pool: PropPoolEntry[],
   seeded: Record<string, PlayerHistorySlice>,
+  espnGames?: EspnGame[],
 ): Promise<Record<string, PlayerHistorySlice>> {
   const out = { ...seeded };
   const rows: { player: string; athleteId: string; sport: string }[] = [];
@@ -481,10 +487,17 @@ async function prefetchCandidateHistory(
     const fromPool = pool.find(
       (e) => e.player === p.player && String(e.athleteId ?? "") === id,
     );
+    // Never invent "nfl" for missing tags — resolve from pool/pick/event or skip.
     const sport =
       normalizeHistorySport(fromPool?.sport) ||
       normalizeHistorySport(p.sport) ||
-      "nfl";
+      resolveAuthoritativeCandidateSport({
+        sport: p.sport ?? fromPool?.sport,
+        game: p.game,
+        espnGames,
+      }) ||
+      "";
+    if (!sport) continue;
     rows.push({ player: p.player, athleteId: id, sport });
     if (rows.length >= 48) break;
   }
@@ -595,6 +608,11 @@ export type FootballPropsOnlyBuildOpts = {
   askText?: string | null;
   ticketStyle?: string | null;
   allowRareMultiCount?: boolean;
+  /**
+   * Immutable ask sport scope (from resolveImmutableAskSportScope).
+   * Belted before sim/qualify/seat; missing tags fail closed.
+   */
+  allowedSports?: readonly string[];
 };
 
 export type FootballPropsOnlyResult = {
@@ -611,13 +629,23 @@ export type FootballPropsOnlyResult = {
 export async function buildFootballPropsOnlyTicket(
   opts: FootballPropsOnlyBuildOpts,
 ): Promise<FootballPropsOnlyResult> {
-  const propPoolSize = opts.pool.length;
-  const athleteLinked = countAthleteLinked(opts.pool);
-  const sports = countPoolSports(opts.pool);
+  const sportScope = {
+    allowedSports: opts.allowedSports?.length
+      ? opts.allowedSports
+      : [],
+  };
+  // Fail closed when caller provides scope: unknown/other-league rows never sim.
+  const scopedPool =
+    sportScope.allowedSports.length > 0
+      ? filterPoolByAllowedSports(opts.pool, sportScope)
+      : scopedPool;
+  const propPoolSize = scopedPool.length;
+  const athleteLinked = countAthleteLinked(scopedPool);
+  const sports = countPoolSports(scopedPool);
   const oddsSlack = opts.recoveryFill
     ? PROPS_ONLY_RECOVERY_ODDS_SLACK
     : PROPS_ONLY_ODDS_SLACK;
-  const candidates = selectFootballPropsOnlyCandidates(opts.pool, opts.target);
+  const candidates = selectFootballPropsOnlyCandidates(scopedPool, opts.target);
 
   if (!candidates.length) {
     const failDiag = buildPropsOnlyFailDiag({
@@ -654,8 +682,9 @@ export async function buildFootballPropsOnlyTicket(
 
   const seededHistory = await prefetchCandidateHistory(
     candidates,
-    opts.pool,
+    scopedPool,
     opts.playerHistory ?? {},
+    opts.espnGames,
   );
 
   const localHistories: Record<string, PropsOnlyHistorySlice | undefined> = {};
@@ -671,13 +700,13 @@ export async function buildFootballPropsOnlyTicket(
   const propHits = gradeFootballPropsOnlyFromHistory(
     candidates,
     localHistories,
-    opts.pool,
+    scopedPool,
   );
-  softClipPropsOnlyHits(candidates, propHits, opts.pool);
+  softClipPropsOnlyHits(candidates, propHits, scopedPool);
 
   // Server MC in parallel batches for still-null — never overwrite local grades.
   const stillNull = candidates.filter((p) => {
-    const row = propsOnlyPoolRowForPick(p, opts.pool);
+    const row = propsOnlyPoolRowForPick(p, scopedPool);
     const h = lookupPropsOnlyHit(p, row, propHits);
     return h == null || !Number.isFinite(h);
   });
@@ -692,7 +721,7 @@ export async function buildFootballPropsOnlyTicket(
         const serverRows = await Promise.race([
           fetchPropSimulations(
             batch,
-            opts.pool,
+            scopedPool,
             {
               tier: "deep",
               teamIdsByGame: opts.teamIdMap as Map<string, PropSimTeamIds>,
@@ -718,19 +747,19 @@ export async function buildFootballPropsOnlyTicket(
             });
           }
         }
-        softClipPropsOnlyHits(batch, propHits, opts.pool);
+        softClipPropsOnlyHits(batch, propHits, scopedPool);
       } catch {
         /* keep local */
       }
     }
   }
 
-  const nullReasons = collectNullReasons(candidates, propHits, opts.pool);
+  const nullReasons = collectNullReasons(candidates, propHits, scopedPool);
 
   // Count graded BEFORE odds filter — phone empties were scoring 0 because
   // wrong-side / null-line never produced a gradeable key.
   const gradedCandidates = candidates.filter((p) =>
-    propsOnlyPickHasGrade(p, propHits, opts.pool),
+    propsOnlyPickHasGrade(p, propHits, scopedPool),
   );
   const propLegsScored = gradedCandidates.length;
 
@@ -750,14 +779,14 @@ export async function buildFootballPropsOnlyTicket(
   const bestSides = collapsePropsOnlyToBestEvSides(
     candidates,
     propHits,
-    opts.pool,
+    scopedPool,
     oddsSlack,
   ).flatMap(
     (pick) => {
-      const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
+      const row = propsOnlyPoolRowForPick(pick, scopedPool) as PropPoolEntry | undefined;
       const sport = pick.sport ?? row?.sport;
       const resolvePack = (p: ParsedPick) => {
-        const r = propsOnlyPoolRowForPick(p, opts.pool) as PropPoolEntry | undefined;
+        const r = propsOnlyPoolRowForPick(p, scopedPool) as PropPoolEntry | undefined;
         const sp = p.sport ?? r?.sport ?? sport;
         const abbr = r?.teamAbbr ?? p.teamAbbr;
         return {
@@ -867,7 +896,7 @@ export async function buildFootballPropsOnlyTicket(
   );
   const propScored: BoardScoredLeg[] = [];
   for (const pick of bestSides) {
-    const row = propsOnlyPoolRowForPick(pick, opts.pool) as PropPoolEntry | undefined;
+    const row = propsOnlyPoolRowForPick(pick, scopedPool) as PropPoolEntry | undefined;
     const raw = lookupPropsOnlyHit(pick, row, propHits);
     const reliability = lookupPropsOnlyHitReliability(pick, row, propHits);
     const leg = scoredLegFromHit(pick, raw, row, rushCtx, oddsSlack, reliability);
@@ -875,12 +904,17 @@ export async function buildFootballPropsOnlyTicket(
   }
   propScored.sort(comparePropsOnlyLegsByReliableEv);
 
-  const picks = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack, {
+  const stagedRaw = stageFootballPropsOnlyLegs(propScored, opts.target, oddsSlack, {
     allowRareCountFamilyStack: !!opts.allowRareCountFamilyStack,
     askText: opts.askText,
     ticketStyle: opts.ticketStyle,
     allowRareMultiCount: opts.allowRareMultiCount,
   });
+  // Final seat belt — ALT/backfill cannot override immutable sport scope.
+  const picks =
+    sportScope.allowedSports.length > 0
+      ? filterPicksByAllowedSports(stagedRaw, sportScope, opts.espnGames)
+      : stagedRaw;
   const stageAudit = takePropsOnlyStageAudit();
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {

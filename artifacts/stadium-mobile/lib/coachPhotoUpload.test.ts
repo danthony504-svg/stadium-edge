@@ -60,9 +60,13 @@ test("phone ask: 5 leg td / anytime td / first td market locks", () => {
   );
 });
 
-test("touchdown ask allows NCAAF player props", () => {
-  assert.equal(askAllowsNcaafPlayerProps("5 leg touchdown"), true);
-  assert.equal(askAllowsNcaafPlayerProps("5 leg td"), true);
+test("touchdown ask allows NCAAF player props only with college/football framing", () => {
+  // Bare TD wording must not authorize NCAAF (sport-scope hardening).
+  assert.equal(askAllowsNcaafPlayerProps("5 leg touchdown"), false);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg td"), false);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg college football touchdowns"), true);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg football td"), true);
+  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL touchdowns"), false);
 });
 
 test("wantsImproveSlip mirrors better-one / do better phrasing", () => {

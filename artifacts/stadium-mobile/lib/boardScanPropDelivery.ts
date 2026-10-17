@@ -86,8 +86,9 @@ export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean 
  * Display sport label for props-only empty/short terminal notes.
  *
  * Must NOT use askAllowsNcaafPlayerProps — that flag means "allow CFB player
- * prop rows in the pool" and is true for any "player props" ask, including NFL.
- * Inferring "college football" from that shared flag mislabels NFL shortfalls.
+ * prop rows in the pool" under college/mixed-football framing, and must not
+ * drive user-facing sport wording. Inferring "college football" from that
+ * shared flag mislabels NFL shortfalls.
  */
 export function propsOnlySportLabelFromAsk(text?: string | null): string {
   const t = String(text ?? "").toLowerCase();
@@ -104,13 +105,14 @@ export function propsOnlySportLabelFromAsk(text?: string | null): string {
 }
 
 /**
- * True when the user explicitly asked for CFB player props / skill markets.
- * Bare "8 leg college" / "8 leg Collage" stays on team spreads / totals /
- * period lines — college books rarely post player yards boards.
+ * True when the ask is framed to include CFB player props / skill markets.
  *
- * Explicit market-family locks (completions, rush attempts, longest rush, …)
- * count as opt-in even when the college game-lines default would otherwise
- * apply — named market intent beats the automatic board-mode default.
+ * Requires college or mixed-football framing — never authorizes NCAAF from bare
+ * "player props" / "touchdowns" alone, and never from explicit NFL-only asks.
+ * Bare "8 leg college" stays on team spreads / totals / period lines.
+ *
+ * Sport *scope* (NFL-only vs NCAAF-only vs both) is resolveImmutableAskSportScope
+ * — do not use this flag as the immutable league belt.
  */
 export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   const t = String(text ?? "")
@@ -123,6 +125,22 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   if (/\bteam\s+props?\b/.test(t) && !/\bplayer\s+props?\b/.test(t)) return false;
   if (/\bgame\s*lines?\s+only\b/.test(t)) return false;
   if (/\bsides?\s+only\b/.test(t)) return false;
+
+  const hasNfl = /\bnfl\b/.test(t);
+  const hasCollege =
+    /\bncaaf\b|\bcfb\b|\bcollege\s+football\b|\bcollage\s+football\b/.test(t) ||
+    (/\b(?:college|collage)\b/.test(t) &&
+      !/\b(?:college|collage)\s+basketball\b/.test(t) &&
+      !/\bncaab\b|\bcbb\b/.test(t));
+  // Explicit NFL without college tokens must never opt into NCAAF props.
+  if (hasNfl && !hasCollege) return false;
+  // Need college framing OR generic "football" (mixed board) — not bare props.
+  const collegeOrMixedFootball =
+    askIsCollegeFootballOnly(t) ||
+    hasCollege ||
+    (/\bfootball\b/.test(t) && !hasNfl);
+  if (!collegeOrMixedFootball) return false;
+
   if (/\bplayer\s+props?\b/.test(t)) return true;
   if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
@@ -147,7 +165,13 @@ export function askAllowsNcaafPlayerProps(text?: string | null): boolean {
   return false;
 }
 
-/** Drop NCAAF player-prop rows when the ask prefers college team markets. */
+/**
+ * Drop NCAAF player-prop rows when the ask prefers college team markets
+ * (bare college without player-prop opt-in).
+ *
+ * Not a symmetric NFL↔NCAAF sport belt — use filterPoolByAllowedSports /
+ * resolveImmutableAskSportScope for immutable league scope.
+ */
 export function filterNcaafPlayerPropsUnlessAsked<
   T extends { sport?: string | null; isProp?: boolean },
 >(rows: T[], askText?: string | null): T[] {

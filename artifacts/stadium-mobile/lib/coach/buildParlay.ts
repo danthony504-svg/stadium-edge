@@ -92,6 +92,11 @@ import {
   shouldRecoverPropsOnlyWithFootballSkillBoard,
 } from "@/lib/coachFootballPropsOnlyRecovery";
 import {
+  filterPicksByAllowedSports,
+  filterPoolByAllowedSports,
+  resolveImmutableAskSportScope,
+} from "@/lib/coachAskSportScope";
+import {
   preferPropsOnlyFailDiag,
   propsOnlyTerminalEmptyNote,
   reconcileCoachTerminalNote,
@@ -311,6 +316,18 @@ export async function buildCoachParlay(opts: {
   const collegeTeamPropPool = askAllowsNcaafPlayerProps(opts.askText)
     ? constrainedPropPool
     : filterNcaafPlayerPropsUnlessAsked(constrainedPropPool, opts.askText);
+  // Immutable league belt — explicit NFL/NCAAF never admit the other league;
+  // multi-sport boards keep inputs.sports. Applied before sim/seat/recovery.
+  const askSportScope = {
+    allowedSports: resolveImmutableAskSportScope({
+      askText: opts.askText,
+      boardSports: inputs.sports,
+    }),
+  };
+  const scopedPropPool = filterPoolByAllowedSports(
+    collegeTeamPropPool,
+    askSportScope,
+  );
   const hrBoardAsk =
     propsOnly &&
     (marketConstraint.allowedMarketKeys ?? []).some((k) => isBatterHomeRunMarket(k));
@@ -318,8 +335,8 @@ export async function buildCoachParlay(opts: {
   let mlbGameEnv: Record<string, unknown> | undefined;
   // Home-run asks want scorers — drop Under/No so MC budget hits Over 0.5.
   const activePropPool = hrBoardAsk
-    ? filterHrScorerPoolEntries(collegeTeamPropPool)
-    : collegeTeamPropPool;
+    ? filterHrScorerPoolEntries(scopedPropPool)
+    : scopedPropPool;
   const propPoolSize = activePropPool.length;
 
   const hasMlbProps = activePropPool.some(
@@ -472,24 +489,33 @@ export async function buildCoachParlay(opts: {
       askText: opts.askText,
       ticketStyle: propsOnlyTicketStyle,
       allowRareMultiCount,
+      allowedSports: askSportScope.allowedSports,
       onPartialPicks: (picks) => {
         opts.onPartialPicks?.(
-          filterPicksForCoachAskTeams(
-            filterPicksByAskMarketConstraint(picks, marketConstraint),
-            inputs.teamScope,
-            inputs.excludedTeams,
+          filterPicksByAllowedSports(
+            filterPicksForCoachAskTeams(
+              filterPicksByAskMarketConstraint(picks, marketConstraint),
+              inputs.teamScope,
+              inputs.excludedTeams,
+            ),
+            askSportScope,
+            inputs.espnGames,
           ),
         );
       },
     });
     let propsFailDiag = built.failDiag;
-    let picks = filterPicksForCoachAskTeams(
-      filterPicksByAskMarketConstraint(
-        selectFinalCoachParlayPicks(built.picks),
-        marketConstraint,
+    let picks = filterPicksByAllowedSports(
+      filterPicksForCoachAskTeams(
+        filterPicksByAskMarketConstraint(
+          selectFinalCoachParlayPicks(built.picks),
+          marketConstraint,
+        ),
+        inputs.teamScope,
+        inputs.excludedTeams,
       ),
-      inputs.teamScope,
-      inputs.excludedTeams,
+      askSportScope,
+      inputs.espnGames,
     );
 
     // Locked market family graded but staged 0 — recover with the SAME allowlist
@@ -499,9 +525,9 @@ export async function buildCoachParlay(opts: {
     const isMarketLocked = lockedKeys != null && lockedKeys.length > 0;
     // Canonical lock label from EXPLICIT_MARKET_LOCK_RULES (any sport/family).
     const lockedMarketLabel = lockedMarketLabelForAsk(opts.askText) ?? "market";
-    // Immutable ask sport scope — recovery must not widen beyond board sports
+    // Immutable ask sport scope — recovery must not widen beyond resolved sports
     // (college player props must never seat NFL skill rows from a mixed pool).
-    const recoverySportScope = { allowedSports: inputs.sports };
+    const recoverySportScope = askSportScope;
     const recoverySourcePool = filterPoolByFootballRecoverySports(
       askAllowsNcaafPlayerProps(opts.askText)
         ? inputs.propPool
@@ -539,25 +565,34 @@ export async function buildCoachParlay(opts: {
         recoveryFill: true,
         allowRareCountFamilyStack,
         askText: opts.askText,
+        allowedSports: askSportScope.allowedSports,
         onPartialPicks: (partial) => {
           // Preserve the original market lock when present.
           // Scope filter before UI buffer — same as primary props-only path.
           opts.onPartialPicks?.(
-            filterPicksForCoachAskTeams(
-              filterPicksByAskMarketConstraint(partial, marketConstraint),
-              inputs.teamScope,
-              inputs.excludedTeams,
+            filterPicksByAllowedSports(
+              filterPicksForCoachAskTeams(
+                filterPicksByAskMarketConstraint(partial, marketConstraint),
+                inputs.teamScope,
+                inputs.excludedTeams,
+              ),
+              askSportScope,
+              inputs.espnGames,
             ),
           );
         },
       });
-      const recoveredPicks = filterPicksForCoachAskTeams(
-        filterPicksByAskMarketConstraint(
-          selectFinalCoachParlayPicks(recovered.picks),
-          marketConstraint,
+      const recoveredPicks = filterPicksByAllowedSports(
+        filterPicksForCoachAskTeams(
+          filterPicksByAskMarketConstraint(
+            selectFinalCoachParlayPicks(recovered.picks),
+            marketConstraint,
+          ),
+          inputs.teamScope,
+          inputs.excludedTeams,
         ),
-        inputs.teamScope,
-        inputs.excludedTeams,
+        askSportScope,
+        inputs.espnGames,
       );
       propsFailDiag = preferPropsOnlyFailDiag(propsFailDiag, recovered.failDiag);
       if (recoveredPicks.length > 0) {
@@ -593,25 +628,34 @@ export async function buildCoachParlay(opts: {
           recoveryFill: true,
           allowRareCountFamilyStack,
           askText: opts.askText,
+          allowedSports: askSportScope.allowedSports,
           onPartialPicks: (partial) => {
             opts.onPartialPicks?.(
-              filterPicksForCoachAskTeams(
-                filterPicksByAskMarketConstraint(partial, marketConstraint),
-                inputs.teamScope,
-                inputs.excludedTeams,
+              filterPicksByAllowedSports(
+                filterPicksForCoachAskTeams(
+                  filterPicksByAskMarketConstraint(partial, marketConstraint),
+                  inputs.teamScope,
+                  inputs.excludedTeams,
+                ),
+                askSportScope,
+                inputs.espnGames,
               ),
             );
           },
         });
         // Never let preferred-pool ODDS_GATE wipe skill-board CONFIDENCE_GATE.
         propsFailDiag = preferPropsOnlyFailDiag(propsFailDiag, softPreferred.failDiag);
-        const softPicks = filterPicksForCoachAskTeams(
-          filterPicksByAskMarketConstraint(
-            selectFinalCoachParlayPicks(softPreferred.picks),
-            marketConstraint,
+        const softPicks = filterPicksByAllowedSports(
+          filterPicksForCoachAskTeams(
+            filterPicksByAskMarketConstraint(
+              selectFinalCoachParlayPicks(softPreferred.picks),
+              marketConstraint,
+            ),
+            inputs.teamScope,
+            inputs.excludedTeams,
           ),
-          inputs.teamScope,
-          inputs.excludedTeams,
+          askSportScope,
+          inputs.espnGames,
         );
         if (softPicks.length > 0) {
           picks = softPicks;
@@ -817,7 +861,11 @@ export async function buildCoachParlay(opts: {
     gameLinesOnly,
     collegeTeamMarketStacks: collegeTeamMarketStacks || undefined,
     requirePropMix,
-    excludeNcaafPlayerProps: !askAllowsNcaafPlayerProps(opts.askText),
+    // Strip NCAAF player props on expand only when NCAAF is outside immutable scope
+    // (explicit NFL / non-football boards). Do not key this off player-prop wording.
+    excludeNcaafPlayerProps: !askSportScope.allowedSports
+      .map((s) => String(s).toLowerCase())
+      .includes("ncaaf"),
     mlbPlatoon,
     mlbGameEnv,
     oppRushDefense: Object.keys(oppRushDefense).length ? oppRushDefense : undefined,
@@ -950,13 +998,17 @@ export async function buildCoachParlay(opts: {
 
   const rawPicks = scan?.picks?.length ? [...scan.picks].slice(0, target) : [];
   const teamScope = inputs.teamScope;
-  let picks = filterPicksForCoachAskTeams(
-    filterPicksByAskMarketConstraint(
-      selectFinalCoachParlayPicks(rawPicks),
-      marketConstraint,
+  let picks = filterPicksByAllowedSports(
+    filterPicksForCoachAskTeams(
+      filterPicksByAskMarketConstraint(
+        selectFinalCoachParlayPicks(rawPicks),
+        marketConstraint,
+      ),
+      teamScope,
+      inputs.excludedTeams,
     ),
-    teamScope,
-    inputs.excludedTeams,
+    askSportScope,
+    inputs.espnGames,
   );
   // Lock ML / puck-line / spread sides to real mlLean when present — opponent
   // comparison like NFL, not freeform chat inventing home-ice one-liners.
@@ -1024,9 +1076,10 @@ export async function buildCoachParlay(opts: {
   // Same-ticket ladder ban — never ship Colts +4.5 and +3.5 together.
   picks = dedupePicksByMarketLadder(picks);
   // Final belt — staging/top-up must not reintroduce another local day
-  // or an explicitly excluded matchup.
+  // or an explicitly excluded matchup / other league.
   picks = filterPicksForSlateDay(picks, inputs.slateDay);
   picks = filterPicksForCoachAskTeams(picks, teamScope, inputs.excludedTeams);
+  picks = filterPicksByAllowedSports(picks, askSportScope, inputs.espnGames);
   if (picks.length) rememberParlayBuild(picks);
   const teamMiss = coachAskTeamMissNote(teamScope, inputs.oddsGames.length);
   const teamShortfall = coachAskTeamShortfallNote(
