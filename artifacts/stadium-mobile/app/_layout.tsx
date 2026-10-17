@@ -23,6 +23,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { DeferredOtaRuntime } from "@/components/DeferredOtaRuntime";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { MissingAuthKeyScreen } from "@/components/MissingAuthKeyScreen";
 import { MinVersionGate } from "@/components/MinVersionGate";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
@@ -218,13 +219,16 @@ function RootLayoutContent() {
     }
   }, [fontsLoaded, fontError]);
 
+  // Early return used to skip AppShell → DeferredOtaRuntime entirely, so a phone
+  // stuck on a bad empty-Clerk bake could never JS-OTA recover. Show identity +
+  // pre-Clerk recovery instead (still no ClerkProvider).
+  // Sentinel string lives only in this branch — prepublish asserts it is DCE'd
+  // when EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY is inlined as a non-empty constant.
   if (!publishableKey) {
     return (
-      <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
-        <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
-          App configuration error (missing auth key). Reinstall from the App Store or contact support.
-        </Text>
-      </View>
+      <MissingAuthKeyScreen
+        startupSentinel={"STARTUP_AUTH_KEY_MISSING_SENTINEL"}
+      />
     );
   }
 
