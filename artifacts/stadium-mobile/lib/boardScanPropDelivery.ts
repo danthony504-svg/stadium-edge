@@ -83,6 +83,27 @@ export function askAllowsCollegeTeamMarketStacks(text?: string | null): boolean 
 }
 
 /**
+ * Display sport label for props-only empty/short terminal notes.
+ *
+ * Must NOT use askAllowsNcaafPlayerProps — that flag means "allow CFB player
+ * prop rows in the pool" and is true for any "player props" ask, including NFL.
+ * Inferring "college football" from that shared flag mislabels NFL shortfalls.
+ */
+export function propsOnlySportLabelFromAsk(text?: string | null): string {
+  const t = String(text ?? "").toLowerCase();
+  if (!t) return "football";
+  if (askIsCollegeFootballOnly(t)) return "college football";
+  // Explicit NFL without college/NCAAF tokens → NFL (not generic "football").
+  if (
+    /\bnfl\b/.test(t) &&
+    !/\bncaaf\b|\bcfb\b|\bcollege\b|\bcollage\b/.test(t)
+  ) {
+    return "NFL";
+  }
+  return "football";
+}
+
+/**
  * True when the user explicitly asked for CFB player props / skill markets.
  * Bare "8 leg college" / "8 leg Collage" stays on team spreads / totals /
  * period lines — college books rarely post player yards boards.

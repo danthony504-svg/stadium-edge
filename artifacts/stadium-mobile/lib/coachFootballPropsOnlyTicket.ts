@@ -44,7 +44,7 @@ import {
   propsOnlyTerminalShortNote,
 } from "./coachPropsOnlyFailReason.ts";
 import type { PropsOnlyFailDiag } from "./coachPropsOnlyFailReason.ts";
-import { askAllowsNcaafPlayerProps } from "./boardScanPropDelivery.ts";
+import { propsOnlySportLabelFromAsk } from "./boardScanPropDelivery.ts";
 import {
   playerTrendMomentum,
   scoreLineShopping,
@@ -917,9 +917,7 @@ export async function buildFootballPropsOnlyTicket(
     stageRejects,
   });
 
-  const sportLabel = askAllowsNcaafPlayerProps(opts.askText ?? "")
-    ? "college football"
-    : "football";
+  const sportLabel = propsOnlySportLabelFromAsk(opts.askText ?? "");
   let note = "";
   if (picks.length === 0) {
     // Same terminal diagnosis as buildCoachParlay recovery / final Coach bubble.

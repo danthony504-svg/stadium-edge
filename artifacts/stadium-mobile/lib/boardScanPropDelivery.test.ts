@@ -20,6 +20,7 @@ import {
   askAllowsNcaafPlayerProps,
   askAllowsCollegeTeamMarketStacks,
   filterNcaafPlayerPropsUnlessAsked,
+  propsOnlySportLabelFromAsk,
   fillReservedPeriodSlots,
   skillPropFamily,
   skillPropRank,
@@ -83,6 +84,23 @@ test("askIsCollegeFootballOnly + askAllowsNcaafPlayerProps gate CFB player props
   assert.equal(askAllowsNcaafPlayerProps("5 leg college longest rush"), true);
   assert.equal(askRequiresFootballPropMix("5 leg ncaaf completions"), true);
   assert.equal(askRequiresFootballPropMix("8 leg college"), false);
+});
+
+test("propsOnlySportLabelFromAsk: NFL asks are NFL, not college football", () => {
+  // Regression: askAllowsNcaafPlayerProps is true for any "player props" ask,
+  // including NFL — sport label must not reuse that shared flag.
+  assert.equal(askAllowsNcaafPlayerProps("5 leg NFL player props"), true);
+  assert.equal(propsOnlySportLabelFromAsk("5 leg NFL player props"), "NFL");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg nfl player props"), "NFL");
+  assert.equal(propsOnlySportLabelFromAsk("7 leg NFL"), "NFL");
+  assert.equal(
+    propsOnlySportLabelFromAsk("5 leg college football player props"),
+    "college football",
+  );
+  assert.equal(propsOnlySportLabelFromAsk("5 leg ncaaf player props"), "college football");
+  assert.equal(propsOnlySportLabelFromAsk("8 leg college"), "college football");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg football player props"), "football");
+  assert.equal(propsOnlySportLabelFromAsk("5 leg player props"), "football");
 });
 
 test("askAllowsCollegeTeamMarketStacks for bare college (not NHL team props)", () => {
