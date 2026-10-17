@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-10-17T14:00:48.401Z",
+  "paidHttp": 0,
+  "membershipN": 408,
+  "membershipPreserved": true,
+  "closeMatched": 403,
+  "earlyMatched": 403,
+  "paired": 403,
+  "closeOnly": 0,
+  "earlyOnly": 0,
+  "emptyBookmakers": {
+    "close": [
+      "401756933",
+      "401752886",
+      "401752771",
+      "401752776",
+      "401754604"
+    ],
+    "early": [
+      "401756933",
+      "401752886",
+      "401752771",
+      "401752776",
+      "401754604"
+    ]
+  },
+  "rematchStats": {
+    "close": {
+      "keptPrior": 364,
+      "rematched": 39,
+      "emptyBookmakers": 5,
+      "ambiguous": 0,
+      "rejectedSwapped": 0,
+      "stillNoMatch": 0,
+      "other": 0
+    },
+    "early": {
+      "keptPrior": 364,
+      "rematched": 39,
+      "emptyBookmakers": 5,
+      "ambiguous": 0,
+      "rejectedSwapped": 0,
+      "stillNoMatch": 0,
+      "other": 0
+    }
+  },
+  "timing": {
+    "closePreOk": 403,
+    "closePreFail": 0,
+    "earlyBandOk": 403,
+    "earlyBandFail": 0
+  },
+  "integrityPass": true,
+  "expectedMaxCoverage": "403/408",
+  "note": "Integrity checks PASS — safe to authorize frozen FINAL_EVAL scoring"
+}
