@@ -13,7 +13,14 @@ at that time. Midday slate snapshots alone are NOT used as closes.
 
 Env:
   ODDS_API_KEY — required (injected secret preferred)
-  NCAAF_PHASE_E_HOLDOUT_SEASON — default 2024
+  NCAAF_PHASE_E_HOLDOUT_SEASON — default 2024 (ignored when NCAAF_E2B_FIXTURE set)
+  NCAAF_E2B_FIXTURE — optional absolute/relative path to games JSON (TUNING uses
+                       test/fixtures/ncaaf-tuning-2025-w1-7-games.json)
+  NCAAF_E2B_OUT_STEM — output basename stem (default ncaaf-phase-e-closing-lines /
+                       ncaaf-phase-e-e2b-report; TUNING: ncaaf-tuning-2025-w1-7-closing-lines)
+  NCAAF_E2B_CREDIT_CAP — hard stop on credits consumed this run (default unset=unlimited;
+                       TUNING authorized cap = 4500 including probes/retries)
+  NCAAF_E2B_CREDITS_ALREADY_SPENT — credits already spent before this process (probes)
   NCAAF_E2B_MAX_BUCKETS — optional cap for dry runs
   NCAAF_E2B_MARKETS — default h2h,spreads; set h2h,spreads,totals,alternate_spreads
                        to capture closing totals + posted ALT prices (never invent).
@@ -31,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = (
+DEFAULT_FIXTURE = (
     Path(__file__).resolve().parents[1] / "test" / "fixtures" / "ncaaf-phase-e-games.json"
 )
 OUT_DIR = Path(__file__).resolve().parents[1] / "test" / "fixtures"
@@ -98,8 +105,11 @@ def http_get(url: str) -> tuple[int, dict[str, str], bytes]:
 
 def extract_team_prices(
     event: dict, team_name: str
-) -> tuple[float | None, float | None, str | None]:
-    """Prices for `team_name` (our home), matched by outcome name — not venue side."""
+) -> tuple[float | None, float | None, float | None, str | None]:
+    """Prices for `team_name`, matched by outcome name — not venue side.
+
+    Returns (spread_point, ml_american, spread_odds_american, book_key).
+    """
     prefer = ["draftkings", "fanduel", "betmgm", "williamhill_us", "bovada"]
     books = list(event.get("bookmakers") or [])
     books.sort(
@@ -111,7 +121,7 @@ def extract_team_prices(
         n = norm_name(name)
         return n == want or want in n or n in want
 
-    spread = ml = None
+    spread = ml = spread_odds = None
     used = None
     for b in books:
         markets = {m.get("key"): m for m in (b.get("markets") or [])}
@@ -119,6 +129,7 @@ def extract_team_prices(
             for o in markets["spreads"].get("outcomes") or []:
                 if outcome_match(o.get("name") or ""):
                     spread = o.get("point")
+                    spread_odds = o.get("price")
                     used = b.get("key")
                     break
         if ml is None and "h2h" in markets:
@@ -132,6 +143,7 @@ def extract_team_prices(
     return (
         float(spread) if spread is not None else None,
         float(ml) if ml is not None else None,
+        float(spread_odds) if spread_odds is not None else None,
         used,
     )
 
@@ -149,10 +161,28 @@ def main() -> int:
     season = int(os.environ.get("NCAAF_PHASE_E_HOLDOUT_SEASON", "2024"))
     max_buckets = os.environ.get("NCAAF_E2B_MAX_BUCKETS")
     max_buckets_n = int(max_buckets) if max_buckets else None
+    fixture_env = os.environ.get("NCAAF_E2B_FIXTURE", "").strip()
+    fixture_path = Path(fixture_env) if fixture_env else DEFAULT_FIXTURE
+    if not fixture_path.is_absolute():
+        fixture_path = (Path(__file__).resolve().parents[1] / fixture_path).resolve()
+    out_stem = os.environ.get("NCAAF_E2B_OUT_STEM", "").strip()
+    credit_cap_raw = os.environ.get("NCAAF_E2B_CREDIT_CAP", "").strip()
+    credit_cap = int(credit_cap_raw) if credit_cap_raw else None
+    credits_spent = int(os.environ.get("NCAAF_E2B_CREDITS_ALREADY_SPENT", "0") or "0")
+    stopped_for_cap = False
 
-    raw = json.loads(FIXTURE.read_text())
-    games = [g for g in raw["games"] if g.get("season") == season and g.get("kickoffIso")]
-    print(f"holdout_season={season} games={len(games)}")
+    raw = json.loads(fixture_path.read_text())
+    split = raw.get("split") or ("TUNING" if "tuning" in fixture_path.name.lower() else "holdout")
+    if fixture_env or split == "TUNING":
+        games = [g for g in raw["games"] if g.get("kickoffIso")]
+        if not out_stem:
+            out_stem = "ncaaf-tuning-2025-w1-7-closing-lines"
+        print(f"split={split} fixture={fixture_path.name} games={len(games)}")
+    else:
+        games = [g for g in raw["games"] if g.get("season") == season and g.get("kickoffIso")]
+        if not out_stem:
+            out_stem = "ncaaf-phase-e-closing-lines"
+        print(f"holdout_season={season} games={len(games)}")
 
     by_bucket: dict[str, list[dict]] = defaultdict(list)
     for g in games:
@@ -161,6 +191,8 @@ def main() -> int:
     if max_buckets_n is not None:
         buckets = buckets[:max_buckets_n]
     print(f"kickoff_buckets={len(buckets)} (of {len(by_bucket)} total)")
+    if credit_cap is not None:
+        print(f"credit_cap={credit_cap} already_spent={credits_spent}")
 
     # Cache raw snapshots outside the git tree (no api key in files)
     ART_DIR.mkdir(parents=True, exist_ok=True)
@@ -171,20 +203,67 @@ def main() -> int:
     missing: list[dict] = []
     reject_post_kick: list[dict] = []
     api_errors = 0
+    http_calls = 0
+
+    def record_spend(hdr: dict[str, str]) -> None:
+        nonlocal credits_spent
+        last = hdr.get("x-requests-last")
+        if last is not None and str(last).strip() != "":
+            try:
+                credits_spent += int(float(last))
+            except ValueError:
+                pass
+
+    def under_cap(next_cost: int = 20) -> bool:
+        if credit_cap is None:
+            return True
+        return credits_spent + next_cost <= credit_cap
 
     for i, bucket in enumerate(buckets):
         cache_path = cache_dir / f"{bucket.replace(':', '')}.json"
         if cache_path.exists():
             payload = json.loads(cache_path.read_text())
         else:
+            if not under_cap(20):
+                stopped_for_cap = True
+                print(
+                    f"STOP credit_cap reached spent={credits_spent} cap={credit_cap} "
+                    f"at bucket {i+1}/{len(buckets)} {bucket}"
+                )
+                for g in by_bucket[bucket]:
+                    missing.append(
+                        {
+                            "eventId": g["eventId"],
+                            "reason": "credit_cap",
+                            "kickoffIso": g["kickoffIso"],
+                            "home": g.get("homeName"),
+                            "away": g.get("awayName"),
+                        }
+                    )
+                for b2 in buckets[i + 1 :]:
+                    for g in by_bucket[b2]:
+                        missing.append(
+                            {
+                                "eventId": g["eventId"],
+                                "reason": "credit_cap",
+                                "kickoffIso": g["kickoffIso"],
+                                "home": g.get("homeName"),
+                                "away": g.get("awayName"),
+                            }
+                        )
+                break
             url = (
                 "https://api.the-odds-api.com/v4/historical/sports/americanfootball_ncaaf/odds"
                 f"?apiKey={key}&regions=us&markets={markets_param()}&oddsFormat=american&date={bucket}"
             )
             status, hdr, body = http_get(url)
+            http_calls += 1
+            record_spend(hdr)
             if status != 200:
                 api_errors += 1
-                print(f"bucket_fail {bucket} status={status}")
+                print(f"bucket_fail {bucket} status={status} spent={credits_spent}")
+                if status in (401, 402, 403):
+                    die(f"historical access denied status={status}; stopping", 3)
                 for g in by_bucket[bucket]:
                     missing.append(
                         {
@@ -209,7 +288,8 @@ def main() -> int:
             cache_path.write_text(json.dumps(payload) + "\n")
             if (i + 1) % 25 == 0:
                 print(
-                    f"progress {i+1}/{len(buckets)} remaining={hdr.get('x-requests-remaining')}"
+                    f"progress {i+1}/{len(buckets)} remaining={hdr.get('x-requests-remaining')} "
+                    f"spent={credits_spent}"
                 )
             time.sleep(0.15)
 
@@ -238,15 +318,23 @@ def main() -> int:
             return None
 
         def fetch_snapshot(date_iso: str) -> dict | None:
+            nonlocal stopped_for_cap, http_calls
             cpath = cache_dir / f"{date_iso.replace(':', '')}.json"
             if cpath.exists():
                 return json.loads(cpath.read_text())
+            if not under_cap(20):
+                stopped_for_cap = True
+                return None
             url = (
                 "https://api.the-odds-api.com/v4/historical/sports/americanfootball_ncaaf/odds"
                 f"?apiKey={key}&regions=us&markets={markets_param()}&oddsFormat=american&date={date_iso}"
             )
             status, hdr, body = http_get(url)
+            http_calls += 1
+            record_spend(hdr)
             if status != 200:
+                if status in (401, 402, 403):
+                    die(f"historical access denied status={status}; stopping", 3)
                 return None
             data = json.loads(body)
             out = {
@@ -333,11 +421,17 @@ def main() -> int:
                 )
                 continue
 
-            # Prefer prices from the close snapshot's event object
+            # Prefer prices from the close snapshot's event object (two-sided).
             _ = used_payload
-            spread, ml, book = extract_team_prices(ev, g.get("homeName") or "")
+            spread_h, ml_h, spread_odds_h, book = extract_team_prices(
+                ev, g.get("homeName") or ""
+            )
+            spread_a, ml_a, spread_odds_a, book_a = extract_team_prices(
+                ev, g.get("awayName") or ""
+            )
+            book = book or book_a
 
-            if spread is None and ml is None:
+            if spread_h is None and ml_h is None:
                 missing.append(
                     {
                         "eventId": g["eventId"],
@@ -360,8 +454,12 @@ def main() -> int:
                     "oddsCommenceTime": commence,
                     "closeRequestDate": bucket,
                     "closeSnapshotTimestamp": used_snap,
-                    "closeSpreadHome": spread,
-                    "closeMlHome": ml,
+                    "closeSpreadHome": spread_h,
+                    "closeSpreadAway": spread_a,
+                    "closeMlHome": ml_h,
+                    "closeMlAway": ml_a,
+                    "closeSpreadOddsHome": spread_odds_h,
+                    "closeSpreadOddsAway": spread_odds_a,
                     "bookSample": book,
                     "homeScore": g["homeFg"],
                     "awayScore": g["awayFg"],
@@ -430,16 +528,34 @@ def main() -> int:
 
     report = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "holdoutSeason": season,
+        "split": split,
+        "fixture": str(fixture_path.name),
+        "holdoutSeason": season if split != "TUNING" else None,
+        "finalEval": "UNTOUCHED",
         "closingDefinition": (
             "Per-game last Odds API historical snapshot with date=kickoff "
             "(closest snapshot ≤ kickoff). Midday slate files are not closes."
         ),
+        "markets": markets_param(),
+        "regions": "us",
         "bucketsRequested": len(buckets),
+        "httpCalls": http_calls,
+        "creditsSpent": credits_spent,
+        "creditCap": credit_cap,
+        "stoppedForCreditCap": stopped_for_cap,
         "apiErrors": api_errors,
         "holdoutGames": len(games) if max_buckets_n is None else sum(len(by_bucket[b]) for b in buckets),
         "matched": len(matched),
         "matchedWithFullPrices": n,
+        "matchedTwoSidedMl": sum(
+            1 for r in matched if r.get("closeMlHome") is not None and r.get("closeMlAway") is not None
+        ),
+        "matchedTwoSidedSpreadJuice": sum(
+            1
+            for r in matched
+            if r.get("closeSpreadOddsHome") is not None
+            and r.get("closeSpreadOddsAway") is not None
+        ),
         "missing": len(missing),
         "rejectPostKickoffSnapshot": len(reject_post_kick),
         "missingReasons": {},
@@ -459,6 +575,7 @@ def main() -> int:
             "injuryKnown/qbOut left null — missing injury records must NOT be "
             "treated as no injuries. E4 requires a documented historical provider."
         ),
+        "lockedParamsPreserved": True,
         "verdicts": {
             "E2b_closingArchive": "PASS" if n >= 200 else "INSUFFICIENT_DATA",
             "E2b_marketBrierVsCoin": (
@@ -471,6 +588,7 @@ def main() -> int:
             "E2b_engineClv": "OPEN_NEEDS_ENGINE_JOIN",
             "E4_injuryConservatism": "INSUFFICIENT_DATA",
             "NCAAF_GAME_LINE_SIM_VALIDATED": "false — do not flip",
+            "FINAL_EVAL": "UNTOUCHED",
         },
         "keepP0Armed": True,
         "flagFlipAllowed": False,
@@ -480,14 +598,23 @@ def main() -> int:
         report["missingReasons"][r] = report["missingReasons"].get(r, 0) + 1
 
     # Write archive JSON + CSV (injuryKnown empty string, not false)
-    archive_path = OUT_DIR / "ncaaf-phase-e-closing-lines.json"
+    archive_path = OUT_DIR / f"{out_stem}.json"
+    report_name = (
+        "ncaaf-tuning-2025-w1-7-e2b-report.json"
+        if split == "TUNING"
+        else "ncaaf-phase-e-e2b-report.json"
+    )
     archive_path.write_text(
         json.dumps(
             {
                 "version": 1,
+                "split": split,
+                "finalEval": "UNTOUCHED",
                 "closingDefinition": report["closingDefinition"],
-                "season": season,
+                "season": season if split != "TUNING" else 2025,
                 "generatedAt": report["generatedAt"],
+                "creditsSpent": credits_spent,
+                "creditCap": credit_cap,
                 "games": matched,
                 "missing": missing,
             },
@@ -496,35 +623,42 @@ def main() -> int:
         + "\n"
     )
 
-    csv_path = OUT_DIR / "ncaaf-phase-e-closing-lines.csv"
+    csv_path = OUT_DIR / f"{out_stem}.csv"
     with csv_path.open("w") as f:
         f.write(
-            "gameId,season,home,away,closeSpreadHome,closeMlHome,homeScore,awayScore,"
+            "gameId,season,home,away,closeSpreadHome,closeSpreadAway,closeMlHome,closeMlAway,"
+            "closeSpreadOddsHome,closeSpreadOddsAway,homeScore,awayScore,"
             "injuryKnown,closeSnapshotTimestamp,kickoffIso\n"
         )
         for r in matched:
             inj = "" if r["injuryKnown"] is None else str(r["injuryKnown"]).lower()
+            def cell(v):
+                return "" if v is None else v
             f.write(
                 f"{r['gameId']},{r['season']},"
                 f"\"{r['home']}\",\"{r['away']}\","
-                f"{r['closeSpreadHome'] if r['closeSpreadHome'] is not None else ''},"
-                f"{r['closeMlHome'] if r['closeMlHome'] is not None else ''},"
+                f"{cell(r.get('closeSpreadHome'))},{cell(r.get('closeSpreadAway'))},"
+                f"{cell(r.get('closeMlHome'))},{cell(r.get('closeMlAway'))},"
+                f"{cell(r.get('closeSpreadOddsHome'))},{cell(r.get('closeSpreadOddsAway'))},"
                 f"{r['homeScore']},{r['awayScore']},"
                 f"{inj},{r['closeSnapshotTimestamp']},{r['kickoffIso']}\n"
             )
 
-    report_path = OUT_DIR / "ncaaf-phase-e-e2b-report.json"
+    report_path = OUT_DIR / report_name
     report_path.write_text(json.dumps(report, indent=2) + "\n")
-    (ART_DIR / "ncaaf-phase-e-e2b-report.json").write_text(
-        json.dumps(report, indent=2) + "\n"
-    )
+    (ART_DIR / report_name).write_text(json.dumps(report, indent=2) + "\n")
+    (ART_DIR / f"{out_stem}.json").write_text(archive_path.read_text())
 
     print(json.dumps(report, indent=2))
     print(f"Wrote {archive_path}")
     print(f"Wrote {csv_path}")
     print(f"Wrote {report_path}")
+    print(f"credits_spent={credits_spent} credit_cap={credit_cap} http_calls={http_calls}")
     print("NCAAF_GAME_LINE_SIM_VALIDATED remains false.")
-    # Exit 2 while engine CLV / E4 / E6 still open
+    print("FINAL_EVAL untouched.")
+    # Exit 2 while engine CLV / E4 / E6 still open; exit 4 if stopped for credit cap mid-run
+    if stopped_for_cap:
+        return 4
     return 2
 
 
