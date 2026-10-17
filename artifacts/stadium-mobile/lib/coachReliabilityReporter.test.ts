@@ -22,7 +22,9 @@ test("mapScanFailureCode mirrors server grounding/alt/sim/freeze", () => {
 test("1) props-only early return emits exactly one Coach reliability report", () => {
   const src = readFileSync(join(process.cwd(), "lib/coach/buildParlay.ts"), "utf8");
   // Isolate the props-only block (dedicated ticket builder → early return).
-  const start = src.indexOf("shouldBuildFootballPropsOnlyTicket");
+  // Match the call site, not the import — import.indexOf would include the
+  // earlier NCAAF P0 game-line early-exit reporter (separate path).
+  const start = src.indexOf("shouldBuildFootballPropsOnlyTicket({");
   const end = src.indexOf("Allowlisted / props-only pools must not re-expand");
   assert.ok(start >= 0 && end > start, "props-only block bounds");
   const block = src.slice(start, end);
