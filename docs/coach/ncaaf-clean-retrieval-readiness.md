@@ -14,19 +14,23 @@
 | Early vs close price differences examined | **No** (forbidden until after lock + authorized pull) |
 | T−24h historical timing feasible (post–Sep 2022) | **Yes** (docs) |
 | Local early snapshot archive | **Empty** (0 files) |
-| `ODDS_API_KEY` present | **No** |
+| `ODDS_API_KEY` present | **No** — `CLOUD_AGENT_ALL_SECRET_NAMES=EXPO_TOKEN` only |
 | Manifests regenerated + deduped | **Yes** |
 | Close hard cap / Early hard cap / Combined max | **2100** / **2100** / **4200** |
 | Each pull fits own cap (base+25% retry) | **Yes** (1670+418=2088 ≤ 2100) |
 | Combined base+retry if both run | **4176 ≤ 4200** |
+| Paid pull authorized (2100+2100≤4200) | **Yes** — blocked before first request |
+| Credits consumed | **0** |
+| Coverage | **INCOMPLETE** — see `ncaaf-final-eval-ml-archive-retrieval-stop.md` |
 
 ## Retrieval readiness verdict
 
-**NOT READY to fetch** — blocked by missing `ODDS_API_KEY` (and empty early cache).  
+**AUTHORIZED but NOT EXECUTED** — blocked by missing `ODDS_API_KEY` (and empty early cache).  
+Capped puller ready: `artifacts/api-server/scripts/ncaafCleanFinalEvalMlArchivePull.py`.
 
-**READY to authorize** once key + paid historical entitlement are confirmed: dry-run manifests and caps are in place; membership and Coach rules are locked.
+**READY to fetch** once key is added to Cloud Agent Secrets and a **new** agent run injects it (`NCAAF_FINAL_EVAL_PULL=1`).
 
-## Credit plan (when authorized)
+## Credit plan (when key present)
 
 | Pull | Markets | Buckets | Base | Hard cap |
 |------|---------|--------:|-----:|---------:|
@@ -40,3 +44,4 @@
 - `ncaaf-clean-t24h-availability.md`  
 - `ncaaf-final-eval-odds-request-manifests.md`  
 - `ncaaf-clean-coach-selection-rules-locked.md`  
+- `ncaaf-final-eval-ml-archive-retrieval-stop.md`  

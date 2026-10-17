@@ -1,8 +1,9 @@
 # Odds request manifests (Phase C/D) — dry-run only
 
 **Generated:** 2026-10-17T13:11:57.794Z  
-**Paid retrieval:** **false** · ODDS_API_KEY unset · no plan changes  
-**Coach selection rules:** locked · **T−24h availability:** checked · **price deltas:** not examined
+**Paid retrieval:** **false** (authorized but `STOPPED_NO_KEY`) · ODDS_API_KEY unset · no plan changes  
+**Coach selection rules:** locked · **T−24h availability:** checked · **price deltas:** not examined  
+**Puller:** `ncaafCleanFinalEvalMlArchivePull.py` · stop report: `ncaaf-final-eval-ml-archive-retrieval-stop.md`
 
 ## Separate hard credit caps (combined max 4200)
 

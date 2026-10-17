@@ -26,4 +26,4 @@ No Odds HTTP · no FINAL_EVAL M1–M4 score · no deploy/OTA/unlock · no injury
 
 ## Update — schedule reconcile + readiness
 
-See [`ncaaf-clean-retrieval-readiness.md`](./ncaaf-clean-retrieval-readiness.md): membership date-walk included **408**; Coach rules locked; manifests 2100+2100≤4200; retrieval **not** ready (no ODDS_API_KEY). No paid fetch.
+See [`ncaaf-clean-retrieval-readiness.md`](./ncaaf-clean-retrieval-readiness.md) + [`ncaaf-final-eval-ml-archive-retrieval-stop.md`](./ncaaf-final-eval-ml-archive-retrieval-stop.md): membership **408**; Coach rules locked; manifests 2100+2100≤4200; pull **authorized** but **STOPPED_NO_KEY** (0 credits). No FINAL_EVAL scoring.

@@ -1,0 +1,33 @@
+{
+  "status": "STOPPED_NO_KEY",
+  "generatedAt": "2026-10-17T13:29:49.948328+00:00",
+  "paidRetrieval": false,
+  "historicalBatchStarted": false,
+  "creditsConsumed": 0,
+  "creditsConsumedClose": 0,
+  "creditsConsumedEarly": 0,
+  "combinedCreditCap": 4200,
+  "closeHardCap": 2100,
+  "earlyHardCap": 2100,
+  "matchedGamesClose": 0,
+  "matchedGamesEarly": 0,
+  "timestampValidity": "NOT_RUN",
+  "missingData": "all \u2014 retrieval not started",
+  "coverage": "INCOMPLETE",
+  "finalEvalScored": false,
+  "spreads": "BLOCKED",
+  "voice": "PAUSED",
+  "ncaafUnlock": false,
+  "deployOta": false,
+  "e1Frozen": "alpha=1.15 preserved",
+  "coachSelectionRules": "R1\u2013R4 / C1\u2013C6 preserved (not re-opened)",
+  "membershipPreserved": true,
+  "agent": {
+    "ODDS_API_KEY": "ABSENT",
+    "CLOUD_AGENT_ALL_SECRET_NAMES": "EXPO_TOKEN",
+    "CLOUD_AGENT_INJECTED_SECRET_NAMES": "EXPO_TOKEN"
+  },
+  "reason": "Authorized FINAL_EVAL ML archive pull cannot start: ODDS_API_KEY not in process env; CLOUD_AGENT_ALL_SECRET_NAMES has only EXPO_TOKEN.",
+  "addSecret": "https://cursor.com/dashboard/cloud-agents/environments/e/8c5427d9-a490-11f1-a7d1-d6b4613131ce \u2192 Secrets \u2192 ODDS_API_KEY; then start a new agent run",
+  "noPurchaseOrUpgrade": true
+}
