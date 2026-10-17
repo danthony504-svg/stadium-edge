@@ -7,56 +7,46 @@
 | Role | Full SHA |
 |------|----------|
 | **Live server baseline** | `e607f131898daebaecd08602558905b96f738122` |
-| **Server candidate tip** | `4afe0cae040fbb968ff89a31ccfe841985a6d8e3` |
+| **Server candidate tip** | `ec2315920b845ec2d290b3e6eceb0a33c55624e0` |
 | **Preview mobile baseline** | `54b89f32efc81fe3cf56cee50388816054484600` |
-| **Mobile candidate tip** | `176c3f131ddb26303e0588d5b3e0a111369d26a5` |
-| **Preview export launch hash** | `A2T7XAuvveHL3vg2GKJ7QGUfLC3CEBhZcV1wjDOM1Qw` |
+| **Mobile candidate tip** | `fd602b1103e319aec44a4fc27153144ae7e54694` |
+| **Preview export launch hash** | `PCCfHTkp_N-E1A91qV14n84QEjdGPXvdzEPmMkm5Mw4` |
+| **Export baked commit** | `fd602b1103e319aec44a4fc27153144ae7e54694` (`EXPO_PUBLIC_GIT_COMMIT`) |
 | Branches | `cursor/server-rc-incident-3645` · `cursor/mobile-rc-incident-3645` |
 
 ## Preserved from baselines
 
 | Layer | Preserved |
 |-------|-----------|
-| Server | Opponent-cache `defenseIndex` identity (`propDistributionCache`); `ppg-per-drive-v1` / `gameSimEngineVersion`; digest denominator |
-| Mobile | Delivery-commit success counting (`deliveryCommitted`); stamp reject (`gameDrawEngineAccepted`); opponent context pipeline (`propContextPipeline`) |
+| Server | Opponent-cache `defenseIndex` identity; `ppg-per-drive-v1` / `gameSimEngineVersion`; digest denominator |
+| Mobile | Delivery-commit (`deliveryCommitted`); stamp reject (`gameDrawEngineAccepted`); opponent context pipeline |
 
-## Incident ports (this pair)
+## Incident ports
 
-Delivery grounding gate; MLB abbr cover-query bind; finite matching-side ML fallback (never 0.5 / opposite); `GAME_SIMS_STAMP_REJECTED` split; reliability enrichment (`updateId`/`channel`/`bakedSha`/`requestScope`/`candidateIds`/`gameIds`/`simFailureReason`).
+Delivery grounding gate; MLB abbr cover-query bind; finite matching-side ML fallback (never default 0.5 / opposite side); `GAME_SIMS_STAMP_REJECTED`; reliability enrichment fields.
 
 ## Diffs vs baselines
 
-### Server (`e607f131` → tip)
+### Server (`e607f131` → tip): 5 files, +259 / −7
 
-```
-4 files, +197 / −7
-coachReliabilityIngest.ts, Sanitize.ts, Store.ts, docs/coach/server-rc-incident-3645.md
-```
-
-### Mobile (`54b89f32` → tip)
-
-```
-22 files, +1378 / −34
-(delivery gate, abbr bind, stamp split, enrichment, E2E fixtures, docs)
-```
+### Mobile (`54b89f32` → tip): 23 files, +1440 / −34
 
 ## Verification
 
 | Suite | Result |
 |-------|--------|
-| Mobile E2E + grounding/stamp/delivery/reporter/scoring | **67/67 pass** |
-| Server coachReliability | **18/18 pass** |
-| Server propDistributionCache (defenseIndex) | **10 cases in combined 28/28** |
-| ML fallback | TB ML → `awayWinProbability` only; missing/wrong stamp → null |
-| Preview export | `expo export --platform ios`; launch hash `A2T7XAuvveHL3vg2GKJ7QGUfLC3CEBhZcV1wjDOM1Qw` (**not published**) |
+| Mobile incident regression (E2E/abbr/stamp/delivery/reporter/scoring) | **67/67** |
+| Server coachReliability | **18/18** |
+| Server propDistributionCache (+ reliability combined) | **28/28** |
+| Preview export | `expo export --platform ios` → launch hash `PCCfHTkp_N-E1A91qV14n84QEjdGPXvdzEPmMkm5Mw4` (**not published**) |
 
 ## Preview publish (when authorized — not executed)
 
 ```bash
-export EXPO_PUBLIC_GIT_COMMIT=176c3f131ddb26303e0588d5b3e0a111369d26a5
+export EXPO_PUBLIC_GIT_COMMIT=fd602b1103e319aec44a4fc27153144ae7e54694
 pnpm exec expo export --platform ios --output-dir dist
-# verify launch hash == A2T7XAuvveHL3vg2GKJ7QGUfLC3CEBhZcV1wjDOM1Qw
+# confirm launch hash == PCCfHTkp_N-E1A91qV14n84QEjdGPXvdzEPmMkm5Mw4
 pnpm exec eas update --channel preview --platform ios \
   --skip-bundler --input-dir dist \
-  --message "incident RC 176c3f131ddb26303e0588d5b3e0a111369d26a5"
+  --message "incident RC fd602b1103e319aec44a4fc27153144ae7e54694"
 ```
