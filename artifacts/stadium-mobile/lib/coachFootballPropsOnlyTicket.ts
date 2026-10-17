@@ -15,6 +15,7 @@ import {
   selectFootballPropsOnlyFromPicks,
   stageFootballPropsOnlyLegs,
   comparePropsOnlyLegsByReliableEv,
+  takePropsOnlyStageAudit,
 } from "./coachFootballPropsOnly.ts";
 import {
   collapsePropsOnlyToBestEvSides,
@@ -870,6 +871,7 @@ export async function buildFootballPropsOnlyTicket(
     ticketStyle: opts.ticketStyle,
     allowRareMultiCount: opts.allowRareMultiCount,
   });
+  const stageAudit = takePropsOnlyStageAudit();
   if (picks.length) opts.onPartialPicks?.(picks);
   if (picks.length) {
     opts.onStatus?.(`Scoring props… ${picks.length} of ${opts.target} cleared`);
@@ -878,6 +880,17 @@ export async function buildFootballPropsOnlyTicket(
   const uniqueGames = new Set(
     propScored.map((l) => String(l.pick.game ?? "")).filter(Boolean),
   ).size;
+  const stageRejects = stageAudit
+    ? {
+        qualifyFail: stageAudit.qualifyFail,
+        rareFail: stageAudit.rareFail,
+        anytimeFail: stageAudit.anytimeFail,
+        ladderDedupe: stageAudit.ladderDedupe,
+        perGameCap: stageAudit.perGameCap,
+        marketSideCap: stageAudit.marketSideCap,
+        rareFamilyCap: stageAudit.rareFamilyCap,
+      }
+    : undefined;
   const failDiag = buildPropsOnlyFailDiag({
     target: opts.target,
     pool: propPoolSize,
@@ -891,13 +904,17 @@ export async function buildFootballPropsOnlyTicket(
     uniqueGames,
     nullReasons,
     sports,
+    stageRejects,
   });
 
   let note = "";
   if (picks.length === 0) {
+    const confWipe = failDiag.code === "PROPS_ONLY_CONFIDENCE_GATE";
     const lead =
       propLegsScored > 0
-        ? `Graded ${propLegsScored} props but none cleared the ticket quality bar. No ungraded filler was added.`
+        ? confWipe
+          ? `Graded ${propLegsScored} props and ${propScored.length} cleared odds, but none met the confidence floor for a ticket seat. No ungraded filler was added.`
+          : `Graded ${propLegsScored} props but none cleared the ticket quality bar. No ungraded filler was added.`
         : `You asked for ${opts.target} legs — no AI-backed player props cleared the quality bar. No ungraded filler was added.`;
     note = propsOnlyFailNote(lead, failDiag);
   } else if (picks.length < opts.target) {

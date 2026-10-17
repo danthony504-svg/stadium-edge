@@ -11,8 +11,20 @@ export type PropsOnlyFailCode =
   | "PROPS_ONLY_NO_HISTORY"
   | "PROPS_ONLY_NO_GRADE"
   | "PROPS_ONLY_ODDS_GATE"
+  | "PROPS_ONLY_CONFIDENCE_GATE"
   | "PROPS_ONLY_STAGED_SHORT"
   | "PROPS_ONLY_EMPTY";
+
+/** Staging reject tallies after odds clear (qualify / diversity). */
+export type PropsOnlyStageRejects = {
+  qualifyFail: Record<string, number>;
+  rareFail: number;
+  anytimeFail: number;
+  ladderDedupe: number;
+  perGameCap: number;
+  marketSideCap: number;
+  rareFamilyCap: number;
+};
 
 export type PropsOnlyFailDiag = {
   code: PropsOnlyFailCode;
@@ -31,6 +43,8 @@ export type PropsOnlyFailDiag = {
   nullReasons: Record<string, number>;
   /** Top sports in the pool (e.g. nfl:12 wnba:80) */
   sports?: Record<string, number>;
+  /** Why odds-cleared legs did not seat (confidence / grade / correlation). */
+  stageRejects?: PropsOnlyStageRejects;
 };
 
 function topEntries(map: Record<string, number>, limit = 4): string {
@@ -53,6 +67,15 @@ export function derivePropsOnlyFailCode(
   if (d.graded <= 0) return "PROPS_ONLY_NO_GRADE";
   if (d.oddsCleared <= 0) return "PROPS_ONLY_ODDS_GATE";
   if (d.staged > 0 && d.staged < d.target) return "PROPS_ONLY_STAGED_SHORT";
+  // Odds cleared but nothing seated — distinguish confidence wipe from empty catch-all.
+  if (d.oddsCleared > 0 && d.staged <= 0) {
+    const conf = d.stageRejects?.qualifyFail?.confidence_floor ?? 0;
+    const grade = d.stageRejects?.qualifyFail?.grade_floor ?? 0;
+    const edge = d.stageRejects?.qualifyFail?.non_positive_edge ?? 0;
+    if (conf > 0 && conf >= grade && conf >= edge) {
+      return "PROPS_ONLY_CONFIDENCE_GATE";
+    }
+  }
   return "PROPS_ONLY_EMPTY";
 }
 
@@ -73,6 +96,10 @@ export function formatPropsOnlyFailTrace(d: PropsOnlyFailDiag): string {
   if (nulls) parts.push(`nulls=${nulls}`);
   const sports = d.sports ? topEntries(d.sports) : "";
   if (sports) parts.push(`sports=${sports}`);
+  const qFail = d.stageRejects?.qualifyFail
+    ? topEntries(d.stageRejects.qualifyFail)
+    : "";
+  if (qFail) parts.push(`qualify=${qFail}`);
   return ` [${d.code}: ${parts.join(" ")}]`;
 }
 
@@ -89,6 +116,7 @@ export function buildPropsOnlyFailDiag(opts: {
   uniqueGames?: number;
   nullReasons?: Record<string, number>;
   sports?: Record<string, number>;
+  stageRejects?: PropsOnlyStageRejects;
 }): PropsOnlyFailDiag {
   const base = {
     target: opts.target,
@@ -103,6 +131,7 @@ export function buildPropsOnlyFailDiag(opts: {
     uniqueGames: opts.uniqueGames,
     nullReasons: opts.nullReasons ?? {},
     sports: opts.sports,
+    stageRejects: opts.stageRejects,
   };
   return { ...base, code: derivePropsOnlyFailCode(base) };
 }

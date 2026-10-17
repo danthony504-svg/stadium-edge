@@ -194,6 +194,42 @@ export function comparePropsOnlyLegsByReliableEv(a: BoardScoredLeg, b: BoardScor
   return (b.rankScore ?? 0) - (a.rankScore ?? 0);
 }
 
+/** Opt-in staging reject tallies for funnel audits (PROPS_ONLY_STAGE_AUDIT=1). */
+export type PropsOnlyStageAudit = {
+  scoredIn: number;
+  oddsFail: number;
+  qualifyFail: Record<string, number>;
+  rareFail: number;
+  anytimeFail: number;
+  ladderDedupe: number;
+  perGameCap: number;
+  marketSideCap: number;
+  rareFamilyCap: number;
+  seated: number;
+  samples: Array<{
+    player?: string | null;
+    market?: string | null;
+    line?: number | null;
+    side?: string | null;
+    isAlt?: boolean;
+    odds?: number | null;
+    simHit?: number | null;
+    grade?: string | null;
+    confidencePct?: number | null;
+    edgePct?: number | null;
+    reason: string;
+    game?: string | null;
+  }>;
+};
+
+let propsOnlyStageAudit: PropsOnlyStageAudit | null = null;
+
+export function takePropsOnlyStageAudit(): PropsOnlyStageAudit | null {
+  const out = propsOnlyStageAudit;
+  propsOnlyStageAudit = null;
+  return out;
+}
+
 function stageFootballPropsOnlyLegsWithCap(
   ordered: BoardScoredLeg[],
   target: number,
@@ -207,6 +243,35 @@ function stageFootballPropsOnlyLegsWithCap(
     allowRareMultiCount?: boolean;
   },
 ): ParsedPick[] {
+  // Always tally stage rejects for failDiag (samples only when PROPS_ONLY_STAGE_AUDIT=1).
+  const keepSamples = process.env.PROPS_ONLY_STAGE_AUDIT === "1";
+  const audit: PropsOnlyStageAudit = {
+    scoredIn: ordered.length,
+    oddsFail: 0,
+    qualifyFail: {},
+    rareFail: 0,
+    anytimeFail: 0,
+    ladderDedupe: 0,
+    perGameCap: 0,
+    marketSideCap: 0,
+    rareFamilyCap: 0,
+    seated: 0,
+    samples: [],
+  };
+  const bumpFail = (reason: string, sample?: PropsOnlyStageAudit["samples"][number]) => {
+    if (reason.startsWith("qualify:")) {
+      const key = reason.slice("qualify:".length);
+      audit.qualifyFail[key] = (audit.qualifyFail[key] ?? 0) + 1;
+    } else if (reason === "odds") audit.oddsFail += 1;
+    else if (reason === "rare") audit.rareFail += 1;
+    else if (reason === "anytime") audit.anytimeFail += 1;
+    else if (reason === "ladder") audit.ladderDedupe += 1;
+    else if (reason === "per_game") audit.perGameCap += 1;
+    else if (reason === "market_side") audit.marketSideCap += 1;
+    else if (reason === "rare_family") audit.rareFamilyCap += 1;
+    if (keepSamples && sample && audit.samples.length < 20) audit.samples.push(sample);
+  };
+
   const picks: ParsedPick[] = [];
   const usedPlayerMarket = new Set<string>();
   const usedGames = new Map<string, number>();
@@ -217,7 +282,10 @@ function stageFootballPropsOnlyLegsWithCap(
   for (const leg of ordered) {
     if (picks.length >= target) break;
     const p = normalizePropsOnlyPick(leg.pick);
-    if (!propsOnlyLegClearsOdds(p, leg.simHit, oddsSlack)) continue;
+    if (!propsOnlyLegClearsOdds(p, leg.simHit, oddsSlack)) {
+      bumpFail("odds");
+      continue;
+    }
     // Shared quality authority — props-only may add stricter constraints above,
     // but must never replace a shared rejection with a forged "qualified".
     const grade = leg.grade ?? p.finalAiScore?.grade ?? null;
@@ -239,7 +307,23 @@ function stageFootballPropsOnlyLegsWithCap(
       },
       { requestStyle: "props_only", isProp: true },
     );
-    if (qualified.qualificationStatus !== "qualified") continue;
+    if (qualified.qualificationStatus !== "qualified") {
+      bumpFail(`qualify:${qualified.qualificationReason ?? "rejected"}`, {
+        player: p.player,
+        market: p.propMarketKey ?? p.market,
+        line: p.propLine,
+        side: p.propSide,
+        isAlt: !!p.propIsAlt,
+        odds: p.odds,
+        simHit,
+        grade,
+        confidencePct,
+        edgePct,
+        reason: qualified.qualificationReason ?? "rejected",
+        game: p.game,
+      });
+      continue;
+    }
     // Rare multi-count Overs: normal props-only fail-closed unless lottery /
     // explicit 2+ ask or sufficient reliability.
     if (
@@ -253,6 +337,20 @@ function stageFootballPropsOnlyLegsWithCap(
         },
       )
     ) {
+      bumpFail("rare", {
+        player: p.player,
+        market: p.propMarketKey ?? p.market,
+        line: p.propLine,
+        side: p.propSide,
+        isAlt: !!p.propIsAlt,
+        odds: p.odds,
+        simHit,
+        grade,
+        confidencePct,
+        edgePct,
+        reason: "rare_multi_count",
+        game: p.game,
+      });
       continue;
     }
     if (
@@ -265,20 +363,43 @@ function stageFootballPropsOnlyLegsWithCap(
         },
       )
     ) {
+      bumpFail("anytime", {
+        player: p.player,
+        market: p.propMarketKey ?? p.market,
+        line: p.propLine,
+        side: p.propSide,
+        isAlt: !!p.propIsAlt,
+        odds: p.odds,
+        simHit,
+        grade,
+        confidencePct,
+        edgePct,
+        reason: "anytime_td_seat",
+        game: p.game,
+      });
       continue;
     }
     // Canonical ladder — main + `_alternate` share one seat per player.
     const pm = propsOnlyCollapseLadderKey(p);
-    if (usedPlayerMarket.has(pm)) continue;
+    if (usedPlayerMarket.has(pm)) {
+      bumpFail("ladder");
+      continue;
+    }
     const gameKey = String(p.game ?? "");
     const gameCount = usedGames.get(gameKey) ?? 0;
-    if (gameCount >= maxPerGame) continue;
+    if (gameCount >= maxPerGame) {
+      bumpFail("per_game");
+      continue;
+    }
     const marketSide = `${String(p.propMarketKey ?? p.market ?? "")
       .toLowerCase()
       .replace(/_/g, " ")}|${String(p.propSide ?? "").toLowerCase()}`;
     const gameMarketSide = `${gameKey}|${marketSide}`;
     const gmsCount = usedGameMarketSide.get(gameMarketSide) ?? 0;
-    if (gmsCount >= maxSameGameMarketSide) continue;
+    if (gmsCount >= maxSameGameMarketSide) {
+      bumpFail("market_side");
+      continue;
+    }
     if (!allowRareCountFamilyStack) {
       const rareKey = rareCountGameFamilyKey({
         game: p.game,
@@ -287,7 +408,10 @@ function stageFootballPropsOnlyLegsWithCap(
       if (rareKey) {
         const rareCount = usedRareGameFamily.get(rareKey) ?? 0;
         // One seat per same-event rare family on generic mixed asks.
-        if (rareCount >= 1) continue;
+        if (rareCount >= 1) {
+          bumpFail("rare_family");
+          continue;
+        }
       }
     }
     usedPlayerMarket.add(pm);
@@ -302,6 +426,7 @@ function stageFootballPropsOnlyLegsWithCap(
         usedRareGameFamily.set(rareKey, (usedRareGameFamily.get(rareKey) ?? 0) + 1);
       }
     }
+    audit.seated += 1;
     picks.push({
       ...qualified,
       propsOnlyTicket: true,
@@ -310,6 +435,7 @@ function stageFootballPropsOnlyLegsWithCap(
       ...(seatOpts?.allowRareMultiCount ? { allowRareMultiCount: true as const } : {}),
     });
   }
+  propsOnlyStageAudit = audit;
   return picks;
 }
 

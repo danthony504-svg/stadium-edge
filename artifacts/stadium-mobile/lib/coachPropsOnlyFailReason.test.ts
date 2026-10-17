@@ -84,6 +84,30 @@ test("derivePropsOnlyFailCode picks the earliest actionable bottleneck", () => {
     }),
     "PROPS_ONLY_ODDS_GATE",
   );
+  assert.equal(
+    derivePropsOnlyFailCode({
+      target: 7,
+      pool: 6982,
+      athleteLinked: 6982,
+      candidates: 42,
+      historyLoaded: 14,
+      graded: 42,
+      bestEvSides: 22,
+      oddsCleared: 11,
+      staged: 0,
+      nullReasons: {},
+      stageRejects: {
+        qualifyFail: { confidence_floor: 11 },
+        rareFail: 0,
+        anytimeFail: 0,
+        ladderDedupe: 0,
+        perGameCap: 0,
+        marketSideCap: 0,
+        rareFamilyCap: 0,
+      },
+    }),
+    "PROPS_ONLY_CONFIDENCE_GATE",
+  );
 });
 
 test("phone empty note includes code + counters so OTA can diagnose", () => {

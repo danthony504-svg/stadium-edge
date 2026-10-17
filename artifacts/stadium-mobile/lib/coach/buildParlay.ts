@@ -122,6 +122,8 @@ export type CoachParlayBuildResult = {
   propPoolSize: number;
   /** Team-scoped ask funnel diagnostics ("4 leg Troy"). */
   teamGameScopeDiagnostics?: CoachTeamGameScopeDiagnostics | null;
+  /** Props-only empty/short diagnosis — logs / reliability; never chat copy. */
+  failDiag?: import("@/lib/coachPropsOnlyFailReason").PropsOnlyFailDiag;
 };
 
 export { shouldSkipScannerPropExpand } from "./propPoolPolicy";
@@ -472,6 +474,7 @@ export async function buildCoachParlay(opts: {
         );
       },
     });
+    let propsFailDiag = built.failDiag;
     let picks = filterPicksForCoachAskTeams(
       filterPicksByAskMarketConstraint(
         selectFinalCoachParlayPicks(built.picks),
@@ -547,6 +550,7 @@ export async function buildCoachParlay(opts: {
         inputs.teamScope,
         inputs.excludedTeams,
       );
+      if (recovered.failDiag) propsFailDiag = recovered.failDiag;
       if (recoveredPicks.length > 0) {
         picks = recoveredPicks;
         recoveredNote = isMarketLocked
@@ -589,6 +593,7 @@ export async function buildCoachParlay(opts: {
             );
           },
         });
+        if (softPreferred.failDiag) propsFailDiag = softPreferred.failDiag;
         const softPicks = filterPicksForCoachAskTeams(
           filterPicksByAskMarketConstraint(
             selectFinalCoachParlayPicks(softPreferred.picks),
@@ -609,6 +614,9 @@ export async function buildCoachParlay(opts: {
                 })
               : `Staged ${picks.length} matching real lines for the requested market.`;
         } else {
+          const confWipe =
+            propsFailDiag?.code === "PROPS_ONLY_CONFIDENCE_GATE" ||
+            (propsFailDiag?.stageRejects?.qualifyFail?.confidence_floor ?? 0) > 0;
           recoveredNote = isMarketLocked
             ? lockedMarketQualityShortfallNote({
                 requestedLegs: target,
@@ -616,7 +624,9 @@ export async function buildCoachParlay(opts: {
                 qualified: 0,
                 marketLabel: lockedMarketLabel,
               })
-            : `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`;
+            : confWipe
+              ? `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none met the confidence floor. No ungraded filler was added.`
+              : `Graded ${built.propLegsScored} locked-market props and ${recovered.propLegsScored} skill alts (yards / receptions / sacks) — none cleared recovery odds. No ungraded filler was added.`;
         }
       }
     }
@@ -702,6 +712,7 @@ export async function buildCoachParlay(opts: {
         timedOut: false,
         propPoolSize,
         teamGameScopeDiagnostics,
+        ...(propsFailDiag ? { failDiag: propsFailDiag } : {}),
       };
     }
     return {
@@ -711,6 +722,7 @@ export async function buildCoachParlay(opts: {
       timedOut: false,
       propPoolSize,
       teamGameScopeDiagnostics,
+      ...(propsFailDiag && picks.length < target ? { failDiag: propsFailDiag } : {}),
     };
   }
 
