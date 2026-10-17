@@ -1,6 +1,6 @@
 # Clean research-only NCAAF engine — architecture & milestones (design freeze)
 
-**Status:** DESIGN **FROZEN** · M1–M3 screen done · **A0 ablation round CLOSED** · next = proposed **E1** only (not implemented) · **FINAL_EVAL not advanced**  
+**Status:** DESIGN **FROZEN** · A0 ablation CLOSED · **E1 run** → PASS_RESEARCH on α∈{1.15,1.25}, prefer **α=1.15** for further research only · **A0 still frozen baseline** · **FINAL_EVAL not advanced**  
 **Branch:** `cursor/ncaaf-clean-engine-design-8b51`  
 **Date:** 2026-10-17  
 **Supersedes as research path:** drive residual/shrink restoration and team-strength v0 (both **archived**, not extended)  

@@ -40,17 +40,19 @@ Residual = `(home−away) − marginMean`. Uncertainty diagnostics use `Z = resi
 | Roster / QB continuity (historical pregame) | **No** | `injuryKnown`/`qbOut` non-null on closes: 0/470 / 0/470; E4 open; no TUNING roster fields |
 | Forward ESPN injury/QB collector | Forward-only | Cannot re-score 2025 TUNING historically without inventing |
 
-## 4. Proposed bounded experiment (PROPOSAL ONLY — do not implement yet)
+## 4. E1 — executed (research-only)
 
-### E1 — Prior talent-gap scale (location-only)
+Protocol frozen pre-scores: [`ncaaf-clean-e1-eval-protocol.md`](./ncaaf-clean-e1-eval-protocol.md).  
+Results: [`ncaaf-clean-e1-gap-scale.md`](./ncaaf-clean-e1-gap-scale.md).
 
-| Field | Content |
+| Field | Outcome |
 |-------|---------|
-| **Hypothesis** | W1 / large-fav errors are mostly **margin compression** from the 2024 seed + opp-adj PPG ratings, not σ. Scaling the rating gap by a predeclared α∈{1.15, 1.25} (HFA after; uncertainty formula frozen) reduces location bias without ATS regression. |
-| **Required inputs** | Existing phase-e 2024 + TUNING + venue sidecar + identical-334 closes (eval-only). **No new data. No QB/EPA.** |
-| **Evaluation** | Time-ordered TUNING week folds vs frozen A0; report meanResidual±SE, RMSE±bootSE, mean|Z|±SE, ML Δ±bootSE, ATS Brier±bootSE on overall / W1 / abs>14. |
-| **Selection** | Adopt α only if location improves ≥1 SE on W1 **and** large **and** overall ML/ATS do not worsen beyond SE; else keep A0. **No grid expansion after scores. No FINAL_EVAL.** |
-| **Explicit non-goals** | No σ retune; no close features; no spend; no gate/OTA/deploy; no injury backfill |
+| α grid | Exact {1.15, 1.25} — **no expansion** |
+| PASS_RESEARCH | **Both** α passed L_W1 ∧ L_LG ∧ M_ALL ∧ S_ALL |
+| Preference | **α=1.15** (smaller overall ML/ATS regression) |
+| Scope | Further research only — **does not** replace M3/S2, injury validation, or final review |
+| Baseline | **A0 remains frozen** until a later research lock |
+| FINAL_EVAL | **Not advanced** |
 
 ## 5. Uncertainty on metrics
 
