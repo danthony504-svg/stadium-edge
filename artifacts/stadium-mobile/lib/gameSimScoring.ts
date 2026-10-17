@@ -222,7 +222,11 @@ export function gameLineLegBucket(game: string, market: string, pick: string): s
   const g = canonicalGameKey(game);
   const fam = gameMarketFamily(market);
   if (/\b(over|under)\b/i.test(pick) && !/team total/i.test(market)) {
-    return `${g}|game-total`;
+    // Include side + line so ALT Under 4.5 cannot collide with main Under 6.5
+    // in the same backfill/dedupe bucket (stale ALT grade / cache-key risk).
+    const side = /\bover\b/i.test(pick) ? "over" : "under";
+    const line = numLine(pick);
+    return `${g}|game-total|${side}|${line ?? ""}`;
   }
   if (/team total/i.test(market)) {
     const team = gamePickTeam({ game, market, pick, odds: 0 });

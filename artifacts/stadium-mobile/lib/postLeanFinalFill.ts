@@ -1,14 +1,19 @@
 /**
  * Post-lean final fill — top up a short ticket from already-qualified candidates.
  *
- * Reuses {@link topUpTicketFromQualifiedScored} (progressive GL raise, prop caps,
- * ladder / same-player / P0 team-total stack gates). Never invents odds or grades,
- * never re-runs mlLean, and never loosens qualification thresholds.
+ * Reuses {@link topUpTicketFromQualifiedScored} (default same-game cap, prop caps,
+ * ladder / same-player / P0 team-total + GT/TT stack gates). Never invents odds
+ * or grades, never re-runs mlLean, never loosens qualification thresholds, and
+ * never auto-raises the per-game game-line limit to manufacture a full ticket.
  */
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { marketFamily } from "./altLinePool.ts";
 import { p0UnvalidatedSimDecision } from "./coachP0UnvalidatedTotals.ts";
+import {
+  attachSeatedSimProvenance,
+  recomputeDerivedEdgeEv,
+} from "./coachSimProvenance.ts";
 import { legAllowedForTicketStyle } from "./coachTicketQualityTiers.ts";
 import { canonicalGameKey } from "./gameSimScoring.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
@@ -108,17 +113,27 @@ export function scoredLegFromQualifiedCandidate(pick: ParsedPick): BoardScoredLe
   if (pick.isProp && score.simHit != null && !pickHasSimGrade(pick, score.simHit)) {
     return null;
   }
+  // Recompute derived edge/EV from simHit + current odds (never reuse stale ALT edge as EV).
+  const { edgePct, evPct } = recomputeDerivedEdgeEv(score.simHit ?? null, pick.odds);
+  const seated = attachSeatedSimProvenance(pick, score.simHit ?? null);
+  // Provenance withhold — do not reseat an unverifiable game-line / prop grade.
+  if (
+    (isGameSideMlOrSpread(pick) || pick.isProp) &&
+    !pickHasSimGrade(seated, seated.finalAiScore?.simHit ?? null)
+  ) {
+    return null;
+  }
   return {
-    pick,
-    evPct: score.edgePct ?? null,
-    edgePct: score.edgePct ?? null,
-    confidencePct: score.confidencePct ?? null,
+    pick: seated,
+    evPct,
+    edgePct,
+    confidencePct: seated.finalAiScore?.confidencePct ?? score.confidencePct ?? null,
     impliedProbPct: null,
     lineShoppingScore: null,
-    grade: score.grade ?? null,
-    simHit: score.simHit ?? null,
-    composite: score.composite ?? null,
-    rankScore: score.composite ?? score.edgePct ?? 0,
+    grade: seated.finalAiScore?.grade ?? score.grade ?? null,
+    simHit: seated.finalAiScore?.simHit ?? score.simHit ?? null,
+    composite: seated.finalAiScore?.composite ?? score.composite ?? null,
+    rankScore: seated.finalAiScore?.composite ?? edgePct ?? score.composite ?? 0,
   };
 }
 
@@ -133,7 +148,7 @@ export type PostLeanFinalFillOpts = {
   ticketStyle?: string | null;
   /**
    * Fingerprints of picks lean explicitly discarded as invalid / ungradable.
-   * Cap-overflow drops are not included — progressive fill may reseat those.
+   * Cap-overflow drops are not included — default-cap fill may reseat those.
    */
   rejectedFingerprints?: ReadonlySet<string>;
 };
@@ -171,8 +186,9 @@ function buildFillPool(
 
 /**
  * After mlLean (single phase): fill toward `target` from qualified leftovers.
- * Does not call enforceMlLeanOnPicks. Reuses production top-up + progressive
- * GL raise; belts opposite-side same-period / duplicate ladders after each round.
+ * Does not call enforceMlLeanOnPicks. Reuses production top-up under the default
+ * same-game cap (honest shortfall — no progressive GL raise); belts
+ * opposite-side same-period / duplicate ladders after each round.
  */
 export function topUpAfterMlLean(opts: PostLeanFinalFillOpts): ParsedPick[] {
   const { target } = opts;
@@ -191,8 +207,8 @@ export function topUpAfterMlLean(opts: PostLeanFinalFillOpts): ParsedPick[] {
     const scored = buildFillPool(current, opts);
     if (!scored.length) break;
 
-    // Progressive raise lives inside topUpTicketFromQualifiedScored — do not
-    // pre-raise legsPerGameCap (that would skip the approved [3,4] steps).
+    // Default same-game cap only — never pre-raise legsPerGameCap to manufacture
+    // a full ticket from a thin slate.
     const filled = topUpTicketFromQualifiedScored(
       current,
       scored,

@@ -4,7 +4,10 @@
 
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { wouldRepeatMarketLadder } from "./marketLadderKey.ts";
-import { wouldStackSameTeamTeamTotals } from "./coachP0UnvalidatedTotals.ts";
+import {
+  wouldStackCorrelatedGameAndTeamTotals,
+  wouldStackSameTeamTeamTotals,
+} from "./coachP0UnvalidatedTotals.ts";
 
 type CorrelationPick = {
   game: string;
@@ -141,30 +144,19 @@ export function legsPerGameCapForAsk(
 }
 
 /**
- * When a thin slate cannot reach the fixed-leg target under the default
- * game-line diversity cap, raise the per-matchup budget step-by-step so
- * already-qualified period/alt rungs can fill seats. Never invents legs —
- * callers still only pull from the AI-qualified pool.
+ * Legacy progressive same-game game-line raise — **disabled**.
  *
- * Ceiling is ceil(target / 2): enough for a 2-game early NFL window without
- * turning a deep ask into a single-game SGP dump. College team-market fills
- * may climb higher (up to min(target, 5)) so FG+Q2+team-total stacks can
- * finish a deep ask from a thin Saturday slate.
+ * Default `maxLegsPerGame` must hold through ALT / refill / final delivery.
+ * Thin slates return honest shortfall instead of auto-relaxing the per-game
+ * cap to meet the requested count. College team-market stacks raise the
+ * seated budget via {@link legsPerGameCapForAsk}, not this helper.
  */
 export function progressiveLegsPerGameRelaxation(
-  target: number,
-  currentCap?: number | null,
-  opts?: { collegeTeamMarketStacks?: boolean },
+  _target: number,
+  _currentCap?: number | null,
+  _opts?: { collegeTeamMarketStacks?: boolean },
 ): number[] {
-  if (target < 5) return [];
-  const base = maxLegsPerGame(target, currentCap);
-  const ceiling = opts?.collegeTeamMarketStacks
-    ? Math.min(target, Math.max(Math.ceil(target / 2), 5))
-    : Math.min(target, Math.ceil(target / 2));
-  if (base >= ceiling) return [];
-  const out: number[] = [];
-  for (let c = base + 1; c <= ceiling; c++) out.push(c);
-  return out;
+  return [];
 }
 
 export function countLegsForGame(
@@ -354,6 +346,8 @@ export function selectCorrelationAwareBoardLegs<T extends CorrelationPick>(
       if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
       // P0: hard-block same-team FG/1H/2H team-total stacks (all sports).
       if (wouldStackSameTeamTeamTotals(row.pick, onTicket)) continue;
+      // Same-side game total + team total (e.g. Under 6.5 + TT Under 4.5).
+      if (wouldStackCorrelatedGameAndTeamTotals(row.pick, onTicket)) continue;
       const effective = row.rankScore - parlayCorrelationPenalty(row.pick, onTicket);
       if (effective > bestScore) {
         bestScore = effective;

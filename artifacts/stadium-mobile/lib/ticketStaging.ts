@@ -22,6 +22,7 @@ import { canonicalGameKey, gameLineLegBucket, isGameLinePick } from "./gameSimSc
 import { dedupePicksByMarketLadder, wouldRepeatMarketLadder } from "./marketLadderKey.ts";
 import {
   p0UnvalidatedSimDecision,
+  wouldStackCorrelatedGameAndTeamTotals,
   wouldStackSameTeamTeamTotals,
 } from "./coachP0UnvalidatedTotals.ts";
 import {
@@ -33,8 +34,8 @@ import {
   wouldExceedMaxLegsPerGame,
   wouldRepeatPlayerProp,
   wouldExceedMaxPropsPerGame,
-  progressiveLegsPerGameRelaxation,
 } from "./parlayCorrelationScore.ts";
+import { attachSeatedSimProvenance } from "./coachSimProvenance.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
@@ -269,8 +270,10 @@ export function selectGreedyBoardLegs(
     if (wouldExceedMaxPropsPerGame(row.pick, onTicket, maxProps)) continue;
     if (wouldRepeatMarketLadder(row.pick, onTicket)) continue;
     if (wouldStackSameTeamTeamTotals(row.pick, onTicket)) continue;
+    if (wouldStackCorrelatedGameAndTeamTotals(row.pick, onTicket)) continue;
     seen.add(fp);
-    out.push(row.pick);
+    // Sync sanitized simHit + recompute edge/EV onto the seated pick.
+    out.push(attachSeatedSimProvenance(row.pick, row.simHit));
     if (out.length >= target) break;
   }
   if (existing.length > 0) return out.slice(0, target);
@@ -282,9 +285,9 @@ export function selectGreedyBoardLegs(
  * board, top up greedily from those cleared legs. Never invents ungraded filler.
  *
  * Order matters for football: (1) fill reserved prop seats from leftover props,
- * (2) mixed top-up under the default per-game game-line cap, (3) only then
- * progressively raise the game-line cap for period/alts. Never use #524
- * period-fill to skip past qualified props that still owe seats.
+ * (2) mixed top-up under the default per-game game-line cap. Never auto-relax
+ * the same-game game-line limit to hit the ask — return honest shortfall.
+ * Never use #524 period-fill to skip past qualified props that still owe seats.
  */
 export function topUpTicketFromQualifiedScored(
   picks: ParsedPick[],
@@ -384,20 +387,10 @@ export function topUpTicketFromQualifiedScored(
     merged = appendExtras(merged, legsPerGameCap, (leg) => !!leg.pick.isProp);
   }
 
-  // (2) Mixed top-up under the default diversity cap.
+  // (2) Mixed top-up under the default diversity cap — never raise the
+  // same-game game-line limit to manufacture a full ticket.
   merged = appendExtras(merged, legsPerGameCap);
 
-  // (3) Thin-slate game-line relax — only after props had their chance.
-  if (merged.length < target) {
-    for (const raised of progressiveLegsPerGameRelaxation(target, legsPerGameCap, {
-      collegeTeamMarketStacks: !!opts?.collegeTeamMarketStacks,
-    })) {
-      const next = appendExtras(merged, raised);
-      if (next.length <= merged.length) continue;
-      merged = next;
-      if (merged.length >= target) break;
-    }
-  }
   // Mix tickets: do not re-run same-team period collapse on the whole ticket —
   // that would wipe Q1+1H seats the per-game cap intentionally allows.
   // Game-lines-only already collapsed inside appendExtras.
@@ -529,6 +522,7 @@ function applyCapAndBackfillToTarget(
     if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
     if (wouldRepeatMarketLadder(row.pick, current)) continue;
     if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
+    if (wouldStackCorrelatedGameAndTeamTotals(row.pick, current)) continue;
     const trial = capThinStatMarketsOnTicket(
       [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
       target,
@@ -553,6 +547,7 @@ function applyCapAndBackfillToTarget(
       if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) return false;
       if (wouldRepeatMarketLadder(row.pick, current)) return false;
       if (wouldStackSameTeamTeamTotals(row.pick, current)) return false;
+      if (wouldStackCorrelatedGameAndTeamTotals(row.pick, current)) return false;
       return boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
     });
     for (const row of nonThin) {
@@ -564,6 +559,7 @@ function applyCapAndBackfillToTarget(
       if (wouldExceedMaxPropsPerGame(row.pick, current, maxProps)) continue;
       if (wouldRepeatMarketLadder(row.pick, current)) continue;
       if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
+    if (wouldStackCorrelatedGameAndTeamTotals(row.pick, current)) continue;
       const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
       const trial = capThinStatMarketsOnTicket(
         [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
@@ -651,6 +647,7 @@ function appendPicksFromPool(
     if (used.has(pickLegFingerprint(row.pick))) return false;
     if (wouldRepeatMarketLadder(row.pick, out)) return false;
     if (wouldStackSameTeamTeamTotals(row.pick, out)) return false;
+    if (wouldStackCorrelatedGameAndTeamTotals(row.pick, out)) return false;
     return true;
   });
   const pickFrom = (candidates: BoardScoredLeg[], n: number): ParsedPick[] => {
@@ -741,6 +738,7 @@ function applyBalancedCapAndBackfill(
         if (!legAllowedForTicketStyle(row, ticketStyle)) continue;
         if (wouldRepeatMarketLadder(row.pick, current)) continue;
         if (wouldStackSameTeamTeamTotals(row.pick, current)) continue;
+    if (wouldStackCorrelatedGameAndTeamTotals(row.pick, current)) continue;
         const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
         if (!role) continue;
         const trial = capThinStatMarketsOnTicket(
