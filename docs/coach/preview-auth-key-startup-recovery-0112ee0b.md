@@ -51,13 +51,23 @@ Manifest associatedDomains include `profound-raptor-92.clerk.accounts.dev` (publ
 
 | Field | Value |
 |-------|--------|
-| Tip / forced bake SHA | `135cd76d6a1d27cb0061a29b59fb6ad6f0b4aa8b` |
+| Tip / forced bake SHA (Clerk fix) | `135cd76d6a1d27cb0061a29b59fb6ad6f0b4aa8b` |
 | Launch hash | `ooO4Lk2ZtPWDFtU7safxMAq0ngXceXmDInnZaNzJ-60` |
 | Update id | `01a14ac4-e194-71e1-b8a3-557cbe69d0c3` |
 | Group | `45cbca52-040d-468c-ba08-d7f3d4ba850b` |
-| Message | `incident RC 135cd76d… — corrected Clerk publishable-key bake (auth prepublish gate)` |
 
-HBC bake verified: contains full `pk_test_cHJvZm91bmQt…`, contains forced SHA, **no** `missing auth key` string, **no** `sk_*`.
+### Current preview tip (pre-Clerk recovery UI)
+
+| Field | Value |
+|-------|--------|
+| Tip / forced bake SHA | `c5246bc16fc4ac9a612c8402c9444e50b79a011e` |
+| Launch hash | `lMKnuSeln8v2uAul61nzs5Dz6DTrXcOVpTfNaQ2l1rY` |
+| Update id | `01a14add-f6a3-7a77-8960-41cab211cbe5` |
+| Group | `727ddb2c-54be-4918-b3c0-93ba35bf25a5` |
+| Message | `preview c5246bc1 — pre-Clerk missing-auth identity + OTA recovery` |
+
+Startup-expression proof: HBC contains full `pk_test_cHJvZm91bmQt…` and forced SHA; empty-key sentinel `STARTUP_AUTH_KEY_MISSING_SENTINEL` **absent** (DCE); **no** `sk_*`.  
+Phone recovery steps: [`preview-missing-auth-phone-recovery.md`](./preview-missing-auth-phone-recovery.md).
 
 Use `artifacts/stadium-mobile/scripts/export-preview-ota.sh` (sets public Clerk key + forced `EXPO_PUBLIC_GIT_COMMIT`, `--clear`s Metro cache, runs `prepublish-export-auth-check.mjs` before and after export). Prepublish check **fails** if the publishable key is missing from env or HBC, or if any `sk_*` / `CLERK_SECRET*` is present. Never bake server secrets.
 
