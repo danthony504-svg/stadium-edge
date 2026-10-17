@@ -81,7 +81,14 @@ export function emptyPropDistributionCacheStats(): PropDistributionCacheStats {
   };
 }
 
-/** Fingerprint of history/form series that feed the draw. */
+/**
+ * Fingerprint of every input that changes the projected mean / sample draw.
+ * Line, side, odds, and sportsbook must NEVER appear here.
+ *
+ * Includes history series, minutes, and baked pre-sim / game-context scalars
+ * (defenseIndex, pace, injuries, weather, opportunity/venue/matchup mults)
+ * so boosted vs suppressed defense (and missing vs supplied) cannot collide.
+ */
 export function propHistoryFingerprint(
   ctx: Pick<
     PropSimulationContext,
@@ -93,6 +100,22 @@ export function propHistoryFingerprint(
     | "minutesSeason"
     | "minutesDirection"
     | "discrete"
+    | "isHome"
+    | "oppPace"
+    | "leaguePace"
+    | "oppKeyInjuries"
+    | "ownKeyInjuries"
+    | "weatherImpact"
+    | "defenseIndex"
+    | "opportunityFamilyMult"
+    | "opportunitySuppressOwnInjuries"
+    | "venueFamilyMult"
+    | "matchupFamilyMult"
+    | "combinedPreSimMult"
+    | "volumePreSimMult"
+    | "efficiencyPreSimMult"
+    | "suppressSoftVenueBlend"
+    | "suppressSoftVsOpponentBlend"
   >,
 ): string {
   const pack = (xs: number[] | undefined) =>
@@ -100,15 +123,37 @@ export function propHistoryFingerprint(
       .filter((n) => Number.isFinite(n))
       .map((n) => Number(n).toFixed(3))
       .join(",");
+  /** Empty when null/undefined — must not collide with an explicit finite value. */
+  const num = (n: number | null | undefined, digits = 4) =>
+    n != null && Number.isFinite(n) ? Number(n).toFixed(digits) : "";
+  const flag = (b: boolean | undefined) => (b ? "1" : "0");
+  const home =
+    ctx.isHome === true ? "H" : ctx.isHome === false ? "A" : "U";
   const raw = [
     pack(ctx.recentValues),
     pack(ctx.vsOpponentValues),
     pack(ctx.homeValues),
     pack(ctx.awayValues),
-    ctx.minutesL5 != null ? Number(ctx.minutesL5).toFixed(2) : "",
-    ctx.minutesSeason != null ? Number(ctx.minutesSeason).toFixed(2) : "",
+    num(ctx.minutesL5, 2),
+    num(ctx.minutesSeason, 2),
     ctx.minutesDirection ?? "",
     ctx.discrete ? "1" : "0",
+    home,
+    num(ctx.oppPace, 2),
+    num(ctx.leaguePace, 2),
+    num(ctx.oppKeyInjuries, 2),
+    num(ctx.ownKeyInjuries, 2),
+    num(ctx.weatherImpact, 3),
+    num(ctx.defenseIndex, 4),
+    num(ctx.opportunityFamilyMult),
+    flag(ctx.opportunitySuppressOwnInjuries),
+    num(ctx.venueFamilyMult),
+    num(ctx.matchupFamilyMult),
+    num(ctx.combinedPreSimMult),
+    num(ctx.volumePreSimMult),
+    num(ctx.efficiencyPreSimMult),
+    flag(ctx.suppressSoftVenueBlend),
+    flag(ctx.suppressSoftVsOpponentBlend),
   ].join(";");
   return createHash("sha1").update(raw).digest("hex").slice(0, 16);
 }

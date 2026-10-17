@@ -1,0 +1,284 @@
+{
+  "generatedAt": "2026-10-17T11:52:16.496Z",
+  "stamp": "ncaaf-score-margin-v1-research",
+  "ablationRound": {
+    "status": "CLOSED",
+    "frozenCandidate": "A0_full",
+    "stamp": "ncaaf-score-margin-v1-research",
+    "ablationsNotAdopted": [
+      "A1_no_hfa",
+      "A2_fixed_sigma",
+      "A3_no_prior_seed"
+    ],
+    "reason": "A1/A3 worse; A2 improved ML \u0394 but worsened ATS \u2014 protocol forbids threshold shopping. Freeze A0 means.",
+    "finalEval": "NOT_ADVANCED"
+  },
+  "ops": {
+    "ncaafGate": false,
+    "injuryValidation": "OPEN",
+    "productionFreeze": true,
+    "voice": "paused",
+    "paidRetrieval": false,
+    "deployOta": false,
+    "finalEval": "UNTOUCHED"
+  },
+  "identicalN": 334,
+  "decomposition": {
+    "all": {
+      "label": "identical_334",
+      "n": 334,
+      "location": {
+        "meanResidual": 2.934915309721521,
+        "meanResidualSe": 0.9125980520453554,
+        "meanResidualBootSe": 0.9357193314206809,
+        "rmseResidual": 16.934600267222955,
+        "rmseResidualBootSe": 0.6921334286410835,
+        "meanAbsPredMargin": 7.661820922584079,
+        "meanAbsActMargin": 15.979041916167665,
+        "meanAbsSpread": 10.636227544910179,
+        "meanPredAbsMinusSpread": -2.9744066223260934,
+        "meanPredAbsMinusSpreadSe": 0.3385470952229907
+      },
+      "uncertainty": {
+        "meanMarginSd": 21.59273869786174,
+        "meanUncertainty": 0.5611833275880839,
+        "meanAbsZ": 0.6171023478933645,
+        "meanAbsZSe": 0.028423574342031983,
+        "meanAbsZBootSe": 0.027843200446582145,
+        "meanZ": 0.1373991311434846,
+        "meanZ2": 0.6506537669534275,
+        "meanZ2Se": 0.05586172893947556,
+        "rmseOverMeanSd": 0.784272921753086,
+        "fracAbsZgt2": 0.029940119760479042,
+        "fracAbsZlt1": 0.7904191616766467,
+        "expectedAbsZHalfNormal": 0.7979,
+        "expectedZ2": 1
+      },
+      "nMismatch14": 47
+    },
+    "w1": {
+      "label": "week1",
+      "n": 47,
+      "location": {
+        "meanResidual": 3.987580559001575,
+        "meanResidualSe": 2.6205978390122455,
+        "meanResidualBootSe": 2.6757401193159853,
+        "rmseResidual": 18.403120694730084,
+        "rmseResidualBootSe": 1.66083814040025,
+        "meanAbsPredMargin": 6.309367001715842,
+        "meanAbsActMargin": 17.872340425531913,
+        "meanAbsSpread": 12.627659574468085,
+        "meanPredAbsMinusSpread": -6.318292572752242,
+        "meanPredAbsMinusSpreadSe": 1.1038025118724666
+      },
+      "uncertainty": {
+        "meanMarginSd": 27.84375,
+        "meanUncertainty": 1.25,
+        "meanAbsZ": 0.5203464848828329,
+        "meanAbsZSe": 0.059445069319268594,
+        "meanAbsZBootSe": 0.061372024588536286,
+        "meanZ": 0.1432127697957917,
+        "meanZ2": 0.4368451288494347,
+        "meanZ2Se": 0.08077187114936187,
+        "rmseOverMeanSd": 0.6609426063202724,
+        "fracAbsZgt2": 0,
+        "fracAbsZlt1": 0.8085106382978723,
+        "expectedAbsZHalfNormal": 0.7979,
+        "expectedZ2": 1
+      },
+      "nMismatch14": 7
+    },
+    "large": {
+      "label": "large_abs_gt14",
+      "n": 94,
+      "location": {
+        "meanResidual": 7.077091980822064,
+        "meanResidualSe": 1.6514882966959052,
+        "meanResidualBootSe": 1.6702533940535518,
+        "rmseResidual": 17.50605920110603,
+        "rmseResidualBootSe": 1.198729957677284,
+        "meanAbsPredMargin": 12.689353618240865,
+        "meanAbsActMargin": 22.627659574468087,
+        "meanAbsSpread": 21.569148936170212,
+        "meanPredAbsMinusSpread": -8.879795317929347,
+        "meanPredAbsMinusSpreadSe": 0.6390256189659861
+      },
+      "uncertainty": {
+        "meanMarginSd": 22.451351140193378,
+        "meanUncertainty": 0.655796268891832,
+        "meanAbsZ": 0.6269146178182168,
+        "meanAbsZSe": 0.05049137318299759,
+        "meanAbsZBootSe": 0.04734208266661663,
+        "meanZ": 0.30904430491792123,
+        "meanZ2": 0.6326635420292053,
+        "meanZ2Se": 0.08919765940144275,
+        "rmseOverMeanSd": 0.7797329920944458,
+        "fracAbsZgt2": 0.02127659574468085,
+        "fracAbsZlt1": 0.776595744680851,
+        "expectedAbsZHalfNormal": 0.7979,
+        "expectedZ2": 1
+      },
+      "nMismatch14": 6
+    },
+    "mismatch": {
+      "label": "sign_flip_abs_resid_ge14",
+      "n": 47,
+      "location": {
+        "meanResidual": 0.12276926855496431,
+        "meanResidualSe": 4.109922480607495,
+        "meanResidualBootSe": 4.064874857051305,
+        "rmseResidual": 28.17647642508971,
+        "rmseResidualBootSe": 1.3845126827110623,
+        "meanAbsPredMargin": 7.015020491983006,
+        "meanAbsActMargin": 19.680851063829788,
+        "meanAbsSpread": 7.340425531914893,
+        "meanPredAbsMinusSpread": -0.3254050399318886,
+        "meanPredAbsMinusSpreadSe": 0.892483887944582
+      },
+      "uncertainty": {
+        "meanMarginSd": 21.603312798044566,
+        "meanUncertainty": 0.5623485176908612,
+        "meanAbsZ": 1.253578591081691,
+        "meanAbsZSe": 0.06575955304530189,
+        "meanAbsZBootSe": 0.0675986164863654,
+        "meanZ": 0.04331514445798294,
+        "meanZ2": 1.7747022684040976,
+        "meanZ2Se": 0.19280868638897333,
+        "rmseOverMeanSd": 1.3042664654487675,
+        "fracAbsZgt2": 0.1276595744680851,
+        "fracAbsZlt1": 0.3404255319148936,
+        "expectedAbsZHalfNormal": 0.7979,
+        "expectedZ2": 1
+      },
+      "nMismatch14": 47
+    },
+    "w1Large": {
+      "label": "week1_and_large_gt14",
+      "n": 16,
+      "location": {
+        "meanResidual": 10.92162489884759,
+        "meanResidualSe": 3.3961582687305256,
+        "meanResidualBootSe": 3.4700175846168193,
+        "rmseResidual": 17.43055209141108,
+        "rmseResidualBootSe": 3.129601007706952,
+        "meanAbsPredMargin": 8.94655356038217,
+        "meanAbsActMargin": 20.875,
+        "meanAbsSpread": 23.5,
+        "meanPredAbsMinusSpread": -14.55344643961783,
+        "meanPredAbsMinusSpreadSe": 1.5693743891954137
+      },
+      "uncertainty": {
+        "meanMarginSd": 27.84375,
+        "meanUncertainty": 1.25,
+        "meanAbsZ": 0.4694116116670391,
+        "meanAbsZSe": 0.10354501826865899,
+        "meanAbsZBootSe": 0.10421716006179509,
+        "meanZ": 0.3922469099473882,
+        "meanZ2": 0.39189239409995785,
+        "meanZ2Se": 0.13463673073702287,
+        "rmseOverMeanSd": 0.6260130941920926,
+        "fracAbsZgt2": 0,
+        "fracAbsZlt1": 0.8125,
+        "expectedAbsZHalfNormal": 0.7979,
+        "expectedZ2": 1
+      },
+      "nMismatch14": 0
+    }
+  },
+  "priorDiagnostics": {
+    "week1": {
+      "n": 47,
+      "corrPredAct": 0.4607621646453479,
+      "corrPredAbsSpread": 0.6936355047532315,
+      "meanMinN": 0,
+      "note": "W1 minN is 0 by design (seasonN not incremented by seed)"
+    },
+    "largeGt14": {
+      "n": 94,
+      "corrPredAct": 0.6891670975783297,
+      "corrPredAbsSpread": 0.4419633587725107,
+      "meanAbsPred": 12.689353618240865,
+      "meanAbsAct": 22.627659574468087,
+      "meanAbsSpread": 21.569148936170212,
+      "meanCompressionVsLine": 8.879795317929347,
+      "meanCompressionVsLineSe": 0.6390256189659861
+    }
+  },
+  "dataSupport": {
+    "opponentAdjustedEfficiency": {
+      "scoreBasedOppAdjPpg": {
+        "supported": true,
+        "alreadyInA0": true,
+        "source": "CleanOppAdjStrength on phase-e 2024 FBS\u2013FBS finals + in-season updates",
+        "nPriorSeasonGamesInFixtures": 871,
+        "note": "A0 already uses score/PPG opponent-adjusted offense/defense \u2014 not yards/EPA/success-rate."
+      },
+      "advancedEfficiencyEpaOrSuccessRate": {
+        "supported": false,
+        "inTuningFixtures": false,
+        "inPhaseEFixtures": false,
+        "note": "No play-by-play / EPA / success-rate fields on TUNING or phase-e game rows. Cannot evaluate advanced efficiency without new free ESPN drive cache (out of scope for this freeze)."
+      }
+    },
+    "rosterQbContinuity": {
+      "historicalPregameOnTuningCloses": {
+        "supported": false,
+        "closesRows": 470,
+        "injuryKnownNonNull": 0,
+        "qbOutNonNull": 0,
+        "note": "injuryKnown/qbOut are 100% null on TUNING closes archive. Game fixtures lack roster/depth/starter fields."
+      },
+      "e4Status": "OPEN \u2014 forward ESPN collector only; no historical backfill authorized",
+      "canEvaluateOnTimeOrderedTuningNow": false
+    }
+  },
+  "proposedExperiment": {
+    "id": "E1_prior_gap_scale_w1_large",
+    "title": "Prior talent-gap scale (location-only) on seed-driven margins",
+    "status": "PROPOSAL_ONLY \u2014 do not implement until approved",
+    "hypothesis": "A0 large-favorite and Week-1 errors are dominated by margin LOCATION compression (predicted |margin| << close |spread| and actual |margin|), not by \u03c3 miscalibration. Scaling the prior-seeded offense/defense gap (before HFA) by a single predeclared factor \u03b1\u2208{1.15,1.25} should reduce mean residual bias and |pred|\u2212|spread| compression on W1 and abs>14 without changing cleanUncertainty / marginSd formulas.",
+    "whyNotUncertaintyRetune": "Decomposition shows meanAbsZ \u2272 expected (~0.80) and RMSE/meanSd \u2272 1 on W1/large \u2014 \u03c3 is if anything slightly wide. A2 already tested \u03c3=base; adopting it would be threshold shopping on ML.",
+    "whyNotOppAdjEpaOrQb": "Advanced efficiency and historical QB/roster continuity are NOT supported by existing TUNING/phase-e archives (see dataSupport). Do not invent them.",
+    "requiredInputs": {
+      "alreadyPresent": [
+        "phase-e 2024 FBS\u2013FBS finals (seed)",
+        "TUNING 2025 w1\u20137 games + venue sidecar",
+        "identical-334 closes (eval-only)",
+        "frozen A0 HFA / LR / base \u03c3 / uncertainty formula"
+      ],
+      "forbidden": [
+        "close prices as features",
+        "paid Odds/injury backfill",
+        "QB/roster imputation",
+        "FINAL_EVAL build",
+        "changing NCAAF gate / OTA / deploy"
+      ],
+      "newDataNeeded": "none"
+    },
+    "protocol": {
+      "freezeBaseline": "A0_full exactly as locked",
+      "lever": "Single scalar \u03b1 applied only to (homeOff\u2212awayOff) component from ratings after seed/update; HFA added after scale; uncertainty path unchanged",
+      "predeclaredGrid": [
+        1.15,
+        1.25
+      ],
+      "selectionRule": "On time-ordered TUNING folds, pick \u03b1 only if BOTH (a) identical-334 overall ML \u0394 and ATS Brier do not worsen vs A0 beyond bootstrap SE, AND (b) W1 meanResidual bias and large>14 meanCompressionVsLine improve by \u22651 SE. If neither \u03b1 clears, KEEP A0 \u2014 no further grid.",
+      "evaluation": [
+        "Walk chronologically (same as A0)",
+        "Score week k after causal updates from weeks < k",
+        "Report W1, large abs>14, overall identical-334",
+        "Report meanResidual\u00b1SE, RMSE\u00b1bootSE, meanAbsZ\u00b1SE, rmse/meanSd, ML \u0394\u00b1bootSE, ATS Brier\u00b1bootSE"
+      ],
+      "stopConditions": [
+        "Do not expand \u03b1 grid after seeing scores",
+        "Do not adopt if only ML improves and ATS worsens (A2 lesson)",
+        "Do not advance to FINAL_EVAL from this screen alone"
+      ]
+    }
+  },
+  "readingGuide": {
+    "locationProblem": "Positive meanResidual \u21d2 understated home margin. meanCompressionVsLine>0 (or meanPredAbsMinusSpread<0) \u21d2 |pred margin| smaller than close |spread| \u2014 dominant on W1/large.",
+    "uncertaintyProblem": "On W1/large meanAbsZ and RMSE/meanSd < calibrated targets \u21d2 \u03c3 somewhat wide; mismatch slice opposite. Do not adopt \u03c3-only retune (A2 lesson).",
+    "ablationRound": "CLOSED \u2014 A0 frozen; FINAL_EVAL not advanced"
+  }
+}

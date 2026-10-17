@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   __setPasskeysLoaderForTests,
+  __setPasskeysNativePresentForTests,
   classifyPasskeyError,
   clerkAssociatedDomains,
   clerkFrontendApiHost,
@@ -10,6 +11,7 @@ import {
   describeSignupError,
   generateMachinePassword,
   getPasskeys,
+  hasClerkExpoPasskeysNative,
   isDuplicateEmailError,
   isPasskeyCancellation,
   isPasskeysSupported,
@@ -136,6 +138,24 @@ describe("passkeyAuth missing ClerkExpoPasskeys (OTA Build 78)", () => {
       // Second call uses cache — still null, never rethrows.
       assert.equal(getPasskeys(), null);
     } finally {
+      __setPasskeysLoaderForTests(null);
+    }
+  });
+
+  it("never requires @clerk/expo/passkeys when native module is missing", () => {
+    let loaderCalls = 0;
+    __setPasskeysNativePresentForTests(() => false);
+    __setPasskeysLoaderForTests(() => {
+      loaderCalls += 1;
+      throw new Error("loader must not run when native absent");
+    });
+    try {
+      assert.equal(hasClerkExpoPasskeysNative(), false);
+      assert.equal(getPasskeys(), null);
+      assert.equal(isPasskeysSupported(), false);
+      assert.equal(loaderCalls, 0, "loader/require must not run without ClerkExpoPasskeys");
+    } finally {
+      __setPasskeysNativePresentForTests(null);
       __setPasskeysLoaderForTests(null);
     }
   });

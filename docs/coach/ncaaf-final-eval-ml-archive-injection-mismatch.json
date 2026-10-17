@@ -1,0 +1,101 @@
+{
+  "status": "STOPPED_SECRET_INJECTION_MISMATCH",
+  "generatedAt": "2026-10-17T13:36:24.491604+00:00",
+  "paidRetrieval": false,
+  "historicalBatchStarted": false,
+  "creditsConsumed": 0,
+  "finalEvalScored": false,
+  "tuningRetrievalRepeated": false,
+  "noPurchase": true,
+  "noDeployOtaUnlock": true,
+  "authorization": {
+    "closeHardCap": 2100,
+    "earlyHardCap": 2100,
+    "combinedCap": 4200,
+    "note": "Authorized; not executed \u2014 key not injected into this pod"
+  },
+  "environmentId": "8c5427d9-a490-11f1-a7d1-d6b4613131ce",
+  "environmentUrl": "https://cursor.com/dashboard/cloud-agents/environments/e/8c5427d9-a490-11f1-a7d1-d6b4613131ce",
+  "environmentVersionPublicId": "f60179da-c844-11f1-bd9f-22db05ab6f0c",
+  "mismatch": {
+    "sameEnvironmentId": true,
+    "sameEnvironmentVersion": true,
+    "secretConfigThisPod": {
+      "ALL_SECRET_NAMES": "EXPO_TOKEN",
+      "INJECTED_SECRET_NAMES": "EXPO_TOKEN",
+      "ODDS_API_KEY_in_process_env": false
+    },
+    "secretConfigExpectedForPull": {
+      "requiredSecretName": "ODDS_API_KEY",
+      "requiredIn": [
+        "CLOUD_AGENT_ALL_SECRET_NAMES",
+        "CLOUD_AGENT_INJECTED_SECRET_NAMES",
+        "process.env.ODDS_API_KEY"
+      ]
+    },
+    "podDiffVsSuccessfulTuningRun": {
+      "thisRun": {
+        "bcId": "bc-01a140e2-c331-7d27-9d8f-4d9938928b51",
+        "warmFork": "warm_fork",
+        "buildId": "bld-20261015-df8348a8-b75a-4d00-a74b-a6ac09e063d9",
+        "createdEarlier": true,
+        "name": "Preview ios ota publication"
+      },
+      "tuningSuccessRun": {
+        "bcId": "bc-01a1471c-a008-7787-a77d-4ba59e943645",
+        "warmFork": "cold",
+        "buildId": "bld-20261016-74f31a60-50c8-46c2-ad53-7b3bc4cd6902",
+        "name": "API KEY",
+        "status": "IDLE"
+      },
+      "diagnosis": "Same personal environment ID, but this long-lived warm_fork pod only received EXPO_TOKEN at boot. The successful TUNING pull ran on a later cold-boot agent named 'API KEY' (bc-01a1471c-\u2026) under a newer build snapshot. Mid-conversation follow-ups on this warm_fork do not re-inject secrets added for/after that cold boot. Cannot hop into the IDLE API KEY agent from this run."
+    }
+  },
+  "thisRun": {
+    "bcId": "bc-01a140e2-c331-7d27-9d8f-4d9938928b51",
+    "name": "Preview ios ota publication",
+    "branchName_git": "cursor/ncaaf-clean-engine-design-8b51",
+    "branchName_runInfo": "cursor/coach-players-only-kb-8b51",
+    "status": "RUNNING",
+    "url": "https://cursor.com/agents/bc-01a140e2-c331-7d27-9d8f-4d9938928b51",
+    "ODDS_API_KEY": "ABSENT",
+    "CLOUD_AGENT_ALL_SECRET_NAMES": "EXPO_TOKEN",
+    "CLOUD_AGENT_INJECTED_SECRET_NAMES": "EXPO_TOKEN",
+    "environmentPublicId": "8c5427d9-a490-11f1-a7d1-d6b4613131ce",
+    "environmentVersionPublicId": "f60179da-c844-11f1-bd9f-22db05ab6f0c",
+    "buildId": "bld-20261015-df8348a8-b75a-4d00-a74b-a6ac09e063d9",
+    "warmFork": "warm_fork",
+    "gitSetup": "reuse"
+  },
+  "tuningSuccessRun": {
+    "bcId": "bc-01a1471c-a008-7787-a77d-4ba59e943645",
+    "name": "API KEY",
+    "branchName": "cursor/ncaaf-tuning-closes-3645",
+    "status": "IDLE",
+    "url": "https://cursor.com/agents/bc-01a1471c-a008-7787-a77d-4ba59e943645",
+    "ODDS_API_KEY": "PRESENT_AT_RETRIEVAL_TIME",
+    "evidence": {
+      "e2bReport": "ncaaf-tuning-2025-w1-7-e2b-report.json",
+      "creditsSpent": 3280,
+      "creditCap": 4500,
+      "matched": 413,
+      "httpCalls": 163,
+      "markets": "h2h,spreads",
+      "split": "TUNING",
+      "finalEval": "UNTOUCHED"
+    },
+    "environmentPublicId": "8c5427d9-a490-11f1-a7d1-d6b4613131ce",
+    "environmentVersionPublicId": "f60179da-c844-11f1-bd9f-22db05ab6f0c",
+    "buildId": "bld-20261016-74f31a60-50c8-46c2-ad53-7b3bc4cd6902",
+    "warmFork": "cold",
+    "gitSetup": "reuse"
+  },
+  "actionRequired": "Start a NEW agent run (cold boot) on environment 8c5427d9-a490-11f1-a7d1-d6b4613131ce with ODDS_API_KEY saved in Secrets, OR resume follow-up on idle agent bc-01a1471c-a008-7787-a77d-4ba59e943645 (API KEY / cursor/ncaaf-tuning-closes-3645) \u2014 do not re-pull TUNING. Point that run at FINAL_EVAL puller with NCAAF_FINAL_EVAL_PULL=1.",
+  "preserved": {
+    "membership": 408,
+    "e1": "alpha=1.15",
+    "coachRules": "R1-R4/C1-C6",
+    "spreads": "BLOCKED",
+    "voice": "PAUSED"
+  }
+}

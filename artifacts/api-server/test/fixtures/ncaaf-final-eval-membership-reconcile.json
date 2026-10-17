@@ -1,0 +1,1963 @@
+{
+  "generatedAt": "2026-10-17T13:11:13.742Z",
+  "predefinedDateWindows": {
+    "FE_2025": {
+      "start": "2025-10-15",
+      "end": "2025-12-15"
+    },
+    "FE_2026": {
+      "start": "2026-08-23",
+      "end": "2026-10-17"
+    },
+    "TUNING_CUTOFF": "2025-10-15T00:00:00Z"
+  },
+  "reconcileVsPriorWeekBoard": {
+    "priorIncludedN": 132,
+    "dateWalkIncludedN": 408,
+    "newlyFoundIncluded": [
+      {
+        "eventId": "401757283",
+        "kickoffIso": "2025-10-15T23:00Z",
+        "week": 8,
+        "matchup": "Delaware Blue Hens @ Jacksonville State Gamecocks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757284",
+        "kickoffIso": "2025-10-15T23:00Z",
+        "week": 8,
+        "matchup": "UTEP Miners @ Sam Houston Bearkats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762486",
+        "kickoffIso": "2025-10-16T23:30Z",
+        "week": 8,
+        "matchup": "Tulsa Golden Hurricane @ East Carolina Pirates",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760396",
+        "kickoffIso": "2025-10-18T01:00Z",
+        "week": 8,
+        "matchup": "San José State Spartans @ Utah State Aggies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754371",
+        "kickoffIso": "2025-10-18T02:30Z",
+        "week": 8,
+        "matchup": "North Carolina Tar Heels @ California Golden Bears",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752873",
+        "kickoffIso": "2025-10-18T16:00Z",
+        "week": 8,
+        "matchup": "Washington Huskies @ Michigan Wolverines",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754569",
+        "kickoffIso": "2025-10-18T16:00Z",
+        "week": 8,
+        "matchup": "UConn Huskies @ Boston College Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756925",
+        "kickoffIso": "2025-10-18T16:00Z",
+        "week": 8,
+        "matchup": "Arizona Wildcats @ Houston Cougars",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756927",
+        "kickoffIso": "2025-10-18T16:00Z",
+        "week": 8,
+        "matchup": "Baylor Bears @ TCU Horned Frogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762488",
+        "kickoffIso": "2025-10-18T16:00Z",
+        "week": 8,
+        "matchup": "Army Black Knights @ Tulane Green Wave",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762839",
+        "kickoffIso": "2025-10-18T16:00Z",
+        "week": 8,
+        "matchup": "Central Michigan Chippewas @ Bowling Green Falcons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762841",
+        "kickoffIso": "2025-10-18T16:00Z",
+        "week": 8,
+        "matchup": "Eastern Michigan Eagles @ Miami (OH) RedHawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756928",
+        "kickoffIso": "2025-10-18T17:00Z",
+        "week": 8,
+        "matchup": "West Virginia Mountaineers @ UCF Knights",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762842",
+        "kickoffIso": "2025-10-18T18:00Z",
+        "week": 8,
+        "matchup": "Kent State Golden Flashes @ Toledo Rockets",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762840",
+        "kickoffIso": "2025-10-18T18:30Z",
+        "week": 8,
+        "matchup": "Buffalo Bulls @ Massachusetts Minutemen",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752874",
+        "kickoffIso": "2025-10-18T19:00Z",
+        "week": 8,
+        "matchup": "Purdue Boilermakers @ Northwestern Wildcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761633",
+        "kickoffIso": "2025-10-18T19:00Z",
+        "week": 8,
+        "matchup": "Troy Trojans @ UL Monroe Warhawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754565",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "SMU Mustangs @ Clemson Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760392",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "Wyoming Cowboys @ Air Force Falcons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760393",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "UNLV Rebels @ Boise State Broncos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761629",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "Coastal Carolina Chanticleers @ App State Mountaineers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761631",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "Old Dominion Monarchs @ James Madison Dukes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761632",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "Texas State Bobcats @ Marshall Thundering Herd",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762489",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "Temple Owls @ Charlotte 49ers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762838",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "Akron Zips @ Ball State Cardinals",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762843",
+        "kickoffIso": "2025-10-18T19:30Z",
+        "week": 8,
+        "matchup": "Northern Illinois Huskies @ Ohio Bobcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762491",
+        "kickoffIso": "2025-10-18T20:05Z",
+        "week": 8,
+        "matchup": "UTSA Roadrunners @ North Texas Mean Green",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752741",
+        "kickoffIso": "2025-10-18T20:15Z",
+        "week": 8,
+        "matchup": "Mississippi State Bulldogs @ Florida Gators",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761668",
+        "kickoffIso": "2025-10-18T21:00Z",
+        "week": 8,
+        "matchup": "Southern Miss Golden Eagles @ Louisiana Ragin' Cajuns",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752875",
+        "kickoffIso": "2025-10-18T23:00Z",
+        "week": 8,
+        "matchup": "Penn State Nittany Lions @ Iowa Hawkeyes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752879",
+        "kickoffIso": "2025-10-18T23:00Z",
+        "week": 8,
+        "matchup": "Maryland Terrapins @ UCLA Bruins",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760394",
+        "kickoffIso": "2025-10-18T23:00Z",
+        "week": 8,
+        "matchup": "Hawai'i Rainbow Warriors @ Colorado State Rams",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761630",
+        "kickoffIso": "2025-10-18T23:00Z",
+        "week": 8,
+        "matchup": "Georgia State Panthers @ Georgia Southern Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754568",
+        "kickoffIso": "2025-10-18T23:30Z",
+        "week": 8,
+        "matchup": "Pittsburgh Panthers @ Syracuse Orange",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760395",
+        "kickoffIso": "2025-10-19T01:45Z",
+        "week": 8,
+        "matchup": "Nevada Wolf Pack @ New Mexico Lobos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754567",
+        "kickoffIso": "2025-10-19T02:30Z",
+        "week": 8,
+        "matchup": "Florida State Seminoles @ Stanford Cardinal",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757285",
+        "kickoffIso": "2025-10-21T23:00Z",
+        "week": 9,
+        "matchup": "Kennesaw State Owls @ Florida International Panthers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757286",
+        "kickoffIso": "2025-10-21T23:30Z",
+        "week": 9,
+        "matchup": "Western Kentucky Hilltoppers @ Louisiana Tech Bulldogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757287",
+        "kickoffIso": "2025-10-22T23:30Z",
+        "week": 9,
+        "matchup": "Middle Tennessee Blue Raiders @ Delaware Blue Hens",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757288",
+        "kickoffIso": "2025-10-23T01:00Z",
+        "week": 9,
+        "matchup": "Missouri State Bears @ New Mexico State Aggies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761634",
+        "kickoffIso": "2025-10-23T23:30Z",
+        "week": 9,
+        "matchup": "South Alabama Jaguars @ Georgia State Panthers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762492",
+        "kickoffIso": "2025-10-24T23:00Z",
+        "week": 9,
+        "matchup": "North Texas Mean Green @ Charlotte 49ers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754372",
+        "kickoffIso": "2025-10-24T23:30Z",
+        "week": 9,
+        "matchup": "California Golden Bears @ Virginia Tech Hokies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760397",
+        "kickoffIso": "2025-10-25T02:00Z",
+        "week": 9,
+        "matchup": "Boise State Broncos @ Nevada Wolf Pack",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752883",
+        "kickoffIso": "2025-10-25T16:00Z",
+        "week": 9,
+        "matchup": "Northwestern Wildcats @ Nebraska Cornhuskers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752884",
+        "kickoffIso": "2025-10-25T16:00Z",
+        "week": 9,
+        "matchup": "Rutgers Scarlet Knights @ Purdue Boilermakers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752942",
+        "kickoffIso": "2025-10-25T16:00Z",
+        "week": 9,
+        "matchup": "SMU Mustangs @ Wake Forest Demon Deacons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756932",
+        "kickoffIso": "2025-10-25T16:00Z",
+        "week": 9,
+        "matchup": "Kansas State Wildcats @ Kansas Jayhawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761635",
+        "kickoffIso": "2025-10-25T16:00Z",
+        "week": 9,
+        "matchup": "App State Mountaineers @ Old Dominion Monarchs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762846",
+        "kickoffIso": "2025-10-25T16:00Z",
+        "week": 9,
+        "matchup": "Bowling Green Falcons @ Kent State Golden Flashes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762848",
+        "kickoffIso": "2025-10-25T16:00Z",
+        "week": 9,
+        "matchup": "Ohio Bobcats @ Eastern Michigan Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752746",
+        "kickoffIso": "2025-10-25T16:45Z",
+        "week": 9,
+        "matchup": "Auburn Tigers @ Arkansas Razorbacks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762844",
+        "kickoffIso": "2025-10-25T17:00Z",
+        "week": 9,
+        "matchup": "Akron Zips @ Buffalo Bulls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757172",
+        "kickoffIso": "2025-10-25T19:00Z",
+        "week": 9,
+        "matchup": "UConn Huskies @ Rice Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760400",
+        "kickoffIso": "2025-10-25T19:00Z",
+        "week": 9,
+        "matchup": "Utah State Aggies @ New Mexico Lobos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752882",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "Minnesota Golden Gophers @ Iowa Hawkeyes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752952",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "Toledo Rockets @ Washington State Cougars",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754574",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "NC State Wolfpack @ Pittsburgh Panthers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760399",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "San Diego State Aztecs @ Fresno State Bulldogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761637",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "UL Monroe Warhawks @ Southern Miss Golden Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762493",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "Florida Atlantic Owls @ Navy Midshipmen",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762495",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "Temple Owls @ Tulsa Golden Hurricane",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762845",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "Ball State Cardinals @ Northern Illinois Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762847",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "Massachusetts Minutemen @ Central Michigan Chippewas",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762874",
+        "kickoffIso": "2025-10-25T19:30Z",
+        "week": 9,
+        "matchup": "Western Michigan Broncos @ Miami (OH) RedHawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756935",
+        "kickoffIso": "2025-10-25T22:00Z",
+        "week": 9,
+        "matchup": "TCU Horned Frogs @ West Virginia Mountaineers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761636",
+        "kickoffIso": "2025-10-25T23:00Z",
+        "week": 9,
+        "matchup": "Georgia Southern Eagles @ Arkansas State Red Wolves",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761638",
+        "kickoffIso": "2025-10-25T23:00Z",
+        "week": 9,
+        "matchup": "Louisiana Ragin' Cajuns @ Troy Trojans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760398",
+        "kickoffIso": "2025-10-25T23:30Z",
+        "week": 9,
+        "matchup": "Colorado State Rams @ Wyoming Cowboys",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756934",
+        "kickoffIso": "2025-10-26T02:25Z",
+        "week": 9,
+        "matchup": "Colorado Buffaloes @ Utah Utes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757289",
+        "kickoffIso": "2025-10-29T00:00Z",
+        "week": 10,
+        "matchup": "UTEP Miners @ Kennesaw State Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761639",
+        "kickoffIso": "2025-10-29T00:00Z",
+        "week": 10,
+        "matchup": "James Madison Dukes @ Texas State Bobcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757292",
+        "kickoffIso": "2025-10-29T23:30Z",
+        "week": 10,
+        "matchup": "Jacksonville State Gamecocks @ Middle Tennessee Blue Raiders",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757291",
+        "kickoffIso": "2025-10-30T00:00Z",
+        "week": 10,
+        "matchup": "Florida International Panthers @ Missouri State Bears",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761640",
+        "kickoffIso": "2025-10-30T23:30Z",
+        "week": 10,
+        "matchup": "Marshall Thundering Herd @ Coastal Carolina Chanticleers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762443",
+        "kickoffIso": "2025-10-30T23:30Z",
+        "week": 10,
+        "matchup": "Tulane Green Wave @ UTSA Roadrunners",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754575",
+        "kickoffIso": "2025-10-31T23:30Z",
+        "week": 10,
+        "matchup": "North Carolina Tar Heels @ Syracuse Orange",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757290",
+        "kickoffIso": "2025-11-01T00:00Z",
+        "week": 10,
+        "matchup": "Sam Houston Bearkats @ Louisiana Tech Bulldogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752891",
+        "kickoffIso": "2025-11-01T16:00Z",
+        "week": 10,
+        "matchup": "Rutgers Scarlet Knights @ Illinois Fighting Illini",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754577",
+        "kickoffIso": "2025-11-01T16:00Z",
+        "week": 10,
+        "matchup": "Duke Blue Devils @ Clemson Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756936",
+        "kickoffIso": "2025-11-01T16:00Z",
+        "week": 10,
+        "matchup": "UCF Knights @ Baylor Bears",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757173",
+        "kickoffIso": "2025-11-01T16:00Z",
+        "week": 10,
+        "matchup": "UAB Blazers @ UConn Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760401",
+        "kickoffIso": "2025-11-01T16:00Z",
+        "week": 10,
+        "matchup": "Army Black Knights @ Air Force Falcons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762499",
+        "kickoffIso": "2025-11-01T16:00Z",
+        "week": 10,
+        "matchup": "Navy Midshipmen @ North Texas Mean Green",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762849",
+        "kickoffIso": "2025-11-01T16:00Z",
+        "week": 10,
+        "matchup": "Buffalo Bulls @ Bowling Green Falcons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756939",
+        "kickoffIso": "2025-11-01T17:00Z",
+        "week": 10,
+        "matchup": "Arizona State Sun Devils @ Iowa State Cyclones",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762498",
+        "kickoffIso": "2025-11-01T18:00Z",
+        "week": 10,
+        "matchup": "East Carolina Pirates @ Temple Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760404",
+        "kickoffIso": "2025-11-01T19:00Z",
+        "week": 10,
+        "matchup": "New Mexico Lobos @ UNLV Rebels",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752888",
+        "kickoffIso": "2025-11-01T19:30Z",
+        "week": 10,
+        "matchup": "Michigan State Spartans @ Minnesota Golden Gophers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754582",
+        "kickoffIso": "2025-11-01T19:30Z",
+        "week": 10,
+        "matchup": "Pittsburgh Panthers @ Stanford Cardinal",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757293",
+        "kickoffIso": "2025-11-01T19:30Z",
+        "week": 10,
+        "matchup": "Delaware Blue Hens @ Liberty Flames",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757294",
+        "kickoffIso": "2025-11-01T19:30Z",
+        "week": 10,
+        "matchup": "New Mexico State Aggies @ Western Kentucky Hilltoppers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760402",
+        "kickoffIso": "2025-11-01T19:30Z",
+        "week": 10,
+        "matchup": "Fresno State Bulldogs @ Boise State Broncos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761641",
+        "kickoffIso": "2025-11-01T19:30Z",
+        "week": 10,
+        "matchup": "Old Dominion Monarchs @ UL Monroe Warhawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761642",
+        "kickoffIso": "2025-11-01T19:30Z",
+        "week": 10,
+        "matchup": "Louisiana Ragin' Cajuns @ South Alabama Jaguars",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752753",
+        "kickoffIso": "2025-11-01T20:00Z",
+        "week": 10,
+        "matchup": "Mississippi State Bulldogs @ Arkansas Razorbacks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756940",
+        "kickoffIso": "2025-11-01T20:00Z",
+        "week": 10,
+        "matchup": "Oklahoma State Cowboys @ Kansas Jayhawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762850",
+        "kickoffIso": "2025-11-01T20:00Z",
+        "week": 10,
+        "matchup": "Central Michigan Chippewas @ Western Michigan Broncos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756937",
+        "kickoffIso": "2025-11-01T23:00Z",
+        "week": 10,
+        "matchup": "Arizona Wildcats @ Colorado Buffaloes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760405",
+        "kickoffIso": "2025-11-01T23:00Z",
+        "week": 10,
+        "matchup": "Wyoming Cowboys @ San Diego State Aztecs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752754",
+        "kickoffIso": "2025-11-01T23:30Z",
+        "week": 10,
+        "matchup": "Kentucky Wildcats @ Auburn Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752943",
+        "kickoffIso": "2025-11-01T23:30Z",
+        "week": 10,
+        "matchup": "Washington State Cougars @ Oregon State Beavers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754578",
+        "kickoffIso": "2025-11-01T23:30Z",
+        "week": 10,
+        "matchup": "Wake Forest Demon Deacons @ Florida State Seminoles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761643",
+        "kickoffIso": "2025-11-02T00:00Z",
+        "week": 10,
+        "matchup": "Arkansas State Red Wolves @ Troy Trojans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760403",
+        "kickoffIso": "2025-11-02T02:30Z",
+        "week": 10,
+        "matchup": "Hawai'i Rainbow Warriors @ San José State Spartans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762851",
+        "kickoffIso": "2025-11-05T00:00Z",
+        "week": 11,
+        "matchup": "Massachusetts Minutemen @ Akron Zips",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762852",
+        "kickoffIso": "2025-11-05T00:00Z",
+        "week": 11,
+        "matchup": "Miami (OH) RedHawks @ Ohio Bobcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762853",
+        "kickoffIso": "2025-11-06T00:00Z",
+        "week": 11,
+        "matchup": "Kent State Golden Flashes @ Ball State Cardinals",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762854",
+        "kickoffIso": "2025-11-06T00:00Z",
+        "week": 11,
+        "matchup": "Northern Illinois Huskies @ Toledo Rockets",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761644",
+        "kickoffIso": "2025-11-07T00:30Z",
+        "week": 11,
+        "matchup": "Georgia Southern Eagles @ App State Mountaineers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762500",
+        "kickoffIso": "2025-11-07T00:30Z",
+        "week": 11,
+        "matchup": "UTSA Roadrunners @ South Florida Bulls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756946",
+        "kickoffIso": "2025-11-08T01:15Z",
+        "week": 11,
+        "matchup": "Houston Cougars @ UCF Knights",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762501",
+        "kickoffIso": "2025-11-08T02:10Z",
+        "week": 11,
+        "matchup": "Tulane Green Wave @ Memphis Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754584",
+        "kickoffIso": "2025-11-08T17:00Z",
+        "week": 11,
+        "matchup": "SMU Mustangs @ Boston College Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756947",
+        "kickoffIso": "2025-11-08T17:00Z",
+        "week": 11,
+        "matchup": "Colorado Buffaloes @ West Virginia Mountaineers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761646",
+        "kickoffIso": "2025-11-08T17:00Z",
+        "week": 11,
+        "matchup": "James Madison Dukes @ Marshall Thundering Herd",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761647",
+        "kickoffIso": "2025-11-08T17:00Z",
+        "week": 11,
+        "matchup": "Southern Miss Golden Eagles @ Arkansas State Red Wolves",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762503",
+        "kickoffIso": "2025-11-08T17:00Z",
+        "week": 11,
+        "matchup": "Temple Owls @ Army Black Knights",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757299",
+        "kickoffIso": "2025-11-08T18:00Z",
+        "week": 11,
+        "matchup": "Missouri State Bears @ Liberty Flames",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762855",
+        "kickoffIso": "2025-11-08T18:00Z",
+        "week": 11,
+        "matchup": "Bowling Green Falcons @ Eastern Michigan Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762502",
+        "kickoffIso": "2025-11-08T19:00Z",
+        "week": 11,
+        "matchup": "UAB Blazers @ Rice Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752894",
+        "kickoffIso": "2025-11-08T19:30Z",
+        "week": 11,
+        "matchup": "Maryland Terrapins @ Rutgers Scarlet Knights",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757295",
+        "kickoffIso": "2025-11-08T20:00Z",
+        "week": 11,
+        "matchup": "Louisiana Tech Bulldogs @ Delaware Blue Hens",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757296",
+        "kickoffIso": "2025-11-08T20:00Z",
+        "week": 11,
+        "matchup": "Florida International Panthers @ Middle Tennessee Blue Raiders",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757297",
+        "kickoffIso": "2025-11-08T20:00Z",
+        "week": 11,
+        "matchup": "Jacksonville State Gamecocks @ UTEP Miners",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762504",
+        "kickoffIso": "2025-11-08T20:00Z",
+        "week": 11,
+        "matchup": "Charlotte 49ers @ East Carolina Pirates",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762505",
+        "kickoffIso": "2025-11-08T20:00Z",
+        "week": 11,
+        "matchup": "Tulsa Golden Hurricane @ Florida Atlantic Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754590",
+        "kickoffIso": "2025-11-08T20:30Z",
+        "week": 11,
+        "matchup": "Duke Blue Devils @ UConn Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756943",
+        "kickoffIso": "2025-11-08T20:30Z",
+        "week": 11,
+        "matchup": "Kansas Jayhawks @ Arizona Wildcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756944",
+        "kickoffIso": "2025-11-08T20:30Z",
+        "week": 11,
+        "matchup": "Iowa State Cyclones @ TCU Horned Frogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757298",
+        "kickoffIso": "2025-11-08T21:00Z",
+        "week": 11,
+        "matchup": "Kennesaw State Owls @ New Mexico State Aggies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761645",
+        "kickoffIso": "2025-11-08T21:00Z",
+        "week": 11,
+        "matchup": "Georgia State Panthers @ Coastal Carolina Chanticleers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754588",
+        "kickoffIso": "2025-11-08T21:30Z",
+        "week": 11,
+        "matchup": "Stanford Cardinal @ North Carolina Tar Heels",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761648",
+        "kickoffIso": "2025-11-08T22:00Z",
+        "week": 11,
+        "matchup": "Texas State Bobcats @ Louisiana Ragin' Cajuns",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760406",
+        "kickoffIso": "2025-11-08T23:00Z",
+        "week": 11,
+        "matchup": "Air Force Falcons @ San José State Spartans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754586",
+        "kickoffIso": "2025-11-09T00:00Z",
+        "week": 11,
+        "matchup": "Florida State Seminoles @ Clemson Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752760",
+        "kickoffIso": "2025-11-09T00:30Z",
+        "week": 11,
+        "matchup": "Florida Gators @ Kentucky Wildcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760409",
+        "kickoffIso": "2025-11-09T00:30Z",
+        "week": 11,
+        "matchup": "Nevada Wolf Pack @ Utah State Aggies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752895",
+        "kickoffIso": "2025-11-09T02:00Z",
+        "week": 11,
+        "matchup": "Nebraska Cornhuskers @ UCLA Bruins",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760407",
+        "kickoffIso": "2025-11-09T02:30Z",
+        "week": 11,
+        "matchup": "UNLV Rebels @ Colorado State Rams",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752944",
+        "kickoffIso": "2025-11-09T03:00Z",
+        "week": 11,
+        "matchup": "Sam Houston Bearkats @ Oregon State Beavers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760408",
+        "kickoffIso": "2025-11-09T04:00Z",
+        "week": 11,
+        "matchup": "San Diego State Aztecs @ Hawai'i Rainbow Warriors",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762856",
+        "kickoffIso": "2025-11-12T00:30Z",
+        "week": 12,
+        "matchup": "Kent State Golden Flashes @ Akron Zips",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762857",
+        "kickoffIso": "2025-11-12T01:00Z",
+        "week": 12,
+        "matchup": "Ohio Bobcats @ Western Michigan Broncos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762858",
+        "kickoffIso": "2025-11-13T00:00Z",
+        "week": 12,
+        "matchup": "Buffalo Bulls @ Central Michigan Chippewas",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762859",
+        "kickoffIso": "2025-11-13T00:00Z",
+        "week": 12,
+        "matchup": "Northern Illinois Huskies @ Massachusetts Minutemen",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762860",
+        "kickoffIso": "2025-11-13T00:00Z",
+        "week": 12,
+        "matchup": "Toledo Rockets @ Miami (OH) RedHawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761649",
+        "kickoffIso": "2025-11-14T00:30Z",
+        "week": 12,
+        "matchup": "Troy Trojans @ Old Dominion Monarchs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756952",
+        "kickoffIso": "2025-11-15T17:00Z",
+        "week": 12,
+        "matchup": "Kansas State Wildcats @ Oklahoma State Cowboys",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757174",
+        "kickoffIso": "2025-11-15T17:00Z",
+        "week": 12,
+        "matchup": "Air Force Falcons @ UConn Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762507",
+        "kickoffIso": "2025-11-15T17:00Z",
+        "week": 12,
+        "matchup": "UTSA Roadrunners @ Charlotte 49ers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762861",
+        "kickoffIso": "2025-11-15T17:00Z",
+        "week": 12,
+        "matchup": "Eastern Michigan Eagles @ Ball State Cardinals",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752768",
+        "kickoffIso": "2025-11-15T17:45Z",
+        "week": 12,
+        "matchup": "Arkansas Razorbacks @ LSU Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752945",
+        "kickoffIso": "2025-11-15T18:00Z",
+        "week": 12,
+        "matchup": "Oregon State Beavers @ Tulsa Golden Hurricane",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756948",
+        "kickoffIso": "2025-11-15T18:00Z",
+        "week": 12,
+        "matchup": "West Virginia Mountaineers @ Arizona State Sun Devils",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761651",
+        "kickoffIso": "2025-11-15T19:00Z",
+        "week": 12,
+        "matchup": "Marshall Thundering Herd @ Georgia State Panthers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762506",
+        "kickoffIso": "2025-11-15T19:00Z",
+        "week": 12,
+        "matchup": "North Texas Mean Green @ UAB Blazers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757304",
+        "kickoffIso": "2025-11-15T20:00Z",
+        "week": 12,
+        "matchup": "UTEP Miners @ Missouri State Bears",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760411",
+        "kickoffIso": "2025-11-15T20:00Z",
+        "week": 12,
+        "matchup": "Colorado State Rams @ New Mexico Lobos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752903",
+        "kickoffIso": "2025-11-15T20:30Z",
+        "week": 12,
+        "matchup": "Penn State Nittany Lions @ Michigan State Spartans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752906",
+        "kickoffIso": "2025-11-15T20:30Z",
+        "week": 12,
+        "matchup": "Maryland Terrapins @ Illinois Fighting Illini",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757303",
+        "kickoffIso": "2025-11-15T20:30Z",
+        "week": 12,
+        "matchup": "Middle Tennessee Blue Raiders @ Western Kentucky Hilltoppers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760413",
+        "kickoffIso": "2025-11-15T20:30Z",
+        "week": 12,
+        "matchup": "San José State Spartans @ Nevada Wolf Pack",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761652",
+        "kickoffIso": "2025-11-15T20:30Z",
+        "week": 12,
+        "matchup": "App State Mountaineers @ James Madison Dukes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761653",
+        "kickoffIso": "2025-11-15T20:30Z",
+        "week": 12,
+        "matchup": "South Alabama Jaguars @ UL Monroe Warhawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761654",
+        "kickoffIso": "2025-11-15T20:30Z",
+        "week": 12,
+        "matchup": "Texas State Bobcats @ Southern Miss Golden Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762508",
+        "kickoffIso": "2025-11-15T21:00Z",
+        "week": 12,
+        "matchup": "Memphis Tigers @ East Carolina Pirates",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762509",
+        "kickoffIso": "2025-11-15T21:00Z",
+        "week": 12,
+        "matchup": "Florida Atlantic Owls @ Tulane Green Wave",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754596",
+        "kickoffIso": "2025-11-15T21:30Z",
+        "week": 12,
+        "matchup": "North Carolina Tar Heels @ Wake Forest Demon Deacons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757301",
+        "kickoffIso": "2025-11-15T22:00Z",
+        "week": 12,
+        "matchup": "Liberty Flames @ Florida International Panthers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761650",
+        "kickoffIso": "2025-11-15T23:00Z",
+        "week": 12,
+        "matchup": "Coastal Carolina Chanticleers @ Georgia Southern Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752902",
+        "kickoffIso": "2025-11-16T00:00Z",
+        "week": 12,
+        "matchup": "Purdue Boilermakers @ Washington Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757300",
+        "kickoffIso": "2025-11-16T00:00Z",
+        "week": 12,
+        "matchup": "Delaware Blue Hens @ Sam Houston Bearkats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760414",
+        "kickoffIso": "2025-11-16T00:00Z",
+        "week": 12,
+        "matchup": "Utah State Aggies @ UNLV Rebels",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754594",
+        "kickoffIso": "2025-11-16T00:30Z",
+        "week": 12,
+        "matchup": "Virginia Tech Hokies @ Florida State Seminoles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752770",
+        "kickoffIso": "2025-11-16T00:45Z",
+        "week": 12,
+        "matchup": "Mississippi State Bulldogs @ Missouri Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757302",
+        "kickoffIso": "2025-11-16T01:00Z",
+        "week": 12,
+        "matchup": "Kennesaw State Owls @ Jacksonville State Gamecocks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752953",
+        "kickoffIso": "2025-11-16T03:00Z",
+        "week": 12,
+        "matchup": "Louisiana Tech Bulldogs @ Washington State Cougars",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760410",
+        "kickoffIso": "2025-11-16T03:30Z",
+        "week": 12,
+        "matchup": "Boise State Broncos @ San Diego State Aztecs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760412",
+        "kickoffIso": "2025-11-16T03:30Z",
+        "week": 12,
+        "matchup": "Wyoming Cowboys @ Fresno State Bulldogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762862",
+        "kickoffIso": "2025-11-19T00:00Z",
+        "week": 13,
+        "matchup": "Akron Zips @ Bowling Green Falcons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762864",
+        "kickoffIso": "2025-11-19T00:00Z",
+        "week": 13,
+        "matchup": "Western Michigan Broncos @ Northern Illinois Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762863",
+        "kickoffIso": "2025-11-19T00:15Z",
+        "week": 13,
+        "matchup": "Massachusetts Minutemen @ Ohio Bobcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762865",
+        "kickoffIso": "2025-11-20T00:00Z",
+        "week": 13,
+        "matchup": "Miami (OH) RedHawks @ Buffalo Bulls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762866",
+        "kickoffIso": "2025-11-20T00:00Z",
+        "week": 13,
+        "matchup": "Central Michigan Chippewas @ Kent State Golden Flashes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761655",
+        "kickoffIso": "2025-11-21T00:30Z",
+        "week": 13,
+        "matchup": "Louisiana Ragin' Cajuns @ Arkansas State Red Wolves",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754598",
+        "kickoffIso": "2025-11-22T01:00Z",
+        "week": 13,
+        "matchup": "Florida State Seminoles @ NC State Wolfpack",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760418",
+        "kickoffIso": "2025-11-22T03:30Z",
+        "week": 13,
+        "matchup": "Hawai'i Rainbow Warriors @ UNLV Rebels",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752909",
+        "kickoffIso": "2025-11-22T17:00Z",
+        "week": 13,
+        "matchup": "Minnesota Golden Gophers @ Northwestern Wildcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754602",
+        "kickoffIso": "2025-11-22T17:00Z",
+        "week": 13,
+        "matchup": "Louisville Cardinals @ SMU Mustangs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754606",
+        "kickoffIso": "2025-11-22T17:00Z",
+        "week": 13,
+        "matchup": "Delaware Blue Hens @ Wake Forest Demon Deacons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756958",
+        "kickoffIso": "2025-11-22T17:00Z",
+        "week": 13,
+        "matchup": "Kansas Jayhawks @ Iowa State Cyclones",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762512",
+        "kickoffIso": "2025-11-22T17:00Z",
+        "week": 13,
+        "matchup": "Tulsa Golden Hurricane @ Army Black Knights",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752954",
+        "kickoffIso": "2025-11-22T18:00Z",
+        "week": 13,
+        "matchup": "Washington State Cougars @ James Madison Dukes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756954",
+        "kickoffIso": "2025-11-22T18:00Z",
+        "week": 13,
+        "matchup": "Baylor Bears @ Arizona Wildcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761657",
+        "kickoffIso": "2025-11-22T18:00Z",
+        "week": 13,
+        "matchup": "Old Dominion Monarchs @ Georgia Southern Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757306",
+        "kickoffIso": "2025-11-22T19:00Z",
+        "week": 13,
+        "matchup": "Missouri State Bears @ Kennesaw State Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760419",
+        "kickoffIso": "2025-11-22T19:00Z",
+        "week": 13,
+        "matchup": "Nevada Wolf Pack @ Wyoming Cowboys",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762867",
+        "kickoffIso": "2025-11-22T19:00Z",
+        "week": 13,
+        "matchup": "Ball State Cardinals @ Toledo Rockets",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761656",
+        "kickoffIso": "2025-11-22T19:30Z",
+        "week": 13,
+        "matchup": "Marshall Thundering Herd @ App State Mountaineers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757175",
+        "kickoffIso": "2025-11-22T20:00Z",
+        "week": 13,
+        "matchup": "UConn Huskies @ Florida Atlantic Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757307",
+        "kickoffIso": "2025-11-22T20:00Z",
+        "week": 13,
+        "matchup": "Liberty Flames @ Louisiana Tech Bulldogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757308",
+        "kickoffIso": "2025-11-22T20:00Z",
+        "week": 13,
+        "matchup": "Sam Houston Bearkats @ Middle Tennessee Blue Raiders",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757309",
+        "kickoffIso": "2025-11-22T20:00Z",
+        "week": 13,
+        "matchup": "New Mexico State Aggies @ UTEP Miners",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762511",
+        "kickoffIso": "2025-11-22T20:00Z",
+        "week": 13,
+        "matchup": "South Florida Bulls @ UAB Blazers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752913",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "week": 13,
+        "matchup": "Michigan State Spartans @ Iowa Hawkeyes",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754600",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "week": 13,
+        "matchup": "Duke Blue Devils @ North Carolina Tar Heels",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757305",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "week": 13,
+        "matchup": "Jacksonville State Gamecocks @ Florida International Panthers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761658",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "week": 13,
+        "matchup": "Southern Miss Golden Eagles @ South Alabama Jaguars",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762513",
+        "kickoffIso": "2025-11-22T20:30Z",
+        "week": 13,
+        "matchup": "East Carolina Pirates @ UTSA Roadrunners",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756959",
+        "kickoffIso": "2025-11-22T21:00Z",
+        "week": 13,
+        "matchup": "Oklahoma State Cowboys @ UCF Knights",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761660",
+        "kickoffIso": "2025-11-22T21:00Z",
+        "week": 13,
+        "matchup": "Georgia State Panthers @ Troy Trojans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752779",
+        "kickoffIso": "2025-11-22T21:15Z",
+        "week": 13,
+        "matchup": "Coastal Carolina Chanticleers @ South Carolina Gamecocks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761659",
+        "kickoffIso": "2025-11-22T22:00Z",
+        "week": 13,
+        "matchup": "UL Monroe Warhawks @ Texas State Bobcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752908",
+        "kickoffIso": "2025-11-23T00:00Z",
+        "week": 13,
+        "matchup": "Nebraska Cornhuskers @ Penn State Nittany Lions",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760415",
+        "kickoffIso": "2025-11-23T00:00Z",
+        "week": 13,
+        "matchup": "New Mexico Lobos @ Air Force Falcons",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760416",
+        "kickoffIso": "2025-11-23T00:00Z",
+        "week": 13,
+        "matchup": "Colorado State Rams @ Boise State Broncos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754599",
+        "kickoffIso": "2025-11-23T00:30Z",
+        "week": 13,
+        "matchup": "California Golden Bears @ Stanford Cardinal",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762514",
+        "kickoffIso": "2025-11-23T00:30Z",
+        "week": 13,
+        "matchup": "North Texas Mean Green @ Rice Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752777",
+        "kickoffIso": "2025-11-23T00:45Z",
+        "week": 13,
+        "matchup": "Western Kentucky Hilltoppers @ LSU Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752910",
+        "kickoffIso": "2025-11-23T03:30Z",
+        "week": 13,
+        "matchup": "Washington Huskies @ UCLA Bruins",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760417",
+        "kickoffIso": "2025-11-23T03:30Z",
+        "week": 13,
+        "matchup": "Utah State Aggies @ Fresno State Bulldogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760420",
+        "kickoffIso": "2025-11-23T03:30Z",
+        "week": 13,
+        "matchup": "San José State Spartans @ San Diego State Aztecs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762868",
+        "kickoffIso": "2025-11-25T21:30Z",
+        "week": 14,
+        "matchup": "Bowling Green Falcons @ Massachusetts Minutemen",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762869",
+        "kickoffIso": "2025-11-26T00:30Z",
+        "week": 14,
+        "matchup": "Western Michigan Broncos @ Eastern Michigan Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762516",
+        "kickoffIso": "2025-11-28T00:30Z",
+        "week": 14,
+        "matchup": "Navy Midshipmen @ Memphis Tigers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752916",
+        "kickoffIso": "2025-11-28T17:00Z",
+        "week": 14,
+        "matchup": "Iowa Hawkeyes @ Nebraska Cornhuskers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762870",
+        "kickoffIso": "2025-11-28T17:00Z",
+        "week": 14,
+        "matchup": "Ohio Bobcats @ Buffalo Bulls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762871",
+        "kickoffIso": "2025-11-28T17:00Z",
+        "week": 14,
+        "matchup": "Kent State Golden Flashes @ Northern Illinois Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760421",
+        "kickoffIso": "2025-11-28T20:00Z",
+        "week": 14,
+        "matchup": "Air Force Falcons @ Colorado State Rams",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760426",
+        "kickoffIso": "2025-11-28T20:30Z",
+        "week": 14,
+        "matchup": "San Diego State Aztecs @ New Mexico Lobos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762442",
+        "kickoffIso": "2025-11-28T20:30Z",
+        "week": 14,
+        "matchup": "Temple Owls @ North Texas Mean Green",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760422",
+        "kickoffIso": "2025-11-28T21:00Z",
+        "week": 14,
+        "matchup": "Boise State Broncos @ Utah State Aggies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752787",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "Kentucky Wildcats @ Louisville Cardinals",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752790",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "Clemson Tigers @ South Carolina Gamecocks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756962",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "Houston Cougars @ Baylor Bears",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756965",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "Colorado Buffaloes @ Kansas State Wildcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756966",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "Iowa State Cyclones @ Oklahoma State Cowboys",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762519",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "East Carolina Pirates @ Florida Atlantic Owls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762872",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "Toledo Rockets @ Central Michigan Chippewas",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762875",
+        "kickoffIso": "2025-11-29T17:00Z",
+        "week": 14,
+        "matchup": "Ball State Cardinals @ Miami (OH) RedHawks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757310",
+        "kickoffIso": "2025-11-29T18:00Z",
+        "week": 14,
+        "matchup": "UTEP Miners @ Delaware Blue Hens",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757311",
+        "kickoffIso": "2025-11-29T18:00Z",
+        "week": 14,
+        "matchup": "Florida International Panthers @ Sam Houston Bearkats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761663",
+        "kickoffIso": "2025-11-29T18:30Z",
+        "week": 14,
+        "matchup": "Georgia Southern Eagles @ Marshall Thundering Herd",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757312",
+        "kickoffIso": "2025-11-29T19:00Z",
+        "week": 14,
+        "matchup": "Western Kentucky Hilltoppers @ Jacksonville State Gamecocks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757314",
+        "kickoffIso": "2025-11-29T19:00Z",
+        "week": 14,
+        "matchup": "Louisiana Tech Bulldogs @ Missouri State Bears",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761664",
+        "kickoffIso": "2025-11-29T19:00Z",
+        "week": 14,
+        "matchup": "Georgia State Panthers @ Old Dominion Monarchs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761661",
+        "kickoffIso": "2025-11-29T19:30Z",
+        "week": 14,
+        "matchup": "Arkansas State Red Wolves @ App State Mountaineers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754608",
+        "kickoffIso": "2025-11-29T20:00Z",
+        "week": 14,
+        "matchup": "Boston College Eagles @ Syracuse Orange",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757315",
+        "kickoffIso": "2025-11-29T20:00Z",
+        "week": 14,
+        "matchup": "Middle Tennessee Blue Raiders @ New Mexico State Aggies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761665",
+        "kickoffIso": "2025-11-29T20:00Z",
+        "week": 14,
+        "matchup": "UL Monroe Warhawks @ Louisiana Ragin' Cajuns",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761667",
+        "kickoffIso": "2025-11-29T20:00Z",
+        "week": 14,
+        "matchup": "South Alabama Jaguars @ Texas State Bobcats",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762517",
+        "kickoffIso": "2025-11-29T20:00Z",
+        "week": 14,
+        "matchup": "UAB Blazers @ Tulsa Golden Hurricane",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752783",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Missouri Tigers @ Arkansas Razorbacks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752918",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Wisconsin Badgers @ Minnesota Golden Gophers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752920",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Penn State Nittany Lions @ Rutgers Scarlet Knights",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754610",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Wake Forest Demon Deacons @ Duke Blue Devils",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401756967",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Cincinnati Bearcats @ TCU Horned Frogs",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401757313",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Kennesaw State Owls @ Liberty Flames",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761666",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Troy Trojans @ Southern Miss Golden Eagles",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762441",
+        "kickoffIso": "2025-11-29T20:30Z",
+        "week": 14,
+        "matchup": "Army Black Knights @ UTSA Roadrunners",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401761662",
+        "kickoffIso": "2025-11-29T20:45Z",
+        "week": 14,
+        "matchup": "James Madison Dukes @ Coastal Carolina Chanticleers",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752785",
+        "kickoffIso": "2025-11-29T21:30Z",
+        "week": 14,
+        "matchup": "Florida State Seminoles @ Florida Gators",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752946",
+        "kickoffIso": "2025-11-29T23:30Z",
+        "week": 14,
+        "matchup": "Oregon State Beavers @ Washington State Cougars",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752923",
+        "kickoffIso": "2025-11-30T00:00Z",
+        "week": 14,
+        "matchup": "Maryland Terrapins @ Michigan State Spartans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762520",
+        "kickoffIso": "2025-11-30T00:00Z",
+        "week": 14,
+        "matchup": "Rice Owls @ South Florida Bulls",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401752922",
+        "kickoffIso": "2025-11-30T00:30Z",
+        "week": 14,
+        "matchup": "Northwestern Wildcats @ Illinois Fighting Illini",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401754612",
+        "kickoffIso": "2025-11-30T00:30Z",
+        "week": 14,
+        "matchup": "North Carolina Tar Heels @ NC State Wolfpack",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760425",
+        "kickoffIso": "2025-11-30T02:00Z",
+        "week": 14,
+        "matchup": "UNLV Rebels @ Nevada Wolf Pack",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760423",
+        "kickoffIso": "2025-11-30T03:30Z",
+        "week": 14,
+        "matchup": "Fresno State Bulldogs @ San José State Spartans",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401760424",
+        "kickoffIso": "2025-11-30T04:00Z",
+        "week": 14,
+        "matchup": "Wyoming Cowboys @ Hawai'i Rainbow Warriors",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401777325",
+        "kickoffIso": "2025-12-06T00:00Z",
+        "week": 15,
+        "matchup": "Kennesaw State Owls @ Jacksonville State Gamecocks",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401777326",
+        "kickoffIso": "2025-12-06T01:00Z",
+        "week": 15,
+        "matchup": "UNLV Rebels @ Boise State Broncos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401777329",
+        "kickoffIso": "2025-12-06T17:00Z",
+        "week": 15,
+        "matchup": "Miami (OH) RedHawks @ Western Michigan Broncos",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401762521",
+        "kickoffIso": "2025-12-13T20:00Z",
+        "week": 16,
+        "matchup": "Army Black Knights @ Navy Midshipmen",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      },
+      {
+        "eventId": "401778302",
+        "kickoffIso": "2025-12-14T01:00Z",
+        "week": 1,
+        "matchup": "Boise State Broncos @ Washington Huskies",
+        "reason": "present_on_date_scoreboard_missing_from_week_board_membership"
+      }
+    ],
+    "nNewlyFound": 276,
+    "noLongerIncluded": [],
+    "nNoLongerIncluded": 0,
+    "priorIdsAbsentFromDateWindow": [],
+    "note": "Membership updated to date-complete schedule using structural rules only — not model metrics or 2025 score-based filters"
+  },
+  "exclusionCounts": {
+    "fbs_fcs_or_non_fbs_unsupported_scope": 478,
+    "2026_not_completed": 52
+  },
+  "nIncluded": 408,
+  "nScheduleEvents": 938
+}

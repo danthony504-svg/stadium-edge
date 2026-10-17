@@ -16,6 +16,7 @@ import { withFgDistSeriesReuse } from "./gameSimDistReuse.ts";
 import { americanToDecimal, impliedProb } from "./format.ts";
 import { parsePickLineNumber } from "./pickLineParse.ts";
 import { gateTennisCoverHit, isTennisHandicapOrTotal } from "./tennisHandicapSim.ts";
+import { gameDrawEngineAccepted } from "./gameSimEngineVersion.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
 function gameMarketFamily(market: string): string {
@@ -54,9 +55,30 @@ export type GameCoverQuery = {
 };
 
 export type CoachGameSimEntry = GameSimulationResult & {
+  /** Canonical client cover map (posted line hit rates). */
   coverHitRates?: Record<string, number>;
+  /**
+   * Server-compatible alias of coverHitRates (api-server coverProbs).
+   * Lookups accept either key so client/server slate sims stay aligned.
+   * Live delivery still requires Final AI simHit — sim-map alone cannot seat.
+   */
+  coverProbs?: Record<string, number | null>;
+  /**
+   * Server block for a market this draw must not grade. `unsupported_market`
+   * wins over a numeric cover rate. The published client's 0 sentinel is a
+   * compatibility shim; this field is the status new clients use.
+   */
+  coverQueryStatus?: Record<string, string | null>;
   outcomes?: { homeScores: number[]; awayScores: number[] };
 };
+
+/** Prefer coverHitRates; fall back to coverProbs for server-shaped sims. */
+export function simCoverRateMap(
+  sim: CoachGameSimEntry | null | undefined,
+): Record<string, number | null | undefined> | undefined {
+  if (!sim) return undefined;
+  return sim.coverHitRates ?? sim.coverProbs;
+}
 
 export function gameLabelsMatch(a: string, b: string): boolean {
   const pa = splitLabel(a);
@@ -499,7 +521,7 @@ function fuzzyCoverHitRate(
   target: GameCoverQuery,
   sim: CoachGameSimEntry,
 ): number | null {
-  const rates = sim.coverHitRates;
+  const rates = simCoverRateMap(sim);
   if (!rates) return null;
   for (const [id, rate] of Object.entries(rates)) {
     if (rate == null || !Number.isFinite(rate)) continue;
@@ -564,6 +586,11 @@ export function distributionForQuery(
   query: GameCoverQuery,
   sim: CoachGameSimEntry,
 ): { mean: number | null; median: number | null; stdev: number | null } {
+  // Saved draws are full-game scores. A period query must not report that
+  // series as a quarter, half, period, or inning distribution.
+  if (query.period && query.period !== "fg") {
+    return { mean: null, median: null, stdev: null };
+  }
   const outcomes = sim.outcomes;
   if (outcomes?.homeScores?.length && outcomes.homeScores.length === outcomes.awayScores.length) {
     const values: number[] = [];
@@ -674,14 +701,16 @@ export function gameSimHitForPick(
   sim: CoachGameSimEntry | null | undefined,
 ): number | null {
   if (!gameSimHasValidRun(sim)) return null;
+  if (!gameDrawEngineAccepted(sim, pick.sport)) return null;
   if (!simMarketMappingIsValid(pick)) return null;
   const query = buildGameCoverQuery(pick);
   if (!query) return null;
+  if (sim!.coverQueryStatus?.[query.id] === "unsupported_market") return null;
   // Period on the query must match a supported sport period — no FG fallback grade.
   if (query.period && query.period !== "fg" && !sportSupportsPeriod(pick.sport ?? "", query.period)) {
     return null;
   }
-  const fromCover = sim!.coverHitRates?.[query.id];
+  const fromCover = simCoverRateMap(sim!)?.[query.id];
   if (fromCover != null && Number.isFinite(fromCover)) {
     return sanitizeGameSimHit(pick, query, fromCover, sim!);
   }

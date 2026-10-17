@@ -1,0 +1,144 @@
+{
+  "generatedAt": "2026-10-16T23:18:19.641Z",
+  "mode": "dry_run",
+  "paidRetrieval": false,
+  "oddsApiKey": "UNSET",
+  "split": "TUNING",
+  "window": "2025 weeks 1-7 (kickoff before 2025-10-15)",
+  "rule": "FINAL_EVAL weeks 8+ and 2026 not fetched",
+  "finalEval": "UNTOUCHED",
+  "sport": "americanfootball_ncaaf",
+  "endpoint": "GET /v4/historical/sports/americanfootball_ncaaf/odds",
+  "markets": [
+    "h2h",
+    "spreads"
+  ],
+  "regions": [
+    "us"
+  ],
+  "oddsFormat": "american",
+  "closingDefinition": "date=<kickoff minute bucket>; API returns closest snapshot ≤ date (last pre-kickoff prices). Midday slate snaps are not closes.",
+  "snapshotTiming": {
+    "primaryDateParam": "ESPN kickoffIso truncated to UTC minute",
+    "apiSnapshotRule": "closest available timestamp ≤ date",
+    "intervalNote": "Odds historical snaps at 5-minute intervals since Sep 2022",
+    "retryWhen": "if returned snapshotTimestamp >= Odds commence_time, re-fetch at commence then previous_timestamp until snapshot < commence",
+    "rejectIf": "still snapshot_not_before_commence after retries → MISSING_DATA for that game"
+  },
+  "twoSidedOdds": {
+    "requiredForArchive": true,
+    "extract": [
+      "closeMlHome",
+      "closeMlAway",
+      "closeSpreadHome",
+      "closeSpreadAway",
+      "closeSpreadOddsHome",
+      "closeSpreadOddsAway"
+    ],
+    "engineM3Uses": "closeMlHome implied prob (American→prob); away ML retained for audit/CLV, not invented from vig-free invert",
+    "engineS2Uses": "closeSpreadHome line for ATS settlement vs engine cover probs",
+    "s4MarketAts": "requires two-sided spread juice; if absent report MISSING_DATA (do not invent -110)",
+    "earlyT24h": "NOT in this dry-run scope; optional CLV add-on at similar credit cost"
+  },
+  "marketCoverage": {
+    "included": [
+      "h2h",
+      "spreads"
+    ],
+    "excludedThisPull": [
+      "totals",
+      "alternate_spreads"
+    ],
+    "totalsCreditsIfAdded": 5310
+  },
+  "deduplication": {
+    "keyFormula": "sport|mode|sorted(markets)|sorted(regions)|snapshotBucketIso",
+    "uniquePrimaryBuckets": 177,
+    "fileCache": "artifacts/ncaaf-e2b-close-snapshots/<bucket>.json — skip HTTP if present",
+    "note": "Retry commence/previous timestamps also cache by date string; duplicate games in same minute share one primary request"
+  },
+  "missingDataHandling": {
+    "api_non_200": "count api_errors; mark all games in bucket missing reason api_<status>; do not invent prices",
+    "no_odds_match": "MISSING_DATA — exclude from M1/S1 denominators",
+    "snapshot_not_before_commence": "reject; MISSING_DATA",
+    "no_prices": "MISSING_DATA for that market side",
+    "injury": "injuryKnown/qbOut stay null — never coerce to false",
+    "doNotInvent": [
+      "away ML from vig-free invert for CLV R2",
+      "-110 ATS juice",
+      "post-kickoff snaps as closes"
+    ]
+  },
+  "evalOnlyIsolation": {
+    "rule": "Historical closing snapshots are evaluation join inputs only. They must not enter pregame drive-sim / matchup feature vectors or live Coach sim inputs.",
+    "allowedUses": [
+      "M1–M4 / S1–S4 scoring",
+      "CLV close reference",
+      "settlement audits"
+    ],
+    "forbiddenUses": [
+      "training features",
+      "pregame residual inputs",
+      "live product odds features"
+    ]
+  },
+  "games": 471,
+  "primaryMinuteBuckets": 177,
+  "firstBucket": "2025-08-23T16:00:00Z",
+  "lastBucket": "2025-10-12T03:59:00Z",
+  "gamesPerBucket": {
+    "min": 1,
+    "max": 15
+  },
+  "creditMath": {
+    "formula": "10 × markets × regions per historical featured request",
+    "marketsCount": 2,
+    "regionsCount": 1,
+    "creditsPerPrimaryBucket": 20,
+    "primaryRequests": 177,
+    "baseCredits": 3540,
+    "retryBufferCredits": 885,
+    "retryBufferPolicy": "25% of base for commence/previousTimestamp re-fetches (unknown pre-run; 2024 close run rarely needed full retry chain)",
+    "proposedHardCap": 4500,
+    "fitsInLedger": true
+  },
+  "planSupport": {
+    "historicalEndpoint": "paid plans only (docs: the-odds-api.com historical-odds-data)",
+    "freeTier": "500 credits/mo — insufficient AND historical not available on free",
+    "paidPlansPublic": [
+      {
+        "name": "20K",
+        "usdPerMonth": 30,
+        "creditsPerMonth": 20000
+      },
+      {
+        "name": "100K",
+        "usdPerMonth": 59,
+        "creditsPerMonth": 100000
+      },
+      {
+        "name": "5M",
+        "usdPerMonth": 119,
+        "creditsPerMonth": 5000000
+      },
+      {
+        "name": "15M",
+        "usdPerMonth": 249,
+        "creditsPerMonth": 15000000
+      }
+    ],
+    "additionalChargeBeyondCredits": false,
+    "upgradeRequiredIfAlreadyPaid": false,
+    "note": "Historical costs 10× within the same monthly credit pool — no separate historical SKU fee. Account remaining credits UNKNOWN this turn (ODDS_API_KEY unset; no probe)."
+  },
+  "dollarImpact": {
+    "incrementalInvoiceIfAlreadyOnPaidPlan": 0,
+    "quotaShareOf20k": 0.177,
+    "quotaShareOf100k": 0.0354,
+    "impliedQuotaValueUsdOn20k": 5.31,
+    "impliedQuotaValueUsdOn100k": 2.09,
+    "hardCapQuotaValueUsdOn20k": 6.75,
+    "hardCapQuotaValueUsdOn100k": 2.65,
+    "ifOnFreeTier": "Must upgrade to any paid plan before historical works; cheapest paid is $30/mo (20K credits) which covers TUNING closes with headroom"
+  }
+}

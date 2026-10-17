@@ -13,6 +13,7 @@ import {
   armCoachAbsoluteTerminal,
   beginCoachSession,
   coachAbsoluteBudgetMs,
+  coachRequestDeadlineMs,
   coachSessionIsTerminal,
   createCoachSession,
   latchCoachSession,
@@ -26,13 +27,13 @@ function F(partial: Omit<QaFinding, "id">): QaFinding {
   return { id: `term-${n}`, ...partial };
 }
 
-/** Wall budget for live production-equivalent hang audits (5-leg). */
+/**
+ * Live audit kill switch. Same instant as the product request deadline.
+ * The previous value added a 25% grace and 45s of network margin on top of
+ * the scan budget, so a 4-leg ask could still be running at 138.75s.
+ */
 export function coachTerminalLiveDeadlineMs(requestedLegs = 5): number {
-  // Absolute scoring budget + prop-pending grace (~25% of budget, capped 20s)
-  // + load/network margin. Must stay finite.
-  const budget = coachAbsoluteBudgetMs(requestedLegs);
-  const grace = Math.min(20_000, Math.max(8_000, Math.round(budget * 0.25)));
-  return budget + grace + 45_000;
+  return coachRequestDeadlineMs(requestedLegs);
 }
 
 /**
@@ -74,7 +75,7 @@ export function runAbsoluteTerminalHangGuardSuite(): QaCaseResult[] {
     const b5 = coachAbsoluteBudgetMs(5);
     const b6 = coachAbsoluteBudgetMs(6);
     const live = coachTerminalLiveDeadlineMs(5);
-    const ok = b5 === 75_000 && b6 === 90_000 && live < 180_000;
+    const ok = b5 === 75_000 && b6 === 90_000 && live === b5;
     out.push({
       id: "term-budget-finite",
       suite: "terminal_state",
@@ -86,7 +87,7 @@ export function runAbsoluteTerminalHangGuardSuite(): QaCaseResult[] {
             category: "crash_timeout",
             title: "Absolute budget not finite / unexpected",
             promptOrSequence: "5 leg",
-            expected: "5→75000, 6→90000, live deadline < 180s",
+            expected: "5→75000, 6→90000, live deadline === 5-leg budget",
             actual: `b5=${b5} b6=${b6} live=${live}`,
             stage: "session_budget",
             likelyFile: "lib/coach/session.ts",

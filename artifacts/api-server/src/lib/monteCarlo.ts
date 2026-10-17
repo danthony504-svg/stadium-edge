@@ -44,6 +44,12 @@ export type PropSimulationContext = {
   ownKeyInjuries?: number;
   /** MLB weather impact rating roughly -1..1 (negative = pitcher-friendly). */
   weatherImpact?: number | null;
+  /**
+   * Effective opp defense / league index (~1.0) used for Opponent Matchup Shift.
+   * Stored so prop distribution cache identity can separate boost vs suppress
+   * (and missing vs supplied) without colliding.
+   */
+  defenseIndex?: number | null;
   discrete?: boolean;
   /** Extra lines scored on the SAME 10k draw (alt rungs). */
   additionalLines?: number[];
