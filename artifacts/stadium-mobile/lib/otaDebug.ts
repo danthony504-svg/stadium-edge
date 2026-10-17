@@ -3,10 +3,12 @@ import Constants from "expo-constants";
 import {
   EXPECTED_HEALTHY_EMBEDDED,
   EXPECTED_HEALTHY_RUNTIME,
-  EXPECTED_HEALTHY_UPDATE_ID,
   caseCNativeModuleSafetyReport,
   classifyDeviceAttestation,
   expectedHealthyLines,
+  formatChannelTipMatchLabel,
+  formatOtaChannelStreamLabel,
+  resolveKnownChannelTipUpdateId,
   type DeviceAttestationResult,
 } from "./otaDeviceAttestation";
 import { expoUpdatesLoadError, tryGetExpoUpdates, tryGetLatestContext } from "./expoUpdatesAccess";
@@ -102,8 +104,11 @@ export type OtaFullDiagnostics = OtaDebugSnapshot &
     attestation: DeviceAttestationResult;
     expectedHealthy: {
       runtimeVersion: string;
-      updateId: string;
       isEmbeddedLaunch: boolean;
+      /** Known channel tip when probed; empty when unknown — never a hardcoded historical id. */
+      channelTipUpdateId: string;
+      channelStreamLabel: string;
+      tipMatchLabel: string;
     };
     caseCNativeSafety: string;
     /** Banner identity trace — proves why "App update ready" is visible. */
@@ -235,20 +240,56 @@ function readHasRnPurchasesNative(): boolean {
   }
 }
 
-function attestationFromSnapshot(snapshot: OtaDebugSnapshot): DeviceAttestationResult {
+function channelTipFromSnapshot(
+  snapshot: OtaDebugSnapshot,
+  opts?: { updateAvailable?: boolean | null; availableUpdateIdFromCheck?: string | null },
+): string | null {
+  return resolveKnownChannelTipUpdateId({
+    availableUpdateIdFromContext: snapshot.availableUpdateIdFromContext,
+    availableUpdateIdFromCheck: opts?.availableUpdateIdFromCheck,
+    runningUpdateId: snapshot.updateId,
+    updateAvailable: opts?.updateAvailable,
+    isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+  });
+}
+
+function attestationFromSnapshot(
+  snapshot: OtaDebugSnapshot,
+  opts?: { updateAvailable?: boolean | null; availableUpdateIdFromCheck?: string | null },
+): DeviceAttestationResult {
+  const channelTipUpdateId = channelTipFromSnapshot(snapshot, opts);
   return classifyDeviceAttestation({
     runtimeVersion: snapshot.runtimeVersion,
     updateId: snapshot.updateId,
     isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
     appVersion: snapshot.appVersion,
+    channel: snapshot.channel,
+    channelTipUpdateId,
   });
+}
+
+function expectedHealthyFromSnapshot(
+  snapshot: OtaDebugSnapshot,
+  attestation: DeviceAttestationResult,
+  opts?: { updateAvailable?: boolean | null; availableUpdateIdFromCheck?: string | null },
+): OtaFullDiagnostics["expectedHealthy"] {
+  const tip = channelTipFromSnapshot(snapshot, opts);
+  return {
+    runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+    isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+    channelTipUpdateId: tip ?? "",
+    channelStreamLabel: formatOtaChannelStreamLabel(snapshot.channel),
+    tipMatchLabel: formatChannelTipMatchLabel(attestation.matchesChannelTip),
+  };
 }
 
 /** Console + in-memory log of live device attestation values (read-only). */
 export function logDeviceAttestation(snapshot: OtaDebugSnapshot): DeviceAttestationResult {
   const attestation = attestationFromSnapshot(snapshot);
+  const tip = channelTipFromSnapshot(snapshot);
   const lines = [
     "=== Stadium Edge device attestation ===",
+    `channel stream: ${formatOtaChannelStreamLabel(snapshot.channel)}`,
     `Updates.runtimeVersion: ${snapshot.runtimeVersion}`,
     `Updates.updateId: ${snapshot.updateId}`,
     `Updates.isEmbeddedLaunch: ${snapshot.isEmbeddedLaunch}`,
@@ -257,7 +298,11 @@ export function logDeviceAttestation(snapshot: OtaDebugSnapshot): DeviceAttestat
     `update channel: ${snapshot.channel}`,
     `hasRnPurchasesNative: ${snapshot.hasRnPurchasesNative}`,
     `coachPipelineVersion: ${snapshot.coachPipelineVersion}`,
-    ...expectedHealthyLines(),
+    ...expectedHealthyLines({
+      channel: snapshot.channel,
+      channelTipUpdateId: tip,
+    }),
+    `equals channel tip: ${formatChannelTipMatchLabel(attestation.matchesChannelTip)}`,
     `case: ${attestation.caseId} — ${attestation.label}`,
     `summary: ${attestation.summary}`,
     `recovery: ${attestation.recoveryPath}`,
@@ -588,11 +633,9 @@ function buildDiagnosticsShell(
     startupLogs: safeLogLines(extras.startupLogs, "startup logs unavailable"),
     jsLaunchLogs: safeLogLines(extras.jsLaunchLogs, "(none)"),
     attestation: extras.attestation,
-    expectedHealthy: {
-      runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
-      updateId: EXPECTED_HEALTHY_UPDATE_ID,
-      isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
-    },
+    expectedHealthy: expectedHealthyFromSnapshot(snapshot, extras.attestation, {
+      updateAvailable: extras.probe.updateAvailable,
+    }),
     caseCNativeSafety: caseCNativeModuleSafetyReport(),
     bannerTrace: extras.bannerTrace,
     bannerTraceLines: safeLogLines(extras.bannerTraceLines, "bannerTrace unavailable"),
@@ -710,12 +753,7 @@ export async function collectOtaStaticDiagnostics(): Promise<OtaFullDiagnostics>
       failedLaunchLedgerLines: [`ledger unavailable: ${msg}`],
       applyDiagnosis: `static diagnostics ERR: ${msg}`,
       liveProbeRan: false,
-      attestation: classifyDeviceAttestation({
-        runtimeVersion: snapshot.runtimeVersion,
-        updateId: snapshot.updateId,
-        isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
-        appVersion: snapshot.appVersion,
-      }),
+      attestation: attestationFromSnapshot(snapshot),
     });
   }
 }
@@ -789,13 +827,22 @@ export async function collectOtaLiveProbeDiagnostics(
     "bannerTrace unavailable",
   );
 
+  const tipOpts = {
+    updateAvailable: probe.updateAvailable,
+    availableUpdateIdFromCheck,
+  };
+  const attestation = attestationFromSnapshot(base, tipOpts);
+  const expectedHealthy = expectedHealthyFromSnapshot(base, attestation, tipOpts);
+
   try {
     console.log(
       [
         "=== OTA live probe outcomes ===",
         `OTA_IDENTITY_FIX_VERSION: ${OTA_IDENTITY_FIX_VERSION}`,
+        `channel stream: ${expectedHealthy.channelStreamLabel}`,
         `update check available: ${String(probe.updateAvailable)}`,
         `checkResult: ${probe.checkResult}`,
+        `equals channel tip: ${expectedHealthy.tipMatchLabel}`,
         ...bannerTraceLines,
       ].join("\n"),
     );
@@ -806,6 +853,8 @@ export async function collectOtaLiveProbeDiagnostics(
   return {
     ...base,
     ...probe,
+    attestation,
+    expectedHealthy,
     bannerTrace,
     bannerTraceLines,
     liveProbeRan: true,

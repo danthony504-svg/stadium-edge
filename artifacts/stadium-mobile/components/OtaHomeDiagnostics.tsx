@@ -7,7 +7,8 @@ import { tryGetExpoUpdates } from "@/lib/expoUpdatesAccess";
 import { collectOtaStaticDiagnostics, type OtaFullDiagnostics } from "@/lib/otaDebug";
 import {
   EXPECTED_HEALTHY_RUNTIME,
-  EXPECTED_HEALTHY_UPDATE_ID,
+  formatChannelTipMatchLabel,
+  formatOtaChannelStreamLabel,
 } from "@/lib/otaDeviceAttestation";
 
 /**
@@ -46,20 +47,39 @@ export function OtaHomeDiagnostics() {
           ? "#fca5a5"
           : "#cbd5e1";
 
+  const stream =
+    diag.expectedHealthy?.channelStreamLabel ||
+    formatOtaChannelStreamLabel(diag.channel);
+  const tipMatch =
+    diag.expectedHealthy?.tipMatchLabel ||
+    formatChannelTipMatchLabel(diag.attestation.matchesChannelTip);
+  const tipId = diag.expectedHealthy?.channelTipUpdateId?.trim() || "(not probed)";
+  const recoveryPending = diag.bannerTrace?.recoveryPending;
+  const failedLedger = (diag.failedLaunchLedgerLines ?? [])
+    .filter((l) => l && !/no failed-launch|loading|unavailable/i.test(l))
+    .slice(0, 2);
+
   const lines: [string, string][] = [
+    ["CHANNEL STREAM", stream],
     ["CASE", `${diag.attestation.caseId} — ${diag.attestation.label}`],
     ["Updates.runtimeVersion", diag.runtimeVersion],
-    ["Updates.updateId", diag.updateId],
+    ["Updates.updateId (running)", diag.updateId],
     ["Updates.isEmbeddedLaunch", String(diag.isEmbeddedLaunch)],
+    ["update channel", diag.channel],
+    ["equals channel tip?", tipMatch],
+    ["known channel tip updateId", tipId],
+    ["bundle source", diag.bundleSource],
+    ["recovery pending", String(recoveryPending ?? "—")],
+    ["emergency launch", String(diag.isEmergencyLaunch)],
+    [
+      "emergency reason",
+      diag.emergencyLaunchReason && diag.emergencyLaunchReason !== "—"
+        ? diag.emergencyLaunchReason
+        : "—",
+    ],
     ["CFBundleShortVersionString", diag.cfBundleShortVersion],
     ["native build", diag.buildNumber],
-    ["channel", diag.channel],
-    ["update available?", String(diag.updateAvailable)],
-    ["fetch succeeds?", String(diag.fetchSucceeded)],
-    ["reload/apply succeeds?", String(diag.reloadSucceeded)],
-    ["hasRnPurchasesNative", String(diag.hasRnPurchasesNative)],
-    ["expected runtime", EXPECTED_HEALTHY_RUNTIME],
-    ["expected updateId", EXPECTED_HEALTHY_UPDATE_ID],
+    ["healthy runtime target", EXPECTED_HEALTHY_RUNTIME],
   ];
 
   return (
@@ -84,7 +104,7 @@ export function OtaHomeDiagnostics() {
           marginBottom: 4,
         }}
       >
-        Device attestation (tap for full report)
+        Device attestation · {stream} (tap for full report)
       </Text>
       <Text
         selectable
@@ -112,6 +132,33 @@ export function OtaHomeDiagnostics() {
           {label}: {value}
         </Text>
       ))}
+      {failedLedger.length ? (
+        <Text
+          selectable
+          style={{
+            color: "#fca5a5",
+            fontFamily: FONT.body,
+            fontSize: 9,
+            lineHeight: 13,
+            marginTop: 4,
+          }}
+        >
+          failed-launch ledger: {failedLedger.join(" | ")}
+        </Text>
+      ) : (
+        <Text
+          selectable
+          style={{
+            color: "#64748b",
+            fontFamily: FONT.body,
+            fontSize: 9,
+            lineHeight: 13,
+            marginTop: 4,
+          }}
+        >
+          failed-launch ledger: (none)
+        </Text>
+      )}
       <Text
         selectable
         style={{

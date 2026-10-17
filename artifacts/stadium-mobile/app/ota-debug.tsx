@@ -28,8 +28,10 @@ import {
 import {
   EXPECTED_HEALTHY_EMBEDDED,
   EXPECTED_HEALTHY_RUNTIME,
-  EXPECTED_HEALTHY_UPDATE_ID,
   classifyDeviceAttestation,
+  formatChannelTipMatchLabel,
+  formatOtaChannelStreamLabel,
+  resolveKnownChannelTipUpdateId,
 } from "@/lib/otaDeviceAttestation";
 import {
   buildSafeRequiredFields,
@@ -57,18 +59,50 @@ function emptyAttestation() {
     updateId: OTA_DEBUG_UNAVAILABLE,
     isEmbeddedLaunch: true,
     appVersion: OTA_DEBUG_UNAVAILABLE,
+    channel: OTA_DEBUG_UNAVAILABLE,
   });
+}
+
+function healthyBlock(opts: {
+  channel: string;
+  updateId: string;
+  isEmbeddedLaunch: boolean;
+  availableUpdateIdFromContext?: string;
+  updateAvailable?: boolean | null;
+  attestation: ReturnType<typeof classifyDeviceAttestation>;
+}) {
+  const tip =
+    resolveKnownChannelTipUpdateId({
+      availableUpdateIdFromContext: opts.availableUpdateIdFromContext,
+      runningUpdateId: opts.updateId,
+      updateAvailable: opts.updateAvailable,
+      isEmbeddedLaunch: opts.isEmbeddedLaunch,
+    }) ?? "";
+  return {
+    runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
+    isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
+    channelTipUpdateId: tip,
+    channelStreamLabel: formatOtaChannelStreamLabel(opts.channel),
+    tipMatchLabel: formatChannelTipMatchLabel(opts.attestation.matchesChannelTip),
+  };
 }
 
 /** Never throw during useState init / deep-link cold launch. */
 function initialDiagnostics(): OtaFullDiagnostics {
   try {
     const snapshot = readOtaDebugSnapshot();
+    const tip = resolveKnownChannelTipUpdateId({
+      availableUpdateIdFromContext: snapshot.availableUpdateIdFromContext,
+      runningUpdateId: snapshot.updateId,
+      isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+    });
     const attestation = classifyDeviceAttestation({
       runtimeVersion: snapshot.runtimeVersion,
       updateId: snapshot.updateId,
       isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
       appVersion: snapshot.appVersion,
+      channel: snapshot.channel,
+      channelTipUpdateId: tip,
     });
     return {
       ...snapshot,
@@ -81,11 +115,13 @@ function initialDiagnostics(): OtaFullDiagnostics {
       startupLogs: ["loading native logs…"],
       jsLaunchLogs: safeLogLines(formatOtaLogLines(), "(none yet)"),
       attestation,
-      expectedHealthy: {
-        runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
-        updateId: EXPECTED_HEALTHY_UPDATE_ID,
-        isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
-      },
+      expectedHealthy: healthyBlock({
+        channel: snapshot.channel,
+        updateId: snapshot.updateId,
+        isEmbeddedLaunch: snapshot.isEmbeddedLaunch,
+        availableUpdateIdFromContext: snapshot.availableUpdateIdFromContext,
+        attestation,
+      }),
       caseCNativeSafety: "",
       bannerTrace: null,
       bannerTraceLines: ["loading banner identity trace…"],
@@ -96,6 +132,7 @@ function initialDiagnostics(): OtaFullDiagnostics {
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    const attestation = emptyAttestation();
     return {
       appVersion: OTA_DEBUG_UNAVAILABLE,
       buildNumber: OTA_DEBUG_UNAVAILABLE,
@@ -136,12 +173,13 @@ function initialDiagnostics(): OtaFullDiagnostics {
       reloadSucceeded: null,
       startupLogs: [`initialDiagnostics ERR: ${msg}`],
       jsLaunchLogs: ["(none yet)"],
-      attestation: emptyAttestation(),
-      expectedHealthy: {
-        runtimeVersion: EXPECTED_HEALTHY_RUNTIME,
-        updateId: EXPECTED_HEALTHY_UPDATE_ID,
-        isEmbeddedLaunch: EXPECTED_HEALTHY_EMBEDDED,
-      },
+      attestation,
+      expectedHealthy: healthyBlock({
+        channel: OTA_DEBUG_UNAVAILABLE,
+        updateId: OTA_DEBUG_UNAVAILABLE,
+        isEmbeddedLaunch: true,
+        attestation,
+      }),
       caseCNativeSafety: "",
       bannerTrace: null,
       bannerTraceLines: [`bannerTrace unavailable: ${msg}`],
@@ -238,23 +276,31 @@ function buildReport(diag: OtaFullDiagnostics): string {
     contextHydrated: true,
   });
   const attestation = diag.attestation ?? emptyAttestation();
+  const stream =
+    diag.expectedHealthy?.channelStreamLabel ||
+    formatOtaChannelStreamLabel(diag.channel);
+  const tipMatch =
+    diag.expectedHealthy?.tipMatchLabel ||
+    formatChannelTipMatchLabel(attestation.matchesChannelTip);
+  const tipId = diag.expectedHealthy?.channelTipUpdateId?.trim() || "(not probed)";
   return [
     "=== Stadium Edge device attestation ===",
+    `CHANNEL STREAM: ${stream}`,
     `CASE: ${safeDiagText(attestation.caseId)} — ${safeDiagText(attestation.label)}`,
     `summary: ${safeDiagText(attestation.summary)}`,
     `recovery: ${safeDiagText(attestation.recoveryPath)}`,
     "",
     `Updates.runtimeVersion: ${required.runtimeVersion}`,
-    `Updates.updateId: ${required.updateId}`,
+    `Updates.updateId (running): ${required.updateId}`,
     `Updates.isEmbeddedLaunch: ${required.isEmbeddedLaunch}`,
     `app version / CFBundleShortVersionString: ${safeDiagText(diag.cfBundleShortVersion)}`,
     `native build number: ${safeDiagText(diag.buildNumber)}`,
     `update channel: ${required.channel}`,
     `hasRnPurchasesNative: ${safeDiagText(diag.hasRnPurchasesNative)}`,
     "",
-    `expected runtimeVersion: ${safeDiagText(diag.expectedHealthy?.runtimeVersion)}`,
-    `expected updateId: ${safeDiagText(diag.expectedHealthy?.updateId)}`,
-    `expected isEmbeddedLaunch: ${safeDiagText(diag.expectedHealthy?.isEmbeddedLaunch)}`,
+    `healthy criteria: runtimeVersion=${EXPECTED_HEALTHY_RUNTIME}, isEmbeddedLaunch=${String(EXPECTED_HEALTHY_EMBEDDED)}, non-blank updateId, equals current ${stream} channel tip when tip is known`,
+    `known channel tip updateId: ${tipId}`,
+    `equals channel tip: ${tipMatch}`,
     "",
     `update check finds available update: ${safeDiagText(diag.updateAvailable)}`,
     `fetch succeeds: ${safeDiagText(diag.fetchSucceeded)}`,
@@ -508,11 +554,20 @@ function OtaDebugScreenInner() {
         }}
       >
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
-          Temporary read-only probe for stale Coach UI. Healthy device: runtime{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>{EXPECTED_HEALTHY_RUNTIME}</Text>, updateId{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>{EXPECTED_HEALTHY_UPDATE_ID}</Text>,{" "}
+          Temporary read-only probe for stale Coach UI.{" "}
+          <Text style={{ fontFamily: FONT.semibold }}>
+            CHANNEL STREAM:{" "}
+            {safeDiagText(
+              diag.expectedHealthy?.channelStreamLabel ||
+                formatOtaChannelStreamLabel(diag.channel),
+            )}
+          </Text>
+          . Healthy when runtime{" "}
+          <Text style={{ fontFamily: FONT.semibold }}>{EXPECTED_HEALTHY_RUNTIME}</Text>,{" "}
           isEmbeddedLaunch=
-          <Text style={{ fontFamily: FONT.semibold }}>{String(EXPECTED_HEALTHY_EMBEDDED)}</Text>.
+          <Text style={{ fontFamily: FONT.semibold }}>{String(EXPECTED_HEALTHY_EMBEDDED)}</Text>,
+          non-blank running updateId, and (when tip is known) running update equals the current
+          channel tip — not a hardcoded historical id.
           {staticLoading ? (
             <Text style={{ fontFamily: FONT.medium }}> Loading static state…</Text>
           ) : (
@@ -534,7 +589,11 @@ function OtaDebugScreenInner() {
           }}
         >
           <Text style={{ color: caseColor, fontFamily: FONT.semibold, fontSize: 14 }}>
-            {safeDiagText(attestation.caseId)} — {safeDiagText(attestation.label)}
+            {safeDiagText(
+              diag.expectedHealthy?.channelStreamLabel ||
+                formatOtaChannelStreamLabel(diag.channel),
+            )}{" "}
+            · {safeDiagText(attestation.caseId)} — {safeDiagText(attestation.label)}
           </Text>
           <Text
             selectable
@@ -719,16 +778,49 @@ function OtaDebugScreenInner() {
           }}
         >
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-            Expected healthy
+            Healthy criteria (no hardcoded tip id)
           </Text>
           <Row
-            label="runtimeVersion"
+            label="CHANNEL STREAM"
+            value={safeDiagText(
+              diag.expectedHealthy?.channelStreamLabel ||
+                formatOtaChannelStreamLabel(diag.channel),
+            )}
+          />
+          <Row
+            label="target runtimeVersion"
             value={safeDiagText(diag.expectedHealthy?.runtimeVersion)}
           />
-          <Row label="updateId" value={safeDiagText(diag.expectedHealthy?.updateId)} />
           <Row
-            label="isEmbeddedLaunch"
+            label="target isEmbeddedLaunch"
             value={safeDiagText(diag.expectedHealthy?.isEmbeddedLaunch)}
+          />
+          <Row
+            label="running updateId"
+            value={safeDiagText(diag.updateId)}
+          />
+          <Row
+            label="known channel tip updateId"
+            value={
+              diag.expectedHealthy?.channelTipUpdateId?.trim()
+                ? safeDiagText(diag.expectedHealthy.channelTipUpdateId)
+                : "(not probed)"
+            }
+          />
+          <Row
+            label="equals channel tip?"
+            value={safeDiagText(
+              diag.expectedHealthy?.tipMatchLabel ||
+                formatChannelTipMatchLabel(attestation.matchesChannelTip),
+            )}
+          />
+          <Row
+            label="recovery pending"
+            value={safeDiagText(diag.bannerTrace?.recoveryPending, "—")}
+          />
+          <Row
+            label="emergency launch"
+            value={`${safeDiagText(diag.isEmergencyLaunch)} · ${safeDiagText(diag.emergencyLaunchReason)}`}
           />
         </View>
 
