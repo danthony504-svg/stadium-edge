@@ -579,7 +579,7 @@ function main(): number {
   const mdText = md.join("\n");
   writeFileSync(join(FIX, "ncaaf-tuning-team-strength-v0.md"), mdText);
   writeFileSync(join(ART, "ncaaf-tuning-team-strength-v0.md"), mdText);
-  writeFileSync(join(here, "../../../../docs/coach/ncaaf-tuning-team-strength-v0.md"), mdText);
+  writeFileSync(join(here, "../../../docs/coach/ncaaf-tuning-team-strength-v0.md"), mdText);
 
   console.log(
     JSON.stringify(

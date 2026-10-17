@@ -1,10 +1,11 @@
 # Replacement model proposal — dedicated college team-strength
 
-**Status:** RESEARCH IMPLEMENTATION — `ncaaf-team-strength-v0-research` behind `NCAAF_TEAM_STRENGTH_RESEARCH` (offline TUNING compare only).  
+**Status:** RESEARCH v0 RAN — TUNING **FAIL** M3∧S2 on fair n=421; all components **REJECT** vs locked drive on W1 / 14+ slice gates.  
+**Stamp / flag:** `ncaaf-team-strength-v0-research` · `NCAAF_TEAM_STRENGTH_RESEARCH=1` (offline only; no live wire).  
 **Context:** TUNING round closed unsuccessful ([`ncaaf-tuning-round-closed-unsuccessful.md`](./ncaaf-tuning-round-closed-unsuccessful.md)).  
 **Criteria:** Locked M1–M4 / S1–S4 **unchanged**. FINAL_EVAL **untouched**. Closes **eval-only** — never train or tune against closing prices.  
 **Ops:** `NCAAF_GAME_LINE_SIM_VALIDATED=false` · no deploy/OTA · voice paused.  
-**Scorecard:** [`ncaaf-tuning-team-strength-v0.md`](./ncaaf-tuning-team-strength-v0.md) (written by cache-only eval).
+**Scorecard:** [`ncaaf-tuning-team-strength-v0.md`](./ncaaf-tuning-team-strength-v0.md).
 
 ## 1. Problem statement (from preserved TUNING evidence)
 
@@ -150,8 +151,8 @@ Use identical fair cohort (games with full close ML+spread) for all models.
 ## 7. Recommendation
 
 1. **Close** drive-sim TUNING incremental work as unsuccessful (done).  
-2. **Approve** (human) research spike for `ncaaf-team-strength-v0-research` per this proposal — still no paid spend required for a first offline build on existing ESPN + eval-only closes.  
-3. Keep product blocked until TUNING PASS under locked criteria.
+2. **v0 research spike executed** offline (`NCAAF_TEAM_STRENGTH_RESEARCH`) — see scorecard. Best ML Δ ≈ **0.032** (`ts_opp_adj_only`); full model ATS ≈ **0.279**; **no** M3∧S2 PASS; **all** rejected on W1 / 14+ slice rules. Margin still under-predicted (meanPred ≈4 vs meanAct ≈10.7).  
+3. Keep product blocked until TUNING PASS under locked criteria. Next research (if any) must stay cache-only / research-flagged — no FINAL_EVAL until TUNING PASS.
 
 ## 8. Explicit non-actions this document authorizes
 
